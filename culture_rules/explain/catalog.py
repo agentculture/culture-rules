@@ -1,7 +1,7 @@
-"""Markdown catalog for ``culture-agent-template explain <path>``.
+"""Markdown catalog for ``culture-rules explain <path>``.
 
 Each entry is verbatim markdown. Keys are command-path tuples. The empty tuple
-and ``("culture-agent-template",)`` both resolve to the root entry.
+and ``("culture-rules",)`` both resolve to the root entry.
 
 Keep bodies self-contained: an agent reading one entry should get enough
 context without chaining reads.
@@ -10,7 +10,7 @@ context without chaining reads.
 from __future__ import annotations
 
 _ROOT = """\
-# culture-agent-template
+# culture-rules
 
 A clonable template for AgentCulture mesh agents. It carries an agent-first CLI
 (cited from the teken `python-cli` reference), a mesh identity (`culture.yaml` +
@@ -20,12 +20,12 @@ buildable/deployable package baseline. Clone it, rename the package, edit
 
 ## Verbs
 
-- `culture-agent-template whoami` — identity probe from `culture.yaml`.
-- `culture-agent-template learn` — structured self-teaching prompt.
-- `culture-agent-template explain <path>` — markdown docs for any noun/verb.
-- `culture-agent-template overview` — descriptive snapshot of the agent.
-- `culture-agent-template doctor` — check the agent-identity invariants.
-- `culture-agent-template cli overview` — describe the CLI surface.
+- `culture-rules whoami` — identity probe from `culture.yaml`.
+- `culture-rules learn` — structured self-teaching prompt.
+- `culture-rules explain <path>` — markdown docs for any noun/verb.
+- `culture-rules overview` — descriptive snapshot of the agent.
+- `culture-rules doctor` — check the agent-identity invariants.
+- `culture-rules cli overview` — describe the CLI surface.
 
 ## Exit-code policy
 
@@ -36,49 +36,49 @@ buildable/deployable package baseline. Clone it, rename the package, edit
 
 ## See also
 
-- `culture-agent-template explain whoami`
-- `culture-agent-template explain doctor`
+- `culture-rules explain whoami`
+- `culture-rules explain doctor`
 """
 
 _WHOAMI = """\
-# culture-agent-template whoami
+# culture-rules whoami
 
 Reports the agent's identity from `culture.yaml`: nick (`suffix`), backend,
 served model, and the package version. Read-only.
 
 ## Usage
 
-    culture-agent-template whoami
-    culture-agent-template whoami --json
+    culture-rules whoami
+    culture-rules whoami --json
 """
 
 _LEARN = """\
-# culture-agent-template learn
+# culture-rules learn
 
 Prints a structured self-teaching prompt covering purpose, command map,
 exit-code policy, `--json` support, and the `explain` pointer.
 
 ## Usage
 
-    culture-agent-template learn
-    culture-agent-template learn --json
+    culture-rules learn
+    culture-rules learn --json
 """
 
 _EXPLAIN = """\
-# culture-agent-template explain <path>
+# culture-rules explain <path>
 
 Prints markdown documentation for any noun/verb path. Unlike `--help` (terse,
 positional), `explain` is global and addressable by path.
 
 ## Usage
 
-    culture-agent-template explain culture-agent-template
-    culture-agent-template explain whoami
-    culture-agent-template explain --json <path>
+    culture-rules explain culture-rules
+    culture-rules explain whoami
+    culture-rules explain --json <path>
 """
 
 _OVERVIEW = """\
-# culture-agent-template overview
+# culture-rules overview
 
 Read-only descriptive snapshot of the agent: identity (from `culture.yaml`), the
 verb surface, and the sibling-pattern artifacts the template carries. Accepts an
@@ -86,12 +86,12 @@ ignored `target` so a stray path never hard-fails.
 
 ## Usage
 
-    culture-agent-template overview
-    culture-agent-template overview --json
+    culture-rules overview
+    culture-rules overview --json
 """
 
 _DOCTOR = """\
-# culture-agent-template doctor
+# culture-rules doctor
 
 Checks the agent-identity invariants `steward doctor` verifies:
 prompt-file-present and backend-consistency (`claude` → `CLAUDE.md`), plus a
@@ -105,26 +105,26 @@ reported by the informational harness-prompts check and never substituted.
 
 ## Usage
 
-    culture-agent-template doctor
-    culture-agent-template doctor --json
+    culture-rules doctor
+    culture-rules doctor --json
 """
 
 _CLI = """\
-# culture-agent-template cli
+# culture-rules cli
 
 Noun group for CLI-surface introspection. `cli overview` describes the CLI
 itself (distinct from the global `overview`, which describes the agent).
 
 ## Usage
 
-    culture-agent-template cli overview
-    culture-agent-template cli overview --json
+    culture-rules cli overview
+    culture-rules cli overview --json
 """
 
 
 ENTRIES: dict[tuple[str, ...], str] = {
     (): _ROOT,
-    ("culture-agent-template",): _ROOT,
+    ("culture-rules",): _ROOT,
     ("whoami",): _WHOAMI,
     ("learn",): _LEARN,
     ("explain",): _EXPLAIN,
