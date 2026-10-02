@@ -20,14 +20,38 @@ what the repo is and how it is laid out, not who is reading it.
 
 ## What this project is
 
-`culture-rules` is a clonable template for AgentCulture mesh agents —
-a working, minimal example of the sibling pattern every Culture agent follows:
-an agent-first CLI, a mesh identity, the canonical skill kit, and a
-buildable/deployable package baseline. It is a sibling to
-[`guildmaster`](https://github.com/agentculture/guildmaster) (the skills
-supplier), [`steward`](https://github.com/agentculture/steward) (alignment),
-and [`teken`](https://github.com/agentculture/teken) (the CLI scaffolder this
-package is cited from).
+`culture-rules` is the **rules engine for the AgentCulture mesh**: rules →
+conditions → workflows → actions, carried out by actors (agents, humans,
+code, services, robots, …). The planned shape has two parts:
+
+- a Python backend library, `culture_rules`, with a thin `culture-rules` CLI
+  and an HTTP API over it;
+- a Node.js + React Flow visual editor with exactly three tabs: **Rules |
+  Workflows | Actors**.
+
+**Status: scaffold only.** guildmaster provisioned the repo from
+`culture-agent-template`. Today it holds that template's baseline: the
+agent-first CLI, the mesh identity, the vendored skill kit, and CI/publish.
+None of the engine, the API or the editor exists yet. Two GitHub issues
+carry the design:
+
+- **#1** is the build brief: repo shape, packaging/CI pitfalls, and the
+  neighbour repos to scope.
+- **#2** is the product model and UX.
+
+When asked about the design, quote or summarise those issues, and make clear
+that nothing in them is built yet.
+
+The core vocabulary, as #2 defines it:
+
+- A **rule** says *when* work happens: `Trigger → Condition → Workflow →
+  Action`.
+- A **condition** is a serialisable predicate, never `eval()`.
+- A **workflow** is reusable *how*, with inputs, variables, steps and
+  outputs.
+- An **action** is a concrete side effect.
+- An **actor** is *who/what* can do the work. It is not a stage in the
+  chain.
 
 ## Four harnesses, four files, no shared base
 
@@ -57,7 +81,7 @@ agents:
   backend: claude
 ```
 
-This template's *mesh* resident runs on `backend: claude`, so `CLAUDE.md` is
+This repo's *mesh* resident runs on `backend: claude`, so `CLAUDE.md` is
 the live resident prompt. A Pi session working in a clone of this repo is a
 **local tool session**, not the mesh resident — it reads this file and
 `.pi/SYSTEM.md` regardless of what `culture.yaml` declares, and running `pi`
@@ -65,7 +89,7 @@ here neither requires nor changes that declaration.
 
 (A clone that wants `associate` as its *mesh* resident declares
 `backend: colleague` with `model: associate` — see `docs/skill-sources.md`.
-That is a per-clone choice; this template does not ship it.)
+That is a per-clone choice; this repo does not ship it.)
 
 ## Layout (what you can read/find/summarize here)
 
@@ -80,14 +104,18 @@ culture.yaml              mesh identity (suffix + backend)
 .github/workflows/        tests + deploy (PyPI Trusted Publishing)
 ```
 
+Planned, not yet on disk: the engine and models inside `culture_rules/`, an
+HTTP API with a pinned OpenAPI/JSON-Schema contract, and a frontend in a
+single subdirectory (for example `web/`).
+
 ## Conventions worth knowing before you answer a question about this repo
 
 - The vendored skills under `.claude/skills/` are cited **verbatim** from
   guildmaster — never propose editing their scripts; the fix belongs upstream
   (`docs/skill-sources.md` has the re-sync procedure).
-- The package/CLI name (`culture_rules` / `culture-rules`)
-  is hard-coded in roughly a hundred places; a rename is a `git grep` sweep,
-  not a hand edit (see `CLAUDE.md`'s "Cloning this template" section).
+- Some CLI self-description strings (`learn`, the `explain` root entry, and
+  the argparse description) still use the template wording, "a clonable
+  template". This file and `CLAUDE.md` are the current description.
 - Every PR bumps the version (`version-bump` skill); CI's `version-check` job
   blocks merge otherwise.
 - This file describes the repo **as it exists on disk today**. If you are
