@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.1] - 2026-10-02
+
+### Changed
+
+- `CLAUDE.md` expanded from the bootstrap seed into the full runtime prompt via `/init`, grounded in build brief #1 and product-model/UX issue #2: domain model (rule/condition/workflow/action/actor), settled constraints, planned shape, build pitfalls, exact CI commands, CLI contract, harness editing rules, worktree and memory conventions.
+- `README.md` rewritten to describe the rules engine and its three-tab editor (planned) instead of the template; skill count corrected (19, not 11); template-only "Make it your own" section removed.
+- `QWEN.md`, `AGENTS.override.md` and `AGENTS.colleague.md` now describe culture-rules (status: scaffold) rather than "a clonable template", and no longer point at the removed "Cloning this template" section of `CLAUDE.md`.
+
 ## [0.9.0] - 2026-09-06
 
 ### Added
