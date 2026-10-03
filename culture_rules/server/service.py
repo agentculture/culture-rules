@@ -30,6 +30,7 @@ __all__ = [
     "Conflict",
     "Definitions",
     "Invalid",
+    "RuleReferenced",
     "NotFound",
     "ServiceError",
 ]
@@ -74,6 +75,12 @@ class Conflict(ServiceError):
     """The target is in the wrong state for this verb (HTTP 409)."""
 
     code = "conflict"
+
+
+class RuleReferenced(Conflict):
+    """Other live rules still reference this rule (HTTP 409)."""
+
+    code = "rule_referenced"
 
 
 def _ident(kind: str, obj: Any) -> str:
@@ -133,6 +140,28 @@ class Definitions:
         rules = [r for d in self.list("rules") if (r := _tolerant(Rule, d)) is not None]
         flows = [w for d in self.list("workflows") if (w := _tolerant(Workflow, d)) is not None]
         return rules, {w.id: w for w in flows}
+
+    def referrers(self, rule_id: str) -> list[str]:
+        """Ids of live rules whose must_after/may_after/supersedes name ``rule_id``."""
+        out = []
+        for doc in self.list("rules"):
+            if doc.get("id") == rule_id:
+                continue
+            refs = [*(doc.get("must_after") or ()), *(doc.get("may_after") or ())]
+            if rule_id in [*refs, *(doc.get("supersedes") or ())]:
+                out.append(str(doc.get("id")))
+        return sorted(out)
+
+    def guard_unreferenced(self, kind: str, id: str) -> None:
+        """Refuse to remove a rule other live rules still reference (409 ``rule_referenced``)."""
+        if kind != "rules":
+            return
+        refs = self.referrers(id)
+        if refs:
+            raise RuleReferenced(
+                f"rules/{id} is referenced by: {', '.join(refs)}",
+                [{"path": f"rules/{r}", "code": "rule_referenced", "message": r} for r in refs],
+            )
 
     def list(self, kind: str, *, include_deleted: bool = False) -> list[Document]:
         self._cls(kind)

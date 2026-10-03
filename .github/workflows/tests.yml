@@ -29,13 +29,23 @@ jobs:
 
       - run: uv sync
 
-      - run: uv run pytest -n auto --cov=culture_rules --cov-report=xml:coverage.xml --cov-report=term -v
+      # The Mongo-backed suites (tests/store, tests/engine/test_runs_mongo.py, ...) drive a
+      # real replica set through docker, which ubuntu-latest ships. Pre-pull the image so
+      # they RUN here; locally, with no docker, they skip cleanly instead.
+      - name: pull the MongoDB image the docker-backed tests use
+        run: docker pull mongo:8.0
+
+      # Gate 2: coverage >= 60% (--cov-fail-under; mirrors [tool.coverage.report]).
+      - run: uv run pytest -n auto --cov=culture_rules --cov-fail-under=60 --cov-report=xml:coverage.xml --cov-report=term -v
 
       - name: SonarCloud Scan
         if: env.SONAR_TOKEN != ''
         uses: SonarSource/sonarqube-scan-action@fd88b7d7ccbaefd23d8f36f73b59db7a3d246602 # v6
         env:
           SONAR_HOST_URL: https://sonarcloud.io
+        # Gate 3: SonarCloud quality gate. sonar-project.properties sets
+        # sonar.qualitygate.wait=true, so the scanner polls and fails this
+        # step on a red gate. Skipped (not failed) only when SONAR_TOKEN is absent.
 
   lint:
     runs-on: ubuntu-latest
@@ -74,8 +84,143 @@ jobs:
           npm install -g markdownlint-cli2@0.21.0
           markdownlint-cli2 "**/*.md" "#node_modules" "#.local" "#.claude/skills" "#.teken"
 
+      # Gate 1: the agent-first rubric, strict.
       - name: afi rubric gate
         run: uv run teken cli doctor . --strict
+
+  web:
+    # The visual editor: typecheck, vitest, tokens + dataviz palette validator, build,
+    # Playwright (mocked API), and the webglass agent-state "ready" gate (gate 4).
+    # ubuntu-24.04 so the AppArmor sysctl step below applies (webglass-cli docs/ci-recipe.md).
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: web
+    env:
+      PLAYWRIGHT_PORT: "4174"
+      WEBGLASS_PORT: "4173"
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a # v4
+
+      - run: npm ci
+
+      - name: typecheck
+        run: npm run typecheck
+
+      - name: vitest
+        run: npm test
+
+      - name: design tokens + dataviz palette validator
+        run: npm run check
+
+      - name: build
+        run: npm run build
+
+      - name: cache Playwright browsers
+        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('web/package-lock.json') }}
+
+      - name: install Chromium for Playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: playwright (keyboard walk, reduced motion, mocked API)
+        run: npm run test:e2e
+
+      - name: upload the Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: playwright-report
+          path: web/playwright-report
+          if-no-files-found: ignore
+
+      # webglass arm, same recipe as culture-nodes' web.yml: prove the BUILT bundle is
+      # observable by an agent through the CLI alone (#agent-state reaches "ready" and
+      # the page throws nothing).
+      - name: install webglass-cli
+        run: |
+          uv venv .venv
+          uv pip install --python .venv/bin/python webglass-cli
+
+      - name: provision Chromium for webglass
+        run: .venv/bin/playwright install --with-deps chromium
+
+      - name: allow unprivileged user namespaces (Chromium sandbox)
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      - name: write the webglass policy profile for the app under test
+        run: |
+          cat > webglass-profile.json <<JSON
+          {"name": "local-app", "declared_targets": ["127.0.0.1:${WEBGLASS_PORT}"]}
+          JSON
+
+      - name: start vite preview
+        run: |
+          nohup npm run preview -- --port "$WEBGLASS_PORT" --strictPort > preview.log 2>&1 &
+          echo $! > preview.pid
+          for _ in $(seq 1 40); do
+            curl -sf "http://127.0.0.1:${WEBGLASS_PORT}/" > /dev/null && break
+            sleep 0.5
+          done
+          curl -sf -o /dev/null "http://127.0.0.1:${WEBGLASS_PORT}/"
+
+      - name: webglass ready - page extract '#agent-state'
+        # "ready" is reached a moment after load, so re-extract (bounded) until it
+        # settles; a page that never settles still fails with its last payload printed.
+        run: |
+          for attempt in $(seq 1 15); do
+            .venv/bin/webglass page extract \
+              --url "http://127.0.0.1:${WEBGLASS_PORT}" \
+              --selector '#agent-state' \
+              --policy-profile webglass-profile.json --json > webglass-extract.json
+            if jq -e '.content.untrusted.matches | length == 1' webglass-extract.json > /dev/null \
+               && jq -e '.content.untrusted.matches[0].text | fromjson | .status == "ready"' \
+                  webglass-extract.json > /dev/null; then
+              echo "#agent-state settled on attempt $attempt"
+              cat webglass-extract.json
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "#agent-state never reached ready in 15 attempts; last extract:" >&2
+          cat webglass-extract.json
+          exit 1
+
+      - name: webglass console lens (no uncaught page errors)
+        run: |
+          .venv/bin/webglass page inspect \
+            --url "http://127.0.0.1:${WEBGLASS_PORT}" \
+            --lens console \
+            --policy-profile webglass-profile.json --json | tee webglass-console.json
+          jq -e '.lifecycle_state == "succeeded"' webglass-console.json
+          jq -e '.content.untrusted.page_errors | length == 0' webglass-console.json
+
+      - name: stop vite preview
+        if: always()
+        run: kill "$(cat preview.pid)" 2>/dev/null || true
+
+      - name: upload the webglass evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: webglass-evidence
+          path: |
+            web/webglass-extract.json
+            web/webglass-console.json
+            web/preview.log
+          if-no-files-found: ignore
 
   harness-smoke:
     # All four harnesses (Claude Code, Pi/associate, colleague, Qwen Code) are

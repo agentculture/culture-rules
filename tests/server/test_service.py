@@ -57,12 +57,13 @@ def test_path_id_must_match_body_id(defs):
         defs.update("rules", "r1", rb("other"), "alice")
 
 
-def test_rule_save_runs_validate_rule_set_cycle(defs):
-    defs.create("rules", rb("a", must_after=["b"]), "alice")
+def test_rule_save_runs_validate_rule_set_cycle(defs, store):
+    # "a" already names "b" (e.g. imported earlier); saving "b" after "a" closes the cycle
+    store.put("rules", {**rb("a", must_after=["b"]), "id": "a"})
     with pytest.raises(Invalid) as exc:
         defs.create("rules", rb("b", must_after=["a"]), "alice")
     assert any(e["code"] == "predecessor_cycle" for e in exc.value.errors)
-    assert defs.list("rules") == [defs.get("rules", "a")]
+    assert [d["id"] for d in defs.list("rules")] == ["a"]
 
 
 def test_rule_update_runs_rule_set_check_too(defs):
