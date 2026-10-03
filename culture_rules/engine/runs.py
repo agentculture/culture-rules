@@ -765,29 +765,11 @@ class Executor:
     ) -> bool:
         key = st["key"]
         if resume:
-            step = plan.step(st)
-            placed = step is not None and step.placement is not None
-            if st.get("host") != self.host and (placed or self._drained()):
-                return False  # a placed step resumes only on its host
-            inputs = st["inputs"] or {}
+            inputs = self._resume_inputs(plan, st)
         else:
-            target = self._target(plan, st, now)
-            if isinstance(target, PlacementError):
-                error = _error(target.code, target.message)
-                if target.code in FATAL_PLACEMENT:
-                    return self._fail_now(doc, key, error, now)
-                if st.get("placement_error") == error:
-                    return False
-                new = copy.deepcopy(doc)
-                step_state(new, key)["placement_error"] = error
-                _record(new, now, self.host, "placement_waiting", key)
-                return self._cas(doc, new)
-            if target != self.host:
-                return False
-            resolved = _step_inputs(plan, doc, st)
-            if "inputs" not in resolved:
-                return self._fail_now(doc, key, resolved, now)
-            inputs = resolved["inputs"]
+            inputs = self._fresh_inputs(plan, doc, st, now)
+        if isinstance(inputs, bool):  # no inputs: this is the dispatch's answer
+            return inputs
         attempt = st["attempt"] if (resume or st.get("resume")) else st["attempt"] + 1
         ctx = self._context(plan, doc, st, attempt)
         port = self._port(ctx)
@@ -797,16 +779,7 @@ class Executor:
             )
         unknown = resume or (st["attempt"] > 0 and (st.get("error") or {}).get("code") == "timeout")
         if unknown and not self._key_safe(plan, st, port):
-            claim = self._claims.claim_step(doc["id"], key)
-            if not claim.won:
-                return False
-            self._claims.release(claim)
-            return self._fail_now(
-                doc,
-                key,
-                _error("unsafe_retry", "outcome unknown and the target cannot deduplicate"),
-                now,
-            )
+            return self._refuse_unsafe(doc, key, now)
         claim = self._claims.claim_step(doc["id"], key)
         if not claim.won:
             return False
@@ -814,6 +787,74 @@ class Executor:
             deadline = _parse(st["deadline"]) or now
         else:
             deadline = now + timedelta(seconds=self._timeout(plan, st))
+        if not self._mark_dispatching(doc, key, attempt, inputs, deadline, now):
+            self._claims.release(claim)
+            return False
+        idem = idempotency_key(doc["id"], key)
+        try:
+            result: InvocationResult | None = port.invoke(inputs, idem, deadline, context=ctx)
+        except Exception:  # no acknowledgement: the outcome is unknown
+            result = None
+        self._settle(doc["id"], key, attempt, claim, result, port)
+        return True
+
+    def _resume_inputs(self, plan: _Plan, st: dict) -> dict | bool:
+        """The inputs a resumed step re-runs with, or False when it resumes elsewhere."""
+        step = plan.step(st)
+        placed = step is not None and step.placement is not None
+        if st.get("host") != self.host and (placed or self._drained()):
+            return False  # a placed step resumes only on its host
+        return st["inputs"] or {}
+
+    def _fresh_inputs(self, plan: _Plan, doc: Document, st: dict, now: datetime) -> dict | bool:
+        """The resolved inputs of a step placed here, or the dispatch's answer (a bool)."""
+        key = st["key"]
+        target = self._target(plan, st, now)
+        if isinstance(target, PlacementError):
+            return self._placement_failed(doc, st, target, now)
+        if target != self.host:
+            return False
+        resolved = _step_inputs(plan, doc, st)
+        if "inputs" not in resolved:
+            return self._fail_now(doc, key, resolved, now)
+        return resolved["inputs"]
+
+    def _placement_failed(
+        self, doc: Document, st: dict, target: PlacementError, now: datetime
+    ) -> bool:
+        key = st["key"]
+        error = _error(target.code, target.message)
+        if target.code in FATAL_PLACEMENT:
+            return self._fail_now(doc, key, error, now)
+        if st.get("placement_error") == error:
+            return False
+        new = copy.deepcopy(doc)
+        step_state(new, key)["placement_error"] = error
+        _record(new, now, self.host, "placement_waiting", key)
+        return self._cas(doc, new)
+
+    def _refuse_unsafe(self, doc: Document, key: str, now: datetime) -> bool:
+        """Fail a step whose outcome is unknown on a target that cannot deduplicate."""
+        claim = self._claims.claim_step(doc["id"], key)
+        if not claim.won:
+            return False
+        self._claims.release(claim)
+        return self._fail_now(
+            doc,
+            key,
+            _error("unsafe_retry", "outcome unknown and the target cannot deduplicate"),
+            now,
+        )
+
+    def _mark_dispatching(
+        self,
+        doc: Document,
+        key: str,
+        attempt: int,
+        inputs: dict,
+        deadline: datetime,
+        now: datetime,
+    ) -> bool:
         new = copy.deepcopy(doc)
         nst = step_state(new, key)
         nst.update(
@@ -827,16 +868,7 @@ class Executor:
             resume=False,
         )
         _record(new, now, self.host, "dispatched", key)
-        if not self._cas(doc, new):
-            self._claims.release(claim)
-            return False
-        idem = idempotency_key(doc["id"], key)
-        try:
-            result: InvocationResult | None = port.invoke(inputs, idem, deadline, context=ctx)
-        except Exception:  # no acknowledgement: the outcome is unknown
-            result = None
-        self._settle(doc["id"], key, attempt, claim, result, port)
-        return True
+        return self._cas(doc, new)
 
     def _context(self, plan: _Plan, doc: Document, st: Mapping, attempt: int) -> InvocationContext:
         if st["key"] == ACTION_STEP:
@@ -1031,15 +1063,20 @@ def _ready(plan: _Plan, doc: Mapping, st: Mapping) -> bool:
         return False
     loop = st.get("loop")
     if loop:
-        for other in doc["steps"]:
-            if other is st or other["key"] == st["key"]:
-                break
-            same = other.get("loop") or {}
-            if same.get("parent") == loop["parent"] and same.get("iteration") == loop["iteration"]:
-                if other["status"] not in STEP_OK:
-                    return False
-        return True
+        return _earlier_iteration_steps_ok(doc, st, loop)
     return _deps_done(plan, doc, step.id)
+
+
+def _earlier_iteration_steps_ok(doc: Mapping, st: Mapping, loop: Mapping) -> bool:
+    """Whether every body step before ``st`` in its loop iteration is done."""
+    for other in doc["steps"]:
+        if other is st or other["key"] == st["key"]:
+            break
+        same = other.get("loop") or {}
+        if same.get("parent") == loop["parent"] and same.get("iteration") == loop["iteration"]:
+            if other["status"] not in STEP_OK:
+                return False
+    return True
 
 
 def _deps_done(plan: _Plan, doc: Mapping, step_id: str) -> bool:
@@ -1130,6 +1167,32 @@ def _latest_output(doc: Mapping, plan: _Plan, step_id: str) -> Mapping[str, Any]
     return (dep or {}).get("outputs") or {}
 
 
+def _edge_source(
+    plan: _Plan, doc: Mapping, source: str, loop: Mapping | None, loop_state: Mapping | None
+) -> Mapping[str, Any]:
+    """The values an edge from ``source`` reads (inside ``loop``'s iteration, when given)."""
+    if source == "inputs":
+        return doc.get("inputs") or {}
+    if loop and source == loop["parent"]:
+        return (loop_state or {}).get("inputs") or {}
+    if loop and plan.body_parent.get(source) == loop["parent"]:
+        return (step_state(doc, step_key(loop["parent"], loop["iteration"], source)) or {}).get(
+            "outputs"
+        ) or {}
+    return _latest_output(doc, plan, source)
+
+
+def _implicit_loop_inputs(loop: Mapping, loop_state: Mapping) -> dict[str, Any]:
+    """The loop's own inputs plus ``iteration``/``index`` (and ``item`` for for_each)."""
+    implicit = dict(loop_state.get("inputs") or {})
+    i = loop["iteration"]
+    implicit.update(iteration=i, index=i)
+    items = loop_state.get("items")
+    if isinstance(items, list) and i < len(items):
+        implicit["item"] = items[i]
+    return implicit
+
+
 def _step_inputs(plan: _Plan, doc: Mapping, st: Mapping) -> dict[str, Any]:
     """``{"inputs": {...}}`` for a step about to run, or an error dict."""
     if st["key"] == ACTION_STEP:
@@ -1139,25 +1202,11 @@ def _step_inputs(plan: _Plan, doc: Mapping, st: Mapping) -> dict[str, Any]:
     loop = st.get("loop")
     loop_state = step_state(doc, loop["parent"]) if loop else None
     for e in plan.edges_into(step.id):
-        if e.source == "inputs":
-            src = doc.get("inputs") or {}
-        elif loop and e.source == loop["parent"]:
-            src = (loop_state or {}).get("inputs") or {}
-        elif loop and plan.body_parent.get(e.source) == loop["parent"]:
-            src = (
-                step_state(doc, step_key(loop["parent"], loop["iteration"], e.source)) or {}
-            ).get("outputs") or {}
-        else:
-            src = _latest_output(doc, plan, e.source)
+        src = _edge_source(plan, doc, e.source, loop, loop_state)
         if e.source_port in src:
             values[e.target_port] = src[e.source_port]
     if loop and loop_state is not None:
-        implicit = dict(loop_state.get("inputs") or {})
-        i = loop["iteration"]
-        implicit.update(iteration=i, index=i)
-        items = loop_state.get("items")
-        if isinstance(items, list) and i < len(items):
-            implicit["item"] = items[i]
+        implicit = _implicit_loop_inputs(loop, loop_state)
         for p in step.inputs:
             if p.name not in values and p.name in implicit:
                 values[p.name] = implicit[p.name]
@@ -1238,7 +1287,7 @@ def _spawn(new: dict, loop_step: Step, iteration: int) -> None:
         new["steps"].append(state)
 
 
-def _loop_outputs(step: Step, st: Mapping, results: list[dict]) -> dict[str, Any]:
+def _loop_outputs(step: Step, results: list[dict]) -> dict[str, Any]:
     names = [p.name for p in step.outputs]
     if step.kind == "for_each":
         if not names:
@@ -1266,50 +1315,59 @@ def _loop_progress(plan: _Plan, doc: Mapping, now: datetime) -> Found:
     for st in doc["steps"]:
         if st["status"] != "running" or st.get("loop"):
             continue
-        step = plan.top[st["def"]]
-        i = st["iteration"]
-        body = _loop_states(doc, st["key"], i)
-        failed = next((b for b in body if b["status"] == "failed"), None)
-        new, nst = _copy_with(doc, st["key"])
-        if failed is not None:
-            nst.update(
-                status="failed",
-                error=_error(
-                    "loop_body_failed",
-                    f"{failed['key']}: {(failed.get('error') or {}).get('message')}",
-                ),
-            )
-            return new, "failed", st["key"]
-        if not body or any(b["status"] not in STEP_OK for b in body):
-            continue
-        done = [b for b in body if b["status"] == "succeeded"]
-        result = dict(done[-1].get("outputs") or {}) if done else {}
-        results = list(nst.get("results") or []) + [result]
-        nst["results"] = results
-        if step.kind == "for_each":
-            if i + 1 < len(nst.get("items") or []):
-                nst["iteration"] = i + 1
-                _spawn(new, step, i + 1)
-                return new, "iteration", st["key"]
-            return _loop_done(new, nst, step, results)
-        if _until(step, result, i):
-            return _loop_done(new, nst, step, results)
-        if i + 1 >= (step.max_iterations or 1):
-            nst.update(
-                status="failed",
-                error=_error(
-                    "loop_max_exceeded", f"until not met after {step.max_iterations} iterations"
-                ),
-            )
-            return new, "failed", st["key"]
-        nst["iteration"] = i + 1
-        _spawn(new, step, i + 1)
-        return new, "iteration", st["key"]
+        found = _progress_loop(plan, doc, st)
+        if found is not None:
+            return found
     return None
 
 
+def _progress_loop(plan: _Plan, doc: Mapping, st: Mapping) -> Found:
+    """The next transition of running loop ``st``, or None while its iteration runs."""
+    step = plan.top[st["def"]]
+    i = st["iteration"]
+    body = _loop_states(doc, st["key"], i)
+    failed = next((b for b in body if b["status"] == "failed"), None)
+    new, nst = _copy_with(doc, st["key"])
+    if failed is not None:
+        nst.update(
+            status="failed",
+            error=_error(
+                "loop_body_failed",
+                f"{failed['key']}: {(failed.get('error') or {}).get('message')}",
+            ),
+        )
+        return new, "failed", st["key"]
+    if not body or any(b["status"] not in STEP_OK for b in body):
+        return None
+    done = [b for b in body if b["status"] == "succeeded"]
+    result = dict(done[-1].get("outputs") or {}) if done else {}
+    results = list(nst.get("results") or []) + [result]
+    nst["results"] = results
+    if step.kind == "for_each":
+        if i + 1 < len(nst.get("items") or []):
+            return _next_iteration(new, nst, step, i)
+        return _loop_done(new, nst, step, results)
+    if _until(step, result, i):
+        return _loop_done(new, nst, step, results)
+    if i + 1 >= (step.max_iterations or 1):
+        nst.update(
+            status="failed",
+            error=_error(
+                "loop_max_exceeded", f"until not met after {step.max_iterations} iterations"
+            ),
+        )
+        return new, "failed", st["key"]
+    return _next_iteration(new, nst, step, i)
+
+
+def _next_iteration(new: dict, nst: dict, step: Step, i: int) -> Found:
+    nst["iteration"] = i + 1
+    _spawn(new, step, i + 1)
+    return new, "iteration", nst["key"]
+
+
 def _loop_done(new: dict, nst: dict, step: Step, results: list[dict]) -> Found:
-    outputs = _loop_outputs(step, nst, results)
+    outputs = _loop_outputs(step, results)
     problem = _check_ports(step.outputs, outputs, "output")
     if problem:
         problem["code"] = "output_type_mismatch"
@@ -1356,32 +1414,44 @@ def _loop_start(plan: _Plan, doc: Mapping, now: datetime) -> Found:
             continue
         if not _deps_done(plan, doc, step.id):
             continue
-        new, nst = _copy_with(doc, st["key"])
-        resolved = _step_inputs(plan, doc, st)
-        if "inputs" not in resolved:
-            nst.update(status="failed", error=resolved)
-            return new, "failed", st["key"]
-        inputs = resolved["inputs"]
-        nst.update(status="running", inputs=inputs, iteration=0, results=[], attempt=1)
-        if step.kind == "for_each":
-            items = inputs.get(step.config.get("items", "items"))
-            if not isinstance(items, list):
-                nst.update(status="failed", error=_error("loop_items_invalid", "items not a list"))
-                return new, "failed", st["key"]
-            if len(items) > (step.max_iterations or 0):
-                nst.update(
-                    status="failed",
-                    error=_error(
-                        "loop_max_exceeded",
-                        f"{len(items)} items exceed max_iterations={step.max_iterations}",
-                    ),
-                )
-                return new, "failed", st["key"]
-            nst["items"] = items
-            if not items:
-                return _loop_done(new, nst, step, [])
-        _spawn(new, step, 0)
-        return new, "loop_started", st["key"]
+        return _start_loop(plan, doc, st, step)
+    return None
+
+
+def _start_loop(plan: _Plan, doc: Mapping, st: Mapping, step: Step) -> Found:
+    new, nst = _copy_with(doc, st["key"])
+    resolved = _step_inputs(plan, doc, st)
+    if "inputs" not in resolved:
+        nst.update(status="failed", error=resolved)
+        return new, "failed", st["key"]
+    inputs = resolved["inputs"]
+    nst.update(status="running", inputs=inputs, iteration=0, results=[], attempt=1)
+    if step.kind == "for_each":
+        found = _start_for_each(new, nst, step, inputs)
+        if found is not None:
+            return found
+    _spawn(new, step, 0)
+    return new, "loop_started", st["key"]
+
+
+def _start_for_each(new: dict, nst: dict, step: Step, inputs: Mapping[str, Any]) -> Found:
+    """Bind a for_each loop's items; a finished transition, or None to spawn iteration 0."""
+    items = inputs.get(step.config.get("items", "items"))
+    if not isinstance(items, list):
+        nst.update(status="failed", error=_error("loop_items_invalid", "items not a list"))
+        return new, "failed", nst["key"]
+    if len(items) > (step.max_iterations or 0):
+        nst.update(
+            status="failed",
+            error=_error(
+                "loop_max_exceeded",
+                f"{len(items)} items exceed max_iterations={step.max_iterations}",
+            ),
+        )
+        return new, "failed", nst["key"]
+    nst["items"] = items
+    if not items:
+        return _loop_done(new, nst, step, [])
     return None
 
 
