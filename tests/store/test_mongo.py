@@ -257,11 +257,11 @@ def test_resume_tokens_are_persisted_per_consumer_in_the_store(fresh):
 def test_resume_survives_a_new_client(fresh):
     start = fresh.head("events")
     fresh.put("events", {"id": "one"})
-    token = next(iter(fresh.changes("events", start))).token
+    resume = next(iter(fresh.changes("events", start))).token
     fresh.put("events", {"id": "two"})
     other = MongoStore(fresh.config)
     try:
-        assert [c.id for c in other.changes("events", token)] == ["two"]
+        assert [c.id for c in other.changes("events", resume)] == ["two"]
     finally:
         other.close()
 

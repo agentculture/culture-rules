@@ -45,6 +45,7 @@ option set at creation); inside a transaction, touch new collections with
 
 from __future__ import annotations
 
+import contextlib
 import importlib
 import time
 from collections.abc import Iterator, Mapping
@@ -424,10 +425,8 @@ class MongoStore:
                 yield handle
             except BaseException:
                 handle._closed = True
-                try:
+                with contextlib.suppress(Exception):  # the original error matters more
                     session.abort_transaction()
-                except Exception:  # noqa: BLE001, S110 - the original error matters more
-                    pass
                 raise
             handle._closed = True
             session.commit_transaction()
