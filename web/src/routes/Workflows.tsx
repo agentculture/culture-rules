@@ -21,7 +21,7 @@ import {
   type WorkflowDef,
 } from "../api/workflows";
 import { setWorkflowsState } from "../workflows/agentState";
-import WorkflowCanvas from "../workflows/Canvas";
+import WorkflowCanvas, { type CanvasProps } from "../workflows/Canvas";
 import IoControls from "../workflows/IoControls";
 import {
   addStep,
@@ -292,6 +292,27 @@ function WorkflowHead({
   );
 }
 
+/** The head's left side: the open workflow's head, else the title for creating / none yet. */
+function BoardTitle({
+  creating,
+  empty,
+  current,
+  workflow,
+  ...head
+}: Readonly<{
+  creating: boolean;
+  empty: boolean;
+  current: WorkflowDef | null;
+  workflow: WorkflowDef | null;
+  renaming: boolean;
+  renameButton: RefObject<HTMLButtonElement>;
+  onRename: () => void;
+  onDelete: () => void;
+}>) {
+  if (creating || !current || !workflow) return <HeadTitle creating={creating} empty={empty} />;
+  return <WorkflowHead name={workflow.name} current={current} {...head} />;
+}
+
 /** The workflow's recent runs (contextual — runs are never a tab); each toggles the overlay. */
 function RecentRuns({
   runs,
@@ -414,6 +435,164 @@ function agentSnapshot(
   };
 }
 
+/** The open workflow: the one asked for in the query, else the first. */
+const pickWorkflow = (workflows: WorkflowDef[], id: string | null): WorkflowDef | null =>
+  workflows.find((w) => w.id === id) ?? workflows[0] ?? null;
+
+/** The rule that runs `workflow`, if any (the Run button starts it). */
+const ruleRunning = (loaded: Loaded | null, workflow: WorkflowDef | null): Rule | undefined =>
+  workflow ? (loaded?.rules ?? []).find((r) => r.workflow?.id === workflow.id) : undefined;
+
+/** No run is asked for, or the asked-for run has answered (a doc or an error). */
+const runSettledFor = (runId: string | null, run: OverlaidRun | null): boolean =>
+  !runId || (run?.id === runId && (run.doc !== null || run.error !== null));
+
+/** The board's errors: the load's, the overlaid run's, then the last action's. */
+function boardErrors(loaded: Loaded | null, run: OverlaidRun | null, actionError: string | null): string[] {
+  return [
+    ...(loaded?.errors ?? []),
+    ...(run?.error ? [`run ${run.id}: ${run.error}`] : []),
+    ...(actionError ? [actionError] : []),
+  ];
+}
+
+/** The board's notices: its errors, then a soft delete's Undo. */
+function BoardNotices({
+  errors,
+  deleted,
+  onUndo,
+  onDismiss,
+}: Readonly<{ errors: string[]; deleted: WorkflowDef | null; onUndo: () => void; onDismiss: () => void }>) {
+  return (
+    <>
+      {errors.length > 0 ? (
+        <p className="notice notice--error wf-notice" role="alert">
+          {errors.join(" · ")}
+        </p>
+      ) : null}
+      {deleted ? (
+        <output className="notice notice--undo wf-notice">
+          <span>Deleted {deleted.name}</span>
+          <button type="button" className="wf-button" onClick={onUndo}>
+            Undo
+          </button>
+          <button
+            type="button"
+            className="icon-button icon-button--small"
+            aria-label="Dismiss"
+            onClick={onDismiss}
+          >
+            ×
+          </button>
+        </output>
+      ) : null}
+    </>
+  );
+}
+
+/** The head's Save (only with unsaved edits) and Run; neither while naming a new workflow. */
+function HeadActions({
+  creating,
+  dirty,
+  saving,
+  runRule,
+  onSave,
+  onRun,
+}: Readonly<{
+  creating: boolean;
+  dirty: boolean;
+  saving: boolean;
+  runRule: Rule | undefined;
+  onSave: () => void;
+  onRun: () => void;
+}>) {
+  if (creating) return null;
+  return (
+    <>
+      {dirty ? (
+        <button type="button" className="wf-button wf-button--save" disabled={saving} onClick={onSave}>
+          Save
+        </button>
+      ) : null}
+      <button type="button" className="wf-run" disabled={!runRule} title={runTitle(runRule)} onClick={onRun}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M7 4v16l13-8z" />
+        </svg>
+        Run
+      </button>
+    </>
+  );
+}
+
+/** The canvas callbacks, passed through to WorkflowCanvas as they are. */
+type CanvasHandlers = Pick<
+  CanvasProps,
+  "onSelect" | "onToggle" | "onPlacement" | "onEdit" | "onDelete" | "onAddStep" | "onConnect" | "onRefused"
+>;
+
+/** The open workflow's stage: the rename form (while renaming), the canvas and its step editors. */
+function WorkflowStage({
+  workflow,
+  loaded,
+  stageRef,
+  renaming,
+  closeRename,
+  overlay,
+  selected,
+  handlers,
+  editing,
+  edit,
+  onChange,
+  onCloseEditor,
+}: Readonly<{
+  workflow: WorkflowDef;
+  loaded: Loaded | null;
+  stageRef: RefObject<HTMLDivElement>;
+  renaming: boolean;
+  closeRename: () => void;
+  overlay: CanvasProps["overlay"];
+  selected: string | null;
+  handlers: CanvasHandlers;
+  editing: Editing;
+  edit: (fn: (wf: WorkflowDef) => WorkflowDef) => void;
+  onChange: (wf: WorkflowDef) => void;
+  onCloseEditor: () => void;
+}>) {
+  return (
+    <div className="wf-stage" ref={stageRef}>
+      {renaming ? (
+        <WorkflowNameForm
+          key={workflow.id}
+          label="Rename workflow"
+          submitLabel="Rename"
+          initial={workflow.name}
+          onSubmit={(name) => {
+            if (name !== workflow.name) edit((wf) => ({ ...wf, name }));
+            closeRename();
+          }}
+          onCancel={closeRename}
+        />
+      ) : null}
+      <WorkflowCanvas
+        workflow={workflow}
+        machines={loaded?.machines ?? []}
+        actors={loaded?.actors ?? []}
+        overlay={overlay}
+        selected={selected}
+        {...handlers}
+      />
+      <StepPanels
+        editing={editing}
+        workflow={workflow}
+        loaded={loaded}
+        edit={edit}
+        onChange={onChange}
+        onClose={onCloseEditor}
+      />
+    </div>
+  );
+}
+
 /**
  * The Workflows tab — the 'Chosen — Workflows' board (design canvas row
  * 'Chosen', direction B "Map"): the workflow's name and version, the io
@@ -462,7 +641,7 @@ export function Workflows() {
 
   const workflows = loaded?.workflows ?? [];
   const wantedId = params.get("id");
-  const current = workflows.find((w) => w.id === wantedId) ?? workflows[0] ?? null;
+  const current = pickWorkflow(workflows, wantedId);
   const runId = params.get("run");
   const slotOf = useWorkflowSlots(loaded);
 
@@ -513,13 +692,8 @@ export function Workflows() {
   const live = useLiveUpdates(LIVE_COLLECTIONS, onLive);
 
   const overlay = useMemo(() => (run?.doc ? runOverlay(run.doc) : null), [run?.doc]);
-  const runSettled = !runId || (run?.id === runId && (run.doc !== null || run.error !== null));
-  const errors = [
-    ...(loaded?.errors ?? []),
-    ...(run?.error ? [`run ${run.id}: ${run.error}`] : []),
-    ...(actionError ? [actionError] : []),
-  ];
-  const ready = loaded !== null && runSettled;
+  const errors = boardErrors(loaded, run, actionError);
+  const ready = loaded !== null && runSettledFor(runId, run);
   useTabReady("workflows", ready, errors);
 
   const stepIds = (workflow?.steps ?? []).map((s) => s.id);
@@ -596,9 +770,7 @@ export function Workflows() {
     }
   };
 
-  const runRule = current
-    ? (loaded?.rules ?? []).find((r) => r.workflow?.id === current.id)
-    : undefined;
+  const runRule = ruleRunning(loaded, current);
   const start = async () => {
     if (!runRule) return;
     setActionError(null);
@@ -712,44 +884,20 @@ export function Workflows() {
     );
   } else if (workflow) {
     body = (
-      <div className="wf-stage" ref={stageRef}>
-        {renaming ? (
-          <WorkflowNameForm
-            key={workflow.id}
-            label="Rename workflow"
-            submitLabel="Rename"
-            initial={workflow.name}
-            onSubmit={(name) => {
-              if (name !== workflow.name) edit((wf) => ({ ...wf, name }));
-              closeRename();
-            }}
-            onCancel={closeRename}
-          />
-        ) : null}
-        <WorkflowCanvas
-          workflow={workflow}
-          machines={loaded?.machines ?? []}
-          actors={loaded?.actors ?? []}
-          overlay={overlay}
-          selected={selectedStep}
-          onSelect={onSelect}
-          onToggle={onToggle}
-          onPlacement={onPlacement}
-          onEdit={onEdit}
-          onDelete={onDelete}
-          onAddStep={onAddStep}
-          onConnect={onConnect}
-          onRefused={onRefused}
-        />
-        <StepPanels
-          editing={editing}
-          workflow={workflow}
-          loaded={loaded}
-          edit={edit}
-          onChange={(wf) => setDraft((d) => editDraft(d, () => wf))}
-          onClose={() => setEditing(null)}
-        />
-      </div>
+      <WorkflowStage
+        workflow={workflow}
+        loaded={loaded}
+        stageRef={stageRef}
+        renaming={renaming}
+        closeRename={closeRename}
+        overlay={overlay}
+        selected={selectedStep}
+        handlers={{ onSelect, onToggle, onPlacement, onEdit, onDelete, onAddStep, onConnect, onRefused }}
+        editing={editing}
+        edit={edit}
+        onChange={(wf) => setDraft((d) => editDraft(d, () => wf))}
+        onCloseEditor={() => setEditing(null)}
+      />
     );
   } else if (empty) {
     body = <EmptyWorkflows onNew={openNew} />;
@@ -767,40 +915,23 @@ export function Workflows() {
         newRef={newButton}
       />
       <main id="main" className="wf-board" tabIndex={-1} data-live-flash={live.flash || undefined}>
-        {errors.length > 0 ? (
-          <p className="notice notice--error wf-notice" role="alert">
-            {errors.join(" · ")}
-          </p>
-        ) : null}
-        {deleted ? (
-          <output className="notice notice--undo wf-notice">
-            <span>Deleted {deleted.name}</span>
-            <button type="button" className="wf-button" onClick={() => void undoDelete()}>
-              Undo
-            </button>
-            <button
-              type="button"
-              className="icon-button icon-button--small"
-              aria-label="Dismiss"
-              onClick={() => setDeleted(null)}
-            >
-              ×
-            </button>
-          </output>
-        ) : null}
+        <BoardNotices
+          errors={errors}
+          deleted={deleted}
+          onUndo={() => void undoDelete()}
+          onDismiss={() => setDeleted(null)}
+        />
         <div className="wf-head">
-          {!creating && current && workflow ? (
-            <WorkflowHead
-              name={workflow.name}
-              current={current}
-              renaming={renaming}
-              renameButton={renameButton}
-              onRename={() => (renaming ? closeRename() : setRenaming(true))}
-              onDelete={() => void removeWorkflow()}
-            />
-          ) : (
-            <HeadTitle creating={creating} empty={empty} />
-          )}
+          <BoardTitle
+            creating={creating}
+            empty={empty}
+            current={current}
+            workflow={workflow}
+            renaming={renaming}
+            renameButton={renameButton}
+            onRename={() => (renaming ? closeRename() : setRenaming(true))}
+            onDelete={() => void removeWorkflow()}
+          />
           <span className="wf-head__end">
             <IoControls
               onImported={() => setReload((n) => n + 1)}
@@ -811,30 +942,14 @@ export function Workflows() {
               onError={setActionError}
             />
           </span>
-          {draft?.dirty && !creating ? (
-            <button
-              type="button"
-              className="wf-button wf-button--save"
-              disabled={saving}
-              onClick={() => void save()}
-            >
-              Save
-            </button>
-          ) : null}
-          {creating ? null : (
-            <button
-              type="button"
-              className="wf-run"
-              disabled={!runRule}
-              title={runTitle(runRule)}
-              onClick={() => void start()}
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                <path d="M7 4v16l13-8z" />
-              </svg>
-              Run
-            </button>
-          )}
+          <HeadActions
+            creating={creating}
+            dirty={draft?.dirty === true}
+            saving={saving}
+            runRule={runRule}
+            onSave={() => void save()}
+            onRun={() => void start()}
+          />
         </div>
         <output className="wf-status">{status}</output>
 

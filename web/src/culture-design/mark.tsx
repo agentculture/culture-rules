@@ -30,30 +30,18 @@ export interface MarkProps {
   /** Rendered width/height in px. Astro source default: 26. */
   size?: number;
   /**
-   * Accessible title. The Astro source always renders `aria-hidden="true"`
-   * (the mark is decorative next to sited text). Pass a title for
-   * standalone/logo use where the mark needs an accessible name — doing so
-   * switches the SVG to `role="img"` + `aria-labelledby` and drops
-   * `aria-hidden`.
+   * Accessible name. The SVG itself is always `aria-hidden="true"`, as in
+   * the Astro source (the mark is decorative next to sited text). Pass a
+   * title for standalone/logo use where the mark needs an accessible name:
+   * it renders as visually hidden text beside the SVG, so the surrounding
+   * link or element is named by it and no `role="img"` is needed.
    */
   title?: string;
 }
 
-export const Mark: FC<MarkProps> = ({ size = 26, title }: MarkProps) => {
-  const titleId = title ? "culture-design-mark-title" : undefined;
-
-  return (
-    <svg
-      className="mark"
-      width={size}
-      height={size}
-      viewBox="0 0 64 64"
-      fill="none"
-      aria-hidden={title ? undefined : true}
-      role={title ? "img" : undefined}
-      aria-labelledby={titleId}
-    >
-      {title ? <title id={titleId}>{title}</title> : null}
+export const Mark: FC<Readonly<MarkProps>> = ({ size = 26, title }: Readonly<MarkProps>) => (
+  <>
+    <svg className="mark" width={size} height={size} viewBox="0 0 64 64" fill="none" aria-hidden="true">
       <path
         d="M14 46 Q 24 38 33 21 M33 21 Q 40 36 51 41"
         stroke="var(--mesh-thread)"
@@ -64,7 +52,8 @@ export const Mark: FC<MarkProps> = ({ size = 26, title }: MarkProps) => {
       <circle cx={33} cy={21} r={6.5} fill="var(--mesh-node)" />
       <circle cx={51} cy={41} r={4.5} fill="var(--mesh-node)" />
     </svg>
-  );
-};
+    {title ? <span className="sr-only">{title}</span> : null}
+  </>
+);
 
 export default Mark;
