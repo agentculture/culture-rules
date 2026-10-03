@@ -16,6 +16,11 @@ config:
 
 ignores:
   - "node_modules/**"
+  # The web editor's dependencies and build output (web/README.md).
+  - "web/node_modules/**"
+  - "web/dist/**"
+  - "web/test-results/**"
+  - "web/playwright-report/**"
   - ".local/**"
   - ".afi/**"
   - ".teken/**"
