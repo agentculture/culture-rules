@@ -298,11 +298,27 @@ class SimHost:
             beat_every=BEAT_EVERY_S,
             on_evaluated=lambda rule_id, event_id: cluster._evaluated(name, rule_id, event_id),
         )
+        self._hold_drive(cluster)
         self.crash_armed = False
         self.crashed_key: str | None = None
         self.killed = False
         self.killed_at: float | None = None
         self._thread = threading.Thread(target=self._loop, name=f"host-{name}", daemon=True)
+
+    def _hold_drive(self, cluster: Cluster) -> None:
+        """Let :meth:`Cluster.kill` hold this host's executor (it still ingests, evaluates
+        and starts runs) so the armed victim, not the first claimant, takes the next action.
+
+        The hold is checked per run advance, not per drive: a drive already in progress
+        when the hold begins (one ``run_until_idle`` can tick through every active run)
+        stops after the run it is on instead of taking the whole backlog."""
+        executor = self.node.executor
+        advance = executor._advance
+
+        def held_or_advance(run_id: str) -> int:
+            return 0 if cluster.holding(self.name) else advance(run_id)
+
+        executor._advance = held_or_advance  # type: ignore[method-assign]
 
     @property
     def errors(self) -> list[Exception]:
@@ -535,6 +551,7 @@ class Cluster:
         self._hosts: dict[str, SimHost] = {}
         self._every_host: list[SimHost] = []
         self._apis: dict[str, ApiServer] = {}
+        self._held: frozenset[str] = frozenset()
         self._lock = threading.Lock()
         self._evals: dict[str, dict[str, list[str]]] = defaultdict(lambda: defaultdict(list))
         for name in HOSTS:
@@ -576,13 +593,28 @@ class Cluster:
 
     def kill(self, name: str, timeout: float = 30.0) -> None:
         """Kill a host abruptly: it dies right after its next action side effect, before
-        recording it (step left ``dispatching``, claim held); its API listener goes away."""
+        recording it (step left ``dispatching``, claim held); its API listener goes away.
+
+        Unplaced work goes to whichever host claims it first, and the host loops can settle
+        into a phase where the victim loses every claim race for the whole run (seen on
+        MongoDB: thor performing 0 of 100 actions), so it would never reach an action and
+        never die. Until it does, the other hosts' executors are held (they keep ingesting,
+        evaluating and starting runs); they resume - and must reclaim the orphaned step
+        after the lease - as soon as the victim is dead."""
         host = self._hosts[name]
         api = self._apis.pop(name, None)
         if api is not None:
             api.stop()
+        self._held = frozenset(h for h in self._hosts if h != name)
         host.crash_armed = True
-        self.wait_until(lambda: host.killed, timeout=timeout, what=f"{name} to die mid-action")
+        try:
+            self.wait_until(lambda: host.killed, timeout=timeout, what=f"{name} to die mid-action")
+        finally:
+            self._held = frozenset()
+
+    def holding(self, name: str) -> bool:
+        """Whether ``name``'s executor is held while another host's kill is pending."""
+        return name in self._held
 
     # ------------------------------------------------------------------ events
 
