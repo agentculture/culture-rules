@@ -44,7 +44,7 @@ Statistics**. Runs, history, ledger and inbox are not tabs; they appear in
 context, inside a rule or workflow.
 
 - **Rules** is a rule list plus the focused rule as a vertical flow.
-  Rules grow from "When does this happen?" through a `+`.
+  Rules start from "New rule", which asks "When does this happen?", and grow through a `+`.
 - **Workflows** is the free-form React Flow canvas with typed ports and the
   machine shown on each node. A run lights up its path on the graph.
 - **Actors** is a large-type roster that expands inline.

@@ -111,7 +111,7 @@ describe("edit", () => {
     await waitFor(() => expect(within(workflow).getByLabelText("Workflow")).toHaveFocus());
     await user.keyboard("{Escape}");
 
-    await user.click(screen.getByRole("button", { name: /When does this happen\?/ }));
+    await user.click(screen.getByRole("button", { name: "New rule" }));
     const created = screen.getByRole("form", { name: "New rule" });
     await waitFor(() => expect(within(created).getByLabelText("Trigger")).toHaveFocus());
     await user.keyboard("{Escape}");
@@ -238,10 +238,10 @@ describe("relationships on both ends", () => {
 });
 
 describe("create, progressively", () => {
-  it("starts from 'When does this happen?' and creates a trigger-only rule", async () => {
+  it("starts from 'New rule', asks 'When does this happen?' and creates a trigger-only rule", async () => {
     const user = userEvent.setup();
     renderRules();
-    await user.click(await screen.findByRole("button", { name: /When does this happen\?/ }));
+    await user.click(await screen.findByRole("button", { name: "New rule" }));
     const form = screen.getByRole("form", { name: "New rule" });
     await user.type(within(form).getByLabelText("Trigger"), "Disk is nearly full");
     await user.selectOptions(within(form).getByLabelText("Kind"), "event");

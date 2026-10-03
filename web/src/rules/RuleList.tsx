@@ -13,8 +13,8 @@ interface Props {
 }
 
 /**
- * The left column of the 'Chosen — Rules' board: the "When does this happen?"
- * affordance, then one row per rule (machine dot, name, enable switch). A row
+ * The left column of the 'Chosen — Rules' board: the "New rule" button
+ * (which opens the "When does this happen?" form), then one row per rule (machine dot, name, enable switch). A row
  * is also a drag handle: dropped on a relationship slot it relates the two
  * rules. While a rule is focused, the other end of each of its relationships
  * wears a badge on its row.
@@ -26,7 +26,7 @@ export function RuleList({ rules, selectedId, slotOf, onToggle, onNew, onDragRul
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true">
           <path d="M12 5v14M5 12h14" />
         </svg>
-        When does this happen?
+        New rule
       </button>
       {rules.map((rule) => {
         const enabled = rule.enabled !== false;

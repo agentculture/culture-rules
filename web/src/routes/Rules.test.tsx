@@ -27,10 +27,10 @@ describe("Rules board (Chosen — Rules)", () => {
     vi.restoreAllMocks();
   });
 
-  it("lists every rule with an enable switch, the first affordance asking 'When does this happen?'", async () => {
+  it("lists every rule with an enable switch, the first affordance a 'New rule' button", async () => {
     renderRules();
     const list = await screen.findByRole("navigation", { name: "Rules" });
-    expect(within(list).getByRole("button", { name: /When does this happen\?/ })).toBeInTheDocument();
+    expect(within(list).getByRole("button", { name: "New rule" })).toBeInTheDocument();
     await waitFor(() => expect(within(list).getAllByRole("switch")).toHaveLength(5));
     expect(within(list).getByRole("switch", { name: "Clean caches enabled" })).toHaveAttribute(
       "aria-checked",

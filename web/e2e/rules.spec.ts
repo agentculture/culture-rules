@@ -147,11 +147,11 @@ test.describe("Rules tab", () => {
     await expect(page.getByRole("form", { name: "Edit rule" })).toHaveCount(0);
   });
 
-  test("a new rule starts from 'When does this happen?' and grows through +", async ({ page }) => {
+  test("a new rule starts from 'New rule', asks 'When does this happen?' and grows through +", async ({ page }) => {
     await mockRulesApi(page);
     await page.goto("/rules");
     await untilReady(page);
-    await page.getByRole("button", { name: /When does this happen\?/ }).click();
+    await page.getByRole("button", { name: "New rule" }).click();
     const form = page.getByRole("form", { name: "New rule" });
     await form.getByLabel("Trigger").fill("Disk is nearly full");
     await form.getByRole("button", { name: "Create rule" }).click();

@@ -25,7 +25,7 @@ recorded on the PR with a screenshot.
   - the focused rule as a relationship ghost → Trigger → Condition →
     Workflow → Action → `+`;
   - edit (`PUT`), delete (soft `DELETE`, with an Undo that calls
-    `restore`), and creation from "When does this happen?" then `+`;
+    `restore`), and creation from "New rule" (it asks "When does this happen?") then `+`;
   - *must run after*, *may run after* and *supersedes* as badges on both
     rules. Drag a rule from the list (or a card) onto a slot, or use the
     slot's picker; each card has a remove;
