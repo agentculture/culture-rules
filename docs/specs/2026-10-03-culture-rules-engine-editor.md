@@ -1,0 +1,309 @@
+# culture-rules engine + editor
+
+> culture-rules implements issues #1 and #2: a Python rules→condition→workflow→action engine with persisted runs, placement of rules and workflow steps on enrolled machines (spark, thor, spark2), a generic Actor registry (agents with db- or repo-based config, harness, model), and a graph-first React Flow editor with exactly three tabs (Rules | Workflows | Actors), served remotely at rules.culture.dev behind cultureflare SSO; three UI directions are offered for the operator to choose
+
+## Audience
+
+- The operator (Ori) composing and supervising automation across spark, thor and spark2 from a browser at rules.culture.dev; and mesh agents that drive the same rules, workflows and actors through the culture-rules CLI and MCP server
+  - instruction: the README's first section names both readers; learn output names the CLI/MCP agent path
+
+## Before → After
+
+- Before: Automation across the machines is scattered: culture-nodes declarations authored as YAML/CEL on thor, cron jobs and ad-hoc scripts per host, agents nudged by hand over IRC; there is no single visual place to compose a rule, see where each step runs, or see what each machine is doing right now
+  - instruction: cite the scope entries s7-s15 and s25 in the spec's background
+- After: From rules.culture.dev (SSO) the operator builds a rule as Trigger → Condition → (Workflow) → Action by direct manipulation, places it and each step by machine, actor or requirement, toggles it on, and watches runs light up the graph and the Statistics lanes; agents do the same over CLI/MCP; stopping any one of spark, spark2 or thor does not stop the service
+  - instruction: the end-to-end demo script in docs/demo.md reproduces every clause of this sentence
+
+## Why it matters
+
+- One graphical, agent-operable place to decide when work happens, how it flows across machines and who does it — and it keeps working when one machine falters — so automation stops being per-host glue only its author understands
+  - instruction: keep the README pitch to this one sentence
+
+## Requirements
+
+- The editor has four primary tabs — Rules | Workflows | Actors | Statistics (operator decision 2026-10-03 adds Statistics to issue #2's three); runs/history/ledger/inbox stay contextual inside a rule or workflow, while per-machine state and work live in Statistics
+  - honesty: The app shell renders exactly four top-level tabs and no runs/history/ledger/inbox route exists at top level
+    - instruction: Playwright: count nav links == 4; router table has no top-level runs route
+- Workflows declare inputs, internal variables, steps and outputs and do not know which trigger fired them; a rule binds a trigger (+ optional condition) to an optional workflow and a required action (issue #2 'Workflow'; operator decision q3)
+  - honesty: A workflow definition contains no reference to any trigger; a rule with no workflow validates and runs Trigger -> Action
+    - instruction: schema test: workflow schema has no trigger field; engine test runs a workflow-less rule end to end
+- Run state is persisted (not an in-memory call stack) because human/remote actors make runs long-running and asynchronous (issue #1 honesty condition)
+  - honesty: Killing the engine process mid-run and restarting resumes the run from persisted state without re-executing completed steps
+    - instruction: test: run with a human step pending, restart engine, resolve the human step, assert completed steps executed once
+- Rules can depend on a predecessor rule via a relationship (must run after / may run after) that also scopes which exported outputs are visible; exported outputs are explicit, not a global mutable bag (issue #2 'Rule chaining', 'Variables')
+  - honesty: A downstream rule sees only the outputs its predecessor explicitly exports, and 'must run after' blocks firing until the predecessor succeeded
+    - instruction: engine tests for must/may after + export visibility (unexported var reference fails validation)
+- Actor is a generic model with concrete types (agent, human, daemon/service, runner/code, robot) plus capabilities, and is referenced from rules/workflows — not a stage in the rule chain (issue #2 'Actor', 'Actors tab')
+  - honesty: Actor kinds agent, human, service, daemon, runner, robot all validate against one Actor schema with a capabilities list, and no rule-stage schema has an actor slot
+    - instruction: schema tests over one fixture per kind
+- Default UX is graphical with large type/targets, minimal prose and chrome, smooth overview↔edit transitions, keyboard access and prefers-reduced-motion; raw YAML/JSON is an advanced mode (issue #2 'UX principles')
+  - honesty: Every interactive control is reachable and operable by keyboard with visible focus; with prefers-reduced-motion all transitions are disabled; body text >= 16px and targets >= 44px
+    - instruction: Playwright keyboard walk + axe-core 0 serious violations + reduced-motion emulation test
+- The HTTP API contract is pinned in one place (OpenAPI or JSON Schema) so the web editor and the Python backend cannot drift (issue #1 'Shape the operator asked for')
+  - honesty: One committed OpenAPI file is the contract; the API's generated schema equals it and the TS types compile against it
+    - instruction: CI: diff served /openapi.json vs committed api/openapi.json; tsc on web/src/api/types.ts
+- A rule's trigger and condition evaluate where the rule is placed (a named machine, an actor's machine, or a machine resolved from a requirement — see c60), so a rule can check local state on spark, thor, etc. (operator, this session)
+  - honesty: A rule placed on thor evaluates its trigger and condition on thor (not on the host that received the edit)
+    - instruction: integration test with two engine nodes: rule placed on node B, assert evaluation log on B only
+- Each workflow step declares its kind (logic, AI call, code run, actor task), typed input/output ports, and its own placement (machine, actor, or requirement — c60), so one run can hop spark → thor → spark2 (operator, this session)
+  - honesty: A three-step workflow placed spark -> thor -> spark2 executes each step on its placed host, passing typed outputs between them
+    - instruction: multi-node integration test asserting per-step host + port type validation
+- Agent actors are configured either from a DB record or from a repo's root config (loaded from the repo), and carry harness and model among their fields (operator, this session)
+  - honesty: The same agent actor can be defined from a DB record or loaded from a repo's culture.yaml, and both produce an identical Actor model with harness and model fields
+    - instruction: test: load culture-rules' own culture.yaml and an equivalent DB record, assert equal Actor
+- The editor is reachable remotely at rules.culture.dev with SSO provided by cultureflare (operator, this session)
+  - honesty: rules.culture.dev requires Cloudflare Access SSO; an unauthenticated request never reaches the API handlers, and a request with a valid Access JWT does
+    - instruction: manual + scripted check: curl without session gets Access redirect; API rejects missing/invalid Cf-Access-Jwt-Assertion on the loopback listener
+- Before building the UI, three distinct graph-first UI directions are presented as visual mock-ups and the operator picks one (operator, this session)
+  - honesty: The operator picked a direction from the published mock-ups before any web code is written (recorded as q6)
+    - instruction: q6 resolved in .devague/questions; canvas link in the spec
+- The editor exposes an #agent-state element and CI runs a webglass job asserting the built SPA reports ready with no errors (culture-nodes/web.yml, webglass-cli/docs/ci-recipe.md)
+  - honesty: The built SPA sets #agent-state to ready with no uncaught errors, asserted by a CI webglass job
+    - instruction: CI web job runs webglass against the built bundle
+- Repo-based agent actors load from the repo's culture.yaml (suffix, backend, model, thinking, channels, `system_prompt`, tags, extras such as engine/`base_url`/`acp_command`), handling both the single-agent and agents: list shapes
+  - honesty: Loading culture.yaml handles both single-agent top-level and agents: list shapes and keeps unknown keys as extras
+    - instruction: unit tests with culture-rules, culture and steward culture.yaml fixtures
+- events-cli is the event trigger source: culture-rules registers durable subscriptions on type patterns (task.\* → events/task/+), drains in bounded batches, dedupes on envelope id (at-least-once QoS 1), and propagates correlationId/causationId/runId onto events it emits
+  - honesty: A durable events-cli subscription feeds triggers; a redelivered envelope (same id) never fires a rule twice
+    - instruction: test with a fake drain returning a duplicate id; assert one firing
+- rules.culture.dev is provisioned with `cultureflare remote-login setup --hostname rules.culture.dev --service http://127.0.0.1:<port> --allow <email>|--allow-domain <dom> [--with-service-token]`, dry-run first then --apply; the operator runs cloudflared with the printed (or shushu-sealed) tunnel token on the hosting machine
+  - honesty: rules.culture.dev is provisioned by a documented cultureflare remote-login dry-run then --apply, recorded in docs/operations
+    - instruction: docs/operations/rules-culture-dev.md contains the exact commands and the resulting tunnel/app ids
+- The API validates the Cf-Access-Jwt-Assertion JWT (team domain agentculture.cloudflareaccess.com + the app's AUD) itself, honoured only on a loopback listener that cloudflared reaches, with a separate LAN listener that ignores Access headers — mirroring culture-nodes' two-listener split
+  - honesty: JWT validation checks signature (team JWKS), aud and exp; Access headers are ignored on the LAN listener
+    - instruction: unit tests with forged/expired/wrong-aud tokens; LAN listener test ignores the header
+- The HTTP server lives in an optional extra (e.g. culture-rules\[server\]) and is imported lazily inside the serve handler, so the core library + CLI keep dependencies = \[\] and teken doctor (which runs the CLI in-process) stays green; CI jobs that test the API sync that extra
+  - honesty: pip install culture-rules (no extras) has zero third-party runtime deps and the CLI runs; the server needs the extra
+    - instruction: CI: fresh venv install without extras, run culture-rules learn; teken doctor 26/26
+- The built web bundle ships inside the wheel as package data (e.g. `culture_rules`/`web_dist`) served by the API same-origin; publish.yml's paths filter gains web/\*\* and its build step runs the npm build before uv build
+  - honesty: The published wheel contains the built web bundle and serving it needs no Node at runtime
+    - instruction: CI: unzip -l wheel shows `culture_rules`/`web_dist`/index.html; publish.yml paths include web/\*\*
+- CI gains a web job (setup-node pinned to the SHA already used in lint, npm ci, typecheck, vitest, build, webglass); .gitignore gains `node_modules`/, web/dist, \*.tsbuildinfo and run-state paths; sonar.sources/tests/exclusions widen deliberately to web/src
+  - honesty: CI has a web job and the gitignore/sonar/markdownlint config covers the frontend without ignoring source dirs
+    - instruction: CI green; git check-ignore web/src/lib/x.ts returns not-ignored
+- Template self-description leftovers are replaced with culture-rules wording alongside the first real verbs: cli/`__init__.py`:74, learn.py:58-65,98, explain/catalog.py:146-150,215, overview.py:4, whoami.py:7 (and the CLAUDE.md paragraph that lists them)
+  - honesty: No 'clonable template' wording remains in `culture_rules`/ self-description
+    - instruction: grep test in tests/
+- The project exposes a CLI and an MCP server that control rules, workflows and actors (list/show/create/update/enable/disable/run, dry-run by default with --apply), alongside the web editor (operator, this session)
+  - honesty: Every rule/workflow/actor verb exists on the CLI and as an MCP tool, writes are dry-run by default and --apply commits
+    - instruction: parity test (c72) + CLI test that a write without --apply changes nothing
+- Rules, workflow steps and actors each have an enable/disable toggle, edit and delete — in the editor and mirrored as CLI/MCP verbs (enable, disable, edit/update, delete; destructive ones dry-run by default with --apply) (operator, this session)
+  - honesty: Rules, steps and actors each support enable, disable, edit and delete in UI, CLI and MCP; a disabled item never fires/executes; delete is dry-run unless --apply
+    - instruction: engine test: disabled rule ignores matching event; parity test covers the four verbs
+- A Statistics tab shows each enrolled machine as a lane (direction A) with its live state (online, load: CPU/GPU/memory), what it is working on now (running steps + their workflow), queue depth, and recent work (24h activity, ok/failed) (operator, this session)
+  - honesty: Statistics shows every enrolled machine (including offline ones) with load, running steps, queue depth and 24h ok/failed, refreshed live
+    - instruction: API test for /machines/stats + Playwright: offline host renders as offline
+- Chosen UI composition: Rules tab = direction C (rule list + focused vertical rule), Workflows tab = direction B (free-form node editor with typed ports, machine on each node), Actors tab = direction C (large-type roster with inline expand), Statistics tab = direction A (machine lanes) (operator, this session)
+  - honesty: The shipped tabs follow the chosen composition (Rules C, Workflows B, Actors C, Statistics A)
+    - instruction: design review against the canvas row 'Chosen' before merge
+- Replay: a rule can be dry-run against recorded events (events-cli history) to show which runs would have fired, before it is enabled (operator, this session)
+  - honesty: Replay against recorded events reports which runs would fire without executing any action
+    - instruction: test: replay N recorded envelopes, assert 0 action executions and a correct would-fire list
+- Run overlay: a run lights up its path on the workflow graph (which steps ran, on which machine, with outcome), so history is shown in context, not as a tab (operator, this session)
+  - honesty: A run's path on the workflow graph shows each step's host and outcome, sourced from persisted run state
+    - instruction: Playwright: run a fixture workflow, assert node states in the overlay
+- Capability placement: a step may request a capability (e.g. gpu) instead of a named machine, and the engine places it on an enrolled machine/actor that offers it (operator, this session)
+  - honesty: A step requesting capability gpu is placed only on a host or actor advertising gpu, and fails validation if none is enrolled
+    - instruction: placement resolver unit tests
+- Workflows and rules export to and import from files (JSON/YAML, round-tripping with the graphical editor; that view is the advanced two-way mode); a git repo is an optional storage target, so definitions can be saved to and loaded from a different repo than culture-rules (operator, this session)
+  - honesty: Export then import of a workflow/rule yields an identical definition, and save/load works against a second git repo
+    - instruction: round-trip test + test against a temp git repo
+- Per-actor limits: budgets (tokens/cost, aligned with culture.yaml `token_budget`) and concurrency caps per actor, enforced by the engine and visible on the actor (operator, this session)
+  - honesty: An actor at its concurrency cap queues further tasks and an actor over budget refuses new tasks with a clear error
+    - instruction: engine tests for cap and budget
+- Mesh reports: run results can be posted to a Culture mesh channel (and optionally emitted as events-cli events) so agents and humans see outcomes (operator, this session)
+  - honesty: A finished run can post a summary to a configured mesh channel; failure to post never fails the run
+    - instruction: test with a fake mesh client that raises
+- Per-actor secrets are referenced, never stored in definitions — sealed via shushu (as cultureflare --shushu does) and resolved at run time on the executing machine (operator, this session)
+  - honesty: No secret value is ever stored in a rule/workflow/actor definition, export or log; only references resolved at run time on the executing host
+    - instruction: scan-secrets + test that export of an actor with a secret contains only the reference
+- Machine identity colors are a validated categorical palette: light #0a8a78 (spark) / #b4531f (thor) / #3b4fb0 (spark2) passes all six dataviz checks (org --accent #0b655c fails the chroma floor for marks, so it stays for UI/text only); a dark-mode set is re-stepped and validated against #161b36 during build (#3fbfa8/#f0915a/#8f9ff0 fails the lightness band)
+  - honesty: Chart marks use the validated palette in light mode and a separately validated dark set
+    - instruction: `validate_palette.js` run in CI over the tokens file for both modes
+- culture-rules is a separate engine from culture-nodes for now (operator decision); it owns rules, workflows, actors and runs itself
+  - honesty: culture-rules runs with culture-nodes absent; no runtime import or network dependency on it
+    - instruction: test suite runs without culture-nodes; grep test
+- Placement of a rule or workflow step is one of: a named machine, a named actor (runs where that actor lives), or a requirement/capability (e.g. gpu) resolved by the engine to an eligible enrolled machine
+  - honesty: Placement accepts exactly three forms (machine, actor, requirement) and each resolves to one concrete host before execution
+    - instruction: resolver unit tests per form + invalid form rejected
+- Action is a distinct concept from Workflow. A rule's shape is Trigger → \[Condition\] → \[Workflow\] → Action: condition and workflow are optional, the action is required
+  - honesty: A rule without an action fails validation; a rule without condition or workflow is valid
+    - instruction: schema tests
+- Always-on multi-machine service: spark is primary, spark2 and thor are redundant; if one host falters, the editor/API keeps serving and rules keep firing without operator intervention
+  - honesty: Stopping any one of the three hosts keeps the editor/API serving and rules firing
+    - instruction: chaos test (c71)
+- Multi-host safety: a rule firing or a run step is claimed by exactly one host (lease/leader or idempotent claim keyed on event id), so redundancy never double-executes an action
+  - honesty: Each firing/step has an idempotency key and only one host can claim it, so no action executes twice under failover
+    - instruction: concurrent-claim test across two engine instances on the shared store
+- Persisted state (rules, workflows, actors, machines, run state and history) lives in MongoDB or Postgres, not in local files (operator, this session)
+  - honesty: The engine starts and runs with only a MongoDB (or Postgres) URL configured and writes no state to local files
+- State is backed up to AWS S3: the full culture-rules configuration (rules, workflows, actors, machines and settings) and run history (operator, this session)
+  - honesty: A scheduled backup writes config + run history to S3 and a restore into an empty store reproduces every rule, workflow, actor and run
+- S3 backups are encrypted (SSE-S3 or SSE-KMS), versioned with a retention policy, scheduled (e.g. daily snapshot + hourly run-history increments), and the bucket/region/credentials are configuration — never committed (scan-secrets stays green)
+  - honesty: Backup objects are encrypted at rest and versioned, the schedule runs unattended, and no bucket credential appears in any committed file
+
+## Honesty conditions
+
+- All of c2-c14, c45-c63 are delivered or explicitly deferred in the plan; nothing in the announcement ships only as a mock-up
+  - instruction: plan coverage report maps every confirmed claim to a task
+- No code path calls eval/exec/compile on user-supplied condition text; conditions round-trip JSON -> evaluate deterministically
+  - instruction: bandit B307 clean + test that evaluating the same condition+input 1000x gives identical results; grep test forbids eval/exec in `culture_rules`/
+- web/ has no dependency on agentfront/irc-lens/league templates; its stack is Vite+React+@xyflow/react
+  - instruction: package.json review in PR
+- No callsmith actor type ships in this scope
+  - instruction: grep test: no callsmith reference in `culture_rules`/
+- culture-rules ships no broker, no MQTT server and no event-history store of its own
+  - instruction: dependency + module review: no broker code; events history read only via `events_cli`
+- No code imports workledger, agenda or protocols packages; seams are interfaces with in-repo default implementations
+  - instruction: import-linter / grep test
+- eidetic is not used for run state; if used at all it is an optional subprocess sink
+  - instruction: grep test: no eidetic import in the run-state module
+- Inter-host dispatch uses LAN/tailnet or the mesh, never the public hostname
+  - instruction: config review + test that dispatcher refuses rules.culture.dev as a peer address
+- scripts/scan-secrets.py passes with the frontend and config committed
+  - instruction: CI lint job
+- README and learn name the operator-in-browser and agents-over-CLI/MCP as the two audiences
+  - instruction: doc review
+- The spec background describes the current scattered state with citations to the scope entries
+  - instruction: spec review
+- The README pitch states the one-sentence why
+  - instruction: doc review
+- The demo script reproduces the after-state end to end on the three hosts
+  - instruction: docs/demo.md walkthrough executed once before release
+- The 5 s / 2 s latencies are measured, not asserted by inspection
+  - instruction: timed e2e test in CI or a documented manual run with numbers
+- The failover numbers come from an executed chaos run
+  - instruction: recorded chaos-run output in the PR
+- The parity test exists and fails when a verb is missing from any surface
+  - instruction: mutation check: remove one MCP tool, test fails
+- The four gates are CI-enforced, not manual
+  - instruction: tests.yml contains each gate
+
+## Success signals
+
+- A rule authored in the editor fires within 5 s of a matching events-cli event and its run appears in the run overlay and Statistics within 2 s of each step completing
+  - instruction: e2e test: emit a test event via events-cli, assert run start <= 5 s and SSE update <= 2 s (Playwright + pytest timing)
+- With any one of spark, spark2 or thor stopped, rules.culture.dev keeps serving (>= 99% of 200 requests succeed during failover) and 100 replayed events produce exactly 100 action executions — 0 duplicates, 0 lost
+  - instruction: chaos test: stop one host's service, drive 100 events, count action executions by idempotency key
+- 100% parity: every rule/workflow/actor operation (list, show, create, update, enable, disable, delete, run, export, import) is reachable from the editor, the CLI and the MCP server, enforced by a parity test over the one command registry
+  - instruction: tests/`test_surface_parity.py` enumerates the registry and asserts each verb exists on CLI, MCP tool list and HTTP OpenAPI
+- Repo gates stay green: teken cli doctor --strict 26/26 (or more), coverage >= 60%, SonarCloud quality gate passed, webglass reports ready with 0 errors
+  - instruction: CI jobs test, lint, web, harness-smoke all pass on the PR
+
+## Scope / boundaries
+
+- Conditions are never eval() of user Python; they are a serialisable predicate the frontend edits graphically and the backend evaluates deterministically (issue #1 Condition row; issue #2 'Conditions')
+- agentfront, irc-lens, league-of-agents-platform and webglass-cli are not React precedents and are not reused as the editor stack
+- callsmith is not modelled as a structured-call actor yet: it is a scaffold with only introspection verbs; at most a future capability
+- culture-rules does not build an event transport, broker or event history store — that is events-cli's; but events-cli's planned 'pipelines' (#8, contract.md:41) overlaps workflows and needs an explicit boundary
+- No integration is claimed with workledger-cli, agenda or protocols-cli: all three are unbuilt scaffolds with only introspection verbs; culture-rules keeps a seam (run-history sink, task source, workflow definition) instead
+- eidetic is not a run-state or event store (no transactional resume, no monotonic cursor); at most an optional subprocess sink for run summaries
+- Machine-to-machine traffic (rules/steps dispatching to thor, spark2) does not ride the public rules.culture.dev hostname; one hostname = one tunnel = one service URL in cultureflare, so remote machines talk over LAN/tailnet or the mesh
+- No committed JSON file carries a non-localhost url/host/endpoint/`base_url` key (e.g. a rules.culture.dev base URL in package.json or a config JSON); the public origin lives in .md/.py/.ts or env
+
+## Assumptions
+
+- web/ follows the culture-nodes/web precedent: Vite 6 + React 18 + TypeScript ~5.6 + @xyflow/react ^12 + elkjs auto-layout, hand-written CSS, npm with tracked lockfile, vitest + Playwright, typecheck via tsc -b
+- The editor's look comes from org's 'First light over the mesh' tokens (Fraunces + Albert Sans), cited-and-pinned as web/src/culture-design/tokens.css with a byte-identity check script, as culture-nodes does
+- The web editor is same-origin with the Python API, holds no credentials, and learns identity from a GET /whoami endpoint that echoes the Cloudflare-verified identity (culture-nodes pattern)
+- API TS types are hand-maintained against a committed OpenAPI file (culture-nodes precedent) rather than generated, unless /think picks a generator
+- culture-nodes already ships much of the engine half of #1: a durable ledger-native workflow orchestrator in production at nodes.culture.dev (Go, Postgres), with immutable workflow graphs, an actor registry, an async actor protocol, human.ask tasks and trigger-condition-action declarations with CEL conditions; culture-rules must decide whether it is a rules+editor layer over culture-nodes or a separate engine before modelling anything
+- Conditions are stored as a typed JSON predicate tree (ops: compare, and/or/not, exists, in, matches; operands: trigger fields, variables, literals) evaluated by a dependency-free evaluator in core and edited graphically; a CEL-style text form is the advanced, inspectable view, kept to the subset culture-nodes' CEL also accepts
+- Actor model reuses culture-nodes' actors table shape (`actor_key`, revision, kind, protocol, `endpoint_ref`, capabilities JSONB, metadata JSONB; append-only revisions) and its kind vocabulary (claude, codex, qwen, pi, colleague, human, code), extended with robot/service/daemon from #2
+- Actor invocation uses (or mirrors) culture-nodes' actor protocol: InvocationRequest{`run_id`, `node_run_id`, `attempt_id`, input, deadline, callback} → 202 + callback events (accepted/heartbeat/progress/completed/failed/blocked) → InvocationResult{outcome, output, usage}
+- No machine-enrollment registry exists anywhere: the de-facto machine list is the culture mesh server names (~/.culture/server.yaml name=spark; mesh.yaml links thor, orin). 'spark2' is not present. culture-rules needs its own Machine entity (name, address, enrolled agents/runners, liveness) or must source it from the mesh config
+- Agent actors on a machine are reachable over the mesh as `<machine>-<agent>` nicks via agentirc.`agent_client`.AgentClient (async: connect/send/messages); there is no request/reply correlation, so task replies need a correlation convention
+- 'Harness' in the Actor model is culture.yaml's 'backend' (claude|codex|colleague|copilot|acp) unified with culture-nodes' `actor_kind` (claude|codex|qwen|pi|colleague|human|code); no 'harness' key exists in any culture.yaml, so culture-rules defines the mapping
+- A one-shot 'run this repo with harness+model and return JSON' actor uses colleague work --repo --engine --model --json, whose TaskResult contract is frozen and drift-tested
+- Live run updates in the editor use SSE (as culture-nodes/web does with EventSource) through the tunnel; cultureflare says nothing about WebSocket/SSE, so this is verified at deploy time
+- CLI, MCP and HTTP verbs are derived from one command registry via agentfront (App registry → CLI + MCP server + HTTP), with MCP behind an optional \[mcp\] extra so the core stays dependency-free; the React editor talks to the same HTTP surface
+- Web editor e2e tests run with Playwright (as culture-nodes/web does) and the frontend-design guidance shapes the chosen direction during build
+- rules.culture.dev stays one Cloudflare tunnel with a cloudflared connector on each of spark, spark2 and thor (tunnel replicas), each pointing at its local API on the same port; cultureflare provisions it once and never runs cloudflared itself — replica behaviour is Cloudflare's, unverified in any repo
+
+## Scope exploration
+
+- `s1` — `culture-nodes/web/package.json`: the only React Flow app in the workspace: @xyflow/react ^12.11.2, elkjs ^0.9.3, react ^18.3.1, vite ^6.4.3, typescript ~5.6.3 (lines 20-39); no ESLint/Tailwind; npm + package-lock
+  - seeds: `c15`
+- `s2` — `culture-nodes/web/src/culture-design/tokens.css + docs/adr/0001-culture-design-source.md`: tokens.css header cites agentculture/org site-astro/src/styles/global.css as source; ADR 0001 records the pin (org b4d939ba) and scripts/check-culture-design.mjs enforces byte identity; no shared npm package exists
+  - seeds: `c16`
+- `s3` — `culture-nodes/web/src/api/client.ts + internal/api/whoami.go`: client.ts header: Cloudflare Access fronts the single origin and the browser holds no credentials; GET /v1alpha1/whoami returns the edge-verified identity + mapped actor; identity-boundary.test.ts and no-bundled-secrets.test.ts guard it
+  - seeds: `c17`
+- `s4` — `culture-nodes/web/src/api/types.ts`: header: 'Types mirroring api/openapi/openapi.yaml (v1alpha1). Hand-maintained rather than generated' to avoid a generator build dependency
+  - seeds: `c18`
+- `s5` — `culture-nodes/.github/workflows/web.yml + webglass-cli`: web.yml triggers on web/\*\*, runs setup-node 20, npm ci, build, vitest, Playwright e2e, plus a webglass job on the built bundle; webglass-cli is an SPA test harness, not a frontend
+  - seeds: `c19`
+- `s6` — `agentfront / irc-lens / league-of-agents-platform`: none has a package.json; agentfront is a stdlib CLI/MCP/HTTP-markdown runtime, irc-lens is aiohttp+HTMX+SSE with Jinja templates
+  - seeds: `c20`
+- `s7` — `culture-nodes/README.md:1-8`: 'a durable, ledger-native workflow orchestrator for agents, code, services, and people. Workflows are immutable graphs; agents are triggered on their own machines through a provider-neutral protocol'; git log head 957157d1 is live TCA follow-up work (#333)
+  - seeds: `c21`
+- `s8` — `culture-nodes/schemas/declaration/declaration.schema.json`: 'Trigger-condition-action declaration': one trigger, one CEL condition (compiled at publish), one action, `start_node`/`landing_node`, `start_from` {host, `actor_kind`}, exposes\[\] for variable audience — i.e. rules with conditions and host placement already exist as a schema
+  - seeds: `c21`
+- `s9` — `culture-nodes declaration.schema.json 'condition'`: condition is a CEL string with default 'true', compiled at publish — a precedent for #1's open condition-language question
+  - seeds: `c22`
+- `s10` — `culture-nodes/migrations/0001_namespaces_and_identity.sql:35-55 + adapters/`: Postgres actors table is the only DB-based agent registry in the workspace; adapters exist for claude-code, codex, colleague, pi, qwen, human-inbox, jira, github, notify; `actor_identities` (0053) maps Cloudflare SSO subjects to actors with viewer/approver/`namespace_administrator` roles
+  - seeds: `c23`
+- `s11` — `culture-nodes/internal/actors/protocol.go:97-113,347-360,404-440`: provider-neutral async invocation contract with callbacks; core engine does not branch on provider names (PRD §9.5 culture-nodes-prd-spec.md:524)
+  - seeds: `c24`
+- `s12` — `~/.culture/server.yaml + ~/.culture/mesh.yaml (this host)`: server.name: spark; links: thor 100.105.216.63:6667, orin 100.107.69.37:6667; no spark2; read on spark only
+  - seeds: `c25`
+- `s13` — `culture-nodes worker_presence (migrations/0055) + fleet-cli`: `worker_presence`(`worker_id`, hostname, `actor_keys`\[\], `last_seen`) is liveness, not enrollment; actor placement lives in `endpoint_ref`/metadata, docs/guide.md:100-120 says placement is a registry fact not a workflow property; fleet-cli is a drone-fleet scaffold with only introspection verbs (fleet-cli/CLAUDE.md:7-24) — not a machine registry
+  - seeds: `c25`
+- `s14` — `culture-nodes/docs/guide.md:100-120`: workflow nodes 'uses:' an `actor_key` resolving to its highest revision; spark/thor/orin appear only as illustrative examples
+  - seeds: `c26` (rejected)
+- `s15` — `agentirc/agentirc/agent_client.py:102 + culture docs/reference/server/architecture.md:193-194`: public semver-tracked AgentClient(host, port, nick, channels); nicks must match {servername}-{agent}; cross-federation routing to a remote nick claimed in docs but not verified in code
+  - seeds: `c27`
+- `s16` — `culture/culture_core/config.py:89-135,301-330`: AgentConfig dataclass + `load_culture_yaml`(directory, suffix) accept both shapes; unknown keys go to extras; yaml.`safe_load`, no pydantic; `culture_core` is heavy, so citing the ~20-line shape logic is the dependency-free option
+  - seeds: `c28`
+- `s17` — `culture/culture_core/cli/agents.py:99 + culture-rules/docs/harness-selection.md`: backend vocabulary claude/codex/colleague/copilot/acp; harness-selection.md separates interactive harness (Selection 1) from mesh-resident backend (Selection 2); grep for 'harness' in config.py is empty
+  - seeds: `c29`
+- `s18` — `colleague/colleague/contract.py:366-396 + colleague/docs/contract.md`: TaskResult{`task_id`, status, summary, `changed_files`, steps, usage, branch, `pr_url`, error}; --json puts only TaskResult on stdout; flag > `COLLEAGUE_`\* > `OPENAI_`\* precedence
+  - seeds: `c30`
+- `s19` — `callsmith/README.md 'Status'`: 'No finetuning code, no Hugging Face client, no model resolver, and no invocation path on disk today'
+  - seeds: `c31`
+- `s20` — `events-cli/CLAUDE.md:122-129,211-225 + events_cli/subs/drain.py:199 + docs/contract.md:215-247`: built: Envelope{id,type,source,time,schemaVersion,data,correlationId,causationId,runId,...} strict; `drain_subscription` returns bounded batch + cursor; broker 127.0.0.1:1883 loopback by default (`EVENTS_BROKER_HOST`/PORT); no watch --follow, so triggers poll/drain
+  - seeds: `c32`
+- `s21` — `events-cli/docs/contract.md:41,49,502-503`: pipelines (apply/list/show/run/inspect) planned, not built; envelope already carries runId/correlationId/causationId
+  - seeds: `c33`
+- `s22` — `workledger-cli / agenda / protocols-cli README.md + CLAUDE.md`: workledger = intended append-only work ledger (nothing built); agenda = GitHub work-state tracking (nothing built, no inbox mentioned); protocols-cli = 'workflow system ... how work is done, by whom, under a verifiable contract' — highest conceptual overlap, README says 'not built yet'
+  - seeds: `c34`
+- `s23` — `eidetic-cli/CLAUDE.md:27-29 + events-cli/docs/decisions/2026-07-24-history-store-evaluation.md`: subprocess-not-import contract; events-cli evaluated and rejected eidetic as a history store
+  - seeds: `c35`
+- `s24` — `cultureflare/cultureflare/_remote_login/__init__.py:223-358 + README.md:52-55`: setup = verify Zero Trust org → tunnel → ingress {hostname→service, 404} → proxied CNAME → `self_hosted` Access app + `<app>-allow` policy (email / `email_domain`); --service required; cloudflared is never run by cultureflare (design spec :49-50)
+  - seeds: `c36`
+- `s25` — `cultureflare (grep: no Cf-Access-Jwt-Assertion/AUD anywhere)`: cultureflare documents no origin-side validation and does not print the Access app's AUD tag (SetupResult exposes `team_domain`, `access_app_id`, `policy_id` only) — origin validation is culture-rules' job
+  - seeds: `c37`
+- `s26` — `culture-nodes/docs/operations/nodes-culture-dev.md + internal/api/principal.go`: nodes.culture.dev precedent: cloudflared on thor → 127.0.0.1:18081 honours Cf-Access-Jwt-Assertion; 0.0.0.0:18080 LAN listener does not (replay split, spec c43); `NODES_ACCESS_TEAM_DOMAIN` + `NODES_ACCESS_AUD` set together or not at all
+  - seeds: `c37`
+- `s27` — `cultureflare (grep WebSocket/SSE/event-stream: no hits) + culture-nodes/web/src/api/client.ts`: cultureflare silent on streaming; ingress originRequest only preserved, never set; culture-nodes/web uses EventSource behind the same Access setup
+  - seeds: `c38`
+- `s28` — `cultureflare/_remote_login/_tunnel.py:94-97 + spec:348`: tunnel config PUT sets exactly (hostname→service) + 404 catch-all; v1 is 1:1 hostname-to-app; no multi-host support
+  - seeds: `c39`
+- `s29` — `pyproject.toml:16,29-30,32-43 + teken cli doctor . --strict (26/26)`: dependencies=\[\]; wheel packages=\['`culture_rules`'\] only; no optional-deps yet; pyyaml is dev-only so core cannot import yaml; teken invokes the CLI in-process so a top-level fastapi import would break it
+  - seeds: `c40`
+- `s30` — `.github/workflows/publish.yml:3-10,48-53`: paths: \[pyproject.toml, `culture_rules`/\*\*\] — a web/-only change never publishes; plain uv build; dev-version sed rewrites every line starting 'version = '
+  - seeds: `c41`
+- `s31` — `.github/workflows/tests.yml + .gitignore + sonar-project.properties`: jobs: test, lint (setup-node 20 for markdownlint only), harness-smoke, version-check; .gitignore has unanchored lib/ build/ dist/ that would swallow web/\*\*/lib; sonar.sources=`culture_rules`, no web/ exclusions
+  - seeds: `c42`
+- `s32` — `scripts/scan-secrets.py:179-230`: endpoint check only parses whole-JSON files and only keys ^(base\[`_`-\]?url|endpoint|url|host)$ with non-localhost http(s) hosts; .md/.py/.ts/.yaml are not endpoint-scanned; token-assignment regex (L68-79) can trip on 'token: <20+ chars>' in TS
+  - seeds: `c43`
+- `s33` — `culture_rules/cli + explain/catalog.py`: every new verb needs a catalog ENTRY (`test_every_catalog_path_resolves` auto-tests it), a learn command-map + JSON entry, overview `_VERBS`, and a noun with action verbs needs its own 'overview' (teken `overview_cli_noun_exists`); version is 0.9.1 in pyproject, not 0.9.0 as CLAUDE.md says
+  - seeds: `c44`
+- `s34` — `agentfront/README.md:10,25-31,51-55 + pyproject.toml:21-24`: agentfront 0.20.0: one App registry yields CLI, a minimal MCP server (app.`mcp_server`(), docstring+signature feed the tool schema) and HTTP; CLI/HTTP stdlib-only, MCP needs the official mcp SDK behind agentfront\[mcp\]; irc-lens depends on agentfront\[mcp\]>=0.20.0 and events-cli plans its MCP/HTTP binding through it (CLAUDE.md:13,47)
+  - seeds: `c45`, `c46`
+- `s35` — `dataviz validate_palette.js on machine colors`: light: #0b655c fails chroma floor (0.078); #0a8a78,#b4531f,#3b4fb0 pass (worst CVD ΔE 11.4 deutan); dark candidate fails lightness band
+  - seeds: `c58`
+- `s36` — `cultureflare/_remote_login/_tunnel.py:94-97 + design spec :49-50 (re-read for HA)`: one hostname = one tunnel = one service URL; cultureflare prints the tunnel token and leaves running cloudflared to the operator — so running the same token on several hosts is outside cultureflare and unverified here
+  - seeds: `c64`
+- `s37` — `spark host: docker ps + ss -ltn`: mongo:8.0 containers already run on spark (weather-mongodb, eidetic-mongo, qq-mongodb; 27017 listening) plus postgres:17-alpine (tca-gate-pg); data-refinery-cli ships a mongo store backend (`data_refinery`/store/backends/mongo.py) behind a \[store\] extra (README.md:25-30)
+  - seeds: `c74`, `c75`
+
+## Decisions
+
+- Use a MongoDB 3-member replica set (spark primary-preferred, spark2 and thor members; majority write concern) behind a storage port interface: automatic primary election covers one host faltering, change streams feed live SSE updates, and a Postgres adapter can be added behind the same port
+
+## Open parks
+
+- [unknown_nonblocking] Which IdPs the agentculture Zero Trust org has configured is not in any repo (cultureflare README.md:79, 195-197: dashboard-only, default IdP)
+- [unknown_nonblocking] spark2 is not a mesh link in ~/.culture/mesh.yaml (only thor, orin); whether it exists/what address it has is unknown
+- [unknown_nonblocking] Whether agentirc federation routes a DM to a remote `<machine>-<agent>` nick is claimed in docs but unverified in code
+- [unknown_nonblocking] How culture-nodes plays with culture-rules (consumer of its actor adapters, shared CEL/actor contracts, compile target, or peer) — operator wants to think it through
