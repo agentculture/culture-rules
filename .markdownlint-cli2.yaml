@@ -19,6 +19,7 @@ ignores:
   # The web editor's dependencies and build output (web/README.md).
   - "web/node_modules/**"
   - "web/dist/**"
+  - "culture_rules/web_dist/**"
   - "web/test-results/**"
   - "web/playwright-report/**"
   - ".local/**"
