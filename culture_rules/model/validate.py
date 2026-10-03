@@ -30,7 +30,13 @@ from culture_rules.model.common import SCHEMA_VERSION, RetryPolicy
 from culture_rules.model.graph import find_cycle
 from culture_rules.model.machine import Machine
 from culture_rules.model.placement import PLACEMENT_FORMS, Placement
-from culture_rules.model.refs import ref_errors
+from culture_rules.model.refs import (
+    LITERAL_KEY,
+    REF_KEY,
+    TRIGGER_FIELDS,
+    ref_errors,
+    structured_form,
+)
 from culture_rules.model.rule import Rule, Trigger, WorkflowRef
 from culture_rules.model.workflow import LOOP_KINDS, Edge, Output, Port, Step, Variable, Workflow
 
@@ -40,7 +46,9 @@ __all__ = ["ValidationError", "validate", "validate_data"]
 INPUTS_NODE = "inputs"
 _RESERVED_STEP_IDS = frozenset({"inputs", "outputs", "vars", "steps", "trigger"})
 
-_TRIGGER_EXACT = re.compile(r"^\s*trigger(?:\.[^\s.]+)*\s*$")
+#: ``trigger`` alone or ``trigger.<f>...``; it is a reference when ``f`` is an envelope
+#: field (``trigger.sh`` is a file name, not a reference - see culture_rules.model.refs).
+_TRIGGER_EXACT = re.compile(r"^\s*trigger(?:\.([^\s.]+)(?:\.[^\s.]+)*)?\s*$")
 _TRIGGER_TEMPLATE = re.compile(r"(?:\{\{|\$\{)\s*trigger\b")
 _SUPPORTED_MAJOR = int(SCHEMA_VERSION.split(".")[0])
 
@@ -214,11 +222,29 @@ def _schema_version(value: Any, path: str, errors: Errors) -> None:
 
 
 def _is_trigger_ref(value: str) -> bool:
-    return bool(_TRIGGER_EXACT.match(value) or _TRIGGER_TEMPLATE.search(value))
+    if _TRIGGER_TEMPLATE.search(value):
+        return True
+    m = _TRIGGER_EXACT.match(value)
+    return bool(m) and (m.group(1) is None or m.group(1) in TRIGGER_FIELDS)
+
+
+def _is_trigger_target(target: Any) -> bool:
+    """Whether a ``{"$ref": target}`` points into the trigger scope (any field)."""
+    return isinstance(target, str) and target.strip().split(".")[0] == "trigger"
 
 
 def _trigger_refs(value: Any, path: str) -> Iterator[str]:
-    """Paths inside an arbitrary JSON value that reference the trigger scope."""
+    """Paths inside an arbitrary JSON value that reference the trigger scope.
+
+    ``{"$literal": ...}`` values are never references; ``{"$ref": "trigger..."}`` always is.
+    """
+    form = structured_form(value)
+    if form == LITERAL_KEY:
+        return
+    if form == REF_KEY:
+        if _is_trigger_target(value[REF_KEY]):
+            yield _join(path, REF_KEY)
+        return
     if isinstance(value, str):
         if _is_trigger_ref(value):
             yield path
