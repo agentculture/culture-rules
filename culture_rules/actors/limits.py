@@ -20,7 +20,8 @@ changed only with ``update_if`` compare-and-set on a ``rev`` counter, so caps ho
 hosts and threads. In-flight slots are keyed by idempotency key (a re-ask of the same key
 never takes a second slot) and carry the attempt's deadline, so a slot whose completion
 never arrives is reaped. Slots of ``accepted`` work are freed by :meth:`LimitedActor.release`
-(call it from wherever ``Executor.deliver`` is called, passing the tokens used).
+(every deliver path goes through :func:`culture_rules.node.completions.deliver`, which
+calls it with the tokens used).
 
 Every attempt of a step shares one idempotency key. Only a *completed* key is remembered
 as done: a re-ask of it (a lost acknowledgement) replays without a new slot or a budget
@@ -56,6 +57,7 @@ __all__ = [
     "LimitedActor",
     "limits_from_config",
     "parse_limit_error",
+    "tokens_of",
 ]
 
 USAGE_COLLECTION = "actor_usage"
@@ -105,7 +107,8 @@ def _iso(moment: datetime) -> str:
     return moment.astimezone(UTC).isoformat()
 
 
-def _tokens_of(result: InvocationResult) -> int:
+def tokens_of(result: InvocationResult) -> int:
+    """Tokens a result reports (``output.tokens`` or ``output.usage.total_tokens``), else 0."""
     out = result.output
     for value in (out.get("tokens"), (out.get("usage") or {}).get("total_tokens")):
         if _is_int(value) and value > 0:
@@ -217,10 +220,15 @@ class LimitedActor:
 
         ``completed=True`` also remembers the key as done, so a re-ask replays without a
         slot or a budget check. Leave it False for a failure: the retry (same key) must be
-        admitted, capped and counted like new work.
+        admitted, capped and counted like new work. Releasing a key that holds no slot and
+        is already done is a no-op (a repeated delivery counts its tokens once).
         """
 
         def fn(doc: dict[str, Any]) -> None:
+            held = any(s["key"] == key for s in doc["inflight"])
+            if not held and key in doc["done"]:
+                doc["_abort"] = True
+                return
             doc["inflight"] = [s for s in doc["inflight"] if s["key"] != key]
             doc["tokens"] += max(0, tokens)
             if completed and key not in doc["done"]:
@@ -265,7 +273,7 @@ class LimitedActor:
         if verdict != "replay_done":  # a done key's tokens were counted the first time
             self.release(
                 idempotency_key,
-                tokens=_tokens_of(result),
+                tokens=tokens_of(result),
                 completed=result.outcome == COMPLETED,
             )
         return result

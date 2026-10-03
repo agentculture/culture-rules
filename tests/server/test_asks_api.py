@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 pytest.importorskip("fastapi")
@@ -39,3 +41,55 @@ def test_answer_endpoint_resumes_run_once_then_conflicts():
     doc = ex.run(run["id"])
     assert doc["status"] == "succeeded"
     assert step_state(doc, "h")["outputs"] == {"answer": "yes"}
+
+
+def test_answer_frees_the_human_slot_so_a_second_ask_is_admitted():
+    """#6: the API answer path releases the human's LimitedActor slot (max_concurrency 1)."""
+    from datetime import UTC, datetime
+
+    from culture_rules.model.actor import Actor
+    from culture_rules.model.placement import Placement
+    from culture_rules.node.actors import ActorRouter
+    from tests.engine.run_helpers import Clock, enrol_online, machine, port, step, workflow
+
+    clock = Clock(datetime.now(UTC))  # the API executor uses the wall clock
+    store = MemoryStore(clock=clock)
+    enrol_online(store, clock, machine("spark"))
+    alice = Actor(id="alice", name="alice", kind="human", machine="spark")
+    store.put("actors", replace(alice, params={"max_concurrency": 1}).to_dict())
+    emitter = Emitter(FakeSink(), source="culture-rules/test")
+    router = ActorRouter(
+        store,
+        ports={"*": FakeActor()},
+        factories={"human": lambda a: HumanAdapter(store, emitter, clock=clock)},
+        clock=clock,
+    )
+    ex = Executor(store, "spark", router, clock=clock)
+    wf = workflow(
+        (
+            step(
+                "h",
+                "actor_task",
+                outputs=(port("answer", "any"),),
+                placement=Placement(actor="alice"),
+                config={"question": "Ship it?", "options": ["yes", "no"]},
+            ),
+        )
+    )
+    first = ex.start(rule(), wf)
+    ex.run_until_idle()
+    (ask,) = store.find(ASKS_COLLECTION)
+    assert len(store.get("actor_usage", "alice")["inflight"]) == 1
+
+    client = TestClient(dev_app(store, host="spark"))
+    r = client.post(f"/asks/{ask['id']}/answer", json={"answer": "yes"}, headers=ALICE)
+    assert r.status_code == 200
+    usage = store.get("actor_usage", "alice")
+    assert usage["inflight"] == []
+    assert ask["idempotency_key"] in usage["done"]  # completed: remembered as done
+
+    ex.run_until_idle()
+    assert ex.run(first["id"])["status"] == "succeeded"
+    second = ex.start(rule(), wf)
+    ex.run_until_idle()
+    assert step_state(ex.run(second["id"]), "h")["status"] == "waiting"  # admitted, not blocked
