@@ -222,12 +222,17 @@ def _report_trigger_refs(value: Any, path: str, errors: Errors) -> None:
 # --- semantic pass per model ---------------------------------------------
 
 
+def _below(value: float, floor: float) -> bool:
+    """``value < floor``, counting NaN as below (it is never ``>= floor``)."""
+    return value < floor or (isinstance(value, float) and math.isnan(value))
+
+
 def _check_retry(obj: RetryPolicy, path: str, errors: Errors) -> None:
     if isinstance(obj.max_attempts, int) and obj.max_attempts < 1:
         _err(errors, _join(path, "max_attempts"), "range", "max_attempts must be >= 1")
-    if isinstance(obj.backoff_s, (int, float)) and not obj.backoff_s >= 0:
+    if isinstance(obj.backoff_s, (int, float)) and _below(obj.backoff_s, 0):
         _err(errors, _join(path, "backoff_s"), "range", "backoff_s must be >= 0")
-    if isinstance(obj.backoff_multiplier, (int, float)) and not obj.backoff_multiplier >= 1:
+    if isinstance(obj.backoff_multiplier, (int, float)) and _below(obj.backoff_multiplier, 1):
         _err(errors, _join(path, "backoff_multiplier"), "range", "backoff_multiplier must be >= 1")
 
 

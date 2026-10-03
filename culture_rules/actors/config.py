@@ -64,7 +64,7 @@ def _from_mapping(raw: dict[str, Any], source: str, where: str) -> ActorConfig:
     harness = raw.pop("backend", None) or raw.pop("harness", None) or "claude"
     kind = raw.pop("kind", "agent")
     extras_in = raw.pop("extras", None)
-    known = {k: raw.pop(k) for k in list(raw) if k in _KNOWN_FIELDS}
+    known = {k: raw.pop(k) for k in _KNOWN_FIELDS if k in raw}
     extras = dict(raw)
     if isinstance(extras_in, dict):
         extras.update(extras_in)

@@ -96,7 +96,7 @@ class MigrationRegistry:
             step = self._steps.get((collection, current))
             if step is None or step.to_major > target_major:
                 raise MigrationError(
-                    f"no migration path for {collection} from major {current} " f"to {target_major}"
+                    f"no migration path for {collection} from major {current} to {target_major}"
                 )
             steps.append(step)
             current = step.to_major

@@ -14,7 +14,7 @@ from __future__ import annotations
 import secrets
 import time
 from collections.abc import Callable
-from typing import Any, TypeVar
+from typing import Any
 
 from culture_rules.store.port import StoreOps, TransientStoreError
 
@@ -26,10 +26,8 @@ __all__ = ["DEFAULT_ATTEMPTS", "run_transaction"]
 DEFAULT_ATTEMPTS = 5
 DEFAULT_BACKOFF_S = 0.02
 
-T = TypeVar("T")
 
-
-def run_transaction(
+def run_transaction[T](
     store: Any,
     fn: Callable[[StoreOps], T],
     *,

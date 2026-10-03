@@ -23,7 +23,6 @@ partial tuple is refused with :class:`AccessConfigError`.
 from __future__ import annotations
 
 import base64
-import binascii
 import hashlib
 import hmac
 import json
@@ -154,7 +153,7 @@ def _parse_keys(document: Any) -> dict[str, tuple[int, int]]:
             continue
         try:
             n, e = _b64_int(str(jwk.get("n", ""))), _b64_int(str(jwk.get("e", "")))
-        except (ValueError, binascii.Error):
+        except ValueError:  # binascii.Error is a ValueError
             continue
         if n > 0 and e > 1:
             keys[str(kid)] = (n, e)
@@ -261,7 +260,7 @@ class AccessVerifier:
         try:
             header = json.loads(_b64(parts[0]))
             signature = _b64(parts[2])
-        except (ValueError, binascii.Error):
+        except ValueError:  # binascii.Error is a ValueError
             raise VerificationError("malformed") from None
         if not isinstance(header, dict) or header.get("alg") != "RS256":
             raise VerificationError("malformed")
@@ -273,7 +272,7 @@ class AccessVerifier:
             raise VerificationError("bad_signature")
         try:
             claims = json.loads(_b64(parts[1]))
-        except (ValueError, binascii.Error):
+        except ValueError:  # binascii.Error is a ValueError
             raise VerificationError("malformed") from None
         if not isinstance(claims, dict):
             raise VerificationError("malformed")

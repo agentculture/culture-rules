@@ -59,7 +59,7 @@ import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, NoReturn
 
 from culture_rules.actors.secrets import SecretError, resolve_or_literal
 from culture_rules.store.port import StoragePort
@@ -390,12 +390,24 @@ class Backup:
             if target.find(c, limit=1):
                 raise BackupError(f"target is not empty: collection {c!r} has documents")
         snap = snaps[-1]
+        documents = self._restore_snapshot(target, snap)
+        chain, restored_to = self._apply_increments(target, snap, records)
+        return RestoreReport(snap.key, chain, documents, time.monotonic() - started, restored_to)
+
+    def _restore_snapshot(self, target: StoragePort, snap: BackupRecord) -> int:
+        """Put every document of ``snap`` into ``target``; the number of documents put."""
         body = self._load(snap.key)
         documents = 0
         for c, docs in body["collections"].items():
             for doc in docs:
                 target.put(c, doc)
                 documents += 1
+        return documents
+
+    def _apply_increments(
+        self, target: StoragePort, snap: BackupRecord, records: list[BackupRecord]
+    ) -> tuple[int, datetime]:
+        """Replay ``snap``'s increment chain onto ``target``; (chain length, restored-to time)."""
         chain, restored_to, tip = 0, snap.created_at, snap
         for rec in (r for r in records if r.kind == "increment" and r.created_at > snap.created_at):
             inc = self._load(rec.key)
@@ -407,7 +419,7 @@ class Backup:
                 else:
                     target.put(change["collection"], change["document"])
             chain, restored_to, tip = chain + 1, rec.created_at, rec
-        return RestoreReport(snap.key, chain, documents, time.monotonic() - started, restored_to)
+        return chain, restored_to
 
     def drill(self, target: StoragePort, *, source: StoragePort | None = None) -> DrillResult:
         """Restore into ``target``, measure RPO/RTO, and verify against ``source`` if given."""
@@ -454,15 +466,28 @@ def _jsonable(obj: Any) -> Any:
     return {k: (v.isoformat() if isinstance(v, datetime) else v) for k, v in data.items()}
 
 
+class _ArgvExit(Exception):
+    """argparse wanted to exit (bad argv or ``--help``); its message is already printed."""
+
+
+class _Parser(argparse.ArgumentParser):
+    """An ArgumentParser that raises :class:`_ArgvExit` instead of exiting the process."""
+
+    def exit(self, status: int = 0, message: str | None = None) -> NoReturn:
+        if message:
+            self._print_message(message, sys.stderr)
+        raise _ArgvExit(status)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="culture_rules.ops.backup", description=__doc__)
+    parser = _Parser(prog="culture_rules.ops.backup", description=__doc__)
     parser.add_argument(
         "command", choices=["snapshot", "increment", "tick", "restore", "list", "drill"]
     )
     parser.add_argument("--json", action="store_true", help="machine-readable output")
     try:
         args = parser.parse_args(argv)
-    except SystemExit:
+    except _ArgvExit:
         return 1
     try:
         store = open_store()

@@ -383,7 +383,7 @@ class Definitions:
         bundle: Bundle = read.bundle
         incoming = {r.id for r in bundle.rules}
         incoming_wf = {w.id for w in bundle.workflows}
-        rules = [r for r in bundle.rules]
+        rules = list(bundle.rules)
         rules += [
             p
             for d in tx.find("rules")

@@ -34,12 +34,12 @@ def _sdk():
 
 def build_server(client_factory: Callable[[], Any] | None = None):
     """An MCP ``Server`` exposing every registry verb; ``client_factory`` yields the API client."""
-    Server, types = _sdk()
+    server_cls, types = _sdk()
     if client_factory is None:
         from culture_rules.cli import _api  # noqa: PLC0415
 
         client_factory = _api.make_client
-    server = Server("culture-rules")
+    server = server_cls("culture-rules")
 
     @server.list_tools()
     async def _list() -> list[Any]:

@@ -33,29 +33,33 @@ from culture_rules.model.workflow import Workflow
 __all__ = ["OUTPUT_REF", "validate_rule_set"]
 
 #: ``rules.<rule id>.outputs.<output name>``
-OUTPUT_REF = re.compile(r"\brules\.([A-Za-z0-9_\-]+)\.outputs\.([A-Za-z_][A-Za-z0-9_]*)")
+#: ``(?a:...)`` keeps ``\w`` ASCII-only, as ``[A-Za-z0-9_]``, while ``\b`` stays Unicode-aware.
+OUTPUT_REF = re.compile(r"\brules\.((?a:[\w-]+))\.outputs\.((?a:[A-Za-z_]\w*))")
+
+
+def _visit(
+    node: str, stack: list[str], graph: Mapping[str, tuple[str, ...]], state: dict[str, int]
+) -> list[str] | None:
+    """Depth-first walk from ``node``; the first cycle met, closed on its start, or None."""
+    state[node] = 1
+    stack.append(node)
+    for nxt in sorted(graph.get(node, ())):
+        if state.get(nxt) == 1:
+            return stack[stack.index(nxt) :] + [nxt]
+        if nxt not in state:
+            found = _visit(nxt, stack, graph, state)
+            if found:
+                return found
+    stack.pop()
+    state[node] = 2
+    return None
 
 
 def _find_cycle(graph: Mapping[str, tuple[str, ...]]) -> list[str] | None:
     state: dict[str, int] = {}  # 1 = on stack, 2 = done
-
-    def visit(node: str, stack: list[str]) -> list[str] | None:
-        state[node] = 1
-        stack.append(node)
-        for nxt in sorted(graph.get(node, ())):
-            if state.get(nxt) == 1:
-                return stack[stack.index(nxt) :] + [nxt]
-            if nxt not in state:
-                found = visit(nxt, stack)
-                if found:
-                    return found
-        stack.pop()
-        state[node] = 2
-        return None
-
     for node in sorted(graph):
         if node not in state:
-            found = visit(node, [])
+            found = _visit(node, [], graph, state)
             if found:
                 return found
     return None
@@ -99,22 +103,19 @@ def _references(rule: Rule, path: str) -> Iterator[tuple[str, str, str]]:
         )
 
 
-def validate_rule_set(
-    rules: Iterable[Rule], workflows: Mapping[str, Workflow] | None = None
-) -> list[ValidationError]:
-    """Validate relationships across a rule set; returns ``[]`` when valid."""
-    rules = list(rules)
-    workflows = workflows or {}
-    by_id = {r.id: r for r in rules}
+def _cycle_errors(rules: list[Rule]) -> list[ValidationError]:
     errors: list[ValidationError] = []
-
     for rel, code in (("supersedes", "supersede_cycle"), ("must_after", "predecessor_cycle")):
         cycle = _find_cycle({r.id: tuple(getattr(r, rel)) for r in rules})
         if cycle:
             errors.append(
                 ValidationError("rules", code, f"{rel} edges form a cycle: " + " -> ".join(cycle))
             )
+    return errors
 
+
+def _unrunnable_errors(rules: list[Rule]) -> list[ValidationError]:
+    errors: list[ValidationError] = []
     supersedes = {r.id: tuple(r.supersedes) for r in rules}
     must_after = {r.id: tuple(r.must_after) for r in rules}
     for i, r in enumerate(rules):
@@ -129,36 +130,58 @@ def validate_rule_set(
                     "transitively, so it can never fire",
                 )
             )
+    return errors
 
+
+def _unknown_rule_errors(i: int, r: Rule, by_id: Mapping[str, Rule]) -> list[ValidationError]:
+    return [
+        ValidationError(
+            join(join(join("rules", i), rel), j),
+            "unknown_rule",
+            f"{rel} of {r.id!r} names {rid!r}, which is not a rule in the set",
+        )
+        for rel in ("must_after", "may_after", "supersedes")
+        for j, rid in enumerate(getattr(r, rel))
+        if rid not in by_id
+    ]
+
+
+def _reference_errors(
+    i: int, r: Rule, by_id: Mapping[str, Rule], workflows: Mapping[str, Workflow]
+) -> list[ValidationError]:
+    errors: list[ValidationError] = []
+    preds = set(r.must_after) | set(r.may_after)
+    for path, rid, name in _references(r, join("rules", i)):
+        if rid not in preds:
+            errors.append(
+                ValidationError(
+                    path,
+                    "not_a_predecessor",
+                    f"rule {rid!r} is not in must_after/may_after of {r.id!r}",
+                )
+            )
+            continue
+        pred = by_id.get(rid)
+        if pred is None or name not in exported_outputs(pred, workflows):
+            errors.append(
+                ValidationError(
+                    path,
+                    "unexported_output",
+                    f"rule {rid!r} does not export output {name!r}",
+                )
+            )
+    return errors
+
+
+def validate_rule_set(
+    rules: Iterable[Rule], workflows: Mapping[str, Workflow] | None = None
+) -> list[ValidationError]:
+    """Validate relationships across a rule set; returns ``[]`` when valid."""
+    rules = list(rules)
+    workflows = workflows or {}
+    by_id = {r.id: r for r in rules}
+    errors = _cycle_errors(rules) + _unrunnable_errors(rules)
     for i, r in enumerate(rules):
-        for rel in ("must_after", "may_after", "supersedes"):
-            for j, rid in enumerate(getattr(r, rel)):
-                if rid not in by_id:
-                    errors.append(
-                        ValidationError(
-                            join(join(join("rules", i), rel), j),
-                            "unknown_rule",
-                            f"{rel} of {r.id!r} names {rid!r}, which is not a rule in the set",
-                        )
-                    )
-        preds = set(r.must_after) | set(r.may_after)
-        for path, rid, name in _references(r, join("rules", i)):
-            if rid not in preds:
-                errors.append(
-                    ValidationError(
-                        path,
-                        "not_a_predecessor",
-                        f"rule {rid!r} is not in must_after/may_after of {r.id!r}",
-                    )
-                )
-                continue
-            pred = by_id.get(rid)
-            if pred is None or name not in exported_outputs(pred, workflows):
-                errors.append(
-                    ValidationError(
-                        path,
-                        "unexported_output",
-                        f"rule {rid!r} does not export output {name!r}",
-                    )
-                )
+        errors += _unknown_rule_errors(i, r, by_id)
+        errors += _reference_errors(i, r, by_id, workflows)
     return errors

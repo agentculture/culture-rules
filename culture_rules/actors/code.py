@@ -192,7 +192,7 @@ class CodeRunner:
         self,
         input: Mapping[str, Any],
         idempotency_key: str,
-        deadline: datetime,
+        _deadline: datetime,
         *,
         context: InvocationContext,
     ) -> InvocationResult:

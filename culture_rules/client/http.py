@@ -70,7 +70,7 @@ class ApiClient:
                 return resp.status, resp.read()
         except urllib.error.HTTPError as exc:
             return exc.code, exc.read()
-        except (urllib.error.URLError, OSError) as exc:
+        except OSError as exc:  # urllib.error.URLError is an OSError
             raise ApiUnreachable(f"cannot reach {self.base_url}: {exc}") from exc
 
     def request(

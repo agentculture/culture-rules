@@ -39,7 +39,7 @@ __all__ = [
 
 GRANT_SCHEME = "grant"
 _REF_RE = re.compile(r"^grant:([A-Za-z0-9][A-Za-z0-9._/-]*)$")
-_VAR_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_VAR_RE = re.compile(r"^[A-Za-z_]\w*$", re.ASCII)
 # A key is secret-bearing when one of its whole segments (split on "_", "-" and camelCase
 # humps) names a secret - so "github_token" and "apiKey" are, "author" and "auth_mode" are
 # not - unless a segment marks it as a budget/limit ("max_tokens", "token_budget").

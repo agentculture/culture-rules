@@ -327,7 +327,7 @@ def _envelope(status: int, code: str, message: str, errors: Any = ()) -> JSONRes
 def _run_status(code: str) -> int:
     if code.endswith("_not_found"):
         return 404
-    if code.startswith("invalid") or code.startswith("workflow_") or code.startswith("trigger"):
+    if code.startswith(("invalid", "workflow_", "trigger")):
         return 422 if code.startswith("invalid") else 409
     return 409
 
@@ -474,7 +474,7 @@ def create_app(
         request.state.principal = principal
         return await call_next(request)
 
-    @app.get("/whoami", response_model=WhoAmI, tags=["auth"], operation_id="whoami")
+    @app.get("/whoami", tags=["auth"], operation_id="whoami")
     def whoami(principal: Caller) -> WhoAmI:
         return WhoAmI(**principal.to_dict())
 
@@ -509,7 +509,7 @@ def create_app(
     def revoke_token(token_id: str, identity: Identity):
         return tokens.revoke(token_id, identity)
 
-    @app.get("/health", response_model=Health, tags=["ops"], operation_id="health")
+    @app.get("/health", tags=["ops"], operation_id="health")
     def health() -> Health:
         return Health(**health_status(store, datetime.now(UTC), node))
 

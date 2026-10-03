@@ -40,7 +40,7 @@ MAX_INPUT_LEN = 10_000
 MAX_DEPTH = 64
 
 CMP_OPS = ("==", "!=", "<=", ">=", "<", ">")
-_IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
+_IDENT = re.compile(r"[A-Za-z_]\w*\Z", re.ASCII)
 
 
 class ConditionError(ValueError):
@@ -285,30 +285,39 @@ def to_text(tree: dict) -> str:
 
 # --------------------------------------------------------------------------- text: parse
 
-_TOKEN = re.compile(
-    r"""\s*(?:
-    (?P<str>"(?:[^"\\]|\\.)*")
-  | (?P<num>-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)
-  | (?P<id>[A-Za-z_][A-Za-z0-9_]*)
-  | (?P<op>&&|\|\||==|!=|<=|>=|<|>|!|\(|\)|\[|\]|,|\.)
-    )""",
-    re.VERBOSE,
+# One pattern per token kind, tried in this order at each position (first match wins).
+_TOKEN_KINDS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("str", re.compile(r'"(?:[^"\\]|\\.)*"')),
+    ("num", re.compile(r"-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?")),
+    ("id", re.compile(r"[A-Za-z_]\w*", re.ASCII)),
+    ("op", re.compile(r"&&|\|\||==|!=|<=|>=|<|>|!|\(|\)|\[|\]|,|\.")),
 )
+_SPACE = re.compile(r"\s*")
+
+
+def _next_token(text: str, pos: int) -> tuple[str, str, int, int] | None:
+    """(kind, value, start, end) of the token after any whitespace at ``pos``, or None."""
+    space = _SPACE.match(text, pos)
+    start = space.end() if space else pos  # \s* always matches; the guard is for typing
+    for kind, pattern in _TOKEN_KINDS:
+        m = pattern.match(text, start)
+        if m:
+            return kind, m.group(), start, m.end()
+    return None
 
 
 def _tokenize(text: str) -> list[tuple[str, str, int]]:
     out: list[tuple[str, str, int]] = []
     pos = 0
     while True:
-        m = _TOKEN.match(text, pos)
-        if not m:
+        tok = _next_token(text, pos)
+        if tok is None:
             if text[pos:].strip():
                 bad = pos + len(text[pos:]) - len(text[pos:].lstrip())
                 raise ConditionParseError(f"unexpected character {text[bad]!r}", bad)
             break
-        kind = m.lastgroup or ""
-        out.append((kind, m.group(kind), m.start(kind)))
-        pos = m.end()
+        kind, value, start, pos = tok
+        out.append((kind, value, start))
     out.append(("end", "", len(text)))
     return out
 
