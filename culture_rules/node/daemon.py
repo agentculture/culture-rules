@@ -37,6 +37,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from culture_rules.engine.claims import CLAIMS_COLLECTION, DEFAULT_LEASE
+from culture_rules.engine.decisions import RULE_DECISIONS
 from culture_rules.engine.reports import RunReporter
 from culture_rules.engine.runs import RUNS_COLLECTION, Executor
 from culture_rules.events.ingest import EVENTS_COLLECTION, EventIngest
@@ -67,6 +68,7 @@ NODE_COLLECTIONS = (
     EVENTS_COLLECTION,
     FIRES_COLLECTION,
     RULE_FIRES,
+    RULE_DECISIONS,
     "actor_usage",
 )
 """Collections a node touches (created up front on MongoDB)."""

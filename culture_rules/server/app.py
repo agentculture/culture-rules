@@ -32,6 +32,7 @@ from culture_rules.auth.resolve import ACCESS_HEADER, DEV_IDENTITY_HEADER, AuthS
 from culture_rules.auth.tokens import SERVICE_TOKENS, ServiceTokens, TokenError
 from culture_rules.engine import replay as replay_engine
 from culture_rules.engine.audit import AuditError, AuditLog
+from culture_rules.engine.decisions import RULE_DECISIONS, decisions_for
 from culture_rules.engine.lifecycle import Lifecycle, LifecycleError, PermissionDenied
 from culture_rules.engine.runs import (
     RUN_COLLECTIONS,
@@ -64,7 +65,12 @@ API_VERSION = "1.0.0"
 churns ``api/openapi.json``); bump it when the contract changes incompatibly."""
 IDENTITY_HEADER = DEV_IDENTITY_HEADER
 """Dev-only identity header; honoured only with ``AuthSettings(insecure_dev_identity=True)``."""
-_ALL_COLLECTIONS = (*DEFINITION_KINDS, "secrets", SERVICE_TOKENS, *RUN_COLLECTIONS)
+_ALL_COLLECTIONS = tuple(
+    dict.fromkeys(
+        (*DEFINITION_KINDS, "secrets", SERVICE_TOKENS, *RUN_COLLECTIONS, RULE_DECISIONS)
+        + events.STREAMABLE
+    )
+)
 
 AnswerAsk = Callable[[StoragePort, str, Any, str], Any]
 
@@ -541,6 +547,27 @@ def create_app(
             docs = [d for d in docs if host in _hosts(d)]
         docs = sorted(docs, key=lambda d: d.get("created_at") or "", reverse=True)[: max(limit, 0)]
         return {"items": [_run_summary(d) for d in docs]}
+
+    @app.get(
+        "/rules/{id}/history",
+        response_model=ItemList,
+        tags=["rules"],
+        operation_id="get_rule_history",
+        responses={404: ERRORS[404]},
+    )
+    def rule_history(id: str, limit: Annotated[int, Query(ge=1, le=500)] = 20):
+        """A rule's contextual history, newest first: its runs (``kind: run``) and its
+        recorded skips (``kind: decision``: superseded_by, blocked_by_predecessor,
+        group_lost, with ``by`` naming the responsible rules)."""
+        defs.get("rules", id)
+        runs = [
+            {"kind": "run", "at": d.get("created_at"), **_run_summary(d)}
+            for d in store.find(RUNS_COLLECTION)
+            if (d.get("rule") or {}).get("id") == id
+        ]
+        skips = [{"kind": "decision", **d} for d in decisions_for(store, id)]
+        merged = sorted(runs + skips, key=lambda item: item.get("at") or "", reverse=True)
+        return {"items": merged[:limit]}
 
     @app.get(
         "/runs/{run_id}",

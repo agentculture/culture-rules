@@ -32,7 +32,9 @@ recorded on the PR with a screenshot.
   - the rule's pending human asks ("Waiting on you"): `GET
     /asks?run_id=&status=open` for each of the rule's waiting runs,
     answered with `POST /asks/{id}/answer`;
-  - the rule's last runs.
+  - the rule's last runs and recorded skips, newest first (`GET
+    /rules/{id}/history`): a skipped rule reads `superseded by <rule>`
+    (or "lost its group to", "waiting for") with an icon and a label.
   Code: `src/routes/Rules.tsx`, `src/rules/`, `src/api/rules.ts`.
 - **Workflows** (`/workflows?id=&run=`) is the 'Chosen — Workflows' board:
   - the workflow as a React Flow graph laid out by elkjs (Inputs → steps
@@ -61,8 +63,11 @@ recorded on the PR with a screenshot.
   the steps it runs and its queue depth (`GET /machines/status`), and
   runs per time bucket with ok/failed counts (`GET /runs`; a run belongs
   to the `hosts` its steps ran on). Controls: range 1h/24h/7d and a table
-  view. When `/machines/status` fails, the lanes are derived from runs,
-  say so, and the failure is listed. Code: `src/statistics/`,
+  view. The board refreshes live (below) and re-reads `/machines/status`
+  every 10 s, since heartbeats change load without a write it would see; a
+  machine whose last heartbeat is older than 30 s turns offline. When
+  `/machines/status` fails, the lanes are derived from runs, say so, and
+  the failure is listed. Code: `src/statistics/`,
   `src/api/statistics.ts`.
 
 ## API
@@ -92,6 +97,25 @@ The browser calls the culture-rules HTTP API (`culture_rules/server`, the
   effective role is the highest of `roles` (viewer < editor < admin). A
   401 is "not signed in". Any other failure is "identity unavailable";
   no identity is ever invented.
+
+## Live updates
+
+`src/api/live.ts` `useLiveUpdates(collections, onChange)` keeps one
+EventSource on `/api/events/stream?collections=...` (the API's SSE
+fan-out) and hands each coalesced batch of changes to the view, which
+refetches what it shows:
+
+- **Rules:** `rules` (the list), `runs` and `asks` (pending asks),
+  `runs` and `rule_decisions` (last runs and skips);
+- **Workflows:** `workflows` (the list; an unsaved draft survives) and
+  `runs` (recent runs, and the overlaid run);
+- **Statistics:** `machines`, `runs` and `heartbeats`.
+
+A stream the browser retries itself resumes with `Last-Event-ID`; one it
+gave up on is reopened with backoff and `?after=<last event id>`. Under
+vitest the hook is off unless a factory is injected
+(`setLiveSourceFactory`). The short refresh cue (`data-live-flash`) never
+animates under `prefers-reduced-motion: reduce`.
 
 ## The agent-state node
 
@@ -123,6 +147,9 @@ rendered as an alert. It does not leave the page "loading".
 - A skip link opens the tab order. Every tab, switch and button is
   reachable by keyboard, and focus is visible (`tokens.css`
   `:focus-visible`).
+- Every button, link, switch, tab, radio and select has a hit area of at
+  least 44x44 px while keeping the canvas's visual size (deviation d4,
+  `src/styles/hit-area.css`; pinned by `e2e/hit-area.spec.ts`).
 - A run's status is announced in words. It is never carried by the dot's
   color alone.
 - `prefers-reduced-motion: reduce` disables every transition (the

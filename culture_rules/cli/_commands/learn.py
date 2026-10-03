@@ -7,9 +7,29 @@ Prints a structured self-teaching prompt. Must satisfy the agent-first rubric:
 from __future__ import annotations
 
 import argparse
+import textwrap
 
 from culture_rules import __version__
 from culture_rules.cli._output import emit_result
+
+_WHY = (
+    "One graphical, agent-operable place to decide when work happens, how it flows across "
+    "machines and who does it, and it keeps working when one machine falters, so automation "
+    "stops being per-host glue only its author understands."
+)
+
+_AUDIENCES = [
+    {
+        "who": "The operator",
+        "how": "composing and supervising automation across spark, thor and spark2 from a "
+        "browser at rules.culture.dev.",
+    },
+    {
+        "who": "Mesh agents",
+        "how": "that drive the same rules, workflows and actors through the culture-rules "
+        "CLI and MCP server.",
+    },
+]
 
 _TEXT = """\
 culture-rules — the rules engine for the AgentCulture mesh.
@@ -17,11 +37,21 @@ culture-rules — the rules engine for the AgentCulture mesh.
 Purpose
 -------
 Rules -> conditions -> workflows -> actions, carried out by actors (agents,
-humans, code). Planned shape: a Python library (culture_rules), a CLI and MCP
-server, and a React Flow editor (Rules, Workflows, Actors, Statistics tabs).
-Today (the engine is being built): an agent-first CLI (cited from the teken
-`python-cli` reference), an identity (culture.yaml + CLAUDE.md), the guildmaster
-skill kit under .claude/skills/, and a deploy/CI baseline.
+humans, code). It is a Python library (culture_rules) with a CLI, an HTTP API,
+an MCP server, an engine node per host, and a React Flow editor with four tabs
+(Rules | Workflows | Actors | Statistics).
+
+Who it is for
+-------------
+Two readers, one system:
+  - The operator composing and supervising automation across spark, thor and
+    spark2 from a browser at rules.culture.dev.
+  - Mesh agents that drive the same rules, workflows and actors through the
+    culture-rules CLI and MCP server.
+
+Why
+---
+{why}
 
 Commands
 --------
@@ -56,6 +86,10 @@ More detail
 """
 
 
+def _wrap(text: str) -> str:
+    return textwrap.fill(text, width=79)
+
+
 def _noun_verb_lines() -> str:
     from culture_rules.cli.verbs import REGISTRY  # noqa: PLC0415
 
@@ -84,7 +118,10 @@ def _as_json_payload() -> dict[str, object]:
     return {
         "tool": "culture-rules",
         "version": __version__,
-        "purpose": "Rules engine for the AgentCulture mesh (engine being built).",
+        "purpose": "Rules engine for the AgentCulture mesh: rules -> conditions -> workflows -> "
+        "actions, carried out by actors.",
+        "audiences": _AUDIENCES,
+        "why": _WHY,
         "commands": [
             {"path": ["whoami"], "summary": "Identity probe from culture.yaml."},
             {"path": ["learn"], "summary": "Self-teaching prompt."},
@@ -117,7 +154,8 @@ def cmd_learn(args: argparse.Namespace) -> int:
     if getattr(args, "json", False):
         emit_result(_as_json_payload(), json_mode=True)
     else:
-        emit_result(_TEXT.replace("{noun_verbs}", _noun_verb_lines()), json_mode=False)
+        text = _TEXT.replace("{noun_verbs}", _noun_verb_lines()).replace("{why}", _wrap(_WHY))
+        emit_result(text, json_mode=False)
     return 0
 
 

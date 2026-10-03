@@ -16,8 +16,20 @@ export interface FakeAsk {
   answer?: unknown;
 }
 
+/** A persisted skip (`rule_decisions`, culture_rules/engine/decisions.py). */
+export interface FakeDecision {
+  rule_id: string;
+  event_id: string;
+  reason: string;
+  by: string[];
+  message: string;
+  at: string;
+  host: string;
+}
+
 export interface FakeApi {
   rules: Rule[];
+  decisions: FakeDecision[];
   trash: Rule[];
   asks: FakeAsk[];
   waitingRuns: RunSummary[];
@@ -35,6 +47,7 @@ export interface FakeResponse {
 export function createFakeApi(now = Date.now()): FakeApi {
   return {
     rules: structuredClone(RULES),
+    decisions: [],
     trash: [],
     asks: [],
     waitingRuns: [],
@@ -98,6 +111,22 @@ export function handle(
       const all = [...api.waitingRuns, ...runsFor(api.now)];
       const rule = query.get("rule_id");
       return json(200, { items: all.filter((r) => !rule || r.rule_id === rule) });
+    }
+    const history = path.match(/^\/rules\/([^/]+)\/history$/);
+    if (history) {
+      const id = decodeURIComponent(history[1]);
+      if (!api.rules.some((r) => r.id === id)) return error(404, "not_found", `rule ${id} does not exist`);
+      const runs = [...api.waitingRuns, ...runsFor(api.now)]
+        .filter((r) => r.rule_id === id)
+        .map((r) => ({ kind: "run", at: r.created_at, ...r }));
+      const skips = api.decisions
+        .filter((d) => d.rule_id === id)
+        .map((d) => ({ kind: "decision", ...d }));
+      const limit = Number(query.get("limit") ?? 20);
+      const items = [...runs, ...skips]
+        .sort((a, b) => String(b.at ?? "").localeCompare(String(a.at ?? "")))
+        .slice(0, limit);
+      return json(200, { items });
     }
     if (path === "/asks") {
       const run = query.get("run_id");

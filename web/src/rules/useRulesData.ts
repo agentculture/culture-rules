@@ -32,6 +32,25 @@ export function useRulesData(routeRuleId: string | undefined) {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
+  // Bumped by live updates: `rulesTick` refetches the list, `asksTick` the asks.
+  const [rulesTick, setRulesTick] = useState(0);
+  const [asksTick, setAsksTick] = useState(0);
+  const refreshRules = useCallback(() => setRulesTick((n) => n + 1), []);
+  const refreshAsks = useCallback(() => setAsksTick((n) => n + 1), []);
+
+  useEffect(() => {
+    if (rulesTick === 0) return;
+    const controller = new AbortController();
+    listRules(controller.signal)
+      .then((rules) => {
+        if (!controller.signal.aborted) setLoaded((l) => (l ? { ...l, rules } : l));
+      })
+      .catch(() => {
+        // A failed live refresh keeps what is shown; the next change retries.
+      });
+    return () => controller.abort();
+  }, [rulesTick]);
+
   useEffect(() => {
     const controller = new AbortController();
     Promise.allSettled([
@@ -140,7 +159,7 @@ export function useRulesData(routeRuleId: string | undefined) {
       }
     })();
     return () => controller.abort();
-  }, [selectedId]);
+  }, [selectedId, asksTick]);
 
   const answer = useCallback(
     async (ask: Ask, value: string) => {
@@ -169,5 +188,7 @@ export function useRulesData(routeRuleId: string | undefined) {
     restore,
     asks: asks && asks.ruleId === selectedId ? asks : null,
     answer,
+    refreshRules,
+    refreshAsks,
   };
 }

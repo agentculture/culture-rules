@@ -1,6 +1,7 @@
 """Which role each HTTP route needs (viewer < editor < admin). Pure; the server enforces it.
 
-- viewer: every read (``GET``/``HEAD``), except the service-token list;
+- viewer: every read (``GET``/``HEAD``), except the service-token list; this includes a
+  rule's contextual history (``GET /rules/{id}/history``) and the live feed;
 - editor: create/update/enable/disable/delete/restore of definitions, import, export into a
   configured repository (``POST /export``, dry-run included), runs (start/cancel) and
   answering asks;

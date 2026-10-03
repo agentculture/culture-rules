@@ -1,8 +1,8 @@
-import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ApiError, listRuns } from "../api/client";
-import type { RuleDoc } from "../api/rules";
-import type { RunSummary } from "../api/types";
+import { ApiError } from "../api/client";
+import { useLiveUpdates, type LiveChange } from "../api/live";
+import { getRuleHistory, type RuleDoc, type RuleHistoryItem } from "../api/rules";
 import { setAgentState } from "../agent-state/store";
 import { machineColors } from "../culture-design/chart";
 import { AddStageButton, Stage, StageArrow, machineStyle } from "../culture-design/stages";
@@ -29,6 +29,23 @@ import {
   upstreamVars,
   workflowChips,
 } from "./rules-view";
+
+const LIVE_COLLECTIONS = ["rules", "runs", "asks", "rule_decisions"] as const;
+const HISTORY_LIMIT = 6;
+
+const SKIP_WORDS: Record<string, string> = {
+  superseded_by: "superseded by",
+  group_lost: "lost its group to",
+  blocked_by_predecessor: "waiting for",
+};
+
+function SkipIcon() {
+  return (
+    <svg className="last-runs__skip-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M5 5l7 7-7 7M13 5l7 7-7 7" />
+    </svg>
+  );
+}
 
 /**
  * The Rules tab — the 'Chosen — Rules' board (design canvas row 'Chosen'):
@@ -65,11 +82,13 @@ export function Rules() {
     return machine && slots.has(machine) ? (slots.get(machine) as number) : null;
   };
 
-  const [runs, setRuns] = useState<{ ruleId: string; items: RunSummary[]; error: string | null } | null>(null);
+  // The rule's contextual history: runs plus recorded skips (GET /rules/{id}/history).
+  const [historyTick, setHistoryTick] = useState(0);
+  const [runs, setRuns] = useState<{ ruleId: string; items: RuleHistoryItem[]; error: string | null } | null>(null);
   useEffect(() => {
     if (!selected) return;
     const controller = new AbortController();
-    listRuns({ rule_id: selected.id, limit: 4 }, controller.signal)
+    getRuleHistory(selected.id, HISTORY_LIMIT, controller.signal)
       .then((items) => setRuns({ ruleId: selected.id, items, error: null }))
       .catch((err: unknown) => {
         if (controller.signal.aborted) return;
@@ -80,7 +99,20 @@ export function Rules() {
         });
       });
     return () => controller.abort();
-  }, [selected?.id]);
+  }, [selected?.id, historyTick]);
+
+  // Live: another editor's write (or the engine's) refetches what it touches.
+  const { refreshRules, refreshAsks } = data;
+  const onLive = useCallback(
+    (changes: LiveChange[]) => {
+      const touched = new Set(changes.map((c) => c.collection));
+      if (touched.has("rules")) refreshRules();
+      if (touched.has("runs") || touched.has("asks")) refreshAsks();
+      if (touched.has("runs") || touched.has("rule_decisions")) setHistoryTick((n) => n + 1);
+    },
+    [refreshRules, refreshAsks],
+  );
+  const live = useLiveUpdates(LIVE_COLLECTIONS, onLive);
 
   const runsSettled = !selected || runs?.ruleId === selected.id;
   const asksSettled = !selected || data.asks !== null;
@@ -277,7 +309,7 @@ export function Rules() {
         onDragRule={setDragging}
       />
 
-      <main id="main" className="rule-flow" tabIndex={-1}>
+      <main id="main" className="rule-flow" tabIndex={-1} data-live-flash={live.flash || undefined}>
         {alerts.length > 0 ? (
           <p className="notice notice--error" role="alert">
             {alerts.join(" · ")}
@@ -300,13 +332,31 @@ export function Rules() {
       <aside className="last-runs" aria-label="Last runs">
         <span className="last-runs__title">Last runs</span>
         <ul className="last-runs__list">
-          {(runsSettled && runs ? runs.items : []).map((run) => (
-            <li key={run.id} className="last-runs__run" data-run-status={run.status}>
-              <span className={`run-dot run-dot--${run.status}`} aria-hidden="true" />
-              <span className="sr-only">{run.status}, </span>
-              {ago(run.created_at, now)}
-            </li>
-          ))}
+          {(runsSettled && runs ? runs.items : []).map((item) =>
+            item.kind === "decision" ? (
+              <li
+                key={`d-${item.event_id}`}
+                className="last-runs__run last-runs__skip"
+                data-decision={item.reason}
+              >
+                <SkipIcon />
+                <span className="last-runs__skip-text">
+                  <span className="last-runs__skip-label">skipped · {ago(item.at, now)}</span>
+                  <span>
+                    {SKIP_WORDS[item.reason]
+                      ? `${SKIP_WORDS[item.reason]} ${item.by.map(nameOf).join(", ")}`
+                      : (item.message ?? item.reason)}
+                  </span>
+                </span>
+              </li>
+            ) : (
+              <li key={item.id} className="last-runs__run" data-run-status={item.status}>
+                <span className={`run-dot run-dot--${item.status}`} aria-hidden="true" />
+                <span className="sr-only">{item.status}, </span>
+                {ago(item.created_at, now)}
+              </li>
+            ),
+          )}
         </ul>
       </aside>
     </div>

@@ -7,6 +7,9 @@ import { getAgentState, resetAgentState } from "../agent-state/store";
 import { workflowsState } from "../workflows/agentState";
 import { MACHINES, WHOAMI } from "../fixtures/rules-fixture";
 import { mockFetch, type Routes as ApiRoutes } from "../test/mockApi";
+import { act } from "@testing-library/react";
+import { LIVE_DEBOUNCE_MS, setLiveSourceFactory } from "../api/live";
+import { FakeEventSource } from "../test/fakeEventSource";
 import {
   ACTORS,
   EXPORT_RESULT,
@@ -380,5 +383,67 @@ describe("Workflows board (Chosen — Workflows)", () => {
     renderWorkflows();
     await loaded();
     expect(screen.getByRole("alert")).toHaveTextContent("actors down");
+  });
+});
+
+describe("Workflows tab live updates (h61 / c80)", () => {
+  let api: ApiRoutes;
+
+  beforeEach(() => {
+    resetAgentState();
+    FakeEventSource.reset();
+    setLiveSourceFactory(FakeEventSource.factory);
+    vi.stubGlobal("ResizeObserver", MeasuringResizeObserver);
+    vi.stubGlobal("DOMMatrixReadOnly", DOMMatrixStub);
+    api = routes();
+    mockFetch(api);
+  });
+  afterEach(() => {
+    setLiveSourceFactory(undefined);
+    vi.unstubAllGlobals();
+  });
+
+  async function emit(collection: string, id: string) {
+    act(() => FakeEventSource.latest().change(collection, id));
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, LIVE_DEBOUNCE_MS + 30));
+    });
+  }
+
+  it("subscribes to workflows and runs", async () => {
+    renderWorkflows();
+    await loaded();
+    const url = new URL(FakeEventSource.latest().url, "http://x");
+    expect(url.searchParams.get("collections")?.split(",").sort()).toEqual(["runs", "workflows"]);
+  });
+
+  it("a runs change re-reads the overlaid run, so the overlay follows it", async () => {
+    renderWorkflows("/workflows?id=review-pr&run=run-7");
+    await loaded();
+    await waitFor(() => expect(card("Decide")).toHaveAttribute("data-run-status", "failed"));
+    api["/api/runs/run-7"] = {
+      body: {
+        ...RUN_7,
+        status: "succeeded",
+        steps: RUN_7.steps.map((st) =>
+          st.key === "decide" ? { ...st, status: "succeeded", host: "thor", error: null } : st,
+        ),
+      },
+    };
+    await emit("runs", "run-7");
+    await waitFor(() => expect(card("Decide")).toHaveAttribute("data-run-status", "succeeded"));
+    expect(card("Decide")).toHaveTextContent(/succeeded on thor/);
+  });
+
+  it("a workflows change elsewhere refetches the list without a reload", async () => {
+    renderWorkflows();
+    await loaded();
+    api["/api/workflows"] = {
+      body: {
+        items: WORKFLOW_DOCS.map((w) => (w.id === "review-pr" ? { ...w, name: "Review PR, renamed" } : w)),
+      },
+    };
+    await emit("workflows", "review-pr");
+    expect(await screen.findByRole("heading", { level: 1, name: "Review PR, renamed" })).toBeInTheDocument();
   });
 });
