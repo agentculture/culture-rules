@@ -12,7 +12,7 @@
  *             {repo}, a commit): both show the dry-run plan first and write
  *             only on "Apply".
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { ApiError } from "../api/client";
 import {
   exportDefinitions,
@@ -61,7 +61,8 @@ export function readText(file: File): Promise<string> {
   if (typeof file.text === "function") return file.text();
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result ?? ""));
+    // readAsText always yields a string; anything else reads as empty.
+    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
     // Always an Error (a DOMException is not one in every engine), its cause kept.
     reader.onerror = () =>
       reject(new Error(reader.error?.message || `could not read ${file.name}`, { cause: reader.error }));
@@ -72,21 +73,199 @@ export function readText(file: File): Promise<string> {
 const message = (err: unknown) => (err instanceof ApiError ? err.message : String(err));
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
+type PlanErrors = NonNullable<ImportPlan["errors"]>;
+
 /** A plan waiting for "Apply": from chosen files, or from / to a repository. */
 type Pending =
   | { kind: "import"; files: Record<string, string>; plan: ImportPlan }
   | { kind: "import"; repo: string; plan: ImportPlan }
-  | { kind: "export"; repo: string; plan: { changes: ImportChange[]; errors?: ImportPlan["errors"] } };
+  | { kind: "export"; repo: string; plan: { changes: ImportChange[]; errors?: PlanErrors } };
+
+/** " to <repo>" / " from <repo>" for a repository plan, "" for chosen files. */
+function whereText(pending: Pending): string {
+  if (!("repo" in pending)) return "";
+  const direction = pending.kind === "export" ? "to" : "from";
+  return ` ${direction} ${pending.repo}`;
+}
+
+/** Post a pending plan for real (apply=true); resolves to the status line to show. */
+async function applyPending(pending: Pending): Promise<{ status: string; imported: boolean }> {
+  const where = whereText(pending);
+  if (pending.kind === "export") {
+    const result = await exportToRepo(pending.repo, true);
+    const n = result.changes.filter((c) => c.action !== "unchanged").length;
+    const commit = result.commit ? ` (${result.commit.slice(0, 7)})` : "";
+    return { status: `Exported ${plural(n, "change")}${where}${commit}`, imported: false };
+  }
+  const plan =
+    "repo" in pending ? await importFromRepo(pending.repo, true) : await importDefinitions(pending.files, true);
+  return { status: `Imported ${plural(plan.changes.length, "change")}${where}`, imported: true };
+}
+
+/** The bundle download's file name, suffixed with the chosen repository. */
+function exportFileName(repo: string | null): string {
+  const suffix = repo ? `-${repo.replace(/[^A-Za-z0-9]+/g, "-")}` : "";
+  return `culture-rules-export${suffix}.json`;
+}
+
+/** Offer `data` as a JSON file download. */
+function downloadJson(name: string, data: unknown) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+/** The picker's open menu: the repository listbox, then that repository's import / export. */
+function RepoMenu({
+  repos,
+  repo,
+  onChoose,
+  onDismiss,
+  onImport,
+  onExport,
+}: Readonly<{
+  repos: Repo[];
+  repo: string | null;
+  onChoose: (name: string) => void;
+  onDismiss: () => void;
+  onImport: () => void;
+  onExport: () => void;
+}>) {
+  const listRef = useRef<HTMLUListElement>(null);
+
+  // Opening the menu puts focus on the chosen repository (else the first).
+  useEffect(() => {
+    listRef.current?.querySelector<HTMLElement>('[aria-selected="true"], [role="option"]')?.focus();
+  }, []);
+
+  const onListKey = (e: KeyboardEvent<HTMLUListElement>) => {
+    const items = Array.from(listRef.current?.querySelectorAll<HTMLElement>('[role="option"]') ?? []);
+    const i = items.indexOf(document.activeElement as HTMLElement);
+    if (e.key === "ArrowDown") items[Math.min(items.length - 1, i + 1)]?.focus();
+    else if (e.key === "ArrowUp") items[Math.max(0, i - 1)]?.focus();
+    else if (e.key === "Escape") onDismiss();
+    else return;
+    e.preventDefault();
+  };
+
+  const onOptionKey = (e: KeyboardEvent<HTMLLIElement>, name: string) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      onChoose(name);
+    }
+  };
+
+  return (
+    <div className="wf-repo__menu">
+      <ul ref={listRef} className="wf-repo__list" role="listbox" aria-label="Repository" onKeyDown={onListKey}>
+        {repos.length === 0 ? (
+          <li className="wf-repo__empty">No repositories</li>
+        ) : (
+          repos.map((r) => (
+            <li
+              key={r.name}
+              role="option"
+              aria-selected={r.name === repo}
+              tabIndex={-1}
+              className="wf-repo__option"
+              onClick={() => onChoose(r.name)}
+              onKeyDown={(e) => onOptionKey(e, r.name)}
+            >
+              {r.name}
+            </li>
+          ))
+        )}
+      </ul>
+      {repo ? (
+        <fieldset className="wf-repo__actions plain-group" aria-label={`Repository ${repo}`}>
+          <button type="button" className="wf-repo__action" onClick={onImport}>
+            Import from repo
+          </button>
+          <button type="button" className="wf-repo__action" onClick={onExport}>
+            Export to repo
+          </button>
+        </fieldset>
+      ) : null}
+    </div>
+  );
+}
+
+/** The dry-run plan, shown until "Apply" (or Cancel). */
+function PlanPanel({
+  pending,
+  returnFocus,
+  onCancel,
+  onApply,
+}: Readonly<{
+  pending: Pending;
+  returnFocus: HTMLElement | null;
+  onCancel: () => void;
+  onApply: () => void;
+}>) {
+  const exporting = pending.kind === "export";
+  const title = exporting ? "Export plan" : "Import plan";
+  const errors = pending.plan.errors ?? [];
+  return (
+    <Panel label={title} className="wf-panel--import" onClose={onCancel} returnFocus={returnFocus}>
+      <div className="wf-form">
+        <h2 className="wf-panel__title">{title}</h2>
+        {"repo" in pending ? (
+          <p className="wf-plan__repo">
+            {exporting ? "Commit to" : "Read from"} <strong>{pending.repo}</strong>
+          </p>
+        ) : null}
+        {pending.plan.changes.length === 0 ? <p>Nothing would change.</p> : null}
+        <ul className="wf-plan">
+          {pending.plan.changes.map((c) => (
+            <li key={c.path} className="wf-plan__change">
+              <span className={`wf-plan__action wf-plan__action--${c.action}`}>{c.action}</span>
+              <span className="wf-plan__path">{c.path}</span>
+            </li>
+          ))}
+        </ul>
+        {errors.length > 0 ? (
+          <ul className="wf-plan wf-plan--errors" aria-label="Import errors">
+            {errors.map((e) => (
+              <li key={`${e.path}-${e.code}`}>
+                {e.path}: {e.message}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        <div className="wf-form__actions">
+          <button type="button" className="wf-button" onClick={onCancel}>
+            Cancel
+          </button>
+          <button type="button" className="wf-button wf-button--primary" disabled={errors.length > 0} onClick={onApply}>
+            {exporting ? "Apply export" : "Apply import"}
+          </button>
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+/** The repository picker's words: the chosen one, else whether any are configured. */
+function pickerText(repo: string | null, repos: Repo[] | null): string {
+  if (repo) return repo;
+  return repos === null ? "Repository" : "No repository";
+}
 
 export function IoControls({
   onImported,
   onStatus,
   onError,
-}: {
+}: Readonly<{
   onImported: () => void;
   onStatus: (text: string) => void;
   onError: (text: string) => void;
-}) {
+}>) {
   const fileRef = useRef<HTMLInputElement>(null);
   const importRef = useRef<HTMLButtonElement>(null);
   const [pending, setPending] = useState<Pending | null>(null);
@@ -94,7 +273,6 @@ export function IoControls({
   const [repo, setRepo] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const pickerRef = useRef<HTMLButtonElement>(null);
-  const listRef = useRef<HTMLUListElement>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -109,14 +287,12 @@ export function IoControls({
     return () => controller.abort();
   }, []);
 
-  useEffect(() => {
-    if (menuOpen) listRef.current?.querySelector<HTMLElement>('[aria-selected="true"], [role="option"]')?.focus();
-  }, [menuOpen]);
-
   const onFiles = async (list: FileList | null) => {
     if (!list || list.length === 0) return;
+    const chosen = Array.from(list);
+    const texts = await Promise.all(chosen.map(readText));
     const files: Record<string, string> = {};
-    for (const file of Array.from(list)) Object.assign(files, importPaths(file.name, await readText(file)));
+    chosen.forEach((file, i) => Object.assign(files, importPaths(file.name, texts[i])));
     if (fileRef.current) fileRef.current.value = "";
     try {
       const plan = await importDefinitions(files, false);
@@ -148,40 +324,24 @@ export function IoControls({
 
   const apply = async () => {
     if (!pending) return;
-    const where = "repo" in pending ? ` ${pending.kind === "export" ? "to" : "from"} ${pending.repo}` : "";
     try {
-      if (pending.kind === "export") {
-        const result = await exportToRepo(pending.repo, true);
-        setPending(null);
-        const n = result.changes.filter((c) => c.action !== "unchanged").length;
-        onStatus(`Exported ${plural(n, "change")}${where}${result.commit ? ` (${result.commit.slice(0, 7)})` : ""}`);
-        return;
-      }
-      const plan =
-        "repo" in pending ? await importFromRepo(pending.repo, true) : await importDefinitions(pending.files, true);
+      const done = await applyPending(pending);
       setPending(null);
-      onStatus(`Imported ${plural(plan.changes.length, "change")}${where}`);
-      onImported();
+      onStatus(done.status);
+      if (done.imported) onImported();
     } catch (err) {
       setPending(null);
-      onError(`${pending.kind === "export" ? "Export" : "Import"}${where} failed: ${message(err)}`);
+      const verb = pending.kind === "export" ? "Export" : "Import";
+      onError(`${verb}${whereText(pending)} failed: ${message(err)}`);
     }
   };
 
   const doExport = async () => {
     try {
       const result = await exportDefinitions("json");
-      const blob = new Blob([JSON.stringify(result, null, 2)], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `culture-rules-export${repo ? `-${repo.replace(/[^A-Za-z0-9]+/g, "-")}` : ""}.json`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      downloadJson(exportFileName(repo), result);
       const n = Object.keys(result.files).length;
-      onStatus(`Exported ${n} file${n === 1 ? "" : "s"}`);
+      onStatus(`Exported ${plural(n, "file")}`);
     } catch (err) {
       onError(`Export failed: ${message(err)}`);
     }
@@ -189,6 +349,11 @@ export function IoControls({
 
   const choose = (name: string) => {
     setRepo(name);
+    setMenuOpen(false);
+    pickerRef.current?.focus();
+  };
+
+  const dismissMenu = () => {
     setMenuOpen(false);
     pickerRef.current?.focus();
   };
@@ -224,113 +389,29 @@ export function IoControls({
           className="wf-button wf-button--repo"
           aria-haspopup="listbox"
           aria-expanded={menuOpen}
-          title={repos && repos.length === 0 ? "No repository is configured" : "Definitions repository"}
+          title={repos?.length === 0 ? "No repository is configured" : "Definitions repository"}
           onClick={() => setMenuOpen((o) => !o)}
         >
-          {repo ?? (repos === null ? "Repository" : "No repository")} <span aria-hidden="true">▾</span>
+          {pickerText(repo, repos)} <span aria-hidden="true">▾</span>
         </button>
         {menuOpen ? (
-          <div className="wf-repo__menu">
-          <ul
-            ref={listRef}
-            className="wf-repo__list"
-            role="listbox"
-            aria-label="Repository"
-            onKeyDown={(e) => {
-              const items = Array.from(listRef.current?.querySelectorAll<HTMLElement>('[role="option"]') ?? []);
-              const i = items.indexOf(document.activeElement as HTMLElement);
-              if (e.key === "ArrowDown") items[Math.min(items.length - 1, i + 1)]?.focus();
-              else if (e.key === "ArrowUp") items[Math.max(0, i - 1)]?.focus();
-              else if (e.key === "Escape") {
-                setMenuOpen(false);
-                pickerRef.current?.focus();
-              } else return;
-              e.preventDefault();
-            }}
-          >
-            {(repos ?? []).length === 0 ? (
-              <li className="wf-repo__empty">No repositories</li>
-            ) : (
-              (repos ?? []).map((r) => (
-                <li
-                  key={r.name}
-                  role="option"
-                  aria-selected={r.name === repo}
-                  tabIndex={-1}
-                  className="wf-repo__option"
-                  onClick={() => choose(r.name)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      choose(r.name);
-                    }
-                  }}
-                >
-                  {r.name}
-                </li>
-              ))
-            )}
-          </ul>
-          {repo ? (
-            <div className="wf-repo__actions" role="group" aria-label={`Repository ${repo}`}>
-              <button type="button" className="wf-repo__action" onClick={() => void fromRepo()}>
-                Import from repo
-              </button>
-              <button type="button" className="wf-repo__action" onClick={() => void toRepo()}>
-                Export to repo
-              </button>
-            </div>
-          ) : null}
-          </div>
+          <RepoMenu
+            repos={repos ?? []}
+            repo={repo}
+            onChoose={choose}
+            onDismiss={dismissMenu}
+            onImport={() => void fromRepo()}
+            onExport={() => void toRepo()}
+          />
         ) : null}
       </span>
       {pending ? (
-        <Panel
-          label={pending.kind === "export" ? "Export plan" : "Import plan"}
-          className="wf-panel--import"
-          onClose={() => setPending(null)}
+        <PlanPanel
+          pending={pending}
           returnFocus={pending.kind === "export" || "repo" in pending ? pickerRef.current : importRef.current}
-        >
-          <div className="wf-form">
-            <h2 className="wf-panel__title">{pending.kind === "export" ? "Export plan" : "Import plan"}</h2>
-            {"repo" in pending ? (
-              <p className="wf-plan__repo">
-                {pending.kind === "export" ? "Commit to" : "Read from"} <strong>{pending.repo}</strong>
-              </p>
-            ) : null}
-            {pending.plan.changes.length === 0 ? <p>Nothing would change.</p> : null}
-            <ul className="wf-plan">
-              {pending.plan.changes.map((c) => (
-                <li key={c.path} className="wf-plan__change">
-                  <span className={`wf-plan__action wf-plan__action--${c.action}`}>{c.action}</span>
-                  <span className="wf-plan__path">{c.path}</span>
-                </li>
-              ))}
-            </ul>
-            {(pending.plan.errors ?? []).length > 0 ? (
-              <ul className="wf-plan wf-plan--errors" aria-label="Import errors">
-                {(pending.plan.errors ?? []).map((e) => (
-                  <li key={`${e.path}-${e.code}`}>
-                    {e.path}: {e.message}
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-            <div className="wf-form__actions">
-              <button type="button" className="wf-button" onClick={() => setPending(null)}>
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="wf-button wf-button--primary"
-                disabled={(pending.plan.errors ?? []).length > 0}
-                onClick={() => void apply()}
-              >
-                {pending.kind === "export" ? "Apply export" : "Apply import"}
-              </button>
-            </div>
-          </div>
-        </Panel>
+          onCancel={() => setPending(null)}
+          onApply={() => void apply()}
+        />
       ) : null}
     </span>
   );
