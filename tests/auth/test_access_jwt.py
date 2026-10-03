@@ -140,6 +140,13 @@ def test_team_domain_is_normalised():
     assert v.verify(token()).kind == "sso"
 
 
+@pytest.mark.parametrize("scheme", ["https", "http", "HTTPS"])
+def test_team_domain_scheme_is_dropped_and_jwks_is_always_https(scheme):
+    v = AccessVerifier(f"{scheme}://{TEAM}", AUD, fetch_jwks=jwks, clock=now)
+    assert v.team_domain == TEAM
+    assert v.jwks_url == f"https://{TEAM}/cdn-cgi/access/certs"
+
+
 def test_verify_rs256_is_pure_stdlib_pkcs1_v15():
     pair = keypair()
     pub = pair.key.public_key().public_numbers()

@@ -57,12 +57,14 @@ export function importPaths(name: string, text: string): Record<string, string> 
 }
 
 /** `File.text()`, with a FileReader fallback for engines that lack it. */
-function readText(file: File): Promise<string> {
+export function readText(file: File): Promise<string> {
   if (typeof file.text === "function") return file.text();
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result ?? ""));
-    reader.onerror = () => reject(reader.error);
+    // Always an Error (a DOMException is not one in every engine), its cause kept.
+    reader.onerror = () =>
+      reject(new Error(reader.error?.message || `could not read ${file.name}`, { cause: reader.error }));
     reader.readAsText(file);
   });
 }

@@ -30,11 +30,38 @@ def test_committed_schema_matches_generated(cls) -> None:
 
 def test_check_mode(tmp_path, capsys) -> None:
     assert main(["--check", str(SCHEMAS_DIR)]) == 0
-    assert main(["--write", str(tmp_path)]) == 0
-    assert main(["--check", str(tmp_path)]) == 0
+    assert main(["--check"]) == 0  # DIR defaults to the repo's schemas/
+    # The directory is fixed to schemas/; tests point the generator elsewhere in code only.
+    assert main(["--write"], schemas_dir=tmp_path) == 0
+    assert main(["--check"], schemas_dir=tmp_path) == 0
     (tmp_path / "rule.schema.json").write_text("{}", encoding="utf-8")
-    assert main(["--check", str(tmp_path)]) == 1
+    assert main(["--check"], schemas_dir=tmp_path) == 1
     assert "rule.schema.json" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("mode", ["--write", "--check"])
+@pytest.mark.parametrize(
+    "bad",
+    [
+        str(SCHEMAS_DIR / ".." / ".."),
+        str(SCHEMAS_DIR / ".." / "culture_rules"),
+        "../../etc",
+        "/tmp",
+    ],
+)
+def test_dir_outside_schemas_is_refused(mode, bad, capsys) -> None:
+    with pytest.raises(SystemExit) as exc:
+        main([mode, bad])
+    assert exc.value.code == 2
+    assert "must be the repository's schemas/ directory" in capsys.readouterr().err
+
+
+def test_write_refusal_touches_nothing(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "out").mkdir()
+    with pytest.raises(SystemExit):
+        main(["--write", "out/../out"])
+    assert list((tmp_path / "out").iterdir()) == []
 
 
 def _all_property_names(schema: dict) -> set[str]:

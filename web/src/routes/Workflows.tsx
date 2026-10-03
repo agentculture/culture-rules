@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { ApiError, listMachines, listRules } from "../api/client";
+import { settleAll } from "../api/settle";
 import { useLiveUpdates, type LiveChange } from "../api/live";
 import type { Machine, Placement, Rule, RunSummary } from "../api/types";
 import {
@@ -84,22 +85,30 @@ export function Workflows() {
 
   useEffect(() => {
     const controller = new AbortController();
-    Promise.allSettled([
-      listWorkflowDefs(controller.signal),
-      listMachines(controller.signal),
-      listActors(controller.signal),
-      listRules(controller.signal),
-    ]).then((results) => {
-      if (controller.signal.aborted) return;
-      const [workflows, machines, actors, rules] = results;
-      setLoaded({
-        workflows: value(workflows, [] as WorkflowDef[]),
-        machines: value(machines, [] as Machine[]),
-        actors: value(actors, [] as Actor[]),
-        rules: value(rules, [] as Rule[]),
-        errors: results.map(settledError).filter((m): m is string => m !== null),
-      });
-    });
+    settleAll(
+      [
+        listWorkflowDefs(controller.signal),
+        listMachines(controller.signal),
+        listActors(controller.signal),
+        listRules(controller.signal),
+      ],
+      (results) => {
+        if (controller.signal.aborted) return;
+        const [workflows, machines, actors, rules] = results;
+        setLoaded({
+          workflows: value(workflows, [] as WorkflowDef[]),
+          machines: value(machines, [] as Machine[]),
+          actors: value(actors, [] as Actor[]),
+          rules: value(rules, [] as Rule[]),
+          errors: results.map(settledError).filter((m): m is string => m !== null),
+        });
+      },
+      (message) => {
+        // Applying the load failed: show an empty board with the failure named.
+        if (controller.signal.aborted) return;
+        setLoaded({ workflows: [], machines: [], actors: [], rules: [], errors: [message] });
+      },
+    );
     return () => controller.abort();
   }, [reload]);
 

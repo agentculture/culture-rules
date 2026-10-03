@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import Workflows from "./Workflows";
+import * as client from "../api/client";
 import { getAgentState, resetAgentState } from "../agent-state/store";
 import { workflowsState } from "../workflows/agentState";
 import { MACHINES, WHOAMI } from "../fixtures/rules-fixture";
@@ -126,7 +127,18 @@ describe("Workflows board (Chosen — Workflows)", () => {
     URL.createObjectURL = vi.fn(() => "blob:export");
     URL.revokeObjectURL = vi.fn();
   });
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("names a load that fails while being applied and still reports ready", async () => {
+    // A rejection reason with no string form: describing it throws inside the load's .then.
+    vi.spyOn(client, "listMachines").mockRejectedValue(Object.create(null));
+    renderWorkflows();
+    expect(await screen.findByRole("alert")).toHaveTextContent(/primitive/i);
+    await waitFor(() => expect(getAgentState().status).toBe("ready"));
+  });
 
   it("heads the board with the workflow name, version and the io controls", async () => {
     renderWorkflows();

@@ -14,6 +14,7 @@ import culture_rules.engine.claims as claims_module
 from culture_rules.engine.claims import Claims, firing_key, idempotency_key
 from culture_rules.store.memory import MemoryStore
 
+FIRING_GOLDEN = "ik1:29b652fa52625790c8f2d6691ace500a11a66bdb6180994d0944f92e2c1425cd"
 GOLDEN = "ik1:657fa1e4c37c220da15b809c70b270e3127200f96f93a2c0d2b7cd78eb4dbe7b"
 
 
@@ -53,7 +54,8 @@ def test_key_separates_its_inputs():
 
 
 def test_firing_key_is_disjoint_from_step_keys():
-    assert firing_key("rule-1", "event-1") == firing_key("rule-1", "event-1")
+    # Pinned: every host must derive the same firing key for the same rule and event.
+    assert firing_key("rule-1", "event-1") == FIRING_GOLDEN
     assert firing_key("rule-1", "event-1") != idempotency_key("rule-1", "event-1")
     assert firing_key("rule-1", "event-1") != firing_key("rule-1", "event-2")
     assert firing_key("rule-1", "event-1").startswith("ik1:")

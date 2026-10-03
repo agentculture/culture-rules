@@ -182,20 +182,26 @@ export function handle(
 
 /** A `fetch` stub over the fake API, for vitest. */
 export function fetchFor(api: FakeApi): typeof fetch {
-  return (async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = new URL(typeof input === "string" ? input : input.toString(), "http://x");
-    const path = url.pathname.replace(/^\/api/, "");
-    const raw = init?.body;
-    const res = handle(
-      api,
-      (init?.method ?? "GET").toUpperCase(),
-      path,
-      url.searchParams,
-      typeof raw === "string" ? JSON.parse(raw) : undefined,
-    );
-    return new Response(JSON.stringify(res.body), {
-      status: res.status,
-      headers: { "content-type": "application/json" },
-    });
-  }) as typeof fetch;
+  // Not `async`: the work is synchronous. `Promise.resolve().then` still answers
+  // asynchronously, like a real fetch, and turns a throw (bad JSON body) into a rejection.
+  return ((input: RequestInfo | URL, init?: RequestInit) =>
+    Promise.resolve().then(() => respond(api, input, init))) as typeof fetch;
+}
+
+function respond(api: FakeApi, input: RequestInfo | URL, init?: RequestInit): Response {
+  // The base only resolves the relative `/api/...` paths the client sends.
+  const url = new URL(typeof input === "string" ? input : input.toString(), "https://localhost");
+  const path = url.pathname.replace(/^\/api/, "");
+  const raw = init?.body;
+  const res = handle(
+    api,
+    (init?.method ?? "GET").toUpperCase(),
+    path,
+    url.searchParams,
+    typeof raw === "string" ? JSON.parse(raw) : undefined,
+  );
+  return new Response(JSON.stringify(res.body), {
+    status: res.status,
+    headers: { "content-type": "application/json" },
+  });
 }

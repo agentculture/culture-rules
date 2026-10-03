@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Actors from "../routes/Actors";
+import * as client from "../api/client";
 import { getAgentState, resetAgentState } from "../agent-state/store";
 import { MACHINES } from "../fixtures/rules-fixture";
 import { ACTORS } from "./actors-fixture";
@@ -71,7 +72,10 @@ const row = (name: string) => screen.getByRole("group", { name });
 
 describe("Actors board (Chosen — Actors)", () => {
   beforeEach(() => resetAgentState());
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
 
   it("lists every actor with kind, machine and an enable switch", async () => {
     mockActorsApi();
@@ -214,6 +218,23 @@ describe("Actors board (Chosen — Actors)", () => {
     expect(calls.find((c) => c.method === "PUT")?.body).toMatchObject({ config_source: "db" });
   });
 
+  it("the configuration source is one tab stop; arrow keys switch it and focus follows", async () => {
+    const { calls } = mockActorsApi();
+    const user = userEvent.setup();
+    renderActors();
+    const card = await screen.findByRole("group", { name: "Claude Code" });
+    const repo = within(card).getByRole("radio", { name: "repo" });
+    const db = within(card).getByRole("radio", { name: "db" });
+    expect(repo).toHaveAttribute("tabindex", "0");
+    expect(db).toHaveAttribute("tabindex", "-1");
+    repo.focus();
+    await user.keyboard("{ArrowRight}");
+    await waitFor(() => expect(db).toHaveAttribute("aria-checked", "true"));
+    expect(db).toHaveFocus();
+    expect(db).toHaveAttribute("tabindex", "0");
+    expect(calls.find((c) => c.method === "PUT")?.body).toMatchObject({ config_source: "db" });
+  });
+
   it("deletes only after an inline confirmation, with DELETE /actors/{id}", async () => {
     const { calls } = mockActorsApi();
     const user = userEvent.setup();
@@ -274,6 +295,15 @@ describe("Actors board (Chosen — Actors)", () => {
       actors: { count: 8, shown: 8, kind: "all", selected: "claude-code" },
     });
     expect(getAgentState().errors).toEqual([]);
+  });
+
+  it("names a load that fails while being applied and still reports ready", async () => {
+    mockActorsApi();
+    // A rejection reason with no string form: describing it throws inside the load's .then.
+    vi.spyOn(client, "listMachines").mockRejectedValue(Object.create(null));
+    renderActors();
+    expect(await screen.findByRole("alert")).toHaveTextContent(/primitive/i);
+    await waitFor(() => expect(getAgentState().view_ready).toBe(true));
   });
 
   it("names a load failure and still reports ready", async () => {

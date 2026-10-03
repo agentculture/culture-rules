@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ReactNode } from "react";
+import { useEscapeKey } from "../hooks/useEscapeKey";
 
 /**
  * A non-modal floating panel with dialog semantics: focus moves into it on
@@ -18,6 +19,7 @@ export function Panel({
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  useEscapeKey(ref, onClose);
   useEffect(() => {
     const first = ref.current?.querySelector<HTMLElement>(
       "input:not([type=hidden]):not([tabindex='-1']), select, textarea, button",
@@ -34,12 +36,6 @@ export function Panel({
       role="dialog"
       aria-label={label}
       className={`wf-panel ${className}`}
-      onKeyDown={(e) => {
-        if (e.key === "Escape") {
-          e.stopPropagation();
-          onClose();
-        }
-      }}
     >
       {children}
     </div>

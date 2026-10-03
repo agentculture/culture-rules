@@ -150,7 +150,7 @@ def migrate(
     if not _backup_ok(verdict):
         raise BackupRequiredError(f"backup hook did not report ok: {verdict!r}")
 
-    report = MigrationReport(target_major=target, migrated={name: 0 for name in names})
+    report = MigrationReport(target_major=target, migrated=dict.fromkeys(names, 0))
     for name, doc_id, steps in plan:
         with store.transaction() as tx:
             doc = tx.get(name, doc_id)

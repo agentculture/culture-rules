@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type Keybo
 import { useLiveUpdates } from "../api/live";
 import { getMachineStatuses, type MachineStatus } from "../api/statistics";
 import { ApiError, listMachines, listRules, listRuns, listWorkflows } from "../api/client";
+import { settleAll } from "../api/settle";
 import type { Machine, Rule, RunSummary, Workflow } from "../api/types";
 import { setAgentState } from "../agent-state/store";
 import { machineStyle } from "../culture-design/stages";
@@ -275,27 +276,36 @@ export function StatisticsBoard() {
   useEffect(() => {
     const controller = new AbortController();
     const { signal } = controller;
-    Promise.allSettled([
-      listMachines(signal),
-      listRules(signal),
-      listWorkflows(signal),
-      listRuns({ limit: 1000 }, signal),
-      getMachineStatuses(signal),
-    ]).then(([machines, rules, workflows, runs, statuses]) => {
-      if (signal.aborted) return;
-      const errors = [machines, rules, workflows, runs, statuses]
-        .filter((r): r is PromiseRejectedResult => r.status === "rejected")
-        .map((r) => describe(r.reason));
-      setNow(Date.now());
-      setLoaded({
-        machines: machines.status === "fulfilled" ? machines.value : [],
-        rules: rules.status === "fulfilled" ? rules.value : [],
-        workflows: workflows.status === "fulfilled" ? workflows.value : [],
-        runs: runs.status === "fulfilled" ? runs.value : [],
-        statuses: statuses.status === "fulfilled" ? statuses.value : null,
-        errors,
-      });
-    });
+    settleAll(
+      [
+        listMachines(signal),
+        listRules(signal),
+        listWorkflows(signal),
+        listRuns({ limit: 1000 }, signal),
+        getMachineStatuses(signal),
+      ],
+      ([machines, rules, workflows, runs, statuses]) => {
+        if (signal.aborted) return;
+        const errors = [machines, rules, workflows, runs, statuses]
+          .filter((r): r is PromiseRejectedResult => r.status === "rejected")
+          .map((r) => describe(r.reason));
+        setNow(Date.now());
+        setLoaded({
+          machines: machines.status === "fulfilled" ? machines.value : [],
+          rules: rules.status === "fulfilled" ? rules.value : [],
+          workflows: workflows.status === "fulfilled" ? workflows.value : [],
+          runs: runs.status === "fulfilled" ? runs.value : [],
+          statuses: statuses.status === "fulfilled" ? statuses.value : null,
+          errors,
+        });
+      },
+      (message) => {
+        // Applying the load failed: show an empty board with the failure named.
+        if (signal.aborted) return;
+        setNow(Date.now());
+        setLoaded({ machines: [], rules: [], workflows: [], runs: [], statuses: null, errors: [message] });
+      },
+    );
     return () => controller.abort();
   }, [reload]);
 

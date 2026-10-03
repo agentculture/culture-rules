@@ -123,13 +123,19 @@ export function upstreamVars(rule: Rule): string[] {
   return [...found];
 }
 
+/** `--a-b--` → `a-b`: leading and trailing dashes dropped. */
+export function trimDashes(text: string): string {
+  // Index scans, not a `^-+|-+$` regex: that backtracks quadratically on an inner dash run.
+  let start = 0;
+  let end = text.length;
+  while (start < end && text[start] === "-") start++;
+  while (end > start && text[end - 1] === "-") end--;
+  return text.slice(start, end);
+}
+
 /** `Disk is nearly full` → `disk-is-nearly-full`, unique among `taken`. */
 export function slugFor(name: string, taken: string[]): string {
-  const base =
-    name
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "") || "rule";
+  const base = trimDashes(name.toLowerCase().replace(/[^a-z0-9]+/g, "-")) || "rule";
   let slug = base;
   for (let n = 2; taken.includes(slug); n++) slug = `${base}-${n}`;
   return slug;

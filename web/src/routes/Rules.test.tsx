@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Rules from "./Rules";
 import { getAgentState, resetAgentState } from "../agent-state/store";
 import { SELECTED_RULE_ID } from "../fixtures/rules-fixture";
+import * as client from "../api/client";
 import { defaultRoutes, mockFetch } from "../test/mockApi";
 
 function renderRules(path = `/rules/${SELECTED_RULE_ID}`) {
@@ -21,7 +22,10 @@ describe("Rules board (Chosen — Rules)", () => {
     resetAgentState();
     mockFetch(defaultRoutes(Date.parse("2026-10-03T12:00:00Z")));
   });
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
 
   it("lists every rule with an enable switch, the first affordance asking 'When does this happen?'", async () => {
     renderRules();
@@ -92,6 +96,15 @@ describe("Rules board (Chosen — Rules)", () => {
   it("selects the first rule when none is named", async () => {
     renderRules("/rules");
     expect(await screen.findByRole("heading", { level: 1, name: "Review on approve" })).toBeInTheDocument();
+  });
+
+  it("names a failure that has no string form and still reports ready", async () => {
+    mockFetch(defaultRoutes());
+    // A rejection reason with no string form: String(reason) throws while the load is applied.
+    vi.spyOn(client, "listMachines").mockRejectedValue(Object.create(null));
+    renderRules();
+    expect(await screen.findByRole("alert")).toHaveTextContent("unexpected error");
+    await waitFor(() => expect(getAgentState().status).toBe("ready"));
   });
 
   it("names a load failure and still reports ready", async () => {

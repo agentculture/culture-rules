@@ -23,7 +23,35 @@ __all__ = ["REPOS_ENV", "RepoTarget", "parse_repos", "repos_from_env"]
 
 REPOS_ENV = "CULTURE_RULES_REPOS"
 _NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
-_REMOTE = re.compile(r"^[a-z][a-z0-9+.-]*://|^[^/\s]+@[^/\s]+:")
+_SCHEME_REST = frozenset("abcdefghijklmnopqrstuvwxyz0123456789+.-")
+
+
+def _has_url_scheme(location: str) -> bool:
+    """``scheme://...`` with a lower-case RFC 3986 scheme (``https``, ``git+ssh``, ...)."""
+    scheme, sep, _ = location.partition("://")
+    return bool(
+        sep and scheme and "a" <= scheme[0] <= "z" and all(ch in _SCHEME_REST for ch in scheme)
+    )
+
+
+def _is_scp_like(location: str) -> bool:
+    """scp-style ``user@host:path``: a non-empty user, then a non-empty host, then ``:``.
+
+    Only the leading run of characters that are neither ``/`` nor whitespace counts, so a
+    path such as ``dir/user@host:x`` is not a remote. Scanned once, without backtracking.
+    """
+    head_len = len(location)
+    for i, ch in enumerate(location):
+        if ch == "/" or ch.isspace():
+            head_len = i
+            break
+    head = location[:head_len]
+    at = head.find("@", 1)  # the earliest @ with a user before it
+    return at != -1 and head.rfind(":") > at + 1  # the latest : with a host before it
+
+
+def _is_remote(location: str) -> bool:
+    return _has_url_scheme(location) or _is_scp_like(location)
 
 
 @dataclass(frozen=True)
@@ -35,7 +63,7 @@ class RepoTarget:
 
     @property
     def is_remote(self) -> bool:
-        return bool(_REMOTE.match(self.location))
+        return _is_remote(self.location)
 
     @property
     def writable(self) -> bool:
@@ -52,7 +80,7 @@ def _derive_name(location: str) -> str:
     trimmed = location.rstrip("/")
     if trimmed.endswith(".git"):
         trimmed = trimmed[: -len(".git")]
-    if _REMOTE.match(location):
+    if _is_remote(location):
         tail = re.split(r"[/:]", trimmed)
         return "/".join(p for p in tail[-2:] if p)
     return Path(trimmed).name or trimmed

@@ -11,12 +11,15 @@ effects through ``tx`` (or be safe to repeat). Standard-library only.
 
 from __future__ import annotations
 
-import random
+import secrets
 import time
 from collections.abc import Callable
 from typing import Any, TypeVar
 
 from culture_rules.store.port import StoreOps, TransientStoreError
+
+#: OS-entropy source for the backoff jitter (not security-relevant, but never a seeded PRNG).
+_JITTER = secrets.SystemRandom()
 
 __all__ = ["DEFAULT_ATTEMPTS", "run_transaction"]
 
@@ -45,5 +48,5 @@ def run_transaction(
             if attempt == attempts:
                 raise
             if backoff > 0:  # jittered, growing pause so racing writers spread out
-                sleep(backoff * attempt * (1 + random.random()))  # nosec B311
+                sleep(backoff * attempt * (1 + _JITTER.random()))
     raise AssertionError("unreachable")  # pragma: no cover
