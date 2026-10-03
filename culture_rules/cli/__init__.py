@@ -68,8 +68,8 @@ def _build_parser() -> argparse.ArgumentParser:
     from culture_rules.cli._commands import explain as _explain_cmd
     from culture_rules.cli._commands import learn as _learn_cmd
     from culture_rules.cli._commands import machines as _machines
-    from culture_rules.cli._commands import node as _node
     from culture_rules.cli._commands import mcp as _mcp
+    from culture_rules.cli._commands import node as _node
     from culture_rules.cli._commands import overview as _overview_cmd
     from culture_rules.cli._commands import rules as _rules
     from culture_rules.cli._commands import runs as _runs
