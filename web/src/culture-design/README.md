@@ -31,12 +31,12 @@ npm run check:palette   # chart palette through scripts/validate_palette.js
 
 `check-tokens.mjs` always checks the copied body against the recorded
 sha256; when an org checkout is reachable (`CULTURE_DESIGN_ORG_REPO`,
-default `/home/spark/git/org`) it also reads the source at the pin with
+default: the sibling checkout `../org` next to this repo) it also reads the source at the pin with
 `git show <pin>:<path>` and asserts byte equality.
 
 ## Re-pin
 
-1. `git -C /home/spark/git/org rev-parse HEAD` for the new commit.
+1. `git -C ../org rev-parse HEAD` (from the repo root) for the new commit.
 2. Re-copy `site-astro/src/styles/global.css` below the header, unchanged.
 3. Update the header's `Pinned commit:` and `Source sha256:` lines.
 4. Run `npm run check:tokens`.

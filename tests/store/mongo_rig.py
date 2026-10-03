@@ -10,6 +10,7 @@ external service.
 
 from __future__ import annotations
 
+import secrets
 import shutil
 import socket
 import subprocess  # nosec B404
@@ -21,9 +22,10 @@ from pathlib import Path
 IMAGE = "mongo:8.0"
 REPLICA_SET = "rs0"
 ADMIN_USER = "rig-admin"
-ADMIN_PASSWORD = "rig-admin-pw"  # noqa: S105 - throwaway container credential
+# throwaway container credentials, random per test session (never a fixed literal)
+ADMIN_PASSWORD = secrets.token_urlsafe(18)
 APP_USER = "rig-app"
-APP_PASSWORD = "rig-app-pw"  # noqa: S105 - throwaway container credential
+APP_PASSWORD = secrets.token_urlsafe(18)
 
 
 class RigUnavailable(Exception):

@@ -16,6 +16,8 @@ config:
 
 ignores:
   - "node_modules/**"
+  # the uv virtualenv (dependency license files are not ours to lint)
+  - ".venv/**"
   # The web editor's dependencies and build output (web/README.md).
   - "web/node_modules/**"
   - "web/dist/**"

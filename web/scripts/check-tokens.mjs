@@ -11,7 +11,7 @@
 //   1. always: hashes everything after the header and asserts it equals the
 //      recorded sha256 — catches any hand edit, works offline / in CI;
 //   2. when an org checkout is reachable (CULTURE_DESIGN_ORG_REPO, default
-//      /home/spark/git/org) and holds the pinned commit: reads the source
+//      the sibling checkout ../org next to this repo) and holds the pinned commit: reads the source
 //      AT THE PIN via `git show <pin>:<path>` (never the working tree, so
 //      org's HEAD may move on) and asserts byte equality — proving the
 //      recorded hash is the real org file, not merely self-consistent.
@@ -27,7 +27,7 @@ import { fileURLToPath } from "node:url";
 const WEB = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const TOKENS = path.join(WEB, "src", "culture-design", "tokens.css");
 const ORG_PATH = "site-astro/src/styles/global.css";
-const ORG_REPO = process.env.CULTURE_DESIGN_ORG_REPO ?? "/home/spark/git/org";
+const ORG_REPO = process.env.CULTURE_DESIGN_ORG_REPO ?? path.resolve(WEB, "..", "..", "org");
 const SENTINEL = "---- verbatim copy of site-astro/src/styles/global.css follows ----";
 
 let failures = 0;

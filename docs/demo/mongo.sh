@@ -27,11 +27,13 @@ for _ in $(seq 60); do
     >/dev/null 2>&1 && break; sleep 1; done
 for _ in $(seq 60); do
   [ "$(m --eval 'db.hello().isWritablePrimary' 2>/dev/null)" = true ] && break; sleep 1; done
-m --eval 'db.getSiblingDB("admin").createUser({user:"demo-admin",pwd:"demo-admin-pw",roles:["root"]})' >/dev/null
-m -u demo-admin -p demo-admin-pw --authenticationDatabase admin --eval \
-  'db.getSiblingDB("culture_rules").createUser({user:"demo-app",pwd:"demo-app-pw",roles:[{role:"readWrite",db:"culture_rules"}]})' >/dev/null
+# throwaway credentials, random per run (never a fixed literal in the repo)
+admin_pw=$(openssl rand -hex 16); app_pw=$(openssl rand -hex 16)
+m --eval 'db.getSiblingDB("admin").createUser({user:"demo-admin",pwd:"'"$admin_pw"'",roles:["root"]})' >/dev/null
+m -u demo-admin -p "$admin_pw" --authenticationDatabase admin --eval \
+  'db.getSiblingDB("culture_rules").createUser({user:"demo-app",pwd:"'"$app_pw"'",roles:[{role:"readWrite",db:"culture_rules"}]})' >/dev/null
 cat > env.sh <<ENV
-export CULTURE_RULES_MONGO_URI='mongodb://demo-app:demo-app-pw@127.0.0.1:$port/culture_rules?replicaSet=rs0&authSource=culture_rules'
+export CULTURE_RULES_MONGO_URI='mongodb://demo-app:$app_pw@127.0.0.1:$port/culture_rules?replicaSet=rs0&authSource=culture_rules'
 export CULTURE_RULES_MONGO_TLS_CA_FILE='$PWD/ca.pem'
 export CULTURE_RULES_API_URL='http://127.0.0.1:8791'
 ENV
