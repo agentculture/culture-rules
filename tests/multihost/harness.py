@@ -7,10 +7,10 @@ own :class:`~culture_rules.events.triggers.EventTriggers` and its own heartbeat,
 by one thread. Hosts are names (strings); nothing here opens an ssh session or talks to a
 real host. API instances are real ``uvicorn`` listeners on loopback ports, one per host.
 
-Event -> rule -> run (test-side glue)
-=====================================
-The engine ships the pieces but not yet a node daemon that wires them together, so this
-harness composes them the way the plan describes:
+Event -> rule -> run (production code since t41)
+================================================
+Each host is a production :class:`culture_rules.node.daemon.Node`
+(:mod:`culture_rules.node.firing` holds the design below, lifted from this harness):
 
 * every host ingests every event from its own subscription (the ``events`` collection
   dedups by envelope id);
@@ -34,7 +34,6 @@ idempotency key and records every invocation and every side effect it performed.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import socket
 import threading
@@ -48,40 +47,25 @@ from typing import Any
 import pytest
 
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
-from culture_rules.engine.claims import firing_key, idempotency_key
-from culture_rules.engine.matching import match
-from culture_rules.engine.placement import MachineState, Resolved, resolve_rule_placement
-from culture_rules.engine.runs import (
-    RUN_DONE,
-    RUNS_COLLECTION,
-    Executor,
-    RunError,
-    drained_machines,
-    is_paused,
-    step_state,
-)
-from culture_rules.events.ingest import EVENTS_COLLECTION, EventIngest
-from culture_rules.events.triggers import FIRES_COLLECTION, EventTriggers
-from culture_rules.machines.enrol import MACHINES_COLLECTION, enrol, enrolled_machines
-from culture_rules.machines.heartbeat import (
-    HEARTBEAT_COLLECTION,
-    HeartbeatPublisher,
-    online_machines,
-)
+from culture_rules.engine.claims import idempotency_key
+from culture_rules.engine.runs import RUN_DONE, RUNS_COLLECTION, step_state
+from culture_rules.events.ingest import EVENTS_COLLECTION
+from culture_rules.events.triggers import FIRES_COLLECTION
+from culture_rules.machines.enrol import MACHINES_COLLECTION, enrol
+from culture_rules.machines.heartbeat import HEARTBEAT_COLLECTION
+from culture_rules.machines.probe import ProbeResult
 from culture_rules.model.action import Action
-from culture_rules.model.actor import Actor
 from culture_rules.model.machine import Machine
 from culture_rules.model.placement import Placement
 from culture_rules.model.rule import Rule, Trigger, WorkflowRef
 from culture_rules.model.workflow import Output, Workflow
-from culture_rules.store.port import DuplicateKeyError, StoragePort, StoreOps
+from culture_rules.node.daemon import Node
+from culture_rules.node.firing import RULE_FIRES, run_id_for  # noqa: F401 - re-exported
+from culture_rules.store.port import StoragePort
 from tests.engine.run_helpers import edge, port, step, workflow
 from tests.events.fakes import FakeEventSource
 
 HOSTS = ["spark", "thor", "spark2"]
-RULE_FIRES = "rule_fires"
-"""Firing intents: one per (rule, event) that matched, committed with the trigger fire."""
-SHARED_CONSUMER = "triggers"
 LEASE = timedelta(seconds=2)
 """Short claim lease so survivors reclaim a dead host's step quickly."""
 LOOP_PAUSE_S = 0.02
@@ -105,12 +89,6 @@ class HostKilled(BaseException):
 
 
 # --------------------------------------------------------------------------- builders
-
-
-def run_id_for(rule_id: str, event_id: str) -> str:
-    """The run id of ``rule_id`` firing on ``event_id`` (same on every host)."""
-    digest = hashlib.sha256(json.dumps([rule_id, event_id]).encode()).hexdigest()
-    return f"run-{digest[:32]}"
 
 
 def event_rule(id: str, workflow_id: str | None = None, placement: Placement | None = None) -> Rule:
@@ -300,51 +278,44 @@ class Broker:
 
 
 class SimHost:
-    """One engine node in its own thread: heartbeat, ingest, triggers, intents, ticks."""
+    """One engine node in its own thread: a production :class:`~culture_rules.node.daemon.Node`
+    (heartbeat, ingest, placed/unplaced triggers, intents, executor) driven by
+    :meth:`Node.run`, plus the harness's crash switch."""
 
     def __init__(self, cluster: Cluster, name: str, store: StoragePort) -> None:
         self.cluster = cluster
         self.name = name
         self.store = store
-        self.executor = Executor(store, name, {"*": _HostPort(self, cluster.ledger)}, lease=LEASE)
-        self.ingest = EventIngest(store, cluster.broker.subscription(name), host=name)
-        self.placed = EventTriggers(
+        self.node = Node(
             store,
-            lambda tx, ev: self._evaluate(tx, ev, placed=True),
-            host=name,
-            consumer=f"triggers@{name}",
-            handler_collections=(RULE_FIRES,),
+            name,
+            actors={"*": _HostPort(self, cluster.ledger)},
+            event_source=cluster.broker.subscription(name),
+            lease=LEASE,
+            probe=lambda: ProbeResult(tools={}),
+            load_reader=lambda: {"cpu": 0.0, "mem": 0.0},
+            engine_version="test",
+            beat_every=BEAT_EVERY_S,
+            on_evaluated=lambda rule_id, event_id: cluster._evaluated(name, rule_id, event_id),
         )
-        self.shared = EventTriggers(
-            store,
-            lambda tx, ev: self._evaluate(tx, ev, placed=False),
-            host=name,
-            consumer=SHARED_CONSUMER,
-            handler_collections=(RULE_FIRES,),
-        )
-        self.heartbeat = HeartbeatPublisher(
-            store, name, load_reader=lambda: {"cpu": 0.0, "mem": 0.0}, engine_version="test"
-        )
-        self.errors: list[Exception] = []
         self.crash_armed = False
         self.crashed_key: str | None = None
         self.killed = False
         self.killed_at: float | None = None
-        self._pending: dict[str, list[str]] = {}
-        self._last_beat = 0.0
-        self._stop = threading.Event()
         self._thread = threading.Thread(target=self._loop, name=f"host-{name}", daemon=True)
+
+    @property
+    def errors(self) -> list[Exception]:
+        return self.node.errors
 
     # ------------------------------------------------------------------ lifecycle
 
     def start(self) -> None:
-        self._beat()
-        for consumer in (self.placed, self.shared):  # pin cursors before any event arrives
-            self._poll(consumer)
+        self.node.start()  # beats and pins both trigger cursors before any event arrives
         self._thread.start()
 
     def stop(self) -> None:
-        self._stop.set()
+        self.node.stop()
         self._thread.join(timeout=30)
 
     @property
@@ -352,111 +323,11 @@ class SimHost:
         return self._thread.is_alive()
 
     def _loop(self) -> None:
-        while not self._stop.is_set():
-            try:
-                self.step()
-            except HostKilled:
-                self.killed = True
-                self.killed_at = time.time()
-                return
-            except Exception as exc:  # noqa: BLE001 - a node keeps going; counted for the report
-                self.errors.append(exc)
-            self._stop.wait(LOOP_PAUSE_S)
-
-    def step(self) -> None:
-        if time.monotonic() - self._last_beat >= BEAT_EVERY_S:
-            self._beat()
-        self.ingest.ingest()
-        self._poll(self.placed)
-        self._poll(self.shared)
-        self._start_fired()
-        self.executor.tick()
-
-    def _beat(self) -> None:
-        self.heartbeat.beat()
-        self._last_beat = time.monotonic()
-
-    # ------------------------------------------------------------------ rules
-
-    def _poll(self, consumer: EventTriggers) -> None:
-        self._pending.clear()
         try:
-            consumer.poll()
-        finally:
-            # Only evaluations whose transaction committed count: the committed fire marker
-            # names its host. (A later event's failure must not hide an earlier commit.)
-            for event_id, rule_ids in self._pending.items():
-                marker = self.store.get(FIRES_COLLECTION, consumer.fire_id(event_id))
-                if marker is not None and marker.get("host") == self.name:
-                    for rule_id in rule_ids:
-                        self.cluster._evaluated(self.name, rule_id, event_id)
-            self._pending.clear()
-
-    def _placed_here(self, tx: StoreOps, rule: Rule) -> bool:
-        machines = enrolled_machines(tx)
-        online = online_machines(tx, datetime.now(UTC))
-        drained = drained_machines(tx)
-        states = [MachineState(m.name, m.name in online, m.name in drained) for m in machines]
-        actors = [Actor.from_dict(d, strict=False) for d in tx.find("actors")]
-        resolved = resolve_rule_placement(rule, machines, states, actors)
-        return isinstance(resolved, Resolved) and resolved.machine == self.name
-
-    def _evaluate(self, tx: StoreOps, event: Mapping[str, Any], *, placed: bool) -> None:
-        envelope = event["envelope"]
-        event_id = envelope["id"]
-        rules = [
-            Rule.from_dict(d, strict=False) for d in tx.find("rules") if not d.get("deleted_at")
-        ]
-        if placed:
-            rules = [r for r in rules if r.placement is not None and self._placed_here(tx, r)]
-        else:
-            rules = [r for r in rules if r.placement is None]
-        self._pending[event_id] = []  # a retried transaction re-evaluates from scratch
-        if not rules:
-            return
-        workflows = {
-            w.id: w for w in (Workflow.from_dict(d, strict=False) for d in tx.find("workflows"))
-        }
-        for decision in match(envelope, rules, workflows=workflows, paused=is_paused(tx)):
-            self._pending[event_id].append(decision.rule_id)
-            if decision.fire:
-                tx.insert(
-                    RULE_FIRES,
-                    {
-                        "id": firing_key(decision.rule_id, event_id),
-                        "rule_id": decision.rule_id,
-                        "event_id": event_id,
-                        "run_id": run_id_for(decision.rule_id, event_id),
-                        "host": self.name,
-                        "placed": placed,
-                        "status": "pending",
-                        "trigger": dict(envelope),
-                    },
-                )
-
-    def _start_fired(self) -> None:
-        for intent in self.store.find(RULE_FIRES, {"status": "pending"}):
-            if intent["placed"] and intent["host"] != self.name:
-                continue  # a placed rule's run starts where it was evaluated
-            try:
-                self.executor.start_from_store(
-                    intent["rule_id"], trigger=intent["trigger"], run_id=intent["run_id"]
-                )
-            except DuplicateKeyError:
-                pass  # another host started it first
-            except RunError as exc:
-                if exc.code == "paused":
-                    continue
-                self.store.update_if(
-                    RULE_FIRES,
-                    intent["id"],
-                    {"status": "pending"},
-                    {"status": "failed", "error": exc.code},
-                )
-                continue
-            self.store.update_if(
-                RULE_FIRES, intent["id"], {"status": "pending"}, {"status": "started"}
-            )
+            self.node.run(idle=LOOP_PAUSE_S)
+        except HostKilled:
+            self.killed = True
+            self.killed_at = time.time()
 
 
 # --------------------------------------------------------------------------- API instances

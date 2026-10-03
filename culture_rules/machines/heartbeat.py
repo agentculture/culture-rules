@@ -8,6 +8,7 @@ A heartbeat document (collection ``heartbeats``, id = machine name) carries
 
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
@@ -17,7 +18,7 @@ from typing import Any
 from culture_rules.machines.enrol import enrolled_machines
 from culture_rules.machines.probe import read_load
 from culture_rules.model.machine import Machine
-from culture_rules.store.port import StoreOps
+from culture_rules.store.port import StoreError, StoreOps
 
 __all__ = [
     "HEARTBEAT_COLLECTION",
@@ -34,6 +35,8 @@ MISSED_BEATS_OFFLINE = 3
 OFFLINE_AFTER_S = HEARTBEAT_INTERVAL_S * MISSED_BEATS_OFFLINE
 
 Clock = Callable[[], datetime]
+
+log = logging.getLogger(__name__)
 
 
 def _now() -> datetime:
@@ -99,10 +102,18 @@ class HeartbeatPublisher:
         max_beats: int | None = None,
         should_stop: Callable[[], bool] = lambda: False,
     ) -> None:
-        """Beat every :data:`HEARTBEAT_INTERVAL_S` until stopped or ``max_beats`` reached."""
+        """Beat every :data:`HEARTBEAT_INTERVAL_S` until stopped or ``max_beats`` reached.
+
+        A store error on one beat (a primary step-down, a transient write conflict) is
+        logged and the cadence kept: the loop never ends on it, so the machine does not go
+        offline for good. ``max_beats`` counts attempts, failed or not.
+        """
         beats = 0
         while not should_stop():
-            self.beat()
+            try:
+                self.beat()
+            except StoreError as exc:
+                log.warning("heartbeat for %s not written: %s", self.machine, exc)
             beats += 1
             if max_beats is not None and beats >= max_beats:
                 return

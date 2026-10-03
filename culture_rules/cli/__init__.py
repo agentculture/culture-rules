@@ -68,6 +68,7 @@ def _build_parser() -> argparse.ArgumentParser:
     from culture_rules.cli._commands import explain as _explain_cmd
     from culture_rules.cli._commands import learn as _learn_cmd
     from culture_rules.cli._commands import machines as _machines
+    from culture_rules.cli._commands import node as _node
     from culture_rules.cli._commands import mcp as _mcp
     from culture_rules.cli._commands import overview as _overview_cmd
     from culture_rules.cli._commands import rules as _rules
@@ -99,6 +100,7 @@ def _build_parser() -> argparse.ArgumentParser:
     for noun_group in (_rules, _workflows, _actors, _machines, _runs):
         noun_group.register(sub)
     _serve.register(sub)
+    _node.register(sub)  # the engine node: talks to the store directly (lazy import)
     _mcp.register(sub)
 
     return parser
