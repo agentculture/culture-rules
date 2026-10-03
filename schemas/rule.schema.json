@@ -1,0 +1,356 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "rule.schema.json",
+  "title": "Rule",
+  "x-schema-version": "1.0",
+  "type": "object",
+  "description": "Binds a trigger (+ optional condition) to an optional workflow and a required action.",
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Stable rule id"
+    },
+    "name": {
+      "type": "string",
+      "description": "Display name"
+    },
+    "description": {
+      "type": "string",
+      "description": "Free text",
+      "default": ""
+    },
+    "trigger": {
+      "$ref": "#/$defs/Trigger",
+      "description": "What fires the rule"
+    },
+    "condition": {
+      "anyOf": [
+        {
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Condition tree (JSON object); null means always",
+      "default": null
+    },
+    "workflow": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/WorkflowRef"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Workflow to run; null means Trigger -> Action",
+      "default": null
+    },
+    "action": {
+      "$ref": "#/$defs/Action",
+      "description": "The terminal side effect (required)"
+    },
+    "placement": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Placement"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Where the trigger and condition evaluate (machine, actor or requirement); null means any eligible engine node",
+      "default": null
+    },
+    "must_after": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Rule ids that must have succeeded before this rule fires",
+      "default": []
+    },
+    "may_after": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Rule ids whose exported outputs are visible if they ran",
+      "default": []
+    },
+    "supersedes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Rule ids that do not fire for an event this rule matched",
+      "default": []
+    },
+    "exclusive_group": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Only the highest-priority matching rule of a group fires",
+      "default": null
+    },
+    "priority": {
+      "type": "integer",
+      "description": "Higher wins within an exclusive group",
+      "default": 0
+    },
+    "enabled": {
+      "type": "boolean",
+      "description": "Disabled rules never fire",
+      "default": true
+    },
+    "schema_version": {
+      "type": "string",
+      "description": "Document schema version (MAJOR.MINOR)",
+      "default": "1.0"
+    }
+  },
+  "required": [
+    "id",
+    "name",
+    "trigger",
+    "action"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "Action": {
+      "type": "object",
+      "description": "A terminal operation: comment on a PR, send a message, call a service, ask a human...",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "description": "Action type, e.g. github.comment, mesh.message, http.call"
+        },
+        "name": {
+          "type": "string",
+          "description": "Display name",
+          "default": ""
+        },
+        "params": {
+          "type": "object",
+          "description": "Kind-specific parameters; values may hold references such as workflow.outputs.x",
+          "default": {}
+        },
+        "timeout_s": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Timeout in seconds (> 0)",
+          "default": null
+        },
+        "retry": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RetryPolicy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Retry policy",
+          "default": null
+        },
+        "idempotent": {
+          "type": "boolean",
+          "description": "Safe to retry without an idempotency key",
+          "default": false
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "additionalProperties": false
+    },
+    "Placement": {
+      "type": "object",
+      "description": "A named machine, a named actor (runs where it lives), or a capability requirement.",
+      "properties": {
+        "machine": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Name of an enrolled machine",
+          "default": null
+        },
+        "actor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Id of an actor; runs on that actor's machine",
+          "default": null
+        },
+        "requirement": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Capabilities (e.g. gpu) an eligible enrolled machine must offer",
+          "default": null
+        }
+      },
+      "required": [],
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "required": [
+            "machine"
+          ],
+          "properties": {
+            "machine": {
+              "type": "string",
+              "minLength": 1
+            },
+            "actor": {
+              "type": "null"
+            },
+            "requirement": {
+              "type": "null"
+            }
+          }
+        },
+        {
+          "required": [
+            "actor"
+          ],
+          "properties": {
+            "machine": {
+              "type": "null"
+            },
+            "actor": {
+              "type": "string",
+              "minLength": 1
+            },
+            "requirement": {
+              "type": "null"
+            }
+          }
+        },
+        {
+          "required": [
+            "requirement"
+          ],
+          "properties": {
+            "machine": {
+              "type": "null"
+            },
+            "actor": {
+              "type": "null"
+            },
+            "requirement": {
+              "type": "array",
+              "minItems": 1
+            }
+          }
+        }
+      ]
+    },
+    "RetryPolicy": {
+      "type": "object",
+      "description": "How often a step or action is re-attempted after a failure.",
+      "properties": {
+        "max_attempts": {
+          "type": "integer",
+          "description": "Total attempts including the first (>= 1)",
+          "default": 1
+        },
+        "backoff_s": {
+          "type": "number",
+          "description": "Delay before the first retry, seconds (>= 0)",
+          "default": 0.0
+        },
+        "backoff_multiplier": {
+          "type": "number",
+          "description": "Factor applied to the delay per retry (>= 1)",
+          "default": 1.0
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "Trigger": {
+      "type": "object",
+      "description": "What fires a rule: an event, a schedule, a manual run, ...",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "description": "Trigger type, e.g. event, schedule, manual"
+        },
+        "params": {
+          "type": "object",
+          "description": "Kind-specific parameters",
+          "default": {}
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "additionalProperties": false
+    },
+    "WorkflowRef": {
+      "type": "object",
+      "description": "A reference from a rule to a reusable workflow, with input mappings.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Workflow id"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Pinned workflow version; null means latest",
+          "default": null
+        },
+        "inputs": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Workflow input name -> reference (e.g. trigger.data.number)",
+          "default": {}
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

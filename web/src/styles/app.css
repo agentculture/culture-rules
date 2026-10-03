@@ -1,0 +1,327 @@
+/*
+ * App layer over culture-design/tokens.css. Values copied from the design
+ * canvas 'Chosen' row (https://claude.ai/artifact/Jgm3JPnAhKWpeiCxFXvNBi);
+ * every color is a tokens.css custom property or one of the app tokens
+ * below, which carry a dark-mode twin. Dark mode is prefers-color-scheme
+ * only, as upstream.
+ */
+
+:root {
+  /* Machine colors = the chart palette (culture-design/chart.ts). */
+  --machine-0: #0a8a78;
+  --machine-1: #b4531f;
+  --machine-2: #3b4fb0;
+  --machine-none: #8a8fa8;
+  /* Tints from the canvas's Statistics rows / placement chip. */
+  --machine-0-tint: #e3f1ee;
+  --machine-1-tint: #fbeadf;
+  --machine-2-tint: #e6e9f8;
+  --machine-none-tint: #eceef5;
+  /* Text on a tint: the machine hue darkened until it clears WCAG AA. */
+  --machine-0-ink: #0b655c;
+  --machine-1-ink: #9a4318;
+  --machine-2-ink: #33449a;
+  --machine-none-ink: #4d546f;
+
+  --muted: #e7e9f3; /* action pill, edit button */
+  --switch-off: #8a8fa8;
+  --danger: #9a2f1b;
+  --danger-tint: #fbe9e4;
+  --accent-tint: #e3f1ee;
+  --stage-trigger-bg: var(--ink);
+  --stage-trigger-ink: #ffffff;
+  --dash: rgba(35, 42, 77, 0.3);
+  --dash-strong: rgba(35, 42, 77, 0.4);
+  --arrow: rgba(35, 42, 77, 0.4);
+  --offset-shadow: rgba(35, 42, 77, 0.12);
+  --nav-shadow: 0 4px 24px rgba(35, 42, 77, 0.07);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --machine-0: #2fa58f;
+    --machine-1: #d0743d;
+    --machine-2: #6a7fe0;
+    --machine-none: #8790b8;
+    --machine-0-tint: color-mix(in srgb, #2fa58f 22%, var(--surface));
+    --machine-1-tint: color-mix(in srgb, #d0743d 22%, var(--surface));
+    --machine-2-tint: color-mix(in srgb, #6a7fe0 22%, var(--surface));
+    --machine-none-tint: color-mix(in srgb, #8790b8 18%, var(--surface));
+    --machine-0-ink: #7fdcc9;
+    --machine-1-ink: #f2b774;
+    --machine-2-ink: #a9b8f5;
+    --machine-none-ink: #a9b0cf;
+    --muted: #232a4d;
+    --switch-off: #4d546f;
+    --danger: #f2789a;
+    --danger-tint: color-mix(in srgb, #f2789a 16%, var(--surface));
+    --accent-tint: color-mix(in srgb, #7fdcc9 16%, var(--surface));
+    --stage-trigger-bg: #e9ecf8;
+    --stage-trigger-ink: #0b0f20;
+    --dash: rgba(233, 236, 248, 0.3);
+    --dash-strong: rgba(233, 236, 248, 0.4);
+    --arrow: rgba(233, 236, 248, 0.4);
+    --offset-shadow: rgba(2, 4, 12, 0.5);
+    --nav-shadow: 0 4px 24px rgba(2, 4, 12, 0.5);
+  }
+}
+
+/* The canvas boards sit on flat sky-paper: no dawn gradient behind the app. */
+body::before {
+  display: none;
+}
+
+body {
+  background: var(--bg);
+}
+
+.app {
+  min-height: 100dvh;
+}
+
+/* ---------- header ---------- */
+
+.app-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 40px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.app-header__brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.brand-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
+.app-header__wordmark {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  padding: 5px;
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: var(--nav-shadow);
+}
+
+.tabs__tab {
+  padding: 10px 22px;
+  border-radius: 999px;
+  color: var(--ink);
+  text-decoration: none;
+  font-size: 17px;
+  font-weight: 500;
+  line-height: 1.25;
+  transition:
+    background-color 0.25s var(--ease-out),
+    color 0.25s var(--ease-out);
+}
+
+.tabs__tab:hover {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--ink) 5%, var(--surface));
+}
+
+.tabs__tab[aria-current="page"] {
+  background: var(--ink);
+  color: var(--surface);
+  font-weight: 600;
+}
+
+.avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 0;
+  background: var(--ink);
+  color: var(--surface);
+  font: 600 16px var(--font-body);
+  cursor: default;
+}
+
+/* ---------- shared controls ---------- */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 8px;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  line-height: 1.3;
+}
+
+.chip--mapping {
+  background: var(--bg);
+  color: var(--ink-soft);
+}
+
+.chip--var {
+  margin-left: auto;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--accent-tint);
+  color: var(--accent);
+}
+
+.icon-button {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  border: 0;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--muted);
+  color: var(--ink);
+  transition: background-color 0.2s var(--ease-out);
+}
+
+.icon-button--danger {
+  background: var(--danger-tint);
+  color: var(--danger);
+}
+
+.switch {
+  position: relative;
+  flex: none;
+  width: 40px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--switch-off);
+  transition: background-color 0.2s var(--ease-out);
+}
+
+.switch[aria-checked="true"] {
+  background: var(--accent-strong);
+}
+
+.switch__knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #ffffff;
+  transition: left 0.2s var(--ease-out);
+}
+
+.switch[aria-checked="true"] .switch__knob {
+  left: 19px;
+}
+
+.notice {
+  width: 100%;
+  max-width: 620px;
+  margin: 0 0 16px;
+  padding: 12px 18px;
+  border-radius: 16px;
+  font-size: 16px;
+}
+
+.notice--error {
+  background: var(--danger-tint);
+  color: var(--danger);
+}
+
+/*
+ * Native elements in place of ARIA roles: <fieldset class="plain-group"> is
+ * role "group", <output> is role "status", <dialog open> is role "dialog".
+ * Their UA chrome is dropped so each renders exactly like the <div>/<p> it
+ * replaced (output mirrors tokens.css's `p` rules). `:where()` keeps the
+ * reset at zero specificity, so a component's own class always wins.
+ */
+:where(.plain-group) {
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+output {
+  display: block;
+  text-wrap: pretty;
+}
+
+output:last-child {
+  margin-bottom: 0;
+}
+
+/* ---------- placeholder tabs ---------- */
+
+.page {
+  padding: 24px 40px 32px;
+}
+
+.page__title {
+  margin: 0 0 12px;
+  font-family: var(--font-display);
+  font-size: 44px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+.page__lede {
+  margin: 0;
+  font-size: 20px;
+  color: var(--ink-soft);
+}
+
+main:focus {
+  outline: none;
+}
+
+@media (max-width: 720px) {
+  .app-header,
+  .page {
+    padding-inline: 16px;
+  }
+
+  .tabs {
+    order: 3;
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  .tabs__tab {
+    padding: 10px 14px;
+  }
+}
+
+/* Live updates (src/api/live.ts): a brief cue that the view just refreshed.
+   Motion only when the reader has not asked for less of it. */
+@media (prefers-reduced-motion: no-preference) {
+  [data-live-flash] {
+    animation: live-flash 700ms ease-out;
+  }
+}
+
+@keyframes live-flash {
+  from {
+    box-shadow: inset 0 3px 0 0 var(--accent);
+  }
+  to {
+    box-shadow: inset 0 3px 0 0 transparent;
+  }
+}

@@ -33,18 +33,26 @@ update this section so the docs keep matching what's actually on disk.
 
 `culture-rules` is the **rules engine for the AgentCulture mesh**: rules →
 conditions → workflows → actions, carried out by actors (agents, humans,
-code, services, robots, …). The planned shape:
+code, services, robots, …). It is built and on disk:
 
 - a Python library, `culture_rules`, holding the model and the engine with
-  persisted run state;
-- a thin `culture-rules` CLI and an HTTP API over that library;
-- a Node.js + React Flow editor with exactly three tabs: **Rules |
-  Workflows | Actors**.
+  persisted run state (MongoDB), plus the engine node daemon
+  (`culture-rules node run`);
+- a thin `culture-rules` CLI (`rules`, `workflows`, `actors`, `machines`,
+  `runs`, `serve`, `node`, `mcp`), an HTTP API with its contract pinned in
+  `api/openapi.json`, and an MCP server exposing the same verbs as tools;
+- a Node.js + React Flow editor in `web/` with four tabs: **Rules |
+  Workflows | Actors | Statistics**. Runs and history appear in context,
+  never as a tab.
 
-**Status: scaffold only.** Today the repo holds the
-`culture-agent-template` baseline: the agent-first CLI, the mesh identity,
-the skill kit, and CI/publish. The engine, API and editor are planned.
-GitHub issue #1 is the build brief, and #2 is the product model and UX.
+**Status: built and shipped on `rules/build`.** The spec is
+`docs/specs/2026-10-03-culture-rules-engine-editor.md`, the walkthrough is
+`docs/demo.md`, and the ops docs are in `docs/operations/`. GitHub issue #1
+was the build brief, and #2 the product model and UX; the operator added
+Statistics as the fourth tab, and the design canvas
+(<https://claude.ai/artifact/Jgm3JPnAhKWpeiCxFXvNBi>, row "Chosen") is the
+visual source of truth. CLI writes are dry-run by default; `--apply`
+commits them.
 
 `CLAUDE.md` is written for a Claude Code session working *on* the repo. It
 is not your runtime prompt, but it is the fullest write-up of the repo's

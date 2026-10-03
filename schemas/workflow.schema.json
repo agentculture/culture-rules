@@ -1,0 +1,494 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "workflow.schema.json",
+  "title": "Workflow",
+  "x-schema-version": "1.0",
+  "type": "object",
+  "description": "Inputs, variables, steps (+ edges) and exported outputs; no trigger knowledge.",
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Stable workflow id"
+    },
+    "name": {
+      "type": "string",
+      "description": "Display name"
+    },
+    "description": {
+      "type": "string",
+      "description": "Free text",
+      "default": ""
+    },
+    "version": {
+      "type": "integer",
+      "description": "Definition version (>= 1)",
+      "default": 1
+    },
+    "inputs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Port"
+      },
+      "description": "Workflow inputs",
+      "default": []
+    },
+    "variables": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Variable"
+      },
+      "description": "Workflow-local variables",
+      "default": []
+    },
+    "steps": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Step"
+      },
+      "description": "Steps",
+      "default": []
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Edge"
+      },
+      "description": "Port-to-port wiring",
+      "default": []
+    },
+    "outputs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Output"
+      },
+      "description": "Explicitly exported outputs",
+      "default": []
+    },
+    "enabled": {
+      "type": "boolean",
+      "description": "Disabled workflows never run",
+      "default": true
+    },
+    "schema_version": {
+      "type": "string",
+      "description": "Document schema version (MAJOR.MINOR)",
+      "default": "1.0"
+    }
+  },
+  "required": [
+    "id",
+    "name"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "Edge": {
+      "type": "object",
+      "description": "Wires an output port to an input port. ``source`` may be ``inputs`` (workflow inputs).",
+      "properties": {
+        "source": {
+          "type": "string",
+          "description": "Source step id, or 'inputs' for the workflow's inputs"
+        },
+        "source_port": {
+          "type": "string",
+          "description": "Output port on the source"
+        },
+        "target": {
+          "type": "string",
+          "description": "Target step id"
+        },
+        "target_port": {
+          "type": "string",
+          "description": "Input port on the target"
+        }
+      },
+      "required": [
+        "source",
+        "source_port",
+        "target",
+        "target_port"
+      ],
+      "additionalProperties": false
+    },
+    "Output": {
+      "type": "object",
+      "description": "An explicitly exported workflow output.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Output name"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "string",
+            "number",
+            "integer",
+            "boolean",
+            "object",
+            "array",
+            "any"
+          ],
+          "description": "Value type",
+          "default": "any"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Reference: inputs.<n>, vars.<n> or steps.<id>.outputs.<port>",
+          "default": null
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "Placement": {
+      "type": "object",
+      "description": "A named machine, a named actor (runs where it lives), or a capability requirement.",
+      "properties": {
+        "machine": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Name of an enrolled machine",
+          "default": null
+        },
+        "actor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Id of an actor; runs on that actor's machine",
+          "default": null
+        },
+        "requirement": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Capabilities (e.g. gpu) an eligible enrolled machine must offer",
+          "default": null
+        }
+      },
+      "required": [],
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "required": [
+            "machine"
+          ],
+          "properties": {
+            "machine": {
+              "type": "string",
+              "minLength": 1
+            },
+            "actor": {
+              "type": "null"
+            },
+            "requirement": {
+              "type": "null"
+            }
+          }
+        },
+        {
+          "required": [
+            "actor"
+          ],
+          "properties": {
+            "machine": {
+              "type": "null"
+            },
+            "actor": {
+              "type": "string",
+              "minLength": 1
+            },
+            "requirement": {
+              "type": "null"
+            }
+          }
+        },
+        {
+          "required": [
+            "requirement"
+          ],
+          "properties": {
+            "machine": {
+              "type": "null"
+            },
+            "actor": {
+              "type": "null"
+            },
+            "requirement": {
+              "type": "array",
+              "minItems": 1
+            }
+          }
+        }
+      ]
+    },
+    "Port": {
+      "type": "object",
+      "description": "A typed input or output port of a step or workflow.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Port name, unique per side"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "string",
+            "number",
+            "integer",
+            "boolean",
+            "object",
+            "array",
+            "any"
+          ],
+          "description": "Value type",
+          "default": "any"
+        },
+        "required": {
+          "type": "boolean",
+          "description": "Must be wired / supplied",
+          "default": true
+        },
+        "description": {
+          "type": "string",
+          "description": "Free text",
+          "default": ""
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "RetryPolicy": {
+      "type": "object",
+      "description": "How often a step or action is re-attempted after a failure.",
+      "properties": {
+        "max_attempts": {
+          "type": "integer",
+          "description": "Total attempts including the first (>= 1)",
+          "default": 1
+        },
+        "backoff_s": {
+          "type": "number",
+          "description": "Delay before the first retry, seconds (>= 0)",
+          "default": 0.0
+        },
+        "backoff_multiplier": {
+          "type": "number",
+          "description": "Factor applied to the delay per retry (>= 1)",
+          "default": 1.0
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "Step": {
+      "type": "object",
+      "description": "One unit of work. Loop kinds (for_each, retry_until) require max_iterations.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Step id, unique within the workflow (including loop bodies)"
+        },
+        "name": {
+          "type": "string",
+          "description": "Display name",
+          "default": ""
+        },
+        "description": {
+          "type": "string",
+          "description": "Free text",
+          "default": ""
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "logic",
+            "ai",
+            "code",
+            "actor_task",
+            "for_each",
+            "retry_until"
+          ],
+          "description": "logic | ai | code | actor_task | for_each | retry_until"
+        },
+        "inputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Port"
+          },
+          "description": "Typed input ports",
+          "default": []
+        },
+        "outputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Port"
+          },
+          "description": "Typed output ports",
+          "default": []
+        },
+        "placement": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Placement"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where the step runs; null means engine default",
+          "default": null
+        },
+        "timeout_s": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Timeout in seconds (> 0)",
+          "default": null
+        },
+        "retry": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RetryPolicy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Retry policy",
+          "default": null
+        },
+        "config": {
+          "type": "object",
+          "description": "Kind-specific configuration",
+          "default": {}
+        },
+        "max_iterations": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Loop bound (required for loop kinds, >= 1)",
+          "default": null
+        },
+        "body": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Step"
+          },
+          "description": "Steps run per iteration (loop kinds only)",
+          "default": []
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "Disabled steps never execute",
+          "default": true
+        }
+      },
+      "required": [
+        "id",
+        "kind"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "for_each",
+                  "retry_until"
+                ]
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "max_iterations"
+            ],
+            "properties": {
+              "max_iterations": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "Variable": {
+      "type": "object",
+      "description": "A workflow-local variable.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Variable name"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "string",
+            "number",
+            "integer",
+            "boolean",
+            "object",
+            "array",
+            "any"
+          ],
+          "description": "Value type",
+          "default": "any"
+        },
+        "default": {
+          "description": "Initial value (any JSON)",
+          "default": null
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

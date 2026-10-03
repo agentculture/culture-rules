@@ -8,61 +8,82 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 conditions → workflows → actions, carried out by actors (agents, humans,
 code, …). It ships as one PyPI distribution, `culture-rules`, whose import
 package is `culture_rules`. Its backend is Python, and its visual editor is
-a Node.js + React Flow (`@xyflow/react`) app with exactly three tabs:
-**Rules | Workflows | Actors**.
+a Node.js + React Flow (`@xyflow/react`) app in `web/` with four tabs:
+**Rules | Workflows | Actors | Statistics**.
 
-**Status: scaffold only.** guildmaster provisioned this repo with
-`guild create` from `culture-agent-template`, as a plain rename. What exists
-on disk today is the template baseline:
+**Status: built and shipped on `rules/build`** (the engine, API, node, CLI,
+MCP server, editor and ops docs exist on disk). guildmaster provisioned the
+repo from `culture-agent-template`; the build then followed the devague
+plan. What exists today:
 
-- the agent-first CLI;
-- the mesh identity;
-- the vendored skill kit;
-- CI/publish. Version 0.9.0, published to PyPI by the genesis run.
+- **`culture_rules`** is the library: `model`, `engine`, `actors`, `events`,
+  `machines`, `ops`, `store`, `io`, plus `auth` and the `client`.
+- **The engine node daemon** (`culture-rules node run`, `culture_rules/node`,
+  approved deviation d3): heartbeat and probe, event ingest, placed and
+  unplaced triggers, the executor loop, actor adapters with limits, and the
+  run reporter. It talks to the store directly.
+- **The HTTP API** (`culture_rules/server`, the `server` extra). The
+  contract is pinned in `api/openapi.json`. Auth is Cloudflare Access on a
+  loopback listener, service tokens on a LAN listener, and roles.
+- **The CLI** over the API: the noun groups `rules`, `workflows`, `actors`,
+  `machines` and `runs`, plus `serve`, `node` and `mcp`, alongside the
+  identity verbs. Writes are dry-run by default, `--apply` commits.
+- **The MCP server** (`culture-rules mcp`, the `mcp` extra) serves the same
+  verbs as tools. A parity test keeps CLI and MCP identical.
+- **The web editor** in `web/`, built into the wheel as
+  `culture_rules/web_dist` and served by the API. CI has a `web` job.
+- **Ops docs** in `docs/operations/` (replica set, backup, rules.culture.dev)
+  and the executed walkthrough in `docs/demo.md`.
 
-No rules engine, HTTP API or frontend exists yet. Two GitHub issues drive
-the build:
+Approved deviations from the plan: **d1** `Rule.placement` (where a rule's
+trigger and condition evaluate), **d2** the `grant` tool replaces shushu for
+secret references, **d3** the engine node daemon. Persisted state lives in a
+MongoDB replica set; only `MemoryStore` (tests) is in-process.
+
+Two GitHub issues drove the build:
 
 - [#1](https://github.com/agentculture/culture-rules/issues/1) is the
   **build brief**: repo shape, packaging/CI pitfalls, and the neighbours to
   scope.
 - [#2](https://github.com/agentculture/culture-rules/issues/2) is the
   **product model + UX**: the mental model and the interaction design the
-  implementation must converge on.
+  implementation converges on.
 
-Read both before designing anything (`gh issue view 1`; if `gh` errors on
-the deprecated Projects-classic field, use
-`gh issue view 1 --json title,body,comments`).
+The spec is `docs/specs/2026-10-03-culture-rules-engine-editor.md`. Where
+the spec and #2 differ, the spec wins: the operator added **Statistics** as
+a fourth tab. The design canvas
+(<https://claude.ai/artifact/Jgm3JPnAhKWpeiCxFXvNBi>, row "Chosen") is the
+visual source of truth for the editor. For new work the order is still
+`/scope` → `/think` → `/challenge` (optional) → `/spec-to-plan` → code. To
+read the issues use `gh issue view 1`; if `gh` errors on the deprecated
+Projects-classic field, use `gh issue view 1 --json title,body,comments`.
 
-**This agent owns the build, and the order is fixed:**
-`/scope` → `/think` → `/challenge` (optional) → `/spec-to-plan` → code.
-Issue #1 is a brief, not a spec. Its tables are readings to pressure-test, not
-decisions.
-
-## Domain model (from #1 and #2, not yet implemented)
+## Domain model
 
 Where #2 refines #1, #2 wins. It is the product-model issue.
 
 | Concept | Meaning | Constraints already set |
 |---------|---------|-------------------------|
-| **Rule** | *When* work should happen. It reads visually as `Trigger → Condition → Workflow → Action`; stages are optional where that is semantically valid. | Rules may chain to a predecessor through a **relationship**, not an extra box in the flow: at least *must run after* and *may run after*. The relationship also defines which upstream outputs are visible. |
-| **Condition** | A predicate over the trigger plus variables/context. | **Never `eval()` user Python.** It must be serialisable, so the frontend can edit it graphically and the backend can evaluate it deterministically. JSON-Logic, CEL and a typed AST are the candidates. The common cases are graphical, and the expression form is advanced/secondary. |
-| **Workflow** | *How* reusable work is done: steps, branching, waits, and agent/code/human work. | Has **inputs, internal variables, steps, outputs**. It must not know which external event triggered it. This is the graph React Flow edits. DAG vs. loops, versioning and run resume are still open. |
-| **Action** | A concrete side effect or terminal operation: comment on a PR, transition Jira, send a message, call a service, run code, ask a human, invoke an actor capability. | Retry, timeout and idempotency semantics are open. |
-| **Actor** | *Who/what can perform work*: agent, human, service/daemon, code/runner, robot, … | **Not a stage in the rule chain.** It is a generic Actor model with concrete types and capabilities. Agent actors are reached via the Culture mesh. |
+| **Rule** | *When* work should happen. It reads visually as `Trigger → Condition → Workflow → Action`; condition and workflow are optional, the action is required. | Rules may chain to a predecessor through a **relationship**, not an extra box in the flow: *must run after* and *may run after*, and a rule may supersede another. The relationship also defines which upstream outputs are visible. A rule is placed on a machine, an actor or a capability requirement (d1). |
+| **Condition** | A predicate over the trigger plus variables/context. | **Never `eval()` user Python.** It is a typed JSON predicate tree, evaluated by a dependency-free evaluator, so the frontend edits it graphically and the backend evaluates it deterministically. A CEL-style text form is advanced/secondary. |
+| **Workflow** | *How* reusable work is done: steps, branching, waits, and agent/code/human work. | Has **inputs, internal variables, steps, outputs**. It must not know which external event triggered it. Each step has typed ports and its own placement. This is the graph React Flow edits. |
+| **Action** | A concrete side effect or terminal operation: comment on a PR, send a message, call a service, run code, ask a human. Distinct from a workflow step. | Retry, timeout and idempotency are explicit fields. |
+| **Actor** | *Who/what can perform work*: agent, human, service/daemon, code/runner, robot, … | **Not a stage in the rule chain.** It is a generic Actor model with concrete types, capabilities, limits and secret references. Agent actors are reached via the Culture mesh. |
 
 Settled constraints that shape the architecture:
 
-- **Human actors make runs long-running and asynchronous.** The engine needs
-  **persisted run state**, not an in-memory call stack. Settle this early.
+- **Human actors make runs long-running and asynchronous.** Run state is
+  **persisted** (MongoDB), not an in-memory call stack.
 - **Variables are scoped:** trigger/rule context, workflow inputs,
   workflow-local, workflow outputs, and exported values for downstream rules.
   Prefer **explicit exported outputs** over a global mutable bag. Mappings
-  (output → action input / downstream rule input) should be graphical, with
+  (output → action input / downstream rule input) are graphical, with
   the textual reference form inspectable but never required.
-- **Exactly three primary tabs.** Runs, history, ledger, stats and inbox are
-  never top-level navigation. They appear contextually, as details of a rule
-  or workflow.
+- **Exactly four primary tabs: Rules | Workflows | Actors | Statistics.**
+  Statistics is per-machine state and work (one lane per enrolled machine).
+  Runs, history, ledger and inbox are never top-level navigation. They
+  appear contextually, as details of a rule or workflow. Raw YAML/JSON is an
+  advanced mode, never the default.
 - **UX is visual composition, not an admin dashboard:**
   - large type and large targets, minimal chrome and prose;
   - progressive disclosure: rule creation starts from "When does this
@@ -70,60 +91,43 @@ Settled constraints that shape the architecture:
   - smooth overview↔edit transitions;
   - keyboard accessibility and `prefers-reduced-motion` support despite the
     animation.
-  - Raw YAML/JSON is an advanced mode, never the default.
 
-Open tension to resolve in `/think`: issue #1 treats actions as workflow
-*nodes*, while #2 also puts an Action stage *after* the Workflow in the rule flow. Decide
-whether a rule's trailing Action is sugar for a terminal workflow step or a
-distinct concept.
-
-## Planned shape (from #1)
+## Shape and packaging
 
 - **`culture_rules` is the library**: model plus engine, importable on its
-  own.
-- **The `culture-rules` CLI is a thin layer over the library**, following
-  the agent-first conventions below. Writes are **dry-run by default**,
-  `--apply` commits them, and every verb takes `--json`.
-- **An HTTP API serves the editor.** The framework is our choice; FastAPI
-  is the obvious candidate.
-  - **Pin the API contract in one place** (OpenAPI or JSON Schema), so the
-    frontend and backend cannot drift.
-  - Adding a framework ends the zero-runtime-dependency property. Keep the
-    CLI core dependency-free if practical, e.g. by putting the server in an
-    optional extra.
-- **The frontend lives in one subdirectory** (e.g. `web/`).
+  own, with **zero third-party runtime dependencies**. Everything third-party
+  sits behind an optional extra and is imported lazily: `server`, `store`,
+  `mcp`, `events`, `yaml`, `backup`, `agent`.
+- **The `culture-rules` CLI is a thin layer** over the HTTP API (except
+  `node run`, which is the engine and uses the store directly). Writes are
+  **dry-run by default**, `--apply` commits them, and every verb takes
+  `--json`.
+- **The API contract is pinned in one place**, `api/openapi.json`. A test
+  (`tests/server/test_openapi_contract.py`) diffs the served schema against
+  it, and the web client's types compile against it.
+- **The frontend lives in `web/`.** The wheel ships the build as
+  `culture_rules/web_dist` (`hatch_build.py`), so serving it needs no Node.
 
-Pitfalls the brief calls out:
+CI notes:
 
-- **CI is Python-only today.** A frontend needs a Node job (install, build,
-  lint/typecheck) in `.github/workflows/tests.yml`. It also needs a decision
-  on how the build ships: as static assets inside the wheel, served by the
-  Python API, or separately. That choice changes `pyproject.toml`
-  (`[tool.hatch.build.targets.wheel]`) and `publish.yml`, whose `paths:`
-  filter currently only watches `pyproject.toml` and `culture_rules/**`.
+- **The `web` job** in `.github/workflows/tests.yml` runs install,
+  typecheck, vitest, Playwright and the webglass agent-state gate.
+  `publish.yml` watches `web/**` and builds the bundle before `uv build`.
 - **The `lint` job runs `markdownlint-cli2 "**/*.md"` over the whole tree.**
-  `node_modules/**` is already ignored in `.markdownlint-cli2.yaml`. Add the
-  frontend's build-output directory there too.
-- **SonarCloud will analyse JS/TS.** `sonar-project.properties` currently
-  sets `sonar.sources=culture_rules`. Widen `sonar.sources`, `sonar.tests`
-  and the exclusions deliberately, and wire JS coverage if the quality gate
-  should count it.
+  Build output and `node_modules` are ignored in `.markdownlint-cli2.yaml`.
+- **SonarCloud analyses JS/TS** (`sonar.sources` covers `web/src`).
 - **`scripts/scan-secrets.py` runs in CI** and rejects non-localhost
   endpoints in committed files. Keep API base URLs configurable and default
   to localhost.
 - **Keep `teken cli doctor . --strict` green.**
 
-Neighbours to scope before claiming any boundary or integration. All are
-**unverified**, and all are checked out as siblings under `../`:
+Neighbours (checked out as siblings under `../`):
 
-- `events-cli`: MQTT bus, a possible trigger source;
-- `workledger-cli`;
-- `agenda`: task tracking;
-- `callsmith`: structured calls, a possible actor;
-- `protocols-cli`;
-- `culture`: the mesh, i.e. how agent actors are reached.
-
-Read their READMEs during `/scope`.
+- `events-cli`: the MQTT bus, the external trigger source (the `events`
+  extra);
+- `culture`: the mesh, i.e. how agent actors are reached;
+- `callsmith`: structured calls; no callsmith actor type ships;
+- `workledger-cli`, `agenda`, `protocols-cli`: scoped, not integrated.
 
 ## Commands
 
@@ -148,12 +152,14 @@ uv run culture-rules doctor                # identity invariants
 
 Black, isort and flake8 all use line length 100. Python is `>=3.12`.
 
-## The CLI today
+## The CLI
 
 The CLI is cited (cite-don't-import) from teken's `python-cli` reference,
 so the runtime package has **no third-party dependencies**. teken is a dev
-dependency only. The verbs are `whoami`, `learn`, `explain <path>`,
-`overview`, `doctor` and `cli overview`.
+dependency only. The verbs are the identity verbs (`whoami`, `learn`,
+`explain <path>`, `overview`, `doctor`, `cli overview`), the noun groups over
+the API (`rules`, `workflows`, `actors`, `machines`, `runs`), and `serve`,
+`node run` and `mcp`. Every CLI verb has an MCP tool (`culture_rules/mcp`).
 
 The contract for every new verb:
 
@@ -172,11 +178,9 @@ The contract for every new verb:
   `culture_rules/explain/catalog.py`, and a mention in `learn`. The teken
   rubric gate checks this coverage.
 
-Some self-description strings still carry the template wording ("a
-clonable template for AgentCulture mesh agents"). The leftovers are in the
-argparse description in `cli/__init__.py`, in `learn.py`, and in the
-`explain` root entry in `catalog.py`. Update them alongside the first real
-verbs.
+The CLI self-description strings (argparse description, `learn`, the `explain`
+root entry) use culture-rules wording; keep them in step with this file when
+verbs land.
 
 ## Identity and the four harnesses
 
@@ -260,4 +264,4 @@ PATH prerequisites:
     scripts are authoritative (see `remember.sh`'s POLICY OVERRIDE).
   - Don't store what the repo already records.
 - **Docs describe what is on disk today.** Anything ahead of reality is
-  marked *planned*, as the domain/shape sections above are.
+  marked *planned*.

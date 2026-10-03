@@ -1,0 +1,229 @@
+import type { Rule, RunSummary } from "../api/types";
+import { MACHINES, RULES, WHOAMI, WORKFLOWS, runsFor } from "../fixtures/rules-fixture";
+
+/**
+ * A stateful, in-memory culture-rules API (api/openapi.json shapes) for the
+ * Rules tab's tests: vitest wraps it in a `fetch` stub, the Playwright suite
+ * in request interception. Pure, so both share one behaviour. Soft delete
+ * moves a rule to `trash`; `restore` brings it back (the API's own pair).
+ */
+export interface FakeAsk {
+  id: string;
+  run_id: string;
+  question: string;
+  options: string[] | null;
+  status: "open" | "answered";
+  answer?: unknown;
+}
+
+/** A persisted skip (`rule_decisions`, culture_rules/engine/decisions.py). */
+export interface FakeDecision {
+  rule_id: string;
+  event_id: string;
+  reason: string;
+  by: string[];
+  message: string;
+  at: string;
+  host: string;
+}
+
+export interface FakeApi {
+  rules: Rule[];
+  decisions: FakeDecision[];
+  trash: Rule[];
+  asks: FakeAsk[];
+  waitingRuns: RunSummary[];
+  calls: { method: string; path: string; body?: unknown }[];
+  /** Make the next request to `method path` fail with this status. */
+  failNext: Record<string, { status: number; code: string; message: string }>;
+  now: number;
+}
+
+export interface FakeResponse {
+  status: number;
+  body: unknown;
+}
+
+export function createFakeApi(now = Date.now()): FakeApi {
+  return {
+    rules: structuredClone(RULES),
+    decisions: [],
+    trash: [],
+    asks: [],
+    waitingRuns: [],
+    calls: [],
+    failNext: {},
+    now,
+  };
+}
+
+/** One pending human ask on the selected rule, as the board's 'answerable in context' case. */
+export function withPendingAsk(api: FakeApi, ruleId = "build-and-publish"): FakeApi {
+  api.waitingRuns = [
+    {
+      id: "run-wait",
+      status: "waiting",
+      rule_id: ruleId,
+      workflow_id: "build-image",
+      started_by: "trigger",
+      created_at: new Date(api.now - 5 * 60_000).toISOString(),
+      finished_at: null,
+    },
+  ];
+  api.asks = [
+    {
+      id: "ask_1",
+      run_id: "run-wait",
+      question: "Ship this build to production?",
+      options: ["approve", "reject"],
+      status: "open",
+    },
+  ];
+  return api;
+}
+
+const json = (status: number, body: unknown): FakeResponse => ({ status, body });
+const error = (status: number, code: string, message: string) =>
+  json(status, { error: { code, message, errors: [] } });
+
+function handleGet(api: FakeApi, path: string, query: URLSearchParams): FakeResponse {
+  if (path === "/whoami") return json(200, WHOAMI);
+  if (path === "/rules") return json(200, { items: api.rules });
+  if (path === "/machines") return json(200, { items: MACHINES });
+  if (path === "/workflows") return json(200, { items: WORKFLOWS });
+  if (path === "/runs") {
+    const status = query.get("status");
+    if (status === "waiting") return json(200, { items: api.waitingRuns });
+    const all = [...api.waitingRuns, ...runsFor(api.now)];
+    const rule = query.get("rule_id");
+    return json(200, { items: all.filter((r) => !rule || r.rule_id === rule) });
+  }
+  const history = /^\/rules\/([^/]+)\/history$/.exec(path);
+  if (history) return ruleHistory(api, decodeURIComponent(history[1]), query);
+  if (path === "/asks") {
+    const run = query.get("run_id");
+    return json(200, {
+      items: api.asks.filter((a) => a.status === "open" && (!run || a.run_id === run)),
+    });
+  }
+  return error(404, "not_found", path);
+}
+
+function ruleHistory(api: FakeApi, id: string, query: URLSearchParams): FakeResponse {
+  if (!api.rules.some((r) => r.id === id)) return error(404, "not_found", `rule ${id} does not exist`);
+  const runs = [...api.waitingRuns, ...runsFor(api.now)]
+    .filter((r) => r.rule_id === id)
+    .map((r) => ({ kind: "run", at: r.created_at, ...r }));
+  const skips = api.decisions
+    .filter((d) => d.rule_id === id)
+    .map((d) => ({ kind: "decision", ...d }));
+  const limit = Number(query.get("limit") ?? 20);
+  const items = [...runs, ...skips]
+    .sort((a, b) => String(b.at ?? "").localeCompare(String(a.at ?? "")))
+    .slice(0, limit);
+  return json(200, { items });
+}
+
+/** `/rules/{id}[/enable|/disable|/restore]` writes; null when the method doesn't apply. */
+function handleRuleWrite(
+  api: FakeApi,
+  method: string,
+  id: string,
+  verb: string | undefined,
+  body: unknown,
+): FakeResponse | null {
+  if (method === "POST" && verb === "restore") {
+    const at = api.trash.findIndex((r) => r.id === id);
+    if (at < 0) return error(404, "not_found", id);
+    api.rules.push(api.trash.splice(at, 1)[0]);
+    return json(200, api.rules.at(-1));
+  }
+  const found = api.rules.find((r) => r.id === id);
+  if (!found) return error(404, "not_found", `rule ${id} does not exist`);
+  if (method === "POST" && (verb === "enable" || verb === "disable")) {
+    found.enabled = verb === "enable";
+    return json(200, found);
+  }
+  if (method === "PUT") {
+    Object.assign(found, body as Rule, { id });
+    return json(200, found);
+  }
+  if (method === "DELETE") {
+    api.rules.splice(api.rules.indexOf(found), 1);
+    api.trash.push(found);
+    return json(200, { id, deleted: true });
+  }
+  return null;
+}
+
+function answerAsk(api: FakeApi, id: string, body: unknown): FakeResponse {
+  const found = api.asks.find((a) => a.id === id);
+  if (!found) return error(404, "ask_not_found", `ask ${id} does not exist`);
+  if (found.status !== "open") return error(409, "ask_already_answered", "already answered");
+  found.status = "answered";
+  found.answer = (body as { answer: unknown }).answer;
+  api.waitingRuns = [];
+  return json(200, found);
+}
+
+export function handle(
+  api: FakeApi,
+  method: string,
+  path: string,
+  query: URLSearchParams,
+  body?: unknown,
+): FakeResponse {
+  api.calls.push({ method, path, body });
+  const key = `${method} ${path}`;
+  const forced = api.failNext[key];
+  if (forced) {
+    delete api.failNext[key];
+    return error(forced.status, forced.code, forced.message);
+  }
+  if (method === "GET") return handleGet(api, path, query);
+  if (method === "POST" && path === "/rules") {
+    const doc = body as Rule;
+    if (api.rules.some((r) => r.id === doc.id)) return error(409, "conflict", `${doc.id} exists`);
+    api.rules.push({ enabled: true, ...doc });
+    return json(201, api.rules.at(-1));
+  }
+  const rule = /^\/rules\/([^/]+)(?:\/(enable|disable|restore))?$/.exec(path);
+  if (rule) {
+    const done = handleRuleWrite(api, method, rule[1], rule[2], body);
+    if (done) return done;
+  }
+  const ask = /^\/asks\/([^/]+)\/answer$/.exec(path);
+  if (method === "POST" && ask) return answerAsk(api, ask[1], body);
+  return error(404, "not_found", path);
+}
+
+/** A `fetch` stub over the fake API, for vitest. */
+export function fetchFor(api: FakeApi): typeof fetch {
+  // Not `async`: the work is synchronous. `Promise.resolve().then` still answers
+  // asynchronously, like a real fetch, and turns a throw (bad JSON body) into a rejection.
+  return ((input: RequestInfo | URL, init?: RequestInit) =>
+    Promise.resolve().then(() => respond(api, input, init))) as typeof fetch;
+}
+
+function urlOf(input: RequestInfo | URL): string {
+  if (typeof input === "string") return input;
+  return input instanceof URL ? input.href : input.url;
+}
+
+function respond(api: FakeApi, input: RequestInfo | URL, init?: RequestInit): Response {
+  // The base only resolves the relative `/api/...` paths the client sends.
+  const url = new URL(urlOf(input), "https://localhost");
+  const path = url.pathname.replace(/^\/api/, "");
+  const raw = init?.body;
+  const res = handle(
+    api,
+    (init?.method ?? "GET").toUpperCase(),
+    path,
+    url.searchParams,
+    typeof raw === "string" ? JSON.parse(raw) : undefined,
+  );
+  return new Response(JSON.stringify(res.body), {
+    status: res.status,
+    headers: { "content-type": "application/json" },
+  });
+}

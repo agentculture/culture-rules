@@ -1,0 +1,32 @@
+# One dedicated mongod for the culture-rules replica set. Run on every member host
+# (spark, thor, orin, spark2) with that host's replica-set.env:
+#   docker compose --env-file replica-set.env up -d
+# Host networking: the member address in rs-config.json is the address clients dial.
+services:
+  mongod:
+    image: ${MONGO_IMAGE:-mongo:8.0}
+    container_name: culture-rules-mongod
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      MONGO_PORT: ${MONGO_PORT:-27018}
+      MONGO_BIND_IP: ${MONGO_BIND_IP:-0.0.0.0}
+      MONGO_REPLSET: ${MONGO_REPLSET:-culture-rules-rs}
+      MONGO_CACHE_GB: ${MONGO_CACHE_GB:-1}
+    volumes:
+      - ${MONGO_SECRETS_DIR:-/etc/culture-rules-mongo}:/secrets:ro
+      - ${MONGO_DATA_DIR:-/var/lib/culture-rules-mongo}:/data/db
+    entrypoint: ["bash", "-c"]
+    # The entrypoint override bypasses the image's gosu drop, so do it here: copy the secrets
+    # (mounted read-only) to a private dir owned by mongodb (keyFile must be mode 400 and owned
+    # by mongod's user), chown the data dir, then run mongod as the mongodb user, never as root.
+    command:
+      - >-
+        mkdir -p /tmp/tls && cp /secrets/keyfile /secrets/server.pem /secrets/ca.pem /tmp/tls/ &&
+        chmod 400 /tmp/tls/keyfile /tmp/tls/server.pem && chmod 444 /tmp/tls/ca.pem &&
+        chown -R mongodb:mongodb /tmp/tls /data/db &&
+        exec gosu mongodb mongod --replSet "$$MONGO_REPLSET" --bind_ip "$$MONGO_BIND_IP"
+        --port "$$MONGO_PORT" --dbpath /data/db --wiredTigerCacheSizeGB "$$MONGO_CACHE_GB"
+        --keyFile /tmp/tls/keyfile
+        --tlsMode requireTLS --tlsCertificateKeyFile /tmp/tls/server.pem
+        --tlsCAFile /tmp/tls/ca.pem --tlsAllowConnectionsWithoutCertificates

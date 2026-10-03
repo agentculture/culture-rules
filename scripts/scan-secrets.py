@@ -42,7 +42,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 # fake secrets used to prove the scanner works), and lockfiles (vendored
 # hashes, not secrets).
 SELF_EXCLUDE = {"scripts/scan-secrets.py", "tests/test_scan_secrets.py"}
-EXCLUDE_SUFFIXES = (".lock",)
+# package-lock.json (web/) is npm's lockfile: its `funding.url` entries are
+# vendored metadata, not endpoints this repo configures.
+EXCLUDE_SUFFIXES = (".lock", "package-lock.json")
 
 # ---------------------------------------------------------------------------
 # Check 1: credential / API-key-shaped strings

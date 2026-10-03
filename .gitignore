@@ -239,3 +239,17 @@ skills.local.yaml
 # .qwen/settings.json.example to .qwen/settings.json locally, never commit it.
 .qwen/settings.json
 
+# devague working state (not committed by default)
+.devague/questions/
+
+.devague/reviews/
+
+# Web editor (web/): dependencies, build output, TypeScript incremental state. The build is
+# copied into the wheel as culture_rules/web_dist at build time (hatch_build.py) - never committed.
+node_modules/
+web/dist/
+*.tsbuildinfo
+culture_rules/web_dist/
+# The python `lib/` rule above must not swallow the frontend's src/lib.
+!web/src/lib/
+!web/src/**/lib/

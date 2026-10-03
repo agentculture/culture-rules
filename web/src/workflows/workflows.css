@@ -1,0 +1,932 @@
+/*
+ * The 'Chosen — Workflows' board (design canvas row 'Chosen', D-Workflows,
+ * https://claude.ai/artifact/Jgm3JPnAhKWpeiCxFXvNBi). Colors are tokens.css
+ * / app.css custom properties, plus the few canvas tokens below, each with a
+ * dark-mode twin. The global prefers-reduced-motion kill switch in
+ * tokens.css stops every transition declared here.
+ */
+
+:root {
+  --wf-edge: rgba(35, 42, 77, 0.55);
+  --wf-port: #232a4d;
+  --wf-card-shadow: 0 6px 20px rgba(35, 42, 77, 0.12);
+  --wf-card-shadow-selected: 0 10px 28px rgba(35, 42, 77, 0.16);
+  --wf-io-dash: rgba(35, 42, 77, 0.35);
+  --wf-dot: rgba(35, 42, 77, 0.12);
+  --wf-control-border: rgba(35, 42, 77, 0.14);
+  --wf-toolbar-shadow: 0 6px 20px rgba(35, 42, 77, 0.16);
+  --wf-ok: #0b655c;
+  --wf-fail: #9a2f1b;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --wf-edge: rgba(233, 236, 248, 0.55);
+    --wf-port: #e9ecf8;
+    --wf-card-shadow: 0 6px 20px rgba(2, 4, 12, 0.5);
+    --wf-card-shadow-selected: 0 10px 28px rgba(2, 4, 12, 0.6);
+    --wf-io-dash: rgba(233, 236, 248, 0.35);
+    --wf-dot: rgba(233, 236, 248, 0.1);
+    --wf-control-border: rgba(233, 236, 248, 0.18);
+    --wf-toolbar-shadow: 0 6px 20px rgba(2, 4, 12, 0.6);
+    --wf-ok: #7fdcc9;
+    --wf-fail: #f2789a;
+  }
+}
+
+/* ---------- board ---------- */
+
+.wf-board {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px 40px 28px;
+}
+
+/*
+ * The tab's layout is the Rules board's (styles/stages.css .rules-board):
+ * the workflow list (.rule-list, 260–300px) on the left, a 28px gap, the
+ * board — head, canvas, legend — taking the rest. The board drops its own
+ * padding there: the layout's is the Rules board's.
+ */
+.wf-layout > .wf-board {
+  flex: 999 1 560px;
+  min-width: 0;
+  padding: 0;
+}
+
+/* A row is dot | name | switch with no text column (Rules' rows carry relationship
+   badges under the name): the name link takes the slack and wraps a long name. */
+.wf-row .rule-row__name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.wf-notice {
+  max-width: none;
+  margin: 0;
+}
+
+.wf-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.wf-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 40px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  line-height: 1.15;
+}
+
+.wf-version {
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: var(--muted);
+  font-size: 14px;
+}
+
+/* The workflow's own controls (rename, enable, delete): 40px visuals, 44px hit areas (d4). */
+.wf-head__icon {
+  width: 40px;
+  height: 40px;
+}
+
+.wf-head__tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wf-head__end {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 8px;
+}
+
+.wf-io {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.wf-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 16px;
+  border-radius: 12px;
+  border: 2px solid var(--wf-control-border);
+  background: var(--surface);
+  color: var(--ink);
+  font: 500 15px var(--font-body);
+  cursor: pointer;
+  transition: border-color 0.2s var(--ease-out), background-color 0.2s var(--ease-out);
+}
+
+.wf-button:hover {
+  border-color: var(--ink-soft);
+}
+
+.wf-button--repo {
+  padding: 0 14px;
+}
+
+.wf-button--primary,
+.wf-button--save {
+  border-color: var(--accent-strong);
+  background: var(--accent-strong);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+
+.wf-button--small {
+  height: 36px;
+  padding: 0 12px;
+  font-size: 14px;
+}
+
+.wf-button--large {
+  height: 56px;
+  padding: 0 24px;
+  border-radius: 16px;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.wf-button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.wf-run {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 22px;
+  border-radius: 999px;
+  border: 0;
+  background: var(--accent-strong);
+  color: var(--on-accent);
+  font: 600 17px var(--font-body);
+  cursor: pointer;
+}
+
+.wf-run:disabled {
+  background: var(--muted);
+  color: var(--ink-soft);
+  cursor: default;
+}
+
+.wf-status:empty {
+  display: none;
+}
+
+.wf-status {
+  margin: -6px 0 0;
+  font-size: 15px;
+  color: var(--ink-soft);
+}
+
+/* ---------- new workflow: the empty state and the name form ---------- */
+
+.wf-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  min-height: 360px;
+  padding: 40px;
+  border-radius: 28px;
+  border: 2px dashed var(--dash);
+}
+
+.wf-empty__hint {
+  margin: 0;
+  font-size: 17px;
+  color: var(--ink-soft);
+}
+
+.wf-new {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  max-width: 620px;
+  box-sizing: border-box;
+  padding: 22px 26px;
+  border-radius: 22px;
+  border: 2px solid var(--line);
+  background: var(--surface);
+}
+
+.wf-new__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.wf-new__field input {
+  min-height: 56px;
+  padding: 0 16px;
+  border-radius: 14px;
+  border: 2px solid var(--line);
+  background: var(--bg);
+  color: var(--ink);
+  font: 500 22px var(--font-body);
+}
+
+.wf-new__field input[aria-invalid="true"] {
+  border-color: var(--danger);
+}
+
+.wf-new__error {
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: var(--danger-tint);
+  color: var(--danger);
+  font-size: 16px;
+}
+
+.wf-new__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+/* ---------- repo picker ---------- */
+
+.wf-repo {
+  position: relative;
+}
+
+.wf-repo__menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 100%;
+  padding: 6px;
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--wf-toolbar-shadow);
+}
+
+.wf-repo__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.wf-repo__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+}
+
+.wf-repo__action {
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 15px;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.wf-repo__action:hover,
+.wf-repo__action:focus-visible {
+  background: var(--accent-tint);
+  color: var(--accent);
+}
+
+.wf-plan__repo {
+  margin: 0 0 12px;
+  font-size: 15px;
+}
+
+.wf-repo__option,
+.wf-repo__empty {
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 15px;
+  white-space: nowrap;
+}
+
+.wf-repo__option {
+  cursor: pointer;
+}
+
+.wf-repo__option:hover,
+.wf-repo__option:focus-visible,
+.wf-repo__option[aria-selected="true"] {
+  background: var(--accent-tint);
+  color: var(--accent);
+}
+
+.wf-repo__empty {
+  color: var(--ink-soft);
+}
+
+/* ---------- canvas ---------- */
+
+.wf-stage {
+  position: relative;
+}
+
+.wf-canvas {
+  position: relative;
+  overflow: hidden;
+  border-radius: 28px;
+  background-color: var(--surface);
+  background-image: radial-gradient(var(--wf-dot) 1px, transparent 1px);
+  background-size: 22px 22px;
+  box-shadow: var(--nav-shadow);
+}
+
+/* The graph's own scroller: wider than the canvas, it scrolls sideways (the design
+   board's canvas is `overflow-x: auto`); the step + stays put on the canvas. */
+.wf-canvas__scroll {
+  height: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  /* a control scrolled into view (focus, a test's sweep) keeps its 44px hit area inside */
+  scroll-padding-inline: 24px;
+  scrollbar-width: thin;
+}
+
+.wf-canvas__graph {
+  height: 100%;
+}
+
+.wf-canvas .react-flow {
+  --xy-background-color: transparent;
+  --xy-node-border-radius: 16px;
+  background: transparent;
+}
+
+.wf-canvas .react-flow__node {
+  width: 190px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  font-family: var(--font-body);
+  color: var(--ink);
+}
+
+.wf-canvas .react-flow__node:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: 16px;
+}
+
+.wf-canvas .react-flow__edge-path {
+  stroke: var(--wf-edge);
+  stroke-width: 2.5;
+  transition: stroke 0.25s var(--ease-out), stroke-width 0.25s var(--ease-out);
+}
+
+.wf-canvas .wf-edge--cross .react-flow__edge-path {
+  stroke-dasharray: 7 6;
+}
+
+.wf-canvas .wf-edge.is-lit .react-flow__edge-path {
+  stroke: var(--accent);
+  stroke-width: 4;
+}
+
+.wf-canvas .react-flow__attribution {
+  background: transparent;
+}
+
+.wf-canvas .react-flow__attribution a {
+  color: var(--ink-soft);
+}
+
+.wf-add-step {
+  position: absolute;
+  left: 50%;
+  bottom: 24px;
+  z-index: 5;
+  width: 48px;
+  height: 48px;
+  margin-left: -24px;
+  border-radius: 50%;
+  border: 2px dashed var(--dash-strong);
+  background: var(--surface);
+  color: var(--ink-soft);
+  font: 600 22px var(--font-body);
+  cursor: pointer;
+  transition: border-color 0.2s var(--ease-out), color 0.2s var(--ease-out);
+}
+
+.wf-add-step:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* ---------- cards ---------- */
+
+.wf-card {
+  position: relative;
+  box-sizing: border-box;
+  width: 190px;
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: var(--wf-card-shadow);
+  transition: box-shadow 0.25s var(--ease-out);
+}
+
+.wf-card--logic {
+  border: 2px dashed var(--dash-strong);
+}
+
+.react-flow__node.selected .wf-card {
+  box-shadow:
+    0 0 0 3px var(--ink),
+    var(--wf-card-shadow-selected);
+}
+
+.wf-card__machine {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 8px 0 14px;
+  border-radius: 16px 16px 0 0;
+  background: var(--m-tint);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.wf-card--logic .wf-card__machine {
+  border-radius: 14px 14px 0 0;
+}
+
+.wf-card__machine[data-machine-slot="0"] { color: var(--machine-0-ink); }
+.wf-card__machine[data-machine-slot="1"] { color: var(--machine-1-ink); }
+.wf-card__machine[data-machine-slot="2"] { color: var(--machine-2-ink); }
+.wf-card__machine[data-machine-slot="none"] { color: var(--machine-none-ink); }
+
+.wf-card__host {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wf-card__title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 14px 0;
+}
+
+.wf-card__name {
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.wf-card.is-disabled .wf-card__name {
+  text-decoration: line-through;
+  text-decoration-thickness: 2px;
+}
+
+.wf-card__sub {
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.wf-card__ports {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 0 12px;
+}
+
+.wf-card__ports--io {
+  padding: 12px 0;
+}
+
+.wf-port {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 30px;
+  padding: 0 16px;
+  font-family: var(--font-mono);
+  font-size: 14px;
+}
+
+.wf-port--out {
+  justify-content: flex-end;
+}
+
+.wf-canvas .wf-handle {
+  /* The board's 12px dot + 2px ring, border-box. */
+  width: 16px;
+  height: 16px;
+  min-width: 0;
+  min-height: 0;
+  border: 2px solid var(--wf-port);
+  border-radius: 50%;
+  background: var(--surface);
+}
+
+.wf-canvas .wf-handle--filled {
+  background: var(--wf-port);
+}
+
+.wf-canvas .react-flow__handle.connectingto,
+.wf-canvas .react-flow__handle.valid {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.wf-card--io {
+  border: 2px dashed var(--wf-io-dash);
+  box-shadow: none;
+}
+
+.wf-card__io-title {
+  display: flex;
+  align-items: center;
+  height: 40px;
+  padding: 0 14px;
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 600;
+}
+
+/* ---------- run overlay ---------- */
+
+.wf-card__run {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 14px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.wf-card__run[data-run-status="succeeded"] { color: var(--wf-ok); }
+.wf-card__run[data-run-status="failed"] { color: var(--wf-fail); }
+
+.wf-card__attempt {
+  font-weight: 500;
+}
+
+.wf-card.is-run-succeeded {
+  box-shadow:
+    0 0 0 3px var(--wf-ok),
+    var(--wf-card-shadow);
+}
+
+.wf-card.is-run-failed {
+  box-shadow:
+    0 0 0 3px var(--wf-fail),
+    var(--wf-card-shadow);
+}
+
+.wf-card.is-run-running {
+  box-shadow:
+    0 0 0 3px var(--ink-soft),
+    var(--wf-card-shadow);
+}
+
+/* ---------- step toolbar ---------- */
+
+.wf-toolbar {
+  position: absolute;
+  bottom: calc(100% + 12px);
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px;
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--wf-toolbar-shadow);
+  white-space: nowrap;
+}
+
+.wf-toolbar__chip {
+  height: 40px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 0;
+  background: var(--m-tint);
+  font: 600 15px var(--font-body);
+  cursor: pointer;
+}
+
+.wf-toolbar__chip[data-machine-slot="0"] { color: var(--machine-0-ink); }
+.wf-toolbar__chip[data-machine-slot="1"] { color: var(--machine-1-ink); }
+.wf-toolbar__chip[data-machine-slot="2"] { color: var(--machine-2-ink); }
+.wf-toolbar__chip[data-machine-slot="none"] { color: var(--machine-none-ink); }
+
+.wf-toolbar__button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: var(--machine-none-tint);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.wf-toolbar__button--danger {
+  background: var(--danger-tint);
+  color: var(--danger);
+}
+
+/* ---------- panels (placement, step editor, import plan) ---------- */
+
+.wf-panel {
+  position: absolute;
+  z-index: 30;
+  top: 16px;
+  right: 16px;
+  /* Undo the UA <dialog> box (inset-inline: 0, margin: auto, border, colors). */
+  bottom: auto;
+  left: auto;
+  width: 320px;
+  height: auto;
+  max-height: calc(100% - 32px);
+  margin: 0;
+  overflow: auto;
+  padding: 18px 20px;
+  border: 0;
+  border-radius: 20px;
+  background: var(--surface);
+  color: inherit;
+  box-shadow: var(--wf-toolbar-shadow);
+}
+
+.wf-panel--wide {
+  width: 440px;
+}
+
+.wf-panel--import {
+  position: fixed;
+  top: 120px;
+  right: 40px;
+  width: 420px;
+  max-height: calc(100dvh - 160px);
+}
+
+.wf-panel__title {
+  margin: 0 0 12px;
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.wf-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.wf-form__pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.wf-form__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.wf-modes {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.wf-mode {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.wf-mode input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent-strong);
+}
+
+.wf-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.wf-field input,
+.wf-field select,
+.wf-ports select,
+.wf-ports input {
+  height: 40px;
+  padding: 0 10px;
+  border-radius: 10px;
+  border: 2px solid var(--wf-control-border);
+  background: var(--surface);
+  color: var(--ink);
+  font: 500 15px var(--font-body);
+}
+
+.wf-ports {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.wf-ports__legend {
+  margin-bottom: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.wf-ports__empty {
+  margin: 0;
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+
+.wf-ports__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 96px minmax(0, 1.3fr) 32px;
+  gap: 6px;
+  align-items: center;
+}
+
+.wf-ports__row:has(> :nth-child(3):last-child) {
+  grid-template-columns: minmax(0, 1fr) 96px 32px;
+}
+
+.wf-ports .wf-ports__name {
+  font-family: var(--font-mono);
+  font-size: 14px;
+}
+
+.wf-ports__remove {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--danger-tint);
+  color: var(--danger);
+  font: 600 18px var(--font-body);
+  cursor: pointer;
+}
+
+.wf-plan {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.wf-plan__change {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 15px;
+}
+
+.wf-plan__action {
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--accent-tint);
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.wf-plan__path {
+  font-family: var(--font-mono);
+  font-size: 14px;
+}
+
+.wf-plan--errors {
+  color: var(--danger);
+  font-size: 14px;
+}
+
+/* ---------- legend + recent runs ---------- */
+
+.wf-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 22px;
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+
+.wf-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wf-legend__line {
+  stroke: var(--wf-edge);
+  stroke-width: 2.5;
+}
+
+.wf-legend__line--cross {
+  stroke-dasharray: 7 6;
+}
+
+.wf-runs {
+  margin-left: auto;
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.wf-runs__title {
+  font-weight: 600;
+}
+
+.wf-runs__run {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink);
+  text-decoration: none;
+  box-shadow: var(--nav-shadow);
+}
+
+.wf-runs__run.is-active {
+  background: var(--ink);
+  color: var(--surface);
+}
+
+@media (max-width: 720px) {
+  .wf-board {
+    padding-inline: 16px;
+  }
+
+  .wf-head__end {
+    margin-left: 0;
+  }
+
+  .wf-panel,
+  .wf-panel--wide,
+  .wf-panel--import {
+    left: 8px;
+    right: 8px;
+    width: auto;
+  }
+}
+
+/* The rename form opens above the canvas it renames. */
+.wf-stage > .wf-new {
+  margin-bottom: 14px;
+}

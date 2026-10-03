@@ -12,11 +12,25 @@ from __future__ import annotations
 _ROOT = """\
 # culture-rules
 
-A clonable template for AgentCulture mesh agents. It carries an agent-first CLI
-(cited from the teken `python-cli` reference), a mesh identity (`culture.yaml` +
-`CLAUDE.md`), the canonical guildmaster skill kit under `.claude/skills/`, and a
-buildable/deployable package baseline. Clone it, rename the package, edit
-`culture.yaml`, and you have a new agent.
+The rules engine for the AgentCulture mesh: rules -> conditions -> workflows ->
+actions, carried out by actors (agents, humans, code). It is a Python library
+(`culture_rules`) with a CLI, an HTTP API, an MCP server, an engine node per host,
+and a React Flow editor with four tabs: Rules | Workflows | Actors | Statistics.
+
+## Who it is for
+
+Two readers, one system:
+
+- **The operator** composing and supervising automation across spark, thor
+  and spark2 from a browser at rules.culture.dev.
+- **Mesh agents** that drive the same rules, workflows and actors through
+  the `culture-rules` CLI and MCP server.
+
+## Why
+
+One graphical, agent-operable place to decide when work happens, how it flows across
+machines and who does it, and it keeps working when one machine falters, so automation
+stops being per-host glue only its author understands.
 
 ## Verbs
 
@@ -26,6 +40,11 @@ buildable/deployable package baseline. Clone it, rename the package, edit
 - `culture-rules overview` — descriptive snapshot of the agent.
 - `culture-rules doctor` — check the agent-identity invariants.
 - `culture-rules cli overview` — describe the CLI surface.
+- `culture-rules rules|workflows|actors|machines|runs <verb>` — the engine's nouns over the
+  HTTP API; `culture-rules explain <noun>` lists each noun's verbs.
+- `culture-rules serve` — run the HTTP API (needs the `server` extra).
+- `culture-rules node run` — run this host's engine node (talks to the store directly).
+- `culture-rules mcp` — serve the CLI verbs as MCP tools over stdio (needs the `mcp` extra).
 
 ## Exit-code policy
 
@@ -81,7 +100,7 @@ _OVERVIEW = """\
 # culture-rules overview
 
 Read-only descriptive snapshot of the agent: identity (from `culture.yaml`), the
-verb surface, and the sibling-pattern artifacts the template carries. Accepts an
+verb surface, and the sibling-pattern artifacts the package carries. Accepts an
 ignored `target` so a stray path never hard-fails.
 
 ## Usage
@@ -121,6 +140,139 @@ itself (distinct from the global `overview`, which describes the agent).
     culture-rules cli overview --json
 """
 
+_SERVE = """\
+# culture-rules serve
+
+Runs the HTTP API under uvicorn (needs `pip install 'culture-rules[server]'` and, for the
+default store, the `store` extra). Stateless: run as many copies as you like against one store.
+Without a usable store (`CULTURE_RULES_MONGO_URI` unset, or the store unreachable) it exits `2`.
+
+## Parameters
+
+- `--host` (string) — bind address (default `CULTURE_RULES_HOST` or 127.0.0.1)
+- `--port` (integer) — port (default `CULTURE_RULES_PORT` or 8765)
+- `--admin` (string, repeatable) — identity allowed to purge
+- `--node-name` (string) — the engine node `/health` reports on (default
+  `CULTURE_RULES_NODE_NAME`, else the short hostname); match the node's `--host`
+
+## Usage
+
+    culture-rules serve --host 127.0.0.1 --port 8765
+    culture-rules serve --admin alice
+    CULTURE_RULES_NODE_NAME=spark culture-rules serve
+"""
+
+_NODE = """\
+# culture-rules node
+
+The engine node daemon: one per host, it *is* the rules engine. Unlike the other nouns it
+talks to the store directly (`CULTURE_RULES_MONGO_*`, needs the `store` extra), not the API.
+
+## Verbs
+
+- `culture-rules node run` — run the node loop (or one cycle with `--once`).
+
+## Usage
+
+    culture-rules node run --once --host spark --json
+"""
+
+_NODE_RUN = """\
+# culture-rules node run
+
+Runs this host's engine node: heartbeat (with the platform probe), event ingest (events-cli,
+optional `events` extra), rule evaluation (placed rules only on their host, unplaced rules
+once across hosts; a drained/offline host keeps its placed rules' events), run starts and
+the executor loop. `--once` performs one full cycle and exits (0, or 2 when a stage
+failed); without it the node loops until SIGINT/SIGTERM and stops gracefully.
+
+## Parameters
+
+- `--host` (string) — this node's machine name (default: `CULTURE_RULES_NODE_NAME`, else the
+  short hostname)
+- `--once` (boolean) — one full cycle, then exit
+- `--idle` (number) — pause between cycles in seconds (default 1)
+- `--json` (boolean) — report what the cycle did as JSON
+
+## Usage
+
+    culture-rules node run --once --host spark --json
+    culture-rules node run --host spark
+"""
+
+_MCP = """\
+# culture-rules mcp
+
+Serves every registered noun verb as an MCP tool over stdio, for an MCP client (an agent
+harness) that launches it as a subprocess. The tools talk to the HTTP API exactly like the
+CLI does (`CULTURE_RULES_API_URL`, `CULTURE_RULES_TOKEN`); writes stay dry-run unless the
+tool call passes `apply`. Stdout is the protocol channel; diagnostics go to stderr.
+
+Needs `pip install 'culture-rules[mcp]'`; without it the command exits `2` with that hint.
+
+## Usage
+
+    culture-rules mcp
+    python -m culture_rules.mcp
+"""
+
+_NOUN_BLURBS = {
+    "rules": "Rules say *when* work should happen: trigger, condition, workflow, action.",
+    "workflows": "Workflows are the reusable *how*: steps, branching and waits.",
+    "actors": "Actors are who or what can perform work: agents, humans, code, services.",
+    "machines": "Machines are the hosts that execute steps; drain one to stop new placements.",
+    "runs": "Runs are executions of a rule's workflow; pause and resume gate the whole engine.",
+}
+
+
+def _noun_entry(noun: str, verbs: list) -> str:
+    lines = [f"- `culture-rules {noun} {v.name}` — {v.summary}" for v in verbs]
+    return (
+        f"# culture-rules {noun}\n\n{_NOUN_BLURBS[noun]}\n\n## Verbs\n\n"
+        + "\n".join(lines)
+        + "\n\nEvery verb supports `--json`. Writes are dry-run unless `--apply`. The CLI talks "
+        "only to the HTTP API (`CULTURE_RULES_API_URL`, default `http://127.0.0.1:8765`; "
+        "`CULTURE_RULES_TOKEN` is a bearer token or a `grant:<NAME>` reference).\n\n"
+        f"## Usage\n\n    culture-rules {noun} overview\n    culture-rules {noun} list --json\n"
+    )
+
+
+def _verb_entry(v) -> str:
+    params = "\n".join(
+        f"- `{p.name}` ({p.type}{', required' if p.required else ''}) — {p.help}" for p in v.params
+    )
+    if v.mutating:
+        params += (
+            "\n" if params else ""
+        ) + "- `apply` (boolean) — commit; the default is a dry-run"
+    mode = (
+        "Writes: dry-run unless `--apply`; a dry-run changes nothing."
+        if v.mutating
+        else "Read-only."
+    )
+    return (
+        f"# culture-rules {v.noun} {v.name}\n\n{v.summary}.\n\n{mode} "
+        f"Required role: `{v.role}`.\n\n## Parameters\n\n{params or '(none)'}\n\n"
+        f"## Usage\n\n    culture-rules {v.noun} {v.name} --json\n"
+    )
+
+
+def _generated() -> dict[tuple[str, ...], str]:
+    """One entry per registered noun and verb, read from the command registry."""
+    from culture_rules.cli.verbs import REGISTRY  # noqa: PLC0415 - registry imports the CLI
+
+    out: dict[tuple[str, ...], str] = {
+        ("serve",): _SERVE,
+        ("node",): _NODE,
+        ("node", "run"): _NODE_RUN,
+        ("mcp",): _MCP,
+    }
+    for noun in REGISTRY.nouns():
+        out[(noun,)] = _noun_entry(noun, REGISTRY.verbs(noun))
+        for v in REGISTRY.verbs(noun):
+            out[v.path] = _verb_entry(v)
+    return out
+
 
 ENTRIES: dict[tuple[str, ...], str] = {
     (): _ROOT,
@@ -133,3 +285,5 @@ ENTRIES: dict[tuple[str, ...], str] = {
     ("cli",): _CLI,
     ("cli", "overview"): _CLI,
 }
+
+ENTRIES.update(_generated())

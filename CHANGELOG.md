@@ -5,6 +5,96 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.5] - 2026-10-03
+
+### Added
+
+- Action params accept explicit {"$ref": path} and {"$literal": value} forms; a $ref that can never resolve is refused at save (422 invalid_reference)
+- Each node cycle redelivers human ask answers that were recorded but not delivered (e.g. a crash in between); `node run --once --json` reports a `redelivered` count
+- docs/operations/pause.md: what a pause holds back and what it drops
+
+### Changed
+
+- Colleague, mesh and runner actors no longer claim cross-process idempotency: an attempt whose outcome is unknown (crash, resume, lost ack, timeout) now fails with unsafe_retry instead of running again; declare the step idempotent to retry automatically
+- Adding, changing or removing a runner actor's params.commands is admin-only on create, update and import (403 runner_commands_admin_only)
+- Registered runner commands that evaluate inline code (sh -c, python -c, node -e, perl -e, ... also behind env/sudo wrappers) are refused at run time
+- `matches` refuses catastrophic-backtracking patterns at save (422) and treats a stored one as a recorded non-match; its input cap drops from 10,000 to 2,000 characters
+- `!=` on a missing field is now false like every other comparison; write !(a == b) to match when the field is absent
+- A retry after a failed attempt counts against the actor's concurrency cap and token budget
+- Plain strings resolve as references only when their path fits a namespace (trigger envelope fields or event keys, `workflow.outputs.*`, `rules.<id>.outputs.*`); others, like `rules.yaml` or `trigger.sh`, stay literal
+
+### Fixed
+
+- A step's claim lease is renewed while its actor runs, and a lapsed claim is taken over only when the holder's heartbeat is stale or the step's deadline passed, so a long step no longer runs twice
+- Engine nodes beat from their own thread, so a long step no longer makes its host look offline
+- Answering a human ask frees the human actor's concurrency slot at once (it stayed held until the step deadline)
+- Actor adapters no longer cache failed results, so retry policies re-run the work
+- A predecessor settling during an engine pause no longer turns a waiting must/may-run-after dependant into a final skip; it is re-evaluated on resume
+- Literal strings such as trigger.sh in workflow step config are no longer reported as trigger references; {"$ref": "trigger..."} in a workflow is
+- The inline-code guard for runner commands strips interpreter version suffixes without a regex, so a hostile 10k-character argument is classified in linear time
+
+## [0.10.4] - 2026-10-03
+
+### Added
+
+- Workflows tab: a left-pane list of every workflow (New workflow, machine dot, name, enable switch), aligned with the Rules list
+- Rules tab: the create button reads "New rule" (it opens the "When does this happen?" form), like "New workflow"
+
+### Changed
+
+- Cleared every SonarCloud maintainability issue on the PR (508) SonarCloud maintainability issues: split composite test assertions and pytest.raises blocks, read-only React props, native fieldset/output/dialog elements instead of ARIA roles, and 33 cognitive-complexity splits in culture_rules and web with no behaviour change
+- `Node` takes its probe/load-reader/engine-version/beat-interval settings as one `HeartbeatOptions` (14 -> 11 parameters)
+- The workflow import reads files with `Blob#text` only (the FileReader fallback was dead code for every supported browser); the logo SVG is decorative and named by visually hidden text
+
+### Fixed
+
+- The multi-host chaos test no longer times out when the killed host never wins an action race (harness holds the survivors per run advance until the victim dies); exactly-once and no-loss held throughout
+- A WorkflowsCreate test that raced the router on slower CI runners
+
+## [0.10.3] - 2026-10-03
+
+### Added
+
+- Workflows tab: New workflow, in the head next to Import and as the empty state's primary action. It asks only for a name (Enter creates, Escape cancels), creates the workflow with POST /workflows (no steps; an id held by a live or soft-deleted workflow moves on to -2, -3, ...) and opens it on the canvas with the step + focused. API errors show inline in the form.
+
+### Fixed
+
+- Editor parity for workflows (spec: every workflow operation reachable from the editor, the CLI and the MCP server): the Workflows tab had no create, rename, enable/disable or delete. It now renames the workflow (a draft edit written by Save), enables and disables it (POST /workflows/{id}/enable|disable), and deletes it softly with Undo (DELETE, then POST /workflows/{id}/restore); deleting a workflow a rule still uses keeps it and names the conflict.
+
+## [0.10.2] - 2026-10-03
+
+### Fixed
+
+- Every API response now carries Cache-Control: no-store (API reads, 401/403 envelopes, unknown API paths, the event stream); the HTML shell is private, no-cache and content-hashed /assets are private, immutable. Cloudflare was serving a 15-minute-old /api/machines from its edge cache, so newly enrolled machines were missing from Statistics, and a shared cache could hand one principal's answer to another.
+
+## [0.10.1] - 2026-10-03
+
+### Fixed
+
+- `culture-rules node run` no longer dies at startup against the real events-cli: events-cli rejects the raw MQTT filter `#` and has no catch-all pattern, so the node now registers one durable subscription per event-type depth (`*`, `*.*`, ... up to 4 segments) and drains them as one source. Any events-cli setup failure (rejected subscription, unreachable broker) now degrades the node to running without ingest instead of crashing it, and broker drains use a positive timeout (events-cli rejects 0).
+- `/health` reports the node named by the new `CULTURE_RULES_NODE_NAME` (or `serve --node-name`) instead of `socket.gethostname()`; `node run` defaults `--host` to the same variable before the short hostname.
+- `culture-rules mcp` without the `mcp` extra exits 2 with the install hint instead of 1 (anyio/mcp.server.stdio imports now raise `ServerExtraMissing`).
+- `culture-rules serve` with a missing or unreachable store exits 2 naming `CULTURE_RULES_MONGO_URI` and `pip install 'culture-rules[store]'` instead of 1; under `--json` stderr holds only the JSON error.
+- The web Statistics `#agent-state` test asserts `status` reaches `ready` instead of an always-true check.
+
+## [0.10.0] - 2026-10-03
+
+### Added
+
+- Rules engine library `culture_rules`: typed model + JSON Schemas (rule, workflow, action, actor, machine, placement), a dependency-free condition evaluator, rule matching (all-fire, exclusive groups, supersede, must/may-after with explicit exports), placement by machine, actor or requirement, exactly-once claims, a persisted run executor with pinned versions, retries, bounded loops and pause/drain/cancel, append-only audit and soft delete/restore/purge.
+- Storage port with an in-memory adapter and a MongoDB replica-set adapter (majority writes, change streams, TLS/auth, typed transient errors); deploy artifacts and runbook for a spark/thor/orin replica set with spark2 non-voting.
+- Actors: agent (colleague work --json, correlation-matched mesh tasks), code runner (registered argv commands, admin-only sandboxed inline scripts), human asks (id-bearing event, exactly-once answer), per-actor budgets and concurrency caps, grant: secret references.
+- Engine node daemon `culture-rules node run`: heartbeat with platform probe, events ingest, placed and shared trigger consumers, rule chaining re-evaluation, executor loop, run summaries.
+- HTTP API under the optional `server` extra with a committed `api/openapi.json`, Cloudflare Access JWT on a loopback listener plus service tokens on the LAN listener, viewer/editor/admin roles, SSE live updates, replay, rule history, repo-backed export/import.
+- CLI noun groups (rules, workflows, actors, machines, runs) over the API from one command registry, dry-run by default with --apply; `serve`, `node` and `mcp` verbs; MCP server under the optional `mcp` extra.
+- Web editor (Vite + React + @xyflow/react) with four tabs — Rules, Workflows, Actors, Statistics — following the chosen design canvas; shipped inside the wheel and served by the API.
+- Encrypted, versioned S3 backups with a restore drill (`backup` extra); cloudflared/rules.culture.dev runbook; observability (health, JSON logs, run-id propagation).
+- Delivery artifacts: spec, plan, split plan and delivery summary under docs/; multi-host chaos tests; surface parity test; CI web job (typecheck, vitest, palette validation, Playwright, webglass) and a 60% coverage floor.
+
+### Changed
+
+- README, CLAUDE.md and the harness prompt files describe the shipped four-tab design and the CLI/MCP/API/node surface instead of a scaffold.
+
 ## [0.9.1] - 2026-10-02
 
 ### Changed

@@ -62,16 +62,24 @@ def _argv_has_json(argv: list[str] | None) -> bool:
 
 
 def _build_parser() -> argparse.ArgumentParser:
+    from culture_rules.cli._commands import actors as _actors
     from culture_rules.cli._commands import cli as _cli_group
     from culture_rules.cli._commands import doctor as _doctor_cmd
     from culture_rules.cli._commands import explain as _explain_cmd
     from culture_rules.cli._commands import learn as _learn_cmd
+    from culture_rules.cli._commands import machines as _machines
+    from culture_rules.cli._commands import mcp as _mcp
+    from culture_rules.cli._commands import node as _node
     from culture_rules.cli._commands import overview as _overview_cmd
+    from culture_rules.cli._commands import rules as _rules
+    from culture_rules.cli._commands import runs as _runs
+    from culture_rules.cli._commands import serve as _serve
     from culture_rules.cli._commands import whoami as _whoami_cmd
+    from culture_rules.cli._commands import workflows as _workflows
 
     parser = _CliArgumentParser(
         prog="culture-rules",
-        description="culture-rules — a clonable template for AgentCulture mesh agents.",
+        description="culture-rules — the rules engine for the AgentCulture mesh.",
     )
     parser.add_argument(
         "--version",
@@ -88,9 +96,12 @@ def _build_parser() -> argparse.ArgumentParser:
     _overview_cmd.register(sub)
     _doctor_cmd.register(sub)
     _cli_group.register(sub)
-    # Register your own noun groups here:
-    #   from culture_rules.cli._commands import my_noun as _my_noun_group
-    #   _my_noun_group.register(sub)
+    # Noun groups over the HTTP API; their verbs come from cli/verbs.py (the one registry).
+    for noun_group in (_rules, _workflows, _actors, _machines, _runs):
+        noun_group.register(sub)
+    _serve.register(sub)
+    _node.register(sub)  # the engine node: talks to the store directly (lazy import)
+    _mcp.register(sub)
 
     return parser
 

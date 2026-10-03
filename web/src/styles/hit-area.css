@@ -1,0 +1,55 @@
+/*
+ * Hit areas (deviation d4, approved by the operator): every interactive
+ * control gets a hit area of at least 44x44 CSS px, while its *visual* size
+ * stays as the design canvas draws it (40px filter pills, 46x28 switches,
+ * 40px icon buttons, 15px secondary text). Pinned by e2e/hit-area.spec.ts;
+ * the board-measurement tests pin the visual sizes.
+ *
+ * Buttons, links, switches, tabs and radios: an invisible ::after centred on
+ * the control and grown to 44x44 where the control is smaller. It is part of
+ * the control, so a click or tap on it is a click on the control. Wrapped in
+ * :where() (zero specificity) so any authored `position` still wins; an
+ * absolutely positioned control is a containing block too.
+ */
+:where(button, a[href], [role="switch"], [role="tab"], [role="radio"]) {
+  position: relative;
+}
+
+:where(button, a[href], [role="switch"], [role="tab"], [role="radio"])::after {
+  content: "";
+  position: absolute;
+  inset: min(0px, calc(50% - 22px));
+  /* never paint, never shift anything: only extend where the pointer lands */
+  background: none;
+  border: 0;
+  pointer-events: auto;
+}
+
+/*
+ * Selects cannot carry pseudo-elements, so they take the invisible-padding
+ * form: a transparent outer border tops the box up to 44px, the visible
+ * border is redrawn inside it (inset shadow), the background stops at the
+ * padding box, and a matching negative margin keeps the layout unchanged.
+ * (`html` lifts these over the tab stylesheets, which load after this one.)
+ */
+html .relation-slot select {
+  min-height: 44px;
+  margin-block: -2px;
+}
+
+html .wf-field select,
+html .wf-ports select {
+  height: 44px;
+  margin-block: -2px;
+  border: 2px solid transparent;
+  border-radius: 12px;
+  box-shadow: inset 0 0 0 2px var(--wf-control-border);
+  background-clip: padding-box;
+}
+
+/* React Flow's attribution link sits in the canvas corner, where the canvas
+   clips overflow: room inside its (now transparent) panel for the hit area. */
+html .react-flow__attribution {
+  padding: 16px 8px;
+  background: transparent;
+}

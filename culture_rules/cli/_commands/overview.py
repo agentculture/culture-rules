@@ -1,7 +1,7 @@
 """``culture-rules overview`` — read-only descriptive snapshot of the agent.
 
 Describes the agent to an agent reader: identity (from culture.yaml), the verb
-surface, and the sibling-pattern artifacts this template carries. The shared
+surface, and the sibling-pattern artifacts this package carries. The shared
 section/render helpers here are reused by the ``cli`` noun's ``overview`` (see
 :mod:`culture_rules.cli._commands.cli`).
 

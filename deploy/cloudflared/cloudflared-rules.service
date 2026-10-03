@@ -1,0 +1,21 @@
+# systemd USER unit: the rules.culture.dev tunnel connector on one serving host.
+# Install (no root) as ~/.config/systemd/user/cloudflared-rules.service, then:
+#   systemctl --user daemon-reload && systemctl --user enable --now cloudflared-rules
+#   loginctl enable-linger "$USER"
+# The connector token is a HIDDEN secret in the unit user's grant store. `grant run --inject`
+# hands it to cloudflared as TUNNEL_TOKEN at exec time: it is on no disk path, not in argv, and
+# not in this file. Placeholders (@NAME@) are filled by the operator; see
+# docs/operations/rules-culture-dev.md.
+[Unit]
+Description=cloudflared tunnel connector for rules.culture.dev (loopback Access listener)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/grant run --inject TUNNEL_TOKEN=@TUNNEL_TOKEN_SECRET@ -- /usr/local/bin/cloudflared tunnel --no-autoupdate run
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
