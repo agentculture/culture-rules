@@ -172,11 +172,8 @@ The contract for every new verb:
   `culture_rules/explain/catalog.py`, and a mention in `learn`. The teken
   rubric gate checks this coverage.
 
-Some self-description strings still carry the template wording ("a
-clonable template for AgentCulture mesh agents"). The leftovers are in the
-argparse description in `cli/__init__.py`, in `learn.py`, and in the
-`explain` root entry in `catalog.py`. Update them alongside the first real
-verbs.
+The template self-description wording in the CLI strings was replaced with
+culture-rules wording.
 
 ## Identity and the four harnesses
 

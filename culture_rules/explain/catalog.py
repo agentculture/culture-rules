@@ -12,11 +12,15 @@ from __future__ import annotations
 _ROOT = """\
 # culture-rules
 
-A clonable template for AgentCulture mesh agents. It carries an agent-first CLI
-(cited from the teken `python-cli` reference), a mesh identity (`culture.yaml` +
-`CLAUDE.md`), the canonical guildmaster skill kit under `.claude/skills/`, and a
-buildable/deployable package baseline. Clone it, rename the package, edit
-`culture.yaml`, and you have a new agent.
+The rules engine for the AgentCulture mesh: rules -> conditions -> workflows ->
+actions, carried out by actors (agents, humans, code). It is a Python library
+(`culture_rules`), a CLI and MCP server, and a React Flow editor with Rules,
+Workflows, Actors and Statistics tabs.
+
+Status: the engine is being built. Today the package carries the agent-first CLI
+(cited from the teken `python-cli` reference), the mesh identity (`culture.yaml`
++ `CLAUDE.md`), the guildmaster skill kit under `.claude/skills/`, and the
+CI/publish baseline. The engine, API and editor are planned.
 
 ## Verbs
 
@@ -81,7 +85,7 @@ _OVERVIEW = """\
 # culture-rules overview
 
 Read-only descriptive snapshot of the agent: identity (from `culture.yaml`), the
-verb surface, and the sibling-pattern artifacts the template carries. Accepts an
+verb surface, and the sibling-pattern artifacts the package carries. Accepts an
 ignored `target` so a stray path never hard-fails.
 
 ## Usage

@@ -12,14 +12,16 @@ from culture_rules import __version__
 from culture_rules.cli._output import emit_result
 
 _TEXT = """\
-culture-rules — a clonable template for AgentCulture mesh agents.
+culture-rules — the rules engine for the AgentCulture mesh.
 
 Purpose
 -------
-Scaffold for a new Culture mesh agent: an agent-first CLI (cited from the teken
-`python-cli` reference), an identity (culture.yaml + CLAUDE.md), the canonical
-guildmaster skill kit under .claude/skills/, and a deploy/CI baseline. Clone it,
-rename the package, and edit culture.yaml to mint a new agent.
+Rules -> conditions -> workflows -> actions, carried out by actors (agents,
+humans, code). Planned shape: a Python library (culture_rules), a CLI and MCP
+server, and a React Flow editor (Rules, Workflows, Actors, Statistics tabs).
+Today (the engine is being built): an agent-first CLI (cited from the teken
+`python-cli` reference), an identity (culture.yaml + CLAUDE.md), the guildmaster
+skill kit under .claude/skills/, and a deploy/CI baseline.
 
 Commands
 --------
@@ -52,7 +54,7 @@ def _as_json_payload() -> dict[str, object]:
     return {
         "tool": "culture-rules",
         "version": __version__,
-        "purpose": "Clonable scaffold for a new AgentCulture mesh agent.",
+        "purpose": "Rules engine for the AgentCulture mesh (engine being built).",
         "commands": [
             {"path": ["whoami"], "summary": "Identity probe from culture.yaml."},
             {"path": ["learn"], "summary": "Self-teaching prompt."},
