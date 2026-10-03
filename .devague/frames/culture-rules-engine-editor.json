@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-03T04:20:01Z",
-  "updated": "2026-10-03T05:10:36Z",
+  "updated": "2026-10-03T05:15:47Z",
   "claims": [
     {
       "id": "c1",
@@ -575,7 +575,7 @@
     {
       "id": "c32",
       "kind": "requirement",
-      "text": "events-cli is the event trigger source: culture-rules registers durable subscriptions on type patterns (task.* \u2192 events/task/+), drains in bounded batches, dedupes on envelope id (at-least-once QoS 1), and propagates correlationId/causationId/runId onto events it emits",
+      "text": "events-cli is an external trigger source: each host's engine node holds a durable events-cli subscription on configured type patterns (e.g. task.* \u2192 events/task/+), drains in bounded batches and ingests envelopes into the MongoDB events collection deduped by envelope id (at-least-once QoS 1); correlationId/causationId/runId propagate onto events culture-rules emits",
       "origin": "llm",
       "status": "confirmed",
       "honesty_conditions": [
@@ -589,7 +589,13 @@
       "hard_questions": [],
       "links": [],
       "instruction": "",
-      "revisions": []
+      "revisions": [
+        {
+          "text": "events-cli is the event trigger source: culture-rules registers durable subscriptions on type patterns (task.* \u2192 events/task/+), drains in bounded batches, dedupes on envelope id (at-least-once QoS 1), and propagates correlationId/causationId/runId onto events it emits",
+          "kind": "requirement",
+          "reason": "operator decision v7"
+        }
+      ]
     },
     {
       "id": "c33",
@@ -1674,7 +1680,7 @@
     {
       "id": "c91",
       "kind": "requirement",
-      "text": "A trigger consumes the events-cli broker on its rule's placed host by default (brokers bind 127.0.0.1:1883 per host); consuming a remote host's broker is explicit configuration, and a failed-over rule re-subscribes on its new host without losing or duplicating events",
+      "text": "A rule's triggers consume the MongoDB events collection (change streams on the replica set), so a rule that fails over to another host resumes from its stored resume token without losing or duplicating events; events-cli envelopes arriving on any host's broker are ingested into that collection once, deduped by envelope id",
       "origin": "llm",
       "status": "confirmed",
       "honesty_conditions": [
@@ -1688,7 +1694,13 @@
       "hard_questions": [],
       "links": [],
       "instruction": "",
-      "revisions": []
+      "revisions": [
+        {
+          "text": "A trigger consumes the events-cli broker on its rule's placed host by default (brokers bind 127.0.0.1:1883 per host); consuming a remote host's broker is explicit configuration, and a failed-over rule re-subscribes on its new host without losing or duplicating events",
+          "kind": "requirement",
+          "reason": "operator decision v7: Mongo collection as event fabric"
+        }
+      ]
     },
     {
       "id": "c92",
@@ -1828,6 +1840,42 @@
           "reason": "lint: avoid angle-bracket tokens"
         }
       ]
+    },
+    {
+      "id": "c99",
+      "kind": "decision",
+      "text": "Each serving daemon/container probes its platform at start (which load and GPU tools exist, e.g. nvidia-smi vs tegrastats) and reports through the heartbeat; USB-attached requirements (devices such as robots or cameras) are probed on need, when a step requests them (operator, this session)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c100",
+      "kind": "decision",
+      "text": "rules.culture.dev follows the culture-nodes nodes.culture.dev pattern, provisioned with cultureflare: per serving host a cloudflared connector to a loopback-only Access listener (honours Cf-Access-Jwt-Assertion) and a separate LAN listener that ignores Access headers (operator, this session)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c101",
+      "kind": "decision",
+      "text": "Events between hosts flow through a MongoDB events collection on the replica set (change streams), not per-host brokers: any host can consume after failover; events-cli remains an external trigger source whose envelopes are ingested into that collection, deduped by envelope id (operator, this session)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
     }
   ],
   "open_vagueness": [
@@ -1872,27 +1920,27 @@
       "text": "Which tool reports GPU/CPU load per platform (nvidia-smi on DGX Spark vs tegrastats/jtop on Jetson Thor/Orin) \u2014 no precedent found in culture-nodes/internal or sibling repos",
       "kind": "unknown_nonblocking",
       "claim_id": null,
-      "resolved": false,
-      "resolution": "",
-      "resolution_claim_id": null
+      "resolved": true,
+      "resolution": "Probe the platform at daemon/container start; probe USB-attached requirements on need",
+      "resolution_claim_id": "c99"
     },
     {
       "id": "v6",
       "text": "Cloudflare tunnel replica routing (connector selection, failover time, SSE stickiness) is general Cloudflare behaviour, verified in no repo \u2014 probe it during the deploy task",
       "kind": "unknown_nonblocking",
       "claim_id": null,
-      "resolved": false,
-      "resolution": "",
-      "resolution_claim_id": null
+      "resolved": true,
+      "resolution": "Follow the culture-nodes nodes.culture.dev pattern via cultureflare (loopback Access listener + LAN listener per host)",
+      "resolution_claim_id": "c100"
     },
     {
       "id": "v7",
       "text": "Whether the mesh runs one events-cli broker per host or a shared one, and how events reach a rule's host after failover",
       "kind": "unknown_nonblocking",
       "claim_id": null,
-      "resolved": false,
-      "resolution": "",
-      "resolution_claim_id": null
+      "resolved": true,
+      "resolution": "Use a MongoDB events collection (change streams) as the cross-host event fabric; ingest events-cli envelopes into it",
+      "resolution_claim_id": "c101"
     }
   ],
   "scope_entries": [

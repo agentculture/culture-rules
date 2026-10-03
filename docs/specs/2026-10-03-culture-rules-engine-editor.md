@@ -63,7 +63,7 @@
 - Repo-based agent actors load from the repo's culture.yaml (suffix, backend, model, thinking, channels, `system_prompt`, tags, extras such as engine/`base_url`/`acp_command`), handling both the single-agent and agents: list shapes
   - honesty: Loading culture.yaml handles both single-agent top-level and agents: list shapes and keeps unknown keys as extras
     - instruction: unit tests with culture-rules, culture and steward culture.yaml fixtures
-- events-cli is the event trigger source: culture-rules registers durable subscriptions on type patterns (task.\* → events/task/+), drains in bounded batches, dedupes on envelope id (at-least-once QoS 1), and propagates correlationId/causationId/runId onto events it emits
+- events-cli is an external trigger source: each host's engine node holds a durable events-cli subscription on configured type patterns (e.g. task.\* → events/task/+), drains in bounded batches and ingests envelopes into the MongoDB events collection deduped by envelope id (at-least-once QoS 1); correlationId/causationId/runId propagate onto events culture-rules emits
   - honesty: A durable events-cli subscription feeds triggers; a redelivered envelope (same id) never fires a rule twice
     - instruction: test with a fake drain returning a duplicate id; assert one firing
 - rules.culture.dev is provisioned with `cultureflare remote-login setup --hostname rules.culture.dev --service http://127.0.0.1:<port> --allow <email> --with-service-token` (or --allow-domain), dry-run first then --apply; the operator runs cloudflared with the printed (or shushu-sealed) tunnel token on each serving host
@@ -177,7 +177,7 @@
 - Runs are observable: every node exposes a health endpoint, logs are structured with `run_id`/`step_id`/host, and `run_id`/correlationId propagate onto events-cli envelopes the engine emits
   - honesty: Given a run id, its full step trail across hosts is retrievable from logs and from the run record
     - instruction: integration test across two nodes
-- A trigger consumes the events-cli broker on its rule's placed host by default (brokers bind 127.0.0.1:1883 per host); consuming a remote host's broker is explicit configuration, and a failed-over rule re-subscribes on its new host without losing or duplicating events
+- A rule's triggers consume the MongoDB events collection (change streams on the replica set), so a rule that fails over to another host resumes from its stored resume token without losing or duplicating events; events-cli envelopes arriving on any host's broker are ingested into that collection once, deduped by envelope id
   - honesty: When a rule fails over from spark to thor, every event published after the failover fires it exactly once
     - instruction: failover test with durable subscriptions on both brokers + id dedupe
 - Code steps run either a command/script registered on a runner actor (default; arguments bound from typed inputs) or, for admins only, inline script text executed sandboxed on the runner host (temp dir, timeout, no stored secrets in the text) (operator, challenge q1)
@@ -393,6 +393,9 @@
 ## Decisions
 
 - Use a MongoDB 3-member replica set (spark primary-preferred, spark2 and thor members; majority write concern) behind a storage port interface: automatic primary election covers one host faltering, change streams feed live SSE updates, and a Postgres adapter can be added behind the same port
+- Each serving daemon/container probes its platform at start (which load and GPU tools exist, e.g. nvidia-smi vs tegrastats) and reports through the heartbeat; USB-attached requirements (devices such as robots or cameras) are probed on need, when a step requests them (operator, this session)
+- rules.culture.dev follows the culture-nodes nodes.culture.dev pattern, provisioned with cultureflare: per serving host a cloudflared connector to a loopback-only Access listener (honours Cf-Access-Jwt-Assertion) and a separate LAN listener that ignores Access headers (operator, this session)
+- Events between hosts flow through a MongoDB events collection on the replica set (change streams), not per-host brokers: any host can consume after failover; events-cli remains an external trigger source whose envelopes are ingested into that collection, deduped by envelope id (operator, this session)
 
 ## Hard questions
 
@@ -408,6 +411,9 @@
 - [unknown_nonblocking] spark2 is not a mesh link in ~/.culture/mesh.yaml (only thor, orin); whether it exists/what address it has is unknown
 - [unknown_nonblocking] Whether agentirc federation routes a DM to a remote `<machine>-<agent>` nick is claimed in docs but unverified in code
 - [unknown_nonblocking] How culture-nodes plays with culture-rules (consumer of its actor adapters, shared CEL/actor contracts, compile target, or peer) — operator wants to think it through
-- [unknown_nonblocking] Which tool reports GPU/CPU load per platform (nvidia-smi on DGX Spark vs tegrastats/jtop on Jetson Thor/Orin) — no precedent found in culture-nodes/internal or sibling repos
-- [unknown_nonblocking] Cloudflare tunnel replica routing (connector selection, failover time, SSE stickiness) is general Cloudflare behaviour, verified in no repo — probe it during the deploy task
-- [unknown_nonblocking] Whether the mesh runs one events-cli broker per host or a shared one, and how events reach a rule's host after failover
+
+## Resolved vagueness
+
+- [unknown_nonblocking] Which tool reports GPU/CPU load per platform (nvidia-smi on DGX Spark vs tegrastats/jtop on Jetson Thor/Orin) — no precedent found in culture-nodes/internal or sibling repos — resolved: Probe the platform at daemon/container start; probe USB-attached requirements on need
+- [unknown_nonblocking] Cloudflare tunnel replica routing (connector selection, failover time, SSE stickiness) is general Cloudflare behaviour, verified in no repo — probe it during the deploy task — resolved: Follow the culture-nodes nodes.culture.dev pattern via cultureflare (loopback Access listener + LAN listener per host)
+- [unknown_nonblocking] Whether the mesh runs one events-cli broker per host or a shared one, and how events reach a rule's host after failover — resolved: Use a MongoDB events collection (change streams) as the cross-host event fabric; ingest events-cli envelopes into it
