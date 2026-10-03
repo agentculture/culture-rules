@@ -1,0 +1,2 @@
+{"id":"spark-runner","name":"Spark runner","kind":"runner","machine":"spark","capabilities":["shell"],
+ "params":{"commands":{"greet":{"argv":["echo","hello {who}"],"params":{"who":"string"},"timeout":30}}}}

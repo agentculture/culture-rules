@@ -13,34 +13,47 @@ project guidance for a Qwen Code session.
 conditions → workflows → actions, carried out by actors (agents, humans,
 code, services, robots, …). It ships as the PyPI distribution
 `culture-rules`, whose import package is `culture_rules`. The backend is
-Python, and the visual editor will be a Node.js + React Flow app with
-exactly three tabs: **Rules | Workflows | Actors**.
+Python, and the visual editor in `web/` is a Node.js + React Flow app with
+four tabs: **Rules | Workflows | Actors | Statistics**.
 
-**Status: scaffold only.** guildmaster provisioned the repo from
-`culture-agent-template`. What exists today is that template's baseline:
+**Status: built and shipped on `rules/build`.** guildmaster provisioned the
+repo from `culture-agent-template`, and the build followed the devague plan.
+On disk today:
 
-- the agent-first CLI;
-- the mesh identity;
-- the vendored skill kit;
-- CI/publish.
+- the library `culture_rules` (model, engine, actors, events, machines, ops,
+  store, io, auth);
+- the engine node daemon, `culture-rules node run`;
+- the HTTP API (`culture_rules/server`, the `server` extra), whose contract
+  is pinned in `api/openapi.json`;
+- the CLI noun groups `rules`, `workflows`, `actors`, `machines` and `runs`,
+  plus `serve`, `node` and `mcp`;
+- the MCP server, `culture-rules mcp` (the `mcp` extra), with the same verbs
+  as the CLI;
+- the web editor in `web/`, shipped in the wheel as `culture_rules/web_dist`;
+- ops docs in `docs/operations/` and the executed walkthrough
+  `docs/demo.md`.
 
-The engine, HTTP API and editor are **planned**. GitHub issue #1 is the
-build brief, and #2 is the product model and UX. Read both before
-designing anything. The build order is fixed: `/scope` → `/think` →
+GitHub issue #1 was the build brief, and #2 the product model and UX. The
+spec is `docs/specs/2026-10-03-culture-rules-engine-editor.md`; the operator
+added **Statistics** as the fourth tab. The design canvas
+(<https://claude.ai/artifact/Jgm3JPnAhKWpeiCxFXvNBi>, row "Chosen") is the
+visual source of truth. For new work the order is `/scope` → `/think` →
 `/spec-to-plan` → code.
 
-## Domain model (planned, from #1 and #2)
+## Domain model
 
 - **Rule** says *when* work happens, and reads as `Trigger → Condition →
-  Workflow → Action`; stages are optional where that is valid. A rule may
-  follow another rule (*must run after* / *may run after*), and that
-  relationship defines which upstream outputs it sees.
-- **Condition** is a serialisable predicate over the trigger and context.
-  It is **never `eval()` of user Python**; JSON-Logic, CEL and a typed AST
-  are the candidates. The common cases are edited graphically.
-- **Workflow** is reusable *how*: inputs, internal variables, steps
-  (sequence, branch, wait, agent/code/human work) and outputs. It does not
-  know what triggered it.
+  Workflow → Action`; condition and workflow are optional, the action is
+  required. A rule may follow another rule (*must run after* / *may run
+  after*) or supersede one, and that relationship defines which upstream
+  outputs it sees. A rule is placed on a machine, an actor or a capability
+  requirement, which decides where its trigger and condition evaluate.
+- **Condition** is a typed JSON predicate over the trigger and context,
+  evaluated deterministically. It is **never `eval()` of user Python**. The
+  common cases are edited graphically; a CEL-style text form is advanced.
+- **Workflow** is reusable *how*: inputs, internal variables, steps (logic,
+  AI call, code run, actor task, loops), typed ports, per-step placement
+  and outputs. It does not know what triggered it.
 - **Action** is a concrete side effect: comment, ticket transition,
   message, service call, run code, ask a human.
 - **Actor** is *who/what* can do the work: agent, human, service/daemon,
@@ -49,13 +62,14 @@ designing anything. The build order is fixed: `/scope` → `/think` →
 
 Further settled constraints:
 
-- **Persisted run state.** Human actors make runs long-running and
-  asynchronous.
+- **Persisted run state** in MongoDB. Human actors make runs long-running
+  and asynchronous.
 - **Explicit exported variables.** Prefer them over a global mutable bag.
-- **One pinned API contract.** A single OpenAPI or JSON-Schema definition
-  is shared by frontend and backend.
-- **Navigation is limited to those three tabs.** History, runs and debugging
-  appear only in context.
+- **One pinned API contract**, `api/openapi.json`, shared by frontend and
+  backend.
+- **Navigation is exactly four tabs: Rules | Workflows | Actors |
+  Statistics.** Statistics is per-machine state and work. Runs, history and
+  debugging appear only in context, never as a tab.
 
 ## Prompt files by harness
 
@@ -103,13 +117,26 @@ agent-first verbs:
 - `culture-rules doctor` — check the agent-identity invariants.
 - `culture-rules cli overview` — describe the CLI surface itself.
 
+The engine verbs, over the HTTP API:
+
+- `culture-rules rules|workflows|actors|machines` — `list`, `show`,
+  `create`, `update`, `enable`, `disable`, `delete`, `restore`, `purge`
+  (plus `export`/`import`, `run`/`replay` and `drain`/`undrain` where they
+  apply).
+- `culture-rules runs` — `list`, `show`, `cancel`, `pause`, `resume`.
+- `culture-rules serve` — the HTTP API (`server` extra).
+- `culture-rules node run` — this host's engine node (`--once` for one
+  cycle).
+- `culture-rules mcp` — the same verbs as MCP tools over stdio (`mcp`
+  extra).
+
 The contract for every verb:
 
 - Every command supports `--json`.
 - Results go to stdout, and errors and diagnostics to stderr, never mixed.
 - Exit codes are `0` success, `1` user error, `2` environment error, `3+`
   reserved.
-- Writes in future rule/workflow/actor verbs are dry-run by default, with
+- Writes (rule/workflow/actor/machine verbs) are dry-run by default, with
   `--apply` to commit them.
 
 CI enforces the agent-first rubric with `teken cli doctor . --strict`.
@@ -131,17 +158,23 @@ edit vendored scripts; re-sync from guildmaster instead.
   `scripts/scan-secrets.py`.
 - **Deploy**: pushing to `main` publishes to PyPI via Trusted Publishing
   (`.github/workflows/publish.yml`); PRs do a TestPyPI dry-run.
-- **Frontend (planned)** lives in a single subdirectory. It needs its own
-  CI job, a markdownlint ignore for its build output, and deliberate
-  SonarCloud source settings.
+- **Frontend** lives in `web/`. CI has a `web` job, markdownlint ignores
+  its build output, and SonarCloud covers `web/src`.
 
 ## Layout
 
 ```text
-culture_rules/   agent-first CLI (cited from teken's python-cli reference)
+culture_rules/   library + agent-first CLI (CLI cited from teken's python-cli)
   cli/                    parser, error/output contract, _commands/ (verbs)
+  engine/ model/ actors/  the rules engine, its model and actor adapters
+  events/ machines/ ops/  event ingest, machines, backup and logs
+  store/ io/ auth/        MongoDB + memory stores, export/import, access
+  server/ node/ mcp/      HTTP API, engine node daemon, MCP server
   explain/                markdown catalog for `explain`
-tests/                    pytest smoke + introspection tests
+web/                      the React Flow editor (built into culture_rules/web_dist)
+api/openapi.json          the pinned API contract
+docs/                     spec, demo.md, operations/, harness docs
+tests/                    pytest suite
 .claude/skills/           vendored guildmaster skill kit (cite-don't-import)
 docs/skill-sources.md     skill provenance ledger
 culture.yaml              mesh identity (suffix + backend)
@@ -150,7 +183,7 @@ culture.yaml              mesh identity (suffix + backend)
 
 This file describes the repository **as it exists on disk today**. When
 you edit, keep claims grounded in checked-in reality. If a section drifts
-ahead of reality, mark it *planned*, as the domain model above is. For the
+ahead of reality, mark it *planned*. For the
 full workflow conventions (worktree layout, memory discipline,
 `ask-colleague` usage), see [`CLAUDE.md`](CLAUDE.md). Those conventions
 apply to work in this repo whichever harness is doing it.

@@ -1,0 +1,5 @@
+{"id":"greet-on-event","name":"Greet on demo.greet",
+ "trigger":{"kind":"event","params":{"type":"demo.greet"}},
+ "workflow":{"id":"greet-flow","inputs":{"command":"greet","args":"trigger.data.args"}},
+ "action":{"kind":"noop","name":"Done"},
+ "placement":{"machine":"spark"}}
