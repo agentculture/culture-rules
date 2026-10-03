@@ -1,6 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const PORT = 4174;
+// Overridable so parallel worktrees / CI jobs never collide on one port.
+const PORT = Number(process.env.PLAYWRIGHT_PORT ?? 4174);
 const BASE_URL = `http://127.0.0.1:${PORT}`;
 
 /**
