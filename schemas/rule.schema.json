@@ -51,6 +51,18 @@
       "$ref": "#/$defs/Action",
       "description": "The terminal side effect (required)"
     },
+    "placement": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Placement"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Where the trigger and condition evaluate (machine, actor or requirement); null means any eligible engine node",
+      "default": null
+    },
     "must_after": {
       "type": "array",
       "items": {
@@ -163,6 +175,106 @@
         "kind"
       ],
       "additionalProperties": false
+    },
+    "Placement": {
+      "type": "object",
+      "description": "A named machine, a named actor (runs where it lives), or a capability requirement.",
+      "properties": {
+        "machine": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Name of an enrolled machine",
+          "default": null
+        },
+        "actor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Id of an actor; runs on that actor's machine",
+          "default": null
+        },
+        "requirement": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Capabilities (e.g. gpu) an eligible enrolled machine must offer",
+          "default": null
+        }
+      },
+      "required": [],
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "required": [
+            "machine"
+          ],
+          "properties": {
+            "machine": {
+              "type": "string",
+              "minLength": 1
+            },
+            "actor": {
+              "type": "null"
+            },
+            "requirement": {
+              "type": "null"
+            }
+          }
+        },
+        {
+          "required": [
+            "actor"
+          ],
+          "properties": {
+            "machine": {
+              "type": "null"
+            },
+            "actor": {
+              "type": "string",
+              "minLength": 1
+            },
+            "requirement": {
+              "type": "null"
+            }
+          }
+        },
+        {
+          "required": [
+            "requirement"
+          ],
+          "properties": {
+            "machine": {
+              "type": "null"
+            },
+            "actor": {
+              "type": "null"
+            },
+            "requirement": {
+              "type": "array",
+              "minItems": 1
+            }
+          }
+        }
+      ]
     },
     "RetryPolicy": {
       "type": "object",

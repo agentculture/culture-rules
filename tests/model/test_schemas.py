@@ -62,9 +62,15 @@ def test_workflow_schema_has_no_trigger_field() -> None:
 
 
 def test_rule_stage_schemas_have_no_actor_slot() -> None:
+    # h7, scoped by deviation d1: no *stage* of the rule chain (trigger, condition, workflow,
+    # action) has an actor slot. The rule's placement may name an actor — that says where the
+    # rule evaluates, it is not a stage.
     gen = generate_all()
-    for name in ("rule", "action"):
-        names = _all_property_names(json.loads(gen[f"{name}.schema.json"]))
+    rule = json.loads(gen["rule.schema.json"])
+    rule["properties"].pop("placement")
+    rule.get("$defs", {}).pop("Placement", None)
+    for name, schema in (("rule", rule), ("action", json.loads(gen["action.schema.json"]))):
+        names = _all_property_names(schema)
         assert not any("actor" in n for n in names), name
 
 

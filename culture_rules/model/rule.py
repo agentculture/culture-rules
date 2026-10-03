@@ -7,6 +7,7 @@ from typing import Any
 
 from culture_rules.model.action import Action
 from culture_rules.model.common import SCHEMA_VERSION, Model, doc
+from culture_rules.model.placement import Placement
 
 __all__ = ["Rule", "Trigger", "WorkflowRef"]
 
@@ -48,6 +49,11 @@ class Rule(Model):
         "Workflow to run; null means Trigger -> Action", default=None
     )
     action: Action = doc("The terminal side effect (required)")
+    placement: Placement | None = doc(
+        "Where the trigger and condition evaluate (machine, actor or requirement); "
+        "null means any eligible engine node",
+        default=None,
+    )
     must_after: tuple[str, ...] = doc(
         "Rule ids that must have succeeded before this rule fires", default=()
     )

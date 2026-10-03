@@ -53,6 +53,7 @@ dev = [
     "httpx>=0.27",
     "boto3>=1.34",
     "moto[s3]>=5.0",
+    "jsonschema>=4.0",
 ]
 
 [tool.coverage.run]

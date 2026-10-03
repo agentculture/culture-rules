@@ -34,18 +34,21 @@ class Model:
         return json.dumps(self.to_dict(), sort_keys=True, separators=(",", ":"), allow_nan=False)
 
     @classmethod
-    def from_dict(cls, data: Any) -> Self:
-        """Parse a dict; raises :class:`serde.ModelParseError` on a shape mismatch."""
-        return serde.from_dict(cls, data)
+    def from_dict(cls, data: Any, *, strict: bool = True) -> Self:
+        """Parse a dict; raises :class:`serde.ModelParseError` on a shape mismatch.
+
+        ``strict=False`` ignores unknown fields (tolerant read for stored documents).
+        """
+        return serde.from_dict(cls, data, strict=strict)
 
     @classmethod
-    def from_json(cls, text: str | bytes) -> Self:
+    def from_json(cls, text: str | bytes, *, strict: bool = True) -> Self:
         """Parse JSON text; raises :class:`serde.ModelParseError` on bad JSON or shape."""
         try:
             data = json.loads(text)
         except json.JSONDecodeError as exc:
             raise serde.ModelParseError("", f"invalid JSON: {exc.msg}", code="json") from exc
-        return serde.from_dict(cls, data)
+        return serde.from_dict(cls, data, strict=strict)
 
 
 @dataclass(frozen=True, kw_only=True)

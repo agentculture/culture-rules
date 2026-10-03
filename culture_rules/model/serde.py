@@ -12,6 +12,7 @@ Semantic rules (allowed kinds, loop bounds, placement forms, ...) live in
 
 from __future__ import annotations
 
+import contextvars
 import dataclasses
 import types
 import typing
@@ -149,13 +150,34 @@ def from_value(tp: Any, value: Any, path: str) -> Any:
     return _scalar(tp, value, path)
 
 
-def from_dict(cls: type, data: Any, path: str = "") -> Any:
-    """Build dataclass ``cls`` from a JSON object, defaulting omitted optional fields."""
+#: Strict (the default) rejects unknown keys; tolerant reads skip them, so a node can read
+#: documents written by a newer minor version (storage obligation o3: readers ignore unknown
+#: fields). A ContextVar keeps the mode for one top-level call without threading a parameter.
+_STRICT: contextvars.ContextVar[bool] = contextvars.ContextVar("model_serde_strict", default=True)
+
+
+def from_dict(cls: type, data: Any, path: str = "", *, strict: bool | None = None) -> Any:
+    """Build dataclass ``cls`` from a JSON object, defaulting omitted optional fields.
+
+    ``strict=False`` ignores unknown keys at every depth (tolerant read); ``None`` keeps the
+    mode of the enclosing call (strict at top level).
+    """
+    if strict is None:
+        return _from_dict(cls, data, path)
+    token = _STRICT.set(strict)
+    try:
+        return _from_dict(cls, data, path)
+    finally:
+        _STRICT.reset(token)
+
+
+def _from_dict(cls: type, data: Any, path: str) -> Any:
     if not isinstance(data, dict):
         raise _fail(path, "object", data)
     fields = {f.name: f for f in dataclasses.fields(cls)}
+    strict = _STRICT.get()
     for key in data:
-        if key not in fields:
+        if key not in fields and strict:
             raise ModelParseError(join(path, str(key)), "unknown field", code="unknown_field")
     hints = field_types(cls)
     kwargs: dict[str, Any] = {}
