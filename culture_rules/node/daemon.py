@@ -18,6 +18,12 @@ A :class:`Node` on host ``H`` does, every cycle (:meth:`Node.run_once`):
    for a ``must_after`` / ``may_after`` predecessor once that predecessor's run for the
    event has finished (or it can no longer run);
 4. **start** - turns pending intents into runs (run id derived from rule + event);
+   then **redeliver** - resumes runs for human asks that were answered but whose
+   delivery was lost (a crash between recording the answer and delivering it;
+   :func:`~culture_rules.actors.human.redeliver`). The run's compare-and-set keeps it
+   exactly once when several nodes redeliver the same answer, and the actor's limit slot
+   is freed (:mod:`culture_rules.node.completions`). Mesh replies are not polled:
+   ``MeshAgentActor`` is not among the production adapters;
 5. **drive** - ticks the :class:`~culture_rules.engine.runs.Executor` until idle; actors
    are reached through :class:`~culture_rules.node.actors.ActorRouter`;
 6. **report** - optional: posts finished runs this node started through
@@ -42,7 +48,8 @@ from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from culture_rules.engine.claims import CLAIMS_COLLECTION, DEFAULT_LEASE
+from culture_rules.actors import human
+from culture_rules.engine.claims import DEFAULT_LEASE
 from culture_rules.engine.decisions import RULE_DECISIONS
 from culture_rules.engine.reports import RunReporter
 from culture_rules.engine.runs import RUNS_COLLECTION, Executor
@@ -57,6 +64,7 @@ from culture_rules.machines.heartbeat import (
     HeartbeatPublisher,
 )
 from culture_rules.machines.probe import ProbeResult, probe_platform, read_load
+from culture_rules.node import completions
 from culture_rules.node.actors import ACTORS_COLLECTION, ActorRouter, AdapterFactory
 from culture_rules.node.firing import RULE_FIRES, RuleFiring
 from culture_rules.ops.logs import log_context
@@ -77,6 +85,7 @@ NODE_COLLECTIONS = (
     RULE_FIRES,
     RULE_DECISIONS,
     "actor_usage",
+    human.ASKS_COLLECTION,
 )
 """Collections a node touches (created up front on MongoDB)."""
 
@@ -108,6 +117,7 @@ class CycleReport:
     evaluated: list[dict[str, str]] = field(default_factory=list)
     deferred: list[dict[str, str]] = field(default_factory=list)
     started: list[str] = field(default_factory=list)
+    redelivered: int = 0
     transitions: int = 0
     reported: int = 0
     errors: list[str] = field(default_factory=list)
@@ -277,7 +287,7 @@ class Node:
     # ------------------------------------------------------------------ one cycle
 
     def run_once(self) -> CycleReport:
-        """One full cycle: beat (if due), ingest, evaluate, start, drive, report."""
+        """One full cycle: beat (if due), ingest, evaluate, start, redeliver, drive, report."""
         report = CycleReport(self.host)
         with log_context(host=self.host):
             if not self.started:
@@ -288,6 +298,7 @@ class Node:
             for consumer in self.firing.consumers:
                 self._stage(report, self._poll, consumer, report)
             self._stage(report, self._start_fired, report)
+            self._stage(report, self._redeliver, report)
             self._stage(report, self._drive, report)
             if self._reporter is not None and self._report_token is not None:
                 self._stage(report, self._report, report)
@@ -328,6 +339,9 @@ class Node:
     def _start_fired(self, report: CycleReport) -> None:
         report.started += self.firing.start_fired()
 
+    def _redeliver(self, report: CycleReport) -> None:
+        report.redelivered += human.redeliver(self._store, self.executor)
+
     def _drive(self, report: CycleReport) -> None:
         report.transitions += self.executor.run_until_idle(self._max_ticks)
 
@@ -342,27 +356,6 @@ class Node:
 
     def deliver(self, idempotency_key: str, result: Any) -> bool:
         """Record accepted work's completion and free its actor's limit slot."""
-        changed = self.executor.deliver(idempotency_key, result)
-        if changed and result.outcome in ("completed", "failed"):
-            actor_id = self._actor_of(idempotency_key)
-            if actor_id:
-                self.router.release(actor_id, idempotency_key, result)
-        return changed
-
-    def _actor_of(self, key: str) -> str | None:
-        claim = self._store.get(CLAIMS_COLLECTION, key)
-        if not claim or claim.get("kind") != "step":
-            return None
-        run = self._store.get(RUNS_COLLECTION, claim["run_id"]) or {}
-        definition = (run.get("workflow") or {}).get("definition") or {}
-        step_id = claim["step_id"].rsplit("/", 1)[-1]
-        for step in _all_steps(definition.get("steps") or ()):
-            if step.get("id") == step_id:
-                return (step.get("placement") or {}).get("actor")
-        return None
-
-
-def _all_steps(steps: Any) -> Iterator[Mapping[str, Any]]:
-    for step in steps:
-        yield step
-        yield from _all_steps(step.get("body") or ())
+        return completions.deliver(
+            self._store, self.executor, idempotency_key, result, clock=self._clock
+        )

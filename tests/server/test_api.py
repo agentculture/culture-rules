@@ -53,6 +53,16 @@ def test_rule_save_refuses_cycles_with_422(client):
     assert r.status_code == 422
 
 
+def test_rule_save_refuses_a_ref_that_cannot_resolve_with_422(client):
+    body = rule_body("a")
+    body["action"]["params"] = {"x": {"$ref": "secrets.token"}}
+    r = client.post("/rules", json=body)
+    assert r.status_code == 422
+    assert [e["code"] for e in r.json()["error"]["errors"]] == ["invalid_reference"]
+    body["action"]["params"] = {"x": {"$ref": "trigger.data.x"}, "y": {"$literal": "trigger.id"}}
+    assert client.post("/rules", json=body).status_code == 201
+
+
 def test_toggle_enabled_and_audit_identity(client, store):
     client.post("/rules", json=rule_body(), headers=ALICE)
     assert client.post("/rules/r1/disable", headers=ALICE).json()["enabled"] is False

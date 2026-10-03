@@ -18,8 +18,10 @@
 registered commands only (:class:`~culture_rules.actors.code.CodeRunner`, inline scripts
 refused), ``human`` -> asks (:class:`~culture_rules.actors.human.HumanAdapter`, only when
 an event emitter is configured). :meth:`ActorRouter.release` frees a LimitedActor slot for
-accepted work that completed later (the node calls it on ``deliver``). Standard-library
-only.
+accepted work that finished later, marking the key done only when it completed; the
+deliver paths use the store-only :func:`culture_rules.node.completions.release_slot`.
+``MeshAgentActor`` (mesh replies, polled) is not among the production factories.
+Standard-library only.
 """
 
 from __future__ import annotations
@@ -29,8 +31,13 @@ from datetime import UTC, datetime
 from typing import Any
 
 from culture_rules.actors.config import ActorConfig
-from culture_rules.actors.limits import LimitedActor, limits_from_config
-from culture_rules.engine.actorport import ActorPort, InvocationContext, InvocationResult
+from culture_rules.actors.limits import LimitedActor, limits_from_config, tokens_of
+from culture_rules.engine.actorport import (
+    COMPLETED,
+    ActorPort,
+    InvocationContext,
+    InvocationResult,
+)
 from culture_rules.model.actor import Actor
 from culture_rules.store.port import StoreOps
 
@@ -40,14 +47,6 @@ ACTORS_COLLECTION = "actors"
 
 AdapterFactory = Callable[[Actor], ActorPort]
 """Builds the adapter for one stored actor definition."""
-
-
-def _tokens(result: InvocationResult) -> int:
-    out = result.output
-    for value in (out.get("tokens"), (out.get("usage") or {}).get("total_tokens")):
-        if isinstance(value, int) and not isinstance(value, bool) and value > 0:
-            return value
-    return 0
 
 
 def default_factories(store: Any, *, emitter: Any = None) -> dict[str, AdapterFactory]:
@@ -124,9 +123,11 @@ class ActorRouter:
         return limited
 
     def release(self, actor_id: str, key: str, result: InvocationResult) -> bool:
-        """Free ``key``'s slot on ``actor_id`` (accepted work finished); False if not limited."""
+        """Free ``key``'s slot on ``actor_id`` (accepted work finished); False if not limited.
+
+        The key is remembered as done only for a completed result."""
         limited = self.limited(actor_id)
         if limited is None:
             return False
-        limited.release(key, tokens=_tokens(result))
+        limited.release(key, tokens=tokens_of(result), completed=result.outcome == COMPLETED)
         return True

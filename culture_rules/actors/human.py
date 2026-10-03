@@ -5,7 +5,10 @@ is an :class:`~culture_rules.engine.actorport.ActorPort`: ``invoke`` stores one 
 (collection ``asks``, document id = ask id), emits exactly one ``human.ask.requested``
 event and returns ``accepted``. :func:`answer_ask` is the *answer ask* action (the API
 answer endpoint calls it): it compare-and-sets the ask ``open -> answered`` exactly once,
-audits it, and resumes the waiting run through ``Executor.deliver``.
+audits it, and resumes the waiting run through
+:func:`culture_rules.node.completions.deliver` (``Executor.deliver`` plus freeing the
+human's limit slot). The engine node calls :func:`redeliver` every cycle, so an answer
+recorded just before a crash still resumes its run, exactly once.
 
 Obligation o8 (both schema-versioned, ``schema_version`` = :data:`SCHEMA_VERSION`):
 
@@ -229,18 +232,28 @@ def _require_open(ask: Mapping[str, Any]) -> None:
 
 
 def _deliver(store: Any, executor: Any, ask: Mapping[str, Any]) -> Document:
-    executor.deliver(ask["idempotency_key"], InvocationResult.completed({"answer": ask["answer"]}))
-    store.update_if(ASKS_COLLECTION, ask["id"], {"status": ANSWERED}, {"delivered": True})
+    _deliver_once(store, executor, ask)
     return store.get(ASKS_COLLECTION, ask["id"])
+
+
+def _deliver_once(store: Any, executor: Any, ask: Mapping[str, Any]) -> bool:
+    """Deliver an answered ask (freeing the human's limit slot), flag it; True iff it
+    changed the run."""
+    from culture_rules.node import completions  # the node layer; imported lazily
+
+    result = InvocationResult.completed({"answer": ask["answer"]})
+    changed = completions.deliver(store, executor, ask["idempotency_key"], result)
+    store.update_if(ASKS_COLLECTION, ask["id"], {"status": ANSWERED}, {"delivered": True})
+    return changed
 
 
 def redeliver(store: Any, executor: Any) -> int:
     """Resume runs for answered asks whose delivery was lost (crash between answer and deliver).
 
-    ``Executor.deliver`` ignores steps that already finished, so this is safe to repeat.
-    Returns how many asks were re-delivered.
+    The node calls this every cycle. ``Executor.deliver`` changes a run with a
+    compare-and-set and ignores steps that already finished, so this is safe to repeat and
+    to run on several hosts at once: the run records the answer once. The human's limit
+    slot is freed either way. Returns how many deliveries changed a run.
     """
-    pending = [a for a in store.find(ASKS_COLLECTION, {"status": ANSWERED}) if not a["delivered"]]
-    for ask in pending:
-        _deliver(store, executor, ask)
-    return len(pending)
+    pending = store.find(ASKS_COLLECTION, {"status": ANSWERED, "delivered": False})
+    return sum(1 for ask in pending if _deliver_once(store, executor, ask))
