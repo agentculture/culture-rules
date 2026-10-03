@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2026-10-03
+
+### Added
+
+- Rules engine library `culture_rules`: typed model + JSON Schemas (rule, workflow, action, actor, machine, placement), a dependency-free condition evaluator, rule matching (all-fire, exclusive groups, supersede, must/may-after with explicit exports), placement by machine, actor or requirement, exactly-once claims, a persisted run executor with pinned versions, retries, bounded loops and pause/drain/cancel, append-only audit and soft delete/restore/purge.
+- Storage port with an in-memory adapter and a MongoDB replica-set adapter (majority writes, change streams, TLS/auth, typed transient errors); deploy artifacts and runbook for a spark/thor/orin replica set with spark2 non-voting.
+- Actors: agent (colleague work --json, correlation-matched mesh tasks), code runner (registered argv commands, admin-only sandboxed inline scripts), human asks (id-bearing event, exactly-once answer), per-actor budgets and concurrency caps, grant: secret references.
+- Engine node daemon `culture-rules node run`: heartbeat with platform probe, events ingest, placed and shared trigger consumers, rule chaining re-evaluation, executor loop, run summaries.
+- HTTP API under the optional `server` extra with a committed `api/openapi.json`, Cloudflare Access JWT on a loopback listener plus service tokens on the LAN listener, viewer/editor/admin roles, SSE live updates, replay, rule history, repo-backed export/import.
+- CLI noun groups (rules, workflows, actors, machines, runs) over the API from one command registry, dry-run by default with --apply; `serve`, `node` and `mcp` verbs; MCP server under the optional `mcp` extra.
+- Web editor (Vite + React + @xyflow/react) with four tabs — Rules, Workflows, Actors, Statistics — following the chosen design canvas; shipped inside the wheel and served by the API.
+- Encrypted, versioned S3 backups with a restore drill (`backup` extra); cloudflared/rules.culture.dev runbook; observability (health, JSON logs, run-id propagation).
+- Delivery artifacts: spec, plan, split plan and delivery summary under docs/; multi-host chaos tests; surface parity test; CI web job (typecheck, vitest, palette validation, Playwright, webglass) and a 60% coverage floor.
+
+### Changed
+
+- README, CLAUDE.md and the harness prompt files describe the shipped four-tab design and the CLI/MCP/API/node surface instead of a scaffold.
+
 ## [0.9.1] - 2026-10-02
 
 ### Changed
