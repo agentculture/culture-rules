@@ -170,6 +170,31 @@ def definition_verbs(noun: str, singular: str, summary: str, *, exchange: bool) 
             "editor",
         ),
     ]
+
+    def purge(ctx: Context, id: str) -> dict[str, Any]:
+        # the server plans a purge itself (apply=false removes nothing), so a dry-run shows
+        # whether the purge would succeed; admin-only either way
+        result = _api.call(
+            lambda: ctx.client.request("POST", f"{base}/{seg(id)}/purge", body={"apply": ctx.apply})
+        )
+        return {
+            "verb": f"{noun} purge",
+            "applied": bool(result.get("applied")),
+            "dry_run": not ctx.apply,
+            "result": result,
+        }
+
+    verbs.append(
+        v(
+            noun,
+            "purge",
+            f"Permanently remove a soft-deleted {singular} (admin)",
+            purge,
+            (ID,),
+            True,
+            "admin",
+        )
+    )
     if exchange:
 
         def export(ctx: Context, format: str = "json") -> Any:

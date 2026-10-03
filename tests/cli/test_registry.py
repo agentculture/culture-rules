@@ -119,3 +119,21 @@ def test_cli_and_client_only_talk_to_the_http_api():
                     if mod.startswith(forbidden) and "serve" not in path.name:
                         offenders.append((path.name, mod))
     assert offenders == []
+
+
+def test_registry_roles_match_the_server_policy():
+    """o11/o12: the role a verb declares is the role the server enforces on its route."""
+    from culture_rules.auth.policy import required_role
+
+    routes = {
+        ("rules", "list"): ("GET", "/rules"),
+        ("rules", "create"): ("POST", "/rules"),
+        ("rules", "purge"): ("POST", "/rules/r1/purge"),
+        ("rules", "replay"): ("POST", "/replay"),
+        ("rules", "run"): ("POST", "/runs"),
+        ("machines", "drain"): ("POST", "/machines/m1/drain"),
+        ("runs", "pause"): ("POST", "/controls/pause"),
+    }
+    by_key = {(v.noun, v.name): v for v in REGISTRY.verbs()}
+    for key, (method, path) in routes.items():
+        assert by_key[key].role == required_role(method, path), key

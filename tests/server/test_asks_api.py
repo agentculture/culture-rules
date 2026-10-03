@@ -11,11 +11,10 @@ from fastapi.testclient import TestClient  # noqa: E402
 from culture_rules.actors.human import ASKS_COLLECTION, HumanAdapter  # noqa: E402
 from culture_rules.engine.runs import Executor, step_state  # noqa: E402
 from culture_rules.events.emit import Emitter  # noqa: E402
-from culture_rules.server.app import create_app  # noqa: E402
 from culture_rules.store.memory import MemoryStore  # noqa: E402
 from tests.actors.test_human import FakeSink, ask_wf  # noqa: E402
 from tests.engine.run_helpers import FakeActor, rule  # noqa: E402
-from tests.server.conftest import ALICE  # noqa: E402
+from tests.server.conftest import ALICE, dev_app  # noqa: E402
 
 
 def test_answer_endpoint_resumes_run_once_then_conflicts():
@@ -26,7 +25,7 @@ def test_answer_endpoint_resumes_run_once_then_conflicts():
     ex.run_until_idle()
     (ask,) = store.find(ASKS_COLLECTION)
 
-    client = TestClient(create_app(store, host="spark"))
+    client = TestClient(dev_app(store, host="spark"))
     r = client.post(f"/asks/{ask['id']}/answer", json={"answer": "yes"}, headers=ALICE)
     assert r.status_code == 200 and r.json()["status"] == "answered"
     again = client.post(f"/asks/{ask['id']}/answer", json={"answer": "no"}, headers=ALICE)

@@ -2,8 +2,10 @@
 
 ``create_app(store, ...)`` closes over configuration only (the store handle, admins, hooks);
 no request or session state lives in the process, so any number of instances can serve one
-store active-active. Authentication is not implemented here: :func:`current_identity` is the
-single seam an auth layer replaces. Every mutating route goes through an audited verb.
+store active-active. Every request resolves to a :class:`~culture_rules.auth.principal.Principal`
+in a middleware that runs before routing (401 if it cannot, 403 if the route's required role
+from :func:`culture_rules.auth.policy.required_role` is not held), so no handler ever runs for
+an unauthenticated or unauthorized caller. Every mutating route goes through an audited verb.
 """
 
 from __future__ import annotations
@@ -13,12 +15,21 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Annotated, Any
 
-from fastapi import Depends, FastAPI, Header, Query, Request
+from fastapi import Depends, FastAPI, Header, Query, Request, Security
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.security import APIKeyHeader, HTTPBearer
 from pydantic import BaseModel, ConfigDict, Field
 
 from culture_rules.actors import human
+from culture_rules.actors.code import InlineScriptDenied
+from culture_rules.actors.secrets import SecretError
+from culture_rules.auth import guards
+from culture_rules.auth.policy import required_role
+from culture_rules.auth.principal import AuthError, Forbidden, Principal
+from culture_rules.auth.resolve import ACCESS_HEADER, DEV_IDENTITY_HEADER, AuthSettings, Resolver
+from culture_rules.auth.tokens import SERVICE_TOKENS, ServiceTokens, TokenError
+from culture_rules.engine import replay as replay_engine
 from culture_rules.engine.audit import AuditError, AuditLog
 from culture_rules.engine.lifecycle import Lifecycle, LifecycleError, PermissionDenied
 from culture_rules.engine.runs import (
@@ -42,14 +53,14 @@ from culture_rules.server.service import (
 )
 from culture_rules.store.port import StoragePort
 
-__all__ = ["API_VERSION", "IDENTITY_HEADER", "create_app", "current_identity"]
+__all__ = ["API_VERSION", "IDENTITY_HEADER", "create_app", "current_identity", "current_principal"]
 
 API_VERSION = "1.0.0"
 """The HTTP contract version (independent of the package version, so a release bump never
 churns ``api/openapi.json``); bump it when the contract changes incompatibly."""
-IDENTITY_HEADER = "X-Culture-Identity"
-ANONYMOUS = "anonymous"
-_ALL_COLLECTIONS = (*DEFINITION_KINDS, "secrets", *RUN_COLLECTIONS)
+IDENTITY_HEADER = DEV_IDENTITY_HEADER
+"""Dev-only identity header; honoured only with ``AuthSettings(insecure_dev_identity=True)``."""
+_ALL_COLLECTIONS = (*DEFINITION_KINDS, "secrets", SERVICE_TOKENS, *RUN_COLLECTIONS)
 
 AnswerAsk = Callable[[StoragePort, str, Any, str], Any]
 
@@ -126,6 +137,50 @@ class AskAnswer(BaseModel):
     answer: Any
 
 
+class WhoAmI(BaseModel):
+    identity: str
+    kind: str = Field(description="sso | service | agent")
+    roles: list[str] = Field(description="viewer < editor < admin")
+
+
+class ReplayRequest(BaseModel):
+    rule_id: str | None = Field(None, description="report only this rule (matching sees all)")
+    limit: int | None = Field(None, ge=1, le=10000, description="replay at most N events")
+
+
+class PurgeRequest(BaseModel):
+    apply: bool = Field(False, description="false = dry-run: check only, remove nothing")
+
+
+class PurgeResult(BaseModel):
+    collection: str
+    id: str
+    applied: bool
+
+
+class TokenIssue(BaseModel):
+    name: str = Field(description="the identity the token authenticates as")
+    roles: list[str]
+    kind: str = Field("service", description="service | agent")
+
+
+class TokenRecord(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    id: str
+    identity: str
+    kind: str
+    roles: list[str]
+    revoked_at: str | None = None
+
+
+class IssuedTokenBody(TokenRecord):
+    token: str = Field(description="the bearer secret; shown once, stored only as a hash")
+
+
+class TokenList(BaseModel):
+    items: list[TokenRecord]
+
+
 ERRORS: dict[int | str, dict[str, Any]] = {
     404: {"model": ErrorEnvelope, "description": "Not found"},
     409: {"model": ErrorEnvelope, "description": "Wrong state / already exists"},
@@ -135,17 +190,26 @@ ERRORS: dict[int | str, dict[str, Any]] = {
 
 # --------------------------------------------------------------------------- identity
 
+_BEARER = HTTPBearer(auto_error=False, description="Service token: Bearer crt_<id>.<secret>")
+_ACCESS = APIKeyHeader(
+    name=ACCESS_HEADER,
+    auto_error=False,
+    description="Cloudflare Access JWT (honoured on the loopback listener only)",
+)
 
-def current_identity(
-    x_culture_identity: Annotated[
-        str | None, Header(description="Principal set by the auth layer; default 'anonymous'")
-    ] = None,
-) -> str:
-    """Who is calling. The one seam the auth layer replaces; reads a header, never verifies."""
-    return (x_culture_identity or "").strip() or ANONYMOUS
+
+def current_principal(request: Request) -> Principal:
+    """The principal the auth middleware resolved for this request (never re-parsed here)."""
+    return request.state.principal
+
+
+def current_identity(principal: Annotated[Principal, Depends(current_principal)]) -> str:
+    """The audit identity of the caller."""
+    return principal.identity
 
 
 Identity = Annotated[str, Depends(current_identity)]
+Caller = Annotated[Principal, Depends(current_principal)]
 
 
 def _ask_status(code: str) -> int:
@@ -207,6 +271,19 @@ def _install_errors(app: FastAPI) -> None:
     async def _ask(request: Request, exc: human.AskError) -> JSONResponse:
         return _envelope(_ask_status(exc.code), exc.code, exc.message)
 
+    @app.exception_handler(InlineScriptDenied)
+    async def _inline(request: Request, exc: InlineScriptDenied) -> JSONResponse:
+        return _envelope(403, exc.code, str(exc))
+
+    @app.exception_handler(SecretError)
+    async def _secret(request: Request, exc: SecretError) -> JSONResponse:
+        return _envelope(422, "secret_literal", str(exc))
+
+    @app.exception_handler(TokenError)
+    async def _token(request: Request, exc: TokenError) -> JSONResponse:
+        code = {"not_found": 404, "conflict": 409}.get(exc.code, 422)
+        return _envelope(code, exc.code, exc.message)
+
     @app.exception_handler(NotImplementedError)
     async def _todo(request: Request, exc: NotImplementedError) -> JSONResponse:
         return _envelope(501, "not_implemented", str(exc))
@@ -239,14 +316,21 @@ def create_app(
     admins: tuple[str, ...] = (),
     host: str | None = None,
     answer_ask: AnswerAsk | None = None,
+    auth: AuthSettings | None = None,
 ) -> FastAPI:
-    """Build the API over ``store``. Holds configuration only, never request state."""
+    """Build the API over ``store``. Holds configuration only, never request state.
+
+    ``auth`` configures the listener this app serves (default: the LAN listener, service
+    tokens only, no dev header); ``admins`` are identities elevated to the admin role.
+    """
     ensure = getattr(store, "ensure_collections", None)
     if callable(ensure):
         ensure(*_ALL_COLLECTIONS)
     audit = AuditLog(host=host)
     defs = Definitions(store, audit)
     life = Lifecycle(store, audit, admins=admins)
+    tokens = ServiceTokens(store, audit)
+    resolver = Resolver((auth or AuthSettings()).with_admins(admins), tokens)
     containment = Containment(store, audit)
     node = host or socket.gethostname()
     executor = Executor(store, node, {}, audit=audit)
@@ -263,15 +347,68 @@ def create_app(
             "in schemas/ (rule, workflow, actor, machine). Stateless: any instance serves any "
             "request from the shared store."
         ),
+        dependencies=[Security(_BEARER), Security(_ACCESS)],
+        responses={
+            401: {"model": ErrorEnvelope, "description": "No valid credential"},
+            403: {"model": ErrorEnvelope, "description": "Role not held"},
+        },
     )
     _install_errors(app)
+
+    @app.middleware("http")
+    async def authenticate(request: Request, call_next):
+        """Resolve the principal and check the route's role before routing (any handler)."""
+        try:
+            principal = resolver.resolve(request.headers)
+            need = required_role(request.method, request.url.path)
+            if not principal.has_role(need):
+                raise Forbidden("forbidden_role", f"{need} role required")
+        except AuthError as exc:
+            return _envelope(exc.status, exc.code, exc.message)
+        request.state.principal = principal
+        return await call_next(request)
+
+    @app.get("/whoami", response_model=WhoAmI, tags=["auth"], operation_id="whoami")
+    def whoami(principal: Caller) -> WhoAmI:
+        return WhoAmI(**principal.to_dict())
+
+    @app.get(
+        "/service-tokens",
+        response_model=TokenList,
+        tags=["auth"],
+        operation_id="list_service_tokens",
+    )
+    def list_tokens():
+        return {"items": tokens.list()}
+
+    @app.post(
+        "/service-tokens",
+        status_code=201,
+        response_model=IssuedTokenBody,
+        tags=["auth"],
+        operation_id="issue_service_token",
+        responses={422: ERRORS[422]},
+    )
+    def issue_token(body: TokenIssue, identity: Identity):
+        issued = tokens.issue(identity, name=body.name, roles=body.roles, kind=body.kind)
+        return {**issued.record, "token": issued.token}
+
+    @app.delete(
+        "/service-tokens/{token_id}",
+        response_model=TokenRecord,
+        tags=["auth"],
+        operation_id="revoke_service_token",
+        responses={404: ERRORS[404], 409: ERRORS[409]},
+    )
+    def revoke_token(token_id: str, identity: Identity):
+        return tokens.revoke(token_id, identity)
 
     @app.get("/health", response_model=Health, tags=["ops"], operation_id="health")
     def health() -> Health:
         return Health(**health_status(store, datetime.now(UTC), node))
 
     for kind in DEFINITION_KINDS:
-        _register_kind(app, kind, defs, life)
+        _register_kind(app, kind, defs, life, store, audit)
 
     # ---- runs
     @app.get("/runs", response_model=ItemList, tags=["runs"], operation_id="list_runs")
@@ -383,14 +520,33 @@ def create_app(
         return {"format": format, "files": defs.export_files(format)}
 
     @app.post(
+        "/replay",
+        tags=["rules"],
+        operation_id="replay_rules",
+        response_model=dict[str, Any],
+        responses={422: ERRORS[422]},
+    )
+    def replay(body: ReplayRequest):
+        """Replay recorded events through matching; reports would-fire runs, executes nothing."""
+        rules, workflows = defs.rule_set()
+        try:
+            report = replay_engine.replay(
+                store, rules, workflows=workflows, rule_id=body.rule_id, limit=body.limit
+            )
+        except replay_engine.ReplayError as exc:
+            return _envelope(422, "replay_invalid", str(exc))
+        return report.to_dict()
+
+    @app.post(
         "/import",
         response_model=ImportPlan,
         tags=["exchange"],
         operation_id="import_definitions",
         responses={422: ERRORS[422]},
     )
-    def import_definitions(body: ImportRequest, identity: Identity):
-        return defs.import_files(body.files, identity, apply=body.apply)
+    def import_definitions(body: ImportRequest, principal: Caller):
+        guards.check_import(principal, body.files)
+        return defs.import_files(body.files, principal.identity, apply=body.apply)
 
     # ---- asks
     @app.post(
@@ -455,7 +611,14 @@ def create_app(
     return app
 
 
-def _register_kind(app: FastAPI, kind: str, defs: Definitions, life: Lifecycle) -> None:
+def _register_kind(
+    app: FastAPI,
+    kind: str,
+    defs: Definitions,
+    life: Lifecycle,
+    store: StoragePort,
+    audit: AuditLog,
+) -> None:
     """The same six routes for every definition kind (rules, workflows, actors, machines)."""
     tag = [kind]
     one = kind[:-1]
@@ -473,8 +636,9 @@ def _register_kind(app: FastAPI, kind: str, defs: Definitions, life: Lifecycle) 
         responses={409: ERRORS[409], 422: ERRORS[422]},
         response_model=dict[str, Any],
     )
-    def create(body: dict[str, Any], identity: Identity):
-        return defs.create(kind, body, identity)
+    def create(body: dict[str, Any], principal: Caller):
+        guards.check_definition(principal, kind, body)
+        return defs.create(kind, body, principal.identity)
 
     @app.get(
         path,
@@ -493,8 +657,9 @@ def _register_kind(app: FastAPI, kind: str, defs: Definitions, life: Lifecycle) 
         responses=ERRORS,
         response_model=dict[str, Any],
     )
-    def update(id: str, body: dict[str, Any], identity: Identity):
-        return defs.update(kind, id, body, identity)
+    def update(id: str, body: dict[str, Any], principal: Caller):
+        guards.check_definition(principal, kind, body)
+        return defs.update(kind, id, body, principal.identity)
 
     for verb, flag in (("enable", True), ("disable", False)):
 
@@ -530,3 +695,17 @@ def _register_kind(app: FastAPI, kind: str, defs: Definitions, life: Lifecycle) 
     def restore(id: str, identity: Identity):
         defs.get(kind, id)
         return life.restore(kind, id, identity)
+
+    @app.post(
+        f"{path}/purge",
+        tags=tag,
+        operation_id=f"purge_{one}",
+        response_model=PurgeResult,
+        responses=ERRORS,
+    )
+    def purge(id: str, identity: Identity, body: PurgeRequest | None = None):
+        defs.get(kind, id)
+        # the middleware already required the admin role for this route
+        admin_life = Lifecycle(store, audit, admins=(identity,))
+        result = admin_life.purge(kind, id, identity, apply=(body or PurgeRequest()).apply)
+        return {"collection": result.collection, "id": result.id, "applied": result.applied}

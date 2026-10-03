@@ -8,13 +8,12 @@ import time
 
 from fastapi.testclient import TestClient
 
-from culture_rules.server.app import create_app
-from tests.server.conftest import ALICE, rule_body
+from tests.server.conftest import ALICE, dev_app, rule_body
 
 
 def test_two_instances_share_everything_through_the_store(store):
-    a = TestClient(create_app(store))
-    b = TestClient(create_app(store.peer()))
+    a = TestClient(dev_app(store))
+    b = TestClient(dev_app(store.peer()))
     assert a.post("/rules", json=rule_body(), headers=ALICE).status_code == 201
     assert b.get("/rules/r1").status_code == 200
     run = b.post("/runs", json={"rule_id": "r1"}, headers=ALICE).json()
@@ -28,7 +27,7 @@ def test_two_instances_share_everything_through_the_store(store):
 def test_app_holds_no_per_request_state():
     from culture_rules.store.memory import MemoryStore
 
-    app = create_app(MemoryStore())
+    app = dev_app(MemoryStore())
     assert app.state._state == {}  # nothing stashed on the app between requests
 
 
@@ -43,8 +42,8 @@ def _events(text: str) -> list[dict]:
 
 
 def test_sse_fans_out_a_write_made_through_another_instance_within_2s(store):
-    reader = TestClient(create_app(store))
-    writer = TestClient(create_app(store.peer()))
+    reader = TestClient(dev_app(store))
+    writer = TestClient(dev_app(store.peer()))
 
     def write():
         time.sleep(0.4)
@@ -64,7 +63,7 @@ def test_sse_fans_out_a_write_made_through_another_instance_within_2s(store):
 
 
 def test_sse_resumes_from_the_event_id_without_missing_changes(store):
-    c = TestClient(create_app(store))
+    c = TestClient(dev_app(store))
     c.post("/rules", json=rule_body("a"))
     first = c.get("/events/stream?collections=rules&after=%7B%7D&max_seconds=0.5")
     assert first.status_code == 200

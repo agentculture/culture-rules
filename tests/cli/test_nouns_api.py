@@ -13,9 +13,11 @@ pytest.importorskip("httpx")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
+from culture_rules.auth.tokens import ServiceTokens  # noqa: E402
 from culture_rules.cli import _api, main  # noqa: E402
 from culture_rules.cli.verbs import REGISTRY  # noqa: E402
 from culture_rules.client.http import ApiClient  # noqa: E402
+from culture_rules.engine.audit import AuditLog  # noqa: E402
 from culture_rules.server.app import create_app  # noqa: E402
 from culture_rules.store.memory import MemoryStore  # noqa: E402
 from tests.server.conftest import rule_body, workflow_body  # noqa: E402
@@ -23,11 +25,21 @@ from tests.server.conftest import rule_body, workflow_body  # noqa: E402
 COLLECTIONS = ("rules", "workflows", "actors", "machines", "runs", "audit", "controls")
 
 
+def admin_token(store: MemoryStore) -> str:
+    """A real service token: the CLI authenticates exactly as it does in production (t24)."""
+    return ServiceTokens(store, AuditLog()).issue("bootstrap", name="alice", roles=["admin"]).token
+
+
 class Wire:
     """A transport onto an in-process app that records every request."""
 
     def __init__(self, store: MemoryStore):
-        self.tc = TestClient(create_app(store), base_url="http://127.0.0.1:8765")
+        self.token = admin_token(store)
+        self.tc = TestClient(
+            create_app(store),
+            base_url="http://127.0.0.1:8765",
+            headers={"Authorization": f"Bearer {self.token}"},
+        )
         self.calls: list[tuple[str, str, dict]] = []
 
     def __call__(self, method, url, headers, body):
@@ -48,9 +60,10 @@ def store():
 def wire(store, monkeypatch):
     w = Wire(store)
     monkeypatch.setattr(
-        _api, "make_client", lambda api_url=None: ApiClient("http://127.0.0.1:8765", transport=w)
+        _api,
+        "make_client",
+        lambda api_url=None: ApiClient("http://127.0.0.1:8765", token=w.token, transport=w),
     )
-    monkeypatch.setenv("CULTURE_RULES_IDENTITY", "alice")
     return w
 
 
@@ -180,7 +193,9 @@ def test_export_then_import_into_another_store(wire, capsys, tmp_path, monkeypat
     other = MemoryStore()
     w2 = Wire(other)
     monkeypatch.setattr(
-        _api, "make_client", lambda api_url=None: ApiClient("http://x", transport=w2)
+        _api,
+        "make_client",
+        lambda api_url=None: ApiClient("http://x", token=w2.token, transport=w2),
     )
     plan = jrun(capsys, "rules", "import", str(bundle))
     assert plan["applied"] is False and plan["result"]["changes"]
@@ -244,13 +259,14 @@ def test_bad_body_json_is_a_user_error(wire, capsys):
 
 def test_bearer_token_from_env_is_sent(store, monkeypatch, capsys):
     w = Wire(store)
-    monkeypatch.setenv("CULTURE_RULES_TOKEN", "tok-123")
+    token = admin_token(store)
+    monkeypatch.setenv("CULTURE_RULES_TOKEN", token)
     monkeypatch.delenv("CULTURE_RULES_API_URL", raising=False)
     client = _api.make_client()
     client._transport = w  # the real factory, a swapped transport
     assert client.base_url == "http://127.0.0.1:8765"
     client.request("GET", "/rules")
-    assert w.calls[0][2]["Authorization"] == "Bearer tok-123"
+    assert w.calls[0][2]["Authorization"] == f"Bearer {token}"
 
 
 def test_grant_reference_token_is_resolved_via_secrets(monkeypatch):
@@ -284,7 +300,7 @@ def test_cli_over_a_real_http_listener(store, monkeypatch, capsys):
     try:
         port = server.servers[0].sockets[0].getsockname()[1]
         monkeypatch.setenv("CULTURE_RULES_API_URL", f"http://127.0.0.1:{port}")
-        monkeypatch.setenv("CULTURE_RULES_IDENTITY", "alice")
+        monkeypatch.setenv("CULTURE_RULES_TOKEN", admin_token(store))
         body = json.dumps(rule_body())
         out = jrun(capsys, "rules", "create", "--body", body, "--apply")
         assert out["applied"] is True
@@ -304,3 +320,21 @@ def test_serve_verb_calls_the_server_entry_point(monkeypatch, capsys):
     monkeypatch.setattr(serve_mod, "serve", lambda **kw: calls.update(kw))
     rc, _, _ = run(capsys, "serve", "--host", "127.0.0.1", "--port", "9123")
     assert rc == 0 and calls["host"] == "127.0.0.1" and calls["port"] == 9123
+
+
+# --------------------------------------------------------------------------- purge + replay
+
+
+def test_purge_is_dry_run_without_apply_and_purges_with_it(wire, store, capsys):
+    jrun(capsys, "rules", "create", "--body", json.dumps(rule_body()), "--apply")
+    jrun(capsys, "rules", "delete", "r1", "--apply")
+    plan = jrun(capsys, "rules", "purge", "r1")
+    assert plan["applied"] is False and store.get("rules", "r1") is not None
+    done = jrun(capsys, "rules", "purge", "r1", "--apply")
+    assert done["applied"] is True and store.get("rules", "r1") is None
+
+
+def test_rules_replay_over_the_api(wire, capsys):
+    jrun(capsys, "rules", "create", "--body", json.dumps(rule_body()), "--apply")
+    out = jrun(capsys, "rules", "replay", "--rule-id", "r1", "--limit", "5")
+    assert out["events"] == 0 and out["actions_executed"] == 0
