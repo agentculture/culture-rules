@@ -77,7 +77,9 @@ function CanvasInner(props: CanvasProps) {
   useEffect(() => {
     let live = true;
     setPositions(columnLayout(workflow));
-    layoutWorkflow(workflow).then((p) => {
+    // `void` is honest here: layoutWorkflow never rejects (an ELK failure resolves to the
+    // column layout already shown), and the callback only sets state.
+    void layoutWorkflow(workflow).then((p) => {
       if (live) setPositions(p);
     });
     return () => {
@@ -186,7 +188,11 @@ function CanvasInner(props: CanvasProps) {
   useEffect(() => {
     const graph = bounds.maxX - bounds.minX;
     const x = width > graph ? (width - graph) / 2 - bounds.minX : 20 - bounds.minX;
-    flow.setViewport({ x, y: TOP - bounds.minY, zoom: 1 });
+    // React Flow resolves this once the transform is applied. It only rejects if d3 throws
+    // while applying it; the viewport is cosmetic, so say so in the console and carry on.
+    flow.setViewport({ x, y: TOP - bounds.minY, zoom: 1 }).catch((err: unknown) => {
+      console.warn("could not position the workflow canvas", err);
+    });
   }, [bounds, width, flow]);
 
   const edges = useMemo<Edge[]>(() => {

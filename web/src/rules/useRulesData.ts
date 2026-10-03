@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ApiError, listMachines, listRules, listWorkflows } from "../api/client";
+import { failureMessage, settleAll } from "../api/settle";
 import {
   answerAsk,
   createRule,
@@ -14,7 +15,8 @@ import {
 } from "../api/rules";
 import type { Machine, Workflow } from "../api/types";
 
-const describe = (err: unknown) => (err instanceof ApiError ? err.message : String(err));
+/** Never throws, so the handlers below that describe a failure cannot fail themselves. */
+const describe = (err: unknown) => (err instanceof ApiError ? err.message : failureMessage(err));
 
 interface Loaded {
   rules: RuleDoc[];
@@ -53,22 +55,26 @@ export function useRulesData(routeRuleId: string | undefined) {
 
   useEffect(() => {
     const controller = new AbortController();
-    Promise.allSettled([
-      listRules(controller.signal),
-      listMachines(controller.signal),
-      listWorkflows(controller.signal),
-    ]).then((results) => {
-      if (controller.signal.aborted) return;
-      const [rules, machines, workflows] = results;
-      setLoaded({
-        rules: rules.status === "fulfilled" ? rules.value : [],
-        machines: machines.status === "fulfilled" ? machines.value : [],
-        workflows: workflows.status === "fulfilled" ? workflows.value : [],
-        errors: results
-          .map((r) => (r.status === "rejected" ? describe(r.reason) : null))
-          .filter((m): m is string => m !== null),
-      });
-    });
+    settleAll(
+      [listRules(controller.signal), listMachines(controller.signal), listWorkflows(controller.signal)],
+      (results) => {
+        if (controller.signal.aborted) return;
+        const [rules, machines, workflows] = results;
+        setLoaded({
+          rules: rules.status === "fulfilled" ? rules.value : [],
+          machines: machines.status === "fulfilled" ? machines.value : [],
+          workflows: workflows.status === "fulfilled" ? workflows.value : [],
+          errors: results
+            .map((r) => (r.status === "rejected" ? describe(r.reason) : null))
+            .filter((m): m is string => m !== null),
+        });
+      },
+      (message) => {
+        // Applying the load failed: an empty list with the failure named.
+        if (controller.signal.aborted) return;
+        setLoaded({ rules: [], machines: [], workflows: [], errors: [message] });
+      },
+    );
     return () => controller.abort();
   }, []);
 
@@ -147,7 +153,9 @@ export function useRulesData(routeRuleId: string | undefined) {
   useEffect(() => {
     if (!selectedId) return;
     const controller = new AbortController();
-    (async () => {
+    // `void` is honest here: the body is one try/catch whose handler only sets state
+    // with a message from `describe` (which never throws), so this promise cannot reject.
+    void (async () => {
       try {
         const runs = await listWaitingRuns(selectedId, controller.signal);
         const lists = await Promise.all(runs.map((r) => listAsks(r.id, controller.signal)));

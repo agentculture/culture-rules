@@ -41,7 +41,7 @@ __all__ = [
 
 _FIELDS = ("run_id", "step_id", "host")
 _CTX: contextvars.ContextVar[Mapping[str, str | None]] = contextvars.ContextVar(
-    "culture_rules_log_context", default={f: None for f in _FIELDS}
+    "culture_rules_log_context", default=dict.fromkeys(_FIELDS)
 )
 
 

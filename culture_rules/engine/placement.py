@@ -33,7 +33,8 @@ __all__ = [
 #: Public-facing hostnames that must never be used as a peer dispatch address.
 PUBLIC_HOSTNAMES: frozenset[str] = frozenset({"rules.culture.dev"})
 
-_TAILNET_V4 = ipaddress.ip_network("100.64.0.0/10")
+#: RFC 6598 shared address space (100.64.0.0/10), the CGNAT range tailnets such as Tailscale use.
+_TAILNET_V4 = ipaddress.IPv4Network((0x64400000, 10))
 _PRIVATE_SUFFIXES = (".ts.net", ".local", ".lan", ".internal", ".home.arpa")
 
 

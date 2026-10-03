@@ -25,7 +25,7 @@ from culture_rules.model.placement import Placement
 from culture_rules.model.rule import Rule
 from culture_rules.model.workflow import Step, Workflow
 
-__all__ = ["MODELS", "generate_all", "json_schema", "main", "schema_filename"]
+__all__ = ["MODELS", "SCHEMAS_DIR", "generate_all", "json_schema", "main", "schema_filename"]
 
 DRAFT = "https://json-schema.org/draft/2020-12/schema"
 
@@ -124,24 +124,44 @@ def generate_all() -> dict[str, str]:
     }
 
 
-def main(argv: list[str] | None = None) -> int:
+#: The committed schema directory: the only place ``main`` reads from or writes to.
+SCHEMAS_DIR = Path(__file__).resolve().parents[2] / "schemas"
+
+
+def main(argv: list[str] | None = None, *, schemas_dir: Path | None = None) -> int:
+    """``--write`` / ``--check`` the generated schemas against the repo's ``schemas/``.
+
+    The optional ``DIR`` argument exists for readability (``--check schemas``) only: it must
+    resolve to the repository's ``schemas/`` directory, and anything else - a ``../`` escape,
+    an absolute path elsewhere - is refused before any file is touched. The directory actually
+    read or written is never taken from the command line; ``schemas_dir`` lets a test point
+    the generator at a scratch directory from code.
+    """
     parser = argparse.ArgumentParser(
         prog="python -m culture_rules.model.schema",
-        description="Write or check the generated model JSON Schemas.",
+        description="Write or check the generated model JSON Schemas in the repo's schemas/.",
     )
     mode = parser.add_mutually_exclusive_group(required=True)
-    mode.add_argument("--write", metavar="DIR", help="write schemas into DIR")
-    mode.add_argument("--check", metavar="DIR", help="exit 1 if DIR differs from generated")
+    mode.add_argument(
+        "--write", nargs="?", const="", metavar="DIR", help="write schemas into schemas/"
+    )
+    mode.add_argument(
+        "--check", nargs="?", const="", metavar="DIR", help="exit 1 if schemas/ is stale"
+    )
     args = parser.parse_args(argv)
+    named = args.write if args.write is not None else args.check
+    if named and Path(named).resolve() != SCHEMAS_DIR:
+        parser.error(
+            f"DIR must be the repository's schemas/ directory ({SCHEMAS_DIR}), got {named!r}"
+        )
+    target = SCHEMAS_DIR if schemas_dir is None else schemas_dir
     generated = generate_all()
-    if args.write:
-        target = Path(args.write)
+    if args.write is not None:
         target.mkdir(parents=True, exist_ok=True)
         for name, text in generated.items():
             (target / name).write_text(text, encoding="utf-8")
         print(f"wrote {len(generated)} schemas to {target}")
         return 0
-    target = Path(args.check)
     stale = sorted(
         name
         for name, text in generated.items()

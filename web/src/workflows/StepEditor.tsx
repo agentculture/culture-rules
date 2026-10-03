@@ -121,7 +121,7 @@ export function StepEditor({
         <h2 className="wf-panel__title">{label}</h2>
         <div className="wf-form__pair">
           <label className="wf-field">
-            Name
+            <span>Name</span>
             <input
               type="text"
               value={step.name ?? ""}
@@ -129,7 +129,7 @@ export function StepEditor({
             />
           </label>
           <label className="wf-field">
-            Kind
+            <span>Kind</span>
             <select
               value={step.kind}
               onChange={(e) => {

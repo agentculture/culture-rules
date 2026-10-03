@@ -72,7 +72,7 @@ export function PlacementEditor({
         </fieldset>
         {mode === "machine" ? (
           <label className="wf-field">
-            Machine
+            <span>Machine</span>
             <select value={machine} onChange={(e) => setMachine(e.target.value)}>
               {machines.map((m) => (
                 <option key={m.name} value={m.name}>
@@ -84,7 +84,7 @@ export function PlacementEditor({
         ) : null}
         {mode === "actor" ? (
           <label className="wf-field">
-            Actor
+            <span>Actor</span>
             <select value={actor} onChange={(e) => setActor(e.target.value)}>
               {actors.map((a) => (
                 <option key={a.id} value={a.id}>
@@ -96,7 +96,7 @@ export function PlacementEditor({
         ) : null}
         {mode === "requirement" ? (
           <label className="wf-field">
-            Capabilities
+            <span>Capabilities</span>
             <input
               type="text"
               value={requirement}

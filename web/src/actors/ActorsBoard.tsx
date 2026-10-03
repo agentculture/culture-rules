@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   createActor,
@@ -9,6 +9,7 @@ import {
   type Actor,
 } from "../api/actors";
 import { ApiError, listMachines } from "../api/client";
+import { settleAll } from "../api/settle";
 import type { Machine } from "../api/types";
 import { setAgentState } from "../agent-state/store";
 import { machineColors } from "../culture-design/chart";
@@ -31,25 +32,35 @@ const TrashIcon = () => (
   </svg>
 );
 
-/** The repo | db radio, a single tab stop with arrow-key movement. */
+/**
+ * The repo | db radio, a single tab stop (roving tabindex on the radios) with
+ * arrow-key movement; focus follows the checked radio.
+ */
 function SourceSwitch({ value, onChange }: { value: "repo" | "db"; onChange: (v: "repo" | "db") => void }) {
   const options = ["repo", "db"] as const;
+  const refs = useRef<Partial<Record<"repo" | "db", HTMLButtonElement | null>>>({});
   const onKey = (event: KeyboardEvent) => {
     if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
     event.preventDefault();
-    onChange(value === "repo" ? "db" : "repo");
+    const next = value === "repo" ? "db" : "repo";
+    onChange(next);
+    refs.current[next]?.focus();
   };
   return (
-    <div className="source-switch" role="radiogroup" aria-label="Configuration source" onKeyDown={onKey}>
+    <div className="source-switch" role="radiogroup" aria-label="Configuration source">
       {options.map((option) => (
         <button
           key={option}
+          ref={(el) => {
+            refs.current[option] = el;
+          }}
           type="button"
           role="radio"
           aria-checked={value === option}
           tabIndex={value === option ? 0 : -1}
           className="source-switch__option"
           onClick={() => value !== option && onChange(option)}
+          onKeyDown={onKey}
         >
           {option}
         </button>
@@ -78,7 +89,8 @@ export function ActorsBoard() {
 
   useEffect(() => {
     const controller = new AbortController();
-    Promise.allSettled([listActors(controller.signal), listMachines(controller.signal)]).then(
+    settleAll(
+      [listActors(controller.signal), listMachines(controller.signal)],
       ([a, m]) => {
         if (controller.signal.aborted) return;
         setActors(a.status === "fulfilled" ? a.value : []);
@@ -86,6 +98,13 @@ export function ActorsBoard() {
         setLoadErrors(
           [a, m].flatMap((r) => (r.status === "rejected" ? [errorText(r.reason)] : [])),
         );
+      },
+      (message) => {
+        // Applying the load failed: show an empty roster with the failure named.
+        if (controller.signal.aborted) return;
+        setActors([]);
+        setMachines([]);
+        setLoadErrors([message]);
       },
     );
     return () => controller.abort();

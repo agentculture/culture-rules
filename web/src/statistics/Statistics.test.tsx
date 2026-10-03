@@ -4,6 +4,7 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Statistics from "../routes/Statistics";
 import { getAgentState, resetAgentState } from "../agent-state/store";
+import * as client from "../api/client";
 import { defaultRoutes, mockFetch, type Routes } from "../test/mockApi";
 import {
   HOURS,
@@ -46,6 +47,7 @@ describe("Statistics board (Chosen — Statistics)", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
   });
 
   it("shows a lane for every enrolled machine, offline ones included", async () => {
@@ -181,6 +183,15 @@ describe("Statistics board (Chosen — Statistics)", () => {
     expect(screen.getByText(/live load and queue depth are not available/i)).toBeInTheDocument();
     expect(getAgentState().statistics?.source).toBe("runs");
     expect(getAgentState().errors).toEqual(["status down"]);
+  });
+
+  it("a load that fails while being applied is an alert and still reaches ready", async () => {
+    mockFetch(routes());
+    // A rejection reason with no string form: describing it throws inside the load's .then.
+    vi.spyOn(client, "listMachines").mockRejectedValue(Object.create(null));
+    renderStats();
+    expect(await screen.findByRole("alert")).toHaveTextContent(/primitive/i);
+    await waitFor(() => expect(getAgentState().view_ready).toBe(true));
   });
 
   it("a failed load is an alert and still reaches ready", async () => {

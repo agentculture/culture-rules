@@ -1,16 +1,25 @@
-import { useState, type FormEvent, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { Ask, RuleDoc } from "../api/rules";
 import type { Machine, Workflow } from "../api/types";
+import { useEscapeKey } from "../hooks/useEscapeKey";
 import { slugFor, triggerLabel } from "../routes/rules-view";
 
 const KEEP = "__keep__";
 
-const onEscape = (cancel: () => void) => (e: KeyboardEvent) => {
-  if (e.key === "Escape") {
-    e.stopPropagation();
-    cancel();
-  }
-};
+/**
+ * A form's keyboard contract: Escape anywhere inside it cancels, and keyboard
+ * focus lands in its first field when it opens (`autoFocus` without the
+ * attribute; `focusKey` re-runs it when the form changes which field is first).
+ */
+function useFormKeyboard<F extends HTMLElement>(onCancel: () => void, focusKey?: unknown) {
+  const form = useRef<HTMLFormElement>(null);
+  const first = useRef<F>(null);
+  useEscapeKey(form, onCancel);
+  useEffect(() => {
+    first.current?.focus();
+  }, [focusKey]);
+  return { form, first };
+}
 
 interface EditProps {
   rule: RuleDoc;
@@ -27,6 +36,7 @@ export function RuleEditForm({ rule, machines, onSave, onCancel }: EditProps) {
   const placed = rule.placement?.machine ?? "";
   const foreign = !placed && (rule.placement?.actor || rule.placement?.requirement?.length);
   const [placement, setPlacement] = useState(foreign ? KEEP : placed);
+  const { form, first } = useFormKeyboard<HTMLInputElement>(onCancel);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -46,10 +56,10 @@ export function RuleEditForm({ rule, machines, onSave, onCancel }: EditProps) {
   };
 
   return (
-    <form className="rule-form" aria-label="Edit rule" onSubmit={submit} onKeyDown={onEscape(onCancel)}>
+    <form ref={form} className="rule-form" aria-label="Edit rule" onSubmit={submit}>
       <label>
         <span>Name</span>
-        <input value={name} onChange={(e) => setName(e.target.value)} required autoFocus />
+        <input ref={first} value={name} onChange={(e) => setName(e.target.value)} required />
       </label>
       <label>
         <span>Trigger</span>
@@ -103,6 +113,7 @@ const TRIGGER_KINDS = ["event", "schedule", "manual"];
 export function NewRuleForm({ takenIds, onCreate, onCancel }: NewProps) {
   const [label, setLabel] = useState("");
   const [kind, setKind] = useState("event");
+  const { form, first } = useFormKeyboard<HTMLInputElement>(onCancel);
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     const text = label.trim();
@@ -116,11 +127,11 @@ export function NewRuleForm({ takenIds, onCreate, onCancel }: NewProps) {
     });
   };
   return (
-    <form className="rule-form rule-form--new" aria-label="New rule" onSubmit={submit} onKeyDown={onEscape(onCancel)}>
+    <form ref={form} className="rule-form rule-form--new" aria-label="New rule" onSubmit={submit}>
       <h2 className="rule-form__title">When does this happen?</h2>
       <label>
         <span>Trigger</span>
-        <input value={label} onChange={(e) => setLabel(e.target.value)} required autoFocus />
+        <input ref={first} value={label} onChange={(e) => setLabel(e.target.value)} required />
       </label>
       <label>
         <span>Kind</span>
@@ -160,6 +171,8 @@ export function AddStageForm({ rule, workflows, choice, onSave, onCancel }: AddP
   const [cmp, setCmp] = useState("==");
   const [value, setValue] = useState("");
   const [workflow, setWorkflow] = useState(workflows[0]?.id ?? "");
+  // The first field is the Variable input or the Workflow select, by `choice`.
+  const { form, first } = useFormKeyboard<HTMLInputElement & HTMLSelectElement>(onCancel, choice);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -180,12 +193,12 @@ export function AddStageForm({ rule, workflows, choice, onSave, onCancel }: AddP
 
   const title = choice === "condition" ? "Add condition" : "Add workflow";
   return (
-    <form className="rule-form rule-form--inline" aria-label={title} onSubmit={submit} onKeyDown={onEscape(onCancel)}>
+    <form ref={form} className="rule-form rule-form--inline" aria-label={title} onSubmit={submit}>
       {choice === "condition" ? (
         <>
           <label>
             <span>Variable</span>
-            <input value={variable} onChange={(e) => setVariable(e.target.value)} required autoFocus />
+            <input ref={first} value={variable} onChange={(e) => setVariable(e.target.value)} required />
           </label>
           <label>
             <span>Comparison</span>
@@ -202,7 +215,7 @@ export function AddStageForm({ rule, workflows, choice, onSave, onCancel }: AddP
       ) : (
         <label>
           <span>Workflow</span>
-          <select value={workflow} onChange={(e) => setWorkflow(e.target.value)} autoFocus>
+          <select ref={first} value={workflow} onChange={(e) => setWorkflow(e.target.value)}>
             {workflows.map((w) => (
               <option key={w.id} value={w.id}>
                 {w.name}

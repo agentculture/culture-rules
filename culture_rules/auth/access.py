@@ -50,6 +50,8 @@ ACCESS_ENV = (ENV_LISTEN, ENV_TEAM_DOMAIN, ENV_AUD)
 
 _ALL_INTERFACES = "0.0.0.0"  # nosec B104 - only for an explicit ":port" listen value
 _JWKS_LIMIT = 1 << 20
+#: Schemes a pasted team-domain URL may carry; dropped, since the JWKS fetch is https-only.
+_WEB_SCHEMES = frozenset({"https", "http"})
 # DER prefix of DigestInfo for SHA-256 (RFC 8017 section 9.2, note 1).
 _SHA256_DIGEST_INFO = bytes.fromhex("3031300d060960864801650304020105000420")
 
@@ -173,8 +175,11 @@ class AccessVerifier:
         refetch_window: float = 60.0,
     ) -> None:
         domain = team_domain.strip().rstrip("/")
-        for prefix in ("https://", "http://"):
-            domain = domain.removeprefix(prefix)
+        # A pasted URL is accepted for convenience: its web scheme is dropped, and the JWKS is
+        # always fetched over https (below), whatever scheme the operator wrote.
+        scheme, sep, rest = domain.partition("://")
+        if sep and scheme.lower() in _WEB_SCHEMES:
+            domain = rest
         if not domain or not audience:
             raise AccessConfigError("Access needs both a team domain and an audience")
         self.team_domain = domain

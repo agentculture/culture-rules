@@ -88,6 +88,36 @@ describe("edit", () => {
     expect(screen.queryByRole("form", { name: "Edit rule" })).not.toBeInTheDocument();
   });
 
+  it("lands keyboard focus in the first field of every form it opens", async () => {
+    const user = userEvent.setup();
+    renderRules("/rules/train-batch");
+    await screen.findByRole("heading", { level: 1, name: "Train batch" });
+
+    await user.click(screen.getByRole("button", { name: "Edit rule" }));
+    const edit = screen.getByRole("form", { name: "Edit rule" });
+    await waitFor(() => expect(within(edit).getByLabelText("Name")).toHaveFocus());
+    await user.keyboard("{Escape}");
+
+    await user.click(screen.getByRole("button", { name: "Add stage" }));
+    await user.click(screen.getByRole("button", { name: "Add condition" }));
+    const condition = screen.getByRole("form", { name: "Add condition" });
+    await waitFor(() => expect(within(condition).getByLabelText("Variable")).toHaveFocus());
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("form", { name: "Add condition" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Add stage" }));
+    await user.click(screen.getByRole("button", { name: "Add workflow" }));
+    const workflow = screen.getByRole("form", { name: "Add workflow" });
+    await waitFor(() => expect(within(workflow).getByLabelText("Workflow")).toHaveFocus());
+    await user.keyboard("{Escape}");
+
+    await user.click(screen.getByRole("button", { name: /When does this happen\?/ }));
+    const created = screen.getByRole("form", { name: "New rule" });
+    await waitFor(() => expect(within(created).getByLabelText("Trigger")).toHaveFocus());
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("form", { name: "New rule" })).not.toBeInTheDocument();
+  });
+
   it("Escape cancels without sending anything", async () => {
     const user = userEvent.setup();
     renderRules();

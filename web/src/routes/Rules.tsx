@@ -159,7 +159,9 @@ export function Rules() {
     const next = rules[index + 1] ?? rules[index - 1];
     if (await data.remove(selected)) {
       setDeleted(selected);
-      navigate(next ? `/rules/${encodeURIComponent(next.id)}` : "/rules", { replace: true });
+      // `void`: under the declarative <BrowserRouter> navigate is synchronous (it only
+      // returns a promise inside a data router), so there is no rejection to handle.
+      void navigate(next ? `/rules/${encodeURIComponent(next.id)}` : "/rules", { replace: true });
     }
   };
   const undo = async () => {
@@ -167,7 +169,7 @@ export function Rules() {
     const doc = await data.restore(deleted);
     if (doc) {
       setDeleted(null);
-      navigate(`/rules/${encodeURIComponent(doc.id)}`);
+      void navigate(`/rules/${encodeURIComponent(doc.id)}`); // synchronous here, see above
     }
   };
 
@@ -182,7 +184,7 @@ export function Rules() {
         const made = await data.create(doc);
         if (made) {
           setCreating(false);
-          navigate(`/rules/${encodeURIComponent(made.id)}`);
+          void navigate(`/rules/${encodeURIComponent(made.id)}`); // synchronous here, see above
         }
         return made !== null;
       }}
