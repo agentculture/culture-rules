@@ -66,7 +66,7 @@
 - events-cli is the event trigger source: culture-rules registers durable subscriptions on type patterns (task.\* → events/task/+), drains in bounded batches, dedupes on envelope id (at-least-once QoS 1), and propagates correlationId/causationId/runId onto events it emits
   - honesty: A durable events-cli subscription feeds triggers; a redelivered envelope (same id) never fires a rule twice
     - instruction: test with a fake drain returning a duplicate id; assert one firing
-- rules.culture.dev is provisioned with `cultureflare remote-login setup --hostname rules.culture.dev --service http://127.0.0.1:<port> --allow <email>|--allow-domain <dom> [--with-service-token]`, dry-run first then --apply; the operator runs cloudflared with the printed (or shushu-sealed) tunnel token on the hosting machine
+- rules.culture.dev is provisioned with `cultureflare remote-login setup --hostname rules.culture.dev --service http://127.0.0.1:<port> --allow <email> --with-service-token` (or --allow-domain), dry-run first then --apply; the operator runs cloudflared with the printed (or shushu-sealed) tunnel token on each serving host
   - honesty: rules.culture.dev is provisioned by a documented cultureflare remote-login dry-run then --apply, recorded in docs/operations
     - instruction: docs/operations/rules-culture-dev.md contains the exact commands and the resulting tunnel/app ids
 - The API validates the Cf-Access-Jwt-Assertion JWT (team domain agentculture.cloudflareaccess.com + the app's AUD) itself, honoured only on a loopback listener that cloudflared reaches, with a separate LAN listener that ignores Access headers — mirroring culture-nodes' two-listener split
@@ -141,6 +141,60 @@
   - honesty: A scheduled backup writes config + run history to S3 and a restore into an empty store reproduces every rule, workflow, actor and run
 - S3 backups are encrypted (SSE-S3 or SSE-KMS), versioned with a retention policy, scheduled (e.g. daily snapshot + hourly run-history increments), and the bucket/region/credentials are configuration — never committed (scan-secrets stays green)
   - honesty: Backup objects are encrypted at rest and versioned, the schedule runs unattended, and no bucket credential appears in any committed file
+- Quorum must survive spark2 being routinely offline: the replica set has 3 voting members that stay up (e.g. spark + thor + an arbiter or a 4th/5th member such as orin) so losing any one more host keeps a writable primary; membership is a configured, documented decision
+  - honesty: With spark2 offline AND any one other member stopped, the store still elects a primary and accepts majority writes
+    - instruction: chaos test: stop spark2's member + one more, assert writes succeed (or the test documents the configured topology that guarantees it)
+- The engine's replica set is a dedicated mongod per host on a non-default port (spark's 27017 is already taken by a standalone weather-mongodb), with member authentication (keyfile or x509), TLS between members over the tailnet, and a least-privilege application user
+  - honesty: No member accepts unauthenticated connections and inter-member traffic is TLS; the app user cannot run admin commands
+    - instruction: integration test: unauthenticated mongosh connect fails; rs.status shows TLS; app user denied on admin db
+- The HTTP API is stateless and active-active on every serving host: any host can serve any request (Cloudflare tunnel replicas route to any healthy connector, not to a preferred primary), sessions live nowhere in process memory, and live updates fan out via store change streams so an SSE client on thor sees a run step that finished on spark
+  - honesty: Two editors connected through different hosts see the same run update within the 2 s budget, and killing the host serving one of them only forces a reconnect
+    - instruction: Playwright with two contexts pinned to two hosts' local listeners + change-stream fan-out test
+- Machines are explicit enrolled records (name, tailnet address, platform, capabilities such as gpu, roles: store member / engine node / runner), sourced from an enrol verb rather than inferred; the tailnet MagicDNS names are the default addresses and mesh server names the identity
+  - honesty: A machine not enrolled is never chosen by placement, and enrolling/unenrolling is a dry-run-by-default write with --apply
+    - instruction: placement resolver test with an unenrolled host; CLI test for enrol dry-run
+- Every host runs an engine node that heartbeats liveness and load (CPU, memory, GPU when available) every 10 s into the store; a node missing 3 heartbeats is shown offline in Statistics and receives no new placements
+  - honesty: Stopping a node flips it to offline within 30 s and new runs avoid it
+    - instruction: integration test with a fake clock + Statistics API assertion
+- Every step and action declares a timeout, a retry policy (max attempts, backoff) and an idempotency key derived from (run id, step id, attempt-independent); side-effecting actions pass the key to the target where it supports one, and the engine never retries a non-idempotent action without the key
+  - honesty: A step that times out is retried per policy and an action whose ack was lost is not executed twice
+    - instruction: engine tests with a fake actor that drops acks; assert single side effect
+- Published workflow and rule versions are immutable; a run pins the exact versions it started with, so editing a workflow never changes an in-flight run
+  - honesty: Editing a workflow while a human step is pending leaves that run on the old version and new runs on the new one
+    - instruction: engine test across an edit with a pending human step
+- Stored documents carry a `schema_version`; a node refuses to write documents of a newer major version than it understands, migrations are forward-only and run only after a fresh S3 backup, and upgrades roll one host at a time
+  - honesty: A rolling upgrade across the three hosts completes with no failed run and an old node refuses a newer-major document instead of corrupting it
+    - instruction: upgrade test: two node versions against one store
+- Every change (create, update, enable, disable, delete, import, run) is recorded in an append-only audit log with who (SSO identity, service token, or agent nick), when, where (host) and the diff; the log is shown contextually on each rule/workflow/actor
+  - honesty: Each mutating verb on every surface writes exactly one audit entry with a non-empty identity
+    - instruction: parity-style test over the registry asserting audit writes
+- Delete is a soft delete: items are tombstoned and restorable for 30 days with their run history intact; a separate purge verb (dry-run unless --apply, admin only) removes them permanently
+  - honesty: A deleted rule can be restored with history and stops firing while deleted
+    - instruction: engine + CLI tests for delete/restore/purge
+- Containment: a global pause stops all rule firing in one action (UI, CLI, MCP), a machine can be drained (no new placements, running steps finish), and any run can be cancelled; all three are audited
+  - honesty: After global pause, a matching event fires nothing; after drain, new steps never land on the drained host
+    - instruction: engine tests for pause, drain, cancel
+- Runs are observable: every node exposes a health endpoint, logs are structured with `run_id`/`step_id`/host, and `run_id`/correlationId propagate onto events-cli envelopes the engine emits
+  - honesty: Given a run id, its full step trail across hosts is retrievable from logs and from the run record
+    - instruction: integration test across two nodes
+- A trigger consumes the events-cli broker on its rule's placed host by default (brokers bind 127.0.0.1:1883 per host); consuming a remote host's broker is explicit configuration, and a failed-over rule re-subscribes on its new host without losing or duplicating events
+  - honesty: When a rule fails over from spark to thor, every event published after the failover fires it exactly once
+    - instruction: failover test with durable subscriptions on both brokers + id dedupe
+- Code steps run either a command/script registered on a runner actor (default; arguments bound from typed inputs) or, for admins only, inline script text executed sandboxed on the runner host (temp dir, timeout, no stored secrets in the text) (operator, challenge q1)
+  - honesty: A non-admin cannot save or run inline script text, and a registered command never receives unbound raw text as a shell string
+    - instruction: API authz test + runner test using argv lists (no shell=True)
+- Asking a human creates an ask with an id and raises an event (e.g. human.ask.requested, carrying ask id, question, options, run/step) that rules can trigger on; an 'answer ask' action (and the editor's contextual answer controls) resolves the ask by id, resuming the waiting run (operator, challenge q2)
+  - honesty: An ask raises exactly one event with its id, and answering via the action or the editor resumes the run exactly once; a second answer is rejected
+    - instruction: engine test: answer twice, assert one resume and a clear error
+- Workflows are DAGs plus bounded loops — for-each and retry-until — each requiring a max count (operator, challenge q3)
+  - honesty: A loop without a max count fails validation and a loop never exceeds its max
+    - instruction: schema + engine tests
+- All enabled rules matching an event fire independently by default; optional exclusive groups fire only their highest-priority match (operator, challenge q4)
+  - honesty: Two matching rules both fire; two matching rules in one exclusive group fire only the higher priority
+    - instruction: engine tests
+- Authorization: roles viewer / editor / admin (admin: purge, inline scripts, enrol, global pause) mapped from SSO identities and service tokens; the CLI and MCP always call the authenticated API and never write the store directly (operator, challenge q5)
+  - honesty: A viewer token cannot mutate, an editor cannot purge, and no CLI/MCP code path opens a store connection
+    - instruction: authz matrix test + grep/import-linter test that cli/ and mcp/ never import the store driver
 
 ## Honesty conditions
 
@@ -178,6 +232,8 @@
   - instruction: mutation check: remove one MCP tool, test fails
 - The four gates are CI-enforced, not manual
   - instruction: tests.yml contains each gate
+- The RPO/RTO numbers come from an executed restore drill
+  - instruction: restore drill output recorded in docs/operations
 
 ## Success signals
 
@@ -189,6 +245,7 @@
   - instruction: tests/`test_surface_parity.py` enumerates the registry and asserts each verb exists on CLI, MCP tool list and HTTP OpenAPI
 - Repo gates stay green: teken cli doctor --strict 26/26 (or more), coverage >= 60%, SonarCloud quality gate passed, webglass reports ready with 0 errors
   - instruction: CI jobs test, lint, web, harness-smoke all pass on the PR
+- Backups meet RPO <= 1 h for run history and <= 24 h for configuration snapshots (or <= 1 h if config changed), and a full restore into an empty replica set completes in <= 30 min
 
 ## Scope / boundaries
 
@@ -296,10 +353,48 @@
   - seeds: `c64`
 - `s37` — `spark host: docker ps + ss -ltn`: mongo:8.0 containers already run on spark (weather-mongodb, eidetic-mongo, qq-mongodb; 27017 listening) plus postgres:17-alpine (tca-gate-pg); data-refinery-cli ships a mongo store backend (`data_refinery`/store/backends/mongo.py) behind a \[store\] extra (README.md:25-30)
   - seeds: `c74`, `c75`
+- `s38` — `challenge pass / failure-mode lens: tailscale status on spark`: spark2 is on the tailnet (100.93.248.8) but shown 'offline, last seen 20h ago'; with a 3-member set where spark2 is often down, one further failure loses quorum
+  - seeds: `c78`
+- `s39` — `challenge pass / adjacent-systems lens: docker ps / inspect on spark`: weather-mongodb, eidetic-mongo, qq-mongodb are standalone mongod (Cmd \[mongod\], no --replSet) on spark; 27017 already bound — reuse would couple unrelated projects
+  - seeds: `c79`
+- `s40` — `challenge pass / unstated-assumption lens: c64 + culture-nodes/docs/operations/nodes-culture-dev.md topology`: the spec says 'spark is primary' but tunnel replicas give no primary preference (Cloudflare behaviour, unverified in any repo); nodes.culture.dev is single-host on thor, so there is no in-workspace precedent for multi-connector serving
+  - seeds: `c80`
+- `s41` — `challenge pass / overlooked-actors lens: getent hosts thor spark2 orin + ~/.culture/mesh.yaml`: tailnet resolves thor, spark2, orin; mesh.yaml lacks spark2 — neither source alone is the enrolled set, so enrolment must be explicit
+  - seeds: `c81`
+- `s42` — `challenge pass / observability lens: c49 Statistics + culture-nodes worker_presence (migrations/0055)`: Statistics needs a data source the spec never named; culture-nodes' `worker_presence` (hostname, `last_seen`) is the precedent
+  - seeds: `c82`
+- `s43` — `challenge pass / concurrency lens: issue #1 Action row (retries/timeouts/idempotency open) + c63`: issue #1 left retry/timeout/idempotency open and the spec only covers claim exclusivity, not lost-ack retries
+  - seeds: `c83`
+- `s44` — `challenge pass / lifecycle lens: issue #1 Workflow row (versions pinned per rule?)`: issue #1 asked whether versions are pinned; long-running human steps make unpinned edits corrupt in-flight runs
+  - seeds: `c84`
+- `s45` — `challenge pass / migration lens: c62 multi-host + c74 store`: three hosts will run mixed versions during every upgrade; nothing in the spec handles version skew
+  - seeds: `c85`
+- `s46` — `challenge pass / security lens: c45/c48 CLI+MCP writes + culture-nodes actor_identities (migrations/0053)`: the spec lets agents mutate and delete over CLI/MCP but never says who did what; culture-nodes binds identities to roles
+  - seeds: `c86`
+- `s47` — `challenge pass / reversibility lens: c48 delete`: c48 makes delete dry-run by default but an applied delete is irreversible as written
+  - seeds: `c87`
+- `s48` — `challenge pass / containment lens: c62 always-on + c51 replay`: the spec has no way to stop a misbehaving rule set fast across three hosts
+  - seeds: `c88`
+- `s49` — `challenge pass / observability lens: events-cli Envelope (CLAUDE.md:211-225 correlationId/causationId/runId)`: the envelope supports correlation but the spec only requires propagation, not a per-run trail or health checks
+  - seeds: `c89`
+- `s50` — `challenge pass / recovery lens: c76/c77 S3 backup`: backup cadence was stated but no recovery objective; a point-in-time dump (mongodump --oplog from a secondary) is needed for a consistent snapshot
+  - seeds: `c90`
+- `s51` — `challenge pass / adjacent-systems lens: events-cli README.md:56-60 + events_cli/address.py`: broker is loopback-only per host, so 'rules keep firing when a host falters' needs a defined event source per placement, which the spec never names
+  - seeds: `c91`
+- `s52` — `challenge pass / security lens: c57 secrets + cultureflare --shushu`: examined: secrets are references sealed via shushu and resolved on the executing host; no further gap found — residual risk is shushu availability on every host
+- `s53` — `challenge pass / data-flow lens: c54 export/import to another repo`: examined: export can carry actor configs; c57 keeps secrets as references so exports stay safe; residual: importing into a repo may overwrite — import is a write, so it follows dry-run/--apply
 
 ## Decisions
 
 - Use a MongoDB 3-member replica set (spark primary-preferred, spark2 and thor members; majority write concern) behind a storage port interface: automatic primary election covers one host faltering, change streams feed live SSE updates, and a Postgres adapter can be added behind the same port
+
+## Hard questions
+
+- challenge / lifecycle lens, c4 workflow graph (issue #1 open): DAG only, or bounded loops (retry-until / for-each with a max)? (resolved: DAG plus bounded loops: for-each and retry-until, each with a required max count)
+- challenge / concurrency lens, c6 (issue #1 open): when two enabled rules match the same event, do all fire independently, or is there priority / mutually-exclusive groups? (resolved: All matching rules fire independently by default; rules may join an exclusive group where only the highest-priority match fires)
+- challenge / overlooked-actors lens, c7 human actor (issue #1 open): where is a human asked and how do they answer — contextual inbox in the editor, mesh DM, GitHub/Jira comment, phone push — and what happens on timeout? (resolved: Human tasks are answered in the editor (contextual badge on the rule/workflow and in Statistics, large approve/reject/input controls); every ask also raises an event with an ask id so rules can trigger on it (notify via mesh, phone, GitHub/Jira) and a rule action can answer the ask by id)
+- challenge / security lens, c11 code-run steps: may a code step run arbitrary script text authored in the editor, or only commands/scripts registered on a runner actor (allowlist), with arguments from typed inputs? (resolved: Both: commands/scripts registered on a runner actor by default (arguments from typed inputs); inline script text allowed for admins, sandboxed (temp dir, timeout, runner host only))
+- challenge / security lens, c45 CLI+MCP: who may change what — roles (viewer, editor, admin) mapped from SSO identities and service tokens; and do CLI/MCP always go through the authenticated API rather than writing to the store directly? (resolved: Roles viewer/editor/admin (admin: purge, inline scripts, enrol, global pause) mapped from SSO identities and service tokens; CLI and MCP always go through the authenticated API, never directly to the store)
 
 ## Open parks
 
@@ -307,3 +402,6 @@
 - [unknown_nonblocking] spark2 is not a mesh link in ~/.culture/mesh.yaml (only thor, orin); whether it exists/what address it has is unknown
 - [unknown_nonblocking] Whether agentirc federation routes a DM to a remote `<machine>-<agent>` nick is claimed in docs but unverified in code
 - [unknown_nonblocking] How culture-nodes plays with culture-rules (consumer of its actor adapters, shared CEL/actor contracts, compile target, or peer) — operator wants to think it through
+- [unknown_nonblocking] Which tool reports GPU/CPU load per platform (nvidia-smi on DGX Spark vs tegrastats/jtop on Jetson Thor/Orin) — no precedent found in culture-nodes/internal or sibling repos
+- [unknown_nonblocking] Cloudflare tunnel replica routing (connector selection, failover time, SSE stickiness) is general Cloudflare behaviour, verified in no repo — probe it during the deploy task
+- [unknown_nonblocking] Whether the mesh runs one events-cli broker per host or a shared one, and how events reach a rule's host after failover

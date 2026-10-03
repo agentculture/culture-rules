@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-03T04:20:01Z",
-  "updated": "2026-10-03T04:56:55Z",
+  "updated": "2026-10-03T05:09:41Z",
   "claims": [
     {
       "id": "c1",
@@ -83,7 +83,15 @@
           "instruction": "schema test: workflow schema has no trigger field; engine test runs a workflow-less rule end to end"
         }
       ],
-      "hard_questions": [],
+      "hard_questions": [
+        {
+          "id": "q3",
+          "text": "challenge / lifecycle lens, c4 workflow graph (issue #1 open): DAG only, or bounded loops (retry-until / for-each with a max)?",
+          "resolved": true,
+          "blocking": true,
+          "resolution": "DAG plus bounded loops: for-each and retry-until, each with a required max count"
+        }
+      ],
       "links": [],
       "instruction": "",
       "revisions": [
@@ -127,7 +135,15 @@
           "instruction": "engine tests for must/may after + export visibility (unexported var reference fails validation)"
         }
       ],
-      "hard_questions": [],
+      "hard_questions": [
+        {
+          "id": "q4",
+          "text": "challenge / concurrency lens, c6 (issue #1 open): when two enabled rules match the same event, do all fire independently, or is there priority / mutually-exclusive groups?",
+          "resolved": true,
+          "blocking": true,
+          "resolution": "All matching rules fire independently by default; rules may join an exclusive group where only the highest-priority match fires"
+        }
+      ],
       "links": [],
       "instruction": "",
       "revisions": []
@@ -146,7 +162,15 @@
           "instruction": "schema tests over one fixture per kind"
         }
       ],
-      "hard_questions": [],
+      "hard_questions": [
+        {
+          "id": "q2",
+          "text": "challenge / overlooked-actors lens, c7 human actor (issue #1 open): where is a human asked and how do they answer \u2014 contextual inbox in the editor, mesh DM, GitHub/Jira comment, phone push \u2014 and what happens on timeout?",
+          "resolved": true,
+          "blocking": true,
+          "resolution": "Human tasks are answered in the editor (contextual badge on the rule/workflow and in Statistics, large approve/reject/input controls); every ask also raises an event with an ask id so rules can trigger on it (notify via mesh, phone, GitHub/Jira) and a rule action can answer the ask by id"
+        }
+      ],
       "links": [],
       "instruction": "",
       "revisions": []
@@ -228,7 +252,15 @@
           "instruction": "multi-node integration test asserting per-step host + port type validation"
         }
       ],
-      "hard_questions": [],
+      "hard_questions": [
+        {
+          "id": "q1",
+          "text": "challenge / security lens, c11 code-run steps: may a code step run arbitrary script text authored in the editor, or only commands/scripts registered on a runner actor (allowlist), with arguments from typed inputs?",
+          "resolved": true,
+          "blocking": true,
+          "resolution": "Both: commands/scripts registered on a runner actor by default (arguments from typed inputs); inline script text allowed for admins, sandboxed (temp dir, timeout, runner host only)"
+        }
+      ],
       "links": [],
       "instruction": "",
       "revisions": [
@@ -463,14 +495,20 @@
     {
       "id": "c27",
       "kind": "assumption",
-      "text": "Agent actors on a machine are reachable over the mesh as <machine>-<agent> nicks via agentirc.agent_client.AgentClient (async: connect/send/messages); there is no request/reply correlation, so task replies need a correlation convention",
+      "text": "Agent actors on a machine are reachable over the mesh as `<machine>-<agent>` nicks via agentirc.agent_client.AgentClient (async: connect/send/messages); there is no request/reply correlation, so task replies need a correlation convention",
       "origin": "llm",
       "status": "confirmed",
       "honesty_conditions": [],
       "hard_questions": [],
       "links": [],
       "instruction": "",
-      "revisions": []
+      "revisions": [
+        {
+          "text": "Agent actors on a machine are reachable over the mesh as <machine>-<agent> nicks via agentirc.agent_client.AgentClient (async: connect/send/messages); there is no request/reply correlation, so task replies need a correlation convention",
+          "kind": "assumption",
+          "reason": "lint: backtick angle-bracket token"
+        }
+      ]
     },
     {
       "id": "c28",
@@ -613,7 +651,7 @@
     {
       "id": "c36",
       "kind": "requirement",
-      "text": "rules.culture.dev is provisioned with 'cultureflare remote-login setup --hostname rules.culture.dev --service http://127.0.0.1:<port> --allow <email>|--allow-domain <dom> [--with-service-token]', dry-run first then --apply; the operator runs cloudflared with the printed (or shushu-sealed) tunnel token on the hosting machine",
+      "text": "rules.culture.dev is provisioned with `cultureflare remote-login setup --hostname rules.culture.dev --service http://127.0.0.1:<port> --allow <email> --with-service-token` (or --allow-domain), dry-run first then --apply; the operator runs cloudflared with the printed (or shushu-sealed) tunnel token on each serving host",
       "origin": "llm",
       "status": "confirmed",
       "honesty_conditions": [
@@ -627,7 +665,13 @@
       "hard_questions": [],
       "links": [],
       "instruction": "",
-      "revisions": []
+      "revisions": [
+        {
+          "text": "rules.culture.dev is provisioned with 'cultureflare remote-login setup --hostname rules.culture.dev --service http://127.0.0.1:<port> --allow <email>|--allow-domain <dom> [--with-service-token]', dry-run first then --apply; the operator runs cloudflared with the printed (or shushu-sealed) tunnel token on the hosting machine",
+          "kind": "requirement",
+          "reason": "lint: backtick command; 'each serving host' per c62"
+        }
+      ]
     },
     {
       "id": "c37",
@@ -788,7 +832,15 @@
           "instruction": "parity test (c72) + CLI test that a write without --apply changes nothing"
         }
       ],
-      "hard_questions": [],
+      "hard_questions": [
+        {
+          "id": "q5",
+          "text": "challenge / security lens, c45 CLI+MCP: who may change what \u2014 roles (viewer, editor, admin) mapped from SSO identities and service tokens; and do CLI/MCP always go through the authenticated API rather than writing to the store directly?",
+          "resolved": true,
+          "blocking": true,
+          "resolution": "Roles viewer/editor/admin (admin: purge, inline scripts, enrol, global pause) mapped from SSO identities and service tokens; CLI and MCP always go through the authenticated API, never directly to the store"
+        }
+      ],
       "links": [],
       "instruction": "",
       "revisions": []
@@ -1371,6 +1423,367 @@
       "links": [],
       "instruction": "",
       "revisions": []
+    },
+    {
+      "id": "c78",
+      "kind": "requirement",
+      "text": "Quorum must survive spark2 being routinely offline: the replica set has 3 voting members that stay up (e.g. spark + thor + an arbiter or a 4th/5th member such as orin) so losing any one more host keeps a writable primary; membership is a configured, documented decision",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h59",
+          "text": "With spark2 offline AND any one other member stopped, the store still elects a primary and accepts majority writes",
+          "status": "confirmed",
+          "instruction": "chaos test: stop spark2's member + one more, assert writes succeed (or the test documents the configured topology that guarantees it)"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c79",
+      "kind": "requirement",
+      "text": "The engine's replica set is a dedicated mongod per host on a non-default port (spark's 27017 is already taken by a standalone weather-mongodb), with member authentication (keyfile or x509), TLS between members over the tailnet, and a least-privilege application user",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h60",
+          "text": "No member accepts unauthenticated connections and inter-member traffic is TLS; the app user cannot run admin commands",
+          "status": "confirmed",
+          "instruction": "integration test: unauthenticated mongosh connect fails; rs.status shows TLS; app user denied on admin db"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c80",
+      "kind": "requirement",
+      "text": "The HTTP API is stateless and active-active on every serving host: any host can serve any request (Cloudflare tunnel replicas route to any healthy connector, not to a preferred primary), sessions live nowhere in process memory, and live updates fan out via store change streams so an SSE client on thor sees a run step that finished on spark",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h61",
+          "text": "Two editors connected through different hosts see the same run update within the 2 s budget, and killing the host serving one of them only forces a reconnect",
+          "status": "confirmed",
+          "instruction": "Playwright with two contexts pinned to two hosts' local listeners + change-stream fan-out test"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c81",
+      "kind": "requirement",
+      "text": "Machines are explicit enrolled records (name, tailnet address, platform, capabilities such as gpu, roles: store member / engine node / runner), sourced from an enrol verb rather than inferred; the tailnet MagicDNS names are the default addresses and mesh server names the identity",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h62",
+          "text": "A machine not enrolled is never chosen by placement, and enrolling/unenrolling is a dry-run-by-default write with --apply",
+          "status": "confirmed",
+          "instruction": "placement resolver test with an unenrolled host; CLI test for enrol dry-run"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c82",
+      "kind": "requirement",
+      "text": "Every host runs an engine node that heartbeats liveness and load (CPU, memory, GPU when available) every 10 s into the store; a node missing 3 heartbeats is shown offline in Statistics and receives no new placements",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h63",
+          "text": "Stopping a node flips it to offline within 30 s and new runs avoid it",
+          "status": "confirmed",
+          "instruction": "integration test with a fake clock + Statistics API assertion"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c83",
+      "kind": "requirement",
+      "text": "Every step and action declares a timeout, a retry policy (max attempts, backoff) and an idempotency key derived from (run id, step id, attempt-independent); side-effecting actions pass the key to the target where it supports one, and the engine never retries a non-idempotent action without the key",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h64",
+          "text": "A step that times out is retried per policy and an action whose ack was lost is not executed twice",
+          "status": "confirmed",
+          "instruction": "engine tests with a fake actor that drops acks; assert single side effect"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c84",
+      "kind": "requirement",
+      "text": "Published workflow and rule versions are immutable; a run pins the exact versions it started with, so editing a workflow never changes an in-flight run",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h65",
+          "text": "Editing a workflow while a human step is pending leaves that run on the old version and new runs on the new one",
+          "status": "confirmed",
+          "instruction": "engine test across an edit with a pending human step"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c85",
+      "kind": "requirement",
+      "text": "Stored documents carry a schema_version; a node refuses to write documents of a newer major version than it understands, migrations are forward-only and run only after a fresh S3 backup, and upgrades roll one host at a time",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h66",
+          "text": "A rolling upgrade across the three hosts completes with no failed run and an old node refuses a newer-major document instead of corrupting it",
+          "status": "confirmed",
+          "instruction": "upgrade test: two node versions against one store"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c86",
+      "kind": "requirement",
+      "text": "Every change (create, update, enable, disable, delete, import, run) is recorded in an append-only audit log with who (SSO identity, service token, or agent nick), when, where (host) and the diff; the log is shown contextually on each rule/workflow/actor",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h67",
+          "text": "Each mutating verb on every surface writes exactly one audit entry with a non-empty identity",
+          "status": "confirmed",
+          "instruction": "parity-style test over the registry asserting audit writes"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c87",
+      "kind": "requirement",
+      "text": "Delete is a soft delete: items are tombstoned and restorable for 30 days with their run history intact; a separate purge verb (dry-run unless --apply, admin only) removes them permanently",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h68",
+          "text": "A deleted rule can be restored with history and stops firing while deleted",
+          "status": "confirmed",
+          "instruction": "engine + CLI tests for delete/restore/purge"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c88",
+      "kind": "requirement",
+      "text": "Containment: a global pause stops all rule firing in one action (UI, CLI, MCP), a machine can be drained (no new placements, running steps finish), and any run can be cancelled; all three are audited",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h69",
+          "text": "After global pause, a matching event fires nothing; after drain, new steps never land on the drained host",
+          "status": "confirmed",
+          "instruction": "engine tests for pause, drain, cancel"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c89",
+      "kind": "requirement",
+      "text": "Runs are observable: every node exposes a health endpoint, logs are structured with run_id/step_id/host, and run_id/correlationId propagate onto events-cli envelopes the engine emits",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h70",
+          "text": "Given a run id, its full step trail across hosts is retrievable from logs and from the run record",
+          "status": "confirmed",
+          "instruction": "integration test across two nodes"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c90",
+      "kind": "success_signal",
+      "text": "Backups meet RPO <= 1 h for run history and <= 24 h for configuration snapshots (or <= 1 h if config changed), and a full restore into an empty replica set completes in <= 30 min",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h71",
+          "text": "The RPO/RTO numbers come from an executed restore drill",
+          "status": "confirmed",
+          "instruction": "restore drill output recorded in docs/operations"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c91",
+      "kind": "requirement",
+      "text": "A trigger consumes the events-cli broker on its rule's placed host by default (brokers bind 127.0.0.1:1883 per host); consuming a remote host's broker is explicit configuration, and a failed-over rule re-subscribes on its new host without losing or duplicating events",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h72",
+          "text": "When a rule fails over from spark to thor, every event published after the failover fires it exactly once",
+          "status": "confirmed",
+          "instruction": "failover test with durable subscriptions on both brokers + id dedupe"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c92",
+      "kind": "requirement",
+      "text": "Code steps run either a command/script registered on a runner actor (default; arguments bound from typed inputs) or, for admins only, inline script text executed sandboxed on the runner host (temp dir, timeout, no stored secrets in the text) (operator, challenge q1)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h73",
+          "text": "A non-admin cannot save or run inline script text, and a registered command never receives unbound raw text as a shell string",
+          "status": "confirmed",
+          "instruction": "API authz test + runner test using argv lists (no shell=True)"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c93",
+      "kind": "requirement",
+      "text": "Asking a human creates an ask with an id and raises an event (e.g. human.ask.requested, carrying ask id, question, options, run/step) that rules can trigger on; an 'answer ask' action (and the editor's contextual answer controls) resolves the ask by id, resuming the waiting run (operator, challenge q2)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h74",
+          "text": "An ask raises exactly one event with its id, and answering via the action or the editor resumes the run exactly once; a second answer is rejected",
+          "status": "confirmed",
+          "instruction": "engine test: answer twice, assert one resume and a clear error"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c94",
+      "kind": "requirement",
+      "text": "Workflows are DAGs plus bounded loops \u2014 for-each and retry-until \u2014 each requiring a max count (operator, challenge q3)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h75",
+          "text": "A loop without a max count fails validation and a loop never exceeds its max",
+          "status": "confirmed",
+          "instruction": "schema + engine tests"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c95",
+      "kind": "requirement",
+      "text": "All enabled rules matching an event fire independently by default; optional exclusive groups fire only their highest-priority match (operator, challenge q4)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h76",
+          "text": "Two matching rules both fire; two matching rules in one exclusive group fire only the higher priority",
+          "status": "confirmed",
+          "instruction": "engine tests"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c96",
+      "kind": "requirement",
+      "text": "Authorization: roles viewer / editor / admin (admin: purge, inline scripts, enrol, global pause) mapped from SSO identities and service tokens; the CLI and MCP always call the authenticated API and never write the store directly (operator, challenge q5)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h77",
+          "text": "A viewer token cannot mutate, an editor cannot purge, and no CLI/MCP code path opens a store connection",
+          "status": "confirmed",
+          "instruction": "authz matrix test + grep/import-linter test that cli/ and mcp/ never import the store driver"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
     }
   ],
   "open_vagueness": [
@@ -1404,6 +1817,33 @@
     {
       "id": "v4",
       "text": "How culture-nodes plays with culture-rules (consumer of its actor adapters, shared CEL/actor contracts, compile target, or peer) \u2014 operator wants to think it through",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v5",
+      "text": "Which tool reports GPU/CPU load per platform (nvidia-smi on DGX Spark vs tegrastats/jtop on Jetson Thor/Orin) \u2014 no precedent found in culture-nodes/internal or sibling repos",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v6",
+      "text": "Cloudflare tunnel replica routing (connector selection, failover time, SSE stickiness) is general Cloudflare behaviour, verified in no repo \u2014 probe it during the deploy task",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v7",
+      "text": "Whether the mesh runs one events-cli broker per host or a shared one, and how events reach a rule's host after failover",
       "kind": "unknown_nonblocking",
       "claim_id": null,
       "resolved": false,
@@ -1709,8 +2149,144 @@
         "c74",
         "c75"
       ]
+    },
+    {
+      "id": "s38",
+      "surface": "challenge pass / failure-mode lens: tailscale status on spark",
+      "finding": "spark2 is on the tailnet (100.93.248.8) but shown 'offline, last seen 20h ago'; with a 3-member set where spark2 is often down, one further failure loses quorum",
+      "seeds": [
+        "c78"
+      ]
+    },
+    {
+      "id": "s39",
+      "surface": "challenge pass / adjacent-systems lens: docker ps / inspect on spark",
+      "finding": "weather-mongodb, eidetic-mongo, qq-mongodb are standalone mongod (Cmd [mongod], no --replSet) on spark; 27017 already bound \u2014 reuse would couple unrelated projects",
+      "seeds": [
+        "c79"
+      ]
+    },
+    {
+      "id": "s40",
+      "surface": "challenge pass / unstated-assumption lens: c64 + culture-nodes/docs/operations/nodes-culture-dev.md topology",
+      "finding": "the spec says 'spark is primary' but tunnel replicas give no primary preference (Cloudflare behaviour, unverified in any repo); nodes.culture.dev is single-host on thor, so there is no in-workspace precedent for multi-connector serving",
+      "seeds": [
+        "c80"
+      ]
+    },
+    {
+      "id": "s41",
+      "surface": "challenge pass / overlooked-actors lens: getent hosts thor spark2 orin + ~/.culture/mesh.yaml",
+      "finding": "tailnet resolves thor, spark2, orin; mesh.yaml lacks spark2 \u2014 neither source alone is the enrolled set, so enrolment must be explicit",
+      "seeds": [
+        "c81"
+      ]
+    },
+    {
+      "id": "s42",
+      "surface": "challenge pass / observability lens: c49 Statistics + culture-nodes worker_presence (migrations/0055)",
+      "finding": "Statistics needs a data source the spec never named; culture-nodes' worker_presence (hostname, last_seen) is the precedent",
+      "seeds": [
+        "c82"
+      ]
+    },
+    {
+      "id": "s43",
+      "surface": "challenge pass / concurrency lens: issue #1 Action row (retries/timeouts/idempotency open) + c63",
+      "finding": "issue #1 left retry/timeout/idempotency open and the spec only covers claim exclusivity, not lost-ack retries",
+      "seeds": [
+        "c83"
+      ]
+    },
+    {
+      "id": "s44",
+      "surface": "challenge pass / lifecycle lens: issue #1 Workflow row (versions pinned per rule?)",
+      "finding": "issue #1 asked whether versions are pinned; long-running human steps make unpinned edits corrupt in-flight runs",
+      "seeds": [
+        "c84"
+      ]
+    },
+    {
+      "id": "s45",
+      "surface": "challenge pass / migration lens: c62 multi-host + c74 store",
+      "finding": "three hosts will run mixed versions during every upgrade; nothing in the spec handles version skew",
+      "seeds": [
+        "c85"
+      ]
+    },
+    {
+      "id": "s46",
+      "surface": "challenge pass / security lens: c45/c48 CLI+MCP writes + culture-nodes actor_identities (migrations/0053)",
+      "finding": "the spec lets agents mutate and delete over CLI/MCP but never says who did what; culture-nodes binds identities to roles",
+      "seeds": [
+        "c86"
+      ]
+    },
+    {
+      "id": "s47",
+      "surface": "challenge pass / reversibility lens: c48 delete",
+      "finding": "c48 makes delete dry-run by default but an applied delete is irreversible as written",
+      "seeds": [
+        "c87"
+      ]
+    },
+    {
+      "id": "s48",
+      "surface": "challenge pass / containment lens: c62 always-on + c51 replay",
+      "finding": "the spec has no way to stop a misbehaving rule set fast across three hosts",
+      "seeds": [
+        "c88"
+      ]
+    },
+    {
+      "id": "s49",
+      "surface": "challenge pass / observability lens: events-cli Envelope (CLAUDE.md:211-225 correlationId/causationId/runId)",
+      "finding": "the envelope supports correlation but the spec only requires propagation, not a per-run trail or health checks",
+      "seeds": [
+        "c89"
+      ]
+    },
+    {
+      "id": "s50",
+      "surface": "challenge pass / recovery lens: c76/c77 S3 backup",
+      "finding": "backup cadence was stated but no recovery objective; a point-in-time dump (mongodump --oplog from a secondary) is needed for a consistent snapshot",
+      "seeds": [
+        "c90"
+      ]
+    },
+    {
+      "id": "s51",
+      "surface": "challenge pass / adjacent-systems lens: events-cli README.md:56-60 + events_cli/address.py",
+      "finding": "broker is loopback-only per host, so 'rules keep firing when a host falters' needs a defined event source per placement, which the spec never names",
+      "seeds": [
+        "c91"
+      ]
+    },
+    {
+      "id": "s52",
+      "surface": "challenge pass / security lens: c57 secrets + cultureflare --shushu",
+      "finding": "examined: secrets are references sealed via shushu and resolved on the executing host; no further gap found \u2014 residual risk is shushu availability on every host",
+      "seeds": []
+    },
+    {
+      "id": "s53",
+      "surface": "challenge pass / data-flow lens: c54 export/import to another repo",
+      "finding": "examined: export can carry actor configs; c57 keeps secrets as references so exports stay safe; residual: importing into a repo may overwrite \u2014 import is a write, so it follows dry-run/--apply",
+      "seeds": []
     }
   ],
-  "lapses": [],
+  "lapses": [
+    {
+      "id": "l1",
+      "code": "grader-unverified",
+      "what": "During /think the agent re-confirmed c2, c4 and c54 itself after amending them (amend flips confirmed \u2192 proposed); the amended wording reflected operator decisions, but confirmation is user-only",
+      "skipped_check": "user re-confirmation of agent-amended claims",
+      "refs": [
+        "think: c2 c4 c54"
+      ],
+      "origin": "llm",
+      "status": "approved"
+    }
+  ],
   "obligations": []
 }
