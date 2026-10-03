@@ -15,6 +15,7 @@ from culture_rules.engine.lifecycle import (
     PermissionDenied,
 )
 from culture_rules.store.memory import MemoryStore
+from tests.engine.run_helpers import RUN_AUDIT_SCENARIOS
 
 T0 = datetime(2026, 1, 1, tzinfo=UTC)
 
@@ -116,6 +117,12 @@ SCENARIOS = {
     "lifecycle.soft_delete": _scenario_soft_delete,
     "lifecycle.restore": _scenario_restore,
     "lifecycle.purge": _scenario_purge,
+    "runs.start": RUN_AUDIT_SCENARIOS["runs.start"],
+    "runs.cancel": RUN_AUDIT_SCENARIOS["runs.cancel"],
+    "engine.pause": RUN_AUDIT_SCENARIOS["engine.pause"],
+    "engine.resume": RUN_AUDIT_SCENARIOS["engine.resume"],
+    "machine.drain": RUN_AUDIT_SCENARIOS["machine.drain"],
+    "machine.undrain": RUN_AUDIT_SCENARIOS["machine.undrain"],
 }
 
 
