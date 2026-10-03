@@ -13,10 +13,16 @@ Roles for SSO users come from ``CULTURE_RULES_ADMINS`` / ``CULTURE_RULES_EDITORS
 (comma-separated identities); everyone else Access lets through is a viewer.
 ``CULTURE_RULES_INSECURE_DEV_IDENTITY=1`` re-enables the unauthenticated ``X-Culture-Identity``
 dev header (everyone is admin) - for a laptop only; it is off by default.
+
+``/health`` reports on the engine node named by ``CULTURE_RULES_NODE_NAME`` (or
+``serve --node-name``); unset, the short hostname. Set it to the name the node runs under
+(``culture-rules node run`` defaults its ``--host`` to the same variable), or ``/health``
+stays ``degraded`` waiting for a heartbeat that never comes.
 """
 
 from __future__ import annotations
 
+import functools
 import os
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -24,6 +30,7 @@ from typing import Any
 
 from culture_rules.auth.access import AccessConfigError, AccessListenerConfig, AccessVerifier
 from culture_rules.auth.resolve import LAN, LOOPBACK, AuthSettings
+from culture_rules.ops.nodename import node_name as default_node_name
 from culture_rules.store.port import StoragePort
 
 __all__ = [
@@ -86,9 +93,15 @@ def build_listeners(
     port: int | None = None,
     admins: tuple[str, ...] = (),
     fetch_jwks: Callable[[], Any] | None = None,
+    node_name: str | None = None,
 ) -> list[Listener]:
-    """The apps to serve: always ``lan``; plus ``loopback`` when Access is fully configured."""
+    """The apps to serve: always ``lan``; plus ``loopback`` when Access is fully configured.
+
+    ``node_name`` is the engine node ``/health`` reports on (default:
+    ``CULTURE_RULES_NODE_NAME`` from ``env``, else the short hostname).
+    """
     env = os.environ if env is None else env
+    node = (node_name or "").strip() or default_node_name(env)
     access_cfg = AccessListenerConfig.from_env(env)  # raises on a partial tuple
     create_app = _create_app()
     common = {
@@ -97,11 +110,10 @@ def build_listeners(
         "insecure_dev_identity": (env.get("CULTURE_RULES_INSECURE_DEV_IDENTITY") or "").lower()
         in _TRUE,
     }
+    create = functools.partial(create_app, host=node)
     lan_host = host or env.get("CULTURE_RULES_HOST") or DEFAULT_HOST
     lan_port = int(port or env.get("CULTURE_RULES_PORT") or DEFAULT_PORT)
-    listeners = [
-        Listener(LAN, lan_host, lan_port, create_app(store, auth=AuthSettings(LAN, **common)))
-    ]
+    listeners = [Listener(LAN, lan_host, lan_port, create(store, auth=AuthSettings(LAN, **common)))]
     if access_cfg is not None:
         if (access_cfg.host, access_cfg.port) == (lan_host, lan_port):
             raise AccessConfigError("the Access listener must not share the LAN listener address")
@@ -109,7 +121,7 @@ def build_listeners(
             access_cfg.team_domain, access_cfg.audience, fetch_jwks=fetch_jwks
         )
         settings = AuthSettings(LOOPBACK, access=verifier, **common)
-        app = create_app(store, auth=settings)
+        app = create(store, auth=settings)
         listeners.append(Listener(LOOPBACK, access_cfg.host, access_cfg.port, app))
     return listeners
 
@@ -132,6 +144,7 @@ def serve(
     port: int | None = None,
     admins: tuple[str, ...] = (),
     fetch_jwks: Callable[[], Any] | None = None,
+    node_name: str | None = None,
     **uvicorn_options: Any,
 ) -> None:
     """Serve the HTTP API (one or two listeners) until interrupted. Stateless: run many."""
@@ -144,6 +157,7 @@ def serve(
         port=port,
         admins=admins,
         fetch_jwks=fetch_jwks,
+        node_name=node_name,
     )
     _run_servers(
         [

@@ -88,3 +88,60 @@ def test_serve_runs_one_uvicorn_server_per_listener(monkeypatch):
         monkeypatch.setenv(k, v)
     serve_mod.serve(MemoryStore(), fetch_jwks=jwks)
     assert sorted((c.host, c.port) for c in seen) == [("127.0.0.1", 8765), ("127.0.0.1", 8766)]
+
+
+def _health(listener, store):
+    tok = ServiceTokens(store).issue("root", name="probe", roles=["viewer"]).token
+    r = TestClient(listener.app).get("/health", headers={"Authorization": f"Bearer {tok}"})
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def _health_host(listener, store):
+    return _health(listener, store)["host"]
+
+
+def test_health_reports_the_node_named_by_culture_rules_node_name():
+    env = {**ENV, "CULTURE_RULES_NODE_NAME": "spark"}
+    store = MemoryStore()
+    got = by_name(serve_mod.build_listeners(store, env=env, fetch_jwks=jwks))
+    assert _health_host(got["lan"], store) == "spark"
+    assert _health_host(got["loopback"], store) == "spark"
+
+
+def test_an_explicit_node_name_beats_the_environment():
+    env = {"CULTURE_RULES_NODE_NAME": "from-env"}
+    store = MemoryStore()
+    (lan,) = serve_mod.build_listeners(store, env=env, node_name="spark")
+    assert _health_host(lan, store) == "spark"
+
+
+def test_without_a_node_name_health_uses_the_short_hostname(monkeypatch):
+    monkeypatch.setattr("socket.gethostname", lambda: "spark-f8a9.lan")
+    monkeypatch.delenv("CULTURE_RULES_NODE_NAME", raising=False)
+    store = MemoryStore()
+    (lan,) = serve_mod.build_listeners(store, env={})
+    assert _health_host(lan, store) == "spark-f8a9"
+
+
+def test_health_is_ok_when_the_named_node_beats():
+    from datetime import UTC, datetime
+
+    from culture_rules.machines.heartbeat import HEARTBEAT_COLLECTION
+
+    store = MemoryStore()
+    store.put(HEARTBEAT_COLLECTION, {"id": "spark", "ts": datetime.now(UTC).isoformat()})
+    (lan,) = serve_mod.build_listeners(store, env={"CULTURE_RULES_NODE_NAME": "spark"})
+    body = _health(lan, store)
+    assert body["host"] == "spark" and body["heartbeat"]["online"] is True
+
+
+def test_the_serve_verb_passes_node_name_through(monkeypatch):
+    from culture_rules.cli import main
+
+    seen = {}
+    monkeypatch.setattr(serve_mod, "serve", lambda **kw: seen.update(kw))
+    assert main(["serve", "--node-name", "spark", "--port", "9999"]) == 0
+    assert seen["node_name"] == "spark" and seen["port"] == 9999
+    assert main(["serve"]) == 0
+    assert seen["node_name"] is None  # serve() then reads CULTURE_RULES_NODE_NAME

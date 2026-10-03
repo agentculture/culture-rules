@@ -126,7 +126,17 @@ template is `deploy/cloudflared/cloudflared-rules.env.example`:
 - `CULTURE_RULES_ACCESS_AUD=<access-app-aud-tag>`, from the ids table.
 
 All three set turns Access on; all three unset leaves it off; a partial tuple is
-refused at start. Restart the API after the change. If the API runs in a
+refused at start.
+
+Set `CULTURE_RULES_NODE_NAME` to the name this host's engine node runs under
+(for example `spark` on the host whose hostname is `spark-f8a9`). `/health`
+reports on that node's heartbeat, and `culture-rules node run` defaults its
+`--host` to the same variable, so put it in the environment of both units.
+Unset, both fall back to the short hostname. A mismatch leaves `/health`
+`degraded` while `/machines/status` shows the node online. `serve
+--node-name` overrides the variable for the API alone.
+
+Restart the API after the change. If the API runs in a
 container, publish the port on the host loopback only (`127.0.0.1:18765:...`),
 never on every interface.
 

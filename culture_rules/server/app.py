@@ -10,7 +10,6 @@ an unauthenticated or unauthorized caller. Every mutating route goes through an 
 
 from __future__ import annotations
 
-import socket
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -44,6 +43,7 @@ from culture_rules.engine.runs import (
     is_paused,
 )
 from culture_rules.ops.health import health_status
+from culture_rules.ops.nodename import node_name
 from culture_rules.server import events, static
 from culture_rules.server import status as read_models
 from culture_rules.server.repos import RepoTarget, repos_from_env
@@ -429,7 +429,7 @@ def create_app(
     tokens = ServiceTokens(store, audit)
     resolver = Resolver((auth or AuthSettings()).with_admins(admins), tokens)
     containment = Containment(store, audit)
-    node = host or socket.gethostname()
+    node = host or node_name()
     targets = {r.name: r for r in (repos_from_env() if repos is None else repos)}
 
     def repo_target(name: str) -> RepoTarget:

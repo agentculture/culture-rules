@@ -21,7 +21,6 @@ from __future__ import annotations
 import logging
 import os
 import shutil
-import socket
 import subprocess  # nosec B404 - argv list only, never a shell (MeshPoster)
 from collections.abc import Callable, Mapping
 from datetime import datetime
@@ -33,6 +32,7 @@ from culture_rules.events.emit import Emitter
 from culture_rules.events.ingest import EVENTS_COLLECTION, event_document
 from culture_rules.events.source import EventFabricError, EventSource
 from culture_rules.ops.logs import configure_logging
+from culture_rules.ops.nodename import node_name
 from culture_rules.store.port import DuplicateKeyError, StoragePort, StoreError
 
 __all__ = [
@@ -63,8 +63,8 @@ class NodeSetupError(RuntimeError):
 
 
 def default_host() -> str:
-    """This machine's name (the short hostname)."""
-    return socket.gethostname().split(".")[0]
+    """This machine's node name: ``CULTURE_RULES_NODE_NAME``, else the short hostname."""
+    return node_name()
 
 
 def open_store() -> StoragePort:

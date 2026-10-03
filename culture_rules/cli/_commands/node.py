@@ -37,7 +37,10 @@ def cmd_node_run(args: argparse.Namespace) -> int:
             "set CULTURE_RULES_MONGO_URI (and install 'culture-rules[store]')",
         ) from exc
     if not summary.get("events"):
-        emit_diagnostic("no event source (events-cli missing): nothing is ingested")
+        emit_diagnostic(
+            "no event source (events-cli missing or its subscriptions could not be set up; "
+            "see the warning): nothing is ingested"
+        )
     emit_result(summary if args.json else _text(summary), json_mode=args.json)
     errors = (summary.get("report") or {}).get("errors") or summary.get("errors") or []
     return EXIT_ENV_ERROR if args.once and errors else 0
@@ -47,7 +50,10 @@ def register(sub: argparse._SubParsersAction) -> None:
     p = sub.add_parser("node", help="Run this host's engine node (talks to the store).")
     verbs = p.add_subparsers(dest="node_command", parser_class=type(p))
     run = verbs.add_parser("run", help="Run the engine node loop (or one cycle with --once).")
-    run.add_argument("--host", help="this node's machine name (default: the short hostname)")
+    run.add_argument(
+        "--host",
+        help="this node's machine name (default CULTURE_RULES_NODE_NAME or the short hostname)",
+    )
     run.add_argument("--once", action="store_true", help="run one full cycle and exit")
     run.add_argument("--idle", type=float, default=1.0, help="pause between cycles (seconds)")
     run.add_argument("--json", action="store_true", help="Emit structured JSON.")
