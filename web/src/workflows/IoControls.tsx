@@ -56,18 +56,13 @@ export function importPaths(name: string, text: string): Record<string, string> 
   return { [`workflows/${stem}.${ext}`]: text };
 }
 
-/** `File.text()`, with a FileReader fallback for engines that lack it. */
+/**
+ * A chosen file's text. `Blob#text` is in every browser the build targets
+ * (Vite's default: Chrome 87, Edge 88, Firefox 78, Safari 14), so no
+ * FileReader fallback; jsdom lacks it, and vitest.setup.ts polyfills it.
+ */
 export function readText(file: File): Promise<string> {
-  if (typeof file.text === "function") return file.text();
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    // readAsText always yields a string; anything else reads as empty.
-    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
-    // Always an Error (a DOMException is not one in every engine), its cause kept.
-    reader.onerror = () =>
-      reject(new Error(reader.error?.message || `could not read ${file.name}`, { cause: reader.error }));
-    reader.readAsText(file);
-  });
+  return file.text();
 }
 
 const message = (err: unknown) => (err instanceof ApiError ? err.message : String(err));
