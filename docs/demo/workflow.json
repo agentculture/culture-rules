@@ -1,0 +1,8 @@
+{"id":"greet-flow","name":"Greet","inputs":[{"name":"command","type":"string"},{"name":"args","type":"object"}],
+ "steps":[{"id":"say","kind":"actor_task","name":"Say hello",
+   "inputs":[{"name":"command","type":"string"},{"name":"args","type":"object"}],
+   "outputs":[{"name":"stdout","type":"string"}],
+   "placement":{"actor":"spark-runner"}}],
+ "edges":[{"source":"inputs","source_port":"command","target":"say","target_port":"command"},
+          {"source":"inputs","source_port":"args","target":"say","target_port":"args"}],
+ "outputs":[{"name":"greeting","type":"string","source":"steps.say.outputs.stdout"}]}
