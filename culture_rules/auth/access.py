@@ -23,7 +23,6 @@ partial tuple is refused with :class:`AccessConfigError`.
 from __future__ import annotations
 
 import base64
-import binascii
 import hashlib
 import hmac
 import json
@@ -154,7 +153,7 @@ def _parse_keys(document: Any) -> dict[str, tuple[int, int]]:
             continue
         try:
             n, e = _b64_int(str(jwk.get("n", ""))), _b64_int(str(jwk.get("e", "")))
-        except (ValueError, binascii.Error):
+        except ValueError:  # binascii.Error is a ValueError
             continue
         if n > 0 and e > 1:
             keys[str(kid)] = (n, e)
@@ -261,7 +260,7 @@ class AccessVerifier:
         try:
             header = json.loads(_b64(parts[0]))
             signature = _b64(parts[2])
-        except (ValueError, binascii.Error):
+        except ValueError:  # binascii.Error is a ValueError
             raise VerificationError("malformed") from None
         if not isinstance(header, dict) or header.get("alg") != "RS256":
             raise VerificationError("malformed")
@@ -273,7 +272,7 @@ class AccessVerifier:
             raise VerificationError("bad_signature")
         try:
             claims = json.loads(_b64(parts[1]))
-        except (ValueError, binascii.Error):
+        except ValueError:  # binascii.Error is a ValueError
             raise VerificationError("malformed") from None
         if not isinstance(claims, dict):
             raise VerificationError("malformed")
@@ -282,12 +281,19 @@ class AccessVerifier:
     def _check_claims(self, claims: dict[str, Any]) -> AccessIdentity:
         if claims.get("iss") != f"https://{self.team_domain}":
             raise VerificationError("bad_issuer")
+        self._check_audience(claims)
+        self._check_validity(claims)
+        return _identity_of(claims)
+
+    def _check_audience(self, claims: dict[str, Any]) -> None:
         aud = claims.get("aud")
         audiences = [aud] if isinstance(aud, str) else aud
         if not isinstance(audiences, list) or not audiences:
             raise VerificationError("malformed")
         if self.audience not in audiences:
             raise VerificationError("bad_audience")
+
+    def _check_validity(self, claims: dict[str, Any]) -> None:
         exp = _num(claims.get("exp"))
         nbf = _num(claims["nbf"]) if "nbf" in claims else None
         if exp is None or ("nbf" in claims and nbf is None):
@@ -297,13 +303,17 @@ class AccessVerifier:
             raise VerificationError("expired")
         if nbf is not None and now < nbf:
             raise VerificationError("not_yet_valid")
-        email = claims.get("email") or ""
-        common_name = claims.get("common_name") or ""
-        subject = claims.get("sub") or ""
-        if not all(isinstance(v, str) for v in (email, common_name, subject)):
-            raise VerificationError("malformed")
-        if email and subject:
-            return AccessIdentity(subject, email, "", "sso")
-        if common_name:
-            return AccessIdentity(subject, "", common_name, "service")
+
+
+def _identity_of(claims: dict[str, Any]) -> AccessIdentity:
+    """The person (email + sub) or service token (common_name) a valid assertion names."""
+    email = claims.get("email") or ""
+    common_name = claims.get("common_name") or ""
+    subject = claims.get("sub") or ""
+    if not all(isinstance(v, str) for v in (email, common_name, subject)):
         raise VerificationError("malformed")
+    if email and subject:
+        return AccessIdentity(subject, email, "", "sso")
+    if common_name:
+        return AccessIdentity(subject, "", common_name, "service")
+    raise VerificationError("malformed")

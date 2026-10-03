@@ -85,27 +85,39 @@ def _work(store: StoreOps) -> tuple[dict[str, list[dict[str, str]]], dict[str, i
         key=lambda d: (str(d.get("created_at") or ""), str(d.get("id"))),
     )
     for run in runs:
-        workflow = run.get("workflow") or {}
-        definition = workflow.get("definition") or {}
-        label = str(definition.get("name") or workflow.get("id") or "workflow")
-        defs = {str(s.get("id")): s for s in _step_defs(definition.get("steps"))}
-        for st in run.get("steps") or ():
-            sdef = defs.get(str(st.get("def")), {})
-            host = st.get("host")
-            if st.get("status") in IN_FLIGHT and isinstance(host, str):
-                running.setdefault(host, []).append(
-                    {
-                        "step": str(sdef.get("name") or st.get("def") or st.get("key")),
-                        "workflow": label,
-                        "run_id": str(run.get("id")),
-                    }
-                )
-            elif st.get("status") == "pending":
-                placed = (sdef.get("placement") or {}).get("machine")
-                target = placed if isinstance(placed, str) and placed else host
-                if isinstance(target, str) and target:
-                    queued[target] = queued.get(target, 0) + 1
+        _tally_run(run, running, queued)
     return running, queued
+
+
+def _tally_run(
+    run: Mapping[str, Any], running: dict[str, list[dict[str, str]]], queued: dict[str, int]
+) -> None:
+    """Add ``run``'s in-flight steps to ``running`` and its pending ones to ``queued``."""
+    workflow = run.get("workflow") or {}
+    definition = workflow.get("definition") or {}
+    label = str(definition.get("name") or workflow.get("id") or "workflow")
+    defs = {str(s.get("id")): s for s in _step_defs(definition.get("steps"))}
+    for st in run.get("steps") or ():
+        sdef = defs.get(str(st.get("def")), {})
+        host = st.get("host")
+        if st.get("status") in IN_FLIGHT and isinstance(host, str):
+            running.setdefault(host, []).append(
+                {
+                    "step": str(sdef.get("name") or st.get("def") or st.get("key")),
+                    "workflow": label,
+                    "run_id": str(run.get("id")),
+                }
+            )
+        elif st.get("status") == "pending":
+            target = _queue_target(sdef, host)
+            if isinstance(target, str) and target:
+                queued[target] = queued.get(target, 0) + 1
+
+
+def _queue_target(sdef: Mapping[str, Any], host: Any) -> Any:
+    """Where a pending step waits: its placed machine, else the host it last ran on."""
+    placed = (sdef.get("placement") or {}).get("machine")
+    return placed if isinstance(placed, str) and placed else host
 
 
 def machine_statuses(store: StoreOps, now: datetime) -> list[dict[str, Any]]:

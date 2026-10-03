@@ -83,7 +83,7 @@ def parse_task_result(stdout: str) -> dict[str, Any]:
     for text in candidates:
         try:
             doc = json.loads(text)
-        except (json.JSONDecodeError, ValueError):
+        except ValueError:  # json.JSONDecodeError is a ValueError
             continue
         if isinstance(doc, dict):
             if "status" not in doc:
@@ -224,7 +224,7 @@ class MeshAgentActor:
         self,
         input: Mapping[str, Any],
         idempotency_key: str,
-        deadline: datetime,
+        _deadline: datetime,
         *,
         context: InvocationContext,
     ) -> InvocationResult:
@@ -248,7 +248,7 @@ class MeshAgentActor:
     def poll(self, deliver: Callable[[str, InvocationResult], Any]) -> int:
         """Match fresh replies to pending tasks by correlation id and deliver each once."""
         delivered = 0
-        for reply in list(self._client.replies()):
+        for reply in self._client.replies():
             key = self._pending.pop(reply.correlation_id, None)
             if key is None:  # unrelated, or a duplicate of one already delivered
                 continue

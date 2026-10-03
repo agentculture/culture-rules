@@ -61,7 +61,7 @@ import time
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any, TypeVar
+from typing import Any
 
 from culture_rules.store.port import (
     CURSOR_COLLECTION,
@@ -117,8 +117,6 @@ _TRANSIENT_LABEL = "TransientTransactionError"
 _UNKNOWN_COMMIT_LABEL = "UnknownTransactionCommitResult"
 _COMMIT_ATTEMPTS = 5
 _INSERT_CONFLICT_WAIT_S = 5.0  # how long a conflicting insert waits for the other tx to end
-
-T = TypeVar("T")
 
 
 class ConfigError(StoreError):
@@ -176,7 +174,7 @@ def build_client_kwargs(config: MongoConfig) -> dict[str, Any]:
 
 
 def _validate(config: MongoConfig, pymongo: Any) -> None:
-    from pymongo import uri_parser  # noqa: PLC0415 - lazy, after _pymongo() succeeded
+    from pymongo import uri_parser  # noqa: PLC0415 - lazy and after _pymongo() succeeded
 
     del pymongo
     try:
@@ -491,7 +489,7 @@ class MongoStore:
                     raise transient from exc
                 raise
 
-    def run_transaction(
+    def run_transaction[T](
         self, fn: Callable[[StoreOps], T], *, attempts: int = DEFAULT_ATTEMPTS, **kw: Any
     ) -> T:
         """Run ``fn(tx)`` in a transaction, re-running the body on a transient conflict."""
@@ -619,7 +617,7 @@ class _TxHandle:
             raise StoreError("transaction handle used after the transaction ended")
         return self._session
 
-    def _call(self, fn: Callable[..., T], *args: Any) -> T:
+    def _call[T](self, fn: Callable[..., T], *args: Any) -> T:
         from pymongo.errors import PyMongoError
 
         try:

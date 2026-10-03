@@ -73,55 +73,67 @@ def sequence(
     same order (see the module docstring for the rules).
     """
     decisions = tuple(decisions)
-    by_id = {d.rule_id: d for d in decisions}
-    snapshot = {r.id: r for r in rules}
-    memo: dict[str, Decision | None] = {}
-    active: set[str] = set()
+    seq = _Sequencer(decisions, rules, states)
+    return tuple(seq.adjust(d.rule_id) or d for d in decisions)
 
-    def live(pid: str) -> bool:
-        state = states.get(pid)
+
+class _Sequencer:
+    """One :func:`sequence` call's memoised walk over the predecessor relationships."""
+
+    def __init__(
+        self, decisions: tuple[Decision, ...], rules: Iterable[Rule], states: Mapping[str, str]
+    ) -> None:
+        self.states = states
+        self.by_id = {d.rule_id: d for d in decisions}
+        self.snapshot = {r.id: r for r in rules}
+        self.memo: dict[str, Decision | None] = {}
+        self.active: set[str] = set()
+
+    def live(self, pid: str) -> bool:
+        state = self.states.get(pid)
         if state is not None:
             return state == LIVE
-        if pid in active:  # a may_after cycle back to a rule being decided
+        if pid in self.active:  # a may_after cycle back to a rule being decided
             return False
-        d = adjust(pid)
+        d = self.adjust(pid)
         return d is not None and (d.fire or d.reason == BLOCKED_BY_PREDECESSOR)
 
-    def word(pid: str) -> str:
-        return f"{pid} {_WORDS.get(states.get(pid, ''), 'did not run')}"
+    def word(self, pid: str) -> str:
+        return f"{pid} {_WORDS.get(self.states.get(pid, ''), 'did not run')}"
 
-    def adjust(rid: str) -> Decision | None:
-        if rid in memo:
-            return memo[rid]
-        d = by_id.get(rid)
-        rule = snapshot.get(rid)
+    def adjust(self, rid: str) -> Decision | None:
+        if rid in self.memo:
+            return self.memo[rid]
+        d = self.by_id.get(rid)
+        rule = self.snapshot.get(rid)
         if d is None or rule is None:
-            memo[rid] = d
+            self.memo[rid] = d
             return d
-        active.add(rid)
+        self.active.add(rid)
         try:
-            out = d
-            if d.fire:
-                pending = tuple(p for p in rule.may_after if live(p))
-                if pending:
-                    out = replace(d, fire=False, reason=BLOCKED_BY_PREDECESSOR, by=pending)
-                    out = replace(out, upstream={})
-            elif d.reason == BLOCKED_BY_PREDECESSOR:
-                dead = tuple(p for p in d.by if not live(p))
-                if dead:
-                    out = Decision(
-                        rule_id=rid,
-                        fire=False,
-                        reason=PREDECESSOR_FAILED,
-                        by=dead,
-                        detail="; ".join(word(p) for p in dead),
-                    )
-                else:
-                    pending = tuple(p for p in rule.may_after if p not in d.by and live(p))
-                    out = replace(d, by=d.by + pending)
+            out = self._refine(rid, d, rule)
         finally:
-            active.discard(rid)
-        memo[rid] = out
+            self.active.discard(rid)
+        self.memo[rid] = out
         return out
 
-    return tuple(adjust(d.rule_id) or d for d in decisions)
+    def _refine(self, rid: str, d: Decision, rule: Rule) -> Decision:
+        if d.fire:
+            pending = tuple(p for p in rule.may_after if self.live(p))
+            if pending:
+                out = replace(d, fire=False, reason=BLOCKED_BY_PREDECESSOR, by=pending)
+                return replace(out, upstream={})
+            return d
+        if d.reason != BLOCKED_BY_PREDECESSOR:
+            return d
+        dead = tuple(p for p in d.by if not self.live(p))
+        if dead:
+            return Decision(
+                rule_id=rid,
+                fire=False,
+                reason=PREDECESSOR_FAILED,
+                by=dead,
+                detail="; ".join(self.word(p) for p in dead),
+            )
+        pending = tuple(p for p in rule.may_after if p not in d.by and self.live(p))
+        return replace(d, by=d.by + pending)

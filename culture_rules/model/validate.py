@@ -27,6 +27,7 @@ from culture_rules.model import serde
 from culture_rules.model.action import Action
 from culture_rules.model.actor import Actor
 from culture_rules.model.common import SCHEMA_VERSION, RetryPolicy
+from culture_rules.model.graph import find_cycle
 from culture_rules.model.machine import Machine
 from culture_rules.model.placement import PLACEMENT_FORMS, Placement
 from culture_rules.model.rule import Rule, Trigger, WorkflowRef
@@ -113,34 +114,50 @@ def _check_value(tp: Any, value: Any, path: str, name: str, errors: Errors) -> N
     tp = serde.strip_optional(tp)
     origin = get_origin(tp)
     if origin is Literal:
-        allowed = get_args(tp)
-        if value not in allowed:
-            code = "invalid_kind" if name == "kind" else "invalid_value"
-            _err(errors, path, code, f"{value!r} is not one of {', '.join(allowed)}")
+        _check_literal(tp, value, path, name, errors)
         return
     if origin is tuple:
-        if not isinstance(value, (tuple, list)):
-            _err(errors, path, "type", "expected an array")
-            return
-        item = get_args(tp)[0]
-        for i, v in enumerate(value):
-            _check_value(item, v, _join(path, i), name, errors)
+        _check_array(tp, value, path, name, errors)
         return
     if origin is dict:
-        if not isinstance(value, dict):
-            _err(errors, path, "type", "expected an object")
-            return
-        item = get_args(tp)[1]
-        for k, v in value.items():
-            _check_value(item, v, _join(path, str(k)), name, errors)
+        _check_object(tp, value, path, name, errors)
         return
     if dataclasses.is_dataclass(tp):
-        if type(value) is not tp:
-            _err(errors, path, "type", f"expected {tp.__name__}")
-            return
-        _validate(value, path, errors)
+        _check_nested(tp, value, path, errors)
         return
     _check_scalar(tp, value, path, errors)
+
+
+def _check_literal(tp: Any, value: Any, path: str, name: str, errors: Errors) -> None:
+    allowed = get_args(tp)
+    if value not in allowed:
+        code = "invalid_kind" if name == "kind" else "invalid_value"
+        _err(errors, path, code, f"{value!r} is not one of {', '.join(allowed)}")
+
+
+def _check_array(tp: Any, value: Any, path: str, name: str, errors: Errors) -> None:
+    if not isinstance(value, (tuple, list)):
+        _err(errors, path, "type", "expected an array")
+        return
+    item = get_args(tp)[0]
+    for i, v in enumerate(value):
+        _check_value(item, v, _join(path, i), name, errors)
+
+
+def _check_object(tp: Any, value: Any, path: str, name: str, errors: Errors) -> None:
+    if not isinstance(value, dict):
+        _err(errors, path, "type", "expected an object")
+        return
+    item = get_args(tp)[1]
+    for k, v in value.items():
+        _check_value(item, v, _join(path, str(k)), name, errors)
+
+
+def _check_nested(tp: Any, value: Any, path: str, errors: Errors) -> None:
+    if type(value) is not tp:
+        _err(errors, path, "type", f"expected {tp.__name__}")
+        return
+    _validate(value, path, errors)
 
 
 def _check_scalar(tp: type, value: Any, path: str, errors: Errors) -> None:
@@ -222,12 +239,17 @@ def _report_trigger_refs(value: Any, path: str, errors: Errors) -> None:
 # --- semantic pass per model ---------------------------------------------
 
 
+def _below(value: float, floor: float) -> bool:
+    """``value < floor``, counting NaN as below (it is never ``>= floor``)."""
+    return value < floor or (isinstance(value, float) and math.isnan(value))
+
+
 def _check_retry(obj: RetryPolicy, path: str, errors: Errors) -> None:
     if isinstance(obj.max_attempts, int) and obj.max_attempts < 1:
         _err(errors, _join(path, "max_attempts"), "range", "max_attempts must be >= 1")
-    if isinstance(obj.backoff_s, (int, float)) and not obj.backoff_s >= 0:
+    if isinstance(obj.backoff_s, (int, float)) and _below(obj.backoff_s, 0):
         _err(errors, _join(path, "backoff_s"), "range", "backoff_s must be >= 0")
-    if isinstance(obj.backoff_multiplier, (int, float)) and not obj.backoff_multiplier >= 1:
+    if isinstance(obj.backoff_multiplier, (int, float)) and _below(obj.backoff_multiplier, 1):
         _err(errors, _join(path, "backoff_multiplier"), "range", "backoff_multiplier must be >= 1")
 
 
@@ -403,65 +425,59 @@ def _check_edges(obj: Workflow, by_id: dict[str, Step], path: str, errors: Error
         e_path = _join(_join(path, "edges"), i)
         if not all(isinstance(getattr(edge, f.name), str) for f in dataclasses.fields(Edge)):
             continue  # structural pass already reported it
-        if _is_trigger_ref(edge.source):
-            _err(errors, _join(e_path, "source"), "trigger_reference", "edge reads the trigger")
+        ports = _edge_ports(edge, e_path, inputs, by_id, errors)
+        if ports is None:
             continue
-        if edge.source == INPUTS_NODE:
-            src_ports = inputs
-        elif edge.source in by_id:
-            src_ports = _port_types(by_id[edge.source].outputs)
-        else:
-            _err(errors, _join(e_path, "source"), "unknown_step", f"no step {edge.source!r}")
-            continue
-        if edge.target not in by_id:
-            _err(errors, _join(e_path, "target"), "unknown_step", f"no step {edge.target!r}")
-            continue
-        dst_ports = _port_types(by_id[edge.target].inputs)
-        ok = True
-        if edge.source_port not in src_ports:
-            _err(errors, _join(e_path, "source_port"), "unknown_port", f"no {edge.source_port!r}")
-            ok = False
-        if edge.target_port not in dst_ports:
-            _err(errors, _join(e_path, "target_port"), "unknown_port", f"no {edge.target_port!r}")
-            ok = False
-        if ok and not _compatible(src_ports[edge.source_port], dst_ports[edge.target_port]):
-            _err(
-                errors,
-                e_path,
-                "port_type_mismatch",
-                f"{src_ports[edge.source_port]} output wired to "
-                f"{dst_ports[edge.target_port]} input",
-            )
+        _check_wiring(edge, e_path, *ports, errors)
         if edge.source != INPUTS_NODE:
             graph.setdefault(edge.source, set()).add(edge.target)
-    cycle = _find_cycle(graph)
+    cycle = find_cycle(graph)
     if cycle:
         _err(errors, _join(path, "edges"), "cycle", "edges form a cycle: " + " -> ".join(cycle))
 
 
-def _find_cycle(graph: dict[str, set[str]]) -> list[str] | None:
-    state: dict[str, int] = {}  # 1 = on stack, 2 = done
-
-    def visit(node: str, stack: list[str]) -> list[str] | None:
-        state[node] = 1
-        stack.append(node)
-        for nxt in sorted(graph.get(node, ())):
-            if state.get(nxt) == 1:
-                return stack[stack.index(nxt) :] + [nxt]
-            if nxt not in state:
-                found = visit(nxt, stack)
-                if found:
-                    return found
-        stack.pop()
-        state[node] = 2
+def _edge_ports(
+    edge: Edge, e_path: str, inputs: dict[str, Any], by_id: dict[str, Step], errors: Errors
+) -> tuple[dict[str, Any], dict[str, Any]] | None:
+    """(source ports, target ports) of an edge whose ends resolve; else reported, None."""
+    if _is_trigger_ref(edge.source):
+        _err(errors, _join(e_path, "source"), "trigger_reference", "edge reads the trigger")
         return None
+    if edge.source == INPUTS_NODE:
+        src_ports = inputs
+    elif edge.source in by_id:
+        src_ports = _port_types(by_id[edge.source].outputs)
+    else:
+        _err(errors, _join(e_path, "source"), "unknown_step", f"no step {edge.source!r}")
+        return None
+    if edge.target not in by_id:
+        _err(errors, _join(e_path, "target"), "unknown_step", f"no step {edge.target!r}")
+        return None
+    return src_ports, _port_types(by_id[edge.target].inputs)
 
-    for node in sorted(graph):
-        if node not in state:
-            found = visit(node, [])
-            if found:
-                return found
-    return None
+
+def _check_wiring(
+    edge: Edge,
+    e_path: str,
+    src_ports: dict[str, Any],
+    dst_ports: dict[str, Any],
+    errors: Errors,
+) -> None:
+    ok = True
+    if edge.source_port not in src_ports:
+        _err(errors, _join(e_path, "source_port"), "unknown_port", f"no {edge.source_port!r}")
+        ok = False
+    if edge.target_port not in dst_ports:
+        _err(errors, _join(e_path, "target_port"), "unknown_port", f"no {edge.target_port!r}")
+        ok = False
+    if ok and not _compatible(src_ports[edge.source_port], dst_ports[edge.target_port]):
+        _err(
+            errors,
+            e_path,
+            "port_type_mismatch",
+            f"{src_ports[edge.source_port]} output wired to "
+            f"{dst_ports[edge.target_port]} input",
+        )
 
 
 def _check_outputs(obj: Workflow, by_id: dict[str, Step], path: str, errors: Errors) -> None:

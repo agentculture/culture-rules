@@ -20,7 +20,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 
-from culture_rules.auth.access import AccessVerifier
+from culture_rules.auth.access import AccessIdentity, AccessVerifier
 from culture_rules.auth.principal import Principal, Unauthenticated, role_rank
 from culture_rules.auth.tokens import ServiceTokens
 
@@ -82,21 +82,10 @@ class Resolver:
         s = self.settings
         assertion = h.get(ACCESS_HEADER.lower(), "")
         if s.listener == LOOPBACK and s.access is not None and assertion:
-            asserted = s.access.verify(assertion)  # VerificationError is an Unauthenticated
-            # a person gets the default role; an Access service token only what is listed
-            base = s.sso_default_role if asserted.kind == "sso" else "viewer"
-            listed = "editor" if asserted.identity in s.editors else base
-            role = max(base, listed, key=role_rank)
-            return self._elevate(Principal(asserted.identity, asserted.kind, frozenset({role})))
+            return self._from_access(s.access.verify(assertion))  # raises Unauthenticated
         authorization = h.get("authorization", "")
         if authorization:
-            scheme, _, presented = authorization.partition(" ")
-            principal = None
-            if scheme.lower() == "bearer":
-                principal = self._tokens.authenticate(presented.strip())
-            if principal is None:
-                raise Unauthenticated("bad_token", "the bearer token is unknown or revoked")
-            return self._elevate(principal)
+            return self._from_bearer(authorization)
         if s.insecure_dev_identity:
             identity = (h.get(DEV_IDENTITY_HEADER.lower()) or "").strip() or ANONYMOUS
             return Principal(identity, "sso", frozenset({"admin"}))
@@ -105,6 +94,23 @@ class Resolver:
             "authenticate with 'Authorization: Bearer <service token>'"
             + (" or Cloudflare Access" if s.listener == LOOPBACK and s.access else ""),
         )
+
+    def _from_access(self, asserted: AccessIdentity) -> Principal:
+        s = self.settings
+        # a person gets the default role; an Access service token only what is listed
+        base = s.sso_default_role if asserted.kind == "sso" else "viewer"
+        listed = "editor" if asserted.identity in s.editors else base
+        role = max(base, listed, key=role_rank)
+        return self._elevate(Principal(asserted.identity, asserted.kind, frozenset({role})))
+
+    def _from_bearer(self, authorization: str) -> Principal:
+        scheme, _, presented = authorization.partition(" ")
+        principal = None
+        if scheme.lower() == "bearer":
+            principal = self._tokens.authenticate(presented.strip())
+        if principal is None:
+            raise Unauthenticated("bad_token", "the bearer token is unknown or revoked")
+        return self._elevate(principal)
 
     def _elevate(self, principal: Principal) -> Principal:
         if principal.identity in self.settings.admins:

@@ -40,7 +40,7 @@ MAX_INPUT_LEN = 10_000
 MAX_DEPTH = 64
 
 CMP_OPS = ("==", "!=", "<=", ">=", "<", ">")
-_IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
+_IDENT = re.compile(r"[A-Za-z_]\w*\Z", re.ASCII)
 
 
 class ConditionError(ValueError):
@@ -123,14 +123,7 @@ def validate(node: Any, path: str = "$", depth: int = 0) -> None:
         _check_operand(node.get("left"), path + ".left")
         _check_operand(node.get("right"), path + ".right")
     elif op in ("and", "or"):
-        args = node.get("args")
-        # At least two args: a single-argument group has no text form of its own, so it
-        # would not round-trip through to_text/from_text (Qwen review of t2). Editors unwrap
-        # a one-item group before saving.
-        if not isinstance(args, list) or len(args) < 2:
-            raise _err(f"{op} needs an args list of at least two conditions", path)
-        for i, a in enumerate(args):
-            validate(a, f"{path}.args[{i}]", depth + 1)
+        _validate_group(node, op, path, depth)
     elif op == "not":
         if "arg" not in node:
             raise _err("not needs arg", path)
@@ -141,18 +134,33 @@ def validate(node: Any, path: str = "$", depth: int = 0) -> None:
         _check_operand(node.get("value"), path + ".value")
         _check_operand(node.get("items"), path + ".items")
     elif op == "matches":
-        _check_operand(node.get("value"), path + ".value")
-        pat = node.get("pattern")
-        if not isinstance(pat, str):
-            raise _err("pattern must be a string", path)
-        if len(pat) > MAX_PATTERN_LEN:
-            raise _err(f"pattern longer than {MAX_PATTERN_LEN} characters", path)
-        try:
-            re.compile(pat)
-        except re.error as exc:
-            raise _err(f"invalid pattern: {exc}", path) from exc
+        _validate_matches(node, path)
     else:
         raise _err(f"unknown op {op!r}", path)
+
+
+def _validate_group(node: dict, op: str, path: str, depth: int) -> None:
+    args = node.get("args")
+    # At least two args: a single-argument group has no text form of its own, so it
+    # would not round-trip through to_text/from_text (Qwen review of t2). Editors unwrap
+    # a one-item group before saving.
+    if not isinstance(args, list) or len(args) < 2:
+        raise _err(f"{op} needs an args list of at least two conditions", path)
+    for i, a in enumerate(args):
+        validate(a, f"{path}.args[{i}]", depth + 1)
+
+
+def _validate_matches(node: dict, path: str) -> None:
+    _check_operand(node.get("value"), path + ".value")
+    pat = node.get("pattern")
+    if not isinstance(pat, str):
+        raise _err("pattern must be a string", path)
+    if len(pat) > MAX_PATTERN_LEN:
+        raise _err(f"pattern longer than {MAX_PATTERN_LEN} characters", path)
+    try:
+        re.compile(pat)
+    except re.error as exc:
+        raise _err(f"invalid pattern: {exc}", path) from exc
 
 
 # --------------------------------------------------------------------------- evaluation
@@ -285,30 +293,39 @@ def to_text(tree: dict) -> str:
 
 # --------------------------------------------------------------------------- text: parse
 
-_TOKEN = re.compile(
-    r"""\s*(?:
-    (?P<str>"(?:[^"\\]|\\.)*")
-  | (?P<num>-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)
-  | (?P<id>[A-Za-z_][A-Za-z0-9_]*)
-  | (?P<op>&&|\|\||==|!=|<=|>=|<|>|!|\(|\)|\[|\]|,|\.)
-    )""",
-    re.VERBOSE,
+# One pattern per token kind, tried in this order at each position (first match wins).
+_TOKEN_KINDS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("str", re.compile(r'"(?:[^"\\]|\\.)*"')),
+    ("num", re.compile(r"-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?")),
+    ("id", re.compile(r"[A-Za-z_]\w*", re.ASCII)),
+    ("op", re.compile(r"&&|\|\||==|!=|<=|>=|<|>|!|\(|\)|\[|\]|,|\.")),
 )
+_SPACE = re.compile(r"\s*")
+
+
+def _next_token(text: str, pos: int) -> tuple[str, str, int, int] | None:
+    """(kind, value, start, end) of the token after any whitespace at ``pos``, or None."""
+    space = _SPACE.match(text, pos)
+    start = space.end() if space else pos  # \s* always matches; the guard is for typing
+    for kind, pattern in _TOKEN_KINDS:
+        m = pattern.match(text, start)
+        if m:
+            return kind, m.group(), start, m.end()
+    return None
 
 
 def _tokenize(text: str) -> list[tuple[str, str, int]]:
     out: list[tuple[str, str, int]] = []
     pos = 0
     while True:
-        m = _TOKEN.match(text, pos)
-        if not m:
+        tok = _next_token(text, pos)
+        if tok is None:
             if text[pos:].strip():
                 bad = pos + len(text[pos:]) - len(text[pos:].lstrip())
                 raise ConditionParseError(f"unexpected character {text[bad]!r}", bad)
             break
-        kind = m.lastgroup or ""
-        out.append((kind, m.group(kind), m.start(kind)))
-        pos = m.end()
+        kind, value, start, pos = tok
+        out.append((kind, value, start))
     out.append(("end", "", len(text)))
     return out
 
@@ -424,23 +441,27 @@ class _Parser:
             self.i += 1
             return {"literal": {"true": True, "false": False, "null": None}[v]}
         if k == "id" and v in ("trigger", "vars"):
-            self.i += 1
-            parts = []
-            while self._is("."):
-                self.i += 1
-                if self.tok[0] != "id":
-                    self._fail("expected a name after '.'")
-                parts.append(self.tok[1])
-                self.i += 1
-            if not parts:
-                self._fail(f"expected '.name' after {v!r}")
-            if v == "vars":
-                if len(parts) != 1:
-                    raise ConditionParseError("variables take a single name", p)
-                return {"var": parts[0]}
-            return {"field": ".".join(parts)}
+            return self.reference(v, p)
         self._fail("expected a value (literal, trigger.<path> or vars.<name>)")
         raise AssertionError  # pragma: no cover
+
+    def reference(self, root: str, p: int) -> dict:
+        """``trigger.<path>`` or ``vars.<name>``, with ``root`` the current token."""
+        self.i += 1
+        parts = []
+        while self._is("."):
+            self.i += 1
+            if self.tok[0] != "id":
+                self._fail("expected a name after '.'")
+            parts.append(self.tok[1])
+            self.i += 1
+        if not parts:
+            self._fail(f"expected '.name' after {root!r}")
+        if root == "vars":
+            if len(parts) != 1:
+                raise ConditionParseError("variables take a single name", p)
+            return {"var": parts[0]}
+        return {"field": ".".join(parts)}
 
     def list_(self) -> list:
         self._eat("[")

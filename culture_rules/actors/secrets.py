@@ -39,7 +39,7 @@ __all__ = [
 
 GRANT_SCHEME = "grant"
 _REF_RE = re.compile(r"^grant:([A-Za-z0-9][A-Za-z0-9._/-]*)$")
-_VAR_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_VAR_RE = re.compile(r"^[A-Za-z_]\w*$", re.ASCII)
 # A key is secret-bearing when one of its whole segments (split on "_", "-" and camelCase
 # humps) names a secret - so "github_token" and "apiKey" are, "author" and "auth_mode" are
 # not - unless a segment marks it as a budget/limit ("max_tokens", "token_budget").
@@ -171,19 +171,22 @@ def run_with_secrets(
     )
 
 
+def _assert_mapping_refs_only(params: Mapping, path: str) -> None:
+    for key, value in params.items():
+        here = f"{path}.{key}" if path else str(key)
+        if not (isinstance(value, str) and _is_secret_key(str(key))):
+            assert_refs_only(value, here)
+        elif value and not is_secret_ref(value):
+            raise SecretError(f"{here}: secret must be a 'grant:<NAME>' reference")
+
+
 def assert_refs_only(params: Any, path: str = "") -> None:
     """Raise :class:`SecretError` if a secret-looking key holds a literal instead of a reference.
 
     Walks nested mappings and lists; the error names the offending path, never the value.
     """
     if isinstance(params, Mapping):
-        for key, value in params.items():
-            here = f"{path}.{key}" if path else str(key)
-            if isinstance(value, str) and _is_secret_key(str(key)):
-                if value and not is_secret_ref(value):
-                    raise SecretError(f"{here}: secret must be a 'grant:<NAME>' reference")
-            else:
-                assert_refs_only(value, here)
+        _assert_mapping_refs_only(params, path)
     elif isinstance(params, (list, tuple)):
         for i, item in enumerate(params):
             assert_refs_only(item, f"{path}[{i}]")

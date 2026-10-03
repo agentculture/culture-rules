@@ -30,15 +30,18 @@ PORT_TYPES: tuple[str, ...] = ("string", "number", "integer", "boolean", "object
 STEP_KINDS: tuple[str, ...] = ("logic", "ai", "code", "actor_task", "for_each", "retry_until")
 LOOP_KINDS: tuple[str, ...] = ("for_each", "retry_until")
 
+_VALUE_TYPE = "Value type"
+_FREE_TEXT = "Free text"
+
 
 @dataclass(frozen=True, kw_only=True)
 class Port(Model):
     """A typed input or output port of a step or workflow."""
 
     name: str = doc("Port name, unique per side")
-    type: PortType = doc("Value type", default="any")
+    type: PortType = doc(_VALUE_TYPE, default="any")
     required: bool = doc("Must be wired / supplied", default=True)
-    description: str = doc("Free text", default="")
+    description: str = doc(_FREE_TEXT, default="")
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -46,7 +49,7 @@ class Variable(Model):
     """A workflow-local variable."""
 
     name: str = doc("Variable name")
-    type: PortType = doc("Value type", default="any")
+    type: PortType = doc(_VALUE_TYPE, default="any")
     default: Any = doc("Initial value (any JSON)", default=None)
 
 
@@ -55,7 +58,7 @@ class Output(Model):
     """An explicitly exported workflow output."""
 
     name: str = doc("Output name")
-    type: PortType = doc("Value type", default="any")
+    type: PortType = doc(_VALUE_TYPE, default="any")
     source: str | None = doc(
         "Reference: inputs.<n>, vars.<n> or steps.<id>.outputs.<port>", default=None
     )
@@ -77,7 +80,7 @@ class Step(Model):
 
     id: str = doc("Step id, unique within the workflow (including loop bodies)")
     name: str = doc("Display name", default="")
-    description: str = doc("Free text", default="")
+    description: str = doc(_FREE_TEXT, default="")
     kind: StepKind = doc("logic | ai | code | actor_task | for_each | retry_until")
     inputs: tuple[Port, ...] = doc("Typed input ports", default=())
     outputs: tuple[Port, ...] = doc("Typed output ports", default=())
@@ -110,7 +113,7 @@ class Workflow(Model):
 
     id: str = doc("Stable workflow id")
     name: str = doc("Display name")
-    description: str = doc("Free text", default="")
+    description: str = doc(_FREE_TEXT, default="")
     version: int = doc("Definition version (>= 1)", default=1)
     inputs: tuple[Port, ...] = doc("Workflow inputs", default=())
     variables: tuple[Variable, ...] = doc("Workflow-local variables", default=())

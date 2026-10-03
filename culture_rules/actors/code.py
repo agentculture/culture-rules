@@ -92,25 +92,31 @@ def check_step_inline_allowed(
         check_inline_allowed(identity, is_admin=is_admin)
 
 
+def _is_int(value: Any) -> bool:
+    return not isinstance(value, bool) and isinstance(value, int)
+
+
+def _is_number(value: Any) -> bool:
+    return not isinstance(value, bool) and isinstance(value, int | float)
+
+
+#: Per declared argument type: (accepts the value?, what it must be, render as argv text).
+_COERCIONS: dict[str, tuple[Callable[[Any], bool], str, Callable[[Any], str]]] = {
+    "string": (lambda v: isinstance(v, str), "a string", lambda v: v),
+    "int": (_is_int, "an int", str),
+    "number": (_is_number, "a number", repr),
+    "bool": (lambda v: isinstance(v, bool), "a bool", lambda v: "true" if v else "false"),
+}
+
+
 def _coerce(name: str, kind: str, value: Any) -> str:
-    if kind == "string":
-        if not isinstance(value, str):
-            raise CodeRunnerError(f"argument {name!r} must be a string")
-        text = value
-    elif kind == "int":
-        if isinstance(value, bool) or not isinstance(value, int):
-            raise CodeRunnerError(f"argument {name!r} must be an int")
-        text = str(value)
-    elif kind == "number":
-        if isinstance(value, bool) or not isinstance(value, int | float):
-            raise CodeRunnerError(f"argument {name!r} must be a number")
-        text = repr(value)
-    elif kind == "bool":
-        if not isinstance(value, bool):
-            raise CodeRunnerError(f"argument {name!r} must be a bool")
-        text = "true" if value else "false"
-    else:
+    coercion = _COERCIONS.get(kind) if isinstance(kind, str) else None
+    if coercion is None:
         raise CodeRunnerError(f"argument {name!r} has unknown type {kind!r}")
+    accepts, what, render = coercion
+    if not accepts(value):
+        raise CodeRunnerError(f"argument {name!r} must be {what}")
+    text = render(value)
     if "\x00" in text:
         raise CodeRunnerError(f"argument {name!r} contains a NUL byte")
     return text
@@ -192,7 +198,7 @@ class CodeRunner:
         self,
         input: Mapping[str, Any],
         idempotency_key: str,
-        deadline: datetime,
+        _deadline: datetime,
         *,
         context: InvocationContext,
     ) -> InvocationResult:

@@ -71,7 +71,7 @@ def store_from_env() -> StoragePort:
 
 def _create_app() -> Callable[..., Any]:
     try:
-        import fastapi  # noqa: F401, PLC0415 - optional extra, imported lazily
+        import fastapi  # noqa: F401, PLC0415 - optional extra imported lazily
 
         from culture_rules.server.app import create_app  # noqa: PLC0415
     except ImportError as exc:
@@ -129,7 +129,7 @@ def build_listeners(
 def _run_servers(configs: list[Any]) -> None:
     import asyncio  # noqa: PLC0415
 
-    import uvicorn  # noqa: PLC0415 - optional extra, imported lazily
+    import uvicorn  # noqa: PLC0415 - optional extra imported lazily
 
     async def main() -> None:
         await asyncio.gather(*(uvicorn.Server(c).serve() for c in configs))
@@ -149,7 +149,7 @@ def serve(
 ) -> None:
     """Serve the HTTP API (one or two listeners) until interrupted. Stateless: run many."""
     _create_app()  # fail fast and cleanly without the extra
-    import uvicorn  # noqa: PLC0415 - optional extra, imported lazily
+    import uvicorn  # noqa: PLC0415 - optional extra imported lazily
 
     listeners = build_listeners(
         store if store is not None else store_from_env(),

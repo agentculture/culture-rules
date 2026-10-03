@@ -174,30 +174,11 @@ def read_files(files: Mapping[str, str]) -> ReadResult:
     found: dict[str, list[Any]] = {k: [] for k in (*KINDS, SECRETS_DIR)}
     seen: set[tuple[str, str]] = set()
     for rel in sorted(files):
-        kind, _, fname = rel.partition("/")
-        fmt = codec.format_of(fname)
-        if kind not in found or fmt is None or "/" in fname:
-            errors.append(
-                IssueRecord(
-                    rel,
-                    "unrecognised_path",
-                    "expected <rules|workflows|actors|secrets>/<id>.<yaml|yml|json>",
-                )
-            )
+        parsed = _parse_file(rel, files[rel], found)
+        if isinstance(parsed, IssueRecord):
+            errors.append(parsed)
             continue
-        cls = KINDS.get(kind, SecretRef)
-        stem = fname.rsplit(".", 1)[0]
-        try:
-            data = codec.loads(files[rel], fmt)
-            obj = serde.from_dict(cls, data)
-        except serde.ModelParseError as exc:
-            errors.append(
-                IssueRecord(f"{rel}:{exc.path}" if exc.path else rel, exc.code, exc.message)
-            )
-            continue
-        except ValueError as exc:
-            errors.append(IssueRecord(rel, "parse", str(exc)))
-            continue
+        kind, stem, obj = parsed
         ident = obj.name if kind == SECRETS_DIR else obj.id
         if ident != stem:
             errors.append(
@@ -220,6 +201,28 @@ def read_files(files: Mapping[str, str]) -> ReadResult:
         secrets=tuple(found[SECRETS_DIR]),
     )
     return ReadResult(bundle, errors)
+
+
+def _parse_file(rel: str, text: str, dirs: Mapping[str, Any]) -> tuple[str, str, Any] | IssueRecord:
+    """(kind, file stem, model object) of one definition file, or the problem with it."""
+    kind, _, fname = rel.partition("/")
+    fmt = codec.format_of(fname)
+    if kind not in dirs or fmt is None or "/" in fname:
+        return IssueRecord(
+            rel,
+            "unrecognised_path",
+            "expected <rules|workflows|actors|secrets>/<id>.<yaml|yml|json>",
+        )
+    cls = KINDS.get(kind, SecretRef)
+    stem = fname.rsplit(".", 1)[0]
+    try:
+        data = codec.loads(text, fmt)
+        obj = serde.from_dict(cls, data)
+    except serde.ModelParseError as exc:
+        return IssueRecord(f"{rel}:{exc.path}" if exc.path else rel, exc.code, exc.message)
+    except ValueError as exc:
+        return IssueRecord(rel, "parse", str(exc))
+    return kind, stem, obj
 
 
 def _validate_one(obj: Any, kind: str) -> list[tuple[str, str, str]]:
@@ -292,25 +295,30 @@ def _plan_import(read: ReadResult, store: StoreOps, apply: bool) -> ImportPlan:
     writes: list[tuple[str, dict[str, Any]]] = []
     for kind in (*KINDS, SECRETS_DIR):
         for obj in getattr(read.bundle, kind):
-            new = _stored_form(kind, obj)
-            ident = new["id"] if "id" in new else obj.id
-            current = store.get(kind, ident)
-            path = f"{kind}/{ident}"
-            new_text = _pretty(new)
-            if current is None:
-                changes.append(Change(kind, ident, path, "add", _diff("", new_text, path)))
-            else:
-                old_text = _pretty(_normalise(kind, current))
-                if old_text == new_text:
-                    changes.append(Change(kind, ident, path, "unchanged"))
-                    continue
-                changes.append(Change(kind, ident, path, "change", _diff(old_text, new_text, path)))
-            writes.append((kind, new))
+            change, new = _change_for(kind, obj, store)
+            changes.append(change)
+            if change.action != "unchanged":
+                writes.append((kind, new))
     plan = ImportPlan(changes, list(read.errors))
     if apply and not plan.errors:
         _write_all(store, writes)
         plan.applied = True
     return plan
+
+
+def _change_for(kind: str, obj: Any, store: StoreOps) -> tuple[Change, dict[str, Any]]:
+    """How importing ``obj`` changes the store, and the document it would write."""
+    new = _stored_form(kind, obj)
+    ident = new["id"] if "id" in new else obj.id
+    current = store.get(kind, ident)
+    path = f"{kind}/{ident}"
+    new_text = _pretty(new)
+    if current is None:
+        return Change(kind, ident, path, "add", _diff("", new_text, path)), new
+    old_text = _pretty(_normalise(kind, current))
+    if old_text == new_text:
+        return Change(kind, ident, path, "unchanged"), new
+    return Change(kind, ident, path, "change", _diff(old_text, new_text, path)), new
 
 
 def _normalise(kind: str, stored: Mapping[str, Any]) -> dict[str, Any]:

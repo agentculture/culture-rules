@@ -96,7 +96,7 @@ class MigrationRegistry:
             step = self._steps.get((collection, current))
             if step is None or step.to_major > target_major:
                 raise MigrationError(
-                    f"no migration path for {collection} from major {current} " f"to {target_major}"
+                    f"no migration path for {collection} from major {current} to {target_major}"
                 )
             steps.append(step)
             current = step.to_major
@@ -136,13 +136,29 @@ def migrate(
         )
     names = registry.collections() if collections is None else list(collections)
 
+    plan = _plan(store, registry, names, target)
+    _require_backup(backup)
+    report = MigrationReport(target_major=target, migrated=dict.fromkeys(names, 0))
+    for name, doc_id, steps in plan:
+        if _migrate_one(store, registry, name, doc_id, steps, target):
+            report.migrated[name] += 1
+    return report
+
+
+def _plan(
+    store: StoragePort, registry: MigrationRegistry, names: list[str], target: int
+) -> list[tuple[str, str, list[MigrationStep]]]:
+    """(collection, id, chain) for every document below ``target``; a gap raises."""
     plan: list[tuple[str, str, list[MigrationStep]]] = []
     for name in names:
         for doc in store.find(name):
             version = SchemaVersion.parse(doc.get("schema_version", "0.0"))
             if version.major < target:
                 plan.append((name, doc["id"], registry.chain(name, version.major, target)))
+    return plan
 
+
+def _require_backup(backup: BackupHook) -> None:
     try:
         verdict = backup()
     except Exception as exc:
@@ -150,22 +166,29 @@ def migrate(
     if not _backup_ok(verdict):
         raise BackupRequiredError(f"backup hook did not report ok: {verdict!r}")
 
-    report = MigrationReport(target_major=target, migrated=dict.fromkeys(names, 0))
-    for name, doc_id, steps in plan:
-        with store.transaction() as tx:
-            doc = tx.get(name, doc_id)
-            if doc is None:
-                continue
-            version = SchemaVersion.parse(doc.get("schema_version", "0.0"))
-            if version.major >= target:
-                continue
-            if version.major != steps[0].from_major:
-                steps = registry.chain(name, version.major, target)
-            for step in steps:
-                doc = step.fn(doc)
-                if doc.get("id") != doc_id:
-                    raise MigrationError(f"migration {name} {step.from_major} changed the id")
-                doc["schema_version"] = f"{step.to_major}.0"
-            tx.put(name, doc)
-        report.migrated[name] += 1
-    return report
+
+def _migrate_one(
+    store: StoragePort,
+    registry: MigrationRegistry,
+    name: str,
+    doc_id: str,
+    steps: list[MigrationStep],
+    target: int,
+) -> bool:
+    """Rewrite one document in its own transaction; False when it no longer needs it."""
+    with store.transaction() as tx:
+        doc = tx.get(name, doc_id)
+        if doc is None:
+            return False
+        version = SchemaVersion.parse(doc.get("schema_version", "0.0"))
+        if version.major >= target:
+            return False
+        if version.major != steps[0].from_major:
+            steps = registry.chain(name, version.major, target)
+        for step in steps:
+            doc = step.fn(doc)
+            if doc.get("id") != doc_id:
+                raise MigrationError(f"migration {name} {step.from_major} changed the id")
+            doc["schema_version"] = f"{step.to_major}.0"
+        tx.put(name, doc)
+    return True
