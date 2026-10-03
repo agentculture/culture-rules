@@ -167,10 +167,13 @@ def test_machines_status_reports_liveness_load_running_and_queue(store, client):
 
     thor = by["thor"]
     assert thor["load"] == {"cpu": 100.0, "gpu": None, "mem": 50.0}  # clamped, gpu absent
-    assert thor["running"] == [] and thor["queue_depth"] == 1  # the step placed on thor
+    assert thor["running"] == []
+    assert thor["queue_depth"] == 1  # the step placed on thor
 
     orin = by["orin"]
-    assert orin["online"] is False and orin["load"] is None and orin["running"] == []
+    assert orin["online"] is False
+    assert orin["load"] is None
+    assert orin["running"] == []
 
 
 def test_machines_status_for_a_machine_that_never_beat(store, client):

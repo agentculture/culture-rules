@@ -107,7 +107,8 @@ def test_drain_first_replays_persisted_history_past_the_cursor():
     api = FakeEventsCli(history, queued=["d"])
     batch = _source(api).drain("1", max=10, timeout=0.5)
     assert [e["id"] for e in batch.envelopes] == ["evt_b", "evt_c"]
-    assert batch.cursor == "3" and api.drains == []  # broker untouched while history has more
+    assert batch.cursor == "3"
+    assert api.drains == []  # broker untouched while history has more
 
 
 def test_drain_goes_to_the_broker_when_history_is_caught_up():
@@ -116,7 +117,8 @@ def test_drain_goes_to_the_broker_when_history_is_caught_up():
     src = _source(api)
     batch = src.drain("1", max=2, timeout=0.5)
     assert [e["id"] for e in batch.envelopes] == ["evt_b", "evt_c"]
-    assert batch.cursor == "3" and batch.has_more is True
+    assert batch.cursor == "3"
+    assert batch.has_more is True
     assert api.drains == [("culture-rules-h1", 1, 2, 0.5)]
 
 
@@ -141,7 +143,8 @@ def test_drain_ignores_a_caller_supplied_store_option_like_ensure_does():
 def test_drain_from_no_cursor_starts_at_zero():
     api = FakeEventsCli(FakeHistory())
     batch = _source(api).drain(None, max=5, timeout=0.0)
-    assert batch.envelopes == () and batch.cursor is None
+    assert batch.envelopes == ()
+    assert batch.cursor is None
 
 
 def test_drain_rejects_a_foreign_cursor():
@@ -318,12 +321,14 @@ def test_fan_in_drains_every_depth_and_resumes_from_its_own_cursor():
     api.queues = {names[0]: ["a"], names[1]: ["b", "c"]}
     batch = src.drain(None, max=10, timeout=0.0)
     assert sorted(e["id"] for e in batch.envelopes) == ["evt_a", "evt_b", "evt_c"]
-    assert batch.has_more is False and batch.cursor is not None
+    assert batch.has_more is False
+    assert batch.cursor is not None
     api.queues[names[1]].append("d")
     again = src.drain(batch.cursor, max=10, timeout=0.0)
     assert [e["id"] for e in again.envelopes] == ["evt_d"]
     empty = src.drain(again.cursor, max=10, timeout=0.0)
-    assert empty.envelopes == () and empty.cursor == again.cursor
+    assert empty.envelopes == ()
+    assert empty.cursor == again.cursor
 
 
 def test_fan_in_respects_the_batch_bound_and_reports_more():
@@ -345,7 +350,8 @@ def test_fan_in_respects_the_batch_bound_and_reports_more():
 def test_fan_in_empty_from_the_start_keeps_a_none_cursor():
     api = PerSubEventsCli({})
     batch = _fan_in(api).drain(None, max=5, timeout=0.0)
-    assert batch.envelopes == () and batch.cursor is None
+    assert batch.envelopes == ()
+    assert batch.cursor is None
 
 
 def test_fan_in_rejects_a_foreign_cursor():

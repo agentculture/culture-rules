@@ -22,13 +22,16 @@ def _render(text: str) -> str:
 
 
 def test_templates_exist() -> None:
-    assert UNIT.is_file() and ENV.is_file() and DOC.is_file()
+    assert UNIT.is_file()
+    assert ENV.is_file()
+    assert DOC.is_file()
 
 
 def test_unit_renders_with_no_leftover_placeholders() -> None:
     rendered = _render(UNIT.read_text())
     assert not PLACEHOLDER.search(rendered)
-    assert "[Service]" in rendered and "[Install]" in rendered
+    assert "[Service]" in rendered
+    assert "[Install]" in rendered
 
 
 def test_unit_seals_token_via_grant_run_inject() -> None:
@@ -71,7 +74,8 @@ def test_doc_records_dry_run_then_apply_and_id_table() -> None:
     assert HOSTNAME in text
     for field in ("tunnel id", "Access app id", "AUD tag", "tunnel name"):
         assert field.lower() in text.lower(), field
-    assert "grant set" in text and "grant run --inject" in text
+    assert "grant set" in text
+    assert "grant run --inject" in text
     assert "shushu" not in text.lower()
     assert "302" in text  # unauthenticated request gets the Access redirect
     assert "hand-turn" in text.lower()

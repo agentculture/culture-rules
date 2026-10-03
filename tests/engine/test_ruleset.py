@@ -112,7 +112,8 @@ def test_a_rule_that_supersedes_and_must_run_after_the_same_rule_is_unrunnable()
     errors = validate_rule_set(rules, WF)
     assert codes(errors) == ["unrunnable_relationship"]
     assert errors[0].path == "rules[0]"
-    assert "'A'" in errors[0].message and "'B'" in errors[0].message
+    assert "'A'" in errors[0].message
+    assert "'B'" in errors[0].message
 
 
 def test_the_transitive_unrunnable_relationship_is_rejected_too():

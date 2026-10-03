@@ -32,7 +32,8 @@ def test_batches_are_bounded_by_batch_size():
 def test_ingest_stops_after_max_batches_even_if_more_is_queued():
     source = FakeEventSource([envelope(i) for i in range(10)])
     results = EventIngest(MemoryStore(), source, host="h", batch_size=2).ingest(max_batches=2)
-    assert len(results) == 2 and results[-1].has_more is True
+    assert len(results) == 2
+    assert results[-1].has_more is True
 
 
 @pytest.mark.parametrize("size", [0, -1, MAX_BATCH + 1, 1.5, True])
@@ -77,7 +78,8 @@ def test_an_empty_drain_keeps_the_cursor():
     store = MemoryStore()
     ingest = EventIngest(store, FakeEventSource(), host="h")
     (result,) = ingest.ingest()
-    assert result.received == 0 and result.cursor is None
+    assert result.received == 0
+    assert result.cursor is None
     assert store.load_cursor(ingest.consumer, ingest.cursor_key) is None
 
 

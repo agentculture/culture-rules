@@ -50,7 +50,8 @@ def test_publish_workflow_watches_web_and_builds_it_before_uv_build():
 def test_sonar_analyses_web_src_and_excludes_build_output():
     props = (ROOT / "sonar-project.properties").read_text(encoding="utf-8")
     sources = re.search(r"^sonar\.sources=(.*)$", props, re.M).group(1).split(",")
-    assert "culture_rules" in sources and "web/src" in sources
+    assert "culture_rules" in sources
+    assert "web/src" in sources
     exclusions = re.search(r"^sonar\.exclusions=(.*)$", props, re.M).group(1)
     for pattern in ("web/dist/**", "web/node_modules/**", "culture_rules/web_dist/**"):
         assert pattern in exclusions

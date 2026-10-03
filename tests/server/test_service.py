@@ -31,7 +31,8 @@ def test_create_then_get_roundtrips_and_audits(defs, store):
     assert doc["id"] == "r1"
     assert defs.get("rules", "r1")["name"] == "r1"
     entry = store.find(AUDIT_COLLECTION)[0]
-    assert entry["identity"] == "alice" and entry["verb"] == "definitions.create"
+    assert entry["identity"] == "alice"
+    assert entry["verb"] == "definitions.create"
 
 
 def test_create_twice_conflicts_and_missing_update_is_not_found(defs):
@@ -48,7 +49,8 @@ def test_invalid_definition_reports_errors_and_writes_nothing(defs, store):
     with pytest.raises(Invalid) as exc:
         defs.create("rules", bad, "alice")
     assert exc.value.errors
-    assert store.find("rules") == [] and store.find(AUDIT_COLLECTION) == []
+    assert store.find("rules") == []
+    assert store.find(AUDIT_COLLECTION) == []
 
 
 def test_path_id_must_match_body_id(defs):
@@ -88,10 +90,12 @@ def test_machines_are_keyed_by_name(defs):
 def test_import_dry_run_changes_nothing_apply_commits_with_one_audit_entry(defs, store):
     files = {"rules/r1.json": __import__("json").dumps(rb())}
     plan = defs.import_files(files, "alice")
-    assert plan["applied"] is False and plan["changes"][0]["action"] == "add"
+    assert plan["applied"] is False
+    assert plan["changes"][0]["action"] == "add"
     assert store.find("rules") == []
     plan = defs.import_files(files, "alice", apply=True)
-    assert plan["applied"] is True and store.get("rules", "r1")
+    assert plan["applied"] is True
+    assert store.get("rules", "r1")
     assert len(store.find(AUDIT_COLLECTION)) == 1
     again = defs.import_files(files, "alice")
     assert again["changes"][0]["action"] == "unchanged"

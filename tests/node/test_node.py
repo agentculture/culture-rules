@@ -142,7 +142,8 @@ def test_one_cycle_ingests_fires_starts_and_drives_the_run_until_idle():
 
     assert c.base.get(EVENTS_COLLECTION, "evt_1") is not None
     run = c.run("r", "evt_1")
-    assert run is not None and run["status"] == "succeeded", run
+    assert run is not None, run
+    assert run["status"] == "succeeded", run
     assert run["started_by"] == "engine@spark"
     assert step_state(run, ACTION_STEP)["status"] == "succeeded"
     assert report.ingested == 1
@@ -152,10 +153,12 @@ def test_one_cycle_ingests_fires_starts_and_drives_the_run_until_idle():
     assert report.errors == []
     assert c.base.get(RULE_FIRES, run["id"]) is None  # intents are keyed by firing key
     (intent,) = c.base.find(RULE_FIRES, {"rule_id": "r"})
-    assert intent["status"] == "started" and intent["run_id"] == run["id"]
+    assert intent["status"] == "started"
+    assert intent["run_id"] == run["id"]
     # the action saw the trigger
     action_calls = [call for call in c.actor.calls if call[2].step_id == ACTION_STEP]
-    assert action_calls and action_calls[0][1]["event"] == "evt_1"
+    assert action_calls
+    assert action_calls[0][1]["event"] == "evt_1"
     json.dumps(report.to_dict())  # the report is JSON-serialisable
 
 
@@ -174,7 +177,8 @@ def test_a_non_matching_event_starts_nothing():
     c.start()
     c.publish(envelope(1, type="something.else"))
     report = c.nodes["spark"].run_once()
-    assert report.started == [] and c.base.find(RUNS_COLLECTION) == []
+    assert report.started == []
+    assert c.base.find(RUNS_COLLECTION) == []
 
 
 # --------------------------------------------------------------------------- several hosts
@@ -187,12 +191,14 @@ def test_placed_rule_is_evaluated_only_on_its_host():
     c.publish(envelope(1))
 
     c.cycle("spark", "spark2")
-    assert c.evaluations == [] and c.run("on-thor", "evt_1") is None
+    assert c.evaluations == []
+    assert c.run("on-thor", "evt_1") is None
     c.cycle("thor")
 
     assert c.evaluations == [("thor", "on-thor", "evt_1")]
     run = c.run("on-thor", "evt_1")
-    assert run["status"] == "succeeded" and run["started_by"] == "engine@thor"
+    assert run["status"] == "succeeded"
+    assert run["started_by"] == "engine@thor"
 
 
 def test_unplaced_rule_is_evaluated_exactly_once_across_hosts():
@@ -251,7 +257,8 @@ def test_placed_rule_on_a_drained_host_keeps_its_event_until_undrained():
     report = c.cycle()["thor"]
     assert c.run("on-thor", "evt_1") is None
     assert c.evaluations == []
-    assert report.deferred and report.deferred[0]["event"] == "evt_1"
+    assert report.deferred
+    assert report.deferred[0]["event"] == "evt_1"
     assert "drained" in report.deferred[0]["reason"]
     assert report.errors == []
     c.cycle()  # still drained: still kept, never silently consumed
@@ -323,7 +330,8 @@ def test_stored_actor_definitions_are_wired_through_limits_and_released_on_deliv
 
     assert node.deliver(key, InvocationResult.completed({"n": 5, "tokens": 7})) is True
     usage = c.base.get("actor_usage", "bot")
-    assert usage["inflight"] == [] and usage["tokens"] == 7  # released on deliver
+    assert usage["inflight"] == []
+    assert usage["tokens"] == 7  # released on deliver
     node.run_once()
     assert c.run("r", "evt_1")["status"] == "succeeded"
     assert made == ["bot"]  # the adapter is cached, not rebuilt per call
@@ -365,7 +373,8 @@ def test_finished_runs_are_reported_once_by_the_node_that_started_them():
     assert posters["spark"].posts == []
     assert len(posters["thor"].posts) == 1
     channel, text = posters["thor"].posts[0]
-    assert channel == "#rules" and "succeeded" in text
+    assert channel == "#rules"
+    assert "succeeded" in text
 
 
 def test_cycle_logs_are_json_with_host_and_run_context():
@@ -387,7 +396,8 @@ def test_cycle_logs_are_json_with_host_and_run_context():
         logger.setLevel(old)
     lines = [json.loads(line) for line in stream.getvalue().splitlines()]
     started = [ln for ln in lines if ln["run_id"] == run_id_for("r", "evt_1")]
-    assert started and all(ln["host"] == "spark" for ln in started)
+    assert started
+    assert all(ln["host"] == "spark" for ln in started)
 
 
 # --------------------------------------------------------------------------- loop
@@ -447,7 +457,8 @@ def test_run_loops_until_stop_and_stops_gracefully():
     node.stop()
     thread.join(timeout=10)
     assert not thread.is_alive()
-    assert cycles and cycles[0] >= 1
+    assert cycles
+    assert cycles[0] >= 1
     assert c.run("r", "evt_1")["status"] == "succeeded"
 
 

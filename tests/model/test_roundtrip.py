@@ -129,7 +129,8 @@ def test_from_json_rejects_non_object() -> None:
 
 def test_int_accepted_for_float_field() -> None:
     step = Step.from_json('{"id":"s","name":"s","kind":"code","timeout_s":30}')
-    assert step.timeout_s == 30.0 and isinstance(step.timeout_s, float)
+    assert step.timeout_s == 30.0
+    assert isinstance(step.timeout_s, float)
 
 
 def test_bool_not_accepted_for_int_field() -> None:

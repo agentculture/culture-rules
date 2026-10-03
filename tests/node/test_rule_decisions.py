@@ -53,9 +53,12 @@ def test_a_superseded_rule_records_superseded_by_its_superseder():
     assert c.run("b", "evt_1") is None
     (doc,) = decisions(c, "b")
     assert doc["id"] == decision_key("b", "evt_1")
-    assert doc["rule_id"] == "b" and doc["event_id"] == "evt_1"
-    assert doc["reason"] == "superseded_by" and doc["by"] == ["a"]
-    assert doc["host"] == "spark" and doc["at"]
+    assert doc["rule_id"] == "b"
+    assert doc["event_id"] == "evt_1"
+    assert doc["reason"] == "superseded_by"
+    assert doc["by"] == ["a"]
+    assert doc["host"] == "spark"
+    assert doc["at"]
     assert doc["message"] == "superseded by a"
     assert decisions(c, "a") == []  # a fired: its history is the run
 
@@ -72,9 +75,11 @@ def test_group_lost_and_blocked_by_predecessor_are_recorded_too():
     c.cycle()
 
     (lost,) = decisions(c, "lo")
-    assert lost["reason"] == "group_lost" and lost["by"] == ["hi"]
+    assert lost["reason"] == "group_lost"
+    assert lost["by"] == ["hi"]
     (blocked,) = decisions(c, "down")
-    assert blocked["reason"] == "blocked_by_predecessor" and blocked["by"] == ["hi"]
+    assert blocked["reason"] == "blocked_by_predecessor"
+    assert blocked["by"] == ["hi"]
 
 
 def test_condition_false_and_disabled_are_not_recorded():
@@ -114,10 +119,12 @@ def test_decision_rolls_back_with_the_trigger_transaction(monkeypatch):
     monkeypatch.setattr(firing_mod, "run_id_for", broken)
     report = c.nodes["spark"].run_once()
     assert report.errors, report
-    assert decisions(c) == [] and c.base.find(RULE_FIRES) == []
+    assert decisions(c) == []
+    assert c.base.find(RULE_FIRES) == []
 
     monkeypatch.setattr(firing_mod, "run_id_for", real)
     c.cycle()
     (doc,) = decisions(c, "b")
-    assert doc["reason"] == "superseded_by" and doc["by"] == ["z"]
+    assert doc["reason"] == "superseded_by"
+    assert doc["by"] == ["z"]
     assert c.run("z", "evt_1") is not None

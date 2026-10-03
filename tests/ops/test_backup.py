@@ -140,7 +140,8 @@ def test_snapshot_is_server_side_encrypted(s3, clock):
     rec = make_backup(s3, store, clock).snapshot()
     head = s3.head_object(Bucket=BUCKET, Key=rec.key)
     assert head["ServerSideEncryption"] == "AES256"
-    assert rec.counts["rules"] == 3 and rec.counts["runs"] == 2
+    assert rec.counts["rules"] == 3
+    assert rec.counts["runs"] == 2
 
 
 def test_kms_sse_passes_key_id(s3, clock):
@@ -242,7 +243,8 @@ def test_increments_carry_run_history_changes(s3, clock):
     store.delete("runs", "run2")
     store.put("rules", {"id": "r-late"})  # config is NOT in increments
     inc = b.increment()
-    assert inc.kind == "increment" and inc.counts["runs"] == 3
+    assert inc.kind == "increment"
+    assert inc.counts["runs"] == 3
     target = MemoryStore()
     b.restore(target)
     assert target.get("runs", "run3")["state"] == "new"
@@ -286,7 +288,8 @@ def test_restore_upto_point_in_time(s3, clock):
     b.increment()
     target = MemoryStore()
     b.restore(target, upto=first.created_at)
-    assert target.get("runs", "early") and target.get("runs", "late") is None
+    assert target.get("runs", "early")
+    assert target.get("runs", "late") is None
 
 
 def test_restore_detects_corruption(s3, clock):
@@ -308,7 +311,8 @@ def test_schedule_daily_snapshot_hourly_increment(s3, clock):
     b = make_backup(s3, store, clock)
     assert b.due(clock()) == "snapshot"
     assert b.tick().kind == "snapshot"
-    assert b.due(clock()) is None and b.tick() is None
+    assert b.due(clock()) is None
+    assert b.tick() is None
     clock.advance(minutes=59)
     assert b.tick() is None
     clock.advance(minutes=1)
@@ -350,7 +354,8 @@ def test_drill_flags_mismatch(s3, clock):
     b.snapshot()
     store.put("rules", {"id": "unbacked"})
     result = b.drill(MemoryStore(), source=store)
-    assert result.verified is False and result.mismatches
+    assert result.verified is False
+    assert result.mismatches
 
 
 def test_cli_main_snapshot_and_restore(s3, clock, monkeypatch, capsys):

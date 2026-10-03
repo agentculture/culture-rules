@@ -35,14 +35,16 @@ def reason(v: AccessVerifier, tok: str) -> str:
 def test_valid_interactive_token_yields_sso_identity():
     ident = verifier().verify(token())
     assert ident.kind == "sso"
-    assert ident.email == "alice@example.com" and ident.subject == "user-sub-1"
+    assert ident.email == "alice@example.com"
+    assert ident.subject == "user-sub-1"
     assert ident.identity == "alice@example.com"
 
 
 def test_valid_access_service_token_yields_service_identity():
     body = claims(email=None, common_name="ci.abcdef.access", sub="")
     ident = verifier().verify(token(body))
-    assert ident.kind == "service" and ident.identity == "ci.abcdef.access"
+    assert ident.kind == "service"
+    assert ident.identity == "ci.abcdef.access"
 
 
 def test_audience_may_be_a_single_string():
@@ -202,7 +204,8 @@ def test_access_module_is_stdlib_only():
         "print('ok')\n"
     )
     done = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
-    assert done.returncode == 0 and done.stdout.strip() == "ok", done.stderr
+    assert done.returncode == 0, done.stderr
+    assert done.stdout.strip() == "ok", done.stderr
 
 
 def test_failing_jwks_fetch_is_negative_cached_for_forged_tokens():

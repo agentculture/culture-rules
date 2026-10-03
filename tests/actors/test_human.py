@@ -91,7 +91,8 @@ def open_asks(store):
 def test_invoke_creates_ask_and_emits_exactly_one_event(store, sink, ex):
     run_id = start(ex, timeout_s=60)
     (ask,) = store.find(ASKS_COLLECTION)
-    assert ask["id"] == ask["id"].strip() and ask["id"]
+    assert ask["id"] == ask["id"].strip()
+    assert ask["id"]
     assert ask["status"] == "open"
     reqs = [e for e in sink.envelopes if e["type"] == ASK_REQUESTED]
     assert len(reqs) == 1
@@ -99,7 +100,8 @@ def test_invoke_creates_ask_and_emits_exactly_one_event(store, sink, ex):
     assert data["ask_id"] == ask["id"]
     assert data["question"] == "Ship it?"
     assert data["options"] == ["yes", "no"]
-    assert data["run_id"] == run_id and data["step_id"] == "h"
+    assert data["run_id"] == run_id
+    assert data["step_id"] == "h"
     assert data["deadline"]
     assert data["schema_version"] == SCHEMA_VERSION
     assert reqs[0]["schemaVersion"] == "1"
@@ -151,7 +153,8 @@ def test_answer_resumes_run_once(store, ex):
     run_id = start(ex, timeout_s=60)
     (ask,) = store.find(ASKS_COLLECTION)
     out = answer_ask(store, ex, ask["id"], "yes", "alice")
-    assert out["status"] == "answered" and out["answer"] == "yes"
+    assert out["status"] == "answered"
+    assert out["answer"] == "yes"
     ex.run_until_idle()
     doc = ex.run(run_id)
     assert doc["status"] == "succeeded"
@@ -235,7 +238,8 @@ def test_timeout_reasks_with_new_attempt_id_and_expires_the_old_ask(store, sink,
     asks = store.find(ASKS_COLLECTION)
     assert len(asks) == 2
     second = next(a for a in asks if a["id"] != first["id"])
-    assert second["attempt"] == 2 and first["attempt"] == 1
+    assert second["attempt"] == 2
+    assert first["attempt"] == 1
     assert store.get(ASKS_COLLECTION, first["id"])["status"] == "expired"
     assert second["status"] == "open"
     reqs = [e for e in sink.envelopes if e["type"] == ASK_REQUESTED]
@@ -276,5 +280,7 @@ def test_missing_question_fails_non_retryable(store, human, clock, sink):
 
     ctx = InvocationContext("r", "h", "actor_task", "spark", 1, None, {})
     res = human.invoke({}, "k", clock(), context=ctx)
-    assert res.outcome == "failed" and res.retryable is False
-    assert not store.find(ASKS_COLLECTION) and not sink.envelopes
+    assert res.outcome == "failed"
+    assert res.retryable is False
+    assert not store.find(ASKS_COLLECTION)
+    assert not sink.envelopes

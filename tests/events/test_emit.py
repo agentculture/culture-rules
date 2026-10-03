@@ -30,8 +30,10 @@ def test_derived_envelope_points_at_its_cause():
     assert out["causationId"] == "evt_1"
     assert out["correlationId"] == "evt_1"  # a root cause starts the correlation
     assert "runId" not in out
-    assert out["id"] != "evt_1" and out["id"].startswith("evt_")
-    assert out["schemaVersion"] == "1" and out["data"] == {}
+    assert out["id"] != "evt_1"
+    assert out["id"].startswith("evt_")
+    assert out["schemaVersion"] == "1"
+    assert out["data"] == {}
     assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z", out["time"])
 
 
@@ -66,11 +68,13 @@ def test_emitter_publishes_root_and_caused_events():
     assert isinstance(sink, EventSink)
     emitter = Emitter(sink, source="culture-rules://engine")
     root = emitter.emit("run.started", {"rule": "r"}, run_id="run_7")
-    assert root["correlationId"] == root["id"] and root["runId"] == "run_7"
+    assert root["correlationId"] == root["id"]
+    assert root["runId"] == "run_7"
     assert "causationId" not in root
     child = emitter.emit("run.finished", cause=root)
     assert child["causationId"] == root["id"]
-    assert child["correlationId"] == root["id"] and child["runId"] == "run_7"
+    assert child["correlationId"] == root["id"]
+    assert child["runId"] == "run_7"
     assert sink.published == [root, child]
 
 

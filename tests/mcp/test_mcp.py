@@ -102,7 +102,8 @@ def test_dry_run_sends_nothing_mutating(client, wire, store):
         res = call(client, name, args)
         assert not res.isError, res.content
         out = payload(res)
-        assert out["dry_run"] is True and out["applied"] is False
+        assert out["dry_run"] is True
+        assert out["applied"] is False
     assert wire.mutating() == []
     assert snapshot(store) == before
 
@@ -143,5 +144,6 @@ def test_server_only_talks_to_the_client_factory(client, wire):
             await session.call_tool("rules_list", {})
 
     asyncio.run(go())
-    assert calls and wire.calls, "the tool call must reach the API through the client"
+    assert calls, "the tool call must reach the API through the client"
+    assert wire.calls, "the tool call must reach the API through the client"
     assert all(c[0] == "GET" for c in wire.calls)

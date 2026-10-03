@@ -33,7 +33,8 @@ def test_poll_reports_fired_and_skipped():
     source.publish(envelope(1))
     ingest.ingest()
     result = triggers.poll(timeout=1.0)
-    assert result.fired == ("evt_1",) and result.skipped == ()
+    assert result.fired == ("evt_1",)
+    assert result.skipped == ()
     assert result.token == store.load_cursor(triggers.consumer, EVENTS_COLLECTION)
 
 
@@ -86,9 +87,11 @@ def test_non_insert_changes_are_ignored_but_advance_the_cursor():
     store.delete(EVENTS_COLLECTION, "manual")  # never done by culture-rules; must not fire
     head = store.head(EVENTS_COLLECTION)
     result = triggers.poll(timeout=1.0)
-    assert fired == ["manual"] and result.ignored == 1
+    assert fired == ["manual"]
+    assert result.ignored == 1
     cursor = store.load_cursor(triggers.consumer, EVENTS_COLLECTION)
-    assert cursor != pinned and cursor == head  # moved past the ignored delete too
+    assert cursor != pinned
+    assert cursor == head  # moved past the ignored delete too
     assert list(store.changes(EVENTS_COLLECTION, cursor)) == []
 
 
@@ -114,7 +117,8 @@ def test_fire_marker_records_host_and_event():
     ingest.ingest()
     triggers.poll(timeout=1.0)
     marker = store.get(FIRES_COLLECTION, triggers.fire_id("evt_1"))
-    assert marker["event_id"] == "evt_1" and marker["host"] == "host-z"
+    assert marker["event_id"] == "evt_1"
+    assert marker["host"] == "host-z"
     assert marker["consumer"] == triggers.consumer
 
 

@@ -55,13 +55,15 @@ def test_one_host_stopped_keeps_serving_and_actions_run_exactly_once(cluster):
     duplicates = {k: c for k, c in effects.items() if c > 1}
     lost = expected - set(effects)
     assert sum(effects.values()) == EVENTS
-    assert duplicates == {} and lost == set()
+    assert duplicates == {}
+    assert lost == set()
     assert set(effects) == expected
     acted_on = sorted(e.input["event"] for e in cluster.ledger.log if e.step == ACTION_STEP)
     assert acted_on == sorted(f"evt_{n}" for n in range(EVENTS))  # each event's own action
     # the failover was real: survivors finished work thor had started or never reached
     after_kill = cluster.ledger.hosts_after(cluster.host("thor").killed_at, step=ACTION_STEP)
-    assert after_kill and "thor" not in after_kill
+    assert after_kill
+    assert "thor" not in after_kill
     # the engine re-invoked a key only where an ack was really lost: the step thor died in
     # (reclaimed after the lease) plus any store hiccup a host loop recorded
     crashed = cluster.host("thor").crashed_key

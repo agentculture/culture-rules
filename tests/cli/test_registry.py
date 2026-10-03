@@ -49,11 +49,14 @@ def test_required_verbs_exist_per_noun():
 
 def test_every_verb_carries_name_schema_mutating_flag_and_role():
     for v in REGISTRY.verbs():
-        assert v.noun and v.name and v.summary
+        assert v.noun
+        assert v.name
+        assert v.summary
         assert v.role in ROLES
         assert isinstance(v.mutating, bool)
         schema = v.params_schema()
-        assert schema["type"] == "object" and "properties" in schema
+        assert schema["type"] == "object"
+        assert "properties" in schema
         assert ("apply" in schema["properties"]) == v.mutating
         if v.mutating:
             assert v.role != "viewer"

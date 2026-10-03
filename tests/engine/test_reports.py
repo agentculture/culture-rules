@@ -55,7 +55,9 @@ def test_finished_run_posts_summary_to_channel(store, clock):
     assert RunReporter(poster, channel="#runs").report(doc) is True
     [(channel, text)] = poster.posts
     assert channel == "#runs"
-    assert doc["id"] in text and "r1" in text and "succeeded" in text
+    assert doc["id"] in text
+    assert "r1" in text
+    assert "succeeded" in text
 
 
 def test_failed_run_summary_carries_the_error(store, clock):

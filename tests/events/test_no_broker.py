@@ -100,7 +100,8 @@ def test_events_cli_is_imported_lazily_and_only_by_the_adapter():
             assert not hits, f"{path} imports events_cli"
             continue
         top_level = {id(n) for n in tree.body}
-        assert hits and all(id(n) not in top_level for n in hits), "import must be lazy"
+        assert hits, "import must be lazy"
+        assert all(id(n) not in top_level for n in hits), "import must be lazy"
 
 
 def test_pyproject_declares_no_broker_and_events_cli_only_as_an_extra():

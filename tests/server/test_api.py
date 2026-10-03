@@ -13,17 +13,21 @@ from tests.server.conftest import ALICE, dev_app, rule_body, workflow_body
 def test_health_reports_node_status(client):
     body = client.get("/health").json()
     assert body["status"] in ("ok", "degraded", "down")
-    assert body["store"]["reachable"] is True and "heartbeat" in body and "executor" in body
+    assert body["store"]["reachable"] is True
+    assert "heartbeat" in body
+    assert "executor" in body
 
 
 def test_rule_crud_roundtrip(client):
     r = client.post("/rules", json=rule_body(), headers=ALICE)
-    assert r.status_code == 201 and r.json()["id"] == "r1"
+    assert r.status_code == 201
+    assert r.json()["id"] == "r1"
     assert client.get("/rules/r1").json()["name"] == "r1"
     assert [i["id"] for i in client.get("/rules").json()["items"]] == ["r1"]
     changed = rule_body(name="renamed")
     r = client.put("/rules/r1", json=changed, headers=ALICE)
-    assert r.status_code == 200 and r.json()["name"] == "renamed"
+    assert r.status_code == 200
+    assert r.json()["name"] == "renamed"
     assert client.get("/rules/missing").status_code == 404
 
 
@@ -33,7 +37,8 @@ def test_error_envelope_for_invalid_and_conflict(client):
     r = client.post("/rules", json=bad)
     assert r.status_code == 422
     err = r.json()["error"]
-    assert err["code"] == "invalid" and err["errors"]
+    assert err["code"] == "invalid"
+    assert err["errors"]
     client.post("/rules", json=rule_body())
     assert client.post("/rules", json=rule_body()).status_code == 409
 
@@ -61,7 +66,8 @@ def test_toggle_enabled_and_audit_identity(client, store):
 def test_soft_delete_and_restore(client):
     client.post("/rules", json=rule_body(), headers=ALICE)
     r = client.delete("/rules/r1", headers=ALICE)
-    assert r.status_code == 200 and r.json()["deleted_by"] == "alice"
+    assert r.status_code == 200
+    assert r.json()["deleted_by"] == "alice"
     assert client.get("/rules").json()["items"] == []
     assert len(client.get("/rules?include_deleted=true").json()["items"]) == 1
     assert client.delete("/rules/r1").status_code == 409
@@ -89,11 +95,13 @@ def test_runs_create_list_get_cancel(client):
     r = client.post("/runs", json={"rule_id": "r1", "trigger": {}}, headers=ALICE)
     assert r.status_code == 201
     run = r.json()
-    assert run["status"] == "running" and run["started_by"] == "alice"
+    assert run["status"] == "running"
+    assert run["started_by"] == "alice"
     assert [x["id"] for x in client.get("/runs").json()["items"]] == [run["id"]]
     assert client.get(f"/runs/{run['id']}").json()["rule"]["id"] == "r1"
     c = client.post(f"/runs/{run['id']}/cancel", json={"reason": "no"}, headers=ALICE)
-    assert c.status_code == 200 and c.json()["status"] == "cancelled"
+    assert c.status_code == 200
+    assert c.json()["status"] == "cancelled"
     assert client.post(f"/runs/{run['id']}/cancel", json={}).status_code == 409
     assert client.get("/runs/nope").status_code == 404
     assert client.get("/runs?status=cancelled").json()["items"][0]["id"] == run["id"]
@@ -126,10 +134,12 @@ def test_export_import_roundtrip_between_two_apps(client):
     client.post("/rules", json=rule_body())
     client.post("/workflows", json=workflow_body())
     exported = client.get("/export?format=json").json()
-    assert "rules/r1.json" in exported["files"] and "workflows/wf.json" in exported["files"]
+    assert "rules/r1.json" in exported["files"]
+    assert "workflows/wf.json" in exported["files"]
     other = TestClient(dev_app(MemoryStore()))
     dry = other.post("/import", json={"files": exported["files"]}).json()
-    assert dry["applied"] is False and {c["action"] for c in dry["changes"]} == {"add"}
+    assert dry["applied"] is False
+    assert {c["action"] for c in dry["changes"]} == {"add"}
     assert other.get("/rules").json()["items"] == []
     done = other.post("/import", json={"files": exported["files"], "apply": True}, headers=ALICE)
     assert done.json()["applied"] is True
@@ -151,7 +161,8 @@ def test_import_with_rule_set_error_is_422(client):
 
 def test_unknown_ask_is_404(client):
     r = client.post("/asks/a1/answer", json={"answer": "yes"}, headers=ALICE)
-    assert r.status_code == 404 and r.json()["error"]["code"] == "ask_not_found"
+    assert r.status_code == 404
+    assert r.json()["error"]["code"] == "ask_not_found"
 
 
 def test_asks_answer_hook_is_injectable(store):
@@ -163,7 +174,8 @@ def test_asks_answer_hook_is_injectable(store):
 
     c = TestClient(dev_app(store, answer_ask=hook))
     r = c.post("/asks/a1/answer", json={"answer": 3}, headers=ALICE)
-    assert r.status_code == 200 and seen == [("a1", 3, "alice")]
+    assert r.status_code == 200
+    assert seen == [("a1", 3, "alice")]
 
 
 def test_delete_and_purge_of_a_referenced_rule_is_409_rule_referenced(client):
@@ -175,7 +187,8 @@ def test_delete_and_purge_of_a_referenced_rule_is_409_rule_referenced(client):
     r = client.delete("/rules/a", headers=ALICE)
     assert r.status_code == 409
     err = r.json()["error"]
-    assert err["code"] == "rule_referenced" and "b" in r.text
+    assert err["code"] == "rule_referenced"
+    assert "b" in r.text
     assert client.get("/rules/a").json().get("deleted_at") is None
     # once the referrer is gone the delete goes through
     assert client.delete("/rules/b", headers=ALICE).status_code == 200

@@ -27,7 +27,8 @@ def test_answer_endpoint_resumes_run_once_then_conflicts():
 
     client = TestClient(dev_app(store, host="spark"))
     r = client.post(f"/asks/{ask['id']}/answer", json={"answer": "yes"}, headers=ALICE)
-    assert r.status_code == 200 and r.json()["status"] == "answered"
+    assert r.status_code == 200
+    assert r.json()["status"] == "answered"
     again = client.post(f"/asks/{ask['id']}/answer", json={"answer": "no"}, headers=ALICE)
     assert again.status_code == 409
     assert again.json()["error"]["code"] == "ask_already_answered"

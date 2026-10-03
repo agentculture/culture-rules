@@ -51,7 +51,8 @@ def test_machine_form_resolves():
 
 def test_address_defaults_to_machine_name():
     r = go(Placement(machine="edge"))
-    assert isinstance(r, Resolved) and r.address == "edge"
+    assert isinstance(r, Resolved)
+    assert r.address == "edge"
 
 
 def test_actor_form_resolves_to_actor_machine():
@@ -74,7 +75,8 @@ def test_structured_errors(placement, code):
     r = go(placement)
     assert isinstance(r, PlacementError)
     assert r.code == code
-    assert r.to_dict()["code"] == code and r.message
+    assert r.to_dict()["code"] == code
+    assert r.message
 
 
 def test_offline_drained_disabled_unknown_state_refused():
@@ -84,19 +86,23 @@ def test_offline_drained_disabled_unknown_state_refused():
         ([], "placement.machine_offline"),
     ]:
         r = go(Placement(machine="nuc"), states=states)
-        assert isinstance(r, PlacementError) and r.code == code
+        assert isinstance(r, PlacementError)
+        assert r.code == code
     r = go(Placement(machine="nuc"), machines=[m("nuc", enabled=False)])
-    assert isinstance(r, PlacementError) and r.code == "placement.machine_disabled"
+    assert isinstance(r, PlacementError)
+    assert r.code == "placement.machine_disabled"
 
 
 def test_disabled_actor_refused():
     r = go(Placement(actor="x"), actors=[a("x", "nuc", enabled=False)])
-    assert isinstance(r, PlacementError) and r.code == "placement.actor_disabled"
+    assert isinstance(r, PlacementError)
+    assert r.code == "placement.actor_disabled"
 
 
 def test_requirement_resolves_only_to_advertising_host():
     r = go(Placement(requirement=("gpu",)))
-    assert isinstance(r, Resolved) and r.machine in {"spark", "edge"}
+    assert isinstance(r, Resolved)
+    assert r.machine in {"spark", "edge"}
 
 
 def test_requirement_is_deterministic_and_skips_unhealthy():
@@ -108,12 +114,14 @@ def test_requirement_is_deterministic_and_skips_unhealthy():
         MachineState("nuc", True, False),
     ]
     r = go(Placement(requirement=("gpu",)), states=states)
-    assert isinstance(r, Resolved) and r.machine == "edge"
+    assert isinstance(r, Resolved)
+    assert r.machine == "edge"
 
 
 def test_requirement_via_actor_capability():
     r = go(Placement(requirement=("vision",)), actors=[a("v", "nuc", ["vision"])])
-    assert isinstance(r, Resolved) and r.machine == "nuc"
+    assert isinstance(r, Resolved)
+    assert r.machine == "nuc"
     r = go(Placement(requirement=("vision",)), actors=[a("v", "nuc", ["vision"], enabled=False)])
     assert isinstance(r, PlacementError)
 
@@ -124,7 +132,8 @@ def test_requirement_none_enrolled_is_validation_error():
     assert r.code == "placement.requirement_unmet"
     assert "tpu" in r.message
     v = r.to_validation_error()
-    assert v.code == "placement.requirement_unmet" and v.path
+    assert v.code == "placement.requirement_unmet"
+    assert v.path
 
 
 def test_requirement_needs_all_capabilities():
@@ -175,7 +184,8 @@ def test_machine_with_public_address_refused_as_dispatch():
     ms = [m("pub", ["gpu"], "rules.culture.dev")]
     st = [MachineState("pub", True, False)]
     r = go(Placement(machine="pub"), ms, st, [])
-    assert isinstance(r, PlacementError) and r.code == "placement.address_refused"
+    assert isinstance(r, PlacementError)
+    assert r.code == "placement.address_refused"
     r = go(Placement(requirement=("gpu",)), ms, st, [])
     assert isinstance(r, PlacementError)
     r = go(
@@ -184,7 +194,8 @@ def test_machine_with_public_address_refused_as_dispatch():
         st + [MachineState("lan", True, False)],
         [],
     )
-    assert isinstance(r, Resolved) and r.machine == "lan"
+    assert isinstance(r, Resolved)
+    assert r.machine == "lan"
 
 
 def test_step_placement_resolves_like_placement():

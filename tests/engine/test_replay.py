@@ -51,7 +51,8 @@ def test_skip_reasons_are_reported():
     rules.append(rule("c", enabled=False))
     report = replay([env(1)], rules)
     reasons = {s.rule_id: (s.reason, s.message) for s in report.skipped}
-    assert reasons["b"][0] == GROUP_LOST and "a" in reasons["b"][1]
+    assert reasons["b"][0] == GROUP_LOST
+    assert "a" in reasons["b"][1]
     assert reasons["c"][0] == DISABLED
     assert [w.rule_id for w in report.would_fire] == ["a"]
 

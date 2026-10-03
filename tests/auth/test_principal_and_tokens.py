@@ -52,8 +52,11 @@ def test_issue_returns_secret_once_and_stores_only_a_hash(store):
     issued = ServiceTokens(store).issue("root", name="ci-bot", roles=["editor"])
     assert issued.token.startswith("crt_")
     (doc,) = store.find(SERVICE_TOKENS)
-    assert doc["id"] == issued.id and doc["identity"] == "ci-bot" and doc["roles"] == ["editor"]
-    assert doc["kind"] == "service" and doc["revoked_at"] is None
+    assert doc["id"] == issued.id
+    assert doc["identity"] == "ci-bot"
+    assert doc["roles"] == ["editor"]
+    assert doc["kind"] == "service"
+    assert doc["revoked_at"] is None
     assert issued.token not in repr(doc)
     secret = issued.token.split(".", 1)[1]
     assert doc["hash"] == hashlib.sha256(secret.encode()).hexdigest()
@@ -82,7 +85,8 @@ def test_revoked_token_no_longer_authenticates(store):
     tokens = ServiceTokens(store)
     issued = tokens.issue("root", name="x", roles=["viewer"])
     revoked = tokens.revoke(issued.id, "root")
-    assert revoked["revoked_by"] == "root" and revoked["revoked_at"]
+    assert revoked["revoked_by"] == "root"
+    assert revoked["revoked_at"]
     assert tokens.authenticate(issued.token) is None
     with pytest.raises(TokenError):
         tokens.revoke(issued.id, "root")
