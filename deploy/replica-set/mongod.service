@@ -1,0 +1,22 @@
+# Bare-metal alternative to compose.yaml. Install to /etc/systemd/system/culture-rules-mongod.service,
+# then: systemctl daemon-reload && systemctl enable --now culture-rules-mongod
+# Reads /etc/culture-rules-mongo/replica-set.env (copy of replica-set.env.example).
+[Unit]
+Description=culture-rules MongoDB replica-set member
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=mongodb
+Group=mongodb
+EnvironmentFile=/etc/culture-rules-mongo/replica-set.env
+ExecStart=/usr/bin/mongod --replSet ${MONGO_REPLSET} --bind_ip ${MONGO_BIND_IP} --port ${MONGO_PORT} \
+  --dbpath ${MONGO_DATA_DIR} --wiredTigerCacheSizeGB ${MONGO_CACHE_GB} \
+  --keyFile /etc/culture-rules-mongo/keyfile \
+  --tlsMode requireTLS --tlsCertificateKeyFile /etc/culture-rules-mongo/server.pem \
+  --tlsCAFile /etc/culture-rules-mongo/ca.pem --tlsAllowConnectionsWithoutCertificates
+Restart=on-failure
+LimitNOFILE=64000
+
+[Install]
+WantedBy=multi-user.target
