@@ -75,8 +75,9 @@ def test_slot_released_on_failure_and_on_exception():
     actor, inner, _, _ = make(ActorLimits(max_concurrency=1), inner)
     assert actor.invoke({}, "k1", DEADLINE, context=ctx("a")).outcome == FAILED
     assert actor.usage()["in_flight"] == 0
+    context = ctx("a")
     with pytest.raises(ConnectionError):
-        actor.invoke({}, "k2", DEADLINE, context=ctx("a"))
+        actor.invoke({}, "k2", DEADLINE, context=context)
     assert actor.usage()["in_flight"] == 0
 
 

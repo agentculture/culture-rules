@@ -124,5 +124,6 @@ def test_fire_marker_records_host_and_event():
 
 @pytest.mark.parametrize("kw", [{"host": ""}, {"host": "h", "consumer": ""}])
 def test_constructor_validates(kw):
+    store = MemoryStore()
     with pytest.raises(ValueError):
-        EventTriggers(MemoryStore(), lambda tx, d: None, **kw)
+        EventTriggers(store, lambda tx, d: None, **kw)

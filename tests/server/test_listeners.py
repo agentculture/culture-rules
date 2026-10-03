@@ -42,8 +42,9 @@ def test_with_access_config_there_are_two_listeners():
 @pytest.mark.parametrize("drop", sorted(k for k in ENV if k.startswith("CULTURE_RULES_ACCESS")))
 def test_partial_access_config_is_refused(drop):
     env = {k: v for k, v in ENV.items() if k != drop}
+    store = MemoryStore()
     with pytest.raises(AccessConfigError):
-        serve_mod.build_listeners(MemoryStore(), env=env)
+        serve_mod.build_listeners(store, env=env)
 
 
 def test_loopback_honours_access_jwt_lan_ignores_it_and_needs_a_token():

@@ -38,22 +38,25 @@ def test_ingest_stops_after_max_batches_even_if_more_is_queued():
 
 @pytest.mark.parametrize("size", [0, -1, MAX_BATCH + 1, 1.5, True])
 def test_batch_size_must_be_a_bounded_positive_int(size):
+    store, source = MemoryStore(), FakeEventSource()
     with pytest.raises(ValueError):
-        EventIngest(MemoryStore(), FakeEventSource(), host="h", batch_size=size)
+        EventIngest(store, source, host="h", batch_size=size)
 
 
 @pytest.mark.parametrize("host", ["", None, 3])
 def test_host_is_required(host):
+    store, source = MemoryStore(), FakeEventSource()
     with pytest.raises(ValueError):
-        EventIngest(MemoryStore(), FakeEventSource(), host=host)
+        EventIngest(store, source, host=host)
 
 
 def test_a_source_that_overdelivers_is_refused_and_nothing_is_inserted():
     source = FakeEventSource([envelope(i) for i in range(5)])
     source.overdeliver = True
     store = MemoryStore()
+    ingest = EventIngest(store, source, host="h", batch_size=2)
     with pytest.raises(EventFabricError, match="bound"):
-        EventIngest(store, source, host="h", batch_size=2).ingest_once()
+        ingest.ingest_once()
     assert store.find(EVENTS_COLLECTION) == []
 
 

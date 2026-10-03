@@ -37,10 +37,12 @@ def test_principal_validates_kind_and_roles_and_serialises():
     assert p.to_dict() == {"identity": "bot", "kind": "agent", "roles": ["editor"]}
     with pytest.raises(ValueError):
         Principal("x", "robot", frozenset())
+    unknown_role = frozenset({"superuser"})
     with pytest.raises(ValueError):
-        Principal("x", "sso", frozenset({"superuser"}))
+        Principal("x", "sso", unknown_role)
+    no_roles = frozenset()
     with pytest.raises(ValueError):
-        Principal("  ", "sso", frozenset())
+        Principal("  ", "sso", no_roles)
 
 
 @pytest.fixture

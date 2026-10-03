@@ -91,13 +91,15 @@ def test_real_client_object_carries_majority_and_tls(certs):
 
 
 def test_uri_without_credentials_is_refused():
+    config = MongoConfig("mongodb://127.0.0.1:27999/?replicaSet=rs0")
     with pytest.raises(ConfigError, match="authentication"):
-        MongoStore(MongoConfig("mongodb://127.0.0.1:27999/?replicaSet=rs0"), connect=False)
+        MongoStore(config, connect=False)
 
 
 def test_uri_disabling_tls_is_refused():
+    config = MongoConfig(URI + "&tls=false")
     with pytest.raises(ConfigError, match="TLS"):
-        MongoStore(MongoConfig(URI + "&tls=false"), connect=False)
+        MongoStore(config, connect=False)
 
 
 def test_x509_auth_counts_as_authentication(certs):

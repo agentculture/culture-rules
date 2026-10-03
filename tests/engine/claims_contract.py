@@ -254,10 +254,14 @@ class ClaimsContract:
     def test_failed_transaction_leaves_step_claimed(self, store, clock):
         a = self.engine(store, "spark", clock)
         claim = a.claim_step("run-1", "step-a")
-        with pytest.raises(RuntimeError):
+
+        def crash_before_commit():
             with store.transaction() as tx:
                 tx.put("step_results", {"id": claim.key, "value": 42})
                 a.with_ops(tx).complete(claim)
                 raise RuntimeError("crash before commit")
+
+        with pytest.raises(RuntimeError):
+            crash_before_commit()
         assert store.get(CLAIMS_COLLECTION, claim.key)["status"] == "claimed"
         assert a.is_completed(claim.key) is False

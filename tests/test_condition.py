@@ -60,8 +60,9 @@ def test_exists_in_matches():
 
 def test_matches_length_cap():
     long = "a" * (c.MAX_PATTERN_LEN + 1)
+    too_long = {"op": "matches", "value": L("a"), "pattern": long}
     with pytest.raises(c.ConditionError):
-        c.evaluate({"op": "matches", "value": L("a"), "pattern": long}, CTX)
+        c.evaluate(too_long, CTX)
     big = {"trigger": {"s": "a" * (c.MAX_INPUT_LEN + 1)}, "variables": {}}
     assert c.evaluate({"op": "matches", "value": F("s"), "pattern": "a*"}, big) is False
 

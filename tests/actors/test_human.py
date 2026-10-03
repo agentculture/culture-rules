@@ -218,8 +218,9 @@ def test_redeliver_resumes_answered_ask_whose_delivery_was_lost(store, ex):
         def deliver(self, key, result):
             raise RuntimeError("engine died")
 
+    dead = Dead()
     with pytest.raises(RuntimeError):
-        answer_ask(store, Dead(), ask["id"], "yes", "alice")
+        answer_ask(store, dead, ask["id"], "yes", "alice")
     assert store.get(ASKS_COLLECTION, ask["id"])["delivered"] is False
     assert redeliver(store, ex) == 1
     assert redeliver(store, ex) == 0

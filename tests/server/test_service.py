@@ -37,10 +37,12 @@ def test_create_then_get_roundtrips_and_audits(defs, store):
 
 def test_create_twice_conflicts_and_missing_update_is_not_found(defs):
     defs.create("rules", rb(), "alice")
+    again = rb()
     with pytest.raises(Conflict):
-        defs.create("rules", rb(), "alice")
+        defs.create("rules", again, "alice")
+    missing = rb("nope")
     with pytest.raises(NotFound):
-        defs.update("rules", "nope", rb("nope"), "alice")
+        defs.update("rules", "nope", missing, "alice")
 
 
 def test_invalid_definition_reports_errors_and_writes_nothing(defs, store):
@@ -55,15 +57,17 @@ def test_invalid_definition_reports_errors_and_writes_nothing(defs, store):
 
 def test_path_id_must_match_body_id(defs):
     defs.create("rules", rb(), "alice")
+    renamed = rb("other")
     with pytest.raises(Invalid):
-        defs.update("rules", "r1", rb("other"), "alice")
+        defs.update("rules", "r1", renamed, "alice")
 
 
 def test_rule_save_runs_validate_rule_set_cycle(defs, store):
     # "a" already names "b" (e.g. imported earlier); saving "b" after "a" closes the cycle
     store.put("rules", {**rb("a", must_after=["b"]), "id": "a"})
+    cyclic = rb("b", must_after=["a"])
     with pytest.raises(Invalid) as exc:
-        defs.create("rules", rb("b", must_after=["a"]), "alice")
+        defs.create("rules", cyclic, "alice")
     assert any(e["code"] == "predecessor_cycle" for e in exc.value.errors)
     assert [d["id"] for d in defs.list("rules")] == ["a"]
 
@@ -71,8 +75,9 @@ def test_rule_save_runs_validate_rule_set_cycle(defs, store):
 def test_rule_update_runs_rule_set_check_too(defs):
     defs.create("rules", rb("a"), "alice")
     defs.create("rules", rb("b", must_after=["a"]), "alice")
+    cyclic = rb("a", must_after=["b"])
     with pytest.raises(Invalid) as exc:
-        defs.update("rules", "a", rb("a", must_after=["b"]), "alice")
+        defs.update("rules", "a", cyclic, "alice")
     assert any(e["code"] == "predecessor_cycle" for e in exc.value.errors)
 
 

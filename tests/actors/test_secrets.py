@@ -136,8 +136,9 @@ def test_exported_actor_with_secret_yields_only_reference(tmp_path):
 
 def test_secretref_accepts_grant_scheme():
     SecretRef(name="gh", ref="grant:GH_TOKEN").check()
+    leaked = SecretRef(name="gh", ref=VALUE)
     with pytest.raises(ValueError):
-        SecretRef(name="gh", ref=VALUE).check()
+        leaked.check()
 
 
 def test_backup_uses_shared_resolver():

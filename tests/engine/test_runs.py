@@ -237,8 +237,9 @@ def test_rule_digest_changes_when_rule_changes(store, actor, clock):
 
 def test_rule_pinning_an_unavailable_workflow_version_is_refused(store, actor, clock):
     _store_definitions(store, three_step_human_workflow(2), rule(version=1))
+    ex = make_executor(store, actor, clock)
     with pytest.raises(RunError) as exc:
-        make_executor(store, actor, clock).start_from_store("r1")
+        ex.start_from_store("r1")
     assert exc.value.code == "workflow_version_unavailable"
 
 
@@ -527,8 +528,9 @@ def test_global_pause_fires_nothing_and_is_audited(store, actor, clock):
     c.pause("alice")
     assert is_paused(store)
     ex = make_executor(store, actor, clock)
+    paused_rule, wf = rule(), workflow((step("a"),))
     with pytest.raises(RunError) as exc:
-        ex.start(rule(), workflow((step("a"),)))
+        ex.start(paused_rule, wf)
     assert exc.value.code == "paused"
     decisions = match({"kind": "manual"}, [rule()], paused=is_paused(store))
     assert decisions
@@ -580,10 +582,11 @@ def test_cancel_stops_run_ignores_late_results_and_is_audited(store, clock):
     (entry,) = _audit(store, "runs.cancel")
     assert entry["identity"] == "carol"
     assert entry["target"] == {"collection": RUNS_COLLECTION, "id": run["id"]}
+    containment = Containment(store, clock=clock)
     with pytest.raises(RunError):
-        Containment(store, clock=clock).cancel(run["id"], "carol")
+        containment.cancel(run["id"], "carol")
     with pytest.raises(RunError):
-        Containment(store, clock=clock).cancel("missing", "carol")
+        containment.cancel("missing", "carol")
 
 
 def test_run_start_is_audited_with_identity(store, actor, clock):
@@ -704,8 +707,9 @@ def test_static_port_type_mismatch_fails_validation_at_start(store, actor, clock
         ),
         (edge("a", "s", "b", "n"),),
     )
+    ex, r = make_executor(store, actor, clock), rule()
     with pytest.raises(RunError) as exc:
-        make_executor(store, actor, clock).start(rule(), wf)
+        ex.start(r, wf)
     assert exc.value.code == "invalid_workflow"
     assert any(e["code"] == "port_type_mismatch" for e in exc.value.details)
     assert store.find(RUNS_COLLECTION) == []
@@ -975,17 +979,21 @@ def test_callable_router_and_workflow_output_type_mismatch(store, clock):
 
 def test_start_argument_errors(store, actor, clock):
     ex = make_executor(store, actor, clock)
+    no_workflow_rule, wf = rule(workflow_id=None), workflow((step("a"),))
     with pytest.raises(RunError) as exc:
-        ex.start(rule(workflow_id=None), workflow((step("a"),)))
+        ex.start(no_workflow_rule, wf)
     assert exc.value.code == "workflow_mismatch"
+    plain_rule = rule()
     with pytest.raises(RunError) as exc:
-        ex.start(rule(), None)
+        ex.start(plain_rule, None)
     assert exc.value.code == "workflow_required"
+    other_rule = rule(workflow_id="other")
     with pytest.raises(RunError) as exc:
-        ex.start(rule(workflow_id="other"), workflow((step("a"),)))
+        ex.start(other_rule, wf)
     assert exc.value.code == "workflow_mismatch"
+    action_wf = workflow((step(ACTION_STEP),))
     with pytest.raises(RunError) as exc:
-        ex.start(rule(), workflow((step(ACTION_STEP),)))
+        ex.start(plain_rule, action_wf)
     assert exc.value.code == "unsupported_workflow"
     with pytest.raises(ValueError):
         Executor(store, "", {})

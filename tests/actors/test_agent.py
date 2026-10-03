@@ -70,8 +70,9 @@ def test_parse_task_result_ok_and_error():
     assert parse_task_result("noise\n" + OK_JSON + "\n")["task_id"] == "t-1"
     with pytest.raises(AgentActorError):
         parse_task_result("not json")
+    no_status = json.dumps({"summary": "no status"})
     with pytest.raises(AgentActorError):
-        parse_task_result(json.dumps({"summary": "no status"}))
+        parse_task_result(no_status)
 
 
 def test_colleague_argv_exact_no_shell():
@@ -137,8 +138,9 @@ def test_colleague_missing_binary_non_retryable_and_timeout_raises():
     actor = ColleagueActor(
         repo="/r", runner=FakeRunner(exc=subprocess.TimeoutExpired(["colleague"], 1))
     )
+    context = ctx()
     with pytest.raises(TimeoutError):  # no ack: the work may have happened
-        actor.invoke({"instruction": "x"}, "k", DEADLINE, context=ctx())
+        actor.invoke({"instruction": "x"}, "k", DEADLINE, context=context)
 
 
 def test_colleague_idempotent_on_key():

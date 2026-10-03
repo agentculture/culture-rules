@@ -468,5 +468,6 @@ def test_run_with_max_cycles_returns_the_cycle_count():
 
 
 def test_node_rejects_an_empty_host():
+    store = MemoryStore()
     with pytest.raises(ValueError):
-        Node(MemoryStore(), "", actors={})
+        Node(store, "", actors={})

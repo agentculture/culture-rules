@@ -62,12 +62,9 @@ def test_secrets_are_references_only(tmp_path):
     export_bundle(_bundle(), tmp_path, apply=True)
     text = (tmp_path / "secrets" / "gh-token.yaml").read_text()
     assert "env:GITHUB_TOKEN" in text
+    leaky = Bundle(secrets=(SecretRef(name="x", ref="hunter2-the-actual-value"),))
     with pytest.raises(ValueError):
-        export_bundle(
-            Bundle(secrets=(SecretRef(name="x", ref="hunter2-the-actual-value"),)),
-            tmp_path / "bad",
-            apply=True,
-        )
+        export_bundle(leaky, tmp_path / "bad", apply=True)
 
 
 def test_secret_value_field_on_import_is_an_error(tmp_path):
@@ -143,14 +140,16 @@ def test_yaml_missing_gives_clear_error(tmp_path, monkeypatch):
         return real(name, *a, **k)
 
     monkeypatch.setattr(builtins, "__import__", fake)
+    bundle = _bundle()
     with pytest.raises(RuntimeError, match="culture-rules\\[yaml\\]"):
-        export_bundle(_bundle(), tmp_path, fmt="yaml", apply=True)
+        export_bundle(bundle, tmp_path, fmt="yaml", apply=True)
 
 
 def test_bad_ids_cannot_escape_directory(tmp_path):
     bad = replace(make_rule(), id="../evil")
+    bundle = Bundle(rules=(bad,))
     with pytest.raises(ValueError):
-        export_bundle(Bundle(rules=(bad,)), tmp_path / "o", apply=True)
+        export_bundle(bundle, tmp_path / "o", apply=True)
 
 
 # --- git target -----------------------------------------------------------

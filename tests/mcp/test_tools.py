@@ -35,12 +35,13 @@ def test_apply_must_be_boolean_true():
 
 
 def test_unknown_tool_and_missing_param_raise():
+    client = FakeClient()
     with pytest.raises(tools.ToolError):
-        tools.call_tool("nope_nope", {}, FakeClient())
+        tools.call_tool("nope_nope", {}, client)
     with pytest.raises(tools.ToolError):
-        tools.call_tool("rules_show", {}, FakeClient())
+        tools.call_tool("rules_show", {}, client)
     with pytest.raises(tools.ToolError):
-        tools.call_tool("rules_show", {"id": "x", "bogus": 1}, FakeClient())
+        tools.call_tool("rules_show", {"id": "x", "bogus": 1}, client)
 
 
 def test_main_without_extra_reports_environment_error(monkeypatch, capsys):

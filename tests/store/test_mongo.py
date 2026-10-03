@@ -124,14 +124,16 @@ def test_unauthenticated_connect_fails(rig, fresh):
             anonymous[fresh.config.database]["rules"].find_one()
     finally:
         anonymous.close()
+    config = MongoConfig(rig.uri(), database="x", tls_ca_file=str(rig.ca_file))
     with pytest.raises(ConfigError, match="authentication"):  # the adapter refuses up front
-        MongoStore(MongoConfig(rig.uri(), database="x", tls_ca_file=str(rig.ca_file)))
+        MongoStore(config)
 
 
 def test_wrong_password_fails(rig, fresh):
     uri = rig.app_uri(fresh.config.database).replace(mongo_rig.APP_PASSWORD, "wrong")
+    config = MongoConfig(uri, database=fresh.config.database, tls_ca_file=str(rig.ca_file))
     with pytest.raises(PyMongoError):
-        MongoStore(MongoConfig(uri, database=fresh.config.database, tls_ca_file=str(rig.ca_file)))
+        MongoStore(config)
 
 
 def test_plaintext_connection_is_impossible(rig, fresh):

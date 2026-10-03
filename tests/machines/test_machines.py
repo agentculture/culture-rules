@@ -78,8 +78,9 @@ def test_enrol_unchanged_is_noop():
 
 
 def test_enrol_rejects_invalid_machine():
+    store, nameless = MemoryStore(), _machine(name="")
     with pytest.raises(ValueError):
-        enrol(MemoryStore(), _machine(name=""), apply=True)
+        enrol(store, nameless, apply=True)
 
 
 def test_unenrol_dry_run_then_apply():

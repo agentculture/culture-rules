@@ -148,8 +148,9 @@ def test_drain_from_no_cursor_starts_at_zero():
 
 
 def test_drain_rejects_a_foreign_cursor():
+    source = _source(FakeEventsCli(FakeHistory()))
     with pytest.raises(EventFabricError):
-        _source(FakeEventsCli(FakeHistory())).drain("not-a-number", max=5, timeout=0.0)
+        source.drain("not-a-number", max=5, timeout=0.0)
 
 
 def test_sink_publishes_via_the_client_with_qos1_on_the_type_topic():
@@ -267,8 +268,9 @@ def test_drain_failures_from_events_cli_surface_as_event_fabric_errors():
             raise FakeSubsError("broker unreachable")
 
     api = Api(FakeHistory())
+    source = _source(api, pattern="*")
     with pytest.raises(EventFabricError, match="broker unreachable"):
-        _source(api, pattern="*").drain(None, max=5, timeout=0.0)
+        source.drain(None, max=5, timeout=0.0)
 
 
 def _fan_in(api, patterns=("*", "*.*")):
@@ -357,8 +359,9 @@ def test_fan_in_empty_from_the_start_keeps_a_none_cursor():
 def test_fan_in_rejects_a_foreign_cursor():
     api = PerSubEventsCli({})
     for bad in ("7", "not json", "[1]", '{"x": 1}'):
+        source = _fan_in(api)
         with pytest.raises(EventFabricError):
-            _fan_in(api).drain(bad, max=5, timeout=0.0)
+            source.drain(bad, max=5, timeout=0.0)
 
 
 # --- the real events-cli (the `events` extra) ---

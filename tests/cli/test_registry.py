@@ -67,8 +67,9 @@ def test_every_verb_carries_name_schema_mutating_flag_and_role():
 def test_duplicate_registration_is_refused():
     reg = Registry()
     reg.add(Verb("rules", "list", "x", handler=_noop))
+    again = Verb("rules", "list", "again", handler=_noop)
     with pytest.raises(DuplicateVerb):
-        reg.add(Verb("rules", "list", "again", handler=_noop))
+        reg.add(again)
 
 
 def test_roles_are_ordered_viewer_editor_admin():

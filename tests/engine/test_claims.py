@@ -75,8 +75,9 @@ def test_claims_rejects_bad_holder_and_lease():
     store = MemoryStore()
     with pytest.raises(ValueError):
         Claims(store, "")
+    zero = timedelta(0)
     with pytest.raises(ValueError):
-        Claims(store, "spark", lease=timedelta(0))
+        Claims(store, "spark", lease=zero)
 
 
 def test_claim_rejects_unknown_keys_without_a_kind():

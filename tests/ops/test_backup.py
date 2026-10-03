@@ -155,8 +155,9 @@ def test_unversioned_bucket_is_refused(clock):
     with moto.mock_aws():
         client = boto3.client("s3", region_name=REGION)
         client.create_bucket(Bucket=BUCKET)
+        backup = make_backup(client, MemoryStore(), clock)
         with pytest.raises(BackupError, match="versioning"):
-            make_backup(client, MemoryStore(), clock).snapshot()
+            backup.snapshot()
 
 
 def test_repeated_snapshots_do_not_overwrite(s3, clock):
@@ -228,8 +229,9 @@ def test_restore_refuses_non_empty_target(s3, clock):
 
 
 def test_restore_with_nothing_to_restore(s3, clock):
+    backup, target = make_backup(s3, MemoryStore(), clock), MemoryStore()
     with pytest.raises(BackupError, match="no snapshot"):
-        make_backup(s3, MemoryStore(), clock).restore(MemoryStore())
+        backup.restore(target)
 
 
 def test_increments_carry_run_history_changes(s3, clock):
@@ -271,8 +273,9 @@ def test_increments_chain_without_gaps_or_duplicates(s3, clock):
 
 
 def test_increment_without_snapshot_fails(s3, clock):
+    backup = make_backup(s3, MemoryStore(), clock)
     with pytest.raises(BackupError, match="snapshot"):
-        make_backup(s3, MemoryStore(), clock).increment()
+        backup.increment()
 
 
 def test_restore_upto_point_in_time(s3, clock):
@@ -298,8 +301,9 @@ def test_restore_detects_corruption(s3, clock):
     b = make_backup(s3, store, clock)
     rec = b.snapshot()
     s3.put_object(Bucket=BUCKET, Key=rec.key, Body=b"not gzip", ServerSideEncryption="AES256")
+    target = MemoryStore()
     with pytest.raises(BackupError):
-        b.restore(MemoryStore())
+        b.restore(target)
 
 
 # --------------------------------------------------------------- schedule
