@@ -19,13 +19,22 @@ recorded on the PR with a screenshot.
   - routing, where every other path lands on Rules;
   - the design layer (`src/culture-design/`);
   - the agent-state node.
-- **Rules** (`/rules/:ruleId?`) renders the 'Chosen — Rules' board read-only:
-  - the rule list, with machine dots and enable switches;
-  - the selected rule as Trigger → Condition → Workflow → Action stages;
-  - a dashed relationship card for *must/may run after*;
+- **Rules** (`/rules/:ruleId?`) is the 'Chosen — Rules' board, editable:
+  - the rule list, with machine dots and enable switches (`POST
+    /rules/{id}/enable|disable`, rolled back when refused);
+  - the focused rule as a relationship ghost → Trigger → Condition →
+    Workflow → Action → `+`;
+  - edit (`PUT`), delete (soft `DELETE`, with an Undo that calls
+    `restore`), and creation from "When does this happen?" then `+`;
+  - *must run after*, *may run after* and *supersedes* as badges on both
+    rules. Drag a rule from the list (or a card) onto a slot, or use the
+    slot's picker; each card has a remove;
+  - the rule's pending human asks ("Waiting on you"), answered with
+    `POST /asks/{id}/answer`. The API has no `GET /asks` yet, so the list
+    reads `GET /asks?run_id=` for the rule's waiting runs and treats a
+    404 as none;
   - the rule's last runs.
-
-  *Planned:* editing.
+  Code: `src/routes/Rules.tsx`, `src/rules/`, `src/api/rules.ts`.
 - **Workflows, Actors, Statistics** are headings only. *Planned:* their
   boards.
 

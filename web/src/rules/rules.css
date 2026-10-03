@@ -1,0 +1,257 @@
+/*
+ * The Rules tab's editing layer, over styles/stages.css (the 'Chosen — Rules'
+ * board). Every color is a tokens.css / app.css custom property, so dark mode
+ * follows. Controls keep the board's 44px targets.
+ */
+
+.rule-row__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.rule-row[draggable="true"] {
+  cursor: grab;
+}
+
+.rel-badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--accent-tint);
+  color: var(--accent-strong);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+/* ---------- relationships ---------- */
+
+.relation-slots {
+  width: 100%;
+  max-width: 620px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.relation-slot {
+  flex: 1 1 160px;
+  border-radius: 999px;
+  border: 2px dashed var(--dash);
+  transition:
+    border-color 0.2s var(--ease-out),
+    background-color 0.2s var(--ease-out);
+}
+
+.relation-slot.is-armed {
+  border-color: var(--accent);
+}
+
+.relation-slot.is-over {
+  border-color: var(--accent);
+  background: var(--accent-tint);
+}
+
+.relation-slot select {
+  width: 100%;
+  min-height: 40px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-soft);
+  font: 600 15px var(--font-body);
+}
+
+.relationship--editable {
+  position: relative;
+  margin-bottom: 0;
+}
+
+.relationship--editable[draggable="true"] {
+  cursor: grab;
+}
+
+.relationship__remove {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  margin-left: 4px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink-soft);
+}
+
+.relationship__remove:hover {
+  background: var(--muted);
+  color: var(--danger);
+}
+
+.relationship .chip--var + .relationship__remove {
+  margin-left: 0;
+}
+
+.relationship-after {
+  width: 100%;
+  max-width: 620px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+/* ---------- forms and buttons ---------- */
+
+.btn {
+  min-height: 44px;
+  padding: 0 18px;
+  border-radius: 12px;
+  border: 0;
+  background: var(--muted);
+  color: var(--ink);
+  font: 600 16px var(--font-body);
+  transition: background-color 0.2s var(--ease-out);
+}
+
+.btn:disabled {
+  opacity: 0.55;
+}
+
+.btn--primary {
+  background: var(--ink);
+  color: var(--surface);
+}
+
+.icon-button--small {
+  width: 32px;
+  height: 32px;
+  font-size: 20px;
+}
+
+.rule-form {
+  width: 100%;
+  max-width: 620px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 18px;
+  padding: 18px 22px;
+  border-radius: 22px;
+  background: var(--surface);
+  border: 2px solid var(--line);
+}
+
+.rule-form--inline {
+  margin-top: 16px;
+}
+
+.rule-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.rule-form input,
+.rule-form select {
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: 12px;
+  border: 2px solid var(--line);
+  background: var(--bg);
+  color: var(--ink);
+  font: 400 17px var(--font-body);
+}
+
+.rule-form__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 32px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+.rule-form__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.stage-menu {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.notice--undo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--muted);
+  color: var(--ink);
+}
+
+.notice--undo span {
+  flex: 1;
+}
+
+/* ---------- pending asks ---------- */
+
+.asks {
+  width: 100%;
+  max-width: 620px;
+  margin-bottom: 18px;
+  padding: 16px 22px;
+  border-radius: 22px;
+  background: var(--accent-tint);
+  border: 2px solid var(--accent-strong);
+}
+
+.asks__title {
+  margin: 0 0 8px;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.asks__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.ask__question {
+  margin: 0 0 8px;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.ask__options,
+.ask__text {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ask__text input {
+  flex: 1;
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: 12px;
+  border: 2px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  font: 400 17px var(--font-body);
+}
