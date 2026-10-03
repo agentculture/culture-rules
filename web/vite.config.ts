@@ -43,5 +43,13 @@ export default defineConfig({
     css: false,
     // e2e/ is Playwright's; vitest must not try to run it.
     include: ["src/**/*.test.{ts,tsx}"],
+    // `npm run test:coverage` writes coverage/lcov.info for SonarCloud
+    // (sonar.javascript.lcov.reportPaths); tests, fixtures and setup are not sources.
+    coverage: {
+      provider: "v8",
+      reporter: ["lcov", "text-summary"],
+      include: ["src/**/*.{ts,tsx}"],
+      exclude: ["src/**/*.test.{ts,tsx}", "src/test/**", "src/fixtures/**", "src/main.tsx"],
+    },
   },
 });
