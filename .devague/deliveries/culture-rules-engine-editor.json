@@ -2,7 +2,7 @@
   "plan_slug": "culture-rules-engine-editor",
   "schema_version": 2,
   "created": "2026-10-03T05:56:04Z",
-  "updated": "2026-10-03T08:02:14Z",
+  "updated": "2026-10-03T09:07:53Z",
   "deviations": [
     {
       "id": "d1",
@@ -57,7 +57,1658 @@
       "seq": 3
     }
   ],
-  "evidence": [],
-  "deltas": [],
+  "evidence": [
+    {
+      "id": "e1",
+      "obligation_ref": "o1",
+      "test_ref": "web/e2e/shell.spec.ts > culture-rules shell > exactly four top-level tabs and no runs/history route ; web/src/App.test.tsx (it.each /runs /history /ledger /inbox /)",
+      "behavior_text": "The Primary nav has exactly the links Rules, Workflows, Actors, Statistics; /runs and /history redirect to /rules with no Runs/History link (Playwright), and /runs, /history, /ledger, /inbox fall through to the Rules redirect (vitest).",
+      "contract_text": "The app shell renders exactly four top-level tabs and no runs/history/ledger/inbox route exists at top level",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Real built bundle in Chromium, with the API mocked by request interception, which the shell does not depend on; the router table in web/src/App.tsx has only the four tab routes plus a * redirect. cd web && PLAYWRIGHT_PORT=4455 npx playwright test (full e2e run, 39/39 passed); cd web && npx vitest run (17 files, 146/146 passed)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 4
+    },
+    {
+      "id": "e2",
+      "obligation_ref": "o2",
+      "test_ref": ".devague/plans/culture-rules-engine-editor.json (targets/tasks covers) ; docs/plans/2026-10-03-culture-rules-engine-editor.md",
+      "behavior_text": "Every one of c2-c14 and c45-c63 is listed as a covered target of some plan task and no target is marked deferred; delivery of each is judged by its own row.",
+      "contract_text": "All of c2-c14, c45-c63 are delivered or explicitly deferred in the plan; nothing in the announcement ships only as a mock-up",
+      "evidence_type": "observation",
+      "strength": "coverage",
+      "strength_basis": "Read the plan JSON with python3 (no devague command): all 160 targets have deferred=False and every c2-c14, c45, c48-c63 is in a task covers list (c46/c47 are assumptions, not targets). But the condition needs each to be delivered or deferred: c49 (live refresh, h33), c13 (SSO at rules.culture.dev, operator hand-turn not done) and c62 (only simulated) are neither delivered in full nor deferred.",
+      "outcome": "fail",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 5
+    },
+    {
+      "id": "e3",
+      "obligation_ref": "o3",
+      "test_ref": "tests/test_condition.py::test_pure_1000 ; tests/test_condition.py::test_no_eval_exec_compile_in_package ; tests/test_condition.py::test_bandit_b307",
+      "behavior_text": "The same condition and input evaluated 1000x yields one result without mutating context; no eval/exec/compile call appears anywhere in culture_rules/; bandit B307/B102 is clean.",
+      "contract_text": "No code path calls eval/exec/compile on user-supplied condition text; conditions round-trip JSON -> evaluate deterministically",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Real evaluator, real source scan and real bandit run; the text<->tree round-trip is also covered by test_text_roundtrip. The grep scanner has no planted-positive self-test (unlike test_boundaries.py), so its sensitivity is unproven. uv run pytest -q <ids>; also ran uv run bandit -c pyproject.toml -r culture_rules (exit 0)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 6
+    },
+    {
+      "id": "e4",
+      "obligation_ref": "o4",
+      "test_ref": "tests/model/test_schemas.py::test_workflow_schema_has_no_trigger_field ; tests/model/test_validate.py::test_workflow_with_trigger_reference_rejected ; tests/engine/test_runs.py::test_lost_ack_on_rule_action_is_not_executed_twice",
+      "behavior_text": "No property name in the generated Workflow schema contains 'trigger', and workflows that reference a trigger are rejected; a rule with workflow=None runs Trigger -> Action to succeeded through the real executor.",
+      "contract_text": "A workflow definition contains no reference to any trigger; a rule with no workflow validates and runs Trigger -> Action",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Schema generated from the model; the executor run is real over MemoryStore with a fake actor port. The multihost chaos test also fires 100 workflow-less event rules end to end. uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 7
+    },
+    {
+      "id": "e5",
+      "obligation_ref": "o5",
+      "test_ref": "tests/engine/test_runs.py::test_restart_with_pending_human_step_resumes_without_reexecuting ; tests/engine/test_runs_mongo.py::test_run_survives_restart_and_cancel_on_mongo ; tests/engine/test_runs.py::test_kill_mid_dispatch_resumes_after_lease_with_single_side_effect",
+      "behavior_text": "With a human step waiting, a brand-new Executor on the same store (memory and real Mongo) accepts the answer and finishes the run with s1/s3 effects exactly once; a crash mid-dispatch is reclaimed after the lease with one side effect.",
+      "contract_text": "Killing the engine process mid-run and restarting resumes the run from persisted state without re-executing completed steps",
+      "evidence_type": "integration",
+      "strength": "fidelity",
+      "strength_basis": "The kill is modelled in-process (del the Executor / raise Crash), not an OS process kill. Run state is persisted (also on the Mongo replica-set rig), and the multihost chaos test kills a host thread mid-action. uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 8
+    },
+    {
+      "id": "e6",
+      "obligation_ref": "o6",
+      "test_ref": "tests/engine/test_matching.py::test_must_after_blocks_until_predecessor_succeeded ; tests/engine/test_matching.py::test_downstream_sees_only_explicitly_exported_outputs ; tests/engine/test_ruleset.py::test_reference_to_unexported_output_fails_validation",
+      "behavior_text": "must_after blocks while the predecessor is absent, running or failed and fires once it succeeded; the downstream sees only the workflow's declared outputs, not extra ones; a reference to an unexported output fails rule-set validation.",
+      "contract_text": "A downstream rule sees only the outputs its predecessor explicitly exports, and 'must run after' blocks firing until the predecessor succeeded",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Pure matching/validation code exercised directly; may_after never blocks (test_may_after_never_blocks_and_hides_unfinished_predecessor). uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 9
+    },
+    {
+      "id": "e7",
+      "obligation_ref": "o7",
+      "test_ref": "tests/model/test_validate.py::test_each_actor_kind_validates ; tests/model/test_schemas.py::test_actor_schema_kind_enum ; tests/model/test_schemas.py::test_rule_stage_schemas_have_no_actor_slot",
+      "behavior_text": "One Actor model validates a fixture of each of the six kinds and the schema enum is exactly those six; rule and action schemas have no actor-named property once rule.placement is removed.",
+      "contract_text": "Actor kinds agent, human, service, daemon, runner, robot all validate against one Actor schema with a capabilities list, and no rule-stage schema has an actor slot",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Real model and generated schemas. The no-actor-slot check deliberately pops Rule.placement first (deviation d1), so a rule can name an actor through placement. uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 10
+    },
+    {
+      "id": "e8",
+      "obligation_ref": "o8",
+      "test_ref": "web/e2e/shell.spec.ts > culture-rules shell > keyboard walk: Tab reaches every tab and Enter switches to it ; web/e2e/shell.spec.ts > culture-rules shell > axe: no serious or critical violations on any tab ; web/e2e/actors.spec.ts > Actors tab > matches the 'Chosen \u2014 Actors' board: layout, type scale, machine colors (screenshot)",
+      "behavior_text": "The keyboard walk reaches the four tabs with a non-none outline; axe finds no serious/critical violations on any tab; reduced-motion zeroes transition durations. The Actors board test asserts 40px filter pills, a 46x28 switch and 15px caption text.",
+      "contract_text": "Every interactive control is reachable and operable by keyboard with visible focus; with prefers-reduced-motion all transitions are disabled; body text >= 16px and targets >= 44px",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Keyboard, axe and reduced-motion clauses pass (per-tab specs too). The size clause is unmet: no test asserts body text >= 16px or targets >= 44px globally, and the shipped UI is asserted below 44px (filter pills 40px high, switch 28px high), with 38 CSS font-size declarations under 16px. cd web && PLAYWRIGHT_PORT=4455 npx playwright test (full e2e run, 39/39 passed)",
+      "outcome": "fail",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 11
+    },
+    {
+      "id": "e9",
+      "obligation_ref": "o9",
+      "test_ref": "tests/server/test_openapi_contract.py::test_served_openapi_equals_committed_file ; tests/server/test_openapi_contract.py::test_export_script_check_mode_passes ; tests/test_ci_workflow.py::test_web_job_steps",
+      "behavior_text": "The app's generated OpenAPI equals api/openapi.json byte for byte, the export script's --check passes, and CI runs npm run typecheck.",
+      "contract_text": "One committed OpenAPI file is the contract; the API's generated schema equals it and the TS types compile against it",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "The contract diff is real. The TS half is weaker: web/src/api/types.ts is hand-maintained ('update this file in the same PR'), not generated, so tsc only proves the hand types compile, not that they match the OpenAPI file. uv run pytest -q <ids>; npm run build (tsc -b) passed",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 12
+    },
+    {
+      "id": "e10",
+      "obligation_ref": "o10",
+      "test_ref": "tests/multihost/test_placement.py::test_rule_placed_on_thor_evaluates_only_on_thor_and_each_step_runs_on_its_host ; tests/multihost/test_placement.py::test_rule_placed_on_a_stopped_host_waits_for_it_and_never_runs_elsewhere ; tests/node/test_node.py::test_placed_rule_is_evaluated_only_on_its_host",
+      "behavior_text": "With three simulated production Node daemons on one store (memory and real Mongo), a rule placed on thor is evaluated only on thor (evaluation log {'thor': ['evt_1']}), started by engine@thor, and waits for thor when it is stopped.",
+      "contract_text": "A rule placed on thor evaluates its trigger and condition on thor (not on the host that received the edit)",
+      "evidence_type": "integration",
+      "strength": "fidelity",
+      "strength_basis": "Hosts are threads with their own store clients and fake events-cli subscriptions on one machine; no real thor. uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 13
+    },
+    {
+      "id": "e11",
+      "obligation_ref": "o11",
+      "test_ref": "tests/multihost/test_placement.py::test_rule_placed_on_thor_evaluates_only_on_thor_and_each_step_runs_on_its_host ; tests/engine/test_runs.py::test_three_hosts_each_step_on_its_placement_with_typed_values ; tests/engine/test_runs.py::test_runtime_output_type_mismatch_fails_step_and_stops_downstream",
+      "behavior_text": "A spark -> thor -> spark2 workflow runs s1/s2/s3 on exactly those hosts per the shared ledger, and typed values cross them (output 'got 3.0'); static and runtime port type mismatches fail.",
+      "contract_text": "A three-step workflow placed spark -> thor -> spark2 executes each step on its placed host, passing typed outputs between them",
+      "evidence_type": "integration",
+      "strength": "fidelity",
+      "strength_basis": "Simulated hosts on one machine (memory and real Mongo backends). uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 14
+    },
+    {
+      "id": "e12",
+      "obligation_ref": "o12",
+      "test_ref": "tests/test_actor_config.py::test_this_repo_equals_db_record ; tests/test_actor_config.py::test_record_equals_repo_with_model_and_extras",
+      "behavior_text": "Loading culture-rules' own culture.yaml equals an equivalent DB record, and a fixture with model + extras equals its record including harness and model.",
+      "contract_text": "The same agent actor can be defined from a DB record or loaded from a repo's culture.yaml, and both produce an identical Actor model with harness and model fields",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Equality is asserted on ActorConfig, the config loader's value object, not on the culture_rules.model Actor document. The own-repo case has model=None, so the model field is only exercised via the fixture. uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 15
+    },
+    {
+      "id": "e13",
+      "obligation_ref": "o14",
+      "test_ref": ".devague/questions/culture-rules-engine-editor.md (q6 [x] decided) ; docs/specs/2026-10-03-culture-rules-engine-editor.md (canvas link, line 204)",
+      "behavior_text": "q6 is resolved 'Rules C, Workflows B, Actors C, plus Statistics in A lanes', and the spec links the canvas claude.ai/artifact/Jgm3JPnAhKWpeiCxFXvNBi.",
+      "contract_text": "The operator picked a direction from the published mock-ups before any web code is written (recorded as q6)",
+      "evidence_type": "observation",
+      "strength": "coverage",
+      "strength_basis": "File reads plus git log: the decision is in the spec at 9c94302 (2026-10-03 08:02), and the first web commit is 9b73a86 (10:05). .devague/questions/ is gitignored, so q6 exists only in the local checkout.",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 16
+    },
+    {
+      "id": "e14",
+      "obligation_ref": "o15",
+      "test_ref": "tests/test_ci_workflow.py::test_web_job_steps ; web/e2e/shell.spec.ts > culture-rules shell > #agent-state reports ready with no errors; identity from GET /whoami ; local webglass gate (page extract '#agent-state' + console lens)",
+      "behavior_text": "CI's web job contains the webglass #agent-state ready extract and the console page_errors==0 check; locally the built bundle reached status 'ready' on attempt 1 with 0 page errors.",
+      "contract_text": "The built SPA sets #agent-state to ready with no uncaught errors, asserted by a CI webglass job",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "Ran the CI recipe by hand: vite preview on :4466, webglass page extract --selector '#agent-state' (ready) and webglass page inspect --lens console (lifecycle succeeded, page_errors 0). A real GitHub Actions run was not observed. Under that preview #agent-state.errors held 401s, which the CI gate does not check. uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 17
+    },
+    {
+      "id": "e15",
+      "obligation_ref": "o16",
+      "test_ref": "web/package.json (dependencies review)",
+      "behavior_text": "Runtime dependencies are @fontsource-variable/*, @xyflow/react, elkjs, react, react-dom and react-router-dom, built with Vite; there is no agentfront, irc-lens or league package.",
+      "contract_text": "web/ has no dependency on agentfront/irc-lens/league templates; its stack is Vite+React+@xyflow/react",
+      "evidence_type": "observation",
+      "strength": "coverage",
+      "strength_basis": "Read web/package.json; there is no automated guard test.",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 18
+    },
+    {
+      "id": "e16",
+      "obligation_ref": "o17",
+      "test_ref": "tests/test_actor_config.py::test_single_agent_shape_keeps_extras ; tests/test_actor_config.py::test_agents_list_shape ; tests/test_actor_config.py::test_fixtures_load",
+      "behavior_text": "The single-agent top-level shape (culture fixture) keeps unknown keys like engine/base_url in extras; the agents: list shape (steward fixture) loads; this repo's culture.yaml loads.",
+      "contract_text": "Loading culture.yaml handles both single-agent top-level and agents: list shapes and keeps unknown keys as extras",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Real parser over committed fixtures. uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 19
+    },
+    {
+      "id": "e17",
+      "obligation_ref": "o18",
+      "test_ref": "tests/test_boundaries.py::test_culture_rules_imports_no_sibling_projects ; tests/test_boundaries.py::test_scanner_detects_forbidden_import ; tests/model/test_validate.py::test_actor_kind_outside_six_rejected",
+      "behavior_text": "No module in culture_rules/ imports callsmith (or other siblings), including lazy and importlib imports; the scanner provably catches planted imports; the actor kinds are only the six.",
+      "contract_text": "No callsmith actor type ships in this scope",
+      "evidence_type": "automated",
+      "strength": "sensitivity",
+      "strength_basis": "The scanner has self-tests with planted positives. It checks imports, not every textual 'callsmith' reference, so it is a little weaker than 'no callsmith reference'. uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 20
+    },
+    {
+      "id": "e18",
+      "obligation_ref": "o19",
+      "test_ref": "tests/events/test_fabric_mongo.py::TestEventFabricOnMongo::test_ingest_inserts_each_envelope_exactly_once_despite_duplicates ; tests/events/test_fabric_mongo.py::TestEventFabricOnMongo::test_trigger_fires_once_per_inserted_event_from_its_start_position ; tests/events/test_events_cli_adapter.py::test_ensure_registers_the_durable_subscription_once",
+      "behavior_text": "A fake drain that redelivers evt_1/evt_2 stores each envelope once and fires each once (memory and real Mongo); the adapter registers the durable subscription once.",
+      "contract_text": "A durable events-cli subscription feeds triggers; a redelivered envelope (same id) never fires a rule twice",
+      "evidence_type": "integration",
+      "strength": "fidelity",
+      "strength_basis": "The drain is FakeEventSource and the adapter tests use a fake client. The real events_cli surface test (test_events_cli_adapter.py:168) and test_emit.py:78 SKIPPED because events_cli is not installed. uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 21
+    },
+    {
+      "id": "e19",
+      "obligation_ref": "o20",
+      "test_ref": "tests/events/test_no_broker.py::test_no_module_imports_an_mqtt_or_broker_library ; tests/events/test_no_broker.py::test_no_broker_or_history_store_module_is_shipped ; tests/events/test_no_broker.py::test_the_events_package_opens_no_listening_socket",
+      "behavior_text": "No module imports an MQTT/broker library, no broker or history-store module ships, the events package opens no listening socket, and events_cli is imported lazily, only by the adapter.",
+      "contract_text": "culture-rules ships no broker, no MQTT server and no event-history store of its own",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Static and import-time checks over the real package. uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 22
+    },
+    {
+      "id": "e20",
+      "obligation_ref": "o21",
+      "test_ref": "tests/test_boundaries.py::test_culture_rules_imports_no_sibling_projects ; tests/test_boundaries.py::test_pyproject_declares_no_sibling_dependencies ; tests/test_boundaries.py::test_scanner_detects_lazy_and_dynamic_imports",
+      "behavior_text": "No workledger/agenda/protocols import anywhere (including lazy/dynamic) and none is declared as a dependency or extra.",
+      "contract_text": "No code imports workledger, agenda or protocols packages; seams are interfaces with in-repo default implementations",
+      "evidence_type": "automated",
+      "strength": "sensitivity",
+      "strength_basis": "Scanner self-tests prove it fails on planted imports. The second clause ('seams are interfaces with in-repo default implementations') is not asserted by any test. uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 23
+    },
+    {
+      "id": "e21",
+      "obligation_ref": "o22",
+      "test_ref": "tests/test_boundaries.py::test_culture_rules_does_not_use_eidetic_for_run_state ; tests/test_boundaries.py::test_scanner_detects_eidetic_run_state_use",
+      "behavior_text": "No code-level eidetic name, attribute or non-docstring string literal exists anywhere in culture_rules/ (stricter than run-state only), and the scanner catches planted uses.",
+      "contract_text": "eidetic is not used for run state; if used at all it is an optional subprocess sink",
+      "evidence_type": "automated",
+      "strength": "sensitivity",
+      "strength_basis": "AST scan with positive self-tests. uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 24
+    },
+    {
+      "id": "e22",
+      "obligation_ref": "o24",
+      "test_ref": "tests/auth/test_access_jwt.py::test_forged_signature_is_rejected ; tests/auth/test_access_jwt.py::test_expired_token_is_rejected ; tests/auth/test_access_jwt.py::test_wrong_audience_is_rejected ; tests/auth/test_resolve.py::test_lan_listener_ignores_access_headers_entirely",
+      "behavior_text": "Forged-signature, tampered, expired, not-yet-valid, wrong-aud and wrong-issuer tokens are rejected against a test JWKS, and the LAN listener ignores Cf-Access headers entirely.",
+      "contract_text": "JWT validation checks signature (team JWKS), aud and exp; Access headers are ignored on the LAN listener",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "A real stdlib RS256 verifier with a locally generated JWKS (team JWKS fetch is faked). uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 25
+    },
+    {
+      "id": "e23",
+      "obligation_ref": "o25",
+      "test_ref": "tests/engine/test_placement.py::test_public_addresses_refused ; tests/engine/test_placement.py::test_machine_with_public_address_refused_as_dispatch ; tests/engine/test_placement.py::test_lan_and_tailnet_addresses_dispatchable",
+      "behavior_text": "rules.culture.dev (any case or scheme) and public IPs/hosts are not dispatchable, a machine whose address is rules.culture.dev is refused as a placement, and LAN/tailnet addresses are accepted.",
+      "contract_text": "Inter-host dispatch uses LAN/tailnet or the mesh, never the public hostname",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Real placement resolver. uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 26
+    },
+    {
+      "id": "e24",
+      "obligation_ref": "o26",
+      "test_ref": "manual fresh-venv install of the built wheel (no extras) + culture-rules learn ; tests/server/test_lazy_import.py::test_serve_reports_missing_extra_cleanly ; uv run teken cli doctor . --strict",
+      "behavior_text": "In a fresh venv the no-extras wheel installs only culture-rules, learn --json runs, and serve exits asking for culture-rules[server]; teken doctor reports healthy 26/26.",
+      "contract_text": "pip install culture-rules (no extras) has zero third-party runtime deps and the CLI runs; the server needs the extra",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "Ran: uv build --wheel to scratchpad, uv venv, uv pip install <wheel>, uv pip list (only culture-rules 0.9.1), culture-rules learn --json, culture-rules serve -> the hint for the [server] extra; teken doctor 26/26. CI has no fresh-venv no-extras step, so this is not CI-enforced. uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 27
+    },
+    {
+      "id": "e25",
+      "obligation_ref": "o27",
+      "test_ref": "tests/packaging/test_wheel.py::test_wheel_contains_the_web_build ; tests/packaging/test_repo_config.py::test_publish_workflow_watches_web_and_builds_it_before_uv_build ; tests/server/test_static.py::test_root_and_assets_are_served",
+      "behavior_text": "A real npm build + uv build wheel contains culture_rules/web_dist/index.html and assets/; publish.yml watches web/** and builds before uv build; the Python server serves the bundle without Node.",
+      "contract_text": "The published wheel contains the built web bundle and serving it needs no Node at runtime",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "The slow-marked wheel test ran (passed); my own scratch wheel listed 12 web_dist entries. uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 28
+    },
+    {
+      "id": "e26",
+      "obligation_ref": "o28",
+      "test_ref": "tests/packaging/test_repo_config.py::test_web_src_lib_is_not_ignored ; tests/packaging/test_repo_config.py::test_sonar_analyses_web_src_and_excludes_build_output ; tests/packaging/test_repo_config.py::test_markdownlint_ignores_web_build_output",
+      "behavior_text": "web/src/lib is not gitignored while build outputs are; sonar analyses web/src and excludes build output; markdownlint ignores the web build output; CI has a web job.",
+      "contract_text": "CI has a web job and the gitignore/sonar/markdownlint config covers the frontend without ignoring source dirs",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Also ran git check-ignore -v web/src/lib/x.ts (exit 1 = not ignored). 'CI green' needs a real Actions run, which was not observed. uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 29
+    },
+    {
+      "id": "e27",
+      "obligation_ref": "o29",
+      "test_ref": "tests/test_scan_secrets.py::test_clean_repo_passes_via_cli ; tests/test_scan_secrets.py::test_planted_non_localhost_base_url_is_caught ; tests/test_scan_secrets.py::test_planted_aws_key_is_caught",
+      "behavior_text": "scan-secrets passes on the whole tree including web/ and deploy config, and provably flags planted keys and non-localhost URLs.",
+      "contract_text": "scripts/scan-secrets.py passes with the frontend and config committed",
+      "evidence_type": "automated",
+      "strength": "sensitivity",
+      "strength_basis": "Planted-secret negatives. Also ran python3 scripts/scan-secrets.py: clean (445 files). uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 30
+    },
+    {
+      "id": "e28",
+      "obligation_ref": "o30",
+      "test_ref": "tests/test_wording.py::test_no_template_wording",
+      "behavior_text": "No 'clonable template' style wording appears in the culture_rules self-description files.",
+      "contract_text": "No 'clonable template' wording remains in culture_rules/ self-description",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Grep test. Related: learn/explain still say 'the engine is being built' and 'Planned shape', which is stale but outside this condition. uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 31
+    },
+    {
+      "id": "e29",
+      "obligation_ref": "o31",
+      "test_ref": "tests/test_surface_parity.py::test_every_registry_verb_is_on_the_cli ; tests/test_surface_parity.py::test_every_registry_verb_is_in_the_mcp_tool_list ; tests/cli/test_nouns_api.py::test_every_write_is_dry_run_without_apply ; tests/mcp/test_mcp.py::test_dry_run_sends_nothing_mutating",
+      "behavior_text": "Every registry verb is a CLI command and an MCP tool; 14 CLI writes without --apply report dry_run and leave the store snapshot unchanged; MCP mutating tools default apply=false and send nothing mutating.",
+      "contract_text": "Every rule/workflow/actor verb exists on the CLI and as an MCP tool, writes are dry-run by default and --apply commits",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Real CLI/MCP over a real FastAPI TestClient and store. uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 32
+    },
+    {
+      "id": "e30",
+      "obligation_ref": "o32",
+      "test_ref": "tests/cli/test_registry.py::test_required_verbs_exist_per_noun ; tests/engine/test_matching.py::test_disabled_rule_fires_nothing ; tests/engine/test_runs.py::test_disabled_step_is_skipped ; tests/engine/test_placement.py::test_disabled_actor_refused",
+      "behavior_text": "Rules, workflows, actors and machines each have create/update/enable/disable/delete/restore verbs; a disabled rule fires nothing, a disabled step is skipped and a disabled actor is refused by placement; delete is dry-run without --apply.",
+      "contract_text": "Rules, steps and actors each support enable, disable, edit and delete in UI, CLI and MCP; a disabled item never fires/executes; delete is dry-run unless --apply",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Steps have no verbs of their own: step enable/edit/delete goes through 'workflows update' (UI: Workflows tab switch/delete, e2e 'edits a step's placement, enable switch and saves with PUT'). uv run pytest -q <ids>; cd web && PLAYWRIGHT_PORT=4455 npx playwright test (full e2e run, 39/39 passed)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 33
+    },
+    {
+      "id": "e31",
+      "obligation_ref": "o33",
+      "test_ref": "tests/server/test_gap_routes.py::test_machines_status_reports_liveness_load_running_and_queue ; web/e2e/statistics.spec.ts > Statistics tab > every machine has a lane; the offline host renders offline ; web/src/statistics/statistics-view.test.ts (counts ok and failed inside the range)",
+      "behavior_text": "/machines/status reports online, last_seen, load %, running steps and queue depth for every enrolled machine, including offline ones; the tab draws a lane per machine with the offline host marked offline and ok/failed counted from runs.",
+      "contract_text": "Statistics shows every enrolled machine (including offline ones) with load, running steps, queue depth and 24h ok/failed, refreshed live",
+      "evidence_type": "automated",
+      "strength": "fidelity",
+      "strength_basis": "The API test is real and the e2e uses a mocked API. 'Refreshed live' is unmet: StatisticsBoard.tsx loads once in a useEffect with [] deps, and nothing in web/src polls or opens EventSource on /events/stream. 24h ok/failed is computed client-side from listRuns(limit 1000). uv run pytest -q <ids>; cd web && PLAYWRIGHT_PORT=4455 npx playwright test (full e2e run, 39/39 passed)",
+      "outcome": "fail",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 34
+    },
+    {
+      "id": "e32",
+      "obligation_ref": "o34",
+      "test_ref": "web/e2e/shell.spec.ts > culture-rules shell > Rules tab matches the 'Chosen \u2014 Rules' board layout (screenshot) ; web/e2e/workflows.spec.ts > Workflows tab > matches the 'Chosen \u2014 Workflows' board layout (screenshot) ; web/e2e/actors.spec.ts > Actors tab > matches the 'Chosen \u2014 Actors' board: layout, type scale, machine colors (screenshot) ; web/e2e/statistics.spec.ts > Statistics tab > matches the 'Chosen \u2014 Statistics' board (screenshot)",
+      "behavior_text": "Each tab's layout geometry, type scale and machine colors match measurements taken from its 'Chosen' board (e.g. Rules three columns, a 620px stage stack, 40px Fraunces h1), and a screenshot is written.",
+      "contract_text": "The shipped tabs follow the chosen composition (Rules C, Workflows B, Actors C, Statistics A)",
+      "evidence_type": "automated",
+      "strength": "fidelity",
+      "strength_basis": "Measurements are asserted against a mocked API. The screenshots are written to test-results/ but not compared to the board, and no human side-by-side review is evidenced. cd web && PLAYWRIGHT_PORT=4455 npx playwright test (full e2e run, 39/39 passed)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 35
+    },
+    {
+      "id": "e33",
+      "obligation_ref": "o35",
+      "test_ref": "tests/engine/test_replay.py::test_replay_executes_zero_actions_and_writes_nothing ; tests/engine/test_replay.py::test_replays_n_envelopes_and_reports_would_fire_with_reasons ; tests/server/test_replay_api.py",
+      "behavior_text": "Replaying 3 recorded events reports 3 would-fire with 0 actions executed, no actor calls and unchanged events/runs collections; skip reasons are reported.",
+      "contract_text": "Replay against recorded events reports which runs would fire without executing any action",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Real replay over MemoryStore. uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 36
+    },
+    {
+      "id": "e34",
+      "obligation_ref": "o36",
+      "test_ref": "web/e2e/workflows.spec.ts > Workflows tab > a run lights its path with each step's host and outcome (persisted run state) ; web/src/routes/Workflows.test.tsx (a run lights each step with its host and outcome from GET /runs/{id}) ; tests/engine/test_runs.py::test_simple_run_succeeds_and_every_transition_is_persisted",
+      "behavior_text": "Opening ?run=run-7 calls GET /api/runs/run-7 and each step node shows 'succeeded on thor' / 'failed on spark' with lit edges; the engine persists every transition with its host.",
+      "contract_text": "A run's path on the workflow graph shows each step's host and outcome, sourced from persisted run state",
+      "evidence_type": "automated",
+      "strength": "fidelity",
+      "strength_basis": "The UI side uses a mocked run document shaped like the persisted one; no test runs a real engine run into the browser. cd web && PLAYWRIGHT_PORT=4455 npx playwright test (full e2e run, 39/39 passed); cd web && npx vitest run (17 files, 146/146 passed); uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 37
+    },
+    {
+      "id": "e35",
+      "obligation_ref": "o37",
+      "test_ref": "tests/engine/test_placement.py::test_requirement_resolves_only_to_advertising_host ; tests/engine/test_placement.py::test_requirement_none_enrolled_is_validation_error ; tests/engine/test_placement.py::test_requirement_via_actor_capability",
+      "behavior_text": "requirement gpu resolves only to a host advertising gpu (or a host whose enabled actor advertises it); with none enrolled it returns placement.requirement_unmet, convertible to a ValidationError.",
+      "contract_text": "A step requesting capability gpu is placed only on a host or actor advertising gpu, and fails validation if none is enrolled",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "The failure is a resolve-time PlacementError; no test shows a save-time rejection when no gpu host is enrolled. uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 38
+    },
+    {
+      "id": "e36",
+      "obligation_ref": "o38",
+      "test_ref": "tests/io/test_exchange.py::test_export_import_roundtrip_is_identical ; tests/io/test_exchange.py::test_save_to_and_load_from_second_git_repo ; tests/server/test_api.py::test_export_import_roundtrip_between_two_apps",
+      "behavior_text": "Export then read of a bundle (json and yaml) equals the original; save_to_repo commits and pushes to a temp bare git repo and load_from_repo returns an identical bundle; two API apps round-trip.",
+      "contract_text": "Export then import of a workflow/rule yields an identical definition, and save/load works against a second git repo",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Real git subprocesses on temp repos. uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 39
+    },
+    {
+      "id": "e37",
+      "obligation_ref": "o39",
+      "test_ref": "tests/actors/test_limits.py::test_concurrency_cap_blocks_then_releases ; tests/actors/test_limits.py::test_over_budget_refuses_with_structured_non_retryable_error ; tests/actors/test_limits.py::test_caps_hold_across_hosts_sharing_a_store",
+      "behavior_text": "At the cap, a further invocation is BLOCKED (queued) until a slot frees; over budget is refused with a structured, non-retryable error; caps hold across hosts sharing a store.",
+      "contract_text": "An actor at its concurrency cap queues further tasks and an actor over budget refuses new tasks with a clear error",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "The executor re-dispatches BLOCKED without consuming an attempt (test_blocked_is_redispatched_without_consuming_an_attempt). uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 40
+    },
+    {
+      "id": "e38",
+      "obligation_ref": "o40",
+      "test_ref": "tests/engine/test_reports.py::test_failing_post_never_fails_the_run ; tests/engine/test_reports.py::test_finished_run_posts_summary_to_channel ; tests/engine/test_reports.py::test_observe_survives_failing_poster",
+      "behavior_text": "A finished run posts a summary to the configured channel; a poster that raises leaves the run status unchanged and the observer keeps going.",
+      "contract_text": "A finished run can post a summary to a configured mesh channel; failure to post never fails the run",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Real reporter with a fake poster that raises. uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 41
+    },
+    {
+      "id": "e39",
+      "obligation_ref": "o41",
+      "test_ref": "tests/actors/test_secrets.py::test_exported_actor_with_secret_yields_only_reference ; tests/server/test_authz_matrix.py::test_actor_saves_refuse_literal_secrets ; tests/actors/test_secrets.py::test_redactor_masks_resolved_values_and_is_used_by_resolve",
+      "behavior_text": "An exported actor with a grant: reference contains the reference but never the resolved value; saving a literal secret is refused; resolved values are masked by the redactor.",
+      "contract_text": "No secret value is ever stored in a rule/workflow/actor definition, export or log; only references resolved at run time on the executing host",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Plus python3 scripts/scan-secrets.py clean. 'Never in any log' rests on the redactor; there is no global log scan. uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 42
+    },
+    {
+      "id": "e40",
+      "obligation_ref": "o42",
+      "test_ref": "web: npm run check (check-palette.mjs light + dark) ; tests/test_ci_workflow.py::test_web_job_steps",
+      "behavior_text": "The validator passes the 3-slot categorical palette on both light surfaces (#ffffff, #f4f5fb) and the separate dark set on both dark surfaces (#161b36, #0b0f20); CI runs npm run check.",
+      "contract_text": "Chart marks use the validated palette in light mode and a separately validated dark set",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Ran cd web && npm run check: tokens PASS, palette PASS for 4 surface/mode combinations. uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 43
+    },
+    {
+      "id": "e41",
+      "obligation_ref": "o43",
+      "test_ref": "tests/test_boundaries.py::test_package_imports_with_culture_nodes_absent ; tests/test_boundaries.py::test_culture_nodes_not_installed_in_test_env ; tests/test_boundaries.py::test_culture_rules_imports_no_sibling_projects",
+      "behavior_text": "Every module imports with sys.modules['culture_nodes']=None, culture_nodes is not installed in the test env, and nothing imports it.",
+      "contract_text": "culture-rules runs with culture-nodes absent; no runtime import or network dependency on it",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "'No network dependency' on culture-nodes is not asserted directly; the full suite passing without it is indirect evidence. uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 44
+    },
+    {
+      "id": "e42",
+      "obligation_ref": "o44",
+      "test_ref": "tests/model/test_validate.py::test_placement_not_exactly_one_form_rejected ; tests/engine/test_placement.py::test_machine_form_resolves ; tests/engine/test_placement.py::test_actor_form_resolves_to_actor_machine ; tests/engine/test_placement.py::test_structured_errors",
+      "behavior_text": "A placement with zero or two forms is rejected; machine, actor and requirement forms each resolve to one concrete machine; an invalid form gives placement.invalid_form.",
+      "contract_text": "Placement accepts exactly three forms (machine, actor, requirement) and each resolves to one concrete host before execution",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 45
+    },
+    {
+      "id": "e43",
+      "obligation_ref": "o45",
+      "test_ref": "tests/model/test_validate.py::test_rule_without_action_rejected ; tests/model/test_validate.py::test_rule_without_condition_and_workflow_validates ; tests/model/test_schemas.py::test_rule_schema_requires_action_and_trigger",
+      "behavior_text": "A rule without action fails with a required error at path action; a rule with neither condition nor workflow validates; the schema requires action and the slot is not nullable.",
+      "contract_text": "A rule without an action fails validation; a rule without condition or workflow is valid",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 46
+    },
+    {
+      "id": "e44",
+      "obligation_ref": "o46",
+      "test_ref": "tests/multihost/test_chaos.py::test_one_host_stopped_keeps_serving_and_actions_run_exactly_once",
+      "behavior_text": "With thor killed mid-action and its API listener stopped, >= 99% of 200 API requests succeed through a failover client, and 100 events still produce exactly 100 actions on spark/spark2.",
+      "contract_text": "Stopping any one of the three hosts keeps the editor/API serving and rules firing",
+      "evidence_type": "integration",
+      "strength": "fidelity",
+      "strength_basis": "Three simulated hosts as threads with real uvicorn loopback listeners on one machine. Observed: [memory] ok=200/200 and [mongo] ok=200/200, effects=100, 0 duplicates. The 'editor' (static bundle) serving and real-host failover are not exercised. uv run pytest -q -s tests/multihost",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 47
+    },
+    {
+      "id": "e45",
+      "obligation_ref": "o47",
+      "test_ref": "tests/engine/test_claims_mongo.py::TestClaimsOnMongoStore::test_racing_instances_exactly_one_wins ; tests/engine/test_claims_mongo.py::TestClaimsOnMongoStore::test_second_instance_loses_while_lease_is_live ; tests/multihost/test_chaos.py::test_one_host_stopped_keeps_serving_and_actions_run_exactly_once",
+      "behavior_text": "Racing claimants on two independent Mongo clients yield exactly one winner, the loser cannot take a live lease, and under failover no idempotency key has more than one side effect.",
+      "contract_text": "Each firing/step has an idempotency key and only one host can claim it, so no action executes twice under failover",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "Real replica-set rig (docker mongo:8.0) plus chaos. uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 48
+    },
+    {
+      "id": "e46",
+      "obligation_ref": "o48",
+      "test_ref": "tests/test_docs_t40.py::test_readme_names_both_audiences_and_the_why ; manual: uv run culture-rules learn",
+      "behavior_text": "README names the operator and mesh agents as its two readers.",
+      "contract_text": "README and learn name the operator-in-browser and agents-over-CLI/MCP as the two audiences",
+      "evidence_type": "automated",
+      "strength": "coverage",
+      "strength_basis": "README half passes. The learn half fails: learn names no audience and still reads 'Planned shape: ... a CLI and MCP server' and 'Today (the engine is being built)' (culture_rules/cli/_commands/learn.py:22,87; explain/catalog.py:20). No test covers learn. uv run pytest -q <ids>; uv run culture-rules learn",
+      "outcome": "fail",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 49
+    },
+    {
+      "id": "e47",
+      "obligation_ref": "o49",
+      "test_ref": "tests/test_docs_t40.py::test_readme_background_cites_scope_entries ; docs/specs/2026-10-03-culture-rules-engine-editor.md (Before + scope entries s7-s15, s25)",
+      "behavior_text": "The README Background cites scope entries s7-s15 and s25; the spec's Before paragraph describes the scattered state, and its scope section lists s7-s15 with file:line citations.",
+      "contract_text": "The spec background describes the current scattered state with citations to the scope entries",
+      "evidence_type": "observation",
+      "strength": "coverage",
+      "strength_basis": "Read both docs. The spec's Before sentence carries no inline sNN citations; the citations live in the spec's scope section and in the README Background. uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 50
+    },
+    {
+      "id": "e48",
+      "obligation_ref": "o50",
+      "test_ref": "tests/test_docs_t40.py::test_readme_names_both_audiences_and_the_why",
+      "behavior_text": "README contains the exact one-sentence why: 'One graphical, agent-operable place to decide when work happens, how it flows across machines and who does it'.",
+      "contract_text": "The README pitch states the one-sentence why",
+      "evidence_type": "automated",
+      "strength": "coverage",
+      "strength_basis": "uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 51
+    },
+    {
+      "id": "e49",
+      "obligation_ref": "o52",
+      "test_ref": "tests/multihost/test_timing.py::test_rule_fires_within_5s_and_sse_shows_each_step_within_2s",
+      "behavior_text": "With real clocks, the run is created < 5s after publish and the SSE stream on a host that runs no rule shows each step's success < 2s after it completed.",
+      "contract_text": "The 5 s / 2 s latencies are measured, not asserted by inspection",
+      "evidence_type": "integration",
+      "strength": "fidelity",
+      "strength_basis": "Measured now: [memory] fired 0.011s, SSE lag max 0.189s; [mongo] fired 0.361s, SSE lag max 0.358s. Simulated hosts, and the SSE is read by a test client, not the editor. uv run pytest -q -s tests/multihost/test_timing.py",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 52
+    },
+    {
+      "id": "e50",
+      "obligation_ref": "o53",
+      "test_ref": "tests/multihost/test_chaos.py::test_one_host_stopped_keeps_serving_and_actions_run_exactly_once",
+      "behavior_text": "An executed chaos run produced the failover numbers: requests ok >= 99%, 100 effects for 100 events, 0 duplicates, 0 lost.",
+      "contract_text": "The failover numbers come from an executed chaos run",
+      "evidence_type": "integration",
+      "strength": "fidelity",
+      "strength_basis": "Executed now: [memory] ok=200/200 failovers=67 effects=100 re-invoked=1; [mongo] ok=200/200 failovers=67 effects=100 re-invoked=1 (4 TransientStoreError recovered). Not recorded in a PR, since no PR exists for rules/build. uv run pytest -q -s tests/multihost",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 53
+    },
+    {
+      "id": "e51",
+      "obligation_ref": "o54",
+      "test_ref": "tests/test_surface_parity.py::test_mutation_removing_one_mcp_tool_fails_parity ; tests/test_surface_parity.py::test_mutation_removing_one_cli_command_fails_parity ; tests/test_surface_parity.py::test_mutation_removing_one_openapi_path_fails_parity",
+      "behavior_text": "Removing one MCP tool, one CLI command or one OpenAPI operation makes the parity check report that verb as missing.",
+      "contract_text": "The parity test exists and fails when a verb is missing from any surface",
+      "evidence_type": "automated",
+      "strength": "sensitivity",
+      "strength_basis": "Mutation checks are built into the suite. uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 54
+    },
+    {
+      "id": "e52",
+      "obligation_ref": "o55",
+      "test_ref": "tests/test_ci_workflow.py::test_python_gates_enforced ; tests/test_ci_workflow.py::test_sonar_gate_waits ; tests/test_ci_workflow.py::test_web_job_steps",
+      "behavior_text": "tests.yml runs teken doctor --strict, pytest --cov-fail-under=60, the sonarqube scan with qualitygate.wait=true, and the webglass #agent-state ready gate.",
+      "contract_text": "The four gates are CI-enforced, not manual",
+      "evidence_type": "automated",
+      "strength": "coverage",
+      "strength_basis": "Static workflow inspection only; no real Actions run was observed. The Sonar step is skipped (not failed) when SONAR_TOKEN is absent, so gate 3 is conditional. uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 55
+    },
+    {
+      "id": "e53",
+      "obligation_ref": "o56",
+      "test_ref": "tests/store/test_mongo.py::test_engine_writes_no_state_to_local_files ; tests/node/test_cli_node.py::test_node_run_without_a_store_is_an_environment_error ; tests/multihost/test_placement.py::test_rule_placed_on_thor_evaluates_only_on_thor_and_each_step_runs_on_its_host",
+      "behavior_text": "Against the Mongo rig with HOME/XDG/TMPDIR pointed at an empty dir, store inserts/puts/transactions/cursors leave that dir empty; node run needs a store URL; Nodes run on Mongo-only config in multihost[mongo].",
+      "contract_text": "The engine starts and runs with only a MongoDB (or Postgres) URL configured and writes no state to local files",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "The no-local-files check drives the StoragePort, not a full engine node loop. There is no Postgres adapter, so only Mongo applies. uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 56
+    },
+    {
+      "id": "e54",
+      "obligation_ref": "o57",
+      "test_ref": "tests/ops/test_backup_mongo.py::test_restore_into_empty_replica_set_reproduces_everything ; tests/ops/test_backup.py::test_restore_reproduces_everything ; tests/ops/test_backup.py::test_schedule_daily_snapshot_hourly_increment",
+      "behavior_text": "Snapshot + increment to (moto) S3 restored into an empty real Mongo replica set gives a dump identical to the source for rules/workflows/actors/runs/audit/machines; tick schedules a daily snapshot and hourly increments.",
+      "contract_text": "A scheduled backup writes config + run history to S3 and a restore into an empty store reproduces every rule, workflow, actor and run",
+      "evidence_type": "integration",
+      "strength": "fidelity",
+      "strength_basis": "S3 is moto, not real S3; the restore target is the real docker replica set. uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 57
+    },
+    {
+      "id": "e55",
+      "obligation_ref": "o59",
+      "test_ref": "tests/store/test_replica_set_deploy.py::test_primary_survives_spark2_plus_one_member_down ; tests/store/test_replica_set_deploy.py::test_losing_two_voters_blocks_majority_writes ; tests/store/test_replica_set_deploy.py::test_rs_config_topology_has_three_always_up_voters",
+      "behavior_text": "In four local mongod containers using the committed rs-config, stopping spark2 plus any one of spark/thor/orin still yields a w:majority write and read-back; losing two voters blocks majority writes (negative control).",
+      "contract_text": "With spark2 offline AND any one other member stopped, the store still elects a primary and accepts majority writes",
+      "evidence_type": "integration",
+      "strength": "sensitivity",
+      "strength_basis": "Local containers stand in for the hosts; the negative control proves the topology is what keeps writes up. uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 58
+    },
+    {
+      "id": "e56",
+      "obligation_ref": "o60",
+      "test_ref": "tests/store/test_mongo.py::test_unauthenticated_connect_fails ; tests/store/test_mongo.py::test_plaintext_connection_is_impossible ; tests/store/test_mongo.py::test_application_user_has_no_admin_role ; tests/store/test_replica_set_deploy.py::test_compose_and_unit_enforce_keyfile_and_tls",
+      "behavior_text": "An unauthenticated client fails, a plaintext connection is impossible, an untrusted CA is rejected, the app user has only readWrite on its db and is denied replSetGetStatus/createUser; compose and unit enforce keyFile + TLS.",
+      "contract_text": "No member accepts unauthenticated connections and inter-member traffic is TLS; the app user cannot run admin commands",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "Inter-member TLS is asserted only statically through the compose/unit config; no rs.status TLS check against running members. uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 59
+    },
+    {
+      "id": "e57",
+      "obligation_ref": "o61",
+      "test_ref": "tests/server/test_stateless.py::test_sse_fans_out_a_write_made_through_another_instance_within_2s ; tests/server/test_stateless.py::test_sse_resumes_from_the_event_id_without_missing_changes",
+      "behavior_text": "A write made through API instance A appears on instance B's SSE stream within 2s, and SSE resumes from Last-Event-ID without missing changes.",
+      "contract_text": "Two editors connected through different hosts see the same run update within the 2 s budget, and killing the host serving one of them only forces a reconnect",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "Server half passes (uv run pytest -q <ids>). The editor half is unmet: no Playwright test uses two contexts on two hosts, and the editor does not subscribe to /events/stream at all (no EventSource or polling in web/src), so two editors do not see run updates live and there is nothing to reconnect.",
+      "outcome": "fail",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 60
+    },
+    {
+      "id": "e58",
+      "obligation_ref": "o62",
+      "test_ref": "tests/machines/test_machines.py::test_placeable_requires_enrolled_enabled_engine_node_and_capabilities ; tests/engine/test_placement.py::test_structured_errors ; tests/machines/test_machines.py::test_enrol_is_dry_run_by_default ; tests/cli/test_nouns_api.py::test_dry_run_is_the_default_for_every_mutating_verb_in_the_registry",
+      "behavior_text": "A host with a heartbeat but no enrolment ('ghost') is never placeable and an unknown machine is placement.machine_unknown; enrol defaults to dry-run; every mutating registry verb, including machines create/delete, defaults apply=false.",
+      "contract_text": "A machine not enrolled is never chosen by placement, and enrolling/unenrolling is a dry-run-by-default write with --apply",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Enrol is the 'machines create' verb. Its CLI dry-run is covered by the registry-wide schema default, not by an explicit CLI call in test_every_write_is_dry_run_without_apply. uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 61
+    },
+    {
+      "id": "e59",
+      "obligation_ref": "o63",
+      "test_ref": "tests/machines/test_machines.py::test_three_missed_heartbeats_mark_offline_and_placement_skips ; tests/machines/test_machines.py::test_constants ; tests/server/test_gap_routes.py::test_machines_status_reports_liveness_load_running_and_queue",
+      "behavior_text": "With a fake clock, a node silent for 30s (3 missed 10s beats) leaves online_machines and placeable_machines while one still beating stays; /machines/status reports a stale host online=false.",
+      "contract_text": "Stopping a node flips it to offline within 30 s and new runs avoid it",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "The fake clock models the stop as missed beats; the Statistics API assertion uses a 2h-stale host rather than the 30s boundary. uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 62
+    },
+    {
+      "id": "e60",
+      "obligation_ref": "o64",
+      "test_ref": "tests/engine/test_runs.py::test_timeout_is_retried_per_policy_with_the_same_key_then_fails ; tests/engine/test_runs.py::test_lost_ack_on_step_is_not_executed_twice ; tests/engine/test_runs.py::test_lost_ack_on_rule_action_is_not_executed_twice",
+      "behavior_text": "A timing-out step is retried per RetryPolicy with the same idempotency key, then fails; a fake actor that drops the ack is invoked twice but performs the side effect once, for steps and the rule action.",
+      "contract_text": "A step that times out is retried per policy and an action whose ack was lost is not executed twice",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 63
+    },
+    {
+      "id": "e61",
+      "obligation_ref": "o65",
+      "test_ref": "tests/engine/test_runs.py::test_edit_mid_run_leaves_run_on_old_version_and_new_runs_on_new",
+      "behavior_text": "With s2 (human) pending, editing the workflow to v2 leaves the old run pinned to v1 config while a new run uses v2's config.",
+      "contract_text": "Editing a workflow while a human step is pending leaves that run on the old version and new runs on the new one",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 64
+    },
+    {
+      "id": "e62",
+      "obligation_ref": "o67",
+      "test_ref": "tests/engine/test_audit_lifecycle.py::test_every_mutating_verb_writes_exactly_one_entry_with_identity ; tests/engine/test_audit_lifecycle.py::test_registry_scenarios_cover_every_registered_verb ; tests/engine/test_audit_lifecycle.py::test_empty_identity_rejected_and_nothing_mutates",
+      "behavior_text": "For every verb in MUTATING_VERBS (a scenario set proven equal to the registry), one call adds exactly one audit entry with a non-empty identity; an empty identity is rejected with no mutation.",
+      "contract_text": "Each mutating verb on every surface writes exactly one audit entry with a non-empty identity",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Covered at the engine/server level that every surface funnels into (CLI/MCP go through HTTP); not asserted separately per surface. uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 65
+    },
+    {
+      "id": "e63",
+      "obligation_ref": "o68",
+      "test_ref": "tests/engine/test_audit_lifecycle.py::test_deleted_item_never_fires ; tests/engine/test_audit_lifecycle.py::test_restore_within_window_brings_item_back_with_history ; tests/cli/test_nouns_api.py::test_purge_is_dry_run_without_apply_and_purges_with_it",
+      "behavior_text": "A soft-deleted rule never fires, restore within 30 days brings it back with its audit history, and CLI purge is dry-run without --apply and purges with it.",
+      "contract_text": "A deleted rule can be restored with history and stops firing while deleted",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 66
+    },
+    {
+      "id": "e64",
+      "obligation_ref": "o69",
+      "test_ref": "tests/engine/test_runs.py::test_global_pause_fires_nothing_and_is_audited ; tests/engine/test_runs.py::test_drain_moves_new_placements_off_the_host_and_running_steps_finish ; tests/engine/test_runs.py::test_cancel_stops_run_ignores_late_results_and_is_audited",
+      "behavior_text": "After pause no run starts and it is audited; after draining spark2 its running step finishes but the next gpu step lands on thor; cancel stops the run and ignores late results.",
+      "contract_text": "After global pause, a matching event fires nothing; after drain, new steps never land on the drained host",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 67
+    },
+    {
+      "id": "e65",
+      "obligation_ref": "o70",
+      "test_ref": "tests/ops/test_logs.py::test_step_trail_across_two_nodes ; tests/ops/test_logs.py::test_json_log_carries_run_step_host ; tests/multihost/test_placement.py::test_rule_placed_on_thor_evaluates_only_on_thor_and_each_step_runs_on_its_host",
+      "behavior_text": "step_trail(run_id) returns start/dispatch/complete with hosts node-a and node-b from either store peer; JSON log lines carry run_id, step and host; a real multihost run records each step's host.",
+      "contract_text": "Given a run id, its full step trail across hosts is retrievable from logs and from the run record",
+      "evidence_type": "integration",
+      "strength": "fidelity",
+      "strength_basis": "The two-node trail test hand-writes the history entries rather than producing them with two engines; 'retrievable from logs' rests on the log fields, with no cross-host log query tested. uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 68
+    },
+    {
+      "id": "e66",
+      "obligation_ref": "o72",
+      "test_ref": "tests/events/test_fabric_mongo.py::TestEventFabricOnMongo::test_failover_to_another_host_fires_every_later_event_exactly_once ; tests/events/test_fabric_mongo.py::TestEventFabricOnMongo::test_a_stale_host_replaying_from_an_old_token_does_not_refire ; tests/multihost/test_chaos.py::test_one_host_stopped_keeps_serving_and_actions_run_exactly_once",
+      "behavior_text": "Host A crashes on evt_3; host B takes over the consumer from the persisted change-stream token and evt_1-evt_6 each fire exactly once (real Mongo); a stale token does not refire.",
+      "contract_text": "When a rule fails over from spark to thor, every event published after the failover fires it exactly once",
+      "evidence_type": "integration",
+      "strength": "fidelity",
+      "strength_basis": "The fabric test uses one FakeEventSource rather than durable subscriptions on two real brokers; the chaos test gives each host its own fake subscription. uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 69
+    },
+    {
+      "id": "e67",
+      "obligation_ref": "o73",
+      "test_ref": "tests/server/test_authz_matrix.py::test_editor_cannot_save_inline_scripts_admin_can ; tests/server/test_authz_matrix.py::test_nested_inline_script_in_a_loop_body_is_also_admin_only ; tests/actors/test_code.py::test_bind_argv_typed_and_never_shell_interpreted ; tests/actors/test_code.py::test_never_uses_shell",
+      "behavior_text": "An editor's POST/PUT/import of an inline-script workflow (including one nested in a loop) is 403 inline_script_admin_only; registered commands bind args into an argv list, so '$(rm -rf /)' arrives literally and Popen is never called with shell=True.",
+      "contract_text": "A non-admin cannot save or run inline script text, and a registered command never receives unbound raw text as a shell string",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 70
+    },
+    {
+      "id": "e68",
+      "obligation_ref": "o74",
+      "test_ref": "tests/actors/test_human.py::test_invoke_creates_ask_and_emits_exactly_one_event ; tests/actors/test_human.py::test_second_answer_rejected_with_clear_error ; tests/server/test_asks_api.py::test_answer_endpoint_resumes_run_once_then_conflicts",
+      "behavior_text": "Invoking a human step creates one ask and emits exactly one human.ask.requested event carrying ask_id/run_id; answering resumes once; a second answer is ask_already_answered (409 over HTTP) and the first answer stands.",
+      "contract_text": "An ask raises exactly one event with its id, and answering via the action or the editor resumes the run exactly once; a second answer is rejected",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Answering 'via the editor' is shown by vitest/e2e against a mocked POST /asks/{id}/answer. uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 71
+    },
+    {
+      "id": "e69",
+      "obligation_ref": "o75",
+      "test_ref": "tests/model/test_validate.py::test_loop_without_max_rejected ; tests/engine/test_runs.py::test_for_each_over_max_never_runs_beyond_max ; tests/engine/test_runs.py::test_retry_until_never_exceeds_max",
+      "behavior_text": "A loop step without max (including nested) fails validation; for_each over more items than max and retry_until never run beyond max.",
+      "contract_text": "A loop without a max count fails validation and a loop never exceeds its max",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 72
+    },
+    {
+      "id": "e70",
+      "obligation_ref": "o76",
+      "test_ref": "tests/engine/test_matching.py::test_every_enabled_match_fires_by_default ; tests/engine/test_matching.py::test_exclusive_group_only_highest_priority_fires ; tests/engine/test_matching.py::test_exclusive_group_tie_is_deterministic_by_rule_id",
+      "behavior_text": "All matching enabled rules fire by default; within one exclusive group only the highest priority fires, with ties broken by rule id.",
+      "contract_text": "Two matching rules both fire; two matching rules in one exclusive group fire only the higher priority",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 73
+    },
+    {
+      "id": "e71",
+      "obligation_ref": "o77",
+      "test_ref": "tests/server/test_authz_matrix.py::test_viewer_reads_but_cannot_mutate ; tests/server/test_authz_matrix.py::test_editor_mutates_but_cannot_purge_drain_or_issue_tokens ; tests/test_no_store_driver_imports.py::test_cli_client_mcp_never_import_a_store_driver_statically ; tests/test_no_store_driver_imports.py::test_static_scan_finds_a_planted_driver_import",
+      "behavior_text": "A viewer gets 403 on every mutation, an editor cannot purge/drain/issue tokens, and cli/, client/ and mcp/ never import pymongo statically or at import time (the scanner catches a planted import).",
+      "contract_text": "A viewer token cannot mutate, an editor cannot purge, and no CLI/MCP code path opens a store connection",
+      "evidence_type": "automated",
+      "strength": "sensitivity",
+      "strength_basis": "uv run pytest -q <ids>",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 74
+    },
+    {
+      "id": "e72",
+      "obligation_ref": "o78",
+      "test_ref": "tests/engine/test_matching.py::test_superseded_rule_skipped_when_superseder_matched ; tests/engine/test_matching.py::test_superseder_condition_false_lets_superseded_fire ; tests/engine/test_matching.py::test_supersede_chain_is_transitive ; tests/engine/test_ruleset.py::test_supersede_cycle_is_rejected",
+      "behavior_text": "Per event: A matching skips B with reason superseded_by and message 'superseded by A'; A's condition false lets B fire; A>B>C is transitive; an A->B->C->A cycle is rejected; a superseded rule does not win its exclusive group.",
+      "contract_text": "Supersession is evaluated per event: B is skipped only if a superseding rule actually matched that event (if A's condition fails, B fires normally); supersession is transitive, cycles fail validation, and it composes with exclusive groups and must/may-run-after without changing them; a skipped rule records 'superseded by A' in its contextual history",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "The matching semantics pass (uv run pytest -q <ids>). Two clauses are unmet or untested: composition with must/may-run-after has no test, and 'a skipped rule records superseded by A in its contextual history' is not implemented. culture_rules/node/firing.py persists only firing decisions (rule_fires intents) and drops non-firing ones, so the reason exists only in the in-memory decision and the replay report.",
+      "outcome": "fail",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 75
+    },
+    {
+      "id": "e73",
+      "obligation_ref": "o79",
+      "test_ref": "web/e2e/rules.spec.ts > Rules tab > a relationship is made by dragging a rule onto a slot, shows on both ends, and is removed ; web/src/rules/relations.test.ts (reads supersedes and may_after the same way)",
+      "behavior_text": "Dragging Clean caches onto Train batch's supersedes slot PUTs supersedes:[clean-caches], shows 'supersedes Clean caches' and a 'superseded' row badge, and the other end shows 'superseded by Train batch'; it can be re-kinded and removed by drag, without the text view.",
+      "contract_text": "Both ends of a supersession are visible and editable in the Rules tab without opening the advanced text view",
+      "evidence_type": "automated",
+      "strength": "fidelity",
+      "strength_basis": "Real UI against a mocked rules API. cd web && PLAYWRIGHT_PORT=4455 npx playwright test (full e2e run, 39/39 passed); cd web && npx vitest run (17 files, 146/146 passed)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T12:20:00",
+        "commit": "9b42ffb"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 76
+    }
+  ],
+  "deltas": [
+    {
+      "id": "b1",
+      "kind": "added",
+      "behavior_text": "Statistics added as a fourth tab by operator decision (already in the claim text, not a run deviation).",
+      "caused_by": [
+        "c2"
+      ],
+      "evidence_refs": [
+        "e1"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b2",
+      "kind": "amended",
+      "behavior_text": "d1: Rule.placement (machine/actor/requirement) was added to Rule, so a rule may name an actor for where it evaluates; h7 is scoped to the rule stages only.",
+      "caused_by": [
+        "d1"
+      ],
+      "evidence_refs": [
+        "e7"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b3",
+      "kind": "amended",
+      "behavior_text": "Target size follows the 'Chosen' canvas (40px pills, 46x28 switches) rather than the >= 44px floor in h8; this departure is not recorded as a deviation.",
+      "caused_by": [
+        "c8"
+      ],
+      "evidence_refs": [
+        "e8"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b4",
+      "kind": "added",
+      "behavior_text": "d3: the engine node daemon (culture_rules/node, t41) was added; this production code runs placed/unplaced triggers.",
+      "caused_by": [
+        "d3"
+      ],
+      "evidence_refs": [
+        "e10"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b5",
+      "kind": "amended",
+      "behavior_text": "d2: secrets are sealed with grant instead of shushu.",
+      "caused_by": [
+        "d2"
+      ],
+      "evidence_refs": [],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b6",
+      "kind": "added",
+      "behavior_text": "The bundle is served under the /api prefix alongside the bare API (test_api_is_reachable_bare_and_under_the_api_prefix).",
+      "caused_by": [
+        "c41"
+      ],
+      "evidence_refs": [
+        "e25"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b7",
+      "kind": "amended",
+      "behavior_text": "Steps are toggled, edited and deleted through the workflow document (workflows update), not through step-level CLI/MCP verbs.",
+      "caused_by": [
+        "c48"
+      ],
+      "evidence_refs": [
+        "e30"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b8",
+      "kind": "amended",
+      "behavior_text": "The endpoint shipped as GET /machines/status (not /machines/stats), and the tab is a one-shot load rather than live-refreshed.",
+      "caused_by": [
+        "c49"
+      ],
+      "evidence_refs": [
+        "e31"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b9",
+      "kind": "added",
+      "behavior_text": "POST /replay HTTP route and 'rules replay' CLI verb (integration addition).",
+      "caused_by": [
+        "c51"
+      ],
+      "evidence_refs": [
+        "e33"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b10",
+      "kind": "added",
+      "behavior_text": "Repo-backed export/import HTTP routes and the repo picker in the Workflows tab (integration addition).",
+      "caused_by": [
+        "c54"
+      ],
+      "evidence_refs": [
+        "e36"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b11",
+      "kind": "amended",
+      "behavior_text": "d2: references are grant:<NAME> resolved with grant get, replacing shushu.",
+      "caused_by": [
+        "d2"
+      ],
+      "evidence_refs": [
+        "e39"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b12",
+      "kind": "amended",
+      "behavior_text": "d1: Rule.placement uses the same three forms for where a rule evaluates.",
+      "caused_by": [
+        "d1"
+      ],
+      "evidence_refs": [
+        "e42"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b13",
+      "kind": "amended",
+      "behavior_text": "Citations to the scope entries were placed in the README Background, not in the spec's background paragraph.",
+      "caused_by": [
+        "c67"
+      ],
+      "evidence_refs": [
+        "e47"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b14",
+      "kind": "amended",
+      "behavior_text": "The demo was executed on one host with simulated redundancy, not on the three hosts.",
+      "caused_by": [
+        "c69"
+      ],
+      "evidence_refs": [],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b15",
+      "kind": "added",
+      "behavior_text": "The topology adds orin as the third voting, data-bearing member and makes spark2 non-voting (votes 0, priority 0); the announcement names only spark, thor and spark2.",
+      "caused_by": [
+        "c78"
+      ],
+      "evidence_refs": [
+        "e55"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b16",
+      "kind": "amended",
+      "behavior_text": "Live fan-out exists only at the API (SSE); the shipped editor fetches on load and never receives pushed updates.",
+      "caused_by": [
+        "c80"
+      ],
+      "evidence_refs": [
+        "e57"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b17",
+      "kind": "added",
+      "behavior_text": "purge (admin-only, permanent removal of tombstoned items) is an integration addition.",
+      "caused_by": [
+        "c87"
+      ],
+      "evidence_refs": [
+        "e63"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b18",
+      "kind": "added",
+      "behavior_text": "GET /asks list route used by the Rules tab's in-context asks panel (integration addition).",
+      "caused_by": [
+        "c93"
+      ],
+      "evidence_refs": [
+        "e68"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b19",
+      "kind": "removed",
+      "behavior_text": "Supersession skips are not persisted to any rule history; only replay reports the 'superseded by' reason.",
+      "caused_by": [
+        "c97"
+      ],
+      "evidence_refs": [
+        "e72"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    }
+  ],
   "supersessions": []
 }
