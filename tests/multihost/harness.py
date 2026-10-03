@@ -468,6 +468,15 @@ def free_port() -> int:
         return sock.getsockname()[1]
 
 
+def issue_token(store: StoragePort, roles: tuple[str, ...] = ("editor",)) -> str:
+    """A real service token (t24): the harness authenticates as a production client does."""
+    from culture_rules.auth.tokens import ServiceTokens
+    from culture_rules.engine.audit import AuditLog
+
+    issued = ServiceTokens(store, AuditLog()).issue("chaos-test", name="chaos-test", roles=roles)
+    return issued.token
+
+
 class ApiServer:
     """One host's HTTP API: a real uvicorn listener on a loopback port, in a thread."""
 
@@ -477,6 +486,7 @@ class ApiServer:
         from culture_rules.server.app import create_app
 
         self.host = host
+        self.headers = {"Authorization": f"Bearer {issue_token(store)}"}
         self.port = free_port()
         self.url = f"http://127.0.0.1:{self.port}"
         config = uvicorn.Config(
@@ -506,16 +516,25 @@ class ApiServer:
     def sse(
         self, collections: Iterable[str], *, run_id: str, until: Callable[[dict], bool]
     ) -> SseReader:
-        return SseReader(self.url, list(collections), run_id=run_id, until=until)
+        return SseReader(
+            self.url, list(collections), run_id=run_id, until=until, headers=self.headers
+        )
 
 
 class SseReader:
     """Reads ``/events/stream`` in a thread, stamping every frame with its arrival time."""
 
     def __init__(
-        self, url: str, collections: list[str], *, run_id: str, until: Callable[[dict], bool]
+        self,
+        url: str,
+        collections: list[str],
+        *,
+        run_id: str,
+        until: Callable[[dict], bool],
+        headers: dict[str, str] | None = None,
     ) -> None:
         self._url = url
+        self._headers = headers or {}
         self._collections = collections
         self._run_id = run_id
         self._until = until
@@ -540,7 +559,8 @@ class SseReader:
 
         params = {"collections": ",".join(self._collections), "max_seconds": "60"}
         try:
-            with httpx.Client(timeout=httpx.Timeout(5.0, read=None)) as client:
+            timeout = httpx.Timeout(5.0, read=None)
+            with httpx.Client(timeout=timeout, headers=self._headers) as client:
                 with client.stream("GET", f"{self._url}/events/stream", params=params) as resp:
                     self._consume(resp.iter_lines())
         except BaseException as exc:  # noqa: BLE001 - surfaced by wait()
@@ -581,12 +601,11 @@ class FailoverClient:
     """Stands in for the edge: round-robins over origins, moving to the next origin only
     when one cannot be reached (connection-level failure). HTTP errors are never retried."""
 
-    IDENTITY = {"X-Culture-Identity": "chaos-test"}
-
-    def __init__(self, urls: list[str]) -> None:
+    def __init__(self, urls: list[str], headers: dict[str, str] | None = None) -> None:
         import httpx
 
         self._httpx = httpx
+        self.headers = headers or {}
         self.urls = urls
         self._next = 0
         self.failovers = 0
@@ -604,7 +623,7 @@ class FailoverClient:
     def mixed_load(self, count: int) -> list[bool]:
         """``count`` requests mixing reads and definition writes; True per success."""
         outcomes: list[bool] = []
-        with self._httpx.Client(timeout=10.0, headers=self.IDENTITY) as client:
+        with self._httpx.Client(timeout=10.0, headers=self.headers) as client:
             for i in range(count):
                 kind = i % 5
                 if kind == 0:

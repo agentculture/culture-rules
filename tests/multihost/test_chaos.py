@@ -26,7 +26,7 @@ def test_one_host_stopped_keeps_serving_and_actions_run_exactly_once(cluster):
     cluster.define(event_rule("chaos"))
     cluster.start(*HOSTS)
     apis = [cluster.serve(h) for h in HOSTS]
-    client = FailoverClient([a.url for a in apis])
+    client = FailoverClient([a.url for a in apis], headers=apis[0].headers)
 
     def publish() -> None:
         for n in range(EVENTS):
