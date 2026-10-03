@@ -777,26 +777,25 @@ class Executor:
             return self._fail_now(
                 doc, key, _error("no_actor_port", f"no actor port for {ctx.kind!r}"), now
             )
-        unknown = resume or (st["attempt"] > 0 and (st.get("error") or {}).get("code") == "timeout")
-        if unknown and not self._key_safe(plan, st, port):
+        if _outcome_unknown(st, resume) and not self._key_safe(plan, st, port):
             return self._refuse_unsafe(doc, key, now)
         claim = self._claims.claim_step(doc["id"], key)
         if not claim.won:
             return False
-        if resume or st.get("resume"):
-            deadline = _parse(st["deadline"]) or now
-        else:
-            deadline = now + timedelta(seconds=self._timeout(plan, st))
+        deadline = self._deadline(plan, st, now, resume)
         if not self._mark_dispatching(doc, key, attempt, inputs, deadline, now):
             self._claims.release(claim)
             return False
         idem = idempotency_key(doc["id"], key)
-        try:
-            result: InvocationResult | None = port.invoke(inputs, idem, deadline, context=ctx)
-        except Exception:  # no acknowledgement: the outcome is unknown
-            result = None
+        result = _invoke(port, inputs, idem, deadline, ctx)
         self._settle(doc["id"], key, attempt, claim, result, port)
         return True
+
+    def _deadline(self, plan: _Plan, st: Mapping, now: datetime, resume: bool) -> datetime:
+        """A resumed attempt keeps its deadline; a new one gets the step's timeout."""
+        if resume or st.get("resume"):
+            return _parse(st["deadline"]) or now
+        return now + timedelta(seconds=self._timeout(plan, st))
 
     def _resume_inputs(self, plan: _Plan, st: dict) -> dict | bool:
         """The inputs a resumed step re-runs with, or False when it resumes elsewhere."""
@@ -973,6 +972,25 @@ class Executor:
 
 
 # --------------------------------------------------------------------------- pure transitions
+
+
+def _outcome_unknown(st: Mapping, resume: bool) -> bool:
+    """Whether the step's last attempt may have run: a resume, or a timed-out attempt."""
+    return resume or (st["attempt"] > 0 and (st.get("error") or {}).get("code") == "timeout")
+
+
+def _invoke(
+    port: ActorPort,
+    inputs: dict,
+    idem: str,
+    deadline: datetime,
+    ctx: InvocationContext,
+) -> InvocationResult | None:
+    """Invoke ``port``; None when it raised (no acknowledgement: the outcome is unknown)."""
+    try:
+        return port.invoke(inputs, idem, deadline, context=ctx)
+    except Exception:  # no acknowledgement: the outcome is unknown
+        return None
 
 
 def _apply(
