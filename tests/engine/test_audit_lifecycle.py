@@ -16,6 +16,7 @@ from culture_rules.engine.lifecycle import (
     PermissionDenied,
 )
 from culture_rules.store.memory import MemoryStore
+from tests.auth.scenarios import AUTH_AUDIT_SCENARIOS
 from tests.engine.run_helpers import RUN_AUDIT_SCENARIOS
 from tests.server.scenarios import SERVER_AUDIT_SCENARIOS
 
@@ -145,6 +146,7 @@ SCENARIOS = {
     "machine.drain": RUN_AUDIT_SCENARIOS["machine.drain"],
     "machine.undrain": RUN_AUDIT_SCENARIOS["machine.undrain"],
     **SERVER_AUDIT_SCENARIOS,
+    **AUTH_AUDIT_SCENARIOS,
 }
 
 

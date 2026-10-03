@@ -9,11 +9,20 @@ pytest.importorskip("httpx")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
+from culture_rules.auth.resolve import AuthSettings  # noqa: E402
 from culture_rules.server.app import create_app  # noqa: E402
 from culture_rules.store.memory import MemoryStore  # noqa: E402
 from tests.engine.run_helpers import rule, step, workflow  # noqa: E402
 
 ALICE = {"X-Culture-Identity": "alice"}
+# The route/lifecycle tests predate auth (t24): they run on the explicit, off-by-default
+# insecure dev identity (X-Culture-Identity, everyone admin). Auth itself is covered by
+# tests/server/test_authz_matrix.py and tests/server/test_listeners.py.
+DEV = AuthSettings(insecure_dev_identity=True)
+
+
+def dev_app(store, **kw):
+    return create_app(store, auth=DEV, **kw)
 
 
 @pytest.fixture
@@ -23,7 +32,7 @@ def store() -> MemoryStore:
 
 @pytest.fixture
 def client(store) -> TestClient:
-    return TestClient(create_app(store))
+    return TestClient(dev_app(store))
 
 
 def rule_body(id: str = "r1", **changes) -> dict:
