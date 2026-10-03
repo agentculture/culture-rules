@@ -77,6 +77,13 @@ def install(app: FastAPI, web_dist: Path | None) -> bool:
         candidate = (root / path).resolve()
         if path and candidate.is_file() and candidate.is_relative_to(root):
             return FileResponse(candidate)
+        if path and "text/html" not in request.headers.get("accept", ""):
+            # not a browser navigation and not a built file: an API client asked for a path
+            # that is no route, so answer like the API does instead of with the SPA page
+            return JSONResponse(
+                {"error": {"code": "not_found", "message": "no such route", "errors": []}},
+                status_code=404,
+            )
         return FileResponse(index)
 
     app.add_middleware(_ApiPrefix)

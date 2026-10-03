@@ -83,3 +83,14 @@ def test_without_a_build_nothing_is_mounted(tmp_path):
     assert c.get("/", headers=ALICE).status_code == 404
     assert c.get("/api/whoami", headers=ALICE).status_code == 404  # no prefix without a UI
     assert c.get("/whoami", headers=ALICE).status_code == 200
+
+
+def test_unknown_unprefixed_path_for_a_non_browser_client_is_a_json_404(web):
+    """Live-test finding: curl/CLI clients must not get the SPA for a path that is no route."""
+    for accept in ("application/json", "*/*"):
+        r = web.get("/nope/x", headers={**ALICE, "Accept": accept})
+        assert r.status_code == 404 and r.headers["content-type"].startswith("application/json")
+    page = web.get("/nope/x", headers={**ALICE, "Accept": "text/html"})
+    assert page.status_code == 200 and "spa" in page.text
+    asset = web.get("/assets/app.js", headers={**ALICE, "Accept": "*/*"})
+    assert asset.status_code == 200 and "console.log" in asset.text

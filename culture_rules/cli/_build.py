@@ -121,6 +121,13 @@ def register_noun(sub: argparse._SubParsersAction, noun: str, help_: str) -> Non
             vp.add_argument(
                 "--apply", action="store_true", help="Commit the write (default: dry-run)."
             )
-        vp.add_argument("--json", action="store_true", help="Emit structured JSON.")
-        vp.add_argument("--api-url", help="API base URL (default CULTURE_RULES_API_URL).")
+        # SUPPRESS: when absent here, the noun-level value (`rules --json list`) stands
+        vp.add_argument(
+            "--json", action="store_true", default=argparse.SUPPRESS, help="Emit structured JSON."
+        )
+        vp.add_argument(
+            "--api-url",
+            default=argparse.SUPPRESS,
+            help="API base URL (default CULTURE_RULES_API_URL).",
+        )
         vp.set_defaults(func=_handler(verb))

@@ -338,3 +338,21 @@ def test_rules_replay_over_the_api(wire, capsys):
     jrun(capsys, "rules", "create", "--body", json.dumps(rule_body()), "--apply")
     out = jrun(capsys, "rules", "replay", "--rule-id", "r1", "--limit", "5")
     assert out["events"] == 0 and out["actions_executed"] == 0
+
+
+def test_json_flag_before_the_verb_is_honoured(wire, capsys):
+    """Live-test finding: `rules --json list` printed text."""
+    jrun(capsys, "rules", "create", "--body", json.dumps(rule_body()), "--apply")
+    rc, out, _ = run(capsys, "rules", "--json", "list")
+    assert rc == 0 and [i["id"] for i in json.loads(out)["items"]] == ["r1"]
+
+
+def test_missing_credentials_hint_names_the_token_not_a_role(store, monkeypatch, capsys):
+    """Live-test finding: a 401 said 'the verb needs a higher role'."""
+    w = Wire(store)
+    monkeypatch.setattr(
+        _api, "make_client", lambda api_url=None: ApiClient("http://127.0.0.1:8765", transport=w)
+    )
+    w.tc.headers.pop("Authorization")
+    rc, _, err = run(capsys, "rules", "list")
+    assert rc == 1 and "higher role" not in err and "CULTURE_RULES_TOKEN" in err

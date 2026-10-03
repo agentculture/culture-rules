@@ -70,7 +70,9 @@ def call(fn: Callable[[], Any]) -> Any:
 
 
 def _hint(exc: ApiError) -> str:
-    if exc.status in (401, 403):
+    if exc.status == 401:
+        return f"set {ENV_TOKEN} to a valid service token (or a grant:<NAME> reference)"
+    if exc.status == 403:
         return f"check {ENV_TOKEN}; the verb needs a higher role"
     if exc.status == 404:
         return "list what exists with the noun's 'list' verb"
