@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import sys
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -31,11 +30,11 @@ def ctx(identity: str = "alice", **cfg) -> InvocationContext:
 COMMANDS = {
     "echo": {"argv": ["echo", "{msg}"], "params": {"msg": "string"}},
     "count": {
-        "argv": [sys.executable, "-c", "import sys;print(len(sys.argv)-1)", "{n}", "{flag}"],
+        "argv": ["printf", "%s %s\\n", "{n}", "{flag}"],
         "params": {"n": "int", "flag": "bool"},
     },
     "sleepy": {"argv": ["sleep", "5"], "timeout": 0.3},
-    "fail": {"argv": ["sh", "-c", "echo oops >&2; exit 3"]},
+    "fail": {"argv": ["ls", "/nonexistent-culture-rules-path"]},
 }
 
 
@@ -74,9 +73,8 @@ def test_bind_argv_typed_and_never_shell_interpreted():
 
 def test_typed_binding_coerces_and_rejects():
     assert bind_argv(COMMANDS["count"], {"n": 3, "flag": True}) == [
-        sys.executable,
-        "-c",
-        "import sys;print(len(sys.argv)-1)",
+        "printf",
+        "%s %s\\n",
         "3",
         "true",
     ]
@@ -118,7 +116,8 @@ def test_unknown_command_fails_non_retryable():
 def test_nonzero_exit_is_failed_with_output():
     res = runner().invoke({"command": "fail"}, "k5", DEADLINE, context=ctx())
     assert res.outcome == "failed"
-    assert "3" in res.error
+    assert "exit code 2" in res.error
+    assert "nonexistent-culture-rules-path" in res.error
 
 
 def test_command_timeout():
@@ -239,3 +238,130 @@ def test_bind_argv_never_rescans_a_bound_value_for_placeholders():
 def test_bind_argv_leaves_unknown_braces_literal():
     spec = {"argv": ["echo", "{msg}-{other}"], "params": {"msg": "string"}}
     assert bind_argv(spec, {"msg": "{msg}"}) == ["echo", "{msg}-{other}"]
+
+
+# --- E1: failures are not cached under the key ---------------------------------------------
+
+
+def test_in_process_retry_after_a_failure_runs_the_command_again(tmp_path):
+    marker = tmp_path / "ready"
+    calls = []
+    r = CodeRunner(
+        {"probe": {"argv": ["test", "-e", str(marker)]}},
+        is_admin=lambda i: False,
+        on_run=calls.append,
+    )
+    first = r.invoke({"command": "probe"}, "same", DEADLINE, context=ctx())
+    assert first.outcome == "failed"
+    marker.touch()
+    second = r.invoke({"command": "probe"}, "same", DEADLINE, context=ctx())
+    assert second.outcome == "completed"
+    assert len(calls) == 2
+    third = r.invoke({"command": "probe"}, "same", DEADLINE, context=ctx())
+    assert third is second  # a completed result is still replayed, not re-run
+    assert len(calls) == 2
+
+
+# --- #2: registered commands must not evaluate inline code ----------------------------------
+
+SHELL_FORMS = [
+    ["/bin/sh", "-c", "{script}"],
+    ["sh", "-c", "{script}"],
+    ["bash", "-ec", "{script}"],
+    ["/usr/bin/zsh", "-c", "{script}"],
+    ["dash", "-c", "{script}"],
+    ["ksh", "-x", "-c", "{script}"],
+    ["python3", "-c", "{script}"],
+    ["python", "-Ic", "{script}"],
+    ["/usr/bin/python3.12", "-u", "-c", "{script}"],
+    ["node", "-e", "{script}"],
+    ["node", "--eval", "{script}"],
+    ["node", "--eval={script}"],
+    ["perl", "-le", "{script}"],
+    ["ruby", "-e", "{script}"],
+    ["env", "sh", "-c", "{script}"],
+    ["/usr/bin/env", "-i", "PATH=/bin", "bash", "-c", "{script}"],
+    ["env", "-S", "{script}"],
+    ["sudo", "-u", "root", "sh", "-c", "{script}"],
+    ["sudo", "env", "python3", "-c", "{script}"],
+]
+
+
+@pytest.mark.parametrize("argv", SHELL_FORMS, ids=lambda a: " ".join(a))
+def test_registered_shell_or_interpreter_inline_code_is_refused(argv):
+    calls = []
+    r = CodeRunner(
+        {"run": {"argv": argv, "params": {"script": "string"}}},
+        is_admin=lambda i: True,
+        on_run=calls.append,
+    )
+    res = r.invoke(
+        {"command": "run", "args": {"script": "echo pwned-$((6*7))"}},
+        "x",
+        DEADLINE,
+        context=ctx("root"),
+    )
+    assert res.outcome == "failed"
+    assert res.retryable is False
+    assert "inline code" in res.error
+    assert calls == []
+
+
+def test_inline_flag_supplied_through_an_argument_is_refused():
+    calls = []
+    r = CodeRunner(
+        {
+            "run": {
+                "argv": ["python3", "{flag}", "{code}"],
+                "params": {"flag": "string", "code": "string"},
+            }
+        },
+        is_admin=lambda i: False,
+        on_run=calls.append,
+    )
+    res = r.invoke(
+        {"command": "run", "args": {"flag": "-c", "code": "print(42)"}},
+        "y",
+        DEADLINE,
+        context=ctx(),
+    )
+    assert res.outcome == "failed"
+    assert res.retryable is False
+    assert calls == []
+
+
+def test_executable_supplied_through_an_argument_is_refused():
+    r = CodeRunner(
+        {
+            "run": {
+                "argv": ["{prog}", "-c", "{code}"],
+                "params": {"prog": "string", "code": "string"},
+            }
+        },
+        is_admin=lambda i: False,
+    )
+    res = r.invoke(
+        {"command": "run", "args": {"prog": "/bin/sh", "code": "id"}}, "z", DEADLINE, context=ctx()
+    )
+    assert res.outcome == "failed"
+    assert res.retryable is False
+
+
+def test_legit_registered_commands_still_run():
+    r = CodeRunner(
+        {
+            "uptime": {"argv": ["uptime"]},
+            "climate": {
+                "argv": ["echo", "climate", "read", "{city}"],
+                "params": {"city": "string"},
+            },
+            "grep": {"argv": ["grep", "-c", "x", "/dev/null"]},
+        },
+        is_admin=lambda i: False,
+    )
+    assert r.invoke({"command": "uptime"}, "u", DEADLINE, context=ctx()).outcome == "completed"
+    res = r.invoke({"command": "climate", "args": {"city": "-c"}}, "c", DEADLINE, context=ctx())
+    assert res.outcome == "completed"
+    assert res.output["stdout"].strip() == "climate read -c"
+    grep = r.invoke({"command": "grep"}, "g", DEADLINE, context=ctx())
+    assert "inline code" not in (grep.error or "")  # -c is grep's count flag, not eval

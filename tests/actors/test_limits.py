@@ -20,6 +20,7 @@ from culture_rules.engine.actorport import (
     COMPLETED,
     FAILED,
     InvocationContext,
+    InvocationResult,
 )
 from culture_rules.store.memory import MemoryStore
 from tests.engine.run_helpers import T0, Clock, FakeActor
@@ -203,3 +204,82 @@ def test_invalid_budget_degrades_like_culture(bad):
 def test_invalid_warn_pct_degrades_to_default():
     cfg = ActorConfig(key="x", extras={"token_budget": 10, "token_budget_warn_pct": 101})
     assert limits_from_config(cfg).token_budget_warn_pct == 80
+
+
+# ------------------------------------------------- #3 retries after a failed attempt
+
+
+def _retrying(limits: ActorLimits, *behaviours):
+    inner = FakeActor().on("k", *behaviours).on("hold", ("accept",))
+    return make(limits, inner)
+
+
+def test_retry_after_failure_is_blocked_at_the_cap():
+    actor, inner, _, _ = _retrying(
+        ActorLimits(max_concurrency=1), ("fail", "transient", True), ("complete", {})
+    )
+    assert actor.invoke({}, "K", DEADLINE, context=ctx("k")).outcome == FAILED
+    assert actor.invoke({}, "J", DEADLINE, context=ctx("hold")).outcome == "accepted"
+    retry = actor.invoke({}, "K", DEADLINE, context=ctx("k"))
+    assert retry.outcome == BLOCKED
+    assert inner.effects["K"] == 0
+
+
+def test_retry_after_failure_is_refused_over_budget():
+    actor, inner, _, _ = _retrying(ActorLimits(token_budget=10), ("fail", "transient", True))
+    assert actor.invoke({}, "K", DEADLINE, context=ctx("k")).outcome == FAILED
+    actor.release("other", tokens=10)
+    retry = actor.invoke({}, "K", DEADLINE, context=ctx("k"))
+    assert retry.outcome == FAILED
+    assert parse_limit_error(retry.error)["code"] == "over_budget"
+    assert inner.effects["K"] == 0
+
+
+def test_retry_after_failure_counts_its_tokens():
+    actor, _, _, _ = _retrying(
+        ActorLimits(token_budget=1000), ("fail", "transient", True), ("complete", {"tokens": 500})
+    )
+    actor.invoke({}, "K", DEADLINE, context=ctx("k"))
+    assert actor.invoke({}, "K", DEADLINE, context=ctx("k")).outcome == COMPLETED
+    assert actor.usage()["tokens"] == 500
+    assert actor.usage()["in_flight"] == 0
+
+
+def test_failed_attempt_frees_its_slot_and_is_not_remembered_as_done():
+    actor, _, store, _ = _retrying(ActorLimits(max_concurrency=1), ("fail", "transient", True))
+    actor.invoke({}, "K", DEADLINE, context=ctx("k"))
+    doc = store.get(USAGE_COLLECTION, "bot")
+    assert doc["inflight"] == []
+    assert "K" not in doc["done"]
+
+
+def test_release_marks_done_only_for_completed_work():
+    actor, _, store, _ = make(ActorLimits())
+    actor.release("failed-later", tokens=3)
+    actor.release("completed-later", tokens=4, completed=True)
+    doc = store.get(USAGE_COLLECTION, "bot")
+    assert doc["done"] == ["completed-later"]
+    assert doc["tokens"] == 7
+
+
+class _Scripted:
+    """An inner port returning scripted results per key (one per call)."""
+
+    def __init__(self, **script):
+        self.script = {k: list(v) for k, v in script.items()}
+        self.calls: list[str] = []
+
+    def invoke(self, input, idempotency_key, deadline, *, context):
+        self.calls.append(idempotency_key)
+        return self.script[idempotency_key].pop(0)
+
+
+def test_tokens_spent_by_a_failed_attempt_are_counted():
+    spent = InvocationResult(FAILED, {"tokens": 30}, error="transient")
+    inner = _Scripted(K=[spent, InvocationResult.completed({"tokens": 20})])
+    actor = LimitedActor(inner, "bot", ActorLimits(token_budget=1000), MemoryStore(), clock=Clock())
+    actor.invoke({}, "K", DEADLINE, context=ctx())
+    assert actor.usage()["tokens"] == 30
+    actor.invoke({}, "K", DEADLINE, context=ctx())
+    assert actor.usage()["tokens"] == 50
+    assert inner.calls == ["K", "K"]

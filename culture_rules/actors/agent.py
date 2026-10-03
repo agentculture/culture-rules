@@ -14,10 +14,16 @@ Two :class:`~culture_rules.engine.actorport.ActorPort` implementations:
     idempotency key; :meth:`MeshAgentActor.poll` matches incoming replies to pending
     tasks by that id and hands each completion to ``Executor.deliver``.
 
-Idempotency: both adapters remember results per idempotency key for the life of the
-process, so a retried ``invoke`` never repeats the side effect (the mesh adapter never
-re-sends). Across a process restart the target is not asked to dedupe, so a restart
-mid-task can repeat work; the executor's claims (not this adapter) guard that window.
+Idempotency: both adapters remember *completed* results per idempotency key for the
+life of the process, so an in-process re-ask of finished work replays it instead of
+repeating the side effect, and the mesh adapter never re-sends a task still pending. A
+failure is not remembered, so a retry after a definite failure runs the work again.
+Neither ledger survives a restart, and neither target deduplicates by key (``colleague
+work`` has no key; the mesh carries the correlation id but agents do not dedupe on it),
+so both declare ``supports_idempotency_key = False``. The executor then never re-invokes
+an attempt whose outcome is unknown (a resume after a crash, a lost acknowledgement, a
+timeout): it fails the step with ``unsafe_retry`` unless the step is declared idempotent.
+Claims alone do not guard that window: a claim only says which host may run the attempt.
 
 The real agentirc client (PyPI distribution ``agentirc-cli``, import name ``agentirc``;
 the unrelated PyPI project named ``agentirc`` is NOT it) lives behind the optional
@@ -36,7 +42,7 @@ from datetime import datetime, timezone
 from importlib import import_module
 from typing import Any, Protocol, runtime_checkable
 
-from culture_rules.engine.actorport import InvocationContext, InvocationResult
+from culture_rules.engine.actorport import COMPLETED, InvocationContext, InvocationResult
 
 __all__ = [
     "AgentActorError",
@@ -104,7 +110,7 @@ def _default_runner(argv: list[str], *, timeout: float) -> subprocess.CompletedP
 class ColleagueActor:
     """ActorPort running one-shot ``colleague work`` per step."""
 
-    supports_idempotency_key = True
+    supports_idempotency_key = False  # in-memory ledger; colleague cannot dedupe by key
 
     def __init__(
         self,
@@ -159,7 +165,7 @@ class ColleagueActor:
         except subprocess.TimeoutExpired as exc:
             raise TimeoutError(f"colleague work timed out after {timeout:.0f}s") from exc
         result = self._to_result(proc)
-        if result.outcome != "blocked":
+        if result.outcome == COMPLETED:  # a failure is not cached: a retry runs again
             self._done[idempotency_key] = result
         return result
 
@@ -206,7 +212,7 @@ class AgentClient(Protocol):
 class MeshAgentActor:
     """ActorPort sending a task to a mesh agent and completing on its correlated reply."""
 
-    supports_idempotency_key = True
+    supports_idempotency_key = False  # in-memory ledger; mesh agents do not dedupe by key
 
     def __init__(self, *, client: AgentClient) -> None:
         self._client = client
@@ -252,11 +258,11 @@ class MeshAgentActor:
             key = self._pending.pop(reply.correlation_id, None)
             if key is None:  # unrelated, or a duplicate of one already delivered
                 continue
-            if reply.error:
+            if reply.error:  # not cached: a retry with the same key re-sends the task
                 result = InvocationResult.failed(reply.text)
             else:
                 result = InvocationResult.completed({"reply": reply.text, "sender": reply.sender})
-            self._results[key] = result
+                self._results[key] = result
             deliver(key, result)
             delivered += 1
         return delivered
