@@ -48,3 +48,40 @@ def test_mcp_is_explained_and_learned(capsys):
     assert ("mcp",) in listed
     assert main(["explain", "mcp"]) == 0
     assert "culture-rules mcp" in capsys.readouterr().out
+
+
+BLOCKED = ("anyio", "mcp", "mcp.types", "mcp.server", "mcp.server.lowlevel", "mcp.server.stdio")
+
+
+def _block_the_sdk(monkeypatch):
+    import sys
+
+    for name in BLOCKED:
+        monkeypatch.setitem(sys.modules, name, None)
+
+
+def test_mcp_without_the_sdk_installed_exits_2_with_a_hint(monkeypatch, capsys):
+    """The real run_stdio, with anyio and the mcp SDK absent: no bare ModuleNotFoundError."""
+    _block_the_sdk(monkeypatch)
+    assert main(["mcp"]) == 2
+    err = capsys.readouterr().err
+    assert "pip install 'culture-rules[mcp]'" in err
+
+
+def test_mcp_without_the_sdk_installed_json_error(monkeypatch, capsys):
+    _block_the_sdk(monkeypatch)
+    assert main(["mcp", "--json"]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    payload = json.loads(captured.err)
+    assert payload["code"] == 2 and "culture-rules[mcp]" in payload["remediation"]
+
+
+def test_run_stdio_without_anyio_alone_raises_server_extra_missing(monkeypatch):
+    import sys
+
+    import pytest
+
+    monkeypatch.setitem(sys.modules, "anyio", None)
+    with pytest.raises(mcp_server.ServerExtraMissing):
+        mcp_server.run_stdio()
