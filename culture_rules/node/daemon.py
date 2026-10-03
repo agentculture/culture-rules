@@ -10,7 +10,10 @@ A :class:`Node` on host ``H`` does, every cycle (:meth:`Node.run_once`):
    (:class:`~culture_rules.events.ingest.EventIngest`; no source = no ingest);
 3. **evaluate** - polls the per-host consumer for rules placed on ``H`` and the shared
    consumer for unplaced rules (:mod:`culture_rules.node.firing`), committing firing
-   intents; a rule placed on ``H`` while ``H`` is drained/offline keeps its event;
+   intents; a rule placed on ``H`` while ``H`` is drained/offline keeps its event; then
+   the two chain consumers (placed on ``H`` / shared), which re-evaluate a rule waiting
+   for a ``must_after`` / ``may_after`` predecessor once that predecessor's run for the
+   event has finished (or it can no longer run);
 4. **start** - turns pending intents into runs (run id derived from rule + event);
 5. **drive** - ticks the :class:`~culture_rules.engine.runs.Executor` until idle; actors
    are reached through :class:`~culture_rules.node.actors.ActorRouter`;
@@ -165,7 +168,8 @@ class Node:
     # ------------------------------------------------------------------ lifecycle
 
     def start(self) -> Document:
-        """Probe, beat, and pin both trigger cursors (so later events are not missed)."""
+        """Probe, beat, and pin the trigger and chain cursors (so later changes are not
+        missed)."""
         with log_context(host=self.host):
             result = self._probe()
             gpu = result.gpu_load
@@ -186,7 +190,7 @@ class Node:
             )
             doc = self.beat()
             pinned = CycleReport(self.host)
-            for consumer in (self.firing.placed, self.firing.shared):
+            for consumer in self.firing.consumers:
                 self._stage(pinned, self._poll, consumer, pinned)  # retried next cycle
             if self._reporter is not None:
                 self._report_token = self._store.head(RUNS_COLLECTION)
@@ -234,8 +238,8 @@ class Node:
             self._stage(report, self._beat_if_due, report)
             if self.ingest is not None:
                 self._stage(report, self._ingest, report)
-            self._stage(report, self._poll, self.firing.placed, report)
-            self._stage(report, self._poll, self.firing.shared, report)
+            for consumer in self.firing.consumers:
+                self._stage(report, self._poll, consumer, report)
             self._stage(report, self._start_fired, report)
             self._stage(report, self._drive, report)
             if self._reporter is not None and self._report_token is not None:

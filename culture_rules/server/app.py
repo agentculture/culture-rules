@@ -558,14 +558,15 @@ def create_app(
     def rule_history(id: str, limit: Annotated[int, Query(ge=1, le=500)] = 20):
         """A rule's contextual history, newest first: its runs (``kind: run``) and its
         recorded skips (``kind: decision``: superseded_by, blocked_by_predecessor,
-        group_lost, with ``by`` naming the responsible rules)."""
+        group_lost, predecessor_failed, with ``by`` naming the responsible rules). A rule
+        that waited for a predecessor and then fired shows as its run."""
         defs.get("rules", id)
         runs = [
             {"kind": "run", "at": d.get("created_at"), **_run_summary(d)}
             for d in store.find(RUNS_COLLECTION)
             if (d.get("rule") or {}).get("id") == id
         ]
-        skips = [{"kind": "decision", **d} for d in decisions_for(store, id)]
+        skips = [{"kind": "decision", **d} for d in decisions_for(store, id, skips_only=True)]
         merged = sorted(runs + skips, key=lambda item: item.get("at") or "", reverse=True)
         return {"items": merged[:limit]}
 

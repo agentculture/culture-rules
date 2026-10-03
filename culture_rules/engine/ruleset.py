@@ -6,6 +6,9 @@ what single-rule validation cannot:
 
 * ``supersede_cycle`` -- the ``supersedes`` edges form a cycle;
 * ``predecessor_cycle`` -- the ``must_after`` edges form a cycle (it could never run);
+* ``unrunnable_relationship`` -- a rule supersedes a rule it must run after, directly or
+  transitively (A supersedes* B and A must_after* B): whenever A matches, B is skipped,
+  so B never succeeds for that event and A can never fire;
 * ``not_a_predecessor`` -- a ``rules.<id>.outputs.<name>`` reference names a rule that is
   not in this rule's ``must_after`` / ``may_after``;
 * ``unexported_output`` -- the referenced predecessor's workflow does not explicitly
@@ -58,6 +61,18 @@ def _find_cycle(graph: Mapping[str, tuple[str, ...]]) -> list[str] | None:
     return None
 
 
+def _reach(start: str, graph: Mapping[str, tuple[str, ...]]) -> set[str]:
+    """Every rule reachable from ``start`` over ``graph`` (not ``start`` unless on a cycle)."""
+    seen: set[str] = set()
+    todo = list(graph.get(start, ()))
+    while todo:
+        nxt = todo.pop()
+        if nxt not in seen:
+            seen.add(nxt)
+            todo.extend(graph.get(nxt, ()))
+    return seen
+
+
 def _strings(value: Any, path: str) -> Iterator[tuple[str, str]]:
     if isinstance(value, str):
         yield path, value
@@ -98,6 +113,21 @@ def validate_rule_set(
         if cycle:
             errors.append(
                 ValidationError("rules", code, f"{rel} edges form a cycle: " + " -> ".join(cycle))
+            )
+
+    supersedes = {r.id: tuple(r.supersedes) for r in rules}
+    must_after = {r.id: tuple(r.must_after) for r in rules}
+    for i, r in enumerate(rules):
+        both = sorted((_reach(r.id, supersedes) & _reach(r.id, must_after)) - {r.id})
+        if both:
+            names = ", ".join(repr(b) for b in both)
+            errors.append(
+                ValidationError(
+                    join("rules", i),
+                    "unrunnable_relationship",
+                    f"rule {r.id!r} supersedes {names} and must run after it, directly or "
+                    "transitively, so it can never fire",
+                )
             )
 
     for i, r in enumerate(rules):

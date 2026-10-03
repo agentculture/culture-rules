@@ -19,6 +19,10 @@ this precedence order:
 6. ``blocked_by_predecessor`` -- a ``must_after`` predecessor has not succeeded for
    this event (missing outcome, still running, failed, ...).
 
+Matching itself never produces ``predecessor_failed``: the node's sequencing
+(:mod:`culture_rules.engine.chaining`) turns a ``blocked_by_predecessor`` whose predecessor can
+no longer succeed for this event into that final skip.
+
 Without an exclusive group every enabled match fires. ``may_after`` never blocks; it only
 makes the predecessor's exported outputs visible if it succeeded. A firing decision's
 ``upstream`` holds, per ``must_after``/``may_after`` predecessor that succeeded, only the
@@ -42,6 +46,7 @@ __all__ = [
     "FIRE",
     "GROUP_LOST",
     "PAUSED",
+    "PREDECESSOR_FAILED",
     "REASONS",
     "SUCCEEDED",
     "SUPERSEDED_BY",
@@ -61,6 +66,8 @@ CONDITION_FALSE = "condition_false"
 SUPERSEDED_BY = "superseded_by"
 GROUP_LOST = "group_lost"
 BLOCKED_BY_PREDECESSOR = "blocked_by_predecessor"
+PREDECESSOR_FAILED = "predecessor_failed"
+"""Final skip set by the node's sequencing: a ``must_after`` predecessor will not succeed."""
 REASONS = (
     FIRE,
     PAUSED,
@@ -69,6 +76,7 @@ REASONS = (
     SUPERSEDED_BY,
     GROUP_LOST,
     BLOCKED_BY_PREDECESSOR,
+    PREDECESSOR_FAILED,
 )
 
 #: Run status that satisfies ``must_after`` and makes exports visible.
@@ -113,6 +121,7 @@ class Decision:
             SUPERSEDED_BY: f"superseded by {who}",
             GROUP_LOST: f"lost exclusive group {self.detail} to {who}",
             BLOCKED_BY_PREDECESSOR: f"waiting for predecessor {who}",
+            PREDECESSOR_FAILED: f"predecessor did not succeed: {self.detail or who}",
         }.get(self.reason, self.reason)
         if self.reason == CONDITION_FALSE and self.detail:
             text = f"{text} (condition error: {self.detail})"
