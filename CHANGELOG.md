@@ -31,6 +31,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Actor adapters no longer cache failed results, so retry policies re-run the work
 - A predecessor settling during an engine pause no longer turns a waiting must/may-run-after dependant into a final skip; it is re-evaluated on resume
 - Literal strings such as trigger.sh in workflow step config are no longer reported as trigger references; {"$ref": "trigger..."} in a workflow is
+- The inline-code guard for runner commands strips interpreter version suffixes without a regex, so a hostile 10k-character argument is classified in linear time
 
 ## [0.10.4] - 2026-10-03
 
