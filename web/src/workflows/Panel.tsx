@@ -2,8 +2,9 @@ import { useEffect, useRef, type ReactNode } from "react";
 import { useEscapeKey } from "../hooks/useEscapeKey";
 
 /**
- * A non-modal floating panel with dialog semantics: focus moves into it on
- * open, Escape closes it, and focus returns to whatever opened it.
+ * A non-modal floating panel, a native `<dialog open>` (not `showModal()`, so
+ * the canvas stays live behind it): focus moves into it on open, Escape
+ * closes it, and focus returns to whatever opened it.
  */
 export function Panel({
   label,
@@ -11,14 +12,14 @@ export function Panel({
   returnFocus,
   className = "",
   children,
-}: {
+}: Readonly<{
   label: string;
   onClose: () => void;
   returnFocus?: HTMLElement | null;
   className?: string;
   children: ReactNode;
-}) {
-  const ref = useRef<HTMLDivElement>(null);
+}>) {
+  const ref = useRef<HTMLDialogElement>(null);
   useEscapeKey(ref, onClose);
   useEffect(() => {
     const first = ref.current?.querySelector<HTMLElement>(
@@ -31,14 +32,9 @@ export function Panel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   return (
-    <div
-      ref={ref}
-      role="dialog"
-      aria-label={label}
-      className={`wf-panel ${className}`}
-    >
+    <dialog ref={ref} open aria-label={label} className={`wf-panel ${className}`}>
       {children}
-    </div>
+    </dialog>
   );
 }
 
