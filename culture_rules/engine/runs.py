@@ -51,6 +51,13 @@ Semantics
   ``blocked_timeout`` and is retried on any target, failing only once attempts run out.
   Wrongly typed outputs fail the step at once
   (``output_type_mismatch``; retrying cannot fix a deterministic mismatch).
+* **Exactly-once dispatch** - a step is invoked only under its claim
+  (:mod:`culture_rules.engine.claims`). While ``invoke`` blocks, a
+  :class:`~culture_rules.engine.leasekeeper.LeaseKeeper` renews the claim's lease every
+  third of the lease (until the step's deadline), so a slow actor never looks abandoned.
+  Another host takes over a ``dispatching`` step only when its lease lapsed *and* the
+  holder's machine is offline (no heartbeat for ``holder_offline_after``) or the step's
+  deadline has passed; the holder's own host may always reclaim it (a restarted node).
 * **Placement** - each step resolves its own placement
   (:func:`~culture_rules.engine.placement.resolve_placement` over enrolled machines,
   heartbeats and drain flags) and only the engine on that host dispatches it. A step with
@@ -94,6 +101,7 @@ import hashlib
 import re
 import uuid
 from collections.abc import Callable, Iterable, Mapping
+from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -107,10 +115,18 @@ from culture_rules.engine.actorport import (
     InvocationResult,
 )
 from culture_rules.engine.audit import AUDIT_COLLECTION, AuditLog, mutating_verb, require_identity
-from culture_rules.engine.claims import CLAIMS_COLLECTION, DEFAULT_LEASE, Claims, idempotency_key
+from culture_rules.engine.claims import (
+    CLAIMS_COLLECTION,
+    DEFAULT_LEASE,
+    ClaimResult,
+    Claims,
+    ReclaimGuard,
+    idempotency_key,
+)
+from culture_rules.engine.leasekeeper import KeeperFactory, LeaseKeeper
 from culture_rules.engine.placement import MachineState, PlacementError, resolve_placement
 from culture_rules.machines.enrol import enrolled_machines
-from culture_rules.machines.heartbeat import online_machines
+from culture_rules.machines.heartbeat import HEARTBEAT_COLLECTION, OFFLINE_AFTER_S, online_machines
 from culture_rules.model import condition as cond
 from culture_rules.model.action import Action
 from culture_rules.model.actor import Actor
@@ -515,7 +531,12 @@ class Executor:
         clock: Clock | None = None,
         lease: timedelta = DEFAULT_LEASE,
         identity: str | None = None,
+        lease_keeper: KeeperFactory = LeaseKeeper,
+        holder_offline_after: timedelta = timedelta(seconds=OFFLINE_AFTER_S),
     ) -> None:
+        """``lease_keeper`` builds the keeper that renews a step's lease while its actor
+        is invoked; ``holder_offline_after`` is how stale a holder's heartbeat must be
+        before another host may take over its lapsed ``dispatching`` step."""
         if not isinstance(host, str) or not host:
             raise ValueError("host must be a non-empty string")
         self._store = store
@@ -527,6 +548,8 @@ class Executor:
         self._claims = Claims(
             store, f"{host}/{uuid.uuid4().hex[:8]}", lease=lease, clock=self._clock
         )
+        self._lease_keeper = lease_keeper
+        self._holder_offline_after = holder_offline_after
         ensure_collections(store)
 
     # ------------------------------------------------------------------ queries
@@ -777,9 +800,10 @@ class Executor:
             return self._fail_now(
                 doc, key, _error("no_actor_port", f"no actor port for {ctx.kind!r}"), now
             )
+        guard = self._reclaim_guard(st, now)
         if _outcome_unknown(st, resume) and not self._key_safe(plan, st, port):
-            return self._refuse_unsafe(doc, key, now)
-        claim = self._claims.claim_step(doc["id"], key)
+            return self._refuse_unsafe(doc, key, now, guard)
+        claim = self._claims.claim_step(doc["id"], key, may_reclaim=guard)
         if not claim.won:
             return False
         deadline = self._deadline(plan, st, now, resume)
@@ -787,9 +811,46 @@ class Executor:
             self._claims.release(claim)
             return False
         idem = idempotency_key(doc["id"], key)
-        result = _invoke(port, inputs, idem, deadline, ctx)
+        with self._keep_alive(claim, deadline):
+            result = _invoke(port, inputs, idem, deadline, ctx)
         self._settle(doc["id"], key, attempt, claim, result, port)
         return True
+
+    def _keep_alive(self, claim: ClaimResult, deadline: datetime) -> AbstractContextManager[Any]:
+        """The keeper renewing ``claim`` while its actor runs, until ``deadline``."""
+
+        def renew() -> bool:
+            if self._clock() >= deadline:
+                return False  # past the deadline: let the lease lapse (the step timed out)
+            return self._claims.renew(claim).won
+
+        return self._lease_keeper(renew, self._claims.lease.total_seconds() / 3)
+
+    def _reclaim_guard(self, st: Mapping[str, Any], now: datetime) -> ReclaimGuard | None:
+        """Who may take over a lapsed claim on ``st``: for a step another host is
+        dispatching, only a host that sees the holder offline or the deadline passed."""
+        holder = st.get("host")
+        if st["status"] != "dispatching" or holder in (None, self.host):
+            return None
+        deadline = _parse(st.get("deadline"))
+
+        def may_reclaim(_claim: Document) -> bool:
+            if deadline is not None and now >= deadline:
+                return True
+            return not self._machine_online(holder, now)
+
+        return may_reclaim
+
+    def _machine_online(self, machine: str, now: datetime) -> bool:
+        """Whether ``machine`` heartbeated within ``holder_offline_after`` of ``now``."""
+        beat = self._store.get(HEARTBEAT_COLLECTION, machine) or {}
+        try:
+            ts = datetime.fromisoformat(str(beat.get("ts")))
+        except ValueError:
+            return False
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=UTC)
+        return now - ts < self._holder_offline_after
 
     def _deadline(self, plan: _Plan, st: Mapping, now: datetime, resume: bool) -> datetime:
         """A resumed attempt keeps its deadline; a new one gets the step's timeout."""
@@ -832,9 +893,11 @@ class Executor:
         _record(new, now, self.host, "placement_waiting", key)
         return self._cas(doc, new)
 
-    def _refuse_unsafe(self, doc: Document, key: str, now: datetime) -> bool:
+    def _refuse_unsafe(
+        self, doc: Document, key: str, now: datetime, guard: ReclaimGuard | None
+    ) -> bool:
         """Fail a step whose outcome is unknown on a target that cannot deduplicate."""
-        claim = self._claims.claim_step(doc["id"], key)
+        claim = self._claims.claim_step(doc["id"], key, may_reclaim=guard)
         if not claim.won:
             return False
         self._claims.release(claim)

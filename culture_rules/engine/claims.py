@@ -21,10 +21,17 @@ Leases
 ======
 
 A won claim carries a lease (``lease_expires_at``). The holder renews it while
-working (:meth:`Claims.renew`). If the holder crashes, the lease lapses and any
-instance may reclaim the work; the claim's ``attempt`` counter increments on
-every acquisition and acts as a fencing token, so a stale holder's late
+working (:meth:`Claims.renew`; the run executor keeps a step's lease alive with a
+:class:`~culture_rules.engine.leasekeeper.LeaseKeeper` for as long as the actor
+invocation blocks). If the holder crashes, the lease lapses and any instance may
+reclaim the work; the claim's ``attempt`` counter increments on every acquisition
+and acts as a fencing token, so a stale holder's late
 ``renew``/``complete``/``release`` loses instead of clobbering the new holder.
+
+A claimant may narrow reclaiming further with a ``may_reclaim`` guard: it is asked
+only about a *lapsed* claim someone still holds, and returning False keeps the claim
+``"held"`` (the executor uses it to refuse taking over a step whose holder's machine
+is still heartbeating).
 
 Lease expiry is judged by the *claiming* instance's clock: hosts are expected
 to keep NTP-synchronised clocks, and leases should be long relative to the
@@ -74,6 +81,8 @@ ClaimReason = Literal["acquired", "reclaimed", "held", "completed"]
 
 _KINDS = ("step", "firing")
 Clock = Callable[[], datetime]
+ReclaimGuard = Callable[[Document], bool]
+"""Asked whether a lapsed, still-held claim may be taken over (True: take it)."""
 
 
 def _require_part(name: str, value: Any) -> str:
@@ -105,6 +114,14 @@ def firing_key(rule_id: str, event_id: str) -> str:
     return _digest(
         ["firing", _require_part("rule_id", rule_id), _require_part("event_id", event_id)]
     )
+
+
+def _guarded(doc: Document, may_reclaim: ReclaimGuard | None) -> ClaimReason | None:
+    """``"held"`` when ``may_reclaim`` refuses taking over the lapsed claim ``doc``."""
+    held = doc.get("status") == "claimed" and doc.get("holder") is not None
+    if held and may_reclaim is not None and not may_reclaim(doc):
+        return "held"
+    return None
 
 
 @dataclass(frozen=True)
@@ -174,12 +191,15 @@ class Claims:
 
     # ------------------------------------------------------------- claiming
 
-    def claim_step(self, run_id: str, step_id: str) -> ClaimResult:
-        """Claim step ``step_id`` of run ``run_id``."""
+    def claim_step(
+        self, run_id: str, step_id: str, *, may_reclaim: ReclaimGuard | None = None
+    ) -> ClaimResult:
+        """Claim step ``step_id`` of run ``run_id`` (``may_reclaim``: see :meth:`claim`)."""
         return self.claim(
             idempotency_key(run_id, step_id),
             kind="step",
             subject={"run_id": run_id, "step_id": step_id},
+            may_reclaim=may_reclaim,
         )
 
     def claim_firing(self, rule_id: str, event_id: str) -> ClaimResult:
@@ -191,9 +211,18 @@ class Claims:
         )
 
     def claim(
-        self, key: str, *, kind: ClaimKind, subject: Mapping[str, Any] | None = None
+        self,
+        key: str,
+        *,
+        kind: ClaimKind,
+        subject: Mapping[str, Any] | None = None,
+        may_reclaim: ReclaimGuard | None = None,
     ) -> ClaimResult:
-        """Claim the work identified by ``key``; exactly one racing caller wins."""
+        """Claim the work identified by ``key``; exactly one racing caller wins.
+
+        ``may_reclaim``, when given, is called with the claim document of a lapsed lease
+        that is still held; returning False refuses the takeover (reason ``"held"``).
+        """
         _require_part("key", key)
         if kind not in _KINDS:
             raise ValueError(f"kind must be one of {_KINDS}")
@@ -213,7 +242,7 @@ class Claims:
                 return ClaimResult._from(True, key, "acquired", outcome.document)
             return self._lost(key, outcome.document)
 
-        refusal = self._refusal(current, now)
+        refusal = self._refusal(current, now) or _guarded(current, may_reclaim)
         if refusal is not None:
             return ClaimResult._from(False, key, refusal, current)
         reason: ClaimReason = "reclaimed" if current.get("status") == "claimed" else "acquired"
