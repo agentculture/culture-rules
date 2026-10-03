@@ -232,8 +232,9 @@ def _check_retry(obj: RetryPolicy, path: str, errors: Errors) -> None:
 
 
 def _check_placement(obj: Placement, path: str, errors: Errors) -> None:
-    if obj.form is None:
-        given = [n for n in PLACEMENT_FORMS if getattr(obj, n) is not None]
+    given = [n for n in PLACEMENT_FORMS if getattr(obj, n) is not None]
+    # a set-but-empty field still counts as given: the schema rejects it alongside a real form
+    if obj.form is None or len(given) > 1:
         _err(
             errors,
             path,

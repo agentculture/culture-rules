@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+import culture_rules.actors.human  # noqa: F401 - registers asks.answer in MUTATING_VERBS
 from culture_rules.engine import audit as audit_mod
 from culture_rules.engine.audit import AUDIT_COLLECTION, MUTATING_VERBS, AuditError, AuditLog, diff
 from culture_rules.engine.lifecycle import (
@@ -114,7 +115,26 @@ def _scenario_purge(life, store):
     return lambda: life.purge("rules", "r1", "root", apply=True)
 
 
+def _scenario_answer_ask(life, store):
+    from culture_rules.actors.human import ASKS_COLLECTION, HumanAdapter, answer_ask
+    from culture_rules.engine.runs import Executor
+    from culture_rules.events.emit import Emitter
+    from tests.engine.run_helpers import FakeActor, rule, step, workflow
+
+    class Sink:
+        def publish(self, envelope):
+            pass
+
+    human = HumanAdapter(store, Emitter(Sink(), source="t"), clock=life._clock)
+    ex = Executor(store, "spark", {"actor_task": human, "*": FakeActor()}, clock=life._clock)
+    ex.start(rule(), workflow((step("h", "actor_task", config={"question": "ok?"}),)))
+    ex.run_until_idle()
+    (ask,) = store.find(ASKS_COLLECTION)
+    return lambda: answer_ask(store, ex, ask["id"], "yes", "alice")
+
+
 SCENARIOS = {
+    "asks.answer": _scenario_answer_ask,
     "lifecycle.soft_delete": _scenario_soft_delete,
     "lifecycle.restore": _scenario_restore,
     "lifecycle.purge": _scenario_purge,

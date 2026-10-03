@@ -286,8 +286,19 @@ def test_output_source_must_reference_known_step() -> None:
         Placement(machine="spark", actor="ori", requirement=("gpu",)),
         Placement(requirement=()),
         Placement(machine=""),
+        Placement(machine="", actor="ori"),
+        Placement(actor="ori", requirement=()),
     ],
-    ids=["none", "machine+actor", "machine+req", "all-three", "empty-req", "empty-machine"],
+    ids=[
+        "none",
+        "machine+actor",
+        "machine+req",
+        "all-three",
+        "empty-req",
+        "empty-machine",
+        "empty-machine+actor",
+        "actor+empty-req",
+    ],
 )
 def test_placement_not_exactly_one_form_rejected(placement) -> None:
     errors = validate(placement)
