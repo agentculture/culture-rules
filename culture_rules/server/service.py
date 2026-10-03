@@ -424,18 +424,21 @@ class Definitions:
                 current = tx.get(kind, new["id"])
                 if check is not None:
                     check(kind, current, new)
-                if current is None:
-                    action = "add"
-                elif self._import_form(kind, self._reparse(kind, current)) == new:
-                    action = "unchanged"
-                else:
-                    action = "change"
+                action = self._import_action(kind, current, new)
                 changes.append(
                     {"kind": kind, "id": new["id"], "path": f"{kind}/{new['id']}", "action": action}
                 )
                 if action != "unchanged":
                     writes.append((kind, new))
         return {"changes": changes, "errors": errors}, writes
+
+    def _import_action(self, kind: str, current: Any, new: dict[str, Any]) -> str:
+        """``add``, ``unchanged`` or ``change``: what importing ``new`` does to ``current``."""
+        if current is None:
+            return "add"
+        if self._import_form(kind, self._reparse(kind, current)) == new:
+            return "unchanged"
+        return "change"
 
     @staticmethod
     def _import_form(kind: str, obj: Any) -> dict[str, Any]:

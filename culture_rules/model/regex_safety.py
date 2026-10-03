@@ -359,22 +359,26 @@ def _width(items: Any) -> int | None:
     """The fixed number of characters ``items`` match, or ``None`` if it varies."""
     total = 0
     for op, av in items:
-        if op in _ATOMS:
-            width: int | None = 1
-        elif op in _REPEATS:
-            inner = _width(av[2])
-            width = None if inner is None or av[0] != av[1] else inner * av[0]
-        elif op is _sre_c.BRANCH:
-            widths = {_width(alt) for alt in av[1]}
-            width = widths.pop() if len(widths) == 1 else None
-        elif op in _ZERO_WIDTH:
-            width = 0
-        else:
-            width = _width(_children(op, av))
+        width = _item_width(op, av)
         if width is None:
             return None
         total += width
     return total
+
+
+def _item_width(op: Any, av: Any) -> int | None:
+    """The fixed width of one parsed item ``(op, av)``, or ``None`` if it varies."""
+    if op in _ATOMS:
+        return 1
+    if op in _REPEATS:
+        inner = _width(av[2])
+        return None if inner is None or av[0] != av[1] else inner * av[0]
+    if op is _sre_c.BRANCH:
+        widths = {_width(alt) for alt in av[1]}
+        return widths.pop() if len(widths) == 1 else None
+    if op in _ZERO_WIDTH:
+        return 0
+    return _width(_children(op, av))
 
 
 def _ambiguous(left: _Prefix, right: _Prefix) -> bool:

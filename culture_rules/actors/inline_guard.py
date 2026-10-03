@@ -24,7 +24,6 @@ interpreter refuses the command, even where the interpreter would pass it on to 
 from __future__ import annotations
 
 import os
-import re
 from collections.abc import Sequence
 
 __all__ = ["inline_eval_reason"]
@@ -71,13 +70,29 @@ _WRAPPERS = frozenset(
     }
 )
 
-_VERSION_SUFFIX = re.compile(r"[\d.]+$")
+
+def _is_version_char(ch: str) -> bool:
+    return ch == "." or ch.isdecimal()
+
+
+def _strip_version(base: str) -> str:
+    """``base`` without its trailing run of digits and dots, in linear time.
+
+    Mirrors ``re.sub(r"[\\d.]+$", "", base)`` (``\\d`` is any Unicode decimal digit, and
+    ``$`` also matches before one trailing newline) without that pattern's quadratic
+    backtracking on a long digit run that does not end the string.
+    """
+    head, newline = (base[:-1], "\n") if base.endswith("\n") else (base, "")
+    end = len(head)
+    while end and _is_version_char(head[end - 1]):
+        end -= 1
+    return head[:end] + newline
 
 
 def _name(arg: str) -> str:
     """``/usr/bin/python3.12`` -> ``python``: basename without a version suffix."""
     base = os.path.basename(arg)
-    return _VERSION_SUFFIX.sub("", base) or base
+    return _strip_version(base) or base
 
 
 def _is_eval_flag(arg: str, letters: frozenset[str], longs: frozenset[str]) -> bool:

@@ -248,7 +248,13 @@ def _trigger_refs(value: Any, path: str) -> Iterator[str]:
     if isinstance(value, str):
         if _is_trigger_ref(value):
             yield path
-    elif isinstance(value, dict):
+    else:
+        yield from _nested_trigger_refs(value, path)
+
+
+def _nested_trigger_refs(value: Any, path: str) -> Iterator[str]:
+    """:func:`_trigger_refs` for the keys and items of a container (nothing for a scalar)."""
+    if isinstance(value, dict):
         for k, v in value.items():
             if isinstance(k, str) and _is_trigger_ref(k):
                 yield _join(path, k)
@@ -330,16 +336,21 @@ def _check_rule(obj: Rule, path: str, errors: Errors) -> None:
         ):
             _err(errors, p, "invalid_reference", reason)
     for rel in ("must_after", "may_after", "supersedes"):
-        ids = getattr(obj, rel)
-        if not isinstance(ids, (tuple, list)):
-            continue
-        rel_path = _join(path, rel)
-        _unique([(_join(rel_path, i), v) for i, v in enumerate(ids)], "rule id", errors)
-        for i, rid in enumerate(ids):
-            if isinstance(rid, str) and not rid.strip():
-                _err(errors, _join(rel_path, i), "empty", "empty rule id")
-            elif rid == obj.id:
-                _err(errors, _join(rel_path, i), "self_reference", f"rule cannot {rel} itself")
+        _check_relation(obj, rel, path, errors)
+
+
+def _check_relation(obj: Rule, rel: str, path: str, errors: Errors) -> None:
+    """One relationship list of a rule: unique, non-empty ids that are not the rule itself."""
+    ids = getattr(obj, rel)
+    if not isinstance(ids, (tuple, list)):
+        return
+    rel_path = _join(path, rel)
+    _unique([(_join(rel_path, i), v) for i, v in enumerate(ids)], "rule id", errors)
+    for i, rid in enumerate(ids):
+        if isinstance(rid, str) and not rid.strip():
+            _err(errors, _join(rel_path, i), "empty", "empty rule id")
+        elif rid == obj.id:
+            _err(errors, _join(rel_path, i), "self_reference", f"rule cannot {rel} itself")
 
 
 def _check_ports(ports: Any, path: str, errors: Errors) -> None:

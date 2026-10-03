@@ -19,6 +19,7 @@ or replace the keeper through the executor's ``lease_keeper`` factory.
 from __future__ import annotations
 
 import logging
+import math
 import threading
 from collections.abc import Callable
 from contextlib import AbstractContextManager
@@ -41,7 +42,7 @@ class LeaseKeeper(AbstractContextManager["LeaseKeeper"]):
     """Calls ``renew`` every ``interval`` seconds while the ``with`` block runs."""
 
     def __init__(self, renew: Renew, interval: float, *, name: str = "lease-keeper") -> None:
-        if not interval > 0:
+        if interval <= 0 or math.isnan(interval):  # NaN is never > 0, so it is refused too
             raise ValueError("interval must be a positive number of seconds")
         self._renew = renew
         self.interval = float(interval)

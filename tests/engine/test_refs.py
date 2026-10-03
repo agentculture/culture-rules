@@ -83,8 +83,9 @@ def test_workflow_input_mapping_keeps_a_literal_file_name(ex):
 
 def test_workflow_input_mapping_to_an_absent_trigger_value_is_still_missing(ex):
     wf = replace(workflow((step("a"),)), inputs=(Port(name="args", type="string"),))
+    r = rule(workflow_inputs={"args": "trigger.data.nope"})
     with pytest.raises(RunError) as err:
-        ex.start(rule(workflow_inputs={"args": "trigger.data.nope"}), wf, trigger=TRIGGER)
+        ex.start(r, wf, trigger=TRIGGER)
     assert err.value.code == "input_missing"
 
 
