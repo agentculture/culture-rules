@@ -136,5 +136,5 @@ export function resetAgentState(): void {
  * value containing `</script>` cannot close the element early.
  */
 export function serializeAgentState(state: AgentState): string {
-  return JSON.stringify(state, null, 2).replaceAll("<", "\\u003c");
+  return JSON.stringify(state, null, 2).replaceAll("<", String.raw`\u003c`);
 }

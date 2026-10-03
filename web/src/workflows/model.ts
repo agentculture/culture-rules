@@ -78,11 +78,9 @@ export function stepMachine(
 }
 
 /** A source port's value may flow into a target port of this type. */
-export function portsCompatible(source?: PortType, target?: PortType): boolean {
-  const s = source ?? "any";
-  const t = target ?? "any";
-  if (s === "any" || t === "any" || s === t) return true;
-  return s === "integer" && t === "number";
+export function portsCompatible(source: PortType = "any", target: PortType = "any"): boolean {
+  if (source === "any" || target === "any" || source === target) return true;
+  return source === "integer" && target === "number";
 }
 
 const steps = (wf: WorkflowDef) => wf.steps ?? [];

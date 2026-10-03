@@ -137,6 +137,10 @@ export function trimDashes(text: string): string {
 export function slugFor(name: string, taken: string[], fallback = "rule"): string {
   const base = trimDashes(name.toLowerCase().replace(/[^a-z0-9]+/g, "-")) || fallback;
   let slug = base;
-  for (let n = 2; taken.includes(slug); n++) slug = `${base}-${n}`;
+  let n = 2;
+  while (taken.includes(slug)) {
+    slug = `${base}-${n}`;
+    n++;
+  }
   return slug;
 }

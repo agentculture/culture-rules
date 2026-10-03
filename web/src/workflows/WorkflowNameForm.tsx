@@ -30,7 +30,7 @@ export function WorkflowNameForm({
   error = null,
   onSubmit,
   onCancel,
-}: Props) {
+}: Readonly<Props>) {
   const [name, setName] = useState(initial);
   const form = useRef<HTMLFormElement>(null);
   const field = useRef<HTMLInputElement>(null);

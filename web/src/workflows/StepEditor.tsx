@@ -19,13 +19,13 @@ export function StepEditor({
   returnFocus,
   onChange,
   onClose,
-}: {
+}: Readonly<{
   workflow: WorkflowDef;
   stepId: string;
   returnFocus?: HTMLElement | null;
   onChange: (wf: WorkflowDef) => void;
   onClose: () => void;
-}) {
+}>) {
   const step = (workflow.steps ?? []).find((s) => s.id === stepId);
   if (!step) return null;
   const label = stepLabel(step);

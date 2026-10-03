@@ -103,7 +103,11 @@ export interface Machine {
 /** `GET /runs` items (server/app.py `_run_summary`). */
 export interface RunSummary {
   id: string;
-  status: "pending" | "running" | "waiting" | "succeeded" | "failed" | "cancelled" | string;
+  /**
+   * Known values: pending, running, waiting, succeeded, failed, cancelled.
+   * Typed as `string` because the engine may add states the editor doesn't know yet.
+   */
+  status: string;
   rule_id: string | null;
   workflow_id: string | null;
   started_by: string | null;
@@ -126,7 +130,8 @@ export type RuleHistoryItem =
       at: string | null;
       rule_id: string;
       event_id: string;
-      reason: "superseded_by" | "blocked_by_predecessor" | "group_lost" | string;
+      /** Known values: superseded_by, blocked_by_predecessor, group_lost (open set). */
+      reason: string;
       by: string[];
       message?: string;
       host?: string;
@@ -140,7 +145,8 @@ export interface Ask {
   question: string;
   options: string[] | null;
   deadline?: string;
-  status?: "open" | "answered" | "expired" | string;
+  /** Known values: open, answered, expired (open set). */
+  status?: string;
   asked_at?: string;
 }
 
