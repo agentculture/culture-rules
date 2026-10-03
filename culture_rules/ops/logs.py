@@ -40,6 +40,7 @@ __all__ = [
 ]
 
 _FIELDS = ("run_id", "step_id", "host")
+_OURS = "_culture_rules_json_handler"
 _CTX: contextvars.ContextVar[Mapping[str, str | None]] = contextvars.ContextVar(
     "culture_rules_log_context", default=dict.fromkeys(_FIELDS)
 )
@@ -93,10 +94,17 @@ class JsonFormatter(logging.Formatter):
 def configure_logging(
     *, level: int = logging.INFO, host: str | None = None, stream: Any = None
 ) -> logging.Handler:
-    """Attach a JSON handler to the root logger and return it."""
+    """Attach a JSON handler to the root logger and return it.
+
+    Idempotent: a handler attached by an earlier call is replaced, so the root logger
+    never carries more than one of them (no duplicated lines).
+    """
     handler = logging.StreamHandler(stream)
     handler.setFormatter(JsonFormatter(host=host))
+    setattr(handler, _OURS, True)
     root = logging.getLogger()
+    for old in [h for h in root.handlers if getattr(h, _OURS, False)]:
+        root.removeHandler(old)
     root.addHandler(handler)
     root.setLevel(level)
     return handler

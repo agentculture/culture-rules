@@ -24,6 +24,7 @@ from pymongo import MongoClient  # noqa: E402
 from pymongo.errors import OperationFailure, PyMongoError  # noqa: E402
 
 from culture_rules.store.mongo import ConfigError, MongoConfig, MongoStore  # noqa: E402
+from culture_rules.store.port import StoreError  # noqa: E402
 from tests.store import mongo_rig  # noqa: E402
 from tests.store.contract import StoragePortContract  # noqa: E402
 
@@ -269,9 +270,8 @@ def test_resume_survives_a_new_client(fresh):
 def test_invalid_resume_token_is_a_value_error(fresh):
     with pytest.raises(ValueError):
         list(fresh.changes("events", ""))
-    with pytest.raises(Exception) as excinfo:
+    with pytest.raises(StoreError):  # the server rejects the resume token
         list(fresh.changes("events", "not-a-real-token"))
-    assert isinstance(excinfo.value, (ValueError, Exception))
 
 
 def test_engine_writes_no_state_to_local_files(rig, tmp_path, monkeypatch):

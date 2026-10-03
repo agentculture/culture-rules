@@ -46,7 +46,10 @@ Semantics
   a target that already did the work (ack lost) deduplicates instead of repeating it. If
   the target cannot deduplicate (``supports_idempotency_key = False``) and the work is not
   declared idempotent, an attempt with an unknown outcome is never retried: the step fails
-  with ``unsafe_retry``. Wrongly typed outputs fail the step at once
+  with ``unsafe_retry``. A deadline that passes while the step is ``blocked`` is *not* an
+  unknown outcome (blocked work never started): it consumes an attempt with error code
+  ``blocked_timeout`` and is retried on any target, failing only once attempts run out.
+  Wrongly typed outputs fail the step at once
   (``output_type_mismatch``; retrying cannot fix a deterministic mismatch).
 * **Placement** - each step resolves its own placement
   (:func:`~culture_rules.engine.placement.resolve_placement` over enrolled machines,
@@ -120,6 +123,7 @@ from culture_rules.store.port import Document, StoragePort, StoreOps
 __all__ = [
     "ACTION_STEP",
     "BLOCKED_RETRY_S",
+    "BLOCKED_TIMEOUT",
     "CONTROLS_COLLECTION",
     "DEFAULT_TIMEOUT_S",
     "RUNS_COLLECTION",
@@ -128,6 +132,7 @@ __all__ = [
     "Executor",
     "RunError",
     "drained_machines",
+    "due_steps",
     "ensure_collections",
     "is_paused",
     "step_key",
@@ -152,6 +157,8 @@ ACTION_STEP = "@action"
 """Step key of a rule's terminal action."""
 DEFAULT_TIMEOUT_S = 3600.0
 BLOCKED_RETRY_S = 5.0
+BLOCKED_TIMEOUT = "blocked_timeout"
+"""Error code of a deadline that passed while the step was blocked (never started)."""
 
 ACTIVE = "running"
 RUN_DONE = ("succeeded", "failed", "cancelled")
@@ -1046,6 +1053,73 @@ def _deps_done(plan: _Plan, doc: Mapping, step_id: str) -> bool:
     return True
 
 
+#: History events that never make a pending step due (it was already pending and waiting).
+_NOT_READINESS = frozenset({"placement_waiting"})
+
+
+def _dependency_keys(plan: _Plan, doc: Mapping, st: Mapping) -> set[str]:
+    """Keys whose last change can be what made ``st`` ready (see :func:`_ready`)."""
+    loop = st.get("loop")
+    if loop:
+        keys = {loop["parent"]}
+        for other in doc["steps"]:
+            if other["key"] == st["key"]:
+                break
+            same = other.get("loop") or {}
+            if same.get("parent") == loop["parent"] and same.get("iteration") == loop["iteration"]:
+                keys.add(other["key"])
+        return keys
+    step = plan.step(st)
+    if step is None:
+        return set()
+    return {
+        plan.body_parent.get(e.source, e.source)
+        for e in plan.edges_into(step.id)
+        if e.source != "inputs"
+    }
+
+
+def _ready_since(plan: _Plan, doc: Mapping, st: Mapping) -> datetime | None:
+    """When pending ``st`` became ready: the latest change of the step itself (it became
+    pending) or of one of its dependencies (the last one to finish), else the run's start."""
+    deps = _dependency_keys(plan, doc, st)
+    history = doc.get("history") or []
+    since = _parse(doc.get("created_at")) or (_parse(history[0].get("at")) if history else None)
+    for h in history:
+        key = h.get("step")
+        if key == st["key"] and h.get("event") in _NOT_READINESS:
+            continue
+        if key == st["key"] or key in deps:
+            at = _parse(h.get("at"))
+            if at is not None and (since is None or at > since):
+                since = at
+    return since
+
+
+def due_steps(doc: Mapping[str, Any], now: datetime) -> list[tuple[str, datetime | None]]:
+    """Work of a live run the executor would act on now, each with when it became due.
+
+    A ``pending`` step counts only when it is ready to dispatch (:func:`_ready`, the same
+    predicate dispatch uses) and is due since it became ready; a ``retry_wait`` step counts
+    once ``next_attempt_at`` has passed. Finished runs have no due work.
+    """
+    if doc.get("status") != ACTIVE:
+        return []
+    found: list[tuple[str, datetime | None]] = []
+    plan: _Plan | None = None
+    for st in doc.get("steps") or ():
+        status = st.get("status")
+        if status == "retry_wait":
+            due = _parse(st.get("next_attempt_at"))
+            if due is None or due <= now:
+                found.append((st["key"], due))
+        elif status == "pending":
+            plan = plan or _Plan.of(doc)
+            if _ready(plan, doc, st):
+                found.append((st["key"], _ready_since(plan, doc, st)))
+    return found
+
+
 def _latest_output(doc: Mapping, plan: _Plan, step_id: str) -> Mapping[str, Any]:
     if step_id in plan.body_parent:  # a body step read from outside: its latest iteration
         for st in reversed(doc["steps"]):
@@ -1116,15 +1190,21 @@ def _due_timers(plan: _Plan, doc: Mapping, now: datetime) -> Found:
         deadline = _parse(st.get("deadline"))
         if status in ("waiting", "blocked") and deadline is not None and now >= deadline:
             new, nst = _copy_with(doc, st["key"])
-            # Re-invoking timed-out work reuses its key; dispatch refuses (unsafe_retry) when
-            # the target cannot deduplicate, since housekeeping does not know the port.
+            if status == "blocked":
+                # Blocked work was refused before it started: the outcome is known (nothing
+                # happened), so the retry is safe on any target (BLOCKED_TIMEOUT).
+                error = _error(BLOCKED_TIMEOUT, "the step's deadline passed while blocked")
+            else:
+                # Re-invoking timed-out work reuses its key; dispatch refuses (unsafe_retry)
+                # when the target cannot deduplicate, since housekeeping does not know the port.
+                error = _error("timeout", "the step's deadline passed")
             _attempt_failed(
                 plan,
                 nst,
-                _error("timeout", "the step's deadline passed"),
+                error,
                 now,
                 retryable=True,
-                unknown=True,
+                unknown=status != "blocked",
                 key_safe=True,
             )
             nst["resume"] = False

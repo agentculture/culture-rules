@@ -9,7 +9,10 @@ inside ``nbf`` .. ``exp``. Anything else is a :class:`VerificationError` with a 
 ``expired``, ``not_yet_valid``) that is safe to log and never carries token material.
 
 Keys are cached by ``kid``; an unknown ``kid`` forces at most one JWKS refetch per
-``refetch_window`` seconds (key rotation without a refetch storm).
+``refetch_window`` seconds (key rotation without a refetch storm). While no keys are cached,
+a failed load is negative-cached for the same window, so forged tokens cannot drive a fetch
+per request. The fetch runs outside the lock, single-flight: concurrent misses wait for the
+one fetch in progress instead of starting their own.
 
 Configuration is all-or-nothing (docs/operations/nodes-culture-dev.md in culture-nodes):
 ``CULTURE_RULES_ACCESS_LISTEN``, ``CULTURE_RULES_ACCESS_TEAM_DOMAIN`` and
@@ -50,6 +53,8 @@ ACCESS_ENV = (ENV_LISTEN, ENV_TEAM_DOMAIN, ENV_AUD)
 
 _ALL_INTERFACES = "0.0.0.0"  # nosec B104 - only for an explicit ":port" listen value
 _JWKS_LIMIT = 1 << 20
+#: How long a caller waits for another caller's in-flight JWKS fetch (the fetch's own timeout).
+_FETCH_WAIT_S = 10.0
 #: Schemes a pasted team-domain URL may carry; dropped, since the JWKS fetch is https-only.
 _WEB_SCHEMES = frozenset({"https", "http"})
 # DER prefix of DigestInfo for SHA-256 (RFC 8017 section 9.2, note 1).
@@ -190,6 +195,8 @@ class AccessVerifier:
         self._window = refetch_window
         self._keys: dict[str, tuple[int, int]] = {}
         self._last_forced: float | None = None
+        self._failed_at: float | None = None
+        self._inflight: threading.Event | None = None
         self._lock = threading.Lock()
 
     def _fetch_over_https(self) -> Any:
@@ -198,26 +205,50 @@ class AccessVerifier:
         with urllib.request.urlopen(request, timeout=10) as resp:  # nosec B310
             return json.loads(resp.read(_JWKS_LIMIT))
 
-    def _refresh(self) -> None:
+    def _load(self) -> dict[str, tuple[int, int]]:
+        """Fetch and parse the JWKS; any fetch/parse failure means "no usable keys"."""
         try:
-            keys = _parse_keys(self._fetch())
-        except Exception:  # noqa: BLE001 - any fetch/parse failure means "no usable keys"
-            return
-        if keys:
-            self._keys = keys
+            return _parse_keys(self._fetch())
+        except Exception:  # noqa: BLE001 - never let a JWKS problem escape as another error
+            return {}
+
+    def _fetch_due(self, now: float) -> bool:
+        """Whether a miss may trigger a JWKS fetch now (caller holds the lock).
+
+        An empty cache loads at once unless a load failed within the window (negative
+        cache); a populated cache refetches for an unknown kid at most once per window.
+        """
+        if not self._keys:
+            return self._failed_at is None or now - self._failed_at >= self._window
+        if self._last_forced is None or now - self._last_forced >= self._window:
+            self._last_forced = now
+            return True
+        return False
 
     def _key(self, kid: str) -> tuple[int, int]:
         with self._lock:
             if kid in self._keys:
                 return self._keys[kid]
-            if not self._keys:
-                self._refresh()
-                if kid in self._keys:
-                    return self._keys[kid]
-            now = self._clock()
-            if self._last_forced is None or now - self._last_forced >= self._window:
-                self._last_forced = now
-                self._refresh()
+            inflight = self._inflight
+            leader = inflight is None and self._fetch_due(self._clock())
+            if leader:
+                inflight = self._inflight = threading.Event()
+        if leader:
+            keys: dict[str, tuple[int, int]] = {}
+            try:
+                keys = self._load()  # network I/O outside the lock
+            finally:
+                with self._lock:
+                    if keys:
+                        self._keys = keys
+                        self._failed_at = None
+                    elif not self._keys:
+                        self._failed_at = self._clock()
+                    self._inflight = None
+                inflight.set()
+        elif inflight is not None:
+            inflight.wait(_FETCH_WAIT_S)  # single flight: share the leader's fetch
+        with self._lock:
             if kid in self._keys:
                 return self._keys[kid]
         raise VerificationError("unknown_kid")

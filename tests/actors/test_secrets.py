@@ -145,3 +145,33 @@ def test_backup_uses_shared_resolver():
     assert secrets.resolve_or_literal("plain") == "plain"
     with pytest.raises(backup.BackupConfigError):
         backup.resolve_secret("grant:A", runner=lambda n: (_ for _ in ()).throw(SecretError("x")))
+
+
+@pytest.mark.parametrize(
+    "key", ["author", "auth", "auth_mode", "max_tokens", "token_budget", "token_budget_warn_pct"]
+)
+def test_ordinary_params_are_not_mistaken_for_secrets(key):
+    assert_refs_only({key: "plain value"})
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "api_key",
+        "apiKey",
+        "password",
+        "passwd",
+        "github_token",
+        "token",
+        "client-secret",
+        "credentials",
+        "private_key",
+        "GITHUB_TOKEN",
+        "githubToken",
+        "auth_token",
+    ],
+)
+def test_secret_keys_still_require_references(key):
+    with pytest.raises(SecretError):
+        assert_refs_only({key: "literal-value"})
+    assert_refs_only({key: "grant:NAME"})

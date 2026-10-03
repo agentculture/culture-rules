@@ -196,3 +196,25 @@ def test_emit_for_run_defaults_correlation_from_cause_then_run():
     assert env["correlationId"] == "chain" and env["causationId"] == "evt_c"
     env2 = emit_for_run(emitter, "x", run_id="r2")
     assert env2["runId"] == "r2" and env2["correlationId"]
+
+
+def test_configure_logging_twice_leaves_one_handler():
+    import io
+    import logging
+
+    from culture_rules.ops.logs import JsonFormatter, configure_logging
+
+    root = logging.getLogger()
+    before, level = list(root.handlers), root.level
+    try:
+        configure_logging(host="a", stream=io.StringIO())
+        second = configure_logging(host="b", stream=io.StringIO())
+        ours = [h for h in root.handlers if isinstance(h.formatter, JsonFormatter)]
+        assert ours == [second]
+        assert second.formatter.host == "b"
+        assert [h for h in root.handlers if h not in before] == [second]
+    finally:
+        for h in list(root.handlers):
+            if h not in before:
+                root.removeHandler(h)
+        root.setLevel(level)

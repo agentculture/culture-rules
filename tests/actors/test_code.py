@@ -220,3 +220,17 @@ def test_inline_cleanup_on_failure(tmp_path):
     )
     assert res.outcome == "failed"
     assert list(tmp_path.iterdir()) == []
+
+
+def test_bind_argv_never_rescans_a_bound_value_for_placeholders():
+    spec = {
+        "argv": ["git", "checkout", "{branch}", "--", "{path}"],
+        "params": {"branch": "string", "path": "string"},
+    }
+    argv = bind_argv(spec, {"branch": "{path}", "path": "--force"})
+    assert argv == ["git", "checkout", "{path}", "--", "--force"]
+
+
+def test_bind_argv_leaves_unknown_braces_literal():
+    spec = {"argv": ["echo", "{msg}-{other}"], "params": {"msg": "string"}}
+    assert bind_argv(spec, {"msg": "{msg}"}) == ["echo", "{msg}-{other}"]
