@@ -1,0 +1,357 @@
+/*
+ * Statistics board — 'Chosen — Statistics' (design canvas row 'Chosen').
+ * Layout, radii, type scale and the 150/230/1fr/300/120 lane grid are the
+ * board's. Colors come from tokens.css / app.css; each lane carries its
+ * machine's color as --m / --m-tint (culture-design/stages.tsx machineStyle).
+ */
+
+.stats {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 24px 40px 32px;
+  /* the board sets no line-height: its rows are tight (normal), not body's 1.6 */
+  line-height: normal;
+}
+
+.stats__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.stats__title {
+  margin: 0 12px 0 0;
+  font-family: var(--font-display);
+  font-size: 44px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+.range {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 2px 10px rgba(35, 42, 77, 0.06);
+}
+
+.range__option {
+  height: 38px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--ink-soft);
+  font: 500 15px var(--font-body);
+  cursor: pointer;
+  transition: background-color 0.2s var(--ease-out), color 0.2s var(--ease-out);
+}
+
+.range__option[aria-checked="true"] {
+  background: var(--ink);
+  color: var(--surface);
+  font-weight: 600;
+}
+
+.stats__toggle {
+  margin-left: auto;
+  height: 40px;
+  padding: 0 16px;
+  border: 2px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--ink);
+  font: 500 15px var(--font-body);
+  cursor: pointer;
+}
+
+.stats__notice {
+  max-width: none;
+  margin: 0;
+}
+
+.stats__note {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 15px;
+}
+
+/* ---------- lanes ---------- */
+
+.stats__cols,
+.lane {
+  display: grid;
+  grid-template-columns: 150px 230px minmax(0, 1fr) 300px 120px;
+  gap: 20px;
+}
+
+.stats__cols {
+  padding: 0 20px;
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+
+.lane {
+  align-items: center;
+  padding: 18px 20px;
+  border-radius: 20px;
+  background-color: var(--surface);
+  background-image: linear-gradient(90deg, var(--m-tint) 0, var(--m-tint) 170px, var(--surface) 170px);
+  box-shadow: var(--nav-shadow);
+}
+
+.lane__id {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.lane__name {
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.lane__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+
+.status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--machine-none);
+}
+
+.status-dot--on {
+  background: var(--machine-0);
+}
+
+.lane__load {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.meter {
+  display: grid;
+  grid-template-columns: 40px 120px 44px;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.meter__label {
+  color: var(--ink-soft);
+}
+
+.meter__track {
+  display: block;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--muted);
+  overflow: hidden;
+}
+
+.meter__fill {
+  display: block;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--m);
+}
+
+.meter__value {
+  font-weight: 600;
+  text-align: right;
+}
+
+.lane__now {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.now-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--bg);
+  font-size: 15px;
+}
+
+.now-chip span {
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.lane__idle {
+  font-size: 15px;
+  color: var(--ink-soft);
+}
+
+.lane__queue {
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+
+.lane__chart {
+  position: relative;
+}
+
+.bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 56px;
+}
+
+.bar {
+  flex: 1 1 0;
+  max-width: 18px;
+  border-radius: 4px 4px 0 0;
+  background: var(--m);
+}
+
+.bar--empty {
+  opacity: 0.25;
+}
+
+.bar.is-active {
+  outline: 2px solid var(--ink);
+  outline-offset: 1px;
+}
+
+.bar-tip {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: var(--stage-trigger-bg);
+  color: var(--stage-trigger-ink);
+  font-size: 13px;
+  line-height: 1.3;
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
+.lane__outcome {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 15px;
+}
+
+.outcome {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink);
+}
+
+.outcome--failed {
+  color: var(--danger);
+}
+
+/*
+ * An offline machine is drawn in the neutral machine color with its charts
+ * dimmed. The board dims the whole row to .55; here only the marks fade,
+ * because text at .55 fails WCAG AA contrast (axe color-contrast).
+ */
+.lane--offline .meter__fill,
+.lane--offline .bars {
+  opacity: 0.55;
+}
+
+/* ---------- table view ---------- */
+
+.stats-tables {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.stats-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  border-radius: 20px;
+  background: var(--surface);
+  box-shadow: var(--nav-shadow);
+  font-size: 15px;
+  text-align: left;
+}
+
+.stats-table th,
+.stats-table td {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line-soft);
+  vertical-align: top;
+}
+
+.stats-table thead th {
+  color: var(--ink-soft);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.stats-table tbody th {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.stats-table tbody tr:last-child > * {
+  border-bottom: 0;
+}
+
+@media (max-width: 1100px) {
+  .stats__cols {
+    display: none;
+  }
+
+  .lane {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .lane__chart,
+  .lane__now {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 720px) {
+  .stats {
+    padding-inline: 16px;
+  }
+
+  .lane {
+    grid-template-columns: 1fr;
+  }
+
+  .stats-tables {
+    overflow-x: auto;
+  }
+}
+
+/* the board's 24 bars are 9px wide; fewer bars (1h, 7d) get fatter ones */
+.bars[data-bars="24"] .bar {
+  max-width: 9px;
+}
