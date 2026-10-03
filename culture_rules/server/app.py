@@ -403,6 +403,19 @@ def _hosts(doc: dict[str, Any]) -> list[str]:
     return read_models.run_hosts(doc)
 
 
+def _filter_runs(
+    docs: list[dict[str, Any]], rule_id: str | None, workflow_id: str | None, host: str | None
+) -> list[dict[str, Any]]:
+    """Narrow run documents to a rule, a workflow and/or a dispatch host (each optional)."""
+    if rule_id:
+        docs = [d for d in docs if (d.get("rule") or {}).get("id") == rule_id]
+    if workflow_id:
+        docs = [d for d in docs if (d.get("workflow") or {}).get("id") == workflow_id]
+    if host:
+        docs = [d for d in docs if host in _hosts(d)]
+    return docs
+
+
 def create_app(
     store: StoragePort,
     *,
@@ -559,13 +572,7 @@ def _register_runs(
         limit: int = 100,
     ):
         where = {"status": status} if status else None
-        docs = store.find(RUNS_COLLECTION, where)
-        if rule_id:
-            docs = [d for d in docs if (d.get("rule") or {}).get("id") == rule_id]
-        if workflow_id:
-            docs = [d for d in docs if (d.get("workflow") or {}).get("id") == workflow_id]
-        if host:
-            docs = [d for d in docs if host in _hosts(d)]
+        docs = _filter_runs(store.find(RUNS_COLLECTION, where), rule_id, workflow_id, host)
         docs = sorted(docs, key=lambda d: d.get("created_at") or "", reverse=True)[: max(limit, 0)]
         return {"items": [_run_summary(d) for d in docs]}
 

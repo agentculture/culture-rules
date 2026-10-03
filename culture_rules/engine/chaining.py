@@ -40,7 +40,6 @@ in the decision order waits for the other. Pure: no store, no clock.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import replace
 
 from culture_rules.engine.matching import BLOCKED_BY_PREDECESSOR, PREDECESSOR_FAILED, Decision
 from culture_rules.model.rule import Rule
@@ -121,8 +120,14 @@ class _Sequencer:
         if d.fire:
             pending = tuple(p for p in rule.may_after if self.live(p))
             if pending:
-                out = replace(d, fire=False, reason=BLOCKED_BY_PREDECESSOR, by=pending)
-                return replace(out, upstream={})
+                return Decision(
+                    rule_id=d.rule_id,
+                    fire=False,
+                    reason=BLOCKED_BY_PREDECESSOR,
+                    by=pending,
+                    detail=d.detail,
+                    upstream={},
+                )
             return d
         if d.reason != BLOCKED_BY_PREDECESSOR:
             return d
@@ -136,4 +141,11 @@ class _Sequencer:
                 detail="; ".join(self.word(p) for p in dead),
             )
         pending = tuple(p for p in rule.may_after if p not in d.by and self.live(p))
-        return replace(d, by=d.by + pending)
+        return Decision(
+            rule_id=d.rule_id,
+            fire=d.fire,
+            reason=d.reason,
+            by=d.by + pending,
+            detail=d.detail,
+            upstream=d.upstream,
+        )
