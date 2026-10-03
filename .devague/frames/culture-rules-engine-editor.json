@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-03T04:20:01Z",
-  "updated": "2026-10-03T06:20:11Z",
+  "updated": "2026-10-03T08:37:22Z",
   "claims": [
     {
       "id": "c1",
@@ -2456,6 +2456,63 @@
       "skipped_check": "run scan-secrets after git add",
       "refs": [
         "plan t13"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l6",
+      "code": "grader-unverified",
+      "what": "t29/t31/t33 web tasks edited or added some tests after the red run (t29 store/Rules tests, t31 api/workflows.ts written before its test, t33 e2e specs written after the components) \u2014 those assertions were never seen failing",
+      "skipped_check": "red run of every new assertion before implementation",
+      "refs": [
+        "t29",
+        "t31",
+        "t33"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l7",
+      "code": "control-absent",
+      "what": "t27 parity test had no implementation to run red against; its red evidence is a one-off live mutation of tool_specs (reverted), not a committed failing state",
+      "skipped_check": "red run before implementation",
+      "refs": [
+        "t27"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l8",
+      "code": "grader-unverified",
+      "what": "t41 node unit and CLI tests went from a collection-time error straight to green; no per-assertion red against a partial implementation; default production adapters (ColleagueActor, CodeRunner, HumanAdapter) and the events-cli source path are untested end to end",
+      "skipped_check": "per-assertion red; end-to-end test of production adapters",
+      "refs": [
+        "t41"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l9",
+      "code": "assumption-for-measurement",
+      "what": "t35 CI workflow (web job, webglass, Playwright cache, docker pull) never ran on GitHub Actions; validated only by running its commands locally and a YAML-shape test",
+      "skipped_check": "an actual CI run",
+      "refs": [
+        "t35"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l10",
+      "code": "assumption-for-measurement",
+      "what": "t37 cultureflare dry-run was never executed (it reads live Cloudflare state); the runbook's commands and the 302-redirect / multi-connector load-balancing claims are unverified",
+      "skipped_check": "cultureflare remote-login setup dry-run output",
+      "refs": [
+        "t37"
       ],
       "origin": "llm",
       "status": "proposed"
