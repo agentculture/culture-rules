@@ -13,6 +13,7 @@ from __future__ import annotations
 import socket
 from collections.abc import Callable
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, Header, Query, Request, Security
@@ -42,7 +43,7 @@ from culture_rules.engine.runs import (
     is_paused,
 )
 from culture_rules.ops.health import health_status
-from culture_rules.server import events
+from culture_rules.server import events, static
 from culture_rules.server.service import (
     DEFINITION_KINDS,
     Conflict,
@@ -317,11 +318,14 @@ def create_app(
     host: str | None = None,
     answer_ask: AnswerAsk | None = None,
     auth: AuthSettings | None = None,
+    web_dist: Path | None = None,
 ) -> FastAPI:
     """Build the API over ``store``. Holds configuration only, never request state.
 
     ``auth`` configures the listener this app serves (default: the LAN listener, service
     tokens only, no dev header); ``admins`` are identities elevated to the admin role.
+    ``web_dist`` is the built web UI to serve at ``/`` (default: the packaged ``web_dist``;
+    nothing is mounted when it does not exist).
     """
     ensure = getattr(store, "ensure_collections", None)
     if callable(ensure):
@@ -608,6 +612,7 @@ def create_app(
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
 
+    static.install(app, web_dist)
     return app
 
 
