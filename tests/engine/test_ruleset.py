@@ -105,3 +105,30 @@ def test_dangling_references_are_reported_as_unknown_rule():
         ("rules[0].may_after[1]", "unknown_rule"),
         ("rules[0].supersedes[0]", "unknown_rule"),
     }
+
+
+def test_a_rule_that_supersedes_and_must_run_after_the_same_rule_is_unrunnable():
+    rules = [rule("A", supersedes=("B",), must_after=("B",)), rule("B")]
+    errors = validate_rule_set(rules, WF)
+    assert codes(errors) == ["unrunnable_relationship"]
+    assert errors[0].path == "rules[0]"
+    assert "'A'" in errors[0].message and "'B'" in errors[0].message
+
+
+def test_the_transitive_unrunnable_relationship_is_rejected_too():
+    # A supersedes B supersedes C; A must run after D must run after C: whenever A
+    # matches, C is skipped, so D never succeeds and A can never fire.
+    rules = [
+        rule("A", supersedes=("B",), must_after=("D",)),
+        rule("B", supersedes=("C",)),
+        rule("C"),
+        rule("D", must_after=("C",)),
+    ]
+    errors = validate_rule_set(rules, WF)
+    assert codes(errors) == ["unrunnable_relationship"]
+    assert "'C'" in errors[0].message
+
+
+def test_may_after_and_supersedes_on_the_same_rule_is_fine():
+    rules = [rule("A", supersedes=("B",), may_after=("B",)), rule("B")]
+    assert validate_rule_set(rules, WF) == []

@@ -33,7 +33,12 @@ def decisions(c: Cluster, rule_id: str | None = None) -> list[dict]:
 
 
 def test_the_recorded_reasons_and_collection():
-    assert set(RECORDED_REASONS) == {"superseded_by", "blocked_by_predecessor", "group_lost"}
+    assert set(RECORDED_REASONS) == {
+        "superseded_by",
+        "blocked_by_predecessor",
+        "group_lost",
+        "predecessor_failed",
+    }
     assert RULE_DECISIONS in NODE_COLLECTIONS
 
 

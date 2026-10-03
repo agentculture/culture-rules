@@ -4375,7 +4375,7 @@
     },
     "/rules/{id}/history": {
       "get": {
-        "description": "A rule's contextual history, newest first: its runs (``kind: run``) and its\nrecorded skips (``kind: decision``: superseded_by, blocked_by_predecessor,\ngroup_lost, with ``by`` naming the responsible rules).",
+        "description": "A rule's contextual history, newest first: its runs (``kind: run``) and its\nrecorded skips (``kind: decision``: superseded_by, blocked_by_predecessor,\ngroup_lost, predecessor_failed, with ``by`` naming the responsible rules). A rule\nthat waited for a predecessor and then fired shows as its run.",
         "operationId": "get_rule_history",
         "parameters": [
           {
