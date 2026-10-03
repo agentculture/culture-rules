@@ -123,14 +123,7 @@ def validate(node: Any, path: str = "$", depth: int = 0) -> None:
         _check_operand(node.get("left"), path + ".left")
         _check_operand(node.get("right"), path + ".right")
     elif op in ("and", "or"):
-        args = node.get("args")
-        # At least two args: a single-argument group has no text form of its own, so it
-        # would not round-trip through to_text/from_text (Qwen review of t2). Editors unwrap
-        # a one-item group before saving.
-        if not isinstance(args, list) or len(args) < 2:
-            raise _err(f"{op} needs an args list of at least two conditions", path)
-        for i, a in enumerate(args):
-            validate(a, f"{path}.args[{i}]", depth + 1)
+        _validate_group(node, op, path, depth)
     elif op == "not":
         if "arg" not in node:
             raise _err("not needs arg", path)
@@ -141,18 +134,33 @@ def validate(node: Any, path: str = "$", depth: int = 0) -> None:
         _check_operand(node.get("value"), path + ".value")
         _check_operand(node.get("items"), path + ".items")
     elif op == "matches":
-        _check_operand(node.get("value"), path + ".value")
-        pat = node.get("pattern")
-        if not isinstance(pat, str):
-            raise _err("pattern must be a string", path)
-        if len(pat) > MAX_PATTERN_LEN:
-            raise _err(f"pattern longer than {MAX_PATTERN_LEN} characters", path)
-        try:
-            re.compile(pat)
-        except re.error as exc:
-            raise _err(f"invalid pattern: {exc}", path) from exc
+        _validate_matches(node, path)
     else:
         raise _err(f"unknown op {op!r}", path)
+
+
+def _validate_group(node: dict, op: str, path: str, depth: int) -> None:
+    args = node.get("args")
+    # At least two args: a single-argument group has no text form of its own, so it
+    # would not round-trip through to_text/from_text (Qwen review of t2). Editors unwrap
+    # a one-item group before saving.
+    if not isinstance(args, list) or len(args) < 2:
+        raise _err(f"{op} needs an args list of at least two conditions", path)
+    for i, a in enumerate(args):
+        validate(a, f"{path}.args[{i}]", depth + 1)
+
+
+def _validate_matches(node: dict, path: str) -> None:
+    _check_operand(node.get("value"), path + ".value")
+    pat = node.get("pattern")
+    if not isinstance(pat, str):
+        raise _err("pattern must be a string", path)
+    if len(pat) > MAX_PATTERN_LEN:
+        raise _err(f"pattern longer than {MAX_PATTERN_LEN} characters", path)
+    try:
+        re.compile(pat)
+    except re.error as exc:
+        raise _err(f"invalid pattern: {exc}", path) from exc
 
 
 # --------------------------------------------------------------------------- evaluation
@@ -433,23 +441,27 @@ class _Parser:
             self.i += 1
             return {"literal": {"true": True, "false": False, "null": None}[v]}
         if k == "id" and v in ("trigger", "vars"):
-            self.i += 1
-            parts = []
-            while self._is("."):
-                self.i += 1
-                if self.tok[0] != "id":
-                    self._fail("expected a name after '.'")
-                parts.append(self.tok[1])
-                self.i += 1
-            if not parts:
-                self._fail(f"expected '.name' after {v!r}")
-            if v == "vars":
-                if len(parts) != 1:
-                    raise ConditionParseError("variables take a single name", p)
-                return {"var": parts[0]}
-            return {"field": ".".join(parts)}
+            return self.reference(v, p)
         self._fail("expected a value (literal, trigger.<path> or vars.<name>)")
         raise AssertionError  # pragma: no cover
+
+    def reference(self, root: str, p: int) -> dict:
+        """``trigger.<path>`` or ``vars.<name>``, with ``root`` the current token."""
+        self.i += 1
+        parts = []
+        while self._is("."):
+            self.i += 1
+            if self.tok[0] != "id":
+                self._fail("expected a name after '.'")
+            parts.append(self.tok[1])
+            self.i += 1
+        if not parts:
+            self._fail(f"expected '.name' after {root!r}")
+        if root == "vars":
+            if len(parts) != 1:
+                raise ConditionParseError("variables take a single name", p)
+            return {"var": parts[0]}
+        return {"field": ".".join(parts)}
 
     def list_(self) -> list:
         self._eat("[")
