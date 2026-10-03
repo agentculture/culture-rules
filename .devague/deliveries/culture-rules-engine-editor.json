@@ -2,7 +2,7 @@
   "plan_slug": "culture-rules-engine-editor",
   "schema_version": 2,
   "created": "2026-10-03T05:56:04Z",
-  "updated": "2026-10-03T09:19:31Z",
+  "updated": "2026-10-03T09:51:28Z",
   "deviations": [
     {
       "id": "d1",
@@ -1462,6 +1462,120 @@
       "status": "proposed",
       "superseded": false,
       "seq": 76
+    },
+    {
+      "id": "e74",
+      "obligation_ref": "o6",
+      "test_ref": "tests/node/test_chain.py::test_must_after_fires_after_the_predecessor_succeeds_exactly_once_across_hosts ; tests/node/test_chain.py::test_must_after_with_a_failed_predecessor_never_fires_and_records_why ; tests/multihost/test_chain.py",
+      "behavior_text": "On a real Node (MemoryStore and docker Mongo, 2-3 simulated hosts) a must_after dependant fires exactly once only after its predecessor's run succeeded for the same event, sees only the predecessor's exported outputs, and records predecessor_failed when the predecessor fails",
+      "contract_text": "A downstream rule sees only the outputs its predecessor explicitly exports, and 'must run after' blocks firing until the predecessor succeeded",
+      "evidence_type": "automated",
+      "strength": "fidelity",
+      "strength_basis": "supersedes the earlier PASS at 9b42ffb, which only exercised match() in isolation: the node never supplied run facts (fixed in rules/fix-chain); hosts are simulated threads, hence fidelity. uv run pytest -q tests/node/test_chain.py tests/multihost/test_chain.py -> passed",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T13:05:00",
+        "commit": "38568d5"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 78
+    },
+    {
+      "id": "e75",
+      "obligation_ref": "o8",
+      "test_ref": "web/e2e/hit-area.spec.ts ; web/e2e/shell.spec.ts (keyboard walk, axe, reduced motion)",
+      "behavior_text": "Every visible button, link, switch, tab, radio and select on all four tabs resolves clicks within 21px of its centre (>=44x44 hit area); keyboard walk, axe 0 serious/critical and prefers-reduced-motion pass",
+      "contract_text": "body text >=16px, targets >=44px, keyboard walk, axe 0 serious, reduced motion (as amended by approved deviation d4: canvas visual sizes, >=44px hit areas)",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "built bundle in Chromium with mocked API; PLAYWRIGHT_PORT=4466 npx playwright test e2e/hit-area.spec.ts e2e/live.spec.ts e2e/shell.spec.ts -> 13 passed; the size clause is satisfied as amended by d4, not as originally written",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T13:05:00",
+        "commit": "38568d5"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 79
+    },
+    {
+      "id": "e76",
+      "obligation_ref": "o33",
+      "test_ref": "web/src/statistics/StatisticsLive.test.tsx ; web/e2e/live.spec.ts (Statistics case)",
+      "behavior_text": "The Statistics tab refetches on live SSE changes and polls /machines/status every 10 s; a lane updates without reload and a machine flips offline once last_seen is >30 s stale",
+      "contract_text": "the Statistics tab shows each enrolled machine's load, queue depth and runs, refreshed live; an offline host renders offline",
+      "evidence_type": "automated",
+      "strength": "fidelity",
+      "strength_basis": "API mocked (fake EventSource, page.clock); npx vitest run src/statistics/StatisticsLive.test.tsx -> pass; playwright live.spec.ts -> pass",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T13:05:00",
+        "commit": "38568d5"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 80
+    },
+    {
+      "id": "e77",
+      "obligation_ref": "o48",
+      "test_ref": "tests/cli/test_learn_audiences.py",
+      "behavior_text": "culture-rules learn (text and --json) and the explain root name both audiences and the README's why-sentence and contain no 'being built'/'Planned shape' wording",
+      "contract_text": "README and culture-rules learn both name the two audiences and the one-sentence why",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "real CLI invocation in-process; uv run pytest -q tests/cli/test_learn_audiences.py -> passed",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T13:05:00",
+        "commit": "38568d5"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 81
+    },
+    {
+      "id": "e78",
+      "obligation_ref": "o61",
+      "test_ref": "web/e2e/live.spec.ts ; tests/server/test_stateless.py",
+      "behavior_text": "Two browser contexts on a shared fake API: a rule toggle in A appears in B through the mocked SSE stream without reload; server side, a write through one app instance reaches another instance's /events/stream within 2 s",
+      "contract_text": "editor live updates fan out across instances via store change feeds within 2 s",
+      "evidence_type": "automated",
+      "strength": "fidelity",
+      "strength_basis": "browser half uses a mocked SSE route (not two real hosts); server half is real FastAPI on one MemoryStore. playwright live.spec.ts + pytest tests/server/test_stateless.py -> passed",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T13:05:00",
+        "commit": "38568d5"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 82
+    },
+    {
+      "id": "e79",
+      "obligation_ref": "o78",
+      "test_ref": "tests/node/test_rule_decisions.py ; tests/node/test_chain.py::test_supersede_composes_with_must_after_without_changing_either ; tests/server/test_rule_history.py ; tests/engine/test_ruleset.py",
+      "behavior_text": "Supersession is per event, transitive, cycle-rejected, composes with exclusive groups and must/may-after; a superseded rule's skip is persisted once per (rule,event) in rule_decisions and shown as 'superseded by A' in GET /rules/{id}/history and the Rules tab",
+      "contract_text": "Supersession per event ... composes with exclusive groups and must/may-run-after ... a skipped rule records 'superseded by A' in its contextual history",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "uv run pytest -q tests/node/test_rule_decisions.py tests/node/test_chain.py tests/server/test_rule_history.py -> passed; web RulesLive.test.tsx -> passed",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-03T13:05:00",
+        "commit": "38568d5"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 83
     }
   ],
   "deltas": [
@@ -1723,6 +1837,31 @@
       "evidence_refs": [
         "e72"
       ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b20",
+      "kind": "amended",
+      "behavior_text": "visible control sizes follow the design canvas (40px pills, 46x28 switches, 15px secondary text) with >=44x44px invisible hit areas, instead of h8's literal 16px/44px",
+      "caused_by": [
+        "d4"
+      ],
+      "evidence_refs": [],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b21",
+      "kind": "added",
+      "behavior_text": "the engine node re-evaluates must_after/may_after dependants when a predecessor's run settles (chain consumers), persists rule decisions (rule_decisions) and exposes GET /rules/{id}/history",
+      "caused_by": [
+        "c6",
+        "c97"
+      ],
+      "evidence_refs": [],
       "origin": "llm",
       "status": "proposed",
       "superseded": false
