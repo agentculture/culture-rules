@@ -1,0 +1,2129 @@
+{
+  "slug": "culture-rules-engine-editor",
+  "title": "culture-rules engine + editor",
+  "frame_slug": "culture-rules-engine-editor",
+  "schema_version": 5,
+  "status": "exported",
+  "created": "2026-10-03T05:15:57Z",
+  "updated": "2026-10-03T05:23:43Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "culture-rules implements issues #1 and #2: a Python rules \u2192 condition \u2192 workflow \u2192 action engine with persisted runs on a MongoDB replica set, placement of rules and workflow steps by machine, actor or requirement across enrolled machines (spark, thor, spark2), a generic Actor registry (agents with db- or repo-based config, harness, model), controlled from a CLI, an MCP server and a graph-first React Flow editor with four tabs (Rules | Workflows | Actors | Statistics), served always-on from several hosts at rules.culture.dev behind cultureflare SSO",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "All of c2-c14, c45-c63 are delivered or explicitly deferred in the plan; nothing in the announcement ships only as a mock-up",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c2",
+      "kind": "requirement",
+      "text": "The editor has four primary tabs \u2014 Rules | Workflows | Actors | Statistics (operator decision 2026-10-03 adds Statistics to issue #2's three); runs/history/ledger/inbox stay contextual inside a rule or workflow, while per-machine state and work live in Statistics",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "The app shell renders exactly four top-level tabs and no runs/history/ledger/inbox route exists at top level",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c3",
+      "kind": "boundary",
+      "text": "Conditions are never eval() of user Python; they are a serialisable predicate the frontend edits graphically and the backend evaluates deterministically (issue #1 Condition row; issue #2 'Conditions')",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "No code path calls eval/exec/compile on user-supplied condition text; conditions round-trip JSON -> evaluate deterministically",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c4",
+      "kind": "requirement",
+      "text": "Workflows declare inputs, internal variables, steps and outputs and do not know which trigger fired them; a rule binds a trigger (+ optional condition) to an optional workflow and a required action (issue #2 'Workflow'; operator decision q3)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "A workflow definition contains no reference to any trigger; a rule with no workflow validates and runs Trigger -> Action",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c5",
+      "kind": "requirement",
+      "text": "Run state is persisted (not an in-memory call stack) because human/remote actors make runs long-running and asynchronous (issue #1 honesty condition)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "Killing the engine process mid-run and restarting resumes the run from persisted state without re-executing completed steps",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c6",
+      "kind": "requirement",
+      "text": "Rules can depend on a predecessor rule via a relationship (must run after / may run after) that also scopes which exported outputs are visible; exported outputs are explicit, not a global mutable bag (issue #2 'Rule chaining', 'Variables')",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "A downstream rule sees only the outputs its predecessor explicitly exports, and 'must run after' blocks firing until the predecessor succeeded",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c7",
+      "kind": "requirement",
+      "text": "Actor is a generic model with concrete types (agent, human, daemon/service, runner/code, robot) plus capabilities, and is referenced from rules/workflows \u2014 not a stage in the rule chain (issue #2 'Actor', 'Actors tab')",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "Actor kinds agent, human, service, daemon, runner, robot all validate against one Actor schema with a capabilities list, and no rule-stage schema has an actor slot",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "Default UX is graphical with large type/targets, minimal prose and chrome, smooth overview\u2194edit transitions, keyboard access and prefers-reduced-motion; raw YAML/JSON is an advanced mode (issue #2 'UX principles')",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "Every interactive control is reachable and operable by keyboard with visible focus; with prefers-reduced-motion all transitions are disabled; body text >= 16px and targets >= 44px",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "The HTTP API contract is pinned in one place (OpenAPI or JSON Schema) so the web editor and the Python backend cannot drift (issue #1 'Shape the operator asked for')",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "One committed OpenAPI file is the contract; the API's generated schema equals it and the TS types compile against it",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "A rule's trigger and condition evaluate where the rule is placed (a named machine, an actor's machine, or a machine resolved from a requirement \u2014 see c60), so a rule can check local state on spark, thor, etc. (operator, this session)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "A rule placed on thor evaluates its trigger and condition on thor (not on the host that received the edit)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "Each workflow step declares its kind (logic, AI call, code run, actor task), typed input/output ports, and its own placement (machine, actor, or requirement \u2014 c60), so one run can hop spark \u2192 thor \u2192 spark2 (operator, this session)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "A three-step workflow placed spark -> thor -> spark2 executes each step on its placed host, passing typed outputs between them",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "Agent actors are configured either from a DB record or from a repo's root config (loaded from the repo), and carry harness and model among their fields (operator, this session)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "The same agent actor can be defined from a DB record or loaded from a repo's culture.yaml, and both produce an identical Actor model with harness and model fields",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c13",
+      "kind": "requirement",
+      "text": "The editor is reachable remotely at rules.culture.dev with SSO provided by cultureflare (operator, this session)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "rules.culture.dev requires Cloudflare Access SSO; an unauthenticated request never reaches the API handlers, and a request with a valid Access JWT does",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c14",
+      "kind": "requirement",
+      "text": "Before building the UI, three distinct graph-first UI directions are presented as visual mock-ups and the operator picks one (operator, this session)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h14",
+      "kind": "honesty",
+      "text": "The operator picked a direction from the published mock-ups before any web code is written (recorded as q6)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c19",
+      "kind": "requirement",
+      "text": "The editor exposes an #agent-state element and CI runs a webglass job asserting the built SPA reports ready with no errors (culture-nodes/web.yml, webglass-cli/docs/ci-recipe.md)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h15",
+      "kind": "honesty",
+      "text": "The built SPA sets #agent-state to ready with no uncaught errors, asserted by a CI webglass job",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c20",
+      "kind": "boundary",
+      "text": "agentfront, irc-lens, league-of-agents-platform and webglass-cli are not React precedents and are not reused as the editor stack",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h16",
+      "kind": "honesty",
+      "text": "web/ has no dependency on agentfront/irc-lens/league templates; its stack is Vite+React+@xyflow/react",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c28",
+      "kind": "requirement",
+      "text": "Repo-based agent actors load from the repo's culture.yaml (suffix, backend, model, thinking, channels, system_prompt, tags, extras such as engine/base_url/acp_command), handling both the single-agent and agents: list shapes",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h17",
+      "kind": "honesty",
+      "text": "Loading culture.yaml handles both single-agent top-level and agents: list shapes and keeps unknown keys as extras",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c31",
+      "kind": "boundary",
+      "text": "callsmith is not modelled as a structured-call actor yet: it is a scaffold with only introspection verbs; at most a future capability",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h18",
+      "kind": "honesty",
+      "text": "No callsmith actor type ships in this scope",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c32",
+      "kind": "requirement",
+      "text": "events-cli is an external trigger source: each host's engine node holds a durable events-cli subscription on configured type patterns (e.g. task.* \u2192 events/task/+), drains in bounded batches and ingests envelopes into the MongoDB events collection deduped by envelope id (at-least-once QoS 1); correlationId/causationId/runId propagate onto events culture-rules emits",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h19",
+      "kind": "honesty",
+      "text": "A durable events-cli subscription feeds triggers; a redelivered envelope (same id) never fires a rule twice",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c33",
+      "kind": "boundary",
+      "text": "culture-rules does not build an event transport, broker or event history store \u2014 that is events-cli's; but events-cli's planned 'pipelines' (#8, contract.md:41) overlaps workflows and needs an explicit boundary",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h20",
+      "kind": "honesty",
+      "text": "culture-rules ships no broker, no MQTT server and no event-history store of its own",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c34",
+      "kind": "boundary",
+      "text": "No integration is claimed with workledger-cli, agenda or protocols-cli: all three are unbuilt scaffolds with only introspection verbs; culture-rules keeps a seam (run-history sink, task source, workflow definition) instead",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h21",
+      "kind": "honesty",
+      "text": "No code imports workledger, agenda or protocols packages; seams are interfaces with in-repo default implementations",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c35",
+      "kind": "boundary",
+      "text": "eidetic is not a run-state or event store (no transactional resume, no monotonic cursor); at most an optional subprocess sink for run summaries",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h22",
+      "kind": "honesty",
+      "text": "eidetic is not used for run state; if used at all it is an optional subprocess sink",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c36",
+      "kind": "requirement",
+      "text": "rules.culture.dev is provisioned with `cultureflare remote-login setup --hostname rules.culture.dev --service http://127.0.0.1:<port> --allow <email> --with-service-token` (or --allow-domain), dry-run first then --apply; the operator runs cloudflared with the printed (or shushu-sealed) tunnel token on each serving host",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h23",
+      "kind": "honesty",
+      "text": "rules.culture.dev is provisioned by a documented cultureflare remote-login dry-run then --apply, recorded in docs/operations",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c37",
+      "kind": "requirement",
+      "text": "The API validates the Cf-Access-Jwt-Assertion JWT (team domain agentculture.cloudflareaccess.com + the app's AUD) itself, honoured only on a loopback listener that cloudflared reaches, with a separate LAN listener that ignores Access headers \u2014 mirroring culture-nodes' two-listener split",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h24",
+      "kind": "honesty",
+      "text": "JWT validation checks signature (team JWKS), aud and exp; Access headers are ignored on the LAN listener",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c39",
+      "kind": "boundary",
+      "text": "Machine-to-machine traffic (rules/steps dispatching to thor, spark2) does not ride the public rules.culture.dev hostname; one hostname = one tunnel = one service URL in cultureflare, so remote machines talk over LAN/tailnet or the mesh",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h25",
+      "kind": "honesty",
+      "text": "Inter-host dispatch uses LAN/tailnet or the mesh, never the public hostname",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c40",
+      "kind": "requirement",
+      "text": "The HTTP server lives in an optional extra (e.g. culture-rules[server]) and is imported lazily inside the serve handler, so the core library + CLI keep dependencies = [] and teken doctor (which runs the CLI in-process) stays green; CI jobs that test the API sync that extra",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h26",
+      "kind": "honesty",
+      "text": "pip install culture-rules (no extras) has zero third-party runtime deps and the CLI runs; the server needs the extra",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c41",
+      "kind": "requirement",
+      "text": "The built web bundle ships inside the wheel as package data (e.g. culture_rules/web_dist) served by the API same-origin; publish.yml's paths filter gains web/** and its build step runs the npm build before uv build",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h27",
+      "kind": "honesty",
+      "text": "The published wheel contains the built web bundle and serving it needs no Node at runtime",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c42",
+      "kind": "requirement",
+      "text": "CI gains a web job (setup-node pinned to the SHA already used in lint, npm ci, typecheck, vitest, build, webglass); .gitignore gains node_modules/, web/dist, *.tsbuildinfo and run-state paths; sonar.sources/tests/exclusions widen deliberately to web/src",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h28",
+      "kind": "honesty",
+      "text": "CI has a web job and the gitignore/sonar/markdownlint config covers the frontend without ignoring source dirs",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c43",
+      "kind": "boundary",
+      "text": "No committed JSON file carries a non-localhost url/host/endpoint/base_url key (e.g. a rules.culture.dev base URL in package.json or a config JSON); the public origin lives in .md/.py/.ts or env",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h29",
+      "kind": "honesty",
+      "text": "scripts/scan-secrets.py passes with the frontend and config committed",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c44",
+      "kind": "requirement",
+      "text": "Template self-description leftovers are replaced with culture-rules wording alongside the first real verbs: cli/__init__.py:74, learn.py:58-65,98, explain/catalog.py:146-150,215, overview.py:4, whoami.py:7 (and the CLAUDE.md paragraph that lists them)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h30",
+      "kind": "honesty",
+      "text": "No 'clonable template' wording remains in culture_rules/ self-description",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c45",
+      "kind": "requirement",
+      "text": "The project exposes a CLI and an MCP server that control rules, workflows and actors (list/show/create/update/enable/disable/run, dry-run by default with --apply), alongside the web editor (operator, this session)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h31",
+      "kind": "honesty",
+      "text": "Every rule/workflow/actor verb exists on the CLI and as an MCP tool, writes are dry-run by default and --apply commits",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c48",
+      "kind": "requirement",
+      "text": "Rules, workflow steps and actors each have an enable/disable toggle, edit and delete \u2014 in the editor and mirrored as CLI/MCP verbs (enable, disable, edit/update, delete; destructive ones dry-run by default with --apply) (operator, this session)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h32",
+      "kind": "honesty",
+      "text": "Rules, steps and actors each support enable, disable, edit and delete in UI, CLI and MCP; a disabled item never fires/executes; delete is dry-run unless --apply",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c49",
+      "kind": "requirement",
+      "text": "A Statistics tab shows each enrolled machine as a lane (direction A) with its live state (online, load: CPU/GPU/memory), what it is working on now (running steps + their workflow), queue depth, and recent work (24h activity, ok/failed) (operator, this session)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h33",
+      "kind": "honesty",
+      "text": "Statistics shows every enrolled machine (including offline ones) with load, running steps, queue depth and 24h ok/failed, refreshed live",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c50",
+      "kind": "requirement",
+      "text": "Chosen UI composition: Rules tab = direction C (rule list + focused vertical rule), Workflows tab = direction B (free-form node editor with typed ports, machine on each node), Actors tab = direction C (large-type roster with inline expand), Statistics tab = direction A (machine lanes) (operator, this session)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h34",
+      "kind": "honesty",
+      "text": "The shipped tabs follow the chosen composition (Rules C, Workflows B, Actors C, Statistics A)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c51",
+      "kind": "requirement",
+      "text": "Replay: a rule can be dry-run against recorded events (events-cli history) to show which runs would have fired, before it is enabled (operator, this session)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h35",
+      "kind": "honesty",
+      "text": "Replay against recorded events reports which runs would fire without executing any action",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c52",
+      "kind": "requirement",
+      "text": "Run overlay: a run lights up its path on the workflow graph (which steps ran, on which machine, with outcome), so history is shown in context, not as a tab (operator, this session)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h36",
+      "kind": "honesty",
+      "text": "A run's path on the workflow graph shows each step's host and outcome, sourced from persisted run state",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c53",
+      "kind": "requirement",
+      "text": "Capability placement: a step may request a capability (e.g. gpu) instead of a named machine, and the engine places it on an enrolled machine/actor that offers it (operator, this session)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h37",
+      "kind": "honesty",
+      "text": "A step requesting capability gpu is placed only on a host or actor advertising gpu, and fails validation if none is enrolled",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c54",
+      "kind": "requirement",
+      "text": "Workflows and rules export to and import from files (JSON/YAML, round-tripping with the graphical editor; that view is the advanced two-way mode); a git repo is an optional storage target, so definitions can be saved to and loaded from a different repo than culture-rules (operator, this session)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h38",
+      "kind": "honesty",
+      "text": "Export then import of a workflow/rule yields an identical definition, and save/load works against a second git repo",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c55",
+      "kind": "requirement",
+      "text": "Per-actor limits: budgets (tokens/cost, aligned with culture.yaml token_budget) and concurrency caps per actor, enforced by the engine and visible on the actor (operator, this session)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h39",
+      "kind": "honesty",
+      "text": "An actor at its concurrency cap queues further tasks and an actor over budget refuses new tasks with a clear error",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c56",
+      "kind": "requirement",
+      "text": "Mesh reports: run results can be posted to a Culture mesh channel (and optionally emitted as events-cli events) so agents and humans see outcomes (operator, this session)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h40",
+      "kind": "honesty",
+      "text": "A finished run can post a summary to a configured mesh channel; failure to post never fails the run",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c57",
+      "kind": "requirement",
+      "text": "Per-actor secrets are referenced, never stored in definitions \u2014 sealed via shushu (as cultureflare --shushu does) and resolved at run time on the executing machine (operator, this session)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h41",
+      "kind": "honesty",
+      "text": "No secret value is ever stored in a rule/workflow/actor definition, export or log; only references resolved at run time on the executing host",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c58",
+      "kind": "requirement",
+      "text": "Machine identity colors are a validated categorical palette: light #0a8a78 (spark) / #b4531f (thor) / #3b4fb0 (spark2) passes all six dataviz checks (org --accent #0b655c fails the chroma floor for marks, so it stays for UI/text only); a dark-mode set is re-stepped and validated against #161b36 during build (#3fbfa8/#f0915a/#8f9ff0 fails the lightness band)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h42",
+      "kind": "honesty",
+      "text": "Chart marks use the validated palette in light mode and a separately validated dark set",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c59",
+      "kind": "requirement",
+      "text": "culture-rules is a separate engine from culture-nodes for now (operator decision); it owns rules, workflows, actors and runs itself",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h43",
+      "kind": "honesty",
+      "text": "culture-rules runs with culture-nodes absent; no runtime import or network dependency on it",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c60",
+      "kind": "requirement",
+      "text": "Placement of a rule or workflow step is one of: a named machine, a named actor (runs where that actor lives), or a requirement/capability (e.g. gpu) resolved by the engine to an eligible enrolled machine",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h44",
+      "kind": "honesty",
+      "text": "Placement accepts exactly three forms (machine, actor, requirement) and each resolves to one concrete host before execution",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c61",
+      "kind": "requirement",
+      "text": "Action is a distinct concept from Workflow. A rule's shape is Trigger \u2192 [Condition] \u2192 [Workflow] \u2192 Action: condition and workflow are optional, the action is required",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h45",
+      "kind": "honesty",
+      "text": "A rule without an action fails validation; a rule without condition or workflow is valid",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c62",
+      "kind": "requirement",
+      "text": "Always-on multi-machine service: spark is primary, spark2 and thor are redundant; if one host falters, the editor/API keeps serving and rules keep firing without operator intervention",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h46",
+      "kind": "honesty",
+      "text": "Stopping any one of the three hosts keeps the editor/API serving and rules firing",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c63",
+      "kind": "requirement",
+      "text": "Multi-host safety: a rule firing or a run step is claimed by exactly one host (lease/leader or idempotent claim keyed on event id), so redundancy never double-executes an action",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h47",
+      "kind": "honesty",
+      "text": "Each firing/step has an idempotency key and only one host can claim it, so no action executes twice under failover",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c66",
+      "kind": "audience",
+      "text": "The operator (Ori) composing and supervising automation across spark, thor and spark2 from a browser at rules.culture.dev; and mesh agents that drive the same rules, workflows and actors through the culture-rules CLI and MCP server",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h48",
+      "kind": "honesty",
+      "text": "README and learn name the operator-in-browser and agents-over-CLI/MCP as the two audiences",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c67",
+      "kind": "before_state",
+      "text": "Automation across the machines is scattered: culture-nodes declarations authored as YAML/CEL on thor, cron jobs and ad-hoc scripts per host, agents nudged by hand over IRC; there is no single visual place to compose a rule, see where each step runs, or see what each machine is doing right now",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h49",
+      "kind": "honesty",
+      "text": "The spec background describes the current scattered state with citations to the scope entries",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c68",
+      "kind": "why_it_matters",
+      "text": "One graphical, agent-operable place to decide when work happens, how it flows across machines and who does it \u2014 and it keeps working when one machine falters \u2014 so automation stops being per-host glue only its author understands",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h50",
+      "kind": "honesty",
+      "text": "The README pitch states the one-sentence why",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c69",
+      "kind": "after_state",
+      "text": "From rules.culture.dev (SSO) the operator builds a rule as Trigger \u2192 Condition \u2192 (Workflow) \u2192 Action by direct manipulation, places it and each step by machine, actor or requirement, toggles it on, and watches runs light up the graph and the Statistics lanes; agents do the same over CLI/MCP; stopping any one of spark, spark2 or thor does not stop the service",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h51",
+      "kind": "honesty",
+      "text": "The demo script reproduces the after-state end to end on the three hosts",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c70",
+      "kind": "success_signal",
+      "text": "A rule authored in the editor fires within 5 s of a matching events-cli event and its run appears in the run overlay and Statistics within 2 s of each step completing",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h52",
+      "kind": "honesty",
+      "text": "The 5 s / 2 s latencies are measured, not asserted by inspection",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c71",
+      "kind": "success_signal",
+      "text": "With any one of spark, spark2 or thor stopped, rules.culture.dev keeps serving (>= 99% of 200 requests succeed during failover) and 100 replayed events produce exactly 100 action executions \u2014 0 duplicates, 0 lost",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h53",
+      "kind": "honesty",
+      "text": "The failover numbers come from an executed chaos run",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c72",
+      "kind": "success_signal",
+      "text": "100% parity: every rule/workflow/actor operation (list, show, create, update, enable, disable, delete, run, export, import) is reachable from the editor, the CLI and the MCP server, enforced by a parity test over the one command registry",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h54",
+      "kind": "honesty",
+      "text": "The parity test exists and fails when a verb is missing from any surface",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c73",
+      "kind": "success_signal",
+      "text": "Repo gates stay green: teken cli doctor --strict 26/26 (or more), coverage >= 60%, SonarCloud quality gate passed, webglass reports ready with 0 errors",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h55",
+      "kind": "honesty",
+      "text": "The four gates are CI-enforced, not manual",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c74",
+      "kind": "requirement",
+      "text": "Persisted state (rules, workflows, actors, machines, run state and history) lives in MongoDB or Postgres, not in local files (operator, this session)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h56",
+      "kind": "honesty",
+      "text": "The engine starts and runs with only a MongoDB (or Postgres) URL configured and writes no state to local files",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c76",
+      "kind": "requirement",
+      "text": "State is backed up to AWS S3: the full culture-rules configuration (rules, workflows, actors, machines and settings) and run history (operator, this session)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h57",
+      "kind": "honesty",
+      "text": "A scheduled backup writes config + run history to S3 and a restore into an empty store reproduces every rule, workflow, actor and run",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c77",
+      "kind": "requirement",
+      "text": "S3 backups are encrypted (SSE-S3 or SSE-KMS), versioned with a retention policy, scheduled (e.g. daily snapshot + hourly run-history increments), and the bucket/region/credentials are configuration \u2014 never committed (scan-secrets stays green)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h58",
+      "kind": "honesty",
+      "text": "Backup objects are encrypted at rest and versioned, the schedule runs unattended, and no bucket credential appears in any committed file",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c78",
+      "kind": "requirement",
+      "text": "Quorum must survive spark2 being routinely offline: the replica set has 3 voting members that stay up (e.g. spark + thor + an arbiter or a 4th/5th member such as orin) so losing any one more host keeps a writable primary; membership is a configured, documented decision",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h59",
+      "kind": "honesty",
+      "text": "With spark2 offline AND any one other member stopped, the store still elects a primary and accepts majority writes",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c79",
+      "kind": "requirement",
+      "text": "The engine's replica set is a dedicated mongod per host on a non-default port (spark's 27017 is already taken by a standalone weather-mongodb), with member authentication (keyfile or x509), TLS between members over the tailnet, and a least-privilege application user",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h60",
+      "kind": "honesty",
+      "text": "No member accepts unauthenticated connections and inter-member traffic is TLS; the app user cannot run admin commands",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c80",
+      "kind": "requirement",
+      "text": "The HTTP API is stateless and active-active on every serving host: any host can serve any request (Cloudflare tunnel replicas route to any healthy connector, not to a preferred primary), sessions live nowhere in process memory, and live updates fan out via store change streams so an SSE client on thor sees a run step that finished on spark",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h61",
+      "kind": "honesty",
+      "text": "Two editors connected through different hosts see the same run update within the 2 s budget, and killing the host serving one of them only forces a reconnect",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c81",
+      "kind": "requirement",
+      "text": "Machines are explicit enrolled records (name, tailnet address, platform, capabilities such as gpu, roles: store member / engine node / runner), sourced from an enrol verb rather than inferred; the tailnet MagicDNS names are the default addresses and mesh server names the identity",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h62",
+      "kind": "honesty",
+      "text": "A machine not enrolled is never chosen by placement, and enrolling/unenrolling is a dry-run-by-default write with --apply",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c82",
+      "kind": "requirement",
+      "text": "Every host runs an engine node that heartbeats liveness and load (CPU, memory, GPU when available) every 10 s into the store; a node missing 3 heartbeats is shown offline in Statistics and receives no new placements",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h63",
+      "kind": "honesty",
+      "text": "Stopping a node flips it to offline within 30 s and new runs avoid it",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c83",
+      "kind": "requirement",
+      "text": "Every step and action declares a timeout, a retry policy (max attempts, backoff) and an idempotency key derived from (run id, step id, attempt-independent); side-effecting actions pass the key to the target where it supports one, and the engine never retries a non-idempotent action without the key",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h64",
+      "kind": "honesty",
+      "text": "A step that times out is retried per policy and an action whose ack was lost is not executed twice",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c84",
+      "kind": "requirement",
+      "text": "Published workflow and rule versions are immutable; a run pins the exact versions it started with, so editing a workflow never changes an in-flight run",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h65",
+      "kind": "honesty",
+      "text": "Editing a workflow while a human step is pending leaves that run on the old version and new runs on the new one",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c85",
+      "kind": "requirement",
+      "text": "Stored documents carry a schema_version; a node refuses to write documents of a newer major version than it understands, migrations are forward-only and run only after a fresh S3 backup, and upgrades roll one host at a time",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h66",
+      "kind": "honesty",
+      "text": "A rolling upgrade across the three hosts completes with no failed run and an old node refuses a newer-major document instead of corrupting it",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c86",
+      "kind": "requirement",
+      "text": "Every change (create, update, enable, disable, delete, import, run) is recorded in an append-only audit log with who (SSO identity, service token, or agent nick), when, where (host) and the diff; the log is shown contextually on each rule/workflow/actor",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h67",
+      "kind": "honesty",
+      "text": "Each mutating verb on every surface writes exactly one audit entry with a non-empty identity",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c87",
+      "kind": "requirement",
+      "text": "Delete is a soft delete: items are tombstoned and restorable for 30 days with their run history intact; a separate purge verb (dry-run unless --apply, admin only) removes them permanently",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h68",
+      "kind": "honesty",
+      "text": "A deleted rule can be restored with history and stops firing while deleted",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c88",
+      "kind": "requirement",
+      "text": "Containment: a global pause stops all rule firing in one action (UI, CLI, MCP), a machine can be drained (no new placements, running steps finish), and any run can be cancelled; all three are audited",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h69",
+      "kind": "honesty",
+      "text": "After global pause, a matching event fires nothing; after drain, new steps never land on the drained host",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c89",
+      "kind": "requirement",
+      "text": "Runs are observable: every node exposes a health endpoint, logs are structured with run_id/step_id/host, and run_id/correlationId propagate onto events-cli envelopes the engine emits",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h70",
+      "kind": "honesty",
+      "text": "Given a run id, its full step trail across hosts is retrievable from logs and from the run record",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c90",
+      "kind": "success_signal",
+      "text": "Backups meet RPO <= 1 h for run history and <= 24 h for configuration snapshots (or <= 1 h if config changed), and a full restore into an empty replica set completes in <= 30 min",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h71",
+      "kind": "honesty",
+      "text": "The RPO/RTO numbers come from an executed restore drill",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c91",
+      "kind": "requirement",
+      "text": "A rule's triggers consume the MongoDB events collection (change streams on the replica set), so a rule that fails over to another host resumes from its stored resume token without losing or duplicating events; events-cli envelopes arriving on any host's broker are ingested into that collection once, deduped by envelope id",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h72",
+      "kind": "honesty",
+      "text": "When a rule fails over from spark to thor, every event published after the failover fires it exactly once",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c92",
+      "kind": "requirement",
+      "text": "Code steps run either a command/script registered on a runner actor (default; arguments bound from typed inputs) or, for admins only, inline script text executed sandboxed on the runner host (temp dir, timeout, no stored secrets in the text) (operator, challenge q1)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h73",
+      "kind": "honesty",
+      "text": "A non-admin cannot save or run inline script text, and a registered command never receives unbound raw text as a shell string",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c93",
+      "kind": "requirement",
+      "text": "Asking a human creates an ask with an id and raises an event (e.g. human.ask.requested, carrying ask id, question, options, run/step) that rules can trigger on; an 'answer ask' action (and the editor's contextual answer controls) resolves the ask by id, resuming the waiting run (operator, challenge q2)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h74",
+      "kind": "honesty",
+      "text": "An ask raises exactly one event with its id, and answering via the action or the editor resumes the run exactly once; a second answer is rejected",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c94",
+      "kind": "requirement",
+      "text": "Workflows are DAGs plus bounded loops \u2014 for-each and retry-until \u2014 each requiring a max count (operator, challenge q3)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h75",
+      "kind": "honesty",
+      "text": "A loop without a max count fails validation and a loop never exceeds its max",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c95",
+      "kind": "requirement",
+      "text": "All enabled rules matching an event fire independently by default; optional exclusive groups fire only their highest-priority match (operator, challenge q4)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h76",
+      "kind": "honesty",
+      "text": "Two matching rules both fire; two matching rules in one exclusive group fire only the higher priority",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c96",
+      "kind": "requirement",
+      "text": "Authorization: roles viewer / editor / admin (admin: purge, inline scripts, enrol, global pause) mapped from SSO identities and service tokens; the CLI and MCP always call the authenticated API and never write the store directly (operator, challenge q5)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h77",
+      "kind": "honesty",
+      "text": "A viewer token cannot mutate, an editor cannot purge, and no CLI/MCP code path opens a store connection",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c97",
+      "kind": "requirement",
+      "text": "Rules may supersede other rules: when a rule A that supersedes rule B matches an event (trigger and condition both hold), B does not fire for that event and A runs instead \u2014 used when triggers are similar and A's condition is more specific (operator, this session)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h78",
+      "kind": "honesty",
+      "text": "Supersession is evaluated per event: B is skipped only if a superseding rule actually matched that event (if A's condition fails, B fires normally); supersession is transitive, cycles fail validation, and it composes with exclusive groups and must/may-run-after without changing them; a skipped rule records 'superseded by A' in its contextual history",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c98",
+      "kind": "requirement",
+      "text": "The Rules tab shows supersession as a relationship (like must/may run after): a 'supersedes' badge naming the generic rule on the specific one, and a 'superseded when \u2026 matches' marker on the generic one, editable graphically",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h79",
+      "kind": "honesty",
+      "text": "Both ends of a supersession are visible and editable in the Rules tab without opening the advanced text view",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c102",
+      "kind": "requirement",
+      "text": "The design canvas https://claude.ai/artifact/Jgm3JPnAhKWpeiCxFXvNBi (row 'Chosen': Rules C, Workflows B, Actors C, Statistics A) is the visual source of truth for the editor: layout, stage shapes, machine colors, typography and controls follow it (operator, this session)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h80",
+      "kind": "honesty",
+      "text": "Each shipped tab is reviewed side by side with its 'Chosen' canvas board before merge, and any deliberate departure is recorded on the PR",
+      "deferred": false,
+      "deferred_reason": ""
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "Domain model + JSON schemas: Rule, Workflow, Action, Actor, Machine, Placement",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "culture_rules/model/ defines frozen dataclasses for Rule (trigger, optional condition, optional workflow ref, required action, relationships must_after/may_after/supersedes, exclusive_group+priority, enabled), Workflow (inputs, variables, steps, outputs, version), Step (kind logic|ai|code|actor_task, typed in/out ports, placement, timeout, retry), Action, Actor (kind agent|human|service|daemon|runner|robot, capabilities), Machine and Placement (machine|actor|requirement)",
+        "validation rejects: a rule without an action; a workflow containing any trigger reference; a loop without a max count; an Actor kind outside the six; a placement not of exactly one form",
+        "a rule with no condition and no workflow validates; every model round-trips to_json -> from_json identically (tests/model/)",
+        "schemas/ holds one JSON Schema per model generated from the dataclasses and a test asserts the committed files match"
+      ],
+      "deps": [],
+      "covers": [
+        "c4",
+        "h4",
+        "c7",
+        "h7",
+        "c61",
+        "h45",
+        "c94",
+        "h75"
+      ],
+      "instruction": "Stdlib only (dataclasses + typing). Put validation in model/validate.py returning structured errors, not exceptions from deep inside. Bounded loops are step kinds for_each and retry_until with a required max. Keep relationship edges on the Rule, not as separate stages."
+    },
+    {
+      "id": "t2",
+      "summary": "Condition predicate tree + deterministic evaluator + text view",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "culture_rules/model/condition.py defines a typed JSON predicate tree (compare, and, or, not, exists, in, matches) over trigger fields, variables and literals",
+        "evaluate(tree, context) is pure: 1000 evaluations of the same input give identical results; no eval/exec/compile anywhere under culture_rules/ (grep test + bandit B307)",
+        "to_text/from_text round-trip a CEL-style subset, and malformed text returns a structured parse error"
+      ],
+      "deps": [],
+      "covers": [
+        "c3",
+        "h3"
+      ],
+      "instruction": "Write the evaluator as a small recursive interpreter. 'matches' uses re.fullmatch with a length cap. The text form is the advanced view only; the tree is the stored form."
+    },
+    {
+      "id": "t3",
+      "summary": "Storage port, in-memory adapter and schema_version guard",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "culture_rules/store/port.py defines the StoragePort protocol (documents per collection, conditional update for claims, change-feed iterator, transactions)",
+        "culture_rules/store/memory.py implements it for tests and passes a shared contract test suite tests/store/contract.py",
+        "every stored document carries schema_version; writing a document of a newer major version than the node supports raises VersionSkewError; a forward-only migration registry runs only after a backup hook returns ok"
+      ],
+      "deps": [],
+      "covers": [
+        "c85",
+        "h66"
+      ],
+      "instruction": "The contract suite must be importable by the Mongo adapter task so both adapters run the same tests. No third-party imports in store/port.py or memory.py."
+    },
+    {
+      "id": "t4",
+      "summary": "Actor configuration from a DB record or a repo's culture.yaml",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "culture_rules/actors/config.py loads culture.yaml in both shapes (top-level single agent and agents: list), keeping unknown keys as extras",
+        "loading this repo's culture.yaml and an equivalent DB record produce equal Actor models with harness (= backend) and model fields",
+        "fixtures from culture, steward and culture-rules culture.yaml files load without error"
+      ],
+      "deps": [],
+      "covers": [
+        "c12",
+        "h12",
+        "c28",
+        "h17"
+      ],
+      "instruction": "Cite (do not import) the ~20-line shape logic from culture/culture_core/config.py:301-330; YAML parsing goes behind the optional extra or a minimal safe parser, because core has no runtime deps."
+    },
+    {
+      "id": "t5",
+      "summary": "Replace template self-description with culture-rules wording",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "no 'clonable template' or 'Clone it, rename the package' wording remains in culture_rules/cli/__init__.py, cli/_commands/learn.py, explain/catalog.py, overview.py, whoami.py (grep test in tests/test_wording.py)",
+        "uv run teken cli doctor . --strict stays 26/26"
+      ],
+      "deps": [],
+      "covers": [
+        "c44",
+        "h30"
+      ],
+      "instruction": "Only wording; no new verbs here (the surface task adds them). Update the CLAUDE.md paragraph that lists the leftovers."
+    },
+    {
+      "id": "t6",
+      "summary": "MongoDB replica-set adapter (majority writes, change streams, auth, TLS)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "culture_rules/store/mongo.py passes tests/store/contract.py against a disposable single-node replica set container",
+        "writes use w=majority; change feeds use change streams with resume tokens persisted per consumer",
+        "connections require authentication and TLS (configurable CA); the application user has no admin role; unauthenticated connect fails in the integration test",
+        "the engine writes no state to local files (assert empty data dir after a run)"
+      ],
+      "deps": [
+        "t3"
+      ],
+      "covers": [
+        "c74",
+        "h56",
+        "c79",
+        "h60"
+      ],
+      "instruction": "pymongo lives behind an optional extra (culture-rules[store]). Default port is not 27017 (spark's 27017 is taken by unrelated standalone containers); read the URI from config/env only."
+    },
+    {
+      "id": "t7",
+      "summary": "Placement resolver: machine, actor or requirement to one concrete host",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "culture_rules/engine/placement.py resolves each of the three placement forms to exactly one enrolled, non-drained, online host or returns a structured error",
+        "a requirement such as gpu resolves only to a host/actor advertising it; none enrolled -> validation error",
+        "peer addresses must be LAN/tailnet; the public hostname rules.culture.dev is refused as a dispatch address"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c60",
+        "h44",
+        "c53",
+        "h37",
+        "c39",
+        "h25"
+      ],
+      "instruction": "Pure function over (placement, machines snapshot, actors snapshot); no I/O."
+    },
+    {
+      "id": "t8",
+      "summary": "Machine enrolment, heartbeats and platform probe",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "culture_rules/machines/ provides enrol/unenrol (dry-run unless apply) and stores Machine records (name, tailnet address, platform, capabilities, roles)",
+        "an engine node heartbeats every 10 s with liveness and load; 3 missed heartbeats mark it offline and placement skips it (fake-clock test)",
+        "at start the node probes its platform for load/GPU tools (nvidia-smi, tegrastats) and records which exist; USB-attached requirements are probed only when a step requests them"
+      ],
+      "deps": [
+        "t3"
+      ],
+      "covers": [
+        "c81",
+        "h62",
+        "c82",
+        "h63"
+      ],
+      "instruction": "Probes run subprocess with argv lists and short timeouts; missing tools are recorded as absent, never fatal."
+    },
+    {
+      "id": "t9",
+      "summary": "Rule matching: all-fire, exclusive groups, supersede, must/may-after, exports",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "culture_rules/engine/matching.py returns the set of rules to fire for an event: every enabled match by default; within an exclusive group only the highest priority",
+        "supersede is per event: B is skipped only when a superseding A matched; A's condition false -> B fires; chains are transitive; a cycle is rejected at save; B's history records 'superseded by A'",
+        "must_after blocks until the predecessor run succeeded; a downstream rule sees only explicitly exported outputs (unexported reference fails validation)",
+        "disabled rules and a global pause flag fire nothing"
+      ],
+      "deps": [
+        "t1",
+        "t2"
+      ],
+      "covers": [
+        "c6",
+        "h6",
+        "c95",
+        "h76",
+        "c97",
+        "h78"
+      ],
+      "instruction": "Keep matching pure (event + rule snapshot + run facts -> decisions with reasons) so replay can reuse it."
+    },
+    {
+      "id": "t10",
+      "summary": "Exactly-once claims and idempotency keys across hosts",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "culture_rules/engine/claims.py claims a firing or step via a conditional update keyed by an idempotency key; two engine instances racing on the same key -> exactly one wins (contract test on memory and mongo adapters)",
+        "idempotency keys derive from (run id, step id) independent of attempt"
+      ],
+      "deps": [
+        "t3"
+      ],
+      "covers": [
+        "c63",
+        "h47"
+      ],
+      "instruction": "Leases carry an expiry so a crashed claimant's work is reclaimable; reclaim never re-runs a step whose completion was recorded."
+    },
+    {
+      "id": "t11",
+      "summary": "Export/import of rules and workflows, with an optional git repo target",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "culture_rules/io/ exports rules/workflows (and actors, secrets as references only) to JSON/YAML and imports them; export -> import yields identical definitions",
+        "save to and load from a second git repo works against a temp repo (git CLI via subprocess argv)",
+        "import is a write: dry-run diff unless apply"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c54",
+        "h38"
+      ],
+      "instruction": "Repo layout: rules/<name>.yaml and workflows/<name>.yaml under a configurable directory."
+    },
+    {
+      "id": "t12",
+      "summary": "Run executor: persisted runs, pinned versions, timeouts/retries, loops, pause/drain/cancel",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "culture_rules/engine/runs.py persists every run transition; killing and restarting the engine resumes a run without re-executing completed steps",
+        "a run pins the exact rule/workflow versions it started with; editing a workflow mid-run leaves the run on the old version",
+        "each step honours timeout and retry policy; an action whose ack was lost is not executed twice (fake actor test)",
+        "for_each/retry_until never exceed max; global pause, machine drain and run cancel work and are audited",
+        "each step runs on its own placement; typed outputs flow to the next step's typed inputs (mismatch fails validation)"
+      ],
+      "deps": [
+        "t1",
+        "t7",
+        "t10",
+        "t3"
+      ],
+      "covers": [
+        "c5",
+        "h5",
+        "c84",
+        "h65",
+        "c83",
+        "h64",
+        "c88",
+        "h69",
+        "c11",
+        "h11"
+      ],
+      "instruction": "Model the run as an explicit state machine document, never an in-memory call stack. Steps are dispatched through an ActorPort protocol so adapters land separately."
+    },
+    {
+      "id": "t13",
+      "summary": "Event fabric: Mongo events collection, events-cli ingest, change-stream triggers",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "culture_rules/events/ingest.py holds a durable events-cli subscription per host, drains bounded batches and inserts envelopes into the events collection exactly once (unique index on envelope id)",
+        "culture_rules/events/triggers.py consumes the collection via change streams with a persisted resume token; after failover to another host every later event fires exactly once",
+        "culture-rules ships no broker, MQTT server or event-history store of its own (dependency + module test)"
+      ],
+      "deps": [
+        "t6"
+      ],
+      "covers": [
+        "c32",
+        "h19",
+        "c91",
+        "h72",
+        "c33",
+        "h20"
+      ],
+      "instruction": "Import events_cli lazily behind an optional extra; propagate correlationId/causationId/runId on emitted envelopes."
+    },
+    {
+      "id": "t14",
+      "summary": "Append-only audit log and soft delete / restore / purge",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "culture_rules/engine/audit.py writes one entry per mutation with identity, host, time and diff; a registry-wide test asserts each mutating verb writes exactly one entry with a non-empty identity",
+        "culture_rules/engine/lifecycle.py soft-deletes (tombstone, restorable 30 days, history kept, never fires while deleted) and purges only for admins with apply"
+      ],
+      "deps": [
+        "t3"
+      ],
+      "covers": [
+        "c86",
+        "h67",
+        "c87",
+        "h68"
+      ],
+      "instruction": "Audit entries are insert-only; no update/delete API exists for them."
+    },
+    {
+      "id": "t15",
+      "summary": "Agent actor adapter: colleague work --json and mesh tasks with correlation",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "culture_rules/actors/agent.py runs a one-shot agent via `colleague work --repo --engine --model --json` and parses TaskResult",
+        "a mesh task to a `<machine>-<agent>` nick carries a correlation id and the reply is matched by it (fake AgentClient test)"
+      ],
+      "deps": [
+        "t12"
+      ],
+      "covers": [],
+      "instruction": "agentirc is an optional extra; subprocess argv only, no shell."
+    },
+    {
+      "id": "t16",
+      "summary": "Code runner actor: registered commands, admin-only inline scripts",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "culture_rules/actors/code.py runs commands registered on a runner actor with arguments bound from typed inputs as argv (never shell=True)",
+        "inline script text is accepted only from admins and runs sandboxed on the runner host (temp dir, timeout, cleaned up)",
+        "a non-admin cannot save or run inline script text (API-level test lives in the auth task)"
+      ],
+      "deps": [
+        "t12"
+      ],
+      "covers": [
+        "c92",
+        "h73"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t17",
+      "summary": "Human asks: id-bearing ask event and answer action",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "culture_rules/actors/human.py creates an ask with an id and emits exactly one human.ask.requested event (ask id, question, options, run/step)",
+        "an 'answer ask' action or the API answer endpoint resumes the waiting run exactly once; a second answer is rejected with a clear error",
+        "an ask timeout follows the step's timeout/retry policy"
+      ],
+      "deps": [
+        "t12",
+        "t13"
+      ],
+      "covers": [
+        "c93",
+        "h74"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t18",
+      "summary": "Per-actor budgets and concurrency caps",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "an actor at its concurrency cap queues further tasks; an actor over budget refuses new tasks with a structured error (culture_rules/actors/limits.py tests)",
+        "budget fields align with culture.yaml token_budget"
+      ],
+      "deps": [
+        "t12"
+      ],
+      "covers": [
+        "c55",
+        "h39"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t19",
+      "summary": "Secret references resolved at run time via shushu",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "definitions, exports and logs only ever contain secret references; resolution happens on the executing host (culture_rules/actors/secrets.py)",
+        "exporting an actor with a secret yields only the reference; scan-secrets passes"
+      ],
+      "deps": [
+        "t12"
+      ],
+      "covers": [
+        "c57",
+        "h41"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t20",
+      "summary": "Replay a rule against recorded events without side effects",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "culture_rules/engine/replay.py replays N recorded envelopes through matching and reports would-fire runs with reasons",
+        "replay executes 0 actions (fake actor asserts no calls)"
+      ],
+      "deps": [
+        "t9",
+        "t13"
+      ],
+      "covers": [
+        "c51",
+        "h35"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t21",
+      "summary": "Post run summaries to a mesh channel (optional events)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a finished run posts a summary to a configured mesh channel; a failing post never fails the run (fake client that raises)"
+      ],
+      "deps": [
+        "t12"
+      ],
+      "covers": [
+        "c56",
+        "h40"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t22",
+      "summary": "Health endpoints, structured logs, run-id propagation",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "every node exposes a health status; logs are JSON with run_id/step_id/host; given a run id its step trail across two nodes is retrievable",
+        "run_id/correlationId propagate onto emitted events-cli envelopes"
+      ],
+      "deps": [
+        "t12"
+      ],
+      "covers": [
+        "c89",
+        "h70"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t23",
+      "summary": "HTTP API (optional [server] extra): OpenAPI contract, stateless active-active, SSE",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "culture_rules/server/ serves the API from an optional extra imported lazily inside the serve handler; pip install without extras keeps zero runtime deps and teken doctor stays green",
+        "the served OpenAPI equals the committed api/openapi.json (CI diff test)",
+        "the API is stateless: two instances on one store both serve any request; SSE live updates fan out via store change feeds within 2 s"
+      ],
+      "deps": [
+        "t12",
+        "t14",
+        "t13"
+      ],
+      "covers": [
+        "c40",
+        "h26",
+        "c9",
+        "h9",
+        "c80",
+        "h61"
+      ],
+      "instruction": "FastAPI + uvicorn behind culture-rules[server]. No session state in process memory."
+    },
+    {
+      "id": "t24",
+      "summary": "Cloudflare Access JWT, two listeners, service tokens, viewer/editor/admin roles",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "culture_rules/auth/ validates Cf-Access-Jwt-Assertion signature (team JWKS), aud and exp; forged/expired/wrong-aud tokens are rejected",
+        "a loopback listener honours Access headers; a LAN listener ignores them and requires a service token",
+        "authz matrix test: viewer cannot mutate, editor cannot purge or run inline scripts, admin can; CLI/MCP modules never import a store driver (import test)"
+      ],
+      "deps": [
+        "t23"
+      ],
+      "covers": [
+        "c37",
+        "h24",
+        "c96",
+        "h77"
+      ],
+      "instruction": "Follow culture-nodes/internal/api/principal.go and docs/operations/nodes-culture-dev.md (two-listener split, all-or-nothing team-domain + AUD config)."
+    },
+    {
+      "id": "t25",
+      "summary": "CLI noun groups over the API: rules, workflows, actors, machines, runs",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "culture-rules {rules,workflows,actors,machines,runs} expose list/show/create/update/enable/disable/delete/restore/purge/run/export/import/replay/pause/drain as applicable, each with --json and an overview verb",
+        "every write is dry-run unless --apply; a write without --apply changes nothing (test)",
+        "every verb has an explain catalog entry and appears in learn; teken cli doctor --strict passes",
+        "the CLI talks only to the HTTP API client"
+      ],
+      "deps": [
+        "t23",
+        "t5"
+      ],
+      "covers": [
+        "c45",
+        "h31",
+        "c48",
+        "h32"
+      ],
+      "instruction": "Build one command registry (agentfront App) that the MCP task reuses; one module per noun under culture_rules/cli/_commands/."
+    },
+    {
+      "id": "t26",
+      "summary": "MCP server from the same registry (optional [mcp] extra)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "culture_rules/mcp/ exposes every registry verb as an MCP tool via agentfront[mcp]; writes require an explicit apply argument",
+        "the MCP server talks only to the HTTP API client"
+      ],
+      "deps": [
+        "t25"
+      ],
+      "covers": [],
+      "instruction": ""
+    },
+    {
+      "id": "t27",
+      "summary": "Surface parity test across CLI, MCP and OpenAPI",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "tests/test_surface_parity.py enumerates the registry and asserts each operation exists on the CLI, in the MCP tool list and in the OpenAPI paths",
+        "removing one MCP tool makes the test fail (mutation check)"
+      ],
+      "deps": [
+        "t25",
+        "t26",
+        "t23"
+      ],
+      "covers": [
+        "c72",
+        "h54"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t28",
+      "summary": "Boundary guard tests: no culture-nodes, workledger, agenda, protocols, callsmith or eidetic coupling",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "tests/test_boundaries.py fails if culture_rules/ imports culture_nodes, workledger, agenda, protocols, callsmith or eidetic, or uses eidetic for run state",
+        "the test suite passes with culture-nodes absent"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c31",
+        "h18",
+        "c34",
+        "h21",
+        "c35",
+        "h22",
+        "c59",
+        "h43"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t29",
+      "summary": "web/ scaffold: Vite + React + @xyflow/react, tokens, four-tab shell, identity, a11y baseline",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "matches the 'Chosen \u2014 Rules' board on the design canvas https://claude.ai/artifact/Jgm3JPnAhKWpeiCxFXvNBi (layout, stage shapes, machine colors, type scale, controls) \u2014 verified by a Playwright screenshot reviewed against the board",
+        "web/ builds with Vite 6, React 18, TypeScript, @xyflow/react 12 and elkjs; npm with tracked lockfile; no dependency on agentfront/irc-lens templates",
+        "exactly four top-level tabs (Rules, Workflows, Actors, Statistics) and no top-level runs/history route (Playwright)",
+        "tokens.css is a pinned copy of org's theme with a byte-identity check script; chart palette light #0a8a78/#b4531f/#3b4fb0 and a dark set both pass validate_palette.js",
+        "#agent-state reports ready with no errors; identity comes from GET /whoami; keyboard walk + axe 0 serious; prefers-reduced-motion disables transitions"
+      ],
+      "deps": [
+        "t23"
+      ],
+      "covers": [
+        "c2",
+        "h2",
+        "c20",
+        "h16",
+        "c58",
+        "h42",
+        "c8",
+        "h8",
+        "c19",
+        "h15",
+        "c102",
+        "h80"
+      ],
+      "instruction": "The design canvas https://claude.ai/artifact/Jgm3JPnAhKWpeiCxFXvNBi (row 'Chosen') is the visual source of truth; copy its tokens, shapes and spacing. Mirror culture-nodes/web (src/culture-design, api/client.ts, hooks/useWhoami.ts, agent-state/). Types hand-maintained against api/openapi.json."
+    },
+    {
+      "id": "t30",
+      "summary": "Rules tab (direction C): rule list + focused vertical rule",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "matches the 'Chosen \u2014 Rules' board on the design canvas https://claude.ai/artifact/Jgm3JPnAhKWpeiCxFXvNBi (layout, stage shapes, machine colors, type scale, controls) \u2014 verified by a Playwright screenshot reviewed against the board",
+        "web/src/rules/ renders the list with toggles and the focused rule as must-after ghost -> trigger -> condition -> workflow -> action -> '+', matching the canvas 'Chosen \u2014 Rules' board",
+        "supersede, must-after and may-after show as relationship badges on both ends and are editable by direct manipulation (Playwright)",
+        "toggle, edit and delete work; pending human asks are answerable in context"
+      ],
+      "deps": [
+        "t29"
+      ],
+      "covers": [
+        "c50",
+        "h34",
+        "c98",
+        "h79"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t31",
+      "summary": "Workflows tab (direction B): node editor, typed ports, placement, import/export, run overlay",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "matches the 'Chosen \u2014 Workflows' board on the design canvas https://claude.ai/artifact/Jgm3JPnAhKWpeiCxFXvNBi (layout, stage shapes, machine colors, type scale, controls) \u2014 verified by a Playwright screenshot reviewed against the board",
+        "web/src/workflows/ edits steps with typed ports and per-step placement (machine, actor, requirement); dashed edges mark cross-machine hops",
+        "Import, Export and the repo picker call the io endpoints",
+        "a run lights up its path with each step's host and outcome from persisted run state (Playwright fixture)"
+      ],
+      "deps": [
+        "t29"
+      ],
+      "covers": [
+        "c52",
+        "h36"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t32",
+      "summary": "Actors tab (direction C): large-type roster with inline expand",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "matches the 'Chosen \u2014 Actors' board on the design canvas https://claude.ai/artifact/Jgm3JPnAhKWpeiCxFXvNBi (layout, stage shapes, machine colors, type scale, controls) \u2014 verified by a Playwright screenshot reviewed against the board",
+        "web/src/actors/ lists actors with kind filter, machine, toggle; the selected actor expands with repo/db config source, harness, model, capabilities, edit and delete"
+      ],
+      "deps": [
+        "t29"
+      ],
+      "covers": [],
+      "instruction": ""
+    },
+    {
+      "id": "t33",
+      "summary": "Statistics tab (direction A): machine lanes",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "matches the 'Chosen \u2014 Statistics' board on the design canvas https://claude.ai/artifact/Jgm3JPnAhKWpeiCxFXvNBi (layout, stage shapes, machine colors, type scale, controls) \u2014 verified by a Playwright screenshot reviewed against the board",
+        "web/src/statistics/ shows every enrolled machine including offline ones with load, running steps, queue depth, 24 h runs-per-hour bars and ok/failed with icon + label",
+        "time range 1h/24h/7d, a table view, and hover tooltips on bars; offline host renders offline (Playwright)"
+      ],
+      "deps": [
+        "t29"
+      ],
+      "covers": [
+        "c49",
+        "h33"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t34",
+      "summary": "Ship the web build in the wheel; publish paths; ignore/sonar/markdownlint config",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "the built wheel contains culture_rules/web_dist/index.html (unzip -l check) and serving needs no Node at runtime",
+        "publish.yml paths include web/** and the npm build runs before uv build",
+        ".gitignore covers node_modules/, web/dist, *.tsbuildinfo without ignoring web/src/lib (git check-ignore test); sonar.sources includes web/src; markdownlint ignores web build output; scan-secrets passes"
+      ],
+      "deps": [
+        "t29"
+      ],
+      "covers": [
+        "c41",
+        "h27",
+        "c42",
+        "h28",
+        "c43",
+        "h29"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t35",
+      "summary": "CI: web job, webglass, Playwright, palette validation, all four gates",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        ".github/workflows/tests.yml gains a web job (pinned setup-node, npm ci, typecheck, vitest, build, Playwright, webglass) and the palette validator",
+        "teken doctor --strict, coverage >= 60%, SonarCloud gate and webglass ready are all enforced in CI"
+      ],
+      "deps": [
+        "t34",
+        "t30",
+        "t31",
+        "t32",
+        "t33"
+      ],
+      "covers": [
+        "c73",
+        "h55"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t36",
+      "summary": "Replica-set deployment across spark, thor and an always-up third voter",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "deploy/ + docs/operations/replica-set.md bring up a dedicated mongod per host on a non-default port with keyfile/x509 and TLS",
+        "the voting topology keeps a primary with spark2 offline plus any one other member down (chaos check recorded)"
+      ],
+      "deps": [
+        "t6"
+      ],
+      "covers": [
+        "c78",
+        "h59",
+        "c62",
+        "h46"
+      ],
+      "instruction": "Third always-up voter: orin or an arbiter \u2014 record the choice in the ops doc."
+    },
+    {
+      "id": "t37",
+      "summary": "Provision rules.culture.dev with cultureflare on every serving host",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "docs/operations/rules-culture-dev.md records the dry-run then --apply `cultureflare remote-login setup` and the resulting tunnel/app ids",
+        "each serving host runs cloudflared (token sealed via shushu) to its loopback Access listener; unauthenticated requests get the Access redirect"
+      ],
+      "deps": [
+        "t24"
+      ],
+      "covers": [
+        "c36",
+        "h23",
+        "c13",
+        "h13"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t38",
+      "summary": "Encrypted, versioned S3 backups with a restore drill",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "culture_rules/ops/backup.py writes a consistent snapshot of config + run history to S3 with server-side encryption; schedule daily snapshot + hourly run-history increments",
+        "restore into an empty replica set reproduces every rule, workflow, actor and run (moto/minio test) and a real-S3 drill records RPO <= 1 h and RTO <= 30 min",
+        "bucket, region and credentials come from config/env/shushu only; scan-secrets passes"
+      ],
+      "deps": [
+        "t6"
+      ],
+      "covers": [
+        "c76",
+        "h57",
+        "c77",
+        "h58",
+        "c90",
+        "h71"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t39",
+      "summary": "Multi-host integration and chaos tests",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a rule placed on node B evaluates only on B; a spark -> thor -> spark2 workflow runs each step on its host",
+        "a rule fires within 5 s of a matching event and SSE shows each step within 2 s (timed)",
+        "with one host stopped: >= 99% of 200 requests succeed and 100 events produce exactly 100 action executions, 0 duplicates, 0 lost"
+      ],
+      "deps": [
+        "t12",
+        "t13",
+        "t23",
+        "t36"
+      ],
+      "covers": [
+        "c10",
+        "h10",
+        "c70",
+        "h52",
+        "c71",
+        "h53"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t40",
+      "summary": "README, demo script, prompts and issue follow-ups",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "README names both audiences and the one-sentence why; the spec background cites the scope entries; docs/demo.md reproduces the after-state end to end",
+        "CLAUDE.md, QWEN.md, AGENTS.override.md, AGENTS.colleague.md and .pi/SYSTEM.md describe the four-tab design consistently and harness-smoke passes",
+        "a comment on issue #2 records the four-tab decision and links the design canvas (q6)"
+      ],
+      "deps": [
+        "t35"
+      ],
+      "covers": [
+        "c1",
+        "h1",
+        "c66",
+        "h48",
+        "c67",
+        "h49",
+        "c68",
+        "h50",
+        "c69",
+        "h51",
+        "c14",
+        "h14"
+      ],
+      "instruction": ""
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "t22 (observability) and t23 (server) share wave 3 and both touch HTTP surfaces: t22 owns culture_rules/ops/health.py and logging only; t23 mounts the health route \u2014 keep files disjoint or serialise at merge",
+      "kind": "unknown_nonblocking",
+      "task_id": "t22",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r2",
+      "text": "Jetson load/GPU probing (tegrastats/jtop output formats) is unverified on thor/orin; the probe must degrade to 'unknown' rather than fail",
+      "kind": "unknown_nonblocking",
+      "task_id": "t8",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r3",
+      "text": "events-cli plans its own 'pipelines' (#8); file a boundary note on events-cli so the two do not converge on competing workflow models",
+      "kind": "follow_up",
+      "task_id": null,
+      "resolved": false,
+      "resolution": ""
+    }
+  ],
+  "obligations": [
+    {
+      "id": "o1",
+      "task_id": "t1",
+      "criterion_index": 1,
+      "criterion_snapshot": "culture_rules/model/ defines frozen dataclasses for Rule (trigger, optional condition, optional workflow ref, required action, relationships must_after/may_after/supersedes, exclusive_group+priority, enabled), Workflow (inputs, variables, steps, outputs, version), Step (kind logic|ai|code|actor_task, typed in/out ports, placement, timeout, retry), Action, Actor (kind agent|human|service|daemon|runner|robot, capabilities), Machine and Placement (machine|actor|requirement)",
+      "seam": "model JSON + schemas/ (consumed by io, server, web, CLI)",
+      "behavior": "to_json/from_json are stable and lossless; field names snake_case; adding an optional field is a minor change, renaming or removing one is a major change that bumps schema_version",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o2",
+      "task_id": "t3",
+      "criterion_index": 1,
+      "criterion_snapshot": "culture_rules/store/port.py defines the StoragePort protocol (documents per collection, conditional update for claims, change-feed iterator, transactions)",
+      "seam": "StoragePort (culture_rules/store/port.py; consumed by mongo, claims, executor, events, audit, machines)",
+      "behavior": "conditional update reports won/lost atomically; the change feed yields every committed write exactly once in commit order per collection and resumes from a persisted token",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o3",
+      "task_id": "t3",
+      "criterion_index": 3,
+      "criterion_snapshot": "every stored document carries schema_version; writing a document of a newer major version than the node supports raises VersionSkewError; a forward-only migration registry runs only after a backup hook returns ok",
+      "seam": "stored document envelope",
+      "behavior": "every document carries id, schema_version and updated_at; readers ignore unknown fields; a writer never downgrades a document's schema_version",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o4",
+      "task_id": "t9",
+      "criterion_index": 2,
+      "criterion_snapshot": "supersede is per event: B is skipped only when a superseding A matched; A's condition false -> B fires; chains are transitive; a cycle is rejected at save; B's history records 'superseded by A'",
+      "seam": "match decision (consumed by executor, replay, contextual history)",
+      "behavior": "matching returns every candidate rule with fire or skip and a reason code (superseded_by, group_lost, disabled, paused, blocked_by_predecessor, condition_false) and is pure for a given snapshot",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o5",
+      "task_id": "t10",
+      "criterion_index": 2,
+      "criterion_snapshot": "idempotency keys derive from (run id, step id) independent of attempt",
+      "seam": "idempotency key (consumed by executor, actors, audit)",
+      "behavior": "the key is a stable hash of run_id + step_id, identical across retries and hosts, passed to every actor invocation and recorded on the audit entry",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o6",
+      "task_id": "t12",
+      "criterion_index": 3,
+      "criterion_snapshot": "each step honours timeout and retry policy; an action whose ack was lost is not executed twice (fake actor test)",
+      "seam": "ActorPort (consumed by agent, code, human, service adapters)",
+      "behavior": "invoke(input, idempotency_key, deadline) returns accepted, completed, failed or blocked; adapters are idempotent on the key; long work returns accepted and completes later via an event",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o7",
+      "task_id": "t13",
+      "criterion_index": 1,
+      "criterion_snapshot": "culture_rules/events/ingest.py holds a durable events-cli subscription per host, drains bounded batches and inserts envelopes into the events collection exactly once (unique index on envelope id)",
+      "seam": "events collection document (consumed by triggers, replay, human asks)",
+      "behavior": "an envelope is stored verbatim with a unique index on its id plus received_at and host; nothing mutates a stored event",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o8",
+      "task_id": "t17",
+      "criterion_index": 1,
+      "criterion_snapshot": "culture_rules/actors/human.py creates an ask with an id and emits exactly one human.ask.requested event (ask id, question, options, run/step)",
+      "seam": "human.ask.requested event + answer action",
+      "behavior": "the event carries ask_id, question, options, run_id, step_id and deadline; the answer action takes ask_id and answer; both are schema-versioned",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o9",
+      "task_id": "t8",
+      "criterion_index": 2,
+      "criterion_snapshot": "an engine node heartbeats every 10 s with liveness and load; 3 missed heartbeats mark it offline and placement skips it (fake-clock test)",
+      "seam": "heartbeat document (consumed by placement, Statistics)",
+      "behavior": "a heartbeat carries machine, ts, load (cpu, mem, optional gpu), probed tools and engine version; absence for 30 s means offline",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o10",
+      "task_id": "t23",
+      "criterion_index": 2,
+      "criterion_snapshot": "the served OpenAPI equals the committed api/openapi.json (CI diff test)",
+      "seam": "api/openapi.json (consumed by web types, CLI/MCP API client, parity test)",
+      "behavior": "it is the single HTTP contract; any route or schema change updates the committed file in the same PR and the drift test fails otherwise",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o11",
+      "task_id": "t24",
+      "criterion_index": 1,
+      "criterion_snapshot": "culture_rules/auth/ validates Cf-Access-Jwt-Assertion signature (team JWKS), aud and exp; forged/expired/wrong-aud tokens are rejected",
+      "seam": "request principal (consumed by audit, authz, every mutating route)",
+      "behavior": "every request resolves to a principal {identity, kind sso|service|agent, roles}; an unresolvable request is rejected before any handler runs",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o12",
+      "task_id": "t25",
+      "criterion_index": 1,
+      "criterion_snapshot": "culture-rules {rules,workflows,actors,machines,runs} expose list/show/create/update/enable/disable/delete/restore/purge/run/export/import/replay/pause/drain as applicable, each with --json and an overview verb",
+      "seam": "command registry (consumed by CLI, MCP, parity test)",
+      "behavior": "each verb is registered once with name, params schema, mutating flag and required role; CLI, MCP and the parity test enumerate this same registry",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o13",
+      "task_id": "t29",
+      "criterion_index": 1,
+      "criterion_snapshot": "matches the 'Chosen \u2014 Rules' board on the design canvas https://claude.ai/artifact/Jgm3JPnAhKWpeiCxFXvNBi (layout, stage shapes, machine colors, type scale, controls) \u2014 verified by a Playwright screenshot reviewed against the board",
+      "seam": "design canvas row 'Chosen'",
+      "behavior": "every tab implements its 'Chosen' board; any deliberate departure is recorded on the PR with a screenshot",
+      "origin": "llm",
+      "status": "approved"
+    }
+  ]
+}

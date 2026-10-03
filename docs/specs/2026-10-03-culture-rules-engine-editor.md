@@ -1,6 +1,6 @@
 # culture-rules engine + editor
 
-> culture-rules implements issues #1 and #2: a Python rules→condition→workflow→action engine with persisted runs, placement of rules and workflow steps on enrolled machines (spark, thor, spark2), a generic Actor registry (agents with db- or repo-based config, harness, model), and a graph-first React Flow editor with exactly three tabs (Rules | Workflows | Actors), served remotely at rules.culture.dev behind cultureflare SSO; three UI directions are offered for the operator to choose
+> culture-rules implements issues #1 and #2: a Python rules → condition → workflow → action engine with persisted runs on a MongoDB replica set, placement of rules and workflow steps by machine, actor or requirement across enrolled machines (spark, thor, spark2), a generic Actor registry (agents with db- or repo-based config, harness, model), controlled from a CLI, an MCP server and a graph-first React Flow editor with four tabs (Rules | Workflows | Actors | Statistics), served always-on from several hosts at rules.culture.dev behind cultureflare SSO
 
 ## Audience
 
@@ -201,6 +201,9 @@
 - The Rules tab shows supersession as a relationship (like must/may run after): a 'supersedes' badge naming the generic rule on the specific one, and a 'superseded when … matches' marker on the generic one, editable graphically
   - honesty: Both ends of a supersession are visible and editable in the Rules tab without opening the advanced text view
     - instruction: Playwright: create a supersession by direct manipulation, assert badge on both rules
+- The design canvas <https://claude.ai/artifact/Jgm3JPnAhKWpeiCxFXvNBi> (row 'Chosen': Rules C, Workflows B, Actors C, Statistics A) is the visual source of truth for the editor: layout, stage shapes, machine colors, typography and controls follow it (operator, this session)
+  - honesty: Each shipped tab is reviewed side by side with its 'Chosen' canvas board before merge, and any deliberate departure is recorded on the PR
+    - instruction: Playwright screenshot per tab attached to the PR next to the board
 
 ## Honesty conditions
 

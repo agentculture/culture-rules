@@ -4,12 +4,12 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-03T04:20:01Z",
-  "updated": "2026-10-03T05:15:47Z",
+  "updated": "2026-10-03T05:23:48Z",
   "claims": [
     {
       "id": "c1",
       "kind": "announcement",
-      "text": "culture-rules implements issues #1 and #2: a Python rules\u2192condition\u2192workflow\u2192action engine with persisted runs, placement of rules and workflow steps on enrolled machines (spark, thor, spark2), a generic Actor registry (agents with db- or repo-based config, harness, model), and a graph-first React Flow editor with exactly three tabs (Rules | Workflows | Actors), served remotely at rules.culture.dev behind cultureflare SSO; three UI directions are offered for the operator to choose",
+      "text": "culture-rules implements issues #1 and #2: a Python rules \u2192 condition \u2192 workflow \u2192 action engine with persisted runs on a MongoDB replica set, placement of rules and workflow steps by machine, actor or requirement across enrolled machines (spark, thor, spark2), a generic Actor registry (agents with db- or repo-based config, harness, model), controlled from a CLI, an MCP server and a graph-first React Flow editor with four tabs (Rules | Workflows | Actors | Statistics), served always-on from several hosts at rules.culture.dev behind cultureflare SSO",
       "origin": "user",
       "status": "confirmed",
       "honesty_conditions": [
@@ -23,7 +23,13 @@
       "hard_questions": [],
       "links": [],
       "instruction": "",
-      "revisions": []
+      "revisions": [
+        {
+          "text": "culture-rules implements issues #1 and #2: a Python rules\u2192condition\u2192workflow\u2192action engine with persisted runs, placement of rules and workflow steps on enrolled machines (spark, thor, spark2), a generic Actor registry (agents with db- or repo-based config, harness, model), and a graph-first React Flow editor with exactly three tabs (Rules | Workflows | Actors), served remotely at rules.culture.dev behind cultureflare SSO; three UI directions are offered for the operator to choose",
+          "kind": "announcement",
+          "reason": "announcement predated the four-tab, multi-host and store decisions"
+        }
+      ]
     },
     {
       "id": "c2",
@@ -1872,6 +1878,25 @@
       "origin": "user",
       "status": "confirmed",
       "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c102",
+      "kind": "requirement",
+      "text": "The design canvas https://claude.ai/artifact/Jgm3JPnAhKWpeiCxFXvNBi (row 'Chosen': Rules C, Workflows B, Actors C, Statistics A) is the visual source of truth for the editor: layout, stage shapes, machine colors, typography and controls follow it (operator, this session)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h80",
+          "text": "Each shipped tab is reviewed side by side with its 'Chosen' canvas board before merge, and any deliberate departure is recorded on the PR",
+          "status": "confirmed",
+          "instruction": "Playwright screenshot per tab attached to the PR next to the board"
+        }
+      ],
       "hard_questions": [],
       "links": [],
       "instruction": "",
