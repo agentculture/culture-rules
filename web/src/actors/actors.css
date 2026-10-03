@@ -1,0 +1,346 @@
+/*
+ * The 'Chosen — Actors' board: a 1000px column of large-type rows, the
+ * selected one expanded inline in a card ringed in its machine's color.
+ * Sizes are the canvas's own.
+ */
+
+.actors-board {
+  /* The canvas's column is 1000px of content with 40px gutters outside it. */
+  box-sizing: content-box;
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 24px 40px 36px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.actors-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.pill {
+  height: 40px;
+  padding: 0 16px;
+  border-radius: 999px;
+  border: 0;
+  background: var(--surface);
+  color: var(--ink);
+  font: 500 15px var(--font-body);
+  transition: background-color 0.2s var(--ease-out);
+}
+
+.pill:hover {
+  background: color-mix(in srgb, var(--ink) 6%, var(--surface));
+}
+
+.pill[aria-pressed="true"] {
+  background: var(--ink);
+  color: var(--surface);
+  font-weight: 600;
+}
+
+.btn {
+  height: 40px;
+  padding: 0 16px;
+  border-radius: 12px;
+  border: 0;
+  background: var(--muted);
+  color: var(--ink);
+  font: 600 15px var(--font-body);
+  transition: background-color 0.2s var(--ease-out);
+}
+
+.btn--primary {
+  background: var(--accent-strong);
+  color: var(--on-accent);
+}
+
+.btn--danger {
+  background: var(--danger-tint);
+  color: var(--danger);
+}
+
+.btn--large {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 20px;
+  border-radius: 999px;
+  font-size: 16px;
+}
+
+.btn:disabled {
+  opacity: 0.6;
+}
+
+.actors-toolbar__add {
+  margin-left: auto;
+}
+
+.actors-roster {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---------- a row ---------- */
+
+.actor-row {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 12px 22px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.actor-row:last-child {
+  border-bottom: 0;
+}
+
+.actor-row__head {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.actor-row__name {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: 600 30px var(--font-display);
+  text-align: left;
+  letter-spacing: -0.01em;
+}
+
+.actor-row__name:hover {
+  color: var(--accent);
+}
+
+.actor-row__kind {
+  flex: none;
+  width: 110px;
+  font-size: 17px;
+  color: var(--ink-soft);
+}
+
+.actor-row__machine {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: 90px;
+  font-size: 16px;
+}
+
+.actor-row__anywhere {
+  color: var(--ink-soft);
+}
+
+/* The board's switch is 46x28, a size up from the Rules list's 40x24. */
+.actor-row .switch {
+  width: 46px;
+  height: 28px;
+}
+
+.actor-row .switch__knob {
+  top: 4px;
+  left: 4px;
+  width: 20px;
+  height: 20px;
+}
+
+.actor-row .switch[aria-checked="true"] .switch__knob {
+  left: 22px;
+}
+
+/* A disabled actor is dimmed; text stays AA (the canvas's opacity .5 would not be). */
+.actor-row.is-disabled .actor-row__name {
+  color: var(--ink-soft);
+}
+
+.actor-row.is-disabled .machine-dot {
+  opacity: 0.5;
+}
+
+/* ---------- the selected, expanded row ---------- */
+
+.actor-row.is-selected {
+  padding: 14px 22px 20px;
+  border-radius: 22px;
+  border-bottom: 0;
+  background: var(--surface);
+  box-shadow: 0 0 0 3px var(--m);
+}
+
+.actor-row.is-selected .actor-row__name {
+  font-size: 32px;
+}
+
+.actor-row__details {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.actor-row__config {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 24px;
+  font-size: 16px;
+}
+
+.muted {
+  color: var(--ink-soft);
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: 15px;
+}
+
+.source-switch {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 12px;
+  background: var(--bg);
+}
+
+.source-switch__option {
+  height: 38px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--ink-soft);
+  font: 500 15px var(--font-body);
+  transition: background-color 0.2s var(--ease-out);
+}
+
+.source-switch__option[aria-checked="true"] {
+  background: var(--surface);
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: 0 1px 4px var(--offset-shadow);
+}
+
+.actor-row__caps {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.caps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cap {
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: var(--accent-tint);
+  color: var(--accent);
+  font-size: 15px;
+}
+
+.actor-row__actions {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.confirm-text {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+/* ---------- add / edit form ---------- */
+
+.actor-card--new {
+  margin-bottom: 14px;
+  padding: 18px 22px;
+  border-radius: 22px;
+  background: var(--surface);
+  box-shadow: 0 0 0 3px var(--accent);
+}
+
+.actor-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px 18px;
+}
+
+.actor-form__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 15px;
+}
+
+.actor-form__field label {
+  color: var(--ink-soft);
+  font-weight: 600;
+}
+
+.actor-form input,
+.actor-form select {
+  height: 44px;
+  padding: 0 12px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--ink);
+  font: 500 16px var(--font-body);
+}
+
+.actor-form__actions {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 8px;
+}
+
+.actors-empty {
+  margin: 24px 22px;
+  font-size: 20px;
+  color: var(--ink-soft);
+}
+
+@media (max-width: 720px) {
+  .actors-board {
+    padding-inline: 16px;
+  }
+
+  .actor-row__head {
+    flex-wrap: wrap;
+    gap: 8px 14px;
+  }
+
+  .actor-row__name {
+    flex-basis: 100%;
+    font-size: 26px;
+  }
+
+  .actor-row__kind,
+  .actor-row__machine {
+    width: auto;
+  }
+
+  .actor-row__machine {
+    flex: 1;
+  }
+}
