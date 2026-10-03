@@ -110,6 +110,12 @@ STEWARD_WAIVED_PORTABILITY_PATHS = frozenset(
     {
         ".claude/skills/recall/SKILL.md",
         ".claude/skills/remember/SKILL.md",
+        # devague provenance records: they quote the per-user mesh config surfaces that
+        # were actually read during /scope (~/.culture/*.yaml); rewriting them would
+        # falsify the record, so they are waived and reported like the vendored skills
+        "docs/specs/2026-10-03-culture-rules-engine-editor.md",
+        "docs/plans/2026-10-03-culture-rules-engine-editor-split.md",
+        ".devague/frames/culture-rules-engine-editor.json",
     }
 )
 
@@ -515,7 +521,7 @@ def check_steward_doctor(repo: Path, timeout: int) -> Result:
             WAIVED,
             "0 unexpected findings while carrying all four harness prompt files; "
             f"{len(waived)} known-accepted finding(s) waived: {'; '.join(waived)} "
-            "(pre-existing, byte-verbatim vendored skills — upstream's to fix)",
+            "(byte-verbatim vendored skills — upstream's to fix — and devague provenance records)",
         )
     return Result(
         "toolchain",

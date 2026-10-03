@@ -42,7 +42,7 @@ connectors and the hostname survives any one host going down.
 - `cloudflared` installed on every serving host at `/usr/local/bin/cloudflared`
   (the unit's `ExecStart` uses an absolute path because systemd does not read
   `PATH`).
-- `grant` installed for the unit user (`~/.local/bin/grant`). Secret references
+- `grant` installed for the unit user (in their per-user bin directory, e.g. `$HOME/.local/bin/grant`). Secret references
   are `grant:<NAME>`. Deviation d2 of the build replaced the earlier secrets
   manager with `grant`, so the plan text's sealing step is done with `grant`.
 - The operator's email as the first Access allow entry (placeholder
@@ -140,7 +140,7 @@ placeholder is `@TUNNEL_TOKEN_SECRET@`, the grant secret name from step 2
 # on each of spark, thor and orin, from a checkout of this repo
 sed 's/@TUNNEL_TOKEN_SECRET@/RULES_CULTURE_DEV_TUNNEL_TOKEN/' \
   deploy/cloudflared/cloudflared-rules.service \
-  | install -D -m 0644 /dev/stdin ~/.config/systemd/user/cloudflared-rules.service
+  | install -D -m 0644 /dev/stdin "${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/cloudflared-rules.service"
 systemctl --user daemon-reload
 systemctl --user enable --now cloudflared-rules
 loginctl enable-linger "$USER"      # so the user unit survives logout and reboot

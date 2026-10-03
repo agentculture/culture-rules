@@ -101,6 +101,8 @@ jobs:
     env:
       PLAYWRIGHT_PORT: "4174"
       WEBGLASS_PORT: "4173"
+      # keep the browser cache inside the workspace (no per-user dotfile paths)
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.cache/ms-playwright
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -129,7 +131,7 @@ jobs:
       - name: cache Playwright browsers
         uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
         with:
-          path: ~/.cache/ms-playwright
+          path: ${{ github.workspace }}/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('web/package-lock.json') }}
 
       - name: install Chromium for Playwright
