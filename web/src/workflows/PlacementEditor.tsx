@@ -19,14 +19,14 @@ export function PlacementEditor({
   returnFocus,
   onApply,
   onClose,
-}: {
+}: Readonly<{
   step: Step;
   machines: readonly Machine[];
   actors: readonly Actor[];
   returnFocus?: HTMLElement | null;
   onApply: (placement: Placement | null) => void;
   onClose: () => void;
-}) {
+}>) {
   const p = step.placement;
   const [mode, setMode] = useState<PlacementMode>(placementMode(p));
   const [machine, setMachine] = useState(p?.machine ?? machines[0]?.name ?? "");

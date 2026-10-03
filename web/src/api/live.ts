@@ -144,7 +144,7 @@ export function useLiveUpdates(
         const change = parse(message.data);
         if (!change) return;
         pending.push(change);
-        if (!flushTimer) flushTimer = setTimeout(flush, LIVE_DEBOUNCE_MS);
+        flushTimer ??= setTimeout(flush, LIVE_DEBOUNCE_MS);
       });
       es.addEventListener("error", () => {
         setConnected(false);

@@ -50,7 +50,7 @@ const STATUS_ICON: Record<string, string> = {
   cancelled: "M6 6l12 12",
 };
 
-function RunBadge({ run }: { run: StepRun }) {
+function RunBadge({ run }: Readonly<{ run: StepRun }>) {
   const words = run.host ? `${run.status} on ${run.host}` : run.status;
   return (
     <div className="wf-card__run" data-run-status={run.status}>
@@ -66,7 +66,7 @@ function RunBadge({ run }: { run: StepRun }) {
   );
 }
 
-function PortRow({ port, side, filled }: { port: Port; side: "in" | "out"; filled: boolean }) {
+function PortRow({ port, side, filled }: Readonly<{ port: Port; side: "in" | "out"; filled: boolean }>) {
   const type = port.type ?? "any";
   return (
     <span
@@ -90,6 +90,7 @@ function PortRow({ port, side, filled }: { port: Port; side: "in" | "out"; fille
 export function StepNode({ id, data, selected }: NodeProps<StepNodeType>) {
   const { step, label, slot, host, subtitle, placement, run } = data;
   const enabled = step.enabled !== false;
+  const runClass = run ? ` is-run-${run.status}` : "";
   return (
     <>
       {selected ? (
@@ -127,7 +128,7 @@ export function StepNode({ id, data, selected }: NodeProps<StepNodeType>) {
         </div>
       ) : null}
       <div
-        className={`wf-card wf-card--${step.kind}${enabled ? "" : " is-disabled"}${run ? ` is-run-${run.status}` : ""}`}
+        className={`wf-card wf-card--${step.kind}${enabled ? "" : " is-disabled"}${runClass}`}
         style={machineStyle(slot)}
       >
         <div className="wf-card__machine" data-machine-slot={slot ?? "none"}>

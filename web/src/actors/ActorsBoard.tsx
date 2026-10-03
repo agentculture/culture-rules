@@ -36,7 +36,10 @@ const TrashIcon = () => (
  * The repo | db radio, a single tab stop (roving tabindex on the radios) with
  * arrow-key movement; focus follows the checked radio.
  */
-function SourceSwitch({ value, onChange }: { value: "repo" | "db"; onChange: (v: "repo" | "db") => void }) {
+function SourceSwitch({
+  value,
+  onChange,
+}: Readonly<{ value: "repo" | "db"; onChange: (v: "repo" | "db") => void }>) {
   const options = ["repo", "db"] as const;
   const refs = useRef<Partial<Record<"repo" | "db", HTMLButtonElement | null>>>({});
   const onKey = (event: KeyboardEvent) => {
@@ -83,7 +86,8 @@ export function ActorsBoard() {
   const [loadErrors, setLoadErrors] = useState<string[]>([]);
   const [actionError, setActionError] = useState<string | null>(null);
   const [filter, setFilter] = useState<KindFilter>("all");
-  const [editing, setEditing] = useState<string | "new" | null>(null);
+  /** The actor id being edited, the literal "new" for the create form, or null. */
+  const [editing, setEditing] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -235,12 +239,11 @@ export function ActorsBoard() {
           const open = actor.id === selected?.id;
           const slot = slotOf(actor);
           return (
-            <div
+            <fieldset
               key={actor.id}
-              role="group"
               aria-label={actor.name}
               data-actor-id={actor.id}
-              className={`actor-row${open ? " is-selected" : ""}${enabled ? "" : " is-disabled"}`}
+              className={`actor-row plain-group${open ? " is-selected" : ""}${enabled ? "" : " is-disabled"}`}
               style={machineStyle(slot)}
             >
               <div className="actor-row__head">
@@ -310,7 +313,7 @@ export function ActorsBoard() {
                         ))}
                       </ul>
                       {confirming === actor.id ? (
-                        <span className="actor-row__actions" role="group" aria-label={`Delete ${actor.name}?`}>
+                        <fieldset className="actor-row__actions plain-group" aria-label={`Delete ${actor.name}?`}>
                           <span className="confirm-text">Delete {actor.name}?</span>
                           <button type="button" className="btn btn--danger" disabled={busy} onClick={() => void remove(actor)}>
                             Confirm delete
@@ -318,7 +321,7 @@ export function ActorsBoard() {
                           <button type="button" className="btn" onClick={() => setConfirming(null)}>
                             Cancel
                           </button>
-                        </span>
+                        </fieldset>
                       ) : (
                         <span className="actor-row__actions">
                           <button
@@ -343,7 +346,7 @@ export function ActorsBoard() {
                   )}
                 </div>
               ) : null}
-            </div>
+            </fieldset>
           );
         })}
         {actors && shown.length === 0 && errors.length === 0 ? (

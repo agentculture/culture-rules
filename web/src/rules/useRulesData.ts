@@ -101,7 +101,7 @@ export function useRulesData(routeRuleId: string | undefined) {
 
   const toggle = useCallback(
     async (rule: RuleDoc) => {
-      const next = !(rule.enabled !== false);
+      const next = rule.enabled === false;
       replace({ ...rule, enabled: next }); // optimistic; rolled back below on refusal
       const doc = await attempt(() => setRuleEnabled(rule, next));
       replace(doc ?? rule);
@@ -194,7 +194,7 @@ export function useRulesData(routeRuleId: string | undefined) {
     create,
     remove,
     restore,
-    asks: asks && asks.ruleId === selectedId ? asks : null,
+    asks: asks?.ruleId === selectedId ? asks : null,
     answer,
     refreshRules,
     refreshAsks,

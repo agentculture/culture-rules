@@ -245,6 +245,29 @@ body {
   color: var(--danger);
 }
 
+/*
+ * Native elements in place of ARIA roles: <fieldset class="plain-group"> is
+ * role "group", <output> is role "status", <dialog open> is role "dialog".
+ * Their UA chrome is dropped so each renders exactly like the <div>/<p> it
+ * replaced (output mirrors tokens.css's `p` rules). `:where()` keeps the
+ * reset at zero specificity, so a component's own class always wins.
+ */
+:where(.plain-group) {
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+output {
+  display: block;
+  text-wrap: pretty;
+}
+
+output:last-child {
+  margin-bottom: 0;
+}
+
 /* ---------- placeholder tabs ---------- */
 
 .page {

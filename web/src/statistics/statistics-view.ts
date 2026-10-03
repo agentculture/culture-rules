@@ -102,39 +102,84 @@ function loadOf(status: MachineStatus | undefined): LoadMeter[] {
   ];
 }
 
+/**
+ * Whether a run belongs to a machine: the machines its steps ran on (`hosts`,
+ * from the API); a run the API reports no hosts for falls back to its rule's
+ * placement.
+ */
+function ranOn(run: RunSummary, machine: string, machineOfRule: Map<string, string | null>): boolean {
+  if (run.hosts && run.hosts.length > 0) return run.hosts.includes(machine);
+  return Boolean(run.rule_id) && machineOfRule.get(run.rule_id as string) === machine;
+}
+
+/** The window's activity buckets plus its ok / failed totals. */
+function tally(runs: RunSummary[], spec: RangeSpec, now: number) {
+  const start = now - spec.span;
+  const buckets: Bucket[] = Array.from({ length: spec.buckets }, (_, i) => ({
+    start: start + i * spec.bucketMs,
+    count: 0,
+  }));
+  let ok = 0;
+  let failed = 0;
+  for (const run of runs) {
+    const at = Date.parse(run.finished_at ?? run.created_at ?? "");
+    if (Number.isNaN(at) || at < start || at >= now) continue;
+    buckets[Math.min(spec.buckets - 1, Math.floor((at - start) / spec.bucketMs))].count += 1;
+    if (run.status === "succeeded") ok += 1;
+    else if (run.status === "failed") failed += 1;
+  }
+  return { buckets, ok, failed };
+}
+
+/** The lane's status line and its idle words. */
+function statusWords(
+  derived: boolean,
+  online: boolean,
+  status: MachineStatus | undefined,
+  now: number,
+): { statusText: string; idleText: string } {
+  if (derived) {
+    return { statusText: online ? "enrolled" : "disabled", idleText: online ? "idle" : "disabled" };
+  }
+  if (online) return { statusText: "online", idleText: "idle" };
+  const ago = since(status?.last_seen, now);
+  return { statusText: ago ? `offline ${ago}` : "offline", idleText: "not reachable" };
+}
+
+/**
+ * What a lane shows running and queued: derived from its runs (`mine`, when the
+ * status endpoint could not be read), else read from the machine's status.
+ */
+function work(
+  mine: RunSummary[] | null,
+  status: MachineStatus | undefined,
+  online: boolean,
+  workflowName: (id: string | null) => string,
+): Pick<Lane, "running" | "queue"> {
+  if (mine) {
+    return {
+      running: mine
+        .filter((r) => r.status === "running")
+        .map((r) => ({ step: "Running", workflow: workflowName(r.workflow_id) })),
+      queue: mine.filter((r) => r.status === "pending").length,
+    };
+  }
+  if (!online) return { running: [], queue: 0 };
+  return { running: status?.running ?? [], queue: status?.queue_depth ?? 0 };
+}
+
 export function buildLanes(input: BuildInput): Lane[] {
   const { machines, rules, runs, statuses, range, now } = input;
   const spec = rangeSpec(range);
-  const start = now - spec.span;
   const slots = machineColors(machines.map((m) => m.name));
   const machineOfRule = new Map(rules.map((r) => [r.id, r.placement?.machine ?? null]));
   const workflowName = (id: string | null) =>
     (id && input.workflows?.find((w) => w.id === id)?.name) || id || "workflow";
   const statusOf = new Map((statuses ?? []).map((s) => [s.name, s]));
+  const derived = statuses === null;
 
   return machines.map((machine): Lane => {
-    // A run belongs to the machines its steps ran on (`hosts`, from the API);
-    // a run the API reports no hosts for falls back to its rule's placement.
-    const mine = runs.filter((r) =>
-      r.hosts && r.hosts.length > 0
-        ? r.hosts.includes(machine.name)
-        : Boolean(r.rule_id) && machineOfRule.get(r.rule_id as string) === machine.name,
-    );
-    const buckets: Bucket[] = Array.from({ length: spec.buckets }, (_, i) => ({
-      start: start + i * spec.bucketMs,
-      count: 0,
-    }));
-    let ok = 0;
-    let failed = 0;
-    for (const run of mine) {
-      const at = Date.parse(run.finished_at ?? run.created_at ?? "");
-      if (Number.isNaN(at) || at < start || at >= now) continue;
-      buckets[Math.min(spec.buckets - 1, Math.floor((at - start) / spec.bucketMs))].count += 1;
-      if (run.status === "succeeded") ok += 1;
-      else if (run.status === "failed") failed += 1;
-    }
-
-    const derived = statuses === null;
+    const mine = runs.filter((r) => ranOn(r, machine.name, machineOfRule));
     const status = statusOf.get(machine.name);
     // Machines the status endpoint does not list are reported as not reachable.
     // A machine the API last saw online turns offline here once its heartbeat is
@@ -143,32 +188,9 @@ export function buildLanes(input: BuildInput): Lane[] {
       ? machine.enabled !== false
       : status?.online === true && !stale(status.last_seen, now);
     const slot = online ? ((slots.get(machine.name) as number | undefined) ?? null) : null;
-
-    let running: Lane["running"];
-    let queue: number;
-    if (derived) {
-      running = mine
-        .filter((r) => r.status === "running")
-        .map((r) => ({ step: "Running", workflow: workflowName(r.workflow_id) }));
-      queue = mine.filter((r) => r.status === "pending").length;
-    } else {
-      running = online ? (status?.running ?? []) : [];
-      queue = online ? (status?.queue_depth ?? 0) : 0;
-    }
-
-    let statusText: string;
-    let idleText: string;
-    if (derived) {
-      statusText = online ? "enrolled" : "disabled";
-      idleText = online ? "idle" : "disabled";
-    } else if (online) {
-      statusText = "online";
-      idleText = "idle";
-    } else {
-      const ago = since(status?.last_seen, now);
-      statusText = ago ? `offline ${ago}` : "offline";
-      idleText = "not reachable";
-    }
+    const { running, queue } = work(derived ? mine : null, status, online, workflowName);
+    const { statusText, idleText } = statusWords(derived, online, status, now);
+    const { buckets, ok, failed } = tally(mine, spec, now);
 
     return {
       name: machine.name,

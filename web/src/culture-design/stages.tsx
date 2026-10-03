@@ -30,7 +30,7 @@ const ICONS: Record<StageKind, ReactNode> = {
   action: <path d="M7 17 17 7M8 7h9v9" />,
 };
 
-export function StageIcon({ kind, size = 24 }: { kind: StageKind; size?: number }) {
+export function StageIcon({ kind, size = 24 }: Readonly<{ kind: StageKind; size?: number }>) {
   return (
     <svg
       className="stage__icon"
@@ -56,7 +56,7 @@ export interface StageProps {
   chips?: string[];
 }
 
-export function Stage({ kind, label, chips = [] }: StageProps) {
+export function Stage({ kind, label, chips = [] }: Readonly<StageProps>) {
   return (
     <div className={`stage stage--${kind}`} data-testid={`stage-${kind}`} data-stage={kind}>
       <div className="stage__row">
@@ -95,7 +95,7 @@ export function StageArrow() {
 }
 
 /** A relationship to another rule: a dashed card above the flow, not a stage. */
-export function RelationshipCard({ children, chip }: { children: ReactNode; chip?: string }) {
+export function RelationshipCard({ children, chip }: Readonly<{ children: ReactNode; chip?: string }>) {
   return (
     <div className="relationship" data-testid="relationship">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
@@ -108,7 +108,7 @@ export function RelationshipCard({ children, chip }: { children: ReactNode; chip
 }
 
 /** The `+` that grows a rule by one stage (progressive disclosure). */
-export function AddStageButton({ onClick }: { onClick?: () => void }) {
+export function AddStageButton({ onClick }: Readonly<{ onClick?: () => void }>) {
   return (
     <button type="button" className="add-stage" aria-label="Add stage" onClick={onClick}>
       +
@@ -125,7 +125,7 @@ export function machineStyle(slot: number | null): CSSProperties {
   } as CSSProperties;
 }
 
-export function MachineDot({ slot, size = 10 }: { slot: number | null; size?: number }) {
+export function MachineDot({ slot, size = 10 }: Readonly<{ slot: number | null; size?: number }>) {
   return (
     <span
       className="machine-dot"
@@ -143,7 +143,7 @@ export interface SwitchProps {
 }
 
 /** A large on/off switch (40×24), role="switch". */
-export function Switch({ label, checked, onChange }: SwitchProps) {
+export function Switch({ label, checked, onChange }: Readonly<SwitchProps>) {
   return (
     <button
       type="button"

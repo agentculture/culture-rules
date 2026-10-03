@@ -57,6 +57,13 @@ export interface CanvasProps {
 const TOP = 80; // room for the selected step's toolbar above the top row
 const MIN_HEIGHT = 570; // the board's canvas: 530 + 2 × 20 padding
 
+/** An edge end's name, for the wire's accessible label. */
+function nodeName(workflow: WorkflowDef, node: string): string {
+  if (node === INPUTS_NODE) return "Inputs";
+  if (node === OUTPUTS_NODE) return "Outputs";
+  return stepLabel((workflow.steps ?? []).find((s) => s.id === node) ?? { id: node, kind: "logic" });
+}
+
 function subtitleOf(step: Step): string | null {
   const config = step.config ?? {};
   const bits = [config.harness, config.model].filter((v): v is string => typeof v === "string" && v !== "");
@@ -65,7 +72,7 @@ function subtitleOf(step: Step): string | null {
   return null;
 }
 
-function CanvasInner(props: CanvasProps) {
+function CanvasInner(props: Readonly<CanvasProps>) {
   const { workflow, machines, actors, overlay, selected } = props;
   const flow = useReactFlow();
   const slots = useMemo(() => machineColors(machines.map((m) => m.name)), [machines]);
@@ -198,12 +205,7 @@ function CanvasInner(props: CanvasProps) {
   const edges = useMemo<Edge[]>(() => {
     const graph = graphEdges(workflow, ctx, overlay);
     const lit = litEdges(graph, overlay);
-    const name = (node: string) =>
-      node === INPUTS_NODE
-        ? "Inputs"
-        : node === OUTPUTS_NODE
-          ? "Outputs"
-          : stepLabel((workflow.steps ?? []).find((s) => s.id === node) ?? { id: node, kind: "logic" });
+    const name = (node: string) => nodeName(workflow, node);
     return graph.map((e) => ({
       id: e.id,
       source: e.source,
@@ -297,7 +299,7 @@ function CanvasInner(props: CanvasProps) {
   );
 }
 
-export function WorkflowCanvas(props: CanvasProps) {
+export function WorkflowCanvas(props: Readonly<CanvasProps>) {
   return (
     <ReactFlowProvider>
       <CanvasInner {...props} />

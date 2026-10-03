@@ -6,6 +6,12 @@ import { slugFor, triggerLabel } from "../routes/rules-view";
 
 const KEEP = "__keep__";
 
+/** The placement the edit form saves: kept as is, a machine, or anywhere (null). */
+function chosenPlacement(choice: string, rule: RuleDoc): RuleDoc["placement"] {
+  if (choice === KEEP) return rule.placement;
+  return choice ? { machine: choice } : null;
+}
+
 /**
  * A form's keyboard contract: Escape anywhere inside it cancels, and keyboard
  * focus lands in its first field when it opens (`autoFocus` without the
@@ -29,7 +35,7 @@ interface EditProps {
 }
 
 /** Edit a rule in place: its name, trigger words, action name and placement. */
-export function RuleEditForm({ rule, machines, onSave, onCancel }: EditProps) {
+export function RuleEditForm({ rule, machines, onSave, onCancel }: Readonly<EditProps>) {
   const [name, setName] = useState(rule.name);
   const [trigger, setTrigger] = useState(triggerLabel(rule));
   const [action, setAction] = useState(rule.action.name ?? "");
@@ -49,8 +55,7 @@ export function RuleEditForm({ rule, machines, onSave, onCancel }: EditProps) {
           ? { ...rule.trigger, params: { ...rule.trigger.params, label } }
           : rule.trigger,
       action: { ...rule.action, name: action.trim() },
-      placement:
-        placement === KEEP ? rule.placement : placement ? { machine: placement } : null,
+      placement: chosenPlacement(placement, rule),
     };
     if (await onSave(next)) onCancel();
   };
@@ -110,7 +115,7 @@ const TRIGGER_KINDS = ["event", "schedule", "manual"];
  * a trigger (the API requires an action, so it starts with a placeholder
  * `mesh.message` the user renames); everything else grows through the `+`.
  */
-export function NewRuleForm({ takenIds, onCreate, onCancel }: NewProps) {
+export function NewRuleForm({ takenIds, onCreate, onCancel }: Readonly<NewProps>) {
   const [label, setLabel] = useState("");
   const [kind, setKind] = useState("event");
   const { form, first } = useFormKeyboard<HTMLInputElement>(onCancel);
@@ -166,7 +171,7 @@ interface AddProps {
 }
 
 /** The `+` forms: a simple condition (variable, is / is not, value) or a workflow. */
-export function AddStageForm({ rule, workflows, choice, onSave, onCancel }: AddProps) {
+export function AddStageForm({ rule, workflows, choice, onSave, onCancel }: Readonly<AddProps>) {
   const [variable, setVariable] = useState("");
   const [cmp, setCmp] = useState("==");
   const [value, setValue] = useState("");
@@ -242,7 +247,7 @@ interface AsksProps {
 }
 
 /** Pending human asks of this rule's waiting runs, answerable where they arise. */
-export function AsksPanel({ asks, onAnswer }: AsksProps) {
+export function AsksPanel({ asks, onAnswer }: Readonly<AsksProps>) {
   const [text, setText] = useState<Record<string, string>>({});
   if (asks.length === 0) return null;
   return (

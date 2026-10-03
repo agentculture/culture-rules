@@ -26,7 +26,7 @@ interface SlotsProps {
  * a native picker. Always present, so progressive disclosure stays in the `+`
  * and the list rather than in hidden controls.
  */
-export function RelationSlots({ rules, focused, dragging, onAdd, onMove }: SlotsProps) {
+export function RelationSlots({ rules, focused, dragging, onAdd, onMove }: Readonly<SlotsProps>) {
   const [over, setOver] = useState<RelationKind | null>(null);
   const others = rules.filter((r) => r.id !== focused.id);
 
@@ -47,7 +47,7 @@ export function RelationSlots({ rules, focused, dragging, onAdd, onMove }: Slots
   };
 
   return (
-    <div className="relation-slots" role="group" aria-label="Relationships">
+    <fieldset className="relation-slots plain-group" aria-label="Relationships">
       {RELATION_KINDS.map((kind) => (
         <div
           key={kind}
@@ -75,7 +75,7 @@ export function RelationSlots({ rules, focused, dragging, onAdd, onMove }: Slots
           </select>
         </div>
       ))}
-    </div>
+    </fieldset>
   );
 }
 
@@ -88,8 +88,35 @@ interface CardProps {
   onRemove: (rel: Relation) => void;
 }
 
+/** A relationship read from one end: "must run after X", "superseded by X", "X must run after this". */
+function RelationWords({
+  kind,
+  direction,
+  otherName,
+}: Readonly<{ kind: RelationKind; direction: Direction; otherName: string }>) {
+  if (direction === "out") {
+    return (
+      <>
+        {RELATION_LABEL[kind]} <strong>{otherName}</strong>
+      </>
+    );
+  }
+  if (kind === "supersedes") {
+    return (
+      <>
+        superseded by <strong>{otherName}</strong>
+      </>
+    );
+  }
+  return (
+    <>
+      <strong>{otherName}</strong> {RELATION_LABEL[kind]} this
+    </>
+  );
+}
+
 /** A dashed relationship card: a badge for one end of a relationship, with its remove. */
-export function RelationCard({ rel, direction, nameOf, chip, onRemove }: CardProps) {
+export function RelationCard({ rel, direction, nameOf, chip, onRemove }: Readonly<CardProps>) {
   const text = relationText(rel, direction, nameOf);
   const other = direction === "out" ? rel.to : rel.from;
   return (
@@ -108,19 +135,7 @@ export function RelationCard({ rel, direction, nameOf, chip, onRemove }: CardPro
         <path d="M4 4v7a4 4 0 0 0 4 4h12M16 11l4 4-4 4" />
       </svg>
       <span>
-        {direction === "out" ? (
-          <>
-            {RELATION_LABEL[rel.kind]} <strong>{nameOf(other)}</strong>
-          </>
-        ) : rel.kind === "supersedes" ? (
-          <>
-            superseded by <strong>{nameOf(other)}</strong>
-          </>
-        ) : (
-          <>
-            <strong>{nameOf(other)}</strong> {RELATION_LABEL[rel.kind]} this
-          </>
-        )}
+        <RelationWords kind={rel.kind} direction={direction} otherName={nameOf(other)} />
       </span>
       {chip ? <span className="chip chip--var">{chip}</span> : null}
       <button

@@ -55,7 +55,8 @@ function graphOf(wf: WorkflowDef) {
 export function columnLayout(wf: WorkflowDef): Positions {
   const { nodes, edges } = graphOf(wf);
   const layer = new Map<string, number>(nodes.map((n) => [n.id, 0]));
-  for (let pass = 0; pass < nodes.length; pass++) {
+  // One relaxation pass per node bounds the longest path.
+  for (const _pass of nodes) {
     for (const e of edges) {
       const next = (layer.get(e.sources[0]) ?? 0) + 1;
       if (next > (layer.get(e.targets[0]) ?? 0)) layer.set(e.targets[0], next);

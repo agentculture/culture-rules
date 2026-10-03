@@ -51,7 +51,7 @@ function CrossIcon() {
   );
 }
 
-function Outcome({ ok, failed }: { ok: number; failed: number }) {
+function Outcome({ ok, failed }: Readonly<{ ok: number; failed: number }>) {
   return (
     <div className="lane__outcome">
       <span className="outcome outcome--ok">
@@ -66,10 +66,17 @@ function Outcome({ ok, failed }: { ok: number; failed: number }) {
   );
 }
 
-function RangeControl({ range, onChange }: { range: Range; onChange: (r: Range) => void }) {
+/** Roving radio movement: +1 for Right/Down, -1 for Left/Up, 0 for any other key. */
+function arrowStep(key: string): number {
+  if (key === "ArrowRight" || key === "ArrowDown") return 1;
+  if (key === "ArrowLeft" || key === "ArrowUp") return -1;
+  return 0;
+}
+
+function RangeControl({ range, onChange }: Readonly<{ range: Range; onChange: (r: Range) => void }>) {
   const refs = useRef<Record<string, HTMLButtonElement | null>>({});
   const onKeyDown = (e: KeyboardEvent<HTMLButtonElement>, i: number) => {
-    const step = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
+    const step = arrowStep(e.key);
     if (!step) return;
     e.preventDefault();
     const next = RANGES[(i + step + RANGES.length) % RANGES.length];
@@ -99,7 +106,7 @@ function RangeControl({ range, onChange }: { range: Range; onChange: (r: Range) 
   );
 }
 
-function Loads({ lane }: { lane: Lane }) {
+function Loads({ lane }: Readonly<{ lane: Lane }>) {
   return (
     <div className="lane__load">
       {lane.load.map((l) => (
@@ -115,7 +122,7 @@ function Loads({ lane }: { lane: Lane }) {
   );
 }
 
-function Working({ lane }: { lane: Lane }) {
+function Working({ lane }: Readonly<{ lane: Lane }>) {
   return (
     <div className="lane__now">
       {lane.running.map((r, i) => (
@@ -132,7 +139,7 @@ function Working({ lane }: { lane: Lane }) {
 
 const RANGE_UNIT_LABEL = (range: Range) => `Runs per ${rangeSpec(range).unit}`;
 
-function Bars({ lane, range, scale }: { lane: Lane; range: Range; scale: number }) {
+function Bars({ lane, range, scale }: Readonly<{ lane: Lane; range: Range; scale: number }>) {
   const [active, setActive] = useState<number | null>(null);
   const n = lane.buckets.length;
   const tip = active === null ? null : lane.buckets[active];
@@ -162,7 +169,7 @@ function Bars({ lane, range, scale }: { lane: Lane; range: Range; scale: number 
   );
 }
 
-function LaneRow({ lane, range, scale }: { lane: Lane; range: Range; scale: number }) {
+function LaneRow({ lane, range, scale }: Readonly<{ lane: Lane; range: Range; scale: number }>) {
   return (
     <section
       aria-label={lane.name}
@@ -186,7 +193,7 @@ function LaneRow({ lane, range, scale }: { lane: Lane; range: Range; scale: numb
   );
 }
 
-function Tables({ lanes, range }: { lanes: Lane[]; range: Range }) {
+function Tables({ lanes, range }: Readonly<{ lanes: Lane[]; range: Range }>) {
   const buckets = lanes[0]?.buckets ?? [];
   return (
     <div className="stats-tables">
@@ -391,10 +398,10 @@ export function StatisticsBoard() {
         </p>
       ) : null}
       {derived ? (
-        <p className="stats__note" role="status">
+        <output className="stats__note">
           Live load and queue depth are not available right now. Lanes show what runs record:
           runs per {rangeSpec(range).unit}, ok and failed.
-        </p>
+        </output>
       ) : null}
 
       {view === "lanes" ? (

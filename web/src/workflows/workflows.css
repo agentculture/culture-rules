@@ -645,12 +645,19 @@
   z-index: 30;
   top: 16px;
   right: 16px;
+  /* Undo the UA <dialog> box (inset-inline: 0, margin: auto, border, colors). */
+  bottom: auto;
+  left: auto;
   width: 320px;
+  height: auto;
   max-height: calc(100% - 32px);
+  margin: 0;
   overflow: auto;
   padding: 18px 20px;
+  border: 0;
   border-radius: 20px;
   background: var(--surface);
+  color: inherit;
   box-shadow: var(--wf-toolbar-shadow);
 }
 

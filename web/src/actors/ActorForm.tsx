@@ -14,7 +14,7 @@ export interface ActorFormProps {
 const blank = (value: string) => (value.trim() === "" ? null : value.trim());
 
 /** The inline edit / add form: every field of the actor the board shows, plus id and kind when adding. */
-export function ActorForm({ actor, machines, busy, onSave, onCancel }: ActorFormProps) {
+export function ActorForm({ actor, machines, busy, onSave, onCancel }: Readonly<ActorFormProps>) {
   const uid = useId();
   const adding = actor === null;
   const [id, setId] = useState(actor?.id ?? "");
