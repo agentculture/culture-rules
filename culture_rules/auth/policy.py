@@ -7,8 +7,9 @@
   answering asks;
 - admin: purge, service tokens, and engine/machine containment (pause/resume/drain/undrain).
 
-Saving a workflow step that carries inline script text is admin-only too, but that depends on
-the body, so the save route checks it (``culture_rules.actors.code.check_step_inline_allowed``).
+Saving a workflow step that carries inline script text is admin-only too, and so is adding or
+changing a runner actor's command registry (``params.commands``), but those depend on the body
+(and the stored version), so the save routes check them (``culture_rules.auth.guards``).
 Any mutation not listed here needs admin: the matrix fails closed.
 """
 

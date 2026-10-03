@@ -205,3 +205,23 @@ def test_single_argument_and_or_is_rejected_so_every_valid_tree_round_trips():
         two = {"op": op, "args": [cmp, cmp]}
         validate(two)
         assert from_text(to_text({"op": "not", "arg": two})) == {"op": "not", "arg": two}
+
+
+# --- finding #10: a comparison with a missing operand is false, `!=` included ------------
+
+
+@pytest.mark.parametrize("op", c.CMP_OPS)
+def test_every_comparison_with_a_missing_field_is_false(op):
+    assert c.evaluate(cmp(op, F("pr.missing"), L("closed")), CTX) is False
+    assert c.evaluate(cmp(op, L("closed"), F("pr.missing")), CTX) is False
+    assert c.evaluate(cmp(op, V("missing"), L(1)), CTX) is False
+
+
+def test_negated_equality_on_a_missing_field_is_true():
+    assert c.evaluate({"op": "not", "arg": cmp("==", F("pr.missing"), L("closed"))}, CTX) is True
+    assert c.evaluate(c.from_text('!(trigger.pr.state == "closed")'), {"trigger": {}}) is True
+
+
+def test_not_equal_text_form_on_an_event_without_the_field_is_false():
+    assert c.evaluate(c.from_text('trigger.pr.state != "closed"'), {"trigger": {}}) is False
+    assert c.evaluate(c.from_text('trigger.pr.state != "closed"'), CTX) is True

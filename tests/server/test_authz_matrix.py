@@ -230,3 +230,110 @@ def test_default_app_is_secure_dev_header_is_ignored():
     client = TestClient(create_app(MemoryStore()))
     r = client.post("/rules", json=rule_body(), headers={"X-Culture-Identity": "alice"})
     assert r.status_code == 401
+
+
+# --- finding #2: a runner's command registry is admin-only ------------------------------
+
+SHELL = {"run": {"argv": ["/bin/sh", "-c", "{script}"], "params": {"script": "string"}}}
+ECHO = {"hello": {"argv": ["echo", "hello"]}}
+
+
+def runner(commands=None, **changes) -> dict:
+    body = {"id": "r", "name": "r", "kind": "runner", "machine": "spark", "params": {}}
+    if commands is not None:
+        body["params"]["commands"] = commands
+    body.update(changes)
+    return body
+
+
+def _denied(r) -> None:
+    assert r.status_code == 403, r.text
+    assert r.json()["error"]["code"] == "runner_commands_admin_only"
+
+
+def test_editor_cannot_create_a_runner_with_commands(world):
+    store, client, hdr, _ = world
+    _denied(client.post("/actors", json=runner(SHELL), headers=hdr["editor"]))
+    assert store.get("actors", "r") is None
+    assert client.post("/actors", json=runner(SHELL), headers=hdr["admin"]).status_code == 201
+
+
+def test_editor_can_create_a_runner_without_commands(world):
+    _, client, hdr, _ = world
+    assert client.post("/actors", json=runner(), headers=hdr["editor"]).status_code == 201
+    assert client.post("/actors", json=runner({}, id="r2"), headers=hdr["editor"]).status_code == (
+        201
+    )
+
+
+def test_editor_cannot_change_a_runner_s_commands(world):
+    store, client, hdr, _ = world
+    client.post("/actors", json=runner(ECHO), headers=hdr["admin"])
+    _denied(client.put("/actors/r", json=runner(SHELL), headers=hdr["editor"]))
+    _denied(client.put("/actors/r", json=runner({**ECHO, **SHELL}), headers=hdr["editor"]))
+    _denied(client.put("/actors/r", json=runner(), headers=hdr["editor"]))  # removal too
+    assert store.get("actors", "r")["params"]["commands"] == ECHO
+    assert client.put("/actors/r", json=runner(SHELL), headers=hdr["admin"]).status_code == 200
+
+
+def test_editor_can_edit_other_fields_of_a_runner_with_unchanged_commands(world):
+    store, client, hdr, _ = world
+    client.post("/actors", json=runner(SHELL), headers=hdr["admin"])
+    body = runner(SHELL, description="now documented", capabilities=["shell"])
+    r = client.put("/actors/r", json=body, headers=hdr["editor"])
+    assert r.status_code == 200, r.text
+    assert store.get("actors", "r")["description"] == "now documented"
+
+
+def test_editor_cannot_turn_an_actor_holding_commands_into_a_runner(world):
+    _, client, hdr, _ = world
+    service = runner(SHELL, kind="service")
+    assert client.post("/actors", json=service, headers=hdr["editor"]).status_code == 201
+    _denied(client.put("/actors/r", json=runner(SHELL), headers=hdr["editor"]))
+
+
+def test_editor_cannot_import_a_runner_with_new_or_changed_commands(world):
+    import json
+
+    store, client, hdr, _ = world
+    files = {"actors/r.json": json.dumps(runner(SHELL))}
+    for apply in (False, True):
+        body = {"files": files, "apply": apply}
+        _denied(client.post("/import", json=body, headers=hdr["editor"]))
+    assert store.get("actors", "r") is None
+    r = client.post("/import", json={"files": files, "apply": True}, headers=hdr["admin"])
+    assert r.status_code == 200, r.text
+    changed = {"actors/r.json": json.dumps(runner(ECHO))}
+    _denied(client.post("/import", json={"files": changed, "apply": True}, headers=hdr["editor"]))
+    same = {"actors/r.json": json.dumps(runner(SHELL, description="same commands"))}
+    r = client.post("/import", json={"files": same, "apply": True}, headers=hdr["editor"])
+    assert r.status_code == 200, r.text
+    assert store.get("actors", "r")["params"]["commands"] == SHELL
+
+
+def test_editor_cannot_import_runner_commands_from_a_repository(tmp_path):
+    import json
+    import shutil
+    import subprocess
+
+    from culture_rules.server.repos import RepoTarget
+
+    if shutil.which("git") is None:
+        pytest.skip("needs the git CLI")
+    work = tmp_path / "defs"
+    (work / "actors").mkdir(parents=True)
+    (work / "actors" / "r.json").write_text(json.dumps(runner(SHELL)), encoding="utf-8")
+    ident = ["-c", "user.name=test", "-c", "user.email=test@localhost"]
+    for argv in (["init", "--quiet", "-b", "main"], ["add", "-A"], ["commit", "-qm", "defs"]):
+        subprocess.run(["git", *ident, *argv], cwd=work, check=True)  # noqa: S603 S607
+    store = MemoryStore()
+    app = create_app(store, auth=AuthSettings(listener=LAN), repos=[RepoTarget("defs", str(work))])
+    client = TestClient(app)
+    tokens = ServiceTokens(store)
+    editor = {"Authorization": f"Bearer {tokens.issue('root', name='e', roles=['editor']).token}"}
+    admin = {"Authorization": f"Bearer {tokens.issue('root', name='a', roles=['admin']).token}"}
+    _denied(client.post("/import", json={"repo": "defs", "apply": True}, headers=editor))
+    assert store.get("actors", "r") is None
+    r = client.post("/import", json={"repo": "defs", "apply": True}, headers=admin)
+    assert r.status_code == 200, r.text
+    assert store.get("actors", "r")["params"]["commands"] == SHELL
