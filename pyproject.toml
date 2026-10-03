@@ -92,4 +92,5 @@ testpaths = ["tests"]
 addopts = "-ra"
 markers = [
     "mongo: integration tests against a disposable MongoDB replica set in docker (skipped without docker)",
+    "multihost: simulated multi-host integration and chaos tests (tests/multihost)",
 ]
