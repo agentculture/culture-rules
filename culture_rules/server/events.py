@@ -27,6 +27,9 @@ STREAMABLE: tuple[str, ...] = (
     "runs",
     "controls",
     "audit",
+    "asks",
+    "heartbeats",
+    "rule_decisions",
 )
 POLL_INTERVAL_S = 0.2
 KEEPALIVE_S = 15.0

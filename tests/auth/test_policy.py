@@ -12,6 +12,8 @@ from culture_rules.auth.policy import required_role
     [
         ("GET", "/rules", "viewer"),
         ("GET", "/runs/r1", "viewer"),
+        ("GET", "/rules/r1/history", "viewer"),
+        ("POST", "/rules/r1/history", "admin"),
         ("GET", "/events/stream", "viewer"),
         ("GET", "/whoami", "viewer"),
         ("POST", "/replay", "viewer"),

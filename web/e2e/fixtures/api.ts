@@ -25,7 +25,23 @@ export async function mockApi(page: Page): Promise<string[]> {
   await page.route("**/api/**", async (route) => {
     const url = new URL(route.request().url());
     calls.push(`${route.request().method()} ${url.pathname}`);
-    const body = bodies[url.pathname];
+    if (url.pathname === "/api/events/stream") {
+      // The live feed: no changes (a quiet store); reconnect in 10 s.
+      await route.fulfill({
+        status: 200,
+        headers: { "content-type": "text/event-stream" },
+        body: "retry: 10000\n\n",
+      });
+      return;
+    }
+    const history = url.pathname.match(/^\/api\/rules\/([^/]+)\/history$/);
+    const body = history
+      ? {
+          items: runsFor(now)
+            .filter((r) => r.rule_id === decodeURIComponent(history[1]))
+            .map((r) => ({ kind: "run", at: r.created_at, ...r })),
+        }
+      : bodies[url.pathname];
     if (body === undefined) {
       await route.fulfill({
         status: 404,

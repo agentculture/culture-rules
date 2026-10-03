@@ -1,5 +1,5 @@
-import { request } from "./client";
-import type { Ask, ItemList, Rule, RunSummary } from "./types";
+import { ApiError, listRuns, request } from "./client";
+import type { Ask, ItemList, Rule, RuleHistoryItem, RunSummary } from "./types";
 
 /**
  * The Rules tab's API calls (api/openapi.json), built on the shared
@@ -9,7 +9,7 @@ import type { Ask, ItemList, Rule, RunSummary } from "./types";
 
 /** A rule as the API stores it (`supersedes` included). */
 export type RuleDoc = Rule;
-export type { Ask };
+export type { Ask, RuleHistoryItem };
 
 const enc = encodeURIComponent;
 
@@ -70,4 +70,29 @@ export async function listAsks(runId: string, signal?: AbortSignal): Promise<Ask
 
 export async function answerAsk(id: string, answer: string): Promise<void> {
   await request<unknown>("POST", `/asks/${enc(id)}/answer`, { answer });
+}
+
+/**
+ * `GET /rules/{id}/history`: the rule's runs and recorded skips, newest
+ * first. An API without the route (404 `not_found`) falls back to the
+ * rule's runs alone.
+ */
+export async function getRuleHistory(
+  ruleId: string,
+  limit: number,
+  signal?: AbortSignal,
+): Promise<RuleHistoryItem[]> {
+  try {
+    const answer = await request<ItemList<RuleHistoryItem>>(
+      "GET",
+      `/rules/${enc(ruleId)}/history?limit=${limit}`,
+      undefined,
+      signal,
+    );
+    return answer.items;
+  } catch (err) {
+    if (!(err instanceof ApiError && err.status === 404)) throw err;
+    const runs = await listRuns({ rule_id: ruleId, limit }, signal);
+    return runs.map((r) => ({ kind: "run" as const, at: r.created_at, ...r }));
+  }
 }

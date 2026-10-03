@@ -31,7 +31,10 @@ deferred: no host would ever take it.
 Matching runs over the whole live rule snapshot (so supersede and exclusive groups see
 every rule); each consumer then acts only on the decisions for its own rules. An intent
 that already exists (another host fired the same rule for the same event after a
-placement change) is left alone. Standard-library only.
+placement change) is left alone. A skip whose reason matters to the operator
+(superseded_by, blocked_by_predecessor, group_lost) is persisted in the same transaction as
+a ``rule_decisions`` record (:mod:`culture_rules.engine.decisions`), so a rule's contextual
+history can say "superseded by A". Standard-library only.
 """
 
 from __future__ import annotations
@@ -45,6 +48,7 @@ from datetime import datetime
 from typing import Any
 
 from culture_rules.engine.claims import firing_key
+from culture_rules.engine.decisions import RULE_DECISIONS, record_decision
 from culture_rules.engine.matching import match
 from culture_rules.engine.placement import MachineState, Resolved, resolve_rule_placement
 from culture_rules.engine.runs import (
@@ -62,6 +66,7 @@ from culture_rules.model.rule import Rule
 from culture_rules.model.workflow import Workflow
 from culture_rules.ops.logs import log_context
 from culture_rules.store.port import DuplicateKeyError, StoragePort, StoreOps
+from culture_rules.store.versioning import utc_timestamp
 
 __all__ = [
     "RULE_FIRES",
@@ -135,7 +140,7 @@ class RuleFiring:
             lambda tx, ev: self._evaluate(tx, ev, placed=True),
             host=host,
             consumer=placed_consumer(host),
-            handler_collections=(RULE_FIRES,),
+            handler_collections=(RULE_FIRES, RULE_DECISIONS),
             clock=clock,
         )
         self.shared = EventTriggers(
@@ -143,7 +148,7 @@ class RuleFiring:
             lambda tx, ev: self._evaluate(tx, ev, placed=False),
             host=host,
             consumer=SHARED_CONSUMER,
-            handler_collections=(RULE_FIRES,),
+            handler_collections=(RULE_FIRES, RULE_DECISIONS),
             clock=clock,
         )
 
@@ -232,6 +237,11 @@ class RuleFiring:
             if tx.get(RULE_FIRES, intent_id) is not None:
                 continue  # already fired for this event (by another host)
             self._pending[event_id].append(decision.rule_id)
+            # A skip that matters ("superseded by A", ...) is part of the rule's history;
+            # it commits (or rolls back) with this transaction, once per (rule, event).
+            record_decision(
+                tx, decision, event_id=event_id, host=self.host, at=utc_timestamp(self._clock())
+            )
             if decision.fire:
                 tx.insert(
                     RULE_FIRES,

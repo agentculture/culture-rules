@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { ApiError, listMachines, listRules } from "../api/client";
+import { useLiveUpdates, type LiveChange } from "../api/live";
 import type { Machine, Placement, Rule, RunSummary } from "../api/types";
 import {
   getRun,
@@ -48,6 +49,7 @@ const value = <T,>(r: PromiseSettledResult<T>, fallback: T): T =>
 
 const RUN_DONE = new Set(["succeeded", "failed", "cancelled"]);
 const POLL_MS = 2000;
+const LIVE_COLLECTIONS = ["workflows", "runs"] as const;
 
 type Editing = { kind: "placement" | "step"; id: string; trigger: HTMLElement | null } | null;
 
@@ -76,6 +78,9 @@ export function Workflows() {
     null,
   );
   const [saving, setSaving] = useState(false);
+  // Live: `runsTick` re-reads the recent runs, `runTick` the overlaid run.
+  const [runsTick, setRunsTick] = useState(0);
+  const [runTick, setRunTick] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -137,7 +142,7 @@ export function Workflows() {
         if (!controller.signal.aborted) setRuns([]);
       });
     return () => controller.abort();
-  }, [current?.id, runStatus]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [current?.id, runStatus, runsTick]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The overlaid run, read from persisted run state and polled until it finishes.
   useEffect(() => {
@@ -163,7 +168,20 @@ export function Workflows() {
       controller.abort();
       if (timer) clearTimeout(timer);
     };
-  }, [runId]);
+  }, [runId, runTick]);
+
+  // Live updates: a stored workflow changed (another editor, an import) or a run
+  // moved. Unsaved edits survive a workflows refetch (the draft effect above).
+  const onLive = useCallback(
+    (changes: LiveChange[]) => {
+      if (changes.some((c) => c.collection === "workflows")) setReload((n) => n + 1);
+      const runChanges = changes.filter((c) => c.collection === "runs");
+      if (runChanges.length > 0) setRunsTick((n) => n + 1);
+      if (runId && runChanges.some((c) => c.id === runId)) setRunTick((n) => n + 1);
+    },
+    [runId],
+  );
+  const live = useLiveUpdates(LIVE_COLLECTIONS, onLive);
 
   const overlay = useMemo(() => (run?.doc ? runOverlay(run.doc) : null), [run?.doc]);
   const runSettled = !runId || (run?.id === runId && (run.doc !== null || run.error !== null));
@@ -274,7 +292,7 @@ export function Workflows() {
   const now = Date.now();
 
   return (
-    <main id="main" className="wf-board" tabIndex={-1}>
+    <main id="main" className="wf-board" tabIndex={-1} data-live-flash={live.flash || undefined}>
       {errors.length > 0 ? (
         <p className="notice notice--error wf-notice" role="alert">
           {errors.join(" · ")}

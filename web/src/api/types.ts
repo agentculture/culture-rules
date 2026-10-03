@@ -113,6 +113,25 @@ export interface RunSummary {
   hosts?: string[];
 }
 
+/**
+ * `GET /rules/{id}/history` items, newest first: a run of the rule
+ * (`kind: "run"`, a RunSummary) or a recorded skip (`kind: "decision"`,
+ * culture_rules/engine/decisions.py: superseded_by, blocked_by_predecessor,
+ * group_lost, with `by` naming the responsible rules).
+ */
+export type RuleHistoryItem =
+  | ({ kind: "run"; at: string | null } & RunSummary)
+  | {
+      kind: "decision";
+      at: string | null;
+      rule_id: string;
+      event_id: string;
+      reason: "superseded_by" | "blocked_by_predecessor" | "group_lost" | string;
+      by: string[];
+      message?: string;
+      host?: string;
+    };
+
 /** `GET /asks` items: a human ask (`asks` collection, culture_rules/actors/human.py). */
 export interface Ask {
   id: string;

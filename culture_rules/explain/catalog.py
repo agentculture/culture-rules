@@ -14,13 +14,23 @@ _ROOT = """\
 
 The rules engine for the AgentCulture mesh: rules -> conditions -> workflows ->
 actions, carried out by actors (agents, humans, code). It is a Python library
-(`culture_rules`), a CLI and MCP server, and a React Flow editor with Rules,
-Workflows, Actors and Statistics tabs.
+(`culture_rules`) with a CLI, an HTTP API, an MCP server, an engine node per host,
+and a React Flow editor with four tabs: Rules | Workflows | Actors | Statistics.
 
-Status: the engine is being built. Today the package carries the agent-first CLI
-(cited from the teken `python-cli` reference), the mesh identity (`culture.yaml`
-+ `CLAUDE.md`), the guildmaster skill kit under `.claude/skills/`, and the
-CI/publish baseline. The engine, API and editor are planned.
+## Who it is for
+
+Two readers, one system:
+
+- **The operator** composing and supervising automation across spark, thor
+  and spark2 from a browser at rules.culture.dev.
+- **Mesh agents** that drive the same rules, workflows and actors through
+  the `culture-rules` CLI and MCP server.
+
+## Why
+
+One graphical, agent-operable place to decide when work happens, how it flows across
+machines and who does it, and it keeps working when one machine falters, so automation
+stops being per-host glue only its author understands.
 
 ## Verbs
 

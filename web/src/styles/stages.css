@@ -301,6 +301,27 @@
   gap: 10px;
 }
 
+.last-runs__skip {
+  align-items: flex-start;
+  color: var(--ink-soft);
+}
+
+.last-runs__skip-icon {
+  flex: none;
+  margin-top: 2px;
+}
+
+.last-runs__skip-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.last-runs__skip-label {
+  font-weight: 600;
+  color: var(--ink);
+}
+
 .run-dot {
   width: 12px;
   height: 12px;

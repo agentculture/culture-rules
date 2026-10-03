@@ -13,6 +13,7 @@ import "./culture-design/tokens.css";
 import "@xyflow/react/dist/style.css";
 import "./styles/app.css";
 import "./styles/stages.css";
+import "./styles/hit-area.css";
 
 import App from "./App";
 

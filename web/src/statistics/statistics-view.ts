@@ -79,6 +79,16 @@ export function since(iso: string | null | undefined, now: number): string | nul
   return hours < 24 ? `${hours}h` : `${Math.floor(hours / 24)}d`;
 }
 
+/** Missed beats before a machine is offline (culture_rules/machines/heartbeat.py: 3 x 10 s). */
+export const OFFLINE_AFTER_MS = 30_000;
+
+/** Whether a last heartbeat is older than OFFLINE_AFTER_MS (unknown is not stale). */
+export function stale(iso: string | null | undefined, now: number): boolean {
+  if (!iso) return false;
+  const t = Date.parse(iso);
+  return !Number.isNaN(t) && now - t > OFFLINE_AFTER_MS;
+}
+
 const LABELS = ["CPU", "GPU", "Mem"] as const;
 const NO_LOAD: LoadMeter[] = LABELS.map((label) => ({ label, value: null }));
 
@@ -127,7 +137,11 @@ export function buildLanes(input: BuildInput): Lane[] {
     const derived = statuses === null;
     const status = statusOf.get(machine.name);
     // Machines the status endpoint does not list are reported as not reachable.
-    const online = derived ? machine.enabled !== false : status?.online === true;
+    // A machine the API last saw online turns offline here once its heartbeat is
+    // stale (no beat for OFFLINE_AFTER_MS), even before the next answer says so.
+    const online = derived
+      ? machine.enabled !== false
+      : status?.online === true && !stale(status.last_seen, now);
     const slot = online ? ((slots.get(machine.name) as number | undefined) ?? null) : null;
 
     let running: Lane["running"];

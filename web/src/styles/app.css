@@ -285,3 +285,20 @@ main:focus {
     padding: 10px 14px;
   }
 }
+
+/* Live updates (src/api/live.ts): a brief cue that the view just refreshed.
+   Motion only when the reader has not asked for less of it. */
+@media (prefers-reduced-motion: no-preference) {
+  [data-live-flash] {
+    animation: live-flash 700ms ease-out;
+  }
+}
+
+@keyframes live-flash {
+  from {
+    box-shadow: inset 0 3px 0 0 var(--accent);
+  }
+  to {
+    box-shadow: inset 0 3px 0 0 transparent;
+  }
+}

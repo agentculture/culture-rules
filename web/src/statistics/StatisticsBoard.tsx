@@ -1,4 +1,5 @@
-import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useLiveUpdates } from "../api/live";
 import { getMachineStatuses, type MachineStatus } from "../api/statistics";
 import { ApiError, listMachines, listRules, listRuns, listWorkflows } from "../api/client";
 import type { Machine, Rule, RunSummary, Workflow } from "../api/types";
@@ -26,6 +27,10 @@ interface Loaded {
   statuses: MachineStatus[] | null;
   errors: string[];
 }
+
+/** How often `GET /machines/status` is re-read (heartbeats beat every 10 s). */
+export const STATUS_POLL_MS = 10_000;
+const LIVE_COLLECTIONS = ["machines", "runs", "heartbeats"] as const;
 
 const describe = (err: unknown) => (err instanceof ApiError ? err.message : String(err));
 
@@ -261,6 +266,12 @@ export function StatisticsBoard() {
   const [range, setRange] = useState<Range>("24h");
   const [view, setView] = useState<"lanes" | "table">("lanes");
 
+  // First load, then a full refetch whenever the live feed reports a write to
+  // machines, runs or heartbeats (useLiveUpdates), plus a gentle poll of
+  // `GET /machines/status`: heartbeats change load without a write this tab
+  // would otherwise see, and a machine whose heartbeat stops must turn offline.
+  const [reload, setReload] = useState(0);
+  const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const controller = new AbortController();
     const { signal } = controller;
@@ -275,6 +286,7 @@ export function StatisticsBoard() {
       const errors = [machines, rules, workflows, runs, statuses]
         .filter((r): r is PromiseRejectedResult => r.status === "rejected")
         .map((r) => describe(r.reason));
+      setNow(Date.now());
       setLoaded({
         machines: machines.status === "fulfilled" ? machines.value : [],
         rules: rules.status === "fulfilled" ? rules.value : [],
@@ -285,9 +297,30 @@ export function StatisticsBoard() {
       });
     });
     return () => controller.abort();
+  }, [reload]);
+
+  const refetch = useCallback(() => setReload((n) => n + 1), []);
+  const live = useLiveUpdates(LIVE_COLLECTIONS, refetch);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const timer = setInterval(() => {
+      setNow(Date.now());
+      getMachineStatuses(controller.signal)
+        .then((statuses) => {
+          if (controller.signal.aborted) return;
+          setLoaded((l) => (l ? { ...l, statuses } : l));
+        })
+        .catch(() => {
+          // Keep the last answer: staleness (last_seen) turns a silent machine offline.
+        });
+    }, STATUS_POLL_MS);
+    return () => {
+      controller.abort();
+      clearInterval(timer);
+    };
   }, []);
 
-  const now = useMemo(() => Date.now(), [loaded]);
   const lanes = useMemo(
     () =>
       loaded
@@ -329,7 +362,7 @@ export function StatisticsBoard() {
   }, [loaded !== null, machineNames, offlineNames, range, view, derived]);
 
   return (
-    <main id="main" className="stats" tabIndex={-1}>
+    <main id="main" className="stats" tabIndex={-1} data-live-flash={live.flash || undefined}>
       <div className="stats__head">
         <h1 className="stats__title">Statistics</h1>
         <RangeControl range={range} onChange={setRange} />
