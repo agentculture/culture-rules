@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "machine.schema.json",
+  "title": "Machine",
+  "x-schema-version": "1.0",
+  "type": "object",
+  "description": "An enrolled machine: identity (mesh server name), address, platform, capabilities.",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Machine identity (the mesh server name)"
+    },
+    "address": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Network address; defaults to the tailnet name",
+      "default": null
+    },
+    "platform": {
+      "type": "string",
+      "description": "e.g. linux-aarch64",
+      "default": ""
+    },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Capabilities offered, e.g. gpu",
+      "default": []
+    },
+    "roles": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "store_member",
+          "engine_node",
+          "runner"
+        ]
+      },
+      "description": "store_member | engine_node | runner",
+      "default": []
+    },
+    "description": {
+      "type": "string",
+      "description": "Free text",
+      "default": ""
+    },
+    "enabled": {
+      "type": "boolean",
+      "description": "Disabled machines receive no placements",
+      "default": true
+    },
+    "schema_version": {
+      "type": "string",
+      "description": "Document schema version (MAJOR.MINOR)",
+      "default": "1.0"
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "additionalProperties": false
+}
