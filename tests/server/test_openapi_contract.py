@@ -50,7 +50,10 @@ def test_contract_covers_the_documented_surface():
         "/controls/pause",
         "/import",
         "/export",
+        "/asks",
         "/asks/{ask_id}/answer",
+        "/machines/status",
+        "/repos",
         "/events/stream",
     ):
         assert p in paths, p

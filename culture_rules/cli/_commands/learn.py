@@ -32,6 +32,7 @@ Commands
   culture-rules doctor             Check the agent-identity invariants.
   culture-rules cli overview       Describe the CLI surface itself.
   culture-rules serve              Run the HTTP API (needs the 'server' extra).
+  culture-rules mcp                Serve the CLI verbs as MCP tools over stdio ('mcp' extra).
 {noun_verbs}
 Every noun verb below is dry-run unless --apply (writes change nothing without it);
 the CLI talks only to the HTTP API (CULTURE_RULES_API_URL, CULTURE_RULES_TOKEN).
@@ -91,6 +92,10 @@ def _as_json_payload() -> dict[str, object]:
             {"path": ["doctor"], "summary": "Check the agent-identity invariants."},
             {"path": ["cli", "overview"], "summary": "Describe the CLI surface."},
             {"path": ["serve"], "summary": "Run the HTTP API (needs the 'server' extra)."},
+            {
+                "path": ["mcp"],
+                "summary": "Serve the CLI verbs as MCP tools over stdio (needs the 'mcp' extra).",
+            },
             *_noun_commands(),
         ],
         "exit_codes": {

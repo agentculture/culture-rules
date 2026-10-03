@@ -82,6 +82,8 @@ export interface Rule {
   placement?: Placement | null;
   must_after?: string[];
   may_after?: string[];
+  /** Rules this one replaces (the `supersedes` relationship). */
+  supersedes?: string[];
   enabled?: boolean;
 }
 
@@ -107,4 +109,72 @@ export interface RunSummary {
   started_by: string | null;
   created_at: string | null;
   finished_at: string | null;
+  /** The machines this run's steps were dispatched to (sorted, distinct). */
+  hosts?: string[];
+}
+
+/** `GET /asks` items: a human ask (`asks` collection, culture_rules/actors/human.py). */
+export interface Ask {
+  id: string;
+  run_id: string;
+  step_id?: string;
+  question: string;
+  options: string[] | null;
+  deadline?: string;
+  status?: "open" | "answered" | "expired" | string;
+  asked_at?: string;
+}
+
+/**
+ * `GET /machines/status` items: one enrolled machine's live state, from its
+ * heartbeat and the active runs.
+ */
+export interface MachineStatus {
+  name: string;
+  online: boolean;
+  /** Last heartbeat, ISO-8601; null when the machine never reported. */
+  last_seen?: string | null;
+  /** Percent 0-100 per resource; null = not reported (a CPU-only host has no GPU). */
+  load: { cpu: number | null; gpu: number | null; mem: number | null } | null;
+  running: { step: string; workflow: string; run_id?: string }[];
+  queue_depth: number;
+}
+
+/** `GET /repos` items: a definitions repository the server is configured with. */
+export interface Repo {
+  name: string;
+  /** The configured location: a local path or a git remote. */
+  url?: string;
+  /** A local working tree: exports can commit to it. */
+  writable?: boolean;
+}
+
+export interface ImportChange {
+  kind: string;
+  id: string;
+  path: string;
+  action: string;
+}
+
+/** `POST /import`: the plan (applied only when the request said `apply`). */
+export interface ImportPlan {
+  applied: boolean;
+  changes: ImportChange[];
+  errors?: { path: string; code: string; message: string }[];
+}
+
+/** `GET /export`: every live definition as `<kind>/<id>.<ext>` -> text. */
+export interface ExportResult {
+  format: string;
+  files: Record<string, string>;
+}
+
+/** `POST /export`: an export into a configured repository (RepoExportResult). */
+export interface RepoExportResult {
+  repo: string;
+  applied: boolean;
+  committed: boolean;
+  pushed: boolean;
+  commit: string | null;
+  changes: ImportChange[];
 }

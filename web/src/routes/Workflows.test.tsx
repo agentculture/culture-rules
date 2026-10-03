@@ -273,6 +273,55 @@ describe("Workflows board (Chosen — Workflows)", () => {
     expect(screen.getByRole("button", { name: /agentculture\/rules-lab/ })).toBeInTheDocument();
   });
 
+  it("the repo picker exports to and imports from the chosen repository: dry-run, then apply", async () => {
+    const plan = (applied: boolean) => ({
+      repo: "agentculture/workflows",
+      applied,
+      committed: applied,
+      pushed: false,
+      commit: applied ? "abc123" : null,
+      changes: [{ kind: "rules", id: "r1", path: "rules/r1.json", action: "add" }],
+    });
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input).split("?")[0];
+      const body = init?.body ? JSON.parse(init.body as string) : null;
+      const json = (data: unknown) =>
+        new Response(JSON.stringify(data), { status: 200, headers: { "content-type": "application/json" } });
+      if (url === "/api/export" && init?.method === "POST") return json(plan(Boolean(body.apply)));
+      if (url === "/api/import" && init?.method === "POST") return json(importPlan(Boolean(body.apply)));
+      const route = routes()[url];
+      return route ? json(route.body) : new Response("{}", { status: 404 });
+    });
+    const user = userEvent.setup();
+    renderWorkflows();
+    await loaded();
+    const picker = await screen.findByRole("button", { name: /agentculture\/workflows/ });
+
+    await user.click(picker);
+    await user.click(screen.getByRole("button", { name: "Export to repo" }));
+    const exportPlan = await screen.findByRole("dialog", { name: "Export plan" });
+    expect(exportPlan).toHaveTextContent("rules/r1.json");
+    await user.click(within(exportPlan).getByRole("button", { name: "Apply export" }));
+    await waitFor(() => expect(methodCalls(fetchMock, "POST", "/api/export")).toHaveLength(2));
+    const exports = methodCalls(fetchMock, "POST", "/api/export").map(([, i]) => JSON.parse(i!.body as string));
+    expect(exports).toEqual([
+      { repo: "agentculture/workflows", apply: false },
+      { repo: "agentculture/workflows", apply: true },
+    ]);
+    await screen.findByText(/Exported 1 change to agentculture\/workflows/);
+
+    await user.click(picker);
+    await user.click(screen.getByRole("button", { name: "Import from repo" }));
+    const importDialog = await screen.findByRole("dialog", { name: "Import plan" });
+    await user.click(within(importDialog).getByRole("button", { name: "Apply import" }));
+    await waitFor(() => expect(methodCalls(fetchMock, "POST", "/api/import")).toHaveLength(2));
+    const imports = methodCalls(fetchMock, "POST", "/api/import").map(([, i]) => JSON.parse(i!.body as string));
+    expect(imports).toEqual([
+      { repo: "agentculture/workflows", apply: false },
+      { repo: "agentculture/workflows", apply: true },
+    ]);
+  });
+
   it("a run lights each step with its host and outcome from GET /runs/{id}", async () => {
     renderWorkflows("/workflows?id=review-pr&run=run-7");
     await loaded();

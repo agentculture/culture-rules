@@ -45,3 +45,19 @@ SERVER_AUDIT_SCENARIOS = {
     "definitions.set_enabled": _set_enabled,
     "definitions.import": _import,
 }
+
+
+def _export_repo(life: Any, store: Any) -> Callable[[], Any]:
+    import subprocess  # noqa: PLC0415
+    import tempfile  # noqa: PLC0415
+
+    from culture_rules.server.repos import RepoTarget  # noqa: PLC0415
+
+    work = tempfile.mkdtemp(prefix="culture-rules-audit-")
+    subprocess.run(["git", "init", "--quiet", work], check=True)  # noqa: S603,S607
+    _defs(store).create("rules", _body(), "alice")
+    target = RepoTarget("work", work)
+    return lambda: _defs(store).export_to_repo(target, "alice", apply=True)
+
+
+SERVER_AUDIT_SCENARIOS["definitions.export_repo"] = _export_repo

@@ -29,14 +29,41 @@ recorded on the PR with a screenshot.
   - *must run after*, *may run after* and *supersedes* as badges on both
     rules. Drag a rule from the list (or a card) onto a slot, or use the
     slot's picker; each card has a remove;
-  - the rule's pending human asks ("Waiting on you"), answered with
-    `POST /asks/{id}/answer`. The API has no `GET /asks` yet, so the list
-    reads `GET /asks?run_id=` for the rule's waiting runs and treats a
-    404 as none;
+  - the rule's pending human asks ("Waiting on you"): `GET
+    /asks?run_id=&status=open` for each of the rule's waiting runs,
+    answered with `POST /asks/{id}/answer`;
   - the rule's last runs.
   Code: `src/routes/Rules.tsx`, `src/rules/`, `src/api/rules.ts`.
-- **Workflows, Actors, Statistics** are headings only. *Planned:* their
-  boards.
+- **Workflows** (`/workflows?id=&run=`) is the 'Chosen — Workflows' board:
+  - the workflow as a React Flow graph laid out by elkjs (Inputs → steps
+    → Outputs), with typed ports: a drag between mismatched types is
+    refused;
+  - a step panel to edit a step, its placement and its enable switch; add
+    and delete steps; save with `PUT /workflows/{id}`;
+  - Run (`POST /runs` through the rule that uses the workflow) and a run
+    overlay from the persisted run state (`GET /runs/{id}`): each step's
+    outcome and the host it ran on. Recent runs come from `GET
+    /runs?workflow_id=`;
+  - Import (files → `POST /import`, dry-run plan, then Apply) and Export
+    (`GET /export`, one bundle download);
+  - the repository picker (`GET /repos`). Its menu imports from the
+    picked repository (`POST /import {repo}`) or exports into it (`POST
+    /export {repo}`, a git commit); both show the dry-run plan first and
+    write only on Apply.
+  Code: `src/routes/Workflows.tsx`, `src/workflows/`,
+  `src/api/workflows.ts`.
+- **Actors** (`/actors?id=`) is the 'Chosen — Actors' board: a
+  large-type roster with a kind filter, one row per actor, expanding
+  inline to edit (`PUT /actors/{id}`), enable/disable and delete. Code:
+  `src/actors/`, `src/api/actors.ts`.
+- **Statistics** (`/statistics`) is the 'Chosen — Statistics' board: one
+  lane per enrolled machine, offline ones included. Each lane shows load,
+  the steps it runs and its queue depth (`GET /machines/status`), and
+  runs per time bucket with ok/failed counts (`GET /runs`; a run belongs
+  to the `hosts` its steps ran on). Controls: range 1h/24h/7d and a table
+  view. When `/machines/status` fails, the lanes are derived from runs,
+  say so, and the failure is listed. Code: `src/statistics/`,
+  `src/api/statistics.ts`.
 
 ## API
 
@@ -48,6 +75,9 @@ The browser calls the culture-rules HTTP API (`culture_rules/server`, the
   prefix.
 - **Types:** `src/api/types.ts` is hand-maintained against the committed
   `api/openapi.json`. Update both in the same PR.
+- **Calls:** `src/api/client.ts` owns the one `request` helper (plus
+  `getJson` and `items`); every tab adapter (`src/api/<tab>.ts`) builds
+  on it.
 - **Credentials:** the app never attaches one. Behind Cloudflare Access
   (the loopback listener), the edge adds `Cf-Access-Jwt-Assertion` to
   every same-origin request.
@@ -78,6 +108,11 @@ The root renders one `<script type="application/json" id="agent-state">`:
   "rules": { "count": 5, "selected": "build-and-publish", "stages": ["trigger", "condition", "workflow", "action"] }
 }
 ```
+
+Each tab adds its own optional slice, typed in `src/agent-state/store.ts`:
+`rules`, `workflows` (`count`, `selected`, `steps`, `step`, `dirty`,
+`run`), `actors` (`count`, `shown`, `kind`, `selected`) and `statistics`
+(`machines`, `offline`, `range`, `view`, `source`).
 
 `ready` means the view finished its first load **and** identity settled,
 even when the load failed. A failed load is listed in `errors` and
@@ -113,6 +148,12 @@ over `src/fixtures/rules-fixture.ts`). No Python server, no store.
 
 ## Build integration
 
-*Planned:* serving `web/dist` from the Python API, and a Node CI job.
-Today, run the UI from `npm run dev` or `npm run preview` beside
-`culture-rules` serving the API.
+The wheel ships the UI. Before `uv build`, run `npm ci && npm run build`
+here. The hatch hook (`hatch_build.py`) then force-includes `web/dist` as
+`culture_rules/web_dist`. `culture-rules serve` serves that build at `/`,
+and the API answers both at its own paths and under `/api`
+(`culture_rules/server/static.py`), so the bundle's same-origin `/api`
+calls work unchanged. No Node is needed at runtime.
+
+In development, run `npm run dev` (or `npm run preview`) beside
+`culture-rules serve`.

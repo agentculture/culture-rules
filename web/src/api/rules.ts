@@ -1,64 +1,15 @@
-import { API_ROOT, ApiError } from "./client";
-import type { ErrorEnvelope, ItemList, Rule, RunSummary } from "./types";
+import { request } from "./client";
+import type { Ask, ItemList, Rule, RunSummary } from "./types";
 
 /**
- * The Rules tab's API calls (api/openapi.json): the write verbs the shared
- * client does not carry, built on its `API_ROOT` and `ApiError`. Like the
- * client, no call attaches a credential: the edge (or the dev proxy) does.
+ * The Rules tab's API calls (api/openapi.json), built on the shared
+ * `request` helper in client.ts. Like the client, no call attaches a
+ * credential: the edge (or the dev proxy) does.
  */
 
-/** A rule as the API stores it: `Rule` plus the `supersedes` relationship. */
-export interface RuleDoc extends Rule {
-  supersedes?: string[];
-}
-
-/** An open human ask (`asks` collection, culture_rules/actors/human.py). */
-export interface Ask {
-  id: string;
-  run_id: string;
-  question: string;
-  options: string[] | null;
-  deadline?: string;
-  status?: string;
-}
-
-async function request<T>(
-  method: string,
-  path: string,
-  body?: unknown,
-  signal?: AbortSignal,
-): Promise<T> {
-  let response: Response;
-  try {
-    response = await fetch(`${API_ROOT}${path}`, {
-      method,
-      signal,
-      headers: {
-        accept: "application/json",
-        ...(body === undefined ? {} : { "content-type": "application/json" }),
-      },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
-  } catch {
-    throw new ApiError(0, "unreachable", `cannot reach the culture-rules API at ${API_ROOT}`);
-  }
-  const text = await response.text();
-  let parsed: unknown = null;
-  try {
-    parsed = text ? JSON.parse(text) : null;
-  } catch {
-    parsed = null;
-  }
-  if (!response.ok) {
-    const envelope = parsed as Partial<ErrorEnvelope> | null;
-    throw new ApiError(
-      response.status,
-      envelope?.error?.code ?? "http_error",
-      envelope?.error?.message ?? `${response.status} ${response.statusText}`.trim(),
-    );
-  }
-  return parsed as T;
-}
+/** A rule as the API stores it (`supersedes` included). */
+export type RuleDoc = Rule;
+export type { Ask };
 
 const enc = encodeURIComponent;
 
@@ -106,24 +57,15 @@ export async function listWaitingRuns(ruleId: string, signal?: AbortSignal) {
   return answer.items.filter((r) => r.status === "waiting" && r.rule_id === ruleId);
 }
 
-/**
- * Open asks of one run. The HTTP API has no list endpoint for asks yet
- * (only `POST /asks/{id}/answer`); until it does, a 404/405 reads as
- * "nothing to answer here" rather than as a failure.
- */
+/** `GET /asks?run_id=&status=open`: the open asks of one run. */
 export async function listAsks(runId: string, signal?: AbortSignal): Promise<Ask[]> {
-  try {
-    const answer = await request<ItemList<Ask>>(
-      "GET",
-      `/asks?run_id=${enc(runId)}&status=open`,
-      undefined,
-      signal,
-    );
-    return answer.items.filter((a) => (a.status ?? "open") === "open");
-  } catch (err) {
-    if (err instanceof ApiError && (err.status === 404 || err.status === 405)) return [];
-    throw err;
-  }
+  const answer = await request<ItemList<Ask>>(
+    "GET",
+    `/asks?run_id=${enc(runId)}&status=open`,
+    undefined,
+    signal,
+  );
+  return answer.items.filter((a) => (a.status ?? "open") === "open");
 }
 
 export async function answerAsk(id: string, answer: string): Promise<void> {

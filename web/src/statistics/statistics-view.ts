@@ -61,7 +61,7 @@ export interface BuildInput {
   machines: Machine[];
   rules: Rule[];
   runs: RunSummary[];
-  /** `GET /machines/status`, or null when that endpoint does not exist. */
+  /** `GET /machines/status`, or null when it could not be read. */
   statuses: MachineStatus[] | null;
   range: Range;
   now: number;
@@ -103,7 +103,13 @@ export function buildLanes(input: BuildInput): Lane[] {
   const statusOf = new Map((statuses ?? []).map((s) => [s.name, s]));
 
   return machines.map((machine): Lane => {
-    const mine = runs.filter((r) => r.rule_id && machineOfRule.get(r.rule_id) === machine.name);
+    // A run belongs to the machines its steps ran on (`hosts`, from the API);
+    // a run the API reports no hosts for falls back to its rule's placement.
+    const mine = runs.filter((r) =>
+      r.hosts && r.hosts.length > 0
+        ? r.hosts.includes(machine.name)
+        : Boolean(r.rule_id) && machineOfRule.get(r.rule_id as string) === machine.name,
+    );
     const buckets: Bucket[] = Array.from({ length: spec.buckets }, (_, i) => ({
       start: start + i * spec.bucketMs,
       count: 0,

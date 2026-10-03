@@ -5,8 +5,8 @@ import { createFakeApi, handle, type FakeApi } from "../../src/rules/fake-api";
  * A stateful culture-rules API for the Rules tab's e2e: the in-memory fake
  * (`src/rules/fake-api.ts`, api/openapi.json shapes) behind request
  * interception, so a toggle, an edit or a relationship drop is really sent
- * and the next read sees it. `GET /asks` does not exist on the real API yet
- * (see web/README.md); the fake serves it so ask answering is exercised.
+ * and the next read sees it, `GET /asks` included, so ask answering is
+ * exercised end to end.
  */
 export async function mockRulesApi(page: Page, api: FakeApi = createFakeApi()): Promise<FakeApi> {
   await page.route("**/api/**", async (route) => {

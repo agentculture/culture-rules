@@ -79,7 +79,8 @@ def test_viewer_reads_but_cannot_mutate(world):
     store, client, hdr, calls = world
     v = hdr["viewer"]
     client.post("/rules", json=rule_body(), headers=hdr["editor"])
-    for path in ("/rules", "/rules/r1", "/workflows", "/runs", "/controls", "/export", "/health"):
+    reads = ("/rules", "/rules/r1", "/workflows", "/runs", "/controls", "/export", "/health")
+    for path in (*reads, "/asks", "/machines/status", "/repos"):
         assert client.get(path, headers=v).status_code == 200, path
     for method, path, body in [
         ("POST", "/rules", rule_body("r2")),
@@ -88,6 +89,7 @@ def test_viewer_reads_but_cannot_mutate(world):
         ("DELETE", "/rules/r1", None),
         ("POST", "/rules/r1/restore", None),
         ("POST", "/import", {"files": {}}),
+        ("POST", "/export", {"repo": "any"}),
         ("POST", "/runs", {"rule_id": "r1"}),
         ("POST", "/asks/a1/answer", {"answer": 1}),
         ("POST", "/rules/r1/purge", {"apply": True}),

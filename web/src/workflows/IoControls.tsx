@@ -5,16 +5,22 @@
  *             POSTed to /import as a dry run, the plan is shown, and only
  *             "Apply import" posts again with apply=true.
  *   Export  — GET /export?format=json, offered as one bundle download.
- *   Repo    — lists repositories from GET /repos. That endpoint is PLANNED
- *             (no repository route exists yet); on any failure the picker
- *             says "No repository" instead of raising a page error.
+ *   Repo    — lists the configured repositories from GET /repos (on any
+ *             failure the picker says "No repository" instead of raising a
+ *             page error). Its menu also holds "Import from repo"
+ *             (POST /import {repo}) and "Export to repo" (POST /export
+ *             {repo}, a commit): both show the dry-run plan first and write
+ *             only on "Apply".
  */
 import { useEffect, useRef, useState } from "react";
 import { ApiError } from "../api/client";
 import {
   exportDefinitions,
+  exportToRepo,
   importDefinitions,
+  importFromRepo,
   listRepos,
+  type ImportChange,
   type ImportPlan,
   type Repo,
 } from "../api/workflows";
@@ -62,6 +68,13 @@ function readText(file: File): Promise<string> {
 }
 
 const message = (err: unknown) => (err instanceof ApiError ? err.message : String(err));
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+/** A plan waiting for "Apply": from chosen files, or from / to a repository. */
+type Pending =
+  | { kind: "import"; files: Record<string, string>; plan: ImportPlan }
+  | { kind: "import"; repo: string; plan: ImportPlan }
+  | { kind: "export"; repo: string; plan: { changes: ImportChange[]; errors?: ImportPlan["errors"] } };
 
 export function IoControls({
   onImported,
@@ -74,7 +87,7 @@ export function IoControls({
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const importRef = useRef<HTMLButtonElement>(null);
-  const [pending, setPending] = useState<{ files: Record<string, string>; plan: ImportPlan } | null>(null);
+  const [pending, setPending] = useState<Pending | null>(null);
   const [repos, setRepos] = useState<Repo[] | null>(null);
   const [repo, setRepo] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -105,22 +118,51 @@ export function IoControls({
     if (fileRef.current) fileRef.current.value = "";
     try {
       const plan = await importDefinitions(files, false);
-      setPending({ files, plan });
+      setPending({ kind: "import", files, plan });
     } catch (err) {
       onError(`Import failed: ${message(err)}`);
     }
   };
 
+  const fromRepo = async () => {
+    if (!repo) return;
+    setMenuOpen(false);
+    try {
+      setPending({ kind: "import", repo, plan: await importFromRepo(repo, false) });
+    } catch (err) {
+      onError(`Import from ${repo} failed: ${message(err)}`);
+    }
+  };
+
+  const toRepo = async () => {
+    if (!repo) return;
+    setMenuOpen(false);
+    try {
+      setPending({ kind: "export", repo, plan: await exportToRepo(repo, false) });
+    } catch (err) {
+      onError(`Export to ${repo} failed: ${message(err)}`);
+    }
+  };
+
   const apply = async () => {
     if (!pending) return;
+    const where = "repo" in pending ? ` ${pending.kind === "export" ? "to" : "from"} ${pending.repo}` : "";
     try {
-      const plan = await importDefinitions(pending.files, true);
+      if (pending.kind === "export") {
+        const result = await exportToRepo(pending.repo, true);
+        setPending(null);
+        const n = result.changes.filter((c) => c.action !== "unchanged").length;
+        onStatus(`Exported ${plural(n, "change")}${where}${result.commit ? ` (${result.commit.slice(0, 7)})` : ""}`);
+        return;
+      }
+      const plan =
+        "repo" in pending ? await importFromRepo(pending.repo, true) : await importDefinitions(pending.files, true);
       setPending(null);
-      onStatus(`Imported ${plan.changes.length} change${plan.changes.length === 1 ? "" : "s"}`);
+      onStatus(`Imported ${plural(plan.changes.length, "change")}${where}`);
       onImported();
     } catch (err) {
       setPending(null);
-      onError(`Import failed: ${message(err)}`);
+      onError(`${pending.kind === "export" ? "Export" : "Import"}${where} failed: ${message(err)}`);
     }
   };
 
@@ -186,9 +228,10 @@ export function IoControls({
           {repo ?? (repos === null ? "Repository" : "No repository")} <span aria-hidden="true">▾</span>
         </button>
         {menuOpen ? (
+          <div className="wf-repo__menu">
           <ul
             ref={listRef}
-            className="wf-repo__menu"
+            className="wf-repo__list"
             role="listbox"
             aria-label="Repository"
             onKeyDown={(e) => {
@@ -226,17 +269,33 @@ export function IoControls({
               ))
             )}
           </ul>
+          {repo ? (
+            <div className="wf-repo__actions" role="group" aria-label={`Repository ${repo}`}>
+              <button type="button" className="wf-repo__action" onClick={() => void fromRepo()}>
+                Import from repo
+              </button>
+              <button type="button" className="wf-repo__action" onClick={() => void toRepo()}>
+                Export to repo
+              </button>
+            </div>
+          ) : null}
+          </div>
         ) : null}
       </span>
       {pending ? (
         <Panel
-          label="Import plan"
+          label={pending.kind === "export" ? "Export plan" : "Import plan"}
           className="wf-panel--import"
           onClose={() => setPending(null)}
-          returnFocus={importRef.current}
+          returnFocus={pending.kind === "export" || "repo" in pending ? pickerRef.current : importRef.current}
         >
           <div className="wf-form">
-            <h2 className="wf-panel__title">Import plan</h2>
+            <h2 className="wf-panel__title">{pending.kind === "export" ? "Export plan" : "Import plan"}</h2>
+            {"repo" in pending ? (
+              <p className="wf-plan__repo">
+                {pending.kind === "export" ? "Commit to" : "Read from"} <strong>{pending.repo}</strong>
+              </p>
+            ) : null}
             {pending.plan.changes.length === 0 ? <p>Nothing would change.</p> : null}
             <ul className="wf-plan">
               {pending.plan.changes.map((c) => (
@@ -265,7 +324,7 @@ export function IoControls({
                 disabled={(pending.plan.errors ?? []).length > 0}
                 onClick={() => void apply()}
               >
-                Apply import
+                {pending.kind === "export" ? "Apply export" : "Apply import"}
               </button>
             </div>
           </div>
