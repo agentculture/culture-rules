@@ -255,7 +255,7 @@ describe("Workflows tab: New workflow with a workflow selected", () => {
     // While naming, the board heads the new workflow; Run and the canvas step aside.
     expect(screen.getByRole("heading", { level: 1, name: "New workflow" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Run" })).toBeNull();
-    // No row is current while naming (as Rules while "When does this happen?" is open).
+    // No row is current while naming (as Rules while its "New rule" form is open).
     expect(within(list()).queryByRole("link", { current: true })).toBeNull();
     await user.type(within(nameForm()).getByRole("textbox", { name: "Name" }), "Review PR{Enter}");
     // "review-pr" is taken: the slug moves on.

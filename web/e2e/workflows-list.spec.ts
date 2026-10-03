@@ -86,11 +86,11 @@ test.describe("Workflows tab: the workflow list", () => {
     expect(wfList.y).toBe(rulesList.y);
     // Same flex column (1 1 260px, max 300px); its share of the free space differs by a fraction of a px.
     expect(wfList.width).toBeCloseTo(rulesList.width, 0);
-    const rulesNew = rules.getByRole("button", { name: "When does this happen?" });
+    const rulesNew = rules.getByRole("button", { name: "New rule" });
     const rulesNewBox = await box(rulesNew);
     expect(newBox.x).toBe(rulesNewBox.x);
     expect(newBox.y).toBe(rulesNewBox.y);
-    // Same width; the height follows the label ("When does this happen?" wraps to two lines).
+    // Same width; both labels fit one line ("New rule", "New workflow").
     expect(newBox.width).toBeCloseTo(rulesNewBox.width, 0);
     const ruleRow = page.locator(".rule-row").first();
     // Rows start the same distance under the button (margin + gap).

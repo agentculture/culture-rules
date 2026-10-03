@@ -373,7 +373,7 @@ function slotFor(slots: Map<string, number>, rule: RuleDoc): number | null {
  * in the middle (relationship ghost → trigger → condition → workflow →
  * action → `+`), its last runs on the right (runs are contextual, never a
  * tab of their own). Toggle, edit, delete (with undo), relationship editing
- * by direct manipulation, creation from "When does this happen?" and
+ * by direct manipulation, creation from "New rule" ("When does this happen?") and
  * answering pending human asks all happen here.
  */
 export function Rules() {
