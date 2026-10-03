@@ -129,12 +129,14 @@ def test_primary_survives_spark2_plus_one_member_down(cluster, other: str) -> No
 @pytest.mark.mongo
 def test_losing_two_voters_blocks_majority_writes(cluster) -> None:
     """Negative control: the topology is what keeps writes up, not luck."""
+    from pymongo.errors import PyMongoError
+
     from tests.store import replica_set_rig as rig
 
     cluster.stop("spark")
     cluster.stop("thor")
     try:
-        with pytest.raises(Exception):  # noqa: B017 - no primary / majority timeout
+        with pytest.raises(PyMongoError):  # no primary / majority timeout
             rig.write_majority(cluster, ["orin", "spark2"], "should-fail", timeout=8)
     finally:
         cluster.start("spark")
