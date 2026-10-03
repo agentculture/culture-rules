@@ -54,7 +54,6 @@ import argparse
 import gzip
 import json
 import os
-import subprocess  # nosec B404 - only used to call the operator's grant CLI
 import sys
 import time
 from collections.abc import Callable, Mapping, Sequence
@@ -62,6 +61,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from culture_rules.actors.secrets import SecretError, resolve_or_literal
 from culture_rules.store.port import StoragePort
 
 __all__ = [
@@ -94,21 +94,11 @@ class BackupConfigError(BackupError):
 
 
 def resolve_secret(value: str, runner: Callable[[str], str] | None = None) -> str:
-    """Return ``value``, or resolve a ``grant:<NAME>`` reference at run time."""
-    if not value.startswith("grant:"):
-        return value
-    name = value[len("grant:") :]
-    return (runner or _grant_get)(name)
-
-
-def _grant_get(name: str) -> str:
+    """Return ``value``, or resolve a ``grant:<NAME>`` reference at run time (shared resolver)."""
     try:
-        done = subprocess.run(  # nosec B603 B607 - fixed argv, no shell
-            ["grant", "get", name], capture_output=True, text=True, check=True, timeout=30
-        )
-    except (OSError, subprocess.SubprocessError) as exc:
-        raise BackupConfigError(f"cannot resolve secret reference grant:{name}: {exc}") from exc
-    return done.stdout.strip()
+        return resolve_or_literal(value, runner)
+    except SecretError as exc:
+        raise BackupConfigError(str(exc)) from exc
 
 
 @dataclass(frozen=True)
