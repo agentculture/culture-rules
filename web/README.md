@@ -37,6 +37,16 @@ recorded on the PR with a screenshot.
     (or "lost its group to", "waiting for") with an icon and a label.
   Code: `src/routes/Rules.tsx`, `src/rules/`, `src/api/rules.ts`.
 - **Workflows** (`/workflows?id=&run=`) is the 'Chosen — Workflows' board:
+  - New workflow (in the head next to Import, and the empty state's
+    primary action) asks only for a name, creates it with `POST
+    /workflows` (no steps; a taken id moves on to `-2`, `-3`, …) and opens
+    it on the canvas with the step `+` focused. API errors show inline in
+    the form;
+  - the head renames the workflow (a draft edit, written by Save),
+    enables / disables it (`POST /workflows/{id}/enable|disable`) and
+    deletes it softly with Undo (`DELETE /workflows/{id}`, then `POST
+    /workflows/{id}/restore`); a workflow a rule still uses is kept and
+    the conflict named;
   - the workflow as a React Flow graph laid out by elkjs (Inputs → steps
     → Outputs), with typed ports: a drag between mismatched types is
     refused;

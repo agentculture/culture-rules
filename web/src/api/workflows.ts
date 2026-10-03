@@ -154,6 +154,22 @@ export const getWorkflowDef = (id: string, signal?: AbortSignal) =>
 export const putWorkflowDef = (def: WorkflowDef, signal?: AbortSignal) =>
   request<WorkflowDef>("PUT", `/workflows/${enc(def.id)}`, def, signal);
 
+/** `POST /workflows`: create a definition; a 409 means the id is taken (deleted ones included). */
+export const createWorkflowDef = (def: WorkflowDef, signal?: AbortSignal) =>
+  request<WorkflowDef>("POST", "/workflows", def, signal);
+
+/** `POST /workflows/{id}/enable|disable`: answers the stored definition. */
+export const setWorkflowEnabled = (id: string, enabled: boolean, signal?: AbortSignal) =>
+  request<WorkflowDef>("POST", `/workflows/${enc(id)}/${enabled ? "enable" : "disable"}`, undefined, signal);
+
+/** `DELETE /workflows/{id}`: a soft delete (409 while a rule still uses it); `restoreWorkflowDef` undoes it. */
+export const deleteWorkflowDef = (id: string, signal?: AbortSignal) =>
+  request<unknown>("DELETE", `/workflows/${enc(id)}`, undefined, signal);
+
+/** `POST /workflows/{id}/restore`: bring a soft-deleted definition back. */
+export const restoreWorkflowDef = (id: string, signal?: AbortSignal) =>
+  request<WorkflowDef>("POST", `/workflows/${enc(id)}/restore`, undefined, signal);
+
 export const listActors = (signal?: AbortSignal) => items<Actor>("/actors", signal);
 
 /** `GET /runs?workflow_id=`: the most recent runs of one workflow. */
