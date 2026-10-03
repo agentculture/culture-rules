@@ -179,24 +179,32 @@ jobs:
           curl -sf -o /dev/null "http://127.0.0.1:${WEBGLASS_PORT}/"
 
       - name: webglass ready - page extract '#agent-state'
-        # "ready" is reached a moment after load, so re-extract (bounded) until it
-        # settles; a page that never settles still fails with its last payload printed.
+        # Open the built app ONCE in an owned session, then re-read that same live page
+        # (bounded) until #agent-state reports ready: re-opening a fresh page each time can
+        # sample it before slow API calls settle. The web client times calls out after
+        # 15 s (src/api/client.ts), so a page with no API behind it still settles.
+        env:
+          WEBGLASS_SESSION_OWNER: ci-ready-gate
         run: |
-          for attempt in $(seq 1 15); do
-            .venv/bin/webglass page extract \
-              --url "http://127.0.0.1:${WEBGLASS_PORT}" \
-              --selector '#agent-state' \
-              --policy-profile webglass-profile.json --json > webglass-extract.json
+          .venv/bin/webglass page extract \
+            --url "http://127.0.0.1:${WEBGLASS_PORT}" \
+            --selector '#agent-state' \
+            --policy-profile webglass-profile.json --json > webglass-extract.json
+          session=$(jq -r '.content.trusted.session.session_id' webglass-extract.json)
+          for attempt in $(seq 1 30); do
             if jq -e '.content.untrusted.matches | length == 1' webglass-extract.json > /dev/null \
                && jq -e '.content.untrusted.matches[0].text | fromjson | .status == "ready"' \
                   webglass-extract.json > /dev/null; then
-              echo "#agent-state settled on attempt $attempt"
+              echo "#agent-state settled on read $attempt"
               cat webglass-extract.json
               exit 0
             fi
             sleep 1
+            .venv/bin/webglass page extract --session-id "$session" \
+              --selector '#agent-state' \
+              --policy-profile webglass-profile.json --json > webglass-extract.json
           done
-          echo "#agent-state never reached ready in 15 attempts; last extract:" >&2
+          echo "#agent-state never reached ready in 30 reads; last extract:" >&2
           cat webglass-extract.json
           exit 1
 

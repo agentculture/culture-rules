@@ -22,6 +22,9 @@ import type {
  */
 export const API_ROOT = "/api";
 
+/** How long one API call may take before it fails with code `timeout`. */
+export const REQUEST_TIMEOUT_MS = 15_000;
+
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
@@ -48,21 +51,43 @@ export async function request<T>(
   body?: unknown,
   signal?: AbortSignal,
 ): Promise<T> {
+  // A request that never answers (an API proxy with nothing behind it) must still settle,
+  // or a view waits on it forever: give up after REQUEST_TIMEOUT_MS. The caller's own
+  // signal keeps working.
+  const ctl = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    ctl.abort();
+  }, REQUEST_TIMEOUT_MS);
+  const forward = () => ctl.abort();
+  signal?.addEventListener("abort", forward);
+  if (signal?.aborted) ctl.abort();
   let response: Response;
+  let text: string;
   try {
     response = await fetch(`${API_ROOT}${path}`, {
       method,
-      signal,
+      signal: ctl.signal,
       headers: {
         accept: "application/json",
         ...(body === undefined ? {} : { "content-type": "application/json" }),
       },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
+    text = await response.text();
   } catch {
+    if (timedOut) {
+      throw new ApiError(0, "timeout", `the culture-rules API did not answer ${method} ${path}`);
+    }
+    if (signal?.aborted) {
+      throw new ApiError(0, "aborted", `${method} ${path} was cancelled`);
+    }
     throw new ApiError(0, "unreachable", `cannot reach the culture-rules API at ${API_ROOT}`);
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", forward);
   }
-  const text = await response.text();
   let parsed: unknown = null;
   try {
     parsed = text ? JSON.parse(text) : null;

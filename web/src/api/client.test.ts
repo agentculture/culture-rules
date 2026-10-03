@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { API_ROOT, ApiError, getJson, listRules, listRuns, request } from "./client";
+import {
+  API_ROOT,
+  ApiError,
+  REQUEST_TIMEOUT_MS,
+  getJson,
+  listRules,
+  listRuns,
+  request,
+} from "./client";
 import { RULES } from "../fixtures/rules-fixture";
 import { mockFetch } from "../test/mockApi";
 
@@ -57,5 +65,46 @@ describe("api client", () => {
     const headers = new Headers(init?.headers);
     expect(headers.has("authorization")).toBe(false);
     expect(headers.has("x-culture-identity")).toBe(false);
+  });
+  it("turns a request that never answers into a timeout error, so a view still settles", async () => {
+    // CI finding: with no API behind the preview proxy the request hung and the
+    // Rules view stayed "loading" forever (#agent-state never reached ready).
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (_url: string, init?: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () =>
+              reject(new DOMException("aborted", "AbortError")),
+            );
+          }),
+      ),
+    );
+    const pending = getJson("/rules").catch((e: unknown) => e);
+    await vi.advanceTimersByTimeAsync(REQUEST_TIMEOUT_MS + 1);
+    const err = await pending;
+    expect(err).toBeInstanceOf(ApiError);
+    expect((err as ApiError).code).toBe("timeout");
+    vi.useRealTimers();
+  });
+
+  it("still honours a caller's own abort signal", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (_url: string, init?: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () =>
+              reject(new DOMException("aborted", "AbortError")),
+            );
+          }),
+      ),
+    );
+    const ctl = new AbortController();
+    const pending = getJson("/rules", ctl.signal).catch((e: unknown) => e);
+    ctl.abort();
+    const err = await pending;
+    expect((err as ApiError).code).toBe("aborted");
   });
 });
