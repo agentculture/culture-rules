@@ -194,6 +194,43 @@ class ClaimsContract:
         assert doc["holder"] == "thor"
         assert doc["previous_holder"] == "spark"
 
+    def test_reclaim_guard_can_refuse_taking_over_a_lapsed_lease(self, store, clock):
+        holder = self.engine(store, "spark", clock, lease=10)
+        rescuer = self.engine(store, "thor", clock)
+        first = holder.claim_step("run-1", "step-a")
+        asked: list[str] = []
+
+        def refuse(doc):
+            asked.append(doc["holder"])
+            return False
+
+        clock.advance(seconds=11)
+        refused = rescuer.claim_step("run-1", "step-a", may_reclaim=refuse)
+        assert refused.won is False
+        assert refused.reason == "held"
+        assert asked == ["spark"]
+        assert holder.renew(first).won is True  # the holder still owns it
+        clock.advance(seconds=11)
+        taken = rescuer.claim_step("run-1", "step-a", may_reclaim=lambda doc: True)
+        assert taken.won is True
+        assert taken.reason == "reclaimed"
+
+    def test_reclaim_guard_is_never_asked_about_a_live_or_free_claim(self, store, clock):
+        a = self.engine(store, "spark", clock)
+        b = self.engine(store, "thor", clock)
+        asked: list[str] = []
+
+        def guard(doc):
+            asked.append(doc["key"])
+            return False
+
+        claim = a.claim_step("run-1", "step-a")
+        assert b.claim_step("run-1", "step-a", may_reclaim=guard).reason == "held"
+        a.release(claim)
+        assert b.claim_step("run-1", "step-a", may_reclaim=guard).won is True
+        assert b.claim_step("run-1", "step-b", may_reclaim=guard).won is True
+        assert asked == []
+
     def test_renew_extends_the_lease(self, store, clock):
         a = self.engine(store, "spark", clock, lease=10)
         b = self.engine(store, "thor", clock)

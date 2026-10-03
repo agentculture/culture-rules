@@ -5,7 +5,10 @@ A :class:`Node` on host ``H`` does, every cycle (:meth:`Node.run_once`):
 1. **heartbeat** - at :meth:`Node.start` it probes the platform
    (:func:`~culture_rules.machines.probe.probe_platform`) and publishes a heartbeat
    carrying the probed tools (and GPU load when readable); later cycles re-beat every
-   :attr:`HeartbeatOptions.beat_every` seconds;
+   :attr:`HeartbeatOptions.beat_every` seconds. Under :meth:`Node.run` a daemon thread
+   beats on that cadence as well, so a long synchronous step in the drive stage never
+   makes this host look offline; the thread stops when :meth:`Node.run` returns (or the
+   process dies). A single :meth:`Node.run_once` (``node run --once``) beats once;
 2. **ingest** - drains its own event subscription into the ``events`` collection
    (:class:`~culture_rules.events.ingest.EventIngest`; no source = no ingest);
 3. **evaluate** - polls the per-host consumer for rules placed on ``H`` and the shared
@@ -50,6 +53,7 @@ from culture_rules.machines.enrol import MACHINES_COLLECTION
 from culture_rules.machines.heartbeat import (
     HEARTBEAT_COLLECTION,
     HEARTBEAT_INTERVAL_S,
+    MISSED_BEATS_OFFLINE,
     HeartbeatPublisher,
 )
 from culture_rules.machines.probe import ProbeResult, probe_platform, read_load
@@ -154,15 +158,25 @@ class Node:
         ensure = getattr(store, "ensure_collections", None)
         if callable(ensure):
             ensure(*NODE_COLLECTIONS)
+        self._beat_options = heartbeat_options or HeartbeatOptions()
         self.router = ActorRouter(store, ports=actors, factories=adapters, clock=self._clock)
-        self.executor = Executor(store, host, self.router, clock=self._clock, lease=lease)
+        self.executor = Executor(
+            store,
+            host,
+            self.router,
+            clock=self._clock,
+            lease=lease,
+            # a holder is offline once it missed 3 of *this cluster's* beats
+            holder_offline_after=timedelta(
+                seconds=MISSED_BEATS_OFFLINE * self._beat_options.beat_every
+            ),
+        )
         self.firing = RuleFiring(store, host, self.executor, clock=self._clock)
         self.ingest = (
             EventIngest(store, event_source, host=host, clock=self._clock)
             if event_source is not None
             else None
         )
-        self._beat_options = heartbeat_options or HeartbeatOptions()
         self.heartbeat: HeartbeatPublisher | None = None
         self._last_beat: datetime | None = None
         self._reporter = reporter
@@ -223,17 +237,42 @@ class Node:
         return self._stop.is_set()
 
     def run(self, *, idle: float = 1.0, max_cycles: int | None = None) -> int:
-        """Cycle until :meth:`stop` (or ``max_cycles``), pausing ``idle`` s; return cycles."""
+        """Cycle until :meth:`stop` (or ``max_cycles``), pausing ``idle`` s; return cycles.
+
+        Heartbeats are published from a daemon thread for as long as this runs."""
         self._stop.clear()
+        if not self.started:
+            self._stage(CycleReport(self.host), self.start)  # retried by the first cycle
+        beats = threading.Event()
+        beater = threading.Thread(
+            target=self._beat_loop, args=(beats,), name=f"heartbeat-{self.host}", daemon=True
+        )
+        beater.start()
         cycles = 0
-        while not self._stop.is_set():
-            self.run_once()
-            cycles += 1
-            if max_cycles is not None and cycles >= max_cycles:
-                break
-            self._stop.wait(idle)
+        try:
+            while not self._stop.is_set():
+                self.run_once()
+                cycles += 1
+                if max_cycles is not None and cycles >= max_cycles:
+                    break
+                self._stop.wait(idle)
+        finally:
+            beats.set()
+            beater.join(timeout=max(1.0, 2 * self._beat_options.beat_every))
         log.info("engine node %s stopped after %d cycles", self.host, cycles)
         return cycles
+
+    def _beat_loop(self, stop: threading.Event) -> None:
+        """Beat every :attr:`HeartbeatOptions.beat_every` s until ``stop`` is set."""
+        with log_context(host=self.host):
+            while not stop.wait(self._beat_options.beat_every):
+                if self.heartbeat is None:
+                    continue  # start() failed; the next cycle retries it
+                try:
+                    self.beat()
+                except Exception as exc:  # noqa: BLE001 - keep the cadence; recorded
+                    self.errors.append(exc)
+                    log.warning("node %s heartbeat failed: %s", self.host, exc)
 
     # ------------------------------------------------------------------ one cycle
 
