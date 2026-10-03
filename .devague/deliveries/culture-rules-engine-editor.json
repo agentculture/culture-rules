@@ -2,7 +2,7 @@
   "plan_slug": "culture-rules-engine-editor",
   "schema_version": 2,
   "created": "2026-10-03T05:56:04Z",
-  "updated": "2026-10-03T09:07:53Z",
+  "updated": "2026-10-03T09:19:31Z",
   "deviations": [
     {
       "id": "d1",
@@ -55,6 +55,24 @@
       "status": "approved",
       "classification": "needs-follow-up",
       "seq": 3
+    },
+    {
+      "id": "d4",
+      "what": "visual sizes follow the 'Chosen' design canvas (40px filter pills, 46x28 switches, 40px icon buttons, 15px secondary text) instead of h8's 16px body / 44px target clause; every interactive control still gets a >=44x44px hit area via invisible padding/pseudo-element without changing its look; h8 is otherwise kept (keyboard walk, axe 0 serious, reduced motion)",
+      "task_ref": "t29",
+      "reason": "operator chose the canvas as the visual source of truth (c102/o13); the canvas boards use smaller controls than h8 states; operator approved after reviewing the Actors/Rules screenshots",
+      "affects": [
+        "t30",
+        "t31",
+        "t32",
+        "t33",
+        "c8",
+        "h8"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 77
     }
   ],
   "evidence": [
