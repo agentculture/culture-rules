@@ -1,0 +1,14 @@
+{
+  "_id": "culture-rules-rs",
+  "version": 1,
+  "settings": {
+    "electionTimeoutMillis": 3000,
+    "heartbeatIntervalMillis": 500
+  },
+  "members": [
+    {"_id": 0, "host": "@spark@", "priority": 2, "tags": {"host": "spark"}},
+    {"_id": 1, "host": "@thor@", "priority": 1, "tags": {"host": "thor"}},
+    {"_id": 2, "host": "@orin@", "priority": 1, "tags": {"host": "orin"}},
+    {"_id": 3, "host": "@spark2@", "priority": 0, "votes": 0, "tags": {"host": "spark2"}}
+  ]
+}
