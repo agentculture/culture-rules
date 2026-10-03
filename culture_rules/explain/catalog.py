@@ -34,6 +34,7 @@ CI/publish baseline. The engine, API and editor are planned.
   HTTP API; `culture-rules explain <noun>` lists each noun's verbs.
 - `culture-rules serve` — run the HTTP API (needs the `server` extra).
 - `culture-rules node run` — run this host's engine node (talks to the store directly).
+- `culture-rules mcp` — serve the CLI verbs as MCP tools over stdio (needs the `mcp` extra).
 
 ## Exit-code policy
 
@@ -178,6 +179,22 @@ failed); without it the node loops until SIGINT/SIGTERM and stops gracefully.
     culture-rules node run --host spark
 """
 
+_MCP = """\
+# culture-rules mcp
+
+Serves every registered noun verb as an MCP tool over stdio, for an MCP client (an agent
+harness) that launches it as a subprocess. The tools talk to the HTTP API exactly like the
+CLI does (`CULTURE_RULES_API_URL`, `CULTURE_RULES_TOKEN`); writes stay dry-run unless the
+tool call passes `apply`. Stdout is the protocol channel; diagnostics go to stderr.
+
+Needs `pip install 'culture-rules[mcp]'`; without it the command exits `2` with that hint.
+
+## Usage
+
+    culture-rules mcp
+    python -m culture_rules.mcp
+"""
+
 _NOUN_BLURBS = {
     "rules": "Rules say *when* work should happen: trigger, condition, workflow, action.",
     "workflows": "Workflows are the reusable *how*: steps, branching and waits.",
@@ -227,6 +244,7 @@ def _generated() -> dict[tuple[str, ...], str]:
         ("serve",): _SERVE,
         ("node",): _NODE,
         ("node", "run"): _NODE_RUN,
+        ("mcp",): _MCP,
     }
     for noun in REGISTRY.nouns():
         out[(noun,)] = _noun_entry(noun, REGISTRY.verbs(noun))

@@ -94,3 +94,14 @@ def test_reference_to_non_predecessor_fails_validation():
     errors = validate_rule_set(rules, WF)
     assert codes(errors) == ["not_a_predecessor"]
     assert errors[0].path == "rules[1].action.params.t[0]"
+
+
+def test_dangling_references_are_reported_as_unknown_rule():
+    r = rule("a", must_after=("ghost1",), may_after=("ghost2", "ghost3"), supersedes=("ghost4",))
+    got = {(e.path, e.code) for e in validate_rule_set([r], {})}
+    assert got >= {
+        ("rules[0].must_after[0]", "unknown_rule"),
+        ("rules[0].may_after[0]", "unknown_rule"),
+        ("rules[0].may_after[1]", "unknown_rule"),
+        ("rules[0].supersedes[0]", "unknown_rule"),
+    }

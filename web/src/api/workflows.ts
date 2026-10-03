@@ -1,16 +1,21 @@
 /**
- * Workflows-tab API calls and types, built on client.ts's exported
- * `API_ROOT` and `ApiError` (client.ts and types.ts are shared and stay
- * untouched by the tabs). Shapes follow the committed api/openapi.json and
- * schemas/workflow.schema.json; run documents follow the engine's persisted
- * run state (culture_rules/engine/runs.py `_new_state`).
- *
- * Every call except `listRepos` is a route in api/openapi.json. `GET /repos`
- * is PLANNED — no repository endpoint exists yet; the repo picker calls it
- * and degrades to "no repositories" on a 404.
+ * Workflows-tab API calls and types, built on client.ts's shared `request`,
+ * `getJson` and `items` helpers. Shapes follow the committed
+ * api/openapi.json and schemas/workflow.schema.json; run documents follow
+ * the engine's persisted run state (culture_rules/engine/runs.py
+ * `_new_state`). Every call here is a route in api/openapi.json.
  */
-import { API_ROOT, ApiError } from "./client";
-import type { ErrorEnvelope, ItemList, Placement, RunSummary } from "./types";
+import { getJson, items, listRuns, request } from "./client";
+import type {
+  ExportResult,
+  ImportChange,
+  ImportPlan,
+  Placement,
+  Repo,
+  RepoExportResult,
+} from "./types";
+
+export type { ExportResult, ImportChange, ImportPlan, Repo, RepoExportResult };
 
 export type PortType = "string" | "number" | "integer" | "boolean" | "object" | "array" | "any";
 
@@ -138,96 +143,26 @@ export interface RunDoc {
   error?: unknown;
 }
 
-export interface ImportChange {
-  kind: string;
-  id: string;
-  path: string;
-  action: string;
-}
-
-export interface ImportPlan {
-  applied: boolean;
-  changes: ImportChange[];
-  errors?: { path: string; code: string; message: string }[];
-}
-
-export interface ExportResult {
-  format: string;
-  files: Record<string, string>;
-}
-
-/** PLANNED `GET /repos` item: a definitions repository the API can reach. */
-export interface Repo {
-  name: string;
-  url?: string;
-}
-
-async function request<T>(
-  method: "GET" | "POST" | "PUT",
-  path: string,
-  body?: unknown,
-  signal?: AbortSignal,
-): Promise<T> {
-  let response: Response;
-  const headers: Record<string, string> = { accept: "application/json" };
-  if (body !== undefined) headers["content-type"] = "application/json";
-  try {
-    response = await fetch(`${API_ROOT}${path}`, {
-      method,
-      signal,
-      headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
-  } catch {
-    throw new ApiError(0, "unreachable", `cannot reach the culture-rules API at ${API_ROOT}`);
-  }
-  const text = await response.text();
-  let parsed: unknown = null;
-  try {
-    parsed = text ? JSON.parse(text) : null;
-  } catch {
-    parsed = null;
-  }
-  if (!response.ok) {
-    const envelope = parsed as Partial<ErrorEnvelope> | null;
-    throw new ApiError(
-      response.status,
-      envelope?.error?.code ?? "http_error",
-      envelope?.error?.message ?? `${response.status} ${response.statusText}`.trim(),
-    );
-  }
-  if (parsed === null) {
-    throw new ApiError(response.status, "not_json", `${path} did not return JSON`);
-  }
-  return parsed as T;
-}
-
 const enc = encodeURIComponent;
 
-export const listWorkflowDefs = async (signal?: AbortSignal) =>
-  (await request<ItemList<WorkflowDef>>("GET", "/workflows", undefined, signal)).items;
+export const listWorkflowDefs = (signal?: AbortSignal) => items<WorkflowDef>("/workflows", signal);
 
 export const getWorkflowDef = (id: string, signal?: AbortSignal) =>
-  request<WorkflowDef>("GET", `/workflows/${enc(id)}`, undefined, signal);
+  getJson<WorkflowDef>(`/workflows/${enc(id)}`, signal);
 
 /** `PUT /workflows/{id}`: replace the definition (only schema fields are sent). */
 export const putWorkflowDef = (def: WorkflowDef, signal?: AbortSignal) =>
   request<WorkflowDef>("PUT", `/workflows/${enc(def.id)}`, def, signal);
 
-export const listActors = async (signal?: AbortSignal) =>
-  (await request<ItemList<Actor>>("GET", "/actors", undefined, signal)).items;
+export const listActors = (signal?: AbortSignal) => items<Actor>("/actors", signal);
 
-/**
- * Recent runs of one workflow. `GET /runs` has no workflow filter, so the
- * newest `limit` runs are fetched and filtered here by `workflow_id`.
- */
+/** `GET /runs?workflow_id=`: the most recent runs of one workflow. */
 export const listWorkflowRuns = async (workflowId: string, limit = 50, signal?: AbortSignal) =>
-  (await request<ItemList<RunSummary>>("GET", `/runs?limit=${limit}`, undefined, signal)).items.filter(
-    (r) => r.workflow_id === workflowId,
-  );
+  // The server filters; the client re-checks so a stale server cannot mix workflows.
+  (await listRuns({ workflow_id: workflowId, limit }, signal)).filter((r) => r.workflow_id === workflowId);
 
 export const getRun = (id: string, signal?: AbortSignal) =>
-  request<RunDoc>("GET", `/runs/${enc(id)}`, undefined, signal);
+  getJson<RunDoc>(`/runs/${enc(id)}`, signal);
 
 /** `POST /runs`: start a run of a rule (a workflow runs through the rule that uses it). */
 export const startRun = (ruleId: string, signal?: AbortSignal) =>
@@ -235,7 +170,7 @@ export const startRun = (ruleId: string, signal?: AbortSignal) =>
 
 /** `GET /export?format=`: every live definition as `<kind>/<id>.<ext>` -> text. */
 export const exportDefinitions = (format = "json", signal?: AbortSignal) =>
-  request<ExportResult>("GET", `/export?format=${enc(format)}`, undefined, signal);
+  getJson<ExportResult>(`/export?format=${enc(format)}`, signal);
 
 /** `POST /import`: a dry-run plan unless `apply` is true. */
 export const importDefinitions = (
@@ -244,6 +179,13 @@ export const importDefinitions = (
   signal?: AbortSignal,
 ) => request<ImportPlan>("POST", "/import", { files, apply }, signal);
 
-/** PLANNED `GET /repos` — see the module docstring. */
-export const listRepos = async (signal?: AbortSignal) =>
-  (await request<ItemList<Repo>>("GET", "/repos", undefined, signal)).items;
+/** `GET /repos`: the definition repositories the server is configured with. */
+export const listRepos = (signal?: AbortSignal) => items<Repo>("/repos", signal);
+
+/** `POST /export` into a configured repository: a dry-run plan unless `apply` (then a commit). */
+export const exportToRepo = (repo: string, apply: boolean, signal?: AbortSignal) =>
+  request<RepoExportResult>("POST", "/export", { repo, apply }, signal);
+
+/** `POST /import` from a configured repository: a dry-run plan unless `apply`. */
+export const importFromRepo = (repo: string, apply: boolean, signal?: AbortSignal) =>
+  request<ImportPlan>("POST", "/import", { repo, apply }, signal);

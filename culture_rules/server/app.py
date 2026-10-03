@@ -11,7 +11,7 @@ an unauthenticated or unauthorized caller. Every mutating route goes through an 
 from __future__ import annotations
 
 import socket
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any
@@ -44,12 +44,15 @@ from culture_rules.engine.runs import (
 )
 from culture_rules.ops.health import health_status
 from culture_rules.server import events, static
+from culture_rules.server import status as read_models
+from culture_rules.server.repos import RepoTarget, repos_from_env
 from culture_rules.server.service import (
     DEFINITION_KINDS,
     Conflict,
     Definitions,
     Invalid,
     NotFound,
+    RuleReferenced,
     ServiceError,
 )
 from culture_rules.store.port import StoragePort
@@ -112,7 +115,14 @@ class RunCancel(BaseModel):
 
 
 class ImportRequest(BaseModel):
-    files: dict[str, str] = Field(description="relative path (rules/<id>.json, ...) -> text")
+    files: dict[str, str] | None = Field(
+        None, description="relative path (rules/<id>.json, ...) -> text; or give `repo`"
+    )
+    repo: str | None = Field(
+        None, description="read from this configured repository (GET /repos) instead of files"
+    )
+    directory: str = Field("", description="with `repo`: the definitions directory inside it")
+    ref: str | None = Field(None, description="with `repo`: branch or tag to read")
     apply: bool = Field(False, description="false = dry-run plan only")
 
 
@@ -132,6 +142,76 @@ class ImportPlan(BaseModel):
 class ExportResult(BaseModel):
     format: str
     files: dict[str, str]
+
+
+class RepoExportRequest(BaseModel):
+    repo: str = Field(description="a configured repository name (GET /repos)")
+    format: str = Field("json", description="json | yaml")
+    directory: str = Field("", description="the definitions directory inside the repository")
+    apply: bool = Field(False, description="false = dry-run plan only; true = write + commit")
+    push: bool = Field(False, description="with apply: git push origin HEAD after committing")
+
+
+class RepoExportResult(BaseModel):
+    repo: str
+    applied: bool
+    committed: bool
+    pushed: bool
+    commit: str | None = None
+    changes: list[ImportChange]
+
+
+class Repo(BaseModel):
+    name: str = Field(description="what clients pass as `repo`")
+    url: str = Field(description="the configured location: a local path or a git remote")
+    writable: bool = Field(description="a local working tree: exports can commit to it")
+
+
+class RepoList(BaseModel):
+    items: list[Repo]
+
+
+class Ask(BaseModel):
+    """A human ask (``asks`` collection, culture_rules/actors/human.py)."""
+
+    model_config = ConfigDict(extra="allow")
+    id: str
+    run_id: str | None = None
+    step_id: str | None = None
+    question: str | None = None
+    options: list[Any] | None = None
+    deadline: str | None = None
+    status: str = Field(description="open | answered | expired")
+    asked_at: str | None = None
+
+
+class AskList(BaseModel):
+    items: list[Ask]
+
+
+class MachineLoad(BaseModel):
+    cpu: float | None = Field(description="percent 0-100; null = not reported")
+    gpu: float | None
+    mem: float | None
+
+
+class RunningStep(BaseModel):
+    step: str
+    workflow: str
+    run_id: str
+
+
+class MachineStatus(BaseModel):
+    name: str
+    online: bool = Field(description="latest heartbeat younger than 30 s")
+    last_seen: str | None = Field(description="latest heartbeat, ISO-8601; null = never")
+    load: MachineLoad | None = Field(description="null while offline or never reported")
+    running: list[RunningStep]
+    queue_depth: int = Field(description="pending steps of active runs bound to this machine")
+
+
+class MachineStatusList(BaseModel):
+    items: list[MachineStatus]
 
 
 class AskAnswer(BaseModel):
@@ -246,7 +326,7 @@ def _run_status(code: str) -> int:
 
 
 def _install_errors(app: FastAPI) -> None:
-    status = {Invalid: 422, NotFound: 404, Conflict: 409}
+    status = {Invalid: 422, NotFound: 404, Conflict: 409, RuleReferenced: 409}
 
     @app.exception_handler(ServiceError)
     async def _service(request: Request, exc: ServiceError) -> JSONResponse:
@@ -301,6 +381,7 @@ def _install_errors(app: FastAPI) -> None:
 def _run_summary(doc: dict[str, Any]) -> dict[str, Any]:
     wf = doc.get("workflow") or {}
     return {
+        "hosts": read_models.run_hosts(doc),
         "id": doc["id"],
         "status": doc.get("status"),
         "rule_id": (doc.get("rule") or {}).get("id"),
@@ -311,6 +392,10 @@ def _run_summary(doc: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _hosts(doc: dict[str, Any]) -> list[str]:
+    return read_models.run_hosts(doc)
+
+
 def create_app(
     store: StoragePort,
     *,
@@ -319,13 +404,15 @@ def create_app(
     answer_ask: AnswerAsk | None = None,
     auth: AuthSettings | None = None,
     web_dist: Path | None = None,
+    repos: Sequence[RepoTarget] | None = None,
 ) -> FastAPI:
     """Build the API over ``store``. Holds configuration only, never request state.
 
     ``auth`` configures the listener this app serves (default: the LAN listener, service
     tokens only, no dev header); ``admins`` are identities elevated to the admin role.
     ``web_dist`` is the built web UI to serve at ``/`` (default: the packaged ``web_dist``;
-    nothing is mounted when it does not exist).
+    nothing is mounted when it does not exist). ``repos`` are the definition repositories
+    clients may name (default: ``CULTURE_RULES_REPOS``, see :mod:`culture_rules.server.repos`).
     """
     ensure = getattr(store, "ensure_collections", None)
     if callable(ensure):
@@ -337,6 +424,14 @@ def create_app(
     resolver = Resolver((auth or AuthSettings()).with_admins(admins), tokens)
     containment = Containment(store, audit)
     node = host or socket.gethostname()
+    targets = {r.name: r for r in (repos_from_env() if repos is None else repos)}
+
+    def repo_target(name: str) -> RepoTarget:
+        target = targets.get(name)
+        if target is None:
+            raise NotFound(f"repo {name!r} is not configured", code="repo_not_found")
+        return target
+
     executor = Executor(store, node, {}, audit=audit)
     if answer_ask is None:
 
@@ -411,16 +506,39 @@ def create_app(
     def health() -> Health:
         return Health(**health_status(store, datetime.now(UTC), node))
 
+    # registered before the definition routes so /machines/{id} cannot shadow it
+    @app.get(
+        "/machines/status",
+        response_model=MachineStatusList,
+        tags=["machines"],
+        operation_id="machine_statuses",
+    )
+    def machine_statuses():
+        """Per enrolled machine: liveness, load, in-flight steps and queue depth."""
+        return {"items": read_models.machine_statuses(store, datetime.now(UTC))}
+
     for kind in DEFINITION_KINDS:
         _register_kind(app, kind, defs, life, store, audit)
 
     # ---- runs
     @app.get("/runs", response_model=ItemList, tags=["runs"], operation_id="list_runs")
-    def list_runs(status: str | None = None, rule_id: str | None = None, limit: int = 100):
+    def list_runs(
+        status: str | None = None,
+        rule_id: str | None = None,
+        workflow_id: str | None = None,
+        host: Annotated[
+            str | None, Query(description="only runs with a step dispatched to this host")
+        ] = None,
+        limit: int = 100,
+    ):
         where = {"status": status} if status else None
         docs = store.find(RUNS_COLLECTION, where)
         if rule_id:
             docs = [d for d in docs if (d.get("rule") or {}).get("id") == rule_id]
+        if workflow_id:
+            docs = [d for d in docs if (d.get("workflow") or {}).get("id") == workflow_id]
+        if host:
+            docs = [d for d in docs if host in _hosts(d)]
         docs = sorted(docs, key=lambda d: d.get("created_at") or "", reverse=True)[: max(limit, 0)]
         return {"items": [_run_summary(d) for d in docs]}
 
@@ -524,6 +642,29 @@ def create_app(
         return {"format": format, "files": defs.export_files(format)}
 
     @app.post(
+        "/export",
+        response_model=RepoExportResult,
+        tags=["exchange"],
+        operation_id="export_to_repo",
+        responses={404: ERRORS[404], 422: ERRORS[422]},
+    )
+    def export_to_repo(body: RepoExportRequest, identity: Identity):
+        """Write live definitions into a configured repository; dry-run unless `apply`."""
+        return defs.export_to_repo(
+            repo_target(body.repo),
+            identity,
+            fmt=body.format,
+            directory=body.directory,
+            apply=body.apply,
+            push=body.push,
+        )
+
+    @app.get("/repos", response_model=RepoList, tags=["exchange"], operation_id="list_repos")
+    def list_repos():
+        """The definition repositories this server is configured with (CULTURE_RULES_REPOS)."""
+        return {"items": [t.to_dict() for t in targets.values()]}
+
+    @app.post(
         "/replay",
         tags=["rules"],
         operation_id="replay_rules",
@@ -549,10 +690,33 @@ def create_app(
         responses={422: ERRORS[422]},
     )
     def import_definitions(body: ImportRequest, principal: Caller):
-        guards.check_import(principal, body.files)
-        return defs.import_files(body.files, principal.identity, apply=body.apply)
+        if (body.files is None) == (body.repo is None):
+            raise Invalid(
+                "give exactly one of `files` or `repo`",
+                [{"path": "repo", "code": "one_source", "message": "files xor repo"}],
+            )
+        if body.repo is not None:
+            files = defs.repo_files(repo_target(body.repo), directory=body.directory, ref=body.ref)
+        else:
+            files = body.files or {}
+        guards.check_import(principal, files)
+        return defs.import_files(files, principal.identity, apply=body.apply)
 
     # ---- asks
+    @app.get("/asks", response_model=AskList, tags=["asks"], operation_id="list_asks")
+    def list_asks(
+        run_id: str | None = None,
+        status_: Annotated[
+            str | None, Query(alias="status", description="open | answered | expired")
+        ] = None,
+    ):
+        if status_ is not None and status_ not in read_models.ASK_STATUSES:
+            raise Invalid(
+                f"unknown ask status {status_!r}",
+                [{"path": "status", "code": "unknown", "message": status_}],
+            )
+        return {"items": read_models.list_asks(store, run_id=run_id, status=status_)}
+
     @app.post(
         "/asks/{ask_id}/answer",
         tags=["asks"],
@@ -688,6 +852,7 @@ def _register_kind(
     )
     def delete(id: str, identity: Identity):
         defs.get(kind, id)
+        defs.guard_unreferenced(kind, id)
         return life.soft_delete(kind, id, identity)
 
     @app.post(
@@ -710,6 +875,7 @@ def _register_kind(
     )
     def purge(id: str, identity: Identity, body: PurgeRequest | None = None):
         defs.get(kind, id)
+        defs.guard_unreferenced(kind, id)
         # the middleware already required the admin role for this route
         admin_life = Lifecycle(store, audit, admins=(identity,))
         result = admin_life.purge(kind, id, identity, apply=(body or PurgeRequest()).apply)

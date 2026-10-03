@@ -55,6 +55,14 @@ def test_compose_and_unit_enforce_keyfile_and_tls() -> None:
         assert "--port" in text, name
 
 
+def test_compose_runs_mongod_as_the_mongodb_user_not_root() -> None:
+    text = (DEPLOY / "compose.yaml").read_text()
+    assert "exec gosu mongodb mongod" in text
+    # key and TLS material must be readable by that user before the drop
+    assert "chown -R mongodb:mongodb" in text and "/data/db" in text
+    assert "exec mongod" not in text
+
+
 def test_rs_config_topology_has_three_always_up_voters() -> None:
     cfg = _template()
     members = {m["tags"]["host"]: m for m in cfg["members"]}

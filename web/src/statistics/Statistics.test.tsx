@@ -173,14 +173,14 @@ describe("Statistics board (Chosen — Statistics)", () => {
     });
   });
 
-  it("falls back to runs when /machines/status does not exist, and says so", async () => {
-    mockFetch(routes({ "/api/machines/status": { status: 404, body: { error: { code: "not_found", message: "x", errors: [] } } } }));
+  it("falls back to runs when /machines/status fails, says so and reports the failure", async () => {
+    mockFetch(routes({ "/api/machines/status": { status: 503, body: { error: { code: "down", message: "status down", errors: [] } } } }));
     renderStats();
     const thor = await lane("thor");
     expect(thor.getAllByText("n/a")).toHaveLength(3);
     expect(screen.getByText(/live load and queue depth are not available/i)).toBeInTheDocument();
-    expect((getAgentState() as unknown as { statistics: { source: string } }).statistics.source).toBe("runs");
-    expect(getAgentState().errors).toEqual([]);
+    expect(getAgentState().statistics?.source).toBe("runs");
+    expect(getAgentState().errors).toEqual(["status down"]);
   });
 
   it("a failed load is an alert and still reaches ready", async () => {

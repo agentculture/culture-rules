@@ -22,7 +22,7 @@ export interface Recorded {
  * The Workflows tab's API on top of e2e/fixtures/api.ts (compose: call
  * `mockApi(page)` first; routes registered later win). Serves full workflow
  * definitions, actors, the persisted run state of run-7, /export, /import
- * and the PLANNED /repos, recording every call with its method and body.
+ * and /repos, recording every call with its method and body.
  */
 export async function mockWorkflowsApi(page: Page): Promise<Recorded[]> {
   const calls: Recorded[] = [];
@@ -50,6 +50,17 @@ export async function mockWorkflowsApi(page: Page): Promise<Recorded[]> {
     if (path === "/api/rules") return json(200, { items: WORKFLOW_RULES });
     if (path === "/api/actors") return json(200, { items: ACTORS });
     if (path === "/api/repos") return json(200, { items: REPOS });
+    if (path === "/api/export" && method === "POST") {
+      const applied = Boolean(body?.apply);
+      return json(200, {
+        repo: body?.repo,
+        applied,
+        committed: applied,
+        pushed: false,
+        commit: applied ? "0123456789abcdef" : null,
+        changes: [{ kind: "workflows", id: "review-pr", path: "workflows/review-pr.json", action: "change" }],
+      });
+    }
     if (path === "/api/export") return json(200, EXPORT_RESULT);
     if (path === "/api/import") return json(200, importPlan(Boolean(body?.apply)));
     if (path === "/api/runs" && method === "POST") return json(201, STARTED_RUN);

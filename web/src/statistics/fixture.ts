@@ -3,10 +3,9 @@ import type { MachineStatus } from "../api/statistics";
 
 /**
  * The 'Chosen — Statistics' board (design canvas row 'Chosen', D-Statistics)
- * as API data: spark / thor / spark2 online, orin offline for two hours. The
- * per-machine status (load, running steps, queue) is the proposed
- * `GET /machines/status` shape; no such endpoint exists yet, so this fixture
- * is the only place it is served from.
+ * as API data: spark / thor / spark2 online, orin offline for two hours,
+ * with the per-machine status (load, running steps, queue) in the
+ * `GET /machines/status` shape.
  */
 export const HOUR = 3_600_000;
 

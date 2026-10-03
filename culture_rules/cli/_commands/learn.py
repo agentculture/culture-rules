@@ -33,6 +33,7 @@ Commands
   culture-rules cli overview       Describe the CLI surface itself.
   culture-rules serve              Run the HTTP API (needs the 'server' extra).
   culture-rules node run           Run this host's engine node (--once: one cycle).
+  culture-rules mcp                Serve the CLI verbs as MCP tools over stdio ('mcp' extra).
 {noun_verbs}
 Every noun verb below is dry-run unless --apply (writes change nothing without it);
 the CLI talks only to the HTTP API (CULTURE_RULES_API_URL, CULTURE_RULES_TOKEN).
@@ -95,6 +96,10 @@ def _as_json_payload() -> dict[str, object]:
             {
                 "path": ["node", "run"],
                 "summary": "Run this host's engine node (talks to the store).",
+            },
+            {
+                "path": ["mcp"],
+                "summary": "Serve the CLI verbs as MCP tools over stdio (needs the 'mcp' extra).",
             },
             *_noun_commands(),
         ],

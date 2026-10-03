@@ -1,6 +1,94 @@
 {
   "components": {
     "schemas": {
+      "Ask": {
+        "additionalProperties": true,
+        "description": "A human ask (``asks`` collection, culture_rules/actors/human.py).",
+        "properties": {
+          "asked_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Asked At"
+          },
+          "deadline": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deadline"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "options": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Options"
+          },
+          "question": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Question"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "status": {
+            "description": "open | answered | expired",
+            "title": "Status",
+            "type": "string"
+          },
+          "step_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step Id"
+          }
+        },
+        "required": [
+          "id",
+          "status"
+        ],
+        "title": "Ask",
+        "type": "object"
+      },
       "AskAnswer": {
         "properties": {
           "answer": {
@@ -11,6 +99,22 @@
           "answer"
         ],
         "title": "AskAnswer",
+        "type": "object"
+      },
+      "AskList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/Ask"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "AskList",
         "type": "object"
       },
       "Controls": {
@@ -207,18 +311,52 @@
             "title": "Apply",
             "type": "boolean"
           },
+          "directory": {
+            "default": "",
+            "description": "with `repo`: the definitions directory inside it",
+            "title": "Directory",
+            "type": "string"
+          },
           "files": {
-            "additionalProperties": {
-              "type": "string"
-            },
-            "description": "relative path (rules/<id>.json, ...) -> text",
-            "title": "Files",
-            "type": "object"
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "relative path (rules/<id>.json, ...) -> text; or give `repo`",
+            "title": "Files"
+          },
+          "ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "with `repo`: branch or tag to read",
+            "title": "Ref"
+          },
+          "repo": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "read from this configured repository (GET /repos) instead of files",
+            "title": "Repo"
           }
         },
-        "required": [
-          "files"
-        ],
         "title": "ImportRequest",
         "type": "object"
       },
@@ -288,6 +426,125 @@
         "title": "ItemList",
         "type": "object"
       },
+      "MachineLoad": {
+        "properties": {
+          "cpu": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "percent 0-100; null = not reported",
+            "title": "Cpu"
+          },
+          "gpu": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gpu"
+          },
+          "mem": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mem"
+          }
+        },
+        "required": [
+          "cpu",
+          "gpu",
+          "mem"
+        ],
+        "title": "MachineLoad",
+        "type": "object"
+      },
+      "MachineStatus": {
+        "properties": {
+          "last_seen": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "latest heartbeat, ISO-8601; null = never",
+            "title": "Last Seen"
+          },
+          "load": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MachineLoad"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "null while offline or never reported"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "online": {
+            "description": "latest heartbeat younger than 30 s",
+            "title": "Online",
+            "type": "boolean"
+          },
+          "queue_depth": {
+            "description": "pending steps of active runs bound to this machine",
+            "title": "Queue Depth",
+            "type": "integer"
+          },
+          "running": {
+            "items": {
+              "$ref": "#/components/schemas/RunningStep"
+            },
+            "title": "Running",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "online",
+          "last_seen",
+          "load",
+          "running",
+          "queue_depth"
+        ],
+        "title": "MachineStatus",
+        "type": "object"
+      },
+      "MachineStatusList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/MachineStatus"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "MachineStatusList",
+        "type": "object"
+      },
       "PurgeRequest": {
         "properties": {
           "apply": {
@@ -355,6 +612,133 @@
         "title": "ReplayRequest",
         "type": "object"
       },
+      "Repo": {
+        "properties": {
+          "name": {
+            "description": "what clients pass as `repo`",
+            "title": "Name",
+            "type": "string"
+          },
+          "url": {
+            "description": "the configured location: a local path or a git remote",
+            "title": "Url",
+            "type": "string"
+          },
+          "writable": {
+            "description": "a local working tree: exports can commit to it",
+            "title": "Writable",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "url",
+          "writable"
+        ],
+        "title": "Repo",
+        "type": "object"
+      },
+      "RepoExportRequest": {
+        "properties": {
+          "apply": {
+            "default": false,
+            "description": "false = dry-run plan only; true = write + commit",
+            "title": "Apply",
+            "type": "boolean"
+          },
+          "directory": {
+            "default": "",
+            "description": "the definitions directory inside the repository",
+            "title": "Directory",
+            "type": "string"
+          },
+          "format": {
+            "default": "json",
+            "description": "json | yaml",
+            "title": "Format",
+            "type": "string"
+          },
+          "push": {
+            "default": false,
+            "description": "with apply: git push origin HEAD after committing",
+            "title": "Push",
+            "type": "boolean"
+          },
+          "repo": {
+            "description": "a configured repository name (GET /repos)",
+            "title": "Repo",
+            "type": "string"
+          }
+        },
+        "required": [
+          "repo"
+        ],
+        "title": "RepoExportRequest",
+        "type": "object"
+      },
+      "RepoExportResult": {
+        "properties": {
+          "applied": {
+            "title": "Applied",
+            "type": "boolean"
+          },
+          "changes": {
+            "items": {
+              "$ref": "#/components/schemas/ImportChange"
+            },
+            "title": "Changes",
+            "type": "array"
+          },
+          "commit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commit"
+          },
+          "committed": {
+            "title": "Committed",
+            "type": "boolean"
+          },
+          "pushed": {
+            "title": "Pushed",
+            "type": "boolean"
+          },
+          "repo": {
+            "title": "Repo",
+            "type": "string"
+          }
+        },
+        "required": [
+          "repo",
+          "applied",
+          "committed",
+          "pushed",
+          "changes"
+        ],
+        "title": "RepoExportResult",
+        "type": "object"
+      },
+      "RepoList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/Repo"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "RepoList",
+        "type": "object"
+      },
       "RunCancel": {
         "properties": {
           "reason": {
@@ -397,6 +781,29 @@
           "rule_id"
         ],
         "title": "RunStart",
+        "type": "object"
+      },
+      "RunningStep": {
+        "properties": {
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "step": {
+            "title": "Step",
+            "type": "string"
+          },
+          "workflow": {
+            "title": "Workflow",
+            "type": "string"
+          }
+        },
+        "required": [
+          "step",
+          "workflow",
+          "run_id"
+        ],
+        "title": "RunningStep",
         "type": "object"
       },
       "TokenIssue": {
@@ -1405,6 +1812,101 @@
         ]
       }
     },
+    "/asks": {
+      "get": {
+        "operationId": "list_asks",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "run_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Run Id"
+            }
+          },
+          {
+            "description": "open | answered | expired",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "open | answered | expired",
+              "title": "Status"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AskList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "List Asks",
+        "tags": [
+          "asks"
+        ]
+      }
+    },
     "/asks/{ask_id}/answer": {
       "post": {
         "operationId": "answer_ask",
@@ -1882,6 +2384,84 @@
         "tags": [
           "exchange"
         ]
+      },
+      "post": {
+        "description": "Write live definitions into a configured repository; dry-run unless `apply`.",
+        "operationId": "export_to_repo",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RepoExportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepoExportResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Validation failed (errors listed)"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Export To Repo",
+        "tags": [
+          "exchange"
+        ]
       }
     },
     "/health": {
@@ -2149,6 +2729,56 @@
           }
         ],
         "summary": "Create",
+        "tags": [
+          "machines"
+        ]
+      }
+    },
+    "/machines/status": {
+      "get": {
+        "description": "Per enrolled machine: liveness, load, in-flight steps and queue depth.",
+        "operationId": "machine_statuses",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineStatusList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Machine Statuses",
         "tags": [
           "machines"
         ]
@@ -3063,6 +3693,56 @@
         ]
       }
     },
+    "/repos": {
+      "get": {
+        "description": "The definition repositories this server is configured with (CULTURE_RULES_REPOS).",
+        "operationId": "list_repos",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepoList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "List Repos",
+        "tags": [
+          "exchange"
+        ]
+      }
+    },
     "/rules": {
       "get": {
         "operationId": "list_rules",
@@ -3926,6 +4606,40 @@
                 }
               ],
               "title": "Rule Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workflow_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workflow Id"
+            }
+          },
+          {
+            "description": "only runs with a step dispatched to this host",
+            "in": "query",
+            "name": "host",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "only runs with a step dispatched to this host",
+              "title": "Host"
             }
           },
           {

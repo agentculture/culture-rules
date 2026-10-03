@@ -166,6 +166,30 @@ test.describe("Workflows tab", () => {
     await expect(plan).toHaveCount(0);
     const imports = calls.filter((c) => c.method === "POST" && c.path === "/api/import");
     expect(imports.map((c) => (c.body as { apply: boolean }).apply)).toEqual([false, true]);
+
+    // The picked repository: export into it (a commit) and import from it, each dry-run first.
+    await page.getByRole("button", { name: /agentculture\/rules-lab/ }).click();
+    await page.getByRole("button", { name: "Export to repo" }).click();
+    const exportPlan = page.getByRole("dialog", { name: "Export plan" });
+    await expect(exportPlan).toContainText("workflows/review-pr.json");
+    await exportPlan.getByRole("button", { name: "Apply export" }).click();
+    await expect(page.getByText(/Exported 1 change to agentculture\/rules-lab \(0123456\)/)).toBeVisible();
+    const toRepo = calls.filter((c) => c.method === "POST" && c.path === "/api/export").map((c) => c.body);
+    expect(toRepo).toEqual([
+      { repo: "agentculture/rules-lab", apply: false },
+      { repo: "agentculture/rules-lab", apply: true },
+    ]);
+
+    await page.getByRole("button", { name: /agentculture\/rules-lab/ }).click();
+    await page.getByRole("button", { name: "Import from repo" }).click();
+    await page.getByRole("dialog", { name: "Import plan" }).getByRole("button", { name: "Apply import" }).click();
+    const importCalls = () => calls.filter((c) => c.method === "POST" && c.path === "/api/import");
+    await expect.poll(() => importCalls().length).toBe(4);
+    const fromRepo = importCalls().slice(2);
+    expect(fromRepo.map((c) => c.body)).toEqual([
+      { repo: "agentculture/rules-lab", apply: false },
+      { repo: "agentculture/rules-lab", apply: true },
+    ]);
   });
 
   test("a run lights its path with each step's host and outcome (persisted run state)", async ({ page }) => {

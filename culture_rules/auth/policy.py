@@ -1,8 +1,9 @@
 """Which role each HTTP route needs (viewer < editor < admin). Pure; the server enforces it.
 
 - viewer: every read (``GET``/``HEAD``), except the service-token list;
-- editor: create/update/enable/disable/delete/restore of definitions, import, runs
-  (start/cancel) and answering asks;
+- editor: create/update/enable/disable/delete/restore of definitions, import, export into a
+  configured repository (``POST /export``, dry-run included), runs (start/cancel) and
+  answering asks;
 - admin: purge, service tokens, and engine/machine containment (pause/resume/drain/undrain).
 
 Saving a workflow step that carries inline script text is admin-only too, but that depends on
@@ -30,6 +31,7 @@ _EDITOR_PATTERNS = {
         re.compile(rf"^/({_KINDS})$"),
         re.compile(rf"^/({_KINDS})/[^/]+/(enable|disable|restore)$"),
         re.compile(r"^/import$"),
+        re.compile(r"^/export$"),
         re.compile(r"^/runs$"),
         re.compile(r"^/runs/[^/]+/cancel$"),
         re.compile(r"^/asks/[^/]+/answer$"),

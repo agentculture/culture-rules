@@ -2,7 +2,7 @@ import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent } fr
 import { getMachineStatuses, type MachineStatus } from "../api/statistics";
 import { ApiError, listMachines, listRules, listRuns, listWorkflows } from "../api/client";
 import type { Machine, Rule, RunSummary, Workflow } from "../api/types";
-import { setAgentState, type AgentState } from "../agent-state/store";
+import { setAgentState } from "../agent-state/store";
 import { machineStyle } from "../culture-design/stages";
 import { useTabReady } from "../routes/useTabReady";
 import {
@@ -22,7 +22,7 @@ interface Loaded {
   rules: Rule[];
   workflows: Workflow[];
   runs: RunSummary[];
-  /** null = the status endpoint does not exist; lanes are derived from runs. */
+  /** null = `GET /machines/status` failed; lanes are derived from runs. */
   statuses: MachineStatus[] | null;
   errors: string[];
 }
@@ -313,7 +313,7 @@ export function StatisticsBoard() {
   const machineNames = lanes.map((l) => l.name).join(",");
   const offlineNames = offline.join(",");
   useEffect(() => {
-    // `statistics` is this tab's slice of #agent-state (store.ts types only `rules`).
+    // `statistics` is this tab's slice of #agent-state (AgentStatisticsState in store.ts).
     setAgentState({
       statistics: loaded
         ? {
@@ -324,8 +324,8 @@ export function StatisticsBoard() {
             source: derived ? "runs" : "machines/status",
           }
         : null,
-    } as unknown as Partial<AgentState>);
-    return () => setAgentState({ statistics: null } as unknown as Partial<AgentState>);
+    });
+    return () => setAgentState({ statistics: null });
   }, [loaded !== null, machineNames, offlineNames, range, view, derived]);
 
   return (
@@ -347,10 +347,10 @@ export function StatisticsBoard() {
           {errors.join(" · ")}
         </p>
       ) : null}
-      {derived && errors.length === 0 ? (
+      {derived ? (
         <p className="stats__note" role="status">
-          Live load and queue depth are not available from this API yet. Lanes show what runs
-          record: runs per {rangeSpec(range).unit}, ok and failed.
+          Live load and queue depth are not available right now. Lanes show what runs record:
+          runs per {rangeSpec(range).unit}, ok and failed.
         </p>
       ) : null}
 
