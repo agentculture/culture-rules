@@ -108,7 +108,7 @@ def test_resolve_secret_passes_plain_and_uses_grant_runner():
 
 
 def test_grant_reference_is_resolved_with_grant_get_argv(monkeypatch):
-    import culture_rules.ops.backup as backup_mod
+    import subprocess
 
     calls = []
 
@@ -119,7 +119,7 @@ def test_grant_reference_is_resolved_with_grant_get_argv(monkeypatch):
         calls.append((argv, kw))
         return Done()
 
-    monkeypatch.setattr(backup_mod.subprocess, "run", fake_run)
+    monkeypatch.setattr(subprocess, "run", fake_run)
     assert resolve_secret("grant:AWS_SECRET_ACCESS_KEY") == "s3cr3t"
     argv, kw = calls[0]
     assert argv == ["grant", "get", "AWS_SECRET_ACCESS_KEY"]
