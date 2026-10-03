@@ -1,0 +1,329 @@
+/*
+ * The 'Chosen — Rules' board: list | stage flow | last runs, and the four
+ * stage shapes (culture-design/stages.tsx). Sizes are the canvas's own.
+ */
+
+.rules-board {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 28px;
+  padding: 24px 40px 32px;
+  align-items: flex-start;
+}
+
+/* ---------- rule list ---------- */
+
+.rule-list {
+  flex: 1 1 260px;
+  max-width: 300px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rule-list__new {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  padding: 14px 18px;
+  border-radius: 16px;
+  border: 2px dashed var(--dash);
+  background: transparent;
+  color: var(--ink);
+  font: 600 17px var(--font-body);
+  transition: border-color 0.2s var(--ease-out);
+}
+
+.rule-list__new:hover {
+  border-color: var(--accent);
+}
+
+.rule-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  transition: background-color 0.2s var(--ease-out);
+}
+
+.rule-row.is-selected {
+  background: var(--surface);
+  box-shadow: 0 0 0 3px var(--m);
+}
+
+/* The canvas dims a disabled rule with opacity 0.5; text stays AA here
+   (ink-soft) and the dot carries the dimming. */
+.rule-row.is-disabled .rule-row__name {
+  color: var(--ink-soft);
+}
+
+.rule-row.is-disabled .machine-dot {
+  opacity: 0.5;
+}
+
+.rule-row__name {
+  flex: 1;
+  color: var(--ink);
+  font-size: 17px;
+  line-height: 1.3;
+  text-decoration: none;
+}
+
+.rule-row__name:hover {
+  color: var(--accent);
+}
+
+.rule-row__name[aria-current="true"] {
+  font-weight: 700;
+}
+
+.machine-dot {
+  flex: none;
+  display: inline-block;
+  border-radius: 50%;
+  background: var(--m);
+}
+
+/* ---------- the flow ---------- */
+
+.rule-flow {
+  flex: 999 1 560px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.rule-flow__head {
+  width: 100%;
+  max-width: 620px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.rule-title {
+  flex: 1;
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 40px;
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: -0.015em;
+}
+
+.placement-chip {
+  height: 40px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 0;
+  background: var(--m-tint);
+  color: var(--machine-none-ink);
+  font: 600 16px var(--font-body);
+}
+
+.placement-chip[data-machine-slot="0"] { color: var(--machine-0-ink); }
+.placement-chip[data-machine-slot="1"] { color: var(--machine-1-ink); }
+.placement-chip[data-machine-slot="2"] { color: var(--machine-2-ink); }
+
+.relationship {
+  width: 100%;
+  max-width: 620px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 18px;
+  border-radius: 16px;
+  border: 2px dashed var(--dash);
+  color: var(--ink-soft);
+  font-size: 16px;
+}
+
+.relationship strong {
+  color: var(--ink);
+}
+
+.relationship-link {
+  width: 2px;
+  height: 22px;
+  background: var(--line);
+}
+
+.stages {
+  width: 100%;
+  max-width: 620px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.stages__item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.stage-arrow path {
+  stroke: var(--arrow);
+}
+
+.stage {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px 22px;
+  border-radius: 22px;
+}
+
+.stage__row {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.stage__icon {
+  flex: none;
+}
+
+.stage__label {
+  font-size: 26px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.stage__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-left: 44px;
+}
+
+.stage__chips--inline {
+  margin-left: auto;
+  padding-left: 0;
+}
+
+.stage--trigger {
+  background: var(--stage-trigger-bg);
+  color: var(--stage-trigger-ink);
+}
+
+.stage--condition {
+  padding: 16px 22px;
+  background: var(--surface);
+  border: 2px dashed var(--dash-strong);
+}
+
+.stage--condition .stage__label {
+  font-weight: 400;
+}
+
+.mono-var {
+  font-family: var(--font-mono);
+  font-size: 22px;
+  color: var(--accent);
+}
+
+.stage--workflow {
+  background: var(--surface);
+  border: 2px solid var(--ink);
+  box-shadow: 6px 6px 0 var(--offset-shadow);
+}
+
+.stage--action {
+  padding: 16px 22px;
+  border-radius: 999px;
+  background: var(--muted);
+}
+
+.stage--action .stage__label {
+  font-weight: 500;
+}
+
+.stage--action .chip--mapping {
+  background: var(--surface);
+}
+
+.add-stage {
+  margin-top: 16px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: 2px dashed var(--dash);
+  background: transparent;
+  color: var(--ink-soft);
+  font: 600 26px var(--font-body);
+  transition:
+    border-color 0.2s var(--ease-out),
+    color 0.2s var(--ease-out);
+}
+
+.add-stage:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* ---------- last runs ---------- */
+
+.last-runs {
+  line-height: 1.15;
+  flex: 1 1 160px;
+  max-width: 180px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 15px;
+  color: var(--ink-soft);
+}
+
+.last-runs__title {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.last-runs__list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.last-runs__run {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.run-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid var(--ink-soft);
+}
+
+.run-dot--succeeded {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.run-dot--failed {
+  border-color: var(--danger);
+}
+
+@media (max-width: 720px) {
+  .rules-board {
+    padding-inline: 16px;
+  }
+
+  .rule-list,
+  .last-runs {
+    max-width: none;
+  }
+}

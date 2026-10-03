@@ -1,0 +1,18 @@
+# Node / Vite build artifacts. package.json and package-lock.json ARE tracked.
+node_modules/
+dist/
+coverage/
+.vite/
+
+# Vite local env overrides — never committed.
+.env.local
+.env.*.local
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+
+# TypeScript incremental build info
+*.tsbuildinfo
