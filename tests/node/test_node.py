@@ -11,6 +11,7 @@ import io
 import json
 import logging
 import threading
+from dataclasses import replace
 
 import pytest
 
@@ -25,7 +26,7 @@ from culture_rules.model.action import Action
 from culture_rules.model.actor import Actor
 from culture_rules.model.placement import Placement
 from culture_rules.model.rule import Rule, Trigger, WorkflowRef
-from culture_rules.node.daemon import CycleReport, Node
+from culture_rules.node.daemon import CycleReport, HeartbeatOptions, Node
 from culture_rules.node.firing import RULE_FIRES, run_id_for
 from culture_rules.ops.logs import JsonFormatter
 from culture_rules.store.memory import MemoryStore
@@ -34,6 +35,12 @@ from tests.engine.run_helpers import Clock, FakeActor, enrol_online, machine, po
 from tests.events.fakes import FakeEventSource, envelope
 
 EVENT_TYPE = "task.requested"
+
+BEATS = HeartbeatOptions(
+    probe=lambda: ProbeResult(tools={"nvidia-smi": False, "tegrastats": True}),
+    load_reader=lambda: {"cpu": 0.1, "mem": 0.2},
+    engine_version="test",
+)
 
 
 def event_rule(id: str, workflow_id: str | None = None, placement: Placement | None = None):
@@ -70,9 +77,7 @@ class Cluster:
             actors={"*": self.actor},
             event_source=self.sources[host],
             clock=self.clock,
-            probe=lambda: ProbeResult(tools={"nvidia-smi": False, "tegrastats": True}),
-            load_reader=lambda: {"cpu": 0.1, "mem": 0.2},
-            engine_version="test",
+            heartbeat_options=BEATS,
             on_evaluated=lambda rule_id, event_id: self.evaluations.append(
                 (host, rule_id, event_id)
             ),
@@ -124,7 +129,12 @@ def test_heartbeat_is_republished_only_when_due():
 
 def test_probe_gpu_load_lands_in_the_heartbeat_load():
     c = Cluster("spark")
-    node = c.node("spark", probe=lambda: ProbeResult(tools={"nvidia-smi": True}, gpu_load=0.5))
+    node = c.node(
+        "spark",
+        heartbeat_options=replace(
+            BEATS, probe=lambda: ProbeResult(tools={"nvidia-smi": True}, gpu_load=0.5)
+        ),
+    )
     node.start()
     assert c.base.get(HEARTBEAT_COLLECTION, "spark")["load"]["gpu"] == 0.5
 
@@ -272,7 +282,7 @@ def test_placed_rule_on_a_drained_host_keeps_its_event_until_undrained():
 
 def test_placed_rule_on_a_host_seen_offline_keeps_its_event_until_it_beats_again():
     c = Cluster("spark", "thor")
-    thor = c.nodes["thor"] = c.node("thor", beat_every=3600)
+    thor = c.nodes["thor"] = c.node("thor", heartbeat_options=replace(BEATS, beat_every=3600))
     c.define(event_rule("on-thor", placement=Placement(machine="thor")))
     c.start()
     c.clock.advance(31)  # thor's heartbeat is now stale: placement sees it offline
@@ -429,8 +439,7 @@ def test_a_transient_store_error_is_recorded_and_the_next_cycle_recovers():
         actors={"*": c.actor},
         event_source=c.sources["spark"],
         clock=c.clock,
-        probe=lambda: ProbeResult(),
-        engine_version="test",
+        heartbeat_options=HeartbeatOptions(probe=lambda: ProbeResult(), engine_version="test"),
     )
     node.start()
     node._store.n = 1  # the next cycle's first find fails transiently

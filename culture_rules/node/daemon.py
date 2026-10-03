@@ -5,7 +5,7 @@ A :class:`Node` on host ``H`` does, every cycle (:meth:`Node.run_once`):
 1. **heartbeat** - at :meth:`Node.start` it probes the platform
    (:func:`~culture_rules.machines.probe.probe_platform`) and publishes a heartbeat
    carrying the probed tools (and GPU load when readable); later cycles re-beat every
-   ``beat_every`` seconds;
+   :attr:`HeartbeatOptions.beat_every` seconds;
 2. **ingest** - drains its own event subscription into the ``events`` collection
    (:class:`~culture_rules.events.ingest.EventIngest`; no source = no ingest);
 3. **evaluate** - polls the per-host consumer for rules placed on ``H`` and the shared
@@ -58,7 +58,7 @@ from culture_rules.node.firing import RULE_FIRES, RuleFiring
 from culture_rules.ops.logs import log_context
 from culture_rules.store.port import Change, Document, StoragePort
 
-__all__ = ["NODE_COLLECTIONS", "CycleReport", "Node"]
+__all__ = ["NODE_COLLECTIONS", "CycleReport", "HeartbeatOptions", "Node"]
 
 log = logging.getLogger("culture_rules.node")
 
@@ -77,6 +77,20 @@ NODE_COLLECTIONS = (
 """Collections a node touches (created up front on MongoDB)."""
 
 DEFAULT_MAX_TICKS = 100
+
+
+@dataclass(frozen=True, kw_only=True)
+class HeartbeatOptions:
+    """How a :class:`Node` probes its platform and beats (inject fakes in tests)."""
+
+    probe: Callable[[], ProbeResult] = probe_platform
+    """Probes the platform once, at :meth:`Node.start`, for tools and GPU load."""
+    load_reader: Callable[[], Mapping[str, float]] = read_load
+    """Reads the current load, on every beat."""
+    engine_version: str | None = None
+    """Published on the heartbeat (``None``: the installed version)."""
+    beat_every: float = HEARTBEAT_INTERVAL_S
+    """Seconds between heartbeats after the first."""
 
 
 @dataclass
@@ -127,10 +141,7 @@ class Node:
         event_source: EventSource | None = None,
         clock: Callable[[], datetime] | None = None,
         lease: timedelta = DEFAULT_LEASE,
-        probe: Callable[[], ProbeResult] = probe_platform,
-        load_reader: Callable[[], Mapping[str, float]] = read_load,
-        engine_version: str | None = None,
-        beat_every: float = HEARTBEAT_INTERVAL_S,
+        heartbeat_options: HeartbeatOptions | None = None,
         reporter: RunReporter | None = None,
         on_evaluated: Callable[[str, str], None] | None = None,
         max_ticks: int = DEFAULT_MAX_TICKS,
@@ -151,10 +162,7 @@ class Node:
             if event_source is not None
             else None
         )
-        self._probe = probe
-        self._load_reader = load_reader
-        self._engine_version = engine_version
-        self._beat_every = beat_every
+        self._beat_options = heartbeat_options or HeartbeatOptions()
         self.heartbeat: HeartbeatPublisher | None = None
         self._last_beat: datetime | None = None
         self._reporter = reporter
@@ -171,11 +179,11 @@ class Node:
         """Probe, beat, and pin the trigger and chain cursors (so later changes are not
         missed)."""
         with log_context(host=self.host):
-            result = self._probe()
+            result = self._beat_options.probe()
             gpu = result.gpu_load
 
             def load() -> dict[str, float]:
-                reading = dict(self._load_reader())
+                reading = dict(self._beat_options.load_reader())
                 if gpu is not None:
                     reading.setdefault("gpu", gpu)
                 return reading
@@ -186,7 +194,7 @@ class Node:
                 tools=result.tools,
                 clock=self._clock,
                 load_reader=load,
-                engine_version=self._engine_version,
+                engine_version=self._beat_options.engine_version,
             )
             doc = self.beat()
             pinned = CycleReport(self.host)
@@ -257,7 +265,7 @@ class Node:
     def _beat_if_due(self, report: CycleReport) -> None:
         now = self._clock()
         due = self._last_beat is None or (now - self._last_beat).total_seconds() >= (
-            self._beat_every
+            self._beat_options.beat_every
         )
         if due:
             self.beat()
