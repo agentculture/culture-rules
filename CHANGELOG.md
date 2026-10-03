@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.1] - 2026-10-03
+
+### Fixed
+
+- `culture-rules node run` no longer dies at startup against the real events-cli: events-cli rejects the raw MQTT filter `#` and has no catch-all pattern, so the node now registers one durable subscription per event-type depth (`*`, `*.*`, ... up to 4 segments) and drains them as one source. Any events-cli setup failure (rejected subscription, unreachable broker) now degrades the node to running without ingest instead of crashing it, and broker drains use a positive timeout (events-cli rejects 0).
+- `/health` reports the node named by the new `CULTURE_RULES_NODE_NAME` (or `serve --node-name`) instead of `socket.gethostname()`; `node run` defaults `--host` to the same variable before the short hostname.
+- `culture-rules mcp` without the `mcp` extra exits 2 with the install hint instead of 1 (anyio/mcp.server.stdio imports now raise `ServerExtraMissing`).
+- `culture-rules serve` with a missing or unreachable store exits 2 naming `CULTURE_RULES_MONGO_URI` and `pip install 'culture-rules[store]'` instead of 1; under `--json` stderr holds only the JSON error.
+- The web Statistics `#agent-state` test asserts `status` reaches `ready` instead of an always-true check.
+
 ## [0.10.0] - 2026-10-03
 
 ### Added
