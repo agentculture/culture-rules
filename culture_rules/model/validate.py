@@ -22,6 +22,7 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from typing import Any, Literal, get_args, get_origin
 
+from culture_rules.model import condition as condition_tree
 from culture_rules.model import serde
 from culture_rules.model.action import Action
 from culture_rules.model.actor import Actor
@@ -266,6 +267,11 @@ def _check_rule(obj: Rule, path: str, errors: Errors) -> None:
     _schema_version(obj.schema_version, _join(path, "schema_version"), errors)
     if obj.exclusive_group is not None:
         _nonempty(obj, ("exclusive_group",), path, errors)
+    if isinstance(obj.condition, dict):
+        try:
+            condition_tree.validate(obj.condition)
+        except condition_tree.ConditionError as exc:
+            _err(errors, _join(path, "condition"), "condition_invalid", str(exc))
     for rel in ("must_after", "may_after", "supersedes"):
         ids = getattr(obj, rel)
         if not isinstance(ids, (tuple, list)):

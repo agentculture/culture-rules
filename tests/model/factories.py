@@ -30,7 +30,12 @@ def make_rule(**kw) -> Rule:
         name="Review merged PRs",
         description="When a PR merges, summarise it",
         trigger=Trigger(kind="event", params={"type": "github.pr.merged"}),
-        condition={"==": [{"var": "trigger.data.base"}, "main"]},
+        condition={
+            "op": "compare",
+            "cmp": "==",
+            "left": {"field": "data.base"},
+            "right": {"literal": "main"},
+        },
         workflow=WorkflowRef(id="wf-summary", version=2, inputs={"pr": "trigger.data.number"}),
         action=make_action(),
         must_after=("r-build",),
