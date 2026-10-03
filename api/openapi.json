@@ -129,6 +129,8 @@
         "type": "object"
       },
       "Health": {
+        "additionalProperties": true,
+        "description": "ops.health.health_status: status is ok, degraded or down; details vary by node.",
         "properties": {
           "status": {
             "title": "Status",
@@ -993,17 +995,7 @@
             },
             "description": "Successful Response"
           },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          },
-          "501": {
+          "404": {
             "content": {
               "application/json": {
                 "schema": {
@@ -1011,7 +1003,27 @@
                 }
               }
             },
-            "description": "Not implemented yet"
+            "description": "No such ask"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Already answered or expired"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Answer not one of the options"
           }
         },
         "summary": "Answer",

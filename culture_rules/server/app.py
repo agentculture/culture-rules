@@ -10,13 +10,15 @@ from __future__ import annotations
 
 import socket
 from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, Header, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
+from culture_rules.actors import human
 from culture_rules.engine.audit import AuditError, AuditLog
 from culture_rules.engine.lifecycle import Lifecycle, LifecycleError, PermissionDenied
 from culture_rules.engine.runs import (
@@ -28,6 +30,7 @@ from culture_rules.engine.runs import (
     drained_machines,
     is_paused,
 )
+from culture_rules.ops.health import health_status
 from culture_rules.server import events
 from culture_rules.server.service import (
     DEFINITION_KINDS,
@@ -71,6 +74,9 @@ class ErrorEnvelope(BaseModel):
 
 
 class Health(BaseModel):
+    """ops.health.health_status: status is ok, degraded or down; details vary by node."""
+
+    model_config = ConfigDict(extra="allow")
     status: str
 
 
@@ -142,9 +148,12 @@ def current_identity(
 Identity = Annotated[str, Depends(current_identity)]
 
 
-def answer_ask_not_implemented(store: StoragePort, ask_id: str, answer: Any, identity: str) -> Any:
-    """TODO(t17): replaced by the human-actor ask delivery function when it lands."""
-    raise NotImplementedError("asks are delivered by the human actor adapter (t17)")
+def _ask_status(code: str) -> int:
+    if code == "ask_not_found":
+        return 404
+    if code in ("invalid_answer", "unsupported_schema_version"):
+        return 422
+    return 409  # ask_already_answered, ask_expired
 
 
 # --------------------------------------------------------------------------- app
@@ -194,6 +203,10 @@ def _install_errors(app: FastAPI) -> None:
     async def _run(request: Request, exc: RunError) -> JSONResponse:
         return _envelope(_run_status(exc.code), exc.code, exc.message, exc.details)
 
+    @app.exception_handler(human.AskError)
+    async def _ask(request: Request, exc: human.AskError) -> JSONResponse:
+        return _envelope(_ask_status(exc.code), exc.code, exc.message)
+
     @app.exception_handler(NotImplementedError)
     async def _todo(request: Request, exc: NotImplementedError) -> JSONResponse:
         return _envelope(501, "not_implemented", str(exc))
@@ -225,7 +238,7 @@ def create_app(
     *,
     admins: tuple[str, ...] = (),
     host: str | None = None,
-    answer_ask: AnswerAsk = answer_ask_not_implemented,
+    answer_ask: AnswerAsk | None = None,
 ) -> FastAPI:
     """Build the API over ``store``. Holds configuration only, never request state."""
     ensure = getattr(store, "ensure_collections", None)
@@ -235,7 +248,12 @@ def create_app(
     defs = Definitions(store, audit)
     life = Lifecycle(store, audit, admins=admins)
     containment = Containment(store, audit)
-    executor = Executor(store, host or socket.gethostname(), {}, audit=audit)
+    node = host or socket.gethostname()
+    executor = Executor(store, node, {}, audit=audit)
+    if answer_ask is None:
+
+        def answer_ask(store_: StoragePort, ask_id: str, answer: Any, identity: str) -> Any:
+            return human.answer_ask(store_, executor, ask_id, answer, identity, audit=audit)
 
     app = FastAPI(
         title="culture-rules API",
@@ -250,8 +268,7 @@ def create_app(
 
     @app.get("/health", response_model=Health, tags=["ops"], operation_id="health")
     def health() -> Health:
-        # TODO: the main agent wires ops.health.health_status here.
-        return Health(status="ok")
+        return Health(**health_status(store, datetime.now(UTC), node))
 
     for kind in DEFINITION_KINDS:
         _register_kind(app, kind, defs, life)
@@ -380,7 +397,11 @@ def create_app(
         "/asks/{ask_id}/answer",
         tags=["asks"],
         operation_id="answer_ask",
-        responses={501: {"model": ErrorEnvelope, "description": "Not implemented yet"}},
+        responses={
+            404: {"model": ErrorEnvelope, "description": "No such ask"},
+            409: {"model": ErrorEnvelope, "description": "Already answered or expired"},
+            422: {"model": ErrorEnvelope, "description": "Answer not one of the options"},
+        },
         response_model=dict[str, Any],
     )
     def answer(ask_id: str, body: AskAnswer, identity: Identity):

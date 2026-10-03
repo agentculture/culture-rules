@@ -11,8 +11,10 @@ from culture_rules.store.memory import MemoryStore
 from tests.server.conftest import ALICE, rule_body, workflow_body
 
 
-def test_health_stub(client):
-    assert client.get("/health").json() == {"status": "ok"}
+def test_health_reports_node_status(client):
+    body = client.get("/health").json()
+    assert body["status"] in ("ok", "degraded", "down")
+    assert body["store"]["reachable"] is True and "heartbeat" in body and "executor" in body
 
 
 def test_rule_crud_roundtrip(client):
@@ -147,9 +149,9 @@ def test_import_with_rule_set_error_is_422(client):
     assert client.get("/rules").json()["items"] == []
 
 
-def test_asks_answer_is_an_unimplemented_stub(client):
+def test_unknown_ask_is_404(client):
     r = client.post("/asks/a1/answer", json={"answer": "yes"}, headers=ALICE)
-    assert r.status_code == 501 and r.json()["error"]["code"] == "not_implemented"
+    assert r.status_code == 404 and r.json()["error"]["code"] == "ask_not_found"
 
 
 def test_asks_answer_hook_is_injectable(store):
