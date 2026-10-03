@@ -23,6 +23,8 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 
+from culture_rules.server.caching import ASSET, SHELL
+
 __all__ = ["API_PREFIX", "default_web_dist", "install"]
 
 API_PREFIX = "/api"
@@ -76,7 +78,8 @@ def install(app: FastAPI, web_dist: Path | None) -> bool:
             )
         candidate = (root / path).resolve()
         if path and candidate.is_file() and candidate.is_relative_to(root):
-            return FileResponse(candidate)
+            hashed = candidate.is_relative_to(root / "assets")
+            return FileResponse(candidate, headers={"Cache-Control": ASSET if hashed else SHELL})
         if path and "text/html" not in request.headers.get("accept", ""):
             # not a browser navigation and not a built file: an API client asked for a path
             # that is no route, so answer like the API does instead of with the SPA page
@@ -84,7 +87,7 @@ def install(app: FastAPI, web_dist: Path | None) -> bool:
                 {"error": {"code": "not_found", "message": "no such route", "errors": []}},
                 status_code=404,
             )
-        return FileResponse(index)
+        return FileResponse(index, headers={"Cache-Control": SHELL})
 
     app.add_middleware(_ApiPrefix)
     return True
