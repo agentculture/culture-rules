@@ -222,6 +222,55 @@
         "title": "ImportRequest",
         "type": "object"
       },
+      "IssuedTokenBody": {
+        "additionalProperties": true,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "identity": {
+            "title": "Identity",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "revoked_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revoked At"
+          },
+          "roles": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Roles",
+            "type": "array"
+          },
+          "token": {
+            "description": "the bearer secret; shown once, stored only as a hash",
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "identity",
+          "kind",
+          "roles",
+          "token"
+        ],
+        "title": "IssuedTokenBody",
+        "type": "object"
+      },
       "ItemList": {
         "properties": {
           "items": {
@@ -237,6 +286,41 @@
           "items"
         ],
         "title": "ItemList",
+        "type": "object"
+      },
+      "PurgeRequest": {
+        "properties": {
+          "apply": {
+            "default": false,
+            "description": "false = dry-run: check only, remove nothing",
+            "title": "Apply",
+            "type": "boolean"
+          }
+        },
+        "title": "PurgeRequest",
+        "type": "object"
+      },
+      "PurgeResult": {
+        "properties": {
+          "applied": {
+            "title": "Applied",
+            "type": "boolean"
+          },
+          "collection": {
+            "title": "Collection",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "collection",
+          "id",
+          "applied"
+        ],
+        "title": "PurgeResult",
         "type": "object"
       },
       "RunCancel": {
@@ -283,6 +367,93 @@
         "title": "RunStart",
         "type": "object"
       },
+      "TokenIssue": {
+        "properties": {
+          "kind": {
+            "default": "service",
+            "description": "service | agent",
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "description": "the identity the token authenticates as",
+            "title": "Name",
+            "type": "string"
+          },
+          "roles": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Roles",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "roles"
+        ],
+        "title": "TokenIssue",
+        "type": "object"
+      },
+      "TokenList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TokenRecord"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "TokenList",
+        "type": "object"
+      },
+      "TokenRecord": {
+        "additionalProperties": true,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "identity": {
+            "title": "Identity",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "revoked_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revoked At"
+          },
+          "roles": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Roles",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "identity",
+          "kind",
+          "roles"
+        ],
+        "title": "TokenRecord",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -322,6 +493,47 @@
         ],
         "title": "ValidationError",
         "type": "object"
+      },
+      "WhoAmI": {
+        "properties": {
+          "identity": {
+            "title": "Identity",
+            "type": "string"
+          },
+          "kind": {
+            "description": "sso | service | agent",
+            "title": "Kind",
+            "type": "string"
+          },
+          "roles": {
+            "description": "viewer < editor < admin",
+            "items": {
+              "type": "string"
+            },
+            "title": "Roles",
+            "type": "array"
+          }
+        },
+        "required": [
+          "identity",
+          "kind",
+          "roles"
+        ],
+        "title": "WhoAmI",
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "APIKeyHeader": {
+        "description": "Cloudflare Access JWT (honoured on the loopback listener only)",
+        "in": "header",
+        "name": "Cf-Access-Jwt-Assertion",
+        "type": "apiKey"
+      },
+      "HTTPBearer": {
+        "description": "Service token: Bearer crt_<id>.<secret>",
+        "scheme": "bearer",
+        "type": "http"
       }
     }
   },
@@ -358,6 +570,26 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -369,6 +601,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "List Items",
         "tags": [
           "actors"
@@ -376,26 +616,6 @@
       },
       "post": {
         "operationId": "create_actor",
-        "parameters": [
-          {
-            "description": "Principal set by the auth layer; default 'anonymous'",
-            "in": "header",
-            "name": "x-culture-identity",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Principal set by the auth layer; default 'anonymous'",
-              "title": "X-Culture-Identity"
-            }
-          }
-        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -421,6 +641,26 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
           "409": {
             "content": {
               "application/json": {
@@ -442,6 +682,14 @@
             "description": "Validation failed (errors listed)"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Create",
         "tags": [
           "actors"
@@ -460,24 +708,6 @@
               "title": "Id",
               "type": "string"
             }
-          },
-          {
-            "description": "Principal set by the auth layer; default 'anonymous'",
-            "in": "header",
-            "name": "x-culture-identity",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Principal set by the auth layer; default 'anonymous'",
-              "title": "X-Culture-Identity"
-            }
           }
         ],
         "responses": {
@@ -492,6 +722,26 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
           },
           "404": {
             "content": {
@@ -524,6 +774,14 @@
             "description": "Validation failed (errors listed)"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Delete",
         "tags": [
           "actors"
@@ -555,6 +813,26 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -576,6 +854,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Get Item",
         "tags": [
           "actors"
@@ -591,24 +877,6 @@
             "schema": {
               "title": "Id",
               "type": "string"
-            }
-          },
-          {
-            "description": "Principal set by the auth layer; default 'anonymous'",
-            "in": "header",
-            "name": "x-culture-identity",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Principal set by the auth layer; default 'anonymous'",
-              "title": "X-Culture-Identity"
             }
           }
         ],
@@ -637,6 +905,26 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -668,6 +956,14 @@
             "description": "Validation failed (errors listed)"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Update",
         "tags": [
           "actors"
@@ -696,24 +992,6 @@
               "title": " Flag",
               "type": "boolean"
             }
-          },
-          {
-            "description": "Principal set by the auth layer; default 'anonymous'",
-            "in": "header",
-            "name": "x-culture-identity",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Principal set by the auth layer; default 'anonymous'",
-              "title": "X-Culture-Identity"
-            }
           }
         ],
         "responses": {
@@ -728,6 +1006,26 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
           },
           "404": {
             "content": {
@@ -760,6 +1058,14 @@
             "description": "Validation failed (errors listed)"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Toggle",
         "tags": [
           "actors"
@@ -788,24 +1094,6 @@
               "title": " Flag",
               "type": "boolean"
             }
-          },
-          {
-            "description": "Principal set by the auth layer; default 'anonymous'",
-            "in": "header",
-            "name": "x-culture-identity",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Principal set by the auth layer; default 'anonymous'",
-              "title": "X-Culture-Identity"
-            }
           }
         ],
         "responses": {
@@ -820,6 +1108,26 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
           },
           "404": {
             "content": {
@@ -852,7 +1160,122 @@
             "description": "Validation failed (errors listed)"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Toggle",
+        "tags": [
+          "actors"
+        ]
+      }
+    },
+    "/actors/{id}/purge": {
+      "post": {
+        "operationId": "purge_actor",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "title": "Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/PurgeRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PurgeResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Wrong state / already exists"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Validation failed (errors listed)"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Purge",
         "tags": [
           "actors"
         ]
@@ -870,24 +1293,6 @@
               "title": "Id",
               "type": "string"
             }
-          },
-          {
-            "description": "Principal set by the auth layer; default 'anonymous'",
-            "in": "header",
-            "name": "x-culture-identity",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Principal set by the auth layer; default 'anonymous'",
-              "title": "X-Culture-Identity"
-            }
           }
         ],
         "responses": {
@@ -902,6 +1307,26 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
           },
           "404": {
             "content": {
@@ -934,6 +1359,14 @@
             "description": "Validation failed (errors listed)"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Restore",
         "tags": [
           "actors"
@@ -951,24 +1384,6 @@
             "schema": {
               "title": "Ask Id",
               "type": "string"
-            }
-          },
-          {
-            "description": "Principal set by the auth layer; default 'anonymous'",
-            "in": "header",
-            "name": "x-culture-identity",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Principal set by the auth layer; default 'anonymous'",
-              "title": "X-Culture-Identity"
             }
           }
         ],
@@ -994,6 +1409,26 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
           },
           "404": {
             "content": {
@@ -1026,6 +1461,14 @@
             "description": "Answer not one of the options"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Answer",
         "tags": [
           "asks"
@@ -1045,8 +1488,36 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Get Controls",
         "tags": [
           "controls"
@@ -1056,26 +1527,6 @@
     "/controls/pause": {
       "post": {
         "operationId": "pause_engine",
-        "parameters": [
-          {
-            "description": "Principal set by the auth layer; default 'anonymous'",
-            "in": "header",
-            "name": "x-culture-identity",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Principal set by the auth layer; default 'anonymous'",
-              "title": "X-Culture-Identity"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "content": {
@@ -1087,6 +1538,26 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
           "409": {
             "content": {
               "application/json": {
@@ -1096,18 +1567,16 @@
               }
             },
             "description": "Wrong state / already exists"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Pause",
         "tags": [
           "controls"
@@ -1117,26 +1586,6 @@
     "/controls/resume": {
       "post": {
         "operationId": "resume_engine",
-        "parameters": [
-          {
-            "description": "Principal set by the auth layer; default 'anonymous'",
-            "in": "header",
-            "name": "x-culture-identity",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Principal set by the auth layer; default 'anonymous'",
-              "title": "X-Culture-Identity"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "content": {
@@ -1148,6 +1597,26 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
           "409": {
             "content": {
               "application/json": {
@@ -1157,18 +1626,16 @@
               }
             },
             "description": "Wrong state / already exists"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Resume",
         "tags": [
           "controls"
@@ -1269,6 +1736,26 @@
             },
             "description": "Server-sent events: one `change` event per committed write"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -1280,6 +1767,14 @@
             "description": "Validation failed (errors listed)"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Stream",
         "tags": [
           "events"
@@ -1312,6 +1807,26 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -1323,6 +1838,14 @@
             "description": "Validation failed (errors listed)"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Export",
         "tags": [
           "exchange"
@@ -1342,8 +1865,36 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Health",
         "tags": [
           "ops"
@@ -1353,26 +1904,6 @@
     "/import": {
       "post": {
         "operationId": "import_definitions",
-        "parameters": [
-          {
-            "description": "Principal set by the auth layer; default 'anonymous'",
-            "in": "header",
-            "name": "x-culture-identity",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Principal set by the auth layer; default 'anonymous'",
-              "title": "X-Culture-Identity"
-            }
-          }
-        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -1394,6 +1925,26 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -1405,6 +1956,14 @@
             "description": "Validation failed (errors listed)"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Import Definitions",
         "tags": [
           "exchange"
@@ -1437,6 +1996,26 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -1448,6 +2027,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "List Items",
         "tags": [
           "machines"
@@ -1455,26 +2042,6 @@
       },
       "post": {
         "operationId": "create_machine",
-        "parameters": [
-          {
-            "description": "Principal set by the auth layer; default 'anonymous'",
-            "in": "header",
-            "name": "x-culture-identity",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Principal set by the auth layer; default 'anonymous'",
-              "title": "X-Culture-Identity"
-            }
-          }
-        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -1500,6 +2067,26 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
           "409": {
             "content": {
               "application/json": {
@@ -1521,6 +2108,14 @@
             "description": "Validation failed (errors listed)"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Create",
         "tags": [
           "machines"
@@ -1539,24 +2134,6 @@
               "title": "Id",
               "type": "string"
             }
-          },
-          {
-            "description": "Principal set by the auth layer; default 'anonymous'",
-            "in": "header",
-            "name": "x-culture-identity",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Principal set by the auth layer; default 'anonymous'",
-              "title": "X-Culture-Identity"
-            }
           }
         ],
         "responses": {
@@ -1571,6 +2148,26 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
           },
           "404": {
             "content": {
@@ -1603,6 +2200,14 @@
             "description": "Validation failed (errors listed)"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Delete",
         "tags": [
           "machines"
@@ -1634,6 +2239,26 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -1655,6 +2280,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Get Item",
         "tags": [
           "machines"
@@ -1670,24 +2303,6 @@
             "schema": {
               "title": "Id",
               "type": "string"
-            }
-          },
-          {
-            "description": "Principal set by the auth layer; default 'anonymous'",
-            "in": "header",
-            "name": "x-culture-identity",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Principal set by the auth layer; default 'anonymous'",
-              "title": "X-Culture-Identity"
             }
           }
         ],
@@ -1716,6 +2331,26 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -1747,6 +2382,14 @@
             "description": "Validation failed (errors listed)"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Update",
         "tags": [
           "machines"
@@ -1775,24 +2418,6 @@
               "title": " Flag",
               "type": "boolean"
             }
-          },
-          {
-            "description": "Principal set by the auth layer; default 'anonymous'",
-            "in": "header",
-            "name": "x-culture-identity",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Principal set by the auth layer; default 'anonymous'",
-              "title": "X-Culture-Identity"
-            }
           }
         ],
         "responses": {
@@ -1807,6 +2432,26 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
           },
           "404": {
             "content": {
@@ -1839,6 +2484,14 @@
             "description": "Validation failed (errors listed)"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Toggle",
         "tags": [
           "machines"
@@ -1867,24 +2520,6 @@
               "title": " Flag",
               "type": "boolean"
             }
-          },
-          {
-            "description": "Principal set by the auth layer; default 'anonymous'",
-            "in": "header",
-            "name": "x-culture-identity",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Principal set by the auth layer; default 'anonymous'",
-              "title": "X-Culture-Identity"
-            }
           }
         ],
         "responses": {
@@ -1899,6 +2534,26 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
           },
           "404": {
             "content": {
@@ -1931,7 +2586,122 @@
             "description": "Validation failed (errors listed)"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Toggle",
+        "tags": [
+          "machines"
+        ]
+      }
+    },
+    "/machines/{id}/purge": {
+      "post": {
+        "operationId": "purge_machine",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "title": "Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/PurgeRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PurgeResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Wrong state / already exists"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Validation failed (errors listed)"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Purge",
         "tags": [
           "machines"
         ]
@@ -1949,24 +2719,6 @@
               "title": "Id",
               "type": "string"
             }
-          },
-          {
-            "description": "Principal set by the auth layer; default 'anonymous'",
-            "in": "header",
-            "name": "x-culture-identity",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Principal set by the auth layer; default 'anonymous'",
-              "title": "X-Culture-Identity"
-            }
           }
         ],
         "responses": {
@@ -1981,6 +2733,26 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
           },
           "404": {
             "content": {
@@ -2013,6 +2785,14 @@
             "description": "Validation failed (errors listed)"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Restore",
         "tags": [
           "machines"
@@ -2031,24 +2811,6 @@
               "title": "Name",
               "type": "string"
             }
-          },
-          {
-            "description": "Principal set by the auth layer; default 'anonymous'",
-            "in": "header",
-            "name": "x-culture-identity",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Principal set by the auth layer; default 'anonymous'",
-              "title": "X-Culture-Identity"
-            }
           }
         ],
         "responses": {
@@ -2061,6 +2823,26 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
           },
           "409": {
             "content": {
@@ -2083,6 +2865,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Drain",
         "tags": [
           "controls"
@@ -2101,24 +2891,6 @@
               "title": "Name",
               "type": "string"
             }
-          },
-          {
-            "description": "Principal set by the auth layer; default 'anonymous'",
-            "in": "header",
-            "name": "x-culture-identity",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Principal set by the auth layer; default 'anonymous'",
-              "title": "X-Culture-Identity"
-            }
           }
         ],
         "responses": {
@@ -2131,6 +2903,26 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
           },
           "409": {
             "content": {
@@ -2153,6 +2945,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Undrain",
         "tags": [
           "controls"
@@ -2185,6 +2985,26 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -2196,6 +3016,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "List Items",
         "tags": [
           "rules"
@@ -2203,26 +3031,6 @@
       },
       "post": {
         "operationId": "create_rule",
-        "parameters": [
-          {
-            "description": "Principal set by the auth layer; default 'anonymous'",
-            "in": "header",
-            "name": "x-culture-identity",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Principal set by the auth layer; default 'anonymous'",
-              "title": "X-Culture-Identity"
-            }
-          }
-        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -2248,6 +3056,26 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
           "409": {
             "content": {
               "application/json": {
@@ -2269,6 +3097,14 @@
             "description": "Validation failed (errors listed)"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Create",
         "tags": [
           "rules"
@@ -2287,24 +3123,6 @@
               "title": "Id",
               "type": "string"
             }
-          },
-          {
-            "description": "Principal set by the auth layer; default 'anonymous'",
-            "in": "header",
-            "name": "x-culture-identity",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Principal set by the auth layer; default 'anonymous'",
-              "title": "X-Culture-Identity"
-            }
           }
         ],
         "responses": {
@@ -2319,6 +3137,26 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
           },
           "404": {
             "content": {
@@ -2351,6 +3189,14 @@
             "description": "Validation failed (errors listed)"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Delete",
         "tags": [
           "rules"
@@ -2382,6 +3228,26 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -2403,6 +3269,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Get Item",
         "tags": [
           "rules"
@@ -2418,24 +3292,6 @@
             "schema": {
               "title": "Id",
               "type": "string"
-            }
-          },
-          {
-            "description": "Principal set by the auth layer; default 'anonymous'",
-            "in": "header",
-            "name": "x-culture-identity",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Principal set by the auth layer; default 'anonymous'",
-              "title": "X-Culture-Identity"
             }
           }
         ],
@@ -2464,6 +3320,26 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -2495,6 +3371,14 @@
             "description": "Validation failed (errors listed)"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Update",
         "tags": [
           "rules"
@@ -2523,24 +3407,6 @@
               "title": " Flag",
               "type": "boolean"
             }
-          },
-          {
-            "description": "Principal set by the auth layer; default 'anonymous'",
-            "in": "header",
-            "name": "x-culture-identity",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Principal set by the auth layer; default 'anonymous'",
-              "title": "X-Culture-Identity"
-            }
           }
         ],
         "responses": {
@@ -2555,6 +3421,26 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
           },
           "404": {
             "content": {
@@ -2587,6 +3473,14 @@
             "description": "Validation failed (errors listed)"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Toggle",
         "tags": [
           "rules"
@@ -2615,24 +3509,6 @@
               "title": " Flag",
               "type": "boolean"
             }
-          },
-          {
-            "description": "Principal set by the auth layer; default 'anonymous'",
-            "in": "header",
-            "name": "x-culture-identity",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Principal set by the auth layer; default 'anonymous'",
-              "title": "X-Culture-Identity"
-            }
           }
         ],
         "responses": {
@@ -2647,6 +3523,26 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
           },
           "404": {
             "content": {
@@ -2679,7 +3575,122 @@
             "description": "Validation failed (errors listed)"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Toggle",
+        "tags": [
+          "rules"
+        ]
+      }
+    },
+    "/rules/{id}/purge": {
+      "post": {
+        "operationId": "purge_rule",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "title": "Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/PurgeRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PurgeResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Wrong state / already exists"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Validation failed (errors listed)"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Purge",
         "tags": [
           "rules"
         ]
@@ -2697,24 +3708,6 @@
               "title": "Id",
               "type": "string"
             }
-          },
-          {
-            "description": "Principal set by the auth layer; default 'anonymous'",
-            "in": "header",
-            "name": "x-culture-identity",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Principal set by the auth layer; default 'anonymous'",
-              "title": "X-Culture-Identity"
-            }
           }
         ],
         "responses": {
@@ -2729,6 +3722,26 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
           },
           "404": {
             "content": {
@@ -2761,6 +3774,14 @@
             "description": "Validation failed (errors listed)"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Restore",
         "tags": [
           "rules"
@@ -2825,6 +3846,26 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -2836,6 +3877,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "List Runs",
         "tags": [
           "runs"
@@ -2843,26 +3892,6 @@
       },
       "post": {
         "operationId": "start_run",
-        "parameters": [
-          {
-            "description": "Principal set by the auth layer; default 'anonymous'",
-            "in": "header",
-            "name": "x-culture-identity",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Principal set by the auth layer; default 'anonymous'",
-              "title": "X-Culture-Identity"
-            }
-          }
-        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -2885,6 +3914,26 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
           },
           "404": {
             "content": {
@@ -2917,6 +3966,14 @@
             "description": "Validation failed (errors listed)"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Start Run",
         "tags": [
           "runs"
@@ -2950,6 +4007,26 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -2971,6 +4048,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Get Run",
         "tags": [
           "runs"
@@ -2988,24 +4073,6 @@
             "schema": {
               "title": "Run Id",
               "type": "string"
-            }
-          },
-          {
-            "description": "Principal set by the auth layer; default 'anonymous'",
-            "in": "header",
-            "name": "x-culture-identity",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Principal set by the auth layer; default 'anonymous'",
-              "title": "X-Culture-Identity"
             }
           }
         ],
@@ -3039,6 +4106,26 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -3070,9 +4157,272 @@
             "description": "Validation failed (errors listed)"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Cancel Run",
         "tags": [
           "runs"
+        ]
+      }
+    },
+    "/service-tokens": {
+      "get": {
+        "operationId": "list_service_tokens",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "List Tokens",
+        "tags": [
+          "auth"
+        ]
+      },
+      "post": {
+        "operationId": "issue_service_token",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenIssue"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssuedTokenBody"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Validation failed (errors listed)"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Issue Token",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/service-tokens/{token_id}": {
+      "delete": {
+        "operationId": "revoke_service_token",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "token_id",
+            "required": true,
+            "schema": {
+              "title": "Token Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Wrong state / already exists"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Revoke Token",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/whoami": {
+      "get": {
+        "operationId": "whoami",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WhoAmI"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Whoami",
+        "tags": [
+          "auth"
         ]
       }
     },
@@ -3102,6 +4452,26 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -3113,6 +4483,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "List Items",
         "tags": [
           "workflows"
@@ -3120,26 +4498,6 @@
       },
       "post": {
         "operationId": "create_workflow",
-        "parameters": [
-          {
-            "description": "Principal set by the auth layer; default 'anonymous'",
-            "in": "header",
-            "name": "x-culture-identity",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Principal set by the auth layer; default 'anonymous'",
-              "title": "X-Culture-Identity"
-            }
-          }
-        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -3165,6 +4523,26 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
           "409": {
             "content": {
               "application/json": {
@@ -3186,6 +4564,14 @@
             "description": "Validation failed (errors listed)"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Create",
         "tags": [
           "workflows"
@@ -3204,24 +4590,6 @@
               "title": "Id",
               "type": "string"
             }
-          },
-          {
-            "description": "Principal set by the auth layer; default 'anonymous'",
-            "in": "header",
-            "name": "x-culture-identity",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Principal set by the auth layer; default 'anonymous'",
-              "title": "X-Culture-Identity"
-            }
           }
         ],
         "responses": {
@@ -3236,6 +4604,26 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
           },
           "404": {
             "content": {
@@ -3268,6 +4656,14 @@
             "description": "Validation failed (errors listed)"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Delete",
         "tags": [
           "workflows"
@@ -3299,6 +4695,26 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -3320,6 +4736,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Get Item",
         "tags": [
           "workflows"
@@ -3335,24 +4759,6 @@
             "schema": {
               "title": "Id",
               "type": "string"
-            }
-          },
-          {
-            "description": "Principal set by the auth layer; default 'anonymous'",
-            "in": "header",
-            "name": "x-culture-identity",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Principal set by the auth layer; default 'anonymous'",
-              "title": "X-Culture-Identity"
             }
           }
         ],
@@ -3381,6 +4787,26 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -3412,6 +4838,14 @@
             "description": "Validation failed (errors listed)"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Update",
         "tags": [
           "workflows"
@@ -3440,24 +4874,6 @@
               "title": " Flag",
               "type": "boolean"
             }
-          },
-          {
-            "description": "Principal set by the auth layer; default 'anonymous'",
-            "in": "header",
-            "name": "x-culture-identity",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Principal set by the auth layer; default 'anonymous'",
-              "title": "X-Culture-Identity"
-            }
           }
         ],
         "responses": {
@@ -3472,6 +4888,26 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
           },
           "404": {
             "content": {
@@ -3504,6 +4940,14 @@
             "description": "Validation failed (errors listed)"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Toggle",
         "tags": [
           "workflows"
@@ -3532,24 +4976,6 @@
               "title": " Flag",
               "type": "boolean"
             }
-          },
-          {
-            "description": "Principal set by the auth layer; default 'anonymous'",
-            "in": "header",
-            "name": "x-culture-identity",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Principal set by the auth layer; default 'anonymous'",
-              "title": "X-Culture-Identity"
-            }
           }
         ],
         "responses": {
@@ -3564,6 +4990,26 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
           },
           "404": {
             "content": {
@@ -3596,7 +5042,122 @@
             "description": "Validation failed (errors listed)"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Toggle",
+        "tags": [
+          "workflows"
+        ]
+      }
+    },
+    "/workflows/{id}/purge": {
+      "post": {
+        "operationId": "purge_workflow",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "title": "Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/PurgeRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PurgeResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Wrong state / already exists"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Validation failed (errors listed)"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Purge",
         "tags": [
           "workflows"
         ]
@@ -3614,24 +5175,6 @@
               "title": "Id",
               "type": "string"
             }
-          },
-          {
-            "description": "Principal set by the auth layer; default 'anonymous'",
-            "in": "header",
-            "name": "x-culture-identity",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Principal set by the auth layer; default 'anonymous'",
-              "title": "X-Culture-Identity"
-            }
           }
         ],
         "responses": {
@@ -3646,6 +5189,26 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
           },
           "404": {
             "content": {
@@ -3678,6 +5241,14 @@
             "description": "Validation failed (errors listed)"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Restore",
         "tags": [
           "workflows"
