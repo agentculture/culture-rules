@@ -65,6 +65,27 @@ A dependant still fires at most once per event: its intent id is
 and the re-evaluation always writes the (rule, event) decision record, so it conflicts with
 a concurrent first evaluation of the same rule rather than racing past it. The waiting
 record is superseded by the outcome (:func:`~culture_rules.engine.decisions.settle_decision`).
+
+Pause
+=====
+A global pause (:meth:`~culture_rules.engine.runs.Containment.pause`) treats the two paths
+differently, on purpose:
+
+* **a new trigger event that arrives while paused is dropped** (spec h175: "after global
+  pause, a matching event fires nothing"). The trigger consumers evaluate it, every rule
+  decides ``paused`` (not recorded), and the fire marker and cursor commit: it does not
+  fire after resume either;
+* **a chain re-evaluation is deferred, not dropped.** A dependant already waiting
+  (``blocked_by_predecessor``) was accepted for its event before the pause; its
+  predecessor settling during the pause must not finalize it as a ``paused`` skip. The
+  chain handler raises :class:`Deferred` instead, so the transaction rolls back: no
+  marker, no decision write, and that feed's cursor stays before the settle. Every poll
+  during the pause defers it again (reported on the cycle's ``deferred``); the first poll
+  after resume re-evaluates it exactly once, as if the settle had just happened. The state
+  is the persisted cursor itself, so a node restart during the pause changes nothing.
+  Later changes on the same feed wait behind it, in order - harmless, since nothing can
+  fire while paused.
+
 Standard-library only.
 """
 
@@ -333,8 +354,13 @@ class RuleFiring:
         if not dependants:
             return
         ours = self._ours(tx, [r for r in rules if r.id in dependants], event_id, placed=placed)
-        if ours:
-            self._decide(tx, envelope, rules, ours, marker_id, placed=placed, chained=True)
+        if not ours:
+            return
+        if is_paused(tx):
+            # Not an outcome: keep the waiting record, the marker and the cursor unwritten
+            # so the re-evaluation happens once the pause lifts (module doc, "Pause").
+            raise Deferred(", ".join(sorted(ours)), event_id, "paused: re-evaluated on resume")
+        self._decide(tx, envelope, rules, ours, marker_id, placed=placed, chained=True)
 
     def _facts(
         self, tx: StoreOps, rules: list[Rule], event_id: str

@@ -36,6 +36,7 @@ from culture_rules.engine.matching import (
     BLOCKED_BY_PREDECESSOR,
     FIRE,
     GROUP_LOST,
+    PAUSED,
     PREDECESSOR_FAILED,
     SUPERSEDED_BY,
     Decision,
@@ -124,7 +125,9 @@ def settle_decision(
       refreshed when the set of awaited predecessors changed);
     * a waiting record and any other decision: the record takes the new outcome and the
       waiting state is appended to its ``superseded`` list. A fire names the
-      predecessors it waited for (``by``) and its ``run_id``;
+      predecessors it waited for (``by``) and its ``run_id``. A ``paused`` decision is
+      not an outcome and leaves a waiting record as it is (the node defers a chain
+      re-evaluation during a pause, :mod:`culture_rules.node.firing`, "Pause");
     * a final record: left as it is (redelivery).
     """
     key = decision_key(decision.rule_id, event_id)
@@ -139,7 +142,7 @@ def settle_decision(
             RULE_DECISIONS,
             _record(decision, event_id=event_id, host=host, at=at, run_id=run_id),
         )
-    if existing.get("reason") != BLOCKED_BY_PREDECESSOR:
+    if existing.get("reason") != BLOCKED_BY_PREDECESSOR or decision.reason == PAUSED:
         return existing
     if waiting:
         return _refresh_waiting(tx, key, decision, existing)
