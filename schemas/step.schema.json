@@ -1,0 +1,314 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "step.schema.json",
+  "title": "Step",
+  "x-schema-version": "1.0",
+  "type": "object",
+  "description": "One unit of work. Loop kinds (for_each, retry_until) require max_iterations.",
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Step id, unique within the workflow (including loop bodies)"
+    },
+    "name": {
+      "type": "string",
+      "description": "Display name",
+      "default": ""
+    },
+    "description": {
+      "type": "string",
+      "description": "Free text",
+      "default": ""
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "logic",
+        "ai",
+        "code",
+        "actor_task",
+        "for_each",
+        "retry_until"
+      ],
+      "description": "logic | ai | code | actor_task | for_each | retry_until"
+    },
+    "inputs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Port"
+      },
+      "description": "Typed input ports",
+      "default": []
+    },
+    "outputs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Port"
+      },
+      "description": "Typed output ports",
+      "default": []
+    },
+    "placement": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Placement"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Where the step runs; null means engine default",
+      "default": null
+    },
+    "timeout_s": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Timeout in seconds (> 0)",
+      "default": null
+    },
+    "retry": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RetryPolicy"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Retry policy",
+      "default": null
+    },
+    "config": {
+      "type": "object",
+      "description": "Kind-specific configuration",
+      "default": {}
+    },
+    "max_iterations": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Loop bound (required for loop kinds, >= 1)",
+      "default": null
+    },
+    "body": {
+      "type": "array",
+      "items": {
+        "$ref": "#"
+      },
+      "description": "Steps run per iteration (loop kinds only)",
+      "default": []
+    },
+    "enabled": {
+      "type": "boolean",
+      "description": "Disabled steps never execute",
+      "default": true
+    }
+  },
+  "required": [
+    "id",
+    "kind"
+  ],
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "enum": [
+              "for_each",
+              "retry_until"
+            ]
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "required": [
+          "max_iterations"
+        ],
+        "properties": {
+          "max_iterations": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "Placement": {
+      "type": "object",
+      "description": "A named machine, a named actor (runs where it lives), or a capability requirement.",
+      "properties": {
+        "machine": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Name of an enrolled machine",
+          "default": null
+        },
+        "actor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Id of an actor; runs on that actor's machine",
+          "default": null
+        },
+        "requirement": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Capabilities (e.g. gpu) an eligible enrolled machine must offer",
+          "default": null
+        }
+      },
+      "required": [],
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "required": [
+            "machine"
+          ],
+          "properties": {
+            "machine": {
+              "type": "string",
+              "minLength": 1
+            },
+            "actor": {
+              "type": "null"
+            },
+            "requirement": {
+              "type": "null"
+            }
+          }
+        },
+        {
+          "required": [
+            "actor"
+          ],
+          "properties": {
+            "machine": {
+              "type": "null"
+            },
+            "actor": {
+              "type": "string",
+              "minLength": 1
+            },
+            "requirement": {
+              "type": "null"
+            }
+          }
+        },
+        {
+          "required": [
+            "requirement"
+          ],
+          "properties": {
+            "machine": {
+              "type": "null"
+            },
+            "actor": {
+              "type": "null"
+            },
+            "requirement": {
+              "type": "array",
+              "minItems": 1
+            }
+          }
+        }
+      ]
+    },
+    "Port": {
+      "type": "object",
+      "description": "A typed input or output port of a step or workflow.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Port name, unique per side"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "string",
+            "number",
+            "integer",
+            "boolean",
+            "object",
+            "array",
+            "any"
+          ],
+          "description": "Value type",
+          "default": "any"
+        },
+        "required": {
+          "type": "boolean",
+          "description": "Must be wired / supplied",
+          "default": true
+        },
+        "description": {
+          "type": "string",
+          "description": "Free text",
+          "default": ""
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "RetryPolicy": {
+      "type": "object",
+      "description": "How often a step or action is re-attempted after a failure.",
+      "properties": {
+        "max_attempts": {
+          "type": "integer",
+          "description": "Total attempts including the first (>= 1)",
+          "default": 1
+        },
+        "backoff_s": {
+          "type": "number",
+          "description": "Delay before the first retry, seconds (>= 0)",
+          "default": 0.0
+        },
+        "backoff_multiplier": {
+          "type": "number",
+          "description": "Factor applied to the delay per retry (>= 1)",
+          "default": 1.0
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  }
+}

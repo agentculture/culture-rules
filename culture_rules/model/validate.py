@@ -1,0 +1,502 @@
+"""Validation of model objects: returns structured errors, never raises.
+
+``validate(obj)`` walks a model object and returns a list of
+:class:`ValidationError` (``path``, ``code``, ``message``); an empty list means
+valid. ``validate_data(cls, data)`` parses a dict or JSON text first and turns
+parse failures into the same structured errors.
+
+Two passes per object: a generic *structural* pass driven by the dataclass type
+hints (required fields, scalar types, ``Literal`` membership such as actor and
+step kinds), then a *semantic* pass per model type. Semantic checks guard every
+comparison with ``isinstance`` so a structurally broken value yields an error,
+not an exception.
+"""
+
+from __future__ import annotations
+
+import dataclasses
+import json
+import math
+import re
+from collections.abc import Callable, Iterator
+from dataclasses import dataclass
+from typing import Any, Literal, get_args, get_origin
+
+from culture_rules.model import serde
+from culture_rules.model.action import Action
+from culture_rules.model.actor import Actor
+from culture_rules.model.common import SCHEMA_VERSION, RetryPolicy
+from culture_rules.model.machine import Machine
+from culture_rules.model.placement import PLACEMENT_FORMS, Placement
+from culture_rules.model.rule import Rule, Trigger, WorkflowRef
+from culture_rules.model.workflow import LOOP_KINDS, Edge, Output, Port, Step, Variable, Workflow
+
+__all__ = ["ValidationError", "validate", "validate_data"]
+
+#: Pseudo step id an edge uses to read from the workflow's own inputs.
+INPUTS_NODE = "inputs"
+_RESERVED_STEP_IDS = frozenset({"inputs", "outputs", "vars", "steps", "trigger"})
+
+_TRIGGER_EXACT = re.compile(r"^\s*trigger(?:\.[^\s.]+)*\s*$")
+_TRIGGER_TEMPLATE = re.compile(r"(?:\{\{|\$\{)\s*trigger\b")
+_SUPPORTED_MAJOR = int(SCHEMA_VERSION.split(".")[0])
+
+
+@dataclass(frozen=True)
+class ValidationError:
+    """One problem found in a model object."""
+
+    path: str
+    code: str
+    message: str
+
+    def to_dict(self) -> dict[str, str]:
+        return {"path": self.path, "code": self.code, "message": self.message}
+
+
+Errors = list[ValidationError]
+_join = serde.join
+
+
+def _err(errors: Errors, path: str, code: str, message: str) -> None:
+    errors.append(ValidationError(path, code, message))
+
+
+# --- public API -----------------------------------------------------------
+
+
+def validate(obj: Any) -> list[ValidationError]:
+    """Validate a model object; returns ``[]`` when valid."""
+    errors: Errors = []
+    if not (dataclasses.is_dataclass(obj) and type(obj) in _SEMANTIC):
+        _err(errors, "", "type", f"not a culture_rules model: {type(obj).__name__}")
+        return errors
+    _validate(obj, "", errors)
+    return errors
+
+
+def validate_data(cls: type, data: Any) -> tuple[Any | None, list[ValidationError]]:
+    """Parse ``data`` (dict or JSON text) into ``cls`` and validate it.
+
+    Returns ``(obj, errors)``; ``obj`` is ``None`` when the data could not be parsed.
+    """
+    if isinstance(data, (str, bytes)):
+        try:
+            data = json.loads(data)
+        except json.JSONDecodeError as exc:
+            return None, [ValidationError("", "json", f"invalid JSON: {exc.msg}")]
+    try:
+        obj = serde.from_dict(cls, data)
+    except serde.ModelParseError as exc:
+        return None, [ValidationError(exc.path, exc.code, exc.message)]
+    return obj, validate(obj)
+
+
+# --- generic structural pass ----------------------------------------------
+
+
+def _validate(obj: Any, path: str, errors: Errors) -> None:
+    hints = serde.field_types(type(obj))
+    for f in dataclasses.fields(obj):
+        _check_value(hints[f.name], getattr(obj, f.name), _join(path, f.name), f.name, errors)
+    _SEMANTIC[type(obj)](obj, path, errors)
+
+
+def _check_value(tp: Any, value: Any, path: str, name: str, errors: Errors) -> None:
+    if value is None:
+        if not serde.is_optional(tp):
+            _err(errors, path, "required", f"{name} is required")
+        return
+    if tp is Any:
+        return
+    tp = serde.strip_optional(tp)
+    origin = get_origin(tp)
+    if origin is Literal:
+        allowed = get_args(tp)
+        if value not in allowed:
+            code = "invalid_kind" if name == "kind" else "invalid_value"
+            _err(errors, path, code, f"{value!r} is not one of {', '.join(allowed)}")
+        return
+    if origin is tuple:
+        if not isinstance(value, (tuple, list)):
+            _err(errors, path, "type", "expected an array")
+            return
+        item = get_args(tp)[0]
+        for i, v in enumerate(value):
+            _check_value(item, v, _join(path, i), name, errors)
+        return
+    if origin is dict:
+        if not isinstance(value, dict):
+            _err(errors, path, "type", "expected an object")
+            return
+        item = get_args(tp)[1]
+        for k, v in value.items():
+            _check_value(item, v, _join(path, str(k)), name, errors)
+        return
+    if dataclasses.is_dataclass(tp):
+        if type(value) is not tp:
+            _err(errors, path, "type", f"expected {tp.__name__}")
+            return
+        _validate(value, path, errors)
+        return
+    _check_scalar(tp, value, path, errors)
+
+
+def _check_scalar(tp: type, value: Any, path: str, errors: Errors) -> None:
+    if tp is float:
+        ok = isinstance(value, (int, float)) and not isinstance(value, bool)
+    elif tp is int:
+        ok = isinstance(value, int) and not isinstance(value, bool)
+    else:
+        ok = isinstance(value, tp)
+    if not ok:
+        _err(errors, path, "type", f"expected {tp.__name__}, got {type(value).__name__}")
+
+
+# --- helpers ----------------------------------------------------------------
+
+
+def _nonempty(obj: Any, names: tuple[str, ...], path: str, errors: Errors) -> None:
+    for name in names:
+        value = getattr(obj, name)
+        if isinstance(value, str) and not value.strip():
+            _err(errors, _join(path, name), "empty", f"{name} must not be empty")
+
+
+def _positive_number(value: Any, path: str, errors: Errors) -> None:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        if not math.isfinite(value) or value <= 0:
+            _err(errors, path, "range", "must be a finite number > 0")
+
+
+def _unique(values: list[tuple[str, Any]], what: str, errors: Errors) -> None:
+    seen: set[Any] = set()
+    for path, value in values:
+        if not isinstance(value, str):
+            continue
+        if value in seen:
+            _err(errors, path, "duplicate", f"duplicate {what} {value!r}")
+        seen.add(value)
+
+
+def _schema_version(value: Any, path: str, errors: Errors) -> None:
+    if not isinstance(value, str):
+        return
+    m = re.fullmatch(r"(\d+)\.(\d+)", value)
+    if m is None:
+        _err(errors, path, "schema_version", f"{value!r} is not MAJOR.MINOR")
+    elif int(m.group(1)) > _SUPPORTED_MAJOR:
+        _err(
+            errors,
+            path,
+            "schema_version",
+            f"schema_version {value} is newer than supported major {_SUPPORTED_MAJOR}",
+        )
+
+
+def _is_trigger_ref(value: str) -> bool:
+    return bool(_TRIGGER_EXACT.match(value) or _TRIGGER_TEMPLATE.search(value))
+
+
+def _trigger_refs(value: Any, path: str) -> Iterator[str]:
+    """Paths inside an arbitrary JSON value that reference the trigger scope."""
+    if isinstance(value, str):
+        if _is_trigger_ref(value):
+            yield path
+    elif isinstance(value, dict):
+        for k, v in value.items():
+            if isinstance(k, str) and _is_trigger_ref(k):
+                yield _join(path, k)
+            yield from _trigger_refs(v, _join(path, str(k)))
+    elif isinstance(value, (list, tuple)):
+        for i, v in enumerate(value):
+            yield from _trigger_refs(v, _join(path, i))
+
+
+def _report_trigger_refs(value: Any, path: str, errors: Errors) -> None:
+    for p in _trigger_refs(value, path):
+        _err(errors, p, "trigger_reference", "workflows must not reference the trigger")
+
+
+# --- semantic pass per model ---------------------------------------------
+
+
+def _check_retry(obj: RetryPolicy, path: str, errors: Errors) -> None:
+    if isinstance(obj.max_attempts, int) and obj.max_attempts < 1:
+        _err(errors, _join(path, "max_attempts"), "range", "max_attempts must be >= 1")
+    if isinstance(obj.backoff_s, (int, float)) and not obj.backoff_s >= 0:
+        _err(errors, _join(path, "backoff_s"), "range", "backoff_s must be >= 0")
+    if isinstance(obj.backoff_multiplier, (int, float)) and not obj.backoff_multiplier >= 1:
+        _err(errors, _join(path, "backoff_multiplier"), "range", "backoff_multiplier must be >= 1")
+
+
+def _check_placement(obj: Placement, path: str, errors: Errors) -> None:
+    if obj.form is None:
+        given = [n for n in PLACEMENT_FORMS if getattr(obj, n) is not None]
+        _err(
+            errors,
+            path,
+            "placement_form",
+            "placement must set exactly one non-empty form of machine, actor, requirement"
+            f" (got: {', '.join(given) or 'none'})",
+        )
+    if isinstance(obj.requirement, (tuple, list)):
+        for i, cap in enumerate(obj.requirement):
+            if isinstance(cap, str) and not cap.strip():
+                _err(errors, _join(_join(path, "requirement"), i), "empty", "empty capability")
+
+
+def _check_action(obj: Action, path: str, errors: Errors) -> None:
+    _nonempty(obj, ("kind",), path, errors)
+    _positive_number(obj.timeout_s, _join(path, "timeout_s"), errors)
+
+
+def _check_trigger(obj: Trigger, path: str, errors: Errors) -> None:
+    _nonempty(obj, ("kind",), path, errors)
+
+
+def _check_workflow_ref(obj: WorkflowRef, path: str, errors: Errors) -> None:
+    _nonempty(obj, ("id",), path, errors)
+    if isinstance(obj.version, int) and obj.version < 1:
+        _err(errors, _join(path, "version"), "range", "version must be >= 1")
+
+
+def _check_rule(obj: Rule, path: str, errors: Errors) -> None:
+    _nonempty(obj, ("id", "name"), path, errors)
+    _schema_version(obj.schema_version, _join(path, "schema_version"), errors)
+    if obj.exclusive_group is not None:
+        _nonempty(obj, ("exclusive_group",), path, errors)
+    for rel in ("must_after", "may_after", "supersedes"):
+        ids = getattr(obj, rel)
+        if not isinstance(ids, (tuple, list)):
+            continue
+        rel_path = _join(path, rel)
+        _unique([(_join(rel_path, i), v) for i, v in enumerate(ids)], "rule id", errors)
+        for i, rid in enumerate(ids):
+            if isinstance(rid, str) and not rid.strip():
+                _err(errors, _join(rel_path, i), "empty", "empty rule id")
+            elif rid == obj.id:
+                _err(errors, _join(rel_path, i), "self_reference", f"rule cannot {rel} itself")
+
+
+def _check_ports(ports: Any, path: str, errors: Errors) -> None:
+    named = [(_join(_join(path, i), "name"), p.name) for i, p in _items(ports, Port)]
+    _unique(named, "port", errors)
+
+
+def _check_port(obj: Port, path: str, errors: Errors) -> None:
+    _nonempty(obj, ("name",), path, errors)
+
+
+def _check_variable(obj: Variable, path: str, errors: Errors) -> None:
+    _nonempty(obj, ("name",), path, errors)
+
+
+def _check_output(obj: Output, path: str, errors: Errors) -> None:
+    _nonempty(obj, ("name",), path, errors)
+
+
+def _check_edge(obj: Edge, path: str, errors: Errors) -> None:
+    _nonempty(obj, ("source", "source_port", "target", "target_port"), path, errors)
+
+
+def _check_step(obj: Step, path: str, errors: Errors) -> None:
+    _nonempty(obj, ("id",), path, errors)
+    if isinstance(obj.id, str) and obj.id in _RESERVED_STEP_IDS:
+        _err(errors, _join(path, "id"), "reserved", f"step id {obj.id!r} is reserved")
+    _positive_number(obj.timeout_s, _join(path, "timeout_s"), errors)
+    _check_ports(obj.inputs, _join(path, "inputs"), errors)
+    _check_ports(obj.outputs, _join(path, "outputs"), errors)
+    max_path = _join(path, "max_iterations")
+    if obj.kind in LOOP_KINDS:
+        if obj.max_iterations is None:
+            _err(errors, max_path, "loop_max_required", f"{obj.kind} loop needs max_iterations")
+        elif isinstance(obj.max_iterations, int) and obj.max_iterations < 1:
+            _err(errors, max_path, "range", "max_iterations must be >= 1")
+    else:
+        if obj.max_iterations is not None:
+            _err(errors, max_path, "not_allowed", "only loop steps take max_iterations")
+        if obj.body:
+            _err(errors, _join(path, "body"), "not_allowed", "only loop steps have a body")
+
+
+def _check_actor(obj: Actor, path: str, errors: Errors) -> None:
+    _nonempty(obj, ("id", "name"), path, errors)
+    _schema_version(obj.schema_version, _join(path, "schema_version"), errors)
+    if obj.config_source == "repo" and not obj.repo:
+        _err(errors, _join(path, "repo"), "required", "config_source 'repo' needs repo")
+
+
+def _check_machine(obj: Machine, path: str, errors: Errors) -> None:
+    _nonempty(obj, ("name",), path, errors)
+    _schema_version(obj.schema_version, _join(path, "schema_version"), errors)
+
+
+def _items(seq: Any, cls: type) -> list[tuple[int, Any]]:
+    """(index, item) pairs of ``seq`` whose items are instances of ``cls``."""
+    if not isinstance(seq, (tuple, list)):
+        return []
+    return [(i, x) for i, x in enumerate(seq) if isinstance(x, cls)]
+
+
+def _iter_steps(steps: Any, path: str) -> Iterator[tuple[str, Step]]:
+    """Every step, including loop bodies, with its path."""
+    if not isinstance(steps, (tuple, list)):
+        return
+    for i, step in enumerate(steps):
+        if not isinstance(step, Step):
+            continue
+        step_path = _join(path, i)
+        yield step_path, step
+        yield from _iter_steps(step.body, _join(step_path, "body"))
+
+
+def _port_types(ports: Any) -> dict[str, Any]:
+    if not isinstance(ports, (tuple, list)):
+        return {}
+    return {p.name: p.type for p in ports if isinstance(p, (Port, Output))}
+
+
+def _compatible(src: Any, dst: Any) -> bool:
+    return src == dst or "any" in (src, dst) or (src, dst) == ("integer", "number")
+
+
+def _check_workflow(obj: Workflow, path: str, errors: Errors) -> None:
+    _nonempty(obj, ("id", "name"), path, errors)
+    _schema_version(obj.schema_version, _join(path, "schema_version"), errors)
+    if isinstance(obj.version, int) and obj.version < 1:
+        _err(errors, _join(path, "version"), "range", "version must be >= 1")
+    _check_ports(obj.inputs, _join(path, "inputs"), errors)
+    for what in ("variables", "outputs"):
+        items = getattr(obj, what)
+        cls = Variable if what == "variables" else Output
+        named = [(_join(_join(path, what), i), x.name) for i, x in _items(items, cls)]
+        _unique(named, what[:-1], errors)
+
+    steps = list(_iter_steps(obj.steps, _join(path, "steps")))
+    _unique([(_join(p, "id"), s.id) for p, s in steps], "step id", errors)
+    by_id = {s.id: s for _, s in steps if isinstance(s.id, str)}
+
+    # A workflow is trigger-agnostic: no reference to the trigger scope anywhere.
+    for step_path, step in steps:
+        _report_trigger_refs(step.config, _join(step_path, "config"), errors)
+    for i, var in _items(obj.variables, Variable):
+        _report_trigger_refs(
+            var.default, _join(_join(_join(path, "variables"), i), "default"), errors
+        )
+
+    _check_edges(obj, by_id, path, errors)
+    _check_outputs(obj, by_id, path, errors)
+
+
+def _check_edges(obj: Workflow, by_id: dict[str, Step], path: str, errors: Errors) -> None:
+    inputs = _port_types(obj.inputs)
+    graph: dict[str, set[str]] = {}
+    for i, edge in _items(obj.edges, Edge):
+        e_path = _join(_join(path, "edges"), i)
+        if not all(isinstance(getattr(edge, f.name), str) for f in dataclasses.fields(Edge)):
+            continue  # structural pass already reported it
+        if _is_trigger_ref(edge.source):
+            _err(errors, _join(e_path, "source"), "trigger_reference", "edge reads the trigger")
+            continue
+        if edge.source == INPUTS_NODE:
+            src_ports = inputs
+        elif edge.source in by_id:
+            src_ports = _port_types(by_id[edge.source].outputs)
+        else:
+            _err(errors, _join(e_path, "source"), "unknown_step", f"no step {edge.source!r}")
+            continue
+        if edge.target not in by_id:
+            _err(errors, _join(e_path, "target"), "unknown_step", f"no step {edge.target!r}")
+            continue
+        dst_ports = _port_types(by_id[edge.target].inputs)
+        ok = True
+        if edge.source_port not in src_ports:
+            _err(errors, _join(e_path, "source_port"), "unknown_port", f"no {edge.source_port!r}")
+            ok = False
+        if edge.target_port not in dst_ports:
+            _err(errors, _join(e_path, "target_port"), "unknown_port", f"no {edge.target_port!r}")
+            ok = False
+        if ok and not _compatible(src_ports[edge.source_port], dst_ports[edge.target_port]):
+            _err(
+                errors,
+                e_path,
+                "port_type_mismatch",
+                f"{src_ports[edge.source_port]} output wired to "
+                f"{dst_ports[edge.target_port]} input",
+            )
+        if edge.source != INPUTS_NODE:
+            graph.setdefault(edge.source, set()).add(edge.target)
+    cycle = _find_cycle(graph)
+    if cycle:
+        _err(errors, _join(path, "edges"), "cycle", "edges form a cycle: " + " -> ".join(cycle))
+
+
+def _find_cycle(graph: dict[str, set[str]]) -> list[str] | None:
+    state: dict[str, int] = {}  # 1 = on stack, 2 = done
+
+    def visit(node: str, stack: list[str]) -> list[str] | None:
+        state[node] = 1
+        stack.append(node)
+        for nxt in sorted(graph.get(node, ())):
+            if state.get(nxt) == 1:
+                return stack[stack.index(nxt) :] + [nxt]
+            if nxt not in state:
+                found = visit(nxt, stack)
+                if found:
+                    return found
+        stack.pop()
+        state[node] = 2
+        return None
+
+    for node in sorted(graph):
+        if node not in state:
+            found = visit(node, [])
+            if found:
+                return found
+    return None
+
+
+def _check_outputs(obj: Workflow, by_id: dict[str, Step], path: str, errors: Errors) -> None:
+    inputs = _port_types(obj.inputs)
+    variables = {v.name for _, v in _items(obj.variables, Variable)}
+    for i, out in _items(obj.outputs, Output):
+        src = out.source
+        if not isinstance(src, str):
+            continue
+        s_path = _join(_join(_join(path, "outputs"), i), "source")
+        if _is_trigger_ref(src):
+            _err(errors, s_path, "trigger_reference", "workflows must not reference the trigger")
+            continue
+        parts = src.split(".")
+        ok = (
+            (len(parts) == 2 and parts[0] == "inputs" and parts[1] in inputs)
+            or (len(parts) == 2 and parts[0] == "vars" and parts[1] in variables)
+            or (
+                len(parts) == 4
+                and parts[0] == "steps"
+                and parts[2] == "outputs"
+                and parts[1] in by_id
+                and parts[3] in _port_types(by_id[parts[1]].outputs)
+            )
+        )
+        if not ok:
+            _err(errors, s_path, "invalid_reference", f"{src!r} does not resolve")
+
+
+_SEMANTIC: dict[type, Callable[[Any, str, Errors], None]] = {
+    Rule: _check_rule,
+    Trigger: _check_trigger,
+    WorkflowRef: _check_workflow_ref,
+    Action: _check_action,
+    RetryPolicy: _check_retry,
+    Placement: _check_placement,
+    Workflow: _check_workflow,
+    Step: _check_step,
+    Port: _check_port,
+    Variable: _check_variable,
+    Output: _check_output,
+    Edge: _check_edge,
+    Actor: _check_actor,
+    Machine: _check_machine,
+}

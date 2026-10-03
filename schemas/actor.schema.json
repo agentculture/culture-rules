@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "actor.schema.json",
+  "title": "Actor",
+  "x-schema-version": "1.0",
+  "type": "object",
+  "description": "A generic actor with a concrete kind and a list of capabilities.",
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Stable actor id (agents: the mesh nick)"
+    },
+    "name": {
+      "type": "string",
+      "description": "Display name"
+    },
+    "description": {
+      "type": "string",
+      "description": "Free text",
+      "default": ""
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "agent",
+        "human",
+        "service",
+        "daemon",
+        "runner",
+        "robot"
+      ],
+      "description": "agent | human | service | daemon | runner | robot"
+    },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "What this actor can do",
+      "default": []
+    },
+    "harness": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Agent harness, e.g. claude, codex, colleague",
+      "default": null
+    },
+    "model": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Model the harness runs",
+      "default": null
+    },
+    "machine": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Machine the actor lives on",
+      "default": null
+    },
+    "config_source": {
+      "type": "string",
+      "enum": [
+        "db",
+        "repo"
+      ],
+      "description": "Where the definition comes from: db record or repo config",
+      "default": "db"
+    },
+    "repo": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Repo whose root config defines the actor (config_source=repo)",
+      "default": null
+    },
+    "params": {
+      "type": "object",
+      "description": "Kind-specific settings (no secret values)",
+      "default": {}
+    },
+    "enabled": {
+      "type": "boolean",
+      "description": "Disabled actors receive no work",
+      "default": true
+    },
+    "schema_version": {
+      "type": "string",
+      "description": "Document schema version (MAJOR.MINOR)",
+      "default": "1.0"
+    }
+  },
+  "required": [
+    "id",
+    "name",
+    "kind"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "action.schema.json",
+  "title": "Action",
+  "x-schema-version": "1.0",
+  "type": "object",
+  "description": "A terminal operation: comment on a PR, send a message, call a service, ask a human...",
+  "properties": {
+    "kind": {
+      "type": "string",
+      "description": "Action type, e.g. github.comment, mesh.message, http.call"
+    },
+    "name": {
+      "type": "string",
+      "description": "Display name",
+      "default": ""
+    },
+    "params": {
+      "type": "object",
+      "description": "Kind-specific parameters; values may hold references such as workflow.outputs.x",
+      "default": {}
+    },
+    "timeout_s": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Timeout in seconds (> 0)",
+      "default": null
+    },
+    "retry": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RetryPolicy"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Retry policy",
+      "default": null
+    },
+    "idempotent": {
+      "type": "boolean",
+      "description": "Safe to retry without an idempotency key",
+      "default": false
+    }
+  },
+  "required": [
+    "kind"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "RetryPolicy": {
+      "type": "object",
+      "description": "How often a step or action is re-attempted after a failure.",
+      "properties": {
+        "max_attempts": {
+          "type": "integer",
+          "description": "Total attempts including the first (>= 1)",
+          "default": 1
+        },
+        "backoff_s": {
+          "type": "number",
+          "description": "Delay before the first retry, seconds (>= 0)",
+          "default": 0.0
+        },
+        "backoff_multiplier": {
+          "type": "number",
+          "description": "Factor applied to the delay per retry (>= 1)",
+          "default": 1.0
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  }
+}
