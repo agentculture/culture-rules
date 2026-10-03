@@ -71,7 +71,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     parser = _CliArgumentParser(
         prog="culture-rules",
-        description="culture-rules — a clonable template for AgentCulture mesh agents.",
+        description="culture-rules — the rules engine for the AgentCulture mesh.",
     )
     parser.add_argument(
         "--version",
