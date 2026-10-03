@@ -41,6 +41,16 @@ changed it in between; the loser of a race therefore re-reads and loses
 cleanly. Collections are created on first use (change-stream images need the
 option set at creation); inside a transaction, touch new collections with
 :meth:`MongoStore.ensure_collections` first.
+
+Transient transaction errors never leak as raw pymongo exceptions. A write conflict
+between concurrent transactions (``WriteConflict``, label ``TransientTransactionError``)
+rolls the transaction back and raises
+:class:`~culture_rules.store.port.TransientStoreError`; re-run the whole body with
+:meth:`MongoStore.run_transaction` (bounded) or let the caller's loop retry. A commit whose
+outcome is unknown (``UnknownTransactionCommitResult``) is re-committed a bounded number of
+times. Two transactions inserting the same ``id`` concurrently: the loser waits for the
+winner to finish and then raises :class:`~culture_rules.store.port.DuplicateKeyError`, the
+same answer it would get after the winner committed.
 """
 
 from __future__ import annotations
@@ -48,10 +58,10 @@ from __future__ import annotations
 import contextlib
 import importlib
 import time
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypeVar
 
 from culture_rules.store.port import (
     CURSOR_COLLECTION,
@@ -60,9 +70,12 @@ from culture_rules.store.port import (
     Document,
     DuplicateKeyError,
     StoreError,
+    StoreOps,
+    TransientStoreError,
     UpdateResult,
     cursor_id,
 )
+from culture_rules.store.retry import DEFAULT_ATTEMPTS, run_transaction
 from culture_rules.store.versioning import (
     SchemaVersion,
     matches,
@@ -99,6 +112,13 @@ _ADMIN_ROLES = frozenset(
 )
 _MAX_ATTEMPTS = 100
 _SETTLE_MS = 100  # how long an empty change-stream poll waits to call the feed "caught up"
+_WRITE_CONFLICT = 112
+_TRANSIENT_LABEL = "TransientTransactionError"
+_UNKNOWN_COMMIT_LABEL = "UnknownTransactionCommitResult"
+_COMMIT_ATTEMPTS = 5
+_INSERT_CONFLICT_WAIT_S = 5.0  # how long a conflicting insert waits for the other tx to end
+
+T = TypeVar("T")
 
 
 class ConfigError(StoreError):
@@ -283,6 +303,7 @@ class MongoStore:
 
     def _insert(self, session: Any, collection: str, document: Mapping[str, Any]) -> Document:
         from pymongo.errors import DuplicateKeyError as MongoDuplicate
+        from pymongo.errors import PyMongoError
 
         coll = self._collection(collection)
         _reject_raw_id(document)
@@ -291,7 +312,26 @@ class MongoStore:
             coll.insert_one(_to_raw(new), session=session)
         except MongoDuplicate:
             raise DuplicateKeyError(f"{collection}/{new['id']} already exists") from None
+        except PyMongoError as exc:
+            transient = _translate_transient(exc)
+            if transient is None or session is None:
+                raise
+            self._settle_insert_conflict(coll, collection, new["id"], transient)
         return new
+
+    def _settle_insert_conflict(
+        self, coll: Any, collection: str, doc_id: str, transient: TransientStoreError
+    ) -> None:
+        """An insert inside a transaction conflicted with another uncommitted write of the
+        same id: wait for that writer to finish. If the id then exists the answer is a
+        duplicate key; otherwise (the other transaction aborted) the conflict was transient."""
+        deadline = time.monotonic() + _INSERT_CONFLICT_WAIT_S
+        while True:
+            if coll.find_one({"_id": doc_id}, projection={"_id": 1}) is not None:
+                raise DuplicateKeyError(f"{collection}/{doc_id} already exists") from None
+            if time.monotonic() >= deadline:
+                raise transient
+            time.sleep(0.02)
 
     def _put(self, session: Any, collection: str, document: Mapping[str, Any]) -> Document:
         from pymongo.errors import DuplicateKeyError as MongoDuplicate
@@ -415,6 +455,8 @@ class MongoStore:
     @contextmanager
     def transaction(self) -> Iterator[_TxHandle]:
         pymongo = _pymongo()
+        from pymongo.errors import PyMongoError
+
         with self._client.start_session() as session:
             session.start_transaction(
                 read_concern=pymongo.read_concern.ReadConcern("snapshot"),
@@ -423,13 +465,37 @@ class MongoStore:
             handle = _TxHandle(self, session)
             try:
                 yield handle
-            except BaseException:
+            except BaseException as exc:
                 handle._closed = True
                 with contextlib.suppress(Exception):  # the original error matters more
                     session.abort_transaction()
+                transient = _translate_transient(exc)
+                if transient is not None:
+                    raise transient from exc
                 raise
             handle._closed = True
-            session.commit_transaction()
+            self._commit(session, PyMongoError)
+
+    @staticmethod
+    def _commit(session: Any, py_mongo_error: type[Exception]) -> None:
+        for attempt in range(1, _COMMIT_ATTEMPTS + 1):
+            try:
+                session.commit_transaction()
+                return
+            except py_mongo_error as exc:
+                unknown = _has_label(exc, _UNKNOWN_COMMIT_LABEL)
+                if unknown and attempt < _COMMIT_ATTEMPTS:
+                    continue  # committing again is safe: the server dedupes the commit
+                transient = _translate_transient(exc)
+                if transient is not None:
+                    raise transient from exc
+                raise
+
+    def run_transaction(
+        self, fn: Callable[[StoreOps], T], *, attempts: int = DEFAULT_ATTEMPTS, **kw: Any
+    ) -> T:
+        """Run ``fn(tx)`` in a transaction, re-running the body on a transient conflict."""
+        return run_transaction(self, fn, attempts=attempts, **kw)
 
     def _open_stream(self, collection: str, token: str | None, wait_ms: int) -> Any:
         coll = self._collection(collection)
@@ -521,7 +587,23 @@ def _reject_raw_id(document: Any) -> None:
 
 def _raise_if_in_transaction(session: Any) -> None:
     if session is not None:
-        raise StoreError("a concurrent write conflicted inside the transaction; retry it")
+        raise TransientStoreError("a concurrent write conflicted inside the transaction; retry it")
+
+
+def _has_label(exc: BaseException, label: str) -> bool:
+    has = getattr(exc, "has_error_label", None)
+    return bool(callable(has) and has(label))
+
+
+def _translate_transient(exc: BaseException) -> TransientStoreError | None:
+    """The typed error for a pymongo transient-transaction failure, else None."""
+    if isinstance(exc, TransientStoreError):
+        return exc
+    if isinstance(exc, StoreError):
+        return None
+    if _has_label(exc, _TRANSIENT_LABEL) or getattr(exc, "code", None) == _WRITE_CONFLICT:
+        return TransientStoreError(f"transient transaction failure, retry it: {exc}")
+    return None
 
 
 class _TxHandle:
@@ -537,8 +619,19 @@ class _TxHandle:
             raise StoreError("transaction handle used after the transaction ended")
         return self._session
 
+    def _call(self, fn: Callable[..., T], *args: Any) -> T:
+        from pymongo.errors import PyMongoError
+
+        try:
+            return fn(self._live(), *args)
+        except PyMongoError as exc:
+            transient = _translate_transient(exc)
+            if transient is not None:
+                raise transient from exc
+            raise
+
     def get(self, collection: str, id: str) -> Document | None:
-        return self._store._get(self._live(), collection, id)
+        return self._call(self._store._get, collection, id)
 
     def find(
         self,
@@ -547,13 +640,13 @@ class _TxHandle:
         *,
         limit: int | None = None,
     ) -> list[Document]:
-        return self._store._find(self._live(), collection, where, limit)
+        return self._call(self._store._find, collection, where, limit)
 
     def insert(self, collection: str, document: Mapping[str, Any]) -> Document:
-        return self._store._insert(self._live(), collection, document)
+        return self._call(self._store._insert, collection, document)
 
     def put(self, collection: str, document: Mapping[str, Any]) -> Document:
-        return self._store._put(self._live(), collection, document)
+        return self._call(self._store._put, collection, document)
 
     def update_if(
         self,
@@ -564,7 +657,7 @@ class _TxHandle:
         *,
         upsert: bool = False,
     ) -> UpdateResult:
-        return self._store._update_if(self._live(), collection, id, expected, changes, upsert)
+        return self._call(self._store._update_if, collection, id, expected, changes, upsert)
 
     def delete(self, collection: str, id: str) -> bool:
-        return self._store._delete(self._live(), collection, id)
+        return self._call(self._store._delete, collection, id)

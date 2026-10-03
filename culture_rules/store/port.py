@@ -84,6 +84,12 @@ class DuplicateKeyError(StoreError):
     """``insert`` found a document with the same id already in the collection."""
 
 
+class TransientStoreError(StoreError):
+    """A transient failure (e.g. a write conflict between concurrent transactions): the
+    transaction was rolled back and retrying the whole transaction body may succeed (see
+    :func:`culture_rules.store.retry.run_transaction`)."""
+
+
 class VersionSkewError(StoreError):
     """A write involves a document of a newer major schema version than this node supports."""
 

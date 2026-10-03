@@ -33,6 +33,7 @@ CI/publish baseline. The engine, API and editor are planned.
 - `culture-rules rules|workflows|actors|machines|runs <verb>` — the engine's nouns over the
   HTTP API; `culture-rules explain <noun>` lists each noun's verbs.
 - `culture-rules serve` — run the HTTP API (needs the `server` extra).
+- `culture-rules node run` — run this host's engine node (talks to the store directly).
 
 ## Exit-code policy
 
@@ -140,6 +141,43 @@ default store, the `store` extra). Stateless: run as many copies as you like aga
     culture-rules serve --admin alice
 """
 
+_NODE = """\
+# culture-rules node
+
+The engine node daemon: one per host, it *is* the rules engine. Unlike the other nouns it
+talks to the store directly (`CULTURE_RULES_MONGO_*`, needs the `store` extra), not the API.
+
+## Verbs
+
+- `culture-rules node run` — run the node loop (or one cycle with `--once`).
+
+## Usage
+
+    culture-rules node run --once --host spark --json
+"""
+
+_NODE_RUN = """\
+# culture-rules node run
+
+Runs this host's engine node: heartbeat (with the platform probe), event ingest (events-cli,
+optional `events` extra), rule evaluation (placed rules only on their host, unplaced rules
+once across hosts; a drained/offline host keeps its placed rules' events), run starts and
+the executor loop. `--once` performs one full cycle and exits (0, or 2 when a stage
+failed); without it the node loops until SIGINT/SIGTERM and stops gracefully.
+
+## Parameters
+
+- `--host` (string) — this node's machine name (default: the short hostname)
+- `--once` (boolean) — one full cycle, then exit
+- `--idle` (number) — pause between cycles in seconds (default 1)
+- `--json` (boolean) — report what the cycle did as JSON
+
+## Usage
+
+    culture-rules node run --once --host spark --json
+    culture-rules node run --host spark
+"""
+
 _NOUN_BLURBS = {
     "rules": "Rules say *when* work should happen: trigger, condition, workflow, action.",
     "workflows": "Workflows are the reusable *how*: steps, branching and waits.",
@@ -185,7 +223,11 @@ def _generated() -> dict[tuple[str, ...], str]:
     """One entry per registered noun and verb, read from the command registry."""
     from culture_rules.cli.verbs import REGISTRY  # noqa: PLC0415 - registry imports the CLI
 
-    out: dict[tuple[str, ...], str] = {("serve",): _SERVE}
+    out: dict[tuple[str, ...], str] = {
+        ("serve",): _SERVE,
+        ("node",): _NODE,
+        ("node", "run"): _NODE_RUN,
+    }
     for noun in REGISTRY.nouns():
         out[(noun,)] = _noun_entry(noun, REGISTRY.verbs(noun))
         for v in REGISTRY.verbs(noun):
