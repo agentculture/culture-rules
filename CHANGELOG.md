@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.4] - 2026-10-03
+
+### Added
+
+- Workflows tab: a left-pane list of every workflow (New workflow, machine dot, name, enable switch), aligned with the Rules list
+- Rules tab: the create button reads "New rule" (it opens the "When does this happen?" form), like "New workflow"
+
+### Changed
+
+- Cleared 495 of 498 SonarCloud maintainability issues: split composite test assertions and pytest.raises blocks, read-only React props, native fieldset/output/dialog elements instead of ARIA roles, and 33 cognitive-complexity splits in culture_rules and web with no behaviour change
+
+### Fixed
+
+- The multi-host chaos test no longer times out when the killed host never wins an action race (harness holds the survivors per run advance until the victim dies); exactly-once and no-loss held throughout
+- A WorkflowsCreate test that raced the router on slower CI runners
+
 ## [0.10.3] - 2026-10-03
 
 ### Added
