@@ -189,3 +189,42 @@ def test_load_from_repo_missing_directory_is_error(repos):
     save_to_repo(_bundle(), work, directory="defs", apply=True, push=True)
     loaded = load_from_repo(bare, directory="nope")
     assert loaded.errors and loaded.errors[0].code == "missing_directory"
+
+
+def test_save_to_repo_commits_only_the_export_plan(repos):
+    _, work = repos
+    (work / "private-notes.txt").write_text("secret\n")
+    (work / "other").mkdir()
+    (work / "other" / "staged.txt").write_text("staged\n")
+    _git(work, "add", "other/staged.txt")
+    done = save_to_repo(_bundle(), work, directory="defs", apply=True)
+    assert done.committed
+    files = _git(work, "show", "--name-only", "--pretty=format:", "HEAD").split()
+    assert files and all(f.startswith("defs/") for f in files)
+    assert "private-notes.txt" not in files and "other/staged.txt" not in files
+    # the unrelated work stays exactly as it was
+    assert "private-notes.txt" in _git(work, "status", "--porcelain")
+    assert "A  other/staged.txt" in _git(work, "status", "--porcelain")
+
+
+@pytest.mark.parametrize(
+    "path", ["rule/x.yaml", "rules/x.txt", "rules/sub/x.yaml", "x.yaml", "bogus/x.json"]
+)
+def test_read_files_reports_misplaced_files(path):
+    from culture_rules.io.exchange import read_files
+
+    result = read_files({path: "id: x\n"})
+    assert [(e.path, e.code) for e in result.errors] == [(path, "unrecognised_path")]
+    assert result.bundle == Bundle()
+
+
+def test_read_files_reports_duplicate_ids_across_formats():
+    from culture_rules.io.exchange import bundle_files, read_files
+
+    one = Bundle(rules=(make_rule(must_after=(), may_after=(), supersedes=()),))
+    yml = bundle_files(one, "yaml")["rules/r-review.yaml"]
+    js = bundle_files(one, "json")["rules/r-review.json"]
+    result = read_files({"rules/r-review.yaml": yml, "rules/r-review.json": js})
+    assert [e.code for e in result.errors] == ["duplicate_id"]
+    assert result.errors[0].path == "rules/r-review.yaml"  # json sorts first and wins
+    assert len(result.bundle.rules) == 1

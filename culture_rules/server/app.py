@@ -50,6 +50,7 @@ from culture_rules.server.service import (
     Definitions,
     Invalid,
     NotFound,
+    RuleReferenced,
     ServiceError,
 )
 from culture_rules.store.port import StoragePort
@@ -246,7 +247,7 @@ def _run_status(code: str) -> int:
 
 
 def _install_errors(app: FastAPI) -> None:
-    status = {Invalid: 422, NotFound: 404, Conflict: 409}
+    status = {Invalid: 422, NotFound: 404, Conflict: 409, RuleReferenced: 409}
 
     @app.exception_handler(ServiceError)
     async def _service(request: Request, exc: ServiceError) -> JSONResponse:
@@ -688,6 +689,7 @@ def _register_kind(
     )
     def delete(id: str, identity: Identity):
         defs.get(kind, id)
+        defs.guard_unreferenced(kind, id)
         return life.soft_delete(kind, id, identity)
 
     @app.post(
@@ -710,6 +712,7 @@ def _register_kind(
     )
     def purge(id: str, identity: Identity, body: PurgeRequest | None = None):
         defs.get(kind, id)
+        defs.guard_unreferenced(kind, id)
         # the middleware already required the admin role for this route
         admin_life = Lifecycle(store, audit, admins=(identity,))
         result = admin_life.purge(kind, id, identity, apply=(body or PurgeRequest()).apply)

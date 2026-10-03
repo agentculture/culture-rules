@@ -39,8 +39,9 @@ def test_error_envelope_for_invalid_and_conflict(client):
 
 
 def test_rule_save_refuses_cycles_with_422(client):
-    assert client.post("/rules", json=rule_body("a", must_after=["b"])).status_code == 201
-    r = client.post("/rules", json=rule_body("b", must_after=["a"]))
+    assert client.post("/rules", json=rule_body("a")).status_code == 201
+    assert client.post("/rules", json=rule_body("b", must_after=["a"])).status_code == 201
+    r = client.put("/rules/a", json=rule_body("a", must_after=["b"]))
     assert r.status_code == 422
     assert any(e["code"] == "predecessor_cycle" for e in r.json()["error"]["errors"])
     r = client.put("/rules/a", json=rule_body("a", must_after=["a"]))
@@ -163,3 +164,25 @@ def test_asks_answer_hook_is_injectable(store):
     c = TestClient(dev_app(store, answer_ask=hook))
     r = c.post("/asks/a1/answer", json={"answer": 3}, headers=ALICE)
     assert r.status_code == 200 and seen == [("a1", 3, "alice")]
+
+
+def test_delete_and_purge_of_a_referenced_rule_is_409_rule_referenced(client):
+    assert client.post("/rules", json=rule_body("a"), headers=ALICE).status_code == 201
+    assert (
+        client.post("/rules", json=rule_body("b", must_after=["a"]), headers=ALICE).status_code
+        == 201
+    )
+    r = client.delete("/rules/a", headers=ALICE)
+    assert r.status_code == 409
+    err = r.json()["error"]
+    assert err["code"] == "rule_referenced" and "b" in r.text
+    assert client.get("/rules/a").json().get("deleted_at") is None
+    # once the referrer is gone the delete goes through
+    assert client.delete("/rules/b", headers=ALICE).status_code == 200
+    assert client.delete("/rules/a", headers=ALICE).status_code == 200
+
+
+def test_save_of_a_rule_with_unknown_predecessor_is_422(client):
+    r = client.post("/rules", json=rule_body("b", must_after=["nope"]), headers=ALICE)
+    assert r.status_code == 422
+    assert any(e["code"] == "unknown_rule" for e in r.json()["error"]["errors"])

@@ -17,12 +17,16 @@ services:
       - ${MONGO_SECRETS_DIR:-/etc/culture-rules-mongo}:/secrets:ro
       - ${MONGO_DATA_DIR:-/var/lib/culture-rules-mongo}:/data/db
     entrypoint: ["bash", "-c"]
-    # mongod insists the keyFile is mode 400 and owned by its user: copy it inside the container.
+    # The entrypoint override bypasses the image's gosu drop, so do it here: copy the secrets
+    # (mounted read-only) to a private dir owned by mongodb (keyFile must be mode 400 and owned
+    # by mongod's user), chown the data dir, then run mongod as the mongodb user, never as root.
     command:
       - >-
-        cp /secrets/keyfile /tmp/keyfile && chmod 400 /tmp/keyfile &&
-        exec mongod --replSet "$$MONGO_REPLSET" --bind_ip "$$MONGO_BIND_IP"
+        mkdir -p /tmp/tls && cp /secrets/keyfile /secrets/server.pem /secrets/ca.pem /tmp/tls/ &&
+        chmod 400 /tmp/tls/keyfile /tmp/tls/server.pem && chmod 444 /tmp/tls/ca.pem &&
+        chown -R mongodb:mongodb /tmp/tls /data/db &&
+        exec gosu mongodb mongod --replSet "$$MONGO_REPLSET" --bind_ip "$$MONGO_BIND_IP"
         --port "$$MONGO_PORT" --dbpath /data/db --wiredTigerCacheSizeGB "$$MONGO_CACHE_GB"
-        --keyFile /tmp/keyfile
-        --tlsMode requireTLS --tlsCertificateKeyFile /secrets/server.pem
-        --tlsCAFile /secrets/ca.pem --tlsAllowConnectionsWithoutCertificates
+        --keyFile /tmp/tls/keyfile
+        --tlsMode requireTLS --tlsCertificateKeyFile /tmp/tls/server.pem
+        --tlsCAFile /tmp/tls/ca.pem --tlsAllowConnectionsWithoutCertificates
