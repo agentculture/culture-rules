@@ -25,6 +25,7 @@ from collections.abc import Iterable, Iterator, Mapping
 from typing import Any
 
 from culture_rules.engine.matching import exported_outputs
+from culture_rules.model.graph import find_cycle
 from culture_rules.model.rule import Rule
 from culture_rules.model.serde import join
 from culture_rules.model.validate import ValidationError
@@ -35,34 +36,6 @@ __all__ = ["OUTPUT_REF", "validate_rule_set"]
 #: ``rules.<rule id>.outputs.<output name>``
 #: ``(?a:...)`` keeps ``\w`` ASCII-only, as ``[A-Za-z0-9_]``, while ``\b`` stays Unicode-aware.
 OUTPUT_REF = re.compile(r"\brules\.((?a:[\w-]+))\.outputs\.((?a:[A-Za-z_]\w*))")
-
-
-def _visit(
-    node: str, stack: list[str], graph: Mapping[str, tuple[str, ...]], state: dict[str, int]
-) -> list[str] | None:
-    """Depth-first walk from ``node``; the first cycle met, closed on its start, or None."""
-    state[node] = 1
-    stack.append(node)
-    for nxt in sorted(graph.get(node, ())):
-        if state.get(nxt) == 1:
-            return stack[stack.index(nxt) :] + [nxt]
-        if nxt not in state:
-            found = _visit(nxt, stack, graph, state)
-            if found:
-                return found
-    stack.pop()
-    state[node] = 2
-    return None
-
-
-def _find_cycle(graph: Mapping[str, tuple[str, ...]]) -> list[str] | None:
-    state: dict[str, int] = {}  # 1 = on stack, 2 = done
-    for node in sorted(graph):
-        if node not in state:
-            found = _visit(node, [], graph, state)
-            if found:
-                return found
-    return None
 
 
 def _reach(start: str, graph: Mapping[str, tuple[str, ...]]) -> set[str]:
@@ -106,7 +79,7 @@ def _references(rule: Rule, path: str) -> Iterator[tuple[str, str, str]]:
 def _cycle_errors(rules: list[Rule]) -> list[ValidationError]:
     errors: list[ValidationError] = []
     for rel, code in (("supersedes", "supersede_cycle"), ("must_after", "predecessor_cycle")):
-        cycle = _find_cycle({r.id: tuple(getattr(r, rel)) for r in rules})
+        cycle = find_cycle({r.id: tuple(getattr(r, rel)) for r in rules})
         if cycle:
             errors.append(
                 ValidationError("rules", code, f"{rel} edges form a cycle: " + " -> ".join(cycle))

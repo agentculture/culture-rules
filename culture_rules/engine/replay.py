@@ -94,6 +94,34 @@ def _event_id(envelope: Mapping[str, Any]) -> str:
     return eid
 
 
+def _decide(
+    envelope: Mapping[str, Any],
+    snapshot: list[Rule],
+    workflows: Mapping[str, Workflow] | None,
+    paused: bool,
+    facts_for: Callable[[Mapping[str, Any]], RunFacts] | None,
+    rule_id: str | None,
+) -> tuple[Decision, ...]:
+    """Match one envelope against the whole snapshot; only ``rule_id``'s decision if given."""
+    facts = facts_for(envelope) if facts_for else None
+    decisions = match(envelope, snapshot, facts, workflows=workflows, paused=paused)
+    if rule_id is not None:
+        decisions = tuple(d for d in decisions if d.rule_id == rule_id)
+    return decisions
+
+
+def _replayed(eid: str, d: Decision) -> ReplayedDecision:
+    return ReplayedDecision(
+        event_id=eid,
+        rule_id=d.rule_id,
+        fire=d.fire,
+        reason=d.reason,
+        message=d.message,
+        by=d.by,
+        upstream=d.upstream,
+    )
+
+
 def replay(
     source: StoreOps | Iterable[Mapping[str, Any]],
     rules: Iterable[Rule],
@@ -121,26 +149,12 @@ def replay(
     unmatched: list[str] = []
     for envelope in envelopes:
         eid = _event_id(envelope)
-        facts = facts_for(envelope) if facts_for else None
-        decisions: tuple[Decision, ...] = match(
-            envelope, snapshot, facts, workflows=workflows, paused=paused
-        )
-        if rule_id is not None:
-            decisions = tuple(d for d in decisions if d.rule_id == rule_id)
+        decisions = _decide(envelope, snapshot, workflows, paused, facts_for, rule_id)
         if not decisions:
             unmatched.append(eid)
             continue
         for d in decisions:
-            item = ReplayedDecision(
-                event_id=eid,
-                rule_id=d.rule_id,
-                fire=d.fire,
-                reason=d.reason,
-                message=d.message,
-                by=d.by,
-                upstream=d.upstream,
-            )
-            (fire if d.fire else skipped).append(item)
+            (fire if d.fire else skipped).append(_replayed(eid, d))
     return ReplayReport(
         events=len(envelopes),
         would_fire=tuple(fire),

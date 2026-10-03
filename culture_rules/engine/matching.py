@@ -209,6 +209,77 @@ def _upstream(
     return visible
 
 
+def _screen(
+    candidates: Iterable[Rule],
+    event: Mapping[str, Any],
+    variables: Mapping[str, Any],
+    out: dict[str, Decision],
+) -> dict[str, Rule]:
+    """The enabled candidates whose condition holds; the others are decided into ``out``."""
+    matched: dict[str, Rule] = {}
+    for r in candidates:
+        if not r.enabled:
+            out[r.id] = Decision(rule_id=r.id, fire=False, reason=DISABLED)
+            continue
+        err = _condition(r, event, variables)
+        if err is not None:
+            out[r.id] = Decision(rule_id=r.id, fire=False, reason=CONDITION_FALSE, detail=err)
+            continue
+        matched[r.id] = r
+    return matched
+
+
+def _supersede(
+    matched: Mapping[str, Rule], snapshot: Mapping[str, Rule], out: dict[str, Decision]
+) -> dict[str, list[str]]:
+    """Matched rules another matched rule supersedes (decided into ``out``), with by whom."""
+    edges = {rid: r.supersedes for rid, r in snapshot.items()}
+    superseded: dict[str, list[str]] = {}
+    for aid in matched:
+        for bid in _closure(aid, edges):
+            if bid in matched:
+                superseded.setdefault(bid, []).append(aid)
+    for bid, by in superseded.items():
+        out[bid] = Decision(rule_id=bid, fire=False, reason=SUPERSEDED_BY, by=tuple(sorted(by)))
+    return superseded
+
+
+def _group_losers(
+    matched: Mapping[str, Rule], superseded: Mapping[str, list[str]], out: dict[str, Decision]
+) -> None:
+    """Decide into ``out`` every exclusive-group member that is not its group's winner."""
+    groups: dict[str, list[Rule]] = {}
+    for rid, r in matched.items():
+        if rid not in superseded and r.exclusive_group is not None:
+            groups.setdefault(r.exclusive_group, []).append(r)
+    for group, members in groups.items():
+        winner = min(members, key=lambda r: (-r.priority, r.id))
+        for r in members:
+            if r.id != winner.id:
+                out[r.id] = Decision(
+                    rule_id=r.id, fire=False, reason=GROUP_LOST, by=(winner.id,), detail=group
+                )
+
+
+def _ordered(
+    r: Rule, snapshot: Mapping[str, Rule], facts: RunFacts, workflows: Mapping[str, Workflow]
+) -> Decision:
+    """Fire ``r`` unless a ``must_after`` predecessor has not succeeded for this event."""
+    blocking = tuple(
+        pid
+        for pid in r.must_after
+        if (o := facts.outcomes.get(pid)) is None or o.status != SUCCEEDED
+    )
+    if blocking:
+        return Decision(rule_id=r.id, fire=False, reason=BLOCKED_BY_PREDECESSOR, by=blocking)
+    return Decision(
+        rule_id=r.id,
+        fire=True,
+        reason=FIRE,
+        upstream=_upstream(r, snapshot, facts, workflows),
+    )
+
+
 def match(
     event: Mapping[str, Any],
     rules: Iterable[Rule],
@@ -236,54 +307,11 @@ def match(
     if paused:
         return tuple(Decision(rule_id=r.id, fire=False, reason=PAUSED) for r in candidates)
 
-    matched: dict[str, Rule] = {}
-    for r in candidates:
-        if not r.enabled:
-            out[r.id] = Decision(rule_id=r.id, fire=False, reason=DISABLED)
-            continue
-        err = _condition(r, event, variables)
-        if err is not None:
-            out[r.id] = Decision(rule_id=r.id, fire=False, reason=CONDITION_FALSE, detail=err)
-            continue
-        matched[r.id] = r
-
-    edges = {rid: r.supersedes for rid, r in snapshot.items()}
-    superseded: dict[str, list[str]] = {}
-    for aid in matched:
-        for bid in _closure(aid, edges):
-            if bid in matched:
-                superseded.setdefault(bid, []).append(aid)
-    for bid, by in superseded.items():
-        out[bid] = Decision(rule_id=bid, fire=False, reason=SUPERSEDED_BY, by=tuple(sorted(by)))
-
-    groups: dict[str, list[Rule]] = {}
+    matched = _screen(candidates, event, variables, out)
+    superseded = _supersede(matched, snapshot, out)
+    _group_losers(matched, superseded, out)
     for rid, r in matched.items():
-        if rid not in superseded and r.exclusive_group is not None:
-            groups.setdefault(r.exclusive_group, []).append(r)
-    for group, members in groups.items():
-        winner = min(members, key=lambda r: (-r.priority, r.id))
-        for r in members:
-            if r.id != winner.id:
-                out[r.id] = Decision(
-                    rule_id=r.id, fire=False, reason=GROUP_LOST, by=(winner.id,), detail=group
-                )
-
-    for rid, r in matched.items():
-        if rid in out:
-            continue
-        blocking = tuple(
-            pid
-            for pid in r.must_after
-            if (o := facts.outcomes.get(pid)) is None or o.status != SUCCEEDED
-        )
-        if blocking:
-            out[rid] = Decision(rule_id=rid, fire=False, reason=BLOCKED_BY_PREDECESSOR, by=blocking)
-        else:
-            out[rid] = Decision(
-                rule_id=rid,
-                fire=True,
-                reason=FIRE,
-                upstream=_upstream(r, snapshot, facts, workflows),
-            )
+        if rid not in out:
+            out[rid] = _ordered(r, snapshot, facts, workflows)
 
     return tuple(out[r.id] for r in candidates)

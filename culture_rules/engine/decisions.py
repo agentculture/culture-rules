@@ -142,18 +142,23 @@ def settle_decision(
     if existing.get("reason") != BLOCKED_BY_PREDECESSOR:
         return existing
     if waiting:
-        if list(decision.by) == list(existing.get("by") or ()):
-            return existing
-        changes = {"by": list(decision.by), "message": decision.message}
-        return tx.update_if(
-            RULE_DECISIONS, key, {"reason": BLOCKED_BY_PREDECESSOR}, changes
-        ).document
+        return _refresh_waiting(tx, key, decision, existing)
     if decision.fire:  # it waited for these and then ran
         decision = replace(decision, by=tuple(existing.get("by") or ()))
     prior = {k: existing.get(k) for k in ("reason", "by", "detail", "message", "at", "host")}
     new = _record(decision, event_id=event_id, host=host, at=at, run_id=run_id)
     new["superseded"] = [*(existing.get("superseded") or ()), prior]
     changes = {k: v for k, v in new.items() if k != "id"}
+    return tx.update_if(RULE_DECISIONS, key, {"reason": BLOCKED_BY_PREDECESSOR}, changes).document
+
+
+def _refresh_waiting(
+    tx: StoreOps, key: str, decision: Decision, existing: Mapping[str, Any]
+) -> Mapping[str, Any] | None:
+    """A still-waiting decision: refresh the record's ``by`` only when it changed."""
+    if list(decision.by) == list(existing.get("by") or ()):
+        return existing
+    changes = {"by": list(decision.by), "message": decision.message}
     return tx.update_if(RULE_DECISIONS, key, {"reason": BLOCKED_BY_PREDECESSOR}, changes).document
 
 
