@@ -16,6 +16,7 @@ from culture_rules.engine.lifecycle import (
 )
 from culture_rules.store.memory import MemoryStore
 from tests.engine.run_helpers import RUN_AUDIT_SCENARIOS
+from tests.server.scenarios import SERVER_AUDIT_SCENARIOS
 
 T0 = datetime(2026, 1, 1, tzinfo=UTC)
 
@@ -123,6 +124,7 @@ SCENARIOS = {
     "engine.resume": RUN_AUDIT_SCENARIOS["engine.resume"],
     "machine.drain": RUN_AUDIT_SCENARIOS["machine.drain"],
     "machine.undrain": RUN_AUDIT_SCENARIOS["machine.undrain"],
+    **SERVER_AUDIT_SCENARIOS,
 }
 
 
