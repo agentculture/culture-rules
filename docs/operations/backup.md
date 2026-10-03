@@ -21,7 +21,7 @@ catches up:
 ## Configuration
 
 Nothing here is committed. Set it in the environment of the cron/systemd unit,
-or seal values with shushu.
+or store values with grant (`grant set NAME`).
 
 | Variable | Meaning |
 |----------|---------|
@@ -31,7 +31,7 @@ or seal values with shushu.
 | `CULTURE_RULES_BACKUP_SSE` | `AES256` (default) or `aws:kms`. |
 | `CULTURE_RULES_BACKUP_KMS_KEY_ID` | KMS key for `aws:kms`. |
 | `CULTURE_RULES_BACKUP_ENDPOINT_URL` | S3-compatible endpoint (MinIO). |
-| `CULTURE_RULES_BACKUP_ACCESS_KEY_ID` / `..._SECRET_ACCESS_KEY` | Optional; a `shushu:<name>` reference is resolved at run time. Default is the AWS credential chain (profile, role). |
+| `CULTURE_RULES_BACKUP_ACCESS_KEY_ID` / `..._SECRET_ACCESS_KEY` | Optional; a `grant:<NAME>` reference is resolved at run time with `grant get NAME`. Default is the AWS credential chain (profile, role). |
 | `CULTURE_RULES_MONGO_URI` and friends | The store being backed up or restored into. |
 
 One-time bucket setup (operator): enable versioning

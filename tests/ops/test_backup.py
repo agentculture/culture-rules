@@ -102,9 +102,33 @@ def test_config_rejects_unencrypted_mode():
         BackupConfig(bucket="b", region="r", sse="none")
 
 
-def test_resolve_secret_passes_plain_and_uses_shushu_runner():
+def test_resolve_secret_passes_plain_and_uses_grant_runner():
     assert resolve_secret("plain") == "plain"
-    assert resolve_secret("shushu:aws/key", runner=lambda name: f"got-{name}") == "got-aws/key"
+    assert resolve_secret("grant:AWS_KEY", runner=lambda name: f"got-{name}") == "got-AWS_KEY"
+
+
+def test_grant_reference_is_resolved_with_grant_get_argv(monkeypatch):
+    import culture_rules.ops.backup as backup_mod
+
+    calls = []
+
+    class Done:
+        stdout = "s3cr3t\n"
+
+    def fake_run(argv, **kw):
+        calls.append((argv, kw))
+        return Done()
+
+    monkeypatch.setattr(backup_mod.subprocess, "run", fake_run)
+    assert resolve_secret("grant:AWS_SECRET_ACCESS_KEY") == "s3cr3t"
+    argv, kw = calls[0]
+    assert argv == ["grant", "get", "AWS_SECRET_ACCESS_KEY"]
+    assert kw.get("shell") in (None, False)
+
+
+def test_shushu_references_are_no_longer_resolved():
+    # deviation d2: grant replaced shushu; an old reference is passed through untouched
+    assert resolve_secret("shushu:aws/key") == "shushu:aws/key"
 
 
 # ---------------------------------------------------------------- snapshot

@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-03T04:20:01Z",
-  "updated": "2026-10-03T05:44:12Z",
+  "updated": "2026-10-03T06:20:11Z",
   "claims": [
     {
       "id": "c1",
@@ -1901,6 +1901,18 @@
       "links": [],
       "instruction": "",
       "revisions": []
+    },
+    {
+      "id": "c103",
+      "kind": "decision",
+      "text": "grant replaces shushu as the secrets manager: secret references are grant:<NAME>, resolved at run time with 'grant get NAME' or, for hidden secrets, injected into a subprocess with 'grant run --inject VAR=NAME' (operator, this session)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
     }
   ],
   "open_vagueness": [
@@ -2433,6 +2445,17 @@
       "skipped_check": "mutation test of the race tests",
       "refs": [
         "plan t3"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l5",
+      "code": "grader-unverified",
+      "what": "t13 reported scan-secrets clean, but the scan ran over git ls-files before its new files were tracked, so culture_rules/events/triggers.py was never scanned; the merge gate caught 2 findings",
+      "skipped_check": "run scan-secrets after git add",
+      "refs": [
+        "plan t13"
       ],
       "origin": "llm",
       "status": "proposed"

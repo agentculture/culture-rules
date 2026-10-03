@@ -2,7 +2,7 @@
   "plan_slug": "culture-rules-engine-editor",
   "schema_version": 2,
   "created": "2026-10-03T05:56:04Z",
-  "updated": "2026-10-03T05:56:04Z",
+  "updated": "2026-10-03T06:20:11Z",
   "deviations": [
     {
       "id": "d1",
@@ -19,6 +19,21 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 1
+    },
+    {
+      "id": "d2",
+      "what": "Secrets use grant instead of shushu: references are grant:<NAME>, values resolved with 'grant get NAME' (refuses hidden secrets), hidden secrets injected with 'grant run --inject VAR=NAME -- cmd'",
+      "task_ref": "t19",
+      "reason": "operator: grant is the new secrets command replacing shushu (grant list/get/run verified on spark)",
+      "affects": [
+        "t37",
+        "t38",
+        "c57"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 2
     }
   ],
   "evidence": [],

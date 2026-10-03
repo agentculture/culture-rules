@@ -30,7 +30,7 @@ document-by-document, not as one cross-collection instant; transactions that
 span collections can therefore be seen half-applied across collections in a
 snapshot, and the hourly increments repair run history forward.
 
-Configuration (config/env/shushu only; nothing is committed)
+Configuration (config/env/grant only; nothing is committed)
 ===========================================================
 
 ``CULTURE_RULES_BACKUP_BUCKET``, ``CULTURE_RULES_BACKUP_REGION`` (required),
@@ -39,8 +39,8 @@ Configuration (config/env/shushu only; nothing is committed)
 ``CULTURE_RULES_BACKUP_KMS_KEY_ID``, ``CULTURE_RULES_BACKUP_ENDPOINT_URL``
 (S3-compatible stores such as MinIO). Credentials come from the standard AWS
 chain (env, profile, role); the optional ``CULTURE_RULES_BACKUP_ACCESS_KEY_ID``
-and ``CULTURE_RULES_BACKUP_SECRET_ACCESS_KEY`` may be a ``shushu:<name>``
-reference, resolved at run time by ``shushu get <name>``.
+and ``CULTURE_RULES_BACKUP_SECRET_ACCESS_KEY`` may be a ``grant:<NAME>``
+reference, resolved at run time by ``grant get <NAME>`` (deviation d2: grant replaced shushu).
 
 CLI: ``python -m culture_rules.ops.backup {snapshot,increment,tick,restore,list,drill}``.
 ``tick`` is the scheduler entry point: run it hourly from cron/systemd; it takes
@@ -54,7 +54,7 @@ import argparse
 import gzip
 import json
 import os
-import subprocess  # nosec B404 - only used to call the operator's shushu CLI
+import subprocess  # nosec B404 - only used to call the operator's grant CLI
 import sys
 import time
 from collections.abc import Callable, Mapping, Sequence
@@ -94,20 +94,20 @@ class BackupConfigError(BackupError):
 
 
 def resolve_secret(value: str, runner: Callable[[str], str] | None = None) -> str:
-    """Return ``value``, or resolve a ``shushu:<name>`` reference at run time."""
-    if not value.startswith("shushu:"):
+    """Return ``value``, or resolve a ``grant:<NAME>`` reference at run time."""
+    if not value.startswith("grant:"):
         return value
-    name = value[len("shushu:") :]
-    return (runner or _shushu_get)(name)
+    name = value[len("grant:") :]
+    return (runner or _grant_get)(name)
 
 
-def _shushu_get(name: str) -> str:
+def _grant_get(name: str) -> str:
     try:
         done = subprocess.run(  # nosec B603 B607 - fixed argv, no shell
-            ["shushu", "get", name], capture_output=True, text=True, check=True, timeout=30
+            ["grant", "get", name], capture_output=True, text=True, check=True, timeout=30
         )
     except (OSError, subprocess.SubprocessError) as exc:
-        raise BackupConfigError(f"cannot resolve secret reference shushu:{name}: {exc}") from exc
+        raise BackupConfigError(f"cannot resolve secret reference grant:{name}: {exc}") from exc
     return done.stdout.strip()
 
 
