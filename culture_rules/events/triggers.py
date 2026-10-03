@@ -109,11 +109,11 @@ class EventTriggers:
         return f"{self.consumer}/{event_id}"
 
     def _token(self) -> str:
-        token = self.store.load_cursor(self.consumer, EVENTS_COLLECTION)
-        if token is None:
-            token = self.store.head(EVENTS_COLLECTION)
-            self.store.save_cursor(self.consumer, EVENTS_COLLECTION, token)
-        return token
+        position = self.store.load_cursor(self.consumer, EVENTS_COLLECTION)
+        if position is None:
+            position = self.store.head(EVENTS_COLLECTION)
+            self.store.save_cursor(self.consumer, EVENTS_COLLECTION, position)
+        return position
 
     def _cursor_doc(self, token: str) -> Document:
         # Same shape StoragePort.save_cursor writes, so load_cursor reads it back.
