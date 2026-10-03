@@ -21,6 +21,9 @@ external event data. :func:`evaluate` validates first, so a stored pattern that 
 screen raises :class:`UnsafePatternError` instead of running; the engine records that as a
 non-match.
 
+Every comparison with a missing operand is false, ``!=`` included (as in CEL); explicit
+negation still applies, so ``!(a == b)`` on a missing field is true.
+
 Operands::
 
     {"field": "a.b"}    # dotted path into context["trigger"]
@@ -213,12 +216,12 @@ def _eq(a: Any, b: Any) -> bool:
 
 
 def _compare(op: str, a: Any, b: Any) -> bool:
+    if a is _MISSING or b is _MISSING:
+        return False  # every comparison, `!=` included; `!(a == b)` stays true
     if op == "==":
         return _eq(a, b)
     if op == "!=":
         return not _eq(a, b)
-    if a is _MISSING or b is _MISSING:
-        return False
     if not ((_is_num(a) and _is_num(b)) or (isinstance(a, str) and isinstance(b, str))):
         return False
     return {"<": a < b, "<=": a <= b, ">": a > b, ">=": a >= b}[op]
@@ -251,7 +254,7 @@ def evaluate(tree: dict, context: dict) -> bool:
     """Evaluate ``tree`` against ``context`` ({"trigger": {...}, "variables": {...}}).
 
     Pure and deterministic: the context is never mutated.  Missing fields make comparisons
-    false rather than raising; a malformed tree raises ConditionError, and
+    (``!=`` included) false rather than raising; a malformed tree raises ConditionError, and
     a ``matches`` pattern that fails the backtracking screen raises UnsafePatternError
     without running.
     """
