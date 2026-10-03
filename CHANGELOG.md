@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.5] - 2026-10-03
+
+### Added
+
+- Action params accept explicit {"$ref": path} and {"$literal": value} forms; a $ref that can never resolve is refused at save (422 invalid_reference)
+- Each node cycle redelivers human ask answers that were recorded but not delivered (e.g. a crash in between); `node run --once --json` reports a `redelivered` count
+- docs/operations/pause.md: what a pause holds back and what it drops
+
+### Changed
+
+- Colleague, mesh and runner actors no longer claim cross-process idempotency: an attempt whose outcome is unknown (crash, resume, lost ack, timeout) now fails with unsafe_retry instead of running again; declare the step idempotent to retry automatically
+- Adding, changing or removing a runner actor's params.commands is admin-only on create, update and import (403 runner_commands_admin_only)
+- Registered runner commands that evaluate inline code (sh -c, python -c, node -e, perl -e, ... also behind env/sudo wrappers) are refused at run time
+- `matches` refuses catastrophic-backtracking patterns at save (422) and treats a stored one as a recorded non-match; its input cap drops from 10,000 to 2,000 characters
+- `!=` on a missing field is now false like every other comparison; write !(a == b) to match when the field is absent
+- A retry after a failed attempt counts against the actor's concurrency cap and token budget
+- Plain strings resolve as references only when their path fits a namespace (trigger envelope fields or event keys, workflow.outputs.*, rules.<id>.outputs.*); others, like rules.yaml or trigger.sh, stay literal
+
+### Fixed
+
+- A step's claim lease is renewed while its actor runs, and a lapsed claim is taken over only when the holder's heartbeat is stale or the step's deadline passed, so a long step no longer runs twice
+- Engine nodes beat from their own thread, so a long step no longer makes its host look offline
+- Answering a human ask frees the human actor's concurrency slot at once (it stayed held until the step deadline)
+- Actor adapters no longer cache failed results, so retry policies re-run the work
+- A predecessor settling during an engine pause no longer turns a waiting must/may-run-after dependant into a final skip; it is re-evaluated on resume
+- Literal strings such as trigger.sh in workflow step config are no longer reported as trigger references; {"$ref": "trigger..."} in a workflow is
+
 ## [0.10.4] - 2026-10-03
 
 ### Added
