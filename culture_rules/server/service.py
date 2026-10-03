@@ -121,7 +121,7 @@ class Definitions:
             raise NotFound(f"unknown kind {kind!r}") from None
 
     def rule_set(self) -> tuple[list[Rule], dict[str, Workflow]]:
-        """Live (not soft-deleted) rules and workflows, parsed tolerantly; unparsable ones skipped."""
+        """Live rules and workflows, parsed tolerantly; unparsable ones are skipped."""
         rules = [r for d in self.list("rules") if (r := _tolerant(Rule, d)) is not None]
         flows = [w for d in self.list("workflows") if (w := _tolerant(Workflow, d)) is not None]
         return rules, {w.id: w for w in flows}
