@@ -14,6 +14,13 @@ Tree shape (every node is a dict with an ``op`` key)::
     {"op": "in", "value": operand, "items": operand}   # items resolves to a list
     {"op": "matches", "value": operand, "pattern": "<regex>"}  # re.fullmatch, length-capped
 
+A ``matches`` pattern must also pass :func:`culture_rules.model.regex_safety.unsafe_reason`
+(no nested quantifiers, ambiguous alternations, backreferences, or more than one pair of
+quantifiers that can trade the same text), since ``re`` has no time bound and the input is
+external event data. :func:`evaluate` validates first, so a stored pattern that fails the
+screen raises :class:`UnsafePatternError` instead of running; the engine records that as a
+non-match.
+
 Operands::
 
     {"field": "a.b"}    # dotted path into context["trigger"]
@@ -35,8 +42,11 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from culture_rules.model.regex_safety import unsafe_reason
+
 MAX_PATTERN_LEN = 256
-MAX_INPUT_LEN = 10_000
+#: Longest string a ``matches`` runs on; a longer value is a non-match (bounds regex work).
+MAX_INPUT_LEN = 2_000
 MAX_DEPTH = 64
 
 CMP_OPS = ("==", "!=", "<=", ">=", "<", ">")
@@ -68,6 +78,12 @@ class ConditionParseError(ConditionError):
 
     def to_dict(self) -> dict[str, Any]:
         return {"code": self.code, "message": self.message, "position": self.position}
+
+
+class UnsafePatternError(ConditionError):
+    """A ``matches`` pattern whose shape can backtrack catastrophically."""
+
+    code = "unsafe_pattern"
 
 
 @dataclass(frozen=True)
@@ -161,6 +177,9 @@ def _validate_matches(node: dict, path: str) -> None:
         re.compile(pat)
     except re.error as exc:
         raise _err(f"invalid pattern: {exc}", path) from exc
+    reason = unsafe_reason(pat)
+    if reason is not None:
+        raise UnsafePatternError(f"pattern may backtrack catastrophically: {reason}", path)
 
 
 # --------------------------------------------------------------------------- evaluation
@@ -232,7 +251,9 @@ def evaluate(tree: dict, context: dict) -> bool:
     """Evaluate ``tree`` against ``context`` ({"trigger": {...}, "variables": {...}}).
 
     Pure and deterministic: the context is never mutated.  Missing fields make comparisons
-    false rather than raising; a malformed tree raises ConditionError.
+    false rather than raising; a malformed tree raises ConditionError, and
+    a ``matches`` pattern that fails the backtracking screen raises UnsafePatternError
+    without running.
     """
     validate(tree)
     return _eval(tree, context if isinstance(context, dict) else {})
