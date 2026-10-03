@@ -14,7 +14,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- Cleared 495 of 498 SonarCloud maintainability issues: split composite test assertions and pytest.raises blocks, read-only React props, native fieldset/output/dialog elements instead of ARIA roles, and 33 cognitive-complexity splits in culture_rules and web with no behaviour change
+- Cleared every SonarCloud maintainability issue on the PR (508) SonarCloud maintainability issues: split composite test assertions and pytest.raises blocks, read-only React props, native fieldset/output/dialog elements instead of ARIA roles, and 33 cognitive-complexity splits in culture_rules and web with no behaviour change
+- `Node` takes its probe/load-reader/engine-version/beat-interval settings as one `HeartbeatOptions` (14 -> 11 parameters)
+- The workflow import reads files with `Blob#text` only (the FileReader fallback was dead code for every supported browser); the logo SVG is decorative and named by visually hidden text
 
 ### Fixed
 
