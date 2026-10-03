@@ -30,6 +30,9 @@ CI/publish baseline. The engine, API and editor are planned.
 - `culture-rules overview` — descriptive snapshot of the agent.
 - `culture-rules doctor` — check the agent-identity invariants.
 - `culture-rules cli overview` — describe the CLI surface.
+- `culture-rules rules|workflows|actors|machines|runs <verb>` — the engine's nouns over the
+  HTTP API; `culture-rules explain <noun>` lists each noun's verbs.
+- `culture-rules serve` — run the HTTP API (needs the `server` extra).
 
 ## Exit-code policy
 
@@ -125,6 +128,70 @@ itself (distinct from the global `overview`, which describes the agent).
     culture-rules cli overview --json
 """
 
+_SERVE = """\
+# culture-rules serve
+
+Runs the HTTP API under uvicorn (needs `pip install 'culture-rules[server]'` and, for the
+default store, the `store` extra). Stateless: run as many copies as you like against one store.
+
+## Usage
+
+    culture-rules serve --host 127.0.0.1 --port 8765
+    culture-rules serve --admin alice
+"""
+
+_NOUN_BLURBS = {
+    "rules": "Rules say *when* work should happen: trigger, condition, workflow, action.",
+    "workflows": "Workflows are the reusable *how*: steps, branching and waits.",
+    "actors": "Actors are who or what can perform work: agents, humans, code, services.",
+    "machines": "Machines are the hosts that execute steps; drain one to stop new placements.",
+    "runs": "Runs are executions of a rule's workflow; pause and resume gate the whole engine.",
+}
+
+
+def _noun_entry(noun: str, verbs: list) -> str:
+    lines = [f"- `culture-rules {noun} {v.name}` — {v.summary}" for v in verbs]
+    return (
+        f"# culture-rules {noun}\n\n{_NOUN_BLURBS[noun]}\n\n## Verbs\n\n"
+        + "\n".join(lines)
+        + "\n\nEvery verb supports `--json`. Writes are dry-run unless `--apply`. The CLI talks "
+        "only to the HTTP API (`CULTURE_RULES_API_URL`, default `http://127.0.0.1:8765`; "
+        "`CULTURE_RULES_TOKEN` is a bearer token or a `grant:<NAME>` reference).\n\n"
+        f"## Usage\n\n    culture-rules {noun} overview\n    culture-rules {noun} list --json\n"
+    )
+
+
+def _verb_entry(v) -> str:
+    params = "\n".join(
+        f"- `{p.name}` ({p.type}{', required' if p.required else ''}) — {p.help}" for p in v.params
+    )
+    if v.mutating:
+        params += (
+            "\n" if params else ""
+        ) + "- `apply` (boolean) — commit; the default is a dry-run"
+    mode = (
+        "Writes: dry-run unless `--apply`; a dry-run changes nothing."
+        if v.mutating
+        else "Read-only."
+    )
+    return (
+        f"# culture-rules {v.noun} {v.name}\n\n{v.summary}.\n\n{mode} "
+        f"Required role: `{v.role}`.\n\n## Parameters\n\n{params or '(none)'}\n\n"
+        f"## Usage\n\n    culture-rules {v.noun} {v.name} --json\n"
+    )
+
+
+def _generated() -> dict[tuple[str, ...], str]:
+    """One entry per registered noun and verb, read from the command registry."""
+    from culture_rules.cli.verbs import REGISTRY  # noqa: PLC0415 - registry imports the CLI
+
+    out: dict[tuple[str, ...], str] = {("serve",): _SERVE}
+    for noun in REGISTRY.nouns():
+        out[(noun,)] = _noun_entry(noun, REGISTRY.verbs(noun))
+        for v in REGISTRY.verbs(noun):
+            out[v.path] = _verb_entry(v)
+    return out
+
 
 ENTRIES: dict[tuple[str, ...], str] = {
     (): _ROOT,
@@ -137,3 +204,5 @@ ENTRIES: dict[tuple[str, ...], str] = {
     ("cli",): _CLI,
     ("cli", "overview"): _CLI,
 }
+
+ENTRIES.update(_generated())
