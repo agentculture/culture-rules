@@ -204,8 +204,8 @@ test.describe("Workflows tab", () => {
     await expect(edge(page, "decide.verdict->outputs.verdict")).not.toHaveClass(/is-lit/);
     const state = await agentState(page);
     expect(state.workflows.run).toEqual({ id: "run-7", status: "failed" });
-    await page.waitForTimeout(400); // let the lit edges' transition settle
-    await page.screenshot({ path: SCREENSHOT.replace(/\.png$/, "-run.png"), fullPage: true });
+    // `animations: "disabled"` fast-forwards the lit edges' transition to its end state.
+    await page.screenshot({ path: SCREENSHOT.replace(/\.png$/, "-run.png"), fullPage: true, animations: "disabled" });
   });
 
   test("keyboard: a step is reachable, Enter selects it, its toolbar is operable", async ({ page }) => {

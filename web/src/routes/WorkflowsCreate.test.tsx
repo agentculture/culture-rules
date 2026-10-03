@@ -51,12 +51,12 @@ function fakeApi(start: WorkflowDef[], opts: { deleted?: string[]; createError?:
       live = [...live, stored];
       return json(201, stored);
     }
-    const toggle = path.match(/^\/api\/workflows\/([^/]+)\/(enable|disable)$/);
+    const toggle = /^\/api\/workflows\/([^/]+)\/(enable|disable)$/.exec(path);
     if (toggle && method === "POST") {
       live = live.map((w) => (w.id === toggle[1] ? { ...w, enabled: toggle[2] === "enable" } : w));
       return json(200, live.find((w) => w.id === toggle[1]));
     }
-    const restore = path.match(/^\/api\/workflows\/([^/]+)\/restore$/);
+    const restore = /^\/api\/workflows\/([^/]+)\/restore$/.exec(path);
     if (restore && method === "POST") {
       const doc = gone.get(restore[1]);
       if (!doc) return fail(404, "not_found", "nothing to restore");
@@ -64,7 +64,7 @@ function fakeApi(start: WorkflowDef[], opts: { deleted?: string[]; createError?:
       live = [...live, doc];
       return json(200, doc);
     }
-    const one = path.match(/^\/api\/workflows\/([^/]+)$/);
+    const one = /^\/api\/workflows\/([^/]+)$/.exec(path);
     if (one && method === "DELETE") {
       if (used.has(one[1])) return fail(409, "conflict", `workflows/${one[1]} is used by a rule`);
       const doc = live.find((w) => w.id === one[1]);
@@ -232,7 +232,8 @@ describe("Workflows tab: New workflow (empty state)", () => {
       .filter((c) => c.method === "POST" && c.path === "/api/workflows")
       .map((c) => (c.body as { id: string }).id);
     expect(ids).toEqual(["triage", "triage-2"]);
-    expect(where).toBe("/workflows?id=triage-2");
+    // The heading can show before the router commits the new query (a transition): wait for it.
+    await waitFor(() => expect(where).toBe("/workflows?id=triage-2"));
   });
 });
 

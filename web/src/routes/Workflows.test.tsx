@@ -221,12 +221,18 @@ describe("Workflows board (Chosen — Workflows)", () => {
 
   it("Export calls GET /export and offers the bundle as a download", async () => {
     const user = userEvent.setup();
+    // jsdom cannot navigate to the blob: URL a real anchor click would follow.
+    const download = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
     renderWorkflows();
     await loaded();
     await user.click(screen.getByRole("button", { name: "Export" }));
     await waitFor(() => expect(methodCalls(fetchMock, "GET", "/api/export")).toHaveLength(1));
     expect(methodCalls(fetchMock, "GET", "/api/export")[0][0]).toBe("/api/export?format=json");
     expect(await screen.findByRole("status")).toHaveTextContent("Exported 2 files");
+    expect(download).toHaveBeenCalledTimes(1);
+    const anchor = download.mock.contexts[0] as HTMLAnchorElement;
+    expect(anchor.download).toMatch(/^culture-rules-export.*\.json$/);
+    expect(anchor.href).toBe("blob:export");
   });
 
   it("Import posts the chosen files as a dry run, then applies the plan", async () => {
