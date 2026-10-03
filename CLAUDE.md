@@ -172,8 +172,9 @@ The contract for every new verb:
   `culture_rules/explain/catalog.py`, and a mention in `learn`. The teken
   rubric gate checks this coverage.
 
-The template self-description wording in the CLI strings was replaced with
-culture-rules wording.
+The CLI self-description strings (argparse description, `learn`, the `explain`
+root entry) use culture-rules wording; keep them in step with this file when
+verbs land.
 
 ## Identity and the four harnesses
 
