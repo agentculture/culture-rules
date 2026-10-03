@@ -1225,9 +1225,11 @@ def _step_inputs(plan: _Plan, doc: Mapping, st: Mapping) -> dict[str, Any]:
             values[e.target_port] = src[e.source_port]
     if loop and loop_state is not None:
         implicit = _implicit_loop_inputs(loop, loop_state)
-        for p in step.inputs:
-            if p.name not in values and p.name in implicit:
-                values[p.name] = implicit[p.name]
+        values.update(
+            (p.name, implicit[p.name])
+            for p in step.inputs
+            if p.name not in values and p.name in implicit
+        )
     problem = _check_ports(step.inputs, values, "input")
     return problem or {"inputs": values}
 
