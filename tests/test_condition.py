@@ -182,3 +182,20 @@ def test_bandit_b307():
     if "No module named bandit" in r.stderr:
         pytest.skip("bandit not installed")
     assert r.returncode == 0, r.stdout
+
+
+# --- Qwen worker review of t2: single-argument and/or did not round-trip -------------------
+def test_single_argument_and_or_is_rejected_so_every_valid_tree_round_trips():
+    import pytest
+
+    from culture_rules.model.condition import ConditionError, from_text, to_text, validate
+
+    cmp = {"op": "compare", "cmp": "==", "left": {"field": "a"}, "right": {"literal": 1}}
+    for op in ("and", "or"):
+        with pytest.raises(ConditionError):
+            validate({"op": op, "args": [cmp]})
+        with pytest.raises(ConditionError):
+            validate({"op": "not", "arg": {"op": op, "args": [cmp]}})
+        two = {"op": op, "args": [cmp, cmp]}
+        validate(two)
+        assert from_text(to_text({"op": "not", "arg": two})) == {"op": "not", "arg": two}

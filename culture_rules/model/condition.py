@@ -124,8 +124,11 @@ def validate(node: Any, path: str = "$", depth: int = 0) -> None:
         _check_operand(node.get("right"), path + ".right")
     elif op in ("and", "or"):
         args = node.get("args")
-        if not isinstance(args, list) or not args:
-            raise _err(f"{op} needs a non-empty args list", path)
+        # At least two args: a single-argument group has no text form of its own, so it
+        # would not round-trip through to_text/from_text (Qwen review of t2). Editors unwrap
+        # a one-item group before saving.
+        if not isinstance(args, list) or len(args) < 2:
+            raise _err(f"{op} needs an args list of at least two conditions", path)
         for i, a in enumerate(args):
             validate(a, f"{path}.args[{i}]", depth + 1)
     elif op == "not":
