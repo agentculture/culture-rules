@@ -11,7 +11,8 @@ envelope), ``workflow`` (``workflow.outputs.<name>``, action params only) and ``
   ``workflow.md`` and ``trigger.sh`` reach the actor unchanged. A reference whose value
   is absent resolves to ``None`` (an optional input stays missing);
 * ``{"$ref": "<path>"}`` (a one-key object) always references, ``None`` when absent;
-  :func:`ref_error` refuses at save time a path that can never resolve;
+  :func:`ref_errors` (called by :func:`culture_rules.model.validate.validate` for a
+  rule's ``action.params``) refuses at save time a path that can never resolve;
 * ``{"$literal": <value>}`` (a one-key object) is passed through verbatim - the escape
   for a string that *would* resolve, such as the text ``trigger.id``.
 
@@ -35,6 +36,7 @@ __all__ = [
     "is_reference",
     "lookup",
     "ref_error",
+    "ref_errors",
     "resolve_refs",
     "scanned_strings",
     "structured_form",
@@ -157,3 +159,20 @@ def resolve_refs(value: Any, context: Mapping[str, Any]) -> Any:
     if isinstance(value, list):
         return [resolve_refs(v, context) for v in value]
     return value
+
+
+def ref_errors(
+    value: Any, path: str, join: Any, *, has_workflow: bool
+) -> Iterator[tuple[str, str]]:
+    """(path, reason) for every ``{"$ref": ...}`` inside ``value`` that can never resolve."""
+    form = structured_form(value)
+    if form == REF_KEY:
+        reason = ref_error(value[REF_KEY], has_workflow=has_workflow)
+        if reason is not None:
+            yield path, reason
+    elif form is None and isinstance(value, Mapping):
+        for k, v in value.items():
+            yield from ref_errors(v, join(path, str(k)), join, has_workflow=has_workflow)
+    elif isinstance(value, (list, tuple)):
+        for i, v in enumerate(value):
+            yield from ref_errors(v, join(path, i), join, has_workflow=has_workflow)

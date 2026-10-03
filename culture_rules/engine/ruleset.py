@@ -12,10 +12,10 @@ what single-rule validation cannot:
 * ``not_a_predecessor`` -- a ``rules.<id>.outputs.<name>`` reference names a rule that is
   not in this rule's ``must_after`` / ``may_after``;
 * ``unexported_output`` -- the referenced predecessor's workflow does not explicitly
-  export ``<name>``;
-* ``invalid_reference`` -- a structured ``{"$ref": path}`` in ``action.params`` can never
-  resolve (no namespace, a wrong shape, or ``workflow.outputs`` on a rule without a
-  workflow; :func:`culture_rules.engine.refs.ref_error`).
+  export ``<name>``.
+
+A structured ``{"$ref": path}`` that can never resolve is refused by single-rule
+validation (:func:`culture_rules.model.validate.validate`, code ``invalid_reference``).
 
 References are scanned in the rule's ``action.params`` and ``workflow.inputs`` values,
 anywhere in a string (plain, ``{"$ref": ...}``, or inside ``{{ ... }}`` templates);
@@ -29,8 +29,8 @@ from collections.abc import Iterable, Iterator, Mapping
 from typing import Any
 
 from culture_rules.engine.matching import exported_outputs
-from culture_rules.engine.refs import REF_KEY, ref_error, scanned_strings, structured_form
 from culture_rules.model.graph import find_cycle
+from culture_rules.model.refs import scanned_strings
 from culture_rules.model.rule import Rule
 from culture_rules.model.serde import join
 from culture_rules.model.validate import ValidationError
@@ -57,28 +57,6 @@ def _reach(start: str, graph: Mapping[str, tuple[str, ...]]) -> set[str]:
 
 def _strings(value: Any, path: str) -> Iterator[tuple[str, str]]:
     return scanned_strings(value, path, join)
-
-
-def _structured_refs(value: Any, path: str) -> Iterator[tuple[str, Any]]:
-    """(path, target) of every ``{"$ref": target}`` inside ``value``."""
-    if structured_form(value) == REF_KEY:
-        yield path, value[REF_KEY]
-    elif isinstance(value, Mapping) and structured_form(value) is None:
-        for k, v in value.items():
-            yield from _structured_refs(v, join(path, str(k)))
-    elif isinstance(value, (list, tuple)):
-        for i, v in enumerate(value):
-            yield from _structured_refs(v, join(path, i))
-
-
-def _ref_form_errors(i: int, r: Rule) -> list[ValidationError]:
-    params_path = join(join(join("rules", i), "action"), "params")
-    found = _structured_refs(r.action.params, params_path)
-    return [
-        ValidationError(path, "invalid_reference", message)
-        for path, target in found
-        if (message := ref_error(target, has_workflow=r.workflow is not None)) is not None
-    ]
 
 
 def _references(rule: Rule, path: str) -> Iterator[tuple[str, str, str]]:
@@ -177,5 +155,4 @@ def validate_rule_set(
     for i, r in enumerate(rules):
         errors += _unknown_rule_errors(i, r, by_id)
         errors += _reference_errors(i, r, by_id, workflows)
-        errors += _ref_form_errors(i, r)
     return errors
