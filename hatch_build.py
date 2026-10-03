@@ -26,6 +26,11 @@ def web_force_include(root: Path | str, *, require: bool) -> dict[str, str]:
     dist = Path(root) / "web" / "dist"
     if (dist / "index.html").is_file():
         return {str(dist): WEB_DIST_TARGET}
+    # a wheel built from the sdist: the UI is already in the package tree there (and no git
+    # ignore applies), so it ships as ordinary package data; force-including it again would
+    # add every file twice
+    if (Path(root) / WEB_DIST_TARGET / "index.html").is_file():
+        return {}
     if require:
         raise RuntimeError(
             "web/dist/index.html is missing: run `npm ci && npm run build` in web/ before "

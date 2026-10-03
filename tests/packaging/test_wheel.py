@@ -44,3 +44,15 @@ def test_build_hook_force_includes_the_build(tmp_path):
     assert mod.web_force_include(tmp_path, require=True) == {
         str(tmp_path / "web" / "dist"): "culture_rules/web_dist"
     }
+
+
+def test_hook_accepts_the_ui_already_packaged_in_an_sdist(tmp_path):
+    """CI finding (PR #4 test-publish): `uv build` builds the wheel FROM the sdist, where the UI
+    sits at culture_rules/web_dist and web/dist does not exist; the hook must ship that copy."""
+    from hatch_build import web_force_include
+
+    packaged = tmp_path / "culture_rules" / "web_dist"
+    packaged.mkdir(parents=True)
+    (packaged / "index.html").write_text("<!doctype html>", encoding="utf-8")
+    # no error under require, and nothing force-included twice (it ships as package data)
+    assert web_force_include(tmp_path, require=True) == {}
