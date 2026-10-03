@@ -85,6 +85,10 @@ Semantics
   step :data:`ACTION_STEP` (kind ``"action"``), its params resolved against
   ``workflow.outputs.*``, ``trigger.*`` and ``rules.<id>.outputs.*`` (whole-string
   references or ``{{ ref }}`` templates). A rule without a workflow runs only its action.
+  A whole string is a reference only when its path fits a namespace's shape; any other
+  string (``rules.yaml``, ``workflow.md``, ``trigger.sh``) is a literal.
+  ``{"$ref": path}`` always references and ``{"$literal": value}`` never does (see
+  :mod:`culture_rules.engine.refs`). Workflow-input mappings resolve the same way.
 * **Containment** (:class:`Containment`, every verb audited) - a global pause stops new
   runs and all new dispatch (accepted work may still complete); draining a machine stops
   new placements on it while its running steps finish; cancelling a run cancels every
@@ -98,7 +102,6 @@ from __future__ import annotations
 
 import copy
 import hashlib
-import re
 import uuid
 from collections.abc import Callable, Iterable, Mapping
 from contextlib import AbstractContextManager
@@ -125,6 +128,7 @@ from culture_rules.engine.claims import (
 )
 from culture_rules.engine.leasekeeper import KeeperFactory, LeaseKeeper
 from culture_rules.engine.placement import MachineState, PlacementError, resolve_placement
+from culture_rules.engine.refs import resolve_refs
 from culture_rules.machines.enrol import enrolled_machines
 from culture_rules.machines.heartbeat import HEARTBEAT_COLLECTION, OFFLINE_AFTER_S, online_machines
 from culture_rules.model import condition as cond
@@ -197,9 +201,6 @@ FATAL_PLACEMENT = frozenset(
 
 _MAX_TRANSITIONS_PER_TICK = 10_000
 _MAX_CAS_RETRIES = 50
-_REF = re.compile(r"^(?:workflow|trigger|rules)(?:\.[^.\s{}]+)+$")
-_TEMPLATE = re.compile(r"\{\{\s*((?:workflow|trigger|rules)(?:\.[^.\s{}]+)+)\s*\}\}")
-
 Clock = Callable[[], datetime]
 Ports = Mapping[str, ActorPort] | Callable[[InvocationContext], ActorPort | None]
 
@@ -279,33 +280,6 @@ def _check_ports(ports: Iterable[Port], values: Mapping[str, Any], what: str) ->
 
 def _error(code: str, message: str) -> dict[str, str]:
     return {"code": code, "message": message}
-
-
-def _lookup(context: Mapping[str, Any], ref: str) -> Any:
-    cur: Any = context
-    for part in ref.split("."):
-        if isinstance(cur, Mapping) and part in cur:
-            cur = cur[part]
-        else:
-            return None
-    return cur
-
-
-def _resolve_refs(value: Any, context: Mapping[str, Any]) -> Any:
-    """Resolve whole-string references and ``{{ ref }}`` templates inside ``value``."""
-    if isinstance(value, str):
-        if _REF.match(value):
-            return _lookup(context, value)
-        return _TEMPLATE.sub(lambda m: _text(_lookup(context, m.group(1))), value)
-    if isinstance(value, dict):
-        return {k: _resolve_refs(v, context) for k, v in value.items()}
-    if isinstance(value, list):
-        return [_resolve_refs(v, context) for v in value]
-    return value
-
-
-def _text(value: Any) -> str:
-    return "" if value is None else str(value)
 
 
 def ensure_collections(store: Any) -> None:
@@ -684,7 +658,7 @@ class Executor:
             if s.id == ACTION_STEP or any(b.kind in LOOP_KINDS for b in s.body):
                 raise RunError("unsupported_workflow", f"step {s.id!r}: reserved id or nested loop")
         context = {"trigger": trigger, "rules": {k: {"outputs": v} for k, v in upstream.items()}}
-        inputs = {name: _resolve_refs(ref, context) for name, ref in rule.workflow.inputs.items()}
+        inputs = {name: resolve_refs(ref, context) for name, ref in rule.workflow.inputs.items()}
         inputs = {k: v for k, v in inputs.items() if v is not None}
         problem = _check_ports(workflow.inputs, inputs, "input")
         if problem:
@@ -1581,7 +1555,7 @@ def _finish(plan: _Plan, doc: Mapping, now: datetime) -> Found:
             "rules": {k: {"outputs": v} for k, v in (doc.get("upstream") or {}).items()},
         }
         state = _new_state(ACTION_STEP, ACTION_STEP)
-        state["inputs"] = _resolve_refs(dict(plan.rule.action.params), context)
+        state["inputs"] = resolve_refs(dict(plan.rule.action.params), context)
         new["outputs"] = outputs
         new["steps"].append(state)
         return new, "action_ready", ACTION_STEP
