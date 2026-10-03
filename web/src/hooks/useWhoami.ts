@@ -1,6 +1,6 @@
 import { useEffect, useSyncExternalStore } from "react";
 import { ApiError, getWhoami } from "../api/client";
-import type { Whoami } from "../api/types";
+import type { Role, Whoami } from "../api/types";
 import { setAgentState } from "../agent-state/store";
 
 /**
@@ -14,17 +14,28 @@ import { setAgentState } from "../agent-state/store";
  * States are distinct so no view mistakes one for another: `unauthenticated`
  * is a 401 (no identity reached the API); `unavailable` is any other failure,
  * which says nothing about who is here and must not render as "signed out".
- * `signed-in` with `mocked: true` is the stand-in used while the API has no
- * /whoami route (api/client.ts `MOCK_WHOAMI`).
+ * No identity is ever invented: a missing route is `unavailable`.
  */
 export type WhoamiState =
   | { status: "loading" }
-  | { status: "signed-in"; whoami: Whoami; displayName: string; mocked: boolean }
+  | {
+      status: "signed-in";
+      whoami: Whoami;
+      displayName: string;
+      kind: Whoami["kind"];
+      /** The highest of `whoami.roles`; null when no known role is held. */
+      role: Role | null;
+    }
   | { status: "unauthenticated" }
   | { status: "unavailable"; error: ApiError };
 
-export function displayNameOf(whoami: Whoami): string {
-  return whoami.display_name || whoami.email || whoami.subject;
+const ROLE_ORDER: Role[] = ["viewer", "editor", "admin"];
+
+/** The effective role: the highest of `roles` (viewer < editor < admin). */
+export function effectiveRole(roles: readonly string[]): Role | null {
+  let best = -1;
+  for (const role of roles) best = Math.max(best, ROLE_ORDER.indexOf(role as Role));
+  return best >= 0 ? ROLE_ORDER[best] : null;
 }
 
 const LOADING: WhoamiState = { status: "loading" };
@@ -37,9 +48,9 @@ function publish(next: WhoamiState) {
   setAgentState({
     identity: {
       status: next.status,
-      subject: next.status === "signed-in" ? next.whoami.subject : null,
-      role: next.status === "signed-in" ? next.whoami.role : null,
-      mocked: next.status === "signed-in" ? next.mocked : false,
+      identity: next.status === "signed-in" ? next.whoami.identity : null,
+      kind: next.status === "signed-in" ? next.kind : null,
+      role: next.status === "signed-in" ? next.role : null,
     },
   });
   for (const listener of listeners) listener();
@@ -50,8 +61,14 @@ function start() {
   started = true;
   publish(LOADING);
   getWhoami()
-    .then(({ whoami, mocked }) =>
-      publish({ status: "signed-in", whoami, displayName: displayNameOf(whoami), mocked }),
+    .then((whoami) =>
+      publish({
+        status: "signed-in",
+        whoami,
+        displayName: whoami.identity,
+        kind: whoami.kind,
+        role: effectiveRole(whoami.roles ?? []),
+      }),
     )
     .catch((cause: unknown) => {
       const error =

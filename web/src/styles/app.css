@@ -156,12 +156,6 @@ body {
   cursor: default;
 }
 
-.avatar[data-identity-mocked="true"] {
-  background: transparent;
-  color: var(--ink);
-  border: 2px dashed var(--dash-strong);
-}
-
 /* ---------- shared controls ---------- */
 
 .chip {

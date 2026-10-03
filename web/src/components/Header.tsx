@@ -18,14 +18,12 @@ export const TABS = [
   { to: "/statistics", label: "Statistics" },
 ] as const;
 
-const VIA: Record<string, string> = { sso: "SSO", token: "service token", dev: "dev" };
+const KIND: Record<string, string> = { sso: "SSO", service: "service token", agent: "agent" };
 
 export function identityLabel(whoami: WhoamiState): string {
   switch (whoami.status) {
     case "signed-in":
-      return whoami.mocked
-        ? `Signed in as ${whoami.displayName} (mock — API has no /whoami yet)`
-        : `Signed in as ${whoami.displayName} (${VIA[whoami.whoami.via] ?? whoami.whoami.via})`;
+      return `Signed in as ${whoami.displayName} (${KIND[whoami.kind] ?? whoami.kind})`;
     case "unauthenticated":
       return "Not signed in";
     case "unavailable":
@@ -63,7 +61,7 @@ export function Header() {
         aria-label={label}
         title={label}
         data-identity-status={whoami.status}
-        data-identity-mocked={whoami.status === "signed-in" ? String(whoami.mocked) : "false"}
+        data-identity-role={whoami.status === "signed-in" ? (whoami.role ?? "") : ""}
       >
         {initial(whoami)}
       </button>

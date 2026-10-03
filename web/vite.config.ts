@@ -9,6 +9,12 @@ import react from "@vitejs/plugin-react";
 // variable the CLI reads — and it defaults to the CLI's own default.
 const API_TARGET = process.env.CULTURE_RULES_API_URL ?? "http://127.0.0.1:8765";
 
+// Dev only: the app itself never sends a credential (behind Cloudflare
+// Access the edge adds Cf-Access-Jwt-Assertion). Against a local API started
+// with CULTURE_RULES_INSECURE_DEV_IDENTITY=1, set CULTURE_RULES_DEV_IDENTITY
+// and the dev proxy injects it as X-Culture-Identity. Unset: nothing added.
+const DEV_IDENTITY = process.env.CULTURE_RULES_DEV_IDENTITY?.trim();
+
 export default defineConfig({
   plugins: [react()],
   server: {
@@ -17,6 +23,7 @@ export default defineConfig({
         target: API_TARGET,
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ""),
+        ...(DEV_IDENTITY ? { headers: { "X-Culture-Identity": DEV_IDENTITY } } : {}),
       },
     },
   },

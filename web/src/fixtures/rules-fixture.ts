@@ -7,11 +7,9 @@ import type { Machine, Rule, RunSummary, Whoami, Workflow } from "../api/types";
  * list is `{"items": [...]}`; definition bodies follow schemas/*.json).
  */
 export const WHOAMI: Whoami = {
-  subject: "ori",
-  display_name: "ori",
-  email: "ori@example.test",
-  role: "admin",
-  via: "sso",
+  identity: "ori",
+  kind: "sso",
+  roles: ["viewer", "editor", "admin"],
 };
 
 export const MACHINES: Machine[] = [

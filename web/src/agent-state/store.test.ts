@@ -24,9 +24,9 @@ describe("agent-state store", () => {
   });
 
   it("derives ready from the view AND identity having loaded", () => {
-    setAgentState({ view_ready: true, identity: { status: "loading", subject: null, role: null, mocked: false } });
+    setAgentState({ view_ready: true, identity: { status: "loading", identity: null, kind: null, role: null } });
     expect(getAgentState().status).toBe("loading");
-    setAgentState({ identity: { status: "signed-in", subject: "ori", role: "admin", mocked: false } });
+    setAgentState({ identity: { status: "signed-in", identity: "ori", kind: "sso", role: "admin" } });
     expect(getAgentState().status).toBe("ready");
   });
 

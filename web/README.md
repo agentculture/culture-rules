@@ -39,13 +39,20 @@ The browser calls the culture-rules HTTP API (`culture_rules/server`, the
   prefix.
 - **Types:** `src/api/types.ts` is hand-maintained against the committed
   `api/openapi.json`. Update both in the same PR.
-- **Credentials:** no request attaches one. In the browser, the
-  Cloudflare Access login rides every same-origin request.
-- **Identity:** comes from `GET /whoami`, read once per session
-  (`src/hooks/useWhoami.ts`). The API does not serve `/whoami` yet; the
-  auth task adds it. Until then, a 404 falls back to a stand-in identity
-  flagged `mocked`, in `#agent-state` and on the avatar (dashed ring). A
-  401 is never mocked.
+- **Credentials:** the app never attaches one. Behind Cloudflare Access
+  (the loopback listener), the edge adds `Cf-Access-Jwt-Assertion` to
+  every same-origin request.
+- **Dev identity:** for a local API started with
+  `CULTURE_RULES_INSECURE_DEV_IDENTITY=1`, set
+  `CULTURE_RULES_DEV_IDENTITY=<name>` when running `npm run dev`. The vite
+  proxy then injects it as `X-Culture-Identity`. Unset, the proxy adds
+  nothing.
+- **Identity:** comes from `GET /whoami` (the `WhoAmI` schema:
+  `identity`, `kind`, `roles`), read once per session
+  (`src/hooks/useWhoami.ts`). The display name is `identity`. The
+  effective role is the highest of `roles` (viewer < editor < admin). A
+  401 is "not signed in". Any other failure is "identity unavailable";
+  no identity is ever invented.
 
 ## The agent-state node
 
@@ -57,7 +64,7 @@ The root renders one `<script type="application/json" id="agent-state">`:
   "view_ready": true,
   "route": "/rules/build-and-publish",
   "tab": "rules",
-  "identity": { "status": "signed-in", "subject": "ori", "role": "admin", "mocked": false },
+  "identity": { "status": "signed-in", "identity": "ori", "kind": "sso", "role": "admin" },
   "errors": [],
   "rules": { "count": 5, "selected": "build-and-publish", "stages": ["trigger", "condition", "workflow", "action"] }
 }

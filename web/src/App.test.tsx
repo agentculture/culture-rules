@@ -64,6 +64,17 @@ describe("App shell", () => {
     await waitFor(() => expect(getAgentState().tab).toBe("actors"));
   });
 
+  it("names the credential kind on the avatar for a service identity", async () => {
+    mockFetch({
+      ...defaultRoutes(),
+      "/api/whoami": { body: { identity: "ci-bot", kind: "service", roles: ["editor"] } },
+    });
+    renderAt("/rules");
+    expect(
+      await screen.findByRole("button", { name: "Signed in as ci-bot (service token)" }),
+    ).toHaveTextContent("C");
+  });
+
   it("shows who is signed in, from GET /whoami", async () => {
     renderAt("/rules");
     expect(

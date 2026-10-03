@@ -14,10 +14,11 @@ import type {
  * with the prefix stripped; in production whatever serves this bundle
  * mounts the API under the same prefix. Never an absolute remote URL.
  *
- * No request from this client attaches a credential: in the browser the
- * Cloudflare Access cookie carries the verified login on every same-origin
- * request (the server reads `Cf-Access-Jwt-Assertion` at the edge). Who
- * the caller is comes back from `getWhoami`.
+ * No request from this client attaches a credential: on the loopback
+ * listener behind Cloudflare Access, the edge adds `Cf-Access-Jwt-Assertion`
+ * to every same-origin request; in dev the vite proxy may add the dev
+ * identity header (vite.config.ts). Who the caller is comes back from
+ * `getWhoami`.
  */
 export const API_ROOT = "/api";
 
@@ -89,33 +90,5 @@ export interface ListRunsParams {
 export const listRuns = (params: ListRunsParams = {}, signal?: AbortSignal) =>
   items<RunSummary>(`/runs${query({ ...params })}`, signal);
 
-export interface WhoamiResult {
-  whoami: Whoami;
-  /** True when the API has no /whoami route yet and this is the stand-in. */
-  mocked: boolean;
-}
-
-/**
- * The stand-in identity used ONLY while the API lacks `GET /whoami` (a 404
- * — the route belongs to the auth task, t24). It is flagged `mocked` all
- * the way to #agent-state and the header, so it can never pass for a
- * verified login. A 401 is never mocked.
- */
-export const MOCK_WHOAMI: Whoami = {
-  subject: "dev",
-  display_name: "dev",
-  email: null,
-  role: "viewer",
-  via: "dev",
-};
-
-export async function getWhoami(signal?: AbortSignal): Promise<WhoamiResult> {
-  try {
-    return { whoami: await getJson<Whoami>("/whoami", signal), mocked: false };
-  } catch (err) {
-    if (err instanceof ApiError && err.status === 404) {
-      return { whoami: MOCK_WHOAMI, mocked: true };
-    }
-    throw err;
-  }
-}
+/** `GET /whoami`: who the API verified. A 401 means no credential reached it. */
+export const getWhoami = (signal?: AbortSignal) => getJson<Whoami>("/whoami", signal);

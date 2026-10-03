@@ -42,7 +42,12 @@ test.describe("culture-rules shell", () => {
     await untilReady(page);
     const state = await agentState(page);
     expect(state.errors).toEqual([]);
-    expect(state.identity).toMatchObject({ status: "signed-in", subject: "ori", mocked: false });
+    expect(state.identity).toEqual({
+      status: "signed-in",
+      identity: "ori",
+      kind: "sso",
+      role: "admin",
+    });
     expect(calls).toContain("GET /api/whoami");
     await expect(page.getByRole("button", { name: "Signed in as ori (SSO)" })).toBeVisible();
     expect(pageErrors).toEqual([]);

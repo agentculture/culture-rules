@@ -27,18 +27,14 @@ export interface ErrorEnvelope {
 export type Role = "viewer" | "editor" | "admin";
 
 /**
- * `GET /whoami`. NOT in api/openapi.json yet — the auth task (t24) owns the
- * route. Until it lands the client falls back to a flagged mock identity
- * (see api/client.ts `getWhoami`). `via` says which credential carried it:
- * Cloudflare Access SSO (browser), a service token (CLI/agents), or the dev
- * identity header.
+ * `GET /whoami` — the WhoAmI schema in api/openapi.json. `kind` says which
+ * credential carried it: Cloudflare Access SSO (browser), a service token,
+ * or an agent. `roles` is a subset of viewer < editor < admin.
  */
 export interface Whoami {
-  subject: string;
-  display_name?: string | null;
-  email?: string | null;
-  role: Role;
-  via: "sso" | "token" | "dev";
+  identity: string;
+  kind: "sso" | "service" | "agent";
+  roles: string[];
 }
 
 export interface Trigger {

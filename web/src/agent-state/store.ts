@@ -14,10 +14,12 @@ export type Tab = "rules" | "workflows" | "actors" | "statistics";
 
 export interface AgentIdentity {
   status: "loading" | "signed-in" | "unauthenticated" | "unavailable";
-  subject: string | null;
+  /** WhoAmI.identity */
+  identity: string | null;
+  /** WhoAmI.kind: sso | service | agent */
+  kind: string | null;
+  /** The highest of WhoAmI.roles (viewer < editor < admin). */
   role: string | null;
-  /** True when the API has no /whoami yet and the identity is the stand-in. */
-  mocked: boolean;
 }
 
 export interface AgentRulesState {
