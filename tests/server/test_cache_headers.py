@@ -62,14 +62,17 @@ def test_the_html_shell_is_revalidated_and_kept_out_of_shared_caches(web):
         r = web.get(path, headers={**ALICE, "accept": "text/html"})
         assert r.status_code == 200
         cc = r.headers["cache-control"]
-        assert "no-cache" in cc and "private" in cc
+        assert "no-cache" in cc
+        assert "private" in cc
 
 
 def test_hashed_assets_are_private_and_immutable(web):
     r = web.get("/assets/index-abc123.js", headers=ALICE)
     assert r.status_code == 200
     cc = r.headers["cache-control"]
-    assert "private" in cc and "immutable" in cc and "max-age=31536000" in cc
+    assert "private" in cc
+    assert "immutable" in cc
+    assert "max-age=31536000" in cc
     assert "public" not in cc
 
 
@@ -77,4 +80,5 @@ def test_unhashed_static_files_are_revalidated(web):
     r = web.get("/favicon.svg", headers=ALICE)
     assert r.status_code == 200
     cc = r.headers["cache-control"]
-    assert "no-cache" in cc and "private" in cc
+    assert "no-cache" in cc
+    assert "private" in cc
