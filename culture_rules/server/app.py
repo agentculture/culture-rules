@@ -29,6 +29,7 @@ from culture_rules.auth.policy import required_role
 from culture_rules.auth.principal import AuthError, Forbidden, Principal
 from culture_rules.auth.resolve import ACCESS_HEADER, DEV_IDENTITY_HEADER, AuthSettings, Resolver
 from culture_rules.auth.tokens import SERVICE_TOKENS, ServiceTokens, TokenError
+from culture_rules.engine import replay as replay_engine
 from culture_rules.engine.audit import AuditError, AuditLog
 from culture_rules.engine.lifecycle import Lifecycle, LifecycleError, PermissionDenied
 from culture_rules.engine.runs import (
@@ -140,6 +141,11 @@ class WhoAmI(BaseModel):
     identity: str
     kind: str = Field(description="sso | service | agent")
     roles: list[str] = Field(description="viewer < editor < admin")
+
+
+class ReplayRequest(BaseModel):
+    rule_id: str | None = Field(None, description="report only this rule (matching sees all)")
+    limit: int | None = Field(None, ge=1, le=10000, description="replay at most N events")
 
 
 class PurgeRequest(BaseModel):
@@ -512,6 +518,24 @@ def create_app(
     )
     def export(format: str = "json"):
         return {"format": format, "files": defs.export_files(format)}
+
+    @app.post(
+        "/replay",
+        tags=["rules"],
+        operation_id="replay_rules",
+        response_model=dict[str, Any],
+        responses={422: ERRORS[422]},
+    )
+    def replay(body: ReplayRequest):
+        """Replay recorded events through matching; reports would-fire runs, executes nothing."""
+        rules, workflows = defs.rule_set()
+        try:
+            report = replay_engine.replay(
+                store, rules, workflows=workflows, rule_id=body.rule_id, limit=body.limit
+            )
+        except replay_engine.ReplayError as exc:
+            return _envelope(422, "replay_invalid", str(exc))
+        return report.to_dict()
 
     @app.post(
         "/import",

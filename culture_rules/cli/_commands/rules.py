@@ -18,6 +18,11 @@ def _run(ctx: Context, id: str, trigger: dict | None = None) -> Any:
     return write(ctx, "rules run", "POST", "/runs", {"rule_id": id, "trigger": trigger or {}})
 
 
+def _replay(ctx: Context, rule_id: str | None = None, limit: int | None = None) -> Any:
+    body = {"rule_id": rule_id, "limit": limit}
+    return _api.call(lambda: ctx.client.request("POST", "/replay", body=body))
+
+
 VERBS: list[Verb] = [
     *definition_verbs(NOUN, "rule", "Rules say when work should happen.", exchange=True),
     Verb(
@@ -28,6 +33,18 @@ VERBS: list[Verb] = [
         (ID, Param("trigger", "object", "trigger payload (JSON)")),
         True,
         "editor",
+    ),
+    Verb(
+        NOUN,
+        "replay",
+        "Replay recorded events through matching; reports would-fire runs, runs nothing",
+        _replay,
+        (
+            Param("rule_id", "string", "report only this rule"),
+            Param("limit", "integer", "replay at most N events"),
+        ),
+        False,
+        "viewer",
     ),
 ]
 

@@ -323,6 +323,38 @@
         "title": "PurgeResult",
         "type": "object"
       },
+      "ReplayRequest": {
+        "properties": {
+          "limit": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "replay at most N events",
+            "title": "Limit"
+          },
+          "rule_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "report only this rule (matching sees all)",
+            "title": "Rule Id"
+          }
+        },
+        "title": "ReplayRequest",
+        "type": "object"
+      },
       "RunCancel": {
         "properties": {
           "reason": {
@@ -2956,6 +2988,78 @@
         "summary": "Undrain",
         "tags": [
           "controls"
+        ]
+      }
+    },
+    "/replay": {
+      "post": {
+        "description": "Replay recorded events through matching; reports would-fire runs, executes nothing.",
+        "operationId": "replay_rules",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReplayRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Replay Rules",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Validation failed (errors listed)"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Replay",
+        "tags": [
+          "rules"
         ]
       }
     },

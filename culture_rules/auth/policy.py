@@ -23,6 +23,8 @@ _ADMIN_PATTERNS = (
     re.compile(r"^/machines/[^/]+/(drain|undrain)$"),
     re.compile(r"^/controls/(pause|resume)$"),
 )
+# read-only operations that take a request body (no write happens)
+_VIEWER_POSTS = (re.compile(r"^/replay$"),)
 _EDITOR_PATTERNS = {
     "POST": (
         re.compile(rf"^/({_KINDS})$"),
@@ -44,6 +46,8 @@ def required_role(method: str, path: str) -> str:
     if any(p.match(path) for p in _ADMIN_PATTERNS):
         return "admin"
     if method in ("GET", "HEAD", "OPTIONS"):
+        return "viewer"
+    if method == "POST" and any(p.match(path) for p in _VIEWER_POSTS):
         return "viewer"
     if any(p.match(path) for p in _EDITOR_PATTERNS.get(method, ())):
         return "editor"
