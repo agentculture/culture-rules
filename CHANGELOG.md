@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.2] - 2026-10-03
+
+### Fixed
+
+- Every API response now carries Cache-Control: no-store (API reads, 401/403 envelopes, unknown API paths, the event stream); the HTML shell is private, no-cache and content-hashed /assets are private, immutable. Cloudflare was serving a 15-minute-old /api/machines from its edge cache, so newly enrolled machines were missing from Statistics, and a shared cache could hand one principal's answer to another.
+
 ## [0.10.1] - 2026-10-03
 
 ### Fixed

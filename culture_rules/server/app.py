@@ -46,6 +46,7 @@ from culture_rules.ops.health import health_status
 from culture_rules.ops.nodename import node_name
 from culture_rules.server import events, static
 from culture_rules.server import status as read_models
+from culture_rules.server.caching import NO_STORE, NoStoreByDefault
 from culture_rules.server.repos import RepoTarget, repos_from_env
 from culture_rules.server.service import (
     DEFINITION_KINDS,
@@ -801,10 +802,12 @@ def create_app(
                 store, names, cursors, max_events=max_events, max_seconds=max_seconds
             ),
             media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+            headers={"Cache-Control": NO_STORE, "X-Accel-Buffering": "no"},
         )
 
     static.install(app, web_dist)
+    # outermost: every answer, 401/403 envelopes included, says how it may be cached
+    app.add_middleware(NoStoreByDefault)
     return app
 
 
