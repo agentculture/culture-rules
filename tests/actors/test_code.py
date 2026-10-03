@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import time
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -15,6 +16,7 @@ from culture_rules.actors.code import (
     check_inline_allowed,
 )
 from culture_rules.actors.config import ActorConfig
+from culture_rules.actors.inline_guard import inline_eval_reason
 from culture_rules.engine.actorport import ActorPort, InvocationContext
 
 NOW = datetime(2026, 1, 1, tzinfo=UTC)
@@ -365,3 +367,41 @@ def test_legit_registered_commands_still_run():
     assert res.output["stdout"].strip() == "climate read -c"
     grep = r.invoke({"command": "grep"}, "g", DEADLINE, context=ctx())
     assert "inline code" not in (grep.error or "")  # -c is grep's count flag, not eval
+
+
+ADVERSARIAL_TOKENS = [
+    "1" * 10_000 + "x",  # a long digit run that does not end the token
+    "." * 10_000 + "/",
+    "python" + "3." * 5_000 + "a",
+]
+
+
+@pytest.mark.parametrize("token", ADVERSARIAL_TOKENS, ids=lambda t: f"{t[:4]}..{len(t)}")
+def test_inline_guard_classifies_a_10k_adversarial_token_in_linear_time(token):
+    assert len(token) >= 10_000
+    for argv in ([token, "-c", "x"], ["env", token, "-c", "x"], ["python3", token]):
+        started = time.perf_counter()
+        reason = inline_eval_reason(argv)
+        assert time.perf_counter() - started < 0.05
+        assert reason is None
+    started = time.perf_counter()
+    assert inline_eval_reason(["sh", token, "-c", "x"]) is not None  # still refused
+    assert time.perf_counter() - started < 0.05
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["/usr/bin/python3.12", "-c", "x"],
+        ["python3.", "-c", "x"],
+        ["/opt/bash5", "-c", "x"],
+        ["env", "perl5.36", "-e", "x"],
+    ],
+)
+def test_inline_guard_strips_the_version_suffix(argv):
+    assert inline_eval_reason(argv) is not None
+
+
+def test_inline_guard_keeps_an_all_digit_name_and_a_trailing_newline():
+    assert inline_eval_reason(["3", "-c", "x"]) is None
+    assert inline_eval_reason(["python3\n", "-c", "x"]) is None  # not the python binary

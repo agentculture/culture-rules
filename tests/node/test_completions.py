@@ -151,8 +151,9 @@ def delivered_events(run: dict) -> list[dict]:
 def test_a_crash_between_answer_and_delivery_is_delivered_once_by_the_next_cycle(asking):
     c = asking
     (ask,) = c.base.find(ASKS_COLLECTION)
+    dead = DeadEngine(c.clock)
     with pytest.raises(RuntimeError):
-        answer_ask(c.base, DeadEngine(c.clock), ask["id"], "yes", "alice")
+        answer_ask(c.base, dead, ask["id"], "yes", "alice")
     stored = c.base.get(ASKS_COLLECTION, ask["id"])
     assert (stored["status"], stored["delivered"]) == ("answered", False)
     assert step_state(c.run("r", "evt_1"), "s1")["status"] == "waiting"

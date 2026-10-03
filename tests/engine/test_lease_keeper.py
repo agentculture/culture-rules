@@ -306,13 +306,16 @@ def test_keeper_renews_on_its_interval_and_stops_with_the_block():
     assert keeper.renewals >= 3
 
 
+def _crash_inside(keeper: LeaseKeeper) -> None:
+    with keeper:
+        raise Crash("the invocation died")
+
+
 def test_keeper_stops_cleanly_when_the_block_raises():
-    holder: list[LeaseKeeper] = []
+    keeper = LeaseKeeper(lambda: True, 0.01)
     with pytest.raises(Crash):
-        with LeaseKeeper(lambda: True, 0.01) as keeper:
-            holder.append(keeper)
-            raise Crash("the invocation died")
-    assert not holder[0].alive
+        _crash_inside(keeper)
+    assert not keeper.alive
 
 
 def test_keeper_gives_up_once_the_lease_is_lost():
@@ -353,7 +356,7 @@ def test_keeper_renew_now_is_a_deterministic_hook():
     assert not keeper.alive  # never started: no thread
 
 
-@pytest.mark.parametrize("interval", [0, -1.0])
+@pytest.mark.parametrize("interval", [0, -1.0, float("nan")])
 def test_keeper_refuses_a_non_positive_interval(interval):
     with pytest.raises(ValueError, match="interval"):
         LeaseKeeper(lambda: True, interval)

@@ -60,8 +60,9 @@ def matches(pattern: str, field: str = "title") -> dict:
 
 @pytest.mark.parametrize("pattern", UNSAFE)
 def test_validate_rejects_backtracking_shapes(pattern: str) -> None:
+    tree = matches(pattern)
     with pytest.raises(c.UnsafePatternError) as info:
-        c.validate(matches(pattern))
+        c.validate(tree)
     assert info.value.to_dict()["code"] == "unsafe_pattern"
 
 
@@ -100,9 +101,10 @@ def test_matches_input_cap_is_two_thousand_characters() -> None:
 def test_stored_unsafe_pattern_is_refused_quickly_at_evaluation() -> None:
     """A rule saved before the screen existed: evaluation refuses, never runs the regex."""
     ctx = {"trigger": {"title": "a" * 28}}  # (a+)+b took 6.8 s at 28 characters
+    tree = matches("(a+)+b")
     started = time.perf_counter()
     with pytest.raises(c.UnsafePatternError):
-        c.evaluate(matches("(a+)+b"), ctx)
+        c.evaluate(tree, ctx)
     assert time.perf_counter() - started < 0.1
 
 
