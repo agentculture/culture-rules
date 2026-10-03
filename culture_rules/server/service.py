@@ -107,6 +107,12 @@ def _tolerant(cls: type, doc: Mapping[str, Any]) -> Any | None:
     return None if validate(obj) else obj
 
 
+#: ``(kind, stored document or None, document about to be written)``; raises to refuse the
+#: save. Runs inside the write transaction, so it sees the version it compares against
+#: (``culture_rules.auth.guards.save_check`` builds the API's).
+SaveCheck = Callable[[str, "Mapping[str, Any] | None", Mapping[str, Any]], None]
+
+
 def _rule_set_errors(rules: Iterable[Rule], workflows: Iterable[Workflow]) -> list[dict[str, str]]:
     found = validate_rule_set(list(rules), {w.id: w for w in workflows})
     return [e.to_dict() for e in found]
@@ -207,7 +213,13 @@ class Definitions:
             raise Invalid("rule set failed validation", errors)
 
     def _save(
-        self, kind: str, body: Any, identity: str, verb: str, expect_id: str | None
+        self,
+        kind: str,
+        body: Any,
+        identity: str,
+        verb: str,
+        expect_id: str | None,
+        check: SaveCheck | None = None,
     ) -> Document:
         require_identity(identity)
         obj, ident = self._parse(kind, body)
@@ -227,7 +239,10 @@ class Definitions:
                     raise Conflict(f"{kind}/{ident} is deleted; restore it first")
             if isinstance(obj, Rule):
                 self._check_rule_set(tx, obj)
-            after = tx.put(kind, self._stored(obj, ident))
+            doc = self._stored(obj, ident)
+            if check is not None:
+                check(kind, before, doc)
+            after = tx.put(kind, doc)
             self._audit.write(
                 tx,
                 identity=identity,
@@ -240,12 +255,16 @@ class Definitions:
         return after
 
     @mutating_verb("definitions.create", "Create a rule, workflow, actor or machine")
-    def create(self, kind: str, body: Any, identity: str) -> Document:
-        return self._save(kind, body, identity, "definitions.create", None)
+    def create(
+        self, kind: str, body: Any, identity: str, *, check: SaveCheck | None = None
+    ) -> Document:
+        return self._save(kind, body, identity, "definitions.create", None, check)
 
     @mutating_verb("definitions.update", "Replace a rule, workflow, actor or machine")
-    def update(self, kind: str, id: str, body: Any, identity: str) -> Document:
-        return self._save(kind, body, identity, "definitions.update", id)
+    def update(
+        self, kind: str, id: str, body: Any, identity: str, *, check: SaveCheck | None = None
+    ) -> Document:
+        return self._save(kind, body, identity, "definitions.update", id, check)
 
     @mutating_verb("definitions.set_enabled", "Enable or disable a definition")
     def set_enabled(self, kind: str, id: str, enabled: bool, identity: str) -> Document:
@@ -377,7 +396,9 @@ class Definitions:
         except ValueError as exc:
             raise Invalid(str(exc), [{"path": "repo", "code": "invalid", "message": str(exc)}])
 
-    def _plan(self, tx: Any, files: Mapping[str, str]) -> tuple[dict[str, Any], list]:
+    def _plan(
+        self, tx: Any, files: Mapping[str, str], check: SaveCheck | None = None
+    ) -> tuple[dict[str, Any], list]:
         read = exchange.read_files(files)
         errors = [e.to_dict() for e in read.errors]
         bundle: Bundle = read.bundle
@@ -401,6 +422,8 @@ class Definitions:
             for obj in getattr(bundle, kind):
                 new = self._import_form(kind, obj)
                 current = tx.get(kind, new["id"])
+                if check is not None:
+                    check(kind, current, new)
                 if current is None:
                     action = "add"
                 elif self._import_form(kind, self._reparse(kind, current)) == new:
@@ -441,11 +464,16 @@ class Definitions:
 
     @mutating_verb("definitions.import", "Import definition files (dry-run unless apply)")
     def import_files(
-        self, files: Mapping[str, str], identity: str, *, apply: bool = False
+        self,
+        files: Mapping[str, str],
+        identity: str,
+        *,
+        apply: bool = False,
+        check: SaveCheck | None = None,
     ) -> dict[str, Any]:
         require_identity(identity)
         with self._store.transaction() as tx:
-            plan, writes = self._plan(tx, files)
+            plan, writes = self._plan(tx, files, check)
             if plan["errors"]:
                 raise Invalid("import failed validation", plan["errors"])
             plan["applied"] = False

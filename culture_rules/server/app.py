@@ -766,7 +766,9 @@ def _register_exchange(
         else:
             files = body.files or {}
         guards.check_import(principal, files)
-        return defs.import_files(files, principal.identity, apply=body.apply)
+        return defs.import_files(
+            files, principal.identity, apply=body.apply, check=guards.save_check(principal)
+        )
 
 
 def _register_asks(app: FastAPI, store: StoragePort, answer_ask: AnswerAsk) -> None:
@@ -872,7 +874,7 @@ def _register_kind(
     )
     def create(body: dict[str, Any], principal: Caller):
         guards.check_definition(principal, kind, body)
-        return defs.create(kind, body, principal.identity)
+        return defs.create(kind, body, principal.identity, check=guards.save_check(principal))
 
     @app.get(
         path,
@@ -893,7 +895,7 @@ def _register_kind(
     )
     def update(id: str, body: dict[str, Any], principal: Caller):
         guards.check_definition(principal, kind, body)
-        return defs.update(kind, id, body, principal.identity)
+        return defs.update(kind, id, body, principal.identity, check=guards.save_check(principal))
 
     for verb, flag in (("enable", True), ("disable", False)):
 
