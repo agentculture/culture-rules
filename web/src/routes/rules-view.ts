@@ -122,3 +122,15 @@ export function upstreamVars(rule: Rule): string[] {
   }
   return [...found];
 }
+
+/** `Disk is nearly full` → `disk-is-nearly-full`, unique among `taken`. */
+export function slugFor(name: string, taken: string[]): string {
+  const base =
+    name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "rule";
+  let slug = base;
+  for (let n = 2; taken.includes(slug); n++) slug = `${base}-${n}`;
+  return slug;
+}
