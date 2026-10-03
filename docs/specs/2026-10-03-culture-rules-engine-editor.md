@@ -195,6 +195,12 @@
 - Authorization: roles viewer / editor / admin (admin: purge, inline scripts, enrol, global pause) mapped from SSO identities and service tokens; the CLI and MCP always call the authenticated API and never write the store directly (operator, challenge q5)
   - honesty: A viewer token cannot mutate, an editor cannot purge, and no CLI/MCP code path opens a store connection
     - instruction: authz matrix test + grep/import-linter test that cli/ and mcp/ never import the store driver
+- Rules may supersede other rules: when a rule A that supersedes rule B matches an event (trigger and condition both hold), B does not fire for that event and A runs instead — used when triggers are similar and A's condition is more specific (operator, this session)
+  - honesty: Supersession is evaluated per event: B is skipped only if a superseding rule actually matched that event (if A's condition fails, B fires normally); supersession is transitive, cycles fail validation, and it composes with exclusive groups and must/may-run-after without changing them; a skipped rule records 'superseded by A' in its contextual history
+    - instruction: engine tests: A matches -> only A fires; A's condition false -> B fires; A>B>C chain; A<->B cycle rejected at save; history shows superseded-by
+- The Rules tab shows supersession as a relationship (like must/may run after): a 'supersedes' badge naming the generic rule on the specific one, and a 'superseded when … matches' marker on the generic one, editable graphically
+  - honesty: Both ends of a supersession are visible and editable in the Rules tab without opening the advanced text view
+    - instruction: Playwright: create a supersession by direct manipulation, assert badge on both rules
 
 ## Honesty conditions
 

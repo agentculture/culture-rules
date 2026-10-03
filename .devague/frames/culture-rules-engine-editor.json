@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-03T04:20:01Z",
-  "updated": "2026-10-03T05:09:41Z",
+  "updated": "2026-10-03T05:10:36Z",
   "claims": [
     {
       "id": "c1",
@@ -1784,6 +1784,50 @@
       "links": [],
       "instruction": "",
       "revisions": []
+    },
+    {
+      "id": "c97",
+      "kind": "requirement",
+      "text": "Rules may supersede other rules: when a rule A that supersedes rule B matches an event (trigger and condition both hold), B does not fire for that event and A runs instead \u2014 used when triggers are similar and A's condition is more specific (operator, this session)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h78",
+          "text": "Supersession is evaluated per event: B is skipped only if a superseding rule actually matched that event (if A's condition fails, B fires normally); supersession is transitive, cycles fail validation, and it composes with exclusive groups and must/may-run-after without changing them; a skipped rule records 'superseded by A' in its contextual history",
+          "status": "confirmed",
+          "instruction": "engine tests: A matches -> only A fires; A's condition false -> B fires; A>B>C chain; A<->B cycle rejected at save; history shows superseded-by"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c98",
+      "kind": "requirement",
+      "text": "The Rules tab shows supersession as a relationship (like must/may run after): a 'supersedes' badge naming the generic rule on the specific one, and a 'superseded when \u2026 matches' marker on the generic one, editable graphically",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h79",
+          "text": "Both ends of a supersession are visible and editable in the Rules tab without opening the advanced text view",
+          "status": "confirmed",
+          "instruction": "Playwright: create a supersession by direct manipulation, assert badge on both rules"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "The Rules tab shows supersession as a relationship (like must/may run after), e.g. a 'supersedes: <rule>' badge on the specific rule and a 'superseded when <rule> matches' marker on the generic one, editable graphically",
+          "kind": "requirement",
+          "reason": "lint: avoid angle-bracket tokens"
+        }
+      ]
     }
   ],
   "open_vagueness": [
