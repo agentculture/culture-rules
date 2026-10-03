@@ -6,9 +6,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from culture_rules.engine.audit import AUDIT_COLLECTION
-from culture_rules.server.app import create_app
 from culture_rules.store.memory import MemoryStore
-from tests.server.conftest import ALICE, rule_body, workflow_body
+from tests.server.conftest import ALICE, dev_app, rule_body, workflow_body
 
 
 def test_health_reports_node_status(client):
@@ -127,7 +126,7 @@ def test_export_import_roundtrip_between_two_apps(client):
     client.post("/workflows", json=workflow_body())
     exported = client.get("/export?format=json").json()
     assert "rules/r1.json" in exported["files"] and "workflows/wf.json" in exported["files"]
-    other = TestClient(create_app(MemoryStore()))
+    other = TestClient(dev_app(MemoryStore()))
     dry = other.post("/import", json={"files": exported["files"]}).json()
     assert dry["applied"] is False and {c["action"] for c in dry["changes"]} == {"add"}
     assert other.get("/rules").json()["items"] == []
@@ -161,6 +160,6 @@ def test_asks_answer_hook_is_injectable(store):
         seen.append((ask_id, answer, identity))
         return {"ok": True}
 
-    c = TestClient(create_app(store, answer_ask=hook))
+    c = TestClient(dev_app(store, answer_ask=hook))
     r = c.post("/asks/a1/answer", json={"answer": 3}, headers=ALICE)
     assert r.status_code == 200 and seen == [("a1", 3, "alice")]

@@ -31,6 +31,10 @@ Commands
   culture-rules overview           Descriptive snapshot of the agent.
   culture-rules doctor             Check the agent-identity invariants.
   culture-rules cli overview       Describe the CLI surface itself.
+  culture-rules serve              Run the HTTP API (needs the 'server' extra).
+{noun_verbs}
+Every noun verb below is dry-run unless --apply (writes change nothing without it);
+the CLI talks only to the HTTP API (CULTURE_RULES_API_URL, CULTURE_RULES_TOKEN).
 
 Machine-readable output
 -----------------------
@@ -50,6 +54,30 @@ More detail
 """
 
 
+def _noun_verb_lines() -> str:
+    from culture_rules.cli.verbs import REGISTRY  # noqa: PLC0415
+
+    return "\n".join(
+        f"  culture-rules {v.noun} {v.name:<10} {v.summary}"
+        + (" [write: --apply]" if v.mutating else "")
+        for v in REGISTRY.verbs()
+    )
+
+
+def _noun_commands() -> list[dict[str, object]]:
+    from culture_rules.cli.verbs import REGISTRY  # noqa: PLC0415
+
+    return [
+        {
+            "path": list(v.path),
+            "summary": v.summary,
+            "mutating": v.mutating,
+            "role": v.role,
+        }
+        for v in REGISTRY.verbs()
+    ]
+
+
 def _as_json_payload() -> dict[str, object]:
     return {
         "tool": "culture-rules",
@@ -62,6 +90,8 @@ def _as_json_payload() -> dict[str, object]:
             {"path": ["overview"], "summary": "Descriptive snapshot of the agent."},
             {"path": ["doctor"], "summary": "Check the agent-identity invariants."},
             {"path": ["cli", "overview"], "summary": "Describe the CLI surface."},
+            {"path": ["serve"], "summary": "Run the HTTP API (needs the 'server' extra)."},
+            *_noun_commands(),
         ],
         "exit_codes": {
             "0": "success",
@@ -77,7 +107,7 @@ def cmd_learn(args: argparse.Namespace) -> int:
     if getattr(args, "json", False):
         emit_result(_as_json_payload(), json_mode=True)
     else:
-        emit_result(_TEXT, json_mode=False)
+        emit_result(_TEXT.replace("{noun_verbs}", _noun_verb_lines()), json_mode=False)
     return 0
 
 
