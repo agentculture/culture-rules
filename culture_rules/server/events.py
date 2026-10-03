@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Iterator, Sequence
 from typing import Any
 
 from culture_rules.store.port import Change, StoragePort
@@ -62,6 +62,22 @@ def _frame(event: str, data: Any, event_id: str | None = None) -> str:
     return "\n".join(lines) + "\n\n"
 
 
+def _change_frames(
+    collections: Sequence[str], batches: Sequence[Any], cursors: dict[str, str]
+) -> Iterator[str]:
+    """One ``change`` frame per drained change, advancing ``cursors`` as each is framed."""
+    for collection, changes in zip(collections, batches, strict=True):
+        for change in changes:
+            cursors[collection] = change.token
+            payload = {
+                "collection": change.collection,
+                "op": change.op,
+                "id": change.id,
+                "document": change.document,
+            }
+            yield _frame("change", payload, json.dumps(cursors, sort_keys=True))
+
+
 async def stream_changes(
     store: StoragePort,
     collections: Sequence[str],
@@ -83,21 +99,13 @@ async def stream_changes(
             *(asyncio.to_thread(_drain, store, c, cursors[c]) for c in collections)
         )
         found = False
-        for collection, changes in zip(collections, batches, strict=True):
-            for change in changes:
-                found = True
-                cursors[collection] = change.token
-                payload = {
-                    "collection": change.collection,
-                    "op": change.op,
-                    "id": change.id,
-                    "document": change.document,
-                }
-                yield _frame("change", payload, json.dumps(cursors, sort_keys=True))
-                last_sent = time.monotonic()
-                sent += 1
-                if max_events is not None and sent >= max_events:
-                    return
+        for frame in _change_frames(collections, batches, cursors):
+            found = True
+            yield frame
+            last_sent = time.monotonic()
+            sent += 1
+            if max_events is not None and sent >= max_events:
+                return
         if not found:
             if time.monotonic() - last_sent >= KEEPALIVE_S:
                 yield ": keepalive\n\n"

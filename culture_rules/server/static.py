@@ -45,20 +45,31 @@ class _ApiPrefix:
 
     async def __call__(self, scope, receive, send):
         if scope["type"] in ("http", "websocket"):
-            path = scope.get("path", "")
-            if path == API_PREFIX or path.startswith(API_PREFIX + "/"):
-                scope = dict(scope)
-                scope["path"] = path[len(API_PREFIX) :] or "/"
-                raw = scope.get("raw_path")
-                if raw and raw.startswith(API_PREFIX.encode()):
-                    scope["raw_path"] = raw[len(API_PREFIX) :] or b"/"
-                scope[_FLAG] = True
-            elif scope["type"] == "http" and scope.get("method") in ("GET", "HEAD"):
-                if b"text/html" in dict(scope.get("headers", ())).get(b"accept", b""):
-                    scope = dict(scope)
-                    scope["path"] = _UI + path
-                    scope["raw_path"] = _UI.encode() + (scope.get("raw_path") or path.encode())
+            scope = _route(scope)
         await self.app(scope, receive, send)
+
+
+def _route(scope):
+    """``scope`` with ``/api`` stripped (and flagged), or a browser GET sent to the SPA."""
+    path = scope.get("path", "")
+    if path == API_PREFIX or path.startswith(API_PREFIX + "/"):
+        return _strip_api(scope, path)
+    if scope["type"] == "http" and scope.get("method") in ("GET", "HEAD"):
+        if b"text/html" in dict(scope.get("headers", ())).get(b"accept", b""):
+            scope = dict(scope)
+            scope["path"] = _UI + path
+            scope["raw_path"] = _UI.encode() + (scope.get("raw_path") or path.encode())
+    return scope
+
+
+def _strip_api(scope, path: str):
+    scope = dict(scope)
+    scope["path"] = path[len(API_PREFIX) :] or "/"
+    raw = scope.get("raw_path")
+    if raw and raw.startswith(API_PREFIX.encode()):
+        scope["raw_path"] = raw[len(API_PREFIX) :] or b"/"
+    scope[_FLAG] = True
+    return scope
 
 
 def install(app: FastAPI, web_dist: Path | None) -> bool:

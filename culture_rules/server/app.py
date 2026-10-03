@@ -10,7 +10,7 @@ an unauthenticated or unauthorized caller. Every mutating route goes through an 
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any
@@ -433,12 +433,6 @@ def create_app(
     node = host or node_name()
     targets = {r.name: r for r in (repos_from_env() if repos is None else repos)}
 
-    def repo_target(name: str) -> RepoTarget:
-        target = targets.get(name)
-        if target is None:
-            raise NotFound(f"repo {name!r} is not configured", code="repo_not_found")
-        return target
-
     executor = Executor(store, node, {}, audit=audit)
     if answer_ask is None:
 
@@ -460,7 +454,25 @@ def create_app(
         },
     )
     _install_errors(app)
+    _install_auth(app, resolver)
+    # Registration order is route-matching and schema order: /machines/status (ops) must
+    # come before the definition routes so /machines/{id} cannot shadow it.
+    _register_auth_routes(app, tokens)
+    _register_ops(app, store, node)
+    for kind in DEFINITION_KINDS:
+        _register_kind(app, kind, defs, life, store, audit)
+    _register_runs(app, store, defs, executor, containment)
+    _register_controls(app, store, containment)
+    _register_exchange(app, store, defs, targets)
+    _register_asks(app, store, answer_ask)
+    _register_stream(app, store)
+    static.install(app, web_dist)
+    # outermost: every answer, 401/403 envelopes included, says how it may be cached
+    app.add_middleware(NoStoreByDefault)
+    return app
 
+
+def _install_auth(app: FastAPI, resolver: Resolver) -> None:
     @app.middleware("http")
     async def authenticate(request: Request, call_next):
         """Resolve the principal and check the route's role before routing (any handler)."""
@@ -474,6 +486,8 @@ def create_app(
         request.state.principal = principal
         return await call_next(request)
 
+
+def _register_auth_routes(app: FastAPI, tokens: ServiceTokens) -> None:
     @app.get("/whoami", tags=["auth"], operation_id="whoami")
     def whoami(principal: Caller) -> WhoAmI:
         return WhoAmI(**principal.to_dict())
@@ -509,6 +523,8 @@ def create_app(
     def revoke_token(token_id: str, identity: Identity):
         return tokens.revoke(token_id, identity)
 
+
+def _register_ops(app: FastAPI, store: StoragePort, node: str) -> None:
     @app.get("/health", tags=["ops"], operation_id="health")
     def health() -> Health:
         return Health(**health_status(store, datetime.now(UTC), node))
@@ -524,10 +540,14 @@ def create_app(
         """Per enrolled machine: liveness, load, in-flight steps and queue depth."""
         return {"items": read_models.machine_statuses(store, datetime.now(UTC))}
 
-    for kind in DEFINITION_KINDS:
-        _register_kind(app, kind, defs, life, store, audit)
 
-    # ---- runs
+def _register_runs(
+    app: FastAPI,
+    store: StoragePort,
+    defs: Definitions,
+    executor: Executor,
+    containment: Containment,
+) -> None:
     @app.get("/runs", response_model=ItemList, tags=["runs"], operation_id="list_runs")
     def list_runs(
         status: str | None = None,
@@ -607,7 +627,8 @@ def create_app(
     def cancel_run(run_id: str, identity: Identity, body: RunCancel | None = None):
         return containment.cancel(run_id, identity, (body or RunCancel()).reason)
 
-    # ---- containment
+
+def _register_controls(app: FastAPI, store: StoragePort, containment: Containment) -> None:
     def state() -> Controls:
         return Controls(paused=is_paused(store), drained=sorted(drained_machines(store)))
 
@@ -659,7 +680,16 @@ def create_app(
         containment.undrain(name, identity)
         return state()
 
-    # ---- import / export
+
+def _register_exchange(
+    app: FastAPI, store: StoragePort, defs: Definitions, targets: Mapping[str, RepoTarget]
+) -> None:
+    def repo_target(name: str) -> RepoTarget:
+        target = targets.get(name)
+        if target is None:
+            raise NotFound(f"repo {name!r} is not configured", code="repo_not_found")
+        return target
+
     @app.get(
         "/export",
         response_model=ExportResult,
@@ -731,7 +761,8 @@ def create_app(
         guards.check_import(principal, files)
         return defs.import_files(files, principal.identity, apply=body.apply)
 
-    # ---- asks
+
+def _register_asks(app: FastAPI, store: StoragePort, answer_ask: AnswerAsk) -> None:
     @app.get("/asks", response_model=AskList, tags=["asks"], operation_id="list_asks")
     def list_asks(
         run_id: str | None = None,
@@ -761,7 +792,8 @@ def create_app(
         result = answer_ask(store, ask_id, body.answer, identity)
         return result if isinstance(result, dict) else {"ok": True}
 
-    # ---- live updates
+
+def _register_stream(app: FastAPI, store: StoragePort) -> None:
     @app.get(
         "/events/stream",
         tags=["events"],
@@ -804,11 +836,6 @@ def create_app(
             media_type="text/event-stream",
             headers={"Cache-Control": NO_STORE, "X-Accel-Buffering": "no"},
         )
-
-    static.install(app, web_dist)
-    # outermost: every answer, 401/403 envelopes included, says how it may be cached
-    app.add_middleware(NoStoreByDefault)
-    return app
 
 
 def _register_kind(
