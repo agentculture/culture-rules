@@ -77,6 +77,7 @@ class FakeEventsCli:
 
 
 def _source(api, **kw):
+    kw.setdefault("pattern", "*")
     return adapter.EventsCliSource("culture-rules-h1", api=api, history=api.history, **kw)
 
 
@@ -89,7 +90,7 @@ def test_subscription_is_per_host():
     assert adapter.subscription_name("Host-1") == "culture-rules-host-1"
     with pytest.raises(ValueError):
         adapter.subscription_name("")
-    src = adapter.EventsCliSource.for_host("h1", api=FakeEventsCli(FakeHistory()))
+    src = adapter.EventsCliSource.for_host("h1", pattern="*", api=FakeEventsCli(FakeHistory()))
     assert src.name == "culture-rules-h1"
 
 
@@ -134,7 +135,7 @@ def test_drain_ignores_a_caller_supplied_store_option_like_ensure_does():
     assert [e["id"] for e in batch.envelopes] == ["evt_b"]
     assert seen["store"] is history  # the source's own history store, not the caller's
     src.ensure()
-    assert api.added == [("culture-rules-h1", "#")]
+    assert api.added == [("culture-rules-h1", "*")]
 
 
 def test_drain_from_no_cursor_starts_at_zero():
@@ -179,7 +180,7 @@ def test_missing_events_cli_names_the_extra(monkeypatch):
     with pytest.raises(EventFabricError, match=r"culture-rules\[events\]"):
         adapter.load_events_cli()
     with pytest.raises(EventFabricError, match=r"culture-rules\[events\]"):
-        adapter.EventsCliSource("s")
+        adapter.EventsCliSource("s", pattern="*")
 
 
 def test_real_events_cli_api_surface_when_installed():
@@ -187,3 +188,221 @@ def test_real_events_cli_api_surface_when_installed():
     api = adapter.load_events_cli()
     for name in ("get_subscription", "add_subscription", "drain_subscription"):
         assert callable(getattr(api, name))
+
+
+# --- subscribing to every event type (events-cli rejects raw MQTT filters) ----------------------
+
+RESERVED_MQTT = ("#", "+", "/")
+
+
+class FakeSubsError(Exception):
+    """Stands in for events_cli.core.errors.EventsError."""
+
+
+class StrictEventsCli(FakeEventsCli):
+    """A fake that enforces events-cli's pattern boundary, as ``SubscriptionRecord.new`` does."""
+
+    EventsError = FakeSubsError
+
+    def add_subscription(self, name, pattern, **kw):
+        bad = [ch for ch in RESERVED_MQTT if ch in pattern]
+        segments = pattern.split(".")
+        if bad or not pattern or any(seg == "" for seg in segments):
+            raise FakeSubsError(
+                f"invalid subscription: pattern: must not contain the raw MQTT filter "
+                f"character(s) {bad!r} (write a dotted pattern instead, e.g. 'task.*')"
+            )
+        return super().add_subscription(name, pattern, **kw)
+
+    def drain_subscription(self, name, *, since, max, timeout, **kw):
+        if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0:
+            raise FakeSubsError(
+                f"invalid drain bounds: timeout: must be a positive, finite number of "
+                f"seconds, got {timeout!r}"
+            )
+        return super().drain_subscription(name, since=since, max=max, timeout=timeout, **kw)
+
+
+def test_a_zero_timeout_drain_is_accepted_by_a_strict_events_cli():
+    """The node ingests with timeout=0 ("do not wait"); events-cli needs a positive one."""
+    api = StrictEventsCli(FakeHistory(), queued=["a"])
+    batch = _source(api).drain(None, max=5, timeout=0.0)
+    assert [e["id"] for e in batch.envelopes] == ["evt_a"]
+    assert api.drains[0][3] == adapter.MIN_DRAIN_TIMEOUT
+
+
+def test_no_default_pattern_uses_a_raw_mqtt_filter_character():
+    for pattern in adapter.DEFAULT_PATTERNS:
+        assert not any(ch in pattern for ch in RESERVED_MQTT), pattern
+        assert set(pattern.split(".")) == {"*"}
+    depths = sorted(len(p.split(".")) for p in adapter.DEFAULT_PATTERNS)
+    assert depths == list(range(1, adapter.DEFAULT_DEPTH + 1))
+
+
+def test_host_source_registers_every_depth_with_a_strict_events_cli():
+    api = StrictEventsCli(FakeHistory())
+    src = adapter.open_host_source("spark", api=api, history=api.history)
+    assert isinstance(src, EventSource)
+    assert src.name == "culture-rules-spark"
+    src.ensure()
+    src.ensure()
+    assert [pattern for _, pattern in api.added] == list(adapter.DEFAULT_PATTERNS)
+    assert len({name for name, _ in api.added}) == len(adapter.DEFAULT_PATTERNS)
+    assert all(name.startswith("culture-rules-spark") for name, _ in api.added)
+
+
+def test_a_rejected_pattern_surfaces_as_an_event_fabric_error():
+    api = StrictEventsCli(FakeHistory())
+    src = _source(api, pattern="#")
+    with pytest.raises(EventFabricError, match="raw MQTT filter"):
+        src.ensure()
+
+
+def test_drain_failures_from_events_cli_surface_as_event_fabric_errors():
+    class Api(StrictEventsCli):
+        def drain_subscription(self, name, **kw):
+            raise FakeSubsError("broker unreachable")
+
+    api = Api(FakeHistory())
+    with pytest.raises(EventFabricError, match="broker unreachable"):
+        _source(api, pattern="*").drain(None, max=5, timeout=0.0)
+
+
+def _fan_in(api, patterns=("*", "*.*")):
+    return adapter.open_host_source("h1", api=api, history=api.history, patterns=patterns)
+
+
+class PerSubEventsCli(StrictEventsCli):
+    """Per-subscription broker queues and per-subscription history sequences."""
+
+    def __init__(self, queued_by_sub):
+        super().__init__(FakeHistory())
+        self.queues = {k: list(v) for k, v in queued_by_sub.items()}
+        self.history = PerSubHistory()
+
+    def drain_subscription(self, name, *, since, max, timeout, **kw):
+        assert timeout > 0, "events-cli rejects a non-positive drain timeout"
+        self.drains.append((name, since, max, timeout))
+        queue = self.queues.get(name, [])
+        batch, self.queues[name] = queue[:max], queue[max:]
+        records = [self.history.append(name, n) for n in batch]
+        cursor = records[-1].seq if records else since
+        return SimpleNamespace(
+            records=tuple(records), cursor=cursor, has_more=bool(self.queues[name])
+        )
+
+
+class PerSubHistory:
+    def __init__(self):
+        self.logs = {}
+
+    def append(self, sub, n):
+        log = self.logs.setdefault(sub, [])
+        rec = _record(len(log) + 1, n)
+        log.append(rec)
+        return rec
+
+    def read(self, sub, since=0, max=100):
+        log = self.logs.get(sub, [])
+        page = [r for r in log if r.seq > since][:max]
+        cursor = page[-1].seq if page else since
+        return SimpleNamespace(
+            records=tuple(page), cursor=cursor, has_more=any(r.seq > cursor for r in log)
+        )
+
+
+def test_fan_in_drains_every_depth_and_resumes_from_its_own_cursor():
+    api = PerSubEventsCli({})
+    src = _fan_in(api)
+    names = [s.name for s in src.sources]
+    api.queues = {names[0]: ["a"], names[1]: ["b", "c"]}
+    batch = src.drain(None, max=10, timeout=0.0)
+    assert sorted(e["id"] for e in batch.envelopes) == ["evt_a", "evt_b", "evt_c"]
+    assert batch.has_more is False and batch.cursor is not None
+    api.queues[names[1]].append("d")
+    again = src.drain(batch.cursor, max=10, timeout=0.0)
+    assert [e["id"] for e in again.envelopes] == ["evt_d"]
+    empty = src.drain(again.cursor, max=10, timeout=0.0)
+    assert empty.envelopes == () and empty.cursor == again.cursor
+
+
+def test_fan_in_respects_the_batch_bound_and_reports_more():
+    api = PerSubEventsCli({})
+    src = _fan_in(api)
+    names = [s.name for s in src.sources]
+    api.queues = {names[0]: ["a", "b"], names[1]: ["c", "d"]}
+    seen, cursor = [], None
+    for _ in range(4):
+        batch = src.drain(cursor, max=3, timeout=0.0)
+        assert len(batch.envelopes) <= 3
+        seen += [e["id"] for e in batch.envelopes]
+        cursor = batch.cursor
+        if not batch.has_more:
+            break
+    assert sorted(seen) == ["evt_a", "evt_b", "evt_c", "evt_d"]
+
+
+def test_fan_in_empty_from_the_start_keeps_a_none_cursor():
+    api = PerSubEventsCli({})
+    batch = _fan_in(api).drain(None, max=5, timeout=0.0)
+    assert batch.envelopes == () and batch.cursor is None
+
+
+def test_fan_in_rejects_a_foreign_cursor():
+    api = PerSubEventsCli({})
+    for bad in ("7", "not json", "[1]", '{"x": 1}'):
+        with pytest.raises(EventFabricError):
+            _fan_in(api).drain(bad, max=5, timeout=0.0)
+
+
+# --- the real events-cli (the `events` extra) ---
+
+
+@pytest.fixture
+def real_events_env(monkeypatch, tmp_path):
+    """events-cli state under tmp_path and a broker address nothing listens on."""
+    pytest.importorskip("events_cli.subs")
+    import socket
+
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    monkeypatch.setenv("EVENTS_HISTORY_DIR", str(tmp_path / "history"))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    monkeypatch.setenv("EVENTS_BROKER_HOST", "127.0.0.1")
+    monkeypatch.setenv("EVENTS_BROKER_PORT", str(port))
+    return tmp_path
+
+
+def test_real_events_cli_accepts_every_default_subscription(real_events_env):
+    from events_cli.subs import SubscriptionRecord
+
+    src = adapter.open_host_source("spark-f8a9", history=FakeHistory())
+    for sub in src.sources:
+        record = SubscriptionRecord.new(sub.name, sub.pattern, owner="test")
+        assert record.topic_filter.startswith("events/")
+        assert "#" not in record.topic_filter
+
+
+def test_real_events_cli_rejection_is_an_event_fabric_error(real_events_env):
+    from events_cli.subs import SubscriptionRegistry
+
+    registry = SubscriptionRegistry(real_events_env / "registry")
+    src = adapter.EventsCliSource(
+        "culture-rules-h1", pattern="#", history=FakeHistory(), registry=registry
+    )
+    with pytest.raises(EventFabricError, match="raw MQTT filter"):
+        src.ensure()
+
+
+def test_real_events_cli_accepts_the_nodes_zero_timeout_drain(real_events_env):
+    from events_cli.subs import SubscriptionRegistry
+
+    registry = SubscriptionRegistry(real_events_env / "registry")
+    src = adapter.EventsCliSource(
+        "culture-rules-h1", pattern="*", history=FakeHistory(), registry=registry
+    )
+    with pytest.raises(EventFabricError) as caught:  # never registered: unknown, not bad bounds
+        src.drain(None, max=5, timeout=0.0)
+    assert "drain bounds" not in str(caught.value)
+    assert "culture-rules-h1" in str(caught.value)

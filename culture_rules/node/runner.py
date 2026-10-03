@@ -78,11 +78,15 @@ def open_store() -> StoragePort:
 
 
 def open_event_source(host: str) -> EventSource | None:
-    """This host's durable events-cli subscription, or None when events-cli is missing."""
-    from culture_rules.events.events_cli_adapter import EventsCliSource  # noqa: PLC0415
+    """This host's durable events-cli subscriptions, or None when they cannot be set up.
+
+    Any setup failure - events-cli missing, a subscription it rejects, the broker
+    unreachable - degrades the node to running without ingest instead of crashing it.
+    """
+    from culture_rules.events.events_cli_adapter import open_host_source  # noqa: PLC0415
 
     try:
-        source = EventsCliSource.for_host(host)
+        source = open_host_source(host)
         source.ensure()
     except EventFabricError as exc:
         log.warning("no event source for %s: %s", host, exc)
