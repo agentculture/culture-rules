@@ -383,3 +383,33 @@ def test_validate_rejects_non_model() -> None:
 def test_step_kind_list_and_actor_kind_list_are_tuples() -> None:
     assert isinstance(STEP_KINDS, tuple)
     assert isinstance(ACTOR_KINDS, tuple)
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        {"script": "trigger.sh"},
+        {"files": ["hooks/trigger.sh", "trigger.yaml"]},
+        {"text": {"$literal": "trigger.id"}},
+        {"text": {"$literal": {"$ref": "trigger.id"}}},
+    ],
+    ids=["file-name", "file-list", "literal", "literal-ref-object"],
+)
+def test_literals_that_look_like_trigger_paths_are_not_trigger_references(config) -> None:
+    wf = dataclasses.replace(make_workflow(), steps=(make_step(config=config),), edges=())
+    assert "trigger_reference" not in codes(validate(wf))
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        {"x": {"$ref": "trigger.data.x"}},
+        {"x": [{"$ref": "trigger"}]},
+        {"x": "trigger.data.x"},
+        {"x": "trigger.id"},
+    ],
+    ids=["ref-object", "ref-bare", "plain-data", "plain-id"],
+)
+def test_trigger_references_in_a_workflow_are_flagged(config) -> None:
+    wf = dataclasses.replace(make_workflow(), steps=(make_step(config=config),), edges=())
+    assert "trigger_reference" in codes(validate(wf))
