@@ -22,6 +22,12 @@ never takes a second slot) and carry the attempt's deadline, so a slot whose com
 never arrives is reaped. Slots of ``accepted`` work are freed by :meth:`LimitedActor.release`
 (call it from wherever ``Executor.deliver`` is called, passing the tokens used).
 
+Every attempt of a step shares one idempotency key. Only a *completed* key is remembered
+as done: a re-ask of it (a lost acknowledgement) replays without a new slot or a budget
+check, and its tokens are not counted twice. A failed attempt frees its slot and adds the
+tokens it used, but is not remembered, so its retry is admitted like new work - it waits
+at the concurrency cap, is refused over budget, and its tokens are counted.
+
 Standard library only.
 """
 
@@ -36,6 +42,7 @@ from typing import Any
 from culture_rules.actors.config import ActorConfig
 from culture_rules.engine.actorport import (
     ACCEPTED,
+    COMPLETED,
     ActorPort,
     InvocationContext,
     InvocationResult,
@@ -205,13 +212,18 @@ class LimitedActor:
 
         return self._mutate(fn)
 
-    def release(self, key: str, *, tokens: int = 0) -> None:
-        """Free ``key``'s slot and add ``tokens`` used (for work that completed later)."""
+    def release(self, key: str, *, tokens: int = 0, completed: bool = False) -> None:
+        """Free ``key``'s slot and add ``tokens`` used (for work that finished later).
+
+        ``completed=True`` also remembers the key as done, so a re-ask replays without a
+        slot or a budget check. Leave it False for a failure: the retry (same key) must be
+        admitted, capped and counted like new work.
+        """
 
         def fn(doc: dict[str, Any]) -> None:
             doc["inflight"] = [s for s in doc["inflight"] if s["key"] != key]
             doc["tokens"] += max(0, tokens)
-            if key not in doc["done"]:
+            if completed and key not in doc["done"]:
                 doc["done"].append(key)
 
         self._mutate(fn)
@@ -251,7 +263,11 @@ class LimitedActor:
                 self._drop_slot(idempotency_key)
             return result
         if verdict != "replay_done":  # a done key's tokens were counted the first time
-            self.release(idempotency_key, tokens=_tokens_of(result))
+            self.release(
+                idempotency_key,
+                tokens=_tokens_of(result),
+                completed=result.outcome == COMPLETED,
+            )
         return result
 
     def _over_budget_error(self, doc: Mapping[str, Any]) -> str:

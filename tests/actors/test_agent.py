@@ -154,6 +154,16 @@ def test_colleague_idempotent_on_key():
     assert len(runner.calls) == 2
 
 
+def test_colleague_retry_after_a_failure_runs_again():
+    runner = FakeRunner(stdout=json.dumps({"task_id": "t", "status": "error", "error": "boom"}))
+    actor = ColleagueActor(repo="/r", runner=runner)
+    assert actor.invoke({"instruction": "x"}, "same", DEADLINE, context=ctx()).outcome == FAILED
+    runner.stdout = OK_JSON
+    again = actor.invoke({"instruction": "x"}, "same", DEADLINE, context=ctx(attempt=2))
+    assert again.outcome == COMPLETED
+    assert len(runner.calls) == 2
+
+
 def test_colleague_timeout_derived_from_deadline():
     runner = FakeRunner()
     actor = ColleagueActor(
@@ -255,9 +265,20 @@ def test_mesh_failed_reply_and_late_resend_after_reply():
     actor.poll(lambda k, r: got.append(r))
     assert got[0].outcome == FAILED
     assert "nope" in got[0].error
-    # a retry with the same key after the reply returns the recorded result, no resend
+    # a failure is not cached: a retry with the same key after the reply re-sends the task
     res = actor.invoke({"instruction": "a"}, "k", DEADLINE, context=ctx(nick="spark-daria"))
-    assert res.outcome == FAILED
+    assert res.outcome == ACCEPTED
+    assert len(client.sent) == 2
+
+
+def test_mesh_completed_reply_is_replayed_without_resend():
+    client = FakeClient()
+    actor = MeshAgentActor(client=client)
+    actor.invoke({"instruction": "a"}, "k", DEADLINE, context=ctx(nick="spark-daria"))
+    client.inbox = [MeshReply(correlation_id=actor.correlation_id("k"), text="done", sender="s-d")]
+    actor.poll(lambda k, r: None)
+    res = actor.invoke({"instruction": "a"}, "k", DEADLINE, context=ctx(nick="spark-daria"))
+    assert res.outcome == COMPLETED
     assert len(client.sent) == 1
 
 

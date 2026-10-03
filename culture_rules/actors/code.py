@@ -12,6 +12,10 @@ list as whole-or-embedded string values; the process is started with an argv lis
 Inline script text (``{"script": "...", "interpreter": "sh"|"python"}``) is admin-only.
 :func:`check_inline_allowed` / :func:`check_step_inline_allowed` are the pure save-side
 rules the API calls; :meth:`CodeRunner.invoke` re-checks at run time (defence in depth).
+For the same reason a registered command whose bound argv is a shell or interpreter told
+to evaluate code from its arguments (``["/bin/sh", "-c", "{script}"]``, ``python -c``,
+``node -e``, ... also behind ``env``/``sudo``) is refused at run time with a permanent
+:class:`InlineCommandDenied` failure (:mod:`culture_rules.actors.inline_guard`).
 An ``is_admin(identity)`` callable is injected until the principal type lands. The
 invoking identity is read from ``context.config["identity"]``.
 
@@ -19,9 +23,13 @@ Inline scripts run in a fresh temporary directory (cwd), with a minimal environm
 timeout, in their own process group (killed on timeout), and the directory is always
 removed. Registered commands run in the same kind of directory so they cannot litter the
 runner host. This is process-level containment, not a security boundary against a
-malicious admin. Invocation is idempotent on the idempotency key (in-memory ledger; the
-runner host owns it). The attempt ``deadline`` is advisory; the command/inline timeout
-bounds the run. Standard-library only.
+malicious admin. A completed result is remembered per idempotency key for the life of
+the process (an in-process re-ask replays it); a failure is not, so a retry runs the
+command again. That ledger does not survive a restart, so the runner declares
+``supports_idempotency_key = False``: the executor never re-runs a command whose outcome
+is unknown (``unsafe_retry``) unless the step is declared idempotent. The attempt
+``deadline`` is advisory; the command/inline timeout bounds the run. Standard-library
+only.
 """
 
 from __future__ import annotations
@@ -39,11 +47,13 @@ from pathlib import Path
 from typing import Any
 
 from culture_rules.actors.config import ActorConfig
-from culture_rules.engine.actorport import InvocationContext, InvocationResult
+from culture_rules.actors.inline_guard import inline_eval_reason
+from culture_rules.engine.actorport import COMPLETED, InvocationContext, InvocationResult
 
 __all__ = [
     "CodeRunner",
     "CodeRunnerError",
+    "InlineCommandDenied",
     "InlineScriptDenied",
     "bind_argv",
     "check_inline_allowed",
@@ -63,6 +73,19 @@ _PLACEHOLDER = re.compile(r"\{(\w+)\}")
 
 class CodeRunnerError(ValueError):
     """A command could not be resolved or its arguments could not be bound."""
+
+
+class InlineCommandDenied(CodeRunnerError):
+    """A registered command would evaluate inline code from its arguments."""
+
+    code = "inline_command_refused"
+
+    def __init__(self, command: str, reason: str):
+        super().__init__(
+            f"command {command!r} refused: {reason}; registered commands may not evaluate "
+            "inline code (inline script text is admin-only)"
+        )
+        self.command = command
 
 
 class InlineScriptDenied(PermissionError):
@@ -172,7 +195,7 @@ def _run(argv: list[str], cwd: str, timeout: float) -> tuple[int | None, str, st
 class CodeRunner:
     """ActorPort adapter for a runner actor (see the module docstring)."""
 
-    supports_idempotency_key = True
+    supports_idempotency_key = False  # the ledger is in-memory, per process
 
     def __init__(
         self,
@@ -205,7 +228,8 @@ class CodeRunner:
         if idempotency_key in self._ledger:
             return self._ledger[idempotency_key]
         result = self._execute(input, context)
-        self._ledger[idempotency_key] = result
+        if result.outcome == COMPLETED:  # a failure is not cached: a retry runs again
+            self._ledger[idempotency_key] = result
         return result
 
     def _execute(self, input: Mapping[str, Any], context: InvocationContext) -> InvocationResult:
@@ -226,6 +250,9 @@ class CodeRunner:
         if spec is None:
             raise CodeRunnerError(f"unknown command {name!r}")
         argv = bind_argv(spec, input.get("args"))
+        reason = inline_eval_reason(argv)
+        if reason is not None:
+            raise InlineCommandDenied(name, reason)
         return self._sandboxed(argv, float(spec.get("timeout", DEFAULT_TIMEOUT)))
 
     def _run_inline(self, input: Mapping[str, Any]) -> InvocationResult:
