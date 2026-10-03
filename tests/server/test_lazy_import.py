@@ -20,7 +20,8 @@ print('ok')
 
 def test_server_package_imports_without_fastapi():
     done = subprocess.run([sys.executable, "-c", SNIPPET], capture_output=True, text=True)
-    assert done.returncode == 0 and done.stdout.strip() == "ok", done.stderr
+    assert done.returncode == 0, done.stderr
+    assert done.stdout.strip() == "ok", done.stderr
 
 
 def test_serve_reports_missing_extra_cleanly():

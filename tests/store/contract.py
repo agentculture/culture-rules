@@ -480,13 +480,16 @@ class StoragePortContract:
         class Boom(Exception):
             pass
 
-        with pytest.raises(Boom):
+        def write_then_boom():
             with store.transaction() as tx:
                 tx.insert("rules", {"id": "new"})
                 tx.put("rules", {"id": "keep", "v": 2})
                 tx.update_if("rules", "keep", {"v": 2}, {"v": 3})
                 tx.delete("rules", "gone")
                 raise Boom()
+
+        with pytest.raises(Boom):
+            write_then_boom()
         assert store.get("rules", "new") is None
         assert store.get("rules", "keep")["v"] == 1
         assert store.get("rules", "gone")["v"] == 1
@@ -494,10 +497,14 @@ class StoragePortContract:
 
     def test_transaction_rolls_back_on_store_error(self, store):
         store.put("rules", {"id": "dup"})
-        with pytest.raises(DuplicateKeyError):
+
+        def partial_then_dup():
             with store.transaction() as tx:
                 tx.put("rules", {"id": "partial"})
                 tx.insert("rules", {"id": "dup"})
+
+        with pytest.raises(DuplicateKeyError):
+            partial_then_dup()
         assert store.get("rules", "partial") is None
 
     def test_transaction_spans_collections(self, store):
@@ -555,8 +562,9 @@ class StoragePortContract:
         old.put("rules", {"id": "a", "name": "alpha"})
         new = self.open_peer(old, node_schema_version="3.0")
         before = new.get("rules", "a")
+        registry = self._registry()
         with pytest.raises(BackupRequiredError):
-            migrate(new, self._registry(), backup=lambda: verdict)
+            migrate(new, registry, backup=lambda: verdict)
         assert new.get("rules", "a") == before
 
     def test_migration_refused_when_backup_raises(self):
@@ -567,15 +575,17 @@ class StoragePortContract:
         def broken():
             raise OSError("s3 unreachable")
 
+        registry = self._registry()
         with pytest.raises(BackupRequiredError):
-            migrate(new, self._registry(), backup=broken)
+            migrate(new, registry, backup=broken)
         assert new.get("rules", "a")["name"] == "alpha"
 
     def test_migration_target_beyond_node_raises_skew(self):
         store = self.make_store(node_schema_version="2.0")
         store.put("rules", {"id": "a", "name": "alpha"})
+        registry = self._registry()
         with pytest.raises(VersionSkewError):
-            migrate(store, self._registry(), backup=lambda: True, target_major=3)
+            migrate(store, registry, backup=lambda: True, target_major=3)
 
     def test_migration_partial_target_and_idempotent(self):
         old = self.make_store(node_schema_version="1.0")

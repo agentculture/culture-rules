@@ -46,7 +46,8 @@ def test_a_placed_chain_across_hosts_fires_the_dependant_once_on_its_host(cluste
     b = cluster.wait_run("b", "evt_1", timeout=30)
     a = cluster.run_for("a", "evt_1")
 
-    assert a["status"] == "succeeded" and a["started_by"] == "engine@spark"
+    assert a["status"] == "succeeded"
+    assert a["started_by"] == "engine@spark"
     assert b["status"] == "succeeded", b.get("error")
     assert b["started_by"] == "engine@thor"
     assert b["created_at"] >= a["finished_at"]

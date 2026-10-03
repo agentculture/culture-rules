@@ -41,7 +41,8 @@ def test_run_survives_restart_and_cancel_on_mongo(mongo_store):
     assert again.deliver(idempotency_key(run["id"], "s2"), InvocationResult.completed({"ok": True}))
     again.run_until_idle()
     assert again.run(run["id"])["status"] == "succeeded"
-    assert a.effects_for("s1") == 1 and a.effects_for("s3") == 1
+    assert a.effects_for("s1") == 1
+    assert a.effects_for("s3") == 1
 
     second = again.start(rule(), three_steps())
     again.run_until_idle()

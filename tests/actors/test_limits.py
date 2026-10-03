@@ -75,8 +75,9 @@ def test_slot_released_on_failure_and_on_exception():
     actor, inner, _, _ = make(ActorLimits(max_concurrency=1), inner)
     assert actor.invoke({}, "k1", DEADLINE, context=ctx("a")).outcome == FAILED
     assert actor.usage()["in_flight"] == 0
+    context = ctx("a")
     with pytest.raises(ConnectionError):
-        actor.invoke({}, "k2", DEADLINE, context=ctx("a"))
+        actor.invoke({}, "k2", DEADLINE, context=context)
     assert actor.usage()["in_flight"] == 0
 
 
@@ -94,11 +95,14 @@ def test_over_budget_refuses_with_structured_non_retryable_error():
     assert actor.invoke({}, "k1", DEADLINE, context=ctx()).outcome == COMPLETED
     assert actor.invoke({}, "k2", DEADLINE, context=ctx()).outcome == COMPLETED  # 20 >= 15
     res = actor.invoke({}, "k3", DEADLINE, context=ctx())
-    assert res.outcome == FAILED and res.retryable is False
+    assert res.outcome == FAILED
+    assert res.retryable is False
     assert inner.effects["k3"] == 0
     err = parse_limit_error(res.error)
     assert err["code"] == "over_budget"
-    assert err["actor"] == "bot" and err["token_budget"] == 15 and err["tokens_used"] == 20
+    assert err["actor"] == "bot"
+    assert err["token_budget"] == 15
+    assert err["tokens_used"] == 20
     assert json.loads(res.error) == err
 
 
@@ -156,7 +160,8 @@ def test_record_tokens_for_accepted_work_completed_later():
     actor, _, _, _ = make(ActorLimits(token_budget=100), inner)
     actor.invoke({}, "k1", DEADLINE, context=ctx("a"))
     actor.release("k1", tokens=40)
-    assert actor.usage()["tokens"] == 40 and actor.usage()["in_flight"] == 0
+    assert actor.usage()["tokens"] == 40
+    assert actor.usage()["in_flight"] == 0
 
 
 def test_warn_flag_follows_warn_pct():

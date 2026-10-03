@@ -60,8 +60,9 @@ def test_exists_in_matches():
 
 def test_matches_length_cap():
     long = "a" * (c.MAX_PATTERN_LEN + 1)
+    too_long = {"op": "matches", "value": L("a"), "pattern": long}
     with pytest.raises(c.ConditionError):
-        c.evaluate({"op": "matches", "value": L("a"), "pattern": long}, CTX)
+        c.evaluate(too_long, CTX)
     big = {"trigger": {"s": "a" * (c.MAX_INPUT_LEN + 1)}, "variables": {}}
     assert c.evaluate({"op": "matches", "value": F("s"), "pattern": "a*"}, big) is False
 
@@ -128,7 +129,8 @@ def test_text_parse_examples():
 
 def test_precedence_roundtrip():
     t = c.from_text("(trigger.a == 1 || trigger.b == 2) && trigger.c == 3")
-    assert t["op"] == "and" and t["args"][0]["op"] == "or"
+    assert t["op"] == "and"
+    assert t["args"][0]["op"] == "or"
     assert c.from_text(c.to_text(t)) == t
 
 
@@ -150,14 +152,18 @@ def test_malformed_text(text):
     with pytest.raises(c.ConditionParseError) as ei:
         c.from_text(text)
     d = ei.value.to_dict()
-    assert d["code"] == "parse_error" and isinstance(d["position"], int) and d["message"]
+    assert d["code"] == "parse_error"
+    assert isinstance(d["position"], int)
+    assert d["message"]
     res = c.parse(text)
-    assert res.tree is None and res.error is not None
+    assert res.tree is None
+    assert res.error is not None
 
 
 def test_parse_ok():
     res = c.parse("trigger.a == 1")
-    assert res.error is None and res.tree is not None
+    assert res.error is None
+    assert res.tree is not None
 
 
 def test_no_eval_exec_compile_in_package():

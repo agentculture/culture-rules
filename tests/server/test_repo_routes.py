@@ -100,7 +100,9 @@ def test_export_to_repo_is_a_dry_run_by_default(app_client, repos):
     r = app_client.post("/export", json={"repo": "work"}, headers=ALICE)
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["repo"] == "work" and body["applied"] is False and body["committed"] is False
+    assert body["repo"] == "work"
+    assert body["applied"] is False
+    assert body["committed"] is False
     assert body["changes"] == [
         {"kind": "rules", "id": "r1", "path": "rules/r1.json", "action": "add"}
     ]
@@ -115,7 +117,9 @@ def test_export_to_repo_apply_commits_and_push_reaches_the_bare_origin(app_clien
 
     r = app_client.post("/export", json={"repo": "work", "apply": True}, headers=ALICE)
     body = r.json()
-    assert r.status_code == 200 and body["applied"] is True and body["committed"] is True
+    assert r.status_code == 200
+    assert body["applied"] is True
+    assert body["committed"] is True
     assert body["pushed"] is False
     assert body["commit"] == git(work, "rev-parse", "HEAD")
     assert json.loads((work / "rules" / "r1.json").read_text())["id"] == "r1"
@@ -136,9 +140,11 @@ def test_export_to_repo_apply_commits_and_push_reaches_the_bare_origin(app_clien
 
 def test_export_refuses_unknown_and_non_local_repos(app_client):
     r = app_client.post("/export", json={"repo": "nope"}, headers=ALICE)
-    assert r.status_code == 404 and r.json()["error"]["code"] == "repo_not_found"
+    assert r.status_code == 404
+    assert r.json()["error"]["code"] == "repo_not_found"
     r = app_client.post("/export", json={"repo": "origin"}, headers=ALICE)
-    assert r.status_code == 422 and r.json()["error"]["code"] == "repo_not_local"
+    assert r.status_code == 422
+    assert r.json()["error"]["code"] == "repo_not_local"
     r = app_client.post("/export", json={"repo": "work", "directory": "../out"}, headers=ALICE)
     assert r.status_code == 422
 

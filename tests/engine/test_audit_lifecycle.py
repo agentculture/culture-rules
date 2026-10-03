@@ -91,7 +91,8 @@ def test_empty_identity_rejected_and_nothing_mutates(store, life, bad):
 def test_audit_api_is_insert_only():
     public = {n for n in dir(AuditLog) if not n.startswith("_")}
     assert not {n for n in public if n.startswith(("update", "delete", "remove", "put", "edit"))}
-    assert not hasattr(audit_mod, "delete_entry") and not hasattr(audit_mod, "update_entry")
+    assert not hasattr(audit_mod, "delete_entry")
+    assert not hasattr(audit_mod, "update_entry")
 
 
 def test_audit_entries_reader_returns_entries_in_time_order(store, life, clock):
@@ -163,7 +164,8 @@ def test_every_mutating_verb_writes_exactly_one_entry_with_identity(verb, store,
     assert len(new) == before + 1
     mine = [e for e in new if e["verb"] == verb]
     assert len(mine) == 1
-    assert isinstance(mine[0]["identity"], str) and mine[0]["identity"].strip()
+    assert isinstance(mine[0]["identity"], str)
+    assert mine[0]["identity"].strip()
 
 
 # --- lifecycle -----------------------------------------------------------------------------

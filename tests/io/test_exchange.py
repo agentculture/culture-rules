@@ -62,12 +62,9 @@ def test_secrets_are_references_only(tmp_path):
     export_bundle(_bundle(), tmp_path, apply=True)
     text = (tmp_path / "secrets" / "gh-token.yaml").read_text()
     assert "env:GITHUB_TOKEN" in text
+    leaky = Bundle(secrets=(SecretRef(name="x", ref="hunter2-the-actual-value"),))
     with pytest.raises(ValueError):
-        export_bundle(
-            Bundle(secrets=(SecretRef(name="x", ref="hunter2-the-actual-value"),)),
-            tmp_path / "bad",
-            apply=True,
-        )
+        export_bundle(leaky, tmp_path / "bad", apply=True)
 
 
 def test_secret_value_field_on_import_is_an_error(tmp_path):
@@ -81,7 +78,8 @@ def test_import_is_dry_run_diff_unless_apply(tmp_path):
     export_bundle(_bundle(), tmp_path / "src", apply=True)
     store = MemoryStore()
     plan = import_bundle(tmp_path / "src", store)
-    assert not plan.applied and plan.errors == []
+    assert not plan.applied
+    assert plan.errors == []
     assert {c.action for c in plan.changes} == {"add"}
     assert store.find("rules") == []  # nothing written
     assert "r-review" in plan.render()
@@ -104,7 +102,8 @@ def test_import_diff_shows_changes(tmp_path):
     plan = import_bundle(tmp_path / "src", store)
     change = next(c for c in plan.changes if c.id == "r-review")
     assert change.action == "change"
-    assert "Renamed" in change.diff and "-" in change.diff
+    assert "Renamed" in change.diff
+    assert "-" in change.diff
 
 
 def test_import_reports_unknown_fields_as_errors_and_refuses_apply(tmp_path):
@@ -126,7 +125,8 @@ def test_import_reports_invalid_and_mismatched_files(tmp_path):
     (tmp_path / "rules" / "broken.yaml").write_text("{: [")
     read = read_bundle(tmp_path)
     codes = {e.code for e in read.errors}
-    assert "id_mismatch" in codes and "parse" in codes
+    assert "id_mismatch" in codes
+    assert "parse" in codes
 
 
 def test_yaml_missing_gives_clear_error(tmp_path, monkeypatch):
@@ -140,14 +140,16 @@ def test_yaml_missing_gives_clear_error(tmp_path, monkeypatch):
         return real(name, *a, **k)
 
     monkeypatch.setattr(builtins, "__import__", fake)
+    bundle = _bundle()
     with pytest.raises(RuntimeError, match="culture-rules\\[yaml\\]"):
-        export_bundle(_bundle(), tmp_path, fmt="yaml", apply=True)
+        export_bundle(bundle, tmp_path, fmt="yaml", apply=True)
 
 
 def test_bad_ids_cannot_escape_directory(tmp_path):
     bad = replace(make_rule(), id="../evil")
+    bundle = Bundle(rules=(bad,))
     with pytest.raises(ValueError):
-        export_bundle(Bundle(rules=(bad,)), tmp_path / "o", apply=True)
+        export_bundle(bundle, tmp_path / "o", apply=True)
 
 
 # --- git target -----------------------------------------------------------
@@ -168,10 +170,13 @@ def test_save_to_and_load_from_second_git_repo(repos):
     bare, work = repos
     bundle = _bundle()
     dry = save_to_repo(bundle, work, directory="defs", apply=False)
-    assert not dry.committed and not (work / "defs").exists()
+    assert not dry.committed
+    assert not (work / "defs").exists()
 
     done = save_to_repo(bundle, work, directory="defs", apply=True, push=True)
-    assert done.committed and done.pushed and done.commit
+    assert done.committed
+    assert done.pushed
+    assert done.commit
     assert "defs/rules/r-review.yaml" in _git(work, "ls-files")
     assert _git(work, "rev-parse", "HEAD").strip() == done.commit
 
@@ -188,7 +193,8 @@ def test_load_from_repo_missing_directory_is_error(repos):
     bare, work = repos
     save_to_repo(_bundle(), work, directory="defs", apply=True, push=True)
     loaded = load_from_repo(bare, directory="nope")
-    assert loaded.errors and loaded.errors[0].code == "missing_directory"
+    assert loaded.errors
+    assert loaded.errors[0].code == "missing_directory"
 
 
 def test_save_to_repo_commits_only_the_export_plan(repos):
@@ -200,8 +206,10 @@ def test_save_to_repo_commits_only_the_export_plan(repos):
     done = save_to_repo(_bundle(), work, directory="defs", apply=True)
     assert done.committed
     files = _git(work, "show", "--name-only", "--pretty=format:", "HEAD").split()
-    assert files and all(f.startswith("defs/") for f in files)
-    assert "private-notes.txt" not in files and "other/staged.txt" not in files
+    assert files
+    assert all(f.startswith("defs/") for f in files)
+    assert "private-notes.txt" not in files
+    assert "other/staged.txt" not in files
     # the unrelated work stays exactly as it was
     assert "private-notes.txt" in _git(work, "status", "--porcelain")
     assert "A  other/staged.txt" in _git(work, "status", "--porcelain")

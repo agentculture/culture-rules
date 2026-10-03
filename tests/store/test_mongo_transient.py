@@ -47,8 +47,9 @@ def test_run_transaction_is_bounded():
     def body(tx):
         raise TransientStoreError("always")
 
+    store = MemoryStore()
     with pytest.raises(TransientStoreError):
-        run_transaction(MemoryStore(), body, attempts=3, backoff=0.0)
+        run_transaction(store, body, attempts=3, backoff=0.0)
 
 
 def test_run_transaction_does_not_retry_other_errors():
@@ -58,8 +59,9 @@ def test_run_transaction_does_not_retry_other_errors():
         calls.append(1)
         raise DuplicateKeyError("dup")
 
+    store = MemoryStore()
     with pytest.raises(DuplicateKeyError):
-        run_transaction(MemoryStore(), body, attempts=3, backoff=0.0)
+        run_transaction(store, body, attempts=3, backoff=0.0)
     assert calls == [1]
 
 
@@ -149,9 +151,13 @@ def test_a_write_conflict_is_typed_and_run_transaction_retries_it(mongo_store):
     t.start()
     assert inside.wait(10)
     try:
-        with pytest.raises(TransientStoreError):
+
+        def conflicting_write():
             with other.transaction() as tx:
                 tx.update_if("c", "x", {}, {"n": 99})
+
+        with pytest.raises(TransientStoreError):
+            conflicting_write()
     finally:
         release.set()
         t.join(10)

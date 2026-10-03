@@ -52,7 +52,8 @@ def test_context_nests_and_restores():
     assert current_context()["run_id"] is None
     log.info("outside")
     rec = json.loads(stream.getvalue())
-    assert rec["run_id"] is None and rec["step_id"] is None
+    assert rec["run_id"] is None
+    assert rec["step_id"] is None
 
 
 def test_context_host_overrides_formatter_host():
@@ -152,7 +153,8 @@ def test_step_trail_includes_audit_and_unknown_run_is_empty():
     _entry(store, "node-b", "r")
     trail = step_trail(store, "r")
     assert len(trail) == 1
-    assert trail[0]["source"] == "audit" and trail[0]["host"] == "node-b"
+    assert trail[0]["source"] == "audit"
+    assert trail[0]["host"] == "node-b"
     assert trail[0]["event"] == "run.cancel"
     assert step_trail(store, "missing") == []
 
@@ -168,7 +170,8 @@ class _Sink:
 def test_stamp_envelope_adds_run_and_correlation():
     env = {"id": "evt_1", "type": "t"}
     out = stamp_envelope(env, run_id="run-1", correlation_id="corr-1")
-    assert out["runId"] == "run-1" and out["correlationId"] == "corr-1"
+    assert out["runId"] == "run-1"
+    assert out["correlationId"] == "corr-1"
     assert "runId" not in env  # input untouched
 
 
@@ -176,7 +179,8 @@ def test_stamp_envelope_keeps_existing_correlation_and_uses_context():
     env = {"id": "evt_1", "correlationId": "keep"}
     with log_context(run_id="ctx-run"):
         out = stamp_envelope(env)
-    assert out["runId"] == "ctx-run" and out["correlationId"] == "keep"
+    assert out["runId"] == "ctx-run"
+    assert out["correlationId"] == "keep"
 
 
 def test_emit_for_run_publishes_stamped_envelope():
@@ -184,7 +188,8 @@ def test_emit_for_run_publishes_stamped_envelope():
     emitter = Emitter(sink, source="culture-rules/test")
     env = emit_for_run(emitter, "rule.fired", {"a": 1}, run_id="run-9", correlation_id="c-9")
     assert sink.sent == [env]
-    assert env["runId"] == "run-9" and env["correlationId"] == "c-9"
+    assert env["runId"] == "run-9"
+    assert env["correlationId"] == "c-9"
     assert env["data"] == {"a": 1}
 
 
@@ -193,9 +198,11 @@ def test_emit_for_run_defaults_correlation_from_cause_then_run():
     emitter = Emitter(sink, source="s")
     cause = {"id": "evt_c", "correlationId": "chain"}
     env = emit_for_run(emitter, "x", cause=cause, run_id="r")
-    assert env["correlationId"] == "chain" and env["causationId"] == "evt_c"
+    assert env["correlationId"] == "chain"
+    assert env["causationId"] == "evt_c"
     env2 = emit_for_run(emitter, "x", run_id="r2")
-    assert env2["runId"] == "r2" and env2["correlationId"]
+    assert env2["runId"] == "r2"
+    assert env2["correlationId"]
 
 
 def test_configure_logging_twice_leaves_one_handler():

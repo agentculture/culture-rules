@@ -111,7 +111,8 @@ def test_never_uses_shell(monkeypatch):
 
 def test_unknown_command_fails_non_retryable():
     res = runner().invoke({"command": "nope"}, "k4", DEADLINE, context=ctx())
-    assert res.outcome == "failed" and res.retryable is False
+    assert res.outcome == "failed"
+    assert res.retryable is False
 
 
 def test_nonzero_exit_is_failed_with_output():
@@ -122,7 +123,8 @@ def test_nonzero_exit_is_failed_with_output():
 
 def test_command_timeout():
     res = runner().invoke({"command": "sleepy"}, "k6", DEADLINE, context=ctx())
-    assert res.outcome == "failed" and "timeout" in res.error.lower()
+    assert res.outcome == "failed"
+    assert "timeout" in res.error.lower()
 
 
 def test_idempotent_on_key():
@@ -163,7 +165,8 @@ def test_check_inline_allowed_step_only_when_it_has_script():
 
 def test_non_admin_cannot_run_inline_script():
     res = runner().invoke({"script": "echo hi"}, "i1", DEADLINE, context=ctx("alice"))
-    assert res.outcome == "failed" and res.retryable is False
+    assert res.outcome == "failed"
+    assert res.retryable is False
     assert "admin" in res.error
 
 
@@ -189,7 +192,8 @@ def test_unknown_interpreter_rejected():
     res = runner().invoke(
         {"script": "x", "interpreter": "perl"}, "i4", DEADLINE, context=ctx("root")
     )
-    assert res.outcome == "failed" and res.retryable is False
+    assert res.outcome == "failed"
+    assert res.retryable is False
 
 
 def test_inline_sandbox_tempdir_minimal_env_cleaned_up(monkeypatch, tmp_path):
@@ -210,7 +214,8 @@ def test_inline_timeout_kills_and_cleans_up(tmp_path):
     res = runner(sandbox_root=tmp_path, inline_timeout=0.3).invoke(
         {"script": "sleep 5", "interpreter": "sh"}, "i6", DEADLINE, context=ctx("root")
     )
-    assert res.outcome == "failed" and "timeout" in res.error.lower()
+    assert res.outcome == "failed"
+    assert "timeout" in res.error.lower()
     assert list(tmp_path.iterdir()) == []
 
 

@@ -57,7 +57,9 @@ def test_sse_fans_out_a_write_made_through_another_instance_within_2s(store):
     elapsed = time.monotonic() - t0
     assert resp.headers["content-type"].startswith("text/event-stream")
     (event,) = _events(resp.text)
-    assert event["collection"] == "rules" and event["id"] == "r1" and event["op"] == "insert"
+    assert event["collection"] == "rules"
+    assert event["id"] == "r1"
+    assert event["op"] == "insert"
     assert event["document"]["name"] == "r1"
     assert elapsed - 0.4 < 2.0
 

@@ -72,7 +72,8 @@ def test_grant_run_argv_injects_without_values():
     assert argv[:2] == ["grant", "run"]
     assert argv[argv.index("--") + 1 :] == ["tool", "--flag"]
     assert "--inject" in argv
-    assert "TOKEN=GH" in argv and "KEY=AWS" in argv
+    assert "TOKEN=GH" in argv
+    assert "KEY=AWS" in argv
     with pytest.raises(SecretError):
         grant_run_argv(["x"], {"TOKEN": "literal-value"})
     with pytest.raises(SecretError):
@@ -88,7 +89,8 @@ def test_run_with_secrets_never_resolves_in_process():
 
     out = run_with_secrets(["tool"], {"T": "grant:GH"}, _run=fake)
     assert out.returncode == 0
-    assert seen[0][:2] == ["grant", "run"] and "T=GH" in seen[0]
+    assert seen[0][:2] == ["grant", "run"]
+    assert "T=GH" in seen[0]
 
 
 def test_redactor_masks_resolved_values_and_is_used_by_resolve():
@@ -111,7 +113,8 @@ def test_assert_refs_only_flags_literal_secrets_in_params():
     assert_refs_only({"nested": {"api_key": "grant:K"}, "list": [{"password": "grant:P"}]})
     with pytest.raises(SecretError) as err:
         assert_refs_only({"nested": {"api_key": VALUE}})
-    assert "nested.api_key" in str(err.value) and VALUE not in str(err.value)
+    assert "nested.api_key" in str(err.value)
+    assert VALUE not in str(err.value)
     with pytest.raises(SecretError):
         assert_refs_only({"list": [{"password": "hunter2"}]})
 
@@ -133,8 +136,9 @@ def test_exported_actor_with_secret_yields_only_reference(tmp_path):
 
 def test_secretref_accepts_grant_scheme():
     SecretRef(name="gh", ref="grant:GH_TOKEN").check()
+    leaked = SecretRef(name="gh", ref=VALUE)
     with pytest.raises(ValueError):
-        SecretRef(name="gh", ref=VALUE).check()
+        leaked.check()
 
 
 def test_backup_uses_shared_resolver():

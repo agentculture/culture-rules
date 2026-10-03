@@ -88,12 +88,14 @@ def test_must_after_fires_after_the_predecessor_succeeds_exactly_once_across_hos
 
     c.cycle("spark")
     (waiting,) = decisions(c, "b")  # a ran in this cycle: b waits for the next one
-    assert waiting["reason"] == "blocked_by_predecessor" and waiting["by"] == ["a"]
+    assert waiting["reason"] == "blocked_by_predecessor"
+    assert waiting["by"] == ["a"]
     cycles(c, 3)
 
     a, b = c.run("a", "evt_1"), c.run("b", "evt_1")
     assert a["status"] == "succeeded"
-    assert b is not None and b["status"] == "succeeded", b
+    assert b is not None, b
+    assert b["status"] == "succeeded", b
     assert b["created_at"] >= a["finished_at"]
     # only the explicitly exported output is visible downstream
     assert b["upstream"] == {"a": {"n": 7}}
@@ -112,7 +114,8 @@ def test_must_after_fires_after_the_predecessor_succeeds_exactly_once_across_hos
     # the waiting decision is superseded by the eventual outcome, not left stale
     (doc,) = decisions(c, "b")
     assert doc["id"] == decision_key("b", "evt_1")
-    assert doc["reason"] == "matched" and doc["fire"] is True
+    assert doc["reason"] == "matched"
+    assert doc["fire"] is True
     assert doc["run_id"] == b["id"]
     assert [h["reason"] for h in doc["superseded"]] == ["blocked_by_predecessor"]
 
@@ -126,9 +129,11 @@ def test_must_after_with_a_failed_predecessor_never_fires_and_records_why():
     cycles(c, 4)
 
     assert c.run("a", "evt_1")["status"] == "failed"
-    assert c.run("b", "evt_1") is None and fires(c, "b") == []
+    assert c.run("b", "evt_1") is None
+    assert fires(c, "b") == []
     (doc,) = decisions(c, "b")
-    assert doc["reason"] == "predecessor_failed" and doc["by"] == ["a"]
+    assert doc["reason"] == "predecessor_failed"
+    assert doc["by"] == ["a"]
     assert doc["fire"] is False
     assert "a failed" in doc["message"]
     assert [h["reason"] for h in doc["superseded"]] == ["blocked_by_predecessor"]
@@ -141,9 +146,11 @@ def test_must_after_with_a_predecessor_that_did_not_match_is_skipped_at_once():
     c.publish(envelope(1))
     cycles(c, 2)
 
-    assert fires(c, "b") == [] and fires(c, "a") == []
+    assert fires(c, "b") == []
+    assert fires(c, "a") == []
     (doc,) = decisions(c, "b")
-    assert doc["reason"] == "predecessor_failed" and doc["by"] == ["a"]
+    assert doc["reason"] == "predecessor_failed"
+    assert doc["by"] == ["a"]
     assert "a did not run" in doc["message"]
 
 
@@ -160,9 +167,11 @@ def test_a_failed_skip_cascades_down_a_must_after_chain():
     c.publish(envelope(1))
     cycles(c, 5)
 
-    assert fires(c, "b") == [] and fires(c, "c") == []
+    assert fires(c, "b") == []
+    assert fires(c, "c") == []
     (doc,) = decisions(c, "c")
-    assert doc["reason"] == "predecessor_failed" and doc["by"] == ["b"]
+    assert doc["reason"] == "predecessor_failed"
+    assert doc["by"] == ["b"]
 
 
 def test_a_must_after_chain_of_three_runs_in_order():
@@ -179,7 +188,8 @@ def test_a_must_after_chain_of_three_runs_in_order():
 
     a, b, cc = (c.run(r, "evt_1") for r in ("a", "b", "c"))
     assert a["status"] == b["status"] == cc["status"] == "succeeded"
-    assert a["finished_at"] <= b["created_at"] and b["finished_at"] <= cc["created_at"]
+    assert a["finished_at"] <= b["created_at"]
+    assert b["finished_at"] <= cc["created_at"]
     assert cc["upstream"] == {"b": {}}  # b exports nothing
 
 
@@ -197,7 +207,8 @@ def test_may_after_waits_for_a_matching_predecessor_and_sees_its_exports():
     cycles(c, 3)
 
     a, b = c.run("a", "evt_1"), c.run("b", "evt_1")
-    assert b["status"] == "succeeded" and b["created_at"] >= a["finished_at"]
+    assert b["status"] == "succeeded"
+    assert b["created_at"] >= a["finished_at"]
     assert b["upstream"] == {"a": {"n": 7}}
     assert action_input(c, b["id"])["n"] == 7
     assert fires(c, "b") == ["evt_1"]
@@ -213,7 +224,8 @@ def test_may_after_runs_after_a_failed_predecessor_without_its_outputs():
 
     b = c.run("b", "evt_1")
     assert c.run("a", "evt_1")["status"] == "failed"
-    assert b["status"] == "succeeded" and b["upstream"] == {}
+    assert b["status"] == "succeeded"
+    assert b["upstream"] == {}
     assert action_input(c, b["id"])["n"] is None
 
 
@@ -225,8 +237,10 @@ def test_may_after_fires_at_once_when_the_predecessor_does_not_match():
 
     c.cycle()
     b = c.run("b", "evt_1")
-    assert b is not None and b["status"] == "succeeded"
-    assert b["upstream"] == {} and fires(c, "a") == []
+    assert b is not None
+    assert b["status"] == "succeeded"
+    assert b["upstream"] == {}
+    assert fires(c, "a") == []
     assert decisions(c, "b") == []
 
 
@@ -247,11 +261,13 @@ def test_a_placed_dependant_is_re_evaluated_on_its_host_only():
     assert c.run("b", "evt_1") is None
     cycles(c, 3, "spark")  # a runs on spark; spark never evaluates b
     assert c.run("a", "evt_1")["status"] == "succeeded"
-    assert c.run("b", "evt_1") is None and fires(c, "b") == []
+    assert c.run("b", "evt_1") is None
+    assert fires(c, "b") == []
 
     cycles(c, 2, "thor")
     b = c.run("b", "evt_1")
-    assert b["status"] == "succeeded" and b["started_by"] == "engine@thor"
+    assert b["status"] == "succeeded"
+    assert b["started_by"] == "engine@thor"
     assert b["upstream"] == {"a": {"n": 7}}
     assert {h for h, r, _ in c.evaluations if r == "b"} == {"thor"}
     assert fires(c, "b") == ["evt_1"]
@@ -276,11 +292,13 @@ def test_supersede_composes_with_must_after_without_changing_either():
     assert c.run("a", "evt_1")["status"] == "succeeded"
     assert c.run("b", "evt_1") is None
     sup = c.base.get(RULE_DECISIONS, decision_key("b", "evt_1"))
-    assert sup["reason"] == "superseded_by" and sup["by"] == ["s"]
+    assert sup["reason"] == "superseded_by"
+    assert sup["by"] == ["s"]
     assert "superseded" not in sup  # final from the start: nothing superseded it
 
     b2 = c.run("b", "evt_2")
-    assert b2["status"] == "succeeded" and b2["upstream"] == {"a": {"n": 7}}
+    assert b2["status"] == "succeeded"
+    assert b2["upstream"] == {"a": {"n": 7}}
     assert c.run("s", "evt_2") is None
     assert sorted(fires(c, "b")) == ["evt_2"]
 
@@ -321,8 +339,11 @@ def test_a_predecessor_whose_run_cannot_start_settles_its_dependants():
     cycles(c, 3)
 
     (intent,) = c.base.find(RULE_FIRES, {"rule_id": "a"})
-    assert intent["status"] == "failed" and c.run("a", "evt_1") is None
+    assert intent["status"] == "failed"
+    assert c.run("a", "evt_1") is None
     (doc,) = decisions(c, "b")
-    assert doc["reason"] == "predecessor_failed" and "a could not start" in doc["message"]
+    assert doc["reason"] == "predecessor_failed"
+    assert "a could not start" in doc["message"]
     m = c.run("m", "evt_1")
-    assert m["status"] == "succeeded" and m["upstream"] == {}
+    assert m["status"] == "succeeded"
+    assert m["upstream"] == {}

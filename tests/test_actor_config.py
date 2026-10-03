@@ -44,7 +44,8 @@ def test_multiple_agents_and_suffix_filter():
 def test_this_repo_equals_db_record():
     repo = load_from_repo(REPO)
     rec = load_from_record({"suffix": "culture-rules", "backend": "claude"})
-    assert rec.source == "db" and repo.source == "repo"
+    assert rec.source == "db"
+    assert repo.source == "repo"
     assert repo == rec
     assert repo.harness == "claude"
 

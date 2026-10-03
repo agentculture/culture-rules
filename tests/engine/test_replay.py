@@ -51,7 +51,8 @@ def test_skip_reasons_are_reported():
     rules.append(rule("c", enabled=False))
     report = replay([env(1)], rules)
     reasons = {s.rule_id: (s.reason, s.message) for s in report.skipped}
-    assert reasons["b"][0] == GROUP_LOST and "a" in reasons["b"][1]
+    assert reasons["b"][0] == GROUP_LOST
+    assert "a" in reasons["b"][1]
     assert reasons["c"][0] == DISABLED
     assert [w.rule_id for w in report.would_fire] == ["a"]
 
@@ -61,8 +62,9 @@ def test_rule_filter_keeps_other_rules_in_the_snapshot():
     report = replay([env(1)], rules, rule_id="b")
     assert not report.would_fire
     assert [(s.rule_id, s.reason) for s in report.skipped] == [("b", "superseded_by")]
+    events = [env(1)]
     with pytest.raises(ReplayError):
-        replay([env(1)], rules, rule_id="nope")
+        replay(events, rules, rule_id="nope")
 
 
 def test_reads_events_collection_in_order_and_limit():
@@ -100,7 +102,9 @@ def test_replay_does_not_mutate_inputs():
 
 
 def test_bad_inputs_raise():
+    rules = [rule("a")]
     with pytest.raises(ReplayError):
-        replay([{"kind": "event"}], [rule("a")])
+        replay([{"kind": "event"}], rules)
+    events = [env(1)]
     with pytest.raises(ReplayError):
-        replay([env(1)], [rule("a")], limit=0)
+        replay(events, rules, limit=0)

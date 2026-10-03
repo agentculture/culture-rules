@@ -136,7 +136,8 @@ def test_engine_holds_no_run_state_in_memory(store, actor, clock):
     for _ in range(20):  # a brand-new engine instance for every tick
         make_executor(store, actor, clock).tick()
     assert store.get(RUNS_COLLECTION, run["id"])["status"] == "succeeded"
-    assert len(actor.calls_for("a")) == 1 and len(actor.calls_for("b")) == 1
+    assert len(actor.calls_for("a")) == 1
+    assert len(actor.calls_for("b")) == 1
 
 
 def test_restart_with_pending_human_step_resumes_without_reexecuting(store, clock):
@@ -156,7 +157,8 @@ def test_restart_with_pending_human_step_resumes_without_reexecuting(store, cloc
     restarted.run_until_idle()
     doc = restarted.run(run["id"])
     assert doc["status"] == "succeeded"
-    assert a.effects_for("s1") == 1 and len(a.calls_for("s1")) == 1
+    assert a.effects_for("s1") == 1
+    assert len(a.calls_for("s1")) == 1
     assert a.effects_for("s2") == 1
     assert a.effects_for("s3") == 1
     assert a.calls_for("s3")[0][1] == {"ok": True}
@@ -204,7 +206,8 @@ def test_edit_mid_run_leaves_run_on_old_version_and_new_runs_on_new(store, clock
     old = ex.start_from_store("r1")
     ex.run_until_idle()
     assert old["workflow"]["version"] == 1
-    assert old["rule"]["id"] == "r1" and old["rule"]["digest"]
+    assert old["rule"]["id"] == "r1"
+    assert old["rule"]["digest"]
 
     # edit the workflow while the human step is pending
     _store_definitions(store, three_step_human_workflow(2, {"v": 2, "edited": True}), rule())
@@ -234,8 +237,9 @@ def test_rule_digest_changes_when_rule_changes(store, actor, clock):
 
 def test_rule_pinning_an_unavailable_workflow_version_is_refused(store, actor, clock):
     _store_definitions(store, three_step_human_workflow(2), rule(version=1))
+    ex = make_executor(store, actor, clock)
     with pytest.raises(RunError) as exc:
-        make_executor(store, actor, clock).start_from_store("r1")
+        ex.start_from_store("r1")
     assert exc.value.code == "workflow_version_unavailable"
 
 
@@ -268,7 +272,8 @@ def test_timeout_is_retried_per_policy_with_the_same_key_then_fails(store, clock
     clock.advance(11)
     ex.run_until_idle()
     st = step_state(ex.run(run["id"]), "h")
-    assert st["status"] == "retry_wait" and st["attempt"] == 1
+    assert st["status"] == "retry_wait"
+    assert st["attempt"] == 1
     assert len(a.calls_for("h")) == 1  # backoff not yet elapsed
     clock.advance(5)
     ex.run_until_idle()
@@ -366,7 +371,8 @@ def test_target_without_keys_is_never_blindly_retried(store, clock):
     doc = ex.run(run["id"])
     assert doc["status"] == "failed"
     assert step_state(doc, ACTION_STEP)["error"]["code"] == "unsafe_retry"
-    assert a.effects_for(ACTION_STEP) == 1 and len(a.calls_for(ACTION_STEP)) == 1
+    assert a.effects_for(ACTION_STEP) == 1
+    assert len(a.calls_for(ACTION_STEP)) == 1
 
 
 def test_idempotent_action_without_key_support_may_retry(store, clock):
@@ -384,7 +390,8 @@ def test_blocked_is_redispatched_without_consuming_an_attempt(store, clock):
     run = ex.start(rule(), workflow((step("a", timeout_s=100),)))
     ex.run_until_idle()
     st = step_state(ex.run(run["id"]), "a")
-    assert st["status"] == "blocked" and st["attempt"] == 1
+    assert st["status"] == "blocked"
+    assert st["attempt"] == 1
     clock.advance(runs_mod.BLOCKED_RETRY_S)
     ex.run_until_idle()
     clock.advance(runs_mod.BLOCKED_RETRY_S)
@@ -521,11 +528,13 @@ def test_global_pause_fires_nothing_and_is_audited(store, actor, clock):
     c.pause("alice")
     assert is_paused(store)
     ex = make_executor(store, actor, clock)
+    paused_rule, wf = rule(), workflow((step("a"),))
     with pytest.raises(RunError) as exc:
-        ex.start(rule(), workflow((step("a"),)))
+        ex.start(paused_rule, wf)
     assert exc.value.code == "paused"
     decisions = match({"kind": "manual"}, [rule()], paused=is_paused(store))
-    assert decisions and not any(d.fire for d in decisions)
+    assert decisions
+    assert not any(d.fire for d in decisions)
     assert store.find(RUNS_COLLECTION) == []
     (entry,) = _audit(store, "engine.pause")
     assert entry["identity"] == "alice"
@@ -573,16 +582,18 @@ def test_cancel_stops_run_ignores_late_results_and_is_audited(store, clock):
     (entry,) = _audit(store, "runs.cancel")
     assert entry["identity"] == "carol"
     assert entry["target"] == {"collection": RUNS_COLLECTION, "id": run["id"]}
+    containment = Containment(store, clock=clock)
     with pytest.raises(RunError):
-        Containment(store, clock=clock).cancel(run["id"], "carol")
+        containment.cancel(run["id"], "carol")
     with pytest.raises(RunError):
-        Containment(store, clock=clock).cancel("missing", "carol")
+        containment.cancel("missing", "carol")
 
 
 def test_run_start_is_audited_with_identity(store, actor, clock):
     run = make_executor(store, actor, clock).start(rule(), workflow((step("a"),)), identity="dave")
     (entry,) = _audit(store, "runs.start")
-    assert entry["identity"] == "dave" and entry["target"]["id"] == run["id"]
+    assert entry["identity"] == "dave"
+    assert entry["target"]["id"] == run["id"]
     make_executor(store, actor, clock).start(rule(), workflow((step("a"),)))
     assert {e["identity"] for e in _audit(store, "runs.start")} == {"dave", "engine@spark"}
 
@@ -696,8 +707,9 @@ def test_static_port_type_mismatch_fails_validation_at_start(store, actor, clock
         ),
         (edge("a", "s", "b", "n"),),
     )
+    ex, r = make_executor(store, actor, clock), rule()
     with pytest.raises(RunError) as exc:
-        make_executor(store, actor, clock).start(rule(), wf)
+        ex.start(r, wf)
     assert exc.value.code == "invalid_workflow"
     assert any(e["code"] == "port_type_mismatch" for e in exc.value.details)
     assert store.find(RUNS_COLLECTION) == []
@@ -967,17 +979,21 @@ def test_callable_router_and_workflow_output_type_mismatch(store, clock):
 
 def test_start_argument_errors(store, actor, clock):
     ex = make_executor(store, actor, clock)
+    no_workflow_rule, wf = rule(workflow_id=None), workflow((step("a"),))
     with pytest.raises(RunError) as exc:
-        ex.start(rule(workflow_id=None), workflow((step("a"),)))
+        ex.start(no_workflow_rule, wf)
     assert exc.value.code == "workflow_mismatch"
+    plain_rule = rule()
     with pytest.raises(RunError) as exc:
-        ex.start(rule(), None)
+        ex.start(plain_rule, None)
     assert exc.value.code == "workflow_required"
+    other_rule = rule(workflow_id="other")
     with pytest.raises(RunError) as exc:
-        ex.start(rule(workflow_id="other"), workflow((step("a"),)))
+        ex.start(other_rule, wf)
     assert exc.value.code == "workflow_mismatch"
+    action_wf = workflow((step(ACTION_STEP),))
     with pytest.raises(RunError) as exc:
-        ex.start(rule(), workflow((step(ACTION_STEP),)))
+        ex.start(plain_rule, action_wf)
     assert exc.value.code == "unsupported_workflow"
     with pytest.raises(ValueError):
         Executor(store, "", {})

@@ -46,7 +46,8 @@ def _machine(name="spark", **kw):
 def test_enrol_is_dry_run_by_default():
     store = MemoryStore()
     result = enrol(store, _machine())
-    assert result.applied is False and result.action == "create"
+    assert result.applied is False
+    assert result.action == "create"
     assert store.get("machines", "spark") is None
 
 
@@ -77,8 +78,9 @@ def test_enrol_unchanged_is_noop():
 
 
 def test_enrol_rejects_invalid_machine():
+    store, nameless = MemoryStore(), _machine(name="")
     with pytest.raises(ValueError):
-        enrol(MemoryStore(), _machine(name=""), apply=True)
+        enrol(store, nameless, apply=True)
 
 
 def test_unenrol_dry_run_then_apply():
@@ -87,7 +89,8 @@ def test_unenrol_dry_run_then_apply():
     assert unenrol(store, "spark").applied is False
     assert len(enrolled_machines(store)) == 1
     result = unenrol(store, "spark", apply=True)
-    assert result.applied and result.action == "delete"
+    assert result.applied
+    assert result.action == "delete"
     assert enrolled_machines(store) == []
     assert unenrol(store, "spark", apply=True).action == "absent"
 
@@ -222,8 +225,10 @@ def test_probe_gpu_query_uses_argv_list_and_timeout():
     result = probe_platform(which=lambda t: "/x/" + t if t == "nvidia-smi" else None, run=run)
     assert result.gpu_load == pytest.approx(0.42)
     argv, kwargs = calls[0]
-    assert isinstance(argv, list) and argv[0] == "nvidia-smi"
-    assert kwargs.get("timeout") and kwargs["timeout"] <= 10
+    assert isinstance(argv, list)
+    assert argv[0] == "nvidia-smi"
+    assert kwargs.get("timeout")
+    assert kwargs["timeout"] <= 10
     assert not kwargs.get("shell")
 
 
@@ -269,7 +274,8 @@ def test_usb_probe_runs_only_on_request_and_matches_ids():
     assert calls == []
     got = probe_usb(["1a86:7523", "dead:beef"], which=lambda t: "/x", run=run)
     assert got == {"1a86:7523": True, "dead:beef": False}
-    assert calls[0][0] == ["lsusb"] and calls[0][1]["timeout"] <= 10
+    assert calls[0][0] == ["lsusb"]
+    assert calls[0][1]["timeout"] <= 10
 
 
 def test_usb_probe_missing_lsusb_is_absent_not_fatal():

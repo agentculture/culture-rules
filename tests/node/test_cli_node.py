@@ -57,7 +57,8 @@ def test_node_run_once_json_reports_what_it_did(store, monkeypatch, capsys):
     source.publish(envelope(1))
     assert main(["node", "run", "--once", "--host", "spark", "--json"]) == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload["host"] == "spark" and payload["cycles"] == 1
+    assert payload["host"] == "spark"
+    assert payload["cycles"] == 1
     cycle = payload["report"]
     assert cycle["ingested"] == 1
     assert cycle["evaluated"] == [{"rule": "r", "event": "evt_1"}]

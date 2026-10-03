@@ -127,7 +127,8 @@ def test_every_write_is_dry_run_without_apply(wire, store, capsys, tmp_path):
         rc, out, err = run(capsys, *argv, "--json")
         assert rc == 0, (argv, err)
         payload = json.loads(out)
-        assert payload["applied"] is False and payload["dry_run"] is True, argv
+        assert payload["applied"] is False, argv
+        assert payload["dry_run"] is True, argv
         assert snapshot(store) == before, argv
     # only GETs and the server's own non-mutating import plan ever went out
     assert [c for c in wire.mutating() if c != ("POST", "/import")] == []
@@ -145,7 +146,8 @@ def test_dry_run_is_the_default_for_every_mutating_verb_in_the_registry():
 def test_rules_lifecycle_with_apply(wire, store, capsys, tmp_path):
     body = write_body(tmp_path, rule_body("r1"))
     out = jrun(capsys, "rules", "create", "--body", f"@{body}", "--apply")
-    assert out["applied"] is True and out["result"]["id"] == "r1"
+    assert out["applied"] is True
+    assert out["result"]["id"] == "r1"
     assert [i["id"] for i in jrun(capsys, "rules", "list")["items"]] == ["r1"]
     assert jrun(capsys, "rules", "show", "r1")["id"] == "r1"
 
@@ -198,20 +200,25 @@ def test_export_then_import_into_another_store(wire, capsys, tmp_path, monkeypat
         lambda api_url=None: ApiClient("http://x", token=w2.token, transport=w2),
     )
     plan = jrun(capsys, "rules", "import", str(bundle))
-    assert plan["applied"] is False and plan["result"]["changes"]
+    assert plan["applied"] is False
+    assert plan["result"]["changes"]
     assert other.find("rules") == []
     done = jrun(capsys, "rules", "import", str(bundle), "--apply")
-    assert done["applied"] is True and other.get("rules", "r1")
+    assert done["applied"] is True
+    assert other.get("rules", "r1")
 
 
 def test_overview_for_every_noun(wire, capsys):
     for noun in ("rules", "workflows", "actors", "machines", "runs"):
         out = jrun(capsys, noun, "overview")
-        assert out["subject"] == f"culture-rules {noun}" and out["sections"]
+        assert out["subject"] == f"culture-rules {noun}"
+        assert out["sections"]
         rc, text, _ = run(capsys, noun, "overview")
-        assert rc == 0 and f"# culture-rules {noun}" in text
+        assert rc == 0
+        assert f"# culture-rules {noun}" in text
     rc, text, _ = run(capsys, "rules")  # bare noun prints its overview
-    assert rc == 0 and "# culture-rules rules" in text
+    assert rc == 0
+    assert "# culture-rules rules" in text
 
 
 def test_every_read_verb_supports_json_and_text(wire, capsys):
@@ -223,9 +230,11 @@ def test_every_read_verb_supports_json_and_text(wire, capsys):
         ["runs", "controls"],
     ):
         rc, out, _ = run(capsys, *argv)
-        assert rc == 0 and out.strip(), argv
+        assert rc == 0, argv
+        assert out.strip(), argv
         rc, out, _ = run(capsys, *argv, "--json")
-        assert rc == 0 and json.loads(out) is not None, argv
+        assert rc == 0, argv
+        assert json.loads(out) is not None, argv
 
 
 # --------------------------------------------------------------------------- errors
@@ -233,25 +242,32 @@ def test_every_read_verb_supports_json_and_text(wire, capsys):
 
 def test_api_error_envelope_becomes_a_user_error(wire, capsys):
     rc, out, err = run(capsys, "rules", "show", "nope", "--json")
-    assert rc == 1 and out == ""
+    assert rc == 1
+    assert out == ""
     payload = json.loads(err)
-    assert payload["code"] == 1 and "nope" in payload["message"] and payload["remediation"]
+    assert payload["code"] == 1
+    assert "nope" in payload["message"]
+    assert payload["remediation"]
 
 
 def test_validation_errors_are_listed(wire, capsys):
     rc, out, err = run(capsys, "rules", "create", "--body", '{"id": "x"}', "--apply")
-    assert rc == 1 and "error:" in err and out == ""
+    assert rc == 1
+    assert "error:" in err
+    assert out == ""
 
 
 def test_unreachable_api_is_an_environment_error(monkeypatch, capsys):
     monkeypatch.delenv("CULTURE_RULES_API_URL", raising=False)
     rc, out, err = run(capsys, "rules", "list", "--api-url", "http://127.0.0.1:9", "--json")
-    assert rc == 2 and json.loads(err)["code"] == 2
+    assert rc == 2
+    assert json.loads(err)["code"] == 2
 
 
 def test_bad_body_json_is_a_user_error(wire, capsys):
     rc, _, err = run(capsys, "rules", "create", "--body", "{not json")
-    assert rc == 1 and "hint:" in err
+    assert rc == 1
+    assert "hint:" in err
 
 
 # --------------------------------------------------------------------------- credentials
@@ -319,7 +335,9 @@ def test_serve_verb_calls_the_server_entry_point(monkeypatch, capsys):
 
     monkeypatch.setattr(serve_mod, "serve", lambda **kw: calls.update(kw))
     rc, _, _ = run(capsys, "serve", "--host", "127.0.0.1", "--port", "9123")
-    assert rc == 0 and calls["host"] == "127.0.0.1" and calls["port"] == 9123
+    assert rc == 0
+    assert calls["host"] == "127.0.0.1"
+    assert calls["port"] == 9123
 
 
 # --------------------------------------------------------------------------- purge + replay
@@ -329,22 +347,26 @@ def test_purge_is_dry_run_without_apply_and_purges_with_it(wire, store, capsys):
     jrun(capsys, "rules", "create", "--body", json.dumps(rule_body()), "--apply")
     jrun(capsys, "rules", "delete", "r1", "--apply")
     plan = jrun(capsys, "rules", "purge", "r1")
-    assert plan["applied"] is False and store.get("rules", "r1") is not None
+    assert plan["applied"] is False
+    assert store.get("rules", "r1") is not None
     done = jrun(capsys, "rules", "purge", "r1", "--apply")
-    assert done["applied"] is True and store.get("rules", "r1") is None
+    assert done["applied"] is True
+    assert store.get("rules", "r1") is None
 
 
 def test_rules_replay_over_the_api(wire, capsys):
     jrun(capsys, "rules", "create", "--body", json.dumps(rule_body()), "--apply")
     out = jrun(capsys, "rules", "replay", "--rule-id", "r1", "--limit", "5")
-    assert out["events"] == 0 and out["actions_executed"] == 0
+    assert out["events"] == 0
+    assert out["actions_executed"] == 0
 
 
 def test_json_flag_before_the_verb_is_honoured(wire, capsys):
     """Live-test finding: `rules --json list` printed text."""
     jrun(capsys, "rules", "create", "--body", json.dumps(rule_body()), "--apply")
     rc, out, _ = run(capsys, "rules", "--json", "list")
-    assert rc == 0 and [i["id"] for i in json.loads(out)["items"]] == ["r1"]
+    assert rc == 0
+    assert [i["id"] for i in json.loads(out)["items"]] == ["r1"]
 
 
 def test_missing_credentials_hint_names_the_token_not_a_role(store, monkeypatch, capsys):
@@ -355,4 +377,6 @@ def test_missing_credentials_hint_names_the_token_not_a_role(store, monkeypatch,
     )
     w.tc.headers.pop("Authorization")
     rc, _, err = run(capsys, "rules", "list")
-    assert rc == 1 and "higher role" not in err and "CULTURE_RULES_TOKEN" in err
+    assert rc == 1
+    assert "higher role" not in err
+    assert "CULTURE_RULES_TOKEN" in err

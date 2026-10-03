@@ -37,7 +37,8 @@ def test_healthy_node():
     assert h["status"] == "ok"
     assert h["host"] == "node-a"
     assert h["store"] == {"reachable": True, "schema_version": "1.0"}
-    assert h["heartbeat"]["age_s"] == 4.0 and h["heartbeat"]["online"] is True
+    assert h["heartbeat"]["age_s"] == 4.0
+    assert h["heartbeat"]["online"] is True
     assert h["executor"]["lag_s"] == 0.0
 
 
@@ -47,7 +48,8 @@ def test_stale_or_missing_heartbeat_is_degraded():
     assert health_status(store, NOW, "node-a")["heartbeat"]["age_s"] is None
     _beat(store, "node-a", 120)
     h = health_status(store, NOW, "node-a")
-    assert h["status"] == "degraded" and h["heartbeat"]["online"] is False
+    assert h["status"] == "degraded"
+    assert h["heartbeat"]["online"] is False
 
 
 def test_unreachable_store_is_down_and_never_raises():

@@ -65,7 +65,8 @@ def test_rules_whose_trigger_does_not_match_are_not_candidates():
 
 def test_condition_false_is_skipped_with_reason():
     d = by_id(match(EVENT, [rule("a", condition=FALSE)]))["a"]
-    assert not d.fire and d.reason == CONDITION_FALSE
+    assert not d.fire
+    assert d.reason == CONDITION_FALSE
 
 
 def test_exclusive_group_only_highest_priority_fires():
@@ -77,8 +78,10 @@ def test_exclusive_group_only_highest_priority_fires():
     ]
     d = by_id(match(EVENT, rules))
     assert fired(d.values()) == frozenset({"high", "free"})
-    assert d["low"].reason == GROUP_LOST and d["low"].by == ("high",)
-    assert d["mid"].reason == GROUP_LOST and d["mid"].by == ("high",)
+    assert d["low"].reason == GROUP_LOST
+    assert d["low"].by == ("high",)
+    assert d["mid"].reason == GROUP_LOST
+    assert d["mid"].by == ("high",)
 
 
 def test_exclusive_group_considers_only_matching_rules():
@@ -140,7 +143,8 @@ def test_supersede_chain_is_transitive():
     ]
     d = by_id(match(EVENT, rules))
     assert d["A"].fire
-    assert d["C"].reason == SUPERSEDED_BY and d["C"].by == ("A",)
+    assert d["C"].reason == SUPERSEDED_BY
+    assert d["C"].by == ("A",)
 
 
 def test_supersede_chain_all_matching_names_every_superseder():
@@ -209,7 +213,8 @@ def test_may_after_never_blocks_and_hides_unfinished_predecessor():
     rules = [up_rule(), rule("maybe", may_after=("up",))]
     facts = RunFacts(outcomes={"up": RuleOutcome(status="running", outputs={"summary": "x"})})
     d = by_id(match(EVENT, rules, facts, workflows=WF))["maybe"]
-    assert d.fire and d.upstream == {}
+    assert d.fire
+    assert d.upstream == {}
 
 
 def test_exported_outputs_come_from_the_rules_workflow():
@@ -222,7 +227,8 @@ def test_exported_outputs_come_from_the_rules_workflow():
 
 def test_disabled_rule_fires_nothing():
     d = by_id(match(EVENT, [rule("a", enabled=False)]))["a"]
-    assert not d.fire and d.reason == DISABLED
+    assert not d.fire
+    assert d.reason == DISABLED
 
 
 def test_global_pause_fires_nothing():
@@ -284,7 +290,8 @@ def test_decision_to_dict_is_json_ready():
 @pytest.mark.parametrize("bad", [{"op": "nope"}, {"op": "compare"}])
 def test_malformed_condition_does_not_fire(bad):
     d = by_id(match(EVENT, [rule("a", condition=bad)]))["a"]
-    assert not d.fire and d.reason == CONDITION_FALSE
+    assert not d.fire
+    assert d.reason == CONDITION_FALSE
     assert "condition error" in d.message
 
 
@@ -302,23 +309,28 @@ def test_superseder_that_must_run_after_x_fires_once_x_succeeded():
     rules = [rule("X"), rule("A", supersedes=("B",), must_after=("X",)), rule("B")]
     d = by_id(match(EVENT, rules, _up_ok()))
     assert d["A"].fire
-    assert d["B"].reason == SUPERSEDED_BY and d["B"].by == ("A",)
+    assert d["B"].reason == SUPERSEDED_BY
+    assert d["B"].by == ("A",)
 
 
 def test_blocked_superseder_still_supersedes_so_neither_fires():
     rules = [rule("X"), rule("A", supersedes=("B",), must_after=("X",)), rule("B")]
     for facts in (None, RunFacts(outcomes={"X": RuleOutcome(status="running")})):
         d = by_id(match(EVENT, rules, facts))
-        assert d["A"].reason == BLOCKED_BY_PREDECESSOR and d["A"].by == ("X",)
-        assert d["B"].reason == SUPERSEDED_BY and d["B"].by == ("A",)
-        assert not d["A"].fire and not d["B"].fire
+        assert d["A"].reason == BLOCKED_BY_PREDECESSOR
+        assert d["A"].by == ("X",)
+        assert d["B"].reason == SUPERSEDED_BY
+        assert d["B"].by == ("A",)
+        assert not d["A"].fire
+        assert not d["B"].fire
 
 
 def test_may_after_superseder_fires_and_supersedes_whatever_its_predecessor_did():
     rules = [rule("X"), rule("A", supersedes=("B",), may_after=("X",)), rule("B")]
     facts = RunFacts(outcomes={"X": RuleOutcome(status="failed")})
     d = by_id(match(EVENT, rules, facts))
-    assert d["A"].fire and d["A"].upstream == {}
+    assert d["A"].fire
+    assert d["A"].upstream == {}
     assert d["B"].reason == SUPERSEDED_BY
 
 
@@ -326,13 +338,15 @@ def test_superseded_rule_reports_superseded_not_its_own_blocked_predecessor():
     rules = [rule("Y"), rule("A", supersedes=("B",)), rule("B", must_after=("Y",))]
     for facts in (None, RunFacts(outcomes={"Y": RuleOutcome(status="succeeded")})):
         d = by_id(match(EVENT, rules, facts))
-        assert d["B"].reason == SUPERSEDED_BY and d["B"].by == ("A",)
+        assert d["B"].reason == SUPERSEDED_BY
+        assert d["B"].by == ("A",)
 
 
 def test_superseded_rules_own_predecessors_gate_it_when_the_superseder_does_not_match():
     rules = [rule("Y"), rule("A", supersedes=("B",), condition=FALSE), rule("B", must_after=("Y",))]
     d = by_id(match(EVENT, rules))
-    assert d["B"].reason == BLOCKED_BY_PREDECESSOR and d["B"].by == ("Y",)
+    assert d["B"].reason == BLOCKED_BY_PREDECESSOR
+    assert d["B"].by == ("Y",)
     ok = RunFacts(outcomes={"Y": RuleOutcome(status="succeeded")})
     assert by_id(match(EVENT, rules, ok))["B"].fire
 
@@ -343,5 +357,6 @@ def test_superseder_that_must_run_after_the_rule_it_supersedes_never_fires():
     rules = [rule("A", supersedes=("B",), must_after=("B",)), rule("B")]
     d = by_id(match(EVENT, rules))
     assert d["B"].reason == SUPERSEDED_BY
-    assert d["A"].reason == BLOCKED_BY_PREDECESSOR and d["A"].by == ("B",)
+    assert d["A"].reason == BLOCKED_BY_PREDECESSOR
+    assert d["A"].by == ("B",)
     assert fired(d.values()) == frozenset()

@@ -23,7 +23,8 @@ def test_mcp_without_the_extra_exits_2_with_a_hint(monkeypatch, capsys):
     monkeypatch.setattr(mcp_server, "run_stdio", missing)
     assert main(["mcp"]) == 2
     err = capsys.readouterr().err
-    assert "mcp" in err and "pip install 'culture-rules[mcp]'" in err
+    assert "mcp" in err
+    assert "pip install 'culture-rules[mcp]'" in err
 
 
 def test_mcp_without_the_extra_json_error(monkeypatch, capsys):
@@ -35,7 +36,8 @@ def test_mcp_without_the_extra_json_error(monkeypatch, capsys):
     captured = capsys.readouterr()
     assert captured.out == ""
     payload = json.loads(captured.err)
-    assert payload["code"] == 2 and "culture-rules[mcp]" in payload["remediation"]
+    assert payload["code"] == 2
+    assert "culture-rules[mcp]" in payload["remediation"]
 
 
 def test_mcp_is_explained_and_learned(capsys):
@@ -74,7 +76,8 @@ def test_mcp_without_the_sdk_installed_json_error(monkeypatch, capsys):
     captured = capsys.readouterr()
     assert captured.out == ""
     payload = json.loads(captured.err)
-    assert payload["code"] == 2 and "culture-rules[mcp]" in payload["remediation"]
+    assert payload["code"] == 2
+    assert "culture-rules[mcp]" in payload["remediation"]
 
 
 def test_run_stdio_without_anyio_alone_raises_server_extra_missing(monkeypatch):

@@ -124,14 +124,16 @@ def test_unauthenticated_connect_fails(rig, fresh):
             anonymous[fresh.config.database]["rules"].find_one()
     finally:
         anonymous.close()
+    config = MongoConfig(rig.uri(), database="x", tls_ca_file=str(rig.ca_file))
     with pytest.raises(ConfigError, match="authentication"):  # the adapter refuses up front
-        MongoStore(MongoConfig(rig.uri(), database="x", tls_ca_file=str(rig.ca_file)))
+        MongoStore(config)
 
 
 def test_wrong_password_fails(rig, fresh):
     uri = rig.app_uri(fresh.config.database).replace(mongo_rig.APP_PASSWORD, "wrong")
+    config = MongoConfig(uri, database=fresh.config.database, tls_ca_file=str(rig.ca_file))
     with pytest.raises(PyMongoError):
-        MongoStore(MongoConfig(uri, database=fresh.config.database, tls_ca_file=str(rig.ca_file)))
+        MongoStore(config)
 
 
 def test_plaintext_connection_is_impossible(rig, fresh):
@@ -218,7 +220,8 @@ def test_majority_is_sent_on_the_wire(rig, fresh):
         spy.delete("rules", "w1")
     finally:
         spy.close()
-    assert seen and all(wc.get("w") == "majority" for wc in seen)
+    assert seen
+    assert all(wc.get("w") == "majority" for wc in seen)
 
 
 def test_change_stream_post_images_are_enabled(fresh):
@@ -237,7 +240,8 @@ def test_resume_tokens_are_persisted_per_consumer_in_the_store(fresh):
     fresh.save_cursor("alpha", "events", c1.token)
     fresh.save_cursor("beta", "events", c2.token)
     doc = fresh.get("_cursors", "alpha/events")
-    assert doc["token"] == c1.token and doc["consumer"] == "alpha"
+    assert doc["token"] == c1.token
+    assert doc["consumer"] == "alpha"
     # a different process/host picks the cursor up from the database and resumes
     other = MongoStore(fresh.config)
     try:

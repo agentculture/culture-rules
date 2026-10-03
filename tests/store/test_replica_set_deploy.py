@@ -59,7 +59,8 @@ def test_compose_runs_mongod_as_the_mongodb_user_not_root() -> None:
     text = (DEPLOY / "compose.yaml").read_text()
     assert "exec gosu mongodb mongod" in text
     # key and TLS material must be readable by that user before the drop
-    assert "chown -R mongodb:mongodb" in text and "/data/db" in text
+    assert "chown -R mongodb:mongodb" in text
+    assert "/data/db" in text
     assert "exec mongod" not in text
 
 
@@ -70,7 +71,8 @@ def test_rs_config_topology_has_three_always_up_voters() -> None:
     voters = [h for h, m in members.items() if m.get("votes", 1) == 1]
     assert sorted(voters) == ["orin", "spark", "thor"]
     # a non-voting member must not be electable
-    assert members["spark2"]["votes"] == 0 and members["spark2"]["priority"] == 0
+    assert members["spark2"]["votes"] == 0
+    assert members["spark2"]["priority"] == 0
     # the third voter is a data-bearing member, not an arbiter (w:majority needs data nodes)
     assert not any(m.get("arbiterOnly") for m in cfg["members"])
 
@@ -79,7 +81,8 @@ def test_doc_records_choice_checklist_and_chaos() -> None:
     text = DOC.read_text()
     for needle in ("orin", "arbiter", "Operator checklist", "Chaos check", "27018", "keyFile"):
         assert needle in text, needle
-    assert "x509" in text and "TLS" in text
+    assert "x509" in text
+    assert "TLS" in text
 
 
 # -- chaos check against four local mongod containers ---------------------------------------
@@ -126,12 +129,14 @@ def test_primary_survives_spark2_plus_one_member_down(cluster, other: str) -> No
 @pytest.mark.mongo
 def test_losing_two_voters_blocks_majority_writes(cluster) -> None:
     """Negative control: the topology is what keeps writes up, not luck."""
+    from pymongo.errors import PyMongoError
+
     from tests.store import replica_set_rig as rig
 
     cluster.stop("spark")
     cluster.stop("thor")
     try:
-        with pytest.raises(Exception):  # noqa: B017 - no primary / majority timeout
+        with pytest.raises(PyMongoError):  # no primary / majority timeout
             rig.write_majority(cluster, ["orin", "spark2"], "should-fail", timeout=8)
     finally:
         cluster.start("spark")

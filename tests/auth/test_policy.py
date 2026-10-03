@@ -35,7 +35,7 @@ from culture_rules.auth.policy import required_role
         ("POST", "/runs", "editor"),
         ("POST", "/runs/x/cancel", "editor"),
         ("POST", "/asks/a/answer", "editor"),
-        ("POST", "/rules/r1/purge", "admin"),
+        ("POST", "/actors/a/purge", "admin"),
         ("POST", "/workflows/wf/purge", "admin"),
         ("POST", "/service-tokens", "admin"),
         ("DELETE", "/service-tokens/t1", "admin"),

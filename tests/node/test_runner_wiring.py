@@ -124,7 +124,8 @@ def test_the_reporter_posts_through_the_mesh_when_culture_is_on_path(monkeypatch
 def test_logging_poster_logs_the_report(caplog):
     with caplog.at_level("INFO", logger="culture_rules.node"):
         runner.LoggingPoster().post("#ops", "run r1 failed")
-    assert "#ops" in caplog.text and "run r1 failed" in caplog.text
+    assert "#ops" in caplog.text
+    assert "run r1 failed" in caplog.text
 
 
 def test_run_node_configures_json_logging_for_its_host(node_rig, monkeypatch):

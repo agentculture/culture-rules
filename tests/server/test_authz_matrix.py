@@ -59,14 +59,16 @@ def test_no_credentials_is_401_before_any_handler_runs(world):
         assert r.status_code == 401, (method, path, r.text)
         err = r.json()["error"]
         assert err["code"] == "no_credentials"
-    assert calls == [] and len(store.find(AUDIT_COLLECTION)) == before
+    assert calls == []
+    assert len(store.find(AUDIT_COLLECTION)) == before
     assert store.find("rules") == []
 
 
 def test_bad_bearer_is_401(world):
     _, client, _, _ = world
     r = client.get("/rules", headers={"Authorization": "Bearer crt_x.y"})
-    assert r.status_code == 401 and r.json()["error"]["code"] == "bad_token"
+    assert r.status_code == 401
+    assert r.json()["error"]["code"] == "bad_token"
 
 
 def test_whoami_reports_the_principal(world):
@@ -112,7 +114,8 @@ def test_editor_mutates_but_cannot_purge_drain_or_issue_tokens(world):
     assert client.post("/rules/r1/disable", headers=e).status_code == 200
     assert client.post("/workflows", json=workflow_body(), headers=e).status_code == 201
     run = client.post("/runs", json={"rule_id": "r1"}, headers=e)
-    assert run.status_code == 201 and run.json()["started_by"] == "editor"
+    assert run.status_code == 201
+    assert run.json()["started_by"] == "editor"
     assert client.post("/asks/a1/answer", json={"answer": 1}, headers=e).status_code == 200
     assert calls == ["editor"]
     assert client.delete("/rules/r1", headers=e).status_code == 200
@@ -131,7 +134,8 @@ def test_editor_mutates_but_cannot_purge_drain_or_issue_tokens(world):
 def test_editor_cannot_save_inline_scripts_admin_can(world):
     store, client, hdr, _ = world
     r = client.post("/workflows", json=inline_workflow(), headers=hdr["editor"])
-    assert r.status_code == 403 and r.json()["error"]["code"] == "inline_script_admin_only"
+    assert r.status_code == 403
+    assert r.json()["error"]["code"] == "inline_script_admin_only"
     assert store.get("workflows", "wf-inline") is None
     client.post("/workflows", json=workflow_body("wf2"), headers=hdr["editor"])
     r = client.put("/workflows/wf2", json=inline_workflow("wf2"), headers=hdr["editor"])
@@ -143,7 +147,8 @@ def test_editor_cannot_save_inline_scripts_admin_can(world):
 
     files = {"workflows/wf3.json": json.dumps(inline_workflow("wf3"))}
     r = client.post("/import", json={"files": files, "apply": True}, headers=hdr["editor"])
-    assert r.status_code == 403 and store.get("workflows", "wf3") is None
+    assert r.status_code == 403
+    assert store.get("workflows", "wf3") is None
 
 
 def test_nested_inline_script_in_a_loop_body_is_also_admin_only(world):
@@ -162,9 +167,11 @@ def test_admin_can_purge_drain_pause_and_manage_tokens(world):
     client.post("/rules", json=rule_body(), headers=a)
     client.delete("/rules/r1", headers=a)
     dry = client.post("/rules/r1/purge", json={}, headers=a)
-    assert dry.status_code == 200 and dry.json()["applied"] is False
+    assert dry.status_code == 200
+    assert dry.json()["applied"] is False
     done = client.post("/rules/r1/purge", json={"apply": True}, headers=a)
-    assert done.status_code == 200 and done.json()["applied"] is True
+    assert done.status_code == 200
+    assert done.json()["applied"] is True
     assert store.get("rules", "r1") is None
     assert client.post("/machines/thor/drain", headers=a).status_code == 200
     assert client.post("/controls/pause", headers=a).status_code == 200
@@ -174,11 +181,14 @@ def test_admin_can_purge_drain_pause_and_manage_tokens(world):
     )
     assert issued.status_code == 201
     tok = issued.json()
-    assert tok["token"].startswith("crt_") and tok["identity"] == "bot" and tok["kind"] == "agent"
+    assert tok["token"].startswith("crt_")
+    assert tok["identity"] == "bot"
+    assert tok["kind"] == "agent"
     bot = {"Authorization": f"Bearer {tok['token']}"}
     assert client.get("/whoami", headers=bot).json()["kind"] == "agent"
     listed = client.get("/service-tokens", headers=a).json()["items"]
-    assert "bot" in {t["identity"] for t in listed} and all("hash" not in t for t in listed)
+    assert "bot" in {t["identity"] for t in listed}
+    assert all("hash" not in t for t in listed)
     assert client.delete(f"/service-tokens/{tok['id']}", headers=a).status_code == 200
     assert client.get("/whoami", headers=bot).status_code == 401
     assert client.delete(f"/service-tokens/{tok['id']}", headers=a).status_code == 409
@@ -198,8 +208,10 @@ def test_actor_saves_refuse_literal_secrets(world):
     store, client, hdr, _ = world
     actor = {"id": "bot", "name": "bot", "kind": "agent", "params": {"api_token": "hunter22"}}
     r = client.post("/actors", json=actor, headers=hdr["editor"])
-    assert r.status_code == 422 and r.json()["error"]["code"] == "secret_literal"
-    assert "hunter22" not in r.text and store.get("actors", "bot") is None
+    assert r.status_code == 422
+    assert r.json()["error"]["code"] == "secret_literal"
+    assert "hunter22" not in r.text
+    assert store.get("actors", "bot") is None
     actor["params"]["api_token"] = "grant:BOT_TOKEN"
     assert client.post("/actors", json=actor, headers=hdr["editor"]).status_code == 201
     actor["params"]["api_token"] = "hunter22"

@@ -34,7 +34,8 @@ def _flat(rel: str) -> str:
 
 def test_readme_names_both_audiences_and_the_why() -> None:
     text = _flat("README.md")
-    assert "operator" in text.lower() and "mesh agents" in text.lower()
+    assert "operator" in text.lower()
+    assert "mesh agents" in text.lower()
     assert WHY in text
 
 
@@ -99,7 +100,8 @@ def test_prompt_files_describe_the_four_tab_design(rel: str) -> None:
 
 
 def test_load_bearing_phrases_survive() -> None:
-    assert "culture-rules" in _read("CLAUDE.md") and "culture-rules" in _read("QWEN.md")
+    assert "culture-rules" in _read("CLAUDE.md")
+    assert "culture-rules" in _read("QWEN.md")
     assert "lobes-cli" in _read(".pi/SYSTEM.md")
     assert "lobes-cli" not in _read("AGENTS.override.md")
     assert not (ROOT / "AGENTS.md").exists()

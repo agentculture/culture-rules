@@ -22,11 +22,14 @@ def test_replay_reports_recorded_events_without_writing(store):
     r = client.post("/replay", json={"rule_id": "r1", "limit": 10}, headers=ALICE)
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["events"] == 2 and "would_fire" in body and body["actions_executed"] == 0
+    assert body["events"] == 2
+    assert "would_fire" in body
+    assert body["actions_executed"] == 0
     assert store.find("runs") == runs_before
 
 
 def test_replay_unknown_rule_is_422(store):
     client = TestClient(dev_app(store))
     r = client.post("/replay", json={"rule_id": "nope"}, headers=ALICE)
-    assert r.status_code == 422 and r.json()["error"]["code"] == "replay_invalid"
+    assert r.status_code == 422
+    assert r.json()["error"]["code"] == "replay_invalid"

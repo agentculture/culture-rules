@@ -47,7 +47,8 @@ def test_learn_json_names_audiences_and_why(capsys: pytest.CaptureFixture[str]) 
     audiences = payload["audiences"]
     assert len(audiences) == 2
     joined = " ".join(a["who"] + " " + a["how"] for a in audiences).lower()
-    assert "operator" in joined and "mesh agents" in joined
+    assert "operator" in joined
+    assert "mesh agents" in joined
     assert WHY in _norm(payload["why"])
     _assert_audiences_and_why(json.dumps(payload))
 

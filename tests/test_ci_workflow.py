@@ -36,7 +36,8 @@ def test_web_job_steps(wf):
     web = wf["jobs"]["web"]
     uses = [s.get("uses", "") for s in _steps(web)]
     setup = [u for u in uses if "actions/setup-node" in u]
-    assert setup and all(SHA_RE.search(u) for u in setup), "setup-node must be SHA-pinned"
+    assert setup, "setup-node must be SHA-pinned"
+    assert all(SHA_RE.search(u) for u in setup), "setup-node must be SHA-pinned"
     runs = _runs(web)
     for needle in (
         "npm ci",
@@ -49,7 +50,8 @@ def test_web_job_steps(wf):
         "webglass",
     ):
         assert needle in runs, needle
-    assert "#agent-state" in runs and "ready" in runs
+    assert "#agent-state" in runs
+    assert "ready" in runs
 
 
 def test_web_job_order(wf):
@@ -80,4 +82,5 @@ def test_sonar_gate_waits():
 
 def test_playwright_port_env():
     cfg = (ROOT / "web" / "playwright.config.ts").read_text(encoding="utf-8")
-    assert "PLAYWRIGHT_PORT" in cfg and "4174" in cfg
+    assert "PLAYWRIGHT_PORT" in cfg
+    assert "4174" in cfg

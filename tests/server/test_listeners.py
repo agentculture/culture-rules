@@ -42,8 +42,9 @@ def test_with_access_config_there_are_two_listeners():
 @pytest.mark.parametrize("drop", sorted(k for k in ENV if k.startswith("CULTURE_RULES_ACCESS")))
 def test_partial_access_config_is_refused(drop):
     env = {k: v for k, v in ENV.items() if k != drop}
+    store = MemoryStore()
     with pytest.raises(AccessConfigError):
-        serve_mod.build_listeners(MemoryStore(), env=env)
+        serve_mod.build_listeners(store, env=env)
 
 
 def test_loopback_honours_access_jwt_lan_ignores_it_and_needs_a_token():
@@ -68,7 +69,8 @@ def test_forged_access_jwt_is_401_on_loopback():
     loop = TestClient(got["loopback"].app)
     head, body, sig = wall_clock_token().split(".")
     r = loop.get("/whoami", headers={ACCESS_HEADER: f"{head}.{body}.{sig[:-4]}AAAA"})
-    assert r.status_code == 401 and r.json()["error"]["code"] in ("bad_signature", "malformed")
+    assert r.status_code == 401
+    assert r.json()["error"]["code"] in ("bad_signature", "malformed")
 
 
 def test_insecure_dev_identity_is_opt_in_by_env():
@@ -78,7 +80,8 @@ def test_insecure_dev_identity_is_opt_in_by_env():
     env = {"CULTURE_RULES_INSECURE_DEV_IDENTITY": "1"}
     (lan,) = serve_mod.build_listeners(MemoryStore(), env=env)
     me = TestClient(lan.app).get("/whoami", headers={"X-Culture-Identity": "dev"})
-    assert me.status_code == 200 and me.json()["identity"] == "dev"
+    assert me.status_code == 200
+    assert me.json()["identity"] == "dev"
 
 
 def test_serve_runs_one_uvicorn_server_per_listener(monkeypatch):
@@ -133,7 +136,8 @@ def test_health_is_ok_when_the_named_node_beats():
     store.put(HEARTBEAT_COLLECTION, {"id": "spark", "ts": datetime.now(UTC).isoformat()})
     (lan,) = serve_mod.build_listeners(store, env={"CULTURE_RULES_NODE_NAME": "spark"})
     body = _health(lan, store)
-    assert body["host"] == "spark" and body["heartbeat"]["online"] is True
+    assert body["host"] == "spark"
+    assert body["heartbeat"]["online"] is True
 
 
 def test_the_serve_verb_passes_node_name_through(monkeypatch):
@@ -142,6 +146,7 @@ def test_the_serve_verb_passes_node_name_through(monkeypatch):
     seen = {}
     monkeypatch.setattr(serve_mod, "serve", lambda **kw: seen.update(kw))
     assert main(["serve", "--node-name", "spark", "--port", "9999"]) == 0
-    assert seen["node_name"] == "spark" and seen["port"] == 9999
+    assert seen["node_name"] == "spark"
+    assert seen["port"] == 9999
     assert main(["serve"]) == 0
     assert seen["node_name"] is None  # serve() then reads CULTURE_RULES_NODE_NAME

@@ -67,7 +67,8 @@ def test_rule_without_action_rejected_from_data() -> None:
 
 def test_rule_without_condition_and_workflow_validates() -> None:
     rule = Rule(id="r", name="n", trigger=Trigger(kind="event"), action=Action(kind="noop"))
-    assert rule.condition is None and rule.workflow is None
+    assert rule.condition is None
+    assert rule.workflow is None
     assert validate(rule) == []
 
 
@@ -362,18 +363,23 @@ def test_machine_roles_and_name() -> None:
 def test_validate_data_parse_error_is_structured_not_raised() -> None:
     obj, errors = validate_data(Machine, {"name": 7})
     assert obj is None
-    assert errors and errors[0].path == "name" and errors[0].code == "type"
+    assert errors
+    assert errors[0].path == "name"
+    assert errors[0].code == "type"
 
 
 def test_validate_data_accepts_json_text() -> None:
     obj, errors = validate_data(Actor, '{"id":"a","name":"a","kind":"robot"}')
-    assert errors == [] and obj == Actor(id="a", name="a", kind="robot")
+    assert errors == []
+    assert obj == Actor(id="a", name="a", kind="robot")
 
 
 def test_validate_rejects_non_model() -> None:
     errors = validate(object())
-    assert errors and errors[0].code == "type"
+    assert errors
+    assert errors[0].code == "type"
 
 
 def test_step_kind_list_and_actor_kind_list_are_tuples() -> None:
-    assert isinstance(STEP_KINDS, tuple) and isinstance(ACTOR_KINDS, tuple)
+    assert isinstance(STEP_KINDS, tuple)
+    assert isinstance(ACTOR_KINDS, tuple)

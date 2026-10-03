@@ -58,9 +58,12 @@ def test_history_merges_decisions_and_runs_newest_first(store, client):
         ("run", "run-1"),
     ]
     skip = items[1]
-    assert skip["reason"] == "superseded_by" and skip["by"] == ["a"]
-    assert skip["message"] == "superseded by a" and skip["host"] == "spark"
-    assert items[0]["status"] == "failed" and items[0]["at"] == "2026-10-03T12:00:00+00:00"
+    assert skip["reason"] == "superseded_by"
+    assert skip["by"] == ["a"]
+    assert skip["message"] == "superseded by a"
+    assert skip["host"] == "spark"
+    assert items[0]["status"] == "failed"
+    assert items[0]["at"] == "2026-10-03T12:00:00+00:00"
 
 
 def test_history_respects_limit(store, client):

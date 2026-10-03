@@ -65,12 +65,14 @@ def test_implements_actorport():
 
 def test_parse_task_result_ok_and_error():
     ok = parse_task_result(OK_JSON)
-    assert ok["status"] == "ok" and ok["summary"] == "did it"
+    assert ok["status"] == "ok"
+    assert ok["summary"] == "did it"
     assert parse_task_result("noise\n" + OK_JSON + "\n")["task_id"] == "t-1"
     with pytest.raises(AgentActorError):
         parse_task_result("not json")
+    no_status = json.dumps({"summary": "no status"})
     with pytest.raises(AgentActorError):
-        parse_task_result(json.dumps({"summary": "no status"}))
+        parse_task_result(no_status)
 
 
 def test_colleague_argv_exact_no_shell():
@@ -106,33 +108,39 @@ def test_colleague_config_from_context_overrides():
 def test_colleague_requires_instruction_and_repo():
     actor = ColleagueActor(runner=FakeRunner())
     res = actor.invoke({}, "k", DEADLINE, context=ctx(repo="/r"))
-    assert res.outcome == FAILED and res.retryable is False
+    assert res.outcome == FAILED
+    assert res.retryable is False
     res = actor.invoke({"instruction": "x"}, "k", DEADLINE, context=ctx())
-    assert res.outcome == FAILED and res.retryable is False
+    assert res.outcome == FAILED
+    assert res.retryable is False
 
 
 def test_colleague_error_status_is_failed():
     out = json.dumps({"task_id": "t", "status": "error", "error": "boom"})
     actor = ColleagueActor(repo="/r", runner=FakeRunner(stdout=out, returncode=1))
     res = actor.invoke({"instruction": "x"}, "k", DEADLINE, context=ctx())
-    assert res.outcome == FAILED and "boom" in res.error
+    assert res.outcome == FAILED
+    assert "boom" in res.error
 
 
 def test_colleague_unparseable_output_is_failed_with_stderr():
     actor = ColleagueActor(repo="/r", runner=FakeRunner(stdout="", returncode=2, stderr="bad"))
     res = actor.invoke({"instruction": "x"}, "k", DEADLINE, context=ctx())
-    assert res.outcome == FAILED and "bad" in res.error
+    assert res.outcome == FAILED
+    assert "bad" in res.error
 
 
 def test_colleague_missing_binary_non_retryable_and_timeout_raises():
     actor = ColleagueActor(repo="/r", runner=FakeRunner(exc=FileNotFoundError("colleague")))
     res = actor.invoke({"instruction": "x"}, "k", DEADLINE, context=ctx())
-    assert res.outcome == FAILED and res.retryable is False
+    assert res.outcome == FAILED
+    assert res.retryable is False
     actor = ColleagueActor(
         repo="/r", runner=FakeRunner(exc=subprocess.TimeoutExpired(["colleague"], 1))
     )
+    context = ctx()
     with pytest.raises(TimeoutError):  # no ack: the work may have happened
-        actor.invoke({"instruction": "x"}, "k", DEADLINE, context=ctx())
+        actor.invoke({"instruction": "x"}, "k", DEADLINE, context=context)
 
 
 def test_colleague_idempotent_on_key():
@@ -140,7 +148,8 @@ def test_colleague_idempotent_on_key():
     actor = ColleagueActor(repo="/r", runner=runner)
     a = actor.invoke({"instruction": "x"}, "same", DEADLINE, context=ctx())
     b = actor.invoke({"instruction": "x"}, "same", DEADLINE, context=ctx(attempt=2))
-    assert len(runner.calls) == 1 and a == b
+    assert len(runner.calls) == 1
+    assert a == b
     actor.invoke({"instruction": "x"}, "other", DEADLINE, context=ctx())
     assert len(runner.calls) == 2
 
@@ -185,7 +194,9 @@ def test_mesh_send_carries_correlation_id_and_returns_accepted():
     )
     assert res.outcome == ACCEPTED
     nick, text, corr = client.sent[0]
-    assert nick == "spark-daria" and "review PR 4" in text and corr
+    assert nick == "spark-daria"
+    assert "review PR 4" in text
+    assert corr
     assert corr == actor.correlation_id("key-1")  # deterministic from the key
 
 
@@ -201,9 +212,11 @@ def test_mesh_idempotent_resend_does_not_duplicate():
 def test_mesh_rejects_bad_nick_non_retryable():
     actor = MeshAgentActor(client=FakeClient())
     res = actor.invoke({"instruction": "x"}, "k", DEADLINE, context=ctx(nick="nodash"))
-    assert res.outcome == FAILED and res.retryable is False
+    assert res.outcome == FAILED
+    assert res.retryable is False
     res = actor.invoke({"instruction": "x"}, "k", DEADLINE, context=ctx())
-    assert res.outcome == FAILED and res.retryable is False
+    assert res.outcome == FAILED
+    assert res.retryable is False
 
 
 def test_mesh_reply_matched_by_correlation_id():
@@ -221,8 +234,10 @@ def test_mesh_reply_matched_by_correlation_id():
     n = actor.poll(lambda key, result: delivered.append((key, result)))
     assert n == 1
     key, result = delivered[0]
-    assert key == "k2" and result.outcome == COMPLETED
-    assert result.output["reply"] == "B done" and result.output["sender"] == "spark-daria"
+    assert key == "k2"
+    assert result.outcome == COMPLETED
+    assert result.output["reply"] == "B done"
+    assert result.output["sender"] == "spark-daria"
     # k1 stays pending; a duplicate reply for k2 is not delivered twice
     client.inbox = [MeshReply(correlation_id=c2, text="again", sender="spark-daria")]
     assert actor.poll(lambda k, r: delivered.append((k, r))) == 0
@@ -238,10 +253,12 @@ def test_mesh_failed_reply_and_late_resend_after_reply():
     ]
     got = []
     actor.poll(lambda k, r: got.append(r))
-    assert got[0].outcome == FAILED and "nope" in got[0].error
+    assert got[0].outcome == FAILED
+    assert "nope" in got[0].error
     # a retry with the same key after the reply returns the recorded result, no resend
     res = actor.invoke({"instruction": "a"}, "k", DEADLINE, context=ctx(nick="spark-daria"))
-    assert res.outcome == FAILED and len(client.sent) == 1
+    assert res.outcome == FAILED
+    assert len(client.sent) == 1
 
 
 def test_real_client_is_lazy_optional():
