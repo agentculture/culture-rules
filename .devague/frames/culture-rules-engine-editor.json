@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-03T04:20:01Z",
-  "updated": "2026-10-03T05:23:48Z",
+  "updated": "2026-10-03T05:44:12Z",
   "claims": [
     {
       "id": "c1",
@@ -2403,6 +2403,39 @@
       ],
       "origin": "llm",
       "status": "approved"
+    },
+    {
+      "id": "l2",
+      "code": "control-absent",
+      "what": "t5 task agent wrote tests/test_wording.py after the wording change, so the test was never observed failing (TDD red step skipped)",
+      "skipped_check": "observe the new test fail before implementing",
+      "refs": [
+        "plan t5"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l3",
+      "code": "control-absent",
+      "what": "t4 task agent wrote culture_rules/actors/config.py and its tests in one step; tests were never observed failing (TDD red step skipped)",
+      "skipped_check": "observe the new tests fail before implementing",
+      "refs": [
+        "plan t4"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l4",
+      "code": "grader-unverified",
+      "what": "t3 race tests (exactly one winner) only ran against the lock-serialised MemoryStore; not mutation-tested against a non-atomic adapter, so the grader is unverified until t6 runs it on Mongo",
+      "skipped_check": "mutation test of the race tests",
+      "refs": [
+        "plan t3"
+      ],
+      "origin": "llm",
+      "status": "proposed"
     }
   ],
   "obligations": []

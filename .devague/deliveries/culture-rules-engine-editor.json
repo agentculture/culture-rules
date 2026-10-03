@@ -1,0 +1,27 @@
+{
+  "plan_slug": "culture-rules-engine-editor",
+  "schema_version": 2,
+  "created": "2026-10-03T05:56:04Z",
+  "updated": "2026-10-03T05:56:04Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "Add optional Rule.placement (Placement: machine | actor | requirement) as a minor schema change; t1's h7 schema test 'no actor slot' is scoped to the rule's stages (trigger, condition, workflow, action), not its placement",
+      "task_ref": "t1",
+      "reason": "spec c10/c60 require a rule's trigger and condition to evaluate where the rule is placed; t1's criterion omitted the field and t7's resolver needs it",
+      "affects": [
+        "t7",
+        "c10",
+        "c60",
+        "h7"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 1
+    }
+  ],
+  "evidence": [],
+  "deltas": [],
+  "supersessions": []
+}
