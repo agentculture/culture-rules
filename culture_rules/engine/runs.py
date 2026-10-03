@@ -88,7 +88,7 @@ Semantics
   A whole string is a reference only when its path fits a namespace's shape; any other
   string (``rules.yaml``, ``workflow.md``, ``trigger.sh``) is a literal.
   ``{"$ref": path}`` always references and ``{"$literal": value}`` never does (see
-  :mod:`culture_rules.engine.refs`). Workflow-input mappings resolve the same way.
+  :mod:`culture_rules.model.refs`). Workflow-input mappings resolve the same way.
 * **Containment** (:class:`Containment`, every verb audited) - a global pause stops new
   runs and all new dispatch (accepted work may still complete); draining a machine stops
   new placements on it while its running steps finish; cancelling a run cancels every
@@ -128,13 +128,13 @@ from culture_rules.engine.claims import (
 )
 from culture_rules.engine.leasekeeper import KeeperFactory, LeaseKeeper
 from culture_rules.engine.placement import MachineState, PlacementError, resolve_placement
-from culture_rules.engine.refs import resolve_refs
 from culture_rules.machines.enrol import enrolled_machines
 from culture_rules.machines.heartbeat import HEARTBEAT_COLLECTION, OFFLINE_AFTER_S, online_machines
 from culture_rules.model import condition as cond
 from culture_rules.model.action import Action
 from culture_rules.model.actor import Actor
 from culture_rules.model.common import RetryPolicy
+from culture_rules.model.refs import resolve_refs
 from culture_rules.model.rule import Rule
 from culture_rules.model.validate import validate
 from culture_rules.model.workflow import LOOP_KINDS, Port, Step, Workflow

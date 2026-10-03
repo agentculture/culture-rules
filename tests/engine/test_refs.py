@@ -4,7 +4,7 @@ A plain string is a reference only when its path fits a known namespace's shape
 (``trigger.<envelope field or key the event has>...``, ``workflow.outputs.<name>``,
 ``rules.<id>.outputs.<name>``); anything else - ``rules.yaml``, ``workflow.md``,
 ``trigger.sh`` - is a literal. ``{"$ref": path}`` always references, ``{"$literal": v}``
-never does. A ``$ref`` that names no namespace is refused at save time.
+never does. A ``$ref`` that can never resolve is refused by rule validation (save time).
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ from culture_rules.engine.ruleset import validate_rule_set
 from culture_rules.engine.runs import ACTION_STEP, Executor, RunError, step_state
 from culture_rules.model.action import Action
 from culture_rules.model.rule import Rule, Trigger, WorkflowRef
+from culture_rules.model.validate import validate
 from culture_rules.model.workflow import Output, Port
 from culture_rules.store.memory import MemoryStore
 from tests.engine.run_helpers import Clock, FakeActor, port, rule, step, workflow
@@ -120,23 +121,23 @@ def codes(errors) -> list[str]:
 
 
 def test_a_ref_to_an_unknown_namespace_is_refused():
-    errors = validate_rule_set([ref_rule({"x": {"$ref": "secrets.token"}})])
+    errors = validate(ref_rule({"x": {"$ref": "secrets.token"}}))
     assert codes(errors) == ["invalid_reference"]
-    assert errors[0].path == "rules[0].action.params.x"
+    assert errors[0].path == "action.params.x"
 
 
 @pytest.mark.parametrize(
     "ref", ["trigger", "rules.up", "rules.up.exports.x", "workflow.vars.x", "", 7]
 )
 def test_malformed_refs_are_refused(ref):
-    assert codes(validate_rule_set([ref_rule({"x": {"$ref": ref}})])) == ["invalid_reference"]
+    assert codes(validate(ref_rule({"x": [{"$ref": ref}]}))) == ["invalid_reference"]
 
 
 def test_workflow_outputs_ref_needs_a_workflow():
-    errors = validate_rule_set([ref_rule({"x": {"$ref": "workflow.outputs.n"}})])
+    errors = validate(ref_rule({"x": {"$ref": "workflow.outputs.n"}}))
     assert codes(errors) == ["invalid_reference"]
     with_wf = ref_rule({"x": {"$ref": "workflow.outputs.n"}}, workflow=WorkflowRef(id="wf"))
-    assert validate_rule_set([with_wf]) == []
+    assert validate(with_wf) == []
 
 
 def test_valid_refs_and_literals_pass():
@@ -145,6 +146,7 @@ def test_valid_refs_and_literals_pass():
         "b": {"$literal": "rules.nobody.outputs.secret"},
         "c": "rules.yaml",
     }
+    assert validate(ref_rule(params)) == []
     assert validate_rule_set([ref_rule(params)]) == []
 
 

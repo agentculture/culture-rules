@@ -30,6 +30,7 @@ from culture_rules.model.common import SCHEMA_VERSION, RetryPolicy
 from culture_rules.model.graph import find_cycle
 from culture_rules.model.machine import Machine
 from culture_rules.model.placement import PLACEMENT_FORMS, Placement
+from culture_rules.model.refs import ref_errors
 from culture_rules.model.rule import Rule, Trigger, WorkflowRef
 from culture_rules.model.workflow import LOOP_KINDS, Edge, Output, Port, Step, Variable, Workflow
 
@@ -295,6 +296,13 @@ def _check_rule(obj: Rule, path: str, errors: Errors) -> None:
             condition_tree.validate(obj.condition)
         except condition_tree.ConditionError as exc:
             _err(errors, _join(path, "condition"), "condition_invalid", str(exc))
+    if isinstance(obj.action, Action) and isinstance(obj.action.params, dict):
+        params_path = _join(_join(path, "action"), "params")
+        has_workflow = obj.workflow is not None
+        for p, reason in ref_errors(
+            obj.action.params, params_path, _join, has_workflow=has_workflow
+        ):
+            _err(errors, p, "invalid_reference", reason)
     for rel in ("must_after", "may_after", "supersedes"):
         ids = getattr(obj, rel)
         if not isinstance(ids, (tuple, list)):

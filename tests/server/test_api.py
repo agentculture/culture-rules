@@ -58,7 +58,11 @@ def test_rule_save_refuses_a_ref_that_cannot_resolve_with_422(client):
     body["action"]["params"] = {"x": {"$ref": "secrets.token"}}
     r = client.post("/rules", json=body)
     assert r.status_code == 422
-    assert [e["code"] for e in r.json()["error"]["errors"]] == ["invalid_reference"]
+    err = r.json()["error"]
+    assert err["code"] == "invalid"  # the same envelope as condition_invalid
+    assert [(e["path"], e["code"]) for e in err["errors"]] == [
+        ("action.params.x", "invalid_reference")
+    ]
     body["action"]["params"] = {"x": {"$ref": "trigger.data.x"}, "y": {"$literal": "trigger.id"}}
     assert client.post("/rules", json=body).status_code == 201
 
