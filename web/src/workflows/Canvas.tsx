@@ -56,6 +56,7 @@ export interface CanvasProps {
 
 const TOP = 80; // room for the selected step's toolbar above the top row
 const MIN_HEIGHT = 570; // the board's canvas: 530 + 2 × 20 padding
+const EDGE_ROOM = 20; // the board's canvas padding, left and right of a graph that does not fit
 
 /** An edge end's name, for the wire's accessible label. */
 function nodeName(workflow: WorkflowDef, node: string): string {
@@ -186,15 +187,19 @@ function CanvasInner(props: Readonly<CanvasProps>) {
     return { minX, maxX, minY, maxY };
   }, [positions]);
   const height = Math.max(MIN_HEIGHT, bounds.maxY - bounds.minY + TOP + 110);
+  const graphWidth = bounds.maxX - bounds.minX;
 
-  // Zoom 1, centred horizontally when it fits, toolbar room on top.
+  // Zoom 1, centred horizontally when it fits, toolbar room on top. A graph wider
+  // than the canvas (beside the workflow list) scrolls sideways, as the design
+  // board's canvas does (`overflow-x: auto`), instead of being clipped.
   const [width, setWidth] = useState(0);
-  const containerRef = useCallback((el: HTMLDivElement | null) => {
+  const containerRef = useCallback((el: HTMLElement | null) => {
     if (el) setWidth(el.clientWidth);
   }, []);
+  const flowWidth = Math.max(width, graphWidth + 2 * EDGE_ROOM);
   useEffect(() => {
     const graph = bounds.maxX - bounds.minX;
-    const x = width > graph ? (width - graph) / 2 - bounds.minX : 20 - bounds.minX;
+    const x = width > graph ? (width - graph) / 2 - bounds.minX : EDGE_ROOM - bounds.minX;
     // React Flow resolves this once the transform is applied. It only rejects if d3 throws
     // while applying it; the viewport is cosmetic, so say so in the console and carry on.
     flow.setViewport({ x, y: TOP - bounds.minY, zoom: 1 }).catch((err: unknown) => {
@@ -265,33 +270,38 @@ function CanvasInner(props: Readonly<CanvasProps>) {
 
   return (
     <section className="wf-canvas" aria-label="Workflow canvas" style={{ height }} ref={containerRef}>
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        nodeTypes={NODE_TYPES}
-        onNodesChange={onNodesChange}
-        onNodeClick={(_, node) => {
-          if (node.id !== INPUTS_NODE && node.id !== OUTPUTS_NODE) props.onSelect(node.id);
-        }}
-        onPaneClick={() => props.onSelect(null)}
-        onConnect={(c) => {
-          const conn = asConnection(c);
-          if (conn) props.onConnect(conn);
-        }}
-        onConnectEnd={onConnectEnd}
-        isValidConnection={isValidConnection}
-        deleteKeyCode={null}
-        zoomOnScroll={false}
-        zoomOnPinch={false}
-        zoomOnDoubleClick={false}
-        preventScrolling={false}
-        minZoom={1}
-        maxZoom={1}
-        defaultViewport={{ x: 20, y: TOP, zoom: 1 }}
-        nodeOrigin={[0, 0]}
-        edgesFocusable={false}
-        connectionRadius={24}
-      />
+      <div className="wf-canvas__scroll">
+        {/* React Flow pins its own wrapper to 100%: the width goes on a box around it. */}
+        <div className="wf-canvas__graph" style={{ width: flowWidth }}>
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            nodeTypes={NODE_TYPES}
+            onNodesChange={onNodesChange}
+            onNodeClick={(_, node) => {
+              if (node.id !== INPUTS_NODE && node.id !== OUTPUTS_NODE) props.onSelect(node.id);
+            }}
+            onPaneClick={() => props.onSelect(null)}
+            onConnect={(c) => {
+              const conn = asConnection(c);
+              if (conn) props.onConnect(conn);
+            }}
+            onConnectEnd={onConnectEnd}
+            isValidConnection={isValidConnection}
+            deleteKeyCode={null}
+            zoomOnScroll={false}
+            zoomOnPinch={false}
+            zoomOnDoubleClick={false}
+            preventScrolling={false}
+            minZoom={1}
+            maxZoom={1}
+            defaultViewport={{ x: 20, y: TOP, zoom: 1 }}
+            nodeOrigin={[0, 0]}
+            edgesFocusable={false}
+            connectionRadius={24}
+          />
+        </div>
+      </div>
       <button type="button" className="wf-add-step" aria-label="Add step" onClick={props.onAddStep}>
         +
       </button>

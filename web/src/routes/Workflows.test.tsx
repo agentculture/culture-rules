@@ -350,7 +350,7 @@ describe("Workflows board (Chosen — Workflows)", () => {
     await waitFor(() => expect(card("Fetch diff")).toHaveAttribute("data-run-status", "running"));
   });
 
-  it("switching workflow uses ?id= and agent-state reports the tab", async () => {
+  it("the list pane opens a workflow via ?id= and agent-state reports the tab", async () => {
     const user = userEvent.setup();
     renderWorkflows();
     await loaded();
@@ -362,7 +362,24 @@ describe("Workflows board (Chosen — Workflows)", () => {
       dirty: false,
       run: null,
     });
-    await user.selectOptions(screen.getByRole("combobox", { name: "Workflow" }), "build-image");
+    // The old <select> switcher is gone: the list on the left switches.
+    expect(screen.queryByRole("combobox", { name: "Workflow" })).toBeNull();
+    const list = screen.getByRole("navigation", { name: "Workflows" });
+    expect(within(list).getAllByRole("link").map((l) => l.textContent)).toEqual(["Review PR", "Build image"]);
+    expect(within(list).getByRole("link", { name: "Review PR" })).toHaveAttribute("aria-current", "true");
+    await user.click(within(list).getByRole("link", { name: "Build image" }));
+    expect(await screen.findByRole("heading", { level: 1, name: "Build image" })).toBeInTheDocument();
+    expect(where).toBe("/workflows?id=build-image");
+    expect(within(list).getByRole("link", { name: "Build image" })).toHaveAttribute("aria-current", "true");
+    await waitFor(() => expect(workflowsState()).toMatchObject({ count: 2, selected: "build-image" }));
+  });
+
+  it("opening a row drops the overlaid run from the query", async () => {
+    const user = userEvent.setup();
+    renderWorkflows("/workflows?id=review-pr&run=run-7");
+    await loaded();
+    const list = screen.getByRole("navigation", { name: "Workflows" });
+    await user.click(within(list).getByRole("link", { name: "Build image" }));
     expect(await screen.findByRole("heading", { level: 1, name: "Build image" })).toBeInTheDocument();
     expect(where).toBe("/workflows?id=build-image");
   });

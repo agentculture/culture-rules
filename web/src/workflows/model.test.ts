@@ -19,6 +19,7 @@ import {
   toDefinition,
   toggleStep,
   updateStep,
+  workflowMachine,
 } from "./model";
 
 const ctx = { machines: MACHINES, actors: ACTORS };
@@ -227,5 +228,29 @@ describe("run overlay", () => {
     expect(litKeys).toContain("review.owner->outputs.owner");
     // Decide failed: its output never flowed.
     expect(litKeys).not.toContain("decide.verdict->outputs.verdict");
+  });
+});
+
+describe("workflowMachine (the list row's dot)", () => {
+  const wf = (steps: { id: string; placement?: Record<string, unknown> }[]) => ({
+    id: "w",
+    name: "W",
+    steps: steps.map((s) => ({ kind: "logic" as const, ...s })),
+  });
+
+  it("is the one machine every step runs on", () => {
+    expect(workflowMachine(wf([{ id: "a", placement: { machine: "thor" } }]), ctx)).toBe("thor");
+    // An actor's home machine and an unplaced step (the engine node) count as the canvas counts them.
+    expect(
+      workflowMachine(wf([{ id: "a", placement: { actor: "claude-reviewer" } }, { id: "b", placement: { machine: "thor" } }]), ctx),
+    ).toBe("thor");
+    expect(workflowMachine(wf([{ id: "a" }]), ctx)).toBe("spark");
+  });
+
+  it("is neutral (null) when steps are mixed, unresolved, or there are none", () => {
+    expect(workflowMachine(REVIEW_PR, ctx)).toBeNull();
+    expect(workflowMachine(BUILD_IMAGE, ctx)).toBeNull();
+    expect(workflowMachine(wf([]), ctx)).toBeNull();
+    expect(workflowMachine({ id: "w", name: "W" }, ctx)).toBeNull();
   });
 });

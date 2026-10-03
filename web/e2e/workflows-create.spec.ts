@@ -6,9 +6,9 @@ import { WORKFLOW_DOCS } from "../src/workflows/fixture";
 import type { WorkflowDef } from "../src/api/workflows";
 
 /**
- * The Workflows tab's "New workflow": the header button next to Import and
+ * The Workflows tab's "New workflow": the button atop the workflow list and
  * the empty state's primary action, a one-question name form, the created
- * workflow opened on the canvas; plus the workflow-level enable switch and
+ * workflow opened on the canvas; plus the list row's enable switch and
  * delete with Undo. Screenshots land where WORKFLOWS_CREATE_SCREENSHOTS
  * points (default test-results/).
  */
@@ -33,6 +33,8 @@ const posts = (calls: Recorded[]) =>
   calls.filter((c) => c.method === "POST" && c.path === "/api/workflows");
 const emptyState = (page: Page) => page.getByRole("region", { name: "No workflows yet" });
 const nameForm = (page: Page) => page.getByRole("form", { name: "New workflow" });
+const list = (page: Page) => page.getByRole("navigation", { name: "Workflows" });
+const listNew = (page: Page) => list(page).getByRole("button", { name: "New workflow" });
 
 async function noSeriousAxe(page: Page, label: string) {
   const results = await new AxeBuilder({ page }).analyze();
@@ -48,9 +50,11 @@ test.describe("Workflows tab: New workflow", () => {
     await expect(cta).toBeVisible();
     // Large target: the primary action is drawn at 56px.
     expect(Math.round((await cta.boundingBox())!.height)).toBe(56);
-    // The header button sits next to Import.
+    // The list is there with no workflows: its New button, no rows; the header has no "+ New".
+    await expect(listNew(page)).toBeVisible();
+    await expect(list(page).getByRole("link")).toHaveCount(0);
     const head = page.locator(".wf-head__end");
-    await expect(head.getByRole("button", { name: "New workflow" })).toBeVisible();
+    await expect(head.getByRole("button", { name: "New workflow" })).toHaveCount(0);
     await expect(head.getByRole("button", { name: "Import", exact: true })).toBeVisible();
     expect((await agentState(page)).workflows).toMatchObject({ count: 0, selected: null });
     await noSeriousAxe(page, "empty state");
@@ -99,14 +103,14 @@ test.describe("Workflows tab: New workflow", () => {
     await page.keyboard.press("Escape");
     await expect(nameForm(page)).toHaveCount(0);
     await expect(emptyState(page)).toBeVisible();
-    await expect(page.locator(".wf-head__end").getByRole("button", { name: "New workflow" })).toBeFocused();
+    await expect(listNew(page)).toBeFocused();
     expect(calls.filter((c) => c.method !== "GET")).toEqual([]);
   });
 
-  test("with a workflow selected, the header button creates and switches to the new one", async ({ page }) => {
+  test("with a workflow selected, the list's New button creates and switches to the new one", async ({ page }) => {
     const calls = await open(page, WORKFLOW_DOCS, "/workflows?id=review-pr");
     await expect(page.getByRole("heading", { level: 1, name: "Review PR" })).toBeVisible();
-    // The design board's head stays one row at 1280px: title, rename, switch, delete, io group, Run.
+    // The design board's head stays one row at 1280px beside the list: title, rename, delete, io group, Run.
     const middle = async (name: string, role: "heading" | "button" | "switch") => {
       const box = (await page.getByRole(role, { name, exact: true }).first().boundingBox())!;
       return box.y + box.height / 2;
@@ -114,20 +118,23 @@ test.describe("Workflows tab: New workflow", () => {
     const row = await middle("Review PR", "heading");
     for (const [name, role] of [
       ["Rename workflow", "button"],
-      ["Workflow enabled", "switch"],
       ["Delete workflow", "button"],
-      ["New workflow", "button"],
+      ["Import", "button"],
+      ["Export", "button"],
       ["Run", "button"],
     ] as const) {
       expect(Math.abs((await middle(name, role)) - row)).toBeLessThan(12);
     }
-    await page.locator(".wf-head__end").getByRole("button", { name: "New workflow" }).click();
+    // The enable switch lives on the list row (as on Rules), not in the head.
+    await expect(page.locator(".wf-head").getByRole("switch")).toHaveCount(0);
+    await listNew(page).click();
     await expect(page.getByRole("heading", { level: 1, name: "New workflow" })).toBeVisible();
     await nameForm(page).getByRole("textbox", { name: "Name" }).fill("Ship release");
     await nameForm(page).getByRole("button", { name: "Create workflow" }).click();
     await expect(page.getByRole("heading", { level: 1, name: "Ship release" })).toBeVisible();
     await expect(page).toHaveURL(/\/workflows\?id=ship-release$/);
-    await expect(page.getByRole("combobox", { name: "Workflow" })).toHaveValue("ship-release");
+    await expect(list(page).getByRole("link", { name: "Ship release" })).toHaveAttribute("aria-current", "true");
+    await expect(list(page).getByRole("link")).toHaveCount(3);
     expect(posts(calls)).toHaveLength(1);
   });
 
@@ -173,12 +180,13 @@ test.describe("Workflows tab: rename, enable / disable and delete", () => {
     });
   });
 
-  test("the workflow switch disables and enables the stored workflow", async ({ page }) => {
+  test("the list row's switch disables and enables the stored workflow", async ({ page }) => {
     const calls = await open(page, [...WORKFLOW_DOCS, SPARE], "/workflows?id=nightly-report");
-    const toggle = page.getByRole("switch", { name: "Workflow enabled" });
+    const toggle = list(page).getByRole("switch", { name: "Nightly report enabled" });
     await expect(toggle).toHaveAttribute("aria-checked", "true");
     await toggle.click();
     await expect(toggle).toHaveAttribute("aria-checked", "false");
+    await expect(page.locator('.rule-row[data-workflow-id="nightly-report"]')).toHaveClass(/is-disabled/);
     await toggle.click();
     await expect(toggle).toHaveAttribute("aria-checked", "true");
     expect(calls.filter((c) => c.method === "POST").map((c) => c.path)).toEqual([
@@ -199,7 +207,7 @@ test.describe("Workflows tab: rename, enable / disable and delete", () => {
       "POST /api/workflows/nightly-report/restore",
     ]);
 
-    await page.getByRole("combobox", { name: "Workflow" }).selectOption("review-pr");
+    await list(page).getByRole("link", { name: "Review PR" }).click();
     await expect(page.getByRole("heading", { level: 1, name: "Review PR" })).toBeVisible();
     await page.getByRole("button", { name: "Delete workflow" }).click();
     await expect(page.getByRole("alert")).toContainText("workflows/review-pr is used by a rule");

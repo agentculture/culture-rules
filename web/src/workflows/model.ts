@@ -77,6 +77,18 @@ export function stepMachine(
   return { machine: engineMachine(ctx.machines), mode };
 }
 
+/**
+ * The one machine every step of a workflow runs on (by `stepMachine`, as the
+ * canvas colours its cards), for the list row's dot; null — neutral — when
+ * the steps span machines, any step is unresolved, or there are no steps.
+ */
+export function workflowMachine(wf: WorkflowDef, ctx: PlacementContext): string | null {
+  const hosts = new Set((wf.steps ?? []).map((s) => stepMachine(s, ctx).machine));
+  if (hosts.size !== 1) return null;
+  const [only] = hosts;
+  return only;
+}
+
 /** A source port's value may flow into a target port of this type. */
 export function portsCompatible(source: PortType = "any", target: PortType = "any"): boolean {
   if (source === "any" || target === "any" || source === target) return true;
