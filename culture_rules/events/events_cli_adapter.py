@@ -50,6 +50,20 @@ def load_events_cli() -> Any:
     )
 
 
+def open_client(**kwargs: Any) -> Any:
+    """An events-cli ``EventClient`` for the configured broker (``EVENTS_BROKER_*``).
+
+    The client connects in the background and never raises at runtime; construction raises
+    :class:`EventFabricError` when events-cli (or its MQTT dependency) is not installed.
+    """
+    try:
+        from events_cli import EventClient
+
+        return EventClient(**kwargs)
+    except ImportError as exc:
+        raise EventFabricError(f"events-cli is not available ({exc}); {EXTRA_HINT}") from None
+
+
 def subscription_name(host: str) -> str:
     """The durable events-cli subscription name for ``host``."""
     if not isinstance(host, str) or not host.strip():
@@ -107,13 +121,16 @@ class EventsCliSource:
         if page.records:
             records, cursor, has_more = page.records, page.cursor, page.has_more
         else:
+            # the history store is always the source's own; a caller's store= is dropped, as
+            # in ensure(), instead of colliding with it
+            options = {k: v for k, v in self._drain_options.items() if k != "store"}
             result = self._api.drain_subscription(
                 self.name,
                 since=since,
                 max=max,
                 timeout=timeout,
                 store=self._history,
-                **self._drain_options,
+                **options,
             )
             records, cursor, has_more = result.records, result.cursor, result.has_more
         envelopes = tuple(record.envelope.to_dict() for record in records)

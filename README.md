@@ -98,6 +98,8 @@ culture-rules serve --port 8791
 
 # 3. the engine node (one per host that runs steps)
 culture-rules node run --host spark          # add --once for a single cycle
+# optional: CULTURE_RULES_REPORT_CHANNEL=#ops posts each finished run's summary to that
+# mesh channel (via `culture channel message`; logged instead when culture is not on PATH)
 
 # 4. drive it from the CLI (writes preview until --apply)
 export CULTURE_RULES_API_URL=http://127.0.0.1:8791

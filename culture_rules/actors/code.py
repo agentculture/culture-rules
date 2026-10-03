@@ -27,6 +27,7 @@ bounds the run. Standard-library only.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import signal
 import subprocess  # nosec B404 - argv lists only, shell=False
@@ -57,6 +58,7 @@ _INTERPRETERS: dict[str, list[str]] = {
     "python": [sys.executable, "-I"],
 }
 _MAX_OUTPUT = 1_000_000
+_PLACEHOLDER = re.compile(r"\{(\w+)\}")
 
 
 class CodeRunnerError(ValueError):
@@ -128,13 +130,12 @@ def bind_argv(spec: Mapping[str, Any], args: Mapping[str, Any] | None) -> list[s
     if missing:
         raise CodeRunnerError(f"missing arguments: {', '.join(missing)}")
     bound = {name: _coerce(name, params[name], args[name]) for name in params}
-    argv: list[str] = []
-    for part in template:
-        text = str(part)
-        for name, value in bound.items():
-            text = text.replace("{" + name + "}", value)
-        argv.append(text)
-    return argv
+    # One pass per template part: a bound value is inserted verbatim and never re-scanned,
+    # so a value that looks like a placeholder ("{path}") cannot pull in another argument.
+    return [
+        _PLACEHOLDER.sub(lambda m: bound.get(m.group(1), m.group(0)), str(part))
+        for part in template
+    ]
 
 
 def _run(argv: list[str], cwd: str, timeout: float) -> tuple[int | None, str, str]:

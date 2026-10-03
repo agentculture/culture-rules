@@ -40,11 +40,26 @@ __all__ = [
 GRANT_SCHEME = "grant"
 _REF_RE = re.compile(r"^grant:([A-Za-z0-9][A-Za-z0-9._/-]*)$")
 _VAR_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+# A key is secret-bearing when one of its whole segments (split on "_", "-" and camelCase
+# humps) names a secret - so "github_token" and "apiKey" are, "author" and "auth_mode" are
+# not - unless a segment marks it as a budget/limit ("max_tokens", "token_budget").
 _SECRET_KEY_RE = re.compile(
-    r"secret|token|passw(?:or)?d|api[_-]?key|credential|private[_-]?key|auth", re.IGNORECASE
+    r"(?:^|[_-])(?:secret|token|password|passwd|api[_-]?key|credential|private[_-]?key)s?"
+    r"(?:[_-]|$)",
+    re.IGNORECASE,
 )
+_BUDGET_KEY_RE = re.compile(
+    r"(?:^|[_-])(?:budget|limit|max|min|count|num|quota|pct|warn)(?:[_-]|$)", re.IGNORECASE
+)
+_CAMEL_HUMP_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 _MIN_REDACT_LEN = 4
 _TIMEOUT_S = 30
+
+
+def _is_secret_key(key: str) -> bool:
+    """Whether a param named ``key`` must hold a secret reference (see the regexes)."""
+    normalised = _CAMEL_HUMP_RE.sub("_", key)
+    return bool(_SECRET_KEY_RE.search(normalised)) and not _BUDGET_KEY_RE.search(normalised)
 
 
 class SecretError(Exception):
@@ -164,7 +179,7 @@ def assert_refs_only(params: Any, path: str = "") -> None:
     if isinstance(params, Mapping):
         for key, value in params.items():
             here = f"{path}.{key}" if path else str(key)
-            if isinstance(value, str) and _SECRET_KEY_RE.search(str(key)):
+            if isinstance(value, str) and _is_secret_key(str(key)):
                 if value and not is_secret_ref(value):
                     raise SecretError(f"{here}: secret must be a 'grant:<NAME>' reference")
             else:

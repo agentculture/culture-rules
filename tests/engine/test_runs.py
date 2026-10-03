@@ -981,3 +981,35 @@ def test_start_argument_errors(store, actor, clock):
     assert exc.value.code == "unsupported_workflow"
     with pytest.raises(ValueError):
         Executor(store, "", {})
+
+
+def test_a_step_only_ever_blocked_retries_safely_after_its_deadline(store, clock):
+    """R4 repro: blocked work never started, so its deadline is not an unknown outcome."""
+    actor = FakeActor(idempotent=False).on("h", *[("block", "at cap")] * 3)
+    ex = make_executor(store, actor, clock)
+    wf = workflow((step("h", "actor_task", timeout_s=8, retry=RetryPolicy(max_attempts=3)),))
+    run = ex.start(rule(), wf)
+    for _ in range(6):
+        ex.run_until_idle()
+        clock.advance(5)
+    doc = ex.run(run["id"])
+    st = step_state(doc, "h")
+    assert st["status"] == "succeeded", st["error"]
+    assert doc["status"] == "succeeded"
+    assert actor.effects_for("h") == 1
+    assert "timeout" in [h["event"] for h in doc["history"] if h["step"] == "h"]
+
+
+def test_a_blocked_step_out_of_attempts_fails_with_blocked_timeout(store, clock):
+    actor = FakeActor(idempotent=False).on("h", *[("block", "at cap")] * 10)
+    ex = make_executor(store, actor, clock)
+    wf = workflow((step("h", "actor_task", timeout_s=8, retry=RetryPolicy(max_attempts=2)),))
+    run = ex.start(rule(), wf)
+    for _ in range(12):
+        ex.run_until_idle()
+        clock.advance(5)
+    st = step_state(ex.run(run["id"]), "h")
+    assert st["status"] == "failed"
+    assert st["error"]["code"] == "blocked_timeout"
+    assert st["attempt"] == 2
+    assert actor.effects_for("h") == 0

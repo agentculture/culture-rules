@@ -2,7 +2,9 @@
 
 ``health_status(store, now, host)`` reports: whether the store is reachable and its
 schema version; this host's heartbeat age and online state; and executor lag (how long
-due work - pending steps, retries past ``next_attempt_at`` - has been waiting). The
+due work in live runs - pending steps that are ready to dispatch, aged from when they
+became ready, and retries past ``next_attempt_at`` - has been waiting; see
+:func:`culture_rules.engine.runs.due_steps`). The
 overall ``status`` is ``ok``, ``degraded`` (stale/missing heartbeat or lag above
 :data:`LAG_DEGRADED_S`) or ``down`` (store unreachable). It never raises. Standard-library
 only; the HTTP route lives in the server package.
@@ -13,6 +15,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
+from culture_rules.engine.runs import RUNS_COLLECTION, due_steps
 from culture_rules.machines.heartbeat import HEARTBEAT_COLLECTION, OFFLINE_AFTER_S
 
 __all__ = ["LAG_DEGRADED_S", "health_status"]
@@ -29,19 +32,12 @@ def _parse(text: Any) -> datetime | None:
 
 def _executor(store: Any, now: datetime) -> dict[str, Any]:
     lag, due = 0.0, 0
-    for run in store.find("runs", {"status": "running"}):
-        hist = run.get("history") or [{}]
-        started = _parse(hist[-1].get("at"))
-        for step in run.get("steps", ()):
-            status = step.get("status")
-            if status == "pending":
-                since = started
-            elif status == "retry_wait":
-                since = _parse(step.get("next_attempt_at"))
-                if since is not None and since > now:
-                    continue
-            else:
-                continue
+    for run in store.find(RUNS_COLLECTION, {"status": "running"}):
+        try:
+            found = due_steps(run, now)
+        except (KeyError, TypeError, ValueError, AttributeError):
+            continue  # an unparseable run is not executor lag; the executor skips it too
+        for _key, since in found:
             due += 1
             if since is not None:
                 lag = max(lag, (now - since).total_seconds())

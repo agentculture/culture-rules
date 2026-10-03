@@ -81,10 +81,15 @@ def test_non_insert_changes_are_ignored_but_advance_the_cursor():
     fired = []
     triggers = EventTriggers(store, lambda tx, d: fired.append(d["id"]), host="h")
     triggers.poll()
+    pinned = store.load_cursor(triggers.consumer, EVENTS_COLLECTION)
     store.insert(EVENTS_COLLECTION, {"id": "manual"})
     store.delete(EVENTS_COLLECTION, "manual")  # never done by culture-rules; must not fire
+    head = store.head(EVENTS_COLLECTION)
     result = triggers.poll(timeout=1.0)
     assert fired == ["manual"] and result.ignored == 1
+    cursor = store.load_cursor(triggers.consumer, EVENTS_COLLECTION)
+    assert cursor != pinned and cursor == head  # moved past the ignored delete too
+    assert list(store.changes(EVENTS_COLLECTION, cursor)) == []
 
 
 def test_different_consumers_fire_independently():

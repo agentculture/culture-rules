@@ -8,11 +8,13 @@ import pytest
 
 from culture_rules.engine.matching import CONDITION_FALSE, DISABLED, FIRE, GROUP_LOST
 from culture_rules.engine.replay import ReplayError, replay
+from culture_rules.engine.runs import RUN_COLLECTIONS
 from culture_rules.events.ingest import EVENTS_COLLECTION, event_document
+from culture_rules.events.triggers import FIRES_COLLECTION
 from culture_rules.model.action import Action
 from culture_rules.model.rule import Rule, Trigger
 from culture_rules.store.memory import MemoryStore
-from tests.engine.run_helpers import FakeActor
+from culture_rules.store.port import CURSOR_COLLECTION
 
 TRUE = {"op": "compare", "cmp": "==", "left": {"field": "data.base"}, "right": {"literal": "main"}}
 
@@ -74,17 +76,19 @@ def test_reads_events_collection_in_order_and_limit():
 
 
 def test_replay_executes_zero_actions_and_writes_nothing():
-    actor = FakeActor()
+    # replay takes no actor ports at all, so "zero actions" is proven on the store: no run,
+    # claim, audit entry, fire marker or cursor is written, and the events are untouched
     store = MemoryStore()
     for i in range(3):
         store.insert(EVENTS_COLLECTION, event_document(env(i), host="h"))
-    before = {c: copy.deepcopy(store.find(c, {}, limit=1000)) for c in (EVENTS_COLLECTION, "runs")}
+    watched = (EVENTS_COLLECTION, *RUN_COLLECTIONS, FIRES_COLLECTION, CURSOR_COLLECTION)
+    head = {c: store.head(c) for c in watched}
+    before = {c: copy.deepcopy(store.find(c, {}, limit=1000)) for c in watched}
     report = replay(store, [rule("a")])
     assert len(report.would_fire) == 3
     assert report.actions_executed == 0
-    assert actor.calls == [] and not actor.effect_log
-    after = {c: store.find(c, {}, limit=1000) for c in before}
-    assert after == before
+    assert {c: store.find(c, {}, limit=1000) for c in watched} == before
+    assert all(list(store.changes(c, head[c])) == [] for c in watched)
     assert store.find("runs", {}, limit=10) == []
 
 

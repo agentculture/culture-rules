@@ -34,6 +34,9 @@ def store(monkeypatch):
     )
     monkeypatch.setattr(runner, "open_store", lambda: base)
     monkeypatch.setattr(runner, "default_ports", lambda store, host: {})
+    # keep the root logger and the event bus out of CLI tests (no handler leaks, no broker)
+    monkeypatch.setattr(runner, "configure_logging", lambda **kw: None)
+    monkeypatch.setattr(runner, "open_emitter", lambda store, host: None)
     return base
 
 

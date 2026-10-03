@@ -143,4 +143,5 @@ def test_server_only_talks_to_the_client_factory(client, wire):
             await session.call_tool("rules_list", {})
 
     asyncio.run(go())
-    assert calls and all(m == "GET" for m, _ in [(c[0], c[1]) for c in wire.calls])
+    assert calls and wire.calls, "the tool call must reach the API through the client"
+    assert all(c[0] == "GET" for c in wire.calls)

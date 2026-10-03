@@ -203,3 +203,76 @@ def test_access_module_is_stdlib_only():
     )
     done = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
     assert done.returncode == 0 and done.stdout.strip() == "ok", done.stderr
+
+
+def test_failing_jwks_fetch_is_negative_cached_for_forged_tokens():
+    fetches: list = []
+
+    def boom():
+        fetches.append(1)
+        raise OSError("network down")
+
+    v = AccessVerifier(TEAM, AUD, fetch_jwks=boom, clock=now)
+    for i in range(5):
+        assert reason(v, token(pair=keypair(f"forged-{i}"))) == "unknown_kid"
+    assert len(fetches) == 1
+
+
+def test_concurrent_forged_tokens_share_one_failing_fetch():
+    import threading
+
+    fetches: list = []
+    release = threading.Event()
+
+    def slow_boom():
+        fetches.append(1)
+        release.wait(2.0)
+        raise OSError("network down")
+
+    v = AccessVerifier(TEAM, AUD, fetch_jwks=slow_boom, clock=now)
+    reasons: list = []
+    tokens = [token(pair=keypair(f"forged-{i}")) for i in range(5)]
+
+    def attempt(tok):
+        try:
+            v.verify(tok)
+        except VerificationError as exc:
+            reasons.append(exc.reason)
+
+    threads = [threading.Thread(target=attempt, args=(t,)) for t in tokens]
+    for t in threads:
+        t.start()
+    release.set()
+    for t in threads:
+        t.join(5.0)
+    assert reasons == ["unknown_kid"] * 5
+    assert len(fetches) == 1
+
+
+def test_the_jwks_fetch_runs_outside_the_lock():
+    import threading
+
+    started, release = threading.Event(), threading.Event()
+    calls = {"n": 0}
+
+    def fetch():
+        calls["n"] += 1
+        if calls["n"] > 1:  # the forced refetch for an unknown kid blocks
+            started.set()
+            release.wait(2.0)
+        return jwks()
+
+    v = AccessVerifier(TEAM, AUD, fetch_jwks=fetch, clock=now)
+    v.verify(token())  # loads kid-1
+    worker = threading.Thread(target=lambda: reason(v, token(pair=keypair("kid-9"))))
+    worker.start()
+    assert started.wait(2.0)
+    done = threading.Event()
+    checker = threading.Thread(target=lambda: (v.verify(token()), done.set()))
+    checker.start()
+    try:
+        assert done.wait(1.0), "a cached-kid verify blocked behind an in-flight JWKS fetch"
+    finally:
+        release.set()
+        worker.join(5.0)
+        checker.join(5.0)

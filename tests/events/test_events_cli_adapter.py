@@ -119,6 +119,24 @@ def test_drain_goes_to_the_broker_when_history_is_caught_up():
     assert api.drains == [("culture-rules-h1", 1, 2, 0.5)]
 
 
+def test_drain_ignores_a_caller_supplied_store_option_like_ensure_does():
+    history = FakeHistory([_record(1, "a")])
+    seen = {}
+
+    class Api(FakeEventsCli):
+        def drain_subscription(self, name, *, since, max, timeout, **kw):
+            seen.update(kw)
+            return super().drain_subscription(name, since=since, max=max, timeout=timeout)
+
+    api = Api(history, queued=["b"])
+    src = _source(api, store=object())
+    batch = src.drain("1", max=5, timeout=0.0)
+    assert [e["id"] for e in batch.envelopes] == ["evt_b"]
+    assert seen["store"] is history  # the source's own history store, not the caller's
+    src.ensure()
+    assert api.added == [("culture-rules-h1", "#")]
+
+
 def test_drain_from_no_cursor_starts_at_zero():
     api = FakeEventsCli(FakeHistory())
     batch = _source(api).drain(None, max=5, timeout=0.0)
