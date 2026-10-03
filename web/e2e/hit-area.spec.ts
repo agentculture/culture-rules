@@ -3,6 +3,7 @@ import { mockApi } from "./fixtures/api";
 import { mockActorsApi } from "./fixtures/actors";
 import { mockStatistics } from "./fixtures/statistics";
 import { mockWorkflowsApi } from "./fixtures/workflows";
+import { REVIEW_PR } from "../src/workflows/fixture";
 
 /**
  * Deviation d4: every interactive control has a hit area of at least 44x44
@@ -22,13 +23,17 @@ async function agentState(page: Page) {
   return JSON.parse((await page.locator("#agent-state").textContent()) ?? "{}");
 }
 
-async function smallHitAreas(page: Page): Promise<string[]> {
-  const count = await page.locator(CONTROLS).count();
+/** Controls whose 44x44 square misses them; `within` narrows the sweep to one region. */
+async function smallHitAreas(page: Page, within?: string): Promise<string[]> {
+  const controls = within ? page.locator(within).locator(CONTROLS) : page.locator(CONTROLS);
+  const count = await controls.count();
   const misses: string[] = [];
   for (let i = 0; i < count; i += 1) {
-    const control = page.locator(CONTROLS).nth(i);
+    const control = controls.nth(i);
     if (!(await control.isVisible())) continue;
-    await control.scrollIntoViewIfNeeded();
+    // Centred, so the whole 44x44 square is on screen (a control at the viewport's or a
+    // scroller's edge — the canvas scrolls sideways beside the workflow list — would not be).
+    await control.evaluate((el) => el.scrollIntoView({ block: "center", inline: "center" }));
     const miss = await control.evaluate((el, reach) => {
       const box = el.getBoundingClientRect();
       if (box.width < 2 || box.height < 2) return null; // visually hidden (sr-only)
@@ -104,4 +109,24 @@ test.describe("d4: every control has a 44x44 hit area", () => {
     await expect(page.getByRole("form", { name: "New workflow" })).toBeVisible();
     expect(await smallHitAreas(page)).toEqual([]);
   });
+
+  for (const [label, start] of [
+    ["one workflow", [REVIEW_PR]],
+    ["no workflows", []],
+  ] as const) {
+    test(`Workflows tab: the list's rows and New button (${label})`, async ({ page }) => {
+      await mockApi(page);
+      await mockWorkflowsApi(page, [...start]);
+      await page.goto("/workflows");
+      await expect.poll(async () => (await agentState(page)).status).toBe("ready");
+      const list = page.getByRole("navigation", { name: "Workflows" });
+      await expect(list.getByRole("button", { name: "New workflow" })).toBeVisible();
+      await expect(list.getByRole("link")).toHaveCount(start.length);
+      expect(await smallHitAreas(page, 'nav[aria-label="Workflows"]')).toEqual([]);
+      // The row itself is a large target too: at least 44px tall, as the New button is.
+      for (const el of [list.getByRole("button", { name: "New workflow" }), ...(start.length ? [list.locator(".rule-row")] : [])]) {
+        expect((await el.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+      }
+    });
+  }
 });

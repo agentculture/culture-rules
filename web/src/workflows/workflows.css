@@ -43,6 +43,25 @@
   padding: 20px 40px 28px;
 }
 
+/*
+ * The tab's layout is the Rules board's (styles/stages.css .rules-board):
+ * the workflow list (.rule-list, 260–300px) on the left, a 28px gap, the
+ * board — head, canvas, legend — taking the rest. The board drops its own
+ * padding there: the layout's is the Rules board's.
+ */
+.wf-layout > .wf-board {
+  flex: 999 1 560px;
+  min-width: 0;
+  padding: 0;
+}
+
+/* A row is dot | name | switch with no text column (Rules' rows carry relationship
+   badges under the name): the name link takes the slack and wraps a long name. */
+.wf-row .rule-row__name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .wf-notice {
   max-width: none;
   margin: 0;
@@ -69,16 +88,6 @@
   border-radius: 8px;
   background: var(--muted);
   font-size: 14px;
-}
-
-.wf-switch {
-  height: 36px;
-  padding: 0 10px;
-  border-radius: 10px;
-  border: 2px solid var(--wf-control-border);
-  background: var(--surface);
-  color: var(--ink-soft);
-  font: 500 14px var(--font-body);
 }
 
 /* The workflow's own controls (rename, enable, delete): 40px visuals, 44px hit areas (d4). */
@@ -349,6 +358,21 @@
   background-image: radial-gradient(var(--wf-dot) 1px, transparent 1px);
   background-size: 22px 22px;
   box-shadow: var(--nav-shadow);
+}
+
+/* The graph's own scroller: wider than the canvas, it scrolls sideways (the design
+   board's canvas is `overflow-x: auto`); the step + stays put on the canvas. */
+.wf-canvas__scroll {
+  height: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  /* a control scrolled into view (focus, a test's sweep) keeps its 44px hit area inside */
+  scroll-padding-inline: 24px;
+  scrollbar-width: thin;
+}
+
+.wf-canvas__graph {
+  height: 100%;
 }
 
 .wf-canvas .react-flow {

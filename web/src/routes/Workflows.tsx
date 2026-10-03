@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { machineColors } from "../culture-design/chart";
 import { ApiError, listMachines, listRules } from "../api/client";
 import { settleAll } from "../api/settle";
 import { useLiveUpdates, type LiveChange } from "../api/live";
@@ -30,11 +31,12 @@ import {
   setPlacement,
   toDefinition,
   toggleStep,
+  workflowMachine,
   type Connection,
 } from "../workflows/model";
 import PlacementEditor from "../workflows/PlacementEditor";
-import { Switch } from "../culture-design/stages";
 import StepEditor from "../workflows/StepEditor";
+import { WorkflowList } from "../workflows/WorkflowList";
 import WorkflowNameForm from "../workflows/WorkflowNameForm";
 import { ago, slugFor } from "./rules-view";
 import { useTabReady } from "./useTabReady";
@@ -154,6 +156,25 @@ function useWorkflowsLoad(reload: number) {
   return [loaded, setLoaded] as const;
 }
 
+const NO_MACHINES: Machine[] = [];
+const NO_ACTORS: Actor[] = [];
+
+/**
+ * The list's dots: a workflow's palette slot is the one machine its steps run
+ * on, coloured as the canvas colours its cards; null (neutral) otherwise.
+ */
+function useWorkflowSlots(loaded: Loaded | null) {
+  const machines = loaded?.machines ?? NO_MACHINES;
+  const actors = loaded?.actors ?? NO_ACTORS;
+  return useMemo(() => {
+    const slots = machineColors(machines.map((m) => m.name));
+    return (wf: WorkflowDef): number | null => {
+      const machine = workflowMachine(wf, { machines, actors });
+      return machine === null ? null : (slots.get(machine) ?? null);
+    };
+  }, [machines, actors]);
+}
+
 /** Recent runs of this workflow (contextual, never a tab). */
 function useRecentRuns(workflowId: string | undefined, runStatus: string | undefined, tick: number) {
   const [runs, setRuns] = useState<RunSummary[]>([]);
@@ -223,26 +244,24 @@ function HeadTitle({ creating, empty }: Readonly<{ creating: boolean; empty: boo
   return <h1 className="wf-title sr-only">Workflows</h1>;
 }
 
-/** The open workflow's head: name, rename, version, the workflow switcher, enable and delete. */
+/**
+ * The open workflow's head: name, rename, version and delete. Switching and
+ * enabling live on the list's rows, as on the Rules tab (whose head has no
+ * enable switch either).
+ */
 function WorkflowHead({
   name,
   current,
-  workflows,
   renaming,
   renameButton,
   onRename,
-  onSwitch,
-  onToggle,
   onDelete,
 }: Readonly<{
   name: string;
   current: WorkflowDef;
-  workflows: WorkflowDef[];
   renaming: boolean;
   renameButton: RefObject<HTMLButtonElement>;
   onRename: () => void;
-  onSwitch: (id: string) => void;
-  onToggle: () => void;
   onDelete: () => void;
 }>) {
   return (
@@ -259,22 +278,7 @@ function WorkflowHead({
         <PencilIcon />
       </button>
       <span className="wf-version">v{current.version ?? 1}</span>
-      {workflows.length > 1 ? (
-        <select
-          className="wf-switch"
-          aria-label="Workflow"
-          value={current.id}
-          onChange={(e) => onSwitch(e.target.value)}
-        >
-          {workflows.map((w) => (
-            <option key={w.id} value={w.id}>
-              {w.name}
-            </option>
-          ))}
-        </select>
-      ) : null}
       <span className="wf-head__tools">
-        <Switch label="Workflow enabled" checked={current.enabled !== false} onChange={onToggle} />
         <button
           type="button"
           className="icon-button icon-button--danger wf-head__icon"
@@ -421,12 +425,17 @@ function agentSnapshot(
  * Selection is in the query string: `?id=<workflow>&run=<run id>`. Edits
  * stay a local draft until Save (`PUT /workflows/{id}`).
  *
- * "New workflow" (in the io group, and the empty state's primary action)
+ * The workflow list sits on the left, laid out as the Rules board's rule
+ * list (same column, gap and row shapes): "New workflow" on top, then one
+ * row per workflow — its machine dot, its name (opens it) and its enable
+ * switch, which enables / disables the stored workflow as a rule row does.
+ *
+ * "New workflow" (atop the list, and the empty state's primary action)
  * asks only for a name, creates the workflow (`POST /workflows`, no steps)
  * and opens it on the canvas with the step `+` focused. Rename edits the
- * draft's name (Save writes it, like every canvas edit). The head's switch
- * enables / disables the stored workflow and its delete is a soft delete
- * with Undo (`POST /workflows/{id}/restore`), as on the Rules tab.
+ * draft's name (Save writes it, like every canvas edit). The head's delete
+ * is a soft delete with Undo (`POST /workflows/{id}/restore`), as on the
+ * Rules tab.
  */
 export function Workflows() {
   const [params, setParams] = useSearchParams();
@@ -444,7 +453,7 @@ export function Workflows() {
   const [focusAddStep, setFocusAddStep] = useState<string | null>(null);
   const [deleted, setDeleted] = useState<WorkflowDef | null>(null);
   const [renaming, setRenaming] = useState(false);
-  const newButton = useRef<HTMLButtonElement>(null);
+  const newButton = useRef<HTMLButtonElement>(null); // the list's "New workflow"
   const renameButton = useRef<HTMLButtonElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   // Live: `runsTick` re-reads the recent runs, `runTick` the overlaid run.
@@ -455,6 +464,7 @@ export function Workflows() {
   const wantedId = params.get("id");
   const current = workflows.find((w) => w.id === wantedId) ?? workflows[0] ?? null;
   const runId = params.get("run");
+  const slotOf = useWorkflowSlots(loaded);
 
   // A fresh draft whenever the selected workflow (or its stored copy) changes;
   // unsaved edits to the same workflow survive a reload.
@@ -613,8 +623,13 @@ export function Workflows() {
   const closeNew = () => {
     setCreating(false);
     setCreateError(null);
-    // The opener: the header button (the empty state's comes back as a new element).
+    // The opener: the list's button (the empty state's comes back as a new element).
     requestAnimationFrame(() => newButton.current?.focus());
+  };
+  // A row followed while naming a new workflow: the form gives way to it.
+  const openRow = () => {
+    setCreating(false);
+    setCreateError(null);
   };
   const create = async (name: string) => {
     setCreateBusy(true);
@@ -638,16 +653,15 @@ export function Workflows() {
     }
   };
 
-  const toggleWorkflow = async () => {
-    if (!current) return;
-    const enabled = current.enabled === false;
+  const toggleWorkflow = async (wf: WorkflowDef) => {
+    const enabled = wf.enabled === false;
     setActionError(null);
     try {
-      const doc = await setWorkflowEnabled(current.id, enabled);
-      setLoaded((l) => replaceIn(l, storedOr(doc, { ...current, enabled })));
+      const doc = await setWorkflowEnabled(wf.id, enabled);
+      setLoaded((l) => replaceIn(l, storedOr(doc, { ...wf, enabled })));
       // Unsaved edits survive; they carry the new state so Save does not undo it.
-      setDraft((d) => (d?.id === current.id && d.dirty ? { ...d, def: { ...d.def, enabled } } : d));
-      setStatus(`${enabled ? "Enabled" : "Disabled"} ${current.name}`);
+      setDraft((d) => (d?.id === wf.id && d.dirty ? { ...d, def: { ...d.def, enabled } } : d));
+      setStatus(`${enabled ? "Enabled" : "Disabled"} ${wf.name}`);
     } catch (err) {
       setActionError(`${enabled ? "Enable" : "Disable"} failed: ${message(err)}`);
     }
@@ -742,112 +756,107 @@ export function Workflows() {
   }
 
   return (
-    <main id="main" className="wf-board" tabIndex={-1} data-live-flash={live.flash || undefined}>
-      {errors.length > 0 ? (
-        <p className="notice notice--error wf-notice" role="alert">
-          {errors.join(" · ")}
-        </p>
-      ) : null}
-      {deleted ? (
-        <output className="notice notice--undo wf-notice">
-          <span>Deleted {deleted.name}</span>
-          <button type="button" className="wf-button" onClick={() => void undoDelete()}>
-            Undo
-          </button>
-          <button
-            type="button"
-            className="icon-button icon-button--small"
-            aria-label="Dismiss"
-            onClick={() => setDeleted(null)}
-          >
-            ×
-          </button>
-        </output>
-      ) : null}
-      <div className="wf-head">
-        {!creating && current && workflow ? (
-          <WorkflowHead
-            name={workflow.name}
-            current={current}
-            workflows={workflows}
-            renaming={renaming}
-            renameButton={renameButton}
-            onRename={() => (renaming ? closeRename() : setRenaming(true))}
-            onSwitch={(id) => setQuery({ id, run: null })}
-            onToggle={() => void toggleWorkflow()}
-            onDelete={() => void removeWorkflow()}
-          />
-        ) : (
-          <HeadTitle creating={creating} empty={empty} />
-        )}
-        <span className="wf-head__end">
-          {loaded ? (
+    <div className="rules-board wf-layout">
+      <WorkflowList
+        workflows={workflows}
+        selectedId={creating ? null : (current?.id ?? null)}
+        slotOf={slotOf}
+        onToggle={(wf) => void toggleWorkflow(wf)}
+        onNew={openNew}
+        onOpen={openRow}
+        newRef={newButton}
+      />
+      <main id="main" className="wf-board" tabIndex={-1} data-live-flash={live.flash || undefined}>
+        {errors.length > 0 ? (
+          <p className="notice notice--error wf-notice" role="alert">
+            {errors.join(" · ")}
+          </p>
+        ) : null}
+        {deleted ? (
+          <output className="notice notice--undo wf-notice">
+            <span>Deleted {deleted.name}</span>
+            <button type="button" className="wf-button" onClick={() => void undoDelete()}>
+              Undo
+            </button>
             <button
-              ref={newButton}
               type="button"
-              className="wf-button"
-              aria-label="New workflow"
-              aria-expanded={creating}
-              onClick={() => (creating ? closeNew() : openNew())}
+              className="icon-button icon-button--small"
+              aria-label="Dismiss"
+              onClick={() => setDeleted(null)}
             >
-              <PlusIcon size={16} />
-              New
+              ×
+            </button>
+          </output>
+        ) : null}
+        <div className="wf-head">
+          {!creating && current && workflow ? (
+            <WorkflowHead
+              name={workflow.name}
+              current={current}
+              renaming={renaming}
+              renameButton={renameButton}
+              onRename={() => (renaming ? closeRename() : setRenaming(true))}
+              onDelete={() => void removeWorkflow()}
+            />
+          ) : (
+            <HeadTitle creating={creating} empty={empty} />
+          )}
+          <span className="wf-head__end">
+            <IoControls
+              onImported={() => setReload((n) => n + 1)}
+              onStatus={(t) => {
+                setActionError(null);
+                setStatus(t);
+              }}
+              onError={setActionError}
+            />
+          </span>
+          {draft?.dirty && !creating ? (
+            <button
+              type="button"
+              className="wf-button wf-button--save"
+              disabled={saving}
+              onClick={() => void save()}
+            >
+              Save
             </button>
           ) : null}
-          <IoControls
-            onImported={() => setReload((n) => n + 1)}
-            onStatus={(t) => {
-              setActionError(null);
-              setStatus(t);
-            }}
-            onError={setActionError}
-          />
-        </span>
-        {draft?.dirty && !creating ? (
-          <button
-            type="button"
-            className="wf-button wf-button--save"
-            disabled={saving}
-            onClick={() => void save()}
-          >
-            Save
-          </button>
-        ) : null}
-        {creating ? null : (
-          <button
-            type="button"
-            className="wf-run"
-            disabled={!runRule}
-            title={runTitle(runRule)}
-            onClick={() => void start()}
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <path d="M7 4v16l13-8z" />
+          {creating ? null : (
+            <button
+              type="button"
+              className="wf-run"
+              disabled={!runRule}
+              title={runTitle(runRule)}
+              onClick={() => void start()}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M7 4v16l13-8z" />
+              </svg>
+              Run
+            </button>
+          )}
+        </div>
+        <output className="wf-status">{status}</output>
+
+        {body}
+
+        <div className="wf-foot">
+          <span className="wf-legend">
+            <svg width="34" height="4" aria-hidden="true">
+              <path d="M0 2 H34" className="wf-legend__line" />
             </svg>
-            Run
-          </button>
-        )}
-      </div>
-      <output className="wf-status">{status}</output>
-
-      {body}
-
-      <div className="wf-foot">
-        <span className="wf-legend">
-          <svg width="34" height="4" aria-hidden="true">
-            <path d="M0 2 H34" className="wf-legend__line" />
-          </svg>
-          same machine
-        </span>
-        <span className="wf-legend">
-          <svg width="34" height="4" aria-hidden="true">
-            <path d="M0 2 H34" className="wf-legend__line wf-legend__line--cross" />
-          </svg>
-          crosses machines
-        </span>
-        <RecentRuns runs={runs} runId={runId} params={params} now={now} />
-      </div>
-    </main>
+            same machine
+          </span>
+          <span className="wf-legend">
+            <svg width="34" height="4" aria-hidden="true">
+              <path d="M0 2 H34" className="wf-legend__line wf-legend__line--cross" />
+            </svg>
+            crosses machines
+          </span>
+          <RecentRuns runs={runs} runId={runId} params={params} now={now} />
+        </div>
+      </main>
+    </div>
   );
 }
 
