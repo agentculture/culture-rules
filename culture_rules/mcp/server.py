@@ -20,14 +20,15 @@ class ServerExtraMissing(ImportError):
     """The ``mcp`` extra is not installed."""
 
 
+_EXTRA_MESSAGE = "the MCP server needs the 'mcp' extra: pip install 'culture-rules[mcp]'"
+
+
 def _sdk():
     try:
         import mcp.types as types  # noqa: PLC0415 - optional extra
         from mcp.server.lowlevel import Server  # noqa: PLC0415
     except ImportError as exc:
-        raise ServerExtraMissing(
-            "the MCP server needs the 'mcp' extra: pip install 'culture-rules[mcp]'"
-        ) from exc
+        raise ServerExtraMissing(_EXTRA_MESSAGE) from exc
     return Server, types
 
 
@@ -56,9 +57,16 @@ def build_server(client_factory: Callable[[], Any] | None = None):
 
 
 def run_stdio() -> None:
-    """Serve over stdio until the client disconnects."""
-    import anyio  # noqa: PLC0415
-    from mcp.server.stdio import stdio_server  # noqa: PLC0415
+    """Serve over stdio until the client disconnects.
+
+    Raises :class:`ServerExtraMissing` when the ``mcp`` extra (the SDK and its ``anyio``)
+    is not installed, before anything is served.
+    """
+    try:
+        import anyio  # noqa: PLC0415 - optional extra (an mcp dependency)
+        from mcp.server.stdio import stdio_server  # noqa: PLC0415
+    except ImportError as exc:
+        raise ServerExtraMissing(_EXTRA_MESSAGE) from exc
 
     server = build_server()
 

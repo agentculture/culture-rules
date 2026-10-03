@@ -132,3 +132,37 @@ def test_run_node_configures_json_logging_for_its_host(node_rig, monkeypatch):
     monkeypatch.setattr(runner, "configure_logging", lambda **kw: calls.append(kw))
     runner.run_node("spark", once=True)
     assert calls == [{"host": "spark"}]
+
+
+def test_an_event_source_setup_failure_degrades_the_node_instead_of_crashing(monkeypatch, caplog):
+    class Rejecting:
+        EventsError = RuntimeError
+
+        def open_store(self):
+            return object()
+
+        def get_subscription(self, name, registry=None):
+            return None
+
+        def add_subscription(self, name, pattern, **kw):
+            raise RuntimeError("invalid subscription: pattern: must not contain '#'")
+
+    monkeypatch.setattr(events_cli_adapter, "load_events_cli", Rejecting)
+    with caplog.at_level("WARNING", logger="culture_rules.node"):
+        assert runner.open_event_source("spark") is None
+    assert "no event source for spark" in caplog.text
+
+
+def test_the_real_events_cli_never_crashes_node_startup(monkeypatch, tmp_path):
+    """With events-cli installed and no broker, the node starts degraded (no ingest)."""
+    pytest.importorskip("events_cli.subs")
+    import socket
+
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    monkeypatch.setenv("EVENTS_HISTORY_DIR", str(tmp_path / "history"))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    monkeypatch.setenv("EVENTS_BROKER_HOST", "127.0.0.1")
+    monkeypatch.setenv("EVENTS_BROKER_PORT", str(port))
+    assert runner.open_event_source("spark") is None

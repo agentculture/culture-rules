@@ -99,3 +99,21 @@ def test_node_run_is_in_learn_and_explain(capsys):
     assert ("node", "run") in listed
     assert main(["explain", "node", "run"]) == 0
     assert "--once" in capsys.readouterr().out
+
+
+def test_node_run_defaults_the_host_to_culture_rules_node_name(store, monkeypatch, capsys):
+    monkeypatch.setattr(runner, "open_event_source", lambda host: None)
+    monkeypatch.setenv("CULTURE_RULES_NODE_NAME", "spark")
+    monkeypatch.setattr("socket.gethostname", lambda: "spark-f8a9")
+    assert main(["node", "run", "--once", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["host"] == "spark"
+    assert main(["node", "run", "--once", "--json", "--host", "other"]) == 0
+    assert json.loads(capsys.readouterr().out)["host"] == "other"
+
+
+def test_node_run_without_node_name_uses_the_short_hostname(monkeypatch):
+    monkeypatch.delenv("CULTURE_RULES_NODE_NAME", raising=False)
+    monkeypatch.setattr("socket.gethostname", lambda: "spark-f8a9.lan")
+    assert runner.default_host() == "spark-f8a9"
+    monkeypatch.setenv("CULTURE_RULES_NODE_NAME", "  ")
+    assert runner.default_host() == "spark-f8a9"

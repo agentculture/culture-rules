@@ -145,11 +145,21 @@ _SERVE = """\
 
 Runs the HTTP API under uvicorn (needs `pip install 'culture-rules[server]'` and, for the
 default store, the `store` extra). Stateless: run as many copies as you like against one store.
+Without a usable store (`CULTURE_RULES_MONGO_URI` unset, or the store unreachable) it exits `2`.
+
+## Parameters
+
+- `--host` (string) — bind address (default `CULTURE_RULES_HOST` or 127.0.0.1)
+- `--port` (integer) — port (default `CULTURE_RULES_PORT` or 8765)
+- `--admin` (string, repeatable) — identity allowed to purge
+- `--node-name` (string) — the engine node `/health` reports on (default
+  `CULTURE_RULES_NODE_NAME`, else the short hostname); match the node's `--host`
 
 ## Usage
 
     culture-rules serve --host 127.0.0.1 --port 8765
     culture-rules serve --admin alice
+    CULTURE_RULES_NODE_NAME=spark culture-rules serve
 """
 
 _NODE = """\
@@ -178,7 +188,8 @@ failed); without it the node loops until SIGINT/SIGTERM and stops gracefully.
 
 ## Parameters
 
-- `--host` (string) — this node's machine name (default: the short hostname)
+- `--host` (string) — this node's machine name (default: `CULTURE_RULES_NODE_NAME`, else the
+  short hostname)
 - `--once` (boolean) — one full cycle, then exit
 - `--idle` (number) — pause between cycles in seconds (default 1)
 - `--json` (boolean) — report what the cycle did as JSON

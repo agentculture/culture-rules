@@ -156,7 +156,7 @@ describe("Statistics board (Chosen — Statistics)", () => {
     mockFetch(routes());
     renderStats();
     await screen.findByRole("region", { name: "orin" });
-    await waitFor(() => expect(getAgentState().status).not.toBe("x"));
+    await waitFor(() => expect(getAgentState().status).toBe("ready"));
     const s = getAgentState() as unknown as {
       tab: string;
       view_ready: boolean;

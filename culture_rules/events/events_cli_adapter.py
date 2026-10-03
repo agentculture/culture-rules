@@ -14,12 +14,30 @@ replays what events-cli already persisted past ``after`` (an event drained and
 acknowledged before culture-rules stored it is recovered from there, not lost),
 and only when history is caught up drains the broker session, which persists
 each event before acknowledging it. Either way the batch is bounded by ``max``.
+
+Subscribing to every event type
+-------------------------------
+events-cli has no catch-all pattern. A pattern is a dotted event type in which
+``*`` stands for exactly one segment (``task.*`` compiles to ``events/task/+``),
+and the raw MQTT filter characters ``#``, ``+`` and ``/`` are rejected with a
+``SubscriptionValidationError``, so ``#`` can never be used. A subscription
+holds one pattern. The node therefore registers one durable subscription per
+type depth - ``*``, ``*.*``, ``*.*.*``, ... up to :data:`DEFAULT_DEPTH`
+segments - and :class:`EventsCliFanIn` drains them as one :class:`EventSource`
+with a composite cursor. Event types deeper than :data:`DEFAULT_DEPTH` segments
+are not ingested.
+
+Every events-cli error (``EventsError``: validation, broker, registry, drain)
+is re-raised as :class:`EventFabricError`, which the node treats as "no event
+source": it logs a warning and keeps running without ingest.
 """
 
 from __future__ import annotations
 
+import json
 import re
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from types import SimpleNamespace
 from typing import Any
 
@@ -27,14 +45,29 @@ from culture_rules.events.source import EventFabricError, SourceBatch
 
 EXTRA_HINT = "install the optional extra: pip install 'culture-rules[events]'"
 SUBSCRIPTION_PREFIX = "culture-rules-"
-DEFAULT_PATTERN = "#"
+DEFAULT_DEPTH = 4
+"""Deepest event type (in dotted segments) the default host subscriptions cover."""
+
+
+def depth_patterns(depth: int = DEFAULT_DEPTH) -> tuple[str, ...]:
+    """``("*", "*.*", ...)``: one events-cli pattern per type depth, 1..``depth``."""
+    if not isinstance(depth, int) or isinstance(depth, bool) or depth < 1:
+        raise ValueError("depth must be a positive int")
+    return tuple(".".join("*" * n) for n in range(1, depth + 1))
+
+
+DEFAULT_PATTERNS = depth_patterns()
+"""The patterns a host subscribes to: together they match every type up to DEFAULT_DEPTH."""
 DEFAULT_PUBLISH_WAIT = 5.0
+MIN_DRAIN_TIMEOUT = 0.2
+"""events-cli rejects a drain timeout <= 0; a caller's "do not wait" becomes this bound."""
 
 
 def load_events_cli() -> Any:
     """Return the events-cli API surface the adapters use, importing it lazily."""
     try:
         from events_cli.core.envelope import Envelope
+        from events_cli.core.errors import EventsError
         from events_cli.core.topics import type_to_topic
         from events_cli.history import open_store
         from events_cli.subs import add_subscription, drain_subscription, get_subscription
@@ -42,6 +75,7 @@ def load_events_cli() -> Any:
         raise EventFabricError(f"events-cli is not available ({exc}); {EXTRA_HINT}") from None
     return SimpleNamespace(
         Envelope=Envelope,
+        EventsError=EventsError,
         type_to_topic=type_to_topic,
         open_store=open_store,
         add_subscription=add_subscription,
@@ -74,6 +108,20 @@ def subscription_name(host: str) -> str:
     return SUBSCRIPTION_PREFIX + slug
 
 
+@contextmanager
+def translated(api: Any, label: str) -> Iterator[None]:
+    """Re-raise events-cli's own errors (``api.EventsError``) as :class:`EventFabricError`."""
+    events_error = getattr(api, "EventsError", None)
+    if not isinstance(events_error, type) or not issubclass(events_error, Exception):
+        events_error = ()  # an API surface without one (a test fake): nothing to translate
+    try:
+        yield
+    except events_error as exc:
+        hint = getattr(exc, "remediation", "")
+        detail = f"{exc} ({hint})" if hint else str(exc)
+        raise EventFabricError(f"{label}: {detail}") from exc
+
+
 def _parse_cursor(after: str | None) -> int:
     if after is None:
         return 0
@@ -93,7 +141,7 @@ class EventsCliSource:
         self,
         name: str,
         *,
-        pattern: str = DEFAULT_PATTERN,
+        pattern: str,
         api: Any = None,
         history: Any = None,
         **drain_options: Any,
@@ -101,21 +149,29 @@ class EventsCliSource:
         self.name = name
         self.pattern = pattern
         self._api = api if api is not None else load_events_cli()
-        self._history = history if history is not None else self._api.open_store()
+        if history is None:
+            with translated(self._api, "events-cli history store"):
+                history = self._api.open_store()
+        self._history = history
         self._drain_options = drain_options  # address=, registry=, client_factory=, ...
 
     @classmethod
-    def for_host(cls, host: str, **kwargs: Any) -> EventsCliSource:
-        return cls(subscription_name(host), **kwargs)
+    def for_host(cls, host: str, *, pattern: str, **kwargs: Any) -> EventsCliSource:
+        return cls(subscription_name(host), pattern=pattern, **kwargs)
 
     def ensure(self) -> None:
         """Register the durable subscription with events-cli if it is not registered yet."""
         registry = self._drain_options.get("registry")
-        if self._api.get_subscription(self.name, registry=registry) is None:
-            options = {k: v for k, v in self._drain_options.items() if k != "store"}
-            self._api.add_subscription(self.name, self.pattern, **options)
+        with translated(self._api, f"subscription {self.name!r}"):
+            if self._api.get_subscription(self.name, registry=registry) is None:
+                options = {k: v for k, v in self._drain_options.items() if k != "store"}
+                self._api.add_subscription(self.name, self.pattern, **options)
 
     def drain(self, after: str | None, *, max: int, timeout: float) -> SourceBatch:
+        with translated(self._api, f"subscription {self.name!r}"):
+            return self._drain(after, max=max, timeout=timeout)
+
+    def _drain(self, after: str | None, *, max: int, timeout: float) -> SourceBatch:
         since = _parse_cursor(after)
         page = self._history.read(self.name, since=since, max=max)
         if page.records:
@@ -128,7 +184,7 @@ class EventsCliSource:
                 self.name,
                 since=since,
                 max=max,
-                timeout=timeout,
+                timeout=timeout if timeout > MIN_DRAIN_TIMEOUT else MIN_DRAIN_TIMEOUT,
                 store=self._history,
                 **options,
             )
@@ -136,6 +192,92 @@ class EventsCliSource:
         envelopes = tuple(record.envelope.to_dict() for record in records)
         out = after if cursor == since else str(cursor)
         return SourceBatch(envelopes=envelopes, cursor=out, has_more=bool(has_more))
+
+
+def _parse_fan_in_cursor(after: str | None, names: Sequence[str]) -> dict[str, str]:
+    if after is None:
+        return {}
+    try:
+        value = json.loads(after)
+    except (TypeError, ValueError):
+        value = None
+    if (
+        not isinstance(value, dict)
+        or not set(value) <= set(names)
+        or not all(isinstance(v, str) for v in value.values())
+    ):
+        raise EventFabricError(f"not a fan-in cursor: {after!r}")
+    return dict(value)
+
+
+class EventsCliFanIn:
+    """Several durable subscriptions drained as one :class:`EventSource`.
+
+    The cursor is a JSON object mapping each subscription name to its own events-cli
+    cursor. A batch never holds more than ``max`` envelopes; the subscription drained
+    first rotates from call to call so a busy one cannot starve the others, and only the
+    first one drained in a call waits up to ``timeout`` (the others drain for the shortest
+    time events-cli allows, :data:`MIN_DRAIN_TIMEOUT`).
+    """
+
+    def __init__(self, name: str, sources: Sequence[EventsCliSource]) -> None:
+        if not sources:
+            raise ValueError("a fan-in needs at least one source")
+        self.name = name
+        self.sources = tuple(sources)
+        self._next = 0
+
+    def ensure(self) -> None:
+        """Register every subscription that is not registered yet."""
+        for source in self.sources:
+            source.ensure()
+
+    def drain(self, after: str | None, *, max: int, timeout: float) -> SourceBatch:
+        cursors = _parse_fan_in_cursor(after, [s.name for s in self.sources])
+        count = len(self.sources)
+        order = [self.sources[(self._next + i) % count] for i in range(count)]
+        self._next = (self._next + 1) % count
+        envelopes: list[Mapping[str, Any]] = []
+        has_more = False
+        wait = timeout
+        for source in order:
+            remaining = max - len(envelopes)
+            if remaining <= 0:
+                has_more = True
+                break
+            batch = source.drain(cursors.get(source.name), max=remaining, timeout=wait)
+            wait = 0.0
+            envelopes.extend(batch.envelopes[:remaining])
+            if batch.cursor is not None:
+                cursors[source.name] = batch.cursor
+            has_more = has_more or batch.has_more
+        out = json.dumps(cursors, sort_keys=True, separators=(",", ":")) if cursors else None
+        if after is not None and out is not None and json.loads(after) == cursors:
+            out = after
+        return SourceBatch(envelopes=tuple(envelopes), cursor=out, has_more=has_more)
+
+
+def open_host_source(
+    host: str, *, patterns: Sequence[str] = DEFAULT_PATTERNS, **kwargs: Any
+) -> EventsCliFanIn:
+    """This host's event source: one durable subscription per pattern, drained together.
+
+    The subscription for ``patterns[i]`` is named ``culture-rules-<host>-d<i+1>``; the
+    fan-in itself (and so the ingest cursor slot) is ``culture-rules-<host>``.
+    """
+    name = subscription_name(host)
+    api = kwargs.pop("api", None)
+    if api is None:
+        api = load_events_cli()
+    history = kwargs.pop("history", None)
+    if history is None:
+        with translated(api, "events-cli history store"):
+            history = api.open_store()
+    sources = [
+        EventsCliSource(f"{name}-d{i}", pattern=pattern, api=api, history=history, **kwargs)
+        for i, pattern in enumerate(patterns, start=1)
+    ]
+    return EventsCliFanIn(name, sources)
 
 
 class EventsCliSink:
