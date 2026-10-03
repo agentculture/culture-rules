@@ -519,6 +519,9 @@ source = { editable = "." }
 backup = [
     { name = "boto3" },
 ]
+events = [
+    { name = "events-cli" },
+]
 server = [
     { name = "fastapi" },
     { name = "uvicorn" },
@@ -553,12 +556,13 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "boto3", marker = "extra == 'backup'", specifier = ">=1.34" },
+    { name = "events-cli", marker = "extra == 'events'", specifier = ">=0.10" },
     { name = "fastapi", marker = "extra == 'server'", specifier = ">=0.115" },
     { name = "pymongo", marker = "extra == 'store'", specifier = ">=4.8" },
     { name = "pyyaml", marker = "extra == 'yaml'", specifier = ">=6.0" },
     { name = "uvicorn", marker = "extra == 'server'", specifier = ">=0.30" },
 ]
-provides-extras = ["yaml", "store", "server", "backup"]
+provides-extras = ["yaml", "store", "server", "backup", "events"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -587,6 +591,18 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/8c/8b/57666417c0f90f08bcafa776861060426765fdb422eb10212086fb811d26/dnspython-2.8.0.tar.gz", hash = "sha256:181d3c6996452cb1189c4046c61599b84a5a86e099562ffde77d26984ff26d0f", size = 368251, upload-time = "2025-09-07T18:58:00.022Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ba/5a/18ad964b0086c6e62e2e7500f7edc89e3faa45033c71c1893d34eed2b2de/dnspython-2.8.0-py3-none-any.whl", hash = "sha256:01d9bbc4a2d76bf0db7c1f729812ded6d912bd318d3b1cf81d30c0f845dbf3af", size = 331094, upload-time = "2025-09-07T18:57:58.071Z" },
+]
+
+[[package]]
+name = "events-cli"
+version = "0.10.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "paho-mqtt" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/b0/7f/41fab1475aa258823746e2da62d9822e0ad4cbaf855a5d066931d70ee11b/events_cli-0.10.0.tar.gz", hash = "sha256:835d82fc94703533d78bb156cea773f01b19f4c9d1cb3dd8bd82e22d373c1399", size = 486897, upload-time = "2026-07-24T22:04:09.697Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a6/be/91ce7df0b81579384ed51a98c15ccff0f542e226f6319ee2d0739e3bbd3a/events_cli-0.10.0-py3-none-any.whl", hash = "sha256:03aef3d5d92671b2b879a26a3f731d6b08134ade56536e2b775b6a118d6f6be3", size = 144880, upload-time = "2026-07-24T22:04:08.31Z" },
 ]
 
 [[package]]
@@ -924,6 +940,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/d7/f1/e7a6dd94a8d4a5626c03e4e99c87f241ba9e350cd9e6d75123f992427270/packaging-26.2.tar.gz", hash = "sha256:ff452ff5a3e828ce110190feff1178bb1f2ea2281fa2075aadb987c2fb221661", size = 228134, upload-time = "2026-04-24T20:15:23.917Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/df/b2/87e62e8c3e2f4b32e5fe99e0b86d576da1312593b39f47d8ceef365e95ed/packaging-26.2-py3-none-any.whl", hash = "sha256:5fc45236b9446107ff2415ce77c807cee2862cb6fac22b8a73826d0693b0980e", size = 100195, upload-time = "2026-04-24T20:15:22.081Z" },
+]
+
+[[package]]
+name = "paho-mqtt"
+version = "2.1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/39/15/0a6214e76d4d32e7f663b109cf71fb22561c2be0f701d67f93950cd40542/paho_mqtt-2.1.0.tar.gz", hash = "sha256:12d6e7511d4137555a3f6ea167ae846af2c7357b10bc6fa4f7c3968fc1723834", size = 148848, upload-time = "2024-04-29T19:52:55.591Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c4/cb/00451c3cf31790287768bb12c6bec834f5d292eaf3022afc88e14b8afc94/paho_mqtt-2.1.0-py3-none-any.whl", hash = "sha256:6db9ba9b34ed5bc6b6e3812718c7e06e2fd7444540df2455d2c51bd58808feee", size = 67219, upload-time = "2024-04-29T19:52:48.345Z" },
 ]
 
 [[package]]
