@@ -10,7 +10,7 @@ import {
 } from "../api/actors";
 import { ApiError, listMachines } from "../api/client";
 import type { Machine } from "../api/types";
-import { setAgentState, type AgentState } from "../agent-state/store";
+import { setAgentState } from "../agent-state/store";
 import { machineColors } from "../culture-design/chart";
 import { MachineDot, Switch, machineStyle } from "../culture-design/stages";
 import { useTabReady } from "../routes/useTabReady";
@@ -107,7 +107,7 @@ export function ActorsBoard() {
       actors: actors
         ? { count: all.length, shown: shown.length, kind: filter, selected: selected?.id ?? null }
         : null,
-    } as Partial<AgentState>);
+    });
   }, [actors, all.length, shown.length, filter, selected?.id]);
 
   const select = (id: string) => {

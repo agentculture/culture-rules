@@ -9,8 +9,8 @@ import {
 
 /**
  * Statistics-tab routes for the mocked API: the four machines of the
- * 'Chosen — Statistics' board (orin offline), their runs, and the proposed
- * `GET /machines/status`. Compose after `mockApi(page)`: Playwright runs the
+ * 'Chosen — Statistics' board (orin offline), their runs, and
+ * `GET /machines/status` (left out with `status: false`, so it fails). Compose after `mockApi(page)`: Playwright runs the
  * most recently registered matching route first, so these win.
  */
 export async function mockStatistics(page: Page, opts: { status?: boolean } = {}) {

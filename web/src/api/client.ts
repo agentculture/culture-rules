@@ -34,38 +34,67 @@ export class ApiError extends Error {
   }
 }
 
-async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
+export type Method = "GET" | "POST" | "PUT" | "DELETE";
+
+/**
+ * One call to the API: JSON in, JSON out, the error envelope turned into an
+ * `ApiError`. Answers the parsed body, which may be `null` for an empty
+ * answer. Every tab adapter builds on this (and `getJson`); none attaches a
+ * credential.
+ */
+export async function request<T>(
+  method: Method,
+  path: string,
+  body?: unknown,
+  signal?: AbortSignal,
+): Promise<T> {
   let response: Response;
   try {
     response = await fetch(`${API_ROOT}${path}`, {
+      method,
       signal,
-      headers: { accept: "application/json" },
+      headers: {
+        accept: "application/json",
+        ...(body === undefined ? {} : { "content-type": "application/json" }),
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch {
     throw new ApiError(0, "unreachable", `cannot reach the culture-rules API at ${API_ROOT}`);
   }
   const text = await response.text();
-  let body: unknown = null;
+  let parsed: unknown = null;
   try {
-    body = text ? JSON.parse(text) : null;
+    parsed = text ? JSON.parse(text) : null;
   } catch {
-    body = null;
+    parsed = null;
   }
   if (!response.ok) {
-    const envelope = body as Partial<ErrorEnvelope> | null;
+    const envelope = parsed as Partial<ErrorEnvelope> | null;
     throw new ApiError(
       response.status,
       envelope?.error?.code ?? "http_error",
       envelope?.error?.message ?? `${response.status} ${response.statusText}`.trim(),
     );
   }
-  if (body === null) {
-    throw new ApiError(response.status, "not_json", `${path} did not return JSON`);
-  }
-  return body as T;
+  return parsed as T;
 }
 
-function query(params: Record<string, string | number | undefined>): string {
+/** `GET path`; a 2xx answer that is not JSON is an `ApiError` (`not_json`). */
+export async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
+  const body = await request<T | null>("GET", path, undefined, signal);
+  if (body === null) {
+    throw new ApiError(200, "not_json", `${path} did not return JSON`);
+  }
+  return body;
+}
+
+/** `GET path` of an `{items}` list route, unwrapped. */
+export const items = async <T,>(path: string, signal?: AbortSignal): Promise<T[]> =>
+  (await getJson<ItemList<T>>(path, signal)).items;
+
+/** A query string from the defined params (`?a=1&b=2`, or "" when none). */
+export function query(params: Record<string, string | number | undefined>): string {
   const search = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined) search.set(key, String(value));
@@ -74,9 +103,6 @@ function query(params: Record<string, string | number | undefined>): string {
   return q ? `?${q}` : "";
 }
 
-const items = async <T>(path: string, signal?: AbortSignal) =>
-  (await getJson<ItemList<T>>(path, signal)).items;
-
 export const listRules = (signal?: AbortSignal) => items<Rule>("/rules", signal);
 export const listWorkflows = (signal?: AbortSignal) => items<Workflow>("/workflows", signal);
 export const listMachines = (signal?: AbortSignal) => items<Machine>("/machines", signal);
@@ -84,6 +110,10 @@ export const listMachines = (signal?: AbortSignal) => items<Machine>("/machines"
 export interface ListRunsParams {
   status?: string;
   rule_id?: string;
+  /** Only runs of this workflow. */
+  workflow_id?: string;
+  /** Only runs with a step dispatched to this machine. */
+  host?: string;
   limit?: number;
 }
 

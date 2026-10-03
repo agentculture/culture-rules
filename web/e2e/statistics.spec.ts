@@ -86,9 +86,9 @@ test.describe("Statistics tab", () => {
     await expect(page.getByRole("region", { exact: true, name: "spark" })).toBeVisible();
   });
 
-  test("without a status endpoint it falls back to runs and says so", async ({ page }) => {
+  test("when /machines/status fails it falls back to runs and says so", async ({ page }) => {
     await open(page, { status: false });
-    await expect(page.getByText(/not available from this API yet/)).toBeVisible();
+    await expect(page.getByText(/not available right now/)).toBeVisible();
     await expect(page.getByRole("region", { exact: true, name: "thor" }).getByText("n/a")).toHaveCount(3);
   });
 

@@ -17,7 +17,7 @@ from typing import Any
 
 from culture_rules.engine.audit import AuditLog, mutating_verb, require_identity
 from culture_rules.engine.ruleset import validate_rule_set
-from culture_rules.io import exchange
+from culture_rules.io import exchange, gitrepo
 from culture_rules.io.bundle import KINDS, Bundle, SecretRef, check_name
 from culture_rules.model.machine import Machine
 from culture_rules.model.rule import Rule
@@ -44,10 +44,18 @@ class ServiceError(Exception):
 
     code = "error"
 
-    def __init__(self, message: str, errors: Iterable[Mapping[str, Any]] = ()) -> None:
+    def __init__(
+        self,
+        message: str,
+        errors: Iterable[Mapping[str, Any]] = (),
+        *,
+        code: str | None = None,
+    ) -> None:
         super().__init__(message)
         self.message = message
         self.errors = [dict(e) for e in errors]
+        if code:
+            self.code = code
 
 
 class Invalid(ServiceError):
@@ -236,13 +244,109 @@ class Definitions:
 
     # ------------------------------------------------------------------ export / import
 
+    def live_bundle(self) -> Bundle:
+        """Every live (not soft-deleted) definition as a :class:`Bundle`."""
+        return exchange.bundle_from_store(_LiveView(self._store))
+
     def export_files(self, fmt: str = "json") -> dict[str, str]:
         """Live definitions as ``<kind>/<id>.<ext>`` -> text (secrets as references only)."""
-        bundle = exchange.bundle_from_store(_LiveView(self._store))
         try:
-            return exchange.bundle_files(bundle, fmt)
+            return exchange.bundle_files(self.live_bundle(), fmt)
         except ValueError as exc:
             raise Invalid(str(exc), [{"path": "format", "code": "format", "message": str(exc)}])
+
+    # ------------------------------------------------------------------ repositories
+
+    @mutating_verb("definitions.export_repo", "Export definitions into a configured git repo")
+    def export_to_repo(
+        self,
+        target: Any,
+        identity: str,
+        *,
+        fmt: str = "json",
+        directory: str = "",
+        apply: bool = False,
+        push: bool = False,
+    ) -> dict[str, Any]:
+        """Write live definitions into ``target`` (a local working tree) and commit them.
+
+        Dry-run unless ``apply``: the plan lists each file's action and nothing is written.
+        ``push`` (only with ``apply``) runs ``git push origin HEAD`` after the commit. An
+        applied export writes one audit entry, whether or not anything changed.
+        """
+        require_identity(identity)
+        if not target.writable:
+            raise Invalid(
+                f"repo {target.name!r} is not a local working tree; exports need one",
+                [{"path": "repo", "code": "repo_not_local", "message": target.location}],
+                code="repo_not_local",
+            )
+        try:
+            saved = gitrepo.save_to_repo(
+                self.live_bundle(),
+                target.location,
+                directory=directory,
+                fmt=fmt,
+                apply=apply,
+                push=push and apply,
+            )
+        except gitrepo.GitError as exc:
+            raise Invalid(
+                str(exc), [{"path": "repo", "code": "git", "message": str(exc)}], code="git_error"
+            ) from exc
+        except ValueError as exc:
+            raise Invalid(
+                str(exc), [{"path": "directory", "code": "invalid", "message": str(exc)}]
+            ) from exc
+        result = {
+            "repo": target.name,
+            "applied": saved.plan.applied,
+            "committed": saved.committed,
+            "pushed": saved.pushed,
+            "commit": saved.commit,
+            "changes": [
+                {"kind": c.kind, "id": c.id, "path": c.path, "action": c.action}
+                for c in saved.plan.changes
+            ],
+        }
+        if apply:
+            self._audit.write(
+                self._store,
+                identity=identity,
+                verb="definitions.export_repo",
+                collection="export",
+                target_id=f"export-{uuid.uuid4().hex[:12]}",
+                before=None,
+                after={
+                    "repo": target.name,
+                    "commit": saved.commit,
+                    "pushed": saved.pushed,
+                    "written": sorted(
+                        c.path for c in saved.plan.changes if c.action != "unchanged"
+                    ),
+                },
+            )
+        return result
+
+    @staticmethod
+    def repo_files(target: Any, *, directory: str = "", ref: str | None = None) -> dict[str, str]:
+        """Definition files read from a clone of ``target`` (refused with every read error)."""
+        try:
+            read = gitrepo.load_from_repo(target.location, directory=directory, ref=ref)
+        except gitrepo.GitError as exc:
+            raise Invalid(
+                str(exc), [{"path": "repo", "code": "git", "message": str(exc)}], code="git_error"
+            ) from exc
+        except ValueError as exc:
+            raise Invalid(
+                str(exc), [{"path": "directory", "code": "invalid", "message": str(exc)}]
+            ) from exc
+        if read.errors:
+            raise Invalid("repo definitions failed validation", [e.to_dict() for e in read.errors])
+        try:
+            return exchange.bundle_files(read.bundle, "json")
+        except ValueError as exc:
+            raise Invalid(str(exc), [{"path": "repo", "code": "invalid", "message": str(exc)}])
 
     def _plan(self, tx: Any, files: Mapping[str, str]) -> tuple[dict[str, Any], list]:
         read = exchange.read_files(files)

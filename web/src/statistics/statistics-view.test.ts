@@ -80,6 +80,26 @@ describe("buildLanes", () => {
     expect(lanes().map((l) => l.slot)).toEqual([0, 1, 2, null]);
   });
 
+  it("attributes a run to the hosts its steps ran on when the API reports them", () => {
+    const at = new Date(NOW - 60_000).toISOString();
+    const base = { status: "succeeded", rule_id: "rule-thor", workflow_id: "train-batch", started_by: "t", created_at: at, finished_at: at };
+    const l = buildLanes({
+      machines: STAT_MACHINES,
+      rules: STAT_RULES,
+      runs: [
+        { ...base, id: "h1", hosts: ["spark2"] },
+        { ...base, id: "h2", hosts: ["spark2", "thor"], status: "failed" },
+      ],
+      statuses: statStatuses(NOW),
+      range: "1h",
+      now: NOW,
+    });
+    const by = Object.fromEntries(l.map((lane) => [lane.name, lane]));
+    // rule-thor is placed on thor, but the steps ran on spark2 (and thor for h2)
+    expect(by.spark2).toMatchObject({ ok: 1, failed: 1 });
+    expect(by.thor).toMatchObject({ ok: 0, failed: 1 });
+  });
+
   it("without a status endpoint, derives running/queue from runs and marks lanes derived", () => {
     const runs = [
       ...statRuns(NOW),

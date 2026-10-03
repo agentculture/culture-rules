@@ -29,6 +29,44 @@ export interface AgentRulesState {
   stages: string[];
 }
 
+/** The Workflows tab's slice (src/workflows/agentState.ts writes it). */
+export interface AgentWorkflowsState {
+  /** Workflows listed. */
+  count: number;
+  /** The workflow on the canvas (?id=). */
+  selected: string | null;
+  /** Its step ids, in definition order (unsaved edits included). */
+  steps: string[];
+  /** The selected step, if any. */
+  step: string | null;
+  /** Unsaved edits exist. */
+  dirty: boolean;
+  /** The run overlaid on the canvas (?run=), from persisted run state. */
+  run: { id: string; status: string } | null;
+}
+
+/** The Actors tab's slice. */
+export interface AgentActorsState {
+  /** Actors listed (all kinds). */
+  count: number;
+  /** Actors shown under the current filter. */
+  shown: number;
+  /** The kind filter ("all" for every kind). */
+  kind: string;
+  selected: string | null;
+}
+
+/** The Statistics tab's slice. */
+export interface AgentStatisticsState {
+  /** One lane per enrolled machine, in lane order. */
+  machines: string[];
+  offline: string[];
+  range: string;
+  view: "lanes" | "table";
+  /** Where load/queue came from: the status endpoint, or derived from runs. */
+  source: "machines/status" | "runs";
+}
+
 export interface AgentState {
   /**
    * Derived, never set directly: `ready` once the current view has finished
@@ -43,6 +81,9 @@ export interface AgentState {
   /** Load errors the current view is showing; empty when all is well. */
   errors: string[];
   rules?: AgentRulesState | null;
+  workflows?: AgentWorkflowsState | null;
+  actors?: AgentActorsState | null;
+  statistics?: AgentStatisticsState | null;
 }
 
 const INITIAL: AgentState = {
