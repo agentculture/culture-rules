@@ -21,7 +21,7 @@ def format_of(filename: str) -> str | None:
 
 def _yaml() -> Any:
     try:
-        import yaml  # noqa: PLC0415 - optional extra, imported lazily
+        import yaml  # noqa: PLC0415 - optional extra imported lazily
     except ImportError as exc:
         raise RuntimeError(
             "YAML support needs the optional extra: pip install 'culture-rules[yaml]'"

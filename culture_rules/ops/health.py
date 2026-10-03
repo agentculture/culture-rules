@@ -55,7 +55,7 @@ def health_status(store: Any, now: datetime, host: str) -> dict[str, Any]:
             "reachable": True,
             "schema_version": None if version is None else str(version),
         }
-    except Exception as exc:  # noqa: BLE001 - health must report, never raise
+    except Exception as exc:  # noqa: BLE001 - health must report and never raise
         out["store"] = {"reachable": False, "schema_version": None, "error": str(exc)}
         out["heartbeat"] = {"age_s": None, "online": False}
         out["executor"] = {"lag_s": None, "due_steps": None}

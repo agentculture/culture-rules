@@ -15,7 +15,7 @@ STORE_REMEDIATION = (
 
 def cmd_serve(args: argparse.Namespace) -> int:
     from culture_rules.server import serve as serve_mod  # noqa: PLC0415 - optional extra
-    from culture_rules.store.port import StoreError  # noqa: PLC0415 - stdlib-only, lazy
+    from culture_rules.store.port import StoreError  # noqa: PLC0415 - stdlib-only and lazy
 
     try:
         if not getattr(args, "json", False):  # stderr stays one JSON document under --json

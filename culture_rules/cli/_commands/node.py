@@ -26,7 +26,7 @@ def _text(summary: dict) -> str:
 
 
 def cmd_node_run(args: argparse.Namespace) -> int:
-    from culture_rules.node import runner  # noqa: PLC0415 - lazy: the engine, not the API
+    from culture_rules.node import runner  # noqa: PLC0415 - lazy (the engine not the API)
 
     try:
         summary = runner.run_node(args.host, once=args.once, idle=args.idle)

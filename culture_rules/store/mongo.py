@@ -176,7 +176,7 @@ def build_client_kwargs(config: MongoConfig) -> dict[str, Any]:
 
 
 def _validate(config: MongoConfig, pymongo: Any) -> None:
-    from pymongo import uri_parser  # noqa: PLC0415 - lazy, after _pymongo() succeeded
+    from pymongo import uri_parser  # noqa: PLC0415 - lazy and after _pymongo() succeeded
 
     del pymongo
     try:

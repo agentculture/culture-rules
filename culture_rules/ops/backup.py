@@ -210,7 +210,7 @@ class Backup:
     def client(self) -> Any:
         if self._client is None:
             try:
-                import boto3  # noqa: PLC0415 - optional 'backup' extra, imported lazily
+                import boto3  # noqa: PLC0415 - optional 'backup' extra imported lazily
             except ImportError as exc:
                 raise BackupError("boto3 is required: pip install 'culture-rules[backup]'") from exc
             kwargs: dict[str, Any] = {"region_name": self.config.region}
@@ -478,7 +478,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     except BackupConfigError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
-    except Exception as exc:  # noqa: BLE001 - structured failure, no traceback
+    except Exception as exc:  # noqa: BLE001 - structured failure and no traceback
         print(f"error: {exc}", file=sys.stderr)
         return 2
     print(json.dumps(result, indent=2, sort_keys=True) if args.json else result)

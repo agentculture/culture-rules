@@ -154,7 +154,7 @@ class FeedConsumer:
         for source in self.sources:
             try:
                 fired += self._poll_source(source)
-            except Exception as exc:  # noqa: BLE001 - re-raised below, after the other sources
+            except Exception as exc:  # noqa: BLE001 - re-raised below after the other sources
                 failure = failure or exc
         if failure is not None:
             raise failure
