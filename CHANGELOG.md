@@ -21,7 +21,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `matches` refuses catastrophic-backtracking patterns at save (422) and treats a stored one as a recorded non-match; its input cap drops from 10,000 to 2,000 characters
 - `!=` on a missing field is now false like every other comparison; write !(a == b) to match when the field is absent
 - A retry after a failed attempt counts against the actor's concurrency cap and token budget
-- Plain strings resolve as references only when their path fits a namespace (trigger envelope fields or event keys, workflow.outputs.*, rules.<id>.outputs.*); others, like rules.yaml or trigger.sh, stay literal
+- Plain strings resolve as references only when their path fits a namespace (trigger envelope fields or event keys, `workflow.outputs.*`, `rules.<id>.outputs.*`); others, like `rules.yaml` or `trigger.sh`, stay literal
 
 ### Fixed
 
