@@ -145,6 +145,7 @@ _SERVE = """\
 
 Runs the HTTP API under uvicorn (needs `pip install 'culture-rules[server]'` and, for the
 default store, the `store` extra). Stateless: run as many copies as you like against one store.
+Without a usable store (`CULTURE_RULES_MONGO_URI` unset, or the store unreachable) it exits `2`.
 
 ## Parameters
 

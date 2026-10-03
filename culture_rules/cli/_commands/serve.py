@@ -7,12 +7,19 @@ import argparse
 from culture_rules.cli._errors import EXIT_ENV_ERROR, CliError
 from culture_rules.cli._output import emit_diagnostic, emit_result
 
+STORE_REMEDIATION = (
+    "set CULTURE_RULES_MONGO_URI (and install 'culture-rules[store]': "
+    "pip install 'culture-rules[store]')"
+)
+
 
 def cmd_serve(args: argparse.Namespace) -> int:
     from culture_rules.server import serve as serve_mod  # noqa: PLC0415 - optional extra
+    from culture_rules.store.port import StoreError  # noqa: PLC0415 - stdlib-only, lazy
 
     try:
-        emit_diagnostic(f"serving the culture-rules API on {args.host or 'default host'}")
+        if not getattr(args, "json", False):  # stderr stays one JSON document under --json
+            emit_diagnostic(f"serving the culture-rules API on {args.host or 'default host'}")
         serve_mod.serve(
             host=args.host,
             port=args.port,
@@ -23,6 +30,8 @@ def cmd_serve(args: argparse.Namespace) -> int:
         raise CliError(EXIT_ENV_ERROR, str(exc), "pip install 'culture-rules[server]'") from exc
     except ImportError as exc:  # the store extra (pymongo) when no store is injected
         raise CliError(EXIT_ENV_ERROR, str(exc), "pip install 'culture-rules[store]'") from exc
+    except StoreError as exc:  # unconfigured (ConfigError) or unreachable store, as node run
+        raise CliError(EXIT_ENV_ERROR, f"cannot open the store: {exc}", STORE_REMEDIATION) from exc
     if getattr(args, "json", False):
         emit_result({"served": True}, json_mode=True)
     return 0
