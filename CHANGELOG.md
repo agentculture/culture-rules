@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.3] - 2026-10-03
+
+### Added
+
+- Workflows tab: New workflow, in the head next to Import and as the empty state's primary action. It asks only for a name (Enter creates, Escape cancels), creates the workflow with POST /workflows (no steps; an id held by a live or soft-deleted workflow moves on to -2, -3, ...) and opens it on the canvas with the step + focused. API errors show inline in the form.
+
+### Fixed
+
+- Editor parity for workflows (spec: every workflow operation reachable from the editor, the CLI and the MCP server): the Workflows tab had no create, rename, enable/disable or delete. It now renames the workflow (a draft edit written by Save), enables and disables it (POST /workflows/{id}/enable|disable), and deletes it softly with Undo (DELETE, then POST /workflows/{id}/restore); deleting a workflow a rule still uses keeps it and names the conflict.
+
 ## [0.10.2] - 2026-10-03
 
 ### Fixed

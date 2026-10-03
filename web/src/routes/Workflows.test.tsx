@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Workflows from "./Workflows";
 import * as client from "../api/client";
 import { getAgentState, resetAgentState } from "../agent-state/store";
@@ -11,6 +11,7 @@ import { mockFetch, type Routes as ApiRoutes } from "../test/mockApi";
 import { act } from "@testing-library/react";
 import { LIVE_DEBOUNCE_MS, setLiveSourceFactory } from "../api/live";
 import { FakeEventSource } from "../test/fakeEventSource";
+import { DOMMatrixStub, MeasuringResizeObserver, useMeasuredLayout } from "../test/reactFlow";
 import {
   ACTORS,
   EXPORT_RESULT,
@@ -76,37 +77,7 @@ const callsOf = (fetchMock: ReturnType<typeof mockFetch>["fetchMock"]) =>
 const methodCalls = (fetchMock: ReturnType<typeof mockFetch>["fetchMock"], method: string, path: string) =>
   callsOf(fetchMock).filter(([url, init]) => (init?.method ?? "GET") === method && url.split("?")[0] === path);
 
-/**
- * jsdom lays nothing out, and React Flow keeps an unmeasured node
- * `visibility: hidden` (which also blanks its accessible name). Give every
- * element a size and a ResizeObserver that reports it, as React Flow's own
- * testing guide does, so the canvas renders as it would in a browser.
- */
-class MeasuringResizeObserver {
-  constructor(private readonly callback: ResizeObserverCallback) {}
-  observe(target: Element) {
-    const size = { width: 190, height: 120 };
-    const box = [{ inlineSize: 190, blockSize: 120 }];
-    const entry = { target, contentRect: size, borderBoxSize: box, contentBoxSize: box };
-    this.callback([entry as unknown as ResizeObserverEntry], this as unknown as ResizeObserver);
-  }
-  unobserve() {}
-  disconnect() {}
-}
-class DOMMatrixStub {
-  m22 = 1;
-}
-const sized = ["offsetWidth", "offsetHeight"] as const;
-const original = sized.map((k) => Object.getOwnPropertyDescriptor(HTMLElement.prototype, k));
-beforeAll(() => {
-  Object.defineProperty(HTMLElement.prototype, "offsetWidth", { configurable: true, get: () => 190 });
-  Object.defineProperty(HTMLElement.prototype, "offsetHeight", { configurable: true, get: () => 120 });
-});
-afterAll(() => {
-  sized.forEach((k, i) => {
-    if (original[i]) Object.defineProperty(HTMLElement.prototype, k, original[i]!);
-  });
-});
+useMeasuredLayout();
 
 /** A step (or the Inputs / Outputs) card on the canvas, by its accessible name. */
 const card = (name: string) => screen.getByRole("group", { name });

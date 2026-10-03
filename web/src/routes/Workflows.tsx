@@ -1,15 +1,19 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { ApiError, listMachines, listRules } from "../api/client";
 import { settleAll } from "../api/settle";
 import { useLiveUpdates, type LiveChange } from "../api/live";
 import type { Machine, Placement, Rule, RunSummary } from "../api/types";
 import {
+  createWorkflowDef,
+  deleteWorkflowDef,
   getRun,
   listActors,
   listWorkflowDefs,
   listWorkflowRuns,
   putWorkflowDef,
+  restoreWorkflowDef,
+  setWorkflowEnabled,
   startRun,
   type Actor,
   type RunDoc,
@@ -29,8 +33,10 @@ import {
   type Connection,
 } from "../workflows/model";
 import PlacementEditor from "../workflows/PlacementEditor";
+import { Switch } from "../culture-design/stages";
 import StepEditor from "../workflows/StepEditor";
-import { ago } from "./rules-view";
+import WorkflowNameForm from "../workflows/WorkflowNameForm";
+import { ago, slugFor } from "./rules-view";
 import { useTabReady } from "./useTabReady";
 import "../workflows/workflows.css";
 
@@ -39,6 +45,8 @@ interface Loaded {
   machines: Machine[];
   actors: Actor[];
   rules: Rule[];
+  /** GET /workflows answered: an empty list really is "no workflows yet". */
+  listed: boolean;
   errors: string[];
 }
 
@@ -50,6 +58,8 @@ const value = <T,>(r: PromiseSettledResult<T>, fallback: T): T =>
 
 const RUN_DONE = new Set(["succeeded", "failed", "cancelled"]);
 const POLL_MS = 2000;
+/** Ids tried past a taken one (a 409: a live or soft-deleted workflow holds it). */
+const MAX_ID_TRIES = 20;
 const LIVE_COLLECTIONS = ["workflows", "runs"] as const;
 
 type Editing = { kind: "placement" | "step"; id: string; trigger: HTMLElement | null } | null;
@@ -64,6 +74,13 @@ type Editing = { kind: "placement" | "step"; id: string; trigger: HTMLElement | 
  *
  * Selection is in the query string: `?id=<workflow>&run=<run id>`. Edits
  * stay a local draft until Save (`PUT /workflows/{id}`).
+ *
+ * "New workflow" (in the io group, and the empty state's primary action)
+ * asks only for a name, creates the workflow (`POST /workflows`, no steps)
+ * and opens it on the canvas with the step `+` focused. Rename edits the
+ * draft's name (Save writes it, like every canvas edit). The head's switch
+ * enables / disables the stored workflow and its delete is a soft delete
+ * with Undo (`POST /workflows/{id}/restore`), as on the Rules tab.
  */
 export function Workflows() {
   const [params, setParams] = useSearchParams();
@@ -79,6 +96,15 @@ export function Workflows() {
     null,
   );
   const [saving, setSaving] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [createBusy, setCreateBusy] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [focusAddStep, setFocusAddStep] = useState<string | null>(null);
+  const [deleted, setDeleted] = useState<WorkflowDef | null>(null);
+  const [renaming, setRenaming] = useState(false);
+  const newButton = useRef<HTMLButtonElement>(null);
+  const renameButton = useRef<HTMLButtonElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
   // Live: `runsTick` re-reads the recent runs, `runTick` the overlaid run.
   const [runsTick, setRunsTick] = useState(0);
   const [runTick, setRunTick] = useState(0);
@@ -100,13 +126,21 @@ export function Workflows() {
           machines: value(machines, [] as Machine[]),
           actors: value(actors, [] as Actor[]),
           rules: value(rules, [] as Rule[]),
+          listed: workflows.status === "fulfilled",
           errors: results.map(settledError).filter((m): m is string => m !== null),
         });
       },
       (message) => {
         // Applying the load failed: show an empty board with the failure named.
         if (controller.signal.aborted) return;
-        setLoaded({ workflows: [], machines: [], actors: [], rules: [], errors: [message] });
+        setLoaded({
+          workflows: [],
+          machines: [],
+          actors: [],
+          rules: [],
+          listed: false,
+          errors: [message],
+        });
       },
     );
     return () => controller.abort();
@@ -133,9 +167,18 @@ export function Workflows() {
   useEffect(() => {
     setSelectedStep(null);
     setEditing(null);
+    setRenaming(false);
   }, [current?.id]);
 
   const workflow = draft && current && draft.id === current.id ? draft.def : null;
+  const empty = loaded !== null && loaded.listed && workflows.length === 0;
+
+  // A workflow just created opens with the step `+` focused: add the first step.
+  useEffect(() => {
+    if (!focusAddStep || workflow?.id !== focusAddStep) return;
+    stageRef.current?.querySelector<HTMLButtonElement>(".wf-add-step")?.focus();
+    setFocusAddStep(null);
+  }, [focusAddStep, workflow?.id]);
   const edit = useCallback((fn: (wf: WorkflowDef) => WorkflowDef) => {
     setDraft((d) => (d ? { ...d, def: fn(d.def), dirty: true } : d));
   }, []);
@@ -295,6 +338,120 @@ export function Workflows() {
     }
   };
 
+  const openNew = () => {
+    setCreateError(null);
+    setRenaming(false);
+    setCreating(true);
+  };
+  const closeRename = () => {
+    setRenaming(false);
+    requestAnimationFrame(() => renameButton.current?.focus());
+  };
+  const closeNew = () => {
+    setCreating(false);
+    setCreateError(null);
+    // The opener: the header button (the empty state's comes back as a new element).
+    requestAnimationFrame(() => newButton.current?.focus());
+  };
+  const create = async (name: string) => {
+    setCreateBusy(true);
+    setCreateError(null);
+    const taken = workflows.map((w) => w.id);
+    try {
+      for (let attempt = 0; ; attempt++) {
+        const def: WorkflowDef = {
+          id: slugFor(name, taken, "workflow"),
+          name,
+          inputs: [],
+          variables: [],
+          steps: [],
+          edges: [],
+          outputs: [],
+          enabled: true,
+        };
+        let made: WorkflowDef | null;
+        try {
+          made = await createWorkflowDef(def);
+        } catch (err) {
+          // 409: the id is held (a soft-deleted workflow keeps it) — try the next one.
+          if (err instanceof ApiError && err.status === 409 && attempt < MAX_ID_TRIES) {
+            taken.push(def.id);
+            continue;
+          }
+          throw err;
+        }
+        const stored = made && typeof made.id === "string" ? made : def;
+        setLoaded((l) =>
+          l ? { ...l, workflows: [...l.workflows.filter((w) => w.id !== stored.id), stored] } : l,
+        );
+        setCreating(false);
+        setDeleted(null);
+        setFocusAddStep(stored.id);
+        setActionError(null);
+        setStatus(`Created ${stored.name}`);
+        setQuery({ id: stored.id, run: null });
+        return;
+      }
+    } catch (err) {
+      setCreateError(message(err));
+    } finally {
+      setCreateBusy(false);
+    }
+  };
+
+  const replaceStored = (doc: WorkflowDef) =>
+    setLoaded((l) =>
+      l ? { ...l, workflows: l.workflows.map((w) => (w.id === doc.id ? doc : w)) } : l,
+    );
+  const toggleWorkflow = async () => {
+    if (!current) return;
+    const enabled = current.enabled === false;
+    setActionError(null);
+    try {
+      const doc = await setWorkflowEnabled(current.id, enabled);
+      replaceStored(doc && typeof doc.id === "string" ? doc : { ...current, enabled });
+      // Unsaved edits survive; they carry the new state so Save does not undo it.
+      setDraft((d) =>
+        d && d.id === current.id && d.dirty ? { ...d, def: { ...d.def, enabled } } : d,
+      );
+      setStatus(`${enabled ? "Enabled" : "Disabled"} ${current.name}`);
+    } catch (err) {
+      setActionError(`${enabled ? "Enable" : "Disable"} failed: ${message(err)}`);
+    }
+  };
+  const removeWorkflow = async () => {
+    if (!current) return;
+    const gone = current;
+    const index = workflows.findIndex((w) => w.id === gone.id);
+    const next = workflows[index + 1] ?? workflows[index - 1];
+    setActionError(null);
+    try {
+      await deleteWorkflowDef(gone.id);
+      setDeleted(gone);
+      setStatus("");
+      setLoaded((l) => (l ? { ...l, workflows: l.workflows.filter((w) => w.id !== gone.id) } : l));
+      setQuery({ id: next ? next.id : null, run: null });
+    } catch (err) {
+      setActionError(`Delete failed: ${message(err)}`);
+    }
+  };
+  const undoDelete = async () => {
+    if (!deleted) return;
+    setActionError(null);
+    try {
+      const doc = await restoreWorkflowDef(deleted.id);
+      const back = doc && typeof doc.id === "string" ? doc : deleted;
+      setLoaded((l) =>
+        l ? { ...l, workflows: [...l.workflows.filter((w) => w.id !== back.id), back] } : l,
+      );
+      setDeleted(null);
+      setStatus(`Restored ${back.name}`);
+      setQuery({ id: back.id, run: null });
+    } catch (err) {
+      setActionError(`Undo failed: ${message(err)}`);
+    }
+  };
+
   const editingStep = editing
     ? (workflow?.steps ?? []).find((s) => s.id === editing.id)
     : undefined;
@@ -307,10 +464,40 @@ export function Workflows() {
           {errors.join(" · ")}
         </p>
       ) : null}
+      {deleted ? (
+        <p className="notice notice--undo wf-notice" role="status">
+          <span>Deleted {deleted.name}</span>
+          <button type="button" className="wf-button" onClick={() => void undoDelete()}>
+            Undo
+          </button>
+          <button
+            type="button"
+            className="icon-button icon-button--small"
+            aria-label="Dismiss"
+            onClick={() => setDeleted(null)}
+          >
+            ×
+          </button>
+        </p>
+      ) : null}
       <div className="wf-head">
-        {current && workflow ? (
+        {creating ? (
+          <h1 className="wf-title">New workflow</h1>
+        ) : current && workflow ? (
           <>
-            <h1 className="wf-title">{current.name}</h1>
+            <h1 className="wf-title">{workflow.name}</h1>
+            <button
+              ref={renameButton}
+              type="button"
+              className="icon-button wf-head__icon"
+              aria-label="Rename workflow"
+              aria-pressed={renaming}
+              onClick={() => (renaming ? closeRename() : setRenaming(true))}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M4 20h4L19 9l-4-4L4 16v4z" />
+              </svg>
+            </button>
             <span className="wf-version">v{current.version ?? 1}</span>
             {workflows.length > 1 ? (
               <select
@@ -326,13 +513,45 @@ export function Workflows() {
                 ))}
               </select>
             ) : null}
+            <span className="wf-head__tools">
+              <Switch
+                label="Workflow enabled"
+                checked={current.enabled !== false}
+                onChange={() => void toggleWorkflow()}
+              />
+              <button
+                type="button"
+                className="icon-button icon-button--danger wf-head__icon"
+                aria-label="Delete workflow"
+                onClick={() => void removeWorkflow()}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" />
+                </svg>
+              </button>
+            </span>
           </>
-        ) : loaded && errors.length === 0 ? (
+        ) : empty ? (
           <h1 className="wf-title">No workflows yet</h1>
         ) : (
           <h1 className="wf-title sr-only">Workflows</h1>
         )}
         <span className="wf-head__end">
+          {loaded ? (
+            <button
+              ref={newButton}
+              type="button"
+              className="wf-button"
+              aria-label="New workflow"
+              aria-expanded={creating}
+              onClick={() => (creating ? closeNew() : openNew())}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true">
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+              New
+            </button>
+          ) : null}
           <IoControls
             onImported={() => setReload((n) => n + 1)}
             onStatus={(t) => {
@@ -342,7 +561,7 @@ export function Workflows() {
             onError={setActionError}
           />
         </span>
-        {draft?.dirty ? (
+        {draft?.dirty && !creating ? (
           <button
             type="button"
             className="wf-button wf-button--save"
@@ -352,25 +571,49 @@ export function Workflows() {
             Save
           </button>
         ) : null}
-        <button
-          type="button"
-          className="wf-run"
-          disabled={!runRule}
-          title={runRule ? `Starts ${runRule.name}` : "No rule runs this workflow yet"}
-          onClick={() => void start()}
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <path d="M7 4v16l13-8z" />
-          </svg>
-          Run
-        </button>
+        {creating ? null : (
+          <button
+            type="button"
+            className="wf-run"
+            disabled={!runRule}
+            title={runRule ? `Starts ${runRule.name}` : "No rule runs this workflow yet"}
+            onClick={() => void start()}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M7 4v16l13-8z" />
+            </svg>
+            Run
+          </button>
+        )}
       </div>
       <p className="wf-status" role="status">
         {status}
       </p>
 
-      {workflow ? (
-        <div className="wf-stage">
+      {creating ? (
+        <WorkflowNameForm
+          label="New workflow"
+          submitLabel="Create workflow"
+          busy={createBusy}
+          error={createError}
+          onSubmit={(name) => void create(name)}
+          onCancel={closeNew}
+        />
+      ) : workflow ? (
+        <div className="wf-stage" ref={stageRef}>
+          {renaming ? (
+            <WorkflowNameForm
+              key={workflow.id}
+              label="Rename workflow"
+              submitLabel="Rename"
+              initial={workflow.name}
+              onSubmit={(name) => {
+                if (name !== workflow.name) edit((wf) => ({ ...wf, name }));
+                closeRename();
+              }}
+              onCancel={closeRename}
+            />
+          ) : null}
           <WorkflowCanvas
             workflow={workflow}
             machines={loaded?.machines ?? []}
@@ -410,6 +653,16 @@ export function Workflows() {
             />
           ) : null}
         </div>
+      ) : empty ? (
+        <section className="wf-empty" aria-label="No workflows yet">
+          <button type="button" className="wf-button wf-button--primary wf-button--large" onClick={openNew}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+            New workflow
+          </button>
+          <p className="wf-empty__hint">Name it, then add steps with +.</p>
+        </section>
       ) : null}
 
       <div className="wf-foot">

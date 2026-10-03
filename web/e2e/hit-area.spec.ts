@@ -66,6 +66,14 @@ async function smallHitAreas(page: Page): Promise<string[]> {
 const TABS: { name: string; path: string; mock: (page: Page) => Promise<unknown> }[] = [
   { name: "Rules", path: "/rules/build-and-publish", mock: (page) => mockApi(page) },
   { name: "Workflows", path: "/workflows?id=review-pr", mock: (page) => mockWorkflowsApi(page) },
+  {
+    name: "Workflows (empty state)",
+    path: "/workflows",
+    mock: async (page) => {
+      await mockApi(page);
+      await mockWorkflowsApi(page, []);
+    },
+  },
   { name: "Actors", path: "/actors", mock: (page) => mockActorsApi(page) },
   {
     name: "Statistics",
@@ -86,4 +94,14 @@ test.describe("d4: every control has a 44x44 hit area", () => {
       expect(await smallHitAreas(page)).toEqual([]);
     });
   }
+
+  test("Workflows tab: the New workflow name form", async ({ page }) => {
+    await mockApi(page);
+    await mockWorkflowsApi(page, []);
+    await page.goto("/workflows");
+    await expect.poll(async () => (await agentState(page)).status).toBe("ready");
+    await page.getByRole("region", { name: "No workflows yet" }).getByRole("button", { name: "New workflow" }).click();
+    await expect(page.getByRole("form", { name: "New workflow" })).toBeVisible();
+    expect(await smallHitAreas(page)).toEqual([]);
+  });
 });

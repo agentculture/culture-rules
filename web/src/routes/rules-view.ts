@@ -133,9 +133,9 @@ export function trimDashes(text: string): string {
   return text.slice(start, end);
 }
 
-/** `Disk is nearly full` → `disk-is-nearly-full`, unique among `taken`. */
-export function slugFor(name: string, taken: string[]): string {
-  const base = trimDashes(name.toLowerCase().replace(/[^a-z0-9]+/g, "-")) || "rule";
+/** `Disk is nearly full` → `disk-is-nearly-full`, unique among `taken` (`fallback` when nothing is left). */
+export function slugFor(name: string, taken: string[], fallback = "rule"): string {
+  const base = trimDashes(name.toLowerCase().replace(/[^a-z0-9]+/g, "-")) || fallback;
   let slug = base;
   for (let n = 2; taken.includes(slug); n++) slug = `${base}-${n}`;
   return slug;

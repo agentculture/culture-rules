@@ -11,6 +11,9 @@ describe("slugFor", () => {
   it("falls back to `rule` when nothing is left", () => {
     expect(slugFor("!!!", [])).toBe("rule");
   });
+  it("falls back to the given word when nothing is left", () => {
+    expect(slugFor("!!!", [], "workflow")).toBe("workflow");
+  });
   it("is unique among taken ids", () => {
     expect(slugFor("Deploy", ["deploy", "deploy-2"])).toBe("deploy-3");
   });

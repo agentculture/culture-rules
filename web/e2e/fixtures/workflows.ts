@@ -10,6 +10,7 @@ import {
   importPlan,
   workflowRunsFor,
 } from "../../src/workflows/fixture";
+import type { WorkflowDef } from "../../src/api/workflows";
 
 export interface Recorded {
   method: string;
@@ -22,12 +23,20 @@ export interface Recorded {
  * The Workflows tab's API on top of e2e/fixtures/api.ts (compose: call
  * `mockApi(page)` first; routes registered later win). Serves full workflow
  * definitions, actors, the persisted run state of run-7, /export, /import
- * and /repos, recording every call with its method and body.
+ * and /repos, recording every call with its method and body. Workflows can
+ * be created (409 on a taken id), enabled / disabled, soft-deleted (409
+ * while a rule uses one) and restored; `start` replaces the stored list
+ * (`[]` for the empty state).
  */
-export async function mockWorkflowsApi(page: Page): Promise<Recorded[]> {
+export async function mockWorkflowsApi(
+  page: Page,
+  start: WorkflowDef[] = WORKFLOW_DOCS,
+): Promise<Recorded[]> {
   const calls: Recorded[] = [];
   const now = Date.now();
-  let workflows = WORKFLOW_DOCS.map((w) => ({ ...w }));
+  let workflows = start.map((w) => ({ ...w }));
+  const deleted = new Map<string, WorkflowDef>();
+  const used = new Set(WORKFLOW_RULES.map((r) => r.workflow?.id).filter(Boolean));
 
   await page.route("**/api/**", async (route) => {
     const request = route.request();
@@ -40,8 +49,40 @@ export async function mockWorkflowsApi(page: Page): Promise<Recorded[]> {
       route.fulfill({ status, contentType: "application/json", body: JSON.stringify(data) });
 
     const path = url.pathname;
+    const fail = (status: number, code: string, message: string) =>
+      json(status, { error: { code, message, errors: [] } });
     if (path === "/api/workflows" && method === "GET") return json(200, { items: workflows });
+    if (path === "/api/workflows" && method === "POST") {
+      if (!body?.id || !body?.name) return fail(422, "invalid_workflow", "id and name are required");
+      if (workflows.some((w) => w.id === body.id) || deleted.has(body.id)) {
+        return fail(409, "conflict", `workflows/${body.id} already exists`);
+      }
+      const stored = { ...body, version: 1, schema_version: "1.0" };
+      workflows = [...workflows, stored];
+      return json(201, stored);
+    }
+    const verb = path.match(/^\/api\/workflows\/([^/]+)\/(enable|disable|restore)$/);
+    if (verb && method === "POST") {
+      const [, id, action] = verb;
+      if (action === "restore") {
+        const doc = deleted.get(id);
+        if (!doc) return fail(404, "not_found", `workflows/${id} is not deleted`);
+        deleted.delete(id);
+        workflows = [...workflows, doc];
+        return json(200, doc);
+      }
+      workflows = workflows.map((w) => (w.id === id ? { ...w, enabled: action === "enable" } : w));
+      return json(200, workflows.find((w) => w.id === id));
+    }
     const one = path.match(/^\/api\/workflows\/([^/]+)$/);
+    if (one && method === "DELETE") {
+      if (used.has(one[1])) return fail(409, "conflict", `workflows/${one[1]} is used by a rule`);
+      const doc = workflows.find((w) => w.id === one[1]);
+      if (!doc) return fail(404, "not_found", `workflows/${one[1]} does not exist`);
+      workflows = workflows.filter((w) => w.id !== one[1]);
+      deleted.set(one[1], doc);
+      return json(200, doc);
+    }
     if (one && method === "PUT") {
       workflows = workflows.map((w) => (w.id === one[1] ? body : w));
       return json(200, body);
