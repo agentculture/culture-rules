@@ -172,10 +172,18 @@ def read_files(files: Mapping[str, str]) -> ReadResult:
     """Parse ``{relative path: text}`` strictly; every problem becomes an :class:`IssueRecord`."""
     errors: list[IssueRecord] = []
     found: dict[str, list[Any]] = {k: [] for k in (*KINDS, SECRETS_DIR)}
+    seen: set[tuple[str, str]] = set()
     for rel in sorted(files):
         kind, _, fname = rel.partition("/")
         fmt = codec.format_of(fname)
         if kind not in found or fmt is None or "/" in fname:
+            errors.append(
+                IssueRecord(
+                    rel,
+                    "unrecognised_path",
+                    "expected <rules|workflows|actors|secrets>/<id>.<yaml|yml|json>",
+                )
+            )
             continue
         cls = KINDS.get(kind, SecretRef)
         stem = fname.rsplit(".", 1)[0]
@@ -196,6 +204,12 @@ def read_files(files: Mapping[str, str]) -> ReadResult:
                 IssueRecord(rel, "id_mismatch", f"file name {stem!r} does not match id {ident!r}")
             )
             continue
+        if (kind, ident) in seen:
+            errors.append(
+                IssueRecord(rel, "duplicate_id", f"{kind}/{ident} is defined by more than one file")
+            )
+            continue
+        seen.add((kind, ident))
         issues = _validate_one(obj, kind)
         errors.extend(IssueRecord(f"{rel}:{p}" if p else rel, c, m) for p, c, m in issues)
         found[kind].append(obj)

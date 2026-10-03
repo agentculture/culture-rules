@@ -101,6 +101,16 @@ def validate_rule_set(
             )
 
     for i, r in enumerate(rules):
+        for rel in ("must_after", "may_after", "supersedes"):
+            for j, rid in enumerate(getattr(r, rel)):
+                if rid not in by_id:
+                    errors.append(
+                        ValidationError(
+                            join(join(join("rules", i), rel), j),
+                            "unknown_rule",
+                            f"{rel} of {r.id!r} names {rid!r}, which is not a rule in the set",
+                        )
+                    )
         preds = set(r.must_after) | set(r.may_after)
         for path, rid, name in _references(r, join("rules", i)):
             if rid not in preds:

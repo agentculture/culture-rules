@@ -83,10 +83,12 @@ def save_to_repo(
     if not apply:
         return result
     if any(c.action != "unchanged" for c in plan.changes):
-        rel = target.relative_to(root.resolve()).as_posix() or "."
-        _git(root, "add", "--all", "--", rel)
-        if _git(root, "status", "--porcelain", "--", rel).strip():
-            _git(root, "commit", "-m", message, identity=True)
+        base = target.relative_to(root.resolve())
+        paths = [(base / c.path).as_posix() for c in plan.changes if c.action != "unchanged"]
+        _git(root, "add", "--", *paths)
+        if _git(root, "status", "--porcelain", "--", *paths).strip():
+            # explicit pathspec: pre-staged or untracked files elsewhere are never committed
+            _git(root, "commit", "-m", message, "--", *paths, identity=True)
             result.committed = True
             result.commit = _git(root, "rev-parse", "HEAD").strip()
     if push:
