@@ -25,8 +25,9 @@ a retry) inserts exactly once. The stored document is the ingest shape
 ``self_authored: true``. A payload key of those names is overwritten, never trusted.
 
 Outcome counters live in :data:`HOOK_STATS_COLLECTION`, one document per (actor, outcome) with
-a ``count``, incremented by compare-and-set (``update_if``) so concurrent writers do not lose
-counts. Standard-library only.
+a ``count`` and the ``surface`` (receiver refusals are counted by
+:func:`record_outcome`), incremented by compare-and-set (``update_if``) so concurrent writers
+do not lose counts. Standard-library only.
 """
 
 from __future__ import annotations
@@ -42,13 +43,18 @@ from culture_rules.store.port import DuplicateKeyError, StoragePort
 
 __all__ = [
     "ACCEPTED",
+    "BAD_REQUEST",
     "DISABLED",
     "DUPLICATE",
     "HOOK_HOST",
     "HOOK_STATS_COLLECTION",
     "IGNORED",
     "OUTCOMES",
+    "REFUSALS",
+    "TOO_LARGE",
+    "UNAUTHORIZED",
     "event_id_for",
+    "record_outcome",
     "sink",
 ]
 
@@ -60,6 +66,9 @@ HOOK_HOST = "webhook"
 
 ACCEPTED, DUPLICATE, IGNORED, DISABLED = "accepted", "duplicate", "ignored", "disabled"
 OUTCOMES = (ACCEPTED, DUPLICATE, IGNORED, DISABLED)
+UNAUTHORIZED, BAD_REQUEST, TOO_LARGE = "unauthorized", "bad_request", "too_large"
+REFUSALS = (UNAUTHORIZED, BAD_REQUEST, TOO_LARGE)
+"""Outcomes of deliveries refused before the sink (see :func:`record_outcome`)."""
 _CAS_RETRIES = 50
 
 
@@ -78,7 +87,7 @@ def _actor_view(actor: Any) -> Mapping[str, Any]:
     raise TypeError("actor must be a mapping or an Actor")
 
 
-def _count(store: StoragePort, actor_id: str, outcome: str) -> None:
+def _count(store: StoragePort, actor_id: str, outcome: str, surface: str | None = None) -> None:
     """Best-effort observability counter; never raises into the delivery path."""
     doc_id = f"{actor_id}:{outcome}"
     try:
@@ -89,7 +98,7 @@ def _count(store: StoragePort, actor_id: str, outcome: str) -> None:
                     HOOK_STATS_COLLECTION,
                     doc_id,
                     {"count": None},
-                    {"count": 1, "actor": actor_id, "outcome": outcome},
+                    {"count": 1, "actor": actor_id, "outcome": outcome, "surface": surface},
                     upsert=True,
                 )
             else:
@@ -101,8 +110,17 @@ def _count(store: StoragePort, actor_id: str, outcome: str) -> None:
         _log.warning("hook_stats update failed actor=%s outcome=%s", actor_id, outcome)
 
 
-def _finish(store: StoragePort, actor_id: str, type: str, outcome: str) -> str:
-    _count(store, actor_id, outcome)
+def record_outcome(
+    store: StoragePort, surface: str, outcome: str, actor_id: str | None = None
+) -> None:
+    """Count a delivery refused before the sink (``unauthorized``, ``bad_request``,
+    ``too_large``). With no identified actor the counter is keyed by the surface name
+    (``github:unauthorized``). Records the outcome only - never a body, header or secret."""
+    _count(store, actor_id or surface, outcome, surface)
+
+
+def _finish(store: StoragePort, actor_id: str, type: str, outcome: str, surface: str) -> str:
+    _count(store, actor_id, outcome, surface)
     _log.info("hook outcome=%s actor=%s type=%s", outcome, actor_id, type)
     return outcome
 
@@ -127,9 +145,9 @@ def sink(
     if not isinstance(type, str) or not type:
         raise ValueError("type must be a non-empty string")
     if view.get("enabled", True) is False:
-        return _finish(store, actor_id, type, DISABLED)
+        return _finish(store, actor_id, type, DISABLED, surface)
     if type not in (params.get("events") or ()):
-        return _finish(store, actor_id, type, IGNORED)
+        return _finish(store, actor_id, type, IGNORED, surface)
 
     payload = dict(data or {})
     payload["delivery_id"] = delivery_id
@@ -154,5 +172,5 @@ def sink(
     try:
         store.insert(EVENTS_COLLECTION, event_document(envelope, host=HOOK_HOST))
     except DuplicateKeyError:
-        return _finish(store, actor_id, type, DUPLICATE)
-    return _finish(store, actor_id, type, ACCEPTED)
+        return _finish(store, actor_id, type, DUPLICATE, surface)
+    return _finish(store, actor_id, type, ACCEPTED, surface)

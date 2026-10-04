@@ -202,6 +202,12 @@ def message_data(msg: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+GATEWAY_STATE_COLLECTION = "gateway_state"
+"""One ``{id: actor id, connected, last_event_at}`` document per gateway actor (observability)."""
+_EVENT_STAMP_EVERY_S = 10.0
+"""``last_event_at`` is rewritten at most this often, however many messages arrive."""
+
+
 @dataclass(frozen=True, kw_only=True)
 class GatewayOptions:
     """Lease and reconnect tuning (tests shorten the backoff and drop the keeper thread)."""
@@ -236,6 +242,7 @@ class _Session:
         self.stop = threading.Event()
         self.thread: threading.Thread | None = None
         self.keeper: Any = None
+        self.stamped_at: float | None = None
 
     def snapshot(self) -> Mapping[str, Any]:
         with self.lock:
@@ -423,6 +430,21 @@ class GatewaySupervisor:
         if was_listening:
             log.info("discord gateway %s: stopped listening", actor_id)
 
+    # ------------------------------------------------------------------ observability
+
+    def _state(self, session: _Session, **fields: Any) -> None:
+        """Best-effort write of the gateway state doc (``connected``, ``last_event_at``)."""
+        try:
+            current = self._store.get(GATEWAY_STATE_COLLECTION, session.actor_id) or {}
+            doc = {k: v for k, v in current.items() if k in ("connected", "last_event_at")}
+            doc.update(fields)
+            doc["id"] = session.actor_id
+            self._store.put(GATEWAY_STATE_COLLECTION, doc)
+        except Exception as exc:  # noqa: BLE001 - observability must never break the listener
+            log.warning(
+                "discord gateway %s: state write failed (%s)", session.actor_id, type(exc).__name__
+            )
+
     # ------------------------------------------------------------------ listener thread
 
     def _listen(self, session: _Session, stop: threading.Event) -> None:
@@ -442,6 +464,7 @@ class GatewaySupervisor:
                     type(exc).__name__,
                 )
             else:
+                self._state(session, connected=True)
                 try:
                     self._gateway.connect(
                         bot_auth, lambda msg: self._on_message(session, msg), should_stop
@@ -456,6 +479,7 @@ class GatewaySupervisor:
                     )
                 finally:
                     del bot_auth
+                    self._state(session, connected=False)
             if should_stop():
                 break
             stop.wait(self._backoff(failures))
@@ -477,6 +501,10 @@ class GatewaySupervisor:
         if guild and data["guild_id"] is not None and data["guild_id"] != str(guild):
             return
         author = data["author_name"] or data["author_id"]
+        now = time.monotonic()
+        if session.stamped_at is None or now - session.stamped_at >= _EVENT_STAMP_EVERY_S:
+            session.stamped_at = now
+            self._state(session, last_event_at=self._clock().isoformat())
         for attempt in range(1, _SINK_ATTEMPTS + 1):
             try:
                 sink(

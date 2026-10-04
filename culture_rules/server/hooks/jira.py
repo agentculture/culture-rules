@@ -43,7 +43,14 @@ from typing import Any
 
 from culture_rules.actors.secrets import resolve as resolve_secret
 from culture_rules.apps.jira import ISSUE_KEY_RE, JiraClient, JiraError
-from culture_rules.events.hook_sink import DUPLICATE, sink
+from culture_rules.events.hook_sink import (
+    BAD_REQUEST,
+    DUPLICATE,
+    TOO_LARGE,
+    UNAUTHORIZED,
+    record_outcome,
+    sink,
+)
 from culture_rules.store.port import StoragePort
 
 __all__ = ["MAX_BODY", "SURFACE", "handle", "router"]
@@ -176,6 +183,7 @@ def handle(  # noqa: PLR0911, C901 - a linear verify -> parse -> fetch -> write 
     secrets = secrets or resolve_secret
     client_factory = client_factory or _default_client
     if len(body) > MAX_BODY:
+        record_outcome(store, SURFACE, TOO_LARGE)
         return _error(413, "body_too_large")
     hdr = {str(k).lower(): v for k, v in headers.items()}
     signature = (hdr.get("x-hub-signature") or "").strip()
@@ -188,14 +196,17 @@ def handle(  # noqa: PLR0911, C901 - a linear verify -> parse -> fetch -> write 
             actor = candidate
             break
     if actor is None:
+        record_outcome(store, SURFACE, UNAUTHORIZED)
         return _error(401, "unauthorized")
     connection = actor["params"]["connection"]
 
     try:
         payload = json.loads(body)
     except ValueError:
+        record_outcome(store, SURFACE, BAD_REQUEST, actor["id"])
         return _error(400, "bad_json")
     if not isinstance(payload, Mapping):
+        record_outcome(store, SURFACE, BAD_REQUEST, actor["id"])
         return _error(400, "bad_json")
 
     event = payload.get("webhookEvent")
@@ -204,6 +215,7 @@ def handle(  # noqa: PLR0911, C901 - a linear verify -> parse -> fetch -> write 
         return 200, {"ignored": True}
     keys = _issue_keys(payload)
     if not keys:
+        record_outcome(store, SURFACE, BAD_REQUEST, actor["id"])
         return _error(400, "no_issue_key")
     allowed = connection.get("projects")
     if allowed:
@@ -258,12 +270,14 @@ def router(
     async def jira_hook(request):
         declared = request.headers.get("content-length")
         if declared and declared.isdigit() and int(declared) > MAX_BODY:
+            record_outcome(store, SURFACE, TOO_LARGE)
             return JSONResponse({"error": "body_too_large"}, status_code=413)
         chunks: list[bytes] = []
         size = 0
         async for chunk in request.stream():
             size += len(chunk)
             if size > MAX_BODY:
+                record_outcome(store, SURFACE, TOO_LARGE)
                 return JSONResponse({"error": "body_too_large"}, status_code=413)
             chunks.append(chunk)
         status, out = await run_in_threadpool(
