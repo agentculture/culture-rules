@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-03T18:08:10Z",
-  "updated": "2026-10-04T04:17:03Z",
+  "updated": "2026-10-04T04:22:54Z",
   "claims": [
     {
       "id": "c1",
@@ -1475,6 +1475,39 @@
       "skipped_check": "live read of GET /api/rules on 127.0.0.1:8791",
       "refs": [
         "challenge pass / migration lens: live rules collection"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l2",
+      "code": "assumption-for-measurement",
+      "what": "t29: events-cli logger name ('events_cli') is a guess; events-cli is not installed in the dev env so quieting its INFO logs is unverified",
+      "skipped_check": "confirm logger names against the installed events_cli package",
+      "refs": [
+        "t29"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l3",
+      "code": "assumption-for-measurement",
+      "what": "t34: the 44px hit area of a disabled Switch is argued from CSS, not measured; hit-area.spec never renders a pending toggle",
+      "skipped_check": "Playwright hit-area sweep with a toggle held in flight",
+      "refs": [
+        "t34"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l4",
+      "code": "control-absent",
+      "what": "t35: full vitest suite not re-run after the final cleanup commit (only typecheck and the 8 new tests)",
+      "skipped_check": "full vitest run on the final commit (main agent's merge gate re-runs it)",
+      "refs": [
+        "t35"
       ],
       "origin": "llm",
       "status": "proposed"
