@@ -62,6 +62,24 @@ export function placementLabel(p: Placement | null | undefined): string {
   }
 }
 
+/**
+ * An actor's `machine` as the enrolled machine's name (the key the palette
+ * and dots use): exact, else case-insensitive, else by host label
+ * ("thor.local" -> "thor"); null when it is unset or names no enrolled machine.
+ */
+function enrolledMachine(raw: string | null | undefined, machines: readonly Machine[]): string | null {
+  if (!raw) return null;
+  const names = machines.map((m) => m.name);
+  if (names.includes(raw)) return raw;
+  const lower = raw.toLowerCase();
+  const label = lower.split(".")[0];
+  return (
+    names.find((n) => n.toLowerCase() === lower) ??
+    names.find((n) => n.toLowerCase() === label) ??
+    null
+  );
+}
+
 /** Where a step runs, as far as its definition says. */
 export function stepMachine(
   step: Step,
@@ -70,8 +88,9 @@ export function stepMachine(
   const mode = placementMode(step.placement);
   if (mode === "machine") return { machine: step.placement!.machine!, mode };
   if (mode === "actor") {
-    const actor = ctx.actors.find((a) => a.id === step.placement!.actor);
-    return { machine: actor?.machine ?? null, mode };
+    const ref = step.placement!.actor;
+    const actor = ctx.actors.find((a) => a.id === ref) ?? ctx.actors.find((a) => a.name === ref);
+    return { machine: enrolledMachine(actor?.machine, ctx.machines), mode };
   }
   if (mode === "requirement") return { machine: null, mode };
   return { machine: engineMachine(ctx.machines), mode };
