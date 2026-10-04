@@ -1,0 +1,177 @@
+"""GitHub App client: JWT, cached installation token, allowlisted comments (fake transport)."""
+
+from __future__ import annotations
+
+import base64
+import json
+import logging
+from datetime import UTC, datetime, timedelta
+
+import pytest
+
+pytest.importorskip("cryptography")
+
+from cryptography.hazmat.primitives import hashes, serialization  # noqa: E402
+from cryptography.hazmat.primitives.asymmetric import padding, rsa  # noqa: E402
+
+from culture_rules.apps.github import GitHubApp, GitHubError  # noqa: E402
+
+NOW = datetime(2026, 10, 4, 12, 0, 0, tzinfo=UTC)
+FAKE_BEARER = "ghs" + "_" + "FAKEINSTALLATIONTOKEN0123456789abcdefABCD"
+
+
+@pytest.fixture(scope="module")
+def key():
+    return rsa.generate_private_key(public_exponent=65537, key_size=2048)
+
+
+@pytest.fixture(scope="module")
+def pem(key):
+    return key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption(),
+    ).decode()
+
+
+class Fake:
+    def __init__(self, expires=None, comment_status=201):
+        self.calls = []
+        self.expires = expires or (NOW + timedelta(hours=1))
+        self.comment_status = comment_status
+
+    def __call__(self, method, url, headers, body, timeout):
+        self.calls.append((method, url, dict(headers), body))
+        if url.endswith("/access_tokens"):
+            payload = {
+                "token": FAKE_BEARER,
+                "expires_at": self.expires.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            }
+            return 201, json.dumps(payload).encode()
+        if self.comment_status == 201:
+            return 201, json.dumps({"id": 77, "html_url": "https://x/c/77"}).encode()
+        return self.comment_status, b'{"message": "nope"}'
+
+
+def make(pem, fake, clock=None, repos=("acme/widgets",)):
+    now = {"t": NOW}
+    app = GitHubApp(
+        app_id="123",
+        installation_id="456",
+        private_key=pem,
+        repos=repos,
+        transport=fake,
+        clock=clock or (lambda: now["t"]),
+    )
+    return app, now
+
+
+def _b64d(s):
+    return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
+
+
+def test_comment_uses_installation_token(pem):
+    fake = Fake()
+    app, _ = make(pem, fake)
+    out = app.post_comment("acme/widgets", 5, "hello")
+    assert out == {"comment_id": 77, "url": "https://x/c/77"}
+    exch, comment = fake.calls
+    assert (
+        exch[0] == "POST"
+        and exch[1] == "https://api.github.com/app/installations/456/access_tokens"
+    )
+    assert exch[2]["Authorization"].startswith("Bearer ")
+    assert comment[1] == "https://api.github.com/repos/acme/widgets/issues/5/comments"
+    assert comment[2]["Authorization"] == f"Bearer {FAKE_BEARER}"
+    assert comment[2]["Accept"] == "application/vnd.github+json"
+    assert "X-GitHub-Api-Version" in comment[2]
+    assert json.loads(comment[3]) == {"body": "hello"}
+
+
+def test_jwt_is_rs256_with_claims(pem, key):
+    fake = Fake()
+    app, _ = make(pem, fake)
+    app.post_comment("acme/widgets", 1, "x")
+    jwt = fake.calls[0][2]["Authorization"].split(" ", 1)[1]
+    h, p, s = jwt.split(".")
+    assert "=" not in jwt
+    assert json.loads(_b64d(h)) == {"alg": "RS256", "typ": "JWT"}
+    claims = json.loads(_b64d(p))
+    ts = int(NOW.timestamp())
+    assert claims == {"iat": ts - 60, "exp": ts + 540, "iss": "123"}
+    key.public_key().verify(_b64d(s), f"{h}.{p}".encode(), padding.PKCS1v15(), hashes.SHA256())
+
+
+def test_token_cached_until_five_minutes_before_expiry(pem):
+    fake = Fake(expires=NOW + timedelta(hours=1))
+    app, now = make(pem, fake)
+    app.post_comment("acme/widgets", 1, "a")
+    now["t"] = NOW + timedelta(minutes=54)
+    app.post_comment("acme/widgets", 1, "b")
+    assert sum(c[1].endswith("/access_tokens") for c in fake.calls) == 1
+    now["t"] = NOW + timedelta(minutes=55, seconds=1)
+    app.post_comment("acme/widgets", 1, "c")
+    assert sum(c[1].endswith("/access_tokens") for c in fake.calls) == 2
+
+
+def test_not_allowlisted_repo_makes_no_network_call(pem):
+    fake = Fake()
+    app, _ = make(pem, fake)
+    with pytest.raises(GitHubError) as exc:
+        app.post_comment("evil/repo", 1, "x")
+    assert exc.value.code == "repo_not_allowed" and not exc.value.retryable
+    assert fake.calls == []
+
+
+@pytest.mark.parametrize("repo", ["acme/widgets/../x", "acme", "ACME/Widgets/extra", "../../x"])
+def test_malformed_repo_rejected(pem, repo):
+    fake = Fake()
+    app, _ = make(pem, fake, repos=("acme/widgets",))
+    with pytest.raises(GitHubError):
+        app.post_comment(repo, 1, "x")
+    assert fake.calls == []
+
+
+@pytest.mark.parametrize("status,retryable", [(500, True), (503, True), (403, False), (404, False)])
+def test_status_classification(pem, status, retryable):
+    app, _ = make(pem, Fake(comment_status=status))
+    with pytest.raises(GitHubError) as exc:
+        app.post_comment("acme/widgets", 1, "x")
+    assert exc.value.retryable is retryable
+
+
+def test_network_error_is_retryable(pem):
+    def boom(*a):
+        raise OSError("down")
+
+    app, _ = make(pem, boom)
+    with pytest.raises(GitHubError) as exc:
+        app.post_comment("acme/widgets", 1, "x")
+    assert exc.value.retryable
+
+
+def test_logs_never_contain_token_or_key(pem, caplog):
+    caplog.set_level(logging.DEBUG)
+    app, _ = make(pem, Fake(comment_status=500))
+    with pytest.raises(GitHubError) as exc:
+        app.post_comment("acme/widgets", 1, "x")
+    with pytest.raises(GitHubError):
+        app.post_comment("other/x", 1, "x")
+    text = caplog.text + str(exc.value)
+    assert FAKE_BEARER not in text and "PRIVATE KEY" not in text
+    assert pem.splitlines()[1] not in text
+
+
+def test_api_base_configurable(pem):
+    fake = Fake()
+    app = GitHubApp(
+        app_id="1",
+        installation_id="2",
+        private_key=pem,
+        repos=["a/b"],
+        transport=fake,
+        api_base="http://localhost:9/",
+        clock=lambda: NOW,
+    )
+    app.post_comment("a/b", 3, "x")
+    assert fake.calls[0][1] == "http://localhost:9/app/installations/2/access_tokens"
