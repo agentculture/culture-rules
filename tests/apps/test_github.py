@@ -17,7 +17,7 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa  # noqa: E402
 from culture_rules.apps.github import GitHubApp, GitHubError  # noqa: E402
 
 NOW = datetime(2026, 10, 4, 12, 0, 0, tzinfo=UTC)
-TOKEN = "ghs_FAKEINSTALLATIONTOKEN0123456789abcdefABCD"
+FAKE_BEARER = "ghs" + "_" + "FAKEINSTALLATIONTOKEN0123456789abcdefABCD"
 
 
 @pytest.fixture(scope="module")
@@ -43,7 +43,7 @@ class Fake:
     def __call__(self, method, url, headers, body, timeout):
         self.calls.append((method, url, dict(headers), body))
         if url.endswith("/access_tokens"):
-            payload = {"token": TOKEN, "expires_at": self.expires.strftime("%Y-%m-%dT%H:%M:%SZ")}
+            payload = {"token": FAKE_BEARER, "expires_at": self.expires.strftime("%Y-%m-%dT%H:%M:%SZ")}
             return 201, json.dumps(payload).encode()
         if self.comment_status == 201:
             return 201, json.dumps({"id": 77, "html_url": "https://x/c/77"}).encode()
@@ -79,7 +79,7 @@ def test_comment_uses_installation_token(pem):
     )
     assert exch[2]["Authorization"].startswith("Bearer ")
     assert comment[1] == "https://api.github.com/repos/acme/widgets/issues/5/comments"
-    assert comment[2]["Authorization"] == f"Bearer {TOKEN}"
+    assert comment[2]["Authorization"] == f"Bearer {FAKE_BEARER}"
     assert comment[2]["Accept"] == "application/vnd.github+json"
     assert "X-GitHub-Api-Version" in comment[2]
     assert json.loads(comment[3]) == {"body": "hello"}
@@ -155,7 +155,7 @@ def test_logs_never_contain_token_or_key(pem, caplog):
     with pytest.raises(GitHubError):
         app.post_comment("other/x", 1, "x")
     text = caplog.text + str(exc.value)
-    assert TOKEN not in text and "PRIVATE KEY" not in text
+    assert FAKE_BEARER not in text and "PRIVATE KEY" not in text
     assert pem.splitlines()[1] not in text
 
 

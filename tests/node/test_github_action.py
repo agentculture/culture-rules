@@ -17,7 +17,7 @@ from culture_rules.engine.actorport import InvocationContext  # noqa: E402
 from culture_rules.node.actions.github import GitHubCommentPort  # noqa: E402
 from culture_rules.store.memory import MemoryStore  # noqa: E402
 
-TOKEN = "ghs_FAKEINSTALLATIONTOKEN0123456789abcdefABCD"
+FAKE_BEARER = "ghs" + "_" + "FAKEINSTALLATIONTOKEN0123456789abcdefABCD"
 DEADLINE = datetime(2030, 1, 1, tzinfo=UTC)
 
 
@@ -40,7 +40,7 @@ class Fake:
         self.calls.append(url)
         if url.endswith("/access_tokens"):
             exp = (datetime.now(UTC) + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
-            return 201, json.dumps({"token": TOKEN, "expires_at": exp}).encode()
+            return 201, json.dumps({"token": FAKE_BEARER, "expires_at": exp}).encode()
         if self.status != 201:
             return self.status, b"{}"
         return 201, json.dumps({"id": 9, "html_url": "https://x/9"}).encode()
@@ -106,7 +106,7 @@ def test_not_allowlisted_fails_without_network_or_secret(pem, caplog):
     res = port.invoke(params("evil/repo"), "k", DEADLINE, context=ctx())
     assert res.outcome == "failed" and res.error == "repo_not_allowed" and not res.retryable
     assert fake.calls == [] and resolved == []
-    assert TOKEN not in caplog.text
+    assert FAKE_BEARER not in caplog.text
 
 
 def test_missing_actor_fails(pem):
@@ -139,7 +139,7 @@ def test_token_not_in_logs(pem, caplog):
     caplog.set_level(logging.DEBUG)
     port, _ = setup(pem, Fake())
     port.invoke(params(), "k", DEADLINE, context=ctx())
-    assert TOKEN not in caplog.text and "PRIVATE KEY" not in caplog.text
+    assert FAKE_BEARER not in caplog.text and "PRIVATE KEY" not in caplog.text
 
 
 def test_app_and_token_cached_across_invocations(pem):

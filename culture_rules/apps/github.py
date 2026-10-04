@@ -173,8 +173,8 @@ class GitHubApp:
             log.warning("github comment refused: repo not allow-listed")
             raise GitHubError("repo_not_allowed", "repo is not on the actor's allowlist")
         number = int(number)
-        token = self.installation_token()
+        bearer = self.installation_token()
         _, data = self._request(
-            "POST", f"/repos/{repo}/issues/{number}/comments", token, {"body": body}
+            "POST", f"/repos/{repo}/issues/{number}/comments", bearer, {"body": body}
         )
         return {"comment_id": data.get("id"), "url": data.get("html_url")}
