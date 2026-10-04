@@ -18,6 +18,7 @@ Production wiring done by :func:`run_node`:
 
 from __future__ import annotations
 
+import importlib.util
 import logging
 import os
 import shutil
@@ -40,6 +41,7 @@ __all__ = [
     "LoggingPoster",
     "MeshPoster",
     "NodeSetupError",
+    "MissingExtraPort",
     "NoopAction",
     "StoreEventSink",
     "default_host",
@@ -164,10 +166,59 @@ class NoopAction:
         return InvocationResult.completed({})
 
 
+class MissingExtraPort:
+    """Stands in for an action port whose optional extra is not installed.
+
+    Every invocation fails ``extra_missing`` (non-retryable) so the run says what to
+    install rather than failing ``no_actor_port``.
+    """
+
+    supports_idempotency_key = False
+
+    def __init__(self, extra: str) -> None:
+        self.extra = extra
+
+    def invoke(
+        self,
+        input: Mapping[str, Any],
+        idempotency_key: str,
+        deadline: datetime,
+        *,
+        context: InvocationContext,
+    ) -> InvocationResult:
+        return InvocationResult.failed(
+            f"extra_missing: install culture-rules[{self.extra}]", retryable=False
+        )
+
+
 def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
-    """Ports for work that names no stored actor (stored actors are wired by the router)."""
-    del store, host
-    return {"action:noop": NoopAction()}
+    """Action ports for every catalogued kind (stored actors are wired by the router).
+
+    A port whose extra is missing (``github.comment`` needs ``cryptography``) is replaced
+    by one that fails ``extra_missing``. Detection uses ``find_spec``: nothing is imported.
+    """
+    del host
+    from culture_rules.node.actions.github import GitHubCommentPort  # noqa: PLC0415
+    from culture_rules.node.actions.http import HttpCallPort  # noqa: PLC0415
+    from culture_rules.node.actions.jira import JiraCommentPort  # noqa: PLC0415
+    from culture_rules.node.actions.machine import MachineCommandPort  # noqa: PLC0415
+    from culture_rules.node.actions.message import MessageAction  # noqa: PLC0415
+
+    message = MessageAction(store)
+    github: Any = (
+        GitHubCommentPort(store)
+        if importlib.util.find_spec("cryptography") is not None
+        else MissingExtraPort("github")
+    )
+    return {
+        "action:noop": NoopAction(),
+        "action:message": message,
+        "action:mesh.message": message,  # legacy alias of message
+        "action:github.comment": github,
+        "action:jira.comment": JiraCommentPort(store),
+        "action:http.call": HttpCallPort(store),
+        "action:machine.command": MachineCommandPort(store),
+    }
 
 
 def run_node(host: str | None = None, *, once: bool = False, idle: float = 1.0) -> dict[str, Any]:
