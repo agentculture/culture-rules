@@ -5,10 +5,24 @@
  * the engine's persisted run state (culture_rules/engine/runs.py
  * `_new_state`). Every call here is a route in api/openapi.json.
  */
-import { getJson, items, listRuns, request } from "./client";
-import type { ExportResult, ImportPlan, Placement, Repo, RepoExportResult } from "./types";
+import { getJson, items, listRuns, query, request } from "./client";
+import type {
+  ExportResult,
+  ImportPlan,
+  Placement,
+  PurgeResult,
+  Repo,
+  RepoExportResult,
+} from "./types";
 
-export type { ExportResult, ImportChange, ImportPlan, Repo, RepoExportResult } from "./types";
+export type {
+  ExportResult,
+  ImportChange,
+  ImportPlan,
+  PurgeResult,
+  Repo,
+  RepoExportResult,
+} from "./types";
 
 export type PortType = "string" | "number" | "integer" | "boolean" | "object" | "array" | "any";
 
@@ -85,6 +99,10 @@ export interface WorkflowDef {
   outputs?: WorkflowOutput[];
   enabled?: boolean;
   schema_version?: string;
+  /** Tombstone fields: set on a soft-deleted definition (listed with `include_deleted`). */
+  deleted_at?: string | null;
+  deleted_by?: string | null;
+  restorable_until?: string | null;
 }
 
 /** The fields of schemas/workflow.schema.json; a PUT body carries only these. */
@@ -121,6 +139,8 @@ export interface RunStepState {
   status: string;
   attempt?: number;
   host: string | null;
+  inputs?: Record<string, unknown> | null;
+  outputs?: Record<string, unknown> | null;
   error?: unknown;
 }
 
@@ -128,9 +148,17 @@ export interface RunStepState {
 export interface RunDoc {
   id: string;
   status: string;
+  /** Top-level copies of the pinned ids; a direct workflow run's rule id is `adhoc:<workflow id>`. */
+  rule_id?: string | null;
+  workflow_id?: string | null;
   rule?: { id: string } | null;
   workflow?: { id: string; version?: number; definition?: WorkflowDef } | null;
   steps: RunStepState[];
+  /** Workflow inputs, type-checked at start. */
+  inputs?: Record<string, unknown> | null;
+  /** The workflow's explicitly exported outputs; null until the run finishes. */
+  outputs?: Record<string, unknown> | null;
+  started_by?: string | null;
   created_at?: string | null;
   finished_at?: string | null;
   error?: unknown;
@@ -138,7 +166,16 @@ export interface RunDoc {
 
 const enc = encodeURIComponent;
 
-export const listWorkflowDefs = (signal?: AbortSignal) => items<WorkflowDef>("/workflows", signal);
+export interface ListWorkflowDefsOptions {
+  /** Also list soft-deleted definitions (`GET /workflows?include_deleted=true`). */
+  includeDeleted?: boolean;
+}
+
+export const listWorkflowDefs = (opts: ListWorkflowDefsOptions = {}, signal?: AbortSignal) =>
+  items<WorkflowDef>(
+    `/workflows${query({ include_deleted: opts.includeDeleted ? "true" : undefined })}`,
+    signal,
+  );
 
 export const getWorkflowDef = (id: string, signal?: AbortSignal) =>
   getJson<WorkflowDef>(`/workflows/${enc(id)}`, signal);
@@ -162,6 +199,21 @@ export const deleteWorkflowDef = (id: string, signal?: AbortSignal) =>
 /** `POST /workflows/{id}/restore`: bring a soft-deleted definition back. */
 export const restoreWorkflowDef = (id: string, signal?: AbortSignal) =>
   request<WorkflowDef>("POST", `/workflows/${enc(id)}/restore`, undefined, signal);
+
+/**
+ * `POST /workflows/{id}/run`: run a workflow directly, with no rule of its own. Answers the
+ * run document (201). Errors are `ApiError`: 422 `invalid_inputs` (errors[].path is
+ * `inputs.<port>`), 404 `workflow_not_found`, 409 `not_fireable` (deleted or disabled).
+ */
+export const runWorkflow = (
+  id: string,
+  inputs: Record<string, unknown> = {},
+  signal?: AbortSignal,
+) => request<RunDoc>("POST", `/workflows/${enc(id)}/run`, { inputs }, signal);
+
+/** `POST /workflows/{id}/purge` (admin): a dry-run check unless `apply`, which removes it for good. */
+export const purgeWorkflow = (id: string, apply: boolean, signal?: AbortSignal) =>
+  request<PurgeResult>("POST", `/workflows/${enc(id)}/purge`, { apply }, signal);
 
 export const listActors = (signal?: AbortSignal) => items<Actor>("/actors", signal);
 
