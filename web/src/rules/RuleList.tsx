@@ -8,6 +8,8 @@ interface Props {
   selectedId: string | null;
   slotOf: (rule: RuleDoc) => number | null;
   onToggle: (rule: RuleDoc) => void;
+  /** Rule ids whose toggle request is in flight (their switch is disabled). */
+  pending?: ReadonlySet<string>;
   onNew: () => void;
   onDragRule: (id: string | null) => void;
 }
@@ -19,7 +21,7 @@ interface Props {
  * rules. While a rule is focused, the other end of each of its relationships
  * wears a badge on its row.
  */
-export function RuleList({ rules, selectedId, slotOf, onToggle, onNew, onDragRule }: Readonly<Props>) {
+export function RuleList({ rules, selectedId, slotOf, onToggle, pending, onNew, onDragRule }: Readonly<Props>) {
   return (
     <nav className="rule-list" aria-label="Rules">
       <button type="button" className="rule-list__new" onClick={onNew}>
@@ -71,6 +73,7 @@ export function RuleList({ rules, selectedId, slotOf, onToggle, onNew, onDragRul
             <Switch
               label={`${rule.name} enabled`}
               checked={enabled}
+              disabled={pending?.has(rule.id)}
               onChange={() => onToggle(rule)}
             />
           </div>
