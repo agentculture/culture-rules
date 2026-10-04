@@ -470,3 +470,116 @@ describe("Workflows tab live updates (h61 / c80)", () => {
     expect(await screen.findByRole("heading", { level: 1, name: "Review PR, renamed" })).toBeInTheDocument();
   });
 });
+
+describe("Workflows: the in / out nodes and the empty canvas (t41)", () => {
+  let fetchMock: ReturnType<typeof mockFetch>["fetchMock"];
+
+  beforeEach(() => {
+    resetAgentState();
+    vi.stubGlobal("ResizeObserver", MeasuringResizeObserver);
+    vi.stubGlobal("DOMMatrixReadOnly", DOMMatrixStub);
+    fetchMock = mockFetch(routes()).fetchMock;
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  const putBody = () => {
+    const puts = methodCalls(fetchMock, "PUT", "/api/workflows/review-pr");
+    return JSON.parse(puts[puts.length - 1][1]!.body as string);
+  };
+
+  it("clicking the in node opens the inputs editor; Escape closes it and gives focus back", async () => {
+    renderWorkflows();
+    await loaded();
+    await waitFor(() => expect(card("Inputs")).toBeInTheDocument());
+    fireEvent.click(within(card("Inputs")).getByText("in"));
+    const dialog = await screen.findByRole("dialog", { name: "Edit inputs" });
+    expect(within(dialog).getByRole("textbox", { name: "Name of input pr" })).toBeInTheDocument();
+    expect(workflowsState()?.step).toBe("inputs");
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit inputs" })).toBeNull());
+    expect(card("Inputs")).toHaveFocus();
+    expect(workflowsState()?.step).toBeNull();
+  });
+
+  it("pressing Enter on the in node opens the inputs editor", async () => {
+    renderWorkflows();
+    await loaded();
+    await waitFor(() => expect(card("Inputs")).toBeInTheDocument());
+    expect(card("Inputs")).toHaveAttribute("tabindex", "0");
+    card("Inputs").focus();
+    fireEvent.keyDown(card("Inputs"), { key: "Enter" });
+    expect(await screen.findByRole("dialog", { name: "Edit inputs" })).toBeInTheDocument();
+  });
+
+  it("the out node (click or Enter) opens the outputs and variables editor", async () => {
+    renderWorkflows();
+    await loaded();
+    await waitFor(() => expect(card("Outputs")).toBeInTheDocument());
+    fireEvent.keyDown(card("Outputs"), { key: "Enter" });
+    const dialog = await screen.findByRole("dialog", { name: "Edit outputs" });
+    expect(within(dialog).getByRole("group", { name: "Outputs" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("group", { name: "Variables" })).toBeInTheDocument();
+    expect(workflowsState()?.step).toBe("outputs");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Done" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit outputs" })).toBeNull());
+    fireEvent.click(within(card("Outputs")).getByText("out"));
+    expect(await screen.findByRole("dialog", { name: "Edit outputs" })).toBeInTheDocument();
+  });
+
+  it("io edits go through the draft and Save PUTs them in schema shape", async () => {
+    const user = userEvent.setup();
+    renderWorkflows();
+    await loaded();
+    await waitFor(() => expect(card("Inputs")).toBeInTheDocument());
+    fireEvent.click(within(card("Inputs")).getByText("in"));
+    let dialog = await screen.findByRole("dialog", { name: "Edit inputs" });
+    await user.click(within(dialog).getByRole("button", { name: "Add input" }));
+    await user.type(within(dialog).getByRole("textbox", { name: "Name of input repo" }), "sitory");
+    await user.click(within(dialog).getByRole("button", { name: "Done" }));
+    expect(workflowsState()?.dirty).toBe(true);
+    // The canvas shows the new port on the in card.
+    await waitFor(() => expect(card("Inputs").querySelector('[data-port="out:input1"]')).not.toBeNull());
+
+    fireEvent.click(within(card("Outputs")).getByText("out"));
+    dialog = await screen.findByRole("dialog", { name: "Edit outputs" });
+    await user.click(within(dialog).getByRole("button", { name: "Add variable" }));
+    await user.type(within(dialog).getByRole("textbox", { name: "Default of variable var1" }), "3");
+    await user.click(within(dialog).getByRole("button", { name: "Remove output owner" }));
+    await user.click(within(dialog).getByRole("button", { name: "Done" }));
+
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(methodCalls(fetchMock, "PUT", "/api/workflows/review-pr")).toHaveLength(1));
+    const body = putBody();
+    expect(body.inputs).toEqual([
+      { name: "pr", type: "integer" },
+      { name: "repository", type: "string" },
+      { name: "input1", type: "any" },
+    ]);
+    expect(body.edges.filter((e: { source: string }) => e.source === "inputs").map((e: { source_port: string }) => e.source_port)).toEqual([
+      "pr",
+      "repository",
+      "repository",
+    ]);
+    expect(body.variables).toEqual([{ name: "var1", type: "any", default: 3 }]);
+    expect(body.outputs).toEqual([{ name: "verdict", type: "string", source: "steps.decide.outputs.verdict" }]);
+    expect(body).not.toHaveProperty("deleted_at");
+  });
+
+  it("an empty workflow shows next-step guidance whose buttons add a step and open the inputs editor", async () => {
+    const EMPTY = { id: "blank", name: "Blank", version: 1, inputs: [], variables: [], steps: [], edges: [], outputs: [] };
+    mockFetch(routes({ "/api/workflows": { body: { items: [EMPTY] } } }));
+    const user = userEvent.setup();
+    renderWorkflows("/workflows?id=blank");
+    await screen.findByRole("heading", { level: 1, name: "Blank" });
+    const guide = await screen.findByRole("region", { name: "Get started" });
+    await user.click(within(guide).getByRole("button", { name: "Add an input" }));
+    expect(await screen.findByRole("dialog", { name: "Edit inputs" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Done" }));
+    await user.click(within(screen.getByRole("region", { name: "Get started" })).getByRole("button", { name: "Add a step" }));
+    await waitFor(() => expect(workflowsState()?.steps).toEqual(["step-1"]));
+    expect(screen.queryByRole("region", { name: "Get started" })).toBeNull();
+  });
+});
