@@ -1,5 +1,5 @@
 import { vi } from "vitest";
-import { MACHINES, RULES, WHOAMI, WORKFLOWS, runsFor } from "../fixtures/rules-fixture";
+import { ACTORS, MACHINES, RULES, WHOAMI, WORKFLOWS, runsFor } from "../fixtures/rules-fixture";
 
 export type Routes = Record<string, { status?: number; body?: unknown }>;
 
@@ -9,6 +9,7 @@ export function defaultRoutes(now = Date.now()): Routes {
     "/api/whoami": { body: WHOAMI },
     "/api/rules": { body: { items: RULES } },
     "/api/machines": { body: { items: MACHINES } },
+    "/api/actors": { body: { items: ACTORS } },
     "/api/workflows": { body: { items: WORKFLOWS } },
     "/api/runs": { body: { items: runsFor(now) } },
   };

@@ -1,5 +1,5 @@
 import type { Rule, RunSummary } from "../api/types";
-import { MACHINES, RULES, WHOAMI, WORKFLOWS, runsFor } from "../fixtures/rules-fixture";
+import { ACTORS, MACHINES, RULES, WHOAMI, WORKFLOWS, runsFor } from "../fixtures/rules-fixture";
 
 /**
  * A stateful, in-memory culture-rules API (api/openapi.json shapes) for the
@@ -89,6 +89,7 @@ const error = (status: number, code: string, message: string) =>
 function handleGet(api: FakeApi, path: string, query: URLSearchParams): FakeResponse {
   if (path === "/whoami") return json(200, WHOAMI);
   if (path === "/rules") return json(200, { items: api.rules });
+  if (path === "/actors") return json(200, { items: ACTORS });
   if (path === "/machines") return json(200, { items: MACHINES });
   if (path === "/workflows") return json(200, { items: WORKFLOWS });
   if (path === "/runs") {
