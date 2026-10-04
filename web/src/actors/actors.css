@@ -344,3 +344,134 @@
     flex: 1;
   }
 }
+
+/* App connection / declarations and runner commands editors (t38). */
+.actor-form__wide {
+  grid-column: 1 / -1;
+}
+
+.actor-form select,
+.actor-subform select {
+  height: 44px;
+  padding: 0 12px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--ink);
+  font: 500 16px var(--font-body);
+}
+
+.actor-subform-stack,
+.actor-subform {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.actor-subform__title {
+  margin: 8px 0 0;
+  font: 600 var(--ac-type-card-title) var(--font-body);
+  color: var(--ink);
+}
+
+.actor-subform__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px 18px;
+}
+
+.actor-list,
+.actor-command {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.actor-command {
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: var(--surface);
+  border: 1px solid var(--line-soft);
+}
+
+.actor-list__title {
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.actor-list__row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: start;
+}
+
+.actor-list__row--probe {
+  grid-template-columns: 1fr 1.4fr 1fr auto;
+}
+
+.actor-list__row--param {
+  grid-template-columns: 1fr 140px auto;
+}
+
+.actor-add {
+  align-self: flex-start;
+  min-height: 44px;
+}
+
+.actor-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.actor-check {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  font-size: 16px;
+}
+
+.actor-check input {
+  width: 22px;
+  height: 22px;
+  flex: none;
+}
+
+.actor-form__error {
+  margin: 0;
+  color: var(--danger);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.actor-form__hint {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 14px;
+}
+
+.actor-form__warn {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--danger-tint);
+  color: var(--danger);
+  font-size: 14px;
+}
+
+.actor-form input[aria-invalid="true"] {
+  border-color: var(--danger);
+}
+
+.actor-form input[type="checkbox"] {
+  height: 22px;
+}
+
+@media (max-width: 720px) {
+  .actor-list__row--probe,
+  .actor-list__row--param {
+    grid-template-columns: 1fr auto;
+  }
+}

@@ -11,9 +11,10 @@ export const FILTERS: { value: KindFilter; label: string }[] = [
   { value: "daemon", label: "Daemons" },
   { value: "runner", label: "Runners" },
   { value: "robot", label: "Robots" },
+  { value: "app", label: "Apps" },
 ];
 
-export const KINDS: ActorKind[] = ["agent", "human", "service", "daemon", "runner", "robot"];
+export const KINDS: ActorKind[] = ["agent", "human", "service", "daemon", "runner", "robot", "app"];
 
 export const kindOfFilter = (filter: KindFilter): ActorKind | null => (filter === "all" ? null : filter);
 

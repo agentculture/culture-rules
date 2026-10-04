@@ -1,6 +1,21 @@
 import { useId, useState, type FormEvent } from "react";
-import type { Actor, ActorKind } from "../api/actors";
+import type { Actor, ActorKind, ActorParams } from "../api/actors";
 import { KINDS, parseCapabilities } from "./actors-view";
+import { AppConfigForm, HttpPolicyForm } from "./AppConfigForm";
+import { CommandsEditor } from "./CommandsEditor";
+import {
+  appDraftFrom,
+  appParamsFrom,
+  commandsFrom,
+  commandsParamFrom,
+  hasErrors,
+  httpDraftFrom,
+  httpParamsFrom,
+  validateApp,
+  validateCommands,
+  validateHttp,
+  type FormErrors,
+} from "./app-config";
 
 export interface ActorFormProps {
   /** The actor being edited, or null when adding a new one. */
@@ -26,8 +41,40 @@ export function ActorForm({ actor, machines, busy, onSave, onCancel }: Readonly<
   const [repo, setRepo] = useState(actor?.repo ?? "");
   const [caps, setCaps] = useState((actor?.capabilities ?? []).join(", "));
 
+  const [appDraft, setAppDraft] = useState(() => appDraftFrom(actor?.params));
+  const [commands, setCommands] = useState(() => commandsFrom(actor?.params));
+  const [http, setHttp] = useState(() => httpDraftFrom(actor?.params?.http));
+  const [submitted, setSubmitted] = useState(false);
+
+  const effectiveKind = adding ? kind : actor.kind;
+  const hasHttp = effectiveKind === "app" || effectiveKind === "service" || effectiveKind === "runner";
+  const errors: FormErrors = {
+    ...(effectiveKind === "app" ? validateApp(appDraft) : {}),
+    ...(effectiveKind === "runner" ? validateCommands(commands) : {}),
+    ...(hasHttp ? validateHttp(http) : {}),
+  };
+  const shown = submitted ? errors : {};
+
+  /** The actor's params with this form's declarations applied; undefined when it has none to carry. */
+  const buildParams = (): ActorParams | undefined => {
+    let params: ActorParams = { ...(actor?.params ?? {}) };
+    if (effectiveKind === "app") params = appParamsFrom(appDraft, params);
+    if (effectiveKind === "runner") {
+      if (commands.length || params.commands) params.commands = commandsParamFrom(commands);
+    }
+    if (hasHttp) {
+      const policy = httpParamsFrom(http);
+      if (policy) params.http = policy;
+      else delete params.http;
+    }
+    return Object.keys(params).length ? params : undefined;
+  };
+
   const submit = (event: FormEvent) => {
     event.preventDefault();
+    setSubmitted(true);
+    if (hasErrors(errors)) return;
+    const params = buildParams();
     onSave({
       ...(actor ?? { config_source: "db" as const, enabled: true }),
       id: adding ? id.trim() : actor.id,
@@ -38,6 +85,7 @@ export function ActorForm({ actor, machines, busy, onSave, onCancel }: Readonly<
       machine: blank(machine),
       repo: blank(repo),
       capabilities: parseCapabilities(caps),
+      ...(params ? { params } : {}),
     });
   };
 
@@ -91,6 +139,21 @@ export function ActorForm({ actor, machines, busy, onSave, onCancel }: Readonly<
       {field("Capabilities", (f) => (
         <input id={f} type="text" value={caps} onChange={(e) => setCaps(e.target.value)} placeholder="review, triage" />
       ))}
+      {effectiveKind === "app" ? (
+        <div className="actor-form__wide">
+          <AppConfigForm value={appDraft} onChange={setAppDraft} errors={shown} />
+        </div>
+      ) : null}
+      {effectiveKind === "runner" ? (
+        <div className="actor-form__wide">
+          <CommandsEditor value={commands} onChange={setCommands} errors={shown} />
+        </div>
+      ) : null}
+      {hasHttp ? (
+        <div className="actor-form__wide">
+          <HttpPolicyForm value={http} onChange={setHttp} errors={shown} />
+        </div>
+      ) : null}
       <div className="actor-form__actions">
         <button type="submit" className="btn btn--primary" disabled={busy}>
           Save
