@@ -302,3 +302,18 @@ def test_a_non_http_scheme_is_not_treated_as_an_endpoint(tmp_path: Path) -> None
     """The endpoint check is scoped to http(s) URLs, as documented."""
     findings = _write_and_scan(tmp_path, '{"endpoint": "unix:///var/run/thing.sock"}\n')
     assert findings == []
+
+
+def test_a_grant_secret_reference_is_not_flagged(tmp_path: Path) -> None:
+    """``grant:NAME`` names a secret in the operator's store; it never holds the value."""
+    planted = tmp_path / "actor.json"
+    text = '{"token": "grant:JIRA_SERVICE_ACCOUNT_TOKEN", "api_key": "grant:team/gh-key.v2"}\n'
+    planted.write_text(text, encoding="utf-8")
+    assert scan_secrets._scan_credentials(str(planted), text) == []
+
+
+def test_a_value_merely_prefixed_with_grant_is_still_caught(tmp_path: Path) -> None:
+    planted = tmp_path / "leak.txt"
+    text = 'token = "grant:Xk9Lm2Pq7Rt4Vw8Zb3Nc6 extra"\n'
+    planted.write_text(text, encoding="utf-8")
+    assert scan_secrets._scan_credentials(str(planted), text) != []
