@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from types import SimpleNamespace
 
@@ -467,3 +468,23 @@ def test_real_events_cli_accepts_the_nodes_zero_timeout_drain(real_events_env):
         src.drain(None, max=5, timeout=0.0)
     assert "drain bounds" not in str(caught.value)
     assert "culture-rules-h1" in str(caught.value)
+
+
+@pytest.mark.parametrize("bad", ["7", "not json", "[1]", '{"x": 1}'])
+def test_fan_in_starts_fresh_on_a_foreign_cursor_with_events_waiting(bad):
+    api = PerSubEventsCli({})
+    src = _fan_in(api)
+    api.queues = {src.sources[0].name: ["a"]}
+    batch = src.drain(bad, max=5, timeout=0.0)
+    assert [e["id"] for e in batch.envelopes] == ["evt_a"]
+    assert isinstance(json.loads(batch.cursor), dict)
+
+
+@pytest.mark.parametrize("bad", ["7", "not json"])
+def test_an_idle_fan_in_persists_the_reset_so_it_warns_only_once(bad, caplog):
+    src = _fan_in(PerSubEventsCli({}))
+    with caplog.at_level("WARNING", logger=adapter.__name__):
+        first = src.drain(bad, max=5, timeout=0.0)
+        assert first.cursor is not None and first.cursor != bad
+        src.drain(first.cursor, max=5, timeout=0.0)
+    assert len([r for r in caplog.records if r.levelname == "WARNING"]) == 1
