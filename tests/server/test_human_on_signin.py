@@ -249,3 +249,119 @@ def test_store_failure_is_logged_and_never_fails_the_request(caplog):
     store.fail = False
     assert loop.get("/whoami", headers=sso()).status_code == 200
     assert [a["id"] for a in humans_in(store)] == [ALICE_ID]
+
+
+# --- d4: link to an existing human actor by params.email -----------------------------------
+
+ALICE = "alice@example.com"
+
+
+def seed_human(store, ident="nachos", email=ALICE, **extra):
+    doc = {
+        "id": ident,
+        "name": "Ori Nachum",
+        "kind": "human",
+        "enabled": True,
+        "params": {"email": email} if email else {},
+        **extra,
+    }
+    store.insert("actors", doc)
+
+
+def test_existing_human_with_matching_email_is_linked_not_duplicated():
+    store = MemoryStore()
+    seed_human(store)
+    before = store.get("actors", "nachos")
+    signin = humans.HumanSignIn(store)
+    who = Principal(ALICE, "sso", frozenset({"viewer"}))
+    assert signin.needed(who)
+    signin(who)
+    assert not signin.needed(who)  # cache marks it known
+    assert [a["id"] for a in humans_in(store)] == ["nachos"]
+    assert store.get("actors", "nachos") == before
+    assert store.get("actors", ALICE_ID) is None
+    assert [e for e in store.find(AUDIT_COLLECTION) if e["target"]["id"] == ALICE_ID] == []
+
+
+def test_ensure_human_reports_exists_for_a_linked_actor():
+    store = MemoryStore()
+    seed_human(store)
+    who = Principal(ALICE, "sso", frozenset({"viewer"}))
+    assert humans.ensure_human(store, who) == "exists"
+
+
+def test_email_match_is_case_insensitive_and_stored_email_kept_as_given():
+    store = MemoryStore()
+    seed_human(store, email="Alice@Example.COM")
+    who = Principal(ALICE, "sso", frozenset({"viewer"}))
+    assert humans.ensure_human(store, who) == "exists"
+    assert [a["id"] for a in humans_in(store)] == ["nachos"]
+    assert store.get("actors", "nachos")["params"]["email"] == "Alice@Example.COM"
+
+
+def test_soft_deleted_linked_actor_still_counts():
+    store = MemoryStore()
+    seed_human(store, deleted_at="2026-01-01T00:00:00Z")
+    who = Principal(ALICE, "sso", frozenset({"viewer"}))
+    assert humans.ensure_human(store, who) == "exists"
+    assert store.get("actors", ALICE_ID) is None
+
+
+def test_human_with_a_different_email_does_not_link():
+    store = MemoryStore()
+    seed_human(store, email="someone@else.org")
+    seed_human(store, ident="noemail", email=None)
+    who = Principal(ALICE, "sso", frozenset({"viewer"}))
+    assert humans.ensure_human(store, who) == "created"
+    assert sorted(a["id"] for a in humans_in(store)) == sorted([ALICE_ID, "noemail", "nachos"])
+
+
+def test_non_human_actor_with_the_same_email_does_not_link():
+    store = MemoryStore()
+    store.insert(
+        "actors",
+        {"id": "bot", "name": "bot", "kind": "agent", "enabled": True, "params": {"email": ALICE}},
+    )
+    who = Principal(ALICE, "sso", frozenset({"viewer"}))
+    assert humans.ensure_human(store, who) == "created"
+
+
+def test_concurrent_first_sign_ins_with_a_linked_actor_insert_nothing():
+    store = MemoryStore()
+    seed_human(store)
+    who = Principal(ALICE, "sso", frozenset({"viewer"}))
+    gate = threading.Barrier(10)
+    outcomes: list[str] = []
+
+    def go():
+        gate.wait()
+        outcomes.append(humans.ensure_human(store, who))
+
+    threads = [threading.Thread(target=go) for _ in range(10)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert outcomes == ["exists"] * 10
+    assert [a["id"] for a in humans_in(store)] == ["nachos"]
+    assert store.find(AUDIT_COLLECTION) == []
+
+
+def test_two_humans_with_the_same_email_link_to_the_first_and_warn(caplog):
+    store = MemoryStore()
+    seed_human(store, ident="b-second")
+    seed_human(store, ident="a-first")
+    who = Principal(ALICE, "sso", frozenset({"viewer"}))
+    with caplog.at_level(logging.WARNING, logger="culture_rules.server.humans"):
+        assert humans.ensure_human(store, who) == "exists"
+    assert len(humans_in(store)) == 2
+    msgs = [r.getMessage() for r in caplog.records]
+    assert any("a-first" in m and "b-second" in m for m in msgs)
+
+
+def test_sign_in_over_http_links_to_the_existing_actor():
+    store = MemoryStore()
+    seed_human(store)
+    loop = listeners(store)["loopback"]
+    assert loop.get("/whoami", headers=sso()).status_code == 200
+    assert [a["id"] for a in humans_in(store)] == ["nachos"]
