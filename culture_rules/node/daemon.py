@@ -15,6 +15,9 @@ A :class:`Node` on host ``H`` does, every cycle (:meth:`Node.run_once`):
    since the previous tick, for the schedule rules placed on ``H`` and the unplaced ones
    (:mod:`culture_rules.node.schedule`; exactly once per rule/slot, no backfill of slots
    missed while the node was down); they are evaluated like any other event;
+   then **probe** - runs each due probe rule's allow-listed command on the actor's own
+   machine and emits a ``kind=probe`` event on change or success
+   (:mod:`culture_rules.node.probe_trigger`; same slot marker and window as schedule);
 4. **evaluate** - polls the per-host consumer for rules placed on ``H`` and the shared
    consumer for unplaced rules (:mod:`culture_rules.node.firing`), committing firing
    intents; a rule placed on ``H`` while ``H`` is drained/offline keeps its event; then
@@ -71,6 +74,7 @@ from culture_rules.machines.probe import ProbeResult, probe_platform, read_load
 from culture_rules.node import completions
 from culture_rules.node.actors import ACTORS_COLLECTION, ActorRouter, AdapterFactory
 from culture_rules.node.firing import RULE_FIRES, RuleFiring
+from culture_rules.node.probe_trigger import PROBE_STATE, CommandRunner, ProbeTrigger
 from culture_rules.node.schedule import Scheduler
 from culture_rules.ops.logs import log_context
 from culture_rules.store.port import Change, Document, StoragePort
@@ -91,6 +95,7 @@ NODE_COLLECTIONS = (
     RULE_DECISIONS,
     "actor_usage",
     human.ASKS_COLLECTION,
+    PROBE_STATE,
 )
 """Collections a node touches (created up front on MongoDB)."""
 
@@ -120,6 +125,7 @@ class CycleReport:
     ingested: int = 0
     duplicates: int = 0
     scheduled: list[str] = field(default_factory=list)
+    probed: list[str] = field(default_factory=list)
     evaluated: list[dict[str, str]] = field(default_factory=list)
     deferred: list[dict[str, str]] = field(default_factory=list)
     started: list[str] = field(default_factory=list)
@@ -164,6 +170,7 @@ class Node:
         heartbeat_options: HeartbeatOptions | None = None,
         reporter: RunReporter | None = None,
         on_evaluated: Callable[[str, str], None] | None = None,
+        probe_runner: CommandRunner | None = None,
         max_ticks: int = DEFAULT_MAX_TICKS,
     ) -> None:
         if not isinstance(host, str) or not host:
@@ -189,6 +196,7 @@ class Node:
         )
         self.firing = RuleFiring(store, host, self.executor, clock=self._clock)
         self.scheduler = Scheduler(store, host, self.firing, clock=self._clock)
+        self.prober = ProbeTrigger(store, host, self.firing, clock=self._clock, runner=probe_runner)
         self.ingest = (
             EventIngest(store, event_source, host=host, clock=self._clock)
             if event_source is not None
@@ -232,6 +240,7 @@ class Node:
             for consumer in self.firing.consumers:
                 self._stage(pinned, self._poll, consumer, pinned)  # retried next cycle
             self._stage(pinned, self._schedule, pinned)  # opens the window: no backfill
+            self._stage(pinned, self._probe, pinned)
             if self._reporter is not None:
                 self._report_token = self._store.head(RUNS_COLLECTION)
             self.started = True
@@ -305,6 +314,7 @@ class Node:
             if self.ingest is not None:
                 self._stage(report, self._ingest, report)
             self._stage(report, self._schedule, report)
+            self._stage(report, self._probe, report)
             for consumer in self.firing.consumers:
                 self._stage(report, self._poll, consumer, report)
             self._stage(report, self._start_fired, report)
@@ -338,6 +348,9 @@ class Node:
 
     def _schedule(self, report: CycleReport) -> None:
         report.scheduled += self.scheduler.tick()
+
+    def _probe(self, report: CycleReport) -> None:
+        report.probed += self.prober.tick()
 
     def _poll(self, consumer: Any, report: CycleReport) -> None:
         outcome = self.firing.poll(consumer)
