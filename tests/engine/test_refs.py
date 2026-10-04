@@ -32,7 +32,7 @@ def ex() -> Executor:
 
 
 def action_inputs(ex: Executor, params: dict, trigger: dict | None = None) -> dict:
-    r = rule(workflow_id=None, action=Action(kind="comment", params=params))
+    r = rule(workflow_id=None, action=Action(kind="noop", params=params))
     run = ex.start(r, trigger=trigger if trigger is not None else TRIGGER)
     ex.run_until_idle()
     return step_state(ex.run(run["id"]), ACTION_STEP)["inputs"]
@@ -96,7 +96,7 @@ def test_workflow_outputs_reference_and_lookalike_literal(ex):
     )
     fake = FakeActor(default=lambda inp, ctx: {"n": 3})
     ex2 = Executor(ex._store, "spark", {"*": fake}, clock=ex._clock)
-    act = Action(kind="comment", params={"n": "workflow.outputs.n", "doc": "workflow.md"})
+    act = Action(kind="noop", params={"n": "workflow.outputs.n", "doc": "workflow.md"})
     run = ex2.start(replace(rule(), action=act), wf, trigger=TRIGGER)
     ex2.run_until_idle()
     inputs = step_state(ex2.run(run["id"]), ACTION_STEP)["inputs"]
@@ -112,7 +112,7 @@ def ref_rule(params: dict, *, workflow: WorkflowRef | None = None, **kw) -> Rule
         name="r",
         trigger=Trigger(kind="event", params={"type": "t"}),
         workflow=workflow,
-        action=Action(kind="comment", params=params),
+        action=Action(kind="noop", params=params),
         **kw,
     )
 
