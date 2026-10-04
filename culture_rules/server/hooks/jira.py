@@ -65,8 +65,9 @@ ClientFactory = Callable[[Mapping[str, Any], Resolver], Any]
 
 
 def _default_client(connection: Mapping[str, Any], secrets: Resolver) -> JiraClient:
+    api_secret = secrets(str(connection.get("token") or ""))
     return JiraClient(
-        token=secrets(str(connection.get("token") or "")),
+        token=api_secret,
         site=str(connection.get("site") or ""),
         email=str(connection.get("email") or ""),
         api_base=str(connection.get("api_base") or ""),
