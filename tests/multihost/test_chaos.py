@@ -14,7 +14,7 @@ from __future__ import annotations
 import threading
 import time
 
-from culture_rules.engine.runs import ACTION_STEP
+from culture_rules.engine.runs import ACTION_STEP, RUNS_COLLECTION
 from tests.events.fakes import envelope
 from tests.multihost.harness import HOSTS, FailoverClient, event_rule, run_id_for
 
@@ -37,6 +37,16 @@ def test_one_host_stopped_keeps_serving_and_actions_run_exactly_once(cluster):
     publisher.start()
     cluster.wait_until(lambda: len(cluster.ledger.effects()) >= 10, timeout=60)
     cluster.kill("thor")  # dies mid-action; its API listener is stopped too
+
+    # the premise: thor really died holding an in-flight action, so reclaiming it is what is
+    # under test. Survivors cannot take it before its lease lapses, so it is still held here.
+    victim = cluster.host("thor")
+    assert victim.killed and victim.crashed_key is not None, "thor died without an action"
+    performed = [e for e in cluster.ledger.log if e.key == victim.crashed_key]
+    assert [e.host for e in performed] == ["thor"], "thor did not perform the side effect"
+    orphan = cluster.store.get(RUNS_COLLECTION, performed[0].run_id)
+    held = [s for s in orphan["steps"] if s["key"] == ACTION_STEP]
+    assert [(s["status"], s["host"]) for s in held] == [("dispatching", "thor")], held
 
     outcomes = client.mixed_load(REQUESTS)  # thor is down for all of them
     publisher.join()
