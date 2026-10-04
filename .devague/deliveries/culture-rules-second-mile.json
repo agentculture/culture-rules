@@ -2,7 +2,7 @@
   "plan_slug": "culture-rules-second-mile",
   "schema_version": 2,
   "created": "2026-10-04T04:55:50Z",
-  "updated": "2026-10-04T05:47:09Z",
+  "updated": "2026-10-04T06:02:57Z",
   "deviations": [
     {
       "id": "d1",
@@ -44,6 +44,33 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 3
+    },
+    {
+      "id": "d4",
+      "what": "sign-in links to an existing human actor whose params.email matches the Access email before creating a slug-id actor; rollout sets params.email on the existing 'nachos' actor",
+      "task_ref": "t16",
+      "reason": "live store already holds human actor 'nachos' (Ori Nachum, no email); slug-only creation would duplicate the operator; operator chose link-by-email",
+      "affects": [
+        "c8",
+        "h7"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 4
+    },
+    {
+      "id": "d5",
+      "what": "t18 also adds a 'runs backfill-ids' verb (dry-run by default, --apply) wrapping store.migrations.backfill_run_ids from t17",
+      "task_ref": "t18",
+      "reason": "t17's backfill had no caller; old runs stay missing from history and run filters until it runs; operator chose a CLI verb",
+      "affects": [
+        "c22"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 5
     }
   ],
   "evidence": [],
