@@ -930,3 +930,114 @@
 .wf-stage > .wf-new {
   margin-bottom: 14px;
 }
+
+/* ---------- Run form and outputs ---------- */
+
+.wf-run-form {
+  max-height: calc(100% - 32px);
+}
+
+.wf-run-form__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.wf-run-form__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.wf-run-form__label {
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.wf-run-form__type,
+.wf-run-form__hint {
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+
+.wf-run-form__field input:not([type="checkbox"]),
+.wf-run-form__field textarea {
+  min-height: 44px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 2px solid var(--wf-control-border);
+  background: var(--surface);
+  color: var(--ink);
+  font: 500 16px var(--font-body);
+}
+
+.wf-run-form__field textarea {
+  font-family: var(--font-mono, monospace);
+  resize: vertical;
+}
+
+.wf-run-form__field input[type="checkbox"] {
+  width: 44px;
+  height: 44px;
+  align-self: flex-start;
+  accent-color: var(--accent-strong);
+}
+
+.wf-run-form__field [aria-invalid="true"] {
+  border-color: var(--danger);
+}
+
+.wf-run-form__error {
+  margin: 0;
+  font-size: 15px;
+  color: var(--danger);
+}
+
+.wf-outputs {
+  padding: 14px 18px;
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: var(--wf-toolbar-shadow);
+}
+
+.wf-outputs__title {
+  margin: 0 0 8px;
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.wf-outputs__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+}
+
+.wf-outputs__item dt {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.wf-outputs__item dd {
+  margin: 0;
+  font-size: 17px;
+  overflow-wrap: anywhere;
+}
+
+.wf-outputs__item summary {
+  min-height: 32px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.wf-outputs__item pre {
+  margin: 4px 0 0;
+  max-height: 240px;
+  overflow: auto;
+  font: 14px var(--font-mono, monospace);
+}

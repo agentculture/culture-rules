@@ -326,28 +326,45 @@ describe("Workflows board (Chosen — Workflows)", () => {
     await waitFor(() => expect(workflowsState()?.run).toEqual({ id: "run-7", status: "failed" }));
   });
 
-  it("Run starts a run through the rule that uses this workflow and overlays it", async () => {
+  it("Run opens a typed form, starts a direct run, overlays it and shows outputs when it completes", async () => {
     const base = routes();
+    let polls = 0;
+    const DONE = { ...STARTED_RUN, status: "succeeded", finished_at: "2026-10-03T12:01:00Z", outputs: { verdict: "approve", owner: { name: "ori" } } };
     vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      const path = url.split("?")[0];
-      const body =
-        (path === "/api/runs" && init?.method === "POST") || path === "/api/runs/run-8"
-          ? STARTED_RUN
-          : (base[path]?.body ?? {});
+      const path = String(input).split("?")[0];
+      const direct = path === "/api/workflows/review-pr/run" && init?.method === "POST";
+      if (path === "/api/runs/run-8") polls += 1;
+      const body = direct ? STARTED_RUN : path === "/api/runs/run-8" ? (polls > 1 ? DONE : STARTED_RUN) : (base[path]?.body ?? {});
       return new Response(JSON.stringify(body), {
-        status: path === "/api/runs" && init?.method === "POST" ? 201 : 200,
+        status: direct ? 201 : 200,
         headers: { "content-type": "application/json" },
       });
     });
     const user = userEvent.setup();
     renderWorkflows();
     await loaded();
-    await user.click(screen.getByRole("button", { name: "Run" }));
+    const runButton = screen.getByRole("button", { name: "Run" });
+    expect(runButton).toBeEnabled();
+    await user.click(runButton);
+    await user.type(await screen.findByLabelText(/^pr/), "42");
+    await user.type(screen.getByLabelText(/^repo/), "agentculture/x");
+    await user.click(within(screen.getByRole("dialog", { name: "Run Review PR" })).getByRole("button", { name: "Run" }));
     await waitFor(() => expect(where).toContain("run=run-8"));
-    const post = methodCalls(fetchMock, "POST", "/api/runs");
-    expect(JSON.parse(post[0][1]!.body as string)).toEqual({ rule_id: "review-on-approve" });
+    const post = methodCalls(fetchMock, "POST", "/api/workflows/review-pr/run");
+    expect(JSON.parse(post[0][1]!.body as string)).toEqual({ inputs: { pr: 42, repo: "agentculture/x" } });
+    expect(methodCalls(fetchMock, "POST", "/api/runs")).toHaveLength(0);
     await waitFor(() => expect(card("Fetch diff")).toHaveAttribute("data-run-status", "running"));
+    const outputs = await screen.findByRole("region", { name: "Run outputs" }, { timeout: 5000 });
+    expect(within(outputs).getByText("approve")).toBeInTheDocument();
+    expect(within(outputs).getByText("owner")).toBeInTheDocument();
+  }, 10000);
+
+  it("Run is disabled while the workflow is disabled", async () => {
+    const off = WORKFLOW_DOCS.map((w) => (w.id === "build-image" ? { ...w, enabled: false } : w));
+    mockFetch(routes({ "/api/workflows": { body: { items: off } } }));
+    renderWorkflows("/workflows?id=build-image");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Run" })).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Run" })).toBeDisabled();
   });
 
   it("the list pane opens a workflow via ?id= and agent-state reports the tab", async () => {

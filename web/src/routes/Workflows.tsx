@@ -16,7 +16,6 @@ import {
   putWorkflowDef,
   restoreWorkflowDef,
   setWorkflowEnabled,
-  startRun,
   type Actor,
   type RunDoc,
   type WorkflowDef,
@@ -24,6 +23,7 @@ import {
 import { setWorkflowsState } from "../workflows/agentState";
 import WorkflowCanvas, { type CanvasProps } from "../workflows/Canvas";
 import IoControls from "../workflows/IoControls";
+import RunForm, { RunOutputs } from "../workflows/RunForm";
 import {
   addStep,
   connect,
@@ -405,9 +405,6 @@ function StepPanels({
   );
 }
 
-/** What the Run button says when hovered. */
-const runTitle = (rule: Rule | undefined) => (rule ? `Starts ${rule.name}` : "No rule runs this workflow yet");
-
 /** Live updates: which ticks a batch of changes moves. */
 function routeLiveChanges(
   changes: LiveChange[],
@@ -439,10 +436,6 @@ function agentSnapshot(
 /** The open workflow: the one asked for in the query, else the first. */
 const pickWorkflow = (workflows: WorkflowDef[], id: string | null): WorkflowDef | null =>
   workflows.find((w) => w.id === id) ?? workflows[0] ?? null;
-
-/** The rule that runs `workflow`, if any (the Run button starts it). */
-const ruleRunning = (loaded: Loaded | null, workflow: WorkflowDef | null): Rule | undefined =>
-  workflow ? (loaded?.rules ?? []).find((r) => r.workflow?.id === workflow.id) : undefined;
 
 /** No run is asked for, or the asked-for run has answered (a doc or an error). */
 const runSettledFor = (runId: string | null, run: OverlaidRun | null): boolean =>
@@ -496,14 +489,17 @@ function HeadActions({
   creating,
   dirty,
   saving,
-  runRule,
+  runBlock,
+  runRef,
   onSave,
   onRun,
 }: Readonly<{
   creating: boolean;
   dirty: boolean;
   saving: boolean;
-  runRule: Rule | undefined;
+  /** Why Run is unavailable (the button is disabled with this as its hint), or null. */
+  runBlock: string | null;
+  runRef: RefObject<HTMLButtonElement>;
   onSave: () => void;
   onRun: () => void;
 }>) {
@@ -515,7 +511,7 @@ function HeadActions({
           Save
         </button>
       ) : null}
-      <button type="button" className="wf-run" disabled={!runRule} title={runTitle(runRule)} onClick={onRun}>
+      <button ref={runRef} type="button" className="wf-run" disabled={runBlock !== null} title={runBlock ?? undefined} onClick={onRun}>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
           <path d="M7 4v16l13-8z" />
         </svg>
@@ -545,6 +541,7 @@ function WorkflowStage({
   edit,
   onChange,
   onCloseEditor,
+  runForm,
 }: Readonly<{
   workflow: WorkflowDef;
   loaded: Loaded | null;
@@ -558,6 +555,7 @@ function WorkflowStage({
   edit: (fn: (wf: WorkflowDef) => WorkflowDef) => void;
   onChange: (wf: WorkflowDef) => void;
   onCloseEditor: () => void;
+  runForm: ReactNode;
 }>) {
   return (
     <div className="wf-stage" ref={stageRef}>
@@ -590,6 +588,7 @@ function WorkflowStage({
         onChange={onChange}
         onClose={onCloseEditor}
       />
+      {runForm}
     </div>
   );
 }
@@ -637,6 +636,8 @@ export function Workflows() {
   const renameButton = useRef<HTMLButtonElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   // Live: `runsTick` re-reads the recent runs, `runTick` the overlaid run.
+  const [runFormOpen, setRunFormOpen] = useState(false);
+  const runButton = useRef<HTMLButtonElement>(null);
   const [runsTick, setRunsTick] = useState(0);
   const [runTick, setRunTick] = useState(0);
 
@@ -661,6 +662,7 @@ export function Workflows() {
     setSelectedStep(null);
     setEditing(null);
     setRenaming(false);
+    setRunFormOpen(false);
   }, [current?.id]);
 
   const workflow = current && draft?.id === current.id ? draft.def : null;
@@ -771,17 +773,13 @@ export function Workflows() {
     }
   };
 
-  const runRule = ruleRunning(loaded, current);
-  const start = async () => {
-    if (!runRule) return;
+  const runBlock =
+    current?.enabled === false ? "Enable this workflow to run it" : draft?.dirty ? "Save your changes to run them" : null;
+  const onRunStarted = (doc: RunDoc) => {
+    setRunFormOpen(false);
     setActionError(null);
-    try {
-      const doc = await startRun(runRule.id);
-      setRun({ id: doc.id, doc, error: null });
-      setQuery({ run: doc.id });
-    } catch (err) {
-      setActionError(`Run failed: ${message(err)}`);
-    }
+    setRun({ id: doc.id, doc, error: null });
+    setQuery({ run: doc.id });
   };
 
   const openNew = () => {
@@ -900,6 +898,17 @@ export function Workflows() {
         edit={edit}
         onChange={(wf) => setDraft((d) => editDraft(d, () => wf))}
         onCloseEditor={() => setEditing(null)}
+        runForm={
+          runFormOpen && current ? (
+            <RunForm
+              key={current.id}
+              workflow={current}
+              returnFocus={runButton.current}
+              onStarted={onRunStarted}
+              onClose={() => setRunFormOpen(false)}
+            />
+          ) : null
+        }
       />
     );
   } else if (empty) {
@@ -950,12 +959,15 @@ export function Workflows() {
             creating={creating}
             dirty={draft?.dirty === true}
             saving={saving}
-            runRule={runRule}
+            runBlock={runBlock}
+            runRef={runButton}
             onSave={() => void save()}
-            onRun={() => void start()}
+            onRun={() => setRunFormOpen(true)}
           />
         </div>
         <output className="wf-status">{status}</output>
+
+        {run?.doc?.status === "succeeded" && run.doc.outputs ? <RunOutputs outputs={run.doc.outputs} /> : null}
 
         {body}
 
