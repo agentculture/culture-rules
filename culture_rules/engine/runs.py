@@ -588,7 +588,10 @@ class Executor:
         identity: str | None = None,
         run_id: str | None = None,
     ) -> Document:
-        """Start a run of the stored rule ``rule_id`` and its stored workflow, pinning both."""
+        """Start a run of the stored rule ``rule_id`` and its stored workflow, pinning both.
+
+        The rule is validated in stored mode (see :meth:`start`).
+        """
         rule_doc = self._store.get(RULES_COLLECTION, rule_id)
         if rule_doc is None:
             raise RunError("rule_not_found", f"rule {rule_id!r} does not exist")
@@ -604,7 +607,13 @@ class Executor:
                 raise RunError("not_fireable", f"workflow {rule.workflow.id!r} is deleted")
             workflow = Workflow.from_dict(wf_doc, strict=False)
         return self.start(
-            rule, workflow, trigger=trigger, upstream=upstream, identity=identity, run_id=run_id
+            rule,
+            workflow,
+            trigger=trigger,
+            upstream=upstream,
+            identity=identity,
+            run_id=run_id,
+            stored=True,
         )
 
     def start_workflow(
@@ -657,12 +666,17 @@ class Executor:
         upstream: Mapping[str, Mapping[str, Any]] | None = None,
         identity: str | None = None,
         run_id: str | None = None,
+        stored: bool = False,
     ) -> Document:
-        """Validate, pin and persist a new run (audited). Refused while paused."""
+        """Validate, pin and persist a new run (audited). Refused while paused.
+
+        ``stored=True`` marks ``rule`` as read back from the store: it is validated in stored
+        mode, so a rule saved before the save-time catalog checks still runs.
+        """
         identity = require_identity(identity or self.identity)
         if is_paused(self._store):
             raise RunError("paused", "the engine is globally paused; nothing fires")
-        errors = validate(rule)
+        errors = validate(rule, stored=stored)
         if errors:
             raise RunError("invalid_rule", "rule failed validation", [e.to_dict() for e in errors])
         trigger = dict(trigger or {})

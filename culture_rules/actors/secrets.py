@@ -171,19 +171,27 @@ def run_with_secrets(
     )
 
 
+def _is_unset(value: Any) -> bool:
+    """``None`` or ``""``: a secret-looking key left unset (tolerated)."""
+    return value is None or value == ""
+
+
 def _assert_mapping_refs_only(params: Mapping, path: str) -> None:
     for key, value in params.items():
         here = f"{path}.{key}" if path else str(key)
-        if not (isinstance(value, str) and _is_secret_key(str(key))):
+        if not _is_secret_key(str(key)):
             assert_refs_only(value, here)
-        elif value and not is_secret_ref(value):
+        elif not (_is_unset(value) or is_secret_ref(value)):
+            # any other value - a literal string, list, number, object - is refused
             raise SecretError(f"{here}: secret must be a 'grant:<NAME>' reference")
 
 
 def assert_refs_only(params: Any, path: str = "") -> None:
     """Raise :class:`SecretError` if a secret-looking key holds a literal instead of a reference.
 
-    Walks nested mappings and lists; the error names the offending path, never the value.
+    A secret-looking key may hold only a ``grant:<NAME>`` reference (or be unset: ``None`` or
+    ``""``); a string, list, number or object literal is refused. Walks nested mappings and
+    lists under other keys; the error names the offending path, never the value.
     """
     if isinstance(params, Mapping):
         _assert_mapping_refs_only(params, path)

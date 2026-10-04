@@ -112,6 +112,16 @@ def test_probe_needs_name_and_command() -> None:
     assert ("params.probes[0].command", "required") in errs
 
 
+@pytest.mark.parametrize(
+    ("value", "code"),
+    [(None, "required"), ("", "required"), (42, "invalid_type"), (["gh"], "invalid_type")],
+)
+def test_probe_name_and_command_codes(value, code) -> None:
+    errs = codes(app_actor(probes=[{"name": value, "command": value}]))
+    assert ("params.probes[0].name", code) in errs
+    assert ("params.probes[0].command", code) in errs
+
+
 def test_surface_and_connection_required() -> None:
     actor = Actor(id="a", name="a", kind="app", params={})
     errs = codes(actor)
@@ -157,3 +167,30 @@ def test_literal_refused_on_put_too(client) -> None:
     resp = client.put("/actors/gh", json=body(private_key="-----BEGIN KEY-----"))
     assert resp.status_code == 422
     assert "secret_literal" in resp.text
+
+
+LITERAL_SHAPES = [
+    pytest.param({"private_key": ["literal-in-list"]}, id="list"),
+    pytest.param({"private_key": 12345}, id="number"),
+    pytest.param({"webhook_secret": {"value": "literal-in-dict"}}, id="dict"),
+    pytest.param({"webhook_secret": True}, id="bool"),
+]
+
+
+@pytest.mark.parametrize("conn", LITERAL_SHAPES)
+def test_non_string_literal_under_secret_key_refused(client, conn) -> None:
+    resp = client.post("/actors", json=body(**conn))
+    assert resp.status_code == 422
+    assert "secret_literal" in resp.text
+    for leaked in ("literal-in-list", "12345", "literal-in-dict"):
+        assert leaked not in resp.text
+
+
+def test_non_secret_nested_structures_still_accepted(client) -> None:
+    conn = {"repos": ["a/b"], "extra": {"labels": ["x"], "max_tokens": 5}, "token_budget": 3}
+    assert client.post("/actors", json=body(**conn)).status_code == 201
+
+
+def test_empty_secret_stays_tolerated(client) -> None:
+    assert client.post("/actors", json=body(webhook_secret="")).status_code == 201
+    assert client.put("/actors/gh", json=body(webhook_secret=None)).status_code == 200
