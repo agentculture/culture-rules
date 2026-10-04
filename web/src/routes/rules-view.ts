@@ -11,7 +11,7 @@ export function stagesOf(rule: Rule): StageKind[] {
 }
 
 export function triggerLabel(rule: Rule): string {
-  const params = rule.trigger.params ?? {};
+  const params = (rule.trigger.params ?? {}) as Record<string, unknown>;
   if (typeof params.label === "string" && params.label) return params.label;
   if (typeof params.event === "string" && params.event) return `${rule.trigger.kind}: ${params.event}`;
   return rule.trigger.kind;

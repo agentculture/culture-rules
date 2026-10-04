@@ -122,7 +122,7 @@ function useWorkflowsLoad(reload: number) {
     const controller = new AbortController();
     settleAll(
       [
-        listWorkflowDefs(controller.signal),
+        listWorkflowDefs({}, controller.signal),
         listMachines(controller.signal),
         listActors(controller.signal),
         listRules(controller.signal),

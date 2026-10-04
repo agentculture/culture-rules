@@ -37,10 +37,50 @@ export interface Whoami {
   roles: string[];
 }
 
-export interface Trigger {
-  kind: string;
-  params?: Record<string, unknown>;
+/** `event` trigger params (culture_rules/model/validate.py `_check_trigger`). */
+export interface EventTriggerParams {
+  type: string;
+  include_self?: boolean;
+  max_fires_per_hour?: number;
 }
+
+export interface ScheduleTriggerParams {
+  cron: string;
+  tz?: string;
+  max_fires_per_hour?: number;
+}
+
+export type ProbeMode = "change" | "condition";
+
+export interface ProbeTriggerParams {
+  /** The actor whose command is probed. */
+  actor: string;
+  command: string;
+  /** Cron expression. */
+  schedule: string;
+  mode: ProbeMode;
+  args?: Record<string, unknown>;
+}
+
+/** A `manual` trigger takes no params. */
+export type ManualTriggerParams = Record<string, never>;
+
+export type TriggerKind = "event" | "schedule" | "probe" | "manual";
+
+/** The trigger kinds and the params each takes, discriminated by `kind` (TRIGGER_KINDS). */
+export type TypedTrigger =
+  | { kind: "event"; params: EventTriggerParams }
+  | { kind: "schedule"; params: ScheduleTriggerParams }
+  | { kind: "probe"; params: ProbeTriggerParams }
+  | { kind: "manual"; params?: ManualTriggerParams };
+
+/**
+ * A rule's trigger. A kind this editor does not know (an open set on the wire) is kept
+ * verbatim in the second arm; narrow on `kind` to reach typed params.
+ */
+export type Trigger =
+  | TypedTrigger
+  | { kind: string & Record<never, never>; params?: Record<string, unknown> };
 
 export interface WorkflowRef {
   id: string;
@@ -49,10 +89,26 @@ export interface WorkflowRef {
   inputs?: Record<string, string | { $ref: string } | { $literal: unknown }>;
 }
 
+/** Action kinds of the catalogue (culture_rules/model/action_kinds.py); `mesh.message` is a legacy alias. */
+export type ActionKind =
+  | "noop"
+  | "message"
+  | "mesh.message"
+  | "github.comment"
+  | "jira.comment"
+  | "http.call"
+  | "machine.command";
+
+/**
+ * An action. A param may be a literal, a reference (`trigger.data.number`), a `{"$ref"}` object
+ * or a `{{ }}` template. `params.actor` names the credentialed or executing actor (required
+ * for github.comment, jira.comment, http.call and machine.command; optional for `message`,
+ * where omitting it sends on the Culture mesh).
+ */
 export interface Action {
-  kind: string;
+  kind: ActionKind | (string & Record<never, never>);
   name?: string;
-  params?: Record<string, unknown>;
+  params?: { actor?: string } & Record<string, unknown>;
 }
 
 export interface Placement {
@@ -202,4 +258,11 @@ export interface RepoExportResult {
   pushed: boolean;
   commit: string | null;
   changes: ImportChange[];
+}
+
+/** `POST /workflows/{id}/purge` (PurgeResult): `applied` false means a dry-run check only. */
+export interface PurgeResult {
+  collection: string;
+  id: string;
+  applied: boolean;
 }
