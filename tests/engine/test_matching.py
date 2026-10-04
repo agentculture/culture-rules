@@ -360,3 +360,44 @@ def test_superseder_that_must_run_after_the_rule_it_supersedes_never_fires():
     assert d["A"].reason == BLOCKED_BY_PREDECESSOR
     assert d["A"].by == ("B",)
     assert fired(d.values()) == frozenset()
+
+
+# --- t7: typeless event triggers match nothing; self-authored events need opt-in -----------
+
+SELF_EVENT = {**EVENT, "data": {**EVENT["data"], "self_authored": True}}
+
+
+def test_event_trigger_without_type_matches_nothing():
+    from culture_rules.engine.matching import trigger_matches
+
+    assert not trigger_matches(Trigger(kind="event"), EVENT)
+    assert not trigger_matches(Trigger(kind="event", params={}), EVENT)
+    assert match(EVENT, [rule("t", trigger=Trigger(kind="event"))]) == ()
+
+
+def test_non_event_kinds_do_not_require_a_type():
+    from culture_rules.engine.matching import trigger_matches
+
+    assert trigger_matches(Trigger(kind="manual"), {"kind": "manual"})
+    assert trigger_matches(Trigger(kind="schedule"), {"kind": "schedule"})
+
+
+def test_self_authored_event_fires_only_rules_that_opt_in():
+    plain = rule("plain")
+    opted = rule(
+        "opted",
+        trigger=Trigger(kind="event", params={"type": "github.pr.merged", "include_self": True}),
+    )
+    assert fired(match(SELF_EVENT, [plain, opted])) == frozenset({"opted"})
+    assert fired(match(EVENT, [plain, opted])) == frozenset({"plain", "opted"})
+
+
+def test_self_authored_guards_missing_or_non_dict_data():
+    from culture_rules.engine.matching import trigger_matches
+
+    t = Trigger(kind="event", params={"type": "x"})
+    assert trigger_matches(t, {"kind": "event", "type": "x"})
+    assert trigger_matches(t, {"kind": "event", "type": "x", "data": "str"})
+    assert not trigger_matches(t, {"kind": "event", "type": "x", "data": {"self_authored": True}})
+    # only a literal true counts
+    assert trigger_matches(t, {"kind": "event", "type": "x", "data": {"self_authored": "yes"}})
