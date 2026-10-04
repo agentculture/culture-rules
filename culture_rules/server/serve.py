@@ -18,15 +18,22 @@ dev header (everyone is admin) - for a laptop only; it is off by default.
 ``serve --node-name``); unset, the short hostname. Set it to the name the node runs under
 (``culture-rules node run`` defaults its ``--host`` to the same variable), or ``/health``
 stays ``degraded`` waiting for a heartbeat that never comes.
+
+The public webhook receivers (``POST /hooks/github``, ``POST /hooks/jira``) are mounted on
+every listener; the Jira one may carry its secret as ``?token=``, so :func:`serve` installs
+:class:`HookQueryFilter` on the ``uvicorn.access`` logger, which drops the query string from
+any access-log line whose path mentions ``/hooks``.
 """
 
 from __future__ import annotations
 
 import functools
+import logging
 import os
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import unquote
 
 from culture_rules.auth.access import AccessConfigError, AccessListenerConfig, AccessVerifier
 from culture_rules.auth.resolve import LAN, LOOPBACK, AuthSettings
@@ -36,9 +43,11 @@ from culture_rules.store.port import StoragePort
 __all__ = [
     "DEFAULT_HOST",
     "DEFAULT_PORT",
+    "HookQueryFilter",
     "Listener",
     "ServerExtraMissing",
     "build_listeners",
+    "install_hook_log_filter",
     "serve",
     "store_from_env",
 ]
@@ -46,6 +55,34 @@ __all__ = [
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 _TRUE = ("1", "true", "yes", "on")
+_ACCESS_LOGGER = "uvicorn.access"
+_HOOK_MARK = "/hooks"
+
+
+class HookQueryFilter(logging.Filter):
+    """Strip the query string from uvicorn access-log lines for webhook-like paths.
+
+    uvicorn logs ``(client, method, path-with-query, http_version, status)``; a webhook's
+    query may hold a secret (Jira's ``?token=``), so ``args[2]`` is cut at the first ``?``
+    whenever the percent-decoded, lower-cased path contains ``/hooks`` - the real routes, the
+    ``/api`` alias and the near-miss variants the auth middleware refuses (a misconfigured
+    sender's token must not reach the log either). Never drops a record.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        if isinstance(args, tuple) and len(args) >= 3 and isinstance(args[2], str):
+            path, sep, _ = args[2].partition("?")
+            if sep and _HOOK_MARK in unquote(path).lower():
+                record.args = (*args[:2], path, *args[3:])
+        return True
+
+
+def install_hook_log_filter() -> None:
+    """Attach :class:`HookQueryFilter` to ``uvicorn.access`` once (idempotent)."""
+    access = logging.getLogger(_ACCESS_LOGGER)
+    if not any(isinstance(f, HookQueryFilter) for f in access.filters):
+        access.addFilter(HookQueryFilter())
 
 
 class ServerExtraMissing(RuntimeError):
@@ -159,9 +196,10 @@ def serve(
         fetch_jwks=fetch_jwks,
         node_name=node_name,
     )
-    _run_servers(
-        [
-            uvicorn.Config(lst.app, host=lst.host, port=lst.port, **uvicorn_options)
-            for lst in listeners
-        ]
-    )
+    configs = [
+        uvicorn.Config(lst.app, host=lst.host, port=lst.port, **uvicorn_options)
+        for lst in listeners
+    ]
+    # after Config: building one (re)configures uvicorn's loggers from its log config
+    install_hook_log_filter()
+    _run_servers(configs)

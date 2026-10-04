@@ -59,7 +59,20 @@ from culture_rules.server.service import (
 )
 from culture_rules.store.port import StoragePort
 
-__all__ = ["API_VERSION", "IDENTITY_HEADER", "create_app", "current_identity", "current_principal"]
+__all__ = [
+    "API_VERSION",
+    "HOOK_PATHS",
+    "IDENTITY_HEADER",
+    "create_app",
+    "current_identity",
+    "current_principal",
+]
+
+# The only requests that skip principal resolution: ``POST`` to exactly these paths (the
+# webhook receivers, authenticated by their own signature/token check). Exact string match on
+# the decoded *and* raw path, so a prefix, a trailing slash, a case or percent-encoding
+# variant, or the ``/api`` alias never matches. Nothing else is public - not even ``/health``.
+HOOK_PATHS = frozenset({"/hooks/github", "/hooks/jira"})
 
 API_VERSION = "1.0.0"
 """The HTTP contract version (independent of the package version, so a release bump never
@@ -483,6 +496,7 @@ def create_app(
     _register_exchange(app, store, defs, targets)
     _register_asks(app, store, answer_ask)
     _register_stream(app, store)
+    _register_hooks(app, store)
     static.install(app, web_dist)
     # outermost: every answer, 401/403 envelopes included, says how it may be cached
     app.add_middleware(NoStoreByDefault)
@@ -493,6 +507,9 @@ def _install_auth(app: FastAPI, resolver: Resolver) -> None:
     @app.middleware("http")
     async def authenticate(request: Request, call_next):
         """Resolve the principal and check the route's role before routing (any handler)."""
+        if _hook_exempt(request):
+            request.state.principal = None  # the hook handler authenticates the delivery
+            return await call_next(request)
         try:
             principal = resolver.resolve(request.headers)
             need = required_role(request.method, request.url.path)
@@ -502,6 +519,31 @@ def _install_auth(app: FastAPI, resolver: Resolver) -> None:
             return _envelope(exc.status, exc.code, exc.message)
         request.state.principal = principal
         return await call_next(request)
+
+
+def _hook_exempt(request: Request) -> bool:
+    """``POST`` to an exact :data:`HOOK_PATHS` entry, as sent (not via ``/api``, not encoded)."""
+    if request.method != "POST":
+        return False
+    scope = request.scope
+    path = scope.get("path", "")
+    if path not in HOOK_PATHS or scope.get(static._FLAG):  # /api alias
+        return False
+    raw = scope.get("raw_path")
+    return raw is None or raw == path.encode("ascii")
+
+
+def _register_hooks(app: FastAPI, store: StoragePort) -> None:
+    """``POST /hooks/github`` and ``POST /hooks/jira``: public, signature-authenticated.
+
+    Kept out of the OpenAPI contract (``include_in_schema=False``): they are called by
+    GitHub/Jira, not by the CLI, MCP or web clients the contract types, and the contract's
+    global 401/403 envelope and credential schemes do not apply to them.
+    """
+    from culture_rules.server.hooks import github, jira  # noqa: PLC0415
+
+    app.include_router(github.router(store), include_in_schema=False)
+    app.include_router(jira.router(store), include_in_schema=False)
 
 
 def _register_auth_routes(app: FastAPI, tokens: ServiceTokens) -> None:
