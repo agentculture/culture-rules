@@ -1,0 +1,1152 @@
+{
+  "slug": "culture-rules-second-mile",
+  "title": "culture-rules second mile",
+  "schema_version": 6,
+  "status": "exported",
+  "created": "2026-10-03T18:08:10Z",
+  "updated": "2026-10-04T03:56:51Z",
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "rules.culture.dev rules point at the real world: typed and scheduled triggers, actions that act through app and server actors, humans and agents as actors, and a Workflows tab where you build and test a workflow on the canvas alone, with PR #4 review follow-ups closed",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h2",
+          "text": "Every confirmed requirement in this frame maps to at least one plan task with a test, and the announcement holds on the live deployment, not just in MemoryStore",
+          "status": "confirmed",
+          "instruction": "spec-to-plan coverage + validate-delivery live evidence"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c2",
+      "kind": "requirement",
+      "text": "probe",
+      "origin": "llm",
+      "status": "rejected",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c3",
+      "kind": "requirement",
+      "text": "Saving an event trigger with no params.type is refused by validation (model/validate.py _check_trigger) in API, CLI, MCP and editor; today engine/matching.py:145-151 makes a typeless event trigger match every event",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h1",
+          "text": "Validation rejects {kind:event, params:{}} and {kind:event, params:{type:''}} with a path-coded error (trigger.params.type); existing typeless event rules are reported by a migration/doctor check, not silently kept",
+          "status": "confirmed",
+          "instruction": "tests/model/test_validate.py: typeless event trigger -> Invalid with path trigger.params.type; doctor/migration lists offenders"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c4",
+      "kind": "requirement",
+      "text": "The Rules tab trigger editor is typed: pick a surface (app actor or machine), then an event type from the actor's declared events, writing params.type; optional filter condition; no free-text trigger",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h3",
+          "text": "The trigger editor never offers free text for the type: options come from enabled app actors' declared events (and schedule/probe/manual), and saving writes params.type; params.label stays display-only",
+          "status": "confirmed",
+          "instruction": "vitest RulesEditor + Playwright rules.spec.ts: pick surface->type, assert PUT body has params.type"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c5",
+      "kind": "requirement",
+      "text": "A schedule trigger (cron expression, stdlib-only parser) fires from a node scheduler stage, evaluated only on the host the rule is placed on, exactly once per slot",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h4",
+          "text": "The cron parser is stdlib-only and covers 5-field cron (*, lists, ranges, steps); each slot fires at most once even across node restart or two hosts (dedupe marker rule/slot in a transaction); a missed slot while the placed host is offline is not backfilled unless stated",
+          "status": "confirmed",
+          "instruction": "tests/engine/test_cron.py property tests + tests/node/test_schedule.py with fake clock and two hosts"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c6",
+      "kind": "requirement",
+      "text": "A probe trigger runs an allow-listed command on a chosen machine or app actor on a schedule and fires when its output changes or a condition over the output holds (e.g. trigger.data.temp > 30)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h5",
+          "text": "A probe runs only a command allow-listed on the target actor (CodeRunner rules: argv, no shell, timeout), its output becomes event data readable by conditions, 'on change' compares to persisted previous output, and a failed probe run emits no trigger",
+          "status": "confirmed",
+          "instruction": "tests/node/test_probe_trigger.py: change/no-change/condition/failure cases"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c7",
+      "kind": "requirement",
+      "text": "A new actor kind 'app' (integration surface) declares the events it emits, the probes it offers and the actions it performs, with connection config whose secrets are `grant:<NAME>` refs only",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h6",
+          "text": "An app actor's declared events/probes/actions are typed and validated on save, and any secret-looking param that is not a grant: ref is refused (assert_refs_only)",
+          "status": "confirmed",
+          "instruction": "tests/model/test_actor.py app kind cases + tests/auth/test_guards secret_literal"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "A new actor kind 'app' (integration surface) declares the events it emits, the probes it offers and the actions it performs, with connection config whose secrets are grant:<NAME> refs only",
+          "kind": "requirement",
+          "reason": "lint: backtick angle-bracket tokens (MD033), meaning unchanged"
+        }
+      ]
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "Signing in through Cloudflare Access creates a human actor (id and name from the Access identity, kind human, enabled, editable after); human actors are the default target for asks",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h7",
+          "text": "First authenticated SSO request for an identity creates exactly one human actor (id slug of email, kind human, enabled), concurrent first requests do not duplicate it, service tokens never create one, and an operator edit is not overwritten by later sign-ins",
+          "status": "confirmed",
+          "instruction": "tests/server/test_human_actor_on_signin.py incl. race and service-token cases"
+        }
+      ],
+      "hard_questions": [
+        {
+          "id": "q3",
+          "text": "Human actor identity: what is the actor id for an Access sign-in (email, slugged email, or Access sub), and does the first cut deliver asks to connected surfaces (Discord DM/GitHub) or keep the existing asks collection + editor inbox?",
+          "resolved": true,
+          "blocking": false,
+          "resolution": "id = slugged email; asks stay in the asks collection + editor inbox (user, see c30)"
+        }
+      ],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "Mesh agents on each machine are enrolled as agent actors (harness and model from culture.yaml, machine set), so workflow steps can be handed to them",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h8",
+          "text": "Enrolment reads each machine's culture agent list and culture.yaml (harness, model) and upserts agent actors with machine set, idempotently; agents removed from the machine are disabled, not deleted",
+          "status": "confirmed",
+          "instruction": "tests/actors/test_enrol_agents.py on fixture server.yaml + culture.yaml; dry-run by default, --apply commits"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "Operators register allow-listed commands on a server (runner) actor from the Actors tab: typed args, no shell, as CodeRunner enforces",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h9",
+          "text": "Commands added from the Actors tab are stored as CodeRunner commands {argv, params, timeout}; argv with sh -c / python -c is refused by the API, and args are typed fields in the UI",
+          "status": "confirmed",
+          "instruction": "Playwright actors.spec.ts + tests/server inline-eval refusal"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "A rule's action can name an actor in params and is dispatched through that actor's adapter with its limits; action-kind handlers (message, github.comment, jira.comment, http.call, machine.command) are registered as `action:<kind>` ports",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h10",
+          "text": "A rule action naming params.actor runs through that stored actor's adapter wrapped by LimitedActor (limits apply); an unknown or disabled actor fails the run with a clear code instead of falling back to noop; each of the 5 action kinds has a handler with idempotency honoured",
+          "status": "confirmed",
+          "instruction": "tests/engine/test_runs.py action-with-actor cases + tests/node/test_action_handlers.py per kind"
+        }
+      ],
+      "hard_questions": [
+        {
+          "id": "q4",
+          "text": "First-cut action kinds: all five (message, github.comment, jira.comment, http.call, machine.command), or a smaller set first (machine.command + message + github.comment)?",
+          "resolved": true,
+          "blocking": false,
+          "resolution": "All of github.comment, Discord message, jira.comment, http.call, machine.command (user, see c29)"
+        }
+      ],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "A rule's action can name an actor in params and is dispatched through that actor's adapter with its limits; action-kind handlers (message, github.comment, jira.comment, http.call, machine.command) are registered as action:<kind> ports",
+          "kind": "requirement",
+          "reason": "lint: backtick angle-bracket tokens (MD033), meaning unchanged"
+        }
+      ]
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "The Rules tab action editor picks an action kind offered by connected app and server actors, with typed params and graphical mappings from trigger data and workflow outputs (textual refs inspectable, never required)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h11",
+          "text": "The action picker offers only kinds that some enabled actor supports, renders typed param fields per kind, and mappings from trigger./workflow.outputs. refs are chosen graphically while the textual ref stays visible",
+          "status": "confirmed",
+          "instruction": "vitest + Playwright rules.spec.ts action picker"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c13",
+      "kind": "requirement",
+      "text": "Each app surface delivers typed events (github.pr.opened, discord.message.created, jira.issue.updated ...) into the events collection, replacing the stopped culture-nodes bridges",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h12",
+          "text": "Each surface event lands once in the events collection with a stable dotted type (<=4 segments or the depth limit is lifted) and a dedupe id from the surface's delivery id; malformed or unsigned input never lands",
+          "status": "confirmed",
+          "instruction": "tests/events/test_`<surface>`_ingest.py per surface with recorded payload fixtures"
+        }
+      ],
+      "hard_questions": [
+        {
+          "id": "q2",
+          "text": "Ingest per surface for the first cut: pollers placed on spark (no public endpoint; GitHub/Jira/Discord all pollable), or webhook receivers on a separate self-authenticating hostname (lower latency, needs cultureflare --no-access + HMAC)? And which surfaces ship first?",
+          "resolved": true,
+          "blocking": false,
+          "resolution": "Webhooks for GitHub and Jira; Discord via a Gateway bot listener (user, see c31, q5)"
+        }
+      ],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c14",
+      "kind": "assumption",
+      "text": "Events need not flow over MQTT to reach other hosts: the events collection lives in the shared replica set, so an ingest path on spark (webhook receiver or poller) is visible to every node's trigger consumers",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c15",
+      "kind": "requirement",
+      "text": "A workflow can be run directly with typed input values, without a rule: an API route plus a workflows run verb in CLI and MCP (parity test passes)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h13",
+          "text": "POST /workflows/{id}/run (or equivalent) validates inputs against declared typed ports, pins a synthetic rule, and the CLI and MCP 'workflows run' verbs pass tests/test_surface_parity.py; history and run filters show the run under the workflow",
+          "status": "confirmed",
+          "instruction": "tests/server/test_workflow_run.py + test_surface_parity + api/openapi.json regenerated"
+        }
+      ],
+      "hard_questions": [
+        {
+          "id": "q1",
+          "text": "Direct workflow run: pin a synthetic ad-hoc rule into the run doc (small change, history readers keep working), or make rule optional in the run doc and teach _Plan/_dispatch/history to tolerate it?",
+          "resolved": true,
+          "blocking": false,
+          "resolution": "Synthetic ad-hoc rule pinned into the run doc (user, see c28)"
+        }
+      ],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c16",
+      "kind": "requirement",
+      "text": "Run on the Workflows tab opens a typed input form built from the workflow's declared inputs (defaults applied), starts a direct run, lights steps as they run and shows the run's outputs",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h14",
+          "text": "The input form is generated from workflow.inputs (type-appropriate controls, required marked, defaults filled), submission starts a direct run, steps light up as they run and outputs appear when it completes",
+          "status": "confirmed",
+          "instruction": "Playwright workflows-run.spec.ts with stubbed API"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c17",
+      "kind": "requirement",
+      "text": "Selecting a step opens a properties panel with name, description, kind, actor/placement, config (runner command and args), typed ports, timeout_s and retry",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h15",
+          "text": "Every Step field in model/workflow.py (name, description, kind, placement, config, ports, timeout_s, retry, max_iterations) is editable from the properties panel and round-trips through PUT /workflows/{id} unchanged",
+          "status": "confirmed",
+          "instruction": "vitest StepEditor round-trip test over a fixture with all fields set"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c18",
+      "kind": "requirement",
+      "text": "The in and out nodes are click-selectable and open editors for the workflow's inputs, outputs (with source mapping to a step output port), variables and description",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h16",
+          "text": "Clicking the in or out node selects it (mouse and keyboard) and opens the inputs or outputs/variables/description editor; an output's source can be set by wiring a step output port, and the textual source stays inspectable",
+          "status": "confirmed",
+          "instruction": "Playwright workflows.spec.ts io-node click + axe stays clean"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c19",
+      "kind": "requirement",
+      "text": "Blocked actions explain what is wrong and offer fixes as options (add an input, pick an actor, wire this port, create a rule using this workflow); no raw error text; an empty workflow canvas says what to do next",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h17",
+          "text": "Every API error code the Workflows and Rules tabs can receive maps to a plain-language message plus at least one fix option, and an unmapped code falls back to a generic guided message, never raw text",
+          "status": "confirmed",
+          "instruction": "vitest table test: every code in RunError/ServiceError vocab has a mapping"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c20",
+      "kind": "requirement",
+      "text": "The Workflows tab can show soft-deleted workflows and purge them (admin)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h18",
+          "text": "The Workflows tab can list soft-deleted workflows (include_deleted) and purge one as admin with a confirmation step; non-admins don't see purge",
+          "status": "confirmed",
+          "instruction": "Playwright + vitest role gating"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c21",
+      "kind": "decision",
+      "text": "The left-pane workflow list is already shipped on main and is out of this frame",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c22",
+      "kind": "requirement",
+      "text": "PR #4 review follow-ups land as fixes: legacy events cursor reads as start-fresh, fan-in docstring corrected, deep-event-type limit documented or configurable, _machine_online semantics pinned by tests, shared-chain transaction skipped when nothing depends on the rule, online threshold aligned with beat cadence, record_decision extra read removed, cross-host _settled_skip cascade, run-history filter in the store, Switch in-flight disabled, canvas height from real card heights, actor->machine dot, test premises strengthened, cache rule and node installer documented",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h19",
+          "text": "Each #7 item is either fixed with a test that fails on the old code, or closed with a written reason (e.g. refuted items c23/c24)",
+          "status": "confirmed",
+          "instruction": "issue #7 checklist cross-referenced in the PR description"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c23",
+      "kind": "boundary",
+      "text": "chaining live() needs no change: a must_after predecessor whose predecessor failed resolves to predecessor_failed; only a unit test is added",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h20",
+          "text": "A unit test of sequence()/live() for a 3-deep must_after chain with a failed root yields predecessor_failed for the leaf",
+          "status": "confirmed",
+          "instruction": "tests/engine/test_chaining.py"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c24",
+      "kind": "boundary",
+      "text": "The Access 401 for a malformed token already holds; only a pinning test is added",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h21",
+          "text": "A test pins that a validly signed Access token naming no person or service ends as HTTP 401 code malformed",
+          "status": "confirmed",
+          "instruction": "tests/auth/test_access.py"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c25",
+      "kind": "boundary",
+      "text": "culture_rules runtime keeps zero third-party dependencies: outbound calls use urllib or argv CLIs (gh, culture, discord), secrets via grant, anything else behind an optional extra",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h22",
+          "text": "pyproject runtime dependencies stay empty; every new third-party import sits behind an optional extra and is imported lazily",
+          "status": "confirmed",
+          "instruction": "existing zero-deps test (or add one) importing culture_rules without extras"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c26",
+      "kind": "non_goal",
+      "text": "No webhook path is opened on rules.culture.dev's Access-protected hostname; inbound webhooks, if any, use a separate hostname that authenticates itself",
+      "origin": "llm",
+      "status": "rejected",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c27",
+      "kind": "non_goal",
+      "text": "climate, sensibo and reTerminal app actors are later; this frame only makes them possible as server-actor commands",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c28",
+      "kind": "decision",
+      "text": "Direct workflow runs pin a synthetic ad-hoc rule (manual trigger, workflow ref carrying the given inputs, noop action) into the run doc, so executor, history and filters stay unchanged",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c29",
+      "kind": "decision",
+      "text": "First-cut surfaces and actions: GitHub, Discord and Jira (events in, comment/message actions out), plus machine.command and http.call actions with schedule and probe triggers",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [
+        {
+          "id": "q5",
+          "text": "Discord inbound: Discord sends no message webhooks. Accept the Interactions endpoint (slash commands/buttons, Ed25519-signed, needs an optional crypto extra) as the 'webhook', or run a Gateway bot listener (needs a bot token, a long-lived connection, not a webhook) for discord.message.created?",
+          "resolved": true,
+          "blocking": false,
+          "resolution": "Discord Gateway bot listener: a bot is more powerful than the Interactions endpoint (user)"
+        },
+        {
+          "id": "q6",
+          "text": "github.comment identity: post as the GitHub App (GITHUB_APP_PRIVATE_KEY, RS256 JWT -> installation token, needs a crypto extra or the gh CLI's app support) or through the operator's authenticated gh CLI on the placed machine (posts as the user)?",
+          "resolved": true,
+          "blocking": false,
+          "resolution": "github.comment posts as the GitHub App (user)"
+        }
+      ],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c30",
+      "kind": "decision",
+      "text": "A human actor created on Access sign-in has id = slugged email; asks stay in the asks collection and the editor inbox (delivery to connected surfaces is later)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c31",
+      "kind": "decision",
+      "text": "GitHub and Jira events arrive by webhook; Discord events arrive through a Gateway bot listener (more powerful than the Interactions endpoint); no polling; secrets as `grant:<NAME>` refs; culture-nodes receivers are the reference to cite",
+      "origin": "user",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "GitHub, Discord and Jira events arrive by webhook (not polling), with secrets as grant:<NAME> refs; culture-nodes receivers are the reference to cite",
+          "kind": "decision",
+          "reason": "user decision on q5"
+        },
+        {
+          "text": "GitHub and Jira events arrive by webhook; Discord events arrive through a Gateway bot listener (more powerful than the Interactions endpoint); no polling; secrets as grant:<NAME> refs; culture-nodes receivers are the reference to cite",
+          "kind": "decision",
+          "reason": "lint: backtick angle-bracket tokens (MD033), meaning unchanged"
+        }
+      ]
+    },
+    {
+      "id": "c32",
+      "kind": "requirement",
+      "text": "GitHub and Jira webhook receivers live on rules.culture.dev under one fixed path each (e.g. /hooks/github, /hooks/jira) covered by a path-scoped Cloudflare Access Bypass; each receiver authenticates the request itself (GitHub X-Hub-Signature-256 HMAC, Jira HMAC or URL token) and writes typed events into the shared events collection, deduped on the surface's delivery id",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h23",
+          "text": "Only the exact receiver paths bypass Access; an unsigned or wrongly signed request returns 401 and writes nothing; a redelivered webhook (same delivery id) writes no second event",
+          "status": "confirmed",
+          "instruction": "tests/server/test_hooks_github.py, test_hooks_jira.py; ops doc lists the Bypass policy paths"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "Webhook receivers live on rules.culture.dev under one fixed path per surface (e.g. /hooks/github, /hooks/jira, /hooks/discord) covered by a path-scoped Cloudflare Access Bypass; each receiver authenticates the request itself and writes typed events into the shared events collection, deduped on the surface's delivery id",
+          "kind": "requirement",
+          "reason": "Discord moved to a Gateway listener (q5)"
+        }
+      ]
+    },
+    {
+      "id": "c33",
+      "kind": "boundary",
+      "text": "culture_rules runtime stays dependency-free: GitHub/Jira webhook HMAC checks use stdlib hmac/hashlib; the Discord Gateway client and GitHub App RS256 JWT signing live behind optional extras (e.g. discord, github) imported lazily",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h24",
+          "text": "Importing culture_rules and running the API without the discord/github extras works; GitHub/Jira HMAC verification uses hmac.compare_digest",
+          "status": "confirmed",
+          "instruction": "test importing with extras absent + grep for compare_digest"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "Webhook signature checks use stdlib hmac/hashlib (GitHub, Jira) so culture_rules stays dependency-free; anything needing asymmetric crypto sits behind an optional extra",
+          "kind": "boundary",
+          "reason": "q5/q6 decisions need third-party crypto/gateway libs"
+        }
+      ]
+    },
+    {
+      "id": "c34",
+      "kind": "assumption",
+      "text": "Secrets come from grant: GITHUB_APP_PRIVATE_KEY (App auth), a GitHub webhook secret (reuse CULTURE_NODES_GITHUB_APP_WEBHOOK_SECRET or add a rules-specific one), JIRA_SERVICE_ACCOUNT_TOKEN; a Discord bot token and a Jira webhook token have no grant entry yet and the operator must add them",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "Secrets for this cut come from grant: CULTURE_NODES_GITHUB_APP_WEBHOOK_SECRET (or a new rules-specific one), GITHUB_APP_PRIVATE_KEY, JIRA_SERVICE_ACCOUNT_TOKEN; Discord and a Jira webhook token have no grant entry yet and must be created by the operator",
+          "kind": "assumption",
+          "reason": "q5/q6"
+        }
+      ]
+    },
+    {
+      "id": "c35",
+      "kind": "requirement",
+      "text": "A Discord app actor runs a Gateway bot listener as a long-lived, placed service (one holder at a time, like a lease) that turns gateway events into typed events (discord.message.created, ...) in the shared events collection; the same bot token sends the Discord message action",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h25",
+          "text": "Exactly one Discord gateway connection is held mesh-wide at a time (lease), it reconnects and resumes after drop, every message event lands once with type discord.message.created, and the bot token is resolved only via grant",
+          "status": "confirmed",
+          "instruction": "tests/actors/test_discord_listener.py with a fake gateway; live check on spark"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c36",
+      "kind": "requirement",
+      "text": "github.comment authenticates as the GitHub App: mint an RS256 JWT from GITHUB_APP_PRIVATE_KEY, exchange it for an installation token, call the REST API via urllib",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h26",
+          "text": "Comments are authored by the GitHub App, installation tokens are cached until near expiry and never logged, and only allow-listed repos can be commented on",
+          "status": "confirmed",
+          "instruction": "tests/actors/test_github_app.py with a fake API + live comment on a test PR"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c37",
+      "kind": "audience",
+      "text": "The operator (Ori) building rules on rules.culture.dev, and the mesh agents and teammates whose GitHub/Discord/Jira activity and machines those rules react to and act on",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h27",
+          "text": "The spec's audience matches who actually uses rules.culture.dev today",
+          "status": "confirmed",
+          "instruction": "operator review"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "check the exported spec names the operator, mesh agents and connected surfaces as readers/users",
+      "revisions": []
+    },
+    {
+      "id": "c38",
+      "kind": "before_state",
+      "text": "Today a rule cannot be pointed at anything real: an event trigger without a type matches every event, schedule does nothing, the only action handler is noop, actions never reach an actor, and a workflow can be tested only by writing a rule for it",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h28",
+          "text": "The before-state statements are each backed by a recorded scope entry",
+          "status": "confirmed",
+          "instruction": "devague scope --list"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "see scope entries s1, s4, s9 (matching.py:145, runner.py:189, runs.py:909)",
+      "revisions": []
+    },
+    {
+      "id": "c39",
+      "kind": "why_it_matters",
+      "text": "rules.culture.dev is live on four machines but inert; it replaces the stopped culture-nodes bridges (GitHub inbox, jira-bridge, Discord notify) only once real events trigger rules and real actions run",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h29",
+          "text": "The culture-nodes bridges named are in fact stopped and their roles are covered by this frame's surfaces",
+          "status": "confirmed",
+          "instruction": "operator confirms bridge status"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "issue #5 'Why' section",
+      "revisions": []
+    },
+    {
+      "id": "c40",
+      "kind": "after_state",
+      "text": "An operator builds, from the editor alone, a rule triggered by a real GitHub, Jira, Discord, schedule or probe event, whose action comments, messages, calls HTTP or runs a machine command through an actor; and builds and test-runs a workflow with typed inputs on the canvas without writing a rule",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h30",
+          "text": "The demo walkthrough is executed live, not only in tests",
+          "status": "confirmed",
+          "instruction": "docs/demo.md re-run with outputs recorded"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "walk docs/demo.md end to end on rules.culture.dev with no API/CLI calls for the editor parts",
+      "revisions": []
+    },
+    {
+      "id": "c41",
+      "kind": "success_signal",
+      "text": "On rules.culture.dev, a GitHub PR opened on an allow-listed repo produces exactly 1 github.pr.opened event and exactly 1 App-authored comment from the rule that matches it, within 60 s; the same holds for a jira.issue.updated -> jira.comment and a discord.message.created -> Discord reply",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h31",
+          "text": "This signal is checked and its evidence filed at validate-delivery time",
+          "status": "confirmed",
+          "instruction": "devague evidence file with run ids / CI links"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "live check on spark against a test repo/project/channel; record run ids as evidence",
+      "revisions": []
+    },
+    {
+      "id": "c42",
+      "kind": "success_signal",
+      "text": "An event rule with no params.type is refused on save (HTTP 422, CLI exit 1) and 0 typeless event triggers remain in the live rules collection after migration",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h32",
+          "text": "This signal is checked and its evidence filed at validate-delivery time",
+          "status": "confirmed",
+          "instruction": "devague evidence file with run ids / CI links"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "pytest for validation + a store query on the deployed DB",
+      "revisions": []
+    },
+    {
+      "id": "c43",
+      "kind": "success_signal",
+      "text": "A schedule rule placed on thor with cron '*/5 * * * *' fires exactly 1 run per slot over 1 hour (12 runs), all on thor, including across a node restart",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h33",
+          "text": "This signal is checked and its evidence filed at validate-delivery time",
+          "status": "confirmed",
+          "instruction": "devague evidence file with run ids / CI links"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "multihost test with fake clock + live observation on thor",
+      "revisions": []
+    },
+    {
+      "id": "c44",
+      "kind": "success_signal",
+      "text": "A workflow with 2 typed inputs is run from the Workflows tab input form with 0 rules referencing it, and its outputs render in place; Playwright covers it and CI's web job stays green",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h34",
+          "text": "This signal is checked and its evidence filed at validate-delivery time",
+          "status": "confirmed",
+          "instruction": "devague evidence file with run ids / CI links"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "web e2e spec workflows-run.spec.ts",
+      "revisions": []
+    },
+    {
+      "id": "c45",
+      "kind": "success_signal",
+      "text": "Every issue #7 item is closed with a test or doc change linked, and the full suite (pytest -n auto, vitest, Playwright) and SonarCloud quality gate pass on the PR",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h35",
+          "text": "This signal is checked and its evidence filed at validate-delivery time",
+          "status": "confirmed",
+          "instruction": "devague evidence file with run ids / CI links"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "gh issue view 7 checklist + CI",
+      "revisions": []
+    }
+  ],
+  "open_vagueness": [
+    {
+      "id": "v1",
+      "text": "Agent activity as an event source: culture's supervisor webhooks (agent_complete etc., ~/.culture/server.yaml) POST to a URL and agentirc emits IRCv3-tagged system events, but nothing bridges either into the events collection; the bridge's home (culture-rules, culture, or a bot) is undecided",
+      "kind": "unknown_nonblocking",
+      "claim_id": "c9",
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    }
+  ],
+  "scope_entries": [
+    {
+      "id": "s1",
+      "surface": "culture_rules/engine/matching.py + model/validate.py",
+      "finding": "trigger_matches: wanted=params.get('type'); wanted is None matches all; _check_trigger (validate.py:311) only checks kind non-empty; Trigger.kind is a free string (model/rule.py:15-20)",
+      "seeds": [
+        "c3"
+      ]
+    },
+    {
+      "id": "s2",
+      "surface": "web/src/rules/Forms.tsx + routes/rules-view.ts",
+      "finding": "NewRuleForm (Forms.tsx:112-160) and RuleEditForm write only params.label from free text; TRIGGER_KINDS=[event,schedule,manual]; triggerLabel already reads params.event; Rules tab is HTML stage list, not React Flow",
+      "seeds": [
+        "c4"
+      ]
+    },
+    {
+      "id": "s3",
+      "surface": "culture_rules/node/daemon.py run_once + node/firing.py",
+      "finding": "grep finds no cron/schedule evaluator (only ops/backup.py); Node.run_once stages start/beat/ingest/poll/start_fired/redeliver/drive/report at 1s idle; firing has placed (triggers@host) and shared consumers, _mine resolves placement; a _schedule_tick stage can synthesize kind=schedule events deduped by rule/slot marker",
+      "seeds": [
+        "c5"
+      ]
+    },
+    {
+      "id": "s4",
+      "surface": "culture_rules/machines/probe.py + model/condition.py",
+      "finding": "probe.py is platform/health only (nvidia-smi, lsusb, load) with no-shell 5s _run; condition evaluator reads ctx.trigger dotted paths and compares numbers, so probe output as event data works unchanged; 'fires on change' needs new previous-value state",
+      "seeds": [
+        "c6"
+      ]
+    },
+    {
+      "id": "s5",
+      "surface": "culture_rules/model/actor.py + actors/secrets.py",
+      "finding": "ActorKind Literal + ACTOR_KINDS tuple (actor.py:41-44) is the only enum; declarations have no home (params or new fields with schema_version); secrets.py grant: regex, assert_refs_only enforced on save via auth/guards.py:88 gives the secret contract for free",
+      "seeds": [
+        "c7"
+      ]
+    },
+    {
+      "id": "s6",
+      "surface": "culture_rules/auth/resolve.py + auth/access.py + server/app.py middleware",
+      "finding": "AccessIdentity(subject,email,common_name,kind); Resolver holds no store and is sync per-request; the authenticate middleware (app.py:488-499) has the store; Principal carries only identity/kind/roles; nothing upserts actors today",
+      "seeds": [
+        "c8"
+      ]
+    },
+    {
+      "id": "s7",
+      "surface": "culture_rules/actors/config.py + ~/.culture/server.yaml (culture repo)",
+      "finding": "parse_culture_yaml/load_all_from_repo exist but have no callers; per-machine agent list is ~/.culture/server.yaml agents map suffix->dir; nicks are `<server>-<suffix>`; Actor.machine is the link; machines/enrol.py reads no culture.yaml",
+      "seeds": [
+        "c9"
+      ]
+    },
+    {
+      "id": "s8",
+      "surface": "web/src/actors/ActorForm.tsx + actors/code.py",
+      "finding": "ActorForm edits id/kind/harness/model/repo/machine/capabilities only; params (where runner commands live) never touched; CodeRunner takes commands {name:{argv,params,timeout}}, bind_argv coerces, refuses sh -c / python -c",
+      "seeds": [
+        "c10"
+      ]
+    },
+    {
+      "id": "s9",
+      "surface": "culture_rules/engine/runs.py _context + node/runner.py default_ports + node/actors.py ActorRouter",
+      "finding": "_context (runs.py:909-915) builds the action InvocationContext with actor=None, so only `action:<kind>` fallback ports apply; default_ports returns only action:noop; ActorRouter fallback already tries `action:<kind>` then action then *; Action has no actor slot by design (action.py:17 \"names it inside params\")",
+      "seeds": [
+        "c11"
+      ]
+    },
+    {
+      "id": "s10",
+      "surface": "web/src/rules/Forms.tsx action editing",
+      "finding": "only rule.action.name is editable; new rules get placeholder {kind: mesh.message, name: Notify}; actionChips already parses trigger./workflow./vars./rule. refs",
+      "seeds": [
+        "c12"
+      ]
+    },
+    {
+      "id": "s11",
+      "surface": "culture_rules/events/ingest.py + sibling culture-nodes adapters",
+      "finding": "ingest writes {id, envelope, received_at, host} to the shared Mongo events collection; culture-nodes github/jira/notify bridges are outbound-only (human-inbox tracker polls only github_pr_merged), so inbound producers are new code; tracker poll/rate-limit design is citeable",
+      "seeds": [
+        "c13"
+      ]
+    },
+    {
+      "id": "s12",
+      "surface": "events-cli broker + node.env on thor/orin/spark2",
+      "finding": "events-cli broker is loopback 127.0.0.1:1883, remote access not built (events-cli #10); no EVENTS_BROKER_HOST in any deploy file or node-install.sh; nodes without broker run with no ingest (open_event_source -> None) but still read the shared events collection via EventTriggers change feed",
+      "seeds": [
+        "c14"
+      ]
+    },
+    {
+      "id": "s13",
+      "surface": "culture_rules/engine/runs.py start + server/app.py POST /runs + cli/_commands",
+      "finding": "RunStart is {rule_id, trigger, upstream}; run doc pins rule unconditionally (runs.py:595) and _Plan/_dispatch read plan.rule.action; _check_workflow maps inputs from rule.workflow.inputs; no runs start or workflows run verb; adding a Verb to the registry auto-adds CLI+MCP and tests/test_surface_parity.py checks routes against api/openapi.json",
+      "seeds": [
+        "c15"
+      ]
+    },
+    {
+      "id": "s14",
+      "surface": "web/src/routes/Workflows.tsx Run + useOverlaidRun",
+      "finding": "Run (~517) needs a rule using the workflow, sends no inputs; polling, runOverlay step badges and litEdges exist; RunDoc in web/src/api/workflows.ts has no outputs field",
+      "seeds": [
+        "c16"
+      ]
+    },
+    {
+      "id": "s15",
+      "surface": "web/src/workflows/StepEditor.tsx + PlacementEditor.tsx",
+      "finding": "StepEditor (dialog) has name, kind, ports, max_iterations; config, timeout_s, retry, description, required absent; Step model has all of them (model/workflow.py, RetryPolicy in common.py:55)",
+      "seeds": [
+        "c17"
+      ]
+    },
+    {
+      "id": "s16",
+      "surface": "web/src/workflows/Canvas.tsx + nodes.tsx",
+      "finding": "io nodes set selectable:false (Canvas.tsx:134, 220) and handlers guard INPUTS_NODE/OUTPUTS_NODE; no editor for inputs/outputs/variables/description exists; edges to OUTPUTS_NODE handles already parse",
+      "seeds": [
+        "c18"
+      ]
+    },
+    {
+      "id": "s17",
+      "surface": "web/src/api/client.ts ApiError + server/app.py _envelope",
+      "finding": "envelope is {error:{code,message,errors[{path,code,message}]}} with stable codes; RunError codes are a flat vocabulary; _check_ports errors have no path; UI shows raw message(err) strings in notice--error and `Not wired: <reason>`; no suggested-fix field, so the fix table is UI-side keyed on codes",
+      "seeds": [
+        "c19"
+      ]
+    },
+    {
+      "id": "s18",
+      "surface": "server/app.py _register_kind + web/src/api/workflows.ts",
+      "finding": "POST /{kind}/{id}/purge and GET ?include_deleted exist in API, CLI and MCP; web client has neither purge nor include_deleted: UI-only gap",
+      "seeds": [
+        "c20"
+      ]
+    },
+    {
+      "id": "s19",
+      "surface": "web/src/workflows/WorkflowList.tsx",
+      "finding": "WorkflowList mirrors RuleList with MachineDot, Link name, Switch, New button and tests; wired at Workflows.tsx ~910",
+      "seeds": [
+        "c21"
+      ]
+    },
+    {
+      "id": "s20",
+      "surface": "issue #7 items, verified in culture_rules/ and web/",
+      "finding": "verified: _parse_fan_in_cursor raises on legacy int cursor (events_cli_adapter.py:197-210); _machine_online fail-open untested (runs.py:818); FeedConsumer._fire txn per finished run (node/chain.py:100); OFFLINE_AFTER_S fixed (heartbeat.py:33-35) vs scaled takeover (daemon.py:178); history scans whole runs collection (app.py:579) and Memory store matches top-level only; Switch has no disabled (stages.tsx:139); Canvas maxY+200 hard-coded; cache rule absent from docs/operations/rules-culture-dev.md; no deploy/node installer",
+      "seeds": [
+        "c22"
+      ]
+    },
+    {
+      "id": "s21",
+      "surface": "culture_rules/engine/chaining.py live()",
+      "finding": "refuted: live() recurses via adjust/_refine, which turns blocked-with-dead-predecessor into predecessor_failed; covered by tests/node/test_chain.py:157",
+      "seeds": [
+        "c23"
+      ]
+    },
+    {
+      "id": "s22",
+      "surface": "culture_rules/auth/access.py _identity_of",
+      "finding": "VerificationError(malformed) subclasses Unauthenticated (401); middleware catches AuthError and returns the envelope; history 404 for unknown rule also already exists (tests/server/test_rule_history.py:77)",
+      "seeds": [
+        "c24"
+      ]
+    },
+    {
+      "id": "s23",
+      "surface": "CLAUDE.md packaging rule + client/http.py + node/runner.py MeshPoster",
+      "finding": "client/http.py and access.py use urllib; MeshPoster runs culture channel message as argv; no Discord/Jira/gh code exists",
+      "seeds": [
+        "c25"
+      ]
+    },
+    {
+      "id": "s24",
+      "surface": "sibling cultureflare remote-login",
+      "finding": "remote-login assumes one hostname per Access app with a single allow-policy (README:195); --no-access provisions tunnel+DNS only, leaving the backend to verify HMAC/signatures",
+      "seeds": [
+        "c26"
+      ]
+    },
+    {
+      "id": "s25",
+      "surface": "sibling climate-cli, sensibo-cli, reterminal-cli",
+      "finding": "climate weather latest/stats, sensibo read/set, reterminal display/board are argv CLIs registrable as runner commands; reterminal board actions could be an event source later",
+      "seeds": [
+        "c27"
+      ]
+    },
+    {
+      "id": "s26",
+      "surface": "sibling culture repo (supervisor webhooks, agentirc events)",
+      "finding": "server.yaml webhooks list includes agent_complete; agentirc events (agent.connect/disconnect, room.*) use dotted types compatible with events-cli _TYPE_RE; no MQTT/events bridge exists in culture",
+      "seeds": [
+        "c9"
+      ]
+    },
+    {
+      "id": "s27",
+      "surface": "sibling culture-nodes internal/api/{githubwebhook,jirawebhook}.go + docs/operations/nodes-culture-dev.md",
+      "finding": "nodes.culture.dev mounts POST /v1alpha1/webhooks/{jira,github} behind a path-scoped Access Bypass (Include Everyone, exact path, nodes-culture-dev.md:315-343); GitHub verifies X-Hub-Signature-256 HMAC with constant-time compare and requires X-GitHub-Delivery; Jira accepts X-Hub-Signature HMAC or ?token= URL token compared by sha256+ConstantTimeCompare; 2 MiB body limit",
+      "seeds": [
+        "c32"
+      ]
+    },
+    {
+      "id": "s28",
+      "surface": "culture-nodes githubwebhook.go verify + CLAUDE.md zero-dependency rule",
+      "finding": "GitHub/Jira HMAC-SHA256 is stdlib-implementable; Discord interactions use Ed25519 and GitHub App installation tokens need RS256 JWT, neither in the Python stdlib",
+      "seeds": [
+        "c33"
+      ]
+    },
+    {
+      "id": "s29",
+      "surface": "grant list on spark",
+      "finding": "grant holds CULTURE_NODES_GITHUB_APP_WEBHOOK_SECRET, GITHUB_APP_PRIVATE_KEY, JIRA_SERVICE_ACCOUNT_TOKEN; no DISCORD_* bot token or public key, no Jira webhook secret/token",
+      "seeds": [
+        "c34"
+      ]
+    },
+    {
+      "id": "s30",
+      "surface": "sibling culture-nodes Discord code",
+      "finding": "Discord appears only as outbound (notify bridge posts to a webhook URL; humanfanout discord.post); no inbound receiver exists. Discord sends no outgoing webhooks for messages: message events need the Gateway websocket (bot token), the only HTTP push is the Ed25519-signed Interactions endpoint (slash commands, buttons)",
+      "seeds": []
+    },
+    {
+      "id": "s31",
+      "surface": "sibling discord-bot-cli + culture_rules/node/daemon.py",
+      "finding": "discord-bot-cli is one-shot (DISCORD_BOT_TOKEN, discord.py extra; channel messages, message post/reply/react, thread) with no gateway daemon; node daemon has a beat thread and run_once stages but no long-lived per-actor connection; engine/leasekeeper.py already provides leases",
+      "seeds": [
+        "c35"
+      ]
+    },
+    {
+      "id": "s32",
+      "surface": "sibling culture-nodes adapters/github + grant list",
+      "finding": "culture-nodes github bridge posts comments via REST with GITHUB_TOKEN and an exact-repo allowlist; grant holds GITHUB_APP_PRIVATE_KEY and CULTURE_NODES_GITHUB_APP_WEBHOOK_SECRET; RS256 is not in the Python stdlib",
+      "seeds": [
+        "c36"
+      ]
+    }
+  ],
+  "lapses": [],
+  "obligations": []
+}
