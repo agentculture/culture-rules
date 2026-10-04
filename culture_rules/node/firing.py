@@ -571,10 +571,11 @@ class RuleFiring:
 
 
 def _trigger_matcher(envelope: Mapping[str, Any], rules: list[Rule]) -> TriggerMatcher:
-    """The trigger test for ``envelope``: a schedule event (:mod:`culture_rules.node.schedule`)
-    targets one rule, so only the trigger of the rule named by its ``data.rule_id`` matches
-    it - every other schedule rule (same kind, no ``type``) would match it otherwise."""
-    if envelope.get("kind") != "schedule":
+    """The trigger test for ``envelope``: a schedule or probe event
+    (:mod:`culture_rules.node.schedule`, :mod:`culture_rules.node.probe_trigger`) targets one
+    rule, so only the trigger of the rule named by its ``data.rule_id`` matches it - every
+    other rule of that kind (no ``type``) would match it otherwise."""
+    if envelope.get("kind") not in ("schedule", "probe"):
         return trigger_matches
     target = (envelope.get("data") or {}).get("rule_id")
     targets = [r.trigger for r in rules if r.id == target]
