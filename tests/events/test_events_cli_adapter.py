@@ -356,12 +356,64 @@ def test_fan_in_empty_from_the_start_keeps_a_none_cursor():
     assert batch.cursor is None
 
 
-def test_fan_in_rejects_a_foreign_cursor():
+def test_parse_fan_in_cursor_resets_a_legacy_cursor_with_one_warning(caplog):
+    with caplog.at_level("WARNING", logger=adapter.__name__):
+        assert adapter._parse_fan_in_cursor("12", ["a", "b"]) == {}
+    assert len([r for r in caplog.records if r.levelname == "WARNING"]) == 1
+
+
+@pytest.mark.parametrize("bad", ["7", "not json", "[1]", '{"x": 1}', '{"a": 1}'])
+def test_fan_in_starts_fresh_on_a_foreign_cursor(bad, caplog):
     api = PerSubEventsCli({})
-    for bad in ("7", "not json", "[1]", '{"x": 1}'):
-        source = _fan_in(api)
-        with pytest.raises(EventFabricError):
-            source.drain(bad, max=5, timeout=0.0)
+    source = _fan_in(api)
+    with caplog.at_level("WARNING", logger=adapter.__name__):
+        batch = source.drain(bad, max=5, timeout=0.0)
+    assert batch.envelopes == ()
+    assert len([r for r in caplog.records if r.levelname == "WARNING"]) == 1
+
+
+def test_a_valid_fan_in_cursor_does_not_warn(caplog):
+    with caplog.at_level("WARNING", logger=adapter.__name__):
+        assert adapter._parse_fan_in_cursor('{"a": "3"}', ["a"]) == {"a": "3"}
+    assert not caplog.records
+
+
+def test_depth_six_subscribes_to_six_patterns(monkeypatch):
+    monkeypatch.setenv("CULTURE_RULES_EVENTS_DEPTH", "6")
+    api = StrictEventsCli(FakeHistory())
+    src = adapter.open_host_source("spark", api=api, history=api.history)
+    assert [s.pattern for s in src.sources] == list(adapter.depth_patterns(6))
+    assert len(src.sources) == 6
+
+
+def test_depth_defaults_to_four(monkeypatch):
+    monkeypatch.delenv("CULTURE_RULES_EVENTS_DEPTH", raising=False)
+    assert adapter.configured_depth() == adapter.DEFAULT_DEPTH == 4
+
+
+@pytest.mark.parametrize("bad", ["abc", "0", "-2", "", "1.5"])
+def test_invalid_depth_falls_back_with_a_warning(monkeypatch, caplog, bad):
+    monkeypatch.setenv("CULTURE_RULES_EVENTS_DEPTH", bad)
+    with caplog.at_level("WARNING", logger=adapter.__name__):
+        assert adapter.configured_depth() == adapter.DEFAULT_DEPTH
+    assert len([r for r in caplog.records if r.levelname == "WARNING"]) == 1
+
+
+def test_opening_the_host_source_quiets_events_cli_and_paho_loggers():
+    import logging
+
+    names = ("events_cli", "paho")
+    saved = {n: logging.getLogger(n).level for n in names}
+    try:
+        for n in names:
+            logging.getLogger(n).setLevel(logging.NOTSET)
+        api = StrictEventsCli(FakeHistory())
+        adapter.open_host_source("spark", api=api, history=api.history)
+        for n in names:
+            assert logging.getLogger(n).level == logging.WARNING
+    finally:
+        for n, level in saved.items():
+            logging.getLogger(n).setLevel(level)
 
 
 # --- the real events-cli (the `events` extra) ---
