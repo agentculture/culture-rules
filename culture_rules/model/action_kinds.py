@@ -80,7 +80,7 @@ _KINDS = (
         "Run a command on a machine actor",
         actor=_RS,
         command=_RS,
-        args=ParamSpec("list"),
+        args=ParamSpec("dict"),
     ),
 )
 
