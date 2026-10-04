@@ -1,4 +1,5 @@
-"""The runtime stays dependency-free; github/discord extras import lazily (spec c25, c33)."""
+"""The runtime stays dependency-free; the github/discord extras, where used at all, import
+lazily (spec c25, c33): every culture_rules module imports with them blocked."""
 
 import subprocess
 import sys
@@ -9,13 +10,17 @@ ROOT = Path(__file__).resolve().parent.parent
 BLOCKED = ("jwt", "cryptography", "discord")
 
 IMPORT_CHECK = """
-import sys
+import importlib, pkgutil, sys
 for name in {blocked!r}:
     sys.modules[name] = None
-import culture_rules, culture_rules.server
-import culture_rules.node, culture_rules.node.daemon, culture_rules.node.actors
-import culture_rules.node.runner, culture_rules.node.firing, culture_rules.node.chain
-import culture_rules.node.completions
+import culture_rules
+seen = 0
+for mod in pkgutil.walk_packages(culture_rules.__path__, "culture_rules."):
+    if mod.name.rsplit(".", 1)[-1] == "__main__":
+        continue  # entry points run on import
+    importlib.import_module(mod.name)
+    seen += 1
+assert seen > 50, seen
 """
 
 
@@ -33,7 +38,7 @@ def test_github_and_discord_extras_exist():
     assert extras["discord"] == ["discord.py>=2.4"]
 
 
-def test_core_and_node_import_with_new_extras_blocked():
+def test_every_module_imports_with_new_extras_blocked():
     proc = subprocess.run(
         [sys.executable, "-c", IMPORT_CHECK.format(blocked=BLOCKED)],
         capture_output=True,
