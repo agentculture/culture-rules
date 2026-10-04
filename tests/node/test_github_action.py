@@ -172,7 +172,8 @@ def test_a_misconfigured_actor_fails_before_any_secret_or_network(pem, conn):
     res = port.invoke(params(repo), "k", DEADLINE, context=ctx())
     assert res.outcome == "failed"
     assert not res.retryable
-    assert fake.calls == [] and resolved == []
+    assert fake.calls == []
+    assert resolved == []
 
 
 def test_a_disabled_actor_drops_its_cached_app(pem):

@@ -237,4 +237,5 @@ def test_an_unparseable_or_non_string_schedule_probe_is_skipped(tmp_path):
     mesh.start()
     mesh.step()
     assert mesh.slots("good") != []
-    assert mesh.runs("bad") == [] and mesh.runs("broken") == []
+    assert mesh.runs("bad") == []
+    assert mesh.runs("broken") == []

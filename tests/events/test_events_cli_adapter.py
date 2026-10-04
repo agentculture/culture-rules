@@ -485,6 +485,7 @@ def test_an_idle_fan_in_persists_the_reset_so_it_warns_only_once(bad, caplog):
     src = _fan_in(PerSubEventsCli({}))
     with caplog.at_level("WARNING", logger=adapter.__name__):
         first = src.drain(bad, max=5, timeout=0.0)
-        assert first.cursor is not None and first.cursor != bad
+        assert first.cursor is not None
+        assert first.cursor != bad
         src.drain(first.cursor, max=5, timeout=0.0)
     assert len([r for r in caplog.records if r.levelname == "WARNING"]) == 1

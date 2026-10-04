@@ -146,4 +146,5 @@ def test_a_single_channel_string_allow_list_is_one_channel():
     ok = action(store, t).invoke({"channel": "42", "text": "x"}, "k", NOW, context=ctx("disc"))
     assert ok.outcome == "completed"
     no = action(store, t).invoke({"channel": "4", "text": "x"}, "k", NOW, context=ctx("disc"))
-    assert no.outcome == FAILED and not no.retryable
+    assert no.outcome == FAILED
+    assert not no.retryable
