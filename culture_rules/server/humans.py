@@ -15,6 +15,16 @@ an ``sso`` principal too, so a dev identity that *is* an email (``bob@example.co
 actor - it stands in for an Access person on a laptop - while ``anonymous`` or a bare nick
 (``alice``) does not. Webhook requests (no principal) are skipped by the caller.
 
+Link before create (d4): before inserting the slug actor, the transaction looks for an
+existing human actor (``kind == "human"``, live or soft-deleted) whose ``params.email``
+equals the sign-in email, compared case-insensitively (stored emails are kept as given). If
+one exists the person already has an actor - say ``nachos`` for the operator - so nothing is
+created and that actor is never modified. Two humans carrying the same email (a data error)
+link to the first by id order and log a warning. The lookup is a scan of the human actors
+(the store filters on top-level equality only): O(humans) per *uncached* first sign-in per
+process, which is small, and the cache removes it from every later request. It runs inside
+the same transaction as the insert.
+
 Insert only, never update: if a document with that id already exists - edited by an operator,
 or soft-deleted (``deleted_at`` set) - it is left exactly as it is, so edits survive and a
 deleted person is not resurrected by signing in again (restore it through the API). Two
@@ -39,7 +49,7 @@ from culture_rules.auth.principal import Principal
 from culture_rules.engine.audit import AuditLog
 from culture_rules.model.actor import Actor
 from culture_rules.model.validate import validate
-from culture_rules.store.port import DuplicateKeyError, StoragePort
+from culture_rules.store.port import DuplicateKeyError, StoragePort, StoreOps
 
 __all__ = ["ACTORS", "HumanSignIn", "ensure_human", "human_id", "is_email"]
 
@@ -69,6 +79,25 @@ def _person_email(principal: Principal | None) -> str | None:
     return email if human_id(email) else None
 
 
+def _linked_human(tx: StoreOps, email: str) -> str | None:
+    """The id of an existing human actor whose ``params.email`` is ``email`` (any case)."""
+    want = email.casefold()
+    found = []
+    for doc in tx.find(ACTORS, {"kind": "human"}):
+        params = doc.get("params")
+        have = params.get("email") if isinstance(params, dict) else None
+        if isinstance(have, str) and have.strip().casefold() == want:
+            found.append(str(doc["id"]))
+    if len(found) > 1:
+        _log.warning(
+            "several human actors carry email %s (%s); linking sign-in to %s",
+            email,
+            ", ".join(found),
+            found[0],
+        )
+    return found[0] if found else None
+
+
 def ensure_human(
     store: StoragePort, principal: Principal | None, *, audit: AuditLog | None = None
 ) -> Outcome:
@@ -95,6 +124,8 @@ def ensure_human(
     try:
         with store.transaction() as tx:
             if tx.get(ACTORS, ident) is not None:
+                return "exists"
+            if _linked_human(tx, email) is not None:
                 return "exists"
             after = tx.insert(ACTORS, {"id": ident, **actor.to_dict()})
             audit.write(
