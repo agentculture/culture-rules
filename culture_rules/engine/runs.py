@@ -107,6 +107,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import logging
 import uuid
 from collections.abc import Callable, Iterable, Mapping
 from contextlib import AbstractContextManager
@@ -134,7 +135,12 @@ from culture_rules.engine.claims import (
 from culture_rules.engine.leasekeeper import KeeperFactory, LeaseKeeper
 from culture_rules.engine.placement import MachineState, PlacementError, resolve_placement
 from culture_rules.machines.enrol import enrolled_machines
-from culture_rules.machines.heartbeat import HEARTBEAT_COLLECTION, OFFLINE_AFTER_S, online_machines
+from culture_rules.machines.heartbeat import (
+    HEARTBEAT_COLLECTION,
+    MISSED_BEATS_OFFLINE,
+    offline_after,
+    online_machines,
+)
 from culture_rules.model import condition as cond
 from culture_rules.model.action import Action
 from culture_rules.model.actor import Actor
@@ -144,6 +150,8 @@ from culture_rules.model.rule import Rule, Trigger, WorkflowRef
 from culture_rules.model.validate import validate
 from culture_rules.model.workflow import LOOP_KINDS, Port, Step, Workflow
 from culture_rules.store.port import Document, StoragePort, StoreOps
+
+log = logging.getLogger(__name__)
 
 __all__ = [
     "ACTION_STEP",
@@ -541,7 +549,7 @@ class Executor:
         lease: timedelta = DEFAULT_LEASE,
         identity: str | None = None,
         lease_keeper: KeeperFactory = LeaseKeeper,
-        holder_offline_after: timedelta = timedelta(seconds=OFFLINE_AFTER_S),
+        holder_offline_after: timedelta = timedelta(seconds=offline_after()),
     ) -> None:
         """``lease_keeper`` builds the keeper that renews a step's lease while its actor
         is invoked; ``holder_offline_after`` is how stale a holder's heartbeat must be
@@ -559,6 +567,8 @@ class Executor:
         )
         self._lease_keeper = lease_keeper
         self._holder_offline_after = holder_offline_after
+        # placement uses the same cadence the takeover threshold was built from
+        self._beat_every = holder_offline_after.total_seconds() / MISSED_BEATS_OFFLINE
         ensure_collections(store)
 
     # ------------------------------------------------------------------ queries
@@ -809,7 +819,7 @@ class Executor:
         placement = step.placement if step is not None else None
         if placement is None:
             return self.host
-        online = online_machines(self._store, now)
+        online = online_machines(self._store, now, beat_every=self._beat_every)
         drained = drained_machines(self._store)
         machines = enrolled_machines(self._store)
         states = [MachineState(m.name, m.name in online, m.name in drained) for m in machines]
@@ -893,12 +903,19 @@ class Executor:
         return may_reclaim
 
     def _machine_online(self, machine: str, now: datetime) -> bool:
-        """Whether ``machine`` heartbeated within ``holder_offline_after`` of ``now``."""
-        beat = self._store.get(HEARTBEAT_COLLECTION, machine) or {}
+        """Whether ``machine`` heartbeated within ``holder_offline_after`` of ``now``.
+
+        No heartbeat doc: offline. A doc with an unparseable ``ts``: online (fail safe, no
+        takeover), logged."""
+        beat = self._store.get(HEARTBEAT_COLLECTION, machine)
+        if beat is None:
+            return False  # never beat (or doc gone): offline, takeover allowed once lapsed
         try:
             ts = datetime.fromisoformat(str(beat.get("ts")))
         except ValueError:
-            return False
+            # a present but unreadable beat is not proof of death: no takeover
+            log.warning("heartbeat for %s has an unparseable ts %r", machine, beat.get("ts"))
+            return True
         if ts.tzinfo is None:
             ts = ts.replace(tzinfo=UTC)
         return now - ts < self._holder_offline_after

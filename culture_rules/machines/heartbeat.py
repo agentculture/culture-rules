@@ -24,7 +24,9 @@ __all__ = [
     "HEARTBEAT_COLLECTION",
     "HEARTBEAT_INTERVAL_S",
     "OFFLINE_AFTER_S",
+    "MISSED_BEATS_OFFLINE",
     "HeartbeatPublisher",
+    "offline_after",
     "online_machines",
     "placeable_machines",
 ]
@@ -33,6 +35,16 @@ HEARTBEAT_COLLECTION = "heartbeats"
 HEARTBEAT_INTERVAL_S = 10
 MISSED_BEATS_OFFLINE = 3
 OFFLINE_AFTER_S = HEARTBEAT_INTERVAL_S * MISSED_BEATS_OFFLINE
+
+
+def offline_after(beat_every: float = HEARTBEAT_INTERVAL_S) -> float:
+    """Seconds without a beat after which a machine counts offline (3 missed beats).
+
+    The single definition used by placement, health, status and takeover; pass the
+    cluster's real ``beat_every`` when it is not the default.
+    """
+    return MISSED_BEATS_OFFLINE * beat_every
+
 
 Clock = Callable[[], datetime]
 
@@ -120,23 +132,30 @@ class HeartbeatPublisher:
             sleep(HEARTBEAT_INTERVAL_S)
 
 
-def online_machines(store: StoreOps, now: datetime) -> set[str]:
-    """Names whose latest heartbeat is less than :data:`OFFLINE_AFTER_S` old."""
+def online_machines(
+    store: StoreOps, now: datetime, *, beat_every: float = HEARTBEAT_INTERVAL_S
+) -> set[str]:
+    """Names whose latest heartbeat is less than ``offline_after(beat_every)`` old."""
+    limit = offline_after(beat_every)
     online: set[str] = set()
     for document in store.find(HEARTBEAT_COLLECTION):
         ts = _parse(document.get("ts"))
         name = document.get("machine")
         if ts is not None and isinstance(name, str):
-            if (now - ts).total_seconds() < OFFLINE_AFTER_S:
+            if (now - ts).total_seconds() < limit:
                 online.add(name)
     return online
 
 
 def placeable_machines(
-    store: StoreOps, now: datetime, *, requirement: tuple[str, ...] | None = None
+    store: StoreOps,
+    now: datetime,
+    *,
+    requirement: tuple[str, ...] | None = None,
+    beat_every: float = HEARTBEAT_INTERVAL_S,
 ) -> list[Machine]:
     """Enrolled, enabled, online engine nodes offering every required capability."""
-    online = online_machines(store, now)
+    online = online_machines(store, now, beat_every=beat_every)
     needed = set(requirement or ())
     return [
         m

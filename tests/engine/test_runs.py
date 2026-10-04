@@ -1068,3 +1068,35 @@ def test_rule_action_context_has_no_actor_when_none_is_named(store, actor, clock
     ex.run_until_idle()
     [call] = actor.calls_for(ACTION_STEP)
     assert call[2].actor is None
+
+
+# --- heartbeat semantics for takeover (#7) -------------------------------
+
+
+def test_missing_heartbeat_doc_counts_as_offline_so_takeover_is_allowed(store, actor, clock):
+    ex = make_executor(store, actor, clock)
+    assert ex._machine_online("thor", clock()) is False
+
+
+def test_garbage_heartbeat_ts_counts_as_online_so_no_takeover(store, actor, clock, caplog):
+    from culture_rules.machines.heartbeat import HEARTBEAT_COLLECTION
+
+    store.put(HEARTBEAT_COLLECTION, {"id": "thor", "machine": "thor", "ts": "not-a-date"})
+    ex = make_executor(store, actor, clock)
+    with caplog.at_level("WARNING"):
+        assert ex._machine_online("thor", clock()) is True
+    assert "thor" in caplog.text
+
+
+def test_stale_heartbeat_is_offline_and_fresh_is_online(store, actor, clock):
+    from culture_rules.machines.heartbeat import HEARTBEAT_COLLECTION
+
+    ex = make_executor(store, actor, clock, holder_offline_after=timedelta(seconds=30))
+    store.put(
+        HEARTBEAT_COLLECTION,
+        {"id": "thor", "machine": "thor", "ts": clock().strftime("%Y-%m-%dT%H:%M:%SZ")},
+    )
+    clock.advance(10)
+    assert ex._machine_online("thor", clock()) is True
+    clock.advance(30)
+    assert ex._machine_online("thor", clock()) is False
