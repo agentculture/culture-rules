@@ -225,3 +225,16 @@ def test_slots_are_not_run_before_they_are_due(tmp_path):
     mesh.start()
     mesh.step(4)
     assert mesh.events() == []
+
+
+def test_an_unparseable_or_non_string_schedule_probe_is_skipped(tmp_path):
+    mesh = Mesh(tmp_path, "spark")
+    bad = probe_rule("bad").to_dict()
+    bad["trigger"]["params"]["schedule"] = None
+    mesh.define(probe_rule("good"))
+    mesh.base.put("rules", bad)
+    mesh.base.put("rules", {**probe_rule("broken").to_dict(), "action": "not an object"})
+    mesh.start()
+    mesh.step()
+    assert mesh.slots("good") != []
+    assert mesh.runs("bad") == [] and mesh.runs("broken") == []

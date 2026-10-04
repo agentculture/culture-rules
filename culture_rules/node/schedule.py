@@ -138,7 +138,11 @@ class Scheduler:
         for doc in self.store.find("rules"):
             if doc.get("deleted_at") or (doc.get("trigger") or {}).get("kind") != SCHEDULE_KIND:
                 continue
-            rule = Rule.from_dict(doc, strict=False)
+            try:
+                rule = Rule.from_dict(doc, strict=False)
+            except ValueError as exc:  # ModelParseError: one bad doc must not stop the others
+                log.warning("schedule rule %s skipped: unparseable: %s", doc.get("id"), exc)
+                continue
             if rule.enabled:
                 rules.append(rule)
         return sorted(rules, key=lambda r: r.id)

@@ -167,7 +167,7 @@ from culture_rules.machines.heartbeat import online_machines
 from culture_rules.model.actor import Actor
 from culture_rules.model.rule import Rule
 from culture_rules.model.workflow import Workflow
-from culture_rules.node.chain import FeedConsumer, Source
+from culture_rules.node.chain import FeedConsumer, Source, live_rules
 from culture_rules.ops.logs import log_context
 from culture_rules.store.port import DuplicateKeyError, StoragePort, StoreOps
 from culture_rules.store.versioning import utc_timestamp
@@ -187,6 +187,7 @@ __all__ = [
 ]
 
 log = logging.getLogger("culture_rules.node.firing")
+
 
 RULE_FIRES = "rule_fires"
 """Firing intents: one per (rule, event) that matched, committed with the trigger fire."""
@@ -373,9 +374,7 @@ class RuleFiring:
         return False
 
     def _live_rules(self, tx: StoreOps) -> list[Rule]:
-        return [
-            Rule.from_dict(d, strict=False) for d in tx.find("rules") if not d.get("deleted_at")
-        ]
+        return live_rules(tx.find("rules"))
 
     def _ours(self, tx: StoreOps, rules: list[Rule], event_id: str, *, placed: bool) -> set[str]:
         """The rules this consumer evaluates (raises :class:`Deferred`, see ``_mine``)."""
