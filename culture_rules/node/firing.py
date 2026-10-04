@@ -211,13 +211,15 @@ def placed_chain(host: str) -> str:
     return f"chain@{host}"
 
 
-def max_fires_per_hour(rule: Rule) -> int:
+def max_fires_per_hour(rule: Rule) -> int | None:
     """``rule``'s fire-rate cap: ``trigger.params.max_fires_per_hour`` when it is a positive
-    integer, else :data:`DEFAULT_MAX_FIRES_PER_HOUR`."""
+    integer; otherwise :data:`DEFAULT_MAX_FIRES_PER_HOUR`, except that a ``schedule``
+    trigger is uncapped (``None``) by default, since its cron already bounds its cadence and
+    an every-minute cron would otherwise be capped by clock jitter (deviation d2)."""
     value = rule.trigger.params.get("max_fires_per_hour")
     if isinstance(value, int) and not isinstance(value, bool) and value > 0:
         return value
-    return DEFAULT_MAX_FIRES_PER_HOUR
+    return None if rule.trigger.kind == "schedule" else DEFAULT_MAX_FIRES_PER_HOUR
 
 
 def run_id_for(rule_id: str, event_id: str) -> str:
@@ -596,6 +598,8 @@ def _cap(
     if not mine or tx.get(RULE_FIRES, firing_key(rule.id, event_id)) is not None:
         return d  # not ours to decide, or already fired for this event
     cap = max_fires_per_hour(rule)
+    if cap is None:
+        return d  # uncapped (a schedule rule without an explicit cap)
     recent = _recent_fires(tx.get(RULE_RATES, rule.id), now)
     if len(recent) < cap:
         return d
@@ -622,8 +626,11 @@ def _aware(moment: datetime) -> datetime:
 
 def _count_fire(tx: StoreOps, rule: Rule, now: datetime) -> None:
     """Add a fire of ``rule`` at ``now`` to its window (the cross-host serialisation point)."""
+    cap = max_fires_per_hour(rule)
+    if cap is None:
+        return  # uncapped: no window to keep
     recent = _recent_fires(tx.get(RULE_RATES, rule.id), now)
-    fires = [*recent, utc_timestamp(now)][-max_fires_per_hour(rule) :]
+    fires = [*recent, utc_timestamp(now)][-cap:]
     tx.put(RULE_RATES, {"id": rule.id, "rule_id": rule.id, "fires": fires})
 
 

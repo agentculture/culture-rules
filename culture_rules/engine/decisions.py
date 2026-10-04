@@ -45,7 +45,7 @@ from culture_rules.engine.matching import (
     SUPERSEDED_BY,
     Decision,
 )
-from culture_rules.store.port import DuplicateKeyError, StoreOps
+from culture_rules.store.port import StoreOps
 
 __all__ = [
     "FINAL_SKIP_REASONS",
@@ -108,22 +108,18 @@ def record_decision(
 ) -> Mapping[str, Any] | None:
     """Persist ``decision`` when it is a recorded skip; answer the record (or ``None``).
 
-    An existing record for the same (rule, event) is left as it is (redelivery). The write
-    is one insert; the existing record is read only when that insert is a duplicate key.
-
-    On MongoDB a duplicate key inside a transaction aborts that transaction (the read that
-    follows then fails with a transient error and the whole transaction rolls back), so
-    inside a transaction that may meet an existing record use :func:`settle_decision`,
-    which reads first; this function is for writes on the store itself, or in a
-    transaction that knows the record is new.
+    An existing record for the same (rule, event) is left as it is (redelivery). The record
+    is read before the insert on purpose: on MongoDB a duplicate key inside a transaction
+    aborts that transaction, so insert-first would turn every redelivery into a retry loop
+    (deviation d1 of the second-mile plan).
     """
     if decision.fire or decision.reason not in RECORDED_REASONS:
         return None
-    doc = _record(decision, event_id=event_id, host=host, at=at)
-    try:
-        return tx.insert(RULE_DECISIONS, doc)
-    except DuplicateKeyError:
-        return tx.get(RULE_DECISIONS, doc["id"])
+    key = decision_key(decision.rule_id, event_id)
+    existing = tx.get(RULE_DECISIONS, key)
+    if existing is not None:
+        return existing
+    return tx.insert(RULE_DECISIONS, _record(decision, event_id=event_id, host=host, at=at))
 
 
 def settle_decision(

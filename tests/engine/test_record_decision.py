@@ -1,4 +1,5 @@
-"""c22 / h19: ``record_decision`` writes with a single insert, reading only on a duplicate."""
+"""``record_decision`` reads before it inserts (deviation d1: insert-first aborts a MongoDB
+transaction on a duplicate key), and leaves an existing record unchanged."""
 
 from __future__ import annotations
 
@@ -30,10 +31,10 @@ def skip(rule_id: str = "b") -> Decision:
     return Decision(rule_id=rule_id, fire=False, reason=SUPERSEDED_BY, by=("a",))
 
 
-def test_a_new_record_is_one_insert_without_a_read():
+def test_a_new_record_is_read_then_inserted():
     spy = Spy(MemoryStore())
     doc = record_decision(spy, skip(), event_id="evt_1", host="spark", at=AT)
-    assert spy.calls == ["insert"]
+    assert spy.calls == ["get", "insert"]
     assert doc["id"] == decision_key("b", "evt_1")
     assert doc["reason"] == SUPERSEDED_BY
     assert spy.store.get(RULE_DECISIONS, doc["id"])["by"] == ["a"]
@@ -44,7 +45,7 @@ def test_a_duplicate_reads_and_answers_the_existing_record_unchanged():
     first = record_decision(store, skip(), event_id="evt_1", host="spark", at=AT)
     spy = Spy(store)
     again = record_decision(spy, skip(), event_id="evt_1", host="thor", at="later")
-    assert spy.calls == ["insert", "get"]
+    assert spy.calls == ["get"]
     assert again["host"] == "spark"
     assert again["at"] == first["at"]
     assert len(store.find(RULE_DECISIONS)) == 1
