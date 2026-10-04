@@ -325,3 +325,42 @@ main:focus {
     box-shadow: inset 0 3px 0 0 transparent;
   }
 }
+
+/* Guided notice (t35): plain-language failure plus fix buttons. */
+.guided-notice {
+  display: grid;
+  gap: 12px;
+  padding: 16px 20px;
+  border-radius: 16px;
+  background: var(--danger-tint);
+  color: var(--ink);
+}
+
+.guided-notice__message {
+  margin: 0;
+  font-size: 17px;
+  line-height: 1.4;
+}
+
+.guided-notice__fixes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.guided-notice__fix {
+  min-height: 44px;
+  padding: 0 20px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--surface);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.guided-notice__fix:focus-visible {
+  outline: 3px solid var(--ink);
+  outline-offset: 2px;
+}
