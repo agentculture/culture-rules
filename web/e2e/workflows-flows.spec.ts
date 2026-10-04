@@ -28,13 +28,7 @@ async function open(
 
 const step = (page: Page, name: string): Locator => page.getByRole("group", { name, exact: true });
 
-/**
- * `skip` leaves out the selectors of a known product bug. The only one today is
- * the soft-deleted row (`.wf-row.is-deleted`): its `opacity: 0.72` pushes the tag,
- * the restorable-until date and the Purge button under the contrast minimum
- * (color-contrast, serious). Reported to the plan owner; remove the exclusion
- * once the product CSS is fixed.
- */
+/** `skip` leaves out selectors of a known product bug (none today). */
 async function noSeriousAxe(page: Page, label: string, skip: string[] = []) {
   const builder = new AxeBuilder({ page });
   for (const selector of skip) builder.exclude(selector);
@@ -162,8 +156,6 @@ test.describe("Workflows: inputs and outputs editors", () => {
   });
 });
 
-const DELETED_ROW = [".wf-row.is-deleted"];
-
 test.describe("Workflows: deleted and purge", () => {
   const showDeleted = async (page: Page) => {
     await page.getByRole("button", { name: "Show deleted" }).click();
@@ -175,13 +167,13 @@ test.describe("Workflows: deleted and purge", () => {
     await expect(page.getByText("Old flow")).toHaveCount(0);
     await showDeleted(page);
     expect(calls.some((c) => c.path === "/api/workflows" && c.search.includes("include_deleted=true"))).toBe(true);
-    await noSeriousAxe(page, "deleted view", DELETED_ROW);
+    await noSeriousAxe(page, "deleted view");
 
     await page.getByRole("button", { name: "Purge Old flow" }).click();
     const panel = page.getByRole("region", { name: "Purge Old flow" });
     const confirm = panel.getByRole("button", { name: "Confirm purge" });
     await expect(confirm).toBeEnabled();
-    await noSeriousAxe(page, "purge confirmation", DELETED_ROW);
+    await noSeriousAxe(page, "purge confirmation");
     const purges = () => calls.filter((c) => c.path === "/api/workflows/old-flow/purge").map((c) => c.body);
     expect(purges()).toEqual([{ apply: false }]);
 
@@ -205,6 +197,6 @@ test.describe("Workflows: deleted and purge", () => {
     await open(page, { roles: ["viewer", "editor"], gone: [GONE_WORKFLOW] });
     await showDeleted(page);
     await expect(page.getByRole("button", { name: /^Purge/ })).toHaveCount(0);
-    await noSeriousAxe(page, "deleted view, non-admin", DELETED_ROW);
+    await noSeriousAxe(page, "deleted view, non-admin");
   });
 });

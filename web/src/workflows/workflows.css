@@ -1204,10 +1204,10 @@
 
 .wf-row.is-deleted {
   flex-wrap: wrap;
-  opacity: 0.72;
 }
 
 .wf-row__gone {
+  color: var(--ink-soft); /* dim the struck name only; tags and buttons keep full contrast */
   display: flex;
   flex: 1 1 140px;
   flex-direction: column;
