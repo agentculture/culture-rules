@@ -80,7 +80,8 @@ def test_envelope_shape_and_matching():
     env = doc["envelope"]
     assert doc["id"] == env["id"] == event_id_for("github", "d1")
     assert env["id"].startswith("hook_github_")
-    assert env["type"] == TYPE and env["source"] == "app://gh-app"
+    assert env["type"] == TYPE
+    assert env["source"] == "app://gh-app"
     assert env["data"] == {"number": 7, "delivery_id": "d1", "actor": "gh-app"}
     assert trigger_matches(Trigger(kind="event", params={"type": TYPE}), env)
 
@@ -106,16 +107,20 @@ def test_accepts_actor_model():
 
 
 def test_invalid_input_raises():
+    store = MemoryStore()
+    bad_actor = actor(params={})
     with pytest.raises(ValueError):
-        call(MemoryStore(), delivery="")
+        call(store, delivery="")
     with pytest.raises(ValueError):
-        call(MemoryStore(), actor(params={}))
+        call(store, bad_actor)
 
 
 def test_logs_carry_no_payload_or_delivery_id(caplog):
     caplog.set_level(logging.DEBUG)
     call(MemoryStore(), data={"secret": "s3cr3t-token"}, delivery="deliv-xyz", author="alice")
     text = caplog.text
-    assert "outcome=accepted" in text and "gh-app" in text and TYPE in text
+    assert "outcome=accepted" in text
+    assert "gh-app" in text
+    assert TYPE in text
     for leak in ("s3cr3t-token", "deliv-xyz", "alice"):
         assert leak not in text

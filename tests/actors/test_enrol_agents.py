@@ -60,10 +60,14 @@ def test_creates_one_actor_per_listed_agent(tmp_path):
         ("create", "spark-b"),
     ]
     body = plan.changes[1].body
-    assert body["kind"] == "agent" and body["machine"] == "spark"
-    assert body["harness"] == "codex" and body["model"] == "gpt" and body["enabled"] is True
+    assert body["kind"] == "agent"
+    assert body["machine"] == "spark"
+    assert body["harness"] == "codex"
+    assert body["model"] == "gpt"
+    assert body["enabled"] is True
     assert body["params"]["enrolled_by"] == ea.MARKER
-    assert body["config_source"] == "repo" and body["repo"].endswith("/b")
+    assert body["config_source"] == "repo"
+    assert body["repo"].endswith("/b")
 
 
 def test_second_plan_is_empty(tmp_path):
@@ -86,7 +90,8 @@ def test_changed_model_is_an_update_and_keeps_other_fields(tmp_path):
     plan = ea.plan_enrolment(after, d2.actors, machine="spark")
     assert [(c.action, c.id) for c in plan.changes] == [("update", "spark-a")]
     body = plan.changes[0].body
-    assert body["model"] == "sonnet" and body["capabilities"] == ["review"]
+    assert body["model"] == "sonnet"
+    assert body["capabilities"] == ["review"]
     assert body["params"]["custom"] == 1
 
 
@@ -113,11 +118,13 @@ def test_relisted_agent_is_re_enabled_only_if_this_tool_disabled_it(tmp_path):
     assert [(c.action, c.id) for c in plan.changes] == [("update", "spark-b")]
     after = apply_plan(plan, after)
     b = next(x for x in after if x["id"] == "spark-b")
-    assert b["enabled"] is True and "disabled_by_enrol" not in b["params"]
+    assert b["enabled"] is True
+    assert "disabled_by_enrol" not in b["params"]
     # an operator-disabled actor stays disabled, with a warning
     b["enabled"] = False
     plan = ea.plan_enrolment(after, d.actors, machine="spark")
-    assert plan.changes == [] and any("spark-b" in w for w in plan.warnings)
+    assert plan.changes == []
+    assert any("spark-b" in w for w in plan.warnings)
 
 
 def test_hand_made_actors_are_untouched(tmp_path):
@@ -153,12 +160,14 @@ def test_multi_agent_yaml_enrols_the_matching_suffix_only(tmp_path):
     )
     d = desired(write_mesh(tmp_path, {"a": multi}))
     assert [a["id"] for a in d.actors] == ["spark-a"]
-    assert d.actors[0]["harness"] == "acp" and d.actors[0]["model"] == "m1"
+    assert d.actors[0]["harness"] == "acp"
+    assert d.actors[0]["model"] == "m1"
 
 
 def test_multi_agent_without_a_matching_suffix_warns_and_enrols_none(tmp_path):
     d = desired(write_mesh(tmp_path, {"a": "agents:\n  - suffix: zzz\n    backend: claude\n"}))
-    assert d.actors == [] and any("'a'" in w for w in d.warnings)
+    assert d.actors == []
+    assert any("'a'" in w for w in d.warnings)
 
 
 def test_missing_workdir_warns_and_is_skipped(tmp_path):
@@ -176,7 +185,8 @@ def test_a_missing_workdir_does_not_disable_an_enrolled_agent(tmp_path):
 
 def test_machine_override(tmp_path):
     d = desired(write_mesh(tmp_path, {"a": flat("a")}), machine="thor")
-    assert d.machine == "thor" and d.actors[0]["machine"] == "thor"
+    assert d.machine == "thor"
+    assert d.actors[0]["machine"] == "thor"
     assert d.actors[0]["id"] == "spark-a"  # the nick still follows the server name
 
 

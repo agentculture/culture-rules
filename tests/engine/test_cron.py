@@ -71,7 +71,8 @@ def test_half_open_bounds() -> None:
     c = parse("* * * * *")
     start = datetime(2026, 1, 1, 0, 0, tzinfo=UTC)
     got = list(c.slots_between(start, start + timedelta(minutes=3)))
-    assert len(got) == 3 and got[-1].minute == 2
+    assert len(got) == 3
+    assert got[-1].minute == 2
 
 
 def test_dom_or_dow_semantics() -> None:
@@ -124,7 +125,8 @@ def test_year_property(zone: str, expr: str) -> None:
     assert all(start <= i < end for i in instants)
     cron = parse(expr)
     for s in got:  # every slot genuinely exists and matches
-        assert s.minute in cron.minutes and s.hour in cron.hours
+        assert s.minute in cron.minutes
+        assert s.hour in cron.hours
         # a real wall time survives a UTC round trip; a time inside a DST gap would move
         assert s.astimezone(UTC).astimezone(tz).replace(tzinfo=None) == s.replace(tzinfo=None)
     if expr == "0 * * * *" and zone == "UTC":

@@ -28,7 +28,8 @@ def wf(wire):  # noqa: F811
 def test_dry_run_sends_nothing_mutating(wire, store, wf, capsys):  # noqa: F811
     before = snapshot(store)
     out = jrun(capsys, "workflows", "run", "wf", "--input", "n=3", "--input", "tag=x")
-    assert out["dry_run"] is True and out["applied"] is False
+    assert out["dry_run"] is True
+    assert out["applied"] is False
     assert out["would"] == {
         "method": "POST",
         "path": "/workflows/wf/run",
