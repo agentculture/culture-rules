@@ -278,8 +278,9 @@ Exactly one node holds the gateway connection, through the named lease
    `https://rules.culture.dev/hooks/jira?token=<webhook-token>` (or configure an
    HMAC secret instead) for issue created, issue updated and comment created.
 3. Create an `app` actor with `surface = "jira"` and
-   `connection = {site, email, token: "grant:JIRA_SERVICE_ACCOUNT_TOKEN",
-   webhook_token: "grant:<name>", projects: [...]}`.
+   `connection = {site, email, token, webhook_token, projects: [...]}`, where
+   `token` is the reference `grant:JIRA_SERVICE_ACCOUNT_TOKEN` and
+   `webhook_token` a reference to the sealed webhook token.
 
 ## Kill switches
 
