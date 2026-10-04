@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-10-04T04:02:01Z",
-  "updated": "2026-10-04T04:17:03Z",
+  "updated": "2026-10-04T04:45:31Z",
   "targets": [
     {
       "id": "c1",
@@ -1618,6 +1618,14 @@
       "text": "Discord gateway behaviour is tested against a fake gateway; real resume/intents behaviour is only proven live in t47",
       "kind": "unknown_nonblocking",
       "task_id": "t26",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r6",
+      "text": "tests/multihost/test_harness_kill.py::test_kill_lands_mid_action_even_when_the_victim_never_wins_an_action_race is timing-flaky under the full xdist run with all extras (failed once; passes 3/3 alone); CI may flake",
+      "kind": "follow_up",
+      "task_id": null,
       "resolved": false,
       "resolution": ""
     }
