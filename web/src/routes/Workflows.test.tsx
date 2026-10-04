@@ -514,6 +514,31 @@ describe("Workflows: the in / out nodes and the empty canvas (t41)", () => {
     expect(await screen.findByRole("dialog", { name: "Edit inputs" })).toBeInTheDocument();
   });
 
+  it("re-renders do not re-run the canvas ref (no update loop when the width keeps changing)", async () => {
+    // CI regression: an inline ref on the canvas section ran on every commit and called
+    // setWidth each time; a width that differs between reads then looped until React gave up.
+    let reads = 0;
+    const real = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientWidth");
+    Object.defineProperty(HTMLElement.prototype, "clientWidth", {
+      configurable: true,
+      get(this: HTMLElement) {
+        if (this.classList.contains("wf-canvas")) return 800 + reads++;
+        return real?.get?.call(this) ?? 0;
+      },
+    });
+    try {
+      renderWorkflows();
+      await loaded();
+      await waitFor(() => expect(card("Inputs")).toBeInTheDocument());
+      card("Inputs").focus();
+      fireEvent.keyDown(card("Inputs"), { key: "Enter" });
+      expect(await screen.findByRole("dialog", { name: "Edit inputs" })).toBeInTheDocument();
+      expect(reads).toBeLessThan(5);
+    } finally {
+      if (real) Object.defineProperty(HTMLElement.prototype, "clientWidth", real);
+    }
+  });
+
   it("the out node (click or Enter) opens the outputs and variables editor", async () => {
     renderWorkflows();
     await loaded();

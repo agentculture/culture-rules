@@ -212,6 +212,15 @@ function CanvasInner(props: Readonly<CanvasProps>) {
   const containerRef = useCallback((el: HTMLElement | null) => {
     if (el) setWidth(el.clientWidth);
   }, []);
+  // One stable ref for the section: an inline ref is a new function every render, so React
+  // re-runs it (null, then the element) on every commit, and setWidth inside it can loop.
+  const sectionCallbackRef = useCallback(
+    (el: HTMLElement | null) => {
+      sectionRef.current = el;
+      containerRef(el);
+    },
+    [containerRef],
+  );
   const flowWidth = Math.max(width, graphWidth + 2 * EDGE_ROOM);
   useEffect(() => {
     const graph = bounds.maxX - bounds.minX;
@@ -298,10 +307,7 @@ function CanvasInner(props: Readonly<CanvasProps>) {
       className="wf-canvas"
       aria-label="Workflow canvas"
       style={{ height }}
-      ref={(el) => {
-        sectionRef.current = el;
-        containerRef(el);
-      }}
+      ref={sectionCallbackRef}
       onKeyDown={(e) => {
         // Enter / Space on a focused in / out node always opens its editor, even while the
         // node is still selected (React Flow only reports a selection *change*).

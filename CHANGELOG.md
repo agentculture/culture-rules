@@ -18,7 +18,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Self-authored events (our App, bot or service account) do not fire rules unless the trigger sets include_self; per-rule fire-rate cap trigger.params.max_fires_per_hour (default 60, schedule triggers uncapped) records rate_capped skips
 - Direct workflow runs: POST /workflows/{id}/run and `workflows run` (CLI and MCP) with typed inputs validated against the declared ports, pinning a synthetic `adhoc:<workflow>` rule
 - A human actor is created on first Access sign-in (id from the email, or linked to an existing human with the same params.email)
-- `actors enrol-agents`: enrols the mesh agents listed in ~/.culture/server.yaml as agent actors for this machine, disabling (never deleting) ones no longer listed
+- `actors enrol-agents`: enrols the mesh agents listed in the Culture server manifest (server.yaml in the per-user Culture directory) as agent actors for this machine, disabling (never deleting) ones no longer listed
 - `rules migrate-typeless` and `runs backfill-ids` (admin, dry-run by default)
 - /health reports webhook delivery outcomes per actor and the Discord gateway holder and state
 - Editor: typed trigger picker and action picker with mapping chips; Actors tab app connection, declarations and runner command editors; Workflows tab run form with typed inputs and outputs in place, full step properties, selectable in/out nodes with inputs, outputs, variables and description editors, deleted-workflow view with admin purge, guided errors with fix options

@@ -116,6 +116,12 @@ STEWARD_WAIVED_PORTABILITY_PATHS = frozenset(
         "docs/specs/2026-10-03-culture-rules-engine-editor.md",
         "docs/plans/2026-10-03-culture-rules-engine-editor-split.md",
         ".devague/frames/culture-rules-engine-editor.json",
+        # the second-mile devague records quote the same per-user surfaces read during /scope
+        "docs/specs/2026-10-03-culture-rules-second-mile.md",
+        "docs/plans/2026-10-04-culture-rules-second-mile.md",
+        "docs/plans/2026-10-04-culture-rules-second-mile-split.md",
+        ".devague/frames/culture-rules-second-mile.json",
+        ".devague/plans/culture-rules-second-mile.json",
     }
 )
 

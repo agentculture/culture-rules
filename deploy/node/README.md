@@ -14,10 +14,10 @@ upgrades a node.
 
 | Path | Content |
 |---|---|
-| `~/.local/share/culture-rules/venv` | the venv, with `culture-rules[<extras>]` |
-| `~/.config/culture-rules/mongo-ca.pem` | the MongoDB TLS CA, copied from `--ca-file` |
-| `~/.config/culture-rules/node.env` (mode 600) | `CULTURE_RULES_MONGO_TLS_CA_FILE`, `CULTURE_RULES_NODE_NAME`, optionally `EVENTS_BROKER_HOST` and `EVENTS_BROKER_PORT` |
-| `~/.config/systemd/user/culture-rules-node.service` | the unit |
+| `$HOME/.local/share/culture-rules/venv` | the venv, with `culture-rules[<extras>]` |
+| `$HOME/.config/culture-rules/mongo-ca.pem` | the MongoDB TLS CA, copied from `--ca-file` |
+| `$HOME/.config/culture-rules/node.env` (mode 600) | `CULTURE_RULES_MONGO_TLS_CA_FILE`, `CULTURE_RULES_NODE_NAME`, optionally `EVENTS_BROKER_HOST` and `EVENTS_BROKER_PORT` |
+| `$HOME/.config/systemd/user/culture-rules-node.service` | the unit |
 
 No secret is written anywhere. The MongoDB URI is a `grant` secret
 (`RULES_MONGO_URI` by default, `--mongo-secret` to rename it). The unit's
