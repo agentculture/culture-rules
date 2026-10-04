@@ -14,6 +14,7 @@ import {
   type RuleDoc,
 } from "../api/rules";
 import type { Machine, Workflow } from "../api/types";
+import { usePending } from "../usePending";
 
 /** Never throws, so the handlers below that describe a failure cannot fail themselves. */
 const describe = (err: unknown) => (err instanceof ApiError ? err.message : failureMessage(err));
@@ -99,14 +100,16 @@ export function useRulesData(routeRuleId: string | undefined) {
     }
   }, []);
 
+  const { pending: togglePending, run: runToggle } = usePending();
   const toggle = useCallback(
-    async (rule: RuleDoc) => {
-      const next = rule.enabled === false;
-      replace({ ...rule, enabled: next }); // optimistic; rolled back below on refusal
-      const doc = await attempt(() => setRuleEnabled(rule, next));
-      replace(doc ?? rule);
-    },
-    [attempt, replace],
+    (rule: RuleDoc) =>
+      runToggle(rule.id, async () => {
+        const next = rule.enabled === false;
+        replace({ ...rule, enabled: next }); // optimistic; rolled back below on refusal
+        const doc = await attempt(() => setRuleEnabled(rule, next));
+        replace(doc ?? rule);
+      }),
+    [attempt, replace, runToggle],
   );
 
   const save = useCallback(
@@ -190,6 +193,7 @@ export function useRulesData(routeRuleId: string | undefined) {
     clearNotice: () => setNotice(null),
     setNotice,
     toggle,
+    togglePending,
     save,
     create,
     remove,

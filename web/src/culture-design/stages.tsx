@@ -140,18 +140,23 @@ export interface SwitchProps {
   label: string;
   checked: boolean;
   onChange?: (next: boolean) => void;
+  /** Ignores clicks (aria-disabled, so it stays focusable and keeps its 44px hit area). */
+  disabled?: boolean;
 }
 
 /** A large on/off switch (40×24), role="switch". */
-export function Switch({ label, checked, onChange }: Readonly<SwitchProps>) {
+export function Switch({ label, checked, onChange, disabled }: Readonly<SwitchProps>) {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={checked}
       aria-label={label}
+      aria-disabled={disabled ? true : undefined}
       className="switch"
-      onClick={() => onChange?.(!checked)}
+      onClick={() => {
+        if (!disabled) onChange?.(!checked);
+      }}
     >
       <span className="switch__knob" />
     </button>

@@ -125,3 +125,35 @@ describe("Last runs shows the rule's contextual history (h78 / c97)", () => {
     expect(await within(aside).findByText("superseded by Review on approve")).toBeInTheDocument();
   });
 });
+
+describe("Rules tab toggle in flight (#7)", () => {
+  it("a double click while the toggle is in flight sends one request and disables the switch", async () => {
+    const real = fetchFor(api);
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => (release = r));
+    vi.stubGlobal("fetch", (async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (/\/rules\/train-batch\/(enable|disable)$/.test(String(input))) await gate;
+      return real(input, init);
+    }) as typeof fetch);
+    renderRules();
+    const sw = await screen.findByRole("switch", { name: "Train batch enabled" });
+    act(() => {
+      sw.click();
+      sw.click();
+    });
+    await waitFor(() =>
+      expect(screen.getByRole("switch", { name: "Train batch enabled" })).toHaveAttribute(
+        "aria-disabled",
+        "true",
+      ),
+    );
+    release();
+    await waitFor(() =>
+      expect(screen.getByRole("switch", { name: "Train batch enabled" })).not.toHaveAttribute(
+        "aria-disabled",
+      ),
+    );
+    const toggles = api.calls.filter((c) => /\/rules\/train-batch\/(enable|disable)$/.test(c.path));
+    expect(toggles).toHaveLength(1);
+  });
+});

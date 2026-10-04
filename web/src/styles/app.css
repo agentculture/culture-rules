@@ -212,6 +212,11 @@ body {
   transition: background-color 0.2s var(--ease-out);
 }
 
+.switch[aria-disabled="true"] {
+  opacity: 0.6;
+  cursor: progress;
+}
+
 .switch[aria-checked="true"] {
   background: var(--accent-strong);
 }

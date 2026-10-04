@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -314,5 +314,29 @@ describe("Actors board (Chosen — Actors)", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("store unreachable");
     await waitFor(() => expect(getAgentState().view_ready).toBe(true));
     expect(getAgentState().errors).toEqual(["store unreachable"]);
+  });
+});
+
+describe("Actors toggle in flight (#7)", () => {
+  it("a double click while the toggle is in flight sends one request", async () => {
+    const { calls } = mockActorsApi();
+    const inner = globalThis.fetch;
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => (release = r));
+    vi.stubGlobal("fetch", (async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (/\/actors\/codex\/(enable|disable)$/.test(String(input))) await gate;
+      return inner(input, init);
+    }) as typeof fetch);
+    renderActors();
+    await screen.findByRole("group", { name: "Codex" });
+    const sw = within(row("Codex")).getByRole("switch", { name: "Codex enabled" });
+    act(() => {
+      sw.click();
+      sw.click();
+    });
+    await waitFor(() => expect(sw).toHaveAttribute("aria-disabled", "true"));
+    release();
+    await waitFor(() => expect(sw).not.toHaveAttribute("aria-disabled"));
+    expect(calls.filter((c) => /\/actors\/codex\/(enable|disable)$/.test(c.path))).toHaveLength(1);
   });
 });

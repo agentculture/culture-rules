@@ -14,6 +14,7 @@ import type { Machine } from "../api/types";
 import { setAgentState } from "../agent-state/store";
 import { machineColors } from "../culture-design/chart";
 import { MachineDot, Switch, machineStyle } from "../culture-design/stages";
+import { usePending } from "../usePending";
 import { useTabReady } from "../routes/useTabReady";
 import { ActorForm } from "./ActorForm";
 import { FILTERS, configSourceText, filterActors, kindOfFilter, type KindFilter } from "./actors-view";
@@ -155,11 +156,14 @@ export function ActorsBoard() {
   const replace = (next: Actor) =>
     setActors((current) => (current ?? []).map((a) => (a.id === next.id ? next : a)));
 
+  const { pending: togglePending, run: runToggle } = usePending();
   const toggle = (actor: Actor, enabled: boolean) =>
-    act(async () => {
-      await setActorEnabled(actor.id, enabled);
-      replace({ ...actor, enabled });
-    });
+    runToggle(actor.id, () =>
+      act(async () => {
+        await setActorEnabled(actor.id, enabled);
+        replace({ ...actor, enabled });
+      }),
+    );
 
   const setSource = (actor: Actor, source: "repo" | "db") =>
     act(async () => {
@@ -269,6 +273,7 @@ export function ActorsBoard() {
                 <Switch
                   label={`${actor.name} enabled`}
                   checked={enabled}
+                  disabled={togglePending.has(actor.id)}
                   onChange={(next) => void toggle(actor, next)}
                 />
               </div>

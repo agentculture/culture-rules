@@ -9,6 +9,8 @@ interface Props {
   /** The machine palette slot a workflow's dot (and selection ring) wears; null = neutral. */
   slotOf: (wf: WorkflowDef) => number | null;
   onToggle: (wf: WorkflowDef) => void;
+  /** Workflow ids whose toggle request is in flight (their switch is disabled). */
+  pending?: ReadonlySet<string>;
   onNew: () => void;
   /** A row's link was followed (the board closes what was open for the old selection). */
   onOpen?: (id: string) => void;
@@ -25,7 +27,7 @@ const rowClass = (selected: boolean, enabled: boolean) =>
  * — machine dot, name (a link to `/workflows?id=<id>`), enable switch. It is
  * always there, with no workflows or one.
  */
-export function WorkflowList({ workflows, selectedId, slotOf, onToggle, onNew, onOpen, newRef }: Readonly<Props>) {
+export function WorkflowList({ workflows, selectedId, slotOf, onToggle, pending, onNew, onOpen, newRef }: Readonly<Props>) {
   return (
     <nav className="rule-list wf-list" aria-label="Workflows">
       <button ref={newRef} type="button" className="rule-list__new" onClick={onNew}>
@@ -49,7 +51,7 @@ export function WorkflowList({ workflows, selectedId, slotOf, onToggle, onNew, o
             >
               {wf.name}
             </Link>
-            <Switch label={`${wf.name} enabled`} checked={enabled} onChange={() => onToggle(wf)} />
+            <Switch label={`${wf.name} enabled`} checked={enabled} disabled={pending?.has(wf.id)} onChange={() => onToggle(wf)} />
           </div>
         );
       })}

@@ -471,6 +471,7 @@ export function Rules() {
         selectedId={creating ? null : (selected?.id ?? null)}
         slotOf={slotOf}
         onToggle={data.toggle}
+        pending={data.togglePending}
         onNew={() => setCreating(true)}
         onDragRule={setDragging}
       />

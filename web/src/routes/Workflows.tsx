@@ -3,6 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { machineColors } from "../culture-design/chart";
 import { ApiError, listMachines, listRules } from "../api/client";
 import { settleAll } from "../api/settle";
+import { usePending } from "../usePending";
 import { useLiveUpdates, type LiveChange } from "../api/live";
 import type { Machine, Placement, Rule, RunSummary } from "../api/types";
 import {
@@ -825,7 +826,9 @@ export function Workflows() {
     }
   };
 
-  const toggleWorkflow = async (wf: WorkflowDef) => {
+  const { pending: togglePending, run: runToggle } = usePending();
+  const toggleWorkflow = (wf: WorkflowDef) => runToggle(wf.id, () => doToggleWorkflow(wf));
+  const doToggleWorkflow = async (wf: WorkflowDef) => {
     const enabled = wf.enabled === false;
     setActionError(null);
     try {
@@ -910,6 +913,7 @@ export function Workflows() {
         selectedId={creating ? null : (current?.id ?? null)}
         slotOf={slotOf}
         onToggle={(wf) => void toggleWorkflow(wf)}
+        pending={togglePending}
         onNew={openNew}
         onOpen={openRow}
         newRef={newButton}

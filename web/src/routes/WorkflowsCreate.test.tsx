@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -421,5 +421,30 @@ describe("Workflows tab: enable / disable and delete (parity with Rules)", () =>
     expect(await screen.findByRole("heading", { level: 1, name: "No workflows yet" })).toBeInTheDocument();
     expect(within(emptyState()).getByRole("button", { name: "New workflow" })).toBeInTheDocument();
     expect(within(list()).queryAllByRole("link")).toHaveLength(0);
+  });
+});
+
+describe("Workflows toggle in flight (#7)", () => {
+  it("a double click while the toggle is in flight sends one request", async () => {
+    const api = fakeApi(WORKFLOW_DOCS);
+    const inner = globalThis.fetch;
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => (release = r));
+    vi.stubGlobal("fetch", (async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (/\/workflows\/build-image\/(enable|disable)$/.test(String(input))) await gate;
+      return inner(input, init);
+    }) as typeof fetch);
+    renderWorkflows("/workflows?id=build-image");
+    await screen.findByRole("heading", { level: 1, name: "Build image" });
+    await ready();
+    const toggle = within(list()).getByRole("switch", { name: "Build image enabled" });
+    act(() => {
+      toggle.click();
+      toggle.click();
+    });
+    await waitFor(() => expect(toggle).toHaveAttribute("aria-disabled", "true"));
+    release();
+    await waitFor(() => expect(toggle).not.toHaveAttribute("aria-disabled"));
+    expect(api.writes()).toHaveLength(1);
   });
 });
