@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-03T18:08:10Z",
-  "updated": "2026-10-04T05:03:03Z",
+  "updated": "2026-10-04T05:04:41Z",
   "claims": [
     {
       "id": "c1",
@@ -1563,6 +1563,17 @@
       "skipped_check": "failing-test-first run",
       "refs": [
         "t12"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l10",
+      "code": "control-absent",
+      "what": "t20 wrote tests first but never ran them red before implementing; they passed on first run",
+      "skipped_check": "failing-test-first run",
+      "refs": [
+        "t20"
       ],
       "origin": "llm",
       "status": "proposed"
