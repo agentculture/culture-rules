@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.1] - 2026-10-04
+
+### Changed
+
+- Ops doc: the migrations (rules migrate-typeless, runs backfill-ids) are merged and part of the rollout; the Jira webhook token is sealed as RULES_JIRA_WEBHOOK_TOKEN
+
 ## [0.11.0] - 2026-10-04
 
 ### Added
