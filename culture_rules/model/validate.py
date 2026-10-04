@@ -121,8 +121,8 @@ def _check_value(tp: Any, value: Any, path: str, name: str, errors: Errors) -> N
         if not serde.is_optional(tp):
             _err(errors, path, "required", f"{name} is required")
         return
-    if tp is Any:
-        return
+    if tp is Any or serde.union_members(tp):
+        return  # a multi-member union is checked by the model's semantic validator
     tp = serde.strip_optional(tp)
     origin = get_origin(tp)
     if origin is Literal:
@@ -397,6 +397,21 @@ def _check_workflow_ref(obj: WorkflowRef, path: str, errors: Errors) -> None:
     _nonempty(obj, ("id",), path, errors)
     if isinstance(obj.version, int) and obj.version < 1:
         _err(errors, _join(path, "version"), "range", "version must be >= 1")
+    for name, mapping in obj.inputs.items():
+        if not _input_mapping_ok(mapping):
+            _err(
+                errors,
+                _join(_join(path, "inputs"), name),
+                "invalid_input_mapping",
+                'a workflow input is a string, {"$ref": <string>} or {"$literal": <value>}',
+            )
+
+
+def _input_mapping_ok(mapping: Any) -> bool:
+    if isinstance(mapping, str):
+        return True
+    form = structured_form(mapping)
+    return form == LITERAL_KEY or (form == REF_KEY and isinstance(mapping[REF_KEY], str))
 
 
 def _check_rule(obj: Rule, path: str, errors: Errors) -> None:

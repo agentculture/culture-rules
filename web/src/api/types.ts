@@ -45,8 +45,8 @@ export interface Trigger {
 export interface WorkflowRef {
   id: string;
   version?: number | null;
-  /** workflow input name -> reference (e.g. trigger.data.sha) */
-  inputs?: Record<string, string>;
+  /** workflow input name -> reference (e.g. trigger.data.sha), `{$ref}` or `{$literal}` */
+  inputs?: Record<string, string | { $ref: string } | { $literal: unknown }>;
 }
 
 export interface Action {

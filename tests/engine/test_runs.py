@@ -753,6 +753,26 @@ def test_workflow_inputs_are_mapped_from_the_trigger_and_type_checked(store, act
     assert exc.value.code == "input_missing"
 
 
+def test_structured_literal_that_looks_like_a_reference_resolves_to_the_literal(
+    store, actor, clock
+):
+    wf = workflow(
+        (step("a", inputs=(port("n", "string"), port("m", "integer"))),),
+        (edge("inputs", "n", "a", "n"), edge("inputs", "m", "a", "m")),
+        inputs=(port("n", "string"), port("m", "integer")),
+    )
+    r = rule(
+        workflow_inputs={
+            "n": {"$literal": "trigger.data.number"},
+            "m": {"$ref": "trigger.data.number"},
+        }
+    )
+    ex = make_executor(store, actor, clock)
+    ex.start(r, wf, trigger={"data": {"number": 5}})
+    ex.run_until_idle()
+    assert actor.calls_for("a")[0][1] == {"n": "trigger.data.number", "m": 5}
+
+
 def test_action_params_resolve_workflow_outputs(store, clock):
     a = FakeActor().on("a", ("complete", {"n": 3}))
     wf = workflow(

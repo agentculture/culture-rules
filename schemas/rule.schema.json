@@ -341,9 +341,16 @@
         "inputs": {
           "type": "object",
           "additionalProperties": {
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "object"
+              }
+            ]
           },
-          "description": "Workflow input name -> reference (e.g. trigger.data.number)",
+          "description": "Workflow input name -> reference string (e.g. trigger.data.number), {\"$ref\": path} or {\"$literal\": value}",
           "default": {}
         }
       },

@@ -17,8 +17,8 @@ envelope), ``workflow`` (``workflow.outputs.<name>``, action params only) and ``
   for a string that *would* resolve, such as the text ``trigger.id``.
 
 ``{{ <path> }}`` templates inside a longer string are substituted (absent: empty text).
-Workflow-input mappings are strings (the rule schema), so only the plain form applies
-there. Standard-library only.
+Workflow-input mappings accept all three forms (a string or a structured object); the
+model validator refuses any other value. Standard-library only.
 """
 
 from __future__ import annotations
