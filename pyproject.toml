@@ -24,6 +24,8 @@ backup = ["boto3>=1.34"]
 events = ["events-cli>=0.10"]
 agent = ["agentirc-cli>=9.12"]
 mcp = ["mcp>=1.2,<2"]
+github = ["cryptography>=42"]
+discord = ["discord.py>=2.4"]
 
 [project.urls]
 Homepage = "https://github.com/agentculture/culture-rules"
