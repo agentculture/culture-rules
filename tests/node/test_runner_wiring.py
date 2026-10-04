@@ -154,16 +154,24 @@ def test_an_event_source_setup_failure_degrades_the_node_instead_of_crashing(mon
     assert "no event source for spark" in caplog.text
 
 
-def test_the_real_events_cli_never_crashes_node_startup(monkeypatch, tmp_path):
+def test_the_real_events_cli_never_crashes_node_startup(monkeypatch, tmp_path, caplog):
     """With events-cli installed and no broker, the node starts degraded (no ingest)."""
     pytest.importorskip("events_cli.subs")
     import socket
 
+    # Bound but never listening: connecting is refused immediately and the port cannot be
+    # taken by anything else meanwhile, so the failure does not depend on broker timing.
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
-    monkeypatch.setenv("EVENTS_HISTORY_DIR", str(tmp_path / "history"))
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
-    monkeypatch.setenv("EVENTS_BROKER_HOST", "127.0.0.1")
-    monkeypatch.setenv("EVENTS_BROKER_PORT", str(port))
-    assert runner.open_event_source("spark") is None
+        monkeypatch.setenv("EVENTS_HISTORY_DIR", str(tmp_path / "history"))
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+        monkeypatch.setenv("EVENTS_BROKER_HOST", "127.0.0.1")
+        monkeypatch.setenv("EVENTS_BROKER_PORT", str(port))
+        with caplog.at_level("WARNING", logger="culture_rules.node"):
+            assert runner.open_event_source("spark") is None
+    warnings = [r for r in caplog.records if r.name == "culture_rules.node"]
+    assert len(warnings) == 1
+    assert warnings[0].levelname == "WARNING"
+    assert "no event source for spark" in warnings[0].getMessage()
+    assert "could not reach the broker" in warnings[0].getMessage()
