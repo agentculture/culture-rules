@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.2] - 2026-10-04
+
+### Fixed
+
+- Node: one malformed rule document (or a stored `cron: null`) no longer stops the schedule, probe, firing or chain stage for every other rule on the host; it is logged and skipped
+- Events: a non-JSON or legacy fan-in cursor no longer wedges ingest when events are waiting, and an idle reset is persisted so the warning is logged once
+- GitHub App actions: a revoked installation token is re-exchanged once on 401; repo shape and App ids are checked before the private key is read; a deleted or disabled actor drops its cached key
+- Message action: a Discord or mesh timeout is an unknown outcome and is not retried (a retry could post twice); a single-string `connection.channels` is one channel
+- Editor: guided messages for the trigger/action validation codes, `not_implemented`, `replay_invalid` and `not_json`
+
 ## [0.11.1] - 2026-10-04
 
 ### Changed

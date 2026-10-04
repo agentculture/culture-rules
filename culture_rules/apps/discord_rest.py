@@ -98,6 +98,11 @@ class DiscordClient:
                 url, json.dumps(body).encode("utf-8"), headers, self._timeout
             )
         except OSError as exc:  # URLError and TimeoutError are OSErrors
+            if isinstance(exc, TimeoutError) or isinstance(
+                getattr(exc, "reason", None), TimeoutError
+            ):
+                # the post may have landed: a retry could duplicate the message
+                raise DiscordError("discord timed out (outcome unknown)", retryable=False)
             raise DiscordError(f"discord unreachable ({type(exc).__name__})", retryable=True)
         if 200 <= status < 300:
             return {"message_id": str((payload or {}).get("id", ""))}

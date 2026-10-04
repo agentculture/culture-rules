@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+import pytest
+
 from culture_rules.engine.runs import RUNS_COLLECTION
 from culture_rules.events.ingest import EVENTS_COLLECTION
 from culture_rules.machines.probe import ProbeResult
@@ -235,3 +237,26 @@ def test_an_every_minute_schedule_is_not_rate_capped_by_default():
     assert len(mesh.runs("minutely")) == 70
     capped = [d for d in mesh.base.find("rule_decisions") if d.get("reason") == "rate_capped"]
     assert capped == []
+
+
+@pytest.mark.parametrize("cron", [None, 5, ["*/5", "*", "*", "*", "*"]])
+def test_a_non_string_cron_is_skipped_without_failing_the_stage(cron):
+    """A cleared editor field stores ``cron: null``; it must not wedge the other rules."""
+    mesh = Mesh("spark")
+    mesh.define(schedule_rule("tick"))
+    bad = schedule_rule("bad").to_dict()
+    bad["trigger"]["params"]["cron"] = cron
+    mesh.base.put("rules", bad)
+    mesh.start()
+    mesh.run_until(START + timedelta(minutes=10))
+    assert mesh.slots("tick") == expected_slots(5, 10)
+    assert mesh.runs("bad") == []
+
+
+def test_an_unparseable_schedule_rule_doc_is_skipped_without_failing_the_stage():
+    mesh = Mesh("spark")
+    mesh.define(schedule_rule("tick"))
+    mesh.base.put("rules", {**schedule_rule("bad").to_dict(), "action": "not an object"})
+    mesh.start()
+    mesh.run_until(START + timedelta(minutes=10))
+    assert mesh.slots("tick") == expected_slots(5, 10)

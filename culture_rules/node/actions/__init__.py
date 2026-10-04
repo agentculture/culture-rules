@@ -1,1 +1,1 @@
-"""Action-kind executors (filled by later tasks)."""
+"""Action-kind executors: message, github.comment, jira.comment, http.call, machine.command."""

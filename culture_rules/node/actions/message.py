@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import shutil
+import subprocess  # nosec B404 - only for TimeoutExpired; the CLI runs in node.mesh
 from collections.abc import Callable, Mapping
 from datetime import datetime
 from typing import Any
@@ -77,6 +78,12 @@ class MessageAction:
             return InvocationResult.failed("the culture CLI is not on PATH", retryable=True)
         try:
             MeshPoster(executable, run=self._mesh_run).post(channel, text)
+        except subprocess.TimeoutExpired:
+            # the message may have been sent: a retry could duplicate it
+            log.warning("mesh message to %s timed out (outcome unknown)", channel)
+            return InvocationResult.failed(
+                "mesh message timed out (outcome unknown)", retryable=False
+            )
         except Exception as exc:  # noqa: BLE001 - any failure to run the CLI is retryable
             log.warning("mesh message to %s failed (%s)", channel, type(exc).__name__)
             return InvocationResult.failed(
@@ -95,6 +102,8 @@ class MessageAction:
             return _fail(f"actor {actor_id!r} is not a discord app actor")
         connection = actor.get("connection") or params.get("connection") or {}
         allowed = connection.get("channels")
+        if isinstance(allowed, str):  # one channel, not a set of characters
+            allowed = [allowed]
         if allowed and channel not in {str(c) for c in allowed}:
             return _fail(f"channel {channel!r} is not in actor {actor_id!r} allow-list")
         ref = connection.get("bot_token")

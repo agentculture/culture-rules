@@ -155,3 +155,32 @@ def test_app_and_token_cached_across_invocations(pem):
     port.invoke(params(), "k2", DEADLINE, context=ctx())
     assert resolved == ["grant:GH_KEY"]
     assert sum(u.endswith("/access_tokens") for u in fake.calls) == 1
+
+
+@pytest.mark.parametrize(
+    "conn",
+    [
+        {"repos": ["acme/widgets/../x"]},
+        {"app_id": ""},
+        {"installation_id": None},
+    ],
+)
+def test_a_misconfigured_actor_fails_before_any_secret_or_network(pem, conn):
+    fake = Fake()
+    port, resolved = setup(pem, fake, actor_doc(**conn))
+    repo = conn.get("repos", ["acme/widgets"])[0]
+    res = port.invoke(params(repo), "k", DEADLINE, context=ctx())
+    assert res.outcome == "failed"
+    assert not res.retryable
+    assert fake.calls == []
+    assert resolved == []
+
+
+def test_a_disabled_actor_drops_its_cached_app(pem):
+    store = MemoryStore()
+    store.put("actors", actor_doc())
+    port = GitHubCommentPort(store, transport=Fake(), secrets=lambda ref: pem)
+    port.invoke(params(), "k1", DEADLINE, context=ctx())
+    store.put("actors", {**actor_doc(), "enabled": False})
+    assert port.invoke(params(), "k2", DEADLINE, context=ctx()).error == "actor_not_found"
+    assert "gh-app" not in port._apps

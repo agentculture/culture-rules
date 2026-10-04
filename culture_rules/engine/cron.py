@@ -134,7 +134,12 @@ def _wall_slots(day: date, times: list[tuple[int, int]], zone: tzinfo) -> Iterat
 
 
 def parse(expr: str) -> Cron:
-    """Parse a 5-field cron expression; raise ``ValueError`` naming a bad field."""
+    """Parse a 5-field cron expression; raise ``ValueError`` naming a bad field.
+
+    A non-string ``expr`` (a stored ``cron: null``) raises ``TypeError``.
+    """
+    if not isinstance(expr, str):
+        raise TypeError(f"cron expression must be a string, got {type(expr).__name__}")
     parts = expr.split()
     if len(parts) != 5:
         raise ValueError(f"cron expression needs 5 fields, got {len(parts)}: {expr!r}")

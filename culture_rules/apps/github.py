@@ -105,6 +105,11 @@ class GitHubApp:
     def __repr__(self) -> str:  # never expose the key or token
         return f"GitHubApp(app_id={self._app_id!r}, installation_id={self._installation_id!r})"
 
+    @staticmethod
+    def is_repo_name(repo: object) -> bool:
+        """Whether ``repo`` has the ``owner/name`` shape (no ``..`` or extra slashes)."""
+        return isinstance(repo, str) and bool(_REPO_RE.match(repo))
+
     def is_allowed(self, repo: str) -> bool:
         return isinstance(repo, str) and bool(_REPO_RE.match(repo)) and repo.lower() in self._repos
 
@@ -173,8 +178,13 @@ class GitHubApp:
             log.warning("github comment refused: repo not allow-listed")
             raise GitHubError("repo_not_allowed", "repo is not on the actor's allowlist")
         number = int(number)
-        bearer = self.installation_token()
-        _, data = self._request(
-            "POST", f"/repos/{repo}/issues/{number}/comments", bearer, {"body": body}
-        )
+        path = f"/repos/{repo}/issues/{number}/comments"
+        try:
+            _, data = self._request("POST", path, self.installation_token(), {"body": body})
+        except GitHubError as exc:
+            if exc.code != "http_401":
+                raise
+            # the cached token was revoked server-side: drop it and exchange once more
+            self._token = self._token_expiry = None
+            _, data = self._request("POST", path, self.installation_token(), {"body": body})
         return {"comment_id": data.get("id"), "url": data.get("html_url")}

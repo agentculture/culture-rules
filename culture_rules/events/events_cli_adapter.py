@@ -8,8 +8,11 @@ paho-mqtt.
 
 Source semantics
 ----------------
-One durable subscription per host (:func:`subscription_name`). The cursor is
-the events-cli history sequence for that subscription. ``drain(after)`` first
+A host drains several durable subscriptions, one per pattern depth
+(:func:`open_host_source`, :class:`EventsCliFanIn`); its cursor is a JSON object of
+each subscription's events-cli history sequence, and a cursor of any other shape (a
+legacy single-subscription one) starts fresh with one warning. Per subscription
+(:class:`EventsCliSource`), ``drain(after)`` first
 replays what events-cli already persisted past ``after`` (an event drained and
 acknowledged before culture-rules stored it is recovered from there, not lost),
 and only when history is caught up drains the broker session, which persists
@@ -216,8 +219,14 @@ class EventsCliSource:
 
 
 def _parse_fan_in_cursor(after: str | None, names: Sequence[str]) -> dict[str, str]:
+    return _read_fan_in_cursor(after, names)[0]
+
+
+def _read_fan_in_cursor(after: str | None, names: Sequence[str]) -> tuple[dict[str, str], bool]:
+    """``(cursors, valid)``: the per-subscription cursors in ``after``, and whether ``after``
+    was a fan-in cursor at all (``None`` counts as valid: nothing to reset)."""
     if after is None:
-        return {}
+        return {}, True
     try:
         value = json.loads(after)
     except (TypeError, ValueError):
@@ -229,8 +238,8 @@ def _parse_fan_in_cursor(after: str | None, names: Sequence[str]) -> dict[str, s
     ):
         # e.g. a legacy single-subscription cursor ("12"): start fresh rather than wedge ingest
         _log.warning("ignoring a cursor that is not a fan-in cursor (%r); starting fresh", after)
-        return {}
-    return dict(value)
+        return {}, False
+    return dict(value), True
 
 
 class EventsCliFanIn:
@@ -258,7 +267,8 @@ class EventsCliFanIn:
             source.ensure()
 
     def drain(self, after: str | None, *, max: int, timeout: float) -> SourceBatch:
-        cursors = _parse_fan_in_cursor(after, [s.name for s in self.sources])
+        cursors, valid = _read_fan_in_cursor(after, [s.name for s in self.sources])
+        start = dict(cursors)
         count = len(self.sources)
         order = [self.sources[(self._next + i) % count] for i in range(count)]
         self._next = (self._next + 1) % count
@@ -276,9 +286,10 @@ class EventsCliFanIn:
             if batch.cursor is not None:
                 cursors[source.name] = batch.cursor
             has_more = has_more or batch.has_more
-        out = json.dumps(cursors, sort_keys=True, separators=(",", ":")) if cursors else None
-        if after is not None and out is not None and json.loads(after) == cursors:
-            out = after
+        if valid and cursors == start:
+            out = after  # nothing moved
+        else:  # moved, or a reset cursor: persist the fresh state so it warns only once
+            out = json.dumps(cursors, sort_keys=True, separators=(",", ":"))
         return SourceBatch(envelopes=tuple(envelopes), cursor=out, has_more=has_more)
 
 

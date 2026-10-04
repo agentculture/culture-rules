@@ -89,3 +89,15 @@ def test_channel_id_must_be_numeric():
     with pytest.raises(DiscordError) as ei:
         client.post_message("../x", "x")
     assert not ei.value.retryable
+
+
+@pytest.mark.parametrize(
+    "exc", [TimeoutError("read timed out"), urllib.error.URLError(TimeoutError("timed out"))]
+)
+def test_a_timeout_is_an_unknown_outcome_and_not_retryable(exc):
+    """The post may have landed; a retry would duplicate the message."""
+    client = DiscordClient(TOKEN, transport=FakeTransport(exc=exc))
+    with pytest.raises(DiscordError) as ei:
+        client.post_message("1", "x")
+    assert not ei.value.retryable
+    assert "outcome unknown" in str(ei.value)

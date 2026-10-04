@@ -98,6 +98,16 @@ const TABLE: Record<string, Guidance> = {
   destination_refused: g("The destination refused this work.", { kind: "pick-actor" }, EDIT),
   extra_missing: g("An optional feature this needs is not installed on the server.", RELOAD),
   trigger_type_required: g("A trigger needs a type before the rule can be saved.", EDIT, { kind: "create-rule" }),
+  trigger_kind_unknown: g("That kind of trigger is not one the editor knows.", EDIT),
+  trigger_cron_required: g("A scheduled trigger needs a schedule.", EDIT),
+  trigger_param_required: g("The trigger is missing a required setting.", EDIT),
+  trigger_param_invalid: g("One of the trigger's settings is not valid.", EDIT),
+  action_kind_unknown: g("That kind of action is not one the editor knows.", EDIT),
+  action_param_required: g("The action is missing a required setting.", EDIT, { kind: "pick-actor" }),
+  action_param_type: g("One of the action's settings has the wrong type.", EDIT),
+  not_implemented: g("The server does not support this yet.", RELOAD),
+  replay_invalid: g("This run cannot be replayed because its rule or workflow changed.", EDIT, RELOAD),
+  not_json: g("The server answered in a form the editor cannot read.", RELOAD, RETRY),
 
   // ServiceError
   invalid: g("Some of what was entered is not valid.", EDIT),

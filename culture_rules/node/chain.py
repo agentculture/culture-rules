@@ -26,7 +26,8 @@ Standard-library only.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+import logging
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -42,7 +43,24 @@ from culture_rules.store.port import (
 )
 from culture_rules.store.versioning import utc_timestamp
 
-__all__ = ["FeedConsumer", "Source"]
+log = logging.getLogger("culture_rules.node.chain")
+
+
+def live_rules(docs: Iterable[Mapping[str, Any]]) -> list[Rule]:
+    """The non-deleted rules of ``docs``; a document that does not parse is logged and
+    skipped, so one malformed rule never stops every other rule from firing."""
+    rules = []
+    for doc in docs:
+        if doc.get("deleted_at"):
+            continue
+        try:
+            rules.append(Rule.from_dict(doc, strict=False))
+        except ValueError as exc:  # ModelParseError
+            log.warning("rule %s skipped: unparseable: %s", doc.get("id"), exc)
+    return rules
+
+
+__all__ = ["FeedConsumer", "Source", "live_rules"]
 
 
 @dataclass(frozen=True)
@@ -150,10 +168,7 @@ class FeedConsumer:
     def _dependencies(self) -> set[str]:
         """Rule ids some live rule must or may run after."""
         out: set[str] = set()
-        for d in self.store.find("rules"):
-            if d.get("deleted_at"):
-                continue
-            rule = Rule.from_dict(d, strict=False)
+        for rule in live_rules(self.store.find("rules")):
             out.update(rule.must_after)
             out.update(rule.may_after)
         return out
