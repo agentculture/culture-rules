@@ -27,9 +27,10 @@
         "service",
         "daemon",
         "runner",
-        "robot"
+        "robot",
+        "app"
       ],
-      "description": "agent | human | service | daemon | runner | robot"
+      "description": "agent | human | service | daemon | runner | robot | app"
     },
     "capabilities": {
       "type": "array",

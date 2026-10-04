@@ -28,14 +28,29 @@ export interface Recorded {
  * while a rule uses one) and restored; `start` replaces the stored list
  * (`[]` for the empty state).
  */
+export const GONE_WORKFLOW: WorkflowDef = {
+  ...WORKFLOW_DOCS[1],
+  id: "old-flow",
+  name: "Old flow",
+  deleted_at: "2026-10-02T10:00:00Z",
+  deleted_by: "ori",
+  restorable_until: "2026-10-09T10:00:00Z",
+};
+
+/** What a workflow run started from the Run form produces once it finishes. */
+export const FORM_RUN_OUTPUTS = { verdict: "approve", owner: "ori" };
+
 export async function mockWorkflowsApi(
   page: Page,
   start: WorkflowDef[] = WORKFLOW_DOCS,
+  /** Soft-deleted definitions, listed with `include_deleted=true` (purgeable by an admin). */
+  gone: WorkflowDef[] = [],
 ): Promise<Recorded[]> {
   const calls: Recorded[] = [];
   const now = Date.now();
   let workflows = start.map((w) => ({ ...w }));
-  const deleted = new Map<string, WorkflowDef>();
+  const deleted = new Map<string, WorkflowDef>(gone.map((w) => [w.id, w]));
+  let formRunPolls = 0;
   const used = new Set(WORKFLOW_RULES.map((r) => r.workflow?.id).filter(Boolean));
 
   await page.route("**/api/**", async (route) => {
@@ -51,7 +66,10 @@ export async function mockWorkflowsApi(
     const path = url.pathname;
     const fail = (status: number, code: string, message: string) =>
       json(status, { error: { code, message, errors: [] } });
-    if (path === "/api/workflows" && method === "GET") return json(200, { items: workflows });
+    if (path === "/api/workflows" && method === "GET") {
+      const withGone = url.searchParams.get("include_deleted") === "true";
+      return json(200, { items: withGone ? [...workflows, ...deleted.values()] : workflows });
+    }
     if (path === "/api/workflows" && method === "POST") {
       if (!body?.id || !body?.name) return fail(422, "invalid_workflow", "id and name are required");
       if (workflows.some((w) => w.id === body.id) || deleted.has(body.id)) {
@@ -60,6 +78,17 @@ export async function mockWorkflowsApi(
       const stored = { ...body, version: 1, schema_version: "1.0" };
       workflows = [...workflows, stored];
       return json(201, stored);
+    }
+    const run = path.match(/^\/api\/workflows\/([^/]+)\/run$/);
+    if (run && method === "POST") {
+      return json(201, { ...STARTED_RUN, id: "run-9", workflow: { id: run[1], version: 3 } });
+    }
+    const purge = path.match(/^\/api\/workflows\/([^/]+)\/purge$/);
+    if (purge && method === "POST") {
+      if (!deleted.has(purge[1])) return fail(404, "not_found", `workflows/${purge[1]} is not deleted`);
+      const applied = Boolean(body?.apply);
+      if (applied) deleted.delete(purge[1]);
+      return json(200, { collection: "workflows", id: purge[1], applied });
     }
     const verb = path.match(/^\/api\/workflows\/([^/]+)\/(enable|disable|restore)$/);
     if (verb && method === "POST") {
@@ -108,6 +137,16 @@ export async function mockWorkflowsApi(
     if (path === "/api/runs") return json(200, { items: workflowRunsFor(now) });
     if (path === "/api/runs/run-7") return json(200, RUN_7);
     if (path === "/api/runs/run-8") return json(200, STARTED_RUN);
+    if (path === "/api/runs/run-9") {
+      // Running on the first read, finished (with its exported outputs) on the next.
+      formRunPolls += 1;
+      return json(
+        200,
+        formRunPolls < 2
+          ? { ...STARTED_RUN, id: "run-9" }
+          : { ...STARTED_RUN, id: "run-9", status: "succeeded", finished_at: "2026-10-03T12:01:00Z", outputs: FORM_RUN_OUTPUTS },
+      );
+    }
     return route.fallback();
   });
   return calls;

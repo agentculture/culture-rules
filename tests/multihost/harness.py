@@ -59,7 +59,7 @@ from culture_rules.model.machine import Machine
 from culture_rules.model.placement import Placement
 from culture_rules.model.rule import Rule, Trigger, WorkflowRef
 from culture_rules.model.workflow import Output, Workflow
-from culture_rules.node.daemon import HeartbeatOptions, Node
+from culture_rules.node.daemon import HeartbeatOptions, Node, NodeOptions
 from culture_rules.node.firing import RULE_FIRES, run_id_for  # noqa: F401 - re-exported
 from culture_rules.store.port import StoragePort
 from tests.engine.run_helpers import edge, port, step, workflow
@@ -291,7 +291,7 @@ class SimHost:
             name,
             actors={"*": _HostPort(self, cluster.ledger)},
             event_source=cluster.broker.subscription(name),
-            lease=LEASE,
+            options=NodeOptions(lease=LEASE),
             heartbeat_options=HeartbeatOptions(
                 probe=lambda: ProbeResult(tools={}),
                 load_reader=lambda: {"cpu": 0.0, "mem": 0.0},

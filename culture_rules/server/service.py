@@ -94,6 +94,8 @@ def _is_live(doc: Mapping[str, Any]) -> bool:
 def _tolerant(cls: type, doc: Mapping[str, Any]) -> Any | None:
     """Parse a stored document, ignoring unknown fields; ``None`` if unparsable or invalid.
 
+    Validated in stored mode: a rule saved before the save-time catalog checks still counts.
+
     Used to build the surrounding rule set: a malformed stored document must not crash (or
     block) the save of an unrelated, valid one.
     """
@@ -104,7 +106,7 @@ def _tolerant(cls: type, doc: Mapping[str, Any]) -> Any | None:
         obj = cls.from_dict(data, strict=False)  # type: ignore[attr-defined]
     except ValueError:
         return None
-    return None if validate(obj) else obj
+    return None if validate(obj, stored=True) else obj
 
 
 #: ``(kind, stored document or None, document about to be written)``; raises to refuse the

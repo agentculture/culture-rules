@@ -53,3 +53,14 @@ def test_serve_maps_any_store_error_to_exit_2(monkeypatch, capsys):
     monkeypatch.setattr(serve_mod, "serve", unreachable)
     assert main(["serve"]) == 2
     assert "no replica set primary" in capsys.readouterr().err
+
+
+def test_serve_maps_a_store_config_error_from_the_real_store_path_to_exit_2(monkeypatch, capsys):
+    """No serve patching: the real store_from_env() raises ConfigError for a bad Mongo env."""
+    pytest.importorskip("pymongo")
+    for name in ("CULTURE_RULES_ACCESS_LISTEN", "CULTURE_RULES_MONGO_DB"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("CULTURE_RULES_MONGO_URI", "mongodb://localhost:27017/")
+    assert main(["serve", "--port", "1"]) == 2
+    err = capsys.readouterr().err
+    assert "authentication is required" in err

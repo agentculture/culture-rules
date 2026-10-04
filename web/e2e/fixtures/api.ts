@@ -1,5 +1,6 @@
 import type { Page } from "@playwright/test";
 import {
+  ACTORS,
   MACHINES,
   RULES,
   WHOAMI,
@@ -11,14 +12,20 @@ import {
  * Serve the culture-rules API (api/openapi.json shapes) by request
  * interception under the same-origin `/api` prefix the bundle calls. Every
  * call is recorded so a test can assert where identity came from.
+ * `roles` replaces the signed-in identity's roles (e.g. `["viewer", "editor"]`
+ * for a non-admin).
  */
-export async function mockApi(page: Page): Promise<string[]> {
+export async function mockApi(
+  page: Page,
+  options: { roles?: string[] } = {},
+): Promise<string[]> {
   const calls: string[] = [];
   const now = Date.now();
   const bodies: Record<string, unknown> = {
-    "/api/whoami": WHOAMI,
+    "/api/whoami": options.roles ? { ...WHOAMI, roles: options.roles } : WHOAMI,
     "/api/rules": { items: RULES },
     "/api/machines": { items: MACHINES },
+    "/api/actors": { items: ACTORS },
     "/api/workflows": { items: WORKFLOWS },
     "/api/runs": { items: runsFor(now) },
   };

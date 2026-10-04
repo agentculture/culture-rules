@@ -16,7 +16,11 @@ Either all of it commits or none of it does, exactly as for event triggers. A ha
 exception (including :class:`~culture_rules.node.firing.Deferred`) rolls its change back
 and leaves that collection's token before it; the other sources are still polled and the
 first exception is re-raised afterwards. Changes nobody keys only move the token (saved
-once, at the end of the poll). The first poll of a new consumer pins each feed's head.
+once, at the end of the poll). A keyed document whose rule no live rule depends on (its id
+is in no rule's ``must_after`` / ``may_after``) is treated the same way: nothing could
+continue a chain from it, so it opens no transaction. The dependants set is read from the
+``rules`` collection at most once per poll of a source, lazily, so a rule saved between
+polls is seen by the next poll. The first poll of a new consumer pins each feed's head.
 Standard-library only.
 """
 
@@ -28,6 +32,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from culture_rules.events.triggers import FIRES_COLLECTION
+from culture_rules.model.rule import Rule
 from culture_rules.store.port import (
     CURSOR_COLLECTION,
     DuplicateKeyError,
@@ -51,6 +56,20 @@ class Source:
     collection: str
     key: Callable[[Mapping[str, Any]], str | None]
     handler: Callable[[StoreOps, Mapping[str, Any], str], None]
+
+
+def _rule_of(doc: Mapping[str, Any]) -> str | None:
+    """The rule id a run, decision or firing intent belongs to (``None``: unknown)."""
+    rule = doc.get("rule")
+    rid = rule.get("id") if isinstance(rule, Mapping) else None
+    rid = rid or doc.get("rule_id")
+    return rid if isinstance(rid, str) and rid else None
+
+
+def _change_key(source: Source, change: Any) -> str | None:
+    """The source key of a change's document (``None`` for a delete or a non-keyed doc)."""
+    doc = change.document
+    return source.key(doc) if doc is not None and change.op != "delete" else None
 
 
 class _AlreadyHandled(Exception):
@@ -128,15 +147,33 @@ class FeedConsumer:
             return False
         return True
 
+    def _dependencies(self) -> set[str]:
+        """Rule ids some live rule must or may run after."""
+        out: set[str] = set()
+        for d in self.store.find("rules"):
+            if d.get("deleted_at"):
+                continue
+            rule = Rule.from_dict(d, strict=False)
+            out.update(rule.must_after)
+            out.update(rule.may_after)
+        return out
+
     def _poll_source(self, source: Source) -> list[str]:
         token = saved = self._token(source.collection)
         fired: list[str] = []
+        depended: set[str] | None = None  # loaded on the first keyed document
         for change in self.store.changes(source.collection, token):
             token = change.token
             doc = change.document
-            key = source.key(doc) if doc is not None and change.op != "delete" else None
+            key = _change_key(source, change)
             if key is None:
                 continue
+            rid = _rule_of(doc)
+            if rid is not None:
+                if depended is None:
+                    depended = self._dependencies()
+                if rid not in depended:
+                    continue  # nobody chains after it: only the cursor moves
             if self._fire(source, doc, key, token):
                 fired.append(self.marker_id(source.collection, key))
             saved = token

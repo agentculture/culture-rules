@@ -19,11 +19,19 @@ import {
   type Node,
   type NodeChange,
 } from "@xyflow/react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Machine } from "../api/types";
 import type { Actor, Step, WorkflowDef } from "../api/workflows";
 import { machineColors } from "../culture-design/chart";
-import { CARD_WIDTH, columnLayout, layoutWorkflow, type Positions } from "./layout";
+import {
+  CANVAS_TOP,
+  canvasBounds,
+  canvasHeight,
+  columnLayout,
+  layoutWorkflow,
+  nodeHeights,
+  type Positions,
+} from "./layout";
 import {
   INPUTS_NODE,
   OUTPUTS_NODE,
@@ -50,19 +58,30 @@ export interface CanvasProps {
   onEdit: (id: string, trigger: HTMLElement) => void;
   onDelete: (id: string) => void;
   onAddStep: () => void;
+  /** The `in` / `out` node was chosen (click, or Enter / Space while focused): open its editor. */
+  onOpenIo: (id: typeof INPUTS_NODE | typeof OUTPUTS_NODE, trigger: HTMLElement | null) => void;
   onConnect: (c: Connection) => void;
   onRefused: (reason: string) => void;
 }
 
-const TOP = 80; // room for the selected step's toolbar above the top row
-const MIN_HEIGHT = 570; // the board's canvas: 530 + 2 × 20 padding
+const TOP = CANVAS_TOP; // room for the selected step's toolbar above the top row
 const EDGE_ROOM = 20; // the board's canvas padding, left and right of a graph that does not fit
+
+const isIo = (id: string): id is typeof INPUTS_NODE | typeof OUTPUTS_NODE =>
+  id === INPUTS_NODE || id === OUTPUTS_NODE;
 
 /** An edge end's name, for the wire's accessible label. */
 function nodeName(workflow: WorkflowDef, node: string): string {
   if (node === INPUTS_NODE) return "Inputs";
   if (node === OUTPUTS_NODE) return "Outputs";
   return stepLabel((workflow.steps ?? []).find((s) => s.id === node) ?? { id: node, kind: "logic" });
+}
+
+/** The heights React Flow has measured so far, by node id. */
+function measuredHeights(nodes: readonly Node[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const n of nodes) if (n.measured?.height) out[n.id] = n.measured.height;
+  return out;
 }
 
 function subtitleOf(step: Step): string | null {
@@ -131,7 +150,6 @@ function CanvasInner(props: Readonly<CanvasProps>) {
       type: "io",
       position: { x: 0, y: 0 },
       ariaLabel: side === "in" ? "Inputs" : "Outputs",
-      selectable: false,
       data: {
         side,
         ports:
@@ -177,16 +195,14 @@ function CanvasInner(props: Readonly<CanvasProps>) {
     return () => cancelAnimationFrame(frame);
   }, [built, positions, selected, updateNodeInternals]);
 
-  const bounds = useMemo(() => {
-    const xs = Object.values(positions).map((p) => p.x);
-    const ys = Object.values(positions).map((p) => p.y);
-    const minX = xs.length ? Math.min(...xs) : 0;
-    const maxX = xs.length ? Math.max(...xs) + CARD_WIDTH : CARD_WIDTH;
-    const minY = ys.length ? Math.min(...ys) : 0;
-    const maxY = ys.length ? Math.max(...ys) + 200 : 200;
-    return { minX, maxX, minY, maxY };
-  }, [positions]);
-  const height = Math.max(MIN_HEIGHT, bounds.maxY - bounds.minY + TOP + 110);
+  // Each card's real height: its port count, or what React Flow measured if taller. Keyed
+  // as a string so a selection (a new nodes array, same sizes) never re-centres the canvas.
+  const heightKey = JSON.stringify(nodeHeights(workflow, measuredHeights(nodes)));
+  const bounds = useMemo(
+    () => canvasBounds(positions, JSON.parse(heightKey) as Record<string, number>),
+    [positions, heightKey],
+  );
+  const height = canvasHeight(bounds);
   const graphWidth = bounds.maxX - bounds.minX;
 
   // Zoom 1, centred horizontally when it fits, toolbar room on top. A graph wider
@@ -196,6 +212,15 @@ function CanvasInner(props: Readonly<CanvasProps>) {
   const containerRef = useCallback((el: HTMLElement | null) => {
     if (el) setWidth(el.clientWidth);
   }, []);
+  // One stable ref for the section: an inline ref is a new function every render, so React
+  // re-runs it (null, then the element) on every commit, and setWidth inside it can loop.
+  const sectionCallbackRef = useCallback(
+    (el: HTMLElement | null) => {
+      sectionRef.current = el;
+      containerRef(el);
+    },
+    [containerRef],
+  );
   const flowWidth = Math.max(width, graphWidth + 2 * EDGE_ROOM);
   useEffect(() => {
     const graph = bounds.maxX - bounds.minX;
@@ -226,18 +251,50 @@ function CanvasInner(props: Readonly<CanvasProps>) {
     }));
   }, [workflow, ctx, overlay]);
 
+  const sectionRef = useRef<HTMLElement | null>(null);
+  const nodeElement = (id: string) =>
+    sectionRef.current?.querySelector<HTMLElement>(`.react-flow__node[data-id="${CSS.escape(id)}"]`) ?? null;
+  /** A node chosen by click or keyboard: a step is selected, `in` / `out` open their editor. */
+  const choose = (id: string) => {
+    if (isIo(id)) props.onOpenIo(id, nodeElement(id));
+    else props.onSelect(id);
+  };
+
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
       onNodesChangeBase(changes.filter((c) => c.type !== "remove"));
       for (const c of changes) {
         if (c.type !== "select") continue;
-        if (c.selected && c.id !== INPUTS_NODE && c.id !== OUTPUTS_NODE) props.onSelect(c.id);
-        else if (!c.selected && c.id === selected) props.onSelect(null);
+        if (c.selected) choose(c.id);
+        else if (c.id === selected) props.onSelect(null);
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [onNodesChangeBase, selected, props.onSelect],
+    [onNodesChangeBase, selected, props.onSelect, props.onOpenIo],
   );
+
+  // Enter / Space on a focused in / out node always opens its editor, even while the node is
+  // still selected (React Flow only reports a selection *change*). The listener is native, on
+  // the section, because the nodes are React Flow's own focusable elements: the section has
+  // no interactive role of its own to hang a React handler on.
+  const openIoRef = useRef(props.onOpenIo);
+  useEffect(() => {
+    openIoRef.current = props.onOpenIo;
+  }, [props.onOpenIo]);
+  useEffect(() => {
+    const section = sectionRef.current;
+    if (!section) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      const target = e.target as HTMLElement;
+      const id = target.classList.contains("react-flow__node") ? target.dataset.id : undefined;
+      if (!id || !isIo(id)) return;
+      e.preventDefault();
+      openIoRef.current(id, target);
+    };
+    section.addEventListener("keydown", onKeyDown);
+    return () => section.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   const asConnection = (c: FlowConnection | Edge): Connection | null =>
     c.source && c.target && c.sourceHandle && c.targetHandle
@@ -269,7 +326,12 @@ function CanvasInner(props: Readonly<CanvasProps>) {
   );
 
   return (
-    <section className="wf-canvas" aria-label="Workflow canvas" style={{ height }} ref={containerRef}>
+    <section
+      className="wf-canvas"
+      aria-label="Workflow canvas"
+      style={{ height }}
+      ref={sectionCallbackRef}
+    >
       <div className="wf-canvas__scroll">
         {/* React Flow pins its own wrapper to 100%: the width goes on a box around it. */}
         <div className="wf-canvas__graph" style={{ width: flowWidth }}>
@@ -278,9 +340,7 @@ function CanvasInner(props: Readonly<CanvasProps>) {
             edges={edges}
             nodeTypes={NODE_TYPES}
             onNodesChange={onNodesChange}
-            onNodeClick={(_, node) => {
-              if (node.id !== INPUTS_NODE && node.id !== OUTPUTS_NODE) props.onSelect(node.id);
-            }}
+            onNodeClick={(_, node) => choose(node.id)}
             onPaneClick={() => props.onSelect(null)}
             onConnect={(c) => {
               const conn = asConnection(c);
@@ -302,6 +362,24 @@ function CanvasInner(props: Readonly<CanvasProps>) {
           />
         </div>
       </div>
+      {(workflow.steps ?? []).length === 0 ? (
+        <section className="wf-start" aria-label="Get started">
+          <p className="wf-start__lead">Start with a step, or with the inputs it will read.</p>
+          <div className="wf-start__actions">
+            <button type="button" className="wf-button wf-button--primary wf-button--large" onClick={props.onAddStep}>
+              <span aria-hidden="true">+</span> Add a step
+            </button>
+            <button
+              type="button"
+              className="wf-button wf-button--large"
+              aria-haspopup="dialog"
+              onClick={(e) => props.onOpenIo(INPUTS_NODE, e.currentTarget)}
+            >
+              Add an input
+            </button>
+          </div>
+        </section>
+      ) : null}
       <button type="button" className="wf-add-step" aria-label="Add step" onClick={props.onAddStep}>
         +
       </button>

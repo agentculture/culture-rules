@@ -326,28 +326,45 @@ describe("Workflows board (Chosen — Workflows)", () => {
     await waitFor(() => expect(workflowsState()?.run).toEqual({ id: "run-7", status: "failed" }));
   });
 
-  it("Run starts a run through the rule that uses this workflow and overlays it", async () => {
+  it("Run opens a typed form, starts a direct run, overlays it and shows outputs when it completes", async () => {
     const base = routes();
+    let polls = 0;
+    const DONE = { ...STARTED_RUN, status: "succeeded", finished_at: "2026-10-03T12:01:00Z", outputs: { verdict: "approve", owner: { name: "ori" } } };
     vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      const path = url.split("?")[0];
-      const body =
-        (path === "/api/runs" && init?.method === "POST") || path === "/api/runs/run-8"
-          ? STARTED_RUN
-          : (base[path]?.body ?? {});
+      const path = String(input).split("?")[0];
+      const direct = path === "/api/workflows/review-pr/run" && init?.method === "POST";
+      if (path === "/api/runs/run-8") polls += 1;
+      const body = direct ? STARTED_RUN : path === "/api/runs/run-8" ? (polls > 1 ? DONE : STARTED_RUN) : (base[path]?.body ?? {});
       return new Response(JSON.stringify(body), {
-        status: path === "/api/runs" && init?.method === "POST" ? 201 : 200,
+        status: direct ? 201 : 200,
         headers: { "content-type": "application/json" },
       });
     });
     const user = userEvent.setup();
     renderWorkflows();
     await loaded();
-    await user.click(screen.getByRole("button", { name: "Run" }));
+    const runButton = screen.getByRole("button", { name: "Run" });
+    expect(runButton).toBeEnabled();
+    await user.click(runButton);
+    await user.type(await screen.findByLabelText(/^pr/), "42");
+    await user.type(screen.getByLabelText(/^repo/), "agentculture/x");
+    await user.click(within(screen.getByRole("dialog", { name: "Run Review PR" })).getByRole("button", { name: "Run" }));
     await waitFor(() => expect(where).toContain("run=run-8"));
-    const post = methodCalls(fetchMock, "POST", "/api/runs");
-    expect(JSON.parse(post[0][1]!.body as string)).toEqual({ rule_id: "review-on-approve" });
+    const post = methodCalls(fetchMock, "POST", "/api/workflows/review-pr/run");
+    expect(JSON.parse(post[0][1]!.body as string)).toEqual({ inputs: { pr: 42, repo: "agentculture/x" } });
+    expect(methodCalls(fetchMock, "POST", "/api/runs")).toHaveLength(0);
     await waitFor(() => expect(card("Fetch diff")).toHaveAttribute("data-run-status", "running"));
+    const outputs = await screen.findByRole("region", { name: "Run outputs" }, { timeout: 5000 });
+    expect(within(outputs).getByText("approve")).toBeInTheDocument();
+    expect(within(outputs).getByText("owner")).toBeInTheDocument();
+  }, 10000);
+
+  it("Run is disabled while the workflow is disabled", async () => {
+    const off = WORKFLOW_DOCS.map((w) => (w.id === "build-image" ? { ...w, enabled: false } : w));
+    mockFetch(routes({ "/api/workflows": { body: { items: off } } }));
+    renderWorkflows("/workflows?id=build-image");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Run" })).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Run" })).toBeDisabled();
   });
 
   it("the list pane opens a workflow via ?id= and agent-state reports the tab", async () => {
@@ -451,5 +468,143 @@ describe("Workflows tab live updates (h61 / c80)", () => {
     };
     await emit("workflows", "review-pr");
     expect(await screen.findByRole("heading", { level: 1, name: "Review PR, renamed" })).toBeInTheDocument();
+  });
+});
+
+describe("Workflows: the in / out nodes and the empty canvas (t41)", () => {
+  let fetchMock: ReturnType<typeof mockFetch>["fetchMock"];
+
+  beforeEach(() => {
+    resetAgentState();
+    vi.stubGlobal("ResizeObserver", MeasuringResizeObserver);
+    vi.stubGlobal("DOMMatrixReadOnly", DOMMatrixStub);
+    fetchMock = mockFetch(routes()).fetchMock;
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  const putBody = () => {
+    const puts = methodCalls(fetchMock, "PUT", "/api/workflows/review-pr");
+    return JSON.parse(puts[puts.length - 1][1]!.body as string);
+  };
+
+  it("clicking the in node opens the inputs editor; Escape closes it and gives focus back", async () => {
+    renderWorkflows();
+    await loaded();
+    await waitFor(() => expect(card("Inputs")).toBeInTheDocument());
+    fireEvent.click(within(card("Inputs")).getByText("in"));
+    const dialog = await screen.findByRole("dialog", { name: "Edit inputs" });
+    expect(within(dialog).getByRole("textbox", { name: "Name of input pr" })).toBeInTheDocument();
+    expect(workflowsState()?.step).toBe("inputs");
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit inputs" })).toBeNull());
+    expect(card("Inputs")).toHaveFocus();
+    expect(workflowsState()?.step).toBeNull();
+  });
+
+  it("pressing Enter on the in node opens the inputs editor", async () => {
+    renderWorkflows();
+    await loaded();
+    await waitFor(() => expect(card("Inputs")).toBeInTheDocument());
+    expect(card("Inputs")).toHaveAttribute("tabindex", "0");
+    card("Inputs").focus();
+    fireEvent.keyDown(card("Inputs"), { key: "Enter" });
+    expect(await screen.findByRole("dialog", { name: "Edit inputs" })).toBeInTheDocument();
+  });
+
+  it("re-renders do not re-run the canvas ref (no update loop when the width keeps changing)", async () => {
+    // CI regression: an inline ref on the canvas section ran on every commit and called
+    // setWidth each time; a width that differs between reads then looped until React gave up.
+    let reads = 0;
+    const real = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientWidth");
+    Object.defineProperty(HTMLElement.prototype, "clientWidth", {
+      configurable: true,
+      get(this: HTMLElement) {
+        if (this.classList.contains("wf-canvas")) return 800 + reads++;
+        return real?.get?.call(this) ?? 0;
+      },
+    });
+    try {
+      renderWorkflows();
+      await loaded();
+      await waitFor(() => expect(card("Inputs")).toBeInTheDocument());
+      card("Inputs").focus();
+      fireEvent.keyDown(card("Inputs"), { key: "Enter" });
+      expect(await screen.findByRole("dialog", { name: "Edit inputs" })).toBeInTheDocument();
+      expect(reads).toBeLessThan(5);
+    } finally {
+      if (real) Object.defineProperty(HTMLElement.prototype, "clientWidth", real);
+    }
+  });
+
+  it("the out node (click or Enter) opens the outputs and variables editor", async () => {
+    renderWorkflows();
+    await loaded();
+    await waitFor(() => expect(card("Outputs")).toBeInTheDocument());
+    fireEvent.keyDown(card("Outputs"), { key: "Enter" });
+    const dialog = await screen.findByRole("dialog", { name: "Edit outputs" });
+    expect(within(dialog).getByRole("group", { name: "Outputs" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("group", { name: "Variables" })).toBeInTheDocument();
+    expect(workflowsState()?.step).toBe("outputs");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Done" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit outputs" })).toBeNull());
+    fireEvent.click(within(card("Outputs")).getByText("out"));
+    expect(await screen.findByRole("dialog", { name: "Edit outputs" })).toBeInTheDocument();
+  });
+
+  it("io edits go through the draft and Save PUTs them in schema shape", async () => {
+    const user = userEvent.setup();
+    renderWorkflows();
+    await loaded();
+    await waitFor(() => expect(card("Inputs")).toBeInTheDocument());
+    fireEvent.click(within(card("Inputs")).getByText("in"));
+    let dialog = await screen.findByRole("dialog", { name: "Edit inputs" });
+    await user.click(within(dialog).getByRole("button", { name: "Add input" }));
+    await user.type(within(dialog).getByRole("textbox", { name: "Name of input repo" }), "sitory");
+    await user.click(within(dialog).getByRole("button", { name: "Done" }));
+    expect(workflowsState()?.dirty).toBe(true);
+    // The canvas shows the new port on the in card.
+    await waitFor(() => expect(card("Inputs").querySelector('[data-port="out:input1"]')).not.toBeNull());
+
+    fireEvent.click(within(card("Outputs")).getByText("out"));
+    dialog = await screen.findByRole("dialog", { name: "Edit outputs" });
+    await user.click(within(dialog).getByRole("button", { name: "Add variable" }));
+    await user.type(within(dialog).getByRole("textbox", { name: "Default of variable var1" }), "3");
+    await user.click(within(dialog).getByRole("button", { name: "Remove output owner" }));
+    await user.click(within(dialog).getByRole("button", { name: "Done" }));
+
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(methodCalls(fetchMock, "PUT", "/api/workflows/review-pr")).toHaveLength(1));
+    const body = putBody();
+    expect(body.inputs).toEqual([
+      { name: "pr", type: "integer" },
+      { name: "repository", type: "string" },
+      { name: "input1", type: "any" },
+    ]);
+    expect(body.edges.filter((e: { source: string }) => e.source === "inputs").map((e: { source_port: string }) => e.source_port)).toEqual([
+      "pr",
+      "repository",
+      "repository",
+    ]);
+    expect(body.variables).toEqual([{ name: "var1", type: "any", default: 3 }]);
+    expect(body.outputs).toEqual([{ name: "verdict", type: "string", source: "steps.decide.outputs.verdict" }]);
+    expect(body).not.toHaveProperty("deleted_at");
+  });
+
+  it("an empty workflow shows next-step guidance whose buttons add a step and open the inputs editor", async () => {
+    const EMPTY = { id: "blank", name: "Blank", version: 1, inputs: [], variables: [], steps: [], edges: [], outputs: [] };
+    mockFetch(routes({ "/api/workflows": { body: { items: [EMPTY] } } }));
+    const user = userEvent.setup();
+    renderWorkflows("/workflows?id=blank");
+    await screen.findByRole("heading", { level: 1, name: "Blank" });
+    const guide = await screen.findByRole("region", { name: "Get started" });
+    await user.click(within(guide).getByRole("button", { name: "Add an input" }));
+    expect(await screen.findByRole("dialog", { name: "Edit inputs" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Done" }));
+    await user.click(within(screen.getByRole("region", { name: "Get started" })).getByRole("button", { name: "Add a step" }));
+    await waitFor(() => expect(workflowsState()?.steps).toEqual(["step-1"]));
+    expect(screen.queryByRole("region", { name: "Get started" })).toBeNull();
   });
 });

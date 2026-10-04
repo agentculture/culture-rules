@@ -301,11 +301,11 @@
     },
     "Trigger": {
       "type": "object",
-      "description": "What fires a rule: an event, a schedule, a manual run, ...",
+      "description": "What fires a rule. Kinds and their required params:",
       "properties": {
         "kind": {
           "type": "string",
-          "description": "Trigger type, e.g. event, schedule, manual"
+          "description": "Trigger kind: event, schedule, probe or manual"
         },
         "params": {
           "type": "object",
@@ -341,9 +341,16 @@
         "inputs": {
           "type": "object",
           "additionalProperties": {
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "object"
+              }
+            ]
           },
-          "description": "Workflow input name -> reference (e.g. trigger.data.number)",
+          "description": "Workflow input name -> reference string (e.g. trigger.data.number), {\"$ref\": path} or {\"$literal\": value}",
           "default": {}
         }
       },

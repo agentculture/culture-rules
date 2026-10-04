@@ -7,7 +7,7 @@ from typing import Any
 
 from culture_rules.cli import _api
 from culture_rules.cli._build import register_noun
-from culture_rules.cli._nounlib import ID, sections_overview, seg, write
+from culture_rules.cli._nounlib import ID, migration, sections_overview, seg, write
 from culture_rules.cli.registry import Context, Param, Verb
 
 NOUN = "runs"
@@ -43,6 +43,10 @@ def _cancel(ctx: Context, id: str, reason: str = "") -> Any:
     )
 
 
+def _backfill_ids(ctx: Context) -> Any:
+    return migration(ctx, "runs backfill-ids", "/runs/backfill-ids")
+
+
 def _toggle(name: str):
     def handler(ctx: Context) -> Any:
         return write(ctx, f"runs {name}", "POST", f"/controls/{name}", preview="/controls")
@@ -73,6 +77,15 @@ VERBS: list[Verb] = [
         (ID, Param("reason", help="why it is cancelled")),
         True,
         "editor",
+    ),
+    Verb(
+        NOUN,
+        "backfill-ids",
+        "Fill rule_id/workflow_id on legacy run documents (admin migration)",
+        _backfill_ids,
+        (),
+        True,
+        "admin",
     ),
     Verb(NOUN, "pause", "Pause the engine: no new runs start", _toggle("pause"), (), True, "admin"),
     Verb(NOUN, "resume", "Resume a paused engine", _toggle("resume"), (), True, "admin"),

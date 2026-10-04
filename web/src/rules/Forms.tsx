@@ -1,8 +1,12 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import type { Actor } from "../api/actors";
 import type { Ask, RuleDoc } from "../api/rules";
-import type { Machine, Workflow } from "../api/types";
+import type { Action, Machine, Trigger, Workflow } from "../api/types";
+import GuidedNotice from "../components/GuidedNotice";
 import { useEscapeKey } from "../hooks/useEscapeKey";
-import { slugFor, triggerLabel } from "../routes/rules-view";
+import { slugFor } from "../routes/rules-view";
+import ActionPicker, { actionProblem } from "./ActionPicker";
+import TriggerPicker, { blankTrigger, triggerProblem } from "./TriggerPicker";
 
 const KEEP = "__keep__";
 
@@ -27,18 +31,40 @@ function useFormKeyboard<F extends HTMLElement>(onCancel: () => void, focusKey?:
   return { form, first };
 }
 
+/** A changed trigger no longer matches its display label, so the label is dropped. */
+function withoutLabel(trigger: Trigger): Trigger {
+  if (!trigger.params || !("label" in trigger.params)) return trigger;
+  const { label: _label, ...params } = trigger.params as Record<string, unknown>;
+  return { ...trigger, params } as Trigger;
+}
+
+/** The event type an action's trigger fields are offered for; label-only triggers have none. */
+const triggerTypeOf = (t: Trigger) =>
+  t.kind === "event" ? (t.params as { type?: string } | undefined)?.type || undefined : undefined;
+
+/** An action without an empty name (the name is optional). */
+function withoutEmptyName(action: Action): Action {
+  if (action.name !== "") return action;
+  const { name: _name, ...rest } = action;
+  return rest;
+}
+
 interface EditProps {
   rule: RuleDoc;
   machines: Machine[];
+  workflows?: Workflow[];
+  actors: Actor[];
   onSave: (rule: RuleDoc) => Promise<boolean>;
   onCancel: () => void;
 }
 
-/** Edit a rule in place: its name, trigger words, action name and placement. */
-export function RuleEditForm({ rule, machines, onSave, onCancel }: Readonly<EditProps>) {
+/** Edit a rule in place: its name, typed trigger, typed action and placement. */
+export function RuleEditForm({ rule, machines, workflows = [], actors, onSave, onCancel }: Readonly<EditProps>) {
   const [name, setName] = useState(rule.name);
-  const [trigger, setTrigger] = useState(triggerLabel(rule));
-  const [action, setAction] = useState(rule.action.name ?? "");
+  const [trigger, setTrigger] = useState<Trigger>(rule.trigger);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [action, setAction] = useState<Action>(rule.action);
+  const [actionIssue, setActionIssue] = useState<string | null>(null);
   const placed = rule.placement?.machine ?? "";
   const foreign = !placed && (rule.placement?.actor || rule.placement?.requirement?.length);
   const [placement, setPlacement] = useState(foreign ? KEEP : placed);
@@ -46,15 +72,21 @@ export function RuleEditForm({ rule, machines, onSave, onCancel }: Readonly<Edit
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    const label = trigger.trim();
+    // An untouched trigger is saved as it was (a legacy label-only one stays valid);
+    // a changed one must be complete, and drops the label it no longer matches.
+    const changed = JSON.stringify(trigger) !== JSON.stringify(rule.trigger);
+    const found = changed ? triggerProblem(trigger) : null;
+    setProblem(found);
+    // Likewise an untouched action is saved as it was; a changed one must be complete.
+    const actionChanged = JSON.stringify(action) !== JSON.stringify(rule.action);
+    const actionFound = actionChanged ? actionProblem(action) : null;
+    setActionIssue(actionFound);
+    if (found || actionFound) return;
     const next: RuleDoc = {
       ...rule,
       name: name.trim(),
-      trigger:
-        label && label !== triggerLabel(rule)
-          ? { ...rule.trigger, params: { ...rule.trigger.params, label } }
-          : rule.trigger,
-      action: { ...rule.action, name: action.trim() },
+      trigger: changed ? withoutLabel(trigger) : rule.trigger,
+      action: actionChanged ? withoutEmptyName({ ...action, name: action.name?.trim() }) : rule.action,
       placement: chosenPlacement(placement, rule),
     };
     if (await onSave(next)) onCancel();
@@ -66,14 +98,16 @@ export function RuleEditForm({ rule, machines, onSave, onCancel }: Readonly<Edit
         <span>Name</span>
         <input ref={first} value={name} onChange={(e) => setName(e.target.value)} required />
       </label>
-      <label>
-        <span>Trigger</span>
-        <input value={trigger} onChange={(e) => setTrigger(e.target.value)} />
-      </label>
-      <label>
-        <span>Action</span>
-        <input value={action} onChange={(e) => setAction(e.target.value)} />
-      </label>
+      <TriggerPicker value={trigger} actors={actors} onChange={setTrigger} />
+      {problem ? <GuidedNotice code={problem} /> : null}
+      <ActionPicker
+        value={action}
+        actors={actors}
+        triggerType={triggerTypeOf(trigger)}
+        workflow={workflows.find((w) => w.id === rule.workflow?.id)}
+        onChange={setAction}
+      />
+      {actionIssue ? <GuidedNotice code={actionIssue} /> : null}
       <label>
         <span>Placement</span>
         <select value={placement} onChange={(e) => setPlacement(e.target.value)}>
@@ -103,51 +137,53 @@ export function RuleEditForm({ rule, machines, onSave, onCancel }: Readonly<Edit
 }
 
 interface NewProps {
+  actors: Actor[];
   takenIds: string[];
   onCreate: (rule: RuleDoc) => Promise<boolean>;
   onCancel: () => void;
 }
 
-const TRIGGER_KINDS = ["event", "schedule", "manual"];
+/** The API requires an action, so a new rule starts with this placeholder until one is picked. */
+const PLACEHOLDER_ACTION: Action = { kind: "mesh.message", name: "Notify" };
 
 /**
- * Progressive creation: ask only "When does this happen?" and make a rule of
- * a trigger (the API requires an action, so it starts with a placeholder
- * `mesh.message` the user renames); everything else grows through the `+`.
+ * Progressive creation: ask "When does this happen?" then "Then what happens?"
+ * (starting from the `mesh.message` placeholder); everything else grows through the `+`.
  */
-export function NewRuleForm({ takenIds, onCreate, onCancel }: Readonly<NewProps>) {
-  const [label, setLabel] = useState("");
-  const [kind, setKind] = useState("event");
+export function NewRuleForm({ actors, takenIds, onCreate, onCancel }: Readonly<NewProps>) {
+  const [name, setName] = useState("");
+  const [trigger, setTrigger] = useState<Trigger>(blankTrigger("event"));
+  const [action, setAction] = useState<Action>(PLACEHOLDER_ACTION);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [actionIssue, setActionIssue] = useState<string | null>(null);
   const { form, first } = useFormKeyboard<HTMLInputElement>(onCancel);
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    const text = label.trim();
+    const text = name.trim();
     if (!text) return;
+    const found = triggerProblem(trigger);
+    setProblem(found);
+    const actionFound = actionProblem(action);
+    setActionIssue(actionFound);
+    if (found || actionFound) return;
     await onCreate({
       id: slugFor(text, takenIds),
       name: text,
-      trigger: { kind, params: { label: text } },
-      action: { kind: "mesh.message", name: "Notify" },
+      trigger,
+      action: withoutEmptyName({ ...action, name: action.name?.trim() }),
       enabled: true,
     });
   };
   return (
     <form ref={form} className="rule-form rule-form--new" aria-label="New rule" onSubmit={submit}>
-      <h2 className="rule-form__title">When does this happen?</h2>
       <label>
-        <span>Trigger</span>
-        <input ref={first} value={label} onChange={(e) => setLabel(e.target.value)} required />
+        <span>Name</span>
+        <input ref={first} value={name} onChange={(e) => setName(e.target.value)} required />
       </label>
-      <label>
-        <span>Kind</span>
-        <select value={kind} onChange={(e) => setKind(e.target.value)}>
-          {TRIGGER_KINDS.map((k) => (
-            <option key={k} value={k}>
-              {k}
-            </option>
-          ))}
-        </select>
-      </label>
+      <TriggerPicker value={trigger} actors={actors} onChange={setTrigger} />
+      {problem ? <GuidedNotice code={problem} /> : null}
+      <ActionPicker value={action} actors={actors} triggerType={triggerTypeOf(trigger)} onChange={setAction} />
+      {actionIssue ? <GuidedNotice code={actionIssue} /> : null}
       <div className="rule-form__actions">
         <button type="submit" className="btn btn--primary">
           Create rule

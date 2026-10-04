@@ -3,6 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { machineColors } from "../culture-design/chart";
 import { ApiError, listMachines, listRules } from "../api/client";
 import { settleAll } from "../api/settle";
+import { usePending } from "../usePending";
 import { useLiveUpdates, type LiveChange } from "../api/live";
 import type { Machine, Placement, Rule, RunSummary } from "../api/types";
 import {
@@ -12,10 +13,10 @@ import {
   listActors,
   listWorkflowDefs,
   listWorkflowRuns,
+  purgeWorkflow,
   putWorkflowDef,
   restoreWorkflowDef,
   setWorkflowEnabled,
-  startRun,
   type Actor,
   type RunDoc,
   type WorkflowDef,
@@ -23,10 +24,14 @@ import {
 import { setWorkflowsState } from "../workflows/agentState";
 import WorkflowCanvas, { type CanvasProps } from "../workflows/Canvas";
 import IoControls from "../workflows/IoControls";
+import IoEditor from "../workflows/IoEditor";
+import RunForm, { RunOutputs } from "../workflows/RunForm";
 import {
   addStep,
   connect,
   deleteStep,
+  INPUTS_NODE,
+  OUTPUTS_NODE,
   runOverlay,
   setPlacement,
   toDefinition,
@@ -36,6 +41,8 @@ import {
 } from "../workflows/model";
 import PlacementEditor from "../workflows/PlacementEditor";
 import StepEditor from "../workflows/StepEditor";
+import { useWhoami } from "../hooks/useWhoami";
+import PurgePanel, { type PurgeState } from "../workflows/PurgePanel";
 import { WorkflowList } from "../workflows/WorkflowList";
 import WorkflowNameForm from "../workflows/WorkflowNameForm";
 import { ago, slugFor } from "./rules-view";
@@ -64,7 +71,8 @@ const POLL_MS = 2000;
 const MAX_ID_TRIES = 20;
 const LIVE_COLLECTIONS = ["workflows", "runs"] as const;
 
-type Editing = { kind: "placement" | "step"; id: string; trigger: HTMLElement | null } | null;
+/** The open floating editor: a step's placement or fields, or the `in` / `out` node's. */
+type Editing = { kind: "placement" | "step" | "io"; id: string; trigger: HTMLElement | null } | null;
 type Draft = { id: string; def: WorkflowDef; dirty: boolean };
 type OverlaidRun = { id: string; doc: RunDoc | null; error: string | null };
 
@@ -115,13 +123,13 @@ async function createWithFreeId(name: string, taken: string[], attempt = 0): Pro
 }
 
 /** Workflows, machines, actors and rules, re-read whenever `reload` moves. */
-function useWorkflowsLoad(reload: number) {
+function useWorkflowsLoad(reload: number, includeDeleted: boolean) {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   useEffect(() => {
     const controller = new AbortController();
     settleAll(
       [
-        listWorkflowDefs(controller.signal),
+        listWorkflowDefs({ includeDeleted }, controller.signal),
         listMachines(controller.signal),
         listActors(controller.signal),
         listRules(controller.signal),
@@ -152,7 +160,7 @@ function useWorkflowsLoad(reload: number) {
       },
     );
     return () => controller.abort();
-  }, [reload]);
+  }, [reload, includeDeleted]);
   return [loaded, setLoaded] as const;
 }
 
@@ -359,7 +367,7 @@ function EmptyWorkflows({ onNew }: Readonly<{ onNew: () => void }>) {
   );
 }
 
-/** The floating editor for the step being edited: its placement, or its ports. */
+/** The floating editor for what is being edited: a step's placement or ports, or the in / out node. */
 function StepPanels({
   editing,
   workflow,
@@ -375,6 +383,18 @@ function StepPanels({
   onChange: (wf: WorkflowDef) => void;
   onClose: () => void;
 }>) {
+  if (editing?.kind === "io") {
+    return (
+      <IoEditor
+        key={editing.id}
+        workflow={workflow}
+        side={editing.id === INPUTS_NODE ? "in" : "out"}
+        returnFocus={editing.trigger}
+        onChange={onChange}
+        onClose={onClose}
+      />
+    );
+  }
   const step = editing ? (workflow.steps ?? []).find((s) => s.id === editing.id) : undefined;
   if (!editing || !step) return null;
   if (editing.kind === "placement") {
@@ -397,15 +417,13 @@ function StepPanels({
     <StepEditor
       workflow={workflow}
       stepId={step.id}
+      actors={loaded?.actors ?? []}
       returnFocus={editing.trigger}
       onChange={onChange}
       onClose={onClose}
     />
   );
 }
-
-/** What the Run button says when hovered. */
-const runTitle = (rule: Rule | undefined) => (rule ? `Starts ${rule.name}` : "No rule runs this workflow yet");
 
 /** Live updates: which ticks a batch of changes moves. */
 function routeLiveChanges(
@@ -438,10 +456,6 @@ function agentSnapshot(
 /** The open workflow: the one asked for in the query, else the first. */
 const pickWorkflow = (workflows: WorkflowDef[], id: string | null): WorkflowDef | null =>
   workflows.find((w) => w.id === id) ?? workflows[0] ?? null;
-
-/** The rule that runs `workflow`, if any (the Run button starts it). */
-const ruleRunning = (loaded: Loaded | null, workflow: WorkflowDef | null): Rule | undefined =>
-  workflow ? (loaded?.rules ?? []).find((r) => r.workflow?.id === workflow.id) : undefined;
 
 /** No run is asked for, or the asked-for run has answered (a doc or an error). */
 const runSettledFor = (runId: string | null, run: OverlaidRun | null): boolean =>
@@ -495,14 +509,17 @@ function HeadActions({
   creating,
   dirty,
   saving,
-  runRule,
+  runBlock,
+  runRef,
   onSave,
   onRun,
 }: Readonly<{
   creating: boolean;
   dirty: boolean;
   saving: boolean;
-  runRule: Rule | undefined;
+  /** Why Run is unavailable (the button is disabled with this as its hint), or null. */
+  runBlock: string | null;
+  runRef: RefObject<HTMLButtonElement>;
   onSave: () => void;
   onRun: () => void;
 }>) {
@@ -514,7 +531,7 @@ function HeadActions({
           Save
         </button>
       ) : null}
-      <button type="button" className="wf-run" disabled={!runRule} title={runTitle(runRule)} onClick={onRun}>
+      <button ref={runRef} type="button" className="wf-run" disabled={runBlock !== null} title={runBlock ?? undefined} onClick={onRun}>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
           <path d="M7 4v16l13-8z" />
         </svg>
@@ -527,7 +544,15 @@ function HeadActions({
 /** The canvas callbacks, passed through to WorkflowCanvas as they are. */
 type CanvasHandlers = Pick<
   CanvasProps,
-  "onSelect" | "onToggle" | "onPlacement" | "onEdit" | "onDelete" | "onAddStep" | "onConnect" | "onRefused"
+  | "onSelect"
+  | "onToggle"
+  | "onPlacement"
+  | "onEdit"
+  | "onDelete"
+  | "onAddStep"
+  | "onOpenIo"
+  | "onConnect"
+  | "onRefused"
 >;
 
 /** The open workflow's stage: the rename form (while renaming), the canvas and its step editors. */
@@ -544,6 +569,7 @@ function WorkflowStage({
   edit,
   onChange,
   onCloseEditor,
+  runForm,
 }: Readonly<{
   workflow: WorkflowDef;
   loaded: Loaded | null;
@@ -557,6 +583,7 @@ function WorkflowStage({
   edit: (fn: (wf: WorkflowDef) => WorkflowDef) => void;
   onChange: (wf: WorkflowDef) => void;
   onCloseEditor: () => void;
+  runForm: ReactNode;
 }>) {
   return (
     <div className="wf-stage" ref={stageRef}>
@@ -589,8 +616,76 @@ function WorkflowStage({
         onChange={onChange}
         onClose={onCloseEditor}
       />
+      {runForm}
     </div>
   );
+}
+
+/** The draft being edited: reset when the selected workflow changes, kept while it has unsaved edits. */
+function useSyncedDraft(current: WorkflowDef | undefined | null) {
+  const [draft, setDraft] = useState<Draft | null>(null);
+  useEffect(() => {
+    if (!current) {
+      setDraft(null);
+      return;
+    }
+    setDraft((d) =>
+      d?.id === current.id && d.dirty ? d : { id: current.id, def: toDefinition(current), dirty: false },
+    );
+  }, [current]);
+  return [draft, setDraft] as const;
+}
+
+/** A workflow just created opens with the step `+` focused: add the first step. */
+function useFocusAddStep(
+  wanted: string | null,
+  openId: string | undefined,
+  stageRef: RefObject<HTMLDivElement | null>,
+  done: () => void,
+) {
+  useEffect(() => {
+    if (!wanted || openId !== wanted) return;
+    stageRef.current?.querySelector<HTMLButtonElement>(".wf-add-step")?.focus();
+    done();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wanted, openId]);
+}
+
+/** Why Run is unavailable, or null when it is. */
+function runBlockReason(enabled: boolean | undefined, dirty: boolean | undefined): string | null {
+  if (enabled === false) return "Enable this workflow to run it";
+  return dirty ? "Save your changes to run them" : null;
+}
+
+/** The signed-in principal may purge (admin only). */
+function isAdminOf(whoami: ReturnType<typeof useWhoami>): boolean {
+  return whoami.status === "signed-in" && whoami.role === "admin";
+}
+
+/** The loaded definitions split into live and soft-deleted ones. */
+function useSplitDefs(loaded: { workflows?: WorkflowDef[] } | null) {
+  const all = loaded?.workflows;
+  return useMemo(() => {
+    const defs = all ?? [];
+    return {
+      workflows: defs.filter((w) => !w.deleted_at),
+      deletedDefs: defs.filter((w) => w.deleted_at),
+    };
+  }, [all]);
+}
+
+/** The draft's definition when it belongs to the current workflow. */
+function draftOf(
+  current: WorkflowDef | undefined | null,
+  draft: { id: string; def: WorkflowDef } | null | undefined,
+): WorkflowDef | null {
+  if (!current || draft?.id !== current.id) return null;
+  return draft.def;
+}
+
+/** The list loaded and holds no live workflow. */
+function isEmptyList(loaded: { listed?: boolean } | null, workflows: WorkflowDef[]): boolean {
+  return loaded !== null && Boolean(loaded.listed) && workflows.length === 0;
 }
 
 /**
@@ -619,8 +714,11 @@ function WorkflowStage({
 export function Workflows() {
   const [params, setParams] = useSearchParams();
   const [reload, setReload] = useState(0);
-  const [loaded, setLoaded] = useWorkflowsLoad(reload);
-  const [draft, setDraft] = useState<Draft | null>(null);
+  const [showDeleted, setShowDeleted] = useState(false);
+  const [loaded, setLoaded] = useWorkflowsLoad(reload, showDeleted);
+  const whoami = useWhoami();
+  const isAdmin = isAdminOf(whoami);
+  const [purge, setPurge] = useState<PurgeState | null>(null);
   const [selectedStep, setSelectedStep] = useState<string | null>(null);
   const [editing, setEditing] = useState<Editing>(null);
   const [status, setStatus] = useState("");
@@ -636,10 +734,12 @@ export function Workflows() {
   const renameButton = useRef<HTMLButtonElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   // Live: `runsTick` re-reads the recent runs, `runTick` the overlaid run.
+  const [runFormOpen, setRunFormOpen] = useState(false);
+  const runButton = useRef<HTMLButtonElement>(null);
   const [runsTick, setRunsTick] = useState(0);
   const [runTick, setRunTick] = useState(0);
 
-  const workflows = loaded?.workflows ?? [];
+  const { workflows, deletedDefs } = useSplitDefs(loaded);
   const wantedId = params.get("id");
   const current = pickWorkflow(workflows, wantedId);
   const runId = params.get("run");
@@ -647,30 +747,20 @@ export function Workflows() {
 
   // A fresh draft whenever the selected workflow (or its stored copy) changes;
   // unsaved edits to the same workflow survive a reload.
-  useEffect(() => {
-    if (!current) {
-      setDraft(null);
-      return;
-    }
-    setDraft((d) =>
-      d?.id === current.id && d.dirty ? d : { id: current.id, def: toDefinition(current), dirty: false },
-    );
-  }, [current]);
+  const [draft, setDraft] = useSyncedDraft(current);
+
   useEffect(() => {
     setSelectedStep(null);
     setEditing(null);
     setRenaming(false);
+    setRunFormOpen(false);
   }, [current?.id]);
 
-  const workflow = current && draft?.id === current.id ? draft.def : null;
-  const empty = loaded !== null && loaded.listed && workflows.length === 0;
+  const workflow = draftOf(current, draft);
+  const empty = isEmptyList(loaded, workflows);
 
   // A workflow just created opens with the step `+` focused: add the first step.
-  useEffect(() => {
-    if (!focusAddStep || workflow?.id !== focusAddStep) return;
-    stageRef.current?.querySelector<HTMLButtonElement>(".wf-add-step")?.focus();
-    setFocusAddStep(null);
-  }, [focusAddStep, workflow?.id]);
+  useFocusAddStep(focusAddStep, workflow?.id, stageRef, () => setFocusAddStep(null));
   const edit = useCallback((fn: (wf: WorkflowDef) => WorkflowDef) => {
     setDraft((d) => editDraft(d, fn));
   }, []);
@@ -746,7 +836,21 @@ export function Workflows() {
     [edit],
   );
   const onRefused = useCallback((reason: string) => setStatus(`Not wired: ${reason}`), []);
-  const onSelect = useCallback((id: string | null) => setSelectedStep(id), []);
+  const onSelect = useCallback((id: string | null) => {
+    setSelectedStep(id);
+    // Choosing a step puts the in / out editor away (a step's own editors stay as they were).
+    if (id !== null) setEditing((e) => (e?.kind === "io" ? null : e));
+  }, []);
+  // The in / out node is selected while its editor is open, so agent-state's `step` names it.
+  const onOpenIo = useCallback((id: typeof INPUTS_NODE | typeof OUTPUTS_NODE, trigger: HTMLElement | null) => {
+    setSelectedStep(id);
+    setEditing({ kind: "io", id, trigger });
+  }, []);
+  const closeEditor = () => {
+    // Closing the in / out editor lets go of its node, so Enter on it opens the editor again.
+    if (editing?.kind === "io") setSelectedStep((s) => (s === editing.id ? null : s));
+    setEditing(null);
+  };
   const onAddStep = useCallback(() => {
     if (!workflow) return;
     const res = addStep(workflow);
@@ -770,17 +874,12 @@ export function Workflows() {
     }
   };
 
-  const runRule = ruleRunning(loaded, current);
-  const start = async () => {
-    if (!runRule) return;
+  const runBlock = runBlockReason(current?.enabled, draft?.dirty);
+  const onRunStarted = (doc: RunDoc) => {
+    setRunFormOpen(false);
     setActionError(null);
-    try {
-      const doc = await startRun(runRule.id);
-      setRun({ id: doc.id, doc, error: null });
-      setQuery({ run: doc.id });
-    } catch (err) {
-      setActionError(`Run failed: ${message(err)}`);
-    }
+    setRun({ id: doc.id, doc, error: null });
+    setQuery({ run: doc.id });
   };
 
   const openNew = () => {
@@ -825,7 +924,9 @@ export function Workflows() {
     }
   };
 
-  const toggleWorkflow = async (wf: WorkflowDef) => {
+  const { pending: togglePending, run: runToggle } = usePending();
+  const toggleWorkflow = (wf: WorkflowDef) => runToggle(wf.id, () => doToggleWorkflow(wf));
+  const doToggleWorkflow = async (wf: WorkflowDef) => {
     const enabled = wf.enabled === false;
     setActionError(null);
     try {
@@ -848,6 +949,7 @@ export function Workflows() {
       await deleteWorkflowDef(gone.id);
       setDeleted(gone);
       setStatus("");
+      if (showDeleted) setReload((n) => n + 1);
       setLoaded((l) => dropFrom(l, gone.id));
       setQuery({ id: next?.id ?? null, run: null });
     } catch (err) {
@@ -865,6 +967,42 @@ export function Workflows() {
       setQuery({ id: back.id, run: null });
     } catch (err) {
       setActionError(`Undo failed: ${message(err)}`);
+    }
+  };
+
+  const { pending: restorePending, run: runRestore } = usePending();
+  const restoreFromList = (wf: WorkflowDef) =>
+    runRestore(wf.id, async () => {
+      setActionError(null);
+      try {
+        const back = storedOr(await restoreWorkflowDef(wf.id), { ...wf, deleted_at: null });
+        setLoaded((l) => putIn(l, { ...back, deleted_at: null }));
+        setStatus(`Restored ${back.name}`);
+      } catch (err) {
+        setActionError(`Restore failed: ${message(err)}`);
+      }
+    });
+  const asApiError = (err: unknown) => (err instanceof ApiError ? err : new ApiError(0, "unknown", String(err)));
+  const startPurge = async (wf: WorkflowDef) => {
+    setPurge({ workflow: wf, checked: false, busy: false, error: null });
+    try {
+      await purgeWorkflow(wf.id, false);
+      setPurge((p) => (p?.workflow.id === wf.id ? { ...p, checked: true } : p));
+    } catch (err) {
+      setPurge((p) => (p?.workflow.id === wf.id ? { ...p, error: asApiError(err) } : p));
+    }
+  };
+  const confirmPurge = async () => {
+    if (!purge || !purge.checked || purge.busy) return;
+    const wf = purge.workflow;
+    setPurge({ ...purge, busy: true });
+    try {
+      await purgeWorkflow(wf.id, true);
+      setLoaded((l) => dropFrom(l, wf.id));
+      setPurge(null);
+      setStatus(`Purged ${wf.name}`);
+    } catch (err) {
+      setPurge((p) => (p?.workflow.id === wf.id ? { ...p, busy: false, error: asApiError(err) } : p));
     }
   };
 
@@ -892,11 +1030,22 @@ export function Workflows() {
         closeRename={closeRename}
         overlay={overlay}
         selected={selectedStep}
-        handlers={{ onSelect, onToggle, onPlacement, onEdit, onDelete, onAddStep, onConnect, onRefused }}
+        handlers={{ onSelect, onToggle, onPlacement, onEdit, onDelete, onAddStep, onOpenIo, onConnect, onRefused }}
         editing={editing}
         edit={edit}
         onChange={(wf) => setDraft((d) => editDraft(d, () => wf))}
-        onCloseEditor={() => setEditing(null)}
+        onCloseEditor={closeEditor}
+        runForm={
+          runFormOpen && current ? (
+            <RunForm
+              key={current.id}
+              workflow={current}
+              returnFocus={runButton.current}
+              onStarted={onRunStarted}
+              onClose={() => setRunFormOpen(false)}
+            />
+          ) : null
+        }
       />
     );
   } else if (empty) {
@@ -910,9 +1059,24 @@ export function Workflows() {
         selectedId={creating ? null : (current?.id ?? null)}
         slotOf={slotOf}
         onToggle={(wf) => void toggleWorkflow(wf)}
+        pending={togglePending}
         onNew={openNew}
         onOpen={openRow}
         newRef={newButton}
+        showDeleted={showDeleted}
+        onShowDeleted={(on) => {
+          setShowDeleted(on);
+          if (!on) setPurge(null);
+        }}
+        deleted={deletedDefs}
+        restoring={restorePending}
+        onRestore={(wf) => void restoreFromList(wf)}
+        onPurge={isAdmin ? (wf) => void startPurge(wf) : undefined}
+        purgePanel={
+          isAdmin && purge ? (
+            <PurgePanel state={purge} onConfirm={() => void confirmPurge()} onCancel={() => setPurge(null)} />
+          ) : null
+        }
       />
       <main id="main" className="wf-board" tabIndex={-1} data-live-flash={live.flash || undefined}>
         <BoardNotices
@@ -946,12 +1110,15 @@ export function Workflows() {
             creating={creating}
             dirty={draft?.dirty === true}
             saving={saving}
-            runRule={runRule}
+            runBlock={runBlock}
+            runRef={runButton}
             onSave={() => void save()}
-            onRun={() => void start()}
+            onRun={() => setRunFormOpen(true)}
           />
         </div>
         <output className="wf-status">{status}</output>
+
+        {run?.doc?.status === "succeeded" && run.doc.outputs ? <RunOutputs outputs={run.doc.outputs} /> : null}
 
         {body}
 

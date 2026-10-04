@@ -3,7 +3,7 @@
 Pure reads over the store (standard-library only), recomputed on every request:
 
 - a machine's liveness and load come from its heartbeat (``machines/heartbeat.py``): online
-  while the latest beat is younger than ``OFFLINE_AFTER_S``; load is reported in percent
+  while the latest beat is younger than ``offline_after(beat_every)``; load is reported in percent
   0-100 (the heartbeat stores fractions; CPU load-per-core above 1 is clamped to 100) and is
   ``null`` while the machine is offline or never beat;
 - *running* are the steps of active runs dispatched to that host and not yet finished
@@ -20,7 +20,11 @@ from typing import Any
 
 from culture_rules.actors.human import ASKS_COLLECTION
 from culture_rules.engine.runs import ACTIVE, RUNS_COLLECTION
-from culture_rules.machines.heartbeat import HEARTBEAT_COLLECTION, online_machines
+from culture_rules.machines.heartbeat import (
+    HEARTBEAT_COLLECTION,
+    HEARTBEAT_INTERVAL_S,
+    online_machines,
+)
 from culture_rules.store.port import StoreOps
 
 __all__ = [
@@ -120,7 +124,9 @@ def _queue_target(sdef: Mapping[str, Any], host: Any) -> Any:
     return placed if isinstance(placed, str) and placed else host
 
 
-def machine_statuses(store: StoreOps, now: datetime) -> list[dict[str, Any]]:
+def machine_statuses(
+    store: StoreOps, now: datetime, *, beat_every: float = HEARTBEAT_INTERVAL_S
+) -> list[dict[str, Any]]:
     """One status per enrolled (not soft-deleted) machine, ordered by name."""
     names = sorted(
         {
@@ -132,7 +138,7 @@ def machine_statuses(store: StoreOps, now: datetime) -> list[dict[str, Any]]:
     beats = {
         d.get("machine"): d for d in store.find(HEARTBEAT_COLLECTION) if isinstance(d, Mapping)
     }
-    online = online_machines(store, now)
+    online = online_machines(store, now, beat_every=beat_every)
     running, queued = _work(store)
     out = []
     for name in names:

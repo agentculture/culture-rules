@@ -1,6 +1,19 @@
 import { ApiError, listRuns, request } from "./client";
 import type { Ask, ItemList, Rule, RuleHistoryItem, RunSummary } from "./types";
 
+export type {
+  Action,
+  ActionKind,
+  EventTriggerParams,
+  ManualTriggerParams,
+  ProbeMode,
+  ProbeTriggerParams,
+  ScheduleTriggerParams,
+  Trigger,
+  TriggerKind,
+  TypedTrigger,
+} from "./types";
+
 /**
  * The Rules tab's API calls (api/openapi.json), built on the shared
  * `request` helper in client.ts. Like the client, no call attaches a

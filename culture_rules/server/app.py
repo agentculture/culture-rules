@@ -44,7 +44,7 @@ from culture_rules.engine.runs import (
 )
 from culture_rules.ops.health import health_status
 from culture_rules.ops.nodename import node_name
-from culture_rules.server import events, static
+from culture_rules.server import events, humans, static
 from culture_rules.server import status as read_models
 from culture_rules.server.caching import NO_STORE, NoStoreByDefault
 from culture_rules.server.repos import RepoTarget, repos_from_env
@@ -57,9 +57,23 @@ from culture_rules.server.service import (
     RuleReferenced,
     ServiceError,
 )
+from culture_rules.store.migrations import backfill_run_ids, disable_typeless_event_rules
 from culture_rules.store.port import StoragePort
 
-__all__ = ["API_VERSION", "IDENTITY_HEADER", "create_app", "current_identity", "current_principal"]
+__all__ = [
+    "API_VERSION",
+    "HOOK_PATHS",
+    "IDENTITY_HEADER",
+    "create_app",
+    "current_identity",
+    "current_principal",
+]
+
+# The only requests that skip principal resolution: ``POST`` to exactly these paths (the
+# webhook receivers, authenticated by their own signature/token check). Exact string match on
+# the decoded *and* raw path, so a prefix, a trailing slash, a case or percent-encoding
+# variant, or the ``/api`` alias never matches. Nothing else is public - not even ``/health``.
+HOOK_PATHS = frozenset({"/hooks/github", "/hooks/jira"})
 
 API_VERSION = "1.0.0"
 """The HTTP contract version (independent of the package version, so a release bump never
@@ -115,6 +129,10 @@ class RunStart(BaseModel):
     rule_id: str
     trigger: dict[str, Any] = Field(default_factory=dict)
     upstream: dict[str, dict[str, Any]] | None = None
+
+
+class WorkflowRun(BaseModel):
+    inputs: dict[str, Any] = Field(default_factory=dict)
 
 
 class RunCancel(BaseModel):
@@ -238,6 +256,26 @@ class ReplayRequest(BaseModel):
 
 class PurgeRequest(BaseModel):
     apply: bool = Field(False, description="false = dry-run: check only, remove nothing")
+
+
+class MigrateRequest(BaseModel):
+    apply: bool = Field(False, description="false = dry-run: list only, change nothing")
+
+
+class TypelessRule(BaseModel):
+    id: str
+    name: str | None = None
+    enabled_before: bool = Field(description="false: already disabled, left as is")
+
+
+class TypelessMigration(BaseModel):
+    rules: list[TypelessRule]
+    applied: bool
+
+
+class BackfillResult(BaseModel):
+    count: int = Field(description="run documents updated (or that would be, in a dry-run)")
+    applied: bool
 
 
 class PurgeResult(BaseModel):
@@ -403,17 +441,9 @@ def _hosts(doc: dict[str, Any]) -> list[str]:
     return read_models.run_hosts(doc)
 
 
-def _filter_runs(
-    docs: list[dict[str, Any]], rule_id: str | None, workflow_id: str | None, host: str | None
-) -> list[dict[str, Any]]:
-    """Narrow run documents to a rule, a workflow and/or a dispatch host (each optional)."""
-    if rule_id:
-        docs = [d for d in docs if (d.get("rule") or {}).get("id") == rule_id]
-    if workflow_id:
-        docs = [d for d in docs if (d.get("workflow") or {}).get("id") == workflow_id]
-    if host:
-        docs = [d for d in docs if host in _hosts(d)]
-    return docs
+def _filter_runs_by_host(docs: list[dict[str, Any]], host: str | None) -> list[dict[str, Any]]:
+    """Narrow run documents to a dispatch host (rule and workflow filter in the store)."""
+    return [d for d in docs if host in _hosts(d)] if host else docs
 
 
 def create_app(
@@ -467,11 +497,12 @@ def create_app(
         },
     )
     _install_errors(app)
-    _install_auth(app, resolver)
+    _install_auth(app, resolver, humans.HumanSignIn(store, audit))
     # Registration order is route-matching and schema order: /machines/status (ops) must
     # come before the definition routes so /machines/{id} cannot shadow it.
     _register_auth_routes(app, tokens)
     _register_ops(app, store, node)
+    _register_migrations(app, store, defs)
     for kind in DEFINITION_KINDS:
         _register_kind(app, kind, defs, life, store, audit)
     _register_runs(app, store, defs, executor, containment)
@@ -479,16 +510,22 @@ def create_app(
     _register_exchange(app, store, defs, targets)
     _register_asks(app, store, answer_ask)
     _register_stream(app, store)
+    _register_hooks(app, store)
     static.install(app, web_dist)
     # outermost: every answer, 401/403 envelopes included, says how it may be cached
     app.add_middleware(NoStoreByDefault)
     return app
 
 
-def _install_auth(app: FastAPI, resolver: Resolver) -> None:
+def _install_auth(app: FastAPI, resolver: Resolver, sign_in: humans.HumanSignIn) -> None:
+    from starlette.concurrency import run_in_threadpool  # noqa: PLC0415
+
     @app.middleware("http")
     async def authenticate(request: Request, call_next):
         """Resolve the principal and check the route's role before routing (any handler)."""
+        if _hook_exempt(request):
+            request.state.principal = None  # the hook handler authenticates the delivery
+            return await call_next(request)
         try:
             principal = resolver.resolve(request.headers)
             need = required_role(request.method, request.url.path)
@@ -497,7 +534,35 @@ def _install_auth(app: FastAPI, resolver: Resolver) -> None:
         except AuthError as exc:
             return _envelope(exc.status, exc.code, exc.message)
         request.state.principal = principal
+        if sign_in.needed(principal):  # a person's first request in this process
+            # the store is sync: off the event loop. HumanSignIn never raises.
+            await run_in_threadpool(sign_in, principal)
         return await call_next(request)
+
+
+def _hook_exempt(request: Request) -> bool:
+    """``POST`` to an exact :data:`HOOK_PATHS` entry, as sent (not via ``/api``, not encoded)."""
+    if request.method != "POST":
+        return False
+    scope = request.scope
+    path = scope.get("path", "")
+    if path not in HOOK_PATHS or scope.get(static._FLAG):  # /api alias
+        return False
+    raw = scope.get("raw_path")
+    return raw is None or raw == path.encode("ascii")
+
+
+def _register_hooks(app: FastAPI, store: StoragePort) -> None:
+    """``POST /hooks/github`` and ``POST /hooks/jira``: public, signature-authenticated.
+
+    Kept out of the OpenAPI contract (``include_in_schema=False``): they are called by
+    GitHub/Jira, not by the CLI, MCP or web clients the contract types, and the contract's
+    global 401/403 envelope and credential schemes do not apply to them.
+    """
+    from culture_rules.server.hooks import github, jira  # noqa: PLC0415
+
+    app.include_router(github.router(store), include_in_schema=False)
+    app.include_router(jira.router(store), include_in_schema=False)
 
 
 def _register_auth_routes(app: FastAPI, tokens: ServiceTokens) -> None:
@@ -554,6 +619,35 @@ def _register_ops(app: FastAPI, store: StoragePort, node: str) -> None:
         return {"items": read_models.machine_statuses(store, datetime.now(UTC))}
 
 
+def _register_migrations(app: FastAPI, store: StoragePort, defs: Definitions) -> None:
+    """Admin data migrations; registered before the definition routes (no ``/rules/{id}`` clash)."""
+
+    @app.post(
+        "/rules/migrate-typeless",
+        response_model=TypelessMigration,
+        tags=["rules"],
+        operation_id="migrate_typeless_rules",
+    )
+    def migrate_typeless(identity: Identity, body: MigrateRequest | None = None):
+        """List event rules with no event type; ``apply`` disables them (audited, never deleted)."""
+        apply = (body or MigrateRequest()).apply
+        rules = disable_typeless_event_rules(
+            store, lambda rid: defs.set_enabled("rules", rid, False, identity), dry_run=not apply
+        )
+        return {"rules": rules, "applied": apply}
+
+    @app.post(
+        "/runs/backfill-ids",
+        response_model=BackfillResult,
+        tags=["runs"],
+        operation_id="backfill_run_ids",
+    )
+    def backfill_ids(identity: Identity, body: MigrateRequest | None = None):
+        """Fill top-level rule_id / workflow_id on legacy run documents."""
+        apply = (body or MigrateRequest()).apply
+        return {"count": backfill_run_ids(store, dry_run=not apply), "applied": apply}
+
+
 def _register_runs(
     app: FastAPI,
     store: StoragePort,
@@ -571,8 +665,12 @@ def _register_runs(
         ] = None,
         limit: int = 100,
     ):
-        where = {"status": status} if status else None
-        docs = _filter_runs(store.find(RUNS_COLLECTION, where), rule_id, workflow_id, host)
+        where = {
+            k: v
+            for k, v in (("status", status), ("rule_id", rule_id), ("workflow_id", workflow_id))
+            if v
+        }
+        docs = _filter_runs_by_host(store.find(RUNS_COLLECTION, where or None), host)
         docs = sorted(docs, key=lambda d: d.get("created_at") or "", reverse=True)[: max(limit, 0)]
         return {"items": [_run_summary(d) for d in docs]}
 
@@ -591,8 +689,7 @@ def _register_runs(
         defs.get("rules", id)
         runs = [
             {"kind": "run", "at": d.get("created_at"), **_run_summary(d)}
-            for d in store.find(RUNS_COLLECTION)
-            if (d.get("rule") or {}).get("id") == id
+            for d in store.find(RUNS_COLLECTION, {"rule_id": id})
         ]
         skips = [{"kind": "decision", **d} for d in decisions_for(store, id, skips_only=True)]
         merged = sorted(runs + skips, key=lambda item: item.get("at") or "", reverse=True)
@@ -623,6 +720,32 @@ def _register_runs(
         return executor.start_from_store(
             body.rule_id, trigger=body.trigger, upstream=body.upstream, identity=identity
         )
+
+    @app.post(
+        "/workflows/{workflow_id}/run",
+        status_code=201,
+        tags=["runs"],
+        operation_id="run_workflow",
+        responses=ERRORS,
+        response_model=dict[str, Any],
+    )
+    def run_workflow(workflow_id: str, identity: Identity, body: WorkflowRun | None = None):
+        try:
+            return executor.start_workflow(workflow_id, (body or WorkflowRun()).inputs, by=identity)
+        except RunError as exc:
+            if exc.code != "invalid_inputs":
+                raise
+            # name the offending input port in errors[].path
+            details = [
+                {
+                    "path": f"inputs.{d['port']}",
+                    "code": d.get("code", exc.code),
+                    "message": exc.message,
+                }
+                for d in exc.details or ()
+                if isinstance(d, dict) and "port" in d
+            ]
+            return _envelope(422, exc.code, exc.message, details or exc.details)
 
     @app.post(
         "/runs/{run_id}/cancel",

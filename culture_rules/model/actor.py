@@ -9,21 +9,25 @@ from culture_rules.model.common import SCHEMA_VERSION, Model, doc
 
 __all__ = ["ACTOR_KINDS", "CONFIG_SOURCES", "Actor"]
 
-ActorKind = Literal["agent", "human", "service", "daemon", "runner", "robot"]
+ActorKind = Literal["agent", "human", "service", "daemon", "runner", "robot", "app"]
 ConfigSource = Literal["db", "repo"]
 
-ACTOR_KINDS: tuple[str, ...] = ("agent", "human", "service", "daemon", "runner", "robot")
+ACTOR_KINDS: tuple[str, ...] = ("agent", "human", "service", "daemon", "runner", "robot", "app")
 CONFIG_SOURCES: tuple[str, ...] = ("db", "repo")
 
 
 @dataclass(frozen=True, kw_only=True)
 class Actor(Model):
-    """A generic actor with a concrete kind and a list of capabilities."""
+    """A generic actor with a concrete kind and a list of capabilities.
+
+    Kind ``app`` is an external-surface integration (GitHub, Jira, Discord); its ``params``
+    shape is declared and validated by :mod:`culture_rules.model.app_actor`.
+    """
 
     id: str = doc("Stable actor id (agents: the mesh nick)")
     name: str = doc("Display name")
     description: str = doc("Free text", default="")
-    kind: ActorKind = doc("agent | human | service | daemon | runner | robot")
+    kind: ActorKind = doc("agent | human | service | daemon | runner | robot | app")
     capabilities: tuple[str, ...] = doc("What this actor can do", default=())
     harness: str | None = doc("Agent harness, e.g. claude, codex, colleague", default=None)
     model: str | None = doc("Model the harness runs", default=None)

@@ -53,6 +53,10 @@ class _Builder:
     def type_schema(self, tp: Any) -> dict[str, Any]:
         if tp is Any:
             return {}
+        members = serde.union_members(tp)
+        if members:
+            anyof = [self.type_schema(m) for m in members]
+            return {"anyOf": anyof + [{"type": "null"}] if serde.is_optional(tp) else anyof}
         if serde.is_optional(tp):
             return {"anyOf": [self.type_schema(serde.strip_optional(tp)), {"type": "null"}]}
         origin = get_origin(tp)

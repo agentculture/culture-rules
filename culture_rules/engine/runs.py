@@ -14,7 +14,9 @@ Run document
 
 ``id``, ``status`` (``running`` -> ``succeeded`` | ``failed`` | ``cancelled``), ``rev``
 (incremented by every transition), ``history`` (one entry per transition: ``rev``,
-``at``, ``host``, ``event``, ``step``), ``rule`` / ``workflow`` (the **pinned**
+``at``, ``host``, ``event``, ``step``), ``rule_id`` / ``workflow_id`` (top-level copies of
+the pinned ids for filtering; ``workflow_id`` is null for a rule without a workflow; a
+direct workflow run's rule id is ``adhoc:<workflow id>``), ``rule`` / ``workflow`` (the **pinned**
 definitions: ``id``, ``digest``, ``version`` and the full ``definition`` the run started
 with - editing a workflow later never changes an in-flight run), ``trigger``,
 ``upstream``, ``inputs`` (workflow inputs, type-checked at start), ``outputs`` (the
@@ -89,6 +91,9 @@ Semantics
   string (``rules.yaml``, ``workflow.md``, ``trigger.sh``) is a literal.
   ``{"$ref": path}`` always references and ``{"$literal": value}`` never does (see
   :mod:`culture_rules.model.refs`). Workflow-input mappings resolve the same way.
+  The action's ``params.actor`` (a literal actor id, never resolved) is the invocation
+  context's ``actor``; a port answering ``failed`` with error :data:`ACTOR_UNAVAILABLE`
+  (that actor is unknown or disabled) fails the step at once with that code.
 * **Containment** (:class:`Containment`, every verb audited) - a global pause stops new
   runs and all new dispatch (accepted work may still complete); draining a machine stops
   new placements on it while its running steps finish; cancelling a run cancels every
@@ -102,6 +107,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import logging
 import uuid
 from collections.abc import Callable, Iterable, Mapping
 from contextlib import AbstractContextManager
@@ -129,19 +135,27 @@ from culture_rules.engine.claims import (
 from culture_rules.engine.leasekeeper import KeeperFactory, LeaseKeeper
 from culture_rules.engine.placement import MachineState, PlacementError, resolve_placement
 from culture_rules.machines.enrol import enrolled_machines
-from culture_rules.machines.heartbeat import HEARTBEAT_COLLECTION, OFFLINE_AFTER_S, online_machines
+from culture_rules.machines.heartbeat import (
+    HEARTBEAT_COLLECTION,
+    MISSED_BEATS_OFFLINE,
+    offline_after,
+    online_machines,
+)
 from culture_rules.model import condition as cond
 from culture_rules.model.action import Action
 from culture_rules.model.actor import Actor
 from culture_rules.model.common import RetryPolicy
-from culture_rules.model.refs import resolve_refs
-from culture_rules.model.rule import Rule
+from culture_rules.model.refs import LITERAL_KEY, resolve_refs
+from culture_rules.model.rule import Rule, Trigger, WorkflowRef
 from culture_rules.model.validate import validate
 from culture_rules.model.workflow import LOOP_KINDS, Port, Step, Workflow
 from culture_rules.store.port import Document, StoragePort, StoreOps
 
+log = logging.getLogger(__name__)
+
 __all__ = [
     "ACTION_STEP",
+    "ACTOR_UNAVAILABLE",
     "BLOCKED_RETRY_S",
     "BLOCKED_TIMEOUT",
     "CONTROLS_COLLECTION",
@@ -174,6 +188,9 @@ WORKFLOWS_COLLECTION = "workflows"
 ACTORS_COLLECTION = "actors"
 
 ACTION_STEP = "@action"
+ACTOR_UNAVAILABLE = "actor_unavailable"
+"""Failure code (and the ``error`` an actor port returns) when the actor a rule action
+names in ``params.actor`` is unknown or disabled; the step fails without a retry."""
 """Step key of a rule's terminal action."""
 DEFAULT_TIMEOUT_S = 3600.0
 BLOCKED_RETRY_S = 5.0
@@ -198,6 +215,9 @@ FATAL_PLACEMENT = frozenset(
         "placement.address_refused",
     }
 )
+
+#: Id prefix of the synthetic rule a direct workflow run pins (:meth:`Executor.start_workflow`).
+ADHOC_RULE_PREFIX = "adhoc:"
 
 _MAX_TRANSITIONS_PER_TICK = 10_000
 _MAX_CAS_RETRIES = 50
@@ -276,6 +296,29 @@ def _check_ports(ports: Iterable[Port], values: Mapping[str, Any], what: str) ->
                 f"{what} {p.name!r} expects {p.type}, got {type(value).__name__}",
             )
     return None
+
+
+def _check_direct_inputs(workflow: Workflow, inputs: Any) -> dict[str, Any]:
+    """The non-null ``inputs`` of a direct workflow run, or ``RunError("invalid_inputs")``."""
+    if inputs is None:
+        inputs = {}
+    if not isinstance(inputs, Mapping):
+        raise RunError("invalid_inputs", "inputs must be an object of port name -> value")
+    declared = {p.name for p in workflow.inputs}
+    unknown = sorted(str(k) for k in inputs if k not in declared)
+    if unknown:
+        raise RunError(
+            "invalid_inputs",
+            f"workflow {workflow.id!r} declares no input {', '.join(map(repr, unknown))}",
+            [{"port": name, "code": "unknown"} for name in unknown],
+        )
+    values = {k: v for k, v in inputs.items() if v is not None}
+    for p in workflow.inputs:
+        problem = _check_ports((p,), values, "input")
+        if problem:
+            detail = {"port": p.name, "code": problem["code"]}
+            raise RunError("invalid_inputs", problem["message"], [detail])
+    return values
 
 
 def _error(code: str, message: str) -> dict[str, str]:
@@ -506,7 +549,7 @@ class Executor:
         lease: timedelta = DEFAULT_LEASE,
         identity: str | None = None,
         lease_keeper: KeeperFactory = LeaseKeeper,
-        holder_offline_after: timedelta = timedelta(seconds=OFFLINE_AFTER_S),
+        holder_offline_after: timedelta = timedelta(seconds=offline_after()),
     ) -> None:
         """``lease_keeper`` builds the keeper that renews a step's lease while its actor
         is invoked; ``holder_offline_after`` is how stale a holder's heartbeat must be
@@ -524,6 +567,8 @@ class Executor:
         )
         self._lease_keeper = lease_keeper
         self._holder_offline_after = holder_offline_after
+        # placement uses the same cadence the takeover threshold was built from
+        self._beat_every = holder_offline_after.total_seconds() / MISSED_BEATS_OFFLINE
         ensure_collections(store)
 
     # ------------------------------------------------------------------ queries
@@ -543,7 +588,10 @@ class Executor:
         identity: str | None = None,
         run_id: str | None = None,
     ) -> Document:
-        """Start a run of the stored rule ``rule_id`` and its stored workflow, pinning both."""
+        """Start a run of the stored rule ``rule_id`` and its stored workflow, pinning both.
+
+        The rule is validated in stored mode (see :meth:`start`).
+        """
         rule_doc = self._store.get(RULES_COLLECTION, rule_id)
         if rule_doc is None:
             raise RunError("rule_not_found", f"rule {rule_id!r} does not exist")
@@ -559,8 +607,54 @@ class Executor:
                 raise RunError("not_fireable", f"workflow {rule.workflow.id!r} is deleted")
             workflow = Workflow.from_dict(wf_doc, strict=False)
         return self.start(
-            rule, workflow, trigger=trigger, upstream=upstream, identity=identity, run_id=run_id
+            rule,
+            workflow,
+            trigger=trigger,
+            upstream=upstream,
+            identity=identity,
+            run_id=run_id,
+            stored=True,
         )
+
+    def start_workflow(
+        self,
+        workflow_id: str,
+        inputs: Mapping[str, Any] | None = None,
+        by: str | None = None,
+        *,
+        run_id: str | None = None,
+    ) -> Document:
+        """Run the stored workflow ``workflow_id`` directly, with no rule of its own.
+
+        ``inputs`` are checked against the workflow's typed input ports first: a missing
+        required input, a wrongly typed one or one the workflow does not declare is refused
+        with ``invalid_inputs`` naming the port (``None`` counts as absent). The run then
+        pins a synthetic rule :data:`ADHOC_RULE_PREFIX` ``+ workflow_id`` (manual trigger,
+        the inputs as ``{"$literal": v}`` mappings, a ``noop`` action) and starts through
+        :meth:`start`, audited as ``runs.start`` under ``by``. Deleted or disabled workflows
+        are ``not_fireable``; a paused engine refuses as usual.
+        """
+        wf_doc = self._store.get(WORKFLOWS_COLLECTION, workflow_id)
+        if wf_doc is None:
+            raise RunError("workflow_not_found", f"workflow {workflow_id!r} does not exist")
+        if wf_doc.get("deleted_at"):
+            raise RunError("not_fireable", f"workflow {workflow_id!r} is deleted")
+        if wf_doc.get("enabled") is False:
+            raise RunError("not_fireable", f"workflow {workflow_id!r} is disabled")
+        workflow = Workflow.from_dict(wf_doc, strict=False)
+        values = _check_direct_inputs(workflow, inputs)
+        synthetic = Rule(
+            id=f"{ADHOC_RULE_PREFIX}{workflow.id}",
+            name=f"Direct run of {workflow.name or workflow.id}",
+            trigger=Trigger(kind="manual"),
+            workflow=WorkflowRef(
+                id=workflow.id,
+                version=workflow.version,
+                inputs={k: {LITERAL_KEY: v} for k, v in values.items()},
+            ),
+            action=Action(kind="noop"),
+        )
+        return self.start(synthetic, workflow, identity=by, run_id=run_id)
 
     @mutating_verb("runs.start", "Start a run of a rule, pinning its rule/workflow versions")
     def start(
@@ -572,12 +666,17 @@ class Executor:
         upstream: Mapping[str, Mapping[str, Any]] | None = None,
         identity: str | None = None,
         run_id: str | None = None,
+        stored: bool = False,
     ) -> Document:
-        """Validate, pin and persist a new run (audited). Refused while paused."""
+        """Validate, pin and persist a new run (audited). Refused while paused.
+
+        ``stored=True`` marks ``rule`` as read back from the store: it is validated in stored
+        mode, so a rule saved before the save-time catalog checks still runs.
+        """
         identity = require_identity(identity or self.identity)
         if is_paused(self._store):
             raise RunError("paused", "the engine is globally paused; nothing fires")
-        errors = validate(rule)
+        errors = validate(rule, stored=stored)
         if errors:
             raise RunError("invalid_rule", "rule failed validation", [e.to_dict() for e in errors])
         trigger = dict(trigger or {})
@@ -592,6 +691,8 @@ class Executor:
             "status": ACTIVE,
             "rev": 0,
             "history": [],
+            "rule_id": rule.id,
+            "workflow_id": workflow.id if workflow else None,
             "rule": {"id": rule.id, "digest": _digest(rule), "definition": rule.to_dict()},
             "workflow": (
                 {
@@ -732,7 +833,7 @@ class Executor:
         placement = step.placement if step is not None else None
         if placement is None:
             return self.host
-        online = online_machines(self._store, now)
+        online = online_machines(self._store, now, beat_every=self._beat_every)
         drained = drained_machines(self._store)
         machines = enrolled_machines(self._store)
         states = [MachineState(m.name, m.name in online, m.name in drained) for m in machines]
@@ -816,12 +917,19 @@ class Executor:
         return may_reclaim
 
     def _machine_online(self, machine: str, now: datetime) -> bool:
-        """Whether ``machine`` heartbeated within ``holder_offline_after`` of ``now``."""
-        beat = self._store.get(HEARTBEAT_COLLECTION, machine) or {}
+        """Whether ``machine`` heartbeated within ``holder_offline_after`` of ``now``.
+
+        No heartbeat doc: offline. A doc with an unparseable ``ts``: online (fail safe, no
+        takeover), logged."""
+        beat = self._store.get(HEARTBEAT_COLLECTION, machine)
+        if beat is None:
+            return False  # never beat (or doc gone): offline, takeover allowed once lapsed
         try:
             ts = datetime.fromisoformat(str(beat.get("ts")))
         except ValueError:
-            return False
+            # a present but unreadable beat is not proof of death: no takeover
+            log.warning("heartbeat for %s has an unparseable ts %r", machine, beat.get("ts"))
+            return True
         if ts.tzinfo is None:
             ts = ts.replace(tzinfo=UTC)
         return now - ts < self._holder_offline_after
@@ -911,7 +1019,7 @@ class Executor:
             act = plan.rule.action
             config = {"kind": act.kind, "name": act.name, "params": dict(act.params)}
             return InvocationContext(
-                doc["id"], ACTION_STEP, "action", self.host, attempt, None, config
+                doc["id"], ACTION_STEP, "action", self.host, attempt, _action_actor(act), config
             )
         step = plan.step(st)
         actor = step.placement.actor if step.placement is not None else None
@@ -1062,6 +1170,9 @@ def _apply(
             next_attempt_at=_iso(now + timedelta(seconds=BLOCKED_RETRY_S)),
             error=_error("blocked", result.error or "actor is blocked"),
         )
+    elif result.error == ACTOR_UNAVAILABLE:
+        message = f"actor {_actor_of(plan, st)!r} is unknown or disabled"
+        st.update(status="failed", error=_error(ACTOR_UNAVAILABLE, message))
     else:
         _attempt_failed(
             plan,
@@ -1072,6 +1183,20 @@ def _apply(
             unknown=False,
             key_safe=key_safe,
         )
+
+
+def _actor_of(plan: _Plan, st: Mapping) -> str | None:
+    """The actor a step (or the rule action) names, for messages."""
+    if st["key"] == ACTION_STEP:
+        return _action_actor(plan.rule.action)
+    step = plan.step(st)
+    return step.placement.actor if step is not None and step.placement is not None else None
+
+
+def _action_actor(action: Action) -> str | None:
+    """The actor id a rule action names in ``params.actor`` (a literal, never resolved)."""
+    actor = action.params.get("actor")
+    return actor if isinstance(actor, str) and actor else None
 
 
 def _attempt_failed(

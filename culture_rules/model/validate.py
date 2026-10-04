@@ -25,7 +25,9 @@ from typing import Any, Literal, get_args, get_origin
 from culture_rules.model import condition as condition_tree
 from culture_rules.model import serde
 from culture_rules.model.action import Action
+from culture_rules.model.action_kinds import ACTION_KINDS, is_lenient, param_type_ok, resolve_kind
 from culture_rules.model.actor import Actor
+from culture_rules.model.app_actor import app_param_errors
 from culture_rules.model.common import SCHEMA_VERSION, RetryPolicy
 from culture_rules.model.graph import find_cycle
 from culture_rules.model.machine import Machine
@@ -37,14 +39,15 @@ from culture_rules.model.refs import (
     ref_errors,
     structured_form,
 )
-from culture_rules.model.rule import Rule, Trigger, WorkflowRef
+from culture_rules.model.rule import TRIGGER_KINDS, Rule, Trigger, WorkflowRef
 from culture_rules.model.workflow import LOOP_KINDS, Edge, Output, Port, Step, Variable, Workflow
 
-__all__ = ["ValidationError", "validate", "validate_data"]
+__all__ = ["CATALOG_CODES", "ValidationError", "validate", "validate_data"]
 
 #: Pseudo step id an edge uses to read from the workflow's own inputs.
 INPUTS_NODE = "inputs"
 _RESERVED_STEP_IDS = frozenset({"inputs", "outputs", "vars", "steps", "trigger"})
+_PROBE_MODES = ("change", "condition")
 
 #: ``trigger`` alone or ``trigger.<f>...``; it is a reference when ``f`` is an envelope
 #: field (``trigger.sh`` is a file name, not a reference - see culture_rules.model.refs).
@@ -76,13 +79,37 @@ def _err(errors: Errors, path: str, code: str, message: str) -> None:
 # --- public API -----------------------------------------------------------
 
 
-def validate(obj: Any) -> list[ValidationError]:
-    """Validate a model object; returns ``[]`` when valid."""
+#: Save-time catalog checks (action kinds/params, trigger kinds/params). A document stored
+#: before they existed must stay loadable, runnable and visible as a neighbour, so
+#: ``validate(obj, stored=True)`` drops exactly these codes; every structural check stays.
+CATALOG_CODES = frozenset(
+    {
+        "action_kind_unknown",
+        "action_param_required",
+        "action_param_type",
+        "trigger_kind_unknown",
+        "trigger_type_required",
+        "trigger_cron_required",
+        "trigger_param_required",
+        "trigger_param_invalid",
+    }
+)
+
+
+def validate(obj: Any, *, stored: bool = False) -> list[ValidationError]:
+    """Validate a model object; returns ``[]`` when valid.
+
+    ``stored=True`` is for content read back from the store (running it, or using it as a
+    neighbour of a save): the save-time :data:`CATALOG_CODES` checks are skipped. Saves stay
+    strict (the default).
+    """
     errors: Errors = []
     if not (dataclasses.is_dataclass(obj) and type(obj) in _SEMANTIC):
         _err(errors, "", "type", f"not a culture_rules model: {type(obj).__name__}")
         return errors
     _validate(obj, "", errors)
+    if stored:
+        return [e for e in errors if e.code not in CATALOG_CODES]
     return errors
 
 
@@ -118,8 +145,8 @@ def _check_value(tp: Any, value: Any, path: str, name: str, errors: Errors) -> N
         if not serde.is_optional(tp):
             _err(errors, path, "required", f"{name} is required")
         return
-    if tp is Any:
-        return
+    if tp is Any or serde.union_members(tp):
+        return  # a multi-member union is checked by the model's semantic validator
     tp = serde.strip_optional(tp)
     origin = get_origin(tp)
     if origin is Literal:
@@ -306,16 +333,113 @@ def _check_placement(obj: Placement, path: str, errors: Errors) -> None:
 def _check_action(obj: Action, path: str, errors: Errors) -> None:
     _nonempty(obj, ("kind",), path, errors)
     _positive_number(obj.timeout_s, _join(path, "timeout_s"), errors)
+    if isinstance(obj.kind, str) and obj.kind.strip():
+        _check_action_kind(obj, path, errors)
+
+
+def _check_action_kind(obj: Action, path: str, errors: Errors) -> None:
+    """The kind must be catalogued and its params typed (see model/action_kinds.py)."""
+    spec = resolve_kind(obj.kind)
+    if spec is None:
+        _err(
+            errors,
+            _join(path, "kind"),
+            "action_kind_unknown",
+            f"unknown action kind {obj.kind!r}; expected one of {', '.join(ACTION_KINDS)}",
+        )
+        return
+    if not isinstance(obj.params, dict):
+        return
+    pp = _join(path, "params")
+    lenient = is_lenient(obj.kind)
+    for name, p in spec.params.items():
+        value = obj.params.get(name)
+        if value is None or (isinstance(value, str) and not value.strip()):
+            if p.required and not lenient:
+                _err(
+                    errors,
+                    _join(pp, name),
+                    "action_param_required",
+                    f"{obj.kind} requires params.{name}",
+                )
+        elif not param_type_ok(p, value):
+            _err(
+                errors,
+                _join(pp, name),
+                "action_param_type",
+                f"params.{name} must be {p.type} (or a reference/template)",
+            )
 
 
 def _check_trigger(obj: Trigger, path: str, errors: Errors) -> None:
     _nonempty(obj, ("kind",), path, errors)
+    if not obj.kind.strip():
+        return
+    if obj.kind not in TRIGGER_KINDS:
+        _err(
+            errors,
+            _join(path, "kind"),
+            "trigger_kind_unknown",
+            f"unknown trigger kind {obj.kind!r}; expected one of {', '.join(TRIGGER_KINDS)}",
+        )
+        return
+    params = obj.params if isinstance(obj.params, dict) else {}
+    pp = _join(path, "params")
+    if obj.kind == "event" and not _present(params, "type"):
+        _err(
+            errors,
+            _join(pp, "type"),
+            "trigger_type_required",
+            "an event trigger requires a non-empty params.type",
+        )
+    elif obj.kind == "schedule" and not _present(params, "cron"):
+        _err(errors, _join(pp, "cron"), "trigger_cron_required", "schedule requires params.cron")
+    elif obj.kind == "probe":
+        _check_probe_params(params, pp, errors)
+
+
+def _present(params: dict, name: str) -> bool:
+    value = params.get(name)
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _check_probe_params(params: dict, pp: str, errors: Errors) -> None:
+    for name in ("actor", "command", "schedule", "mode"):
+        if not _present(params, name):
+            _err(
+                errors,
+                _join(pp, name),
+                "trigger_param_required",
+                f"probe requires params.{name}",
+            )
+    if _present(params, "mode") and params["mode"] not in _PROBE_MODES:
+        _err(
+            errors,
+            _join(pp, "mode"),
+            "trigger_param_invalid",
+            "probe params.mode must be one of: change, condition",
+        )
 
 
 def _check_workflow_ref(obj: WorkflowRef, path: str, errors: Errors) -> None:
     _nonempty(obj, ("id",), path, errors)
     if isinstance(obj.version, int) and obj.version < 1:
         _err(errors, _join(path, "version"), "range", "version must be >= 1")
+    for name, mapping in obj.inputs.items():
+        if not _input_mapping_ok(mapping):
+            _err(
+                errors,
+                _join(_join(path, "inputs"), name),
+                "invalid_input_mapping",
+                'a workflow input is a string, {"$ref": <string>} or {"$literal": <value>}',
+            )
+
+
+def _input_mapping_ok(mapping: Any) -> bool:
+    if isinstance(mapping, str):
+        return True
+    form = structured_form(mapping)
+    return form == LITERAL_KEY or (form == REF_KEY and isinstance(mapping[REF_KEY], str))
 
 
 def _check_rule(obj: Rule, path: str, errors: Errors) -> None:
@@ -399,6 +523,9 @@ def _check_actor(obj: Actor, path: str, errors: Errors) -> None:
     _schema_version(obj.schema_version, _join(path, "schema_version"), errors)
     if obj.config_source == "repo" and not obj.repo:
         _err(errors, _join(path, "repo"), "required", "config_source 'repo' needs repo")
+    if obj.kind == "app":
+        for sub, code, message in app_param_errors(obj.params):
+            _err(errors, _join(_join(path, "params"), sub), code, message)
 
 
 def _check_machine(obj: Machine, path: str, errors: Errors) -> None:

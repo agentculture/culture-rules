@@ -16,7 +16,8 @@ code, services, robots, …). It ships as the PyPI distribution
 Python, and the visual editor in `web/` is a Node.js + React Flow app with
 four tabs: **Rules | Workflows | Actors | Statistics**.
 
-**Status: built and shipped on `rules/build`.** guildmaster provisioned the
+**Status: the first mile is shipped on `main` (PR #4); the second
+mile (issues #5–#7) is built on `rules/second-mile`.** guildmaster provisioned the
 repo from `culture-agent-template`, and the build followed the devague plan.
 On disk today:
 
@@ -31,7 +32,13 @@ On disk today:
   as the CLI;
 - the web editor in `web/`, shipped in the wheel as `culture_rules/web_dist`;
 - ops docs in `docs/operations/` and the executed walkthrough
-  `docs/demo.md`.
+  `docs/demo.md`;
+- the second mile (spec `docs/specs/2026-10-03-culture-rules-second-mile.md`):
+  typed `event`/`schedule`/`probe` triggers, `app` actors for GitHub, Jira
+  and Discord (webhooks at `POST /hooks/github` and `POST /hooks/jira`, a
+  Discord Gateway listener), real action kinds dispatched through the actor
+  in `params.actor`, direct workflow runs, and the editor's pickers and
+  Workflows-tab editors.
 
 GitHub issue #1 was the build brief, and #2 the product model and UX. The
 spec is `docs/specs/2026-10-03-culture-rules-engine-editor.md`; the operator

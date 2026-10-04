@@ -192,3 +192,75 @@ def _migrate_one(
             doc["schema_version"] = f"{step.to_major}.0"
         tx.put(name, doc)
     return True
+
+
+RUNS_COLLECTION = "runs"
+
+
+def backfill_run_ids(store: StoragePort, *, dry_run: bool = False) -> int:
+    """Copy ``rule.id`` / ``workflow.id`` to top-level ``rule_id`` / ``workflow_id`` on run docs.
+
+    Run documents written before the top-level copies existed are invisible to the
+    store-side ``rule_id`` / ``workflow_id`` filters. This sets both fields (``workflow_id`` is
+    None for a rule without a workflow) on every run lacking ``rule_id``, with a
+    compare-and-set per document, so it is idempotent and safe to run concurrently. Runs with
+    no pinned rule are left alone. Returns the number of documents updated, or that would be
+    with ``dry_run``.
+    """
+    changed = 0
+    for doc in store.find(RUNS_COLLECTION, {"rule_id": None}):
+        rule_id = (doc.get("rule") or {}).get("id")
+        if not rule_id:
+            continue
+        if not dry_run:
+            result = store.update_if(
+                RUNS_COLLECTION,
+                doc["id"],
+                {"rule_id": None},
+                {"rule_id": rule_id, "workflow_id": (doc.get("workflow") or {}).get("id")},
+            )
+            if not result.won:
+                continue
+        changed += 1
+    return changed
+
+
+RULES_COLLECTION = "rules"
+
+
+def _is_typeless_event_rule(doc: Mapping[str, Any]) -> bool:
+    """An ``event`` trigger whose ``params.type`` is missing, empty or not a string."""
+    trigger = doc.get("trigger")
+    if not isinstance(trigger, Mapping) or trigger.get("kind") != "event":
+        return False
+    params = trigger.get("params")
+    event_type = params.get("type") if isinstance(params, Mapping) else None
+    return not (isinstance(event_type, str) and event_type.strip())
+
+
+def find_typeless_event_rules(store: StoragePort) -> list[Document]:
+    """Live (not soft-deleted) event rules with no usable ``params.type``, enabled or not."""
+    return [
+        doc
+        for doc in store.find(RULES_COLLECTION)
+        if not doc.get("deleted_at") and _is_typeless_event_rule(doc)
+    ]
+
+
+def disable_typeless_event_rules(
+    store: StoragePort, disable: Callable[[str], Any], *, dry_run: bool = True
+) -> list[dict[str, Any]]:
+    """List typeless event rules and, unless ``dry_run``, disable each enabled one.
+
+    ``disable(rule_id)`` does the write and owns its audit record (the server passes the
+    definitions service, so each rule gets the same audit entry as ``POST /rules/{id}/disable``).
+    Nothing is deleted; already-disabled rules are listed but not touched again. Returns
+    ``{id, name, enabled_before}`` per rule found.
+    """
+    found: list[dict[str, Any]] = []
+    for doc in find_typeless_event_rules(store):
+        enabled = doc.get("enabled") is not False
+        if enabled and not dry_run:
+            disable(doc["id"])
+        found.append({"id": doc["id"], "name": doc.get("name"), "enabled_before": enabled})
+    return found

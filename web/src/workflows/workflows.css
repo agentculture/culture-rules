@@ -759,7 +759,7 @@
 .wf-field select,
 .wf-ports select,
 .wf-ports input {
-  height: 40px;
+  height: 44px;
   padding: 0 10px;
   border-radius: 10px;
   border: 2px solid var(--wf-control-border);
@@ -792,13 +792,103 @@
 
 .wf-ports__row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 96px minmax(0, 1.3fr) 32px;
+  grid-template-columns: minmax(0, 1fr) 96px auto minmax(0, 1.3fr) 44px;
   gap: 6px;
   align-items: center;
 }
 
-.wf-ports__row:has(> :nth-child(3):last-child) {
-  grid-template-columns: minmax(0, 1fr) 96px 32px;
+.wf-ports__row:has(> :nth-child(4):last-child) {
+  grid-template-columns: minmax(0, 1fr) 96px auto 44px;
+}
+
+.wf-ports__required {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  font-size: 14px;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.wf-ports .wf-ports__required input {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  accent-color: var(--accent-strong);
+}
+
+.wf-advanced {
+  border: 2px solid var(--wf-control-border);
+  border-radius: 12px;
+  padding: 0 12px;
+}
+
+.wf-advanced__summary {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.wf-advanced__body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px 0 14px;
+}
+
+.wf-form__trio {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.wf-field textarea,
+.wf-json {
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 2px solid var(--wf-control-border);
+  background: var(--surface);
+  color: var(--ink);
+  font: 500 15px var(--font-body);
+  resize: vertical;
+}
+
+.wf-json {
+  font-family: var(--font-mono);
+  font-size: 14px;
+}
+
+.wf-field__hint {
+  margin: 4px 0 0;
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+
+.wf-pairs {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.wf-pairs__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) 44px;
+  gap: 6px;
+  align-items: center;
+}
+
+.wf-pairs input {
+  height: 44px;
+  padding: 0 10px;
+  border-radius: 10px;
+  border: 2px solid var(--wf-control-border);
+  background: var(--surface);
+  color: var(--ink);
+  font: 500 15px var(--font-body);
 }
 
 .wf-ports .wf-ports__name {
@@ -807,8 +897,8 @@
 }
 
 .wf-ports__remove {
-  width: 32px;
-  height: 32px;
+  width: 44px;
+  height: 44px;
   border: 0;
   border-radius: 8px;
   background: var(--danger-tint);
@@ -929,4 +1019,255 @@
 /* The rename form opens above the canvas it renames. */
 .wf-stage > .wf-new {
   margin-bottom: 14px;
+}
+
+/* ---------- Run form and outputs ---------- */
+
+.wf-run-form {
+  max-height: calc(100% - 32px);
+}
+
+.wf-run-form__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.wf-run-form__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.wf-run-form__label {
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.wf-run-form__type,
+.wf-run-form__hint {
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+
+.wf-run-form__field input:not([type="checkbox"]),
+.wf-run-form__field textarea {
+  min-height: 44px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 2px solid var(--wf-control-border);
+  background: var(--surface);
+  color: var(--ink);
+  font: 500 16px var(--font-body);
+}
+
+.wf-run-form__field textarea {
+  font-family: var(--font-mono);
+  resize: vertical;
+}
+
+.wf-run-form__field input[type="checkbox"] {
+  width: 44px;
+  height: 44px;
+  align-self: flex-start;
+  accent-color: var(--accent-strong);
+}
+
+.wf-run-form__field [aria-invalid="true"] {
+  border-color: var(--danger);
+}
+
+.wf-run-form__error {
+  margin: 0;
+  font-size: 15px;
+  color: var(--danger);
+}
+
+.wf-outputs {
+  padding: 14px 18px;
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: var(--wf-toolbar-shadow);
+}
+
+.wf-outputs__title {
+  margin: 0 0 8px;
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.wf-outputs__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+}
+
+.wf-outputs__item dt {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.wf-outputs__item dd {
+  margin: 0;
+  font-size: 17px;
+  overflow-wrap: anywhere;
+}
+
+.wf-outputs__item summary {
+  min-height: 32px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.wf-outputs__item pre {
+  margin: 4px 0 0;
+  max-height: 240px;
+  overflow: auto;
+  font: 14px var(--font-mono, monospace);
+}
+
+/* ---------- the in / out nodes' editor and the empty canvas (t41) ---------- */
+
+.wf-canvas .react-flow__node-io {
+  cursor: pointer;
+}
+
+.wf-panel--io {
+  width: 480px;
+}
+
+.wf-io-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.wf-io-source {
+  width: 100%;
+  font-family: var(--font-mono);
+}
+
+/* Next-step guidance on a canvas with no steps yet, above the step `+`. */
+.wf-start {
+  position: absolute;
+  left: 50%;
+  bottom: 96px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  box-sizing: border-box;
+  max-width: calc(100% - 32px);
+  padding: 20px 24px;
+  border-radius: 20px;
+  border: 2px dashed var(--dash);
+  background: var(--surface);
+  transform: translateX(-50%);
+}
+
+.wf-start__lead {
+  margin: 0;
+  font-size: 17px;
+  color: var(--ink-soft);
+  text-align: center;
+}
+
+.wf-start__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+}
+
+@media (max-width: 720px) {
+  .wf-panel--io {
+    width: auto;
+  }
+}
+
+/* Soft-deleted workflows (Show deleted) and the admin purge confirmation. */
+.wf-list__deleted {
+  margin-top: 12px;
+}
+
+.wf-list__deleted[aria-pressed="true"] {
+  border-color: var(--accent-strong);
+  font-weight: 600;
+}
+
+.wf-row.is-deleted {
+  flex-wrap: wrap;
+}
+
+.wf-row__gone {
+  color: var(--ink-soft); /* dim the struck name only; tags and buttons keep full contrast */
+  display: flex;
+  flex: 1 1 140px;
+  flex-direction: column;
+  gap: 2px;
+  text-decoration: line-through;
+}
+
+.wf-row__gone .wf-tag,
+.wf-row__gone .wf-row__until {
+  text-decoration: none;
+}
+
+.wf-tag {
+  align-self: flex-start;
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--wf-control-border);
+  font: 600 13px var(--font-body);
+}
+
+.wf-row__until {
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.wf-button--danger {
+  border-color: var(--danger, var(--ink));
+  color: var(--danger, var(--ink));
+}
+
+.wf-purge {
+  margin-top: 12px;
+  padding: 16px;
+  border-radius: 16px;
+  border: 2px solid var(--danger, var(--ink));
+  background: var(--surface);
+}
+
+.wf-purge:focus-visible {
+  outline: 3px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.wf-purge__title {
+  margin: 0 0 8px;
+  font: 600 20px var(--font-display);
+}
+
+.wf-purge__text {
+  margin: 0 0 12px;
+  font-size: 16px;
+}
+
+.wf-purge__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.wf-purge__confirm:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }

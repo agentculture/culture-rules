@@ -279,7 +279,9 @@ def test_mesh_completed_reply_is_replayed_without_resend():
     actor.poll(lambda k, r: None)
     res = actor.invoke({"instruction": "a"}, "k", DEADLINE, context=ctx(nick="spark-daria"))
     assert res.outcome == COMPLETED
+    assert res.output == {"reply": "done", "sender": "s-d"}  # the cached reply, not a new ask
     assert len(client.sent) == 1
+    assert actor.pending() == []
 
 
 def test_real_client_is_lazy_optional():

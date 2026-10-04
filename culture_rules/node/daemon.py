@@ -11,22 +11,37 @@ A :class:`Node` on host ``H`` does, every cycle (:meth:`Node.run_once`):
    process dies). A single :meth:`Node.run_once` (``node run --once``) beats once;
 2. **ingest** - drains its own event subscription into the ``events`` collection
    (:class:`~culture_rules.events.ingest.EventIngest`; no source = no ingest);
-3. **evaluate** - polls the per-host consumer for rules placed on ``H`` and the shared
+3. **schedule** - synthesizes one ``kind=schedule`` event per cron slot that came due
+   since the previous tick, for the schedule rules placed on ``H`` and the unplaced ones
+   (:mod:`culture_rules.node.schedule`; exactly once per rule/slot, no backfill of slots
+   missed while the node was down); they are evaluated like any other event;
+   then **probe** - runs each due probe rule's allow-listed command on the actor's own
+   machine and emits a ``kind=probe`` event on change or success
+   (:mod:`culture_rules.node.probe_trigger`; same slot marker and window as schedule);
+   then **discord gateway** - reconciles the Discord Gateway listeners
+   (:class:`~culture_rules.apps.discord_gateway.GatewaySupervisor`): for each enabled
+   Discord app actor declaring ``discord.message.created`` it acquires/renews the mesh-wide
+   lease ``discord-gateway:<actor id>`` and keeps a listener thread connected while this
+   node holds it (one connection mesh-wide); messages land through the webhook sink. The
+   listeners stop when :meth:`Node.run` returns (:meth:`Node.close`). Off with
+   ``NodeOptions(listen_gateways=False)`` (``node run --once`` never opens a long-lived
+   connection);
+4. **evaluate** - polls the per-host consumer for rules placed on ``H`` and the shared
    consumer for unplaced rules (:mod:`culture_rules.node.firing`), committing firing
    intents; a rule placed on ``H`` while ``H`` is drained/offline keeps its event; then
    the two chain consumers (placed on ``H`` / shared), which re-evaluate a rule waiting
    for a ``must_after`` / ``may_after`` predecessor once that predecessor's run for the
    event has finished (or it can no longer run);
-4. **start** - turns pending intents into runs (run id derived from rule + event);
+5. **start** - turns pending intents into runs (run id derived from rule + event);
    then **redeliver** - resumes runs for human asks that were answered but whose
    delivery was lost (a crash between recording the answer and delivering it;
    :func:`~culture_rules.actors.human.redeliver`). The run's compare-and-set keeps it
    exactly once when several nodes redeliver the same answer, and the actor's limit slot
    is freed (:mod:`culture_rules.node.completions`). Mesh replies are not polled:
    ``MeshAgentActor`` is not among the production adapters;
-5. **drive** - ticks the :class:`~culture_rules.engine.runs.Executor` until idle; actors
+6. **drive** - ticks the :class:`~culture_rules.engine.runs.Executor` until idle; actors
    are reached through :class:`~culture_rules.node.actors.ActorRouter`;
-6. **report** - optional: posts finished runs this node started through
+7. **report** - optional: posts finished runs this node started through
    :meth:`~culture_rules.engine.reports.RunReporter.observe`.
 
 Each stage is isolated: an exception in one is logged, recorded on the cycle report and in
@@ -49,10 +64,18 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from culture_rules.actors import human
+from culture_rules.apps.discord_gateway import (
+    GATEWAY_STATE_COLLECTION,
+    Gateway,
+    GatewayOptions,
+    GatewaySupervisor,
+)
 from culture_rules.engine.claims import DEFAULT_LEASE
 from culture_rules.engine.decisions import RULE_DECISIONS
+from culture_rules.engine.named_lease import LEASES_COLLECTION
 from culture_rules.engine.reports import RunReporter
 from culture_rules.engine.runs import RUNS_COLLECTION, Executor
+from culture_rules.events.hook_sink import HOOK_STATS_COLLECTION
 from culture_rules.events.ingest import EVENTS_COLLECTION, EventIngest
 from culture_rules.events.source import EventSource
 from culture_rules.events.triggers import FIRES_COLLECTION
@@ -67,10 +90,12 @@ from culture_rules.machines.probe import ProbeResult, probe_platform, read_load
 from culture_rules.node import completions
 from culture_rules.node.actors import ACTORS_COLLECTION, ActorRouter, AdapterFactory
 from culture_rules.node.firing import RULE_FIRES, RuleFiring
+from culture_rules.node.probe_trigger import PROBE_STATE, CommandRunner, ProbeTrigger
+from culture_rules.node.schedule import Scheduler
 from culture_rules.ops.logs import log_context
 from culture_rules.store.port import Change, Document, StoragePort
 
-__all__ = ["NODE_COLLECTIONS", "CycleReport", "HeartbeatOptions", "Node"]
+__all__ = ["NODE_COLLECTIONS", "CycleReport", "HeartbeatOptions", "Node", "NodeOptions"]
 
 log = logging.getLogger("culture_rules.node")
 
@@ -86,6 +111,10 @@ NODE_COLLECTIONS = (
     RULE_DECISIONS,
     "actor_usage",
     human.ASKS_COLLECTION,
+    PROBE_STATE,
+    LEASES_COLLECTION,
+    HOOK_STATS_COLLECTION,
+    GATEWAY_STATE_COLLECTION,
 )
 """Collections a node touches (created up front on MongoDB)."""
 
@@ -106,6 +135,20 @@ class HeartbeatOptions:
     """Seconds between heartbeats after the first."""
 
 
+@dataclass(frozen=True, kw_only=True)
+class NodeOptions:
+    """How a :class:`Node` runs its loop (the defaults suit a long-running daemon)."""
+
+    lease: timedelta = DEFAULT_LEASE
+    """The run/step claim lease the executor takes."""
+    max_ticks: int = DEFAULT_MAX_TICKS
+    """Executor ticks per cycle at most."""
+    probe_runner: CommandRunner | None = None
+    """Runs probe commands (``None``: the default runner; inject a fake in tests)."""
+    listen_gateways: bool = True
+    """Whether the discord gateway stage opens listeners (``node run --once`` does not)."""
+
+
 @dataclass
 class CycleReport:
     """What one :meth:`Node.run_once` did."""
@@ -114,6 +157,9 @@ class CycleReport:
     beat: bool = False
     ingested: int = 0
     duplicates: int = 0
+    scheduled: list[str] = field(default_factory=list)
+    probed: list[str] = field(default_factory=list)
+    listening: list[str] = field(default_factory=list)
     evaluated: list[dict[str, str]] = field(default_factory=list)
     deferred: list[dict[str, str]] = field(default_factory=list)
     started: list[str] = field(default_factory=list)
@@ -154,11 +200,13 @@ class Node:
         adapters: Mapping[str, AdapterFactory] | None = None,
         event_source: EventSource | None = None,
         clock: Callable[[], datetime] | None = None,
-        lease: timedelta = DEFAULT_LEASE,
         heartbeat_options: HeartbeatOptions | None = None,
         reporter: RunReporter | None = None,
         on_evaluated: Callable[[str, str], None] | None = None,
-        max_ticks: int = DEFAULT_MAX_TICKS,
+        discord_gateway: Gateway | None = None,
+        resolve_secret: Callable[[str], str] | None = None,
+        gateway_options: GatewayOptions | None = None,
+        options: NodeOptions | None = None,
     ) -> None:
         if not isinstance(host, str) or not host:
             raise ValueError("host must be a non-empty string")
@@ -168,6 +216,7 @@ class Node:
         ensure = getattr(store, "ensure_collections", None)
         if callable(ensure):
             ensure(*NODE_COLLECTIONS)
+        options = options or NodeOptions()
         self._beat_options = heartbeat_options or HeartbeatOptions()
         self.router = ActorRouter(store, ports=actors, factories=adapters, clock=self._clock)
         self.executor = Executor(
@@ -175,24 +224,37 @@ class Node:
             host,
             self.router,
             clock=self._clock,
-            lease=lease,
+            lease=options.lease,
             # a holder is offline once it missed 3 of *this cluster's* beats
             holder_offline_after=timedelta(
                 seconds=MISSED_BEATS_OFFLINE * self._beat_options.beat_every
             ),
         )
         self.firing = RuleFiring(store, host, self.executor, clock=self._clock)
+        self.scheduler = Scheduler(store, host, self.firing, clock=self._clock)
+        self.prober = ProbeTrigger(
+            store, host, self.firing, clock=self._clock, runner=options.probe_runner
+        )
         self.ingest = (
             EventIngest(store, event_source, host=host, clock=self._clock)
             if event_source is not None
             else None
         )
+        self.gateways = GatewaySupervisor(
+            store,
+            self.executor.identity,
+            gateway=discord_gateway,
+            resolve_secret=resolve_secret,
+            clock=self._clock,
+            options=gateway_options,
+        )
+        self._listen_gateways = options.listen_gateways
         self.heartbeat: HeartbeatPublisher | None = None
         self._last_beat: datetime | None = None
         self._reporter = reporter
         self._report_token: str | None = None
         self._on_evaluated = on_evaluated
-        self._max_ticks = max_ticks
+        self._max_ticks = options.max_ticks
         self._stop = threading.Event()
         self.errors: list[Exception] = []
         self.started = False
@@ -224,6 +286,8 @@ class Node:
             pinned = CycleReport(self.host)
             for consumer in self.firing.consumers:
                 self._stage(pinned, self._poll, consumer, pinned)  # retried next cycle
+            self._stage(pinned, self._schedule, pinned)  # opens the window: no backfill
+            self._stage(pinned, self._probe, pinned)
             if self._reporter is not None:
                 self._report_token = self._store.head(RUNS_COLLECTION)
             self.started = True
@@ -241,6 +305,11 @@ class Node:
     def stop(self) -> None:
         """Ask :meth:`run` to return after the current cycle."""
         self._stop.set()
+
+    def close(self) -> None:
+        """Stop the gateway listeners and release their leases (another node takes over)."""
+        with log_context(host=self.host):
+            self.gateways.shutdown()
 
     @property
     def stopping(self) -> bool:
@@ -268,6 +337,7 @@ class Node:
                 self._stop.wait(idle)
         finally:
             beats.set()
+            self._stage(CycleReport(self.host), self.close)
             beater.join(timeout=max(1.0, 2 * self._beat_options.beat_every))
         log.info("engine node %s stopped after %d cycles", self.host, cycles)
         return cycles
@@ -287,7 +357,8 @@ class Node:
     # ------------------------------------------------------------------ one cycle
 
     def run_once(self) -> CycleReport:
-        """One full cycle: beat (if due), ingest, evaluate, start, redeliver, drive, report."""
+        """One full cycle: beat (if due), ingest, schedule, evaluate, start, redeliver, drive,
+        report."""
         report = CycleReport(self.host)
         with log_context(host=self.host):
             if not self.started:
@@ -295,6 +366,10 @@ class Node:
             self._stage(report, self._beat_if_due, report)
             if self.ingest is not None:
                 self._stage(report, self._ingest, report)
+            self._stage(report, self._schedule, report)
+            self._stage(report, self._probe, report)
+            if self._listen_gateways:
+                self._stage(report, self._discord_gateway, report)
             for consumer in self.firing.consumers:
                 self._stage(report, self._poll, consumer, report)
             self._stage(report, self._start_fired, report)
@@ -325,6 +400,15 @@ class Node:
         for result in self.ingest.ingest():
             report.ingested += result.inserted
             report.duplicates += result.duplicates
+
+    def _schedule(self, report: CycleReport) -> None:
+        report.scheduled += self.scheduler.tick()
+
+    def _probe(self, report: CycleReport) -> None:
+        report.probed += self.prober.tick()
+
+    def _discord_gateway(self, report: CycleReport) -> None:
+        report.listening += self.gateways.tick()
 
     def _poll(self, consumer: Any, report: CycleReport) -> None:
         outcome = self.firing.poll(consumer)

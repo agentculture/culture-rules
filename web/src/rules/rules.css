@@ -255,3 +255,125 @@
   color: var(--ink);
   font: 400 17px var(--font-body);
 }
+
+/* ---- typed trigger picker (t36) ---- */
+.trigger-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.trigger-picker legend {
+  padding: 0;
+  margin-bottom: 8px;
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  color: var(--ink);
+}
+
+.trigger-picker__kinds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.rule-form .trigger-kind {
+  position: relative;
+  flex-direction: row;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 999px;
+  border: 2px solid var(--line);
+  background: var(--bg);
+  color: var(--ink);
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.rule-form .trigger-kind input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  min-height: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.trigger-kind:has(input:checked) {
+  border-color: var(--ink);
+  background: var(--surface);
+  font-weight: 700;
+}
+
+.trigger-kind:has(input:focus-visible) {
+  outline: 3px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.trigger-picker__words,
+.trigger-picker__hint,
+.trigger-picker__empty {
+  margin: 0;
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .trigger-kind {
+    transition: border-color 0.15s ease, background-color 0.15s ease;
+  }
+}
+
+/* ---- typed action picker (t37) ---- */
+.action-picker__field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.action-picker__map {
+  font-size: 15px;
+}
+
+.action-picker__required {
+  color: var(--ink-soft);
+}
+
+.action-picker__mapped,
+.action-picker__pair {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.rule-form .action-picker textarea {
+  min-height: 88px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 2px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  font: 400 17px var(--font-body);
+}
+
+.mapping-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 999px;
+  border: 2px solid var(--ink);
+  background: var(--surface);
+  color: var(--ink);
+  font: 600 15px var(--font-mono, ui-monospace, monospace);
+  overflow-wrap: anywhere;
+}

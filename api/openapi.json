@@ -117,6 +117,25 @@
         "title": "AskList",
         "type": "object"
       },
+      "BackfillResult": {
+        "properties": {
+          "applied": {
+            "title": "Applied",
+            "type": "boolean"
+          },
+          "count": {
+            "description": "run documents updated (or that would be, in a dry-run)",
+            "title": "Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "count",
+          "applied"
+        ],
+        "title": "BackfillResult",
+        "type": "object"
+      },
       "Controls": {
         "properties": {
           "drained": {
@@ -545,6 +564,18 @@
         "title": "MachineStatusList",
         "type": "object"
       },
+      "MigrateRequest": {
+        "properties": {
+          "apply": {
+            "default": false,
+            "description": "false = dry-run: list only, change nothing",
+            "title": "Apply",
+            "type": "boolean"
+          }
+        },
+        "title": "MigrateRequest",
+        "type": "object"
+      },
       "PurgeRequest": {
         "properties": {
           "apply": {
@@ -893,6 +924,57 @@
         "title": "TokenRecord",
         "type": "object"
       },
+      "TypelessMigration": {
+        "properties": {
+          "applied": {
+            "title": "Applied",
+            "type": "boolean"
+          },
+          "rules": {
+            "items": {
+              "$ref": "#/components/schemas/TypelessRule"
+            },
+            "title": "Rules",
+            "type": "array"
+          }
+        },
+        "required": [
+          "rules",
+          "applied"
+        ],
+        "title": "TypelessMigration",
+        "type": "object"
+      },
+      "TypelessRule": {
+        "properties": {
+          "enabled_before": {
+            "description": "false: already disabled, left as is",
+            "title": "Enabled Before",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "required": [
+          "id",
+          "enabled_before"
+        ],
+        "title": "TypelessRule",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -959,6 +1041,17 @@
           "roles"
         ],
         "title": "WhoAmI",
+        "type": "object"
+      },
+      "WorkflowRun": {
+        "properties": {
+          "inputs": {
+            "additionalProperties": true,
+            "title": "Inputs",
+            "type": "object"
+          }
+        },
+        "title": "WorkflowRun",
         "type": "object"
       }
     },
@@ -3895,6 +3988,83 @@
         ]
       }
     },
+    "/rules/migrate-typeless": {
+      "post": {
+        "description": "List event rules with no event type; ``apply`` disables them (audited, never deleted).",
+        "operationId": "migrate_typeless_rules",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/MigrateRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TypelessMigration"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Migrate Typeless",
+        "tags": [
+          "rules"
+        ]
+      }
+    },
     "/rules/{id}": {
       "delete": {
         "operationId": "delete_rule",
@@ -4886,6 +5056,83 @@
           }
         ],
         "summary": "Start Run",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/runs/backfill-ids": {
+      "post": {
+        "description": "Fill top-level rule_id / workflow_id on legacy run documents.",
+        "operationId": "backfill_run_ids",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/MigrateRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackfillResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Backfill Ids",
         "tags": [
           "runs"
         ]
@@ -6163,6 +6410,115 @@
         "summary": "Restore",
         "tags": [
           "workflows"
+        ]
+      }
+    },
+    "/workflows/{workflow_id}/run": {
+      "post": {
+        "operationId": "run_workflow",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workflow_id",
+            "required": true,
+            "schema": {
+              "title": "Workflow Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/WorkflowRun"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Run Workflow",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Wrong state / already exists"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Validation failed (errors listed)"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Run Workflow",
+        "tags": [
+          "runs"
         ]
       }
     }

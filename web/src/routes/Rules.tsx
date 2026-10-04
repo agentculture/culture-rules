@@ -318,7 +318,7 @@ function FocusedRule({
       </div>
 
       {editing ? (
-        <RuleEditForm key={rule.id} rule={rule} machines={data.machines} onSave={data.save} onCancel={() => setEditing(false)} />
+        <RuleEditForm key={rule.id} rule={rule} machines={data.machines} workflows={data.workflows} actors={data.actors} onSave={data.save} onCancel={() => setEditing(false)} />
       ) : null}
 
       <AsksPanel asks={data.asks?.items ?? []} onAnswer={data.answer} />
@@ -439,7 +439,7 @@ export function Rules() {
 
   let flow: ReactNode;
   if (creating) {
-    flow = <NewRuleForm takenIds={rules.map((r) => r.id)} onCancel={() => setCreating(false)} onCreate={onCreate} />;
+    flow = <NewRuleForm actors={data.actors} takenIds={rules.map((r) => r.id)} onCancel={() => setCreating(false)} onCreate={onCreate} />;
   } else if (selected) {
     flow = (
       <FocusedRule
@@ -471,6 +471,7 @@ export function Rules() {
         selectedId={creating ? null : (selected?.id ?? null)}
         slotOf={slotOf}
         onToggle={data.toggle}
+        pending={data.togglePending}
         onNew={() => setCreating(true)}
         onDragRule={setDragging}
       />

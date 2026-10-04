@@ -153,7 +153,9 @@ test.describe("Rules tab", () => {
     await untilReady(page);
     await page.getByRole("button", { name: "New rule" }).click();
     const form = page.getByRole("form", { name: "New rule" });
-    await form.getByLabel("Trigger").fill("Disk is nearly full");
+    await form.getByLabel("Name").fill("Disk is nearly full");
+    await form.getByLabel("Surface").selectOption("github-app");
+    await form.getByLabel("Event", { exact: true }).selectOption("github.push");
     await form.getByRole("button", { name: "Create rule" }).click();
     await expect(page.getByRole("heading", { level: 1, name: "Disk is nearly full" })).toBeVisible();
     await page.getByRole("button", { name: "Add stage" }).click();

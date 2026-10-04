@@ -1,0 +1,150 @@
+import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { useState } from "react";
+import { describe, expect, it } from "vitest";
+import { ACTORS, WORKFLOWS } from "../fixtures/rules-fixture";
+import type { Action } from "../api/types";
+import ActionPicker, { actionProblem, blankAction } from "./ActionPicker";
+
+function Harness({
+  start,
+  trigger = "github.pr.opened",
+  workflow,
+}: Readonly<{ start?: Action; trigger?: string; workflow?: (typeof WORKFLOWS)[number] }>) {
+  const [value, setValue] = useState<Action>(start ?? blankAction());
+  return (
+    <>
+      <ActionPicker value={value} actors={ACTORS} triggerType={trigger} workflow={workflow} onChange={setValue} />
+      <output data-testid="saved">{JSON.stringify(value)}</output>
+    </>
+  );
+}
+
+const saved = () => JSON.parse(screen.getByTestId("saved").textContent ?? "null") as Action;
+const kinds = () =>
+  within(screen.getByLabelText("What happens")).getAllByRole("option").map((o) => o.getAttribute("value"));
+
+describe("kinds offered", () => {
+  it("offers only kinds some enabled actor supports, plus the mesh message and noop", () => {
+    render(<Harness />);
+    // github-app (enabled) declares github.comment; ci-runner runs machine.command;
+    // jira.comment is declared only by the DISABLED discord app; http.call has no actor.
+    expect(kinds()).toEqual(["noop", "message", "github.comment", "machine.command"]);
+  });
+
+  it("offers http.call once an enabled runner allows a host", () => {
+    const actors = structuredClone(ACTORS);
+    (actors[2].params as Record<string, unknown>).http = { allow: ["api.example.com"] };
+    render(<ActionPicker value={blankAction()} actors={actors} onChange={() => {}} />);
+    expect(
+      within(screen.getByLabelText("What happens"))
+        .getAllByRole("option")
+        .map((o) => o.getAttribute("value")),
+    ).toContain("http.call");
+  });
+});
+
+describe("actor select", () => {
+  it("lists only the actors that support the picked kind", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    await user.selectOptions(screen.getByLabelText("What happens"), "machine.command");
+    const options = within(screen.getByLabelText("Actor")).getAllByRole("option").map((o) => o.getAttribute("value"));
+    expect(options).toEqual(["", "ci-runner"]);
+    await user.selectOptions(screen.getByLabelText("What happens"), "github.comment");
+    const gh = within(screen.getByLabelText("Actor")).getAllByRole("option").map((o) => o.getAttribute("value"));
+    expect(gh).toEqual(["", "github-app"]);
+  });
+});
+
+describe("typed params and mappings", () => {
+  it("saves a mapped param as the reference string and renders a chip showing it", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    await user.selectOptions(screen.getByLabelText("What happens"), "github.comment");
+    await user.selectOptions(screen.getByLabelText("Actor"), "github-app");
+    await user.type(screen.getByLabelText("Repo"), "acme/app");
+    await user.selectOptions(screen.getByLabelText("Map Number"), "trigger.data.number");
+    await user.type(screen.getByLabelText("Body"), "Thanks!");
+    expect(saved()).toEqual({
+      kind: "github.comment",
+      params: { actor: "github-app", repo: "acme/app", number: "trigger.data.number", body: "Thanks!" },
+    });
+    const chip = screen.getByTestId("chip-number");
+    expect(chip).toHaveTextContent("trigger.data.number");
+    expect(screen.queryByRole("textbox", { name: "Number" })).not.toBeInTheDocument();
+    expect(actionProblem(saved())).toBeNull();
+    // un-mapping returns to a literal field
+    await user.click(screen.getByRole("button", { name: "Use a fixed value for Number" }));
+    expect(screen.getByLabelText("Number")).toBeInTheDocument();
+    expect(saved().params).not.toHaveProperty("number", "trigger.data.number");
+  });
+
+  it("offers workflow outputs of the rule's workflow and a custom path", async () => {
+    const user = userEvent.setup();
+    render(<Harness workflow={WORKFLOWS[0]} />);
+    await user.selectOptions(screen.getByLabelText("What happens"), "github.comment");
+    const map = screen.getByLabelText("Map Body");
+    const values = within(map).getAllByRole("option").map((o) => o.getAttribute("value"));
+    expect(values).toContain("workflow.outputs.image");
+    expect(values).toContain("trigger.data.number");
+    await user.selectOptions(map, "workflow.outputs.image");
+    expect(saved().params?.body).toBe("workflow.outputs.image");
+    await user.selectOptions(screen.getByLabelText("Map Repo"), "__custom__");
+    await user.type(screen.getByLabelText("Path for Repo"), "trigger.data.repository.full_name");
+    expect(saved().params?.repo).toBe("trigger.data.repository.full_name");
+  });
+
+  it("writes a machine.command's command and a typed args mapping", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    await user.selectOptions(screen.getByLabelText("What happens"), "machine.command");
+    await user.selectOptions(screen.getByLabelText("Actor"), "ci-runner");
+    await user.selectOptions(screen.getByLabelText("Command"), "disk-free");
+    await user.type(screen.getByLabelText("path"), "/data");
+    expect(saved()).toEqual({
+      kind: "machine.command",
+      params: { actor: "ci-runner", command: "disk-free", args: { path: "/data" } },
+    });
+    await user.selectOptions(screen.getByLabelText("Map path"), "trigger.data.number");
+    expect(saved().params?.args).toEqual({ path: "trigger.data.number" });
+  });
+});
+
+describe("validation", () => {
+  it("names a missing actor or required param by code", () => {
+    expect(actionProblem({ kind: "github.comment", params: {} })).toBe("no_actor_port");
+    expect(actionProblem({ kind: "github.comment", params: { actor: "github-app", repo: "a/b" } })).toBe("empty");
+    expect(actionProblem({ kind: "message", params: { channel: "#x", text: "hi" } })).toBeNull();
+    expect(actionProblem({ kind: "noop" })).toBeNull();
+    expect(actionProblem({ kind: "mesh.message", name: "Notify" })).toBeNull();
+    expect(actionProblem({ kind: "github.comment", params: { actor: "g", repo: "a/b", number: "x1", body: "b" } })).toBe(
+      "invalid_value",
+    );
+  });
+});
+
+describe("existing action", () => {
+  it("preselects the kind, actor, literals and mapped chips", () => {
+    render(
+      <Harness
+        start={{
+          kind: "github.comment",
+          name: "Reply",
+          params: { actor: "github-app", repo: "acme/app", number: "trigger.data.number", body: "hi" },
+        }}
+      />,
+    );
+    expect(screen.getByLabelText("What happens")).toHaveValue("github.comment");
+    expect(screen.getByLabelText("Actor")).toHaveValue("github-app");
+    expect(screen.getByLabelText("Repo")).toHaveValue("acme/app");
+    expect(screen.getByTestId("chip-number")).toHaveTextContent("trigger.data.number");
+    expect(screen.getByLabelText("Action label")).toHaveValue("Reply");
+  });
+
+  it("keeps an action kind the editor does not know as it is", () => {
+    render(<Harness start={{ kind: "code.run", name: "Clean" }} />);
+    expect(screen.getByText(/“code.run” action the editor cannot change/)).toBeInTheDocument();
+    expect(saved()).toEqual({ kind: "code.run", name: "Clean" });
+  });
+});

@@ -9,11 +9,13 @@ import {
   type Actor,
 } from "../api/actors";
 import { ApiError, listMachines } from "../api/client";
+import GuidedNotice from "../components/GuidedNotice";
 import { settleAll } from "../api/settle";
 import type { Machine } from "../api/types";
 import { setAgentState } from "../agent-state/store";
 import { machineColors } from "../culture-design/chart";
 import { MachineDot, Switch, machineStyle } from "../culture-design/stages";
+import { usePending } from "../usePending";
 import { useTabReady } from "../routes/useTabReady";
 import { ActorForm } from "./ActorForm";
 import { FILTERS, configSourceText, filterActors, kindOfFilter, type KindFilter } from "./actors-view";
@@ -85,6 +87,8 @@ export function ActorsBoard() {
   const [machines, setMachines] = useState<Machine[]>([]);
   const [loadErrors, setLoadErrors] = useState<string[]>([]);
   const [actionError, setActionError] = useState<string | null>(null);
+  /** A refused save, shown as guided text (never the server's raw message). */
+  const [saveError, setSaveError] = useState<ApiError | null>(null);
   const [filter, setFilter] = useState<KindFilter>("all");
   /** The actor id being edited, the literal "new" for the create form, or null. */
   const [editing, setEditing] = useState<string | null>(null);
@@ -140,13 +144,15 @@ export function ActorsBoard() {
   };
 
   /** Run a mutation: one at a time, its failure named in the alert, never swallowed. */
-  const act = useCallback(async (work: () => Promise<void>) => {
+  const act = useCallback(async (work: () => Promise<void>, guided = false) => {
     setBusy(true);
     setActionError(null);
+    setSaveError(null);
     try {
       await work();
     } catch (err) {
-      setActionError(errorText(err));
+      if (guided && err instanceof ApiError) setSaveError(err);
+      else setActionError(errorText(err));
     } finally {
       setBusy(false);
     }
@@ -155,11 +161,14 @@ export function ActorsBoard() {
   const replace = (next: Actor) =>
     setActors((current) => (current ?? []).map((a) => (a.id === next.id ? next : a)));
 
+  const { pending: togglePending, run: runToggle } = usePending();
   const toggle = (actor: Actor, enabled: boolean) =>
-    act(async () => {
-      await setActorEnabled(actor.id, enabled);
-      replace({ ...actor, enabled });
-    });
+    runToggle(actor.id, () =>
+      act(async () => {
+        await setActorEnabled(actor.id, enabled);
+        replace({ ...actor, enabled });
+      }),
+    );
 
   const setSource = (actor: Actor, source: "repo" | "db") =>
     act(async () => {
@@ -179,7 +188,7 @@ export function ActorsBoard() {
         replace({ ...actor, ...saved });
       }
       setEditing(null);
-    });
+    }, true);
 
   const remove = (actor: Actor) =>
     act(async () => {
@@ -220,6 +229,8 @@ export function ActorsBoard() {
           {errors.join(" · ")}
         </p>
       ) : null}
+
+      {saveError ? <GuidedNotice error={saveError} /> : null}
 
       {editing === "new" ? (
         <div className="actor-card actor-card--new">
@@ -269,6 +280,7 @@ export function ActorsBoard() {
                 <Switch
                   label={`${actor.name} enabled`}
                   checked={enabled}
+                  disabled={togglePending.has(actor.id)}
                   onChange={(next) => void toggle(actor, next)}
                 />
               </div>

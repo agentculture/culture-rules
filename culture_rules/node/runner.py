@@ -18,11 +18,11 @@ Production wiring done by :func:`run_node`:
 
 from __future__ import annotations
 
+import importlib.util
 import logging
 import os
 import shutil
-import subprocess  # nosec B404 - argv list only, never a shell (MeshPoster)
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from datetime import datetime
 from typing import Any
 
@@ -31,6 +31,7 @@ from culture_rules.engine.reports import RunReporter
 from culture_rules.events.emit import Emitter
 from culture_rules.events.ingest import EVENTS_COLLECTION, event_document
 from culture_rules.events.source import EventFabricError, EventSource
+from culture_rules.node.mesh import MeshPoster
 from culture_rules.ops.logs import configure_logging
 from culture_rules.ops.nodename import node_name
 from culture_rules.store.port import DuplicateKeyError, StoragePort, StoreError
@@ -40,6 +41,7 @@ __all__ = [
     "LoggingPoster",
     "MeshPoster",
     "NodeSetupError",
+    "MissingExtraPort",
     "NoopAction",
     "StoreEventSink",
     "default_host",
@@ -53,7 +55,6 @@ __all__ = [
 
 REPORT_CHANNEL_ENV = "CULTURE_RULES_REPORT_CHANNEL"
 """Mesh channel finished-run summaries are posted to (unset: no run reports)."""
-MESH_POST_TIMEOUT_S = 15.0
 
 log = logging.getLogger("culture_rules.node")
 
@@ -139,27 +140,6 @@ class LoggingPoster:
         log.info("run report for %s: %s", channel, text)
 
 
-class MeshPoster:
-    """Posts to a Culture mesh channel with ``culture channel message <channel> <text>``."""
-
-    def __init__(
-        self,
-        executable: str,
-        *,
-        run: Callable[..., Any] | None = None,
-        timeout: float = MESH_POST_TIMEOUT_S,
-    ) -> None:
-        self._executable = executable
-        self._run = run or subprocess.run
-        self._timeout = timeout
-
-    def post(self, channel: str, text: str) -> None:
-        argv = [self._executable, "channel", "message", channel, text]
-        self._run(  # nosec B603 - fixed argv list, shell=False
-            argv, check=True, capture_output=True, text=True, timeout=self._timeout
-        )
-
-
 def open_reporter(env: Mapping[str, str] | None = None) -> RunReporter | None:
     """A run reporter for ``CULTURE_RULES_REPORT_CHANNEL``, or None when it is unset."""
     channel = ((os.environ if env is None else env).get(REPORT_CHANNEL_ENV) or "").strip()
@@ -186,16 +166,65 @@ class NoopAction:
         return InvocationResult.completed({})
 
 
+class MissingExtraPort:
+    """Stands in for an action port whose optional extra is not installed.
+
+    Every invocation fails ``extra_missing`` (non-retryable) so the run says what to
+    install rather than failing ``no_actor_port``.
+    """
+
+    supports_idempotency_key = False
+
+    def __init__(self, extra: str) -> None:
+        self.extra = extra
+
+    def invoke(
+        self,
+        _input: Mapping[str, Any],
+        _idempotency_key: str,
+        _deadline: datetime,
+        *,
+        context: InvocationContext,
+    ) -> InvocationResult:
+        return InvocationResult.failed(
+            f"extra_missing: install culture-rules[{self.extra}]", retryable=False
+        )
+
+
 def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
-    """Ports for work that names no stored actor (stored actors are wired by the router)."""
-    del store, host
-    return {"action:noop": NoopAction()}
+    """Action ports for every catalogued kind (stored actors are wired by the router).
+
+    A port whose extra is missing (``github.comment`` needs ``cryptography``) is replaced
+    by one that fails ``extra_missing``. Detection uses ``find_spec``: nothing is imported.
+    """
+    del host
+    from culture_rules.node.actions.github import GitHubCommentPort  # noqa: PLC0415
+    from culture_rules.node.actions.http import HttpCallPort  # noqa: PLC0415
+    from culture_rules.node.actions.jira import JiraCommentPort  # noqa: PLC0415
+    from culture_rules.node.actions.machine import MachineCommandPort  # noqa: PLC0415
+    from culture_rules.node.actions.message import MessageAction  # noqa: PLC0415
+
+    message = MessageAction(store)
+    github: Any = (
+        GitHubCommentPort(store)
+        if importlib.util.find_spec("cryptography") is not None
+        else MissingExtraPort("github")
+    )
+    return {
+        "action:noop": NoopAction(),
+        "action:message": message,
+        "action:mesh.message": message,  # legacy alias of message
+        "action:github.comment": github,
+        "action:jira.comment": JiraCommentPort(store),
+        "action:http.call": HttpCallPort(store),
+        "action:machine.command": MachineCommandPort(store),
+    }
 
 
 def run_node(host: str | None = None, *, once: bool = False, idle: float = 1.0) -> dict[str, Any]:
     """Open everything, run the node (one cycle with ``once``) and summarise what it did."""
     from culture_rules.node.actors import default_factories  # noqa: PLC0415
-    from culture_rules.node.daemon import Node  # noqa: PLC0415
+    from culture_rules.node.daemon import Node, NodeOptions  # noqa: PLC0415
 
     host = host or default_host()
     try:
@@ -211,6 +240,8 @@ def run_node(host: str | None = None, *, once: bool = False, idle: float = 1.0) 
         adapters=default_factories(store, emitter=open_emitter(store, host)),
         event_source=source,
         reporter=open_reporter(),
+        # one cycle never opens a long-lived gateway connection
+        options=NodeOptions(listen_gateways=not once),
     )
     if once:
         report = node.run_once()

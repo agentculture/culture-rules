@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -314,5 +314,150 @@ describe("Actors board (Chosen — Actors)", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("store unreachable");
     await waitFor(() => expect(getAgentState().view_ready).toBe(true));
     expect(getAgentState().errors).toEqual(["store unreachable"]);
+  });
+});
+
+describe("Actors toggle in flight (#7)", () => {
+  it("a double click while the toggle is in flight sends one request", async () => {
+    const { calls } = mockActorsApi();
+    const inner = globalThis.fetch;
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => (release = r));
+    vi.stubGlobal("fetch", (async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (/\/actors\/codex\/(enable|disable)$/.test(String(input))) await gate;
+      return inner(input, init);
+    }) as typeof fetch);
+    renderActors();
+    await screen.findByRole("group", { name: "Codex" });
+    const sw = within(row("Codex")).getByRole("switch", { name: "Codex enabled" });
+    act(() => {
+      sw.click();
+      sw.click();
+    });
+    await waitFor(() => expect(sw).toHaveAttribute("aria-disabled", "true"));
+    release();
+    await waitFor(() => expect(sw).not.toHaveAttribute("aria-disabled"));
+    expect(calls.filter((c) => /\/actors\/codex\/(enable|disable)$/.test(c.path))).toHaveLength(1);
+  });
+});
+
+describe("Actors tab: app and runner editors (t38)", () => {
+  beforeEach(() => resetAgentState());
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  async function addApp(user: ReturnType<typeof userEvent.setup>) {
+    await screen.findByRole("group", { name: "Codex" });
+    await user.click(screen.getByRole("button", { name: "Add actor" }));
+    await user.type(screen.getByRole("textbox", { name: "Id" }), "gh-app");
+    await user.type(screen.getByRole("textbox", { name: "Name" }), "GH App");
+    await user.selectOptions(screen.getByRole("combobox", { name: "Kind" }), "app");
+    await user.selectOptions(screen.getByRole("combobox", { name: "Surface" }), "github");
+  }
+
+  it("refuses a literal secret client-side: no request is sent", async () => {
+    const { calls } = mockActorsApi();
+    const user = userEvent.setup();
+    renderActors();
+    await addApp(user);
+    await user.type(screen.getByRole("textbox", { name: "Private key (grant reference)" }), "-----BEGIN RSA PRIVATE KEY");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByText(/Secrets are never typed here/)).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Private key (grant reference)" })).toHaveAttribute("aria-invalid", "true");
+    expect(calls.some((c) => c.method === "POST" && c.path === "/api/actors")).toBe(false);
+  });
+
+  it("shows a server secret_literal refusal as guided text, never the raw message", async () => {
+    const { calls } = mockActorsApi({
+      "POST /api/actors": {
+        status: 422,
+        body: { error: { code: "secret_literal", message: "params.connection.private_key: literal RAW-SERVER-TEXT", errors: [] } },
+      },
+    });
+    const user = userEvent.setup();
+    renderActors();
+    await addApp(user);
+    await user.type(screen.getByRole("textbox", { name: "Private key (grant reference)" }), "grant:gh-key");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    const alert = await screen.findByText(/Reference a stored secret instead/);
+    expect(alert).toBeInTheDocument();
+    expect(screen.queryByText(/RAW-SERVER-TEXT/)).toBeNull();
+    expect(calls.some((c) => c.method === "POST" && c.path === "/api/actors")).toBe(true);
+  });
+
+  it("saves an app actor's connection and declarations under params", async () => {
+    const { calls } = mockActorsApi();
+    const user = userEvent.setup();
+    renderActors();
+    await addApp(user);
+    await user.type(screen.getByRole("textbox", { name: "App id" }), "42");
+    await user.type(screen.getByRole("textbox", { name: "Private key (grant reference)" }), "grant:gh-key");
+    await user.type(screen.getByRole("textbox", { name: "Repositories" }), "agentculture/culture-rules");
+    await user.click(screen.getByRole("button", { name: "Add event" }));
+    await user.type(screen.getByRole("textbox", { name: "Event 1" }), "github.pr.opened");
+    await user.click(screen.getByRole("checkbox", { name: /^github\.comment/ }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screen.getByRole("group", { name: "GH App" })).toBeInTheDocument());
+    const post = calls.find((c) => c.method === "POST" && c.path === "/api/actors");
+    expect(post?.body).toMatchObject({
+      id: "gh-app",
+      kind: "app",
+      params: {
+        surface: "github",
+        connection: { app_id: "42", private_key: "grant:gh-key", repos: ["agentculture/culture-rules"] },
+        events: ["github.pr.opened"],
+        actions: ["github.comment"],
+      },
+    });
+  });
+
+  it("a runner command saved from the form round-trips through PUT /actors/{id}", async () => {
+    const { calls } = mockActorsApi();
+    const user = userEvent.setup();
+    const first = renderActors("/actors?id=thor-runner");
+    const card = await screen.findByRole("group", { name: "thor runner" });
+    await user.click(within(card).getByRole("button", { name: "Edit thor runner" }));
+    await user.click(within(card).getByRole("button", { name: "Add command" }));
+    await user.type(within(card).getByRole("textbox", { name: "Command 1 name" }), "echo");
+    await user.type(within(card).getByRole("textbox", { name: "Command 1 token 1" }), "echo");
+    await user.click(within(card).getByRole("button", { name: "Add token to command 1" }));
+    await user.type(within(card).getByRole("textbox", { name: "Command 1 token 2" }), "{{msg}");
+    await user.click(within(card).getByRole("button", { name: "Add parameter to command 1" }));
+    await user.type(within(card).getByRole("textbox", { name: "Command 1 parameter 1 name" }), "msg");
+    await user.type(within(card).getByRole("textbox", { name: "Command 1 timeout" }), "30");
+    await user.click(within(card).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(calls.some((c) => c.method === "PUT")).toBe(true));
+    const put = calls.find((c) => c.method === "PUT");
+    expect(put?.path).toBe("/api/actors/thor-runner");
+    expect(put?.body).toMatchObject({
+      params: { commands: { echo: { argv: ["echo", "{msg}"], params: { msg: "string" }, timeout: 30 } } },
+    });
+    // Reload: a fresh render of the same stored actor shows the same command in the editor.
+    first.unmount();
+    renderActors("/actors?id=thor-runner");
+    const again = await screen.findByRole("group", { name: "thor runner" });
+    await user.click(within(again).getByRole("button", { name: "Edit thor runner" }));
+    expect(within(again).getByRole("textbox", { name: "Command 1 name" })).toHaveValue("echo");
+    expect(within(again).getByRole("textbox", { name: "Command 1 token 1" })).toHaveValue("echo");
+    expect(within(again).getByRole("textbox", { name: "Command 1 token 2" })).toHaveValue("{msg}");
+    expect(within(again).getByRole("textbox", { name: "Command 1 parameter 1 name" })).toHaveValue("msg");
+    expect(within(again).getByRole("combobox", { name: "Command 1 parameter 1 type" })).toHaveValue("string");
+    expect(within(again).getByRole("textbox", { name: "Command 1 timeout" })).toHaveValue("30");
+  });
+
+  it("does not send a runner command whose placeholder has no declared parameter", async () => {
+    const { calls } = mockActorsApi();
+    const user = userEvent.setup();
+    renderActors("/actors?id=thor-runner");
+    const card = await screen.findByRole("group", { name: "thor runner" });
+    await user.click(within(card).getByRole("button", { name: "Edit thor runner" }));
+    await user.click(within(card).getByRole("button", { name: "Add command" }));
+    await user.type(within(card).getByRole("textbox", { name: "Command 1 name" }), "echo");
+    await user.type(within(card).getByRole("textbox", { name: "Command 1 token 1" }), "echo {{msg}");
+    await user.click(within(card).getByRole("button", { name: "Save" }));
+    expect(await within(card).findByText(/Declare a parameter for \{msg\}/)).toBeInTheDocument();
+    expect(calls.some((c) => c.method === "PUT")).toBe(false);
   });
 });

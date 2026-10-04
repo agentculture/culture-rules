@@ -231,7 +231,7 @@ def test_rule_digest_changes_when_rule_changes(store, actor, clock):
     ex = make_executor(store, actor, clock)
     wf = workflow((step("a"),))
     d1 = ex.start(rule(), wf)["rule"]["digest"]
-    d2 = ex.start(rule(action=Action(kind="other")), wf)["rule"]["digest"]
+    d2 = ex.start(rule(action=Action(kind="message")), wf)["rule"]["digest"]
     assert d1 != d2
 
 
@@ -253,6 +253,45 @@ def test_start_from_store_unknown_or_deleted_rule(store, actor, clock):
     with pytest.raises(RunError) as exc:
         ex.start_from_store("r1")
     assert exc.value.code == "not_fireable"
+
+
+def _store_raw_rule(store, *, action: dict, trigger: dict | None = None) -> None:
+    """Store a rule as an older engine would have written it (pre-catalog shapes)."""
+    data = {"id": "r1", **rule(workflow_id=None).to_dict()}
+    data["action"] = action
+    if trigger is not None:
+        data["trigger"] = trigger
+    store.put("rules", data)
+
+
+@pytest.mark.parametrize(
+    "action",
+    [
+        {"kind": "comment", "params": {"body": "hi"}},
+        {"kind": "github.comment", "params": {"body": "hi", "repo": "o/r"}},
+    ],
+)
+def test_stored_rule_with_pre_catalog_action_still_starts(store, actor, clock, action):
+    _store_raw_rule(store, action=action)
+    ex = make_executor(store, actor, clock)
+    run = ex.start_from_store("r1")
+    assert run["rule"]["definition"]["action"]["kind"] == action["kind"]
+    ex.run_until_idle()
+    assert step_state(ex.run(run["id"]), ACTION_STEP) is not None
+
+
+def test_stored_typeless_event_rule_can_still_be_started_manually(store, actor, clock):
+    _store_raw_rule(store, action={"kind": "noop"}, trigger={"kind": "event", "params": {}})
+    ex = make_executor(store, actor, clock)
+    assert ex.start_from_store("r1")["rule_id"] == "r1"
+
+
+def test_fresh_rule_with_unknown_action_kind_is_still_refused(store, actor, clock):
+    ex = make_executor(store, actor, clock)
+    fresh = rule(workflow_id=None, action=Action(kind="teleport"))
+    with pytest.raises(RunError) as exc:
+        ex.start(fresh)
+    assert exc.value.code == "invalid_rule"
 
 
 # ---------------------------------------------------------------- c83 / h64 timeouts, retries
@@ -351,7 +390,7 @@ def test_lost_ack_on_step_is_not_executed_twice(store, clock):
 def test_lost_ack_on_rule_action_is_not_executed_twice(store, clock):
     a = FakeActor().on(ACTION_STEP, ("lose_ack", {"posted": True}))
     ex = make_executor(store, a, clock)
-    act = Action(kind="github.comment", params={"body": "hi"}, retry=RetryPolicy(max_attempts=3))
+    act = Action(kind="noop", params={"body": "hi"}, retry=RetryPolicy(max_attempts=3))
     run = ex.start(rule(workflow_id=None, action=act), None)
     ex.run_until_idle()
     doc = ex.run(run["id"])
@@ -377,7 +416,7 @@ def test_target_without_keys_is_never_blindly_retried(store, clock):
 
 def test_idempotent_action_without_key_support_may_retry(store, clock):
     a = FakeActor(idempotent=False).on(ACTION_STEP, ("fail", "flaky", True))
-    act = Action(kind="http.get", retry=RetryPolicy(max_attempts=2), idempotent=True)
+    act = Action(kind="noop", retry=RetryPolicy(max_attempts=2), idempotent=True)
     ex = make_executor(store, a, clock)
     run = ex.start(rule(workflow_id=None, action=act), None)
     ex.run_until_idle()
@@ -753,6 +792,26 @@ def test_workflow_inputs_are_mapped_from_the_trigger_and_type_checked(store, act
     assert exc.value.code == "input_missing"
 
 
+def test_structured_literal_that_looks_like_a_reference_resolves_to_the_literal(
+    store, actor, clock
+):
+    wf = workflow(
+        (step("a", inputs=(port("n", "string"), port("m", "integer"))),),
+        (edge("inputs", "n", "a", "n"), edge("inputs", "m", "a", "m")),
+        inputs=(port("n", "string"), port("m", "integer")),
+    )
+    r = rule(
+        workflow_inputs={
+            "n": {"$literal": "trigger.data.number"},
+            "m": {"$ref": "trigger.data.number"},
+        }
+    )
+    ex = make_executor(store, actor, clock)
+    ex.start(r, wf, trigger={"data": {"number": 5}})
+    ex.run_until_idle()
+    assert actor.calls_for("a")[0][1] == {"n": "trigger.data.number", "m": 5}
+
+
 def test_action_params_resolve_workflow_outputs(store, clock):
     a = FakeActor().on("a", ("complete", {"n": 3}))
     wf = workflow(
@@ -1029,3 +1088,54 @@ def test_a_blocked_step_out_of_attempts_fails_with_blocked_timeout(store, clock)
     assert st["error"]["code"] == "blocked_timeout"
     assert st["attempt"] == 2
     assert actor.effects_for("h") == 0
+
+
+def test_rule_action_context_carries_the_actor_named_in_params(store, actor, clock):
+    """t8: ``action.params.actor`` (a literal id, never resolved) is the context's actor."""
+    ex = make_executor(store, actor, clock)
+    act = Action(kind="noop", params={"actor": "box", "x": 1})
+    ex.start(rule(workflow_id=None, action=act), None)
+    ex.run_until_idle()
+    [call] = actor.calls_for(ACTION_STEP)
+    assert call[2].actor == "box"
+    assert call[2].config["params"]["actor"] == "box"
+
+
+def test_rule_action_context_has_no_actor_when_none_is_named(store, actor, clock):
+    ex = make_executor(store, actor, clock)
+    ex.start(rule(workflow_id=None, action=Action(kind="noop", params={"x": 1})), None)
+    ex.run_until_idle()
+    [call] = actor.calls_for(ACTION_STEP)
+    assert call[2].actor is None
+
+
+# --- heartbeat semantics for takeover (#7) -------------------------------
+
+
+def test_missing_heartbeat_doc_counts_as_offline_so_takeover_is_allowed(store, actor, clock):
+    ex = make_executor(store, actor, clock)
+    assert ex._machine_online("thor", clock()) is False
+
+
+def test_garbage_heartbeat_ts_counts_as_online_so_no_takeover(store, actor, clock, caplog):
+    from culture_rules.machines.heartbeat import HEARTBEAT_COLLECTION
+
+    store.put(HEARTBEAT_COLLECTION, {"id": "thor", "machine": "thor", "ts": "not-a-date"})
+    ex = make_executor(store, actor, clock)
+    with caplog.at_level("WARNING"):
+        assert ex._machine_online("thor", clock()) is True
+    assert "thor" in caplog.text
+
+
+def test_stale_heartbeat_is_offline_and_fresh_is_online(store, actor, clock):
+    from culture_rules.machines.heartbeat import HEARTBEAT_COLLECTION
+
+    ex = make_executor(store, actor, clock, holder_offline_after=timedelta(seconds=30))
+    store.put(
+        HEARTBEAT_COLLECTION,
+        {"id": "thor", "machine": "thor", "ts": clock().strftime("%Y-%m-%dT%H:%M:%SZ")},
+    )
+    clock.advance(10)
+    assert ex._machine_online("thor", clock()) is True
+    clock.advance(30)
+    assert ex._machine_online("thor", clock()) is False

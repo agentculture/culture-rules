@@ -11,16 +11,31 @@ export function stagesOf(rule: Rule): StageKind[] {
 }
 
 export function triggerLabel(rule: Rule): string {
-  const params = rule.trigger.params ?? {};
+  const params = (rule.trigger.params ?? {}) as Record<string, unknown>;
   if (typeof params.label === "string" && params.label) return params.label;
   if (typeof params.event === "string" && params.event) return `${rule.trigger.kind}: ${params.event}`;
+  if (typeof params.type === "string" && params.type) return `event: ${params.type}`;
+  if (typeof params.cron === "string" && params.cron) return `schedule: ${params.cron}`;
+  if (typeof params.command === "string" && params.command) {
+    const actor = typeof params.actor === "string" ? params.actor : "";
+    return `probe: ${actor} ${params.command}`.replace("  ", " ");
+  }
   return rule.trigger.kind;
 }
 
 const last = (ref: string) => ref.split(".").pop() ?? ref;
 
+function inputSourceText(from: NonNullable<WorkflowRef["inputs"]>[string]): string {
+  if (typeof from === "string") return from;
+  if ("$ref" in from) return from.$ref;
+  return String(from.$literal);
+}
+
 export function workflowChips(ref: WorkflowRef): string[] {
-  return Object.entries(ref.inputs ?? {}).map(([input, from]) => `${last(from)} → ${input}`);
+  return Object.entries(ref.inputs ?? {}).map(([input, from]) => {
+    const text = inputSourceText(from);
+    return `${last(text)} → ${input}`;
+  });
 }
 
 const REFERENCE = /^(trigger|workflow|vars|rule)\.[A-Za-z0-9_.]+$/;

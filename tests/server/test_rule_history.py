@@ -18,7 +18,7 @@ from culture_rules.engine.runs import RUNS_COLLECTION  # noqa: E402
 from culture_rules.server import events  # noqa: E402
 from culture_rules.server.app import create_app  # noqa: E402
 from culture_rules.store.memory import MemoryStore  # noqa: E402
-from tests.server.conftest import rule_body  # noqa: E402
+from tests.server.conftest import dev_app, rule_body  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -37,7 +37,14 @@ def _decision(rule_id: str, event_id: str, at: str, reason="superseded_by", by=(
 
 
 def _run(id: str, rule_id: str, at: str, status="succeeded") -> dict:
-    return {"id": id, "rule": {"id": rule_id}, "status": status, "created_at": at, "steps": []}
+    return {
+        "id": id,
+        "rule": {"id": rule_id},
+        "rule_id": rule_id,
+        "status": status,
+        "created_at": at,
+        "steps": [],
+    }
 
 
 def test_history_merges_decisions_and_runs_newest_first(store, client):
@@ -98,3 +105,57 @@ def test_history_is_in_the_committed_contract():
 def test_live_feed_streams_decisions_asks_and_heartbeats():
     for name in (RULE_DECISIONS, "asks", "heartbeats"):
         assert name in events.STREAMABLE, name
+
+
+class _SpyStore:
+    """Delegates to a store and records every find(collection, where)."""
+
+    def __init__(self, inner):
+        self._inner = inner
+        self.finds: list[tuple[str, object]] = []
+
+    def find(self, collection, where=None, **kw):
+        self.finds.append((collection, where))
+        return self._inner.find(collection, where, **kw)
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+
+def _spied_client(store):
+    spy = _SpyStore(store)
+    return spy, TestClient(dev_app(spy))
+
+
+def test_history_reads_only_this_rules_runs_through_the_store_query(store, client):
+    assert client.post("/rules", json=rule_body("b")).status_code == 201
+    store.put(RUNS_COLLECTION, {**_run("run-1", "b", "2026-10-03T10:00:00+00:00"), "rule_id": "b"})
+    store.put(
+        RUNS_COLLECTION, {**_run("run-x", "other", "2026-10-03T13:00:00+00:00"), "rule_id": "other"}
+    )
+    spy, spied = _spied_client(store)
+    items = spied.get("/rules/b/history").json()["items"]
+    assert [i["id"] for i in items] == ["run-1"]
+    run_finds = [w for c, w in spy.finds if c == RUNS_COLLECTION]
+    assert run_finds == [{"rule_id": "b"}]
+
+
+def test_runs_list_filters_rule_and_workflow_in_the_store(store):
+    store.put(RUNS_COLLECTION, {**_run("a", "b", "2026-10-03T10:00:00+00:00"), "rule_id": "b"})
+    spy, spied = _spied_client(store)
+    spied.get("/runs", params={"rule_id": "b", "workflow_id": "w", "status": "succeeded"})
+    assert [w for c, w in spy.finds if c == RUNS_COLLECTION] == [
+        {"status": "succeeded", "rule_id": "b", "workflow_id": "w"}
+    ]
+
+
+def test_legacy_run_is_returned_after_backfill(store, client):
+    from culture_rules.store.migrations import backfill_run_ids
+
+    assert client.post("/rules", json=rule_body("b")).status_code == 201
+    legacy = _run("legacy", "b", "2026-10-03T10:00:00+00:00")
+    del legacy["rule_id"]
+    store.put(RUNS_COLLECTION, legacy)
+    assert client.get("/rules/b/history").json()["items"] == []
+    assert backfill_run_ids(store) == 1
+    assert [i["id"] for i in client.get("/rules/b/history").json()["items"]] == ["legacy"]

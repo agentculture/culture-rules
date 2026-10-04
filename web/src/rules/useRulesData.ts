@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { listActors, type Actor } from "../api/actors";
 import { ApiError, listMachines, listRules, listWorkflows } from "../api/client";
 import { failureMessage, settleAll } from "../api/settle";
 import {
@@ -14,6 +15,7 @@ import {
   type RuleDoc,
 } from "../api/rules";
 import type { Machine, Workflow } from "../api/types";
+import { usePending } from "../usePending";
 
 /** Never throws, so the handlers below that describe a failure cannot fail themselves. */
 const describe = (err: unknown) => (err instanceof ApiError ? err.message : failureMessage(err));
@@ -22,6 +24,7 @@ interface Loaded {
   rules: RuleDoc[];
   machines: Machine[];
   workflows: Workflow[];
+  actors: Actor[];
   errors: string[];
 }
 
@@ -56,14 +59,20 @@ export function useRulesData(routeRuleId: string | undefined) {
   useEffect(() => {
     const controller = new AbortController();
     settleAll(
-      [listRules(controller.signal), listMachines(controller.signal), listWorkflows(controller.signal)],
+      [
+        listRules(controller.signal),
+        listMachines(controller.signal),
+        listWorkflows(controller.signal),
+        listActors(controller.signal),
+      ],
       (results) => {
         if (controller.signal.aborted) return;
-        const [rules, machines, workflows] = results;
+        const [rules, machines, workflows, actors] = results;
         setLoaded({
           rules: rules.status === "fulfilled" ? rules.value : [],
           machines: machines.status === "fulfilled" ? machines.value : [],
           workflows: workflows.status === "fulfilled" ? workflows.value : [],
+          actors: actors.status === "fulfilled" ? actors.value : [],
           errors: results
             .map((r) => (r.status === "rejected" ? describe(r.reason) : null))
             .filter((m): m is string => m !== null),
@@ -72,7 +81,7 @@ export function useRulesData(routeRuleId: string | undefined) {
       (message) => {
         // Applying the load failed: an empty list with the failure named.
         if (controller.signal.aborted) return;
-        setLoaded({ rules: [], machines: [], workflows: [], errors: [message] });
+        setLoaded({ rules: [], machines: [], workflows: [], actors: [], errors: [message] });
       },
     );
     return () => controller.abort();
@@ -99,14 +108,16 @@ export function useRulesData(routeRuleId: string | undefined) {
     }
   }, []);
 
+  const { pending: togglePending, run: runToggle } = usePending();
   const toggle = useCallback(
-    async (rule: RuleDoc) => {
-      const next = rule.enabled === false;
-      replace({ ...rule, enabled: next }); // optimistic; rolled back below on refusal
-      const doc = await attempt(() => setRuleEnabled(rule, next));
-      replace(doc ?? rule);
-    },
-    [attempt, replace],
+    (rule: RuleDoc) =>
+      runToggle(rule.id, async () => {
+        const next = rule.enabled === false;
+        replace({ ...rule, enabled: next }); // optimistic; rolled back below on refusal
+        const doc = await attempt(() => setRuleEnabled(rule, next));
+        replace(doc ?? rule);
+      }),
+    [attempt, replace, runToggle],
   );
 
   const save = useCallback(
@@ -185,11 +196,13 @@ export function useRulesData(routeRuleId: string | undefined) {
     selected,
     machines: loaded?.machines ?? [],
     workflows: loaded?.workflows ?? [],
+    actors: loaded?.actors ?? [],
     loadErrors: loaded?.errors ?? [],
     notice,
     clearNotice: () => setNotice(null),
     setNotice,
     toggle,
+    togglePending,
     save,
     create,
     remove,

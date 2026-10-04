@@ -15,7 +15,12 @@ def make_action(**kw) -> Action:
     base = dict(
         kind="github.comment",
         name="comment on PR",
-        params={"body": "done: {{ workflow.outputs.summary }}", "repo": "agentculture/x"},
+        params={
+            "actor": "github-app",
+            "body": "done: {{ workflow.outputs.summary }}",
+            "number": 7,
+            "repo": "agentculture/x",
+        },
         timeout_s=30.0,
         retry=RetryPolicy(max_attempts=3, backoff_s=2.0, backoff_multiplier=2.0),
         idempotent=True,
