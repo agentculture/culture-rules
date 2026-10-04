@@ -44,7 +44,7 @@ from culture_rules.engine.runs import (
 )
 from culture_rules.ops.health import health_status
 from culture_rules.ops.nodename import node_name
-from culture_rules.server import events, static
+from culture_rules.server import events, humans, static
 from culture_rules.server import status as read_models
 from culture_rules.server.caching import NO_STORE, NoStoreByDefault
 from culture_rules.server.repos import RepoTarget, repos_from_env
@@ -484,7 +484,7 @@ def create_app(
         },
     )
     _install_errors(app)
-    _install_auth(app, resolver)
+    _install_auth(app, resolver, humans.HumanSignIn(store, audit))
     # Registration order is route-matching and schema order: /machines/status (ops) must
     # come before the definition routes so /machines/{id} cannot shadow it.
     _register_auth_routes(app, tokens)
@@ -503,7 +503,9 @@ def create_app(
     return app
 
 
-def _install_auth(app: FastAPI, resolver: Resolver) -> None:
+def _install_auth(app: FastAPI, resolver: Resolver, sign_in: humans.HumanSignIn) -> None:
+    from starlette.concurrency import run_in_threadpool  # noqa: PLC0415
+
     @app.middleware("http")
     async def authenticate(request: Request, call_next):
         """Resolve the principal and check the route's role before routing (any handler)."""
@@ -518,6 +520,9 @@ def _install_auth(app: FastAPI, resolver: Resolver) -> None:
         except AuthError as exc:
             return _envelope(exc.status, exc.code, exc.message)
         request.state.principal = principal
+        if sign_in.needed(principal):  # a person's first request in this process
+            # the store is sync: off the event loop. HumanSignIn never raises.
+            await run_in_threadpool(sign_in, principal)
         return await call_next(request)
 
 
