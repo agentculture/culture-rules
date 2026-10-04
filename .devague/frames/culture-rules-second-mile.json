@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-03T18:08:10Z",
-  "updated": "2026-10-04T04:48:36Z",
+  "updated": "2026-10-04T05:03:03Z",
   "claims": [
     {
       "id": "c1",
@@ -1552,6 +1552,17 @@
       "skipped_check": "stop and report a plan/reality conflict",
       "refs": [
         "t24"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l9",
+      "code": "control-absent",
+      "what": "t12 wrote tests and implementation in one step; no red run before the implementation (TDD order not evidenced)",
+      "skipped_check": "failing-test-first run",
+      "refs": [
+        "t12"
       ],
       "origin": "llm",
       "status": "proposed"
