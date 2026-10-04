@@ -9,14 +9,23 @@ from culture_rules.model.action import Action
 from culture_rules.model.common import SCHEMA_VERSION, Model, doc
 from culture_rules.model.placement import Placement
 
-__all__ = ["Rule", "Trigger", "WorkflowRef"]
+__all__ = ["Rule", "TRIGGER_KINDS", "Trigger", "WorkflowRef"]
+
+TRIGGER_KINDS = ("event", "schedule", "probe", "manual")
 
 
 @dataclass(frozen=True, kw_only=True)
 class Trigger(Model):
-    """What fires a rule: an event, a schedule, a manual run, ..."""
+    """What fires a rule. Kinds and their required params:
 
-    kind: str = doc("Trigger type, e.g. event, schedule, manual")
+    - ``event``: ``type`` (non-empty event type string)
+    - ``schedule``: ``cron``; optional ``tz``
+    - ``probe``: ``actor``, ``command``, ``schedule`` (cron), ``mode`` (change|condition);
+      optional ``args``
+    - ``manual``: no params
+    """
+
+    kind: str = doc("Trigger kind: event, schedule, probe or manual")
     params: dict[str, Any] = doc("Kind-specific parameters", default_factory=dict)
 
 

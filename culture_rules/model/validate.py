@@ -37,7 +37,7 @@ from culture_rules.model.refs import (
     ref_errors,
     structured_form,
 )
-from culture_rules.model.rule import Rule, Trigger, WorkflowRef
+from culture_rules.model.rule import TRIGGER_KINDS, Rule, Trigger, WorkflowRef
 from culture_rules.model.workflow import LOOP_KINDS, Edge, Output, Port, Step, Variable, Workflow
 
 __all__ = ["ValidationError", "validate", "validate_data"]
@@ -45,6 +45,7 @@ __all__ = ["ValidationError", "validate", "validate_data"]
 #: Pseudo step id an edge uses to read from the workflow's own inputs.
 INPUTS_NODE = "inputs"
 _RESERVED_STEP_IDS = frozenset({"inputs", "outputs", "vars", "steps", "trigger"})
+_PROBE_MODES = ("change", "condition")
 
 #: ``trigger`` alone or ``trigger.<f>...``; it is a reference when ``f`` is an envelope
 #: field (``trigger.sh`` is a file name, not a reference - see culture_rules.model.refs).
@@ -310,6 +311,48 @@ def _check_action(obj: Action, path: str, errors: Errors) -> None:
 
 def _check_trigger(obj: Trigger, path: str, errors: Errors) -> None:
     _nonempty(obj, ("kind",), path, errors)
+    if not obj.kind.strip():
+        return
+    if obj.kind not in TRIGGER_KINDS:
+        _err(
+            errors,
+            _join(path, "kind"),
+            "trigger_kind_unknown",
+            f"unknown trigger kind {obj.kind!r}; expected one of {', '.join(TRIGGER_KINDS)}",
+        )
+        return
+    params = obj.params if isinstance(obj.params, dict) else {}
+    pp = _join(path, "params")
+
+    def present(name: str) -> bool:
+        value = params.get(name)
+        return isinstance(value, str) and bool(value.strip())
+
+    if obj.kind == "event" and not present("type"):
+        _err(
+            errors,
+            _join(pp, "type"),
+            "trigger_type_required",
+            "an event trigger requires a non-empty params.type",
+        )
+    elif obj.kind == "schedule" and not present("cron"):
+        _err(errors, _join(pp, "cron"), "trigger_cron_required", "schedule requires params.cron")
+    elif obj.kind == "probe":
+        for name in ("actor", "command", "schedule", "mode"):
+            if not present(name):
+                _err(
+                    errors,
+                    _join(pp, name),
+                    "trigger_param_required",
+                    f"probe requires params.{name}",
+                )
+        if present("mode") and params["mode"] not in _PROBE_MODES:
+            _err(
+                errors,
+                _join(pp, "mode"),
+                "trigger_param_invalid",
+                "probe params.mode must be one of: change, condition",
+            )
 
 
 def _check_workflow_ref(obj: WorkflowRef, path: str, errors: Errors) -> None:

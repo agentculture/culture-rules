@@ -66,7 +66,12 @@ def test_rule_without_action_rejected_from_data() -> None:
 
 
 def test_rule_without_condition_and_workflow_validates() -> None:
-    rule = Rule(id="r", name="n", trigger=Trigger(kind="event"), action=Action(kind="noop"))
+    rule = Rule(
+        id="r",
+        name="n",
+        trigger=Trigger(kind="event", params={"type": "x.y"}),
+        action=Action(kind="noop"),
+    )
     assert rule.condition is None
     assert rule.workflow is None
     assert validate(rule) == []
