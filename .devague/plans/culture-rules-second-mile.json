@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-10-04T04:02:01Z",
-  "updated": "2026-10-04T05:47:33Z",
+  "updated": "2026-10-04T07:09:48Z",
   "targets": [
     {
       "id": "c1",
@@ -1642,6 +1642,14 @@
       "text": "Renaming or removing a workflow output in the IoEditor does not check rules that map workflow.outputs.<old> into their action params; those rules break silently until validation at save/run",
       "kind": "follow_up",
       "task_id": "t41",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r9",
+      "text": "After review-fix-2, a non-grant value under any secret-looking key is refused; _is_secret_key also classifies tokens_used/tokens/tokens_per_day/daily_tokens as secret, so numeric values under those keys in actor bodies are refused (no actor param uses them today)",
+      "kind": "follow_up",
+      "task_id": null,
       "resolved": false,
       "resolution": ""
     }
