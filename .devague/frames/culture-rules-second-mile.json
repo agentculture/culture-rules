@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-03T18:08:10Z",
-  "updated": "2026-10-04T04:36:16Z",
+  "updated": "2026-10-04T04:48:36Z",
   "claims": [
     {
       "id": "c1",
@@ -1530,6 +1530,28 @@
       "skipped_check": "confirm validate_rule_set does not call per-rule action-kind validation, or that it should",
       "refs": [
         "t4"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l7",
+      "code": "grader-unverified",
+      "what": "t21 reported scan-secrets clean but ran it before committing (scanner only reads tracked files); the merge gate caught 5 findings",
+      "skipped_check": "scan-secrets on the committed tree",
+      "refs": [
+        "t21"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l8",
+      "code": "control-absent",
+      "what": "t24 noticed the machine.command args list-vs-mapping conflict and worked around it instead of stopping per rule 5; corrected after the main agent's message",
+      "skipped_check": "stop and report a plan/reality conflict",
+      "refs": [
+        "t24"
       ],
       "origin": "llm",
       "status": "proposed"
