@@ -64,6 +64,8 @@ def render_text(result: Any) -> str:
         from culture_rules.cli._commands.overview import render_text as render  # noqa: PLC0415
 
         return render(result["subject"], result["sections"])
+    if isinstance(result, dict) and isinstance(result.get("lines"), list):
+        return "\n".join(str(x) for x in result["lines"])  # a verb that renders itself
     if isinstance(result, dict) and result.get("dry_run"):
         would = result.get("would", {})
         head = f"dry-run: {result.get('verb')} would {would.get('method')} {would.get('path')}"
