@@ -52,36 +52,40 @@ def test_base_url_configurable_and_content_truncated():
 
 def test_rate_limit_is_retryable_with_retry_after():
     t = FakeTransport(429, {"retry_after": 1.5}, {})
+    client = DiscordClient(TOKEN, transport=t)
     with pytest.raises(DiscordError) as ei:
-        DiscordClient(TOKEN, transport=t).post_message("1", "x")
-    assert ei.value.retryable and ei.value.retry_after == 1.5
+        client.post_message("1", "x")
+    assert ei.value.retryable
+    assert ei.value.retry_after == 1.5
 
 
 def test_4xx_not_retryable_5xx_and_network_retryable():
+    client = DiscordClient(TOKEN, transport=FakeTransport(403, {"message": "Missing Access"}))
     with pytest.raises(DiscordError) as ei:
-        DiscordClient(
-            TOKEN, transport=FakeTransport(403, {"message": "Missing Access"})
-        ).post_message("1", "x")
+        client.post_message("1", "x")
     assert not ei.value.retryable
+    client = DiscordClient(TOKEN, transport=FakeTransport(502, {}))
     with pytest.raises(DiscordError) as ei:
-        DiscordClient(TOKEN, transport=FakeTransport(502, {})).post_message("1", "x")
+        client.post_message("1", "x")
     assert ei.value.retryable
+    client = DiscordClient(TOKEN, transport=FakeTransport(exc=urllib.error.URLError("down")))
     with pytest.raises(DiscordError) as ei:
-        DiscordClient(
-            TOKEN, transport=FakeTransport(exc=urllib.error.URLError("down"))
-        ).post_message("1", "x")
+        client.post_message("1", "x")
     assert ei.value.retryable
 
 
 def test_errors_never_carry_token_or_payload():
     t = FakeTransport(400, {"message": "bad"})
+    client = DiscordClient(TOKEN, transport=t)
     with pytest.raises(DiscordError) as ei:
-        DiscordClient(TOKEN, transport=t).post_message("1", "private text")
-    assert TOKEN not in str(ei.value) and "private text" not in str(ei.value)
+        client.post_message("1", "private text")
+    assert TOKEN not in str(ei.value)
+    assert "private text" not in str(ei.value)
     assert TOKEN not in repr(DiscordClient(TOKEN, transport=t))
 
 
 def test_channel_id_must_be_numeric():
+    client = DiscordClient(TOKEN, transport=FakeTransport())
     with pytest.raises(DiscordError) as ei:
-        DiscordClient(TOKEN, transport=FakeTransport()).post_message("../x", "x")
+        client.post_message("../x", "x")
     assert not ei.value.retryable

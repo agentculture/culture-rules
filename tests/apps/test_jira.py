@@ -55,16 +55,19 @@ def test_api_base_gateway_with_bearer_when_no_email():
 
 def test_bad_key_refused_before_network():
     fake = Fake()
+    client = make(fake)
     with pytest.raises(JiraError) as exc:
-        make(fake).get_issue("../../etc")
-    assert exc.value.code == "bad_key" and fake.calls == []
+        client.get_issue("../../etc")
+    assert exc.value.code == "bad_key"
+    assert fake.calls == []
 
 
 def test_add_comment_posts_adf():
     fake = Fake(201, {"id": "55"})
     out = make(fake).add_comment("OPS-7", "hello")
     method, url, headers, body = fake.calls[0]
-    assert method == "POST" and url.endswith("/rest/api/3/issue/OPS-7/comment")
+    assert method == "POST"
+    assert url.endswith("/rest/api/3/issue/OPS-7/comment")
     assert headers["Content-Type"] == "application/json"
     assert json.loads(body) == {
         "body": {
@@ -80,21 +83,26 @@ def test_add_comment_posts_adf():
     "status,retryable", [(404, False), (401, False), (429, True), (500, True), (503, True)]
 )
 def test_http_errors(status, retryable):
+    client = make(Fake(status, {"errorMessages": ["x"]}))
     with pytest.raises(JiraError) as exc:
-        make(Fake(status, {"errorMessages": ["x"]})).get_issue("OPS-7")
-    assert exc.value.code == f"http_{status}" and exc.value.retryable is retryable
+        client.get_issue("OPS-7")
+    assert exc.value.code == f"http_{status}"
+    assert exc.value.retryable is retryable
 
 
 def test_network_error_is_retryable_and_text_withheld():
+    client = make(Fake(raises=OSError(f"boom {FAKE_TOKEN}")))
     with pytest.raises(JiraError) as exc:
-        make(Fake(raises=OSError(f"boom {FAKE_TOKEN}"))).get_issue("OPS-7")
-    assert exc.value.code == "network_error" and exc.value.retryable
+        client.get_issue("OPS-7")
+    assert exc.value.code == "network_error"
+    assert exc.value.retryable
     assert FAKE_TOKEN not in str(exc.value)
 
 
 def test_not_configured():
+    client = JiraClient(token=FAKE_TOKEN, transport=Fake())
     with pytest.raises(JiraError) as exc:
-        JiraClient(token=FAKE_TOKEN, transport=Fake()).get_issue("OPS-7")
+        client.get_issue("OPS-7")
     assert exc.value.code == "not_configured"
 
 

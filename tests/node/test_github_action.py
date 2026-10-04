@@ -104,8 +104,11 @@ def test_not_allowlisted_fails_without_network_or_secret(pem, caplog):
     fake = Fake()
     port, resolved = setup(pem, fake)
     res = port.invoke(params("evil/repo"), "k", DEADLINE, context=ctx())
-    assert res.outcome == "failed" and res.error == "repo_not_allowed" and not res.retryable
-    assert fake.calls == [] and resolved == []
+    assert res.outcome == "failed"
+    assert res.error == "repo_not_allowed"
+    assert not res.retryable
+    assert fake.calls == []
+    assert resolved == []
     assert FAKE_BEARER not in caplog.text
 
 
@@ -113,7 +116,8 @@ def test_missing_actor_fails(pem):
     port, _ = setup(pem, Fake())
     c = InvocationContext(run_id="r", step_id="s", kind="action", host="h", actor="nope")
     res = port.invoke(params(), "k", DEADLINE, context=c)
-    assert res.outcome == "failed" and not res.retryable
+    assert res.outcome == "failed"
+    assert not res.retryable
 
 
 def test_5xx_retryable_4xx_not(pem):
@@ -132,14 +136,16 @@ def test_secret_failure_is_nonretryable_and_quiet(pem, caplog):
 
     port = GitHubCommentPort(store, transport=Fake(), secrets=secrets)
     res = port.invoke(params(), "k", DEADLINE, context=ctx())
-    assert res.outcome == "failed" and not res.retryable
+    assert res.outcome == "failed"
+    assert not res.retryable
 
 
 def test_token_not_in_logs(pem, caplog):
     caplog.set_level(logging.DEBUG)
     port, _ = setup(pem, Fake())
     port.invoke(params(), "k", DEADLINE, context=ctx())
-    assert FAKE_BEARER not in caplog.text and "PRIVATE KEY" not in caplog.text
+    assert FAKE_BEARER not in caplog.text
+    assert "PRIVATE KEY" not in caplog.text
 
 
 def test_app_and_token_cached_across_invocations(pem):

@@ -44,7 +44,8 @@ def test_one_host_stopped_keeps_serving_and_actions_run_exactly_once(cluster):
     # the premise: thor really died holding an in-flight action, so reclaiming it is what is
     # under test. Survivors cannot take it before its lease lapses, so it is still held here.
     victim = cluster.host("thor")
-    assert victim.killed and victim.crashed_key is not None, "thor died without an action"
+    assert victim.killed, "thor died without an action"
+    assert victim.crashed_key is not None, "thor died without an action"
     performed = [e for e in cluster.ledger.log if e.key == victim.crashed_key]
     assert [e.host for e in performed] == ["thor"], "thor did not perform the side effect"
     orphan = cluster.store.get(RUNS_COLLECTION, performed[0].run_id)

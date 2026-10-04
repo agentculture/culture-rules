@@ -56,7 +56,8 @@ def test_discord_message_with_everyone_is_suppressed():
     res = action(store_with(), t).invoke(
         {"channel": "42", "text": "hey @everyone"}, "k", NOW, context=ctx("disc")
     )
-    assert res.outcome == "completed" and res.output == {"message_id": "m9"}
+    assert res.outcome == "completed"
+    assert res.output == {"message_id": "m9"}
     url, body, headers = t.calls[0]
     assert url.endswith("/channels/42/messages")
     assert body["allowed_mentions"] == {"parse": []}
@@ -71,7 +72,8 @@ def test_mesh_target_runs_culture_channel_message_argv():
     assert res.outcome == "completed"
     argv, kw = calls[0]
     assert argv == ["/usr/bin/culture", "channel", "message", "#ops", "hello mesh"]
-    assert isinstance(argv, list) and not kw.get("shell")
+    assert isinstance(argv, list)
+    assert not kw.get("shell")
 
 
 def test_mesh_failure_is_retryable_failed():
@@ -81,7 +83,8 @@ def test_mesh_failure_is_retryable_failed():
     res = action(MemoryStore(), run=boom).invoke(
         {"channel": "#c", "text": "t"}, "k", NOW, context=ctx()
     )
-    assert res.outcome == FAILED and res.retryable
+    assert res.outcome == FAILED
+    assert res.retryable
 
 
 def test_channel_allow_list_enforced_non_retryable():
@@ -89,7 +92,9 @@ def test_channel_allow_list_enforced_non_retryable():
     res = action(store_with(channels=["1"]), t).invoke(
         {"channel": "2", "text": "x"}, "k", NOW, context=ctx("disc")
     )
-    assert res.outcome == FAILED and not res.retryable and not t.calls
+    assert res.outcome == FAILED
+    assert not res.retryable
+    assert not t.calls
 
 
 def test_unknown_actor_and_non_discord_actor_fail_non_retryable():
@@ -99,20 +104,25 @@ def test_unknown_actor_and_non_discord_actor_fail_non_retryable():
         res = action(s, FakeTransport()).invoke(
             {"channel": "1", "text": "x"}, "k", NOW, context=ctx(actor)
         )
-        assert res.outcome == FAILED and not res.retryable
+        assert res.outcome == FAILED
+        assert not res.retryable
 
 
 def test_discord_429_and_4xx_classification_without_leaks():
     res = action(store_with(), FakeTransport(429, {"retry_after": 2})).invoke(
         {"channel": "1", "text": "secret body"}, "k", NOW, context=ctx("disc")
     )
-    assert res.outcome == FAILED and res.retryable
+    assert res.outcome == FAILED
+    assert res.retryable
     res = action(store_with(), FakeTransport(404, {})).invoke(
         {"channel": "1", "text": "secret body"}, "k", NOW, context=ctx("disc")
     )
-    assert not res.retryable and "secret body" not in res.error and "tok-xyz" not in res.error
+    assert not res.retryable
+    assert "secret body" not in res.error
+    assert "tok-xyz" not in res.error
 
 
 def test_missing_text_or_channel_non_retryable():
     res = action(MemoryStore()).invoke({"channel": "#c"}, "k", NOW, context=ctx())
-    assert res.outcome == FAILED and not res.retryable
+    assert res.outcome == FAILED
+    assert not res.retryable

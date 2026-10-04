@@ -137,7 +137,8 @@ def test_public_addresses_are_not_refused(address) -> None:
 def test_allowlisted_host_resolving_into_refused_range_makes_no_request(address) -> None:
     port, calls, _ = _port(_store(), resolved=[address])
     res = _invoke(port, _call())
-    assert res.outcome == FAILED and res.retryable is False
+    assert res.outcome == FAILED
+    assert res.retryable is False
     assert res.error.startswith("destination_refused")
     assert calls == []
 
@@ -145,7 +146,8 @@ def test_allowlisted_host_resolving_into_refused_range_makes_no_request(address)
 def test_any_refused_address_among_several_refuses() -> None:
     port, calls, _ = _port(_store(), resolved=[PUBLIC, "10.1.2.3"])
     res = _invoke(port, _call())
-    assert res.error.startswith("destination_refused") and calls == []
+    assert res.error.startswith("destination_refused")
+    assert calls == []
 
 
 @pytest.mark.parametrize(
@@ -163,7 +165,8 @@ def test_any_refused_address_among_several_refuses() -> None:
 def test_non_allowlisted_host_makes_no_request(url) -> None:
     port, calls, _ = _port(_store())
     res = _invoke(port, _call(url))
-    assert res.outcome == FAILED and res.retryable is False
+    assert res.outcome == FAILED
+    assert res.retryable is False
     assert res.error.startswith("destination_refused")
     assert calls == []
 
@@ -173,7 +176,8 @@ def test_no_allowlist_refuses_everything() -> None:
     store.put(ACTORS_COLLECTION, {"id": "svc", "name": "svc", "kind": "service", "params": {}})
     port, calls, _ = _port(store)
     res = _invoke(port, _call())
-    assert res.error.startswith("destination_refused") and calls == []
+    assert res.error.startswith("destination_refused")
+    assert calls == []
 
 
 def test_allowlisted_private_ip_literal_is_allowed_and_pinned() -> None:
@@ -191,10 +195,12 @@ def test_allowlisted_private_ip_literal_is_allowed_and_pinned() -> None:
 def test_hostname_resolving_to_private_ip_needs_that_exact_ip_allowlisted() -> None:
     port, calls, _ = _port(_store(allow=["intranet.example"]), resolved=["10.9.9.9"])
     res = _invoke(port, _call("https://intranet.example/x"))
-    assert res.error.startswith("destination_refused") and calls == []
+    assert res.error.startswith("destination_refused")
+    assert calls == []
     port, calls, _ = _port(_store(allow=["intranet.example", "10.9.9.9"]), resolved=["10.9.9.9"])
     res = _invoke(port, _call("https://intranet.example/x"))
-    assert res.outcome == COMPLETED and calls[0]["pinned"] == "10.9.9.9"
+    assert res.outcome == COMPLETED
+    assert calls[0]["pinned"] == "10.9.9.9"
 
 
 def test_public_host_is_pinned_to_the_vetted_address_and_keeps_host() -> None:
@@ -227,43 +233,54 @@ def test_public_host_is_pinned_to_the_vetted_address_and_keeps_host() -> None:
 def test_bad_scheme_or_url_is_refused_without_request(url) -> None:
     port, calls, _ = _port(_store())
     res = _invoke(port, _call(url))
-    assert res.outcome == FAILED and res.retryable is False and calls == []
+    assert res.outcome == FAILED
+    assert res.retryable is False
+    assert calls == []
 
 
 def test_bad_method_is_refused() -> None:
     port, calls, _ = _port(_store())
     res = _invoke(port, _call(method="CONNECT"))
-    assert res.outcome == FAILED and res.retryable is False and calls == []
+    assert res.outcome == FAILED
+    assert res.retryable is False
+    assert calls == []
 
 
 def test_redirect_from_opener_is_refused_non_retryable() -> None:
     port, calls, _ = _port(_store(), exc=http_mod.RedirectRefused(302))
     res = _invoke(port, _call())
-    assert res.outcome == FAILED and res.retryable is False
+    assert res.outcome == FAILED
+    assert res.retryable is False
     assert res.error.startswith("redirect_refused")
 
 
 def test_server_error_is_retryable_client_error_is_not() -> None:
     port, _, _ = _port(_store(), response=FakeResponse(503, b"down"))
     res = _invoke(port, _call())
-    assert res.outcome == FAILED and res.retryable is True and "503" in res.error
+    assert res.outcome == FAILED
+    assert res.retryable is True
+    assert "503" in res.error
     port, _, _ = _port(_store(), response=FakeResponse(404, b"secret body"))
     res = _invoke(port, _call())
-    assert res.outcome == FAILED and res.retryable is False and "404" in res.error
+    assert res.outcome == FAILED
+    assert res.retryable is False
+    assert "404" in res.error
     assert "secret body" not in res.error
 
 
 def test_network_error_is_retryable() -> None:
     port, _, _ = _port(_store(), exc=ConnectionResetError("boom"))
     res = _invoke(port, _call())
-    assert res.outcome == FAILED and res.retryable is True
+    assert res.outcome == FAILED
+    assert res.retryable is True
     assert res.error.startswith("network_error")
 
 
 def test_body_is_truncated() -> None:
     port, _, _ = _port(_store(), response=FakeResponse(200, b"x" * 100), max_body=10)
     res = _invoke(port, _call())
-    assert res.output["body"] == "x" * 10 and res.output["truncated"] is True
+    assert res.output["body"] == "x" * 10
+    assert res.output["truncated"] is True
 
 
 def test_grant_header_refs_are_resolved_and_redacted() -> None:
@@ -295,14 +312,18 @@ def test_unresolvable_secret_fails_without_request() -> None:
     store = _store(headers={"Authorization": "grant:MISSING"})
     port, calls, _ = _port(store, secret_runner=secret_runner)
     res = _invoke(port, _call())
-    assert res.outcome == FAILED and res.retryable is False and calls == []
+    assert res.outcome == FAILED
+    assert res.retryable is False
+    assert calls == []
     assert res.error.startswith("secret_unresolved")
 
 
 def test_host_header_override_is_refused() -> None:
     port, calls, _ = _port(_store())
     res = _invoke(port, _call(headers={"Host": "internal"}))
-    assert res.outcome == FAILED and res.retryable is False and calls == []
+    assert res.outcome == FAILED
+    assert res.retryable is False
+    assert calls == []
 
 
 def test_actor_missing_disabled_or_absent() -> None:
@@ -320,7 +341,8 @@ def test_actor_missing_disabled_or_absent() -> None:
 def test_expired_deadline_makes_no_request() -> None:
     port, calls, _ = _port(_store())
     res = _invoke(port, _call(), seconds=-1)
-    assert res.outcome == FAILED and calls == []
+    assert res.outcome == FAILED
+    assert calls == []
 
 
 def test_default_resolver_strips_scope_and_dedups(monkeypatch) -> None:
@@ -377,14 +399,16 @@ def test_real_transport_pins_vetted_ip_and_keeps_host_header(server) -> None:
     )
     res = _invoke(port, _call(f"http://pinned.invalid:{server}/hi"))
     assert res.outcome == COMPLETED, res.error
-    assert res.output["body"] == "hello" and res.output["status"] == 200
+    assert res.output["body"] == "hello"
+    assert res.output["status"] == 200
     assert _Handler.seen == [("/hi", f"pinned.invalid:{server}")]
 
 
 def test_real_transport_refuses_redirects_and_does_not_follow(server) -> None:
     port = HttpCallPort(_store(allow=["127.0.0.1"]))
     res = _invoke(port, _call(f"http://127.0.0.1:{server}/redirect"))
-    assert res.outcome == FAILED and res.retryable is False
+    assert res.outcome == FAILED
+    assert res.retryable is False
     assert res.error.startswith("redirect_refused")
     assert [p for p, _ in _Handler.seen] == ["/redirect"]
 

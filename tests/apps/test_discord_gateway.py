@@ -275,7 +275,9 @@ def test_logs_never_carry_the_token_or_content(rig, caplog):
 def test_intents_include_message_content():
     pytest.importorskip("discord")
     intents = dg.gateway_intents()
-    assert intents.message_content and intents.guilds and intents.guild_messages
+    assert intents.message_content
+    assert intents.guilds
+    assert intents.guild_messages
 
 
 def test_module_imports_without_the_discord_extra():
