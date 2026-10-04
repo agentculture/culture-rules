@@ -55,6 +55,13 @@ export interface Port {
   description?: string;
 }
 
+/** `RetryPolicy` (model/common.py): attempts >= 1, backoff_s >= 0, multiplier >= 1. */
+export interface Retry {
+  max_attempts?: number;
+  backoff_s?: number;
+  backoff_multiplier?: number;
+}
+
 export interface Step {
   id: string;
   name?: string;
@@ -64,7 +71,7 @@ export interface Step {
   outputs?: Port[];
   placement?: Placement | null;
   timeout_s?: number | null;
-  retry?: Record<string, unknown> | null;
+  retry?: Retry | null;
   config?: Record<string, unknown>;
   max_iterations?: number | null;
   body?: Step[];
@@ -128,6 +135,8 @@ export interface Actor {
   harness?: string | null;
   model?: string | null;
   capabilities?: string[];
+  /** Only the runner commands are read here (see api/actors.ts for the full shape). */
+  params?: { commands?: Record<string, { argv?: string[]; params?: Record<string, string> }> } & Record<string, unknown>;
   enabled?: boolean;
 }
 

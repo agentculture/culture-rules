@@ -759,7 +759,7 @@
 .wf-field select,
 .wf-ports select,
 .wf-ports input {
-  height: 40px;
+  height: 44px;
   padding: 0 10px;
   border-radius: 10px;
   border: 2px solid var(--wf-control-border);
@@ -792,13 +792,103 @@
 
 .wf-ports__row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 96px minmax(0, 1.3fr) 32px;
+  grid-template-columns: minmax(0, 1fr) 96px auto minmax(0, 1.3fr) 44px;
   gap: 6px;
   align-items: center;
 }
 
-.wf-ports__row:has(> :nth-child(3):last-child) {
-  grid-template-columns: minmax(0, 1fr) 96px 32px;
+.wf-ports__row:has(> :nth-child(4):last-child) {
+  grid-template-columns: minmax(0, 1fr) 96px auto 44px;
+}
+
+.wf-ports__required {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  font-size: 14px;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.wf-ports .wf-ports__required input {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  accent-color: var(--accent-strong);
+}
+
+.wf-advanced {
+  border: 2px solid var(--wf-control-border);
+  border-radius: 12px;
+  padding: 0 12px;
+}
+
+.wf-advanced__summary {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.wf-advanced__body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px 0 14px;
+}
+
+.wf-form__trio {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.wf-field textarea,
+.wf-json {
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 2px solid var(--wf-control-border);
+  background: var(--surface);
+  color: var(--ink);
+  font: 500 15px var(--font-body);
+  resize: vertical;
+}
+
+.wf-json {
+  font-family: var(--font-mono);
+  font-size: 14px;
+}
+
+.wf-field__hint {
+  margin: 4px 0 0;
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+
+.wf-pairs {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.wf-pairs__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) 44px;
+  gap: 6px;
+  align-items: center;
+}
+
+.wf-pairs input {
+  height: 44px;
+  padding: 0 10px;
+  border-radius: 10px;
+  border: 2px solid var(--wf-control-border);
+  background: var(--surface);
+  color: var(--ink);
+  font: 500 15px var(--font-body);
 }
 
 .wf-ports .wf-ports__name {
@@ -807,8 +897,8 @@
 }
 
 .wf-ports__remove {
-  width: 32px;
-  height: 32px;
+  width: 44px;
+  height: 44px;
   border: 0;
   border-radius: 8px;
   background: var(--danger-tint);
