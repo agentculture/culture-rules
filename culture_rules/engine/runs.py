@@ -89,6 +89,9 @@ Semantics
   string (``rules.yaml``, ``workflow.md``, ``trigger.sh``) is a literal.
   ``{"$ref": path}`` always references and ``{"$literal": value}`` never does (see
   :mod:`culture_rules.model.refs`). Workflow-input mappings resolve the same way.
+  The action's ``params.actor`` (a literal actor id, never resolved) is the invocation
+  context's ``actor``; a port answering ``failed`` with error :data:`ACTOR_UNAVAILABLE`
+  (that actor is unknown or disabled) fails the step at once with that code.
 * **Containment** (:class:`Containment`, every verb audited) - a global pause stops new
   runs and all new dispatch (accepted work may still complete); draining a machine stops
   new placements on it while its running steps finish; cancelling a run cancels every
@@ -142,6 +145,7 @@ from culture_rules.store.port import Document, StoragePort, StoreOps
 
 __all__ = [
     "ACTION_STEP",
+    "ACTOR_UNAVAILABLE",
     "BLOCKED_RETRY_S",
     "BLOCKED_TIMEOUT",
     "CONTROLS_COLLECTION",
@@ -174,6 +178,9 @@ WORKFLOWS_COLLECTION = "workflows"
 ACTORS_COLLECTION = "actors"
 
 ACTION_STEP = "@action"
+ACTOR_UNAVAILABLE = "actor_unavailable"
+"""Failure code (and the ``error`` an actor port returns) when the actor a rule action
+names in ``params.actor`` is unknown or disabled; the step fails without a retry."""
 """Step key of a rule's terminal action."""
 DEFAULT_TIMEOUT_S = 3600.0
 BLOCKED_RETRY_S = 5.0
@@ -911,7 +918,7 @@ class Executor:
             act = plan.rule.action
             config = {"kind": act.kind, "name": act.name, "params": dict(act.params)}
             return InvocationContext(
-                doc["id"], ACTION_STEP, "action", self.host, attempt, None, config
+                doc["id"], ACTION_STEP, "action", self.host, attempt, _action_actor(act), config
             )
         step = plan.step(st)
         actor = step.placement.actor if step.placement is not None else None
@@ -1062,6 +1069,9 @@ def _apply(
             next_attempt_at=_iso(now + timedelta(seconds=BLOCKED_RETRY_S)),
             error=_error("blocked", result.error or "actor is blocked"),
         )
+    elif result.error == ACTOR_UNAVAILABLE:
+        message = f"actor {_actor_of(plan, st)!r} is unknown or disabled"
+        st.update(status="failed", error=_error(ACTOR_UNAVAILABLE, message))
     else:
         _attempt_failed(
             plan,
@@ -1072,6 +1082,20 @@ def _apply(
             unknown=False,
             key_safe=key_safe,
         )
+
+
+def _actor_of(plan: _Plan, st: Mapping) -> str | None:
+    """The actor a step (or the rule action) names, for messages."""
+    if st["key"] == ACTION_STEP:
+        return _action_actor(plan.rule.action)
+    step = plan.step(st)
+    return step.placement.actor if step is not None and step.placement is not None else None
+
+
+def _action_actor(action: Action) -> str | None:
+    """The actor id a rule action names in ``params.actor`` (a literal, never resolved)."""
+    actor = action.params.get("actor")
+    return actor if isinstance(actor, str) and actor else None
 
 
 def _attempt_failed(

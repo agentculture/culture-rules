@@ -10,6 +10,13 @@
   :func:`~culture_rules.actors.limits.limits_from_config` from the actor's ``params``
   (``token_budget``, ``token_budget_warn_pct``, ``max_concurrency`` - the same field names
   as a culture.yaml agent entry).
+* A rule action (kind ``"action"``) that names an actor in ``params.actor`` runs through
+  the injected action port (``action:<kind>``, ``action``, ``"*"``) wrapped in a
+  LimitedActor with *that* actor's limits (cached per actor id, action kind and definition
+  revision); ``context.actor`` is the id, so the port loads the actor document itself.
+  A named actor that is missing or disabled gets a port answering a non-retryable
+  ``failed`` with error :data:`~culture_rules.engine.runs.ACTOR_UNAVAILABLE` - never a
+  fallback to another action port.
 * Otherwise the injected ``ports`` are used the way the executor routes a mapping:
   ``action:<kind>``, ``action``, then the step kind, then ``"*"``.
 
@@ -38,6 +45,7 @@ from culture_rules.engine.actorport import (
     InvocationContext,
     InvocationResult,
 )
+from culture_rules.engine.runs import ACTOR_UNAVAILABLE
 from culture_rules.model.actor import Actor
 from culture_rules.store.port import StoreOps
 
@@ -87,8 +95,14 @@ class ActorRouter:
         self._factories = dict(factories or {})
         self._clock = clock or (lambda: datetime.now(UTC))
         self._cache: dict[str, tuple[Any, LimitedActor]] = {}
+        self._action_cache: dict[tuple[str, str], tuple[Any, ActorPort, LimitedActor]] = {}
 
     def __call__(self, ctx: InvocationContext) -> ActorPort | None:
+        if ctx.kind == "action":
+            params = ctx.config.get("params") or {}
+            if params.get("actor") is not None:
+                return self._action_port(ctx, params["actor"])
+            return self._fallback(ctx)
         if ctx.actor:
             limited = self.limited(ctx.actor)
             if limited is not None:
@@ -101,6 +115,27 @@ class ActorRouter:
             kind = ctx.config.get("kind")
             return ports.get(f"action:{kind}") or ports.get("action") or ports.get("*")
         return ports.get(ctx.kind) or ports.get("*")
+
+    def _action_port(self, ctx: InvocationContext, actor_id: Any) -> ActorPort | None:
+        """The named actor's limited action port, or an ``actor_unavailable`` port."""
+        doc = self._store.get(ACTORS_COLLECTION, actor_id) if isinstance(actor_id, str) else None
+        actor = Actor.from_dict(doc, strict=False) if doc is not None else None
+        if actor is None or not actor.enabled:
+            return _Unavailable()
+        inner = self._fallback(ctx)
+        if inner is None:
+            return None  # the executor fails the step with no_actor_port
+        revision = (doc.get("updated_at"), doc.get("schema_version"))
+        key = (actor.id, str(ctx.config.get("kind")))
+        cached = self._action_cache.get(key)
+        if cached is not None and cached[0] == revision and cached[1] is inner:
+            return cached[2]
+        config = ActorConfig(key=actor.id, kind=actor.kind, extras=dict(actor.params))
+        limited = LimitedActor(
+            inner, actor.id, limits_from_config(config), self._store, clock=self._clock
+        )
+        self._action_cache[key] = (revision, inner, limited)
+        return limited
 
     def limited(self, actor_id: str) -> LimitedActor | None:
         """The cached LimitedActor for a stored, enabled actor with a known kind, else None."""
@@ -131,3 +166,19 @@ class ActorRouter:
             return False
         limited.release(key, tokens=tokens_of(result), completed=result.outcome == COMPLETED)
         return True
+
+
+class _Unavailable:
+    """The port for a rule action naming an unknown or disabled actor: always refuses."""
+
+    supports_idempotency_key = True
+
+    def invoke(
+        self,
+        input: Mapping[str, Any],
+        idempotency_key: str,
+        deadline: datetime,
+        *,
+        context: InvocationContext,
+    ) -> InvocationResult:
+        return InvocationResult.failed(ACTOR_UNAVAILABLE, retryable=False)

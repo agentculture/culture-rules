@@ -1029,3 +1029,22 @@ def test_a_blocked_step_out_of_attempts_fails_with_blocked_timeout(store, clock)
     assert st["error"]["code"] == "blocked_timeout"
     assert st["attempt"] == 2
     assert actor.effects_for("h") == 0
+
+
+def test_rule_action_context_carries_the_actor_named_in_params(store, actor, clock):
+    """t8: ``action.params.actor`` (a literal id, never resolved) is the context's actor."""
+    ex = make_executor(store, actor, clock)
+    act = Action(kind="noop", params={"actor": "box", "x": 1})
+    ex.start(rule(workflow_id=None, action=act), None)
+    ex.run_until_idle()
+    [call] = actor.calls_for(ACTION_STEP)
+    assert call[2].actor == "box"
+    assert call[2].config["params"]["actor"] == "box"
+
+
+def test_rule_action_context_has_no_actor_when_none_is_named(store, actor, clock):
+    ex = make_executor(store, actor, clock)
+    ex.start(rule(workflow_id=None, action=Action(kind="noop", params={"x": 1})), None)
+    ex.run_until_idle()
+    [call] = actor.calls_for(ACTION_STEP)
+    assert call[2].actor is None
