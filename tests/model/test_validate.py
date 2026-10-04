@@ -330,7 +330,7 @@ def test_step_with_bad_placement_reports_nested_path() -> None:
 
 
 def test_actor_six_kinds() -> None:
-    assert set(ACTOR_KINDS) == {"agent", "human", "service", "daemon", "runner", "robot"}
+    assert set(ACTOR_KINDS) == {"agent", "human", "service", "daemon", "runner", "robot", "app"}
 
 
 @pytest.mark.parametrize("kind", ["agent", "human", "service", "daemon", "runner", "robot"])

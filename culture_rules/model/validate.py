@@ -27,6 +27,7 @@ from culture_rules.model import serde
 from culture_rules.model.action import Action
 from culture_rules.model.action_kinds import ACTION_KINDS, is_lenient, param_type_ok, resolve_kind
 from culture_rules.model.actor import Actor
+from culture_rules.model.app_actor import app_param_errors
 from culture_rules.model.common import SCHEMA_VERSION, RetryPolicy
 from culture_rules.model.graph import find_cycle
 from culture_rules.model.machine import Machine
@@ -479,6 +480,9 @@ def _check_actor(obj: Actor, path: str, errors: Errors) -> None:
     _schema_version(obj.schema_version, _join(path, "schema_version"), errors)
     if obj.config_source == "repo" and not obj.repo:
         _err(errors, _join(path, "repo"), "required", "config_source 'repo' needs repo")
+    if obj.kind == "app":
+        for sub, code, message in app_param_errors(obj.params):
+            _err(errors, _join(_join(path, "params"), sub), code, message)
 
 
 def _check_machine(obj: Machine, path: str, errors: Errors) -> None:

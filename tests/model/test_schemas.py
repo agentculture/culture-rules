@@ -120,6 +120,7 @@ def test_actor_schema_kind_enum() -> None:
         "daemon",
         "runner",
         "robot",
+        "app",
     }
 
 
