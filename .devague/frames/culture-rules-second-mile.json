@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-03T18:08:10Z",
-  "updated": "2026-10-04T05:04:41Z",
+  "updated": "2026-10-04T05:40:46Z",
   "claims": [
     {
       "id": "c1",
@@ -1574,6 +1574,17 @@
       "skipped_check": "failing-test-first run",
       "refs": [
         "t20"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l11",
+      "code": "control-absent",
+      "what": "main agent's web-only merge gate did not run scan-secrets, so t38's flagged local (AppConfigForm.tsx:63) merged and broke the base until t45's py gate exposed it",
+      "skipped_check": "scan-secrets on every merge regardless of task kind",
+      "refs": [
+        "t38"
       ],
       "origin": "llm",
       "status": "proposed"
