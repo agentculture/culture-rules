@@ -321,20 +321,25 @@ class GatewaySupervisor:
 
     # ------------------------------------------------------------------ reconcile
 
+    def _listens_here(self, doc: Mapping[str, Any], params: Mapping[str, Any]) -> bool:
+        """An enabled Discord app declaring the gateway event, on this node's machine (its
+        bot token is injected on its own machine only)."""
+        if (doc.get("surface") or params.get("surface")) != "discord":
+            return False
+        if GATEWAY_EVENT not in (params.get("events") or ()):
+            return False
+        if doc.get("enabled", True) is False:
+            return False
+        machine = doc.get("machine")
+        return not (machine and self.host and machine != self.host)
+
     def _wanted(self) -> dict[str, Mapping[str, Any]]:
         out: dict[str, Mapping[str, Any]] = {}
         for doc in self._store.find(ACTORS_COLLECTION, {"kind": "app"}):
             params, connection = _view(doc)
             actor_id = doc.get("id")
-            if (doc.get("surface") or params.get("surface")) != "discord":
+            if not self._listens_here(doc, params):
                 continue
-            if GATEWAY_EVENT not in (params.get("events") or ()):
-                continue
-            if doc.get("enabled", True) is False:
-                continue
-            machine = doc.get("machine")
-            if machine and self.host and machine != self.host:
-                continue  # its bot token is injected on its own machine only
             if not secrets.is_secret_ref(connection.get("bot_token")):
                 if actor_id not in self._warned:
                     self._warned.add(actor_id)
