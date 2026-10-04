@@ -318,7 +318,7 @@ function FocusedRule({
       </div>
 
       {editing ? (
-        <RuleEditForm key={rule.id} rule={rule} machines={data.machines} actors={data.actors} onSave={data.save} onCancel={() => setEditing(false)} />
+        <RuleEditForm key={rule.id} rule={rule} machines={data.machines} workflows={data.workflows} actors={data.actors} onSave={data.save} onCancel={() => setEditing(false)} />
       ) : null}
 
       <AsksPanel asks={data.asks?.items ?? []} onAnswer={data.answer} />

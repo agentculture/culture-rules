@@ -146,6 +146,8 @@ export interface Rule {
 export interface Workflow {
   id: string;
   name: string;
+  /** Explicitly exported outputs; a rule's action may map `workflow.outputs.<name>`. */
+  outputs?: { name: string }[];
 }
 
 export interface Machine {

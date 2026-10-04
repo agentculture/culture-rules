@@ -331,3 +331,49 @@
     transition: border-color 0.15s ease, background-color 0.15s ease;
   }
 }
+
+/* ---- typed action picker (t37) ---- */
+.action-picker__field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.action-picker__map {
+  font-size: 15px;
+}
+
+.action-picker__required {
+  color: var(--ink-soft);
+}
+
+.action-picker__mapped,
+.action-picker__pair {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.rule-form .action-picker textarea {
+  min-height: 88px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 2px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  font: 400 17px var(--font-body);
+}
+
+.mapping-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 999px;
+  border: 2px solid var(--ink);
+  background: var(--surface);
+  color: var(--ink);
+  font: 600 15px var(--font-mono, ui-monospace, monospace);
+  overflow-wrap: anywhere;
+}
