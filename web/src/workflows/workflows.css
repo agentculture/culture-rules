@@ -1191,3 +1191,83 @@
     width: auto;
   }
 }
+
+/* Soft-deleted workflows (Show deleted) and the admin purge confirmation. */
+.wf-list__deleted {
+  margin-top: 12px;
+}
+
+.wf-list__deleted[aria-pressed="true"] {
+  border-color: var(--accent-strong);
+  font-weight: 600;
+}
+
+.wf-row.is-deleted {
+  flex-wrap: wrap;
+  opacity: 0.72;
+}
+
+.wf-row__gone {
+  display: flex;
+  flex: 1 1 140px;
+  flex-direction: column;
+  gap: 2px;
+  text-decoration: line-through;
+}
+
+.wf-row__gone .wf-tag,
+.wf-row__gone .wf-row__until {
+  text-decoration: none;
+}
+
+.wf-tag {
+  align-self: flex-start;
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--wf-control-border);
+  font: 600 13px var(--font-body);
+}
+
+.wf-row__until {
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.wf-button--danger {
+  border-color: var(--danger, var(--ink));
+  color: var(--danger, var(--ink));
+}
+
+.wf-purge {
+  margin-top: 12px;
+  padding: 16px;
+  border-radius: 16px;
+  border: 2px solid var(--danger, var(--ink));
+  background: var(--surface);
+}
+
+.wf-purge:focus-visible {
+  outline: 3px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.wf-purge__title {
+  margin: 0 0 8px;
+  font: 600 20px var(--font-display);
+}
+
+.wf-purge__text {
+  margin: 0 0 12px;
+  font-size: 16px;
+}
+
+.wf-purge__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.wf-purge__confirm:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

@@ -13,6 +13,7 @@ import {
   listActors,
   listWorkflowDefs,
   listWorkflowRuns,
+  purgeWorkflow,
   putWorkflowDef,
   restoreWorkflowDef,
   setWorkflowEnabled,
@@ -40,6 +41,8 @@ import {
 } from "../workflows/model";
 import PlacementEditor from "../workflows/PlacementEditor";
 import StepEditor from "../workflows/StepEditor";
+import { useWhoami } from "../hooks/useWhoami";
+import PurgePanel, { type PurgeState } from "../workflows/PurgePanel";
 import { WorkflowList } from "../workflows/WorkflowList";
 import WorkflowNameForm from "../workflows/WorkflowNameForm";
 import { ago, slugFor } from "./rules-view";
@@ -120,13 +123,13 @@ async function createWithFreeId(name: string, taken: string[], attempt = 0): Pro
 }
 
 /** Workflows, machines, actors and rules, re-read whenever `reload` moves. */
-function useWorkflowsLoad(reload: number) {
+function useWorkflowsLoad(reload: number, includeDeleted: boolean) {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   useEffect(() => {
     const controller = new AbortController();
     settleAll(
       [
-        listWorkflowDefs({}, controller.signal),
+        listWorkflowDefs({ includeDeleted }, controller.signal),
         listMachines(controller.signal),
         listActors(controller.signal),
         listRules(controller.signal),
@@ -157,7 +160,7 @@ function useWorkflowsLoad(reload: number) {
       },
     );
     return () => controller.abort();
-  }, [reload]);
+  }, [reload, includeDeleted]);
   return [loaded, setLoaded] as const;
 }
 
@@ -644,7 +647,11 @@ function WorkflowStage({
 export function Workflows() {
   const [params, setParams] = useSearchParams();
   const [reload, setReload] = useState(0);
-  const [loaded, setLoaded] = useWorkflowsLoad(reload);
+  const [showDeleted, setShowDeleted] = useState(false);
+  const [loaded, setLoaded] = useWorkflowsLoad(reload, showDeleted);
+  const whoami = useWhoami();
+  const isAdmin = whoami.status === "signed-in" && whoami.role === "admin";
+  const [purge, setPurge] = useState<PurgeState | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [selectedStep, setSelectedStep] = useState<string | null>(null);
   const [editing, setEditing] = useState<Editing>(null);
@@ -666,7 +673,9 @@ export function Workflows() {
   const [runsTick, setRunsTick] = useState(0);
   const [runTick, setRunTick] = useState(0);
 
-  const workflows = loaded?.workflows ?? [];
+  const allDefs = loaded?.workflows ?? [];
+  const workflows = useMemo(() => allDefs.filter((w) => !w.deleted_at), [allDefs]);
+  const deletedDefs = useMemo(() => allDefs.filter((w) => w.deleted_at), [allDefs]);
   const wantedId = params.get("id");
   const current = pickWorkflow(workflows, wantedId);
   const runId = params.get("run");
@@ -888,6 +897,7 @@ export function Workflows() {
       await deleteWorkflowDef(gone.id);
       setDeleted(gone);
       setStatus("");
+      if (showDeleted) setReload((n) => n + 1);
       setLoaded((l) => dropFrom(l, gone.id));
       setQuery({ id: next?.id ?? null, run: null });
     } catch (err) {
@@ -905,6 +915,42 @@ export function Workflows() {
       setQuery({ id: back.id, run: null });
     } catch (err) {
       setActionError(`Undo failed: ${message(err)}`);
+    }
+  };
+
+  const { pending: restorePending, run: runRestore } = usePending();
+  const restoreFromList = (wf: WorkflowDef) =>
+    runRestore(wf.id, async () => {
+      setActionError(null);
+      try {
+        const back = storedOr(await restoreWorkflowDef(wf.id), { ...wf, deleted_at: null });
+        setLoaded((l) => putIn(l, { ...back, deleted_at: null }));
+        setStatus(`Restored ${back.name}`);
+      } catch (err) {
+        setActionError(`Restore failed: ${message(err)}`);
+      }
+    });
+  const asApiError = (err: unknown) => (err instanceof ApiError ? err : new ApiError(0, "unknown", String(err)));
+  const startPurge = async (wf: WorkflowDef) => {
+    setPurge({ workflow: wf, checked: false, busy: false, error: null });
+    try {
+      await purgeWorkflow(wf.id, false);
+      setPurge((p) => (p?.workflow.id === wf.id ? { ...p, checked: true } : p));
+    } catch (err) {
+      setPurge((p) => (p?.workflow.id === wf.id ? { ...p, error: asApiError(err) } : p));
+    }
+  };
+  const confirmPurge = async () => {
+    if (!purge || !purge.checked || purge.busy) return;
+    const wf = purge.workflow;
+    setPurge({ ...purge, busy: true });
+    try {
+      await purgeWorkflow(wf.id, true);
+      setLoaded((l) => dropFrom(l, wf.id));
+      setPurge(null);
+      setStatus(`Purged ${wf.name}`);
+    } catch (err) {
+      setPurge((p) => (p?.workflow.id === wf.id ? { ...p, busy: false, error: asApiError(err) } : p));
     }
   };
 
@@ -965,6 +1011,20 @@ export function Workflows() {
         onNew={openNew}
         onOpen={openRow}
         newRef={newButton}
+        showDeleted={showDeleted}
+        onShowDeleted={(on) => {
+          setShowDeleted(on);
+          if (!on) setPurge(null);
+        }}
+        deleted={deletedDefs}
+        restoring={restorePending}
+        onRestore={(wf) => void restoreFromList(wf)}
+        onPurge={isAdmin ? (wf) => void startPurge(wf) : undefined}
+        purgePanel={
+          isAdmin && purge ? (
+            <PurgePanel state={purge} onConfirm={() => void confirmPurge()} onCancel={() => setPurge(null)} />
+          ) : null
+        }
       />
       <main id="main" className="wf-board" tabIndex={-1} data-live-flash={live.flash || undefined}>
         <BoardNotices
