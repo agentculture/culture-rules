@@ -301,11 +301,11 @@
     },
     "Trigger": {
       "type": "object",
-      "description": "What fires a rule: an event, a schedule, a manual run, ...",
+      "description": "What fires a rule. Kinds and their required params:",
       "properties": {
         "kind": {
           "type": "string",
-          "description": "Trigger type, e.g. event, schedule, manual"
+          "description": "Trigger kind: event, schedule, probe or manual"
         },
         "params": {
           "type": "object",
