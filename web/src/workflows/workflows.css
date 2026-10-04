@@ -1063,7 +1063,7 @@
 }
 
 .wf-run-form__field textarea {
-  font-family: var(--font-mono, monospace);
+  font-family: var(--font-mono);
   resize: vertical;
 }
 
@@ -1130,4 +1130,64 @@
   max-height: 240px;
   overflow: auto;
   font: 14px var(--font-mono, monospace);
+}
+
+/* ---------- the in / out nodes' editor and the empty canvas (t41) ---------- */
+
+.wf-canvas .react-flow__node-io {
+  cursor: pointer;
+}
+
+.wf-panel--io {
+  width: 480px;
+}
+
+.wf-io-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.wf-io-source {
+  width: 100%;
+  font-family: var(--font-mono);
+}
+
+/* Next-step guidance on a canvas with no steps yet, above the step `+`. */
+.wf-start {
+  position: absolute;
+  left: 50%;
+  bottom: 96px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  box-sizing: border-box;
+  max-width: calc(100% - 32px);
+  padding: 20px 24px;
+  border-radius: 20px;
+  border: 2px dashed var(--dash);
+  background: var(--surface);
+  transform: translateX(-50%);
+}
+
+.wf-start__lead {
+  margin: 0;
+  font-size: 17px;
+  color: var(--ink-soft);
+  text-align: center;
+}
+
+.wf-start__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+}
+
+@media (max-width: 720px) {
+  .wf-panel--io {
+    width: auto;
+  }
 }

@@ -23,11 +23,14 @@ import {
 import { setWorkflowsState } from "../workflows/agentState";
 import WorkflowCanvas, { type CanvasProps } from "../workflows/Canvas";
 import IoControls from "../workflows/IoControls";
+import IoEditor from "../workflows/IoEditor";
 import RunForm, { RunOutputs } from "../workflows/RunForm";
 import {
   addStep,
   connect,
   deleteStep,
+  INPUTS_NODE,
+  OUTPUTS_NODE,
   runOverlay,
   setPlacement,
   toDefinition,
@@ -65,7 +68,8 @@ const POLL_MS = 2000;
 const MAX_ID_TRIES = 20;
 const LIVE_COLLECTIONS = ["workflows", "runs"] as const;
 
-type Editing = { kind: "placement" | "step"; id: string; trigger: HTMLElement | null } | null;
+/** The open floating editor: a step's placement or fields, or the `in` / `out` node's. */
+type Editing = { kind: "placement" | "step" | "io"; id: string; trigger: HTMLElement | null } | null;
 type Draft = { id: string; def: WorkflowDef; dirty: boolean };
 type OverlaidRun = { id: string; doc: RunDoc | null; error: string | null };
 
@@ -360,7 +364,7 @@ function EmptyWorkflows({ onNew }: Readonly<{ onNew: () => void }>) {
   );
 }
 
-/** The floating editor for the step being edited: its placement, or its ports. */
+/** The floating editor for what is being edited: a step's placement or ports, or the in / out node. */
 function StepPanels({
   editing,
   workflow,
@@ -376,6 +380,18 @@ function StepPanels({
   onChange: (wf: WorkflowDef) => void;
   onClose: () => void;
 }>) {
+  if (editing?.kind === "io") {
+    return (
+      <IoEditor
+        key={editing.id}
+        workflow={workflow}
+        side={editing.id === INPUTS_NODE ? "in" : "out"}
+        returnFocus={editing.trigger}
+        onChange={onChange}
+        onClose={onClose}
+      />
+    );
+  }
   const step = editing ? (workflow.steps ?? []).find((s) => s.id === editing.id) : undefined;
   if (!editing || !step) return null;
   if (editing.kind === "placement") {
@@ -398,6 +414,7 @@ function StepPanels({
     <StepEditor
       workflow={workflow}
       stepId={step.id}
+      actors={loaded?.actors ?? []}
       returnFocus={editing.trigger}
       onChange={onChange}
       onClose={onClose}
@@ -524,7 +541,15 @@ function HeadActions({
 /** The canvas callbacks, passed through to WorkflowCanvas as they are. */
 type CanvasHandlers = Pick<
   CanvasProps,
-  "onSelect" | "onToggle" | "onPlacement" | "onEdit" | "onDelete" | "onAddStep" | "onConnect" | "onRefused"
+  | "onSelect"
+  | "onToggle"
+  | "onPlacement"
+  | "onEdit"
+  | "onDelete"
+  | "onAddStep"
+  | "onOpenIo"
+  | "onConnect"
+  | "onRefused"
 >;
 
 /** The open workflow's stage: the rename form (while renaming), the canvas and its step editors. */
@@ -749,7 +774,21 @@ export function Workflows() {
     [edit],
   );
   const onRefused = useCallback((reason: string) => setStatus(`Not wired: ${reason}`), []);
-  const onSelect = useCallback((id: string | null) => setSelectedStep(id), []);
+  const onSelect = useCallback((id: string | null) => {
+    setSelectedStep(id);
+    // Choosing a step puts the in / out editor away (a step's own editors stay as they were).
+    if (id !== null) setEditing((e) => (e?.kind === "io" ? null : e));
+  }, []);
+  // The in / out node is selected while its editor is open, so agent-state's `step` names it.
+  const onOpenIo = useCallback((id: typeof INPUTS_NODE | typeof OUTPUTS_NODE, trigger: HTMLElement | null) => {
+    setSelectedStep(id);
+    setEditing({ kind: "io", id, trigger });
+  }, []);
+  const closeEditor = () => {
+    // Closing the in / out editor lets go of its node, so Enter on it opens the editor again.
+    if (editing?.kind === "io") setSelectedStep((s) => (s === editing.id ? null : s));
+    setEditing(null);
+  };
   const onAddStep = useCallback(() => {
     if (!workflow) return;
     const res = addStep(workflow);
@@ -893,11 +932,11 @@ export function Workflows() {
         closeRename={closeRename}
         overlay={overlay}
         selected={selectedStep}
-        handlers={{ onSelect, onToggle, onPlacement, onEdit, onDelete, onAddStep, onConnect, onRefused }}
+        handlers={{ onSelect, onToggle, onPlacement, onEdit, onDelete, onAddStep, onOpenIo, onConnect, onRefused }}
         editing={editing}
         edit={edit}
         onChange={(wf) => setDraft((d) => editDraft(d, () => wf))}
-        onCloseEditor={() => setEditing(null)}
+        onCloseEditor={closeEditor}
         runForm={
           runFormOpen && current ? (
             <RunForm

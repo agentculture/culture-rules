@@ -26,6 +26,47 @@ export function cardHeight(ports: number, io = false): number {
   return io ? HEADER + 24 + PORT_ROW * ports : HEADER + TITLE + PORT_PAD + PORT_ROW * ports + RUN_ROW;
 }
 
+/** Each node's height on the board, from its port count — or its measured height, if taller. */
+export function nodeHeights(wf: WorkflowDef, measured: Readonly<Record<string, number>> = {}): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const n of graphOf(wf).nodes) out[n.id] = Math.max(n.height, measured[n.id] ?? 0);
+  return out;
+}
+
+/** Room above the top row for the selected step's toolbar. */
+export const CANVAS_TOP = 80;
+/** The board's canvas: 530 + 2 × 20 padding. */
+export const CANVAS_MIN_HEIGHT = 570;
+/** Room under the lowest card for the step `+` (48px, 24px off the bottom) and air. */
+const CANVAS_BOTTOM = 110;
+
+export interface Bounds {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+}
+
+/** The graph's extent in flow coordinates: every card's real width and height. */
+export function canvasBounds(positions: Positions, heights: Readonly<Record<string, number>>): Bounds {
+  const ids = Object.keys(positions);
+  if (ids.length === 0) return { minX: 0, maxX: CARD_WIDTH, minY: 0, maxY: 0 };
+  const xs = ids.map((id) => positions[id].x);
+  const ys = ids.map((id) => positions[id].y);
+  const bottoms = ids.map((id) => positions[id].y + (heights[id] ?? cardHeight(0)));
+  return {
+    minX: Math.min(...xs),
+    maxX: Math.max(...xs) + CARD_WIDTH,
+    minY: Math.min(...ys),
+    maxY: Math.max(...bottoms),
+  };
+}
+
+/** The canvas's pixel height: toolbar room, the graph, room for the `+`; never under the board's. */
+export function canvasHeight(bounds: Bounds): number {
+  return Math.max(CANVAS_MIN_HEIGHT, CANVAS_TOP + bounds.maxY - bounds.minY + CANVAS_BOTTOM);
+}
+
 function graphOf(wf: WorkflowDef) {
   const steps = wf.steps ?? [];
   const nodes = [
