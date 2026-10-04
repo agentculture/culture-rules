@@ -278,6 +278,51 @@ describe("editing a typed trigger", () => {
   });
 });
 
+describe("editing a typed action", () => {
+  it("preselects the kind and saves a mapped param as its reference string", async () => {
+    const user = userEvent.setup();
+    renderRules("/rules/triage-bugs");
+    await user.click(await screen.findByRole("button", { name: "Edit rule" }));
+    const form = screen.getByRole("form", { name: "Edit rule" });
+    expect(within(form).getByLabelText("What happens")).toHaveValue("github.comment");
+    // the trigger's fields are offered once its event type is known
+    await user.selectOptions(within(form).getByLabelText("Surface"), "github-app");
+    await user.selectOptions(within(form).getByLabelText("Event"), "github.pr.opened");
+    await user.selectOptions(within(form).getByLabelText("Actor"), "github-app");
+    await user.type(within(form).getByLabelText("Repo"), "acme/app");
+    await user.selectOptions(within(form).getByLabelText("Map Number"), "trigger.data.number");
+    await user.type(within(form).getByLabelText("Body"), "Triaged");
+    await user.click(within(form).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(sent("PUT", "/rules/triage-bugs")).toHaveLength(1));
+    expect(sent("PUT", "/rules/triage-bugs")[0].body).toMatchObject({
+      action: {
+        kind: "github.comment",
+        name: "Label",
+        params: { actor: "github-app", repo: "acme/app", number: "trigger.data.number", body: "Triaged" },
+      },
+    });
+    expect(await screen.findByText(/number → /)).toBeInTheDocument();
+  });
+
+  it("explains a missing required param in plain words and sends nothing", async () => {
+    const user = userEvent.setup();
+    renderRules("/rules/triage-bugs");
+    await user.click(await screen.findByRole("button", { name: "Edit rule" }));
+    const form = screen.getByRole("form", { name: "Edit rule" });
+    await user.selectOptions(within(form).getByLabelText("Actor"), "github-app");
+    await user.click(within(form).getByRole("button", { name: "Save" }));
+    expect(await within(form).findByRole("alert")).toHaveTextContent(/required|empty/i);
+    expect(sent("PUT", "/rules/triage-bugs")).toHaveLength(0);
+  });
+
+  it("offers workflow outputs on a rule that has a workflow", async () => {
+    renderRules();
+    await userEvent.click(await screen.findByRole("button", { name: "Edit rule" }));
+    const form = screen.getByRole("form", { name: "Edit rule" });
+    expect(within(form).getByTestId("chip-tag")).toHaveTextContent("workflow.outputs.image");
+  });
+});
+
 describe("create, progressively", () => {
   it("starts from 'New rule', asks 'When does this happen?' and creates a trigger-only rule", async () => {
     const user = userEvent.setup();

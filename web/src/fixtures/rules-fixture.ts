@@ -29,6 +29,7 @@ export const ACTORS: Actor[] = [
     params: {
       surface: "github",
       events: ["github.pr.opened", "github.push"],
+      actions: ["github.comment"],
       connection: {},
     },
   },
@@ -37,19 +38,29 @@ export const ACTORS: Actor[] = [
     name: "Discord",
     kind: "app",
     enabled: false,
-    params: { surface: "discord", events: ["discord.message.created"], connection: {} },
+    params: {
+      surface: "discord",
+      events: ["discord.message.created"],
+      actions: ["jira.comment"],
+      connection: {},
+    },
   },
   {
     id: "ci-runner",
     name: "CI runner",
     kind: "runner",
     enabled: true,
-    params: { commands: { "disk-free": { argv: ["df", "-h"] }, "gpu-temp": { argv: ["nvidia-smi"] } } },
+    params: {
+      commands: {
+        "disk-free": { argv: ["df", "-h"], params: { path: "string" } },
+        "gpu-temp": { argv: ["nvidia-smi"] },
+      },
+    },
   },
 ];
 
 export const WORKFLOWS: Workflow[] = [
-  { id: "build-image", name: "Build image" },
+  { id: "build-image", name: "Build image", outputs: [{ name: "image" }, { name: "digest" }] },
   { id: "review-pr", name: "Review PR" },
 ];
 
