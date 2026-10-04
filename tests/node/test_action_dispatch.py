@@ -27,7 +27,7 @@ from culture_rules.model.actor import Actor
 from culture_rules.model.common import RetryPolicy
 from culture_rules.node.actors import ACTORS_COLLECTION, ActorRouter
 from culture_rules.store.memory import MemoryStore
-from tests.engine.run_helpers import Clock, FakeActor, rule
+from tests.engine.run_helpers import Clock, FakeActor, enrol_online, machine, rule
 
 COMMANDS = {"say": {"argv": ["echo", "hello"], "params": {}, "timeout": 10}}
 
@@ -63,7 +63,9 @@ def clock() -> Clock:
 
 @pytest.fixture
 def store(clock) -> MemoryStore:
-    return MemoryStore(clock=clock)
+    s = MemoryStore(clock=clock)
+    enrol_online(s, clock, machine("spark"))  # the runner actor lives on spark
+    return s
 
 
 def put_runner(store: MemoryStore, *, enabled: bool = True, actor_id: str = "box") -> None:
@@ -204,3 +206,23 @@ def test_action_without_a_named_actor_keeps_the_action_kind_fallback(store, cloc
     assert ex.run(run["id"])["status"] == "succeeded"
     assert [c[2].actor for c in noop.calls] == [None]
     assert store.find(USAGE_COLLECTION) == []
+
+
+def test_an_action_through_an_actor_on_a_machine_runs_only_on_that_machine(store, clock):
+    """App credentials live on the actor's machine, so its actions must run there."""
+    enrol_online(store, clock, machine("thor"))
+    put_runner(store)  # box lives on spark
+    command = MachineCommandPort(store)
+
+    def node(host: str) -> Executor:
+        ports = {"action:machine.command": command, "*": FakeActor()}
+        return Executor(store, host, ActorRouter(store, ports=ports, clock=clock), clock=clock)
+
+    thor, spark = node("thor"), node("spark")
+    run = thor.start(command_rule(), None)
+    thor.run_until_idle()
+    assert command.contexts == []  # thor never dispatched it
+    spark.run_until_idle()
+    doc = spark.run(run["id"])
+    assert doc["status"] == "succeeded"
+    assert [c.host for c in command.contexts] == ["spark"]

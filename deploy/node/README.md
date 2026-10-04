@@ -32,8 +32,9 @@ before the first start.
 |---|---|
 | `--node-name NAME` | required (or env `NODE_NAME`); the machine name, for example `spark`, `thor`, `orin`, `spark2` |
 | `--wheel PATH` | the wheel; default is the `culture_rules-*.whl` beside the script |
-| `--ca-file PATH` | the Mongo TLS CA; default is `ca.pem` beside the script, if present |
+| `--ca-file PATH` | the Mongo TLS CA; default is `ca.pem` beside the script, if present; an upgrade without either keeps the installed `mongo-ca.pem` |
 | `--mongo-secret NAME` | grant secret holding the URI (default `RULES_MONGO_URI`) |
+| `--secret NAME` | repeatable; a grant secret an app actor on this machine references, injected as `CULTURE_RULES_SECRET_<NAME>` so a `--hidden` secret works |
 | `--extras LIST` | default `store,events,github,discord` |
 | `--wheelhouse DIR` | offline install: `--no-index --find-links DIR` |
 | `--events-host HOST`, `--events-port PORT` | optional `EVENTS_BROKER_*` lines in `node.env` |

@@ -59,7 +59,7 @@ class Grant:
 
 
 class Rig:
-    def __init__(self, *, keeper=None, available=True, store=None) -> None:
+    def __init__(self, *, keeper=None, available=True, store=None, host=None) -> None:
         self.clock = Clock()
         self.store = store or MemoryStore(clock=self.clock)
         self.hub = FakeHub()
@@ -71,6 +71,7 @@ class Rig:
             resolve_secret=partial(secrets.resolve, runner=self.grant),
             clock=self.clock,
             options=dg.GatewayOptions(ttl=TTL, keeper=keeper, backoff=0.01, max_backoff=0.02),
+            host=host,
         )
 
     def events(self):
@@ -290,3 +291,14 @@ def test_module_imports_without_the_discord_extra():
         [sys.executable, "-c", code], capture_output=True, text=True, cwd=ROOT, check=False
     )
     assert proc.returncode == 0, proc.stderr
+
+
+def test_an_actor_on_another_machine_is_not_listened_for(rig):
+    """Its bot token is injected only on its own machine, so only that node takes the lease."""
+    r = rig(host="spark")
+    r.store.put("actors", {**discord_actor(), "machine": "thor"})
+    assert r.sup.tick() == []
+    assert r.hub.connects == []
+    r.store.put("actors", {**discord_actor(), "machine": "spark"})
+    r.sup.tick()
+    assert eventually(lambda: len(r.hub.connects) == 1)

@@ -197,3 +197,23 @@ def test_non_string_value_under_secret_key_is_refused(params):
 
 def test_unset_secret_values_stay_tolerated():
     assert_refs_only({"token": None, "api_key": "", "connection": {"bot_token": "grant:D"}})
+
+
+def test_resolve_prefers_a_value_grant_injected_into_the_environment(monkeypatch):
+    """A hidden secret cannot be read with ``grant get``; the service unit injects it instead."""
+
+    def no_grant(argv, **kw):
+        raise AssertionError("grant get must not run when the value was injected")
+
+    monkeypatch.setenv("CULTURE_RULES_SECRET_RULES_GH_KEY", VALUE)
+    assert resolve("grant:RULES_GH_KEY", _run=no_grant) == VALUE
+
+
+def test_the_injected_variable_name_is_derived_from_the_grant_name():
+    assert secrets.injected_env_var("RULES_GH_KEY") == "CULTURE_RULES_SECRET_RULES_GH_KEY"
+    assert secrets.injected_env_var("team/gh-key.v2") == "CULTURE_RULES_SECRET_TEAM_GH_KEY_V2"
+
+
+def test_an_empty_injected_value_falls_back_to_grant_get(monkeypatch):
+    monkeypatch.setenv("CULTURE_RULES_SECRET_GH_TOKEN", "")
+    assert resolve("grant:GH_TOKEN", _run=lambda argv, **kw: SimpleNamespace(stdout="v\n")) == "v"

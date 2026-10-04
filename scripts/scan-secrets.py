@@ -86,6 +86,7 @@ _PLACEHOLDER_RE = re.compile(
         \$\{?\{?          # $VAR, ${VAR}, ${{ ... }}
         |secrets\.        # secrets.FOO (bare, inside an already-stripped expr)
         |github\.         # github.token
+        |grant:[A-Za-z0-9][A-Za-z0-9._/-]*$   # grant:NAME, a reference into the secret store
         |<.*>?$           # <your-key-here>
         |\.\.\.$          # literal ellipsis placeholder
     )""",

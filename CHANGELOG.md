@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.3] - 2026-10-05
+
+### Added
+
+- `deploy/node/install.sh --secret NAME` (repeatable) injects grant secrets into the node unit
+- `docs/actors/`: one setup guide per app actor (GitHub, Discord, Jira): creating or inviting the app, sealing secrets, injecting them, the actor definition, events, verification and troubleshooting
+- Ops doc: injected app secrets, actor pinning, the two path-scoped Access bypass apps, the Jira gateway base
+
+### Fixed
+
+- App secrets work when sealed `--hidden`: a `grant:NAME` reference resolves first to `CULTURE_RULES_SECRET_<NAME>`, which the service unit injects with `grant run --inject` (as it already does for the Mongo URI); `grant get` refuses hidden secrets, so GitHub, Discord and Jira app actors could not authenticate
+- A rule action through an actor that lives on a machine runs on that machine (where its secrets are injected), and only that machine's node holds the actor's Discord gateway lease
+- `deploy/node/install.sh` keeps the installed MongoDB CA on an upgrade without `--ca-file` (it used to drop the line from node.env)
+- CLI: a server-side dry-run (the migrations) no longer prints `would None None`
+
 ## [0.11.2] - 2026-10-04
 
 ### Fixed

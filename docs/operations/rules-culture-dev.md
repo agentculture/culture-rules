@@ -213,12 +213,13 @@ listener:
 | `/hooks/jira` | Jira system webhook |
 
 GitHub and Jira cannot sign in through Access, so each path needs its own
-path-scoped Access policy on the existing `rules.culture.dev` application:
-**Action: Bypass**, **Include: Everyone**, restricted to that exact path. Create
-two policies, one per path, and never widen them to `/hooks/*` or `/`. This is
-the precedent in `culture-nodes/docs/operations/nodes-culture-dev.md` ("Jira
-system webhook and path-scoped Access Bypass"). The Cloudflare change is the
-operator's to apply; the build does not.
+**Bypass** (**Include: Everyone**). Access policies carry no path, so each one
+is a separate self-hosted Access application whose domain is the exact path,
+`rules.culture.dev/hooks/github` and `rules.culture.dev/hooks/jira`; the more
+specific path wins over the `rules.culture.dev` application. Never widen them to
+`/hooks/*` or `/`. Both exist (created through the Cloudflare API, 2026-10-05):
+an unsigned `POST` to either path reaches the API and answers `401`, while any
+other path still redirects to the Access login.
 
 The app authenticates every delivery itself, so Bypass does not mean open:
 
@@ -229,7 +230,30 @@ The app authenticates every delivery itself, so Bypass does not mean open:
 
 A delivery for a disabled app actor answers `202` and is dropped.
 
+## App secrets inside the services (hidden `grant` secrets)
+
+Some secrets are used inside the API and node processes, not by a subprocess:
+the webhook HMAC secrets, the GitHub App private key (JWT signing), the Discord
+bot token and the Jira token. `grant get` refuses a `--hidden` secret by design,
+so the service unit injects each one when it starts, exactly as it injects the
+Mongo URI: `--inject CULTURE_RULES_SECRET_<NAME>=<NAME>`, where `<NAME>` is
+the grant name upper-cased with every other character turned into `_`. A
+`grant:<NAME>` reference resolves to that variable first, and to `grant get`
+only when it is unset.
+
+- **API** (the serving host): inject the webhook secrets and the Jira token,
+  which the receivers use to verify deliveries and refetch issues.
+- **Engine node**: `deploy/node/install.sh --secret NAME` (repeatable) adds the
+  injections to the node unit.
+- **Pin each app actor to the machine that holds its secrets** (`machine` on
+  the actor). A rule action naming that actor in `params.actor` then runs on
+  that machine, and only that machine's node holds the Discord gateway lease.
+  On rules.culture.dev the app actors live on `spark`.
+
 ## GitHub App (dedicated to culture-rules)
+
+The full setup, invite and troubleshooting guide is
+[`docs/actors/github.md`](../actors/github.md); this section is the summary.
 
 Hand-turns, operator only; secrets go to `grant`, never into the repo.
 
@@ -257,6 +281,9 @@ Hand-turns, operator only; secrets go to `grant`, never into the repo.
 
 ## Discord bot
 
+The full setup, invite and troubleshooting guide is
+[`docs/actors/discord.md`](../actors/discord.md); this section is the summary.
+
 1. Create a Discord application and bot. Enable the privileged **MESSAGE
    CONTENT** intent. Invite it with permission to read and send messages in the
    target channels.
@@ -272,6 +299,9 @@ Exactly one node holds the gateway connection, through the named lease
 
 ## Jira webhook and service account
 
+The full setup, invite and troubleshooting guide is
+[`docs/actors/jira.md`](../actors/jira.md); this section is the summary.
+
 1. Seal the service-account token (`JIRA_SERVICE_ACCOUNT_TOKEN` already exists
    in `grant`) and a webhook token: `grant set RULES_JIRA_WEBHOOK_TOKEN - --hidden`.
 2. In Jira, Settings, System, WebHooks, register
@@ -280,7 +310,11 @@ Exactly one node holds the gateway connection, through the named lease
 3. Create an `app` actor with `surface = "jira"` and
    `connection = {site, email, token, webhook_token, projects: [...]}`, where
    `token` is the reference `grant:JIRA_SERVICE_ACCOUNT_TOKEN` and
-   `webhook_token` is `grant:RULES_JIRA_WEBHOOK_TOKEN`.
+   `webhook_token` is `grant:RULES_JIRA_WEBHOOK_TOKEN`. A scoped service-account
+   token works only through the Atlassian gateway: set `api_base` to
+   `https://api.atlassian.com/ex/jira/<cloudId>` (the cloud id is served at
+   `https://<site>/_edge/tenant_info`). Leave `projects` unset to accept every
+   project, including ones created later.
 
 ## Kill switches
 

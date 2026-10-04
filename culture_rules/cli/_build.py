@@ -59,6 +59,13 @@ def _add_param(p: argparse.ArgumentParser, param: Param) -> None:
     p.add_argument(_flag(param.name), **kw)
 
 
+def _dry_run_head(result: dict) -> str:
+    would = result.get("would") or {}
+    if would.get("method"):
+        return f"dry-run: {result.get('verb')} would {would['method']} {would.get('path')}"
+    return f"dry-run: {result.get('verb')} (nothing was changed)"  # a server-side dry run
+
+
 def render_text(result: Any) -> str:
     if isinstance(result, dict) and "sections" in result and "subject" in result:
         from culture_rules.cli._commands.overview import render_text as render  # noqa: PLC0415
@@ -67,9 +74,12 @@ def render_text(result: Any) -> str:
     if isinstance(result, dict) and isinstance(result.get("lines"), list):
         return "\n".join(str(x) for x in result["lines"])  # a verb that renders itself
     if isinstance(result, dict) and result.get("dry_run"):
-        would = result.get("would", {})
-        head = f"dry-run: {result.get('verb')} would {would.get('method')} {would.get('path')}"
-        return head + "\n" + json.dumps(result, indent=2) + "\nre-run with --apply to commit"
+        return (
+            _dry_run_head(result)
+            + "\n"
+            + json.dumps(result, indent=2)
+            + "\nre-run with --apply to commit"
+        )
     if isinstance(result, dict) and isinstance(result.get("items"), list):
         lines = [f"{len(result['items'])} item(s)"]
         for item in result["items"]:
