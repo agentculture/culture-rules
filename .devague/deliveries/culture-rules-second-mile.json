@@ -2,7 +2,7 @@
   "plan_slug": "culture-rules-second-mile",
   "schema_version": 2,
   "created": "2026-10-04T04:55:50Z",
-  "updated": "2026-10-04T04:55:50Z",
+  "updated": "2026-10-04T05:36:01Z",
   "deviations": [
     {
       "id": "d1",
@@ -30,6 +30,20 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 2
+    },
+    {
+      "id": "d3",
+      "what": "the trigger picker offers app actors (with declared events) as event surfaces, not machines; machine signals are reached through probe triggers (runner actor command on that machine)",
+      "task_ref": "t36",
+      "reason": "the Machine model declares no events, so a machine cannot be an event surface without a model change; probe triggers already cover machine-side signals",
+      "affects": [
+        "c4",
+        "h3"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 3
     }
   ],
   "evidence": [],
