@@ -76,41 +76,48 @@ class NamedLease:
         expires = now + self.ttl
 
         def body(tx: StoreOps) -> datetime | None:
-            doc = tx.get(LEASES_COLLECTION, self.name)
-            stamp = {"expires_at": expires.isoformat()}
-            if doc is None:
-                changes = {
-                    **stamp,
-                    "holder": self.holder,
-                    "epoch": 1,
-                    "acquired_at": now.isoformat(),
-                }
-                res = tx.update_if(
-                    LEASES_COLLECTION, self.name, {"holder": None}, changes, upsert=True
-                )
-                return expires if res.won else None
-            current, epoch = doc.get("holder"), doc.get("epoch")
-            expected = {"holder": current, "epoch": epoch}
-            if current == self.holder:
-                res = tx.update_if(LEASES_COLLECTION, self.name, expected, stamp)
-                return expires if res.won else None
-            lapsed = _parse(doc.get("expires_at"))
-            if current is not None and lapsed is not None and lapsed > now:
-                return None  # held by someone else, still live
-            next_epoch = (epoch if isinstance(epoch, int) else 0) + 1
-            changes = {
-                **stamp,
-                "holder": self.holder,
-                "epoch": next_epoch,
-                "acquired_at": now.isoformat(),
-            }
-            res = tx.update_if(LEASES_COLLECTION, self.name, expected, changes)
-            return expires if res.won else None
+            return self._acquire_in(tx, now, expires)
 
         try:
             return run_transaction(self._store, body)
         except DuplicateKeyError:  # a racing first acquirer created it
             return None
+
+    def _taking(self, expires: datetime, now: datetime, epoch: int) -> dict[str, object]:
+        """The changes that make this identity the holder at ``epoch``."""
+        return {
+            "expires_at": expires.isoformat(),
+            "holder": self.holder,
+            "epoch": epoch,
+            "acquired_at": now.isoformat(),
+        }
+
+    def _acquire_in(self, tx: StoreOps, now: datetime, expires: datetime) -> datetime | None:
+        """One transaction attempt of :meth:`acquire`."""
+        doc = tx.get(LEASES_COLLECTION, self.name)
+        if doc is None:
+            res = tx.update_if(
+                LEASES_COLLECTION,
+                self.name,
+                {"holder": None},
+                self._taking(expires, now, 1),
+                upsert=True,
+            )
+            return expires if res.won else None
+        current, epoch = doc.get("holder"), doc.get("epoch")
+        expected = {"holder": current, "epoch": epoch}
+        if current == self.holder:
+            stamp = {"expires_at": expires.isoformat()}
+            res = tx.update_if(LEASES_COLLECTION, self.name, expected, stamp)
+            return expires if res.won else None
+        lapsed = _parse(doc.get("expires_at"))
+        if current is not None and lapsed is not None and lapsed > now:
+            return None  # held by someone else, still live
+        next_epoch = (epoch if isinstance(epoch, int) else 0) + 1
+        res = tx.update_if(
+            LEASES_COLLECTION, self.name, expected, self._taking(expires, now, next_epoch)
+        )
+        return expires if res.won else None
 
     def release(self) -> bool:
         """Free the lease if this identity holds it; return whether it did."""

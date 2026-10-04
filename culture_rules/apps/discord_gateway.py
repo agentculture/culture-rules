@@ -101,7 +101,7 @@ class Gateway(Protocol):
 
 def gateway_intents() -> Any:
     """discord.py intents: the defaults (guilds, guild messages) plus message content."""
-    import discord  # noqa: PLC0415 - the optional discord extra, imported lazily
+    import discord  # noqa: PLC0415 - the optional discord extra (imported lazily)
 
     intents = discord.Intents.default()
     intents.guilds = True
@@ -149,7 +149,7 @@ class DiscordPyGateway:
     def connect(self, token: str, on_message: OnMessage, should_stop: Callable[[], bool]) -> None:
         import asyncio  # noqa: PLC0415
 
-        import discord  # noqa: PLC0415 - the optional discord extra, imported lazily
+        import discord  # noqa: PLC0415 - the optional discord extra (imported lazily)
 
         intents = gateway_intents()
         poll = self._poll
@@ -304,8 +304,8 @@ class GatewaySupervisor:
 
     def shutdown(self) -> None:
         """Stop every listener and release every lease this node holds."""
-        for actor_id in list(self._sessions):
-            self._end(actor_id, release=True)
+        while self._sessions:  # _end pops each session, so drain until empty
+            self._end(next(iter(self._sessions)), release=True)
 
     def threads_alive(self) -> bool:
         """Whether any listener or keeper thread is still running (tests: no leaks)."""
@@ -516,7 +516,7 @@ class GatewaySupervisor:
                     author=author,
                 )
                 return
-            except Exception as exc:  # noqa: BLE001 - retried, then dropped (type logged)
+            except Exception as exc:  # noqa: BLE001 - retried then dropped (type logged)
                 log.warning(
                     "discord gateway %s: writing a message failed (%s), attempt %d",
                     session.actor_id,

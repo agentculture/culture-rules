@@ -24,7 +24,8 @@ A :class:`Node` on host ``H`` does, every cycle (:meth:`Node.run_once`):
    lease ``discord-gateway:<actor id>`` and keeps a listener thread connected while this
    node holds it (one connection mesh-wide); messages land through the webhook sink. The
    listeners stop when :meth:`Node.run` returns (:meth:`Node.close`). Off with
-   ``listen_gateways=False`` (``node run --once`` never opens a long-lived connection);
+   ``NodeOptions(listen_gateways=False)`` (``node run --once`` never opens a long-lived
+   connection);
 4. **evaluate** - polls the per-host consumer for rules placed on ``H`` and the shared
    consumer for unplaced rules (:mod:`culture_rules.node.firing`), committing firing
    intents; a rule placed on ``H`` while ``H`` is drained/offline keeps its event; then
@@ -94,7 +95,7 @@ from culture_rules.node.schedule import Scheduler
 from culture_rules.ops.logs import log_context
 from culture_rules.store.port import Change, Document, StoragePort
 
-__all__ = ["NODE_COLLECTIONS", "CycleReport", "HeartbeatOptions", "Node"]
+__all__ = ["NODE_COLLECTIONS", "CycleReport", "HeartbeatOptions", "Node", "NodeOptions"]
 
 log = logging.getLogger("culture_rules.node")
 
@@ -132,6 +133,20 @@ class HeartbeatOptions:
     """Published on the heartbeat (``None``: the installed version)."""
     beat_every: float = HEARTBEAT_INTERVAL_S
     """Seconds between heartbeats after the first."""
+
+
+@dataclass(frozen=True, kw_only=True)
+class NodeOptions:
+    """How a :class:`Node` runs its loop (the defaults suit a long-running daemon)."""
+
+    lease: timedelta = DEFAULT_LEASE
+    """The run/step claim lease the executor takes."""
+    max_ticks: int = DEFAULT_MAX_TICKS
+    """Executor ticks per cycle at most."""
+    probe_runner: CommandRunner | None = None
+    """Runs probe commands (``None``: the default runner; inject a fake in tests)."""
+    listen_gateways: bool = True
+    """Whether the discord gateway stage opens listeners (``node run --once`` does not)."""
 
 
 @dataclass
@@ -185,16 +200,13 @@ class Node:
         adapters: Mapping[str, AdapterFactory] | None = None,
         event_source: EventSource | None = None,
         clock: Callable[[], datetime] | None = None,
-        lease: timedelta = DEFAULT_LEASE,
         heartbeat_options: HeartbeatOptions | None = None,
         reporter: RunReporter | None = None,
         on_evaluated: Callable[[str, str], None] | None = None,
-        probe_runner: CommandRunner | None = None,
-        max_ticks: int = DEFAULT_MAX_TICKS,
         discord_gateway: Gateway | None = None,
         resolve_secret: Callable[[str], str] | None = None,
         gateway_options: GatewayOptions | None = None,
-        listen_gateways: bool = True,
+        options: NodeOptions | None = None,
     ) -> None:
         if not isinstance(host, str) or not host:
             raise ValueError("host must be a non-empty string")
@@ -204,6 +216,7 @@ class Node:
         ensure = getattr(store, "ensure_collections", None)
         if callable(ensure):
             ensure(*NODE_COLLECTIONS)
+        options = options or NodeOptions()
         self._beat_options = heartbeat_options or HeartbeatOptions()
         self.router = ActorRouter(store, ports=actors, factories=adapters, clock=self._clock)
         self.executor = Executor(
@@ -211,7 +224,7 @@ class Node:
             host,
             self.router,
             clock=self._clock,
-            lease=lease,
+            lease=options.lease,
             # a holder is offline once it missed 3 of *this cluster's* beats
             holder_offline_after=timedelta(
                 seconds=MISSED_BEATS_OFFLINE * self._beat_options.beat_every
@@ -219,7 +232,9 @@ class Node:
         )
         self.firing = RuleFiring(store, host, self.executor, clock=self._clock)
         self.scheduler = Scheduler(store, host, self.firing, clock=self._clock)
-        self.prober = ProbeTrigger(store, host, self.firing, clock=self._clock, runner=probe_runner)
+        self.prober = ProbeTrigger(
+            store, host, self.firing, clock=self._clock, runner=options.probe_runner
+        )
         self.ingest = (
             EventIngest(store, event_source, host=host, clock=self._clock)
             if event_source is not None
@@ -233,13 +248,13 @@ class Node:
             clock=self._clock,
             options=gateway_options,
         )
-        self._listen_gateways = listen_gateways
+        self._listen_gateways = options.listen_gateways
         self.heartbeat: HeartbeatPublisher | None = None
         self._last_beat: datetime | None = None
         self._reporter = reporter
         self._report_token: str | None = None
         self._on_evaluated = on_evaluated
-        self._max_ticks = max_ticks
+        self._max_ticks = options.max_ticks
         self._stop = threading.Event()
         self.errors: list[Exception] = []
         self.started = False

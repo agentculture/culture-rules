@@ -170,7 +170,50 @@ def _error(status: int, error: str, **extra: Any) -> tuple[int, dict]:
     return status, {"error": error, **extra}
 
 
-def handle(  # noqa: PLR0911, C901 - a linear verify -> parse -> fetch -> write pipeline
+def _authenticated_actor(
+    store: StoragePort, secrets: Resolver, body: bytes, signature: str, token: str
+) -> Mapping[str, Any] | None:
+    """The first Jira actor whose connection verifies this delivery."""
+    for candidate in _jira_actors(store):
+        connection = (candidate.get("params") or {}).get("connection") or {}
+        if _verifies(connection, secrets, body, signature, token):
+            return candidate
+    return None
+
+
+def _json_object(body: bytes) -> Mapping[str, Any] | None:
+    try:
+        payload = json.loads(body)
+    except ValueError:
+        return None
+    return payload if isinstance(payload, Mapping) else None
+
+
+def _refetch(
+    client_factory: ClientFactory,
+    connection: Mapping[str, Any],
+    secrets: Resolver,
+    keys: list[str],
+) -> tuple[dict[str, Any] | None, tuple[int, dict] | None]:
+    """Re-read every issue from Jira: ``(issues, None)`` or ``(None, error response)``."""
+    try:
+        client = client_factory(connection, secrets)
+        return {key: client.get_issue(key) for key in keys}, None
+    except JiraError as exc:
+        return None, _error(502, "refetch_failed", code=exc.code, retryable=exc.retryable)
+    except Exception as exc:  # noqa: BLE001 - e.g. an unresolvable API token reference
+        log.warning("jira webhook: refetch failed (%s)", type(exc).__name__)
+        return None, _error(502, "refetch_failed", code=type(exc).__name__, retryable=True)
+
+
+def _add_comment(data: dict[str, Any], comment: Mapping[str, Any]) -> None:
+    text = comment.get("body")
+    text = text if isinstance(text, str) else json.dumps(text)
+    data["comment_id"] = str(comment.get("id")) if comment.get("id") is not None else None
+    data["comment_body"] = text[:_COMMENT_MAX]
+
+
+def handle(
     store: StoragePort,
     *,
     body: bytes,
@@ -187,28 +230,46 @@ def handle(  # noqa: PLR0911, C901 - a linear verify -> parse -> fetch -> write 
         return _error(413, "body_too_large")
     hdr = {str(k).lower(): v for k, v in headers.items()}
     signature = (hdr.get("x-hub-signature") or "").strip()
-    token = query.get("token") or ""
-
-    actor = None
-    for candidate in _jira_actors(store):
-        connection = (candidate.get("params") or {}).get("connection") or {}
-        if _verifies(connection, secrets, body, signature, token):
-            actor = candidate
-            break
+    actor = _authenticated_actor(store, secrets, body, signature, query.get("token") or "")
     if actor is None:
         record_outcome(store, SURFACE, UNAUTHORIZED)
         return _error(401, "unauthorized")
+
+    payload = _json_object(body)
+    if payload is None:
+        record_outcome(store, SURFACE, BAD_REQUEST, actor["id"])
+        return _error(400, "bad_json")
+    return _process(store, actor, payload, hdr, secrets, client_factory)
+
+
+def _allowed_keys(keys: list[str], allowed: Any) -> list[str]:
+    """``keys`` limited to the connection's projects (all of them when none are set)."""
+    if allowed:
+        return [k for k in keys if k.split("-")[0] in allowed]
+    return keys
+
+
+def _key_data(
+    issue: Any, key: str, connection: Mapping[str, Any], comment: Mapping[str, Any] | None
+) -> dict[str, Any]:
+    base = str(connection.get("api_base") or "")
+    site = str(connection.get("site") or "")
+    data = _issue_data(issue, key, site, base)
+    if comment is not None:
+        _add_comment(data, comment)
+    return data
+
+
+def _process(
+    store: StoragePort,
+    actor: Mapping[str, Any],
+    payload: Mapping[str, Any],
+    hdr: Mapping[str, str],
+    secrets: Resolver,
+    client_factory: ClientFactory,
+) -> tuple[int, dict]:
+    """The verified, parsed delivery: map, re-fetch and record every issue it names."""
     connection = actor["params"]["connection"]
-
-    try:
-        payload = json.loads(body)
-    except ValueError:
-        record_outcome(store, SURFACE, BAD_REQUEST, actor["id"])
-        return _error(400, "bad_json")
-    if not isinstance(payload, Mapping):
-        record_outcome(store, SURFACE, BAD_REQUEST, actor["id"])
-        return _error(400, "bad_json")
-
     event = payload.get("webhookEvent")
     etype = _EVENT_TYPES.get(event) if isinstance(event, str) else None
     if etype is None:
@@ -217,36 +278,22 @@ def handle(  # noqa: PLR0911, C901 - a linear verify -> parse -> fetch -> write 
     if not keys:
         record_outcome(store, SURFACE, BAD_REQUEST, actor["id"])
         return _error(400, "no_issue_key")
-    allowed = connection.get("projects")
-    if allowed:
-        keys = [k for k in keys if k.split("-")[0] in allowed]
-        if not keys:
-            return 200, {"ignored": True}
+    keys = _allowed_keys(keys, connection.get("projects"))
+    if not keys:
+        return 200, {"ignored": True}
 
     comment = payload.get("comment") if isinstance(payload.get("comment"), Mapping) else None
     author_src = comment.get("author") if comment else payload.get("user")
     author = _name(author_src, "accountId")
 
-    try:
-        client = client_factory(connection, secrets)
-        issues = {key: client.get_issue(key) for key in keys}
-    except JiraError as exc:
-        return _error(502, "refetch_failed", code=exc.code, retryable=exc.retryable)
-    except Exception as exc:  # noqa: BLE001 - e.g. an unresolvable API token reference
-        log.warning("jira webhook: refetch failed (%s)", type(exc).__name__)
-        return _error(502, "refetch_failed", code=type(exc).__name__, retryable=True)
+    issues, failure = _refetch(client_factory, connection, secrets, keys)
+    if issues is None:
+        return failure
 
-    base = str(connection.get("api_base") or "")
-    site = str(connection.get("site") or "")
     delivery_header = (hdr.get("x-atlassian-webhook-identifier") or "").strip()
     results = []
     for key in keys:
-        data = _issue_data(issues[key], key, site, base)
-        if comment is not None:
-            text = comment.get("body")
-            text = text if isinstance(text, str) else json.dumps(text)
-            data["comment_id"] = str(comment.get("id")) if comment.get("id") is not None else None
-            data["comment_body"] = text[:_COMMENT_MAX]
+        data = _key_data(issues[key], key, connection, comment)
         delivery = _delivery_id(delivery_header, event, key, payload.get("timestamp"), len(keys))
         outcome = sink(store, actor, etype, data, delivery, author)
         results.append({"key": key, "outcome": outcome})

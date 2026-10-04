@@ -14,6 +14,49 @@ from culture_rules.cli.registry import Context, Param, Verb
 NOUN = "actors"
 
 
+def _read_desired(ea: Any, server_yaml: str | None, machine: str | None) -> Any:
+    """The actors this machine's server.yaml asks for, with errors mapped to ``CliError``."""
+    try:
+        return ea.desired_actors(
+            ea.read_server_yaml(server_yaml or ea.DEFAULT_SERVER_YAML), machine=machine
+        )
+    except ea.EnrolError as exc:
+        raise CliError(
+            EXIT_ENV_ERROR if exc.missing_extra else EXIT_USER_ERROR,
+            str(exc),
+            (
+                "pass --server-yaml PATH to a culture server.yaml (default ~/.culture/server.yaml)"
+                if not exc.missing_extra
+                else "install the extra: pip install 'culture-rules[yaml]'"
+            ),
+        ) from exc
+
+
+def _apply_change(ctx: Context, ch: Any) -> list[Any]:
+    """Send one planned change through the API; return the responses in order."""
+    if ch.action == "create":
+        return [_api.call(lambda: ctx.client.request("POST", "/actors", body=ch.body))]
+    path = f"/actors/{seg(ch.id)}"
+    results: list[Any] = []
+    if ch.body is not None:  # update, or the disable stamp
+        results.append(_api.call(lambda: ctx.client.request("PUT", path, body=ch.body)))
+    if ch.action == "disable":
+        results.append(_api.call(lambda: ctx.client.request("POST", f"{path}/disable")))
+    return results
+
+
+def _enrol_lines(ctx: Context, machine: str, changes: list[dict], warnings: list[str]) -> list:
+    lines = [
+        f"{'applied' if ctx.apply else 'dry-run'}: enrol-agents for machine {machine}: "
+        f"{len(changes)} change(s)",
+        *(f"  {c['action']:<7} {c['id']}  ({c['reason']})" for c in changes),
+        *(f"  warning: {w}" for w in warnings),
+    ]
+    if not ctx.apply and changes:
+        lines.append("re-run with --apply to commit")
+    return lines
+
+
 def _enrol_agents(
     ctx: Context, server_yaml: str | None = None, machine: str | None = None
 ) -> dict[str, Any]:
@@ -27,56 +70,27 @@ def _enrol_agents(
     existing = _api.call(
         lambda: ctx.client.request("GET", "/actors", query={"include_deleted": "true"})
     ).get("items", [])
-    try:
-        desired = ea.desired_actors(
-            ea.read_server_yaml(server_yaml or ea.DEFAULT_SERVER_YAML), machine=machine
-        )
-    except ea.EnrolError as exc:
-        raise CliError(
-            EXIT_ENV_ERROR if exc.missing_extra else EXIT_USER_ERROR,
-            str(exc),
-            (
-                "pass --server-yaml PATH to a culture server.yaml (default ~/.culture/server.yaml)"
-                if not exc.missing_extra
-                else "install the extra: pip install 'culture-rules[yaml]'"
-            ),
-        ) from exc
+    desired = _read_desired(ea, server_yaml, machine)
     plan = ea.plan_enrolment(
         existing, desired.actors, machine=desired.machine, listed=desired.listed
     )
     results: list[Any] = []
     if ctx.apply:
         for ch in plan.changes:
-            path = f"/actors/{seg(ch.id)}"
-            if ch.action == "create":
-                results.append(
-                    _api.call(lambda: ctx.client.request("POST", "/actors", body=ch.body))
-                )
-                continue
-            if ch.body is not None:  # update, or the disable stamp
-                results.append(_api.call(lambda: ctx.client.request("PUT", path, body=ch.body)))
-            if ch.action == "disable":
-                results.append(_api.call(lambda: ctx.client.request("POST", f"{path}/disable")))
+            results.extend(_apply_change(ctx, ch))
     changes = [
         {"action": c.action, "id": c.id, "reason": c.reason, "body": c.body} for c in plan.changes
     ]
-    lines = [
-        f"{'applied' if ctx.apply else 'dry-run'}: enrol-agents for machine {desired.machine}: "
-        f"{len(changes)} change(s)",
-        *(f"  {c['action']:<7} {c['id']}  ({c['reason']})" for c in changes),
-        *(f"  warning: {w}" for w in [*desired.warnings, *plan.warnings]),
-    ]
-    if not ctx.apply and changes:
-        lines.append("re-run with --apply to commit")
+    warnings = [*desired.warnings, *plan.warnings]
     return {
         "verb": "actors enrol-agents",
         "applied": ctx.apply,
         "dry_run": not ctx.apply,
         "machine": desired.machine,
         "changes": changes,
-        "warnings": [*desired.warnings, *plan.warnings],
+        "warnings": warnings,
         "results": results,
-        "lines": lines,
+        "lines": _enrol_lines(ctx, desired.machine, changes, warnings),
     }
 
 

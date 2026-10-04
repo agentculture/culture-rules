@@ -63,8 +63,8 @@ class JiraCommentPort:
     def invoke(
         self,
         input: Mapping[str, Any],
-        idempotency_key: str,
-        deadline: datetime,
+        _idempotency_key: str,
+        _deadline: datetime,
         *,
         context: InvocationContext,
     ) -> InvocationResult:

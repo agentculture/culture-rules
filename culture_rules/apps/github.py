@@ -143,7 +143,7 @@ class GitHubApp:
             headers["Content-Type"] = "application/json"
         try:
             status, raw = self._transport(method, self._api_base + path, headers, body, _TIMEOUT_S)
-        except Exception as exc:  # noqa: BLE001 - network failure: retryable, text withheld
+        except Exception as exc:  # noqa: BLE001 - network failure is retryable; text withheld
             raise GitHubError("network_error", type(exc).__name__, retryable=True) from None
         if status >= 400:
             raise GitHubError(f"http_{status}", retryable=status >= 500 or status == 429)

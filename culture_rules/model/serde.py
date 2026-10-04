@@ -138,6 +138,35 @@ def _scalar(tp: Any, value: Any, path: str) -> Any:
     raise TypeError(f"unsupported field type {tp!r}")  # pragma: no cover
 
 
+def _from_union(members: Any, value: Any, path: str) -> Any:
+    """The first union member that parses ``value``."""
+    for member in members:
+        try:
+            return from_value(member, value, path)
+        except ModelParseError:
+            continue
+    raise _fail(path, " or ".join(_type_name(m) for m in members), value)
+
+
+def _from_tuple(tp: Any, value: Any, path: str) -> tuple:
+    if not isinstance(value, list):
+        raise _fail(path, "array", value)
+    (item,) = (a for a in get_args(tp) if a is not Ellipsis)
+    return tuple(from_value(item, v, join(path, i)) for i, v in enumerate(value))
+
+
+def _from_mapping(tp: Any, value: Any, path: str) -> dict:
+    if not isinstance(value, dict):
+        raise _fail(path, "object", value)
+    _, item = get_args(tp)
+    out = {}
+    for k, v in value.items():
+        if not isinstance(k, str):  # pragma: no cover - JSON keys are always strings
+            raise ModelParseError(path, "object keys must be strings")
+        out[k] = from_value(item, v, join(path, k))
+    return out
+
+
 def from_value(tp: Any, value: Any, path: str) -> Any:
     """Parse one JSON value into the Python shape declared by ``tp``."""
     if value is None:
@@ -146,31 +175,15 @@ def from_value(tp: Any, value: Any, path: str) -> Any:
         return _json_value(value, path)
     members = union_members(tp)
     if members:
-        for member in members:
-            try:
-                return from_value(member, value, path)
-            except ModelParseError:
-                continue
-        raise _fail(path, " or ".join(_type_name(m) for m in members), value)
+        return _from_union(members, value, path)
     tp = strip_optional(tp)
     origin = get_origin(tp)
     if origin is Literal:
         return _scalar(type(get_args(tp)[0]), value, path)
     if origin is tuple:
-        if not isinstance(value, list):
-            raise _fail(path, "array", value)
-        (item,) = (a for a in get_args(tp) if a is not Ellipsis)
-        return tuple(from_value(item, v, join(path, i)) for i, v in enumerate(value))
+        return _from_tuple(tp, value, path)
     if origin is dict:
-        if not isinstance(value, dict):
-            raise _fail(path, "object", value)
-        _, item = get_args(tp)
-        out = {}
-        for k, v in value.items():
-            if not isinstance(k, str):  # pragma: no cover - JSON keys are always strings
-                raise ModelParseError(path, "object keys must be strings")
-            out[k] = from_value(item, v, join(path, k))
-        return out
+        return _from_mapping(tp, value, path)
     if dataclasses.is_dataclass(tp):
         return from_dict(tp, value, path)
     return _scalar(tp, value, path)

@@ -52,7 +52,9 @@ _TYPES = {
     ("issues", "opened"): "github.issue.opened",
     ("pull_request_review", "submitted"): "github.review.submitted",
 }
+_EVENTS = frozenset(key[0] for key in _TYPES)
 _IGNORED = (200, {"ignored": True})
+_TOO_LARGE = "body too large"
 
 
 def _app_actors(store: Any) -> list[Mapping[str, Any]]:
@@ -132,7 +134,7 @@ def handle(
     del query  # GitHub signs the body; nothing in the query is trusted or used
     if len(body) > MAX_BODY_BYTES:
         record_outcome(store, SURFACE, TOO_LARGE)
-        return 413, {"error": "body too large"}
+        return 413, {"error": _TOO_LARGE}
     h = {k.lower(): v for k, v in headers.items()}
     actor = _select_actor(store, h.get("x-github-hook-installation-target-id", "").strip())
     if actor is None or not _verified(actor, body, h.get("x-hub-signature-256", ""), secrets):
@@ -146,7 +148,7 @@ def handle(
     event = h.get("x-github-event", "")
     if event == "ping":
         return 200, {"pong": True}
-    if not any(event == e for e, _ in _TYPES):
+    if event not in _EVENTS:
         return _IGNORED
     try:
         payload = json.loads(body)
@@ -180,13 +182,13 @@ def router(store: Any, *, secrets: Callable[[str], str] | None = None) -> Any:
         declared = request.headers.get("content-length", "")
         if declared.isdigit() and int(declared) > MAX_BODY_BYTES:
             record_outcome(store, SURFACE, TOO_LARGE)
-            return JSONResponse({"error": "body too large"}, status_code=413)
+            return JSONResponse({"error": _TOO_LARGE}, status_code=413)
         chunks, size = [], 0
         async for chunk in request.stream():
             size += len(chunk)
             if size > MAX_BODY_BYTES:
                 record_outcome(store, SURFACE, TOO_LARGE)
-                return JSONResponse({"error": "body too large"}, status_code=413)
+                return JSONResponse({"error": _TOO_LARGE}, status_code=413)
             chunks.append(chunk)
         status, out = handle(
             store,
