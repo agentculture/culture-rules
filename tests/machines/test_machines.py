@@ -13,6 +13,7 @@ from culture_rules.machines.heartbeat import (
     HEARTBEAT_INTERVAL_S,
     OFFLINE_AFTER_S,
     HeartbeatPublisher,
+    offline_after,
     online_machines,
     placeable_machines,
 )
@@ -293,3 +294,18 @@ def test_usb_probe_failure_is_not_fatal():
 def test_real_probe_runs_here_without_raising():
     result = probe_platform()
     assert set(result.tools) == {"nvidia-smi", "tegrastats"}
+
+
+def test_offline_after_scales_with_beat_every():
+    assert offline_after() == OFFLINE_AFTER_S == 30
+    assert offline_after(2) == 6
+
+
+def test_placement_honours_a_non_default_beat_every():
+    store, clock = MemoryStore(), FakeClock()
+    enrol(store, _machine("spark"), apply=True)
+    _publisher(store, clock).beat()
+    clock.advance(10)  # 10 s old: online by default, offline for a 2 s cadence (6 s)
+    assert online_machines(store, clock()) == {"spark"}
+    assert online_machines(store, clock(), beat_every=2) == set()
+    assert placeable_machines(store, clock(), beat_every=2) == []

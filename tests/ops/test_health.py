@@ -170,3 +170,14 @@ def test_json_serialisable():
     store = MemoryStore()
     _beat(store, "n", 1)
     json.dumps(health_status(store, NOW, "n"))
+
+
+def test_health_honours_a_non_default_beat_every():
+    store = MemoryStore()
+    _beat(store, "node-a", 10)  # online at the default cadence, offline at a 2 s one
+    assert health_status(store, NOW, "node-a")["heartbeat"]["online"] is True
+    slow = health_status(store, NOW, "node-a", beat_every=2)
+    assert slow["heartbeat"]["online"] is False
+    assert slow["status"] == "degraded"
+    _beat(store, "node-a", 40)  # offline by default, online at a 20 s cadence (60 s)
+    assert health_status(store, NOW, "node-a", beat_every=20)["heartbeat"]["online"] is True

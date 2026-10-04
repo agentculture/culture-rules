@@ -16,7 +16,11 @@ from datetime import UTC, datetime
 from typing import Any
 
 from culture_rules.engine.runs import RUNS_COLLECTION, due_steps
-from culture_rules.machines.heartbeat import HEARTBEAT_COLLECTION, OFFLINE_AFTER_S
+from culture_rules.machines.heartbeat import (
+    HEARTBEAT_COLLECTION,
+    HEARTBEAT_INTERVAL_S,
+    offline_after,
+)
 
 __all__ = ["LAG_DEGRADED_S", "health_status"]
 
@@ -44,8 +48,12 @@ def _executor(store: Any, now: datetime) -> dict[str, Any]:
     return {"lag_s": round(lag, 3), "due_steps": due}
 
 
-def health_status(store: Any, now: datetime, host: str) -> dict[str, Any]:
-    """Health document for the node ``host``; JSON-serialisable."""
+def health_status(
+    store: Any, now: datetime, host: str, *, beat_every: float = HEARTBEAT_INTERVAL_S
+) -> dict[str, Any]:
+    """Health document for the node ``host``; JSON-serialisable.
+
+    ``beat_every`` is the cluster's heartbeat cadence (offline after 3 missed beats)."""
     out: dict[str, Any] = {"host": host, "at": now.astimezone(UTC).isoformat()}
     try:
         beat = store.get(HEARTBEAT_COLLECTION, host)
@@ -63,7 +71,7 @@ def health_status(store: Any, now: datetime, host: str) -> dict[str, Any]:
         return out
     ts = _parse((beat or {}).get("ts"))
     age = None if ts is None else round((now - ts).total_seconds(), 3)
-    out["heartbeat"] = {"age_s": age, "online": age is not None and age < OFFLINE_AFTER_S}
+    out["heartbeat"] = {"age_s": age, "online": age is not None and age < offline_after(beat_every)}
     out["executor"] = executor
     degraded = not out["heartbeat"]["online"] or executor["lag_s"] > LAG_DEGRADED_S
     out["status"] = "degraded" if degraded else "ok"
