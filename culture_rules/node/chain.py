@@ -66,6 +66,12 @@ def _rule_of(doc: Mapping[str, Any]) -> str | None:
     return rid if isinstance(rid, str) and rid else None
 
 
+def _change_key(source: Source, change: Any) -> str | None:
+    """The source key of a change's document (``None`` for a delete or a non-keyed doc)."""
+    doc = change.document
+    return source.key(doc) if doc is not None and change.op != "delete" else None
+
+
 class _AlreadyHandled(Exception):
     """Internal: the marker exists; abort the transaction."""
 
@@ -159,7 +165,7 @@ class FeedConsumer:
         for change in self.store.changes(source.collection, token):
             token = change.token
             doc = change.document
-            key = source.key(doc) if doc is not None and change.op != "delete" else None
+            key = _change_key(source, change)
             if key is None:
                 continue
             rid = _rule_of(doc)

@@ -361,36 +361,40 @@ def _check_trigger(obj: Trigger, path: str, errors: Errors) -> None:
         return
     params = obj.params if isinstance(obj.params, dict) else {}
     pp = _join(path, "params")
-
-    def present(name: str) -> bool:
-        value = params.get(name)
-        return isinstance(value, str) and bool(value.strip())
-
-    if obj.kind == "event" and not present("type"):
+    if obj.kind == "event" and not _present(params, "type"):
         _err(
             errors,
             _join(pp, "type"),
             "trigger_type_required",
             "an event trigger requires a non-empty params.type",
         )
-    elif obj.kind == "schedule" and not present("cron"):
+    elif obj.kind == "schedule" and not _present(params, "cron"):
         _err(errors, _join(pp, "cron"), "trigger_cron_required", "schedule requires params.cron")
     elif obj.kind == "probe":
-        for name in ("actor", "command", "schedule", "mode"):
-            if not present(name):
-                _err(
-                    errors,
-                    _join(pp, name),
-                    "trigger_param_required",
-                    f"probe requires params.{name}",
-                )
-        if present("mode") and params["mode"] not in _PROBE_MODES:
+        _check_probe_params(params, pp, errors)
+
+
+def _present(params: dict, name: str) -> bool:
+    value = params.get(name)
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _check_probe_params(params: dict, pp: str, errors: Errors) -> None:
+    for name in ("actor", "command", "schedule", "mode"):
+        if not _present(params, name):
             _err(
                 errors,
-                _join(pp, "mode"),
-                "trigger_param_invalid",
-                "probe params.mode must be one of: change, condition",
+                _join(pp, name),
+                "trigger_param_required",
+                f"probe requires params.{name}",
             )
+    if _present(params, "mode") and params["mode"] not in _PROBE_MODES:
+        _err(
+            errors,
+            _join(pp, "mode"),
+            "trigger_param_invalid",
+            "probe params.mode must be one of: change, condition",
+        )
 
 
 def _check_workflow_ref(obj: WorkflowRef, path: str, errors: Errors) -> None:

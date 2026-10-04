@@ -33,25 +33,32 @@ def _parse_int(text: str, name: str) -> int:
     return int(text)
 
 
+def _parse_step(step_text: str, name: str, part: str) -> int:
+    step = _parse_int(step_text, name)
+    if step < 1:
+        raise ValueError(f"invalid {name} field: step must be >= 1 in {part!r}")
+    return step
+
+
+def _parse_bounds(base: str, name: str, lo: int, hi: int, stepped: bool) -> tuple[int, int]:
+    """The ``first, last`` of one list item's base (``*``, ``a-b`` or ``n``)."""
+    if base == "*":
+        return lo, hi
+    if "-" in base:
+        a, _, b = base.partition("-")
+        return _parse_int(a, name), _parse_int(b, name)
+    first = _parse_int(base, name)
+    return first, (hi if stepped else first)
+
+
 def _parse_field(text: str, name: str, lo: int, hi: int) -> frozenset[int]:
     values: set[int] = set()
     for part in text.split(","):
         if not part:
             raise ValueError(f"invalid {name} field: empty list item in {text!r}")
         base, sep, step_text = part.partition("/")
-        step = 1
-        if sep:
-            step = _parse_int(step_text, name)
-            if step < 1:
-                raise ValueError(f"invalid {name} field: step must be >= 1 in {part!r}")
-        if base == "*":
-            first, last = lo, hi
-        elif "-" in base:
-            a, _, b = base.partition("-")
-            first, last = _parse_int(a, name), _parse_int(b, name)
-        else:
-            first = _parse_int(base, name)
-            last = hi if sep else first
+        step = _parse_step(step_text, name, part) if sep else 1
+        first, last = _parse_bounds(base, name, lo, hi, bool(sep))
         if first < lo or last > hi or first > last:
             raise ValueError(f"invalid {name} field: {part!r} outside {lo}-{hi}")
         values.update(range(first, last + 1, step))
@@ -66,7 +73,7 @@ class Cron:
     hours: frozenset[int]
     days: frozenset[int]
     months: frozenset[int]
-    weekdays: frozenset[int]  # 0-6, Sunday=0
+    weekdays: frozenset[int]  # Sunday is 0 and Saturday is 6
     dom_restricted: bool = False
     dow_restricted: bool = False
 
@@ -86,27 +93,44 @@ class Cron:
         tz: tzinfo | str | None = None,
     ) -> Iterator[datetime]:
         """Yield aware slots in ``[start, end)`` in increasing order, in ``tz``."""
-        zone: tzinfo = ZoneInfo(tz) if isinstance(tz, str) else (tz or timezone.utc)
-        start = start if start.tzinfo else start.replace(tzinfo=timezone.utc)
-        end = end if end.tzinfo else end.replace(tzinfo=timezone.utc)
-        day = start.astimezone(zone).date()
-        last = end.astimezone(zone).date()
+        zone = _zone(tz)
+        start, end = _aware(start), _aware(end)
+        for slot in self._slots_on_days(
+            start.astimezone(zone).date(), end.astimezone(zone).date(), zone
+        ):
+            if slot < start:
+                continue
+            if slot >= end:
+                return
+            yield slot
+
+    def _slots_on_days(self, day: date, last: date, zone: tzinfo) -> Iterator[datetime]:
+        """Every existing slot of the matching days ``day..last`` (inclusive), in order."""
         times = [(h, m) for h in sorted(self.hours) for m in sorted(self.minutes)]
         while day <= last:
             if self._day_matches(day):
-                for h, m in times:
-                    slot = datetime(day.year, day.month, day.day, h, m, tzinfo=zone)
-                    # fold=0 picks the first occurrence in a repeat; a gap time
-                    # does not survive a UTC round trip.
-                    back = slot.astimezone(timezone.utc).astimezone(zone)
-                    if back.replace(tzinfo=None) != slot.replace(tzinfo=None):
-                        continue
-                    if slot < start:
-                        continue
-                    if slot >= end:
-                        return
-                    yield slot
+                yield from _wall_slots(day, times, zone)
             day += timedelta(days=1)
+
+
+def _zone(tz: tzinfo | str | None) -> tzinfo:
+    return ZoneInfo(tz) if isinstance(tz, str) else (tz or timezone.utc)
+
+
+def _aware(moment: datetime) -> datetime:
+    """``moment`` itself when aware; a naive one is taken as UTC."""
+    return moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)
+
+
+def _wall_slots(day: date, times: list[tuple[int, int]], zone: tzinfo) -> Iterator[datetime]:
+    """The wall-clock ``times`` of ``day`` in ``zone`` that exist (DST gaps skipped)."""
+    for h, m in times:
+        slot = datetime(day.year, day.month, day.day, h, m, tzinfo=zone)
+        # fold=0 picks the first occurrence in a repeat; a gap time
+        # does not survive a UTC round trip.
+        back = slot.astimezone(timezone.utc).astimezone(zone)
+        if back.replace(tzinfo=None) == slot.replace(tzinfo=None):
+            yield slot
 
 
 def parse(expr: str) -> Cron:

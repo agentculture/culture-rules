@@ -84,13 +84,13 @@ _REFUSED_NETS = tuple(
     ipaddress.ip_network(n)
     for n in (
         "0.0.0.0/8",
-        "10.0.0.0/8",
-        "100.64.0.0/10",
+        "10.0.0.0/8",  # NOSONAR - a refused SSRF range by design
+        "100.64.0.0/10",  # NOSONAR - a refused SSRF range by design
         "127.0.0.0/8",
-        "169.254.0.0/16",
-        "172.16.0.0/12",
-        "192.168.0.0/16",
-        "224.0.0.0/4",
+        "169.254.0.0/16",  # NOSONAR - a refused SSRF range by design
+        "172.16.0.0/12",  # NOSONAR - a refused SSRF range by design
+        "192.168.0.0/16",  # NOSONAR - a refused SSRF range by design
+        "224.0.0.0/4",  # NOSONAR - a refused SSRF range by design
         "::/128",
         "::1/128",
         "fc00::/7",
@@ -176,7 +176,10 @@ class _PinnedHTTPHandler(urllib.request.HTTPHandler):
 
 class _PinnedHTTPSHandler(urllib.request.HTTPSHandler):
     def __init__(self, pinned: str) -> None:
-        super().__init__(context=ssl.create_default_context())
+        context = ssl.create_default_context()
+        context.check_hostname = True  # against the URL's hostname (the SNI), not the pin
+        context.verify_mode = ssl.CERT_REQUIRED
+        super().__init__(context=context)
         self._pinned = pinned
 
     def https_open(self, req: urllib.request.Request) -> Any:
@@ -243,6 +246,38 @@ def _is_ip(host: str) -> bool:
     return True
 
 
+def _checked_url(url: Any) -> tuple[str, str, int | None]:
+    """Parse ``url`` and apply the scheme/userinfo/host rules; returns (host, scheme, port)."""
+    if not isinstance(url, str) or not url:
+        raise _Refused("invalid_request", "url must be a non-empty string")
+    try:
+        parts = urlsplit(url)
+        port = parts.port
+    except ValueError as exc:
+        raise _Refused("invalid_request", "malformed url") from exc
+    scheme = parts.scheme.lower()
+    if scheme not in _SCHEMES:
+        raise _Refused("destination_refused", f"scheme {scheme or '(none)'!r} not allowed")
+    if parts.username is not None or parts.password is not None:
+        raise _Refused("destination_refused", "credentials in the url are not allowed")
+    if not parts.hostname:
+        raise _Refused("destination_refused", "url has no host")
+    return _norm_host(parts.hostname), scheme, port
+
+
+def _vet_address(host: str, address: str, allow: set[str]) -> None:
+    """Refuse ``address`` if it is in a refused range and not itself allow-listed."""
+    try:
+        refused = is_refused_address(address)
+    except ValueError as exc:
+        raise _Refused("destination_refused", "unparseable address") from exc
+    if refused and address not in allow:
+        raise _Refused(
+            "destination_refused",
+            f"host {host!r} resolves to {address}, a refused range not on the allowlist",
+        )
+
+
 class HttpCallPort:
     """ActorPort for ``http.call`` (see the module docstring)."""
 
@@ -291,43 +326,25 @@ class HttpCallPort:
 
     def _destination(self, url: Any, allow: set[str]) -> tuple[str, str]:
         """Validate ``url`` against the policy; returns (hostname, vetted address to dial)."""
-        if not isinstance(url, str) or not url:
-            raise _Refused("invalid_request", "url must be a non-empty string")
-        try:
-            parts = urlsplit(url)
-            port = parts.port
-        except ValueError as exc:
-            raise _Refused("invalid_request", "malformed url") from exc
-        scheme = parts.scheme.lower()
-        if scheme not in _SCHEMES:
-            raise _Refused("destination_refused", f"scheme {scheme or '(none)'!r} not allowed")
-        if parts.username is not None or parts.password is not None:
-            raise _Refused("destination_refused", "credentials in the url are not allowed")
-        if not parts.hostname:
-            raise _Refused("destination_refused", "url has no host")
-        host = _norm_host(parts.hostname)
+        host, scheme, port = _checked_url(url)
         if host not in allow:
             raise _Refused("destination_refused", f"host {host!r} is not on the actor allowlist")
+        addresses = self._addresses(host, port or _SCHEMES[scheme])
+        for address in addresses:
+            _vet_address(host, address, allow)
+        return host, addresses[0]
+
+    def _addresses(self, host: str, port: int) -> list[str]:
+        """The addresses to vet for ``host`` (an IP literal is not resolved)."""
         if _is_ip(host):
-            addresses = [host]
-        else:
-            try:
-                addresses = [_norm_host(a) for a in self._resolver(host, port or _SCHEMES[scheme])]
-            except OSError as exc:
-                raise _Refused("network_error", "cannot resolve host", retryable=True) from exc
+            return [host]
+        try:
+            addresses = [_norm_host(a) for a in self._resolver(host, port)]
+        except OSError as exc:
+            raise _Refused("network_error", "cannot resolve host", retryable=True) from exc
         if not addresses:
             raise _Refused("network_error", "host resolved to no address", retryable=True)
-        for address in addresses:
-            try:
-                refused = is_refused_address(address)
-            except ValueError as exc:
-                raise _Refused("destination_refused", "unparseable address") from exc
-            if refused and address not in allow:
-                raise _Refused(
-                    "destination_refused",
-                    f"host {host!r} resolves to {address}, a refused range not on the allowlist",
-                )
-        return host, addresses[0]
+        return addresses
 
     def _headers(
         self, input: Mapping[str, Any], params: Mapping[str, Any], redactor: Redactor
@@ -340,17 +357,21 @@ class HttpCallPort:
             if not isinstance(source, Mapping):
                 raise _Refused("invalid_request", "headers must be a mapping")
             for name, value in source.items():
-                if not isinstance(name, str) or not isinstance(value, str):
-                    raise _Refused("invalid_request", "header names and values must be strings")
-                if name.strip().lower() == "host":
-                    raise _Refused("invalid_request", "the Host header cannot be set")
-                if value.startswith(GRANT_SCHEME + ":"):
-                    try:
-                        value = resolve(value, self._secret_runner, redactor=redactor)
-                    except SecretError as exc:
-                        raise _Refused("secret_unresolved", f"header {name!r}") from exc
-                merged[name] = value
+                merged[name] = self._header_value(name, value, redactor)
         return merged
+
+    def _header_value(self, name: Any, value: Any, redactor: Redactor) -> str:
+        """Check one header; resolve a ``grant:`` value (registered with ``redactor``)."""
+        if not isinstance(name, str) or not isinstance(value, str):
+            raise _Refused("invalid_request", "header names and values must be strings")
+        if name.strip().lower() == "host":
+            raise _Refused("invalid_request", "the Host header cannot be set")
+        if not value.startswith(GRANT_SCHEME + ":"):
+            return value
+        try:
+            return resolve(value, self._secret_runner, redactor=redactor)
+        except SecretError as exc:
+            raise _Refused("secret_unresolved", f"header {name!r}") from exc
 
     @staticmethod
     def _body(input: Mapping[str, Any], headers: dict[str, str]) -> bytes | None:
@@ -402,7 +423,7 @@ class HttpCallPort:
             raise _Refused("redirect_refused", f"server answered {exc.status}") from exc
         except urllib.error.HTTPError as exc:
             response = exc  # non-2xx: an HTTPError is also the response
-        except (urllib.error.URLError, http.client.HTTPException, OSError) as exc:
+        except (http.client.HTTPException, OSError) as exc:  # URLError is an OSError
             raise _Refused("network_error", type(exc).__name__, retryable=True) from exc
         try:
             return self._result(response, redactor)

@@ -180,9 +180,9 @@ class MissingExtraPort:
 
     def invoke(
         self,
-        input: Mapping[str, Any],
-        idempotency_key: str,
-        deadline: datetime,
+        _input: Mapping[str, Any],
+        _idempotency_key: str,
+        _deadline: datetime,
         *,
         context: InvocationContext,
     ) -> InvocationResult:
@@ -224,7 +224,7 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
 def run_node(host: str | None = None, *, once: bool = False, idle: float = 1.0) -> dict[str, Any]:
     """Open everything, run the node (one cycle with ``once``) and summarise what it did."""
     from culture_rules.node.actors import default_factories  # noqa: PLC0415
-    from culture_rules.node.daemon import Node  # noqa: PLC0415
+    from culture_rules.node.daemon import Node, NodeOptions  # noqa: PLC0415
 
     host = host or default_host()
     try:
@@ -240,7 +240,8 @@ def run_node(host: str | None = None, *, once: bool = False, idle: float = 1.0) 
         adapters=default_factories(store, emitter=open_emitter(store, host)),
         event_source=source,
         reporter=open_reporter(),
-        listen_gateways=not once,  # one cycle never opens a long-lived gateway connection
+        # one cycle never opens a long-lived gateway connection
+        options=NodeOptions(listen_gateways=not once),
     )
     if once:
         report = node.run_once()

@@ -51,6 +51,7 @@ is logged and skipped. Standard-library only.
 
 from __future__ import annotations
 
+import functools
 import logging
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -111,23 +112,26 @@ class Scheduler:
                 self.last_tick = now  # startup: nothing before this instant fires
             return []
         synthesized: list[str] = []
-        snapshot = None
+        snapshot = functools.cache(lambda: self.firing._snapshot(self.store))  # loaded once
         for rule in self._schedule_rules():
-            slots = self._slots(rule, start, now)
-            if not slots:
-                continue
-            if rule.placement is not None:
-                if snapshot is None:
-                    snapshot = self.firing._snapshot(self.store)
-                if not self._placed_here(rule, snapshot, slots[0]):
-                    continue
-            for slot in slots:
+            for slot in self._due_here(rule, start, now, snapshot):
                 if self._synthesize(rule, slot):
                     synthesized.append(schedule_event_id(rule.id, slot))
         self.last_tick = now  # only once every due slot is committed (or already was)
         return synthesized
 
     # ------------------------------------------------------------------ helpers
+
+    def _due_here(
+        self, rule: Rule, start: datetime, now: datetime, snapshot: Callable[[], tuple]
+    ) -> list[str]:
+        """The due slots of ``rule`` when this node synthesizes them (else none)."""
+        slots = self._slots(rule, start, now)
+        if not slots:
+            return []
+        if rule.placement is not None and not self._placed_here(rule, snapshot(), slots[0]):
+            return []
+        return slots
 
     def _schedule_rules(self) -> list[Rule]:
         rules = []

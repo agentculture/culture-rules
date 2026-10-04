@@ -175,9 +175,9 @@ class _Unavailable:
 
     def invoke(
         self,
-        input: Mapping[str, Any],
-        idempotency_key: str,
-        deadline: datetime,
+        _input: Mapping[str, Any],
+        _idempotency_key: str,
+        _deadline: datetime,
         *,
         context: InvocationContext,
     ) -> InvocationResult:

@@ -52,6 +52,7 @@ only.
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import logging
@@ -144,22 +145,12 @@ class ProbeTrigger:
                 self.last_tick = now  # startup: nothing before this instant fires
             return []
         emitted: list[str] = []
-        snapshot = None
+        snapshot = functools.cache(lambda: self.firing._snapshot(self.store))  # loaded once
         for rule in self._probe_rules():
-            slots = self._slots(rule, start, now)
-            if not slots:
+            due = self._due_here(rule, start, now, snapshot)
+            if due is None:
                 continue
-            actor = self._actor(rule)
-            if actor is None:
-                continue
-            if actor.machine is not None:
-                if actor.machine != self.host:
-                    continue
-            elif rule.placement is not None:
-                if snapshot is None:
-                    snapshot = self.firing._snapshot(self.store)
-                if not self._placed_here(rule, snapshot, slots[0]):
-                    continue
+            actor, slots = due
             for slot in slots:
                 if self._probe(rule, actor, slot):
                     emitted.append(probe_event_id(rule.id, slot))
@@ -167,6 +158,22 @@ class ProbeTrigger:
         return emitted
 
     # ------------------------------------------------------------------ helpers
+
+    def _due_here(
+        self, rule: Rule, start: datetime, now: datetime, snapshot: Callable[[], tuple]
+    ) -> tuple[Actor, list[str]] | None:
+        """The actor and the due slots of ``rule`` when this node runs them, else None."""
+        slots = self._slots(rule, start, now)
+        if not slots:
+            return None
+        actor = self._actor(rule)
+        if actor is None:
+            return None
+        if actor.machine is not None:
+            return (actor, slots) if actor.machine == self.host else None
+        if rule.placement is not None and not self._placed_here(rule, snapshot(), slots[0]):
+            return None
+        return actor, slots
 
     def _probe_rules(self) -> list[Rule]:
         rules = []
@@ -218,36 +225,11 @@ class ProbeTrigger:
         if result.outcome != COMPLETED:
             log.info("probe %s slot %s: command %s, nothing emitted", rule.id, slot, result.outcome)
             return False
-        output = result.output
-        stdout = str(output.get("stdout") or "")
-        exit_code = output.get("exit_code", 0)
-        parsed = _parse_json_object(stdout)
-        digest = _digest(parsed, stdout)
-        data = dict(parsed or {})
-        data.update(stdout=stdout[:MAX_STDOUT], exit_code=exit_code, rule_id=rule.id, slot=slot)
-        envelope = {
-            "id": event_id,
-            "kind": PROBE_KIND,
-            "type": PROBE_KIND,
-            "source": PROBE_SOURCE,
-            "time": slot,
-            "data": data,
-        }
+        envelope, digest = _probe_envelope(rule.id, slot, event_id, result.output)
         change_mode = params.get("mode") == "change"
 
         def insert(tx: StoreOps) -> bool:
-            if tx.get(EVENTS_COLLECTION, event_id) is not None:
-                return False
-            if change_mode:
-                previous = tx.get(PROBE_STATE, rule.id)
-                if previous is not None and previous.get("digest") == digest:
-                    return False
-                tx.put(PROBE_STATE, {"id": rule.id, "digest": digest, "slot": slot})
-            tx.insert(
-                EVENTS_COLLECTION,
-                event_document(envelope, host=self.host, received_at=self._clock()),
-            )
-            return True
+            return self._insert_event(tx, rule.id, slot, envelope, digest if change_mode else None)
 
         try:
             created = run_transaction(self.store, insert)
@@ -256,6 +238,50 @@ class ProbeTrigger:
         if created:
             log.info("probe slot %s of rule %s emitted", slot, rule.id)
         return created
+
+    def _insert_event(
+        self,
+        tx: StoreOps,
+        rule_id: str,
+        slot: str,
+        envelope: Mapping[str, Any],
+        digest: str | None,
+    ) -> bool:
+        """Insert the probe event unless it exists; with a ``digest`` (change mode) only
+        when the output changed since the last emitted one."""
+        if tx.get(EVENTS_COLLECTION, envelope["id"]) is not None:
+            return False
+        if digest is not None:
+            previous = tx.get(PROBE_STATE, rule_id)
+            if previous is not None and previous.get("digest") == digest:
+                return False
+            tx.put(PROBE_STATE, {"id": rule_id, "digest": digest, "slot": slot})
+        tx.insert(
+            EVENTS_COLLECTION,
+            event_document(envelope, host=self.host, received_at=self._clock()),
+        )
+        return True
+
+
+def _probe_envelope(
+    rule_id: str, slot: str, event_id: str, output: Mapping[str, Any]
+) -> tuple[dict[str, Any], str]:
+    """The probe event envelope for a completed command, and its output digest."""
+    stdout = str(output.get("stdout") or "")
+    exit_code = output.get("exit_code", 0)
+    parsed = _parse_json_object(stdout)
+    digest = _digest(parsed, stdout)
+    data = dict(parsed or {})
+    data.update(stdout=stdout[:MAX_STDOUT], exit_code=exit_code, rule_id=rule_id, slot=slot)
+    envelope = {
+        "id": event_id,
+        "kind": PROBE_KIND,
+        "type": PROBE_KIND,
+        "source": PROBE_SOURCE,
+        "time": slot,
+        "data": data,
+    }
+    return envelope, digest
 
 
 def _parse_json_object(text: str) -> dict[str, Any] | None:

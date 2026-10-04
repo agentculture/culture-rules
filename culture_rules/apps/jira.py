@@ -92,7 +92,7 @@ class JiraClient:
             headers["Content-Type"] = "application/json"
         try:
             status, raw = self._transport(method, url, headers, body, _TIMEOUT_S)
-        except Exception as exc:  # noqa: BLE001 - network failure: retryable, text withheld
+        except Exception as exc:  # noqa: BLE001 - network failure is retryable; text withheld
             raise JiraError("network_error", type(exc).__name__, retryable=True) from None
         if status >= 400:
             log.warning("jira %s failed: http %s", method, status)

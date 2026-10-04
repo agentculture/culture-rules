@@ -50,7 +50,7 @@ def _urllib_transport(
 def _json(raw: bytes) -> Any:
     try:
         return json.loads(raw.decode("utf-8")) if raw else {}
-    except (ValueError, UnicodeDecodeError):
+    except ValueError:  # UnicodeDecodeError is a ValueError
         return {}
 
 
@@ -97,7 +97,7 @@ class DiscordClient:
             status, payload, _ = self._transport(
                 url, json.dumps(body).encode("utf-8"), headers, self._timeout
             )
-        except (urllib.error.URLError, OSError, TimeoutError) as exc:
+        except OSError as exc:  # URLError and TimeoutError are OSErrors
             raise DiscordError(f"discord unreachable ({type(exc).__name__})", retryable=True)
         if 200 <= status < 300:
             return {"message_id": str((payload or {}).get("id", ""))}
