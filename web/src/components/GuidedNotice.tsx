@@ -13,7 +13,7 @@ interface Props {
 }
 
 /** A failure in plain language with typed fix buttons. Never renders raw error text. */
-export default function GuidedNotice({ error, code, nested, onFix }: Props) {
+export default function GuidedNotice({ error, code, nested, onFix }: Readonly<Props>) {
   const guidance = guidanceFor(error?.code ?? code ?? "", nested);
   return (
     <div className="guided-notice" role="alert">

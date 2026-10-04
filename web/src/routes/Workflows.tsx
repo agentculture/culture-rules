@@ -621,6 +621,42 @@ function WorkflowStage({
   );
 }
 
+/** The draft being edited: reset when the selected workflow changes, kept while it has unsaved edits. */
+function useSyncedDraft(current: WorkflowDef | undefined | null) {
+  const [draft, setDraft] = useState<Draft | null>(null);
+  useEffect(() => {
+    if (!current) {
+      setDraft(null);
+      return;
+    }
+    setDraft((d) =>
+      d?.id === current.id && d.dirty ? d : { id: current.id, def: toDefinition(current), dirty: false },
+    );
+  }, [current]);
+  return [draft, setDraft] as const;
+}
+
+/** A workflow just created opens with the step `+` focused: add the first step. */
+function useFocusAddStep(
+  wanted: string | null,
+  openId: string | undefined,
+  stageRef: RefObject<HTMLDivElement | null>,
+  done: () => void,
+) {
+  useEffect(() => {
+    if (!wanted || openId !== wanted) return;
+    stageRef.current?.querySelector<HTMLButtonElement>(".wf-add-step")?.focus();
+    done();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wanted, openId]);
+}
+
+/** Why Run is unavailable, or null when it is. */
+function runBlockReason(enabled: boolean | undefined, dirty: boolean | undefined): string | null {
+  if (enabled === false) return "Enable this workflow to run it";
+  return dirty ? "Save your changes to run them" : null;
+}
+
 /**
  * The Workflows tab — the 'Chosen — Workflows' board (design canvas row
  * 'Chosen', direction B "Map"): the workflow's name and version, the io
@@ -652,7 +688,6 @@ export function Workflows() {
   const whoami = useWhoami();
   const isAdmin = whoami.status === "signed-in" && whoami.role === "admin";
   const [purge, setPurge] = useState<PurgeState | null>(null);
-  const [draft, setDraft] = useState<Draft | null>(null);
   const [selectedStep, setSelectedStep] = useState<string | null>(null);
   const [editing, setEditing] = useState<Editing>(null);
   const [status, setStatus] = useState("");
@@ -683,15 +718,8 @@ export function Workflows() {
 
   // A fresh draft whenever the selected workflow (or its stored copy) changes;
   // unsaved edits to the same workflow survive a reload.
-  useEffect(() => {
-    if (!current) {
-      setDraft(null);
-      return;
-    }
-    setDraft((d) =>
-      d?.id === current.id && d.dirty ? d : { id: current.id, def: toDefinition(current), dirty: false },
-    );
-  }, [current]);
+  const [draft, setDraft] = useSyncedDraft(current);
+
   useEffect(() => {
     setSelectedStep(null);
     setEditing(null);
@@ -703,11 +731,7 @@ export function Workflows() {
   const empty = loaded !== null && loaded.listed && workflows.length === 0;
 
   // A workflow just created opens with the step `+` focused: add the first step.
-  useEffect(() => {
-    if (!focusAddStep || workflow?.id !== focusAddStep) return;
-    stageRef.current?.querySelector<HTMLButtonElement>(".wf-add-step")?.focus();
-    setFocusAddStep(null);
-  }, [focusAddStep, workflow?.id]);
+  useFocusAddStep(focusAddStep, workflow?.id, stageRef, () => setFocusAddStep(null));
   const edit = useCallback((fn: (wf: WorkflowDef) => WorkflowDef) => {
     setDraft((d) => editDraft(d, fn));
   }, []);
@@ -821,8 +845,7 @@ export function Workflows() {
     }
   };
 
-  const runBlock =
-    current?.enabled === false ? "Enable this workflow to run it" : draft?.dirty ? "Save your changes to run them" : null;
+  const runBlock = runBlockReason(current?.enabled, draft?.dirty);
   const onRunStarted = (doc: RunDoc) => {
     setRunFormOpen(false);
     setActionError(null);

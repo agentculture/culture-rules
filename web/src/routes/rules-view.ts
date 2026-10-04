@@ -17,16 +17,23 @@ export function triggerLabel(rule: Rule): string {
   if (typeof params.type === "string" && params.type) return `event: ${params.type}`;
   if (typeof params.cron === "string" && params.cron) return `schedule: ${params.cron}`;
   if (typeof params.command === "string" && params.command) {
-    return `probe: ${String(params.actor ?? "")} ${params.command}`.replace("  ", " ");
+    const actor = typeof params.actor === "string" ? params.actor : "";
+    return `probe: ${actor} ${params.command}`.replace("  ", " ");
   }
   return rule.trigger.kind;
 }
 
 const last = (ref: string) => ref.split(".").pop() ?? ref;
 
+function inputSourceText(from: NonNullable<WorkflowRef["inputs"]>[string]): string {
+  if (typeof from === "string") return from;
+  if ("$ref" in from) return from.$ref;
+  return String(from.$literal);
+}
+
 export function workflowChips(ref: WorkflowRef): string[] {
   return Object.entries(ref.inputs ?? {}).map(([input, from]) => {
-    const text = typeof from === "string" ? from : "$ref" in from ? from.$ref : String(from.$literal);
+    const text = inputSourceText(from);
     return `${last(text)} → ${input}`;
   });
 }

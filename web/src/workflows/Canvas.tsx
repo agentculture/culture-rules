@@ -273,6 +273,29 @@ function CanvasInner(props: Readonly<CanvasProps>) {
     [onNodesChangeBase, selected, props.onSelect, props.onOpenIo],
   );
 
+  // Enter / Space on a focused in / out node always opens its editor, even while the node is
+  // still selected (React Flow only reports a selection *change*). The listener is native, on
+  // the section, because the nodes are React Flow's own focusable elements: the section has
+  // no interactive role of its own to hang a React handler on.
+  const openIoRef = useRef(props.onOpenIo);
+  useEffect(() => {
+    openIoRef.current = props.onOpenIo;
+  }, [props.onOpenIo]);
+  useEffect(() => {
+    const section = sectionRef.current;
+    if (!section) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      const target = e.target as HTMLElement;
+      const id = target.classList.contains("react-flow__node") ? target.dataset.id : undefined;
+      if (!id || !isIo(id)) return;
+      e.preventDefault();
+      openIoRef.current(id, target);
+    };
+    section.addEventListener("keydown", onKeyDown);
+    return () => section.removeEventListener("keydown", onKeyDown);
+  }, []);
+
   const asConnection = (c: FlowConnection | Edge): Connection | null =>
     c.source && c.target && c.sourceHandle && c.targetHandle
       ? { source: c.source, sourcePort: c.sourceHandle, target: c.target, targetPort: c.targetHandle }
@@ -308,16 +331,6 @@ function CanvasInner(props: Readonly<CanvasProps>) {
       aria-label="Workflow canvas"
       style={{ height }}
       ref={sectionCallbackRef}
-      onKeyDown={(e) => {
-        // Enter / Space on a focused in / out node always opens its editor, even while the
-        // node is still selected (React Flow only reports a selection *change*).
-        if (e.key !== "Enter" && e.key !== " ") return;
-        const target = e.target as HTMLElement;
-        const id = target.classList.contains("react-flow__node") ? target.dataset.id : undefined;
-        if (!id || !isIo(id)) return;
-        e.preventDefault();
-        props.onOpenIo(id, target);
-      }}
     >
       <div className="wf-canvas__scroll">
         {/* React Flow pins its own wrapper to 100%: the width goes on a box around it. */}

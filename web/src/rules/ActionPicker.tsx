@@ -151,135 +151,178 @@ interface FieldProps {
  * (`trigger.data.number`) and shown as a chip with that text; the text is never required, since
  * the map select offers the trigger's fields and the workflow's outputs.
  */
-function ValueField({ label, type, value, refs, required, testKey, multiline, onChange }: Readonly<FieldProps>) {
+function ValueField(props: Readonly<FieldProps>) {
+  const { label, value, testKey, onChange } = props;
   const id = useId();
   const [custom, setCustom] = useState(false);
   const [path, setPath] = useState(refOf(value) ?? "");
   const ref = refOf(value);
-  const mark = required ? (
-    <span className="action-picker__required" aria-hidden="true">
-      {" "}
-      *
-    </span>
-  ) : null;
-
-  const unmap = (
-    <button
-      type="button"
-      className="btn action-picker__unmap"
-      aria-label={`Use a fixed value for ${label}`}
-      onClick={() => {
-        setCustom(false);
-        onChange(undefined);
-      }}
-    >
-      Fixed value
-    </button>
-  );
 
   if (ref && !custom) {
     return (
-      <div className="action-picker__field" role="group" aria-labelledby={`${id}-name`}>
+      <fieldset className="action-picker__field plain-group" aria-labelledby={`${id}-name`}>
         <span id={`${id}-name`}>{label}</span>
         <div className="action-picker__mapped">
           <span className="mapping-chip" data-testid={`chip-${testKey}`}>
             {ref}
           </span>
-          {unmap}
+          <button
+            type="button"
+            className="btn action-picker__unmap"
+            aria-label={`Use a fixed value for ${label}`}
+            onClick={() => {
+              setCustom(false);
+              onChange(undefined);
+            }}
+          >
+            Fixed value
+          </button>
         </div>
-      </div>
+      </fieldset>
     );
   }
 
+  return (
+    <div className="action-picker__field">
+      {custom ? (
+        <PathEditor
+          id={id}
+          label={label}
+          path={path}
+          onPath={(next) => {
+            setPath(next);
+            onChange(REFERENCE.test(next) ? next : undefined);
+          }}
+          onDone={() => setCustom(false)}
+        />
+      ) : (
+        <>
+          <LiteralInput id={id} {...props} />
+          <MapSelect
+            id={id}
+            label={label}
+            refs={props.refs}
+            onPick={(picked) => {
+              if (picked === CUSTOM) {
+                setPath("");
+                setCustom(true);
+              } else if (picked) onChange(picked);
+            }}
+          />
+        </>
+      )}
+    </div>
+  );
+}
+
+function PathEditor({
+  id,
+  label,
+  path,
+  onPath,
+  onDone,
+}: Readonly<{ id: string; label: string; path: string; onPath: (next: string) => void; onDone: () => void }>) {
+  return (
+    <>
+      <label>
+        <span id={`${id}-path`}>Path for {label}</span>
+        <input
+          aria-labelledby={`${id}-path`}
+          value={path}
+          placeholder="trigger.data.number"
+          spellCheck={false}
+          onChange={(e) => onPath(e.target.value)}
+        />
+      </label>
+      <p className="trigger-picker__hint">
+        Start with trigger., workflow.outputs. or vars., for example trigger.data.number.
+      </p>
+      <button type="button" className="btn" onClick={onDone}>
+        Done
+      </button>
+    </>
+  );
+}
+
+/** The fixed-value input for a param: read-only for a stored object, a textarea for long text. */
+function LiteralInput({
+  id,
+  label,
+  type,
+  value,
+  required,
+  multiline,
+  onChange,
+}: Readonly<FieldProps & { id: string }>) {
   const text = typeof value === "string" || typeof value === "number" ? String(value) : "";
   const literal = (v: string): unknown => {
     if (v === "") return undefined;
     return type === "int" && /^-?\d+$/.test(v) ? Number(v) : v;
   };
-  const stored = value !== undefined && value !== null && typeof value === "object";
-
+  let control;
+  if (value !== undefined && value !== null && typeof value === "object") {
+    control = <input aria-labelledby={`${id}-name`} value={JSON.stringify(value)} readOnly />;
+  } else if (multiline) {
+    control = <textarea aria-labelledby={`${id}-name`} value={text} onChange={(e) => onChange(literal(e.target.value))} />;
+  } else {
+    control = (
+      <input
+        aria-labelledby={`${id}-name`}
+        value={text}
+        inputMode={type === "int" ? "numeric" : undefined}
+        onChange={(e) => onChange(literal(e.target.value))}
+      />
+    );
+  }
   return (
-    <div className="action-picker__field">
-      {custom ? (
-        <>
-          <label>
-            <span id={`${id}-path`}>Path for {label}</span>
-            <input
-              aria-labelledby={`${id}-path`}
-              value={path}
-              placeholder="trigger.data.number"
-              spellCheck={false}
-              onChange={(e) => {
-                setPath(e.target.value);
-                onChange(REFERENCE.test(e.target.value) ? e.target.value : undefined);
-              }}
-            />
-          </label>
-          <p className="trigger-picker__hint">
-            Start with trigger., workflow.outputs. or vars., for example trigger.data.number.
-          </p>
-          <button type="button" className="btn" onClick={() => setCustom(false)}>
-            Done
-          </button>
-        </>
-      ) : (
-        <>
-          <label>
-            <span>
-              <span id={`${id}-name`}>{label}</span>
-              {mark}
-            </span>
-            {stored ? (
-              <input aria-labelledby={`${id}-name`} value={JSON.stringify(value)} readOnly />
-            ) : multiline ? (
-              <textarea aria-labelledby={`${id}-name`} value={text} onChange={(e) => onChange(literal(e.target.value))} />
-            ) : (
-              <input
-                aria-labelledby={`${id}-name`}
-                value={text}
-                inputMode={type === "int" ? "numeric" : undefined}
-                onChange={(e) => onChange(literal(e.target.value))}
-              />
-            )}
-          </label>
-          <label className="action-picker__map">
-            <span id={`${id}-map`}>Map {label}</span>
-            <select
-              aria-labelledby={`${id}-map`}
-              value=""
-              onChange={(e) => {
-                const picked = e.target.value;
-                if (picked === CUSTOM) {
-                  setPath("");
-                  setCustom(true);
-                } else if (picked) onChange(picked);
-              }}
-            >
-              <option value="">Use a value from…</option>
-              {refs.trigger.length > 0 ? (
-                <optgroup label="The trigger">
-                  {refs.trigger.map((r) => (
-                    <option key={r} value={r}>
-                      {r}
-                    </option>
-                  ))}
-                </optgroup>
-              ) : null}
-              {refs.workflow.length > 0 ? (
-                <optgroup label="The workflow's outputs">
-                  {refs.workflow.map((r) => (
-                    <option key={r} value={r}>
-                      {r}
-                    </option>
-                  ))}
-                </optgroup>
-              ) : null}
-              <option value={CUSTOM}>Custom path…</option>
-            </select>
-          </label>
-        </>
-      )}
-    </div>
+    <label>
+      <span>
+        <span id={`${id}-name`}>{label}</span>
+        {required ? (
+          <span className="action-picker__required" aria-hidden="true">
+            {" "}
+            *
+          </span>
+        ) : null}
+      </span>
+      {control}
+    </label>
+  );
+}
+
+/** The "Use a value from…" select: the trigger's fields, the workflow's outputs, or a custom path. */
+function MapSelect({
+  id,
+  label,
+  refs,
+  onPick,
+}: Readonly<{ id: string; label: string; refs: MappingRefs; onPick: (picked: string) => void }>) {
+  return (
+    <label className="action-picker__map">
+      <span id={`${id}-map`}>Map {label}</span>
+      <select aria-labelledby={`${id}-map`} value="" onChange={(e) => onPick(e.target.value)}>
+        <option value="">Use a value from…</option>
+        {refs.trigger.length > 0 ? (
+          <optgroup label="The trigger">
+            {refs.trigger.map((r) => (
+              <option key={r} value={r}>
+                {r}
+              </option>
+            ))}
+          </optgroup>
+        ) : null}
+        {refs.workflow.length > 0 ? (
+          <optgroup label="The workflow's outputs">
+            {refs.workflow.map((r) => (
+              <option key={r} value={r}>
+                {r}
+              </option>
+            ))}
+          </optgroup>
+        ) : null}
+        <option value={CUSTOM}>Custom path…</option>
+      </select>
+    </label>
   );
 }
 
@@ -288,37 +331,49 @@ interface HeadersProps {
   onChange: (value: Record<string, string> | undefined) => void;
 }
 
+interface HeaderRow {
+  id: number;
+  name: string;
+  value: string;
+}
+
+let headerRowId = 0;
+const headerRow = (name: string, value: string): HeaderRow => ({ id: ++headerRowId, name, value });
+
 /** Free key/value rows for a dict param (http.call headers). */
 function HeadersField({ value, onChange }: Readonly<HeadersProps>) {
   const id = useId();
-  const initial = Object.entries((value ?? {}) as Record<string, unknown>).map(([k, v]) => [k, String(v)]);
-  const [rows, setRows] = useState<string[][]>(initial);
-  const commit = (next: string[][]) => {
+  const [rows, setRows] = useState<HeaderRow[]>(() =>
+    Object.entries((value ?? {}) as Record<string, unknown>).map(([k, v]) => headerRow(k, String(v))),
+  );
+  const commit = (next: HeaderRow[]) => {
     setRows(next);
-    const entries = next.filter(([k]) => k.trim());
-    onChange(entries.length ? Object.fromEntries(entries.map(([k, v]) => [k.trim(), v])) : undefined);
+    const entries = next.filter((r) => r.name.trim());
+    onChange(entries.length ? Object.fromEntries(entries.map((r) => [r.name.trim(), r.value])) : undefined);
   };
+  const patch = (row: HeaderRow, change: Partial<HeaderRow>) =>
+    commit(rows.map((r) => (r === row ? { ...r, ...change } : r)));
   return (
-    <div className="action-picker__field" role="group" aria-labelledby={`${id}-h`}>
+    <fieldset className="action-picker__field plain-group" aria-labelledby={`${id}-h`}>
       <span id={`${id}-h`}>Headers</span>
-      {rows.map(([k, v], i) => (
-        <div className="action-picker__pair" key={i}>
+      {rows.map((row, i) => (
+        <div className="action-picker__pair" key={row.id}>
           <input
             aria-label={`Header name ${i + 1}`}
-            value={k}
-            onChange={(e) => commit(rows.map((r, j) => (j === i ? [e.target.value, r[1]] : r)))}
+            value={row.name}
+            onChange={(e) => patch(row, { name: e.target.value })}
           />
           <input
             aria-label={`Header value ${i + 1}`}
-            value={v}
-            onChange={(e) => commit(rows.map((r, j) => (j === i ? [r[0], e.target.value] : r)))}
+            value={row.value}
+            onChange={(e) => patch(row, { value: e.target.value })}
           />
         </div>
       ))}
-      <button type="button" className="btn" onClick={() => setRows([...rows, ["", ""]])}>
+      <button type="button" className="btn" onClick={() => setRows([...rows, headerRow("", "")])}>
         Add header
       </button>
-    </div>
+    </fieldset>
   );
 }
 
@@ -333,6 +388,118 @@ interface Props {
 }
 
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+interface ParamFieldsProps {
+  id: string;
+  spec: KindSpec;
+  params: Record<string, unknown>;
+  actor: Actor | undefined;
+  refs: MappingRefs;
+  setParam: (key: string, v: unknown) => void;
+  setParams: (next: Record<string, unknown>) => void;
+}
+
+/** One typed field per param of the chosen action kind (the actor select is rendered separately). */
+function ParamFields(props: Readonly<ParamFieldsProps>) {
+  return (
+    <>
+      {Object.entries(props.spec.params)
+        .filter(([name]) => name !== "actor")
+        .map(([name, p]) => (
+          <ParamField key={name} name={name} p={p} {...props} />
+        ))}
+    </>
+  );
+}
+
+/** A single param's field: the command / args / method selects, the headers rows, or a value. */
+function ParamField({
+  id,
+  name,
+  p,
+  params,
+  actor,
+  refs,
+  setParam,
+  setParams,
+}: Readonly<ParamFieldsProps & { name: string; p: ParamSpec }>) {
+  const command = typeof params.command === "string" ? params.command : "";
+  const commands = commandsOf(actor);
+  const declared = Object.keys(commands[command]?.params ?? {});
+  const args = (params.args ?? {}) as Record<string, unknown>;
+  if (name === "command") {
+    return (
+      <label key={name}>
+        <span id={`${id}-command`}>Command</span>
+        <select
+          aria-labelledby={`${id}-command`}
+          value={command}
+          disabled={!actor}
+          onChange={(e) => setParams({ ...params, command: e.target.value || undefined, args: undefined })}
+        >
+          <option value="">Choose a command…</option>
+          {command && !(command in commands) ? <option value={command}>{command} (not registered)</option> : null}
+          {Object.keys(commands).map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </select>
+      </label>
+    );
+  }
+  if (name === "args") {
+    return declared.map((arg) => (
+      <ValueField
+        key={`${command}-${arg}`}
+        label={arg}
+        type="str"
+        testKey={arg}
+        refs={refs}
+        value={args[arg]}
+        onChange={(v) => {
+          const next = Object.fromEntries(Object.entries({ ...args, [arg]: v }).filter(([, x]) => x !== undefined));
+          setParam("args", Object.keys(next).length ? next : undefined);
+        }}
+      />
+    ));
+  }
+  if (name === "method") {
+    return (
+      <label key={name}>
+        <span id={`${id}-method`}>Method</span>
+        <select
+          aria-labelledby={`${id}-method`}
+          value={typeof params.method === "string" ? params.method : ""}
+          onChange={(e) => setParam("method", e.target.value || undefined)}
+        >
+          <option value="">Choose a method…</option>
+          {METHODS.map((m) => (
+            <option key={m} value={m}>
+              {m}
+            </option>
+          ))}
+        </select>
+      </label>
+    );
+  }
+  if (p.type === "dict") {
+    return <HeadersField key={name} value={params[name]} onChange={(v) => setParam(name, v)} />;
+  }
+  return (
+    <ValueField
+      key={name}
+      label={cap(name)}
+      type={p.type}
+      testKey={name}
+      refs={refs}
+      required={p.required}
+      multiline={name === "body" || name === "text"}
+      value={params[name]}
+      onChange={(v) => setParam(name, v)}
+    />
+  );
+}
 
 /**
  * "Then what happens?" as typed choices: a kind offered only if some enabled actor can do it, the
@@ -363,10 +530,6 @@ export default function ActionPicker({ value, actors, triggerType, workflow, onC
   };
 
   const kindOptions = Object.entries(ACTION_KINDS).filter(([k]) => offered(k, actors) || k === kind);
-  const command = typeof params.command === "string" ? params.command : "";
-  const commands = commandsOf(actor);
-  const declared = Object.keys(commands[command]?.params ?? {});
-  const args = (params.args ?? {}) as Record<string, unknown>;
   const known = spec !== undefined;
   const extras = Object.entries(params).filter(([k]) => spec && !(k in spec.params));
 
@@ -390,9 +553,9 @@ export default function ActionPicker({ value, actors, triggerType, workflow, onC
         </p>
       )}
       {known && kind !== "noop" && eligible.length === 0 && spec.params.actor?.required ? (
-        <p className="trigger-picker__empty" role="status">
+        <output className="trigger-picker__empty">
           No enabled actor can do this yet. Add one on the Actors tab.
-        </p>
+        </output>
       ) : null}
 
       {known && spec.params.actor ? (
@@ -416,87 +579,12 @@ export default function ActionPicker({ value, actors, triggerType, workflow, onC
         </label>
       ) : null}
 
-      {known
-        ? Object.entries(spec.params)
-            .filter(([name]) => name !== "actor")
-            .map(([name, p]) => {
-              if (name === "command") {
-                return (
-                  <label key={name}>
-                    <span id={`${id}-command`}>Command</span>
-                    <select
-                      aria-labelledby={`${id}-command`}
-                      value={command}
-                      disabled={!actor}
-                      onChange={(e) => setParams({ ...params, command: e.target.value || undefined, args: undefined })}
-                    >
-                      <option value="">Choose a command…</option>
-                      {command && !(command in commands) ? <option value={command}>{command} (not registered)</option> : null}
-                      {Object.keys(commands).map((c) => (
-                        <option key={c} value={c}>
-                          {c}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                );
-              }
-              if (name === "args") {
-                return declared.map((arg) => (
-                  <ValueField
-                    key={`${command}-${arg}`}
-                    label={arg}
-                    type="str"
-                    testKey={arg}
-                    refs={refs}
-                    value={args[arg]}
-                    onChange={(v) => {
-                      const next = Object.fromEntries(Object.entries({ ...args, [arg]: v }).filter(([, x]) => x !== undefined));
-                      setParam("args", Object.keys(next).length ? next : undefined);
-                    }}
-                  />
-                ));
-              }
-              if (name === "method") {
-                return (
-                  <label key={name}>
-                    <span id={`${id}-method`}>Method</span>
-                    <select
-                      aria-labelledby={`${id}-method`}
-                      value={typeof params.method === "string" ? params.method : ""}
-                      onChange={(e) => setParam("method", e.target.value || undefined)}
-                    >
-                      <option value="">Choose a method…</option>
-                      {METHODS.map((m) => (
-                        <option key={m} value={m}>
-                          {m}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                );
-              }
-              if (p.type === "dict") {
-                return <HeadersField key={name} value={params[name]} onChange={(v) => setParam(name, v)} />;
-              }
-              return (
-                <ValueField
-                  key={name}
-                  label={cap(name)}
-                  type={p.type}
-                  testKey={name}
-                  refs={refs}
-                  required={p.required}
-                  multiline={name === "body" || name === "text"}
-                  value={params[name]}
-                  onChange={(v) => setParam(name, v)}
-                />
-              );
-            })
-        : null}
+      {known ? (
+        <ParamFields id={id} spec={spec} params={params} actor={actor} refs={refs} setParam={setParam} setParams={setParams} />
+      ) : null}
 
       {extras.map(([k, v]) => (
-        <div key={k} className="action-picker__field" role="group" aria-label={k}>
+        <fieldset key={k} className="action-picker__field plain-group" aria-label={k}>
           <span>{k}</span>
           {refOf(v) ? (
             <span className="mapping-chip" data-testid={`chip-${k}`}>
@@ -505,7 +593,7 @@ export default function ActionPicker({ value, actors, triggerType, workflow, onC
           ) : (
             <span className="trigger-picker__words">{typeof v === "string" ? v : JSON.stringify(v)}</span>
           )}
-        </div>
+        </fieldset>
       ))}
 
       <label>

@@ -6,6 +6,7 @@ import {
   type FormErrors,
 } from "./app-config";
 import { RemoveButton, TextField } from "./fields";
+import { useRowKeys } from "./useRowKeys";
 
 export interface CommandsEditorProps {
   value: CommandDraft[];
@@ -20,6 +21,8 @@ export interface CommandsEditorProps {
  * through a shell), typed parameters and a timeout.
  */
 export function CommandsEditor({ value, onChange, errors = {} }: Readonly<CommandsEditorProps>) {
+  const rows = useRowKeys();
+  const commandKeys = rows.keys("commands", value.length);
   const patch = (i: number, next: Partial<CommandDraft>) =>
     onChange(value.map((c, j) => (j === i ? { ...c, ...next } : c)));
 
@@ -28,17 +31,24 @@ export function CommandsEditor({ value, onChange, errors = {} }: Readonly<Comman
       {value.map((command, i) => {
         const n = i + 1;
         const warning = inlineEvalWarning(command.argv);
+        const tokenList = `${commandKeys[i]}:argv`;
+        const paramList = `${commandKeys[i]}:params`;
+        const tokenKeys = rows.keys(tokenList, command.argv.length);
+        const paramKeys = rows.keys(paramList, command.params.length);
         return (
-          <fieldset key={`command-${i}`} className="actor-command plain-group" aria-label={`Command ${n}`}>
+          <fieldset key={commandKeys[i]} className="actor-command plain-group" aria-label={`Command ${n}`}>
             <div className="actor-list__row">
               <TextField ariaLabel={`Command ${n} name`} label="Name" value={command.name} error={errors[`${i}.name`]} onChange={(name) => patch(i, { name })} />
-              <RemoveButton label={`Remove command ${n}`} onClick={() => onChange(value.filter((_, j) => j !== i))} />
+              <RemoveButton label={`Remove command ${n}`} onClick={() => {
+                  rows.drop("commands", i);
+                  onChange(value.filter((_, j) => j !== i));
+                }} />
             </div>
 
             <div className="actor-list">
               <span className="actor-list__title">Argv template, one token per field</span>
               {command.argv.map((token, k) => (
-                <div className="actor-list__row" key={`token-${k}`}>
+                <div className="actor-list__row" key={tokenKeys[k]}>
                   <TextField
                     ariaLabel={`Command ${n} token ${k + 1}`}
                     value={token}
@@ -47,7 +57,10 @@ export function CommandsEditor({ value, onChange, errors = {} }: Readonly<Comman
                     error={k === 0 ? errors[`${i}.argv`] : undefined}
                     onChange={(text) => patch(i, { argv: command.argv.map((t, j) => (j === k ? text : t)) })}
                   />
-                  <RemoveButton label={`Remove token ${k + 1} of command ${n}`} onClick={() => patch(i, { argv: command.argv.filter((_, j) => j !== k) })} />
+                  <RemoveButton label={`Remove token ${k + 1} of command ${n}`} onClick={() => {
+                      rows.drop(tokenList, k);
+                      patch(i, { argv: command.argv.filter((_, j) => j !== k) });
+                    }} />
                 </div>
               ))}
               <button type="button" className="btn actor-add" aria-label={`Add token to command ${n}`} onClick={() => patch(i, { argv: [...command.argv, ""] })}>
@@ -63,7 +76,7 @@ export function CommandsEditor({ value, onChange, errors = {} }: Readonly<Comman
             <div className="actor-list">
               <span className="actor-list__title">Parameters</span>
               {command.params.map((param, j) => (
-                <div className="actor-list__row actor-list__row--param" key={`param-${j}`}>
+                <div className="actor-list__row actor-list__row--param" key={paramKeys[j]}>
                   <TextField
                     ariaLabel={`Command ${n} parameter ${j + 1} name`}
                     placeholder="name"
@@ -82,7 +95,10 @@ export function CommandsEditor({ value, onChange, errors = {} }: Readonly<Comman
                       </option>
                     ))}
                   </select>
-                  <RemoveButton label={`Remove parameter ${j + 1} of command ${n}`} onClick={() => patch(i, { params: command.params.filter((_, k) => k !== j) })} />
+                  <RemoveButton label={`Remove parameter ${j + 1} of command ${n}`} onClick={() => {
+                      rows.drop(paramList, j);
+                      patch(i, { params: command.params.filter((_, k) => k !== j) });
+                    }} />
                 </div>
               ))}
               <button

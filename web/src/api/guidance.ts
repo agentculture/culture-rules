@@ -153,7 +153,7 @@ const TABLE: Record<string, Guidance> = {
 
 export const KNOWN_CODES: readonly string[] = Object.freeze(Object.keys(TABLE));
 
-const has = (code: string): boolean => Object.prototype.hasOwnProperty.call(TABLE, code);
+const has = (code: string): boolean => Object.hasOwn(TABLE, code);
 
 /**
  * Guidance for an error code. When the top-level code is the broad

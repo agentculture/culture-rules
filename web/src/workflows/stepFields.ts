@@ -39,7 +39,7 @@ export const RETRY_DEFAULTS: Required<Retry> = { max_attempts: 1, backoff_s: 0, 
  * (so unknown keys survive); when nothing is left the policy is unset (`null`).
  */
 export function withRetryField(retry: Retry | null | undefined, key: RetryKey, value: number | null): Retry | null {
-  const next: Record<string, unknown> = { ...(retry ?? {}) };
+  const next: Record<string, unknown> = { ...retry };
   if (value === null) delete next[key];
   else next[key] = value;
   if (value !== null) for (const f of RETRY_FIELDS) next[f.key] ??= RETRY_DEFAULTS[f.key];
