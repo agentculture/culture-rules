@@ -70,6 +70,8 @@ def _run(id: str, workflow: str, hosts: list, status: str = "succeeded", at: str
         "status": status,
         "rev": 1,
         "rule": {"id": f"rule-{workflow}"},
+        "rule_id": f"rule-{workflow}",
+        "workflow_id": workflow,
         "workflow": {"id": workflow, "definition": {"id": workflow, "name": workflow.title()}},
         "started_by": "t",
         "created_at": at or "2026-10-03T10:00:00Z",

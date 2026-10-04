@@ -192,3 +192,34 @@ def _migrate_one(
             doc["schema_version"] = f"{step.to_major}.0"
         tx.put(name, doc)
     return True
+
+
+RUNS_COLLECTION = "runs"
+
+
+def backfill_run_ids(store: StoragePort, *, dry_run: bool = False) -> int:
+    """Copy ``rule.id`` / ``workflow.id`` to top-level ``rule_id`` / ``workflow_id`` on run docs.
+
+    Run documents written before the top-level copies existed are invisible to the
+    store-side ``rule_id`` / ``workflow_id`` filters. This sets both fields (``workflow_id`` is
+    None for a rule without a workflow) on every run lacking ``rule_id``, with a
+    compare-and-set per document, so it is idempotent and safe to run concurrently. Runs with
+    no pinned rule are left alone. Returns the number of documents updated, or that would be
+    with ``dry_run``.
+    """
+    changed = 0
+    for doc in store.find(RUNS_COLLECTION, {"rule_id": None}):
+        rule_id = (doc.get("rule") or {}).get("id")
+        if not rule_id:
+            continue
+        if not dry_run:
+            result = store.update_if(
+                RUNS_COLLECTION,
+                doc["id"],
+                {"rule_id": None},
+                {"rule_id": rule_id, "workflow_id": (doc.get("workflow") or {}).get("id")},
+            )
+            if not result.won:
+                continue
+        changed += 1
+    return changed
