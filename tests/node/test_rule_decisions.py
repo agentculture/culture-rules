@@ -38,6 +38,7 @@ def test_the_recorded_reasons_and_collection():
         "blocked_by_predecessor",
         "group_lost",
         "predecessor_failed",
+        "rate_capped",
     }
     assert RULE_DECISIONS in NODE_COLLECTIONS
 

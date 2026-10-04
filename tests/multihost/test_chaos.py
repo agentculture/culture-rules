@@ -15,6 +15,7 @@ import threading
 import time
 
 from culture_rules.engine.runs import ACTION_STEP, RUNS_COLLECTION
+from culture_rules.model.rule import Rule
 from tests.events.fakes import envelope
 from tests.multihost.harness import HOSTS, FailoverClient, event_rule, run_id_for
 
@@ -23,7 +24,9 @@ REQUESTS = 200
 
 
 def test_one_host_stopped_keeps_serving_and_actions_run_exactly_once(cluster):
-    cluster.define(event_rule("chaos"))
+    chaos = event_rule("chaos").to_dict()
+    chaos["trigger"]["params"]["max_fires_per_hour"] = 2 * EVENTS  # not the cap under test
+    cluster.define(Rule.from_dict(chaos))
     cluster.start(*HOSTS)
     apis = [cluster.serve(h) for h in HOSTS]
     client = FailoverClient([a.url for a in apis], headers=apis[0].headers)

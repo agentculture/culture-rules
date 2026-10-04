@@ -347,3 +347,39 @@ def test_a_predecessor_whose_run_cannot_start_settles_its_dependants():
     m = c.run("m", "evt_1")
     assert m["status"] == "succeeded"
     assert m["upstream"] == {}
+
+
+def test_a_skip_final_in_one_step_on_another_host_cascades_down_the_chain():
+    """c22 / h19: A (spark) -> B (thor) -> C (spark), all must run after. A fails; thor
+    evaluates B only afterwards, so B's predecessor_failed is written final in one step (no
+    waiting record, no ``superseded`` history). C, waiting on spark, is still settled by
+    the chain feed."""
+    c = cluster("spark", "thor")
+    c.actor.on("a1", ("fail", "boom", False))
+    c.define(
+        producer_workflow(),
+        producer(placement=Placement(machine="spark")),
+        rule("b", must_after=("a",), placement=Placement(machine="thor")),
+        rule("c", must_after=("b",), placement=Placement(machine="spark")),
+    )
+    c.start()
+    c.publish(envelope(1))
+
+    cycles(c, 3, "spark")  # a runs and fails; c waits for b, which spark cannot decide
+    assert c.run("a", "evt_1")["status"] == "failed"
+    (waiting,) = decisions(c, "c")
+    assert waiting["reason"] == "blocked_by_predecessor"
+    assert waiting["by"] == ["b"]
+
+    cycles(c, 2, "thor")  # thor evaluates b for the first time: final in one step
+    (b,) = decisions(c, "b")
+    assert b["reason"] == "predecessor_failed"
+    assert "superseded" not in b
+
+    cycles(c, 2, "spark")  # the rule_decisions feed on spark re-evaluates c
+    (doc,) = decisions(c, "c")
+    assert doc["reason"] == "predecessor_failed"
+    assert doc["by"] == ["b"]
+    assert [h["reason"] for h in doc["superseded"]] == ["blocked_by_predecessor"]
+    assert fires(c, "b") == fires(c, "c") == []
+    assert {h for h, r, _ in c.evaluations if r == "c"} == {"spark"}
