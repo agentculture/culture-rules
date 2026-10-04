@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-03T18:08:10Z",
-  "updated": "2026-10-04T04:22:54Z",
+  "updated": "2026-10-04T04:32:41Z",
   "claims": [
     {
       "id": "c1",
@@ -1508,6 +1508,17 @@
       "skipped_check": "full vitest run on the final commit (main agent's merge gate re-runs it)",
       "refs": [
         "t35"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l5",
+      "code": "provenance-missing",
+      "what": "t7: only a literal True data.self_authored counts as self-authored (a truthy string like 'yes' still matches); the plan did not specify this, it is the agent's reading",
+      "skipped_check": "",
+      "refs": [
+        "t7"
       ],
       "origin": "llm",
       "status": "proposed"
