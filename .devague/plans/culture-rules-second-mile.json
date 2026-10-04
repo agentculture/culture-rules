@@ -1,0 +1,1626 @@
+{
+  "slug": "culture-rules-second-mile",
+  "title": "culture-rules second mile",
+  "frame_slug": "culture-rules-second-mile",
+  "schema_version": 5,
+  "status": "exported",
+  "created": "2026-10-04T04:02:01Z",
+  "updated": "2026-10-04T04:14:38Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "rules.culture.dev rules point at the real world: typed and scheduled triggers, actions that act through app and server actors, humans and agents as actors, and a Workflows tab where you build and test a workflow on the canvas alone, with PR #4 review follow-ups closed",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "Every confirmed requirement in this frame maps to at least one plan task with a test, and the announcement holds on the live deployment, not just in MemoryStore",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c3",
+      "kind": "requirement",
+      "text": "Saving an event trigger with no params.type is refused by validation (model/validate.py _check_trigger) in API, CLI, MCP and editor; today engine/matching.py:145-151 makes a typeless event trigger match every event",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "Validation rejects {kind:event, params:{}} and {kind:event, params:{type:''}} with a path-coded error (trigger.params.type); existing typeless event rules are reported by a migration/doctor check, not silently kept",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c4",
+      "kind": "requirement",
+      "text": "The Rules tab trigger editor is typed: pick a surface (app actor or machine), then an event type from the actor's declared events, writing params.type; optional filter condition; no free-text trigger",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "The trigger editor never offers free text for the type: options come from enabled app actors' declared events (and schedule/probe/manual), and saving writes params.type; params.label stays display-only",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c5",
+      "kind": "requirement",
+      "text": "A schedule trigger (cron expression, stdlib-only parser) fires from a node scheduler stage, evaluated only on the host the rule is placed on, exactly once per slot",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "The cron parser is stdlib-only and covers 5-field cron (*, lists, ranges, steps); each slot fires at most once even across node restart or two hosts (dedupe marker rule/slot in a transaction); a missed slot while the placed host is offline is not backfilled unless stated",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c6",
+      "kind": "requirement",
+      "text": "A probe trigger runs an allow-listed command on a chosen machine or app actor on a schedule and fires when its output changes or a condition over the output holds (e.g. trigger.data.temp > 30)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "A probe runs only a command allow-listed on the target actor (CodeRunner rules: argv, no shell, timeout), its output becomes event data readable by conditions, 'on change' compares to persisted previous output, and a failed probe run emits no trigger",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c7",
+      "kind": "requirement",
+      "text": "A new actor kind 'app' (integration surface) declares the events it emits, the probes it offers and the actions it performs, with connection config whose secrets are `grant:<NAME>` refs only",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "An app actor's declared events/probes/actions are typed and validated on save, and any secret-looking param that is not a grant: ref is refused (assert_refs_only)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "Signing in through Cloudflare Access creates a human actor (id and name from the Access identity, kind human, enabled, editable after); human actors are the default target for asks",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "First authenticated SSO request for an identity creates exactly one human actor (id slug of email, kind human, enabled), concurrent first requests do not duplicate it, service tokens never create one, and an operator edit is not overwritten by later sign-ins",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "Mesh agents on each machine are enrolled as agent actors (harness and model from culture.yaml, machine set), so workflow steps can be handed to them",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "Enrolment reads each machine's culture agent list and culture.yaml (harness, model) and upserts agent actors with machine set, idempotently; agents removed from the machine are disabled, not deleted",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "Operators register allow-listed commands on a server (runner) actor from the Actors tab: typed args, no shell, as CodeRunner enforces",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "Commands added from the Actors tab are stored as CodeRunner commands {argv, params, timeout}; argv with sh -c / python -c is refused by the API, and args are typed fields in the UI",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "A rule's action can name an actor in params and is dispatched through that actor's adapter with its limits; action-kind handlers (message, github.comment, jira.comment, http.call, machine.command) are registered as `action:<kind>` ports",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "A rule action naming params.actor runs through that stored actor's adapter wrapped by LimitedActor (limits apply); an unknown or disabled actor fails the run with a clear code instead of falling back to noop; each of the 5 action kinds has a handler with idempotency honoured",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "The Rules tab action editor picks an action kind offered by connected app and server actors, with typed params and graphical mappings from trigger data and workflow outputs (textual refs inspectable, never required)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "The action picker offers only kinds that some enabled actor supports, renders typed param fields per kind, and mappings from trigger./workflow.outputs. refs are chosen graphically while the textual ref stays visible",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c13",
+      "kind": "requirement",
+      "text": "Each app surface delivers typed events (github.pr.opened, discord.message.created, jira.issue.updated ...) into the events collection, replacing the stopped culture-nodes bridges",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "Each surface event lands once in the events collection with a stable dotted type (<=4 segments or the depth limit is lifted) and a dedupe id from the surface's delivery id; malformed or unsigned input never lands",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c15",
+      "kind": "requirement",
+      "text": "A workflow can be run directly with typed input values, without a rule: an API route plus a workflows run verb in CLI and MCP (parity test passes)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "POST /workflows/{id}/run (or equivalent) validates inputs against declared typed ports, pins a synthetic rule, and the CLI and MCP 'workflows run' verbs pass tests/test_surface_parity.py; history and run filters show the run under the workflow",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c16",
+      "kind": "requirement",
+      "text": "Run on the Workflows tab opens a typed input form built from the workflow's declared inputs (defaults applied), starts a direct run, lights steps as they run and shows the run's outputs",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h14",
+      "kind": "honesty",
+      "text": "The input form is generated from workflow.inputs (type-appropriate controls, required marked, defaults filled), submission starts a direct run, steps light up as they run and outputs appear when it completes",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c17",
+      "kind": "requirement",
+      "text": "Selecting a step opens a properties panel with name, description, kind, actor/placement, config (runner command and args), typed ports, timeout_s and retry",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h15",
+      "kind": "honesty",
+      "text": "Every Step field in model/workflow.py (name, description, kind, placement, config, ports, timeout_s, retry, max_iterations) is editable from the properties panel and round-trips through PUT /workflows/{id} unchanged",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c18",
+      "kind": "requirement",
+      "text": "The in and out nodes are click-selectable and open editors for the workflow's inputs, outputs (with source mapping to a step output port), variables and description",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h16",
+      "kind": "honesty",
+      "text": "Clicking the in or out node selects it (mouse and keyboard) and opens the inputs or outputs/variables/description editor; an output's source can be set by wiring a step output port, and the textual source stays inspectable",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c19",
+      "kind": "requirement",
+      "text": "Blocked actions explain what is wrong and offer fixes as options (add an input, pick an actor, wire this port, create a rule using this workflow); no raw error text; an empty workflow canvas says what to do next",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h17",
+      "kind": "honesty",
+      "text": "Every API error code the Workflows and Rules tabs can receive maps to a plain-language message plus at least one fix option, and an unmapped code falls back to a generic guided message, never raw text",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c20",
+      "kind": "requirement",
+      "text": "The Workflows tab can show soft-deleted workflows and purge them (admin)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h18",
+      "kind": "honesty",
+      "text": "The Workflows tab can list soft-deleted workflows (include_deleted) and purge one as admin with a confirmation step; non-admins don't see purge",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c22",
+      "kind": "requirement",
+      "text": "PR #4 review follow-ups land as fixes: legacy events cursor reads as start-fresh, fan-in docstring corrected, deep-event-type limit documented or configurable, _machine_online semantics pinned by tests, shared-chain transaction skipped when nothing depends on the rule, online threshold aligned with beat cadence, record_decision extra read removed, cross-host _settled_skip cascade, run-history filter in the store, Switch in-flight disabled, canvas height from real card heights, actor->machine dot, test premises strengthened, cache rule and node installer documented",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h19",
+      "kind": "honesty",
+      "text": "Each #7 item is either fixed with a test that fails on the old code, or closed with a written reason (e.g. refuted items c23/c24)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c23",
+      "kind": "boundary",
+      "text": "chaining live() needs no change: a must_after predecessor whose predecessor failed resolves to predecessor_failed; only a unit test is added",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h20",
+      "kind": "honesty",
+      "text": "A unit test of sequence()/live() for a 3-deep must_after chain with a failed root yields predecessor_failed for the leaf",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c24",
+      "kind": "boundary",
+      "text": "The Access 401 for a malformed token already holds; only a pinning test is added",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h21",
+      "kind": "honesty",
+      "text": "A test pins that a validly signed Access token naming no person or service ends as HTTP 401 code malformed",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c25",
+      "kind": "boundary",
+      "text": "culture_rules runtime keeps zero third-party dependencies: outbound calls use urllib or argv CLIs (gh, culture, discord), secrets via grant, anything else behind an optional extra",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h22",
+      "kind": "honesty",
+      "text": "pyproject runtime dependencies stay empty; every new third-party import sits behind an optional extra and is imported lazily",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c32",
+      "kind": "requirement",
+      "text": "GitHub and Jira webhook receivers live on rules.culture.dev under one fixed path each (e.g. /hooks/github, /hooks/jira) covered by a path-scoped Cloudflare Access Bypass; each receiver authenticates the request itself (GitHub X-Hub-Signature-256 HMAC, Jira HMAC or URL token) and writes typed events into the shared events collection, deduped on the surface's delivery id",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h23",
+      "kind": "honesty",
+      "text": "Only the exact receiver paths bypass Access; an unsigned or wrongly signed request returns 401 and writes nothing; a redelivered webhook (same delivery id) writes no second event",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c33",
+      "kind": "boundary",
+      "text": "culture_rules runtime stays dependency-free: GitHub/Jira webhook HMAC checks use stdlib hmac/hashlib; the Discord Gateway client and GitHub App RS256 JWT signing live behind optional extras (e.g. discord, github) imported lazily",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h24",
+      "kind": "honesty",
+      "text": "Importing culture_rules and running the API without the discord/github extras works; GitHub/Jira HMAC verification uses hmac.compare_digest",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c35",
+      "kind": "requirement",
+      "text": "A Discord app actor runs a Gateway bot listener as a long-lived, placed service (one holder at a time, like a lease) that turns gateway events into typed events (discord.message.created, ...) in the shared events collection; the same bot token sends the Discord message action",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h25",
+      "kind": "honesty",
+      "text": "Exactly one Discord gateway connection is held mesh-wide at a time (lease), it reconnects and resumes after drop, every message event lands once with type discord.message.created, and the bot token is resolved only via grant",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c36",
+      "kind": "requirement",
+      "text": "github.comment authenticates as the new culture-rules GitHub App: mint an RS256 JWT from its grant-held private key, exchange it for an installation token, call the REST API via urllib",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h26",
+      "kind": "honesty",
+      "text": "Comments are authored by the GitHub App, installation tokens are cached until near expiry and never logged, and only allow-listed repos can be commented on",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c37",
+      "kind": "audience",
+      "text": "The operator (Ori) building rules on rules.culture.dev, and the mesh agents and teammates whose GitHub/Discord/Jira activity and machines those rules react to and act on",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h27",
+      "kind": "honesty",
+      "text": "The spec's audience matches who actually uses rules.culture.dev today",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c38",
+      "kind": "before_state",
+      "text": "Today a rule cannot be pointed at anything real: an event trigger without a type matches every event, schedule does nothing, the only action handler is noop, actions never reach an actor, and a workflow can be tested only by writing a rule for it",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h28",
+      "kind": "honesty",
+      "text": "The before-state statements are each backed by a recorded scope entry",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c39",
+      "kind": "why_it_matters",
+      "text": "rules.culture.dev is live on four machines but inert; it replaces the stopped culture-nodes bridges (GitHub inbox, jira-bridge, Discord notify) only once real events trigger rules and real actions run",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h29",
+      "kind": "honesty",
+      "text": "The culture-nodes bridges named are in fact stopped and their roles are covered by this frame's surfaces",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c40",
+      "kind": "after_state",
+      "text": "An operator builds, from the editor alone, a rule triggered by a real GitHub, Jira, Discord, schedule or probe event, whose action comments, messages, calls HTTP or runs a machine command through an actor; and builds and test-runs a workflow with typed inputs on the canvas without writing a rule",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h30",
+      "kind": "honesty",
+      "text": "The demo walkthrough is executed live, not only in tests",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c41",
+      "kind": "success_signal",
+      "text": "On rules.culture.dev, a GitHub PR opened on an allow-listed repo produces exactly 1 github.pr.opened event and exactly 1 App-authored comment from the rule that matches it, within 60 s; the same holds for a jira.issue.updated -> jira.comment and a discord.message.created -> Discord reply",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h31",
+      "kind": "honesty",
+      "text": "This signal is checked and its evidence filed at validate-delivery time",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c42",
+      "kind": "success_signal",
+      "text": "An event rule with no params.type is refused on save (HTTP 422, CLI exit 1) and 0 typeless event triggers remain in the live rules collection after migration",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h32",
+      "kind": "honesty",
+      "text": "This signal is checked and its evidence filed at validate-delivery time",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c43",
+      "kind": "success_signal",
+      "text": "A schedule rule placed on thor with cron '*/5 * * * *' fires exactly 1 run per slot over 1 hour (12 runs), all on thor, including across a node restart",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h33",
+      "kind": "honesty",
+      "text": "This signal is checked and its evidence filed at validate-delivery time",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c44",
+      "kind": "success_signal",
+      "text": "A workflow with 2 typed inputs is run from the Workflows tab input form with 0 rules referencing it, and its outputs render in place; Playwright covers it and CI's web job stays green",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h34",
+      "kind": "honesty",
+      "text": "This signal is checked and its evidence filed at validate-delivery time",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c45",
+      "kind": "success_signal",
+      "text": "Every issue #7 item is closed with a test or doc change linked, and the full suite (pytest -n auto, vitest, Playwright) and SonarCloud quality gate pass on the PR",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h35",
+      "kind": "honesty",
+      "text": "This signal is checked and its evidence filed at validate-delivery time",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c46",
+      "kind": "requirement",
+      "text": "Webhook receiver paths are exempt from the app's own auth middleware by exact path match (a Cloudflare Bypass request carries no Access JWT); every other path still requires a principal, pinned by a test that walks all routes",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h36",
+      "kind": "honesty",
+      "text": "A test enumerates app.routes and asserts only /health and the exact hook paths answer without a principal; /hooks/github/x and /hooks/githubx still 401",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c47",
+      "kind": "requirement",
+      "text": "Rules do not fire on events authored by our own GitHub App, Discord bot or Jira service account unless the rule opts in, and each rule has a fire-rate cap, so a comment action cannot re-trigger itself in a loop",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h37",
+      "kind": "honesty",
+      "text": "An event whose author is the configured App/bot/service account does not fire a rule without opt-in, and a rule exceeding its fire-rate cap records a skip decision instead of firing",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c48",
+      "kind": "requirement",
+      "text": "http.call sends only to destinations allow-listed on the bound actor and refuses loopback, link-local and private/tailnet ranges unless explicitly allow-listed; no endpoint is hard-coded in committed files",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h38",
+      "kind": "honesty",
+      "text": "http.call to 127.0.0.1, 169.254.x, 10/8, 100.64/10 or a non-allow-listed host fails the action with a clear code and makes no request",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c49",
+      "kind": "boundary",
+      "text": "External event data is untrusted: it reaches commands only as typed CodeRunner args (never spliced into argv strings), and message/comment actions neutralize mass mentions (@everyone, @here) by default",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h39",
+      "kind": "honesty",
+      "text": "A payload containing shell metacharacters reaches the command only as one typed arg; a message containing @everyone is posted with mentions suppressed",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c50",
+      "kind": "requirement",
+      "text": "Existing typeless event rules are handled by a dry-run-by-default migration that disables them with an audit entry and lists them (never deletes), and the rollout upgrades every node before typed triggers are relied on, since nodes load rules with strict=False and an old node keeps match-all",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h40",
+      "kind": "honesty",
+      "text": "The migration lists and (with --apply) disables typeless event rules with an audit record and deletes none; the ops doc states the node upgrade order",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c51",
+      "kind": "requirement",
+      "text": "Cron expressions evaluate in UTC unless the rule names an IANA timezone (stdlib zoneinfo); DST gaps and repeats fire each wall-clock slot at most once",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h41",
+      "kind": "honesty",
+      "text": "Cron tests cover UTC default, an explicit tz, a DST gap and a DST repeat, each slot firing at most once",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c52",
+      "kind": "requirement",
+      "text": "Every webhook delivery outcome (accepted, duplicate, bad signature, ignored type) and the Discord gateway state (holder host, connected, last event) are counted and visible in the editor or /health, and logged without payloads or secrets",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h42",
+      "kind": "honesty",
+      "text": "Counters for each delivery outcome and the gateway state appear in /health (or Statistics) and log lines never contain payload bodies or secrets",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c53",
+      "kind": "requirement",
+      "text": "Disabling an app actor stops both its ingest (receiver answers 2xx and drops, listener disconnects) and its actions; the ops doc names the kill switches (actor disable, engine pause)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h43",
+      "kind": "honesty",
+      "text": "With an app actor disabled, a valid webhook writes no event and its actions fail with actor_disabled; re-enabling resumes",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c54",
+      "kind": "requirement",
+      "text": "Webhook receivers verify, write the event and answer 2xx without running rules or actions inline (GitHub times out deliveries at 10 s); Jira events are refetched from the API by issue key rather than trusted from the payload",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h44",
+      "kind": "honesty",
+      "text": "A webhook handler returns 2xx after one event write with no rule evaluation in the request; a Jira hook refetches the issue by key",
+      "deferred": false,
+      "deferred_reason": ""
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "Trigger kinds and validation: event requires params.type, schedule requires cron (+optional tz), probe requires actor+command+schedule+mode, manual takes none",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "validate() rejects {kind:event, params:{}} and {kind:event, params:{type:''}} with path trigger.params.type",
+        "schedule without params.cron, probe without actor/command, and an unknown trigger kind are each rejected with a path-coded error",
+        "pre-existing valid rules in tests/fixtures still validate"
+      ],
+      "deps": [],
+      "covers": [
+        "c3",
+        "h1",
+        "c42"
+      ],
+      "instruction": "Own culture_rules/model/rule.py (Trigger docstring, TRIGGER_KINDS constant) and model/validate.py _check_trigger. Error path trigger.params.type, code trigger_type_required. Probe mode is one of change|condition. Add tests/model/test_trigger_validation.py first."
+    },
+    {
+      "id": "t2",
+      "summary": "Optional extras github and discord in pyproject plus a zero-dependency import test",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "pyproject runtime dependencies list is empty and extras github and discord exist",
+        "tests/test_zero_deps.py passes with the third-party modules blocked"
+      ],
+      "deps": [],
+      "covers": [
+        "c25",
+        "h22",
+        "c33",
+        "h24"
+      ],
+      "instruction": "Edit pyproject.toml only: extras github (cryptography or PyJWT[crypto]) and discord (discord.py); runtime dependencies stay empty. Add tests/test_zero_deps.py that imports culture_rules, culture_rules.server and the node modules with those extras blocked (sys.modules None) and asserts pyproject [project].dependencies == []."
+    },
+    {
+      "id": "t3",
+      "summary": "Stdlib 5-field cron parser with UTC default, IANA tz via zoneinfo, DST-safe slot iteration",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "*, lists, ranges and steps parse; invalid expressions raise a ValueError naming the field",
+        "tests cover UTC default, an explicit tz, a DST gap and a DST repeat, each slot yielded at most once"
+      ],
+      "deps": [],
+      "covers": [
+        "c51",
+        "h41"
+      ],
+      "instruction": "New module culture_rules/engine/cron.py: parse(expr) -> Cron, Cron.slots_between(start, end, tz) yielding aware datetimes, each wall-clock slot at most once across DST repeat, skipped in DST gap. No third-party deps. Tests in tests/engine/test_cron.py (property-style over a year)."
+    },
+    {
+      "id": "t4",
+      "summary": "Action kind catalog with typed param schemas and the params.actor binding convention, validated on save",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "validate() rejects a github.comment action missing repo/number/body and a machine.command action missing actor/command",
+        "ACTION_KINDS is importable without extras and lists all six kinds"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c11"
+      ],
+      "instruction": "New culture_rules/model/action_kinds.py: ACTION_KINDS = noop, message, github.comment, jira.comment, http.call, machine.command, each with typed params and whether params.actor is required. Hook check_action into model/validate.py (after t1's edits). Unknown kinds stay allowed only if they are already stored (strict=False load path unchanged). Also create the empty packages culture_rules/apps/__init__.py and culture_rules/node/actions/__init__.py that later tasks fill."
+    },
+    {
+      "id": "t5",
+      "summary": "Actor kind app with declared events, probes and actions; secrets only as grant refs",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "an app actor with an undotted event type or an undeclared action kind is rejected",
+        "an app actor whose connection config holds a literal token is refused with secret_literal; a grant ref is accepted"
+      ],
+      "deps": [
+        "t4"
+      ],
+      "covers": [
+        "c7",
+        "h6"
+      ],
+      "instruction": "Edit culture_rules/model/actor.py (ActorKind, ACTOR_KINDS, docstring) and add model/app_actor.py with the declaration shape in params: surface (github|jira|discord), events [dotted types], probes, actions [action kinds], connection config. Hook validation into validate.py after t4. assert_refs_only already guards secret-looking keys; add a test proving it fires for app params."
+    },
+    {
+      "id": "t6",
+      "summary": "WorkflowRef.inputs accepts the structured literal and ref forms (#7)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a rule whose workflow input is a structured literal that looks like a reference resolves to the literal string at run start",
+        "tests/server/test_openapi_contract.py passes after regeneration"
+      ],
+      "deps": [
+        "t5"
+      ],
+      "covers": [
+        "c22"
+      ],
+      "instruction": "Widen WorkflowRef.inputs in model/rule.py to str or the structured literal/ref object; update model/schema.py and serde; regenerate api/openapi.json with scripts/export-openapi.py --write. resolve_refs already handles the structured form."
+    },
+    {
+      "id": "t7",
+      "summary": "Matching: an event trigger without a type matches nothing, and self-authored events do not match unless the rule opts in",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "trigger_matches returns False for an event trigger with no params.type",
+        "an event with data.self_authored true fires only rules with params.include_self true"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c47",
+        "h37"
+      ],
+      "instruction": "Own culture_rules/engine/matching.py trigger_matches. Self-authored means the event envelope carries data.self_authored true (set by ingest). Opt-in is trigger.params.include_self true. Tests in tests/engine/test_matching.py."
+    },
+    {
+      "id": "t8",
+      "summary": "Rule actions dispatch through the actor named in params.actor, with limits; unknown or disabled actors fail with a clear code",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a rule action naming an enabled runner actor executes through CodeRunner wrapped in LimitedActor",
+        "a rule action naming a disabled or unknown actor fails the run with code actor_unavailable and never runs noop"
+      ],
+      "deps": [
+        "t4"
+      ],
+      "covers": [
+        "c11",
+        "h10",
+        "c53",
+        "h43"
+      ],
+      "instruction": "Edit engine/runs.py _context to pass action.params.actor as the InvocationContext actor; edit node/actors.py ActorRouter so a named actor that is missing or disabled returns a failing port with code actor_unavailable instead of falling back to action ports. LimitedActor wrapping stays."
+    },
+    {
+      "id": "t9",
+      "summary": "Direct workflow runs pin a synthetic rule; run docs carry top-level rule_id and workflow_id",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "start_workflow with inputs matching the declared ports creates an ACTIVE run whose pinned rule id starts with adhoc:",
+        "a missing required input or a wrong type is refused with RunError code invalid_inputs naming the port",
+        "every new run doc has top-level rule_id and workflow_id"
+      ],
+      "deps": [
+        "t8",
+        "t6"
+      ],
+      "covers": [
+        "c15",
+        "h13"
+      ],
+      "instruction": "Add Executor.start_workflow(workflow_id, inputs, by) in engine/runs.py: validate inputs against declared typed ports, build a synthetic rule (id `adhoc:<workflow id>`, manual trigger, inputs as structured literals, noop action) and pin it. Also write top-level rule_id and workflow_id on every new run doc."
+    },
+    {
+      "id": "t10",
+      "summary": "Heartbeat semantics: one offline_after(beat_every) helper used by placement, health and takeover; _machine_online decided and pinned (#7)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a missing heartbeat allows takeover and a garbage ts does not, each pinned by a test",
+        "placement and health honour a non-default beat_every"
+      ],
+      "deps": [
+        "t9"
+      ],
+      "covers": [
+        "c22",
+        "h19"
+      ],
+      "instruction": "Add offline_after to machines/heartbeat.py and use it in online_machines, ops/health.py, server/status.py and engine/runs.py. Decision to implement: a missing heartbeat doc counts as offline; an unparseable ts counts as online (no takeover). Tests for both in tests/engine/test_runs.py."
+    },
+    {
+      "id": "t11",
+      "summary": "API route POST /workflows/{id}/run plus workflows run verb in CLI and MCP",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "tests/test_surface_parity.py passes with the new verb and route",
+        "POST /workflows/{id}/run returns 201 with the run id; invalid inputs return 422 with errors[].path naming the port"
+      ],
+      "deps": [
+        "t9"
+      ],
+      "covers": [
+        "c15",
+        "h13"
+      ],
+      "instruction": "Add the route in server/app.py (operation_id run_workflow, responses=ERRORS, editor role in auth/policy), a workflows run verb in cli/_commands/workflows.py (inputs as --input name=value and --inputs-json; dry-run by default, --apply starts), catalog and learn entries; regenerate api/openapi.json."
+    },
+    {
+      "id": "t12",
+      "summary": "Webhook event sink: write a typed envelope to the events collection once per delivery id, tag self-authored events, drop when the app actor is disabled, count outcomes",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "the same delivery id written twice yields one event and outcome duplicate",
+        "a disabled app actor yields outcome disabled and writes nothing",
+        "an author equal to the actor's configured self identity sets data.self_authored true"
+      ],
+      "deps": [
+        "t5"
+      ],
+      "covers": [
+        "c13",
+        "h12",
+        "c53",
+        "h43"
+      ],
+      "instruction": "New culture_rules/events/hook_sink.py: sink(store, actor, type, data, delivery_id, author) -> outcome in accepted|duplicate|ignored|disabled. Dedupe via events id derived from surface+delivery id. Outcome counters in a hook_stats collection. No payload or secret in logs. Also create the empty package culture_rules/server/hooks/__init__.py that t13 and t14 fill."
+    },
+    {
+      "id": "t13",
+      "summary": "GitHub webhook receiver: HMAC-SHA256 check, delivery-id dedupe, typed github.* events, answer fast",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a correctly signed pull_request.opened delivery writes one github.pr.opened event and returns 2xx",
+        "an unsigned or wrongly signed request returns 401 and writes nothing",
+        "the handler performs no rule evaluation (asserted with a spy)"
+      ],
+      "deps": [
+        "t12"
+      ],
+      "covers": [
+        "c13",
+        "h12",
+        "c32",
+        "h23",
+        "c33",
+        "h24",
+        "c54",
+        "h44"
+      ],
+      "instruction": "New culture_rules/server/hooks/github.py citing culture-nodes internal/api/githubwebhook.go: 2 MiB limit, hmac.compare_digest over X-Hub-Signature-256 using the App's webhook secret (grant ref on the app actor), X-GitHub-Delivery required, map pull_request.opened|closed|reopened, issue_comment.created, issues.opened, pull_request_review.submitted to github.* types (3 segments), write via hook_sink, no rule evaluation inline."
+    },
+    {
+      "id": "t14",
+      "summary": "Jira webhook receiver and Jira REST client: HMAC or URL token, refetch issues by key, typed jira.* events",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a signed jira:issue_updated delivery refetches the issue through the client and writes one jira.issue.updated event",
+        "an invalid token or signature returns 401 and writes nothing"
+      ],
+      "deps": [
+        "t12"
+      ],
+      "covers": [
+        "c13",
+        "h12",
+        "c32",
+        "h23",
+        "c54",
+        "h44"
+      ],
+      "instruction": "New culture_rules/apps/jira.py (urllib client: get_issue, add_comment; token via grant) and server/hooks/jira.py citing culture-nodes internal/api/jirawebhook.go: X-Hub-Signature HMAC or ?token= compared in constant time, extract issue keys, refetch each issue, emit jira.issue.created|updated and jira.comment.created."
+    },
+    {
+      "id": "t15",
+      "summary": "Mount the hook routes with an exact-path auth exemption",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "only /health and the exact hook paths answer without a principal; /hooks/github/x and /hooks/githubx return 401",
+        "openapi contract test passes"
+      ],
+      "deps": [
+        "t11",
+        "t13",
+        "t14"
+      ],
+      "covers": [
+        "c46",
+        "h36",
+        "c32",
+        "h23"
+      ],
+      "instruction": "Edit server/app.py: mount /hooks/github and /hooks/jira; in _install_auth skip resolver.resolve only for that exact frozenset of paths (method POST). Regenerate api/openapi.json. Add tests/server/test_auth_exemptions.py that walks app.routes."
+    },
+    {
+      "id": "t16",
+      "summary": "Human actor on first Access sign-in: id is the slugged email, created once, never for service tokens, never overwriting edits",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "the first SSO request creates exactly one human actor even with 10 concurrent first requests",
+        "a service-token or LAN request creates none, and a later sign-in does not overwrite an edited name"
+      ],
+      "deps": [
+        "t15"
+      ],
+      "covers": [
+        "c8",
+        "h7"
+      ],
+      "instruction": "New culture_rules/server/humans.py ensure_human(store, principal): insert-if-absent of kind human, name from email; called from the authenticate middleware for sso principals only, cached per process, failures logged and never fail the request. Edit server/app.py after t15."
+    },
+    {
+      "id": "t17",
+      "summary": "Run history and run lists filter in the store; backfill rule_id and workflow_id on old run docs (#7)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "history for a rule reads only that rule's runs through the store query (asserted with a store spy)",
+        "the backfill migration is idempotent and fills both fields on legacy docs"
+      ],
+      "deps": [
+        "t16",
+        "t9"
+      ],
+      "covers": [
+        "c22",
+        "h19"
+      ],
+      "instruction": "Use the top-level rule_id and workflow_id from t9 in GET /rules/{id}/history and GET /runs filters (server/app.py) via store.find where; add a migration in store/migrations.py that backfills them from rule.id and workflow.id."
+    },
+    {
+      "id": "t18",
+      "summary": "Typeless event rule migration: list, and with --apply disable with an audit record, never delete",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "dry run lists typeless event rules and changes nothing; --apply disables them and writes one audit record each",
+        "no rule document is deleted; surface parity test passes"
+      ],
+      "deps": [
+        "t1",
+        "t17",
+        "t11"
+      ],
+      "covers": [
+        "c50",
+        "h40",
+        "c42",
+        "h32",
+        "h1"
+      ],
+      "instruction": "Add the migration to store/migrations.py (after t17) and a rules migrate-typeless verb (dry-run by default, --apply) in cli/_commands/rules.py with catalog and learn entries; MCP gets it through the registry."
+    },
+    {
+      "id": "t19",
+      "summary": "Node scheduler stage: schedule triggers fire once per cron slot on the placed host",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "with a fake clock, a */5 rule fires 12 runs in an hour on its placed host and none elsewhere",
+        "a node restart mid-hour and a second host racing the same slot produce no duplicate run"
+      ],
+      "deps": [
+        "t1",
+        "t3"
+      ],
+      "covers": [
+        "c5",
+        "h4",
+        "c43",
+        "h33"
+      ],
+      "instruction": "New culture_rules/node/schedule.py and a _schedule stage in node/daemon.py run_once before _poll. Evaluate only rules whose placement resolves to this host (reuse firing._mine semantics) or the shared consumer for unplaced rules. Synthesize kind=schedule events with a marker rule_id/slot in a transaction; no backfill of slots missed while offline."
+    },
+    {
+      "id": "t20",
+      "summary": "Probe triggers: run an allow-listed command on a schedule and fire on change or on a condition over the output",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "change mode fires only when output differs from the persisted previous output",
+        "condition mode fires when trigger.data.temp > 30 holds and not otherwise; a failing command emits no event"
+      ],
+      "deps": [
+        "t19",
+        "t8"
+      ],
+      "covers": [
+        "c6",
+        "h5"
+      ],
+      "instruction": "New culture_rules/node/probe_trigger.py and a stage in node/daemon.py after t19. Run the command through the target actor's CodeRunner (allow-list, argv, timeout), parse JSON output when possible into event data, persist previous output per rule in a probe_state collection, fire on change or when the trigger condition holds. A failed run emits nothing."
+    },
+    {
+      "id": "t21",
+      "summary": "GitHub App client and github.comment action port",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a comment request on an allow-listed repo calls the REST API with an installation token (fake transport)",
+        "a non-allow-listed repo fails the action without any network call; the token never appears in logs"
+      ],
+      "deps": [
+        "t2",
+        "t4"
+      ],
+      "covers": [
+        "c36",
+        "h26"
+      ],
+      "instruction": "New culture_rules/apps/github.py: App JWT (RS256 via the github extra, imported lazily), installation token cached until 5 minutes before expiry, never logged; post_comment(repo, number, body) via urllib; repo allowlist on the app actor. New node/actions/github.py port."
+    },
+    {
+      "id": "t22",
+      "summary": "jira.comment action port",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "jira.comment on an allow-listed project posts through the client (fake transport) and returns the comment id",
+        "a non-allow-listed project fails without a network call"
+      ],
+      "deps": [
+        "t14",
+        "t4"
+      ],
+      "covers": [
+        "c11"
+      ],
+      "instruction": "New culture_rules/node/actions/jira.py using apps/jira.py add_comment; project allowlist on the app actor."
+    },
+    {
+      "id": "t23",
+      "summary": "Discord REST client and message action (Discord channel or mesh channel) with mass mentions suppressed",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a message containing @everyone is sent with allowed_mentions that suppress it",
+        "a mesh-target message runs culture channel message as an argv list"
+      ],
+      "deps": [
+        "t4"
+      ],
+      "covers": [
+        "c49",
+        "h39",
+        "c11"
+      ],
+      "instruction": "New culture_rules/apps/discord_rest.py (urllib, bot token via grant, allowed_mentions parse empty by default) and node/actions/message.py routing to Discord or to the mesh through the existing MeshPoster argv path."
+    },
+    {
+      "id": "t24",
+      "summary": "machine.command and http.call action ports",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "http.call to a refused range or non-allow-listed host fails with code destination_refused and makes no request",
+        "a payload containing shell metacharacters reaches the command as one typed argument"
+      ],
+      "deps": [
+        "t4"
+      ],
+      "covers": [
+        "c48",
+        "h38",
+        "c49",
+        "h39",
+        "c11"
+      ],
+      "instruction": "New culture_rules/node/actions/machine.py (delegates to the bound runner actor's CodeRunner with typed args) and node/actions/http.py (urllib, destination allowlist on the bound actor, refuse loopback, link-local, 10/8, 172.16/12, 192.168/16 and 100.64/10 after DNS resolution unless allow-listed, no redirects)."
+    },
+    {
+      "id": "t25",
+      "summary": "Register the action ports in the node",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "every kind in ACTION_KINDS has a registered port",
+        "with the github extra absent, a github.comment action fails with extra_missing rather than no_actor_port"
+      ],
+      "deps": [
+        "t8",
+        "t21",
+        "t22",
+        "t23",
+        "t24"
+      ],
+      "covers": [
+        "c11",
+        "h10",
+        "c53",
+        "h43"
+      ],
+      "instruction": "Edit node/runner.py default_ports to register action:message, action:github.comment, action:jira.comment, action:http.call and action:machine.command beside noop; ports whose extra is missing register a failing port with code extra_missing."
+    },
+    {
+      "id": "t26",
+      "summary": "Discord Gateway listener held by one node mesh-wide, writing discord.* events",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "with a fake gateway, two nodes never hold the connection at once and the second takes over after the lease lapses",
+        "every message lands once as discord.message.created, including across a reconnect",
+        "the bot token is resolved only through grant"
+      ],
+      "deps": [
+        "t20",
+        "t2",
+        "t12"
+      ],
+      "covers": [
+        "c35",
+        "h25",
+        "c13",
+        "h12",
+        "c53",
+        "h43"
+      ],
+      "instruction": "New culture_rules/apps/discord_gateway.py (discord extra, lazy import) run by a node stage in node/daemon.py after t20 under an engine lease (engine/leasekeeper.py) named `discord-gateway:<actor id>`; reconnect and resume; MESSAGE_CONTENT intent; write discord.message.created via hook_sink with message id as delivery id; disconnect when the app actor is disabled."
+    },
+    {
+      "id": "t27",
+      "summary": "Firing: per-rule fire-rate cap, cross-host _settled_skip cascade, no extra read in record_decision (#7)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a rule over its cap records rate_capped skips instead of runs",
+        "a dependant on another host is re-triggered when an intermediate rule's decision is written final in one step"
+      ],
+      "deps": [
+        "t7",
+        "t19"
+      ],
+      "covers": [
+        "c47",
+        "h37",
+        "c22",
+        "h19"
+      ],
+      "instruction": "Edit node/firing.py and engine/decisions.py: rate cap from rule.params max_fires_per_hour (default 60) recorded as a skip decision rate_capped; _settled_skip also matches final skips with no superseded history; record_decision inserts and reads only on duplicate key."
+    },
+    {
+      "id": "t28",
+      "summary": "Chain feed skips the shared-chain transaction when no rule depends on the finished rule; 3-deep chaining unit test (#7)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a finished run of a rule with no dependants opens no transaction (store spy) and the cursor still advances",
+        "the 3-deep chain test yields predecessor_failed for the leaf"
+      ],
+      "deps": [],
+      "covers": [
+        "c22",
+        "h19",
+        "c23",
+        "h20"
+      ],
+      "instruction": "Edit node/chain.py: pre-filter documents whose rule id is in no rule's must_after or may_after (cached rule snapshot), still advancing the cursor. Add tests/engine/test_chaining.py for a 3-deep must_after chain with a failed root."
+    },
+    {
+      "id": "t29",
+      "summary": "Events adapter: legacy cursor starts fresh, docstring corrected, configurable depth, quieter logs (#7)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "_parse_fan_in_cursor('12') returns an empty cursor instead of raising",
+        "depth 6 subscribes to six patterns"
+      ],
+      "deps": [],
+      "covers": [
+        "c22",
+        "h19"
+      ],
+      "instruction": "Edit events/events_cli_adapter.py: a non-dict cursor or unknown subscription names reset to fresh with one WARNING; fix the EventsCliFanIn docstring for timeout<=MIN_DRAIN_TIMEOUT; depth from CULTURE_RULES_EVENTS_DEPTH (default 4); set the events-cli and paho loggers to WARNING."
+    },
+    {
+      "id": "t30",
+      "summary": "Strengthen the #7 tests: chaos premise, mesh replay, serve store path, events-cli degrade warning, Access malformed 401",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "each new or changed test fails when the fix it guards is reverted (checked by a temporary revert)",
+        "the full suite passes"
+      ],
+      "deps": [],
+      "covers": [
+        "c22",
+        "h19",
+        "c24",
+        "h21"
+      ],
+      "instruction": "Tests only: tests/multihost/test_chaos.py asserts the victim holds actions when the kill arms; make test_mesh_completed_reply_is_replayed_without_resend fail on the old code; add a serve test through store_from_env raising ConfigError; assert the degrade warning without broker timing; add tests/auth/test_access.py case for a signed token naming no person or service -> 401 malformed."
+    },
+    {
+      "id": "t31",
+      "summary": "Enrol mesh agents per machine as agent actors from the culture agent list and culture.yaml",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "running twice with --apply is idempotent; a removed agent is disabled, not deleted",
+        "dry run prints the planned upserts and writes nothing"
+      ],
+      "deps": [
+        "t5",
+        "t18"
+      ],
+      "covers": [
+        "c9",
+        "h8"
+      ],
+      "instruction": "New culture_rules/actors/enrol_agents.py reading ~/.culture/server.yaml agents and each workdir culture.yaml through actors/config.py; upsert agent actors (id = mesh nick, machine set, harness, model); disable agents no longer listed. Verb actors enrol-agents (dry-run, --apply) in cli/_commands/actors.py with catalog and learn entries, after t18."
+    },
+    {
+      "id": "t32",
+      "summary": "Health shows webhook delivery outcomes and Discord gateway state",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "GET /health reports per-outcome counts after test deliveries",
+        "log capture during a delivery contains no payload body or secret"
+      ],
+      "deps": [
+        "t10",
+        "t15",
+        "t26"
+      ],
+      "covers": [
+        "c52",
+        "h42"
+      ],
+      "instruction": "Edit ops/health.py and server/status.py: counters from hook_stats per surface and outcome; gateway holder host, connected flag and last event time; regenerate openapi if the schema changes."
+    },
+    {
+      "id": "t33",
+      "summary": "Web API client for the new routes and fields",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "npm run typecheck passes",
+        "vitest covers runWorkflow and purge request shapes"
+      ],
+      "deps": [
+        "t11",
+        "t5",
+        "t4"
+      ],
+      "covers": [
+        "c15"
+      ],
+      "instruction": "Hand-maintained types in web/src/api/types.ts, actors.ts (app kind, params), workflows.ts (runWorkflow, purge, include_deleted, RunDoc outputs), rules.ts (typed trigger params, action actor); typecheck against api/openapi.json."
+    },
+    {
+      "id": "t34",
+      "summary": "Switch gets a disabled state and toggles guard against in-flight requests (#7)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a double click while a toggle is in flight sends one request (vitest)",
+        "the Switch keeps a 44px hit area (hit-area spec)"
+      ],
+      "deps": [],
+      "covers": [
+        "c22",
+        "h19"
+      ],
+      "instruction": "Edit web/src/culture-design/stages.tsx Switch (disabled prop, aria-disabled) and the toggle handlers in rules/useRulesData.ts, workflows/WorkflowList.tsx, actors/ActorsBoard.tsx."
+    },
+    {
+      "id": "t35",
+      "summary": "Guided errors: map API error codes to plain language plus fix options; never raw text",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a table test asserts every known code has a message and at least one fix",
+        "an unknown code renders the generic guided message, never the raw text"
+      ],
+      "deps": [],
+      "covers": [
+        "c19",
+        "h17"
+      ],
+      "instruction": "New web/src/api/guidance.ts table keyed on error.code and errors[].code (RunError and ServiceError vocabularies, invalid_inputs, actor_unavailable, destination_refused, extra_missing) and a GuidedNotice component offering fix actions (add an input, pick an actor, wire this port, create a rule)."
+    },
+    {
+      "id": "t36",
+      "summary": "Rules tab typed trigger picker",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "saving writes params.type from the picked declared event and never free text",
+        "schedule and probe forms write params.cron or params.command"
+      ],
+      "deps": [
+        "t33",
+        "t34"
+      ],
+      "covers": [
+        "c4",
+        "h3"
+      ],
+      "instruction": "New web/src/rules/TriggerPicker.tsx replacing the free-text trigger in rules/Forms.tsx: choose surface (app actor or machine) then event type from declared events; schedule (cron + tz), probe (actor, command, mode) and manual; optional filter condition; params.label display-only."
+    },
+    {
+      "id": "t37",
+      "summary": "Rules tab action picker with typed params and graphical mappings",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "only kinds some enabled actor supports are offered",
+        "a mapped param saves as the reference string and renders as a chip"
+      ],
+      "deps": [
+        "t36"
+      ],
+      "covers": [
+        "c12",
+        "h11"
+      ],
+      "instruction": "New web/src/rules/ActionPicker.tsx used by rules/Forms.tsx after the trigger picker: offer kinds supported by enabled app and runner actors, typed fields per ACTION_KINDS, mapping chips from trigger. and workflow.outputs. refs with the textual ref visible."
+    },
+    {
+      "id": "t38",
+      "summary": "Actors tab: app actor connection and declarations editor, runner commands editor",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a literal secret is refused client-side and the API refusal is shown as guided text",
+        "a command saved from the form round-trips through PUT /actors/{id}"
+      ],
+      "deps": [
+        "t33",
+        "t34"
+      ],
+      "covers": [
+        "c7",
+        "h6",
+        "c10",
+        "h9"
+      ],
+      "instruction": "New web/src/actors/AppConfigForm.tsx and CommandsEditor.tsx used from ActorForm.tsx: grant ref fields (never literal secrets), declared events and actions, runner commands as name, argv template and typed params."
+    },
+    {
+      "id": "t39",
+      "summary": "Workflows tab Run opens a typed input form and shows outputs in place",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "submitting the form starts a direct run with typed values (vitest with fake API)",
+        "outputs render when the overlaid run completes"
+      ],
+      "deps": [
+        "t33",
+        "t35"
+      ],
+      "covers": [
+        "c16",
+        "h14",
+        "c44",
+        "h34"
+      ],
+      "instruction": "New web/src/workflows/RunForm.tsx opened by Run in routes/Workflows.tsx: controls per port type, required marked, defaults filled; start via runWorkflow; keep the run overlay and show outputs when the run completes. Run no longer needs a rule."
+    },
+    {
+      "id": "t40",
+      "summary": "Step properties panel covers every Step field",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a fixture step with every field set round-trips unchanged through the editor",
+        "invalid timeout or retry values show guided errors"
+      ],
+      "deps": [
+        "t33"
+      ],
+      "covers": [
+        "c17",
+        "h15"
+      ],
+      "instruction": "Extend web/src/workflows/StepEditor.tsx: description, config (runner command and args), timeout_s, retry (max_attempts, backoff_s, backoff_multiplier), port required flags."
+    },
+    {
+      "id": "t41",
+      "summary": "In/out nodes selectable with inputs, outputs, variables and description editors; canvas height from real card heights; empty-canvas guidance (#7)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "clicking or pressing Enter on the in node opens the inputs editor; the out node opens outputs and variables",
+        "a step with 8 ports fits inside the canvas bounds"
+      ],
+      "deps": [
+        "t33",
+        "t35",
+        "t39"
+      ],
+      "covers": [
+        "c18",
+        "h16",
+        "c19",
+        "c22"
+      ],
+      "instruction": "Edit web/src/workflows/Canvas.tsx and nodes.tsx (make io nodes selectable, use cardHeight for bounds), add IoEditor.tsx; empty workflows show next-step guidance."
+    },
+    {
+      "id": "t42",
+      "summary": "Soft-deleted workflows view and admin purge",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "non-admins never see Purge",
+        "purge calls POST /workflows/{id}/purge only after confirmation"
+      ],
+      "deps": [
+        "t39",
+        "t34",
+        "t41"
+      ],
+      "covers": [
+        "c20",
+        "h18"
+      ],
+      "instruction": "Edit web/src/workflows/WorkflowList.tsx and routes/Workflows.tsx after t39: a Show deleted toggle (include_deleted) and Purge with confirmation for admins only."
+    },
+    {
+      "id": "t43",
+      "summary": "Workflow list dot resolves actor placement to its machine (#7)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a workflow whose steps are placed on thor-server shows thor's colour",
+        "steps spanning two hosts still show the neutral dot"
+      ],
+      "deps": [
+        "t41"
+      ],
+      "covers": [
+        "c22",
+        "h19"
+      ],
+      "instruction": "Edit web/src/workflows/model.ts stepMachine and workflowMachine and their tests."
+    },
+    {
+      "id": "t44",
+      "summary": "Playwright coverage for the new editor flows",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "the CI web job passes with the new specs",
+        "axe reports no serious or critical violations on any tab"
+      ],
+      "deps": [
+        "t36",
+        "t37",
+        "t38",
+        "t39",
+        "t40",
+        "t41",
+        "t42",
+        "t43"
+      ],
+      "covers": [
+        "c44",
+        "h34"
+      ],
+      "instruction": "Add e2e specs and stub routes in web/e2e/fixtures/api.ts for trigger picker, action picker, actors app/commands, workflow run form, step panel, io editors, deleted/purge; keep axe and the agent-state gate green."
+    },
+    {
+      "id": "t45",
+      "summary": "Ops docs and node installer: cache rule, hook Bypass paths, kill switches, upgrade order, GitHub App, Discord bot and Jira webhook setup",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "the doc names the exact Bypass paths, the cache rule and the four-node upgrade order",
+        "deploy/node/install.sh passes shellcheck and supports an offline wheelhouse"
+      ],
+      "deps": [
+        "t15",
+        "t26"
+      ],
+      "covers": [
+        "c22",
+        "h19",
+        "c50",
+        "h40",
+        "c53"
+      ],
+      "instruction": "Edit docs/operations/rules-culture-dev.md; add deploy/node/install.sh from the earlier session's node-install.sh (venv, extras store,events,github,discord, node.env, systemd user unit, offline wheelhouse option) and deploy/node/README.md. markdownlint clean."
+    },
+    {
+      "id": "t46",
+      "summary": "Release: version bump, CHANGELOG, harness prompt files and learn text in step",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "version-check, lint, teken doctor --strict and harness-smoke pass in CI",
+        "CHANGELOG lists every issue #5, #6 and #7 item delivered"
+      ],
+      "deps": [
+        "t31",
+        "t32",
+        "t44",
+        "t45",
+        "t6",
+        "t7",
+        "t10",
+        "t17",
+        "t18",
+        "t20",
+        "t22",
+        "t23",
+        "t24",
+        "t25",
+        "t27",
+        "t28",
+        "t29",
+        "t30",
+        "t40",
+        "t42",
+        "t43"
+      ],
+      "covers": [
+        "c22"
+      ],
+      "instruction": "Use the version-bump skill (minor); keep CLAUDE.md, QWEN.md, AGENTS.override.md, AGENTS.colleague.md describing the new capabilities; run teken cli doctor . --strict and harness-smoke config stage."
+    },
+    {
+      "id": "t47",
+      "summary": "Live rollout and delivery validation on rules.culture.dev",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "GitHub, Jira and Discord loops each produce exactly one event and one action within 60 s, with evidence filed",
+        "the */5 schedule rule on thor fires 12 runs in an hour across a node restart",
+        "no typeless event rule remains enabled live; the full CI suite and SonarCloud gate are green"
+      ],
+      "deps": [
+        "t45",
+        "t46"
+      ],
+      "covers": [
+        "c1",
+        "h2",
+        "c37",
+        "h27",
+        "c38",
+        "h28",
+        "c39",
+        "h29",
+        "c40",
+        "h30",
+        "c41",
+        "h31",
+        "c42",
+        "h32",
+        "c43",
+        "h33",
+        "c45",
+        "h35"
+      ],
+      "instruction": "Operator-assisted: add grant entries (new GitHub App, Discord bot, Jira webhook token), upgrade all four nodes, apply migrate-typeless, register the GitHub App and Jira webhooks and the Access Bypass, then run each success signal live and file devague evidence with run ids; re-run docs/demo.md."
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "Operator prerequisites for t47: register the new culture-rules GitHub App and store its ID, installation ID, private key and webhook secret in grant; create a Discord bot with MESSAGE_CONTENT and store its token; create a Jira webhook token",
+      "kind": "follow_up",
+      "task_id": "t47",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r2",
+      "text": "Cloudflare changes (path-scoped Access Bypass for /hooks/github and /hooks/jira) are the operator's: auto mode blocks DNS/Access mutations",
+      "kind": "follow_up",
+      "task_id": "t47",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r3",
+      "text": "RULES_CULTURE_DEV_CLI_TOKEN in grant is rejected by the live API (401 bad_token); reissue it before t18's live migrate-typeless --apply",
+      "kind": "follow_up",
+      "task_id": "t47",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r4",
+      "text": "spark2 has no internet: t45's installer must carry the github and discord extras in the offline wheelhouse",
+      "kind": "unknown_nonblocking",
+      "task_id": "t45",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r5",
+      "text": "Discord gateway behaviour is tested against a fake gateway; real resume/intents behaviour is only proven live in t47",
+      "kind": "unknown_nonblocking",
+      "task_id": "t26",
+      "resolved": false,
+      "resolution": ""
+    }
+  ],
+  "obligations": []
+}
