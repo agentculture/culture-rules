@@ -2,7 +2,7 @@
   "plan_slug": "culture-rules-second-mile",
   "schema_version": 2,
   "created": "2026-10-04T04:55:50Z",
-  "updated": "2026-10-04T05:36:01Z",
+  "updated": "2026-10-04T05:47:09Z",
   "deviations": [
     {
       "id": "d1",
@@ -41,7 +41,7 @@
         "h3"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 3
     }
