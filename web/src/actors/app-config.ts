@@ -105,7 +105,7 @@ export function appDraftFrom(params: ActorParams | undefined): AppDraft {
   const connection: Record<string, string> = {};
   for (const [key, value] of Object.entries((params.connection ?? {}) as Record<string, unknown>)) {
     if (Array.isArray(value)) connection[key] = value.join(", ");
-    else if (value !== undefined && value !== null) connection[key] = String(value);
+    else if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") connection[key] = String(value);
   }
   return {
     surface: params.surface,
@@ -129,11 +129,12 @@ export function appParamsFrom(draft: AppDraft, base: ActorParams | undefined): A
     if (text === "") continue;
     connection[field.key] = field.list ? splitList(text) : text;
   }
-  const probes: AppProbe[] = draft.probes.map((p) => ({
-    name: p.name.trim(),
-    command: p.command.trim(),
-    ...(p.schedule.trim() ? { schedule: p.schedule.trim() } : {}),
-  }));
+  const probes: AppProbe[] = draft.probes.map((p) => {
+    const probe: AppProbe = { name: p.name.trim(), command: p.command.trim() };
+    const schedule = p.schedule.trim();
+    if (schedule) probe.schedule = schedule;
+    return probe;
+  });
   const next: ActorParams = {
     ...(base ?? {}),
     surface,
@@ -263,17 +264,31 @@ const EVAL_FLAGS: Record<string, RegExp> = {
   lua: /^-[A-Za-z]*e/,
 };
 
+/** `python3.12` -> `python`: drops trailing digits and dots (a linear scan, no backtracking regex). */
+function stripVersionSuffix(name: string): string {
+  let end = name.length;
+  while (end > 0 && /[\d.]/.test(name[end - 1])) end--;
+  return name.slice(0, end);
+}
+
+/** The EVAL_FLAGS key an interpreter's base name belongs to. */
+function interpreterFamily(base: string): string {
+  if (base === "python" || base === "pypy") return "python";
+  if (base === "nodejs" || base === "bun") return "node";
+  return base;
+}
+
 /** A warning when the template is a shell or interpreter told to evaluate code (the server refuses these at run time). */
 export function inlineEvalWarning(argv: string[]): string | null {
   const tokens = argv.map((t) => t.trim()).filter(Boolean);
-  const bases = tokens.map((t) => (t.split("/").pop() ?? t).replace(/[\d.]+$/, ""));
+  const bases = tokens.map((t) => stripVersionSuffix(t.split("/").pop() ?? t));
   for (let i = 0; i < tokens.length; i++) {
     const base = bases[i];
     const rest = tokens.slice(i + 1);
     if (SHELLS.has(base) && rest.some((t) => /^-[A-Za-z]*c/.test(t) || t === "--command")) {
       return `"${tokens[i]}" with -c evaluates inline code; the server refuses it. Register a script instead.`;
     }
-    const flags = EVAL_FLAGS[base === "python" || base === "pypy" ? "python" : base === "nodejs" || base === "bun" ? "node" : base];
+    const flags = EVAL_FLAGS[interpreterFamily(base)];
     if (flags && rest.some((t) => flags.test(t) || t === "--eval" || t === "--print")) {
       return `"${tokens[i]}" with an eval flag evaluates inline code; the server refuses it. Register a script instead.`;
     }
@@ -300,7 +315,8 @@ export function validateCommands(drafts: CommandDraft[]): FormErrors {
     });
     const undeclared = placeholdersOf(d.argv).filter((p) => !declared.has(p));
     if (undeclared.length && !errors[`${i}.argv`]) {
-      errors[`${i}.argv`] = `Declare a parameter for ${undeclared.map((p) => `{${p}}`).join(", ")}.`;
+      const names = undeclared.map((p) => "{" + p + "}").join(", ");
+      errors[`${i}.argv`] = `Declare a parameter for ${names}.`;
     }
     const t = d.timeout.trim();
     if (t !== "" && !(Number.isFinite(Number(t)) && Number(t) > 0)) errors[`${i}.timeout`] = "Timeout is a number of seconds above zero.";

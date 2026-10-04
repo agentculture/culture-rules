@@ -57,7 +57,7 @@ export function ActorForm({ actor, machines, busy, onSave, onCancel }: Readonly<
 
   /** The actor's params with this form's declarations applied; undefined when it has none to carry. */
   const buildParams = (): ActorParams | undefined => {
-    let params: ActorParams = { ...(actor?.params ?? {}) };
+    let params: ActorParams = { ...actor?.params };
     if (effectiveKind === "app") params = appParamsFrom(appDraft, params);
     if (effectiveKind === "runner") {
       if (commands.length || params.commands) params.commands = commandsParamFrom(commands);

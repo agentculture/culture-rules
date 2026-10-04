@@ -10,6 +10,7 @@ import {
   type HttpDraft,
 } from "./app-config";
 import { RemoveButton, Section, TextField } from "./fields";
+import { useRowKeys } from "./useRowKeys";
 
 export interface AppConfigFormProps {
   value: AppDraft;
@@ -20,6 +21,11 @@ export interface AppConfigFormProps {
 
 const GRANT_HINT = "A reference to a stored secret, like grant:NAME. The secret itself is never typed here.";
 
+function connectionHint(isSecret: boolean, isList: boolean | undefined): string | undefined {
+  if (isSecret) return GRANT_HINT;
+  return isList ? "Separate with commas." : undefined;
+}
+
 /**
  * The app actor editor, disclosed in order: the surface first, then its
  * connection (secret-looking keys take `grant:NAME` references only), then
@@ -27,6 +33,9 @@ const GRANT_HINT = "A reference to a stored secret, like grant:NAME. The secret 
  */
 export function AppConfigForm({ value, onChange, errors = {} }: Readonly<AppConfigFormProps>) {
   const uid = useId();
+  const rows = useRowKeys();
+  const eventKeys = rows.keys("events", value.events.length);
+  const probeKeys = rows.keys("probes", value.probes.length);
   const set = (patch: Partial<AppDraft>) => onChange({ ...value, ...patch });
   const surface = value.surface;
 
@@ -61,6 +70,7 @@ export function AppConfigForm({ value, onChange, errors = {} }: Readonly<AppConf
             <div className="actor-subform__grid">
               {CONNECTION_FIELDS[surface].map((field) => {
                 const isSecret = isSecretKey(field.key);
+                const hint = connectionHint(isSecret, field.list);
                 return (
                   <TextField
                     key={`${surface}-${field.key}`}
@@ -68,7 +78,7 @@ export function AppConfigForm({ value, onChange, errors = {} }: Readonly<AppConf
                     value={value.connection[field.key] ?? ""}
                     onChange={(text) => set({ connection: { ...value.connection, [field.key]: text } })}
                     error={errors[`connection.${field.key}`]}
-                    hint={isSecret ? GRANT_HINT : field.list ? "Separate with commas." : undefined}
+                    hint={hint}
                     placeholder={isSecret ? "grant:NAME" : undefined}
                     mono={isSecret}
                   />
@@ -81,7 +91,7 @@ export function AppConfigForm({ value, onChange, errors = {} }: Readonly<AppConf
             <fieldset className="actor-list plain-group" aria-label="Events">
               <span className="actor-list__title">Events it emits</span>
               {value.events.map((event, i) => (
-                <div className="actor-list__row" key={`event-${i}`}>
+                <div className="actor-list__row" key={eventKeys[i]}>
                   <TextField
                     ariaLabel={`Event ${i + 1}`}
                     value={event}
@@ -89,7 +99,13 @@ export function AppConfigForm({ value, onChange, errors = {} }: Readonly<AppConf
                     error={errors[`events.${i}`]}
                     onChange={(text) => set({ events: value.events.map((e, j) => (j === i ? text : e)) })}
                   />
-                  <RemoveButton label={`Remove event ${i + 1}`} onClick={() => set({ events: value.events.filter((_, j) => j !== i) })} />
+                  <RemoveButton
+                    label={`Remove event ${i + 1}`}
+                    onClick={() => {
+                      rows.drop("events", i);
+                      set({ events: value.events.filter((_, j) => j !== i) });
+                    }}
+                  />
                 </div>
               ))}
               <button type="button" className="btn actor-add" onClick={() => set({ events: [...value.events, ""] })}>
@@ -111,9 +127,8 @@ export function AppConfigForm({ value, onChange, errors = {} }: Readonly<AppConf
                           set({ actions: on ? value.actions.filter((a) => a !== kind.name) : [...value.actions, kind.name] })
                         }
                       />
-                      <span>
-                        <strong className="mono">{kind.name}</strong> <span className="muted">{kind.summary}</span>
-                      </span>
+                      <strong className="mono">{kind.name}</strong>
+                      <span className="muted">{kind.summary}</span>
                     </label>
                   );
                 })}
@@ -126,11 +141,17 @@ export function AppConfigForm({ value, onChange, errors = {} }: Readonly<AppConf
                 const patch = (p: Partial<typeof probe>) =>
                   set({ probes: value.probes.map((x, j) => (j === i ? { ...x, ...p } : x)) });
                 return (
-                  <div className="actor-list__row actor-list__row--probe" key={`probe-${i}`}>
+                  <div className="actor-list__row actor-list__row--probe" key={probeKeys[i]}>
                     <TextField ariaLabel={`Probe ${i + 1} name`} placeholder="name" value={probe.name} onChange={(v) => patch({ name: v })} error={errors[`probes.${i}.name`]} />
                     <TextField ariaLabel={`Probe ${i + 1} command`} placeholder="command" value={probe.command} onChange={(v) => patch({ command: v })} error={errors[`probes.${i}.command`]} mono />
                     <TextField ariaLabel={`Probe ${i + 1} schedule`} placeholder="schedule (optional)" value={probe.schedule} onChange={(v) => patch({ schedule: v })} />
-                    <RemoveButton label={`Remove probe ${i + 1}`} onClick={() => set({ probes: value.probes.filter((_, j) => j !== i) })} />
+                    <RemoveButton
+                      label={`Remove probe ${i + 1}`}
+                      onClick={() => {
+                        rows.drop("probes", i);
+                        set({ probes: value.probes.filter((_, j) => j !== i) });
+                      }}
+                    />
                   </div>
                 );
               })}
@@ -164,6 +185,8 @@ export interface HttpPolicyFormProps {
 
 /** `params.http`: the hosts an http.call may reach and the headers it sends (credentials as grant references). */
 export function HttpPolicyForm({ value, onChange, errors = {} }: Readonly<HttpPolicyFormProps>) {
+  const rows = useRowKeys();
+  const headerKeys = rows.keys("headers", value.headers.length);
   return (
     <Section title="HTTP policy">
       <TextField
@@ -175,7 +198,7 @@ export function HttpPolicyForm({ value, onChange, errors = {} }: Readonly<HttpPo
       <fieldset className="actor-list plain-group" aria-label="Headers">
         <span className="actor-list__title">Headers sent on every call</span>
         {value.headers.map((header, i) => (
-          <div className="actor-list__row" key={`header-${i}`}>
+          <div className="actor-list__row" key={headerKeys[i]}>
             <TextField
               ariaLabel={`Header ${i + 1} name`}
               placeholder="Authorization"
@@ -191,7 +214,13 @@ export function HttpPolicyForm({ value, onChange, errors = {} }: Readonly<HttpPo
               mono
               onChange={(v) => onChange({ ...value, headers: value.headers.map((h, j) => (j === i ? { ...h, value: v } : h)) })}
             />
-            <RemoveButton label={`Remove header ${i + 1}`} onClick={() => onChange({ ...value, headers: value.headers.filter((_, j) => j !== i) })} />
+            <RemoveButton
+              label={`Remove header ${i + 1}`}
+              onClick={() => {
+                rows.drop("headers", i);
+                onChange({ ...value, headers: value.headers.filter((_, j) => j !== i) });
+              }}
+            />
           </div>
         ))}
         <button type="button" className="btn actor-add" onClick={() => onChange({ ...value, headers: [...value.headers, { name: "", value: "" }] })}>

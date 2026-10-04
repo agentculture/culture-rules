@@ -106,7 +106,7 @@ describe("RunForm", () => {
     await user.click(screen.getByRole("button", { name: "Run" }));
     expect(f).not.toHaveBeenCalled();
     expect(onStarted).not.toHaveBeenCalled();
-    expect(screen.getAllByText("Required").length).toBe(2);
+    expect(screen.getAllByText("Required")).toHaveLength(2);
     expect(screen.getByLabelText(/^title/)).toHaveAttribute("aria-invalid", "true");
   });
 

@@ -11,31 +11,35 @@ const fail = (reason: string): Parsed => ({ ok: false, reason });
 const isPlainObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
 
+function parseNumber(type: "number" | "integer", raw: string): Parsed {
+  const n = Number(raw.trim());
+  if (raw.trim() === "" || !Number.isFinite(n)) return fail("Enter a number.");
+  if (type === "integer" && !Number.isInteger(n)) return fail("Enter a whole number, no decimals.");
+  return { ok: true, value: n };
+}
+
+function parseContainer(type: "object" | "array", raw: string): Parsed {
+  let v: unknown;
+  try {
+    v = JSON.parse(raw);
+  } catch {
+    return fail("Enter valid JSON.");
+  }
+  if (type === "object") return isPlainObject(v) ? { ok: true, value: v } : fail('Enter a JSON object, like {"key": 1}.');
+  return Array.isArray(v) ? { ok: true, value: v } : fail("Enter a JSON array, like [1, 2].");
+}
+
 /** A raw field value as the JSON value of its port type, or why it cannot be one. */
 export function parseField(type: PortType, raw: string): Parsed {
   switch (type) {
     case "string":
       return { ok: true, value: raw };
     case "number":
-    case "integer": {
-      const n = Number(raw.trim());
-      if (raw.trim() === "" || !Number.isFinite(n)) return fail("Enter a number.");
-      if (type === "integer" && !Number.isInteger(n)) return fail("Enter a whole number, no decimals.");
-      return { ok: true, value: n };
-    }
+    case "integer":
+      return parseNumber(type, raw);
     case "object":
-    case "array": {
-      let v: unknown;
-      try {
-        v = JSON.parse(raw);
-      } catch {
-        return fail("Enter valid JSON.");
-      }
-      if (type === "object" ? !isPlainObject(v) : !Array.isArray(v)) {
-        return fail(type === "object" ? "Enter a JSON object, like {\"key\": 1}." : "Enter a JSON array, like [1, 2].");
-      }
-      return { ok: true, value: v };
-    }
+    case "array":
+      return parseContainer(type, raw);
     case "boolean":
       return { ok: true, value: raw === "true" };
     default:
@@ -59,8 +63,18 @@ function initialValue(wf: WorkflowDef, p: Port): string {
   const v = (wf.variables ?? []).find((x) => x.name === p.name);
   const d = v?.default;
   if (d === undefined || d === null) return "";
-  return typeof d === "string" ? d : typeof d === "object" ? JSON.stringify(d, null, 2) : String(d);
+  return typeof d === "string" ? d : JSON.stringify(d, null, 2);
 }
+
+const placeholderFor = (type: PortType) => {
+  if (type === "object") return "{ }";
+  return type === "array" ? "[ ]" : "JSON or text";
+};
+
+const stepFor = (type: PortType): number | "any" | undefined => {
+  if (type === "integer") return 1;
+  return type === "number" ? "any" : undefined;
+};
 
 function Control({
   port,
@@ -78,19 +92,19 @@ function Control({
   onChange: (v: string) => void;
 }>) {
   const type = typeOf(port);
+  const required = isRequired(port) && type !== "boolean";
   const common = {
     id,
     "aria-invalid": invalid || undefined,
     "aria-describedby": describedBy,
-    required: isRequired(port) && type !== "boolean",
-    "aria-required": isRequired(port) && type !== "boolean" ? true : undefined,
+    required,
+    "aria-required": required || undefined,
   };
   if (type === "boolean") {
     return (
       <input
         {...common}
         type="checkbox"
-        role="checkbox"
         checked={value === "true"}
         onChange={(e) => onChange(e.target.checked ? "true" : "false")}
       />
@@ -103,21 +117,47 @@ function Control({
         rows={type === "any" ? 2 : 4}
         spellCheck={false}
         value={value}
-        placeholder={type === "object" ? "{ }" : type === "array" ? "[ ]" : "JSON or text"}
+        placeholder={placeholderFor(type)}
         onChange={(e) => onChange(e.target.value)}
       />
     );
   }
   const numeric = type === "number" || type === "integer";
+  const step = stepFor(type);
   return (
     <input
       {...common}
       type={numeric ? "number" : "text"}
-      step={type === "integer" ? 1 : numeric ? "any" : undefined}
+      step={step}
       value={value}
       onChange={(e) => onChange(e.target.value)}
     />
   );
+}
+
+/** Each port's raw text as its JSON value, or the reason it cannot be one. */
+function collectInputs(ports: Port[], values: Record<string, string>) {
+  const inputs: Record<string, unknown> = {};
+  const problems: Record<string, string> = {};
+  for (const p of ports) {
+    const type = typeOf(p);
+    const raw = values[p.name] ?? "";
+    if (type !== "boolean" && raw.trim() === "") {
+      if (isRequired(p)) problems[p.name] = "Required";
+      continue;
+    }
+    const res = parseField(type, raw);
+    if (res.ok) inputs[p.name] = res.value;
+    else problems[p.name] = res.reason;
+  }
+  return { inputs, problems };
+}
+
+/** A failed run request split into per-field codes and, when none is field-specific, the error to show on top. */
+function refusalOf(err: unknown, ports: Port[]): { codes: Record<string, string>; top: ApiError | null } {
+  const e = err instanceof ApiError ? err : new ApiError(0, "unknown", String(err));
+  const codes = fieldCodes(e, new Set(ports.map((p) => p.name)));
+  return { codes, top: Object.keys(codes).length > 0 ? null : e };
 }
 
 /** The `inputs.<port>` field errors of a 422, as port name -> code. */
@@ -128,6 +168,57 @@ function fieldCodes(err: ApiError, names: Set<string>): Record<string, string> {
     if (m && names.has(m[1]) && !out[m[1]]) out[m[1]] = e.code;
   }
   return out;
+}
+
+function RunField({
+  port: p,
+  id,
+  value,
+  message: msg,
+  code,
+  onChange,
+}: Readonly<{
+  port: Port;
+  id: string;
+  value: string;
+  message: string | undefined;
+  code: string | undefined;
+  onChange: (v: string) => void;
+}>) {
+  const type = typeOf(p);
+  return (
+    <div className="wf-run-form__field" data-field={p.name}>
+      <div className="wf-run-form__head">
+        <label htmlFor={id} className="wf-run-form__label">
+          <span>{p.name}</span>
+          {isRequired(p) ? <span aria-hidden="true"> *</span> : null}
+        </label>
+        <span className="wf-run-form__type">
+          {type}
+          {isRequired(p) ? ", required" : ", optional"}
+        </span>
+      </div>
+      <Control
+        port={p}
+        id={id}
+        value={value}
+        invalid={Boolean(msg || code)}
+        describedBy={msg || code ? `${id}-err` : undefined}
+        onChange={onChange}
+      />
+      {p.description ? <span className="wf-run-form__hint">{p.description}</span> : null}
+      {msg ? (
+        <p id={`${id}-err`} className="wf-run-form__error">
+          {msg}
+        </p>
+      ) : null}
+      {code ? (
+        <div id={`${id}-err`}>
+          <GuidedNotice code={code} />
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 /**
@@ -167,19 +258,7 @@ export default function RunForm({
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (busy) return;
-    const inputs: Record<string, unknown> = {};
-    const problems: Record<string, string> = {};
-    for (const p of ports) {
-      const type = typeOf(p);
-      const raw = values[p.name] ?? "";
-      if (type !== "boolean" && raw.trim() === "") {
-        if (isRequired(p)) problems[p.name] = "Required";
-        continue;
-      }
-      const res = parseField(type, raw);
-      if (res.ok) inputs[p.name] = res.value;
-      else problems[p.name] = res.reason;
-    }
+    const { inputs, problems } = collectInputs(ports, values);
     setLocal(problems);
     setServer({});
     setTopError(null);
@@ -192,10 +271,9 @@ export default function RunForm({
     try {
       onStarted(await runWorkflow(workflow.id, inputs));
     } catch (err) {
-      const e = err instanceof ApiError ? err : new ApiError(0, "unknown", String(err));
-      const codes = fieldCodes(e, new Set(ports.map((p) => p.name)));
+      const { codes, top } = refusalOf(err, ports);
       setServer(codes);
-      setTopError(Object.keys(codes).length > 0 ? null : e);
+      setTopError(top);
     } finally {
       setBusy(false);
     }
@@ -206,45 +284,17 @@ export default function RunForm({
       <h2 className="wf-panel__title">Run {workflow.name}</h2>
       <form ref={form} className="wf-form" noValidate onSubmit={(e) => void submit(e)}>
         {ports.length === 0 ? <p className="wf-ports__empty">This workflow takes no inputs.</p> : null}
-        {ports.map((p) => {
-          const id = `${uid}-${p.name}`;
-          const msg = local[p.name];
-          const code = server[p.name];
-          const type = typeOf(p);
-          return (
-            <div key={p.name} className="wf-run-form__field" data-field={p.name}>
-              <div className="wf-run-form__head">
-                <label htmlFor={id} className="wf-run-form__label">
-                  <span>{p.name}</span>
-                  {isRequired(p) ? <span aria-hidden="true"> *</span> : null}
-                </label>
-                <span className="wf-run-form__type">
-                  {type}
-                  {isRequired(p) ? ", required" : ", optional"}
-                </span>
-              </div>
-              <Control
-                port={p}
-                id={id}
-                value={values[p.name] ?? ""}
-                invalid={Boolean(msg || code)}
-                describedBy={msg || code ? `${id}-err` : undefined}
-                onChange={(v) => change(p.name, v)}
-              />
-              {p.description ? <span className="wf-run-form__hint">{p.description}</span> : null}
-              {msg ? (
-                <p id={`${id}-err`} className="wf-run-form__error">
-                  {msg}
-                </p>
-              ) : null}
-              {code ? (
-                <div id={`${id}-err`}>
-                  <GuidedNotice code={code} />
-                </div>
-              ) : null}
-            </div>
-          );
-        })}
+        {ports.map((p) => (
+          <RunField
+            key={p.name}
+            port={p}
+            id={`${uid}-${p.name}`}
+            value={values[p.name] ?? ""}
+            message={local[p.name]}
+            code={server[p.name]}
+            onChange={(v) => change(p.name, v)}
+          />
+        ))}
         {topError ? <GuidedNotice error={topError} /> : null}
         <div className="wf-form__actions">
           <button type="button" className="wf-button" onClick={onClose}>
@@ -259,6 +309,11 @@ export default function RunForm({
   );
 }
 
+function scalarText(value: unknown): string {
+  if (value === null || value === undefined) return "—";
+  return typeof value === "string" ? value : JSON.stringify(value);
+}
+
 function OutputValue({ name, value }: Readonly<{ name: string; value: unknown }>): ReactNode {
   if (typeof value === "object" && value !== null) {
     return (
@@ -271,7 +326,7 @@ function OutputValue({ name, value }: Readonly<{ name: string; value: unknown }>
   return (
     <div className="wf-outputs__item">
       <dt>{name}</dt>
-      <dd>{value === null || value === undefined ? "—" : String(value)}</dd>
+      <dd>{scalarText(value)}</dd>
     </div>
   );
 }

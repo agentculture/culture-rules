@@ -94,13 +94,18 @@ function Disclosure({ title, startOpen, children }: Readonly<{ title: string; st
 }
 
 interface Row {
+  /** Stable React key: rows are editable, so neither the position nor the (editable) key will do. */
+  id: number;
   key: string;
   text: string;
   value: unknown;
 }
 
+let nextRowId = 0;
+
 const rowsOf = (config: Config): Row[] =>
   Object.entries(config).map(([key, value]) => ({
+    id: ++nextRowId,
     key,
     value,
     text: isScalar(value) ? String(value ?? "") : JSON.stringify(value),
@@ -135,7 +140,7 @@ function ConfigPairs({
     <div className="wf-pairs">
       {rows.length === 0 ? <p className="wf-ports__empty">No settings yet.</p> : null}
       {rows.map((r, i) => (
-        <div className="wf-pairs__row" key={i}>
+        <div className="wf-pairs__row" key={r.id}>
           <input
             type="text"
             className="wf-ports__name"
@@ -167,7 +172,7 @@ function ConfigPairs({
       <button
         type="button"
         className="wf-button wf-button--small"
-        onClick={() => setRows([...rows, { key: "", text: "", value: "" }])}
+        onClick={() => setRows([...rows, { id: ++nextRowId, key: "", text: "", value: "" }])}
       >
         Add config entry
       </button>
@@ -206,6 +211,18 @@ function ConfigJson({
     </div>
   );
 }
+
+/** An argument's current value as field text. */
+const argText = (v: unknown): string => {
+  if (v === undefined || v === null) return "";
+  return typeof v === "string" ? v : JSON.stringify(v);
+};
+
+/** A numeric argument: the number typed, or undefined (unset) when blank or not a number. */
+const numericArg = (t: string): number | undefined => {
+  if (t.trim() === "" || !Number.isFinite(Number(t))) return undefined;
+  return Number(t);
+};
 
 /** Runner steps: pick a registered command and fill its declared, typed arguments. */
 function RunnerConfig({
@@ -265,17 +282,33 @@ function RunnerConfig({
             <input
               type={numeric ? "number" : "text"}
               step={type === "integer" ? 1 : undefined}
-              value={v === undefined || v === null ? "" : String(v)}
-              onChange={(e) => {
-                const t = e.target.value;
-                setArg(param, numeric ? (t.trim() === "" || !Number.isFinite(Number(t)) ? undefined : Number(t)) : t);
-              }}
+              value={argText(v)}
+              onChange={(e) => setArg(param, numeric ? numericArg(e.target.value) : e.target.value)}
             />
           </label>
         );
       })}
     </div>
   );
+}
+
+/** The step's config editor: a runner's typed arguments, raw JSON on request, or key/value pairs. */
+function ConfigEditor({
+  config,
+  commands,
+  rawConfig,
+  onConfig,
+  onError,
+}: Readonly<{
+  config: Config;
+  commands: ReturnType<typeof runnerCommands>;
+  rawConfig: boolean;
+  onConfig: (c: Config) => void;
+  onError: (code: ErrorCode | null) => void;
+}>) {
+  if (commands && !rawConfig) return <RunnerConfig config={config} commands={commands} onConfig={onConfig} />;
+  if (rawConfig) return <ConfigJson config={config} onConfig={onConfig} onError={onError} />;
+  return <ConfigPairs config={config} onConfig={onConfig} onError={onError} />;
 }
 
 /**
@@ -488,21 +521,13 @@ export function StepEditor({
           </div>
         </Disclosure>
         <Disclosure title="Configuration" startOpen={Object.keys(config).length > 0}>
-          {commands && !rawConfig ? (
-            <RunnerConfig config={config} commands={commands} onConfig={(c) => patch({ config: c })} />
-          ) : rawConfig ? (
-            <ConfigJson
-              config={config}
-              onConfig={(c) => patch({ config: c })}
-              onError={setError("config")}
-            />
-          ) : (
-            <ConfigPairs
-              config={config}
-              onConfig={(c) => patch({ config: c })}
-              onError={setError("config")}
-            />
-          )}
+          <ConfigEditor
+            config={config}
+            commands={commands}
+            rawConfig={rawConfig}
+            onConfig={(c) => patch({ config: c })}
+            onError={setError("config")}
+          />
           <button
             type="button"
             className="wf-button wf-button--small"

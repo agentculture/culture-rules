@@ -135,10 +135,197 @@ function CronField({ label, cron, onChange }: Readonly<CronProps>) {
 }
 
 const Empty = ({ children }: Readonly<{ children: string }>) => (
-  <p className="trigger-picker__empty" role="status">
-    {children}
-  </p>
+  <output className="trigger-picker__empty">{children}</output>
 );
+
+type EventTrigger = Extract<TypedTrigger, { kind: "event" }>;
+type ScheduleTrigger = Extract<TypedTrigger, { kind: "schedule" }>;
+type ProbeTrigger = Extract<TypedTrigger, { kind: "probe" }>;
+
+interface FieldsProps<T> {
+  name: string;
+  t: T;
+  onChange: (trigger: Trigger) => void;
+}
+
+/** Event trigger: the app (surface) that declares the event, then the event itself. */
+function EventFields({ name, t, actors: apps, onChange }: Readonly<FieldsProps<EventTrigger> & { actors: Actor[] }>) {
+  const eventType = t.params?.type ?? "";
+  const owner = apps.find((a) => eventsOf(a).includes(eventType));
+  const [surface, setSurface] = useState(owner?.id ?? "");
+  const surfaceActor = apps.find((a) => a.id === surface);
+  return (
+    <>
+      {apps.length === 0 ? (
+        <Empty>
+          No app has declared events yet. Add one on the Actors tab.
+        </Empty>
+      ) : null}
+      <label>
+        <span id={`${name}-surface`}>Surface</span>
+        <select
+          aria-labelledby={`${name}-surface`}
+          value={surface}
+          onChange={(e) => {
+            setSurface(e.target.value);
+            onChange({ kind: "event", params: { ...t.params, type: "" } });
+          }}
+        >
+          <option value="">Choose an app…</option>
+          {apps.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <span id={`${name}-event`}>Event</span>
+        <select
+          aria-labelledby={`${name}-event`}
+          value={eventType}
+          disabled={!surfaceActor}
+          onChange={(e) =>
+            onChange({
+              kind: "event",
+              params: { ...t.params, type: e.target.value },
+            })
+          }
+        >
+          <option value="">Choose an event…</option>
+          {eventType &&
+          surfaceActor &&
+          !eventsOf(surfaceActor).includes(eventType) ? (
+            <option value={eventType}>
+              {eventType} (no longer declared)
+            </option>
+          ) : null}
+          {(surfaceActor ? eventsOf(surfaceActor) : []).map((t) => (
+            <option key={t} value={t}>
+              {t}
+            </option>
+          ))}
+        </select>
+      </label>
+    </>
+  );
+}
+
+/** Schedule trigger: a cron and an optional time zone. */
+function ScheduleFields({ name, t, onChange }: Readonly<FieldsProps<ScheduleTrigger>>) {
+  return (
+    <>
+      <CronField
+        label="Repeat"
+        cron={t.params.cron ?? ""}
+        onChange={(cron) =>
+          onChange({ kind: "schedule", params: { ...t.params, cron } })
+        }
+      />
+      <label>
+        <span id={`${name}-timezone`}>Time zone</span>
+        <input
+          aria-labelledby={`${name}-timezone`}
+          list={`${name}-tz`}
+          value={t.params.tz ?? ""}
+          placeholder="Optional, e.g. UTC"
+          onChange={(e) => {
+            const { tz: _drop, ...rest } = t.params;
+            onChange({
+              kind: "schedule",
+              params: e.target.value
+                ? { ...rest, tz: e.target.value }
+                : rest,
+            });
+          }}
+        />
+        <datalist id={`${name}-tz`}>
+          {TIME_ZONES.map((z) => (
+            <option key={z} value={z} />
+          ))}
+        </datalist>
+      </label>
+    </>
+  );
+}
+
+/** Probe trigger: a runner's registered command on a cron, firing on change or on a condition. */
+function ProbeFields({ name, t, actors: runners, onChange }: Readonly<FieldsProps<ProbeTrigger> & { actors: Actor[] }>) {
+  const runner = runners.find((a) => a.id === (t.params.actor ?? ""));
+  return (
+    <>
+      {runners.length === 0 ? (
+        <Empty>
+          No runner has registered a command yet. Add one on the Actors tab.
+        </Empty>
+      ) : null}
+      <label>
+        <span id={`${name}-actor`}>Actor</span>
+        <select
+          aria-labelledby={`${name}-actor`}
+          value={t.params.actor ?? ""}
+          onChange={(e) =>
+            onChange({
+              kind: "probe",
+              params: { ...t.params, actor: e.target.value, command: "" },
+            })
+          }
+        >
+          <option value="">Choose a runner…</option>
+          {runners.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <span id={`${name}-command`}>Command</span>
+        <select
+          aria-labelledby={`${name}-command`}
+          value={t.params.command ?? ""}
+          disabled={!(t.params.actor ?? "")}
+          onChange={(e) =>
+            onChange({
+              kind: "probe",
+              params: { ...t.params, command: e.target.value },
+            })
+          }
+        >
+          <option value="">Choose a command…</option>
+          {(runner ? commandsOf(runner) : []).map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <span id={`${name}-mode`}>Mode</span>
+        <select
+          aria-labelledby={`${name}-mode`}
+          value={t.params.mode ?? "change"}
+          onChange={(e) =>
+            onChange({
+              kind: "probe",
+              params: { ...t.params, mode: e.target.value as ProbeMode },
+            })
+          }
+        >
+          <option value="change">Fire when the result changes</option>
+          <option value="condition">Fire when the condition holds</option>
+        </select>
+      </label>
+      <CronField
+        label="Repeat"
+        cron={t.params.schedule ?? ""}
+        onChange={(schedule) =>
+          onChange({ kind: "probe", params: { ...t.params, schedule } })
+        }
+      />
+    </>
+  );
+}
 
 interface Props {
   value: Trigger;
@@ -167,11 +354,6 @@ export default function TriggerPicker({
   // Narrowed on `kind`; a legacy rule's params may be label-only, so every read has a default.
   const t = value as TypedTrigger;
 
-  const eventType = t.kind === "event" ? (t.params?.type ?? "") : "";
-  const owner = apps.find((a) => eventsOf(a).includes(eventType));
-  const [surface, setSurface] = useState(owner?.id ?? "");
-  const surfaceActor = apps.find((a) => a.id === surface);
-
   const chooseKind = (kind: TriggerKind) => {
     if (kind !== value.kind) onChange(blankTrigger(kind));
   };
@@ -199,177 +381,11 @@ export default function TriggerPicker({
         </p>
       )}
 
-      {t.kind === "event" ? (
-        <>
-          {apps.length === 0 ? (
-            <Empty>
-              No app has declared events yet. Add one on the Actors tab.
-            </Empty>
-          ) : null}
-          <label>
-            <span id={`${name}-surface`}>Surface</span>
-            <select
-              aria-labelledby={`${name}-surface`}
-              value={surface}
-              onChange={(e) => {
-                setSurface(e.target.value);
-                onChange({ kind: "event", params: { ...t.params, type: "" } });
-              }}
-            >
-              <option value="">Choose an app…</option>
-              {apps.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <span id={`${name}-event`}>Event</span>
-            <select
-              aria-labelledby={`${name}-event`}
-              value={eventType}
-              disabled={!surfaceActor}
-              onChange={(e) =>
-                onChange({
-                  kind: "event",
-                  params: { ...t.params, type: e.target.value },
-                })
-              }
-            >
-              <option value="">Choose an event…</option>
-              {eventType &&
-              surfaceActor &&
-              !eventsOf(surfaceActor).includes(eventType) ? (
-                <option value={eventType}>
-                  {eventType} (no longer declared)
-                </option>
-              ) : null}
-              {(surfaceActor ? eventsOf(surfaceActor) : []).map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
-          </label>
-        </>
-      ) : null}
+      {t.kind === "event" ? <EventFields name={name} t={t} actors={apps} onChange={onChange} /> : null}
 
-      {t.kind === "schedule" ? (
-        <>
-          <CronField
-            label="Repeat"
-            cron={t.params.cron ?? ""}
-            onChange={(cron) =>
-              onChange({ kind: "schedule", params: { ...t.params, cron } })
-            }
-          />
-          <label>
-            <span id={`${name}-timezone`}>Time zone</span>
-            <input
-              aria-labelledby={`${name}-timezone`}
-              list={`${name}-tz`}
-              value={t.params.tz ?? ""}
-              placeholder="Optional, e.g. UTC"
-              onChange={(e) => {
-                const { tz: _drop, ...rest } = t.params;
-                onChange({
-                  kind: "schedule",
-                  params: e.target.value
-                    ? { ...rest, tz: e.target.value }
-                    : rest,
-                });
-              }}
-            />
-            <datalist id={`${name}-tz`}>
-              {TIME_ZONES.map((z) => (
-                <option key={z} value={z} />
-              ))}
-            </datalist>
-          </label>
-        </>
-      ) : null}
+      {t.kind === "schedule" ? <ScheduleFields name={name} t={t} onChange={onChange} /> : null}
 
-      {t.kind === "probe" ? (
-        <>
-          {runners.length === 0 ? (
-            <Empty>
-              No runner has registered a command yet. Add one on the Actors tab.
-            </Empty>
-          ) : null}
-          <label>
-            <span id={`${name}-actor`}>Actor</span>
-            <select
-              aria-labelledby={`${name}-actor`}
-              value={t.params.actor ?? ""}
-              onChange={(e) =>
-                onChange({
-                  kind: "probe",
-                  params: { ...t.params, actor: e.target.value, command: "" },
-                })
-              }
-            >
-              <option value="">Choose a runner…</option>
-              {runners.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <span id={`${name}-command`}>Command</span>
-            <select
-              aria-labelledby={`${name}-command`}
-              value={t.params.command ?? ""}
-              disabled={!(t.params.actor ?? "")}
-              onChange={(e) =>
-                onChange({
-                  kind: "probe",
-                  params: { ...t.params, command: e.target.value },
-                })
-              }
-            >
-              <option value="">Choose a command…</option>
-              {(runners.find((a) => a.id === (t.params.actor ?? ""))
-                ? commandsOf(
-                    runners.find(
-                      (a) => a.id === (t.params.actor ?? ""),
-                    ) as Actor,
-                  )
-                : []
-              ).map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <span id={`${name}-mode`}>Mode</span>
-            <select
-              aria-labelledby={`${name}-mode`}
-              value={t.params.mode ?? "change"}
-              onChange={(e) =>
-                onChange({
-                  kind: "probe",
-                  params: { ...t.params, mode: e.target.value as ProbeMode },
-                })
-              }
-            >
-              <option value="change">Fire when the result changes</option>
-              <option value="condition">Fire when the condition holds</option>
-            </select>
-          </label>
-          <CronField
-            label="Repeat"
-            cron={t.params.schedule ?? ""}
-            onChange={(schedule) =>
-              onChange({ kind: "probe", params: { ...t.params, schedule } })
-            }
-          />
-        </>
-      ) : null}
+      {t.kind === "probe" ? <ProbeFields name={name} t={t} actors={runners} onChange={onChange} /> : null}
 
       {t.kind === "manual" ? (
         <p className="trigger-picker__words">
