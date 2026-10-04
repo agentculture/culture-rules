@@ -60,17 +60,17 @@ export function AppConfigForm({ value, onChange, errors = {} }: Readonly<AppConf
           <Section title="Connection">
             <div className="actor-subform__grid">
               {CONNECTION_FIELDS[surface].map((field) => {
-                const secret = isSecretKey(field.key);
+                const isSecret = isSecretKey(field.key);
                 return (
                   <TextField
                     key={`${surface}-${field.key}`}
-                    label={secret ? `${field.label} (grant reference)` : field.label}
+                    label={isSecret ? `${field.label} (grant reference)` : field.label}
                     value={value.connection[field.key] ?? ""}
                     onChange={(text) => set({ connection: { ...value.connection, [field.key]: text } })}
                     error={errors[`connection.${field.key}`]}
-                    hint={secret ? GRANT_HINT : field.list ? "Separate with commas." : undefined}
-                    placeholder={secret ? "grant:NAME" : undefined}
-                    mono={secret}
+                    hint={isSecret ? GRANT_HINT : field.list ? "Separate with commas." : undefined}
+                    placeholder={isSecret ? "grant:NAME" : undefined}
+                    mono={isSecret}
                   />
                 );
               })}
