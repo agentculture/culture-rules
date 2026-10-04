@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-10-04T04:02:01Z",
-  "updated": "2026-10-04T04:45:31Z",
+  "updated": "2026-10-04T05:19:43Z",
   "targets": [
     {
       "id": "c1",
@@ -1626,6 +1626,14 @@
       "text": "tests/multihost/test_harness_kill.py::test_kill_lands_mid_action_even_when_the_victim_never_wins_an_action_race is timing-flaky under the full xdist run with all extras (failed once; passes 3/3 alone); CI may flake",
       "kind": "follow_up",
       "task_id": null,
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r7",
+      "text": "t10 threaded beat_every into the Executor and health/status functions, but server/app.py (/health, Statistics) and node/firing.py placement (online_machines at ~349) still use the default 10 s cadence; a node with a custom beat_every is judged on the default there",
+      "kind": "follow_up",
+      "task_id": "t10",
       "resolved": false,
       "resolution": ""
     }
