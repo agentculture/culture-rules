@@ -3,8 +3,8 @@
 - viewer: every read (``GET``/``HEAD``), except the service-token list; this includes a
   rule's contextual history (``GET /rules/{id}/history``) and the live feed;
 - editor: create/update/enable/disable/delete/restore of definitions, import, export into a
-  configured repository (``POST /export``, dry-run included), runs (start/cancel) and
-  answering asks;
+  configured repository (``POST /export``, dry-run included), runs (start/cancel, and a direct
+  workflow run) and answering asks;
 - admin: purge, service tokens, and engine/machine containment (pause/resume/drain/undrain).
 
 Saving a workflow step that carries inline script text is admin-only too, and so is adding or
@@ -35,6 +35,7 @@ _EDITOR_PATTERNS = {
         re.compile(r"^/import$"),
         re.compile(r"^/export$"),
         re.compile(r"^/runs$"),
+        re.compile(r"^/workflows/[^/]+/run$"),
         re.compile(r"^/runs/[^/]+/cancel$"),
         re.compile(r"^/asks/[^/]+/answer$"),
     ),

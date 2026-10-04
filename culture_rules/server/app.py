@@ -117,6 +117,10 @@ class RunStart(BaseModel):
     upstream: dict[str, dict[str, Any]] | None = None
 
 
+class WorkflowRun(BaseModel):
+    inputs: dict[str, Any] = Field(default_factory=dict)
+
+
 class RunCancel(BaseModel):
     reason: str = ""
 
@@ -623,6 +627,32 @@ def _register_runs(
         return executor.start_from_store(
             body.rule_id, trigger=body.trigger, upstream=body.upstream, identity=identity
         )
+
+    @app.post(
+        "/workflows/{workflow_id}/run",
+        status_code=201,
+        tags=["runs"],
+        operation_id="run_workflow",
+        responses=ERRORS,
+        response_model=dict[str, Any],
+    )
+    def run_workflow(workflow_id: str, identity: Identity, body: WorkflowRun | None = None):
+        try:
+            return executor.start_workflow(workflow_id, (body or WorkflowRun()).inputs, by=identity)
+        except RunError as exc:
+            if exc.code != "invalid_inputs":
+                raise
+            # name the offending input port in errors[].path
+            details = [
+                {
+                    "path": f"inputs.{d['port']}",
+                    "code": d.get("code", exc.code),
+                    "message": exc.message,
+                }
+                for d in exc.details or ()
+                if isinstance(d, dict) and "port" in d
+            ]
+            return _envelope(422, exc.code, exc.message, details or exc.details)
 
     @app.post(
         "/runs/{run_id}/cancel",
