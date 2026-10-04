@@ -20,6 +20,9 @@ describe("guidance table", () => {
       "trigger_type_required", "paused", "rule_not_found", "workflow_required", "invalid_rule",
       "invalid", "not_found", "conflict", "rule_referenced", "forbidden", "forbidden_role",
       "bad_identity", "bad_token", "secret_literal", "malformed", "input_missing", "unknown_port",
+      "trigger_kind_unknown", "trigger_cron_required", "trigger_param_required",
+      "trigger_param_invalid", "action_kind_unknown", "action_param_required", "action_param_type",
+      "not_implemented", "replay_invalid", "not_json",
     ]) {
       expect(KNOWN_CODES, code).toContain(code);
     }
