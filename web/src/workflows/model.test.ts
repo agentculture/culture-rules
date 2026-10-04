@@ -254,3 +254,37 @@ describe("workflowMachine (the list row's dot)", () => {
     expect(workflowMachine({ id: "w", name: "W" }, ctx)).toBeNull();
   });
 });
+
+describe("workflowMachine: actor placement resolves to a known machine (#7)", () => {
+  const onActor = (actor: string) => ({ id: "s", kind: "code" as const, placement: { actor } });
+  const wf = (...steps: ReturnType<typeof onActor>[]) => ({ id: "w", name: "W", steps });
+  const thorServer = { id: "thor-server", name: "thor-server", kind: "runner" as const, machine: "thor" };
+  const c = { machines: MACHINES, actors: [...ACTORS, thorServer] };
+
+  it("steps placed on thor-server show thor", () => {
+    expect(workflowMachine(wf(onActor("thor-server"), onActor("thor-server")), c)).toBe("thor");
+  });
+
+  it("steps spanning two hosts stay neutral", () => {
+    const sparkRunner = { id: "spark-runner", name: "spark-runner", kind: "runner" as const, machine: "spark" };
+    const both = { machines: MACHINES, actors: [thorServer, sparkRunner] };
+    expect(workflowMachine(wf(onActor("thor-server"), onActor("spark-runner")), both)).toBeNull();
+  });
+
+  it("an actor's machine spelled differently (case, FQDN) maps to the enrolled machine's name", () => {
+    // The dot looks its colour up by the enrolled machine's name, so a raw "Thor.local" would go grey.
+    for (const machine of ["Thor", "THOR", "thor.local", "thor.tail1234.ts.net"]) {
+      expect(workflowMachine(wf(onActor("t")), { machines: MACHINES, actors: [{ ...thorServer, id: "t", machine }] })).toBe("thor");
+    }
+  });
+
+  it("an actor is found by name when the placement holds its name", () => {
+    const a = { ...thorServer, id: "a1b2" };
+    expect(workflowMachine(wf(onActor("thor-server")), { machines: MACHINES, actors: [a] })).toBe("thor");
+  });
+
+  it("an actor on a machine nobody enrolled stays unresolved", () => {
+    const ghost = { ...thorServer, id: "g", machine: "mars" };
+    expect(workflowMachine(wf(onActor("g")), { machines: MACHINES, actors: [ghost] })).toBeNull();
+  });
+});
