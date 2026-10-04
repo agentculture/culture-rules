@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-03T18:08:10Z",
-  "updated": "2026-10-04T03:56:51Z",
+  "updated": "2026-10-04T04:01:41Z",
   "claims": [
     {
       "id": "c1",
@@ -655,7 +655,7 @@
     {
       "id": "c34",
       "kind": "assumption",
-      "text": "Secrets come from grant: GITHUB_APP_PRIVATE_KEY (App auth), a GitHub webhook secret (reuse CULTURE_NODES_GITHUB_APP_WEBHOOK_SECRET or add a rules-specific one), JIRA_SERVICE_ACCOUNT_TOKEN; a Discord bot token and a Jira webhook token have no grant entry yet and the operator must add them",
+      "text": "Secrets come from grant: the new culture-rules GitHub App's ID, installation ID, private key and webhook secret (new entries), JIRA_SERVICE_ACCOUNT_TOKEN; a Discord bot token and a Jira webhook token have no grant entry yet; the operator adds all new entries",
       "origin": "llm",
       "status": "confirmed",
       "honesty_conditions": [],
@@ -667,6 +667,11 @@
           "text": "Secrets for this cut come from grant: CULTURE_NODES_GITHUB_APP_WEBHOOK_SECRET (or a new rules-specific one), GITHUB_APP_PRIVATE_KEY, JIRA_SERVICE_ACCOUNT_TOKEN; Discord and a Jira webhook token have no grant entry yet and must be created by the operator",
           "kind": "assumption",
           "reason": "q5/q6"
+        },
+        {
+          "text": "Secrets come from grant: GITHUB_APP_PRIVATE_KEY (App auth), a GitHub webhook secret (reuse CULTURE_NODES_GITHUB_APP_WEBHOOK_SECRET or add a rules-specific one), JIRA_SERVICE_ACCOUNT_TOKEN; a Discord bot token and a Jira webhook token have no grant entry yet and the operator must add them",
+          "kind": "assumption",
+          "reason": "user chose a new culture-rules GitHub App (challenge q1)"
         }
       ]
     },
@@ -692,7 +697,7 @@
     {
       "id": "c36",
       "kind": "requirement",
-      "text": "github.comment authenticates as the GitHub App: mint an RS256 JWT from GITHUB_APP_PRIVATE_KEY, exchange it for an installation token, call the REST API via urllib",
+      "text": "github.comment authenticates as the new culture-rules GitHub App: mint an RS256 JWT from its grant-held private key, exchange it for an installation token, call the REST API via urllib",
       "origin": "llm",
       "status": "confirmed",
       "honesty_conditions": [
@@ -706,7 +711,13 @@
       "hard_questions": [],
       "links": [],
       "instruction": "",
-      "revisions": []
+      "revisions": [
+        {
+          "text": "github.comment authenticates as the GitHub App: mint an RS256 JWT from GITHUB_APP_PRIVATE_KEY, exchange it for an installation token, call the REST API via urllib",
+          "kind": "requirement",
+          "reason": "user chose a new culture-rules GitHub App (challenge q1)"
+        }
+      ]
     },
     {
       "id": "c37",
@@ -878,6 +889,201 @@
       "links": [],
       "instruction": "gh issue view 7 checklist + CI",
       "revisions": []
+    },
+    {
+      "id": "c46",
+      "kind": "requirement",
+      "text": "Webhook receiver paths are exempt from the app's own auth middleware by exact path match (a Cloudflare Bypass request carries no Access JWT); every other path still requires a principal, pinned by a test that walks all routes",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h36",
+          "text": "A test enumerates app.routes and asserts only /health and the exact hook paths answer without a principal; /hooks/github/x and /hooks/githubx still 401",
+          "status": "confirmed",
+          "instruction": "tests/server/test_auth_exemptions.py"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c47",
+      "kind": "requirement",
+      "text": "Rules do not fire on events authored by our own GitHub App, Discord bot or Jira service account unless the rule opts in, and each rule has a fire-rate cap, so a comment action cannot re-trigger itself in a loop",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h37",
+          "text": "An event whose author is the configured App/bot/service account does not fire a rule without opt-in, and a rule exceeding its fire-rate cap records a skip decision instead of firing",
+          "status": "confirmed",
+          "instruction": "tests/engine/test_self_authored.py + rate-cap test"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c48",
+      "kind": "requirement",
+      "text": "http.call sends only to destinations allow-listed on the bound actor and refuses loopback, link-local and private/tailnet ranges unless explicitly allow-listed; no endpoint is hard-coded in committed files",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h38",
+          "text": "http.call to 127.0.0.1, 169.254.x, 10/8, 100.64/10 or a non-allow-listed host fails the action with a clear code and makes no request",
+          "status": "confirmed",
+          "instruction": "tests/node/test_http_call.py with a fake transport"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c49",
+      "kind": "boundary",
+      "text": "External event data is untrusted: it reaches commands only as typed CodeRunner args (never spliced into argv strings), and message/comment actions neutralize mass mentions (@everyone, @here) by default",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h39",
+          "text": "A payload containing shell metacharacters reaches the command only as one typed arg; a message containing @everyone is posted with mentions suppressed",
+          "status": "confirmed",
+          "instruction": "tests/actors/test_code.py + test_discord_message.py"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c50",
+      "kind": "requirement",
+      "text": "Existing typeless event rules are handled by a dry-run-by-default migration that disables them with an audit entry and lists them (never deletes), and the rollout upgrades every node before typed triggers are relied on, since nodes load rules with strict=False and an old node keeps match-all",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h40",
+          "text": "The migration lists and (with --apply) disables typeless event rules with an audit record and deletes none; the ops doc states the node upgrade order",
+          "status": "confirmed",
+          "instruction": "tests/store/test_migrations.py + docs/operations/rules-culture-dev.md"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c51",
+      "kind": "requirement",
+      "text": "Cron expressions evaluate in UTC unless the rule names an IANA timezone (stdlib zoneinfo); DST gaps and repeats fire each wall-clock slot at most once",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h41",
+          "text": "Cron tests cover UTC default, an explicit tz, a DST gap and a DST repeat, each slot firing at most once",
+          "status": "confirmed",
+          "instruction": "tests/engine/test_cron.py"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c52",
+      "kind": "requirement",
+      "text": "Every webhook delivery outcome (accepted, duplicate, bad signature, ignored type) and the Discord gateway state (holder host, connected, last event) are counted and visible in the editor or /health, and logged without payloads or secrets",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h42",
+          "text": "Counters for each delivery outcome and the gateway state appear in /health (or Statistics) and log lines never contain payload bodies or secrets",
+          "status": "confirmed",
+          "instruction": "tests/server/test_hooks_metrics.py + log capture assertion"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c53",
+      "kind": "requirement",
+      "text": "Disabling an app actor stops both its ingest (receiver answers 2xx and drops, listener disconnects) and its actions; the ops doc names the kill switches (actor disable, engine pause)",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h43",
+          "text": "With an app actor disabled, a valid webhook writes no event and its actions fail with actor_disabled; re-enabling resumes",
+          "status": "confirmed",
+          "instruction": "tests/server/test_hooks_disabled_actor.py"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c54",
+      "kind": "requirement",
+      "text": "Webhook receivers verify, write the event and answer 2xx without running rules or actions inline (GitHub times out deliveries at 10 s); Jira events are refetched from the API by issue key rather than trusted from the payload",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h44",
+          "text": "A webhook handler returns 2xx after one event write with no rule evaluation in the request; a Jira hook refetches the issue by key",
+          "status": "confirmed",
+          "instruction": "tests/server/test_hooks_github.py timing/no-eval + test_hooks_jira.py refetch with fake Jira"
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c55",
+      "kind": "decision",
+      "text": "GitHub uses a new, dedicated culture-rules GitHub App whose webhook points at rules.culture.dev; its App ID, installation ID, private key and webhook secret are new grant entries; culture-nodes' App and nodes.culture.dev are left untouched",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c56",
+      "kind": "decision",
+      "text": "Rollout rule: upgrade all four engine nodes (spark2 from the offline wheelhouse) before enabling new trigger or action kinds; doctor warns on node version skew",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
     }
   ],
   "open_vagueness": [
@@ -886,6 +1092,24 @@
       "text": "Agent activity as an event source: culture's supervisor webhooks (agent_complete etc., ~/.culture/server.yaml) POST to a URL and agentirc emits IRCv3-tagged system events, but nothing bridges either into the events collection; the bridge's home (culture-rules, culture, or a bot) is undecided",
       "kind": "unknown_nonblocking",
       "claim_id": "c9",
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v2",
+      "text": "Discord prerequisites outside the repo: a bot application with the privileged MESSAGE_CONTENT intent enabled, invited to the guild, and its token stored in grant (none exists today)",
+      "kind": "follow_up",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    },
+    {
+      "id": "v3",
+      "text": "RULES_CULTURE_DEV_CLI_TOKEN in grant is refused by the live API (401 bad_token): the admin CLI token was revoked or rotated without updating grant",
+      "kind": "follow_up",
+      "claim_id": null,
       "resolved": false,
       "resolution": "",
       "resolution_claim_id": null
@@ -1145,8 +1369,110 @@
       "seeds": [
         "c36"
       ]
+    },
+    {
+      "id": "s33",
+      "surface": "challenge pass / security lens: culture_rules/server/app.py _install_auth",
+      "finding": "authenticate middleware runs resolver.resolve(headers) for every request with no exempt path (app.py:487-499); only /health is a plain route; a bypassed webhook request would get 401 without an explicit exemption",
+      "seeds": [
+        "c46"
+      ]
+    },
+    {
+      "id": "s34",
+      "surface": "challenge pass / failure-mode lens: c35/c36 + sibling culture-nodes jirawebhook.go",
+      "finding": "the App comments and bot replies proposed in c36/c35 produce issue_comment / message events the same receivers ingest; culture-nodes Jira receiver tracks botAccountID and withholds self-authored origins (jirawebhook.go:63-68), no equivalent guard exists in culture_rules",
+      "seeds": [
+        "c47"
+      ]
+    },
+    {
+      "id": "s35",
+      "surface": "challenge pass / security lens: c11 http.call + scripts/scan-secrets.py",
+      "finding": "http.call from a rule is an SSRF vector into the tailnet (mongod 100.127.105.72:27028, LAN API 127.0.0.1:8791); CLAUDE.md says scan-secrets rejects non-localhost endpoints in committed files",
+      "seeds": [
+        "c48"
+      ]
+    },
+    {
+      "id": "s36",
+      "surface": "challenge pass / security lens: culture_rules/actors/code.py bind_argv",
+      "finding": "bind_argv type-coerces named args into a fixed argv template and inline_eval_reason refuses sh -c/python -c; webhook payloads (PR titles, Discord text) come from outside contributors",
+      "seeds": [
+        "c49"
+      ]
+    },
+    {
+      "id": "s37",
+      "surface": "challenge pass / migration lens: node/firing.py rule loading",
+      "finding": "firing.py:286,311,395 load actors/rules/workflows with strict=False, so old nodes tolerate new kinds but keep the old typeless match-all; probe: Actor.from_dict(kind='app') loads without error",
+      "seeds": [
+        "c50"
+      ]
+    },
+    {
+      "id": "s38",
+      "surface": "challenge pass / lifecycle lens: c5 schedule trigger",
+      "finding": "c5/h4 fix dedupe and no backfill but never state the clock; four hosts may differ in local TZ",
+      "seeds": [
+        "c51"
+      ]
+    },
+    {
+      "id": "s39",
+      "surface": "challenge pass / observability lens: server/status.py + ops/health.py",
+      "finding": "health and Statistics cover machines and runs only; nothing would show a GitHub redelivery storm or a dead gateway",
+      "seeds": [
+        "c52"
+      ]
+    },
+    {
+      "id": "s40",
+      "surface": "challenge pass / containment lens: actor enable switch + POST /controls/pause",
+      "finding": "enable/disable exists per actor and engine pause exists, but today an actor's enabled flag only gates adapter lookup in ActorRouter; ingest has no actor link yet",
+      "seeds": [
+        "c53"
+      ]
+    },
+    {
+      "id": "s41",
+      "surface": "challenge pass / failure-mode lens: sibling culture-nodes jirawebhook.go",
+      "finding": "culture-nodes Jira receiver extracts keys then fetchJiraIssue for each (jirawebhook.go:56-60); its GitHub receiver writes the fact and returns 201",
+      "seeds": [
+        "c54"
+      ]
+    },
+    {
+      "id": "s42",
+      "surface": "challenge pass / concurrency lens: schedule slots, gateway lease, human-actor creation",
+      "finding": "covered by confirmed h4 (slot dedupe in a transaction), h25 (single gateway holder by lease) and h7 (no duplicate actor on concurrent first sign-in); residual: lease takeover is fail-open on unreadable heartbeat (#7, c22), which could briefly allow two gateway holders; duplicate events are absorbed by message-id dedupe",
+      "seeds": []
+    },
+    {
+      "id": "s43",
+      "surface": "challenge pass / adjacent-systems lens: nodes.culture.dev",
+      "finding": "culture-nodes still documents a live Jira system webhook and the GitHub App webhook on nodes.culture.dev; moving surfaces to rules.culture.dev must repoint, not duplicate, them; not examined: whether nodes.culture.dev is still serving",
+      "seeds": []
+    },
+    {
+      "id": "s44",
+      "surface": "challenge pass / unexamined surfaces",
+      "finding": "not examined: the live rules collection (token refused, lapse l1); Discord developer-portal settings; GitHub App settings page; Jira admin webhook list; Cloudflare Access app policies for rules.culture.dev",
+      "seeds": []
     }
   ],
-  "lapses": [],
+  "lapses": [
+    {
+      "id": "l1",
+      "code": "assumption-for-measurement",
+      "what": "Could not count typeless event rules on the live deployment: RULES_CULTURE_DEV_CLI_TOKEN from grant is refused by the LAN API (401 bad_token), so c42's migration size is unmeasured",
+      "skipped_check": "live read of GET /api/rules on 127.0.0.1:8791",
+      "refs": [
+        "challenge pass / migration lens: live rules collection"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    }
+  ],
   "obligations": []
 }

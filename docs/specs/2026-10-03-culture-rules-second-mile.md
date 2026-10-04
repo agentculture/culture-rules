@@ -81,9 +81,33 @@
 - A Discord app actor runs a Gateway bot listener as a long-lived, placed service (one holder at a time, like a lease) that turns gateway events into typed events (discord.message.created, ...) in the shared events collection; the same bot token sends the Discord message action
   - honesty: Exactly one Discord gateway connection is held mesh-wide at a time (lease), it reconnects and resumes after drop, every message event lands once with type discord.message.created, and the bot token is resolved only via grant
     - instruction: tests/actors/`test_discord_listener.py` with a fake gateway; live check on spark
-- github.comment authenticates as the GitHub App: mint an RS256 JWT from `GITHUB_APP_PRIVATE_KEY`, exchange it for an installation token, call the REST API via urllib
+- github.comment authenticates as the new culture-rules GitHub App: mint an RS256 JWT from its grant-held private key, exchange it for an installation token, call the REST API via urllib
   - honesty: Comments are authored by the GitHub App, installation tokens are cached until near expiry and never logged, and only allow-listed repos can be commented on
     - instruction: tests/actors/`test_github_app.py` with a fake API + live comment on a test PR
+- Webhook receiver paths are exempt from the app's own auth middleware by exact path match (a Cloudflare Bypass request carries no Access JWT); every other path still requires a principal, pinned by a test that walks all routes
+  - honesty: A test enumerates app.routes and asserts only /health and the exact hook paths answer without a principal; /hooks/github/x and /hooks/githubx still 401
+    - instruction: tests/server/`test_auth_exemptions.py`
+- Rules do not fire on events authored by our own GitHub App, Discord bot or Jira service account unless the rule opts in, and each rule has a fire-rate cap, so a comment action cannot re-trigger itself in a loop
+  - honesty: An event whose author is the configured App/bot/service account does not fire a rule without opt-in, and a rule exceeding its fire-rate cap records a skip decision instead of firing
+    - instruction: tests/engine/`test_self_authored.py` + rate-cap test
+- http.call sends only to destinations allow-listed on the bound actor and refuses loopback, link-local and private/tailnet ranges unless explicitly allow-listed; no endpoint is hard-coded in committed files
+  - honesty: http.call to 127.0.0.1, 169.254.x, 10/8, 100.64/10 or a non-allow-listed host fails the action with a clear code and makes no request
+    - instruction: tests/node/`test_http_call.py` with a fake transport
+- Existing typeless event rules are handled by a dry-run-by-default migration that disables them with an audit entry and lists them (never deletes), and the rollout upgrades every node before typed triggers are relied on, since nodes load rules with strict=False and an old node keeps match-all
+  - honesty: The migration lists and (with --apply) disables typeless event rules with an audit record and deletes none; the ops doc states the node upgrade order
+    - instruction: tests/store/`test_migrations.py` + docs/operations/rules-culture-dev.md
+- Cron expressions evaluate in UTC unless the rule names an IANA timezone (stdlib zoneinfo); DST gaps and repeats fire each wall-clock slot at most once
+  - honesty: Cron tests cover UTC default, an explicit tz, a DST gap and a DST repeat, each slot firing at most once
+    - instruction: tests/engine/`test_cron.py`
+- Every webhook delivery outcome (accepted, duplicate, bad signature, ignored type) and the Discord gateway state (holder host, connected, last event) are counted and visible in the editor or /health, and logged without payloads or secrets
+  - honesty: Counters for each delivery outcome and the gateway state appear in /health (or Statistics) and log lines never contain payload bodies or secrets
+    - instruction: tests/server/`test_hooks_metrics.py` + log capture assertion
+- Disabling an app actor stops both its ingest (receiver answers 2xx and drops, listener disconnects) and its actions; the ops doc names the kill switches (actor disable, engine pause)
+  - honesty: With an app actor disabled, a valid webhook writes no event and its actions fail with `actor_disabled`; re-enabling resumes
+    - instruction: tests/server/`test_hooks_disabled_actor.py`
+- Webhook receivers verify, write the event and answer 2xx without running rules or actions inline (GitHub times out deliveries at 10 s); Jira events are refetched from the API by issue key rather than trusted from the payload
+  - honesty: A webhook handler returns 2xx after one event write with no rule evaluation in the request; a Jira hook refetches the issue by key
+    - instruction: tests/server/`test_hooks_github.py` timing/no-eval + `test_hooks_jira.py` refetch with fake Jira
 
 ## Honesty conditions
 
@@ -115,6 +139,8 @@
   - instruction: devague evidence file with run ids / CI links
 - This signal is checked and its evidence filed at validate-delivery time
   - instruction: devague evidence file with run ids / CI links
+- A payload containing shell metacharacters reaches the command only as one typed arg; a message containing @everyone is posted with mentions suppressed
+  - instruction: tests/actors/`test_code.py` + `test_discord_message.py`
 
 ## Success signals
 
@@ -135,6 +161,7 @@
 - The Access 401 for a malformed token already holds; only a pinning test is added
 - `culture_rules` runtime keeps zero third-party dependencies: outbound calls use urllib or argv CLIs (gh, culture, discord), secrets via grant, anything else behind an optional extra
 - `culture_rules` runtime stays dependency-free: GitHub/Jira webhook HMAC checks use stdlib hmac/hashlib; the Discord Gateway client and GitHub App RS256 JWT signing live behind optional extras (e.g. discord, github) imported lazily
+- External event data is untrusted: it reaches commands only as typed CodeRunner args (never spliced into argv strings), and message/comment actions neutralize mass mentions (@everyone, @here) by default
 
 ## Non-goals
 
@@ -143,7 +170,7 @@
 ## Assumptions
 
 - Events need not flow over MQTT to reach other hosts: the events collection lives in the shared replica set, so an ingest path on spark (webhook receiver or poller) is visible to every node's trigger consumers
-- Secrets come from grant: `GITHUB_APP_PRIVATE_KEY` (App auth), a GitHub webhook secret (reuse `CULTURE_NODES_GITHUB_APP_WEBHOOK_SECRET` or add a rules-specific one), `JIRA_SERVICE_ACCOUNT_TOKEN`; a Discord bot token and a Jira webhook token have no grant entry yet and the operator must add them
+- Secrets come from grant: the new culture-rules GitHub App's ID, installation ID, private key and webhook secret (new entries), `JIRA_SERVICE_ACCOUNT_TOKEN`; a Discord bot token and a Jira webhook token have no grant entry yet; the operator adds all new entries
 
 ## Scope exploration
 
@@ -210,6 +237,27 @@
   - seeds: `c35`
 - `s32` — `sibling culture-nodes adapters/github + grant list`: culture-nodes github bridge posts comments via REST with `GITHUB_TOKEN` and an exact-repo allowlist; grant holds `GITHUB_APP_PRIVATE_KEY` and `CULTURE_NODES_GITHUB_APP_WEBHOOK_SECRET`; RS256 is not in the Python stdlib
   - seeds: `c36`
+- `s33` — `challenge pass / security lens: culture_rules/server/app.py _install_auth`: authenticate middleware runs resolver.resolve(headers) for every request with no exempt path (app.py:487-499); only /health is a plain route; a bypassed webhook request would get 401 without an explicit exemption
+  - seeds: `c46`
+- `s34` — `challenge pass / failure-mode lens: c35/c36 + sibling culture-nodes jirawebhook.go`: the App comments and bot replies proposed in c36/c35 produce `issue_comment` / message events the same receivers ingest; culture-nodes Jira receiver tracks botAccountID and withholds self-authored origins (jirawebhook.go:63-68), no equivalent guard exists in `culture_rules`
+  - seeds: `c47`
+- `s35` — `challenge pass / security lens: c11 http.call + scripts/scan-secrets.py`: http.call from a rule is an SSRF vector into the tailnet (mongod 100.127.105.72:27028, LAN API 127.0.0.1:8791); CLAUDE.md says scan-secrets rejects non-localhost endpoints in committed files
+  - seeds: `c48`
+- `s36` — `challenge pass / security lens: culture_rules/actors/code.py bind_argv`: `bind_argv` type-coerces named args into a fixed argv template and `inline_eval_reason` refuses sh -c/python -c; webhook payloads (PR titles, Discord text) come from outside contributors
+  - seeds: `c49`
+- `s37` — `challenge pass / migration lens: node/firing.py rule loading`: firing.py:286,311,395 load actors/rules/workflows with strict=False, so old nodes tolerate new kinds but keep the old typeless match-all; probe: Actor.`from_dict`(kind='app') loads without error
+  - seeds: `c50`
+- `s38` — `challenge pass / lifecycle lens: c5 schedule trigger`: c5/h4 fix dedupe and no backfill but never state the clock; four hosts may differ in local TZ
+  - seeds: `c51`
+- `s39` — `challenge pass / observability lens: server/status.py + ops/health.py`: health and Statistics cover machines and runs only; nothing would show a GitHub redelivery storm or a dead gateway
+  - seeds: `c52`
+- `s40` — `challenge pass / containment lens: actor enable switch + POST /controls/pause`: enable/disable exists per actor and engine pause exists, but today an actor's enabled flag only gates adapter lookup in ActorRouter; ingest has no actor link yet
+  - seeds: `c53`
+- `s41` — `challenge pass / failure-mode lens: sibling culture-nodes jirawebhook.go`: culture-nodes Jira receiver extracts keys then fetchJiraIssue for each (jirawebhook.go:56-60); its GitHub receiver writes the fact and returns 201
+  - seeds: `c54`
+- `s42` — `challenge pass / concurrency lens: schedule slots, gateway lease, human-actor creation`: covered by confirmed h4 (slot dedupe in a transaction), h25 (single gateway holder by lease) and h7 (no duplicate actor on concurrent first sign-in); residual: lease takeover is fail-open on unreadable heartbeat (#7, c22), which could briefly allow two gateway holders; duplicate events are absorbed by message-id dedupe
+- `s43` — `challenge pass / adjacent-systems lens: nodes.culture.dev`: culture-nodes still documents a live Jira system webhook and the GitHub App webhook on nodes.culture.dev; moving surfaces to rules.culture.dev must repoint, not duplicate, them; not examined: whether nodes.culture.dev is still serving
+- `s44` — `challenge pass / unexamined surfaces`: not examined: the live rules collection (token refused, lapse l1); Discord developer-portal settings; GitHub App settings page; Jira admin webhook list; Cloudflare Access app policies for rules.culture.dev
 
 ## Decisions
 
@@ -217,6 +265,8 @@
 - Direct workflow runs pin a synthetic ad-hoc rule (manual trigger, workflow ref carrying the given inputs, noop action) into the run doc, so executor, history and filters stay unchanged
 - First-cut surfaces and actions: GitHub, Discord and Jira (events in, comment/message actions out), plus machine.command and http.call actions with schedule and probe triggers
 - A human actor created on Access sign-in has id = slugged email; asks stay in the asks collection and the editor inbox (delivery to connected surfaces is later)
+- GitHub uses a new, dedicated culture-rules GitHub App whose webhook points at rules.culture.dev; its App ID, installation ID, private key and webhook secret are new grant entries; culture-nodes' App and nodes.culture.dev are left untouched
+- Rollout rule: upgrade all four engine nodes (spark2 from the offline wheelhouse) before enabling new trigger or action kinds; doctor warns on node version skew
 
 ## Hard questions
 
@@ -230,3 +280,5 @@
 ## Open parks
 
 - [unknown_nonblocking] Agent activity as an event source: culture's supervisor webhooks (`agent_complete` etc., ~/.culture/server.yaml) POST to a URL and agentirc emits IRCv3-tagged system events, but nothing bridges either into the events collection; the bridge's home (culture-rules, culture, or a bot) is undecided
+- [follow_up] Discord prerequisites outside the repo: a bot application with the privileged `MESSAGE_CONTENT` intent enabled, invited to the guild, and its token stored in grant (none exists today)
+- [follow_up] `RULES_CULTURE_DEV_CLI_TOKEN` in grant is refused by the live API (401 `bad_token`): the admin CLI token was revoked or rotated without updating grant
