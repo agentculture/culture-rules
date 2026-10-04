@@ -148,7 +148,7 @@
   - instruction: live check on spark against a test repo/project/channel; record run ids as evidence
 - An event rule with no params.type is refused on save (HTTP 422, CLI exit 1) and 0 typeless event triggers remain in the live rules collection after migration
   - instruction: pytest for validation + a store query on the deployed DB
-- A schedule rule placed on thor with cron '\*/5 \* \* \* \*' fires exactly 1 run per slot over 1 hour (12 runs), all on thor, including across a node restart
+- A schedule rule placed on thor with cron `*/5 * * * *` fires exactly 1 run per slot over 1 hour (12 runs), all on thor, including across a node restart
   - instruction: multihost test with fake clock + live observation on thor
 - A workflow with 2 typed inputs is run from the Workflows tab input form with 0 rules referencing it, and its outputs render in place; Playwright covers it and CI's web job stays green
   - instruction: web e2e spec workflows-run.spec.ts

@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-10-04T04:02:01Z",
-  "updated": "2026-10-04T04:14:38Z",
+  "updated": "2026-10-04T04:17:03Z",
   "targets": [
     {
       "id": "c1",
@@ -458,7 +458,7 @@
     {
       "id": "c43",
       "kind": "success_signal",
-      "text": "A schedule rule placed on thor with cron '*/5 * * * *' fires exactly 1 run per slot over 1 hour (12 runs), all on thor, including across a node restart",
+      "text": "A schedule rule placed on thor with cron `*/5 * * * *` fires exactly 1 run per slot over 1 hour (12 runs), all on thor, including across a node restart",
       "deferred": false,
       "deferred_reason": ""
     },

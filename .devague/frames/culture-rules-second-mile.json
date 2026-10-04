@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-03T18:08:10Z",
-  "updated": "2026-10-04T04:01:41Z",
+  "updated": "2026-10-04T04:17:03Z",
   "claims": [
     {
       "id": "c1",
@@ -836,7 +836,7 @@
     {
       "id": "c43",
       "kind": "success_signal",
-      "text": "A schedule rule placed on thor with cron '*/5 * * * *' fires exactly 1 run per slot over 1 hour (12 runs), all on thor, including across a node restart",
+      "text": "A schedule rule placed on thor with cron `*/5 * * * *` fires exactly 1 run per slot over 1 hour (12 runs), all on thor, including across a node restart",
       "origin": "llm",
       "status": "confirmed",
       "honesty_conditions": [
@@ -850,7 +850,13 @@
       "hard_questions": [],
       "links": [],
       "instruction": "multihost test with fake clock + live observation on thor",
-      "revisions": []
+      "revisions": [
+        {
+          "text": "A schedule rule placed on thor with cron '*/5 * * * *' fires exactly 1 run per slot over 1 hour (12 runs), all on thor, including across a node restart",
+          "kind": "success_signal",
+          "reason": "lint: backtick the cron expression (MD037), meaning unchanged"
+        }
+      ]
     },
     {
       "id": "c44",
