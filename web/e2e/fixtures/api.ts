@@ -1,5 +1,6 @@
 import type { Page } from "@playwright/test";
 import {
+  ACTORS,
   MACHINES,
   RULES,
   WHOAMI,
@@ -19,6 +20,7 @@ export async function mockApi(page: Page): Promise<string[]> {
     "/api/whoami": WHOAMI,
     "/api/rules": { items: RULES },
     "/api/machines": { items: MACHINES },
+    "/api/actors": { items: ACTORS },
     "/api/workflows": { items: WORKFLOWS },
     "/api/runs": { items: runsFor(now) },
   };

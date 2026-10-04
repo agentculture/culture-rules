@@ -68,9 +68,8 @@ describe("edit", () => {
     const name = within(form).getByLabelText("Name");
     await user.clear(name);
     await user.type(name, "Ship it");
-    const trigger = within(form).getByLabelText("Trigger");
-    await user.clear(trigger);
-    await user.type(trigger, "Tag pushed");
+    await user.selectOptions(within(form).getByLabelText("Surface"), "github-app");
+    await user.selectOptions(within(form).getByLabelText("Event"), "github.push");
     await user.selectOptions(within(form).getByLabelText("Placement"), "spark2");
     await user.click(within(form).getByRole("button", { name: "Save" }));
 
@@ -80,11 +79,11 @@ describe("edit", () => {
     expect(put[0].body).toMatchObject({
       id: SELECTED_RULE_ID,
       name: "Ship it",
-      trigger: { kind: "event", params: { label: "Tag pushed" } },
+      trigger: { kind: "event", params: { type: "github.push" } },
       placement: { machine: "spark2" },
       workflow: { id: "build-image" },
     });
-    expect(screen.getByTestId("stage-trigger")).toHaveTextContent("Tag pushed");
+    expect(screen.getByTestId("stage-trigger")).toHaveTextContent("github.push");
     expect(screen.queryByRole("form", { name: "Edit rule" })).not.toBeInTheDocument();
   });
 
@@ -113,7 +112,7 @@ describe("edit", () => {
 
     await user.click(screen.getByRole("button", { name: "New rule" }));
     const created = screen.getByRole("form", { name: "New rule" });
-    await waitFor(() => expect(within(created).getByLabelText("Trigger")).toHaveFocus());
+    await waitFor(() => expect(within(created).getByLabelText("Name")).toHaveFocus());
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("form", { name: "New rule" })).not.toBeInTheDocument();
   });
@@ -237,24 +236,94 @@ describe("relationships on both ends", () => {
   });
 });
 
+describe("editing a typed trigger", () => {
+  it("preselects a probe rule's values and saves a changed command", async () => {
+    const user = userEvent.setup();
+    api.rules.push({
+      id: "disk-probe",
+      name: "Disk probe",
+      trigger: {
+        kind: "probe",
+        params: { actor: "ci-runner", command: "disk-free", mode: "change", schedule: "*/5 * * * *" },
+      },
+      action: { kind: "mesh.message", name: "Notify" },
+      enabled: true,
+    });
+    renderRules("/rules/disk-probe");
+    await user.click(await screen.findByRole("button", { name: "Edit rule" }));
+    const form = screen.getByRole("form", { name: "Edit rule" });
+    expect(within(form).getByRole("radio", { name: "A probe" })).toBeChecked();
+    expect(within(form).getByLabelText("Command")).toHaveValue("disk-free");
+    await user.selectOptions(within(form).getByLabelText("Command"), "gpu-temp");
+    await user.click(within(form).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(sent("PUT", "/rules/disk-probe")).toHaveLength(1));
+    expect(sent("PUT", "/rules/disk-probe")[0].body).toMatchObject({
+      trigger: {
+        kind: "probe",
+        params: { actor: "ci-runner", command: "gpu-temp", mode: "change", schedule: "*/5 * * * *" },
+      },
+    });
+  });
+
+  it("keeps a label-only legacy trigger untouched when it is not edited", async () => {
+    const user = userEvent.setup();
+    renderRules();
+    await user.click(await screen.findByRole("button", { name: "Edit rule" }));
+    const form = screen.getByRole("form", { name: "Edit rule" });
+    await user.click(within(form).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(sent("PUT", `/rules/${SELECTED_RULE_ID}`)).toHaveLength(1));
+    expect(sent("PUT", `/rules/${SELECTED_RULE_ID}`)[0].body).toMatchObject({
+      trigger: { kind: "event", params: { label: "Push to main" } },
+    });
+  });
+});
+
 describe("create, progressively", () => {
   it("starts from 'New rule', asks 'When does this happen?' and creates a trigger-only rule", async () => {
     const user = userEvent.setup();
     renderRules();
     await user.click(await screen.findByRole("button", { name: "New rule" }));
     const form = screen.getByRole("form", { name: "New rule" });
-    await user.type(within(form).getByLabelText("Trigger"), "Disk is nearly full");
-    await user.selectOptions(within(form).getByLabelText("Kind"), "event");
+    await user.type(within(form).getByLabelText("Name"), "Disk is nearly full");
+    await user.selectOptions(within(form).getByLabelText("Surface"), "github-app");
+    await user.selectOptions(within(form).getByLabelText("Event"), "github.pr.opened");
     await user.click(within(form).getByRole("button", { name: "Create rule" }));
     await waitFor(() => expect(sent("POST", "/rules")).toHaveLength(1));
     expect(sent("POST", "/rules")[0].body).toMatchObject({
       id: "disk-is-nearly-full",
       name: "Disk is nearly full",
-      trigger: { kind: "event", params: { label: "Disk is nearly full" } },
+      trigger: { kind: "event", params: { type: "github.pr.opened" } },
     });
     expect(
       await screen.findByRole("heading", { level: 1, name: "Disk is nearly full" }),
     ).toBeInTheDocument();
+  });
+
+  it("never creates an event rule without a declared event, and says why in plain words", async () => {
+    const user = userEvent.setup();
+    renderRules();
+    await user.click(await screen.findByRole("button", { name: "New rule" }));
+    const form = screen.getByRole("form", { name: "New rule" });
+    await user.type(within(form).getByLabelText("Name"), "Nothing picked");
+    await user.click(within(form).getByRole("button", { name: "Create rule" }));
+    expect(await within(form).findByRole("alert")).toHaveTextContent(/needs a type/i);
+    expect(sent("POST", "/rules")).toHaveLength(0);
+  });
+
+  it("creates a schedule rule with params.cron and tz", async () => {
+    const user = userEvent.setup();
+    renderRules();
+    await user.click(await screen.findByRole("button", { name: "New rule" }));
+    const form = screen.getByRole("form", { name: "New rule" });
+    await user.type(within(form).getByLabelText("Name"), "Nightly");
+    await user.click(within(form).getByRole("radio", { name: "On a schedule" }));
+    await user.selectOptions(within(form).getByLabelText("Repeat"), "Every day at 9:00");
+    await user.type(within(form).getByLabelText("Time zone"), "UTC");
+    await user.click(within(form).getByRole("button", { name: "Create rule" }));
+    await waitFor(() => expect(sent("POST", "/rules")).toHaveLength(1));
+    expect(sent("POST", "/rules")[0].body).toMatchObject({
+      trigger: { kind: "schedule", params: { cron: "0 9 * * *", tz: "UTC" } },
+    });
   });
 
   it("grows a rule through + : adds a condition, then a workflow", async () => {

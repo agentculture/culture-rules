@@ -1,3 +1,4 @@
+import type { Actor } from "../api/actors";
 import type { Machine, Rule, RunSummary, Whoami, Workflow } from "../api/types";
 
 /**
@@ -16,6 +17,35 @@ export const MACHINES: Machine[] = [
   { name: "spark", platform: "linux-aarch64", capabilities: [], roles: ["engine_node"], enabled: true },
   { name: "thor", platform: "linux-aarch64", capabilities: ["gpu"], roles: ["runner"], enabled: true },
   { name: "spark2", platform: "linux-aarch64", capabilities: [], roles: ["runner"], enabled: true },
+];
+
+/** Actors the trigger picker reads: enabled apps declare events, runners register commands. */
+export const ACTORS: Actor[] = [
+  {
+    id: "github-app",
+    name: "GitHub",
+    kind: "app",
+    enabled: true,
+    params: {
+      surface: "github",
+      events: ["github.pr.opened", "github.push"],
+      connection: {},
+    },
+  },
+  {
+    id: "discord-app",
+    name: "Discord",
+    kind: "app",
+    enabled: false,
+    params: { surface: "discord", events: ["discord.message.created"], connection: {} },
+  },
+  {
+    id: "ci-runner",
+    name: "CI runner",
+    kind: "runner",
+    enabled: true,
+    params: { commands: { "disk-free": { argv: ["df", "-h"] }, "gpu-temp": { argv: ["nvidia-smi"] } } },
+  },
 ];
 
 export const WORKFLOWS: Workflow[] = [
