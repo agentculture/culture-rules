@@ -21,6 +21,10 @@ what it waited for and how that ended. Every other recorded reason is final and 
 rewritten. A fired record is not a skip: :func:`decisions_for` leaves it out with
 ``skips_only`` (the run itself is the history entry).
 
+A rule over its fire-rate cap (``trigger.params.max_fires_per_hour``, enforced by the node,
+:mod:`culture_rules.node.firing`, "Rate cap") is recorded as the final skip ``rate_capped``
+instead of a run.
+
 ``condition_false``, ``disabled`` and ``paused`` are not recorded: they are the normal
 "this rule did not apply" outcome and would flood the history. Standard-library only.
 """
@@ -41,9 +45,11 @@ from culture_rules.engine.matching import (
     SUPERSEDED_BY,
     Decision,
 )
-from culture_rules.store.port import StoreOps
+from culture_rules.store.port import DuplicateKeyError, StoreOps
 
 __all__ = [
+    "FINAL_SKIP_REASONS",
+    "RATE_CAPPED",
     "RECORDED_REASONS",
     "RULE_DECISIONS",
     "decision_key",
@@ -54,12 +60,19 @@ __all__ = [
 
 RULE_DECISIONS = "rule_decisions"
 """Persisted skip decisions: one per (rule, event) whose skip reason is recorded."""
+RATE_CAPPED = "rate_capped"
+"""Final skip set by the node: the rule already fired its ``max_fires_per_hour``."""
 RECORDED_REASONS: tuple[str, ...] = (
     SUPERSEDED_BY,
     BLOCKED_BY_PREDECESSOR,
     GROUP_LOST,
     PREDECESSOR_FAILED,
+    RATE_CAPPED,
 )
+FINAL_SKIP_REASONS: tuple[str, ...] = tuple(
+    r for r in RECORDED_REASONS if r != BLOCKED_BY_PREDECESSOR
+)
+"""Recorded skips that are final when written: never superseded, the rule will not fire."""
 
 
 def decision_key(rule_id: str, event_id: str) -> str:
@@ -85,6 +98,8 @@ def _record(
     if decision.fire:
         doc["run_id"] = run_id
         doc["message"] = f"ran after {', '.join(decision.by)}" if decision.by else "matched"
+    elif decision.reason == RATE_CAPPED:
+        doc["message"] = f"rate capped: {decision.detail}" if decision.detail else "rate capped"
     return doc
 
 
@@ -93,15 +108,22 @@ def record_decision(
 ) -> Mapping[str, Any] | None:
     """Persist ``decision`` when it is a recorded skip; answer the record (or ``None``).
 
-    An existing record for the same (rule, event) is left as it is (redelivery).
+    An existing record for the same (rule, event) is left as it is (redelivery). The write
+    is one insert; the existing record is read only when that insert is a duplicate key.
+
+    On MongoDB a duplicate key inside a transaction aborts that transaction (the read that
+    follows then fails with a transient error and the whole transaction rolls back), so
+    inside a transaction that may meet an existing record use :func:`settle_decision`,
+    which reads first; this function is for writes on the store itself, or in a
+    transaction that knows the record is new.
     """
     if decision.fire or decision.reason not in RECORDED_REASONS:
         return None
-    key = decision_key(decision.rule_id, event_id)
-    existing = tx.get(RULE_DECISIONS, key)
-    if existing is not None:
-        return existing
-    return tx.insert(RULE_DECISIONS, _record(decision, event_id=event_id, host=host, at=at))
+    doc = _record(decision, event_id=event_id, host=host, at=at)
+    try:
+        return tx.insert(RULE_DECISIONS, doc)
+    except DuplicateKeyError:
+        return tx.get(RULE_DECISIONS, doc["id"])
 
 
 def settle_decision(

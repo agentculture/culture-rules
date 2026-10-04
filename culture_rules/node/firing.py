@@ -53,8 +53,10 @@ dependants placed on this host, ``chain`` shared for unplaced ones
 (:class:`~culture_rules.node.chain.FeedConsumer`). They watch:
 
 * ``runs``: a run reaching ``succeeded`` / ``failed`` / ``cancelled``;
-* ``rule_decisions``: a waiting record settled as a final skip (so a skip cascades down a
-  chain: A failed -> B skipped -> C skipped);
+* ``rule_decisions``: a final skip - a waiting record settled as one, or a record written
+  final in one step (``predecessor_failed``, ``rate_capped``, ...: no ``superseded``
+  history), so a skip cascades down a chain (A failed -> B skipped -> C skipped) also when
+  the intermediate rule is placed on another host and decided only after A finished;
 * ``rule_fires``: an intent whose run could not start.
 
 Each such change is handled exactly once per consumer (a marker plus the cursor commit with
@@ -86,6 +88,36 @@ differently, on purpose:
   Later changes on the same feed wait behind it, in order - harmless, since nothing can
   fire while paused.
 
+Rate cap
+========
+A rule fires at most ``trigger.params.max_fires_per_hour`` times (default
+:data:`DEFAULT_MAX_FIRES_PER_HOUR`; a value that is not a positive integer falls back to it)
+in any trailing hour, counted across every host sharing the store. Over the cap, a matching
+rule records the final skip ``rate_capped`` (:mod:`culture_rules.engine.decisions`) instead
+of a firing intent.
+
+* The count lives in one small ``rule_rates`` document per rule: the timestamps (this
+  host's clock at evaluation) of its fires in the trailing hour, pruned on every write and
+  never longer than the cap. Reading it is one ``get``; it does not scan ``rule_fires``.
+* Every fire rewrites that document in the same transaction as the intent. Two
+  transactions firing the same rule concurrently therefore write the same document, and
+  the store's write conflict (MongoDB: snapshot isolation would otherwise let both read
+  "under the cap" and both commit, write skew) rolls one back; its change is retried by
+  the next poll and sees the other's fire. Trigger evaluations of one consumer already
+  serialise on that consumer's cursor document; the window is what serialises fires that
+  arrive through *different* consumers - the trigger path and a chain re-evaluation, or
+  a placed rule whose placement moved between hosts.
+* The cap is applied to the matching decisions *before* sequencing, so a dependant in the
+  same evaluation sees a capped predecessor as "did not fire" (``predecessor_failed`` for
+  must run after; a may-run-after dependant fires without it). A rule that would then wait
+  for a may-run-after predecessor is capped when it matches.
+* ``rate_capped`` is sticky per (rule, event): once recorded, every later evaluation of
+  that rule for that event (a redelivery, a chain re-evaluation, a dependant on another
+  host) treats it as capped, even after the window has room again. A host evaluating a
+  dependant of a predecessor placed elsewhere cannot know the predecessor's cap outcome
+  before it is recorded, so the dependant waits; the predecessor's ``rate_capped`` record
+  is final in one step and settles it through the chain feed.
+
 Standard-library only.
 """
 
@@ -96,15 +128,22 @@ import json
 import logging
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from culture_rules.engine.chaining import LIVE, START_FAILED, sequence
 from culture_rules.engine.claims import firing_key
-from culture_rules.engine.decisions import RULE_DECISIONS, settle_decision
+from culture_rules.engine.decisions import (
+    FINAL_SKIP_REASONS,
+    RATE_CAPPED,
+    RULE_DECISIONS,
+    decision_key,
+    settle_decision,
+)
 from culture_rules.engine.matching import (
     BLOCKED_BY_PREDECESSOR,
     FIRE,
+    Decision,
     RuleOutcome,
     RunFacts,
     TriggerMatcher,
@@ -134,11 +173,14 @@ from culture_rules.store.port import DuplicateKeyError, StoragePort, StoreOps
 from culture_rules.store.versioning import utc_timestamp
 
 __all__ = [
+    "DEFAULT_MAX_FIRES_PER_HOUR",
     "RULE_FIRES",
+    "RULE_RATES",
     "SHARED_CHAIN",
     "SHARED_CONSUMER",
     "Deferred",
     "RuleFiring",
+    "max_fires_per_hour",
     "placed_chain",
     "placed_consumer",
     "run_id_for",
@@ -148,6 +190,11 @@ log = logging.getLogger("culture_rules.node.firing")
 
 RULE_FIRES = "rule_fires"
 """Firing intents: one per (rule, event) that matched, committed with the trigger fire."""
+RULE_RATES = "rule_rates"
+"""Per-rule fire windows: the timestamps of a rule's fires in the trailing hour (rate cap)."""
+DEFAULT_MAX_FIRES_PER_HOUR = 60
+"""The fire-rate cap of a rule whose trigger sets no valid ``max_fires_per_hour``."""
+RATE_WINDOW = timedelta(hours=1)
 SHARED_CONSUMER = "triggers"
 """The trigger consumer every host shares for unplaced rules."""
 SHARED_CHAIN = "chain"
@@ -162,6 +209,15 @@ def placed_consumer(host: str) -> str:
 def placed_chain(host: str) -> str:
     """The per-host chain consumer for dependants placed on ``host``."""
     return f"chain@{host}"
+
+
+def max_fires_per_hour(rule: Rule) -> int:
+    """``rule``'s fire-rate cap: ``trigger.params.max_fires_per_hour`` when it is a positive
+    integer, else :data:`DEFAULT_MAX_FIRES_PER_HOUR`."""
+    value = rule.trigger.params.get("max_fires_per_hour")
+    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+        return value
+    return DEFAULT_MAX_FIRES_PER_HOUR
 
 
 def run_id_for(rule_id: str, event_id: str) -> str:
@@ -214,7 +270,7 @@ class RuleFiring:
             lambda tx, ev: self._evaluate(tx, ev, placed=True),
             host=host,
             consumer=placed_consumer(host),
-            handler_collections=(RULE_FIRES, RULE_DECISIONS),
+            handler_collections=(RULE_FIRES, RULE_DECISIONS, RULE_RATES),
             clock=clock,
         )
         self.shared = EventTriggers(
@@ -222,7 +278,7 @@ class RuleFiring:
             lambda tx, ev: self._evaluate(tx, ev, placed=False),
             host=host,
             consumer=SHARED_CONSUMER,
-            handler_collections=(RULE_FIRES, RULE_DECISIONS),
+            handler_collections=(RULE_FIRES, RULE_DECISIONS, RULE_RATES),
             clock=clock,
         )
         self.chain_placed = self._chain(placed_chain(host), placed=True)
@@ -241,7 +297,13 @@ class RuleFiring:
             ),
             host=self.host,
             consumer=consumer,
-            handler_collections=(RULE_FIRES, RULE_DECISIONS, RUNS_COLLECTION, EVENTS_COLLECTION),
+            handler_collections=(
+                RULE_FIRES,
+                RULE_DECISIONS,
+                RULE_RATES,
+                RUNS_COLLECTION,
+                EVENTS_COLLECTION,
+            ),
             clock=self._clock,
         )
 
@@ -397,6 +459,7 @@ class RuleFiring:
             w.id: w for w in (Workflow.from_dict(d, strict=False) for d in tx.find("workflows"))
         }
         facts, states = self._facts(tx, rules, event_id)
+        now = self._clock()
         decisions = match(
             envelope,
             rules,
@@ -405,6 +468,8 @@ class RuleFiring:
             paused=is_paused(tx),
             trigger_match=_trigger_matcher(envelope, rules),
         )
+        decisions = self._rate_capped(tx, decisions, rules, ours, event_id, now)
+        by_id = {r.id: r for r in rules}
         for decision in sequence(decisions, rules, states):
             if decision.rule_id not in ours:
                 continue
@@ -421,11 +486,12 @@ class RuleFiring:
                 decision,
                 event_id=event_id,
                 host=self.host,
-                at=utc_timestamp(self._clock()),
+                at=utc_timestamp(now),
                 run_id=run_id,
                 always=chained,
             )
             if decision.fire:
+                _count_fire(tx, by_id[decision.rule_id], now)
                 tx.insert(
                     RULE_FIRES,
                     {
@@ -440,6 +506,29 @@ class RuleFiring:
                         "upstream": {k: dict(v) for k, v in decision.upstream.items()},
                     },
                 )
+
+    def _rate_capped(
+        self,
+        tx: StoreOps,
+        decisions: tuple[Decision, ...],
+        rules: list[Rule],
+        ours: set[str],
+        event_id: str,
+        now: datetime,
+    ) -> tuple[Decision, ...]:
+        """``decisions`` with every fire over its rule's cap turned into a ``rate_capped``
+        skip (module doc, "Rate cap"). Only this consumer's rules are checked against
+        their window; a predecessor that is somebody else's is capped only once its own
+        host recorded it so (sticky), never on a guess."""
+        predecessors = {p for r in rules for p in (*r.must_after, *r.may_after)}
+        by_id = {r.id: r for r in rules}
+        out: list[Decision] = []
+        for d in decisions:
+            rid = d.rule_id
+            if d.fire and rid in by_id and (rid in ours or rid in predecessors):
+                d = _cap(tx, d, by_id[rid], event_id, now, mine=rid in ours)
+            out.append(d)
+        return tuple(out)
 
     # ------------------------------------------------------------------ starting
 
@@ -493,6 +582,51 @@ def _trigger_matcher(envelope: Mapping[str, Any], rules: list[Rule]) -> TriggerM
     )
 
 
+def _capped(rule_id: str, detail: str) -> Decision:
+    return Decision(rule_id=rule_id, fire=False, reason=RATE_CAPPED, detail=detail)
+
+
+def _cap(
+    tx: StoreOps, d: Decision, rule: Rule, event_id: str, now: datetime, *, mine: bool
+) -> Decision:
+    """``d`` (a fire of ``rule``), or a ``rate_capped`` skip in its place."""
+    record = tx.get(RULE_DECISIONS, decision_key(rule.id, event_id))
+    if record is not None and record.get("reason") == RATE_CAPPED:
+        return _capped(rule.id, record.get("detail") or "")  # sticky per (rule, event)
+    if not mine or tx.get(RULE_FIRES, firing_key(rule.id, event_id)) is not None:
+        return d  # not ours to decide, or already fired for this event
+    cap = max_fires_per_hour(rule)
+    recent = _recent_fires(tx.get(RULE_RATES, rule.id), now)
+    if len(recent) < cap:
+        return d
+    return _capped(rule.id, f"{len(recent)} fires in the last hour (cap {cap})")
+
+
+def _recent_fires(window: Mapping[str, Any] | None, now: datetime) -> list[str]:
+    """The fire timestamps of ``window`` still inside the trailing hour before ``now``."""
+    since = _aware(now) - RATE_WINDOW
+    recent: list[str] = []
+    for at in (window or {}).get("fires") or ():
+        try:
+            moment = _aware(datetime.fromisoformat(at))
+        except (TypeError, ValueError):
+            continue  # not a timestamp: ignore it (the next write prunes it)
+        if moment > since:
+            recent.append(at)
+    return recent
+
+
+def _aware(moment: datetime) -> datetime:
+    return moment if moment.tzinfo is not None else moment.replace(tzinfo=UTC)
+
+
+def _count_fire(tx: StoreOps, rule: Rule, now: datetime) -> None:
+    """Add a fire of ``rule`` at ``now`` to its window (the cross-host serialisation point)."""
+    recent = _recent_fires(tx.get(RULE_RATES, rule.id), now)
+    fires = [*recent, utc_timestamp(now)][-max_fires_per_hour(rule) :]
+    tx.put(RULE_RATES, {"id": rule.id, "rule_id": rule.id, "fires": fires})
+
+
 def _ids(intent: Mapping[str, Any]) -> tuple[str, str]:
     return intent["rule_id"], intent["event_id"]
 
@@ -509,10 +643,16 @@ def _finished_run(doc: Mapping[str, Any]) -> str | None:
 
 
 def _settled_skip(doc: Mapping[str, Any]) -> str | None:
-    """A waiting decision settled as a final skip (its id), else None."""
-    if not doc.get("superseded") or doc.get("fire"):
+    """A final skip decision (its id), else None: a waiting decision settled as a skip, or
+    a recorded skip written final in one step (no ``superseded`` history - e.g. a
+    ``predecessor_failed`` decided on another host after the predecessor finished, or a
+    ``rate_capped``). Each is handled once per consumer (the per-key marker)."""
+    if doc.get("fire"):
         return None
-    if doc.get("reason") in (BLOCKED_BY_PREDECESSOR, FIRE):
+    reason = doc.get("reason")
+    if reason in (BLOCKED_BY_PREDECESSOR, FIRE):
+        return None
+    if not doc.get("superseded") and reason not in FINAL_SKIP_REASONS:
         return None
     return doc.get("id")
 
