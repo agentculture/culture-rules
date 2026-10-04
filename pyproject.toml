@@ -1,6 +1,6 @@
 [project]
 name = "culture-rules"
-version = "0.11.0"
+version = "0.11.1"
 description = "Rules engine for the AgentCulture mesh: rules -> conditions -> workflows -> actions, executed by actors (agents, humans, code). Python backend library culture_rules; React Flow (Node.js) visual editor with Rules, Workflows and Actors tabs."
 readme = "README.md"
 license = "Apache-2.0"

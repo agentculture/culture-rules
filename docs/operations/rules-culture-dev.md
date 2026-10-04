@@ -273,14 +273,14 @@ Exactly one node holds the gateway connection, through the named lease
 ## Jira webhook and service account
 
 1. Seal the service-account token (`JIRA_SERVICE_ACCOUNT_TOKEN` already exists
-   in `grant`) and a webhook token.
+   in `grant`) and a webhook token: `grant set RULES_JIRA_WEBHOOK_TOKEN - --hidden`.
 2. In Jira, Settings, System, WebHooks, register
    `https://rules.culture.dev/hooks/jira?token=<webhook-token>` (or configure an
    HMAC secret instead) for issue created, issue updated and comment created.
 3. Create an `app` actor with `surface = "jira"` and
    `connection = {site, email, token, webhook_token, projects: [...]}`, where
    `token` is the reference `grant:JIRA_SERVICE_ACCOUNT_TOKEN` and
-   `webhook_token` a reference to the sealed webhook token.
+   `webhook_token` is `grant:RULES_JIRA_WEBHOOK_TOKEN`.
 
 ## Kill switches
 
@@ -313,9 +313,15 @@ kind would otherwise fail those runs. Use `deploy/node/install.sh`
 confirm each node's heartbeat in `GET /machines/status` before turning
 a new kind on.
 
-*Planned, not merged:* the typeless-event migration (`rules migrate-typeless`,
-task t18) that upgrades pre-existing events without a type. Until it lands, do
-not rely on it in the rollout.
+After every node runs the new wheel, run the two one-off migrations (admin, dry-run
+by default; review the dry-run output, then repeat with `--apply`):
+
+1. `culture-rules rules migrate-typeless` lists event rules without a
+   `params.type`; `--apply` disables each one with an audit record and deletes
+   nothing. Give each a type in the editor before re-enabling it.
+2. `culture-rules runs backfill-ids` fills the top-level `rule_id` and
+   `workflow_id` on run documents written before 0.11.0, so rule history and
+   run filters find them; a second run changes nothing.
 
 ## Hand-turn checklist
 
