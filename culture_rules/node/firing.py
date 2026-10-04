@@ -107,7 +107,9 @@ from culture_rules.engine.matching import (
     FIRE,
     RuleOutcome,
     RunFacts,
+    TriggerMatcher,
     match,
+    trigger_matches,
 )
 from culture_rules.engine.placement import MachineState, Resolved, resolve_rule_placement
 from culture_rules.engine.runs import (
@@ -395,7 +397,14 @@ class RuleFiring:
             w.id: w for w in (Workflow.from_dict(d, strict=False) for d in tx.find("workflows"))
         }
         facts, states = self._facts(tx, rules, event_id)
-        decisions = match(envelope, rules, facts, workflows=workflows, paused=is_paused(tx))
+        decisions = match(
+            envelope,
+            rules,
+            facts,
+            workflows=workflows,
+            paused=is_paused(tx),
+            trigger_match=_trigger_matcher(envelope, rules),
+        )
         for decision in sequence(decisions, rules, states):
             if decision.rule_id not in ours:
                 continue
@@ -468,6 +477,20 @@ class RuleFiring:
                     RULE_FIRES, intent["id"], {"status": "pending"}, {"status": "started"}
                 )
         return started
+
+
+def _trigger_matcher(envelope: Mapping[str, Any], rules: list[Rule]) -> TriggerMatcher:
+    """The trigger test for ``envelope``: a schedule event (:mod:`culture_rules.node.schedule`)
+    targets one rule, so only the trigger of the rule named by its ``data.rule_id`` matches
+    it - every other schedule rule (same kind, no ``type``) would match it otherwise."""
+    if envelope.get("kind") != "schedule":
+        return trigger_matches
+    target = (envelope.get("data") or {}).get("rule_id")
+    targets = [r.trigger for r in rules if r.id == target]
+    # Identity, not equality: two rules may carry equal triggers (same cron).
+    return lambda trigger, event: any(trigger is t for t in targets) and trigger_matches(
+        trigger, event
+    )
 
 
 def _ids(intent: Mapping[str, Any]) -> tuple[str, str]:

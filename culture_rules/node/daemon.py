@@ -11,22 +11,26 @@ A :class:`Node` on host ``H`` does, every cycle (:meth:`Node.run_once`):
    process dies). A single :meth:`Node.run_once` (``node run --once``) beats once;
 2. **ingest** - drains its own event subscription into the ``events`` collection
    (:class:`~culture_rules.events.ingest.EventIngest`; no source = no ingest);
-3. **evaluate** - polls the per-host consumer for rules placed on ``H`` and the shared
+3. **schedule** - synthesizes one ``kind=schedule`` event per cron slot that came due
+   since the previous tick, for the schedule rules placed on ``H`` and the unplaced ones
+   (:mod:`culture_rules.node.schedule`; exactly once per rule/slot, no backfill of slots
+   missed while the node was down); they are evaluated like any other event;
+4. **evaluate** - polls the per-host consumer for rules placed on ``H`` and the shared
    consumer for unplaced rules (:mod:`culture_rules.node.firing`), committing firing
    intents; a rule placed on ``H`` while ``H`` is drained/offline keeps its event; then
    the two chain consumers (placed on ``H`` / shared), which re-evaluate a rule waiting
    for a ``must_after`` / ``may_after`` predecessor once that predecessor's run for the
    event has finished (or it can no longer run);
-4. **start** - turns pending intents into runs (run id derived from rule + event);
+5. **start** - turns pending intents into runs (run id derived from rule + event);
    then **redeliver** - resumes runs for human asks that were answered but whose
    delivery was lost (a crash between recording the answer and delivering it;
    :func:`~culture_rules.actors.human.redeliver`). The run's compare-and-set keeps it
    exactly once when several nodes redeliver the same answer, and the actor's limit slot
    is freed (:mod:`culture_rules.node.completions`). Mesh replies are not polled:
    ``MeshAgentActor`` is not among the production adapters;
-5. **drive** - ticks the :class:`~culture_rules.engine.runs.Executor` until idle; actors
+6. **drive** - ticks the :class:`~culture_rules.engine.runs.Executor` until idle; actors
    are reached through :class:`~culture_rules.node.actors.ActorRouter`;
-6. **report** - optional: posts finished runs this node started through
+7. **report** - optional: posts finished runs this node started through
    :meth:`~culture_rules.engine.reports.RunReporter.observe`.
 
 Each stage is isolated: an exception in one is logged, recorded on the cycle report and in
@@ -67,6 +71,7 @@ from culture_rules.machines.probe import ProbeResult, probe_platform, read_load
 from culture_rules.node import completions
 from culture_rules.node.actors import ACTORS_COLLECTION, ActorRouter, AdapterFactory
 from culture_rules.node.firing import RULE_FIRES, RuleFiring
+from culture_rules.node.schedule import Scheduler
 from culture_rules.ops.logs import log_context
 from culture_rules.store.port import Change, Document, StoragePort
 
@@ -114,6 +119,7 @@ class CycleReport:
     beat: bool = False
     ingested: int = 0
     duplicates: int = 0
+    scheduled: list[str] = field(default_factory=list)
     evaluated: list[dict[str, str]] = field(default_factory=list)
     deferred: list[dict[str, str]] = field(default_factory=list)
     started: list[str] = field(default_factory=list)
@@ -182,6 +188,7 @@ class Node:
             ),
         )
         self.firing = RuleFiring(store, host, self.executor, clock=self._clock)
+        self.scheduler = Scheduler(store, host, self.firing, clock=self._clock)
         self.ingest = (
             EventIngest(store, event_source, host=host, clock=self._clock)
             if event_source is not None
@@ -224,6 +231,7 @@ class Node:
             pinned = CycleReport(self.host)
             for consumer in self.firing.consumers:
                 self._stage(pinned, self._poll, consumer, pinned)  # retried next cycle
+            self._stage(pinned, self._schedule, pinned)  # opens the window: no backfill
             if self._reporter is not None:
                 self._report_token = self._store.head(RUNS_COLLECTION)
             self.started = True
@@ -287,7 +295,8 @@ class Node:
     # ------------------------------------------------------------------ one cycle
 
     def run_once(self) -> CycleReport:
-        """One full cycle: beat (if due), ingest, evaluate, start, redeliver, drive, report."""
+        """One full cycle: beat (if due), ingest, schedule, evaluate, start, redeliver, drive,
+        report."""
         report = CycleReport(self.host)
         with log_context(host=self.host):
             if not self.started:
@@ -295,6 +304,7 @@ class Node:
             self._stage(report, self._beat_if_due, report)
             if self.ingest is not None:
                 self._stage(report, self._ingest, report)
+            self._stage(report, self._schedule, report)
             for consumer in self.firing.consumers:
                 self._stage(report, self._poll, consumer, report)
             self._stage(report, self._start_fired, report)
@@ -325,6 +335,9 @@ class Node:
         for result in self.ingest.ingest():
             report.ingested += result.inserted
             report.duplicates += result.duplicates
+
+    def _schedule(self, report: CycleReport) -> None:
+        report.scheduled += self.scheduler.tick()
 
     def _poll(self, consumer: Any, report: CycleReport) -> None:
         outcome = self.firing.poll(consumer)
