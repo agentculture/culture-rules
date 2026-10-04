@@ -288,8 +288,9 @@ def test_stored_typeless_event_rule_can_still_be_started_manually(store, actor, 
 
 def test_fresh_rule_with_unknown_action_kind_is_still_refused(store, actor, clock):
     ex = make_executor(store, actor, clock)
+    fresh = rule(workflow_id=None, action=Action(kind="teleport"))
     with pytest.raises(RunError) as exc:
-        ex.start(rule(workflow_id=None, action=Action(kind="teleport")))
+        ex.start(fresh)
     assert exc.value.code == "invalid_rule"
 
 
