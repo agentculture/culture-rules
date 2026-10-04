@@ -143,12 +143,25 @@ TriggerMatcher = Callable[[Trigger, Mapping[str, Any]], bool]
 
 
 def trigger_matches(trigger: Trigger, event: Mapping[str, Any]) -> bool:
-    """Default trigger test: same ``kind`` (event default ``"event"``) and, if the trigger
-    names a ``type`` parameter, the same event ``type``."""
+    """Default trigger test: same ``kind`` (event default ``"event"``).
+
+    An ``event`` trigger must name a ``type`` and matches only that event type; one without a
+    type matches nothing. Other kinds match on kind alone (plus ``type`` when named). An event
+    whose ``data.self_authored`` is true (set by ingest) matches only triggers with
+    ``params.include_self`` true.
+    """
     if trigger.kind != event.get("kind", "event"):
         return False
     wanted = trigger.params.get("type")
-    return wanted is None or wanted == event.get("type")
+    if wanted is None:
+        if trigger.kind == "event":
+            return False
+    elif wanted != event.get("type"):
+        return False
+    data = event.get("data")
+    if isinstance(data, Mapping) and data.get("self_authored") is True:
+        return trigger.params.get("include_self") is True
+    return True
 
 
 def exported_outputs(rule: Rule, workflows: Mapping[str, Workflow]) -> frozenset[str]:
