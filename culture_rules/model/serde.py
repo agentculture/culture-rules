@@ -19,7 +19,14 @@ import typing
 from functools import cache
 from typing import Any, Literal, Union, get_args, get_origin
 
-__all__ = ["ModelParseError", "field_types", "from_dict", "is_optional", "to_plain"]
+__all__ = [
+    "ModelParseError",
+    "field_types",
+    "from_dict",
+    "is_optional",
+    "to_plain",
+    "union_members",
+]
 
 
 class ModelParseError(ValueError):
@@ -56,6 +63,13 @@ def is_optional(tp: Any) -> bool:
     """True when ``None`` is a legal value of ``tp``."""
     args = _union_args(tp)
     return tp is Any or (args is not None and type(None) in args)
+
+
+def union_members(tp: Any) -> tuple[Any, ...]:
+    """The non-None members of a union with two or more of them, else ``()``."""
+    args = _union_args(tp)
+    rest = tuple(a for a in args if a is not type(None)) if args else ()
+    return rest if len(rest) > 1 else ()
 
 
 def strip_optional(tp: Any) -> Any:
@@ -100,6 +114,10 @@ def _fail(path: str, expected: str, value: Any) -> ModelParseError:
     return ModelParseError(path, f"expected {expected}, got {type(value).__name__}")
 
 
+def _type_name(tp: Any) -> str:
+    return {str: "string", dict: "object"}.get(get_origin(tp) or tp, "value")
+
+
 def _scalar(tp: Any, value: Any, path: str) -> Any:
     if tp is str:
         if not isinstance(value, str):
@@ -126,6 +144,14 @@ def from_value(tp: Any, value: Any, path: str) -> Any:
         return None
     if tp is Any:
         return _json_value(value, path)
+    members = union_members(tp)
+    if members:
+        for member in members:
+            try:
+                return from_value(member, value, path)
+            except ModelParseError:
+                continue
+        raise _fail(path, " or ".join(_type_name(m) for m in members), value)
     tp = strip_optional(tp)
     origin = get_origin(tp)
     if origin is Literal:

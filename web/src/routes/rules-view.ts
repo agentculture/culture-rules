@@ -20,7 +20,10 @@ export function triggerLabel(rule: Rule): string {
 const last = (ref: string) => ref.split(".").pop() ?? ref;
 
 export function workflowChips(ref: WorkflowRef): string[] {
-  return Object.entries(ref.inputs ?? {}).map(([input, from]) => `${last(from)} → ${input}`);
+  return Object.entries(ref.inputs ?? {}).map(([input, from]) => {
+    const text = typeof from === "string" ? from : "$ref" in from ? from.$ref : String(from.$literal);
+    return `${last(text)} → ${input}`;
+  });
 }
 
 const REFERENCE = /^(trigger|workflow|vars|rule)\.[A-Za-z0-9_.]+$/;
