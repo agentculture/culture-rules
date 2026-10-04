@@ -144,7 +144,8 @@ def test_start_workflow_is_audited_with_caller_identity(store, actor, clock):
     put_workflow(store, typed_workflow())
     run = make_executor(store, actor, clock).start_workflow("wf", {"text": "x"}, "alice")
     audit = [d for d in store.find("audit", {}) if d["target"]["id"] == run["id"]]
-    assert audit and audit[0]["identity"] == "alice"
+    assert audit
+    assert audit[0]["identity"] == "alice"
     assert audit[0]["verb"] == "runs.start"
 
 
@@ -154,8 +155,9 @@ def test_start_workflow_is_audited_with_caller_identity(store, actor, clock):
 def _refused(store, actor, clock, inputs, wf=None):
     put_workflow(store, wf or typed_workflow())
     head = store.head(RUNS_COLLECTION)
+    executor = make_executor(store, actor, clock)
     with pytest.raises(RunError) as exc:
-        make_executor(store, actor, clock).start_workflow("wf", inputs, "alice")
+        executor.start_workflow("wf", inputs, "alice")
     assert list(store.changes(RUNS_COLLECTION, head)) == []
     return exc.value
 
@@ -204,29 +206,33 @@ def test_non_mapping_inputs_are_refused(store, actor, clock):
 def test_paused_engine_refuses(store, actor, clock):
     put_workflow(store, typed_workflow())
     Containment(store, clock=clock).pause("alice")
+    executor = make_executor(store, actor, clock)
     with pytest.raises(RunError) as exc:
-        make_executor(store, actor, clock).start_workflow("wf", {"text": "hi"}, "alice")
+        executor.start_workflow("wf", {"text": "hi"}, "alice")
     assert exc.value.code == "paused"
 
 
 def test_unknown_workflow_is_not_found(store, actor, clock):
+    executor = make_executor(store, actor, clock)
     with pytest.raises(RunError) as exc:
-        make_executor(store, actor, clock).start_workflow("ghost", {}, "alice")
+        executor.start_workflow("ghost", {}, "alice")
     assert exc.value.code == "workflow_not_found"
 
 
 def test_deleted_workflow_is_not_fireable(store, actor, clock):
     put_workflow(store, typed_workflow(), deleted_at="2026-01-01T00:00:00+00:00")
+    executor = make_executor(store, actor, clock)
     with pytest.raises(RunError) as exc:
-        make_executor(store, actor, clock).start_workflow("wf", {"text": "hi"}, "alice")
+        executor.start_workflow("wf", {"text": "hi"}, "alice")
     assert exc.value.code == "not_fireable"
 
 
 def test_disabled_workflow_is_not_fireable(store, actor, clock):
     wf = typed_workflow()
     store.put("workflows", {"id": wf.id, **wf.to_dict(), "enabled": False})
+    executor = make_executor(store, actor, clock)
     with pytest.raises(RunError) as exc:
-        make_executor(store, actor, clock).start_workflow("wf", {"text": "hi"}, "alice")
+        executor.start_workflow("wf", {"text": "hi"}, "alice")
     assert exc.value.code == "not_fireable"
 
 
@@ -261,4 +267,5 @@ def test_rule_without_workflow_has_null_workflow_id(store, actor, clock):
     run = ex.start(rule(workflow_id=None))
     stored = ex.run(run["id"])
     assert stored["rule_id"] == "r1"
-    assert "workflow_id" in stored and stored["workflow_id"] is None
+    assert "workflow_id" in stored
+    assert stored["workflow_id"] is None

@@ -106,7 +106,8 @@ def test_health_counts_deliveries_per_surface_actor_and_outcome(rig):
 
 def test_unconfigured_node_reports_empty_hooks_and_gateways(store):
     out = health_status(store, NOW, "n1")
-    assert out["hooks"] == {} and out["gateways"] == []
+    assert out["hooks"] == {}
+    assert out["gateways"] == []
 
 
 def test_gateway_state_from_lease_and_state_doc(store):
@@ -143,7 +144,9 @@ def test_expired_lease_is_not_held_and_never_connected(store):
         },
     )
     (gw,) = health_status(store, NOW, "n1")["gateways"]
-    assert gw["holder"] is None and gw["connected"] is False and gw["last_event_at"] is None
+    assert gw["holder"] is None
+    assert gw["connected"] is False
+    assert gw["last_event_at"] is None
 
 
 def test_delivery_logs_carry_no_body_signature_or_secret(rig, caplog):
@@ -176,7 +179,9 @@ def test_supervisor_persists_connected_and_last_event_time():
             lambda: (r.store.get(GATEWAY_STATE_COLLECTION, "bot") or {}).get("last_event_at")
         )
         (gw,) = health_status(r.store, r.clock(), "n1")["gateways"]
-        assert gw["actor"] == "bot" and gw["holder"] == "engine@spark" and gw["connected"] is True
+        assert gw["actor"] == "bot"
+        assert gw["holder"] == "engine@spark"
+        assert gw["connected"] is True
     finally:
         r.sup.shutdown()
     assert r.store.get(GATEWAY_STATE_COLLECTION, "bot")["connected"] is False

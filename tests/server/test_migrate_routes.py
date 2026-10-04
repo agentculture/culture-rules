@@ -51,8 +51,10 @@ def test_apply_disables_with_one_audit_record_each_and_deletes_nothing(client, s
     assert store.get(RULES, "gone")["enabled"] is True  # skipped
     assert len(store.find(RULES)) == 4
     recs = _audit(store, "bad")
-    assert len(recs) == 1 and recs[0]["identity"] == "alice"
-    assert _audit(store, "off") == [] and _audit(store, "gone") == []
+    assert len(recs) == 1
+    assert recs[0]["identity"] == "alice"
+    assert _audit(store, "off") == []
+    assert _audit(store, "gone") == []
 
 
 def test_second_apply_is_idempotent(client, store):

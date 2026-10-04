@@ -107,7 +107,9 @@ def test_signed_pr_opened_writes_one_event():
     assert len(evs) == 1
     assert "github.pr.opened" in json.dumps(evs[0])
     data = json.dumps(evs[0])
-    assert "o/r" in data and "alice" in data and "https://x/pr/7" in data
+    assert "o/r" in data
+    assert "alice" in data
+    assert "https://x/pr/7" in data
 
 
 def test_unsigned_and_wrong_signature_401_nothing_written():
@@ -238,7 +240,8 @@ def test_multiple_app_actors_selected_by_target_id():
     b = pr_body()
     assert post(s, b, hdrs(b, target="222", secret=KEY_B), resolver(table))[0] == 202
     evs = events(s)
-    assert len(evs) == 1 and "app://a2" in json.dumps(evs[0])
+    assert len(evs) == 1
+    assert "app://a2" in json.dumps(evs[0])
     # a2's secret against a1's target id fails
     assert post(s, b, hdrs(b, delivery="x", target="111", secret=KEY_B), resolver(table))[0] == 401
 
@@ -281,7 +284,8 @@ def test_logs_carry_no_body_or_secret(caplog):
     post(s, b, hdrs(b, secret=KEY_B, delivery="d-2"))
     text = caplog.text
     assert "KEY_A-TITLE-XYZ" not in text
-    assert KEY_A not in text and KEY_B not in text
+    assert KEY_A not in text
+    assert KEY_B not in text
     assert "sha256=" not in text
 
 

@@ -177,7 +177,8 @@ def test_raw_scope_variants_are_not_exempt(path, raw):
 
 def test_raw_scope_exact_path_is_exempt():
     status, body = _raw_asgi(_app(), "/hooks/jira", b"/hooks/jira")
-    assert json.loads(body) != {} and not isinstance(json.loads(body)["error"], dict)
+    assert json.loads(body) != {}
+    assert not isinstance(json.loads(body)["error"], dict)
 
 
 def test_the_api_prefix_alias_is_not_exempt(tmp_path):
@@ -253,7 +254,8 @@ def test_a_signed_github_delivery_through_create_app_writes_one_event(monkeypatc
     # a wrong signature reaches the handler and is refused there, writing nothing
     forged = {**headers, "x-github-delivery": "d-2", "x-hub-signature-256": "sha256=00"}
     bad = client.post("/hooks/github", content=body, headers=forged)
-    assert bad.status_code == 401 and bad.json() == HANDLER_REFUSAL
+    assert bad.status_code == 401
+    assert bad.json() == HANDLER_REFUSAL
     assert len(store.find(EVENTS_COLLECTION)) == 1
 
 
@@ -304,7 +306,8 @@ def test_serve_installs_the_filter_on_the_uvicorn_access_logger(monkeypatch, cap
     ran = []
     monkeypatch.setattr(serve_mod, "_run_servers", lambda configs: ran.append(configs))
     serve_mod.serve(MemoryStore(), node_name="spark")
-    assert ran and all(isinstance(c, uvicorn.Config) for c in ran[0])
+    assert ran
+    assert all(isinstance(c, uvicorn.Config) for c in ran[0])
     assert any(isinstance(f, serve_mod.HookQueryFilter) for f in access.filters)
     serve_mod.install_hook_log_filter()  # idempotent
     assert sum(isinstance(f, serve_mod.HookQueryFilter) for f in access.filters) == 1

@@ -120,15 +120,18 @@ def test_signed_issue_updated_refetches_and_writes_one_event(http, store, fake):
     (ev,) = events(store)
     assert ev["type"] == "jira.issue.updated"
     data = ev["data"]
-    assert data["key"] == "OPS-7" and data["summary"] == "Broken thing"
-    assert data["status"] == "In Progress" and data["project"] == "OPS"
+    assert data["key"] == "OPS-7"
+    assert data["summary"] == "Broken thing"
+    assert data["status"] == "In Progress"
+    assert data["project"] == "OPS"
     assert data["assignee"] == "acc-9"
     assert data["url"] == "https://acme.atlassian.net/browse/OPS-7"
 
 
 def test_url_token_path(http, store):
     r = http.post("/hooks/jira", params={"token": TOKEN}, content=payload())
-    assert r.status_code == 202 and len(events(store)) == 1
+    assert r.status_code == 202
+    assert len(events(store)) == 1
 
 
 @pytest.mark.parametrize("kind", ["bad_sig", "bad_token", "no_auth", "sig_without_secret"])
@@ -143,7 +146,8 @@ def test_bad_auth_is_401_and_writes_nothing(http, store, fake, kind):
     else:
         r = http.post("/hooks/jira", content=body, headers={"X-Hub-Signature": "garbage"})
     assert r.status_code == 401
-    assert events(store) == [] and fake.fetched == []
+    assert events(store) == []
+    assert fake.fetched == []
 
 
 def test_signature_is_checked_before_parsing(http):
@@ -160,14 +164,17 @@ def test_signed_but_unparseable_is_400(http):
 def test_no_issue_key_is_400(http, store):
     body = json.dumps({"webhookEvent": "jira:issue_updated", "issue": {"key": "lower-1"}}).encode()
     r = http.post("/hooks/jira", content=body, headers={"X-Hub-Signature": sign(body)})
-    assert r.status_code == 400 and events(store) == []
+    assert r.status_code == 400
+    assert events(store) == []
 
 
 def test_unmapped_event_ignored_no_write_no_fetch(http, store, fake):
     body = payload(event="jira:issue_deleted")
     r = http.post("/hooks/jira", content=body, headers={"X-Hub-Signature": sign(body)})
-    assert r.status_code == 200 and r.json() == {"ignored": True}
-    assert events(store) == [] and fake.fetched == []
+    assert r.status_code == 200
+    assert r.json() == {"ignored": True}
+    assert events(store) == []
+    assert fake.fetched == []
 
 
 def test_comment_created_event(http, store):
@@ -206,7 +213,8 @@ def test_refetch_failure_is_502_and_writes_nothing(store):
     app.include_router(router(store, secrets=resolver, client_factory=lambda c, r: failing))
     body = payload()
     r = TestClient(app).post("/hooks/jira", content=body, headers={"X-Hub-Signature": sign(body)})
-    assert r.status_code == 502 and r.json()["retryable"] is True
+    assert r.status_code == 502
+    assert r.json()["retryable"] is True
     assert events(store) == []
 
 
@@ -239,7 +247,9 @@ def test_project_allow_list(store, fake):
         secrets=resolver,
         client_factory=lambda c, r: fake,
     )
-    assert status == 200 and out == {"ignored": True} and fake.fetched == []
+    assert status == 200
+    assert out == {"ignored": True}
+    assert fake.fetched == []
 
 
 def test_disabled_actor_writes_nothing(store, fake):
@@ -255,7 +265,8 @@ def test_disabled_actor_writes_nothing(store, fake):
         secrets=resolver,
         client_factory=lambda c, r: fake,
     )
-    assert status == 202 and events(store) == []
+    assert status == 202
+    assert events(store) == []
 
 
 def test_oversize_body_is_413(http):
