@@ -40,7 +40,10 @@ def test_machine_command_missing_actor_command() -> None:
 
 def test_valid_actions() -> None:
     assert _errs("noop", {}) == set()
-    assert _errs("machine.command", {"actor": "runner", "command": "ls", "args": ["-l"]}) == set()
+    assert (
+        _errs("machine.command", {"actor": "runner", "command": "ls", "args": {"path": "/tmp"}})
+        == set()
+    )
     assert (
         _errs(
             "github.comment",
@@ -64,6 +67,12 @@ def test_wrong_type_rejected() -> None:
     assert ("action.params.number", "action_param_type") in _errs("github.comment", params)
     params = {"actor": "r", "command": "ls", "args": "-l"}
     assert ("action.params.args", "action_param_type") in _errs("machine.command", params)
+    params["args"] = ["-l"]  # args is a mapping of declared param name -> value, not a list
+    assert ("action.params.args", "action_param_type") in _errs("machine.command", params)
+    params["args"] = {"path": "{{ trigger.data.path }}"}
+    assert _errs("machine.command", params) == set()
+    params["args"] = "{{ trigger.data.args }}"
+    assert _errs("machine.command", params) == set()
 
 
 def test_unknown_kind_rejected_on_validate() -> None:
