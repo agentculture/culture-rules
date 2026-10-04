@@ -52,6 +52,8 @@ def _add_param(p: argparse.ArgumentParser, param: Param) -> None:
         kw["type"] = int
     if param.type == "object":
         kw["metavar"] = "JSON|@FILE|-"
+    if param.type == "array":
+        kw["action"] = "append"
     if param.default is not None:
         kw["default"] = param.default
     p.add_argument(_flag(param.name), **kw)
