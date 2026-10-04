@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-10-04T04:02:01Z",
-  "updated": "2026-10-04T05:19:43Z",
+  "updated": "2026-10-04T05:47:33Z",
   "targets": [
     {
       "id": "c1",
@@ -1634,6 +1634,14 @@
       "text": "t10 threaded beat_every into the Executor and health/status functions, but server/app.py (/health, Statistics) and node/firing.py placement (online_machines at ~349) still use the default 10 s cadence; a node with a custom beat_every is judged on the default there",
       "kind": "follow_up",
       "task_id": "t10",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r8",
+      "text": "Renaming or removing a workflow output in the IoEditor does not check rules that map workflow.outputs.<old> into their action params; those rules break silently until validation at save/run",
+      "kind": "follow_up",
+      "task_id": "t41",
       "resolved": false,
       "resolution": ""
     }
