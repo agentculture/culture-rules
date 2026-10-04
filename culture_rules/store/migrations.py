@@ -223,3 +223,44 @@ def backfill_run_ids(store: StoragePort, *, dry_run: bool = False) -> int:
                 continue
         changed += 1
     return changed
+
+
+RULES_COLLECTION = "rules"
+
+
+def _is_typeless_event_rule(doc: Mapping[str, Any]) -> bool:
+    """An ``event`` trigger whose ``params.type`` is missing, empty or not a string."""
+    trigger = doc.get("trigger")
+    if not isinstance(trigger, Mapping) or trigger.get("kind") != "event":
+        return False
+    params = trigger.get("params")
+    event_type = params.get("type") if isinstance(params, Mapping) else None
+    return not (isinstance(event_type, str) and event_type.strip())
+
+
+def find_typeless_event_rules(store: StoragePort) -> list[Document]:
+    """Live (not soft-deleted) event rules with no usable ``params.type``, enabled or not."""
+    return [
+        doc
+        for doc in store.find(RULES_COLLECTION)
+        if not doc.get("deleted_at") and _is_typeless_event_rule(doc)
+    ]
+
+
+def disable_typeless_event_rules(
+    store: StoragePort, disable: Callable[[str], Any], *, dry_run: bool = True
+) -> list[dict[str, Any]]:
+    """List typeless event rules and, unless ``dry_run``, disable each enabled one.
+
+    ``disable(rule_id)`` does the write and owns its audit record (the server passes the
+    definitions service, so each rule gets the same audit entry as ``POST /rules/{id}/disable``).
+    Nothing is deleted; already-disabled rules are listed but not touched again. Returns
+    ``{id, name, enabled_before}`` per rule found.
+    """
+    found: list[dict[str, Any]] = []
+    for doc in find_typeless_event_rules(store):
+        enabled = doc.get("enabled") is not False
+        if enabled and not dry_run:
+            disable(doc["id"])
+        found.append({"id": doc["id"], "name": doc.get("name"), "enabled_before": enabled})
+    return found

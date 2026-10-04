@@ -57,6 +57,7 @@ from culture_rules.server.service import (
     RuleReferenced,
     ServiceError,
 )
+from culture_rules.store.migrations import backfill_run_ids, disable_typeless_event_rules
 from culture_rules.store.port import StoragePort
 
 __all__ = [
@@ -255,6 +256,26 @@ class ReplayRequest(BaseModel):
 
 class PurgeRequest(BaseModel):
     apply: bool = Field(False, description="false = dry-run: check only, remove nothing")
+
+
+class MigrateRequest(BaseModel):
+    apply: bool = Field(False, description="false = dry-run: list only, change nothing")
+
+
+class TypelessRule(BaseModel):
+    id: str
+    name: str | None = None
+    enabled_before: bool = Field(description="false: already disabled, left as is")
+
+
+class TypelessMigration(BaseModel):
+    rules: list[TypelessRule]
+    applied: bool
+
+
+class BackfillResult(BaseModel):
+    count: int = Field(description="run documents updated (or that would be, in a dry-run)")
+    applied: bool
 
 
 class PurgeResult(BaseModel):
@@ -481,6 +502,7 @@ def create_app(
     # come before the definition routes so /machines/{id} cannot shadow it.
     _register_auth_routes(app, tokens)
     _register_ops(app, store, node)
+    _register_migrations(app, store, defs)
     for kind in DEFINITION_KINDS:
         _register_kind(app, kind, defs, life, store, audit)
     _register_runs(app, store, defs, executor, containment)
@@ -595,6 +617,35 @@ def _register_ops(app: FastAPI, store: StoragePort, node: str) -> None:
     def machine_statuses():
         """Per enrolled machine: liveness, load, in-flight steps and queue depth."""
         return {"items": read_models.machine_statuses(store, datetime.now(UTC))}
+
+
+def _register_migrations(app: FastAPI, store: StoragePort, defs: Definitions) -> None:
+    """Admin data migrations; registered before the definition routes (no ``/rules/{id}`` clash)."""
+
+    @app.post(
+        "/rules/migrate-typeless",
+        response_model=TypelessMigration,
+        tags=["rules"],
+        operation_id="migrate_typeless_rules",
+    )
+    def migrate_typeless(identity: Identity, body: MigrateRequest | None = None):
+        """List event rules with no event type; ``apply`` disables them (audited, never deleted)."""
+        apply = (body or MigrateRequest()).apply
+        rules = disable_typeless_event_rules(
+            store, lambda rid: defs.set_enabled("rules", rid, False, identity), dry_run=not apply
+        )
+        return {"rules": rules, "applied": apply}
+
+    @app.post(
+        "/runs/backfill-ids",
+        response_model=BackfillResult,
+        tags=["runs"],
+        operation_id="backfill_run_ids",
+    )
+    def backfill_ids(identity: Identity, body: MigrateRequest | None = None):
+        """Fill top-level rule_id / workflow_id on legacy run documents."""
+        apply = (body or MigrateRequest()).apply
+        return {"count": backfill_run_ids(store, dry_run=not apply), "applied": apply}
 
 
 def _register_runs(
