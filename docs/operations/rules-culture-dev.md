@@ -184,6 +184,139 @@ Cloudflare 1033 or 502 (those mean a connector or origin problem) and never
 the app's content. Stop one host's unit and repeat: the `302` must persist
 while another host's connector is up.
 
+## Cloudflare cache rule (never cache the app)
+
+A zone "Cache everything" rule on `culture.dev` (edge TTL 2 h) once served
+stale `/api/*` answers from the edge. The fix, applied live by the operator, is
+the zone cache rule **"Never cache rules.culture.dev except hashed
+`/assets/*`"**. Keep it: it must stay ordered before any broader cache rule.
+
+The origin cooperates. The API adds `Cache-Control: no-store` to every response
+that lacks its own header (`NoStoreByDefault` in `culture_rules/server/caching.py`).
+The HTML shell is `private, no-cache`, and Vite's content-hashed `/assets/*` are
+`private, max-age=31536000, immutable`. After any change to the zone's cache
+rules, check:
+
+look at the response headers of an `/api/*` request in the browser's network
+tab (an Access-authenticated session): `cache-control: no-store`, and
+`cf-cache-status` must never be `HIT`. A hashed `/assets/*` file may be cached.
+
+## Webhook receivers and the Access Bypass paths
+
+The API mounts two receivers, exact paths only (`HOOK_PATHS` in
+`culture_rules/server/app.py`), both `POST`, both on the loopback Access
+listener:
+
+| Path | Surface |
+|---|---|
+| `/hooks/github` | GitHub App webhook |
+| `/hooks/jira` | Jira system webhook |
+
+GitHub and Jira cannot sign in through Access, so each path needs its own
+path-scoped Access policy on the existing `rules.culture.dev` application:
+**Action: Bypass**, **Include: Everyone**, restricted to that exact path. Create
+two policies, one per path, and never widen them to `/hooks/*` or `/`. This is
+the precedent in `culture-nodes/docs/operations/nodes-culture-dev.md` ("Jira
+system webhook and path-scoped Access Bypass"). The Cloudflare change is the
+operator's to apply; the build does not.
+
+The app authenticates every delivery itself, so Bypass does not mean open:
+
+- GitHub: `X-Hub-Signature-256` HMAC with the webhook secret.
+- Jira: `X-Hub-Signature` HMAC, or the `?token=` query value (the webhook
+  token). `HookQueryFilter` in `culture_rules/server/serve.py` strips the query
+  string from access-log lines for webhook paths, so the token is not logged.
+
+A delivery for a disabled app actor answers `202` and is dropped.
+
+## GitHub App (dedicated to culture-rules)
+
+Hand-turns, operator only; secrets go to `grant`, never into the repo.
+
+1. Create a new GitHub App for culture-rules. Webhook URL
+   `https://rules.culture.dev/hooks/github`, with a webhook secret.
+2. Permissions: Issues read and write, Pull requests read and write, Metadata
+   read. Subscribe to `pull_request`, `issue_comment`, `issues`,
+   `pull_request_review`.
+3. Install it on the allow-listed repositories only.
+4. Seal the credentials (names are a proposal; any name works if the actor
+   references it):
+
+   ```bash
+   grant set RULES_GITHUB_APP_PRIVATE_KEY - --hidden < app-private-key.pem
+   grant set RULES_GITHUB_WEBHOOK_SECRET - --hidden
+   ```
+
+5. Create an `app` actor (`params.surface = "github"`) with
+   `connection = {app_id, installation_id, private_key: "grant:RULES_GITHUB_APP_PRIVATE_KEY",
+   webhook_secret: "grant:RULES_GITHUB_WEBHOOK_SECRET", repos: [...]}`, the
+   `events` it emits, the `actions` it may perform, and
+   `self_identity = "<app-slug>[bot]"` so its own comments are tagged and do not
+   retrigger rules. A literal secret is refused on save with `secret_literal`.
+   The private key needs the `github` extra (`cryptography`).
+
+## Discord bot
+
+1. Create a Discord application and bot. Enable the privileged **MESSAGE
+   CONTENT** intent. Invite it with permission to read and send messages in the
+   target channels.
+2. `grant set RULES_DISCORD_BOT_TOKEN - --hidden`.
+3. Create an `app` actor with `surface = "discord"`,
+   `events = ["discord.message.created"]`,
+   `connection = {bot_token: "grant:RULES_DISCORD_BOT_TOKEN", guild_id, channels: [...]}`
+   (the channel allow-list).
+
+Exactly one node holds the gateway connection, through the named lease
+`discord-gateway:<actor id>`; another node takes over if the holder stops.
+`culture-rules node run --once` never connects. Needs the `discord` extra.
+
+## Jira webhook and service account
+
+1. Seal the service-account token (`JIRA_SERVICE_ACCOUNT_TOKEN` already exists
+   in `grant`) and a webhook token.
+2. In Jira, Settings, System, WebHooks, register
+   `https://rules.culture.dev/hooks/jira?token=<webhook-token>` (or configure an
+   HMAC secret instead) for issue created, issue updated and comment created.
+3. Create an `app` actor with `surface = "jira"` and
+   `connection = {site, email, token, webhook_token, projects: [...]}`, where
+   `token` is the reference `grant:JIRA_SERVICE_ACCOUNT_TOKEN` and
+   `webhook_token` a reference to the sealed webhook token.
+
+## Kill switches
+
+From narrowest to widest. All are admin verbs and audited; writes need
+`--apply`.
+
+- **Disable an app actor** (`enabled: false`): its ingest stops (the receivers
+  answer `202` and drop the delivery), its Discord gateway disconnects, and any
+  action naming it fails `actor_unavailable`.
+- **Drain a machine**: `culture-rules machines drain <name> --apply` stops new
+  steps being placed there; `machines undrain` reverses it.
+- **Pause the engine**: `culture-rules runs pause --apply` (API
+  `POST /controls/pause`; `runs resume` lifts it). New trigger events are
+  dropped while paused; see `docs/operations/pause.md`.
+
+## Rate cap and event depth
+
+A rule fires at most 60 times per trailing hour by default; set
+`trigger.params.max_fires_per_hour` to change it. A `schedule` trigger is exempt
+from the default cap (deviation d2) unless it sets the parameter itself. The events
+subscription depth is `CULTURE_RULES_EVENTS_DEPTH` (default 4).
+
+## Upgrade order and rollout rule
+
+Install the new wheel on **all four engine nodes before enabling any new
+trigger or action kind**: spark, thor, orin, then spark2. spark2 is offline and
+is upgraded from a wheelhouse (`deploy/node/README.md`). A node that lacks a
+kind would otherwise fail those runs. Use `deploy/node/install.sh`
+(dry-run first, then `--apply`), restart the API on the serving hosts, and
+confirm each node's heartbeat in `GET /machines/status` before turning
+a new kind on.
+
+*Planned, not merged:* the typeless-event migration (`rules migrate-typeless`,
+task t18) that upgrades pre-existing events without a type. Until it lands, do
+not rely on it in the rollout.
+
 ## Hand-turn checklist
 
 File each against the cycle issue, or comment on it, when applied:
