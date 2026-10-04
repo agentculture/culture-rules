@@ -247,6 +247,7 @@ class Node:
             resolve_secret=resolve_secret,
             clock=self._clock,
             options=gateway_options,
+            host=host,
         )
         self._listen_gateways = options.listen_gateways
         self.heartbeat: HeartbeatPublisher | None = None

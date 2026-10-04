@@ -145,6 +145,7 @@ from culture_rules.model import condition as cond
 from culture_rules.model.action import Action
 from culture_rules.model.actor import Actor
 from culture_rules.model.common import RetryPolicy
+from culture_rules.model.placement import Placement
 from culture_rules.model.refs import LITERAL_KEY, resolve_refs
 from culture_rules.model.rule import Rule, Trigger, WorkflowRef
 from culture_rules.model.validate import validate
@@ -831,6 +832,8 @@ class Executor:
     def _target(self, plan: _Plan, st: Mapping[str, Any], now: datetime) -> Any:
         step = plan.step(st)
         placement = step.placement if step is not None else None
+        if placement is None and st["key"] == ACTION_STEP:
+            placement = self._action_placement(plan)
         if placement is None:
             return self.host
         online = online_machines(self._store, now, beat_every=self._beat_every)
@@ -840,6 +843,16 @@ class Executor:
         actors = [Actor.from_dict(d, strict=False) for d in self._store.find(ACTORS_COLLECTION)]
         resolved = resolve_placement(placement, machines, states, actors)
         return resolved if isinstance(resolved, PlacementError) else resolved.machine
+
+    def _action_placement(self, plan: _Plan) -> Placement | None:
+        """An action through an enabled actor that lives on a machine runs on that machine
+        (its app credentials are injected there); an unknown or disabled actor is left to
+        the router, which fails the run with ``actor_unavailable``."""
+        actor_id = _action_actor(plan.rule.action)
+        doc = self._store.get(ACTORS_COLLECTION, actor_id) if actor_id else None
+        if not doc or doc.get("deleted_at") or doc.get("enabled") is False:
+            return None
+        return Placement(actor=actor_id) if doc.get("machine") else None
 
     def _port(self, ctx: InvocationContext) -> ActorPort | None:
         if callable(self._ports) and not isinstance(self._ports, Mapping):

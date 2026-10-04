@@ -6,9 +6,13 @@ written anywhere. (Approved deviation d2: ``grant`` replaced ``shushu`` as the s
 
 Two ways to use a secret:
 
-* :func:`resolve` runs ``grant get NAME`` (argv list, no shell) and returns the value. It
-  refuses hidden secrets, as grant does. Pass a :class:`Redactor` to register the value so
-  later log/export text can be scrubbed.
+* :func:`resolve` returns the value grant injected into this process's environment as
+  :func:`injected_env_var` (``CULTURE_RULES_SECRET_<NAME>``) when the service was started
+  under ``grant run --inject CULTURE_RULES_SECRET_<NAME>=<NAME>`` - the only way an
+  in-process client (a GitHub App, a webhook HMAC, the Discord bot) can use a *hidden*
+  secret - else runs ``grant get NAME`` (argv list, no shell), which refuses hidden
+  secrets. Pass a :class:`Redactor` to register the value so later log/export text can be
+  scrubbed.
 * :func:`run_with_secrets` / :func:`grant_run_argv` run a step's subprocess as
   ``grant run --inject VAR=NAME -- cmd args``, so the value never enters this process
   (the way to use hidden secrets).
@@ -19,6 +23,7 @@ Zero third-party dependencies; only the stdlib ``subprocess`` is used.
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess  # nosec B404 - only used to call the operator's grant CLI
 from collections.abc import Callable, Mapping, Sequence
@@ -30,6 +35,7 @@ __all__ = [
     "SecretError",
     "assert_refs_only",
     "grant_run_argv",
+    "injected_env_var",
     "is_secret_ref",
     "parse_ref",
     "resolve",
@@ -40,6 +46,8 @@ __all__ = [
 GRANT_SCHEME = "grant"
 _REF_RE = re.compile(r"^grant:([A-Za-z0-9][A-Za-z0-9._/-]*)$")
 _VAR_RE = re.compile(r"^[A-Za-z_]\w*$", re.ASCII)
+INJECTED_PREFIX = "CULTURE_RULES_SECRET_"
+_NON_VAR_RE = re.compile(r"[^A-Za-z0-9_]")
 # A key is secret-bearing when one of its whole segments (split on "_", "-" and camelCase
 # humps) names a secret - so "github_token" and "apiKey" are, "author" and "auth_mode" are
 # not - unless a segment marks it as a budget/limit ("max_tokens", "token_budget").
@@ -108,6 +116,11 @@ class Redactor:
         return obj
 
 
+def injected_env_var(name: str) -> str:
+    """The environment variable a service unit injects grant secret ``name`` as."""
+    return INJECTED_PREFIX + _NON_VAR_RE.sub("_", name).upper()
+
+
 def _grant_get(name: str, run: Callable[..., Any]) -> str:
     done = run(  # nosec B603 B607 - fixed argv, no shell
         ["grant", "get", name], capture_output=True, text=True, check=True, timeout=_TIMEOUT_S
@@ -128,8 +141,12 @@ def resolve(
     ``subprocess.run``. Failures raise :class:`SecretError` naming the reference only.
     """
     _, name = parse_ref(ref)
+    injected = os.environ.get(injected_env_var(name)) if runner is None else None
     try:
-        value = runner(name) if runner is not None else _grant_get(name, _run or subprocess.run)
+        if injected:
+            value = injected
+        else:
+            value = runner(name) if runner is not None else _grant_get(name, _run or subprocess.run)
     except SecretError:
         raise
     except Exception as exc:  # noqa: BLE001 - never echo the underlying text: it may hold a value

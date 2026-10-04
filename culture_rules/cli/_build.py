@@ -67,8 +67,11 @@ def render_text(result: Any) -> str:
     if isinstance(result, dict) and isinstance(result.get("lines"), list):
         return "\n".join(str(x) for x in result["lines"])  # a verb that renders itself
     if isinstance(result, dict) and result.get("dry_run"):
-        would = result.get("would", {})
-        head = f"dry-run: {result.get('verb')} would {would.get('method')} {would.get('path')}"
+        would = result.get("would") or {}
+        if would.get("method"):
+            head = f"dry-run: {result.get('verb')} would {would['method']} {would.get('path')}"
+        else:  # the server ran the dry-run itself (e.g. the migrations)
+            head = f"dry-run: {result.get('verb')} (nothing was changed)"
         return head + "\n" + json.dumps(result, indent=2) + "\nre-run with --apply to commit"
     if isinstance(result, dict) and isinstance(result.get("items"), list):
         lines = [f"{len(result['items'])} item(s)"]

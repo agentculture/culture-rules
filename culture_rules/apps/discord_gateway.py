@@ -36,8 +36,10 @@ Secrets and logs
 ``connection.bot_token`` must be a ``grant:<NAME>`` reference; a literal is refused (the
 actor is not listened to) and never logged. The token is resolved through
 :func:`~culture_rules.actors.secrets.resolve` (injectable) in the listener thread, right
-before each connect, and never from the environment. Logs carry the actor id, outcomes and
-exception *types* only - never the token or message content.
+before each connect: from the value grant injected into the node's environment
+(``CULTURE_RULES_SECRET_<NAME>``), else ``grant get`` - never from any other variable. An
+actor with a ``machine`` is listened for only by the node on that machine. Logs carry the
+actor id, outcomes and exception *types* only - never the token or message content.
 
 The ``discord`` extra (discord.py) is imported lazily, inside the listener. Without it the
 supervisor logs once and does nothing - in particular it takes no lease, so a node without
@@ -264,9 +266,11 @@ class GatewaySupervisor:
         resolve_secret: Callable[[str], str] | None = None,
         clock: Callable[[], datetime] | None = None,
         options: GatewayOptions | None = None,
+        host: str | None = None,
     ) -> None:
         self._store = store
         self.identity = identity
+        self.host = host
         self._gateway = gateway if gateway is not None else DiscordPyGateway()
         self._resolve = resolve_secret or secrets.resolve
         self._clock = clock or (lambda: datetime.now(UTC))
@@ -328,6 +332,9 @@ class GatewaySupervisor:
                 continue
             if doc.get("enabled", True) is False:
                 continue
+            machine = doc.get("machine")
+            if machine and self.host and machine != self.host:
+                continue  # its bot token is injected on its own machine only
             if not secrets.is_secret_ref(connection.get("bot_token")):
                 if actor_id not in self._warned:
                     self._warned.add(actor_id)
