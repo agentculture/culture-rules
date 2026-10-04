@@ -188,3 +188,22 @@ def test_a_capped_predecessor_on_another_host_settles_the_waiting_dependant():
     assert doc["by"] == ["a"]
     assert [h["reason"] for h in doc["superseded"]] == ["blocked_by_predecessor"]
     assert fired(c, "b") == ["evt_1"]
+
+
+def schedule_rule(cap=None) -> Rule:
+    params = {"cron": "* * * * *"}
+    if cap is not None:
+        params["max_fires_per_hour"] = cap
+    return Rule(
+        id="tick",
+        name="tick",
+        trigger=Trigger(kind="schedule", params=params),
+        action=Action(kind="noop"),
+    )
+
+
+def test_a_schedule_rule_is_uncapped_by_default():
+    """Deviation d2: cron bounds a schedule rule; an explicit cap still applies."""
+    assert max_fires_per_hour(schedule_rule()) is None
+    assert max_fires_per_hour(schedule_rule(cap=5)) == 5
+    assert max_fires_per_hour(capped_rule(cap=None)) == DEFAULT_MAX_FIRES_PER_HOUR

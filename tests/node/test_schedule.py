@@ -219,3 +219,19 @@ def test_disabled_and_deleted_rules_do_not_synthesize_events():
     mesh.start()
     mesh.run_until(START + timedelta(minutes=10))
     assert mesh.base.find(EVENTS_COLLECTION) == []
+
+
+def test_an_every_minute_schedule_is_not_rate_capped_by_default():
+    """Deviation d2: the default 60/hour cap does not apply to schedule triggers."""
+    mesh = Mesh("spark")
+    mesh.define(schedule_rule("minutely", cron="* * * * *", placement=Placement(machine="spark")))
+    mesh.start()
+    # Step 7 s (not a divisor of 60) so each slot is evaluated at a drifting offset: the
+    # jitter that lets 60 fires land inside one trailing hour and trip a 60/hour cap.
+    while mesh.clock() < START + timedelta(minutes=70):
+        mesh.clock.advance(7)
+        mesh.cycle()
+
+    assert len(mesh.runs("minutely")) == 70
+    capped = [d for d in mesh.base.find("rule_decisions") if d.get("reason") == "rate_capped"]
+    assert capped == []
