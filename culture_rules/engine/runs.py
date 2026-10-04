@@ -14,7 +14,9 @@ Run document
 
 ``id``, ``status`` (``running`` -> ``succeeded`` | ``failed`` | ``cancelled``), ``rev``
 (incremented by every transition), ``history`` (one entry per transition: ``rev``,
-``at``, ``host``, ``event``, ``step``), ``rule`` / ``workflow`` (the **pinned**
+``at``, ``host``, ``event``, ``step``), ``rule_id`` / ``workflow_id`` (top-level copies of
+the pinned ids for filtering; ``workflow_id`` is null for a rule without a workflow; a
+direct workflow run's rule id is ``adhoc:<workflow id>``), ``rule`` / ``workflow`` (the **pinned**
 definitions: ``id``, ``digest``, ``version`` and the full ``definition`` the run started
 with - editing a workflow later never changes an in-flight run), ``trigger``,
 ``upstream``, ``inputs`` (workflow inputs, type-checked at start), ``outputs`` (the
@@ -137,8 +139,8 @@ from culture_rules.model import condition as cond
 from culture_rules.model.action import Action
 from culture_rules.model.actor import Actor
 from culture_rules.model.common import RetryPolicy
-from culture_rules.model.refs import resolve_refs
-from culture_rules.model.rule import Rule
+from culture_rules.model.refs import LITERAL_KEY, resolve_refs
+from culture_rules.model.rule import Rule, Trigger, WorkflowRef
 from culture_rules.model.validate import validate
 from culture_rules.model.workflow import LOOP_KINDS, Port, Step, Workflow
 from culture_rules.store.port import Document, StoragePort, StoreOps
@@ -205,6 +207,9 @@ FATAL_PLACEMENT = frozenset(
         "placement.address_refused",
     }
 )
+
+#: Id prefix of the synthetic rule a direct workflow run pins (:meth:`Executor.start_workflow`).
+ADHOC_RULE_PREFIX = "adhoc:"
 
 _MAX_TRANSITIONS_PER_TICK = 10_000
 _MAX_CAS_RETRIES = 50
@@ -283,6 +288,29 @@ def _check_ports(ports: Iterable[Port], values: Mapping[str, Any], what: str) ->
                 f"{what} {p.name!r} expects {p.type}, got {type(value).__name__}",
             )
     return None
+
+
+def _check_direct_inputs(workflow: Workflow, inputs: Any) -> dict[str, Any]:
+    """The non-null ``inputs`` of a direct workflow run, or ``RunError("invalid_inputs")``."""
+    if inputs is None:
+        inputs = {}
+    if not isinstance(inputs, Mapping):
+        raise RunError("invalid_inputs", "inputs must be an object of port name -> value")
+    declared = {p.name for p in workflow.inputs}
+    unknown = sorted(str(k) for k in inputs if k not in declared)
+    if unknown:
+        raise RunError(
+            "invalid_inputs",
+            f"workflow {workflow.id!r} declares no input {', '.join(map(repr, unknown))}",
+            [{"port": name, "code": "unknown"} for name in unknown],
+        )
+    values = {k: v for k, v in inputs.items() if v is not None}
+    for p in workflow.inputs:
+        problem = _check_ports((p,), values, "input")
+        if problem:
+            detail = {"port": p.name, "code": problem["code"]}
+            raise RunError("invalid_inputs", problem["message"], [detail])
+    return values
 
 
 def _error(code: str, message: str) -> dict[str, str]:
@@ -569,6 +597,46 @@ class Executor:
             rule, workflow, trigger=trigger, upstream=upstream, identity=identity, run_id=run_id
         )
 
+    def start_workflow(
+        self,
+        workflow_id: str,
+        inputs: Mapping[str, Any] | None = None,
+        by: str | None = None,
+        *,
+        run_id: str | None = None,
+    ) -> Document:
+        """Run the stored workflow ``workflow_id`` directly, with no rule of its own.
+
+        ``inputs`` are checked against the workflow's typed input ports first: a missing
+        required input, a wrongly typed one or one the workflow does not declare is refused
+        with ``invalid_inputs`` naming the port (``None`` counts as absent). The run then
+        pins a synthetic rule :data:`ADHOC_RULE_PREFIX` ``+ workflow_id`` (manual trigger,
+        the inputs as ``{"$literal": v}`` mappings, a ``noop`` action) and starts through
+        :meth:`start`, audited as ``runs.start`` under ``by``. Deleted or disabled workflows
+        are ``not_fireable``; a paused engine refuses as usual.
+        """
+        wf_doc = self._store.get(WORKFLOWS_COLLECTION, workflow_id)
+        if wf_doc is None:
+            raise RunError("workflow_not_found", f"workflow {workflow_id!r} does not exist")
+        if wf_doc.get("deleted_at"):
+            raise RunError("not_fireable", f"workflow {workflow_id!r} is deleted")
+        if wf_doc.get("enabled") is False:
+            raise RunError("not_fireable", f"workflow {workflow_id!r} is disabled")
+        workflow = Workflow.from_dict(wf_doc, strict=False)
+        values = _check_direct_inputs(workflow, inputs)
+        synthetic = Rule(
+            id=f"{ADHOC_RULE_PREFIX}{workflow.id}",
+            name=f"Direct run of {workflow.name or workflow.id}",
+            trigger=Trigger(kind="manual"),
+            workflow=WorkflowRef(
+                id=workflow.id,
+                version=workflow.version,
+                inputs={k: {LITERAL_KEY: v} for k, v in values.items()},
+            ),
+            action=Action(kind="noop"),
+        )
+        return self.start(synthetic, workflow, identity=by, run_id=run_id)
+
     @mutating_verb("runs.start", "Start a run of a rule, pinning its rule/workflow versions")
     def start(
         self,
@@ -599,6 +667,8 @@ class Executor:
             "status": ACTIVE,
             "rev": 0,
             "history": [],
+            "rule_id": rule.id,
+            "workflow_id": workflow.id if workflow else None,
             "rule": {"id": rule.id, "digest": _digest(rule), "definition": rule.to_dict()},
             "workflow": (
                 {
