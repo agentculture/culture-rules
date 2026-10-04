@@ -6,6 +6,7 @@ import pytest
 
 from culture_rules.model.action import Action
 from culture_rules.model.action_kinds import ACTION_KINDS
+from culture_rules.model.rule import Rule
 from culture_rules.model.validate import validate
 from tests.model.factories import make_rule
 
@@ -90,6 +91,51 @@ def test_message_actor_optional_for_mesh() -> None:
 def test_strict_false_load_keeps_unknown_kind() -> None:
     act = Action.from_dict({"kind": "teleport"}, strict=False)
     assert act.kind == "teleport"
+
+
+def _stored_rule(action: dict, trigger: dict | None = None) -> Rule:
+    data = make_rule().to_dict()
+    data["action"] = action
+    if trigger is not None:
+        data["trigger"] = trigger
+    return Rule.from_dict(data, strict=False)
+
+
+@pytest.mark.parametrize(
+    "action",
+    [
+        {"kind": "comment", "params": {"body": "hi"}},
+        {"kind": "http.get", "params": {"url": "http://localhost:1"}},
+        {"kind": "github.comment", "params": {"body": "hi", "repo": "o/r"}},
+        {"kind": "github.comment", "params": {"number": "not-a-number"}},
+    ],
+)
+def test_stored_mode_skips_action_catalog_checks(action: dict) -> None:
+    rule = _stored_rule(action)
+    assert validate(rule) != []
+    assert validate(rule, stored=True) == []
+
+
+@pytest.mark.parametrize(
+    "trigger",
+    [
+        {"kind": "event", "params": {}},
+        {"kind": "schedule", "params": {}},
+        {"kind": "probe", "params": {"mode": "sometimes"}},
+        {"kind": "webhook", "params": {}},
+    ],
+)
+def test_stored_mode_skips_trigger_param_checks(trigger: dict) -> None:
+    rule = _stored_rule({"kind": "noop"}, trigger)
+    assert validate(rule) != []
+    assert validate(rule, stored=True) == []
+
+
+def test_stored_mode_keeps_structural_checks() -> None:
+    rule = _stored_rule({"kind": "", "params": {}}, {"kind": "", "params": {}})
+    errs = {(e.path, e.code) for e in validate(rule, stored=True)}
+    assert ("action.kind", "empty") in errs
+    assert ("trigger.kind", "empty") in errs
 
 
 @pytest.mark.parametrize("kind", sorted(ACTION_KINDS))

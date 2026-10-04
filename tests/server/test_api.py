@@ -213,3 +213,29 @@ def test_save_of_a_rule_with_unknown_predecessor_is_422(client):
     r = client.post("/rules", json=rule_body("b", must_after=["nope"]), headers=ALICE)
     assert r.status_code == 422
     assert any(e["code"] == "unknown_rule" for e in r.json()["error"]["errors"])
+
+
+def _store_legacy_rule(store, id: str, **changes) -> None:
+    """A rule stored before the save-time catalog checks existed."""
+    store.put("rules", {"id": id, **rule_body(id, **changes)})
+
+
+def test_stored_typeless_event_rule_is_still_a_neighbour(client, store):
+    _store_legacy_rule(store, "old", trigger={"kind": "event", "params": {}})
+    r = client.post("/rules", json=rule_body("new", may_after=["old"]), headers=ALICE)
+    assert r.status_code == 201
+    r = client.delete("/rules/old", headers=ALICE)
+    assert r.status_code == 409
+    assert r.json()["error"]["code"] == "rule_referenced"
+
+
+def test_stored_rule_with_pre_catalog_action_runs_via_api(client, store):
+    _store_legacy_rule(store, "old", action={"kind": "comment", "params": {"body": "hi"}})
+    r = client.post("/runs", json={"rule_id": "old"}, headers=ALICE)
+    assert r.status_code == 201
+
+
+def test_saving_a_new_rule_with_unknown_action_kind_is_still_422(client):
+    r = client.post("/rules", json=rule_body("new", action={"kind": "teleport"}), headers=ALICE)
+    assert r.status_code == 422
+    assert any(e["code"] == "action_kind_unknown" for e in r.json()["error"]["errors"])

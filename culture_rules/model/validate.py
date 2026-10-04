@@ -42,7 +42,7 @@ from culture_rules.model.refs import (
 from culture_rules.model.rule import TRIGGER_KINDS, Rule, Trigger, WorkflowRef
 from culture_rules.model.workflow import LOOP_KINDS, Edge, Output, Port, Step, Variable, Workflow
 
-__all__ = ["ValidationError", "validate", "validate_data"]
+__all__ = ["CATALOG_CODES", "ValidationError", "validate", "validate_data"]
 
 #: Pseudo step id an edge uses to read from the workflow's own inputs.
 INPUTS_NODE = "inputs"
@@ -79,13 +79,37 @@ def _err(errors: Errors, path: str, code: str, message: str) -> None:
 # --- public API -----------------------------------------------------------
 
 
-def validate(obj: Any) -> list[ValidationError]:
-    """Validate a model object; returns ``[]`` when valid."""
+#: Save-time catalog checks (action kinds/params, trigger kinds/params). A document stored
+#: before they existed must stay loadable, runnable and visible as a neighbour, so
+#: ``validate(obj, stored=True)`` drops exactly these codes; every structural check stays.
+CATALOG_CODES = frozenset(
+    {
+        "action_kind_unknown",
+        "action_param_required",
+        "action_param_type",
+        "trigger_kind_unknown",
+        "trigger_type_required",
+        "trigger_cron_required",
+        "trigger_param_required",
+        "trigger_param_invalid",
+    }
+)
+
+
+def validate(obj: Any, *, stored: bool = False) -> list[ValidationError]:
+    """Validate a model object; returns ``[]`` when valid.
+
+    ``stored=True`` is for content read back from the store (running it, or using it as a
+    neighbour of a save): the save-time :data:`CATALOG_CODES` checks are skipped. Saves stay
+    strict (the default).
+    """
     errors: Errors = []
     if not (dataclasses.is_dataclass(obj) and type(obj) in _SEMANTIC):
         _err(errors, "", "type", f"not a culture_rules model: {type(obj).__name__}")
         return errors
     _validate(obj, "", errors)
+    if stored:
+        return [e for e in errors if e.code not in CATALOG_CODES]
     return errors
 
 

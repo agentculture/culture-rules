@@ -179,3 +179,21 @@ def test_secret_keys_still_require_references(key):
     with pytest.raises(SecretError):
         assert_refs_only({key: "literal-value"})
     assert_refs_only({key: "grant:NAME"})
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"connection": {"bot_token": ["literal"]}},
+        {"token": 12345},
+        {"api_key": {"value": "literal"}},
+        {"list": [{"password": ["literal"]}]},
+    ],
+)
+def test_non_string_value_under_secret_key_is_refused(params):
+    with pytest.raises(SecretError, match="secret must be"):
+        assert_refs_only(params)
+
+
+def test_unset_secret_values_stay_tolerated():
+    assert_refs_only({"token": None, "api_key": "", "connection": {"bot_token": "grant:D"}})

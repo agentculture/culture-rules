@@ -255,6 +255,44 @@ def test_start_from_store_unknown_or_deleted_rule(store, actor, clock):
     assert exc.value.code == "not_fireable"
 
 
+def _store_raw_rule(store, *, action: dict, trigger: dict | None = None) -> None:
+    """Store a rule as an older engine would have written it (pre-catalog shapes)."""
+    data = {"id": "r1", **rule(workflow_id=None).to_dict()}
+    data["action"] = action
+    if trigger is not None:
+        data["trigger"] = trigger
+    store.put("rules", data)
+
+
+@pytest.mark.parametrize(
+    "action",
+    [
+        {"kind": "comment", "params": {"body": "hi"}},
+        {"kind": "github.comment", "params": {"body": "hi", "repo": "o/r"}},
+    ],
+)
+def test_stored_rule_with_pre_catalog_action_still_starts(store, actor, clock, action):
+    _store_raw_rule(store, action=action)
+    ex = make_executor(store, actor, clock)
+    run = ex.start_from_store("r1")
+    assert run["rule"]["definition"]["action"]["kind"] == action["kind"]
+    ex.run_until_idle()
+    assert step_state(ex.run(run["id"]), ACTION_STEP) is not None
+
+
+def test_stored_typeless_event_rule_can_still_be_started_manually(store, actor, clock):
+    _store_raw_rule(store, action={"kind": "noop"}, trigger={"kind": "event", "params": {}})
+    ex = make_executor(store, actor, clock)
+    assert ex.start_from_store("r1")["rule_id"] == "r1"
+
+
+def test_fresh_rule_with_unknown_action_kind_is_still_refused(store, actor, clock):
+    ex = make_executor(store, actor, clock)
+    with pytest.raises(RunError) as exc:
+        ex.start(rule(workflow_id=None, action=Action(kind="teleport")))
+    assert exc.value.code == "invalid_rule"
+
+
 # ---------------------------------------------------------------- c83 / h64 timeouts, retries
 
 

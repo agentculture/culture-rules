@@ -66,6 +66,14 @@ def _check_action(path: str, item: str, out: list[Problem]) -> None:
         out.append((path, "unknown_action_kind", f"{item!r} is not a known action kind"))
 
 
+def _check_probe_field(value: Any, path: str, name: str, out: list[Problem]) -> None:
+    """A probe's name/command: missing or empty is ``required``, a non-string ``invalid_type``."""
+    if value is None or value == "":
+        out.append((path, "required", f"probe {name} is required"))
+    elif not isinstance(value, str):
+        out.append((path, "invalid_type", f"probe {name} must be a string"))
+
+
 def _check_probes(params: Mapping, out: list[Problem]) -> None:
     probes = params.get("probes")
     if probes is None:
@@ -79,8 +87,7 @@ def _check_probes(params: Mapping, out: list[Problem]) -> None:
             out.append((base, "invalid_type", "a probe must be an object"))
             continue
         for name in ("name", "command"):
-            if not isinstance(probe.get(name), str) or not probe.get(name):
-                out.append((f"{base}.{name}", "required", f"probe {name} is required"))
+            _check_probe_field(probe.get(name), f"{base}.{name}", name, out)
         schedule = probe.get("schedule")
         if schedule is not None and not isinstance(schedule, str):
             out.append((f"{base}.schedule", "invalid_type", "schedule must be a string"))
