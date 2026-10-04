@@ -1,0 +1,38 @@
+{
+  "plan_slug": "culture-rules-second-mile",
+  "schema_version": 2,
+  "created": "2026-10-04T04:55:50Z",
+  "updated": "2026-10-04T04:55:50Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "record_decision keeps read-then-insert; the plan's 'inserts and reads only on duplicate key' is dropped",
+      "task_ref": "t27",
+      "reason": "a duplicate key inside a MongoDB transaction aborts it and the follow-up get raises NoSuchTransaction (verified on the Mongo rig by t27); nothing calls record_decision today; operator approved reverting the hunk",
+      "affects": [
+        "c22",
+        "h19"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 1
+    },
+    {
+      "id": "d2",
+      "what": "the default fire-rate cap (60 per trailing hour) does not apply to schedule triggers; event and probe rules keep it unless max_fires_per_hour is set",
+      "task_ref": "t27",
+      "reason": "a '* * * * *' schedule rule can be capped by evaluation clock jitter; cron already bounds a schedule rule's cadence; operator approved exempting schedule triggers",
+      "affects": [
+        "c47"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 2
+    }
+  ],
+  "evidence": [],
+  "deltas": [],
+  "supersessions": []
+}
