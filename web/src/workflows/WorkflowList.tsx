@@ -1,4 +1,4 @@
-import type { RefObject } from "react";
+import type { ReactNode, RefObject } from "react";
 import { Link } from "react-router-dom";
 import type { WorkflowDef } from "../api/workflows";
 import { MachineDot, Switch, machineStyle } from "../culture-design/stages";
@@ -16,7 +16,21 @@ interface Props {
   onOpen?: (id: string) => void;
   /** The New button, so a closed name form can return focus to its opener. */
   newRef?: RefObject<HTMLButtonElement>;
+  /** "Show deleted" is on (the list was loaded with `include_deleted`). */
+  showDeleted?: boolean;
+  onShowDeleted?: (on: boolean) => void;
+  /** Soft-deleted workflows to list (only while `showDeleted`), dimmed, below the live ones. */
+  deleted?: readonly WorkflowDef[];
+  onRestore?: (wf: WorkflowDef) => void;
+  /** Purge is offered to admins only: absent means never rendered. */
+  onPurge?: (wf: WorkflowDef) => void;
+  /** Ids whose restore is in flight. */
+  restoring?: ReadonlySet<string>;
+  /** The open purge confirmation panel, below the rows. */
+  purgePanel?: ReactNode;
 }
+
+const when = (iso?: string | null) => (iso ? iso.slice(0, 10) : "");
 
 const rowClass = (selected: boolean, enabled: boolean) =>
   `rule-row wf-row${selected ? " is-selected" : ""}${enabled ? "" : " is-disabled"}`;
@@ -27,7 +41,23 @@ const rowClass = (selected: boolean, enabled: boolean) =>
  * — machine dot, name (a link to `/workflows?id=<id>`), enable switch. It is
  * always there, with no workflows or one.
  */
-export function WorkflowList({ workflows, selectedId, slotOf, onToggle, pending, onNew, onOpen, newRef }: Readonly<Props>) {
+export function WorkflowList({
+  workflows,
+  selectedId,
+  slotOf,
+  onToggle,
+  pending,
+  onNew,
+  onOpen,
+  newRef,
+  showDeleted = false,
+  onShowDeleted,
+  deleted = [],
+  onRestore,
+  onPurge,
+  restoring,
+  purgePanel,
+}: Readonly<Props>) {
   return (
     <nav className="rule-list wf-list" aria-label="Workflows">
       <button ref={newRef} type="button" className="rule-list__new" onClick={onNew}>
@@ -55,6 +85,47 @@ export function WorkflowList({ workflows, selectedId, slotOf, onToggle, pending,
           </div>
         );
       })}
+      {showDeleted &&
+        deleted.map((wf) => (
+          <div key={wf.id} className="rule-row wf-row is-deleted" data-workflow-id={wf.id}>
+            <MachineDot slot={null} />
+            <span className="rule-row__name wf-row__gone">
+              {wf.name}
+              <span className="wf-tag">deleted</span>
+              {wf.restorable_until && <small className="wf-row__until">restorable until {when(wf.restorable_until)}</small>}
+            </span>
+            <button
+              type="button"
+              className="wf-button wf-row__act"
+              aria-label={`Restore ${wf.name}`}
+              disabled={restoring?.has(wf.id)}
+              onClick={() => onRestore?.(wf)}
+            >
+              Restore
+            </button>
+            {onPurge && (
+              <button
+                type="button"
+                className="wf-button wf-button--danger wf-row__act"
+                aria-label={`Purge ${wf.name}`}
+                onClick={() => onPurge(wf)}
+              >
+                Purge
+              </button>
+            )}
+          </div>
+        ))}
+      {purgePanel}
+      {onShowDeleted && (
+        <button
+          type="button"
+          className="wf-button wf-list__deleted"
+          aria-pressed={showDeleted}
+          onClick={() => onShowDeleted(!showDeleted)}
+        >
+          Show deleted
+        </button>
+      )}
     </nav>
   );
 }
