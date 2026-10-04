@@ -105,7 +105,8 @@ def test_missing_actor_and_wrong_surface():
     store.put("actors", actor_doc(surface="github"))
     port2 = JiraCommentPort(store, transport=fake, secrets=lambda r: FAKE_TOKEN)
     assert port2.invoke(params(), "k", DEADLINE, context=ctx()).error == "actor_not_found"
-    assert fake.calls == [] and resolved == []
+    assert fake.calls == []
+    assert resolved == []
 
 
 def test_bad_input():

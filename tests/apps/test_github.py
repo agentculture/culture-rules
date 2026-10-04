@@ -76,10 +76,8 @@ def test_comment_uses_installation_token(pem):
     out = app.post_comment("acme/widgets", 5, "hello")
     assert out == {"comment_id": 77, "url": "https://x/c/77"}
     exch, comment = fake.calls
-    assert (
-        exch[0] == "POST"
-        and exch[1] == "https://api.github.com/app/installations/456/access_tokens"
-    )
+    assert exch[0] == "POST"
+    assert exch[1] == "https://api.github.com/app/installations/456/access_tokens"
     assert exch[2]["Authorization"].startswith("Bearer ")
     assert comment[1] == "https://api.github.com/repos/acme/widgets/issues/5/comments"
     assert comment[2]["Authorization"] == f"Bearer {FAKE_BEARER}"
@@ -119,7 +117,8 @@ def test_not_allowlisted_repo_makes_no_network_call(pem):
     app, _ = make(pem, fake)
     with pytest.raises(GitHubError) as exc:
         app.post_comment("evil/repo", 1, "x")
-    assert exc.value.code == "repo_not_allowed" and not exc.value.retryable
+    assert exc.value.code == "repo_not_allowed"
+    assert not exc.value.retryable
     assert fake.calls == []
 
 
@@ -158,7 +157,8 @@ def test_logs_never_contain_token_or_key(pem, caplog):
     with pytest.raises(GitHubError):
         app.post_comment("other/x", 1, "x")
     text = caplog.text + str(exc.value)
-    assert FAKE_BEARER not in text and "PRIVATE KEY" not in text
+    assert FAKE_BEARER not in text
+    assert "PRIVATE KEY" not in text
     assert pem.splitlines()[1] not in text
 
 

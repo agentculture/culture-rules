@@ -89,23 +89,27 @@ def test_typed_mapping_args_bind_into_the_template(captured) -> None:
 def test_non_mapping_args_are_refused(captured, args) -> None:
     port = MachineCommandPort(_store())
     res = _invoke(port, {"actor": "r1", "command": "pair", "args": args})
-    assert res.outcome == FAILED and res.retryable is False
+    assert res.outcome == FAILED
+    assert res.retryable is False
     assert captured == []
 
 
 def test_missing_or_undeclared_args_are_refused(captured) -> None:
     port = MachineCommandPort(_store())
     res = _invoke(port, {"actor": "r1", "command": "pair", "args": {"a": "x"}})
-    assert res.outcome == FAILED and res.retryable is False
+    assert res.outcome == FAILED
+    assert res.retryable is False
     res = _invoke(port, {"actor": "r1", "command": "pair", "args": {"a": "x", "b": 1, "c": 2}})
-    assert res.outcome == FAILED and res.retryable is False
+    assert res.outcome == FAILED
+    assert res.retryable is False
     assert captured == []
 
 
 def test_type_mismatch_is_refused_without_running(captured) -> None:
     port = MachineCommandPort(_store())
     res = _invoke(port, {"actor": "r1", "command": "pair", "args": {"a": "x", "b": "7; ls"}})
-    assert res.outcome == FAILED and res.retryable is False
+    assert res.outcome == FAILED
+    assert res.retryable is False
     assert captured == []
 
 
@@ -121,7 +125,8 @@ def test_hostile_payload_is_inert_when_really_executed() -> None:
 def test_wrong_actor_kind_is_refused(captured) -> None:
     port = MachineCommandPort(_store(kind="agent"))
     res = _invoke(port, {"actor": "r1", "command": "show", "args": {"msg": "hi"}})
-    assert res.outcome == FAILED and res.retryable is False
+    assert res.outcome == FAILED
+    assert res.retryable is False
     assert res.error.startswith("actor_kind_mismatch")
     assert captured == []
 
@@ -129,11 +134,13 @@ def test_wrong_actor_kind_is_refused(captured) -> None:
 def test_unknown_or_disabled_actor_is_refused(captured) -> None:
     port = MachineCommandPort(MemoryStore())
     res = _invoke(port, {"actor": "r1", "command": "show", "args": {"msg": "hi"}})
-    assert res.outcome == FAILED and res.retryable is False
+    assert res.outcome == FAILED
+    assert res.retryable is False
     assert res.error.startswith("actor_not_found")
     port = MachineCommandPort(_store(enabled=False))
     res = _invoke(port, {"actor": "r1", "command": "show", "args": {"msg": "hi"}})
-    assert res.outcome == FAILED and res.error.startswith("actor_disabled")
+    assert res.outcome == FAILED
+    assert res.error.startswith("actor_disabled")
     assert captured == []
 
 
@@ -142,13 +149,15 @@ def test_context_actor_is_used_when_params_omit_it(captured) -> None:
     res = _invoke(port, {"command": "show", "args": {"msg": "hi"}})
     assert res.outcome == COMPLETED
     res = _invoke(port, {"command": "show", "args": {"msg": "hi"}}, key="k2", actor=None)
-    assert res.outcome == FAILED and res.error.startswith("actor_missing")
+    assert res.outcome == FAILED
+    assert res.error.startswith("actor_missing")
 
 
 def test_unregistered_command_and_inline_script_are_refused(captured) -> None:
     port = MachineCommandPort(_store())
     res = _invoke(port, {"actor": "r1", "command": "rm", "args": {}})
-    assert res.outcome == FAILED and res.retryable is False
+    assert res.outcome == FAILED
+    assert res.retryable is False
     res = _invoke(
         port, {"actor": "r1", "command": "show", "args": {"msg": "x"}, "script": "id"}, key="k3"
     )
@@ -162,5 +171,6 @@ def test_completed_result_replays_for_the_same_key(captured) -> None:
     params = {"actor": "r1", "command": "show", "args": {"msg": "once"}}
     first = _invoke(port, params)
     second = _invoke(port, params)
-    assert first == second and len(captured) == 1
+    assert first == second
+    assert len(captured) == 1
     assert port.supports_idempotency_key is False
