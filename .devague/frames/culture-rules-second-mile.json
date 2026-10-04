@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-03T18:08:10Z",
-  "updated": "2026-10-04T04:32:41Z",
+  "updated": "2026-10-04T04:36:16Z",
   "claims": [
     {
       "id": "c1",
@@ -1519,6 +1519,17 @@
       "skipped_check": "",
       "refs": [
         "t7"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l6",
+      "code": "control-absent",
+      "what": "t4: tests/engine/test_ruleset.py builds Action(kind='m') and still passes; the agent did not check why unknown-kind validation does not apply there",
+      "skipped_check": "confirm validate_rule_set does not call per-rule action-kind validation, or that it should",
+      "refs": [
+        "t4"
       ],
       "origin": "llm",
       "status": "proposed"
