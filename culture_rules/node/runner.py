@@ -189,6 +189,7 @@ def run_node(host: str | None = None, *, once: bool = False, idle: float = 1.0) 
         adapters=default_factories(store, emitter=open_emitter(store, host)),
         event_source=source,
         reporter=open_reporter(),
+        listen_gateways=not once,  # one cycle never opens a long-lived gateway connection
     )
     if once:
         report = node.run_once()
