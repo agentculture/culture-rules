@@ -21,8 +21,7 @@ from __future__ import annotations
 import logging
 import os
 import shutil
-import subprocess  # nosec B404 - argv list only, never a shell (MeshPoster)
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from datetime import datetime
 from typing import Any
 
@@ -31,6 +30,7 @@ from culture_rules.engine.reports import RunReporter
 from culture_rules.events.emit import Emitter
 from culture_rules.events.ingest import EVENTS_COLLECTION, event_document
 from culture_rules.events.source import EventFabricError, EventSource
+from culture_rules.node.mesh import MeshPoster
 from culture_rules.ops.logs import configure_logging
 from culture_rules.ops.nodename import node_name
 from culture_rules.store.port import DuplicateKeyError, StoragePort, StoreError
@@ -53,7 +53,6 @@ __all__ = [
 
 REPORT_CHANNEL_ENV = "CULTURE_RULES_REPORT_CHANNEL"
 """Mesh channel finished-run summaries are posted to (unset: no run reports)."""
-MESH_POST_TIMEOUT_S = 15.0
 
 log = logging.getLogger("culture_rules.node")
 
@@ -137,27 +136,6 @@ class LoggingPoster:
 
     def post(self, channel: str, text: str) -> None:
         log.info("run report for %s: %s", channel, text)
-
-
-class MeshPoster:
-    """Posts to a Culture mesh channel with ``culture channel message <channel> <text>``."""
-
-    def __init__(
-        self,
-        executable: str,
-        *,
-        run: Callable[..., Any] | None = None,
-        timeout: float = MESH_POST_TIMEOUT_S,
-    ) -> None:
-        self._executable = executable
-        self._run = run or subprocess.run
-        self._timeout = timeout
-
-    def post(self, channel: str, text: str) -> None:
-        argv = [self._executable, "channel", "message", channel, text]
-        self._run(  # nosec B603 - fixed argv list, shell=False
-            argv, check=True, capture_output=True, text=True, timeout=self._timeout
-        )
 
 
 def open_reporter(env: Mapping[str, str] | None = None) -> RunReporter | None:
