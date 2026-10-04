@@ -43,7 +43,10 @@ class Fake:
     def __call__(self, method, url, headers, body, timeout):
         self.calls.append((method, url, dict(headers), body))
         if url.endswith("/access_tokens"):
-            payload = {"token": FAKE_BEARER, "expires_at": self.expires.strftime("%Y-%m-%dT%H:%M:%SZ")}
+            payload = {
+                "token": FAKE_BEARER,
+                "expires_at": self.expires.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            }
             return 201, json.dumps(payload).encode()
         if self.comment_status == 201:
             return 201, json.dumps({"id": 77, "html_url": "https://x/c/77"}).encode()
