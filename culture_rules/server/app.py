@@ -420,17 +420,9 @@ def _hosts(doc: dict[str, Any]) -> list[str]:
     return read_models.run_hosts(doc)
 
 
-def _filter_runs(
-    docs: list[dict[str, Any]], rule_id: str | None, workflow_id: str | None, host: str | None
-) -> list[dict[str, Any]]:
-    """Narrow run documents to a rule, a workflow and/or a dispatch host (each optional)."""
-    if rule_id:
-        docs = [d for d in docs if (d.get("rule") or {}).get("id") == rule_id]
-    if workflow_id:
-        docs = [d for d in docs if (d.get("workflow") or {}).get("id") == workflow_id]
-    if host:
-        docs = [d for d in docs if host in _hosts(d)]
-    return docs
+def _filter_runs_by_host(docs: list[dict[str, Any]], host: str | None) -> list[dict[str, Any]]:
+    """Narrow run documents to a dispatch host (rule and workflow filter in the store)."""
+    return [d for d in docs if host in _hosts(d)] if host else docs
 
 
 def create_app(
@@ -622,8 +614,12 @@ def _register_runs(
         ] = None,
         limit: int = 100,
     ):
-        where = {"status": status} if status else None
-        docs = _filter_runs(store.find(RUNS_COLLECTION, where), rule_id, workflow_id, host)
+        where = {
+            k: v
+            for k, v in (("status", status), ("rule_id", rule_id), ("workflow_id", workflow_id))
+            if v
+        }
+        docs = _filter_runs_by_host(store.find(RUNS_COLLECTION, where or None), host)
         docs = sorted(docs, key=lambda d: d.get("created_at") or "", reverse=True)[: max(limit, 0)]
         return {"items": [_run_summary(d) for d in docs]}
 
@@ -642,8 +638,7 @@ def _register_runs(
         defs.get("rules", id)
         runs = [
             {"kind": "run", "at": d.get("created_at"), **_run_summary(d)}
-            for d in store.find(RUNS_COLLECTION)
-            if (d.get("rule") or {}).get("id") == id
+            for d in store.find(RUNS_COLLECTION, {"rule_id": id})
         ]
         skips = [{"kind": "decision", **d} for d in decisions_for(store, id, skips_only=True)]
         merged = sorted(runs + skips, key=lambda item: item.get("at") or "", reverse=True)
