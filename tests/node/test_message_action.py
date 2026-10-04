@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from datetime import UTC, datetime
 
 from culture_rules.engine.actorport import FAILED, InvocationContext
@@ -126,3 +127,23 @@ def test_missing_text_or_channel_non_retryable():
     res = action(MemoryStore()).invoke({"channel": "#c"}, "k", NOW, context=ctx())
     assert res.outcome == FAILED
     assert not res.retryable
+
+
+def test_a_mesh_timeout_is_an_unknown_outcome_and_not_retryable():
+    def slow(argv, **kw):
+        raise subprocess.TimeoutExpired(argv, kw.get("timeout", 15))
+
+    res = action(MemoryStore(), run=slow).invoke(
+        {"channel": "#c", "text": "t"}, "k", NOW, context=ctx()
+    )
+    assert res.outcome == FAILED
+    assert not res.retryable
+
+
+def test_a_single_channel_string_allow_list_is_one_channel():
+    t = FakeTransport()
+    store = store_with(channels="42")
+    ok = action(store, t).invoke({"channel": "42", "text": "x"}, "k", NOW, context=ctx("disc"))
+    assert ok.outcome == "completed"
+    no = action(store, t).invoke({"channel": "4", "text": "x"}, "k", NOW, context=ctx("disc"))
+    assert no.outcome == FAILED and not no.retryable
