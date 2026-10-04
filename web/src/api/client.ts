@@ -28,9 +28,17 @@ export const REQUEST_TIMEOUT_MS = 15_000;
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
+  /** The envelope's nested `errors[]` (path, code, message); empty when it carried none. */
+  readonly errors: { path: string; code: string; message: string }[];
 
-  constructor(status: number, code: string, message: string) {
+  constructor(
+    status: number,
+    code: string,
+    message: string,
+    errors: { path: string; code: string; message: string }[] = [],
+  ) {
     super(message);
+    this.errors = errors;
     this.name = "ApiError";
     this.status = status;
     this.code = code;
@@ -100,6 +108,7 @@ export async function request<T>(
       response.status,
       envelope?.error?.code ?? "http_error",
       envelope?.error?.message ?? `${response.status} ${response.statusText}`.trim(),
+      Array.isArray(envelope?.error?.errors) ? envelope.error.errors : [],
     );
   }
   return parsed as T;
