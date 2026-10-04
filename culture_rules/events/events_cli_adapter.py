@@ -35,6 +35,8 @@ source": it logs a warning and keeps running without ingest.
 from __future__ import annotations
 
 import json
+import logging
+import os
 import re
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
@@ -42,6 +44,10 @@ from types import SimpleNamespace
 from typing import Any
 
 from culture_rules.events.source import EventFabricError, SourceBatch
+
+_log = logging.getLogger(__name__)
+DEPTH_ENV = "CULTURE_RULES_EVENTS_DEPTH"
+QUIET_LOGGERS = ("events_cli", "paho")
 
 EXTRA_HINT = "install the optional extra: pip install 'culture-rules[events]'"
 SUBSCRIPTION_PREFIX = "culture-rules-"
@@ -54,6 +60,21 @@ def depth_patterns(depth: int = DEFAULT_DEPTH) -> tuple[str, ...]:
     if not isinstance(depth, int) or isinstance(depth, bool) or depth < 1:
         raise ValueError("depth must be a positive int")
     return tuple(".".join("*" * n) for n in range(1, depth + 1))
+
+
+def configured_depth() -> int:
+    """Subscription depth from ``CULTURE_RULES_EVENTS_DEPTH``; invalid values use the default."""
+    raw = os.environ.get(DEPTH_ENV)
+    if raw is None:
+        return DEFAULT_DEPTH
+    try:
+        depth = int(raw)
+    except ValueError:
+        depth = 0
+    if depth < 1:
+        _log.warning("%s=%r is not a positive integer; using %d", DEPTH_ENV, raw, DEFAULT_DEPTH)
+        return DEFAULT_DEPTH
+    return depth
 
 
 DEFAULT_PATTERNS = depth_patterns()
@@ -206,7 +227,9 @@ def _parse_fan_in_cursor(after: str | None, names: Sequence[str]) -> dict[str, s
         or not set(value) <= set(names)
         or not all(isinstance(v, str) for v in value.values())
     ):
-        raise EventFabricError(f"not a fan-in cursor: {after!r}")
+        # e.g. a legacy single-subscription cursor ("12"): start fresh rather than wedge ingest
+        _log.warning("ignoring a cursor that is not a fan-in cursor (%r); starting fresh", after)
+        return {}
     return dict(value)
 
 
@@ -214,10 +237,12 @@ class EventsCliFanIn:
     """Several durable subscriptions drained as one :class:`EventSource`.
 
     The cursor is a JSON object mapping each subscription name to its own events-cli
-    cursor. A batch never holds more than ``max`` envelopes; the subscription drained
-    first rotates from call to call so a busy one cannot starve the others, and only the
-    first one drained in a call waits up to ``timeout`` (the others drain for the shortest
-    time events-cli allows, :data:`MIN_DRAIN_TIMEOUT`).
+    cursor; a cursor of any other shape (a legacy single-subscription one) starts fresh
+    with a warning. A batch never holds more than ``max`` envelopes; the subscription
+    drained first rotates from call to call so a busy one cannot starve the others, and
+    only the first one drained in a call waits up to ``timeout`` (the others drain for the
+    shortest time events-cli allows, :data:`MIN_DRAIN_TIMEOUT`). When ``timeout`` is itself
+    at most :data:`MIN_DRAIN_TIMEOUT`, every source is clamped to that bound.
     """
 
     def __init__(self, name: str, sources: Sequence[EventsCliSource]) -> None:
@@ -258,13 +283,18 @@ class EventsCliFanIn:
 
 
 def open_host_source(
-    host: str, *, patterns: Sequence[str] = DEFAULT_PATTERNS, **kwargs: Any
+    host: str, *, patterns: Sequence[str] | None = None, **kwargs: Any
 ) -> EventsCliFanIn:
     """This host's event source: one durable subscription per pattern, drained together.
 
     The subscription for ``patterns[i]`` is named ``culture-rules-<host>-d<i+1>``; the
-    fan-in itself (and so the ingest cursor slot) is ``culture-rules-<host>``.
+    fan-in itself (and so the ingest cursor slot) is ``culture-rules-<host>``. Without
+    ``patterns``, the depth comes from ``CULTURE_RULES_EVENTS_DEPTH`` (default 4).
     """
+    for logger_name in QUIET_LOGGERS:  # the per-cycle connect/disconnect INFO lines
+        logging.getLogger(logger_name).setLevel(logging.WARNING)
+    if patterns is None:
+        patterns = depth_patterns(configured_depth())
     name = subscription_name(host)
     api = kwargs.pop("api", None)
     if api is None:
