@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - 2026-10-04
+
+### Added
+
+- Typed triggers (#5): event triggers require params.type (trigger_type_required); schedule triggers (stdlib 5-field cron, UTC or an IANA tz, DST-safe, one run per slot on the placed host, no backfill); probe triggers run an allow-listed runner command on a cron and fire on change or on a condition over the output
+- App actors (kind app) for GitHub, Jira and Discord: declared events, probes and actions, connection secrets as grant:NAME references only
+- Webhook receivers POST /hooks/github (X-Hub-Signature-256) and POST /hooks/jira (HMAC or URL token, issues refetched by key), exempt from Access/auth by exact path only, deduped on delivery id, answering before any rule runs; query strings are stripped from access logs
+- Discord Gateway listener held by one node mesh-wide under a named lease (`discord-gateway:<actor>`), writing discord.message.created events; discord extra
+- Action kinds message (Discord or mesh), github.comment (as a GitHub App; github extra), jira.comment, http.call (destination allowlist, private/tailnet ranges refused, pinned address, no redirects) and machine.command (runner CodeRunner with typed args), registered as node action ports
+- Rule actions dispatch through the actor named in params.actor with that actor's limits; an unknown or disabled actor fails the run with actor_unavailable
+- Self-authored events (our App, bot or service account) do not fire rules unless the trigger sets include_self; per-rule fire-rate cap trigger.params.max_fires_per_hour (default 60, schedule triggers uncapped) records rate_capped skips
+- Direct workflow runs: POST /workflows/{id}/run and `workflows run` (CLI and MCP) with typed inputs validated against the declared ports, pinning a synthetic `adhoc:<workflow>` rule
+- A human actor is created on first Access sign-in (id from the email, or linked to an existing human with the same params.email)
+- `actors enrol-agents`: enrols the mesh agents listed in ~/.culture/server.yaml as agent actors for this machine, disabling (never deleting) ones no longer listed
+- `rules migrate-typeless` and `runs backfill-ids` (admin, dry-run by default)
+- /health reports webhook delivery outcomes per actor and the Discord gateway holder and state
+- Editor: typed trigger picker and action picker with mapping chips; Actors tab app connection, declarations and runner command editors; Workflows tab run form with typed inputs and outputs in place, full step properties, selectable in/out nodes with inputs, outputs, variables and description editors, deleted-workflow view with admin purge, guided errors with fix options
+- deploy/node/install.sh (dry-run by default, offline wheelhouse) and ops docs for the cache rule, hook Bypass paths, GitHub App, Discord bot, Jira webhook, kill switches and the four-node upgrade order
+- Optional extras github (cryptography) and discord (discord.py); every module imports with them absent
+
+### Changed
+
+- Run docs carry top-level rule_id and workflow_id; rule history and run lists filter in the store
+- Heartbeat online threshold derives from the beat cadence (offline_after); a missing heartbeat counts as offline, an unreadable one as online
+- WorkflowRef.inputs accepts {"$ref"} and {"$literal"} forms
+- The chain feed skips its shared transaction when no rule depends on the finished rule; a legacy events cursor starts fresh; event subscription depth is configurable (CULTURE_RULES_EVENTS_DEPTH)
+- Switches are disabled while a toggle is in flight
+
+### Fixed
+
+- An event trigger with no type no longer matches every event
+- A predecessor decision written final in one step on another host now cascades to its dependants
+- Tall workflows no longer overflow the canvas; the workflow list dot resolves actor placement to its machine
+
 ## [0.10.5] - 2026-10-03
 
 ### Added

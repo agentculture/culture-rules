@@ -11,8 +11,9 @@ package is `culture_rules`. Its backend is Python, and its visual editor is
 a Node.js + React Flow (`@xyflow/react`) app in `web/` with four tabs:
 **Rules | Workflows | Actors | Statistics**.
 
-**Status: built and shipped on `rules/build`** (the engine, API, node, CLI,
-MCP server, editor and ops docs exist on disk). guildmaster provisioned the
+**Status: the first mile is built and shipped** (PR #4, merged to `main`: the
+engine, API, node, CLI, MCP server, editor and ops docs exist on disk), and
+the **second mile** (issues #5–#7) is built on `rules/second-mile`. guildmaster provisioned the
 repo from `culture-agent-template`; the build then followed the devague
 plan. What exists today:
 
@@ -34,10 +35,26 @@ plan. What exists today:
   `culture_rules/web_dist` and served by the API. CI has a `web` job.
 - **Ops docs** in `docs/operations/` (replica set, backup, rules.culture.dev)
   and the executed walkthrough in `docs/demo.md`.
+- **Second mile** (spec `docs/specs/2026-10-03-culture-rules-second-mile.md`):
+  - typed triggers: `event` needs `params.type`; `schedule` (stdlib cron,
+    UTC or an IANA tz); `probe` (a runner command on a cron, fires on
+    change or a condition);
+  - `app` actors for GitHub, Jira and Discord with webhook receivers at
+    exactly `POST /hooks/github` and `POST /hooks/jira`, plus a Discord
+    Gateway listener held by one node under a named lease;
+  - action kinds `message`, `github.comment` (as a GitHub App),
+    `jira.comment`, `http.call` (destination allowlist) and
+    `machine.command`, dispatched through the actor in `params.actor`;
+  - direct workflow runs (`workflows run`), a human actor on first sign-in,
+    `actors enrol-agents`, `rules migrate-typeless`, `runs backfill-ids`;
+  - the editor's trigger and action pickers, Actors app and command
+    editors, and the Workflows run form, step panel and in/out editors.
 
 Approved deviations from the plan: **d1** `Rule.placement` (where a rule's
 trigger and condition evaluate), **d2** the `grant` tool replaces shushu for
-secret references, **d3** the engine node daemon. Persisted state lives in a
+secret references, **d3** the engine node daemon. The second-mile plan has
+its own deviations d1–d5 (in `.devague/plans/culture-rules-second-mile.json`).
+Persisted state lives in a
 MongoDB replica set; only `MemoryStore` (tests) is in-process.
 
 Two GitHub issues drove the build:
