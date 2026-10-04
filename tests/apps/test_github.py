@@ -175,3 +175,36 @@ def test_api_base_configurable(pem):
     )
     app.post_comment("a/b", 3, "x")
     assert fake.calls[0][1] == "http://localhost:9/app/installations/2/access_tokens"
+
+
+class Revoking(Fake):
+    """The first ``n`` comment calls answer 401, as after a server-side token revocation."""
+
+    def __init__(self, n):
+        super().__init__()
+        self.left = n
+
+    def __call__(self, method, url, headers, body, timeout):
+        if not url.endswith("/access_tokens") and self.left:
+            self.left -= 1
+            self.calls.append((method, url, dict(headers), body))
+            return 401, b'{"message": "Bad credentials"}'
+        return super().__call__(method, url, headers, body, timeout)
+
+
+def test_a_revoked_cached_token_is_re_exchanged_once(pem):
+    fake = Revoking(1)
+    app, _ = make(pem, fake)
+    app.installation_token()  # cached, then revoked server-side
+    assert app.post_comment("acme/widgets", 5, "hello")["comment_id"] == 77
+    assert sum(c[1].endswith("/access_tokens") for c in fake.calls) == 2
+
+
+def test_a_401_with_a_fresh_token_is_not_retried_again(pem):
+    fake = Revoking(5)
+    app, _ = make(pem, fake)
+    with pytest.raises(GitHubError) as err:
+        app.post_comment("acme/widgets", 5, "hello")
+    assert err.value.code == "http_401"
+    assert not err.value.retryable
+    assert sum(not c[1].endswith("/access_tokens") for c in fake.calls) == 2

@@ -94,11 +94,14 @@ class GitHubCommentPort:
         actor_id = context.actor or input.get("actor")
         conn = self._connection(actor_id)
         if conn is None:
+            self._apps.pop(str(actor_id), None)  # deleted/disabled: free its key material
             return InvocationResult.failed("actor_not_found", retryable=False)
         repo = input.get("repo")
         allowed = {str(r).lower() for r in conn.get("repos") or ()}
-        if not isinstance(repo, str) or repo.lower() not in allowed:
+        if not GitHubApp.is_repo_name(repo) or repo.lower() not in allowed:
             return InvocationResult.failed("repo_not_allowed", retryable=False)
+        if not conn.get("app_id") or not conn.get("installation_id"):
+            return InvocationResult.failed("actor_misconfigured", retryable=False)
         try:
             number, body = int(input["number"]), str(input["body"])
         except (KeyError, TypeError, ValueError):
