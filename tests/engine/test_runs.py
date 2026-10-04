@@ -231,7 +231,7 @@ def test_rule_digest_changes_when_rule_changes(store, actor, clock):
     ex = make_executor(store, actor, clock)
     wf = workflow((step("a"),))
     d1 = ex.start(rule(), wf)["rule"]["digest"]
-    d2 = ex.start(rule(action=Action(kind="other")), wf)["rule"]["digest"]
+    d2 = ex.start(rule(action=Action(kind="message")), wf)["rule"]["digest"]
     assert d1 != d2
 
 
@@ -351,7 +351,7 @@ def test_lost_ack_on_step_is_not_executed_twice(store, clock):
 def test_lost_ack_on_rule_action_is_not_executed_twice(store, clock):
     a = FakeActor().on(ACTION_STEP, ("lose_ack", {"posted": True}))
     ex = make_executor(store, a, clock)
-    act = Action(kind="github.comment", params={"body": "hi"}, retry=RetryPolicy(max_attempts=3))
+    act = Action(kind="noop", params={"body": "hi"}, retry=RetryPolicy(max_attempts=3))
     run = ex.start(rule(workflow_id=None, action=act), None)
     ex.run_until_idle()
     doc = ex.run(run["id"])
@@ -377,7 +377,7 @@ def test_target_without_keys_is_never_blindly_retried(store, clock):
 
 def test_idempotent_action_without_key_support_may_retry(store, clock):
     a = FakeActor(idempotent=False).on(ACTION_STEP, ("fail", "flaky", True))
-    act = Action(kind="http.get", retry=RetryPolicy(max_attempts=2), idempotent=True)
+    act = Action(kind="noop", retry=RetryPolicy(max_attempts=2), idempotent=True)
     ex = make_executor(store, a, clock)
     run = ex.start(rule(workflow_id=None, action=act), None)
     ex.run_until_idle()

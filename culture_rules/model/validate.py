@@ -25,6 +25,7 @@ from typing import Any, Literal, get_args, get_origin
 from culture_rules.model import condition as condition_tree
 from culture_rules.model import serde
 from culture_rules.model.action import Action
+from culture_rules.model.action_kinds import ACTION_KINDS, is_lenient, param_type_ok, resolve_kind
 from culture_rules.model.actor import Actor
 from culture_rules.model.common import SCHEMA_VERSION, RetryPolicy
 from culture_rules.model.graph import find_cycle
@@ -307,6 +308,42 @@ def _check_placement(obj: Placement, path: str, errors: Errors) -> None:
 def _check_action(obj: Action, path: str, errors: Errors) -> None:
     _nonempty(obj, ("kind",), path, errors)
     _positive_number(obj.timeout_s, _join(path, "timeout_s"), errors)
+    if isinstance(obj.kind, str) and obj.kind.strip():
+        _check_action_kind(obj, path, errors)
+
+
+def _check_action_kind(obj: Action, path: str, errors: Errors) -> None:
+    """The kind must be catalogued and its params typed (see model/action_kinds.py)."""
+    spec = resolve_kind(obj.kind)
+    if spec is None:
+        _err(
+            errors,
+            _join(path, "kind"),
+            "action_kind_unknown",
+            f"unknown action kind {obj.kind!r}; expected one of {', '.join(ACTION_KINDS)}",
+        )
+        return
+    if not isinstance(obj.params, dict):
+        return
+    pp = _join(path, "params")
+    lenient = is_lenient(obj.kind)
+    for name, p in spec.params.items():
+        value = obj.params.get(name)
+        if value is None or (isinstance(value, str) and not value.strip()):
+            if p.required and not lenient:
+                _err(
+                    errors,
+                    _join(pp, name),
+                    "action_param_required",
+                    f"{obj.kind} requires params.{name}",
+                )
+        elif not param_type_ok(p, value):
+            _err(
+                errors,
+                _join(pp, name),
+                "action_param_type",
+                f"params.{name} must be {p.type} (or a reference/template)",
+            )
 
 
 def _check_trigger(obj: Trigger, path: str, errors: Errors) -> None:
