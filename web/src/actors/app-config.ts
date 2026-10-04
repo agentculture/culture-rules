@@ -136,7 +136,7 @@ export function appParamsFrom(draft: AppDraft, base: ActorParams | undefined): A
     return probe;
   });
   const next: ActorParams = {
-    ...(base ?? {}),
+    ...base,
     surface,
     connection: connection as AppActorParams["connection"],
     events: draft.events.map((e) => e.trim()),

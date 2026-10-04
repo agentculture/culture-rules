@@ -657,6 +657,37 @@ function runBlockReason(enabled: boolean | undefined, dirty: boolean | undefined
   return dirty ? "Save your changes to run them" : null;
 }
 
+/** The signed-in principal may purge (admin only). */
+function isAdminOf(whoami: ReturnType<typeof useWhoami>): boolean {
+  return whoami.status === "signed-in" && whoami.role === "admin";
+}
+
+/** The loaded definitions split into live and soft-deleted ones. */
+function useSplitDefs(loaded: { workflows?: WorkflowDef[] } | null) {
+  const all = loaded?.workflows;
+  return useMemo(() => {
+    const defs = all ?? [];
+    return {
+      workflows: defs.filter((w) => !w.deleted_at),
+      deletedDefs: defs.filter((w) => w.deleted_at),
+    };
+  }, [all]);
+}
+
+/** The draft's definition when it belongs to the current workflow. */
+function draftOf(
+  current: WorkflowDef | undefined | null,
+  draft: { id: string; def: WorkflowDef } | null | undefined,
+): WorkflowDef | null {
+  if (!current || draft?.id !== current.id) return null;
+  return draft.def;
+}
+
+/** The list loaded and holds no live workflow. */
+function isEmptyList(loaded: { listed?: boolean } | null, workflows: WorkflowDef[]): boolean {
+  return loaded !== null && Boolean(loaded.listed) && workflows.length === 0;
+}
+
 /**
  * The Workflows tab — the 'Chosen — Workflows' board (design canvas row
  * 'Chosen', direction B "Map"): the workflow's name and version, the io
@@ -686,7 +717,7 @@ export function Workflows() {
   const [showDeleted, setShowDeleted] = useState(false);
   const [loaded, setLoaded] = useWorkflowsLoad(reload, showDeleted);
   const whoami = useWhoami();
-  const isAdmin = whoami.status === "signed-in" && whoami.role === "admin";
+  const isAdmin = isAdminOf(whoami);
   const [purge, setPurge] = useState<PurgeState | null>(null);
   const [selectedStep, setSelectedStep] = useState<string | null>(null);
   const [editing, setEditing] = useState<Editing>(null);
@@ -708,9 +739,7 @@ export function Workflows() {
   const [runsTick, setRunsTick] = useState(0);
   const [runTick, setRunTick] = useState(0);
 
-  const allDefs = loaded?.workflows ?? [];
-  const workflows = useMemo(() => allDefs.filter((w) => !w.deleted_at), [allDefs]);
-  const deletedDefs = useMemo(() => allDefs.filter((w) => w.deleted_at), [allDefs]);
+  const { workflows, deletedDefs } = useSplitDefs(loaded);
   const wantedId = params.get("id");
   const current = pickWorkflow(workflows, wantedId);
   const runId = params.get("run");
@@ -727,8 +756,8 @@ export function Workflows() {
     setRunFormOpen(false);
   }, [current?.id]);
 
-  const workflow = current && draft?.id === current.id ? draft.def : null;
-  const empty = loaded !== null && loaded.listed && workflows.length === 0;
+  const workflow = draftOf(current, draft);
+  const empty = isEmptyList(loaded, workflows);
 
   // A workflow just created opens with the step `+` focused: add the first step.
   useFocusAddStep(focusAddStep, workflow?.id, stageRef, () => setFocusAddStep(null));
