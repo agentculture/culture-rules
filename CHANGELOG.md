@@ -10,6 +10,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - `deploy/node/install.sh --secret NAME` (repeatable) injects grant secrets into the node unit
+- `docs/actors/`: one setup guide per app actor (GitHub, Discord, Jira): creating or inviting the app, sealing secrets, injecting them, the actor definition, events, verification and troubleshooting
 - Ops doc: injected app secrets, actor pinning, the two path-scoped Access bypass apps, the Jira gateway base
 
 ### Fixed

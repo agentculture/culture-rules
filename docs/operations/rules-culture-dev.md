@@ -252,6 +252,9 @@ only when it is unset.
 
 ## GitHub App (dedicated to culture-rules)
 
+The full setup, invite and troubleshooting guide is
+[`docs/actors/github.md`](../actors/github.md); this section is the summary.
+
 Hand-turns, operator only; secrets go to `grant`, never into the repo.
 
 1. Create a new GitHub App for culture-rules. Webhook URL
@@ -278,6 +281,9 @@ Hand-turns, operator only; secrets go to `grant`, never into the repo.
 
 ## Discord bot
 
+The full setup, invite and troubleshooting guide is
+[`docs/actors/discord.md`](../actors/discord.md); this section is the summary.
+
 1. Create a Discord application and bot. Enable the privileged **MESSAGE
    CONTENT** intent. Invite it with permission to read and send messages in the
    target channels.
@@ -292,6 +298,9 @@ Exactly one node holds the gateway connection, through the named lease
 `culture-rules node run --once` never connects. Needs the `discord` extra.
 
 ## Jira webhook and service account
+
+The full setup, invite and troubleshooting guide is
+[`docs/actors/jira.md`](../actors/jira.md); this section is the summary.
 
 1. Seal the service-account token (`JIRA_SERVICE_ACCOUNT_TOKEN` already exists
    in `grant`) and a webhook token: `grant set RULES_JIRA_WEBHOOK_TOKEN - --hidden`.
