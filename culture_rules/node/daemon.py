@@ -63,7 +63,12 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from culture_rules.actors import human
-from culture_rules.apps.discord_gateway import Gateway, GatewayOptions, GatewaySupervisor
+from culture_rules.apps.discord_gateway import (
+    GATEWAY_STATE_COLLECTION,
+    Gateway,
+    GatewayOptions,
+    GatewaySupervisor,
+)
 from culture_rules.engine.claims import DEFAULT_LEASE
 from culture_rules.engine.decisions import RULE_DECISIONS
 from culture_rules.engine.named_lease import LEASES_COLLECTION
@@ -108,6 +113,7 @@ NODE_COLLECTIONS = (
     PROBE_STATE,
     LEASES_COLLECTION,
     HOOK_STATS_COLLECTION,
+    GATEWAY_STATE_COLLECTION,
 )
 """Collections a node touches (created up front on MongoDB)."""
 

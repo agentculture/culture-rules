@@ -25,7 +25,14 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 from culture_rules.actors.secrets import resolve
-from culture_rules.events.hook_sink import DUPLICATE, sink
+from culture_rules.events.hook_sink import (
+    BAD_REQUEST,
+    DUPLICATE,
+    TOO_LARGE,
+    UNAUTHORIZED,
+    record_outcome,
+    sink,
+)
 
 __all__ = ["MAX_BODY_BYTES", "SURFACE", "handle", "router"]
 
@@ -124,14 +131,17 @@ def handle(
     """Verify and record one GitHub delivery; return ``(status, json body)``."""
     del query  # GitHub signs the body; nothing in the query is trusted or used
     if len(body) > MAX_BODY_BYTES:
+        record_outcome(store, SURFACE, TOO_LARGE)
         return 413, {"error": "body too large"}
     h = {k.lower(): v for k, v in headers.items()}
     actor = _select_actor(store, h.get("x-github-hook-installation-target-id", "").strip())
     if actor is None or not _verified(actor, body, h.get("x-hub-signature-256", ""), secrets):
         _log.warning("github hook refused: unauthorized")
+        record_outcome(store, SURFACE, UNAUTHORIZED)
         return _UNAUTHORIZED
     delivery = h.get("x-github-delivery", "").strip()
     if not delivery:
+        record_outcome(store, SURFACE, BAD_REQUEST, actor.get("id"))
         return 400, {"error": "missing delivery id"}
     event = h.get("x-github-event", "")
     if event == "ping":
@@ -141,8 +151,10 @@ def handle(
     try:
         payload = json.loads(body)
     except ValueError:
+        record_outcome(store, SURFACE, BAD_REQUEST, actor.get("id"))
         return 400, {"error": "invalid payload"}
     if not isinstance(payload, dict):
+        record_outcome(store, SURFACE, BAD_REQUEST, actor.get("id"))
         return 400, {"error": "invalid payload"}
     action = payload.get("action")
     etype = _TYPES.get((event, action))
@@ -167,11 +179,13 @@ def router(store: Any, *, secrets: Callable[[str], str] | None = None) -> Any:
     async def github_hook(request: Request) -> JSONResponse:
         declared = request.headers.get("content-length", "")
         if declared.isdigit() and int(declared) > MAX_BODY_BYTES:
+            record_outcome(store, SURFACE, TOO_LARGE)
             return JSONResponse({"error": "body too large"}, status_code=413)
         chunks, size = [], 0
         async for chunk in request.stream():
             size += len(chunk)
             if size > MAX_BODY_BYTES:
+                record_outcome(store, SURFACE, TOO_LARGE)
                 return JSONResponse({"error": "body too large"}, status_code=413)
             chunks.append(chunk)
         status, out = handle(
