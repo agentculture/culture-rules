@@ -7,7 +7,7 @@ from typing import Any
 
 from culture_rules.cli import _api
 from culture_rules.cli._build import register_noun
-from culture_rules.cli._nounlib import ID, definition_verbs, seg, write
+from culture_rules.cli._nounlib import ID, definition_verbs, migration, seg, write
 from culture_rules.cli.registry import Context, Param, Verb
 
 NOUN = "rules"
@@ -23,6 +23,10 @@ def _replay(ctx: Context, rule_id: str | None = None, limit: int | None = None) 
     return _api.call(lambda: ctx.client.request("POST", "/replay", body=body))
 
 
+def _migrate_typeless(ctx: Context) -> Any:
+    return migration(ctx, "rules migrate-typeless", "/rules/migrate-typeless")
+
+
 VERBS: list[Verb] = [
     *definition_verbs(NOUN, "rule", "Rules say when work should happen.", exchange=True),
     Verb(
@@ -33,6 +37,15 @@ VERBS: list[Verb] = [
         (ID, Param("trigger", "object", "trigger payload (JSON)")),
         True,
         "editor",
+    ),
+    Verb(
+        NOUN,
+        "migrate-typeless",
+        "List event rules with no event type; --apply disables them (audited, never deleted)",
+        _migrate_typeless,
+        (),
+        True,
+        "admin",
     ),
     Verb(
         NOUN,

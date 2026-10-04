@@ -48,6 +48,17 @@ def write(
     return out
 
 
+def migration(ctx: Context, verb: str, path: str) -> dict[str, Any]:
+    """Call an admin migration route; the server plans it itself, so a dry-run shows the result."""
+    result = _api.call(lambda: ctx.client.request("POST", path, body={"apply": ctx.apply}))
+    return {
+        "verb": verb,
+        "applied": bool(result.get("applied")),
+        "dry_run": not ctx.apply,
+        "result": result,
+    }
+
+
 def sections_overview(noun: str, summary: str, ctx: Context, list_path: str) -> dict[str, Any]:
     """Descriptive overview of a noun: verbs plus a best-effort live count."""
     from culture_rules.cli.verbs import REGISTRY  # noqa: PLC0415

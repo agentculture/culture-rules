@@ -5,7 +5,8 @@
 - editor: create/update/enable/disable/delete/restore of definitions, import, export into a
   configured repository (``POST /export``, dry-run included), runs (start/cancel, and a direct
   workflow run) and answering asks;
-- admin: purge, service tokens, and engine/machine containment (pause/resume/drain/undrain).
+- admin: purge, the data migrations (typeless rules, run-id backfill), service tokens, and
+  engine/machine containment (pause/resume/drain/undrain).
 
 Saving a workflow step that carries inline script text is admin-only too, and so is adding or
 changing a runner actor's command registry (``params.commands``), but those depend on the body
@@ -25,6 +26,8 @@ _ADMIN_PATTERNS = (
     re.compile(r"^/service-tokens(/[^/]+)?$"),
     re.compile(r"^/machines/[^/]+/(drain|undrain)$"),
     re.compile(r"^/controls/(pause|resume)$"),
+    re.compile(r"^/rules/migrate-typeless$"),
+    re.compile(r"^/runs/backfill-ids$"),
 )
 # read-only operations that take a request body (no write happens)
 _VIEWER_POSTS = (re.compile(r"^/replay$"),)
