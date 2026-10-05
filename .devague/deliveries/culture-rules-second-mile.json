@@ -2,7 +2,7 @@
   "plan_slug": "culture-rules-second-mile",
   "schema_version": 2,
   "created": "2026-10-04T04:55:50Z",
-  "updated": "2026-10-05T04:40:40Z",
+  "updated": "2026-10-05T04:45:59Z",
   "deviations": [
     {
       "id": "d1",
@@ -339,6 +339,25 @@
       "status": "proposed",
       "superseded": false,
       "seq": 19
+    },
+    {
+      "id": "e15",
+      "obligation_ref": "o12",
+      "test_ref": "issue #7 closing comment (https://github.com/agentculture/culture-rules/issues/7#issuecomment-5988278505)",
+      "behavior_text": "each of the 22 issue #7 items is ticked with a linked test file and node id, a doc section, or a recorded decision (d1 for the record_decision read)",
+      "contract_text": "Every issue #7 item is closed with a test or doc change linked, and the full suite (pytest -n auto, vitest, Playwright) and SonarCloud quality gate pass on the PR",
+      "evidence_type": "observation",
+      "strength": "coverage",
+      "strength_basis": "the closing comment maps every item to a test or doc that exists in the repo at b20b543; the tests were not re-run per item for this record",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-05T04:55:00",
+        "commit": "b20b543"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 20
     }
   ],
   "deltas": [

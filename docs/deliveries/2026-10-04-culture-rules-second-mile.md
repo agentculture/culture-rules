@@ -157,7 +157,7 @@ Executed through `/assign-to-workforce`: 47 tasks in 13 waves on `rules/second-m
   - Discord lease held by `engine@spark` and connected, with `discord.message.created` events recorded;
   - round trip: run `run-eff78270974777a6be9d9f56bb6220fb` succeeded, Discord message `1556524557496619012`;
   - typeless rule save: HTTP 422 and CLI exit 1.
-- devague: obligations `o1`–`o13`, evidence `e1`–`e14` (13 pass, 1 fail: `e10`), deltas `b1`–`b4`. All are `proposed`, pending operator adjudication.
+- devague: obligations `o1`–`o13`, evidence `e1`–`e15` (14 pass, 1 fail: `e10`), deltas `b1`–`b4`. All are `proposed`, pending operator adjudication.
 - commits: `0e456ed..b20b543` on `main`
 - PRs: #8 (0.11.0), #9 (0.11.1), #10 (0.11.2), #11 (0.11.3), #12 (this validation); issues #5, #6, #7
 
@@ -178,7 +178,7 @@ Executed through `/assign-to-workforce`: 47 tasks in 13 waves on `rules/second-m
 | Only the two exact hook paths skip auth | high | `tests/server/test_auth_exemptions.py::test_walk_every_route_without_a_principal` (e14) · live: other paths 302 to Access |
 | Hidden grant secrets work for app actors | high | PR #11 · `tests/actors/test_secrets.py` · live e3/e5 depend on it |
 | Full suite and SonarCloud gate pass on the delivery PRs | high | e13: PRs #8, #10, #11 checks green, Sonar 0 open |
-| Every issue #7 item is closed with a linked test or doc | unverified | o12: issues not yet closed |
+| Every issue #7 item is closed with a linked test or doc | medium | e15: #7 closing comment maps all 22 items to tests, docs or `d1` (links checked, tests not re-run per item) |
 | A human signing in gets exactly one human actor | low | `d4` rollout step missed; duplicate `ori-nachum-gmail-com` exists |
 
 Lapse ledger evidence:
@@ -192,7 +192,7 @@ pending approval (not yet evidence): `l1`, `l2`, `l3`, `l4`, `l5`, `l6`, `l7`, `
 - `t18` / o8: give `github-pr-created` a type (for example `github.pr.opened`) in the editor, or delete it. Owner: operator.
 - `t16` / `d4`: set `params.email` on `nachos`, then soft-delete or merge the duplicate human actor `ori-nachum-gmail-com`. Owner: operator decision.
 - o9: an optional live one-hour `*/5` schedule run on thor.
-- o12: close issues #5, #6 and #7 with links to their tests and docs.
+- Issues #5, #6 and #7 are closed with linked tests and docs. #5's comment lists what is still open.
 - Adjudicate `o1`–`o13`, `e1`–`e14`, `b1`–`b4` and lapses `l1`–`l11` (operator).
 - Second-pass Qwen Code reviews of the remaining tasks and waves are still running. Confirmed findings go to follow-up PRs.
 - Follow-up issues to file:
