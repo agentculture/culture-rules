@@ -2,7 +2,7 @@
   "plan_slug": "culture-rules-second-mile",
   "schema_version": 2,
   "created": "2026-10-04T04:55:50Z",
-  "updated": "2026-10-04T06:02:57Z",
+  "updated": "2026-10-05T05:11:52Z",
   "deviations": [
     {
       "id": "d1",
@@ -73,7 +73,378 @@
       "seq": 5
     }
   ],
-  "evidence": [],
-  "deltas": [],
-  "supersessions": []
+  "evidence": [
+    {
+      "id": "e1",
+      "obligation_ref": "o2",
+      "test_ref": "live rules.culture.dev: rule test-jira-scrum21-to-discord, run run-eff78270974777a6be9d9f56bb6220fb",
+      "behavior_text": "a jira.comment.created delivery for SCRUM-21 (POST /hooks/jira 202) fired the rule; its message action ran on spark through discord-bot and Discord returned message 1556524557496619012, seen by the operator in #spark-tests",
+      "contract_text": "On rules.culture.dev, a GitHub PR opened on an allow-listed repo produces exactly 1 github.pr.opened event and exactly 1 App-authored comment from the rule that matches it, within 60 s; the same holds for a jira.issue.updated -> jira.comment and a discord.message.created -> Discord reply",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "observed live on 0.11.3; covers Jira webhook -> rule -> Discord message, not the jira.issue.updated -> jira.comment pair c41 names, and the 60 s bound was not timed (the run completed within the same minute)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-05T04:32:30",
+        "commit": "b20b543"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 6
+    },
+    {
+      "id": "e2",
+      "obligation_ref": "o4",
+      "test_ref": "tests/server/test_hooks_github.py",
+      "behavior_text": "signed deliveries recorded once as typed github.* events and deduped; unsigned or mis-signed answer 401 and write nothing",
+      "contract_text": "GitHub and Jira webhook receivers live on rules.culture.dev under one fixed path each (e.g. /hooks/github, /hooks/jira) covered by a path-scoped Cloudflare Access Bypass; each receiver authenticates the request itself (GitHub X-Hub-Signature-256 HMAC, Jira HMAC or URL token) and writes typed events into the shared events collection, deduped on the surface's delivery id",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "test module ran green at the named commit",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-05T04:39:12",
+        "commit": "b20b543"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 7
+    },
+    {
+      "id": "e3",
+      "obligation_ref": "o4",
+      "test_ref": "live rules.culture.dev: GitHub App redelivery of pull_request closed",
+      "behavior_text": "the App's redelivery answered 202 and was recorded as github.pr.closed for agentculture/culture-rules; a signed ping answered 200 pong; before the secret was injected every delivery answered 401",
+      "contract_text": "GitHub and Jira webhook receivers live on rules.culture.dev under one fixed path each (e.g. /hooks/github, /hooks/jira) covered by a path-scoped Cloudflare Access Bypass; each receiver authenticates the request itself (GitHub X-Hub-Signature-256 HMAC, Jira HMAC or URL token) and writes typed events into the shared events collection, deduped on the surface's delivery id",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "observed live on 0.11.3 through the Access bypass path",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-05T04:26:47",
+        "commit": "b20b543"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 8
+    },
+    {
+      "id": "e4",
+      "obligation_ref": "o5",
+      "test_ref": "tests/server/test_hooks_jira.py",
+      "behavior_text": "token/HMAC auth before parsing, issue refetch, typed jira.* events, 401 on a wrong token",
+      "contract_text": "GitHub and Jira webhook receivers live on rules.culture.dev under one fixed path each (e.g. /hooks/github, /hooks/jira) covered by a path-scoped Cloudflare Access Bypass; each receiver authenticates the request itself (GitHub X-Hub-Signature-256 HMAC, Jira HMAC or URL token) and writes typed events into the shared events collection, deduped on the surface's delivery id",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "test module ran green at the named commit",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-05T04:39:12",
+        "commit": "b20b543"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 9
+    },
+    {
+      "id": "e5",
+      "obligation_ref": "o5",
+      "test_ref": "live rules.culture.dev: Jira system webhook delivery",
+      "behavior_text": "a comment on SCRUM-21 was delivered to POST /hooks/jira, answered 202, and was recorded as jira.comment.created (key SCRUM-21, project SCRUM, self_authored true)",
+      "contract_text": "GitHub and Jira webhook receivers live on rules.culture.dev under one fixed path each (e.g. /hooks/github, /hooks/jira) covered by a path-scoped Cloudflare Access Bypass; each receiver authenticates the request itself (GitHub X-Hub-Signature-256 HMAC, Jira HMAC or URL token) and writes typed events into the shared events collection, deduped on the surface's delivery id",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "observed live on 0.11.3 after the operator registered the webhook",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-05T04:24:39",
+        "commit": "b20b543"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 10
+    },
+    {
+      "id": "e6",
+      "obligation_ref": "o6",
+      "test_ref": "tests/apps/test_discord_gateway.py",
+      "behavior_text": "one lease holder connects and writes each message once; resume replays land once; an actor on another machine is not listened for",
+      "contract_text": "A Discord app actor runs a Gateway bot listener as a long-lived, placed service (one holder at a time, like a lease) that turns gateway events into typed events (discord.message.created, ...) in the shared events collection; the same bot token sends the Discord message action",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "test module ran green at the named commit",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-05T04:39:12",
+        "commit": "b20b543"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 11
+    },
+    {
+      "id": "e7",
+      "obligation_ref": "o6",
+      "test_ref": "live rules.culture.dev: lease discord-gateway:discord-bot",
+      "behavior_text": "the lease is held by engine@spark with the gateway connected; discord.message.created events from #spark and #sensibo are in the events collection",
+      "contract_text": "A Discord app actor runs a Gateway bot listener as a long-lived, placed service (one holder at a time, like a lease) that turns gateway events into typed events (discord.message.created, ...) in the shared events collection; the same bot token sends the Discord message action",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "observed live on 0.11.3 after all four nodes were upgraded (a 0.11.2 node held the lease without a token until then)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-05T04:03:42",
+        "commit": "b20b543"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 12
+    },
+    {
+      "id": "e8",
+      "obligation_ref": "o7",
+      "test_ref": "tests/model/test_trigger_validation.py::test_event_requires_type",
+      "behavior_text": "an event trigger without a non-empty params.type fails validation with trigger_type_required",
+      "contract_text": "An event rule with no params.type is refused on save (HTTP 422, CLI exit 1) and 0 typeless event triggers remain in the live rules collection after migration",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "test ran green at the named commit",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-05T04:39:12",
+        "commit": "b20b543"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 13
+    },
+    {
+      "id": "e9",
+      "obligation_ref": "o7",
+      "test_ref": "live rules.culture.dev: POST /rules and culture-rules rules create --apply with a typeless event rule",
+      "behavior_text": "the API answered HTTP 422 trigger_type_required, the CLI exited 1, and no rule was stored",
+      "contract_text": "An event rule with no params.type is refused on save (HTTP 422, CLI exit 1) and 0 typeless event triggers remain in the live rules collection after migration",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "probed live on 0.11.3 with a disabled throwaway rule id; nothing was written",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-05T04:40:00",
+        "commit": "b20b543"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 14
+    },
+    {
+      "id": "e10",
+      "obligation_ref": "o8",
+      "test_ref": "live rules.culture.dev: rules collection after rules migrate-typeless --apply",
+      "behavior_text": "github-pr-created is still an event trigger without params.type; the migration disabled it but it remains, so 1 typeless event trigger is left, not 0",
+      "contract_text": "An event rule with no params.type is refused on save (HTTP 422, CLI exit 1) and 0 typeless event triggers remain in the live rules collection after migration",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "read from the live store after the migration was applied",
+      "outcome": "fail",
+      "run": {
+        "timestamp": "2026-10-05T04:40:00",
+        "commit": "b20b543"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": true,
+      "seq": 15
+    },
+    {
+      "id": "e11",
+      "obligation_ref": "o9",
+      "test_ref": "tests/node/test_schedule.py::test_every_five_minutes_fires_twelve_runs_on_the_placed_host_and_none_elsewhere + ::test_a_node_restart_mid_hour_neither_refires_nor_duplicates",
+      "behavior_text": "a */5 rule placed on one host fires 12 runs in an hour, all on that host; a restart mid-hour neither refires nor duplicates",
+      "contract_text": "A schedule rule placed on thor with cron `*/5 * * * *` fires exactly 1 run per slot over 1 hour (12 runs), all on thor, including across a node restart",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "multi-host simulation with a shared MemoryStore ran green; the live one-hour run on thor was not performed",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-05T04:39:12",
+        "commit": "b20b543"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 16
+    },
+    {
+      "id": "e12",
+      "obligation_ref": "o10",
+      "test_ref": "web/e2e/workflows-flows.spec.ts (8 tests, Playwright chromium)",
+      "behavior_text": "Run opens a typed form, POSTs typed inputs, overlays the run and shows its outputs; step panel, in/out editors and purge flows",
+      "contract_text": "A workflow with 2 typed inputs is run from the Workflows tab input form with 0 rules referencing it, and its outputs render in place; Playwright covers it and CI's web job stays green",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Playwright spec ran green locally at the named commit; CI web job green on PRs #8, #10, #11",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-05T04:39:12",
+        "commit": "b20b543"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 17
+    },
+    {
+      "id": "e13",
+      "obligation_ref": "o11",
+      "test_ref": "GitHub checks on PRs #8, #10, #11",
+      "behavior_text": "test (two jobs), web (vitest + Playwright), lint, harness-smoke, version-check pass and the SonarCloud gate is OK with 0 open issues on each PR head before merge",
+      "contract_text": "Every issue #7 item is closed with a test or doc change linked, and the full suite (pytest -n auto, vitest, Playwright) and SonarCloud quality gate pass on the PR",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "read from gh pr checks and the SonarCloud API at each merge",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-05T04:39:12",
+        "commit": "b20b543"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 18
+    },
+    {
+      "id": "e14",
+      "obligation_ref": "o13",
+      "test_ref": "tests/server/test_auth_exemptions.py::test_walk_every_route_without_a_principal",
+      "behavior_text": "every route except the two exact hook paths refuses a request without a principal",
+      "contract_text": "Webhook receiver paths are exempt from the app's own auth middleware by exact path match (a Cloudflare Bypass request carries no Access JWT); every other path still requires a principal, pinned by a test that walks all routes",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "test ran green at the named commit",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-05T04:39:12",
+        "commit": "b20b543"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 19
+    },
+    {
+      "id": "e15",
+      "obligation_ref": "o12",
+      "test_ref": "issue #7 closing comment (https://github.com/agentculture/culture-rules/issues/7#issuecomment-5988278505)",
+      "behavior_text": "each of the 22 issue #7 items is ticked with a linked test file and node id, a doc section, or a recorded decision (d1 for the record_decision read)",
+      "contract_text": "Every issue #7 item is closed with a test or doc change linked, and the full suite (pytest -n auto, vitest, Playwright) and SonarCloud quality gate pass on the PR",
+      "evidence_type": "observation",
+      "strength": "coverage",
+      "strength_basis": "the closing comment maps every item to a test or doc that exists in the repo at b20b543; the tests were not re-run per item for this record",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-05T04:55:00",
+        "commit": "b20b543"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 20
+    },
+    {
+      "id": "e16",
+      "obligation_ref": "o8",
+      "test_ref": "live rules.culture.dev: rules collection after github-pr-created was given trigger.params.type github.pr.opened",
+      "behavior_text": "no non-deleted event rule lacks params.type (0 typeless event triggers); github-pr-created is typed and still disabled",
+      "contract_text": "An event rule with no params.type is refused on save (HTTP 422, CLI exit 1) and 0 typeless event triggers remain in the live rules collection after migration",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "read from the live store after the operator chose to type the rule; supersedes the earlier failing reading",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-05T05:11:44",
+        "commit": "b20b543"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 21
+    }
+  ],
+  "deltas": [
+    {
+      "id": "b1",
+      "kind": "added",
+      "behavior_text": "app secrets sealed --hidden are injected by the service unit as CULTURE_RULES_SECRET_<NAME> and a grant:<NAME> reference resolves to that variable before grant get (0.11.3); grant get alone could not read hidden secrets, so no app actor could authenticate",
+      "caused_by": [
+        "c34"
+      ],
+      "evidence_refs": [
+        "e3",
+        "e5"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b2",
+      "kind": "amended",
+      "behavior_text": "a rule action through an actor that has a machine runs on that machine, and only that machine's node holds the actor's Discord gateway lease (0.11.3); before, any node could run the action or take the lease without the actor's secrets",
+      "caused_by": [
+        "c35"
+      ],
+      "evidence_refs": [
+        "e7"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b3",
+      "kind": "amended",
+      "behavior_text": "the path-scoped Access Bypass is two separate self-hosted Access applications (rules.culture.dev/hooks/github and /hooks/jira), since Access policies carry no path; the spec described path-scoped policies on the existing application",
+      "caused_by": [
+        "c32"
+      ],
+      "evidence_refs": [
+        "e3"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b4",
+      "kind": "amended",
+      "behavior_text": "migrate-typeless disables typeless event rules and leaves them in place for an operator to type; it does not reach 0 typeless triggers on its own",
+      "caused_by": [
+        "c42"
+      ],
+      "evidence_refs": [
+        "e10"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    }
+  ],
+  "supersessions": [
+    {
+      "id": "s1",
+      "action": "supersede",
+      "target_ref": "e10",
+      "replacement_ref": "e16",
+      "origin": "llm"
+    }
+  ]
 }
