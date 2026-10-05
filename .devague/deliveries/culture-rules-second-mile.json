@@ -2,7 +2,7 @@
   "plan_slug": "culture-rules-second-mile",
   "schema_version": 2,
   "created": "2026-10-04T04:55:50Z",
-  "updated": "2026-10-05T04:45:59Z",
+  "updated": "2026-10-05T05:11:52Z",
   "deviations": [
     {
       "id": "d1",
@@ -261,7 +261,7 @@
       },
       "origin": "llm",
       "status": "proposed",
-      "superseded": false,
+      "superseded": true,
       "seq": 15
     },
     {
@@ -358,6 +358,25 @@
       "status": "proposed",
       "superseded": false,
       "seq": 20
+    },
+    {
+      "id": "e16",
+      "obligation_ref": "o8",
+      "test_ref": "live rules.culture.dev: rules collection after github-pr-created was given trigger.params.type github.pr.opened",
+      "behavior_text": "no non-deleted event rule lacks params.type (0 typeless event triggers); github-pr-created is typed and still disabled",
+      "contract_text": "An event rule with no params.type is refused on save (HTTP 422, CLI exit 1) and 0 typeless event triggers remain in the live rules collection after migration",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "read from the live store after the operator chose to type the rule; supersedes the earlier failing reading",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-05T05:11:44",
+        "commit": "b20b543"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 21
     }
   ],
   "deltas": [
@@ -419,5 +438,13 @@
       "superseded": false
     }
   ],
-  "supersessions": []
+  "supersessions": [
+    {
+      "id": "s1",
+      "action": "supersede",
+      "target_ref": "e10",
+      "replacement_ref": "e16",
+      "origin": "llm"
+    }
+  ]
 }

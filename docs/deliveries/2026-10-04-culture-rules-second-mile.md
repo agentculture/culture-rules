@@ -63,7 +63,7 @@ Executed through `/assign-to-workforce`: 47 tasks in 13 waves on `rules/second-m
 
 ## Actual Delivery
 
-46 of 47 tasks delivered, 2 partial (`t16`, `t47`), 0 dropped, 0 blocked. `t1`–`t46` merged in PR #8 (`4e59767`).
+46 of 47 tasks delivered, 1 partial (`t47`), 0 dropped, 0 blocked. `t1`–`t46` merged in PR #8 (`4e59767`).
 
 | Plan task | Status | What actually landed |
 |-----------|--------|----------------------|
@@ -82,7 +82,7 @@ Executed through `/assign-to-workforce`: 47 tasks in 13 waves on `rules/second-m
 | `t13` | delivered | `culture_rules/server/hooks/github.py`; live 202 on rules.culture.dev (e3) |
 | `t14` | delivered | `culture_rules/server/hooks/jira.py`, `culture_rules/apps/jira.py`; live 202 (e5) |
 | `t15` | delivered | `HOOK_PATHS` exact-path exemption in `culture_rules/server/app.py`; route-walk test (e14) |
-| `t16` | partial | `culture_rules/server/humans.py` with link-by-email (`d4`); the rollout half of `d4` was missed: see Drift |
+| `t16` | delivered | `culture_rules/server/humans.py` with link-by-email (`d4`); the rollout half of `d4` was missed at first, then fixed on 2026-10-05: see Drift |
 | `t17` | delivered | store-side history filters and `backfill_run_ids` in `culture_rules/store/migrations.py`; applied live (2 runs) |
 | `t18` | delivered | `rules migrate-typeless` (+ `runs backfill-ids`, `d5`); applied live: `github-pr-created` disabled |
 | `t19` | delivered | `culture_rules/node/schedule.py`; malformed-doc wedge fixed in 0.11.2 (#10) |
@@ -139,10 +139,10 @@ Executed through `/assign-to-workforce`: 47 tasks in 13 waves on `rules/second-m
 | `t36` (`d3`) | the Machine model declares no events, so a machine cannot be an event surface without a model change; probe triggers already cover machine-side signals | `acceptable` |
 | `t16` (`d4`) | live store already holds human actor 'nachos' (Ori Nachum, no email); slug-only creation would duplicate the operator; operator chose link-by-email | `acceptable` |
 | `t18` (`d5`) | t17's backfill had no caller; old runs stay missing from history and run filters until it runs; operator chose a CLI verb | `acceptable` |
-| `t16` (`d4`) | the rollout did not set `params.email` on `nachos` before the operator's first sign-in on 0.11.x, so sign-in created a second human actor `ori-nachum-gmail-com` | `needs-follow-up` |
+| `t16` (`d4`) | the rollout did not set `params.email` on `nachos` before the operator's first sign-in on 0.11.x, so sign-in created a second human actor `ori-nachum-gmail-com`. Fixed: `nachos` now has the email, and the duplicate is soft-deleted (operator's choice) | `acceptable` |
 | `t47` | secrets as planned (`grant get`) could not read hidden secrets; required a code change (0.11.3) mid-rollout | `acceptable` |
 | `t47` | c41's three round trips: only Jira → rule → Discord was run; GitHub → comment and Discord → reply not run | `needs-follow-up` |
-| `t18` | `migrate-typeless` disables typeless rules; c42's "0 typeless remain" needs `github-pr-created` typed or deleted | `needs-follow-up` |
+| `t18` | `migrate-typeless` disables typeless rules and does not reach zero alone. The operator typed `github-pr-created` (`github.pr.opened`, still disabled), and 0 remain (e16) | `acceptable` |
 | `t45` | the Access Bypass recipe described policies on the existing app; reality is separate path apps (docs corrected in #11) | `acceptable` |
 
 ## Evidence
@@ -157,7 +157,7 @@ Executed through `/assign-to-workforce`: 47 tasks in 13 waves on `rules/second-m
   - Discord lease held by `engine@spark` and connected, with `discord.message.created` events recorded;
   - round trip: run `run-eff78270974777a6be9d9f56bb6220fb` succeeded, Discord message `1556524557496619012`;
   - typeless rule save: HTTP 422 and CLI exit 1.
-- devague: obligations `o1`–`o13`, evidence `e1`–`e15` (14 pass, 1 fail: `e10`), deltas `b1`–`b4`. All are `proposed`, pending operator adjudication.
+- devague: obligations `o1`–`o13`, evidence `e1`–`e16` (15 pass, 1 fail `e10` superseded by `e16`), deltas `b1`–`b4`. The obligations are approved by the operator; evidence, deltas and lapses are still `proposed`.
 - commits: `0e456ed..b20b543` on `main`
 - PRs: #8 (0.11.0), #9 (0.11.1), #10 (0.11.2), #11 (0.11.3), #12 (this validation); issues #5, #6, #7
 
@@ -172,14 +172,14 @@ Executed through `/assign-to-workforce`: 47 tasks in 13 waves on `rules/second-m
 | An event can fire a rule whose action acts through an app actor | high | live e1: run `run-eff78270974777a6be9d9f56bb6220fb`, Discord message `1556524557496619012` |
 | A GitHub PR opened produces exactly one App comment within 60 s | unverified | o1 not run (no evidence; not claimed done) |
 | A Discord message produces a Discord reply within 60 s | unverified | o3 not run (no evidence; not claimed done) |
-| No typeless event triggers remain after migration | low | e10 **fail**: `github-pr-created` still typeless (disabled) |
+| No typeless event triggers remain after migration | high | e16: 0 typeless in the live store after the operator typed `github-pr-created` (supersedes the failing e10, `s1`) |
 | Schedule triggers fire once per slot on the placed host across restarts | medium | `tests/node/test_schedule.py` (multi-host simulation, e11); live one-hour run on thor not performed |
 | Workflows run from the typed form with outputs in place | high | `web/e2e/workflows-flows.spec.ts` (e12) · PRs #8, #11 CI `web` job green |
 | Only the two exact hook paths skip auth | high | `tests/server/test_auth_exemptions.py::test_walk_every_route_without_a_principal` (e14) · live: other paths 302 to Access |
 | Hidden grant secrets work for app actors | high | PR #11 · `tests/actors/test_secrets.py` · live e3/e5 depend on it |
 | Full suite and SonarCloud gate pass on the delivery PRs | high | e13: PRs #8, #10, #11 checks green, Sonar 0 open |
 | Every issue #7 item is closed with a linked test or doc | medium | e15: #7 closing comment maps all 22 items to tests, docs or `d1` (links checked, tests not re-run per item) |
-| A human signing in gets exactly one human actor | low | `d4` rollout step missed; duplicate `ori-nachum-gmail-com` exists |
+| A human signing in gets exactly one human actor | medium | `d4` link-by-email in `culture_rules/server/humans.py`; `nachos` now has `params.email`, and the duplicate from the missed step is soft-deleted (no new sign-in observed since) |
 
 Lapse ledger evidence:
 
@@ -189,11 +189,9 @@ pending approval (not yet evidence): `l1`, `l2`, `l3`, `l4`, `l5`, `l6`, `l7`, `
 
 - `t47` / o1: a GitHub PR opened → `github.comment` round trip. Next step: a temporary rule on a throwaway PR. Owner: operator approval, then agent.
 - `t47` / o3: a Discord message → Discord reply round trip. Next step: a temporary rule on #spark-tests.
-- `t18` / o8: give `github-pr-created` a type (for example `github.pr.opened`) in the editor, or delete it. Owner: operator.
-- `t16` / `d4`: set `params.email` on `nachos`, then soft-delete or merge the duplicate human actor `ori-nachum-gmail-com`. Owner: operator decision.
 - o9: an optional live one-hour `*/5` schedule run on thor.
 - Issues #5, #6 and #7 are closed with linked tests and docs. #5's comment lists what is still open.
-- Adjudicate `o1`–`o13`, `e1`–`e14`, `b1`–`b4` and lapses `l1`–`l11` (operator).
+- Adjudicate evidence `e1`–`e16`, deltas `b1`–`b4` and lapses `l1`–`l11` (operator). Obligations `o1`–`o13` are approved.
 - Second-pass Qwen Code reviews of the remaining tasks and waves are still running. Confirmed findings go to follow-up PRs.
 - Follow-up issues to file:
   - a custom heartbeat cadence (r7);
@@ -205,4 +203,5 @@ pending approval (not yet evidence): `l1`, `l2`, `l3`, `l4`, `l5`, `l6`, `l7`, `
   - residual raw error text in the Rules and Workflows tabs;
   - a live Jira project picker;
   - agent-activity event sources.
+- `github-pr-created` is typed but still disabled: its action is the placeholder `mesh.message` with no channel or text. Give it a real action before enabling it.
 - Two test comments by the service account remain on SCRUM-21 (marked safe to delete). The test rule `test-jira-scrum21-to-discord` is disabled.
