@@ -4,10 +4,12 @@ An :class:`~culture_rules.model.action.Action` has no actor slot; an action that
 actor capability names the actor in ``params.actor`` (an actor id, or a reference). Per kind
 this module says which params exist, their types and which are required.
 
-Actor policy: ``github.comment``, ``jira.comment``, ``http.call`` and ``machine.command``
-always need ``params.actor`` (the credentialed or executing party). ``message`` does not:
-omitting the actor sends on the Culture mesh; naming one (e.g. a discord app actor) routes
-through it. ``mesh.message`` is a legacy alias of ``message`` (the web editor's placeholder).
+Actor policy: ``discord.message``, ``github.comment``, ``jira.comment``, ``http.call`` and
+``machine.command`` always need ``params.actor`` (the credentialed or executing party).
+``message`` sends on the Culture mesh and takes no actor; a stored ``message`` that still names
+a Discord app actor (the form before ``discord.message`` existed) keeps posting through it.
+``discord.message`` posts to a Discord channel through a Discord app actor; ``guild`` records
+the server the channel was picked from. ``mesh.message`` is a legacy alias of ``message``.
 
 Any param value may be a reference (``trigger.data.number``), a ``{"$ref": ...}`` object or a
 ``{{ }}`` template, accepted wherever a typed value is expected. Extra params are tolerated.
@@ -52,8 +54,16 @@ _KINDS = (
     _k("noop", "Do nothing (placeholder, tests)"),
     _k(
         "message",
-        "Send a message; actor omitted means the Culture mesh",
-        actor=_S,
+        "Send a message on the Culture mesh",
+        actor=_S,  # legacy: a Discord app actor here still posts to Discord
+        channel=_RS,
+        text=_RS,
+    ),
+    _k(
+        "discord.message",
+        "Post a message on Discord through a Discord app actor",
+        actor=_RS,
+        guild=_S,
         channel=_RS,
         text=_RS,
     ),

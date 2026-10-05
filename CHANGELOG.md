@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] - 2026-10-05
+
+### Added
+
+- `discord.message` action ("Post a message on Discord"): actor, server and channel picked from what the bot can see; the channel can be mapped from the trigger to reply in place
+- `GET /actors/{id}/discord/targets` and `culture-rules actors discord-targets <id>` (CLI and MCP): the servers and text channels a Discord app actor can post to, with private channels the bot was not added to marked
+
+### Changed
+
+- `message` is "Send a message on the mesh" only and takes no actor in the editor; a stored `message` naming a Discord actor still posts to Discord and is shown as a Discord message
+- Action picker mapping fields use the real event data names (`repository`, `key`, `project`, `channel_id`, `content`, ...)
+- docs/actors/discord.md: posting a message; the API needs the bot token injected for the channel list
+
 ## [0.11.4] - 2026-10-05
 
 ### Changed

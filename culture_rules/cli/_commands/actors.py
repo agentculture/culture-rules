@@ -8,7 +8,7 @@ from typing import Any
 from culture_rules.cli import _api
 from culture_rules.cli._build import register_noun
 from culture_rules.cli._errors import EXIT_ENV_ERROR, EXIT_USER_ERROR, CliError
-from culture_rules.cli._nounlib import definition_verbs, seg
+from culture_rules.cli._nounlib import ID, definition_verbs, seg
 from culture_rules.cli.registry import Context, Param, Verb
 
 NOUN = "actors"
@@ -94,6 +94,11 @@ def _enrol_agents(
     }
 
 
+def _discord_targets(ctx: Context, id: str) -> dict[str, Any]:
+    """The servers and text channels a Discord app actor's bot can post to."""
+    return _api.call(lambda: ctx.client.request("GET", f"/actors/{seg(id)}/discord/targets"))
+
+
 VERBS: list[Verb] = [
     *definition_verbs(NOUN, "actor", "Actors are who or what can perform work.", exchange=True),
     Verb(
@@ -107,6 +112,13 @@ VERBS: list[Verb] = [
         ),
         True,
         "editor",
+    ),
+    Verb(
+        NOUN,
+        "discord-targets",
+        "List the Discord servers and channels a Discord app actor's bot can post to",
+        _discord_targets,
+        (ID,),
     ),
 ]
 

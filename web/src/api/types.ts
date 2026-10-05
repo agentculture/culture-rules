@@ -94,6 +94,7 @@ export type ActionKind =
   | "noop"
   | "message"
   | "mesh.message"
+  | "discord.message"
   | "github.comment"
   | "jira.comment"
   | "http.call"
@@ -102,8 +103,9 @@ export type ActionKind =
 /**
  * An action. A param may be a literal, a reference (`trigger.data.number`), a `{"$ref"}` object
  * or a `{{ }}` template. `params.actor` names the credentialed or executing actor (required
- * for github.comment, jira.comment, http.call and machine.command; optional for `message`,
- * where omitting it sends on the Culture mesh).
+ * for discord.message, github.comment, jira.comment, http.call and machine.command). `message`
+ * sends on the Culture mesh; a stored `message` that still names a Discord actor is the older
+ * form of `discord.message`.
  */
 export interface Action {
   kind: ActionKind | (string & Record<never, never>);

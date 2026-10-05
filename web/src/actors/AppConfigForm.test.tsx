@@ -66,7 +66,15 @@ describe("AppConfigForm", () => {
   it("offers the catalogued action kinds as toggles", async () => {
     const user = userEvent.setup();
     render(<Harness initial={{ ...emptyAppDraft(), surface: "github" }} />);
-    for (const kind of ["noop", "message", "github.comment", "jira.comment", "http.call", "machine.command"]) {
+    for (const kind of [
+      "noop",
+      "message",
+      "discord.message",
+      "github.comment",
+      "jira.comment",
+      "http.call",
+      "machine.command",
+    ]) {
       expect(screen.getByRole("checkbox", { name: new RegExp(`^${kind.replace(".", "\\.")}`) })).toBeInTheDocument();
     }
     await user.click(screen.getByRole("checkbox", { name: /^github\.comment/ }));

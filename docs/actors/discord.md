@@ -1,8 +1,8 @@
 # Discord app actor
 
 A Discord bot listens to messages through the Discord Gateway, which raises
-`discord.message.created` events, and posts messages with the `message`
-action. There is no webhook, so no public path and no Cloudflare change.
+`discord.message.created` events, and posts messages with the
+`discord.message` action ("Post a message on Discord"). There is no webhook, so no public path and no Cloudflare change.
 
 This assumes you are signed in to Discord as an administrator of the server,
 and that nothing else is prepared. Read [README.md](README.md) first for the
@@ -12,7 +12,7 @@ The secret this guide creates:
 
 | grant name (suggested) | What it is | Used by |
 |---|---|---|
-| `RULES_DISCORD_BOT_TOKEN` | the bot's token | engine node |
+| `RULES_DISCORD_BOT_TOKEN` | the bot's token | engine node and API |
 
 ## 1. Create the application and bot
 
@@ -59,10 +59,11 @@ Install** scopes so the install button works next time.
 Channel**, **Permissions**, **Add members or roles**, choose the bot, and allow
 View Channel, Send Messages and Read Message History.
 
-## 4. Give the node the token
+## 4. Give the services the token
 
-The gateway listener and the `message` action run on the engine node of the
-actor's machine. Add the injection to that node's unit:
+The gateway listener and the `discord.message` action run on the engine node
+of the actor's machine. The API also uses the token to list the bot's servers
+and channels for the editor. Add the injection to both units on that machine:
 
 ```text
 --inject CULTURE_RULES_SECRET_RULES_DISCORD_BOT_TOKEN=RULES_DISCORD_BOT_TOKEN
@@ -72,7 +73,7 @@ The README shows how; with `install.sh`, pass `--secret RULES_DISCORD_BOT_TOKEN`
 Then:
 
 ```bash
-systemctl --user restart culture-rules-node
+systemctl --user restart culture-rules-api culture-rules-node
 ```
 
 ## 5. Create the actor
@@ -89,7 +90,7 @@ serving host, or write the JSON with the CLI:
   "params": {
     "surface": "discord",
     "events": ["discord.message.created"],
-    "actions": ["message"],
+    "actions": ["discord.message"],
     "self_identity": "<bot username>",
     "connection": {
       "bot_token": "grant:RULES_DISCORD_BOT_TOKEN",
@@ -116,8 +117,8 @@ grant run --inject D=RULES_DISCORD_BOT_TOKEN -- sh -c \
 
 This should list your server. Then post a message in a channel the bot can see:
 the node's log reports the actor as listening, and a `discord.message.created`
-event is recorded. A rule with that trigger and a `message` action
-`{actor: "discord-bot", channel: "<channel id>", text}` replies.
+event is recorded. A rule with that trigger and a `discord.message` action
+replies (see below).
 
 ## Events and data
 
@@ -126,8 +127,33 @@ event is recorded. A rule with that trigger and a `message` action
 `url`. Exactly one node holds the gateway connection, through the lease
 `discord-gateway:<actor id>`: the node on the actor's `machine`. Messages the
 bot sends itself are tagged `self_authored`. Mass mentions (`@everyone`,
-`@here`, roles) in posted messages are always suppressed. Without `actor`,
-`message` posts to a Culture mesh channel instead.
+`@here`, roles) in posted messages are always suppressed.
+
+## Posting a message
+
+In a rule, choose **Post a message on Discord** under "Then what happens?":
+
+1. **Actor:** the Discord app actor (only actors that declare `discord.message`
+   are offered).
+2. **Server:** picked from the servers the bot is in. It is preselected when
+   there is only one; `connection.guild_id` limits the list to that server.
+3. **Channel:** picked from that server's text and announcement channels. A
+   private channel the bot was not added to is marked "the bot was not added".
+   To reply where a message came from, map the channel from the trigger
+   instead: `trigger.data.channel_id`.
+4. **Text.**
+
+The editor reads the list from `GET /actors/{id}/discord/targets` (CLI:
+`culture-rules actors discord-targets <id>`). The API resolves the bot token
+for that call, so the API unit needs the token injection too (step 4). If the
+list cannot be loaded, the editor asks for the channel id instead.
+
+The stored action is
+`{kind: "discord.message", params: {actor, guild, channel, text}}`.
+**Send a message on the mesh** (`message`) is a separate action that posts to
+a Culture mesh channel and takes no actor. A rule saved before 0.12.0 as
+`message` with a Discord actor still posts to Discord, and the editor shows it
+as a Discord message.
 
 ## Troubleshooting
 

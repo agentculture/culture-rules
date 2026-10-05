@@ -12,7 +12,7 @@ nothing else is prepared: no secrets, no webhook, no actor.
 | Surface | Guide | Receives events by | Acts with |
 |---|---|---|---|
 | GitHub | [github.md](github.md) | App webhook to `POST /hooks/github` | `github.comment` |
-| Discord | [discord.md](discord.md) | Gateway listener on one engine node | `message` |
+| Discord | [discord.md](discord.md) | Gateway listener on one engine node | `discord.message` |
 | Jira | [jira.md](jira.md) | System webhook to `POST /hooks/jira` | `jira.comment` |
 
 ## Before you start (all guides)

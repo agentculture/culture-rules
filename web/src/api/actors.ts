@@ -1,4 +1,4 @@
-import { items, request } from "./client";
+import { getJson, items, request } from "./client";
 
 /**
  * Actor routes of the culture-rules HTTP API (api/openapi.json: `/actors`,
@@ -103,3 +103,24 @@ export const deleteActor = (id: string) => request<unknown>("DELETE", `/actors/$
 
 export const setActorEnabled = (id: string, enabled: boolean) =>
   request<unknown>("POST", `/actors/${enc(id)}/${enabled ? "enable" : "disable"}`);
+
+/** A text channel a Discord bot can post to; `visible` is false for a private channel it was not added to. */
+export interface DiscordChannel {
+  id: string;
+  name: string;
+  visible: boolean;
+}
+
+export interface DiscordGuild {
+  id: string;
+  name: string;
+  channels: DiscordChannel[];
+}
+
+export interface DiscordTargets {
+  guilds: DiscordGuild[];
+}
+
+/** `GET /actors/{id}/discord/targets`: the servers and channels a Discord app actor's bot can post to. */
+export const getDiscordTargets = (actorId: string, signal?: AbortSignal) =>
+  getJson<DiscordTargets>(`/actors/${enc(actorId)}/discord/targets`, signal);

@@ -148,3 +148,36 @@ def test_a_single_channel_string_allow_list_is_one_channel():
     no = action(store, t).invoke({"channel": "4", "text": "x"}, "k", NOW, context=ctx("disc"))
     assert no.outcome == FAILED
     assert not no.retryable
+
+
+def test_discord_message_kind_posts_through_the_named_actor():
+    from culture_rules.node.actions.message import DiscordMessageAction
+
+    t = FakeTransport()
+    port = DiscordMessageAction(
+        store_with(), resolve_secret=lambda ref: "tok-xyz", transport=t, mesh_executable="/x"
+    )
+    res = port.invoke(
+        {"actor": "disc", "guild": "1", "channel": "42", "text": "hi"},
+        "k",
+        NOW,
+        context=ctx("disc"),
+    )
+    assert res.outcome == "completed"
+    assert t.calls[0][0].endswith("/channels/42/messages")
+
+
+def test_discord_message_kind_without_an_actor_never_falls_back_to_the_mesh():
+    from culture_rules.node.actions.message import DiscordMessageAction
+
+    calls = []
+    port = DiscordMessageAction(
+        MemoryStore(),
+        resolve_secret=lambda ref: "t",
+        mesh_executable="/x",
+        mesh_run=lambda argv, **kw: calls.append(argv),
+    )
+    res = port.invoke({"channel": "42", "text": "hi"}, "k", NOW, context=ctx())
+    assert res.outcome == FAILED
+    assert not res.retryable
+    assert calls == []
