@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.4] - 2026-10-05
+
+### Changed
+
+- Delivery validation for the second mile filed in devague: 13 obligations on c32, c35, c41-c46; evidence e1-e14 (13 pass, 1 fail: one typeless event rule remains after migrate-typeless); behavioral deltas b1-b4 (injected hidden secrets, actor-machine placement, Access bypass as path apps, migrate-typeless disables rather than reaching zero)
+
 ## [0.11.3] - 2026-10-05
 
 ### Added

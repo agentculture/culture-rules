@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-03T18:08:10Z",
-  "updated": "2026-10-04T05:40:46Z",
+  "updated": "2026-10-05T04:40:04Z",
   "claims": [
     {
       "id": "c1",
@@ -1590,5 +1590,123 @@
       "status": "proposed"
     }
   ],
-  "obligations": []
+  "obligations": [
+    {
+      "id": "o1",
+      "claim_id": "c41",
+      "seam": "rules.culture.dev: GitHub App webhook -> rule -> github.comment",
+      "behavior": "a PR opened on an allow-listed repo yields exactly 1 github.pr.opened event and exactly 1 App-authored comment from the matching rule within 60 s",
+      "source_text": "On rules.culture.dev, a GitHub PR opened on an allow-listed repo produces exactly 1 github.pr.opened event and exactly 1 App-authored comment from the rule that matches it, within 60 s; the same holds for a jira.issue.updated -> jira.comment and a discord.message.created -> Discord reply",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o2",
+      "claim_id": "c41",
+      "seam": "rules.culture.dev: Jira webhook -> rule -> action",
+      "behavior": "a Jira event delivered by the system webhook fires the matching rule and its action succeeds within 60 s",
+      "source_text": "On rules.culture.dev, a GitHub PR opened on an allow-listed repo produces exactly 1 github.pr.opened event and exactly 1 App-authored comment from the rule that matches it, within 60 s; the same holds for a jira.issue.updated -> jira.comment and a discord.message.created -> Discord reply",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o3",
+      "claim_id": "c41",
+      "seam": "rules.culture.dev: Discord gateway -> rule -> Discord reply",
+      "behavior": "a discord.message.created event fires the matching rule and the bot replies in Discord within 60 s",
+      "source_text": "On rules.culture.dev, a GitHub PR opened on an allow-listed repo produces exactly 1 github.pr.opened event and exactly 1 App-authored comment from the rule that matches it, within 60 s; the same holds for a jira.issue.updated -> jira.comment and a discord.message.created -> Discord reply",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o4",
+      "claim_id": "c32",
+      "seam": "POST /hooks/github",
+      "behavior": "a signed delivery is recorded as one typed github.* event (deduped on X-GitHub-Delivery); an unsigned or mis-signed one answers 401 and writes nothing",
+      "source_text": "GitHub and Jira webhook receivers live on rules.culture.dev under one fixed path each (e.g. /hooks/github, /hooks/jira) covered by a path-scoped Cloudflare Access Bypass; each receiver authenticates the request itself (GitHub X-Hub-Signature-256 HMAC, Jira HMAC or URL token) and writes typed events into the shared events collection, deduped on the surface's delivery id",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o5",
+      "claim_id": "c32",
+      "seam": "POST /hooks/jira",
+      "behavior": "a delivery carrying the webhook token is recorded as a typed jira.* event after refetching the issue; a wrong or missing token answers 401",
+      "source_text": "GitHub and Jira webhook receivers live on rules.culture.dev under one fixed path each (e.g. /hooks/github, /hooks/jira) covered by a path-scoped Cloudflare Access Bypass; each receiver authenticates the request itself (GitHub X-Hub-Signature-256 HMAC, Jira HMAC or URL token) and writes typed events into the shared events collection, deduped on the surface's delivery id",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o6",
+      "claim_id": "c35",
+      "seam": "Discord gateway listener",
+      "behavior": "exactly one node holds the gateway lease and turns messages into discord.message.created events in the shared events collection",
+      "source_text": "A Discord app actor runs a Gateway bot listener as a long-lived, placed service (one holder at a time, like a lease) that turns gateway events into typed events (discord.message.created, ...) in the shared events collection; the same bot token sends the Discord message action",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o7",
+      "claim_id": "c42",
+      "seam": "rule save (API and CLI)",
+      "behavior": "an event rule with no params.type is refused: HTTP 422 trigger_type_required, CLI exit 1, nothing stored",
+      "source_text": "An event rule with no params.type is refused on save (HTTP 422, CLI exit 1) and 0 typeless event triggers remain in the live rules collection after migration",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o8",
+      "claim_id": "c42",
+      "seam": "live rules collection after migrate-typeless",
+      "behavior": "0 typeless event triggers remain in the live rules collection",
+      "source_text": "An event rule with no params.type is refused on save (HTTP 422, CLI exit 1) and 0 typeless event triggers remain in the live rules collection after migration",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o9",
+      "claim_id": "c43",
+      "seam": "schedule trigger on a placed host",
+      "behavior": "a */5 schedule rule placed on one host fires exactly 12 runs per hour, all on that host, with no refire or duplicate across a node restart",
+      "source_text": "A schedule rule placed on thor with cron `*/5 * * * *` fires exactly 1 run per slot over 1 hour (12 runs), all on thor, including across a node restart",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o10",
+      "claim_id": "c44",
+      "seam": "Workflows tab (Playwright)",
+      "behavior": "a workflow is run from the typed input form with no rule referencing it and its outputs render in place; CI's web job stays green",
+      "source_text": "A workflow with 2 typed inputs is run from the Workflows tab input form with 0 rules referencing it, and its outputs render in place; Playwright covers it and CI's web job stays green",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o11",
+      "claim_id": "c45",
+      "seam": "PR CI and SonarCloud",
+      "behavior": "pytest -n auto, vitest, Playwright and the SonarCloud quality gate pass on the delivery PR",
+      "source_text": "Every issue #7 item is closed with a test or doc change linked, and the full suite (pytest -n auto, vitest, Playwright) and SonarCloud quality gate pass on the PR",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o12",
+      "claim_id": "c45",
+      "seam": "issue #7 checklist",
+      "behavior": "every issue #7 item is closed with a linked test or doc change",
+      "source_text": "Every issue #7 item is closed with a test or doc change linked, and the full suite (pytest -n auto, vitest, Playwright) and SonarCloud quality gate pass on the PR",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o13",
+      "claim_id": "c46",
+      "seam": "API auth middleware",
+      "behavior": "only the two exact hook paths are exempt from auth; every other route requires a principal",
+      "source_text": "Webhook receiver paths are exempt from the app's own auth middleware by exact path match (a Cloudflare Bypass request carries no Access JWT); every other path still requires a principal, pinned by a test that walks all routes",
+      "origin": "llm",
+      "status": "proposed"
+    }
+  ]
 }
