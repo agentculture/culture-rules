@@ -605,12 +605,8 @@ def _register_discord_targets(
     )
     def discord_targets(actor_id: str) -> DiscordTargets:
         """The servers and text channels a Discord app actor's bot can post to."""
-        doc = store.get("actors", actor_id)
-        if doc is None or doc.get("deleted_at"):
-            raise NotFound(f"actor {actor_id!r} does not exist")
-        params = doc.get("params") if isinstance(doc.get("params"), dict) else {}
-        conn = params.get("connection") if isinstance(params.get("connection"), dict) else {}
-        if doc.get("kind") != "app" or params.get("surface") != "discord":
+        conn = _discord_connection(store, actor_id)
+        if conn is None:
             return _envelope(422, "not_discord_actor", f"actor {actor_id!r} is not a Discord app")
         try:
             token = (resolve_secret or secrets.resolve)(str(conn.get("bot_token") or ""))
@@ -623,6 +619,19 @@ def _register_discord_targets(
         except DiscordError as exc:
             return _envelope(502, "discord_error", str(exc))
         return DiscordTargets(guilds=guilds)
+
+
+def _discord_connection(store: StoragePort, actor_id: str) -> dict[str, Any] | None:
+    """The connection block of Discord app actor ``actor_id``; ``None`` when the actor is not a
+    Discord app. Raises :class:`NotFound` for a missing or deleted actor."""
+    doc = store.get("actors", actor_id)
+    if doc is None or doc.get("deleted_at"):
+        raise NotFound(f"actor {actor_id!r} does not exist")
+    params = doc.get("params") if isinstance(doc.get("params"), dict) else {}
+    if doc.get("kind") != "app" or params.get("surface") != "discord":
+        return None
+    conn = params.get("connection")
+    return conn if isinstance(conn, dict) else {}
 
 
 def _register_auth_routes(app: FastAPI, tokens: ServiceTokens) -> None:

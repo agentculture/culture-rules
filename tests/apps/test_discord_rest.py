@@ -165,8 +165,8 @@ def test_list_targets_can_be_limited_to_one_guild():
 
 
 def test_list_targets_failure_never_carries_the_token():
-    t = Routes({"/users/@me/guilds": (401, {"message": "401: Unauthorized"})})
+    client = DiscordClient(TOKEN, transport=Routes({"/users/@me/guilds": (401, {"message": "no"})}))
     with pytest.raises(DiscordError) as ei:
-        DiscordClient(TOKEN, transport=t).list_targets()
+        client.list_targets()
     assert TOKEN not in str(ei.value)
     assert not ei.value.retryable
