@@ -42,7 +42,9 @@ plan. What exists today:
   - `app` actors for GitHub, Jira and Discord with webhook receivers at
     exactly `POST /hooks/github` and `POST /hooks/jira`, plus a Discord
     Gateway listener held by one node under a named lease;
-  - action kinds `message`, `github.comment` (as a GitHub App),
+  - action kinds `message` (on the mesh), `discord.message` (server and
+    channel picked from what the bot can see,
+    `GET /actors/{id}/discord/targets`), `github.comment` (as a GitHub App),
     `jira.comment`, `http.call` (destination allowlist) and
     `machine.command`, dispatched through the actor in `params.actor`;
   - direct workflow runs (`workflows run`), a human actor on first sign-in,

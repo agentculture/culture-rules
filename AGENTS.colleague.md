@@ -47,7 +47,8 @@ code, services, robots, …). It is built and on disk:
 
 **Status: the first mile is shipped on `main` (PR #4); the second
 mile (issues #5–#7: typed and scheduled triggers, app actors with GitHub/Jira webhooks and
-a Discord listener, real actions, direct workflow runs, Workflows-tab
+a Discord listener, real actions (a mesh `message` and a separate
+`discord.message`), direct workflow runs, Workflows-tab
 editing) is built on `rules/second-mile`, spec
 `docs/specs/2026-10-03-culture-rules-second-mile.md`.** The first-mile spec is
 `docs/specs/2026-10-03-culture-rules-engine-editor.md`, the walkthrough is

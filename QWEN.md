@@ -37,7 +37,8 @@ On disk today:
   typed `event`/`schedule`/`probe` triggers, `app` actors for GitHub, Jira
   and Discord (webhooks at `POST /hooks/github` and `POST /hooks/jira`, a
   Discord Gateway listener), real action kinds dispatched through the actor
-  in `params.actor`, direct workflow runs, and the editor's pickers and
+  in `params.actor` (a mesh `message` is separate from `discord.message`),
+  direct workflow runs, and the editor's pickers and
   Workflows-tab editors.
 
 GitHub issue #1 was the build brief, and #2 the product model and UX. The

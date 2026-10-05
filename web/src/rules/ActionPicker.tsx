@@ -1,5 +1,6 @@
-import { useId, useState } from "react";
-import type { Actor, HttpPolicy, RunnerActorParams } from "../api/actors";
+import { useEffect, useId, useState } from "react";
+import { getDiscordTargets } from "../api/actors";
+import type { Actor, DiscordTargets, HttpPolicy, RunnerActorParams } from "../api/actors";
 import type { Action, Workflow } from "../api/types";
 
 type ParamType = "str" | "int" | "dict" | "any";
@@ -24,7 +25,11 @@ const RS: ParamSpec = { type: "str", required: true };
  */
 export const ACTION_KINDS: Record<string, KindSpec> = {
   noop: { label: "Do nothing", params: {} },
-  message: { label: "Send a message", params: { actor: S, channel: RS, text: RS } },
+  message: { label: "Send a message on the mesh", params: { channel: RS, text: RS } },
+  "discord.message": {
+    label: "Post a message on Discord",
+    params: { actor: RS, guild: S, channel: RS, text: RS },
+  },
   "github.comment": {
     label: "Comment on GitHub",
     params: { actor: RS, repo: RS, number: { type: "int", required: true }, body: RS },
@@ -50,11 +55,22 @@ const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"];
 
 /** Common `trigger.data.<field>` names per trigger type prefix; anything else uses a custom path. */
 const TRIGGER_FIELDS: { prefix: string; fields: string[] }[] = [
-  { prefix: "github.pr", fields: ["number", "repo", "title", "author", "url"] },
-  { prefix: "github.", fields: ["repo", "ref", "sha"] },
-  { prefix: "jira.", fields: ["issue", "summary"] },
-  { prefix: "discord.", fields: ["channel", "text", "author"] },
+  { prefix: "github.", fields: ["number", "repository", "title", "author", "url"] },
+  { prefix: "jira.", fields: ["key", "project", "summary", "status", "url"] },
+  { prefix: "discord.", fields: ["channel_id", "guild_id", "content", "author_name", "message_id"] },
 ];
+
+/**
+ * How the picker shows a stored action: a `message` that still names an actor is the form a
+ * Discord message had before `discord.message` existed, so it is shown (and saved) as one.
+ */
+export function viewOf(action: Action): Action {
+  const actor = (action.params as Record<string, unknown> | undefined)?.actor;
+  if (canonical(action.kind) === "message" && typeof actor === "string" && actor) {
+    return { ...action, kind: "discord.message" };
+  }
+  return action;
+}
 
 /** A reference to a trigger or workflow value, as a string or a `{"$ref"}` object; else null. */
 function refOf(value: unknown): string | null {
@@ -86,7 +102,8 @@ export function blankAction(kind = "noop", name?: string): Action {
  * is complete. Kinds the editor does not know, and the legacy `mesh.message` placeholder (the
  * backend does not enforce it either), are kept as they are.
  */
-export function actionProblem(action: Action): "no_actor_port" | "empty" | "invalid_value" | null {
+export function actionProblem(stored: Action): "no_actor_port" | "empty" | "invalid_value" | null {
+  const action = viewOf(stored);
   const spec = ACTION_KINDS[canonical(action.kind)];
   if (!spec || action.kind === "mesh.message") return null;
   const params = (action.params ?? {}) as Record<string, unknown>;
@@ -120,7 +137,7 @@ export function actorsFor(kind: string, actors: Actor[]): Actor[] {
   }
 }
 
-/** Mesh message and noop need no actor; every other kind needs one enabled actor that supports it. */
+/** The mesh message and noop need no actor; every other kind needs one enabled actor that supports it. */
 const offered = (kind: string, actors: Actor[]) =>
   kind === "noop" || kind === "message" || actorsFor(kind, actors).length > 0;
 
@@ -377,6 +394,133 @@ function HeadersField({ value, onChange }: Readonly<HeadersProps>) {
   );
 }
 
+type LoadTargets = (actorId: string) => Promise<DiscordTargets>;
+
+interface DiscordTargetProps {
+  id: string;
+  actorId: string;
+  params: Record<string, unknown>;
+  refs: MappingRefs;
+  load: LoadTargets;
+  setParams: (next: Record<string, unknown>) => void;
+}
+
+/**
+ * The Discord server and channel for a `discord.message`, picked from what the actor's bot can
+ * see (`GET /actors/{id}/discord/targets`). A private channel the bot was not added to is listed
+ * but marked. The channel can instead be mapped from the trigger (reply where a message came
+ * from); when the bot's channels cannot be loaded, the channel id is typed.
+ */
+function DiscordTarget({ id, actorId, params, refs, load, setParams }: Readonly<DiscordTargetProps>) {
+  const [targets, setTargets] = useState<DiscordTargets | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let live = true;
+    setTargets(null);
+    setFailed(false);
+    if (!actorId) return undefined;
+    load(actorId)
+      .then((t) => {
+        if (!live) return;
+        setTargets(t);
+        if (t.guilds.length === 1 && !params.guild) setParams({ ...params, guild: t.guilds[0].id });
+      })
+      .catch(() => {
+        if (live) setFailed(true);
+      });
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload only when the actor changes
+  }, [actorId, load]);
+
+  const channelValue = (v: unknown) => (
+    <ValueField
+      label="Channel"
+      type="str"
+      testKey="channel"
+      refs={refs}
+      required
+      value={v}
+      onChange={(next) => setParams({ ...params, channel: next })}
+    />
+  );
+  if (!actorId) return null;
+  if (failed) {
+    return (
+      <>
+        <output className="trigger-picker__empty">
+          Could not load the bot&apos;s servers and channels; type the channel id instead.
+        </output>
+        {channelValue(params.channel)}
+      </>
+    );
+  }
+  if (!targets) return <output className="trigger-picker__words">Loading the bot&apos;s servers…</output>;
+
+  const guildId = typeof params.guild === "string" ? params.guild : "";
+  const guild = targets.guilds.find((g) => g.id === guildId);
+  const channelId = typeof params.channel === "string" ? params.channel : "";
+  const mapped = refOf(params.channel) !== null;
+  return (
+    <>
+      <label>
+        <span id={`${id}-guild`}>Server</span>
+        <select
+          aria-labelledby={`${id}-guild`}
+          value={guildId}
+          onChange={(e) => {
+            const next = targets.guilds.find((g) => g.id === e.target.value);
+            const keep = mapped || next?.channels.some((c) => c.id === channelId);
+            setParams({ ...params, guild: e.target.value || undefined, channel: keep ? params.channel : undefined });
+          }}
+        >
+          <option value="">Choose a server…</option>
+          {guildId && !guild ? <option value={guildId}>{guildId} (the bot is not in it)</option> : null}
+          {targets.guilds.map((g) => (
+            <option key={g.id} value={g.id}>
+              {g.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      {mapped ? (
+        channelValue(params.channel)
+      ) : (
+        <div className="action-picker__field">
+          <label>
+            <span id={`${id}-channel`}>Channel</span>
+            <select
+              aria-labelledby={`${id}-channel`}
+              value={channelId}
+              disabled={!guild}
+              onChange={(e) => setParams({ ...params, channel: e.target.value || undefined })}
+            >
+              <option value="">Choose a channel…</option>
+              {channelId && !guild?.channels.some((c) => c.id === channelId) ? (
+                <option value={channelId}>{channelId}</option>
+              ) : null}
+              {(guild?.channels ?? []).map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.visible ? `#${c.name}` : `#${c.name} (the bot was not added)`}
+                </option>
+              ))}
+            </select>
+          </label>
+          <MapSelect
+            id={`${id}-channel`}
+            label="Channel"
+            refs={refs}
+            onPick={(picked) => {
+              if (picked && picked !== CUSTOM) setParams({ ...params, channel: picked });
+            }}
+          />
+        </div>
+      )}
+    </>
+  );
+}
+
 interface Props {
   value: Action;
   actors: Actor[];
@@ -385,12 +529,16 @@ interface Props {
   /** The rule's workflow, whose outputs can be mapped. */
   workflow?: Workflow;
   onChange: (action: Action) => void;
+  /** Where a Discord message's servers and channels come from (default: the API). */
+  loadDiscordTargets?: LoadTargets;
 }
 
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 interface ParamFieldsProps {
   id: string;
+  kind: string;
+  load: LoadTargets;
   spec: KindSpec;
   params: Record<string, unknown>;
   actor: Actor | undefined;
@@ -401,10 +549,22 @@ interface ParamFieldsProps {
 
 /** One typed field per param of the chosen action kind (the actor select is rendered separately). */
 function ParamFields(props: Readonly<ParamFieldsProps>) {
+  const discord = props.kind === "discord.message";
+  const actorId = typeof props.params.actor === "string" ? props.params.actor : "";
   return (
     <>
+      {discord ? (
+        <DiscordTarget
+          id={props.id}
+          actorId={actorId}
+          params={props.params}
+          refs={props.refs}
+          load={props.load}
+          setParams={props.setParams}
+        />
+      ) : null}
       {Object.entries(props.spec.params)
-        .filter(([name]) => name !== "actor")
+        .filter(([name]) => name !== "actor" && !(discord && (name === "guild" || name === "channel")))
         .map(([name, p]) => (
           <ParamField key={name} name={name} p={p} {...props} />
         ))}
@@ -507,8 +667,16 @@ function ParamField({
  * the trigger or the workflow's outputs instead of typed. Controlled: `value` is the action that
  * would be saved.
  */
-export default function ActionPicker({ value, actors, triggerType, workflow, onChange }: Readonly<Props>) {
+export default function ActionPicker({
+  value: stored,
+  actors,
+  triggerType,
+  workflow,
+  onChange,
+  loadDiscordTargets = getDiscordTargets,
+}: Readonly<Props>) {
   const id = useId();
+  const value = viewOf(stored);
   const kind = canonical(value.kind);
   const spec = ACTION_KINDS[kind];
   const params = (value.params ?? {}) as Record<string, unknown>;
@@ -564,9 +732,18 @@ export default function ActionPicker({ value, actors, triggerType, workflow, onC
           <select
             aria-labelledby={`${id}-actor`}
             value={actorId}
-            onChange={(e) => setParams({ ...params, actor: e.target.value || undefined, command: undefined, args: undefined })}
+            onChange={(e) =>
+              setParams({
+                ...params,
+                actor: e.target.value || undefined,
+                command: undefined,
+                args: undefined,
+                guild: undefined,
+                channel: kind === "discord.message" ? undefined : params.channel,
+              })
+            }
           >
-            <option value="">{kind === "message" ? "The Culture mesh" : "Choose an actor…"}</option>
+            <option value="">Choose an actor…</option>
             {actorId && !eligible.some((a) => a.id === actorId) ? (
               <option value={actorId}>{actorId} (unavailable)</option>
             ) : null}
@@ -580,7 +757,17 @@ export default function ActionPicker({ value, actors, triggerType, workflow, onC
       ) : null}
 
       {known ? (
-        <ParamFields id={id} spec={spec} params={params} actor={actor} refs={refs} setParam={setParam} setParams={setParams} />
+        <ParamFields
+          id={id}
+          kind={kind}
+          load={loadDiscordTargets}
+          spec={spec}
+          params={params}
+          actor={actor}
+          refs={refs}
+          setParam={setParam}
+          setParams={setParams}
+        />
       ) : null}
 
       {extras.map(([k, v]) => (

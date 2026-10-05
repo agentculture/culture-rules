@@ -142,3 +142,22 @@ def test_stored_mode_keeps_structural_checks() -> None:
 def test_every_kind_has_spec(kind: str) -> None:
     spec = ACTION_KINDS[kind]
     assert isinstance(spec.params, dict)
+
+
+def test_discord_message_needs_actor_channel_and_text() -> None:
+    errs = _errs("discord.message", {})
+    for name in ("actor", "channel", "text"):
+        assert (f"action.params.{name}", "action_param_required") in errs
+    ok = {"actor": "discord-bot", "guild": "10", "channel": "101", "text": "hi"}
+    assert _errs("discord.message", ok) == set()
+    assert (
+        _errs("discord.message", {**ok, "guild": None})
+        - {("action.params.guild", "action_param_type")}
+        == set()
+    )
+
+
+def test_discord_message_is_catalogued_apart_from_the_mesh_message() -> None:
+    assert "discord.message" in ACTION_KINDS
+    assert "guild" in ACTION_KINDS["discord.message"].params
+    assert ACTION_KINDS["message"].summary.lower().startswith("send a message on the culture mesh")

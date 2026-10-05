@@ -202,7 +202,10 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
     from culture_rules.node.actions.http import HttpCallPort  # noqa: PLC0415
     from culture_rules.node.actions.jira import JiraCommentPort  # noqa: PLC0415
     from culture_rules.node.actions.machine import MachineCommandPort  # noqa: PLC0415
-    from culture_rules.node.actions.message import MessageAction  # noqa: PLC0415
+    from culture_rules.node.actions.message import (  # noqa: PLC0415
+        DiscordMessageAction,
+        MessageAction,
+    )
 
     message = MessageAction(store)
     github: Any = (
@@ -214,6 +217,7 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
         "action:noop": NoopAction(),
         "action:message": message,
         "action:mesh.message": message,  # legacy alias of message
+        "action:discord.message": DiscordMessageAction(store),
         "action:github.comment": github,
         "action:jira.comment": JiraCommentPort(store),
         "action:http.call": HttpCallPort(store),

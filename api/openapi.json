@@ -157,6 +157,72 @@
         "title": "Controls",
         "type": "object"
       },
+      "DiscordChannel": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "visible": {
+            "description": "whether the bot can open the channel (private: added?)",
+            "title": "Visible",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "visible"
+        ],
+        "title": "DiscordChannel",
+        "type": "object"
+      },
+      "DiscordGuild": {
+        "properties": {
+          "channels": {
+            "items": {
+              "$ref": "#/components/schemas/DiscordChannel"
+            },
+            "title": "Channels",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "channels"
+        ],
+        "title": "DiscordGuild",
+        "type": "object"
+      },
+      "DiscordTargets": {
+        "properties": {
+          "guilds": {
+            "items": {
+              "$ref": "#/components/schemas/DiscordGuild"
+            },
+            "title": "Guilds",
+            "type": "array"
+          }
+        },
+        "required": [
+          "guilds"
+        ],
+        "title": "DiscordTargets",
+        "type": "object"
+      },
       "ErrorBody": {
         "properties": {
           "code": {
@@ -1223,6 +1289,107 @@
           }
         ],
         "summary": "Create",
+        "tags": [
+          "actors"
+        ]
+      }
+    },
+    "/actors/{actor_id}/discord/targets": {
+      "get": {
+        "description": "The servers and text channels a Discord app actor's bot can post to.",
+        "operationId": "discord_targets",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "actor_id",
+            "required": true,
+            "schema": {
+              "title": "Actor Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiscordTargets"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Wrong state / already exists"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Validation failed (errors listed)"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Discord answered with an error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Discord Targets",
         "tags": [
           "actors"
         ]

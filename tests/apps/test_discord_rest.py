@@ -101,3 +101,72 @@ def test_a_timeout_is_an_unknown_outcome_and_not_retryable(exc):
         client.post_message("1", "x")
     assert not ei.value.retryable
     assert "outcome unknown" in str(ei.value)
+
+
+class Routes:
+    """A GET/POST fake keyed by URL path: ``{path: (status, body)}``; records every call."""
+
+    def __init__(self, routes):
+        self.routes = routes
+        self.calls = []
+
+    def __call__(self, url, data, headers, timeout):
+        path = url.split("/api/v10", 1)[-1]
+        self.calls.append(("POST" if data is not None else "GET", path, headers))
+        status, body = self.routes.get(path, (404, {"message": "Unknown"}))
+        return status, body, {}
+
+
+def guild_routes():
+    return Routes(
+        {
+            "/users/@me/guilds": (
+                200,
+                [{"id": "10", "name": "Lab"}, {"id": "20", "name": "Other"}],
+            ),
+            "/guilds/10/channels": (
+                200,
+                [
+                    {"id": "101", "name": "general", "type": 0, "position": 1},
+                    {"id": "102", "name": "voice", "type": 2, "position": 2},
+                    {"id": "103", "name": "culture", "type": 0, "position": 0},
+                    {"id": "104", "name": "news", "type": 5, "position": 3},
+                ],
+            ),
+            "/guilds/20/channels": (200, [{"id": "201", "name": "x", "type": 0, "position": 0}]),
+            "/channels/101": (200, {"id": "101"}),
+            "/channels/103": (403, {"message": "Missing Access", "code": 50001}),
+            "/channels/104": (200, {"id": "104"}),
+            "/channels/201": (200, {"id": "201"}),
+        }
+    )
+
+
+def test_list_targets_gives_text_channels_per_guild_with_visibility():
+    t = guild_routes()
+    out = DiscordClient(TOKEN, transport=t).list_targets()
+    assert [g["id"] for g in out] == ["10", "20"]
+    lab = out[0]
+    assert lab["name"] == "Lab"
+    assert lab["channels"] == [
+        {"id": "103", "name": "culture", "visible": False},
+        {"id": "101", "name": "general", "visible": True},
+        {"id": "104", "name": "news", "visible": True},
+    ]
+    assert all(method == "GET" for method, _, _ in t.calls)
+    assert all(h["Authorization"] == f"Bot {TOKEN}" for _, _, h in t.calls)
+
+
+def test_list_targets_can_be_limited_to_one_guild():
+    t = guild_routes()
+    out = DiscordClient(TOKEN, transport=t).list_targets(guild_id="20")
+    assert [g["id"] for g in out] == ["20"]
+    assert not any(path == "/guilds/10/channels" for _, path, _ in t.calls)
+
+
+def test_list_targets_failure_never_carries_the_token():
+    t = Routes({"/users/@me/guilds": (401, {"message": "401: Unauthorized"})})
+    with pytest.raises(DiscordError) as ei:
+        DiscordClient(TOKEN, transport=t).list_targets()
+    assert TOKEN not in str(ei.value)
+    assert not ei.value.retryable

@@ -148,3 +148,147 @@ describe("existing action", () => {
     expect(saved()).toEqual({ kind: "code.run", name: "Clean" });
   });
 });
+
+describe("mesh message and Discord message are separate kinds", () => {
+  const BOT = {
+    id: "discord-bot",
+    name: "Discord bot",
+    kind: "app" as const,
+    enabled: true,
+    params: {
+      surface: "discord" as const,
+      events: ["discord.message.created"],
+      actions: ["discord.message"],
+      connection: { bot_token: "grant:BOT" },
+    },
+  };
+  const TWO = {
+    guilds: [
+      {
+        id: "10",
+        name: "Lab",
+        channels: [
+          { id: "103", name: "culture", visible: false },
+          { id: "101", name: "general", visible: true },
+        ],
+      },
+      { id: "20", name: "Other", channels: [{ id: "201", name: "x", visible: true }] },
+    ],
+  };
+
+  function DiscordHarness({
+    start,
+    load,
+  }: Readonly<{ start?: Action; load: (id: string) => Promise<typeof TWO> }>) {
+    const [value, setValue] = useState<Action>(start ?? blankAction());
+    return (
+      <>
+        <ActionPicker
+          value={value}
+          actors={[...ACTORS, BOT]}
+          triggerType="discord.message.created"
+          loadDiscordTargets={load}
+          onChange={setValue}
+        />
+        <output data-testid="saved">{JSON.stringify(value)}</output>
+      </>
+    );
+  }
+
+  it("lists both kinds with their own labels; the mesh message has no actor", async () => {
+    const user = userEvent.setup();
+    render(<DiscordHarness load={async () => TWO} />);
+    const labels = within(screen.getByLabelText("What happens"))
+      .getAllByRole("option")
+      .map((o) => o.textContent);
+    expect(labels).toContain("Send a message on the mesh");
+    expect(labels).toContain("Post a message on Discord");
+    await user.selectOptions(screen.getByLabelText("What happens"), "message");
+    expect(screen.queryByLabelText("Actor")).not.toBeInTheDocument();
+    await user.type(screen.getByLabelText("Channel"), "#ops");
+    await user.type(screen.getByLabelText("Text"), "hi");
+    expect(saved()).toEqual({ kind: "message", params: { channel: "#ops", text: "hi" } });
+  });
+
+  it("picks the server and then the channel from what the bot can see", async () => {
+    const user = userEvent.setup();
+    const asked: string[] = [];
+    render(
+      <DiscordHarness
+        load={async (id) => {
+          asked.push(id);
+          return TWO;
+        }}
+      />,
+    );
+    await user.selectOptions(screen.getByLabelText("What happens"), "discord.message");
+    await user.selectOptions(screen.getByLabelText("Actor"), "discord-bot");
+    const server = await screen.findByLabelText("Server");
+    expect(asked).toEqual(["discord-bot"]);
+    await user.selectOptions(server, "10");
+    const channel = screen.getByLabelText("Channel");
+    const options = within(channel).getAllByRole("option");
+    expect(options.map((o) => o.textContent)).toEqual([
+      "Choose a channel…",
+      "#culture (the bot was not added)",
+      "#general",
+    ]);
+    await user.selectOptions(channel, "101");
+    await user.type(screen.getByLabelText("Text"), "hello");
+    expect(saved()).toEqual({
+      kind: "discord.message",
+      params: { actor: "discord-bot", guild: "10", channel: "101", text: "hello" },
+    });
+    expect(actionProblem(saved())).toBeNull();
+    // switching server clears a channel that belongs to the old one
+    await user.selectOptions(screen.getByLabelText("Server"), "20");
+    expect(saved().params).not.toHaveProperty("channel");
+  });
+
+  it("preselects the only server", async () => {
+    const user = userEvent.setup();
+    render(<DiscordHarness load={async () => ({ guilds: [TWO.guilds[1]] })} />);
+    await user.selectOptions(screen.getByLabelText("What happens"), "discord.message");
+    await user.selectOptions(screen.getByLabelText("Actor"), "discord-bot");
+    await screen.findByRole("option", { name: "#x" });
+    expect(saved().params).toMatchObject({ guild: "20" });
+  });
+
+  it("maps the channel from the trigger to reply where the message came from", async () => {
+    const user = userEvent.setup();
+    render(<DiscordHarness load={async () => TWO} />);
+    await user.selectOptions(screen.getByLabelText("What happens"), "discord.message");
+    await user.selectOptions(screen.getByLabelText("Actor"), "discord-bot");
+    await screen.findByLabelText("Server");
+    await user.selectOptions(screen.getByLabelText("Map Channel"), "trigger.data.channel_id");
+    expect(saved().params?.channel).toBe("trigger.data.channel_id");
+    expect(screen.getByTestId("chip-channel")).toHaveTextContent("trigger.data.channel_id");
+  });
+
+  it("shows a stored message through a Discord actor as a Discord message", () => {
+    render(
+      <DiscordHarness
+        load={async () => TWO}
+        start={{ kind: "message", params: { actor: "discord-bot", channel: "101", text: "t" } }}
+      />,
+    );
+    expect(screen.getByLabelText("What happens")).toHaveValue("discord.message");
+    expect(screen.getByLabelText("Actor")).toHaveValue("discord-bot");
+  });
+
+  it("falls back to typing the channel id when the bot's channels cannot be loaded", async () => {
+    const user = userEvent.setup();
+    render(
+      <DiscordHarness
+        load={async () => {
+          throw new Error("boom");
+        }}
+      />,
+    );
+    await user.selectOptions(screen.getByLabelText("What happens"), "discord.message");
+    await user.selectOptions(screen.getByLabelText("Actor"), "discord-bot");
+    expect(await screen.findByText(/could not load the bot's servers and channels/i)).toBeInTheDocument();
+    await user.type(screen.getByLabelText("Channel"), "101");
+    expect(saved().params?.channel).toBe("101");
+  });
+});

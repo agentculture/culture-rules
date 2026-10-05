@@ -24,7 +24,7 @@ from culture_rules.apps.discord_rest import DiscordClient, DiscordError, Transpo
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
 from culture_rules.node.mesh import MeshPoster
 
-__all__ = ["ACTORS_COLLECTION", "MessageAction"]
+__all__ = ["ACTORS_COLLECTION", "DiscordMessageAction", "MessageAction"]
 
 ACTORS_COLLECTION = "actors"
 log = logging.getLogger("culture_rules.node")
@@ -123,3 +123,20 @@ class MessageAction:
             return InvocationResult.failed(str(exc), retryable=exc.retryable)
         log.info("discord message posted to %s", channel)
         return InvocationResult.completed(out)
+
+
+class DiscordMessageAction(MessageAction):
+    """``discord.message``: post through the Discord app actor in ``params.actor``; never the
+    mesh. ``params.guild`` is the server the channel was picked from (editor metadata)."""
+
+    def invoke(
+        self,
+        input: Mapping[str, Any],  # noqa: A002 - the ActorPort signature
+        idempotency_key: str,
+        deadline: datetime,
+        *,
+        context: InvocationContext,
+    ) -> InvocationResult:
+        if not context.actor:
+            return _fail("discord.message needs a Discord app actor in params.actor")
+        return super().invoke(input, idempotency_key, deadline, context=context)

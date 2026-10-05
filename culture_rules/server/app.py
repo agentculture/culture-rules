@@ -455,6 +455,8 @@ def create_app(
     auth: AuthSettings | None = None,
     web_dist: Path | None = None,
     repos: Sequence[RepoTarget] | None = None,
+    resolve_secret: Callable[[str], str] | None = None,
+    discord_transport: Any = None,
 ) -> FastAPI:
     """Build the API over ``store``. Holds configuration only, never request state.
 
@@ -463,6 +465,8 @@ def create_app(
     ``web_dist`` is the built web UI to serve at ``/`` (default: the packaged ``web_dist``;
     nothing is mounted when it does not exist). ``repos`` are the definition repositories
     clients may name (default: ``CULTURE_RULES_REPOS``, see :mod:`culture_rules.server.repos`).
+    ``resolve_secret`` and ``discord_transport`` replace the grant resolver and the Discord
+    HTTP transport behind ``GET /actors/{id}/discord/targets`` (tests).
     """
     ensure = getattr(store, "ensure_collections", None)
     if callable(ensure):
@@ -511,6 +515,7 @@ def create_app(
     _register_asks(app, store, answer_ask)
     _register_stream(app, store)
     _register_hooks(app, store)
+    _register_discord_targets(app, store, resolve_secret, discord_transport)
     static.install(app, web_dist)
     # outermost: every answer, 401/403 envelopes included, says how it may be cached
     app.add_middleware(NoStoreByDefault)
@@ -563,6 +568,61 @@ def _register_hooks(app: FastAPI, store: StoragePort) -> None:
 
     app.include_router(github.router(store), include_in_schema=False)
     app.include_router(jira.router(store), include_in_schema=False)
+
+
+class DiscordChannel(BaseModel):
+    id: str
+    name: str
+    visible: bool = Field(description="whether the bot can open the channel (private: added?)")
+
+
+class DiscordGuild(BaseModel):
+    id: str
+    name: str
+    channels: list[DiscordChannel]
+
+
+class DiscordTargets(BaseModel):
+    guilds: list[DiscordGuild]
+
+
+def _register_discord_targets(
+    app: FastAPI, store: StoragePort, resolve_secret: Any, transport: Any
+) -> None:
+    from culture_rules.actors import secrets  # noqa: PLC0415
+    from culture_rules.apps.discord_rest import DiscordClient, DiscordError  # noqa: PLC0415
+
+    @app.get(
+        "/actors/{actor_id}/discord/targets",
+        tags=["actors"],
+        operation_id="discord_targets",
+        responses={
+            404: ERRORS[404],
+            409: ERRORS[409],
+            422: ERRORS[422],
+            502: {"model": ErrorEnvelope, "description": "Discord answered with an error"},
+        },
+    )
+    def discord_targets(actor_id: str) -> DiscordTargets:
+        """The servers and text channels a Discord app actor's bot can post to."""
+        doc = store.get("actors", actor_id)
+        if doc is None or doc.get("deleted_at"):
+            raise NotFound(f"actor {actor_id!r} does not exist")
+        params = doc.get("params") if isinstance(doc.get("params"), dict) else {}
+        conn = params.get("connection") if isinstance(params.get("connection"), dict) else {}
+        if doc.get("kind") != "app" or params.get("surface") != "discord":
+            return _envelope(422, "not_discord_actor", f"actor {actor_id!r} is not a Discord app")
+        try:
+            token = (resolve_secret or secrets.resolve)(str(conn.get("bot_token") or ""))
+        except Exception:  # noqa: BLE001 - never echo why: the text may hold a value
+            return _envelope(409, "secret_unavailable", "the bot token cannot be read here")
+        kwargs = {"transport": transport} if transport is not None else {}
+        guild = conn.get("guild_id")
+        try:
+            guilds = DiscordClient(token, **kwargs).list_targets(str(guild) if guild else None)
+        except DiscordError as exc:
+            return _envelope(502, "discord_error", str(exc))
+        return DiscordTargets(guilds=guilds)
 
 
 def _register_auth_routes(app: FastAPI, tokens: ServiceTokens) -> None:

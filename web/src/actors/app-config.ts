@@ -14,7 +14,8 @@ export const APP_SURFACES: readonly AppSurface[] = ["github", "jira", "discord"]
 /** Action kinds an app can declare (culture_rules/model/action_kinds.py `ACTION_KINDS`). */
 export const ACTION_KINDS: readonly { name: string; summary: string }[] = [
   { name: "noop", summary: "Do nothing" },
-  { name: "message", summary: "Send a message" },
+  { name: "message", summary: "Send a message on the mesh" },
+  { name: "discord.message", summary: "Post a message on Discord" },
   { name: "github.comment", summary: "Comment on a GitHub issue or PR" },
   { name: "jira.comment", summary: "Comment on a Jira issue" },
   { name: "http.call", summary: "Call an HTTP endpoint" },
