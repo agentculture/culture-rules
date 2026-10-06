@@ -2,7 +2,7 @@
   "plan_slug": "pr-fixer-rule",
   "schema_version": 2,
   "created": "2026-10-06T08:44:59Z",
-  "updated": "2026-10-06T16:57:05Z",
+  "updated": "2026-10-06T17:20:53Z",
   "deviations": [
     {
       "id": "d1",
@@ -92,6 +92,36 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 6
+    },
+    {
+      "id": "d7",
+      "what": "Option A for h28: while any online node's heartbeat lacks capabilities:[variables], the save path (create/update/import) refuses a rule that references a shared variable, naming the nodes; with every node upgraded before rollout this makes h28 hold for already-deployed 0.12.0 binaries",
+      "task_ref": "t7",
+      "reason": "Operator decision 2026-10-06: t7 found that old binaries evaluate a condition-only reference not(a in vars.x) as true and fire; only current-code nodes fail closed",
+      "affects": [
+        "t8",
+        "h28",
+        "c34"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 7
+    },
+    {
+      "id": "d8",
+      "what": "Codex is not installed on the fixer machine: spark2 runs only the cultureagent qwen bridge (Qwen Code on cortex) as culture-fixer; Codex stays on spark only. t18's codex-fixer actor and its bridge on spark2 are dropped; the 'both bridges' acceptance check applies to the qwen bridge",
+      "task_ref": "t18",
+      "reason": "Operator decision 2026-10-06: codex stays only on spark",
+      "affects": [
+        "c30",
+        "t17",
+        "t21"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 8
     }
   ],
   "evidence": [],
