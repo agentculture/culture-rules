@@ -80,6 +80,7 @@ const TABS: { name: string; path: string; mock: (page: Page) => Promise<unknown>
     },
   },
   { name: "Actors", path: "/actors", mock: (page) => mockActorsApi(page) },
+  { name: "Variables", path: "/variables", mock: (page) => mockApi(page) },
   {
     name: "Statistics",
     path: "/statistics",

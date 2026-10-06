@@ -343,8 +343,16 @@ def _group_gaps(
     superseded: Mapping[str, list[str]],
     out: dict[str, Decision],
 ) -> None:
-    """Refuse a group's would-be winner when a variables-refused member outranks it."""
+    """Refuse a group's would-be winner when a variables-refused member outranks it.
+
+    A refused member that a *matched* rule supersedes (transitively) is no rival: it would
+    be skipped whatever its variables hold, so it can never win the group."""
     refused = [r for r in _refused(out, snapshot) if r.exclusive_group is not None]
+    if not refused:
+        return
+    edges = {rid: r.supersedes for rid, r in snapshot.items()}
+    suppressed = {bid for aid in matched for bid in _closure(aid, edges)}
+    refused = [r for r in refused if r.id not in suppressed]
     if not refused:
         return
     groups: dict[str, list[Rule]] = {}

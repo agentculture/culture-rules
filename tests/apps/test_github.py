@@ -272,3 +272,34 @@ def test_deadline_bounds_http_timeouts_and_refuses_when_past(pem):
     assert err.value.code == "deadline_exceeded" and err.value.retryable and seen == []
     app.post_comment("acme/widgets", 1, "x")  # outside the block: the default bound again
     assert seen == [15]
+
+
+def test_list_check_suites_paginates_and_trims(pem):
+    def page(n):
+        return [
+            {"app": {"slug": f"app{n}-{i}"}, "status": "completed", "conclusion": "success"}
+            for i in range(100 if n == 1 else 2)
+        ]
+
+    class SuitesFake(Fake):
+        def __call__(self, method, url, headers, body, timeout):
+            if "/check-suites" not in url:
+                return super().__call__(method, url, headers, body, timeout)
+            self.calls.append((method, url, dict(headers), body))
+            n = int(url.rsplit("page=", 1)[1])
+            return 200, json.dumps({"check_suites": page(n)}).encode()
+
+    fake = SuitesFake()
+    app, _ = make(pem, fake)
+    out = app.list_check_suites("acme/widgets", "ab12" * 10)
+    assert len(out) == 102 and out[0] == {
+        "app_slug": "app1-0",
+        "status": "completed",
+        "conclusion": "success",
+    }
+    with pytest.raises(GitHubError) as err:
+        app.list_check_suites("acme/widgets", "../x")
+    assert err.value.code == "bad_input"
+    with pytest.raises(GitHubError) as err:
+        app.list_check_suites("other/repo", "ab12" * 10)
+    assert err.value.code == "repo_not_allowed"

@@ -377,3 +377,17 @@
   font: 600 15px var(--font-mono, ui-monospace, monospace);
   overflow-wrap: anywhere;
 }
+
+.rule-form label.action-picker__check {
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  font-size: 16px;
+}
+
+.rule-form .action-picker__check input {
+  width: 24px;
+  min-height: 24px;
+  height: 24px;
+}

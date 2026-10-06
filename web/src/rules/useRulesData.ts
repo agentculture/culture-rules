@@ -15,10 +15,23 @@ import {
   type RuleDoc,
 } from "../api/rules";
 import type { Machine, Workflow } from "../api/types";
+import { guidanceFor } from "../api/guidance";
 import { usePending } from "../usePending";
 
 /** Never throws, so the handlers below that describe a failure cannot fail themselves. */
-const describe = (err: unknown) => (err instanceof ApiError ? err.message : failureMessage(err));
+/** The variable refusals the editor explains in its own words (api/guidance.ts). */
+const VARIABLE_CODES = ["variable_undefined", "variables_unsupported_nodes"];
+
+function describe(err: unknown): string {
+  if (!(err instanceof ApiError)) return failureMessage(err);
+  const hit =
+    VARIABLE_CODES.find((c) => c === err.code) ?? err.errors.find((e) => VARIABLE_CODES.includes(e.code));
+  if (!hit) return err.message;
+  const code = typeof hit === "string" ? hit : hit.code;
+  // The nested message names the variable or the nodes at fault; it rides after the plain words.
+  const detail = typeof hit === "string" ? "" : ` (${hit.message})`;
+  return `${guidanceFor(code).message}${detail}`;
+}
 
 interface Loaded {
   rules: RuleDoc[];

@@ -8,8 +8,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 conditions → workflows → actions, carried out by actors (agents, humans,
 code, …). It ships as one PyPI distribution, `culture-rules`, whose import
 package is `culture_rules`. Its backend is Python, and its visual editor is
-a Node.js + React Flow (`@xyflow/react`) app in `web/` with four tabs:
-**Rules | Workflows | Actors | Statistics**.
+a Node.js + React Flow (`@xyflow/react`) app in `web/` with five tabs:
+**Rules | Workflows | Actors | Variables | Statistics**.
 
 **Status: the first mile is built and shipped** (PR #4, merged to `main`: the
 engine, API, node, CLI, MCP server, editor and ops docs exist on disk), and
@@ -98,7 +98,8 @@ Settled constraints that shape the architecture:
   Prefer **explicit exported outputs** over a global mutable bag. Mappings
   (output → action input / downstream rule input) are graphical, with
   the textual reference form inspectable but never required.
-- **Exactly four primary tabs: Rules | Workflows | Actors | Statistics.**
+- **Exactly five primary tabs: Rules | Workflows | Actors | Variables |
+  Statistics.** Variables are the shared values rules read as `vars.<name>`.
   Statistics is per-machine state and work (one lane per enrolled machine).
   Runs, history, ledger and inbox are never top-level navigation. They
   appear contextually, as details of a rule or workflow. Raw YAML/JSON is an

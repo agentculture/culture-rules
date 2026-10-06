@@ -292,3 +292,75 @@ describe("mesh message and Discord message are separate kinds", () => {
     expect(saved().params?.channel).toBe("101");
   });
 });
+
+describe("github.push and github.review_reply", () => {
+  const fixer = (): typeof ACTORS => {
+    const actors = structuredClone(ACTORS);
+    (actors[0].params as Record<string, unknown>).actions = [
+      "github.comment",
+      "github.push",
+      "github.review_reply",
+    ];
+    return actors;
+  };
+  function Fixer({ start }: Readonly<{ start?: Action }>) {
+    const [value, setValue] = useState<Action>(start ?? blankAction());
+    return (
+      <>
+        <ActionPicker value={value} actors={fixer()} triggerType="github.pr.opened" onChange={setValue} />
+        <output data-testid="saved">{JSON.stringify(value)}</output>
+      </>
+    );
+  }
+
+  it("offers both once an app declares them", () => {
+    render(<Fixer />);
+    const offered = within(screen.getByLabelText("What happens"))
+      .getAllByRole("option")
+      .map((o) => o.getAttribute("value"));
+    expect(offered).toContain("github.push");
+    expect(offered).toContain("github.review_reply");
+  });
+
+  it("requires the push's params and saves them typed", async () => {
+    const user = userEvent.setup();
+    render(<Fixer />);
+    await user.selectOptions(screen.getByLabelText("What happens"), "github.push");
+    expect(actionProblem(saved())).toBe("no_actor_port");
+    await user.selectOptions(screen.getByLabelText("Actor"), "github-app");
+    expect(actionProblem(saved())).toBe("empty");
+    await user.type(screen.getByLabelText("Repo"), "acme/app");
+    await user.type(screen.getByLabelText("Number"), "7");
+    await user.type(screen.getByLabelText("Head branch"), "fix/x");
+    await user.type(screen.getByLabelText("Expected head sha"), "a".repeat(40));
+    await user.type(screen.getByLabelText("Commit sha"), "b".repeat(40));
+    await user.type(screen.getByLabelText("Source"), "ci-runner");
+    expect(actionProblem(saved())).toBeNull();
+    expect(saved().params).toMatchObject({ number: 7, head_branch: "fix/x", repo: "acme/app" });
+  });
+
+  it("saves a review reply with a boolean resolve", async () => {
+    const user = userEvent.setup();
+    render(<Fixer />);
+    await user.selectOptions(screen.getByLabelText("What happens"), "github.review_reply");
+    await user.selectOptions(screen.getByLabelText("Actor"), "github-app");
+    await user.type(screen.getByLabelText("Repo"), "acme/app");
+    await user.type(screen.getByLabelText("Number"), "7");
+    await user.type(screen.getByLabelText("Comment id"), "99");
+    await user.type(screen.getByLabelText("Body"), "Fixed");
+    await user.click(screen.getByRole("checkbox", { name: "Resolve the thread" }));
+    expect(actionProblem(saved())).toBeNull();
+    expect(saved().params).toMatchObject({ comment_id: 99, resolve: true });
+    await user.click(screen.getByRole("checkbox", { name: "Resolve the thread" }));
+    expect(saved().params).not.toHaveProperty("resolve");
+  });
+
+  it("rejects a non-boolean resolve", () => {
+    expect(
+      actionProblem({
+        kind: "github.review_reply",
+        params: { actor: "a", repo: "r", number: 1, comment_id: 2, body: "b", resolve: "yes" },
+      }),
+    ).toBe("invalid_value");
+  });
+});

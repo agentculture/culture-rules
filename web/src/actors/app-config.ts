@@ -17,6 +17,8 @@ export const ACTION_KINDS: readonly { name: string; summary: string }[] = [
   { name: "message", summary: "Send a message on the mesh" },
   { name: "discord.message", summary: "Post a message on Discord" },
   { name: "github.comment", summary: "Comment on a GitHub issue or PR" },
+  { name: "github.push", summary: "Fast-forward a same-repo PR's head branch (never force)" },
+  { name: "github.review_reply", summary: "Reply in a PR review thread, optionally resolving it" },
   { name: "jira.comment", summary: "Comment on a Jira issue" },
   { name: "http.call", summary: "Call an HTTP endpoint" },
   { name: "machine.command", summary: "Run a registered command on a machine" },

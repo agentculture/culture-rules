@@ -28,6 +28,7 @@ from culture_rules.actors.secrets import resolve
 from culture_rules.events.hook_sink import (
     BAD_REQUEST,
     DUPLICATE,
+    SELF_TAG_EXEMPT_TYPES,
     TOO_LARGE,
     UNAUTHORIZED,
     record_outcome,
@@ -202,8 +203,13 @@ def handle(
     headers: Mapping[str, str],
     query: Mapping[str, str],
     secrets: Callable[[str], str] = resolve,
+    on_check: Callable[[Mapping[str, Any]], Any] | None = None,
 ) -> tuple[int, dict[str, Any]]:
-    """Verify and record one GitHub delivery; return ``(status, json body)``."""
+    """Verify and record one GitHub delivery; return ``(status, json body)``.
+
+    ``on_check`` (the once-per-SHA settler) is called with the event data of an accepted or
+    redelivered check completion, so a failed earlier attempt is retried; it never changes the
+    response and its failures are logged only."""
     del query  # GitHub signs the body; nothing in the query is trusted or used
     if len(body) > MAX_BODY_BYTES:
         record_outcome(store, SURFACE, TOO_LARGE)
@@ -237,15 +243,33 @@ def handle(
         return _IGNORED
     data = _data(event, action, payload)
     outcome = sink(store, actor, etype, data, delivery, data["author"])
+    if (
+        on_check is not None
+        and etype in SELF_TAG_EXEMPT_TYPES
+        and outcome in ("accepted", DUPLICATE)
+    ):
+        try:
+            on_check(data)
+        except Exception:  # noqa: BLE001 - arming failed after the sink stored the event
+            # 5xx so GitHub redelivers; the sink dedupes the delivery id and a duplicate
+            # re-runs on_check, so the SHA is armed on the retry rather than lost.
+            _log.warning("check settle failed type=%s", etype)
+            return 503, {"error": "settle failed, retry"}
     if outcome == DUPLICATE:
         return 200, {"duplicate": True}
     return 202, {"accepted": True}
 
 
-def router(store: Any, *, secrets: Callable[[str], str] | None = None) -> Any:
+def router(
+    store: Any,
+    *,
+    secrets: Callable[[str], str] | None = None,
+    on_check: Callable[[Mapping[str, Any]], Any] | None = None,
+) -> Any:
     """A FastAPI router with ``POST /hooks/github`` (needs the ``server`` extra)."""
     from fastapi import APIRouter, Request
     from fastapi.responses import JSONResponse
+    from starlette.concurrency import run_in_threadpool
 
     api = APIRouter()
     resolver = secrets or resolve
@@ -263,12 +287,15 @@ def router(store: Any, *, secrets: Callable[[str], str] | None = None) -> Any:
                 record_outcome(store, SURFACE, TOO_LARGE)
                 return JSONResponse({"error": _TOO_LARGE}, status_code=413)
             chunks.append(chunk)
-        status, out = handle(
+        # a thread: handling may list check suites over the network (the settler)
+        status, out = await run_in_threadpool(
+            handle,
             store,
             body=b"".join(chunks),
             headers=request.headers,
             query=request.query_params,
             secrets=resolver,
+            on_check=on_check,
         )
         return JSONResponse(out, status_code=status)
 
