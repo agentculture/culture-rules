@@ -69,6 +69,7 @@ conventions if you need more context than fits here. It covers:
 
 If a delegated task touches the domain, hold to these constraints:
 
+- **Exactly five primary tabs: Rules | Workflows | Actors | Variables | Statistics.**
 - Conditions are never `eval()` of user Python.
 - Actors are not a stage in the rule chain.
 - Workflows don't know what triggered them.

@@ -65,8 +65,7 @@ The core vocabulary, as #2 defines it:
 - An **actor** is *who/what* can do the work. It is not a stage in the
   chain.
 
-Navigation is exactly five tabs: Rules | Workflows | Actors | Variables |
-Statistics.
+Exactly five primary tabs: Rules | Workflows | Actors | Variables | Statistics.
 Runs and history appear only in context, never as a tab. Run state is
 persisted in MongoDB.
 
