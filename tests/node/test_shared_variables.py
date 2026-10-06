@@ -178,6 +178,32 @@ def test_an_intent_fired_without_variable_support_is_not_started():
     assert c.base.get(RUNS_COLLECTION, "run-old") is None
 
 
+def test_a_snapshotless_intent_for_a_variable_free_rule_starts_normally():
+    """Mixed-version clusters keep working: a pre-variables node's intent (no ``variables``
+    field) for a rule that references no variable is started as before."""
+    c = Cluster("spark")
+    c.define(var_rule("plain"))
+    c.start()
+    c.base.insert(
+        RULE_FIRES,
+        {
+            "id": firing_key("plain", "evt_9"),
+            "rule_id": "plain",
+            "event_id": "evt_9",
+            "run_id": "run-old-plain",
+            "host": "old-node",
+            "placed": False,
+            "status": "pending",
+            "trigger": envelope(9),
+            "upstream": {},
+        },
+    )
+    report = c.nodes["spark"].run_once()
+    assert "run-old-plain" in report.started
+    assert c.base.get(RULE_FIRES, firing_key("plain", "evt_9"))["status"] == "started"
+    assert c.base.get(RUNS_COLLECTION, "run-old-plain")["status"] == "succeeded"
+
+
 # --------------------------------------------------------------------------- review: direct runs
 
 

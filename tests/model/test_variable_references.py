@@ -210,6 +210,7 @@ def test_an_old_node_blocks_update_and_import_of_a_variable_rule_too():
     with pytest.raises(Invalid) as exc:
         defs.update("rules", "guarded", _body(IN_X), "alice")
     assert [e["code"] for e in exc.value.errors] == ["variables_unsupported_nodes"]
+    assert store.get("rules", "guarded")["condition"] == NOT_IN_X  # unchanged
     files = {"rules/other.json": json.dumps(rule("other", condition=IN_X).to_dict())}
     with pytest.raises(Invalid) as exc:
         defs.import_files(files, "alice", apply=True)
