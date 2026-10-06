@@ -11,21 +11,33 @@ A node advertises :data:`VARIABLES_CAPABILITY` on its heartbeat when it resolves
 A rule that references a variable is only evaluated where the capability is present;
 anywhere else matching refuses it (``variables_unsupported``) instead of reading the
 reference as missing - a missing operand makes ``not(a in vars.x)`` true, so evaluating it
-without the value would fire the rule wrongly. Standard-library only.
+without the value would fire the rule wrongly.
+
+A node binary older than variables cannot refuse anything (it does not know the reference
+exists), so the save path also refuses a variable-referencing rule while any *online* node
+does not advertise the capability (:func:`nodes_without_variables`; deviation d7). A
+heartbeat from such a node has no ``capabilities`` field at all. Standard-library only.
 """
 
 from __future__ import annotations
 
 import copy
 from collections.abc import Iterable
+from datetime import datetime
 from typing import Any
 
+from culture_rules.machines.heartbeat import (
+    HEARTBEAT_COLLECTION,
+    HEARTBEAT_INTERVAL_S,
+    online_machines,
+)
 from culture_rules.store.port import VARIABLES_COLLECTION, StoreOps
 
 __all__ = [
     "NODE_CAPABILITIES",
     "VARIABLES_CAPABILITY",
     "defined_variables",
+    "nodes_without_variables",
     "variable_values",
 ]
 
@@ -63,3 +75,20 @@ def defined_variables(ops: StoreOps) -> set[str]:
         for doc in ops.find(VARIABLES_COLLECTION)
         if _latest(doc) is not None
     }
+
+
+def nodes_without_variables(
+    ops: StoreOps, now: datetime, *, beat_every: float = HEARTBEAT_INTERVAL_S
+) -> list[str]:
+    """Online nodes (the heartbeat rule of :func:`online_machines`) whose latest heartbeat
+    does not advertise :data:`VARIABLES_CAPABILITY`, sorted. Offline nodes do not count."""
+    online = online_machines(ops, now, beat_every=beat_every)
+    lacking = set()
+    for beat in ops.find(HEARTBEAT_COLLECTION):
+        name = beat.get("machine")
+        if name not in online:
+            continue
+        caps = beat.get("capabilities")
+        if not isinstance(caps, list) or VARIABLES_CAPABILITY not in caps:
+            lacking.add(name)
+    return sorted(lacking)

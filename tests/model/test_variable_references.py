@@ -6,6 +6,7 @@ Pure-layer tests; the node-level behaviour lives in ``tests/node/test_shared_var
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -17,6 +18,8 @@ from culture_rules.engine.matching import (
     VARIABLES_UNSUPPORTED,
     match,
 )
+from culture_rules.engine.variables import VARIABLES_CAPABILITY
+from culture_rules.machines.heartbeat import HEARTBEAT_COLLECTION, OFFLINE_AFTER_S
 from culture_rules.model.action import Action
 from culture_rules.model.refs import resolve_refs
 from culture_rules.model.rule import Rule, Trigger, WorkflowRef
@@ -158,3 +161,66 @@ def test_importing_a_rule_that_references_an_undefined_variable_is_refused():
         e["code"] == "variable_undefined" and "'x'" in e["message"] for e in exc.value.errors
     )
     assert store.find("rules") == []
+
+
+# --------------------------------------------------------------------------- d7: old nodes
+
+NOW = datetime(2026, 10, 6, 12, 0, 0, tzinfo=UTC)
+
+
+def _beat(store: MemoryStore, machine: str, at: datetime, capabilities=None) -> None:
+    doc = {"id": machine, "machine": machine, "ts": at.strftime("%Y-%m-%dT%H:%M:%SZ")}
+    if capabilities is not None:
+        doc["capabilities"] = list(capabilities)
+    store.put(HEARTBEAT_COLLECTION, doc)
+
+
+def _defs_with_trusted() -> tuple[MemoryStore, Definitions]:
+    store = MemoryStore()
+    store.put_variable("x", ["qodo"], updated_by="alice")
+    return store, Definitions(store, clock=lambda: NOW)
+
+
+def test_an_online_node_without_variable_support_blocks_a_variable_rule_save():
+    store, defs = _defs_with_trusted()
+    _beat(store, "spark", NOW, capabilities=[VARIABLES_CAPABILITY])
+    _beat(store, "orin", NOW)  # a 0.12.0 heartbeat: no capabilities field at all
+    with pytest.raises(Invalid) as exc:
+        defs.create("rules", _body(NOT_IN_X), "alice")
+    (err,) = exc.value.errors
+    assert err["code"] == "variables_unsupported_nodes"
+    assert "orin" in err["message"] and "spark" not in err["message"]
+    assert store.find("rules") == []
+
+    _beat(store, "orin", NOW, capabilities=[VARIABLES_CAPABILITY])  # upgraded
+    assert defs.create("rules", _body(NOT_IN_X), "alice")["id"] == "guarded"
+
+
+def test_a_stale_node_without_variable_support_does_not_block():
+    store, defs = _defs_with_trusted()
+    _beat(store, "orin", NOW - timedelta(seconds=OFFLINE_AFTER_S))  # offline by the status rule
+    assert defs.create("rules", _body(NOT_IN_X), "alice")["id"] == "guarded"
+
+
+def test_an_old_node_blocks_update_and_import_of_a_variable_rule_too():
+    store, defs = _defs_with_trusted()
+    defs.create("rules", _body(NOT_IN_X), "alice")
+    _beat(store, "orin", NOW, capabilities=[])
+    with pytest.raises(Invalid) as exc:
+        defs.update("rules", "guarded", _body(IN_X), "alice")
+    assert [e["code"] for e in exc.value.errors] == ["variables_unsupported_nodes"]
+    files = {"rules/other.json": json.dumps(rule("other", condition=IN_X).to_dict())}
+    with pytest.raises(Invalid) as exc:
+        defs.import_files(files, "alice", apply=True)
+    assert any(
+        e["code"] == "variables_unsupported_nodes" and "orin" in e["message"]
+        for e in exc.value.errors
+    )
+
+
+def test_a_variable_free_rule_saves_regardless_of_old_nodes():
+    store, defs = _defs_with_trusted()
+    _beat(store, "orin", NOW)
+    assert defs.create("rules", rule("plain").to_dict(), "alice")["id"] == "plain"
+    files = {"rules/plain2.json": json.dumps(rule("plain2").to_dict())}
+    assert defs.import_files(files, "alice", apply=True)["applied"] is True
