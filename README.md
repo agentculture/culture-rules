@@ -178,6 +178,9 @@ CLI. A parity test keeps the two surfaces identical.
   schedule and the restore drill.
 - [`docs/operations/rules-culture-dev.md`](docs/operations/rules-culture-dev.md):
   the rules.culture.dev tunnel, Cloudflare Access and the loopback listener.
+- [`docs/operations/pr-fixer.md`](docs/operations/pr-fixer.md): the PR
+  fixer machine (spark2): the unprivileged account, the agent bridges and their
+  actors.
 
 ## Background
 
