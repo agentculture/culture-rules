@@ -2,7 +2,9 @@
 
 A heartbeat document (collection ``heartbeats``, id = machine name) carries
 ``machine``, ``ts`` (ISO UTC), ``load`` (``cpu``, ``mem``, optional ``gpu``),
-``tools`` (probed tools -> bool) and ``engine_version``. Beats are written every
+``tools`` (probed tools -> bool), ``capabilities`` (what this engine node supports, e.g.
+``variables``: it resolves shared variables) and ``engine_version``. A heartbeat without
+``capabilities`` comes from a node that predates them. Beats are written every
 10 s; absence for 30 s (3 missed beats) means offline, and placement skips it.
 """
 
@@ -85,6 +87,7 @@ class HeartbeatPublisher:
         clock: Clock = _now,
         load_reader: Callable[[], Mapping[str, float]] = read_load,
         engine_version: str | None = None,
+        capabilities: tuple[str, ...] = (),
     ) -> None:
         self._store = store
         self.machine = machine
@@ -92,6 +95,7 @@ class HeartbeatPublisher:
         self._clock = clock
         self._load_reader = load_reader
         self._version = engine_version or _engine_version()
+        self._capabilities = sorted(set(capabilities))
 
     def document(self) -> dict[str, Any]:
         return {
@@ -101,6 +105,7 @@ class HeartbeatPublisher:
             "load": dict(self._load_reader()),
             "tools": dict(self._tools),
             "engine_version": self._version,
+            "capabilities": list(self._capabilities),
         }
 
     def beat(self) -> dict[str, Any]:

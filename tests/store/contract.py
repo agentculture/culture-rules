@@ -30,6 +30,7 @@ from datetime import datetime
 
 import pytest
 
+from culture_rules.engine.variables import defined_variables, variable_values
 from culture_rules.store.migrations import (
     BackupRequiredError,
     MigrationError,
@@ -610,3 +611,17 @@ class StoragePortContract:
             migrate(new, registry, backup=lambda: calls.append(1) or True)
         assert calls == []
         assert SchemaVersion.parse(new.get("rules", "a")["schema_version"]).major == 1
+
+    # ------------------------------------------------------------ engine variable reads
+
+    def test_engine_reads_current_variable_values_inside_a_transaction(self):
+        store = self.make_store()
+        store.put_variable("trusted", ["a"], updated_by="alice")
+        store.put_variable("trusted", ["a", "b"], updated_by="alice")
+        store.put_variable("limit", 3, updated_by="alice")
+        with store.transaction() as tx:
+            values = variable_values(tx, {"trusted", "limit", "ghost"})
+            names = defined_variables(tx)
+        assert values == {"trusted": ["a", "b"], "limit": 3}
+        assert names == {"trusted", "limit"}
+        assert variable_values(store, ["trusted"]) == {"trusted": ["a", "b"]}

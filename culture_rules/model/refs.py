@@ -17,7 +17,11 @@ envelope), ``workflow`` (``workflow.outputs.<name>``, action params only) and ``
   for a string that *would* resolve, such as the text ``trigger.id``.
 
 ``{{ <path> }}`` templates inside a longer string are substituted (absent: empty text).
-Workflow-input mappings accept all three forms (a string or a structured object); the
+Workflow-input mappings accept all three forms (a string or a structured object) and a
+fourth, ``{"$var": <name>}`` (a one-key object): the current value of the shared variable
+``name``, read from the context's ``variables`` namespace (``None`` when undefined). Only
+a context that carries ``variables`` (the engine passes it when it maps workflow inputs)
+resolves it; elsewhere, such as action params, the object passes through as written. The
 model validator refuses any other value. Standard-library only.
 """
 
@@ -33,6 +37,7 @@ __all__ = [
     "NAMESPACES",
     "REF_KEY",
     "TRIGGER_FIELDS",
+    "VAR_KEY",
     "is_reference",
     "lookup",
     "ref_error",
@@ -40,10 +45,12 @@ __all__ = [
     "resolve_refs",
     "scanned_strings",
     "structured_form",
+    "var_name",
 ]
 
 REF_KEY = "$ref"
 LITERAL_KEY = "$literal"
+VAR_KEY = "$var"
 NAMESPACES = ("trigger", "workflow", "rules")
 
 #: Fields an event envelope may carry (events-cli wire form): ``trigger.<field>...`` is a
@@ -106,6 +113,13 @@ def structured_form(value: Any) -> str | None:
     return None
 
 
+def var_name(value: Any) -> str | None:
+    """The variable name of a ``{"$var": <name>}`` one-key object (any string), else None."""
+    if isinstance(value, Mapping) and len(value) == 1 and isinstance(value.get(VAR_KEY), str):
+        return value[VAR_KEY]
+    return None
+
+
 def ref_error(path: Any, *, has_workflow: bool) -> str | None:
     """Why a ``{"$ref": path}`` can never resolve, or None when it can."""
     if not isinstance(path, str) or not _PATH.match(path):
@@ -148,6 +162,9 @@ def resolve_refs(value: Any, context: Mapping[str, Any]) -> Any:
         if is_reference(value, context.get("trigger")):
             return lookup(context, value)
         return _TEMPLATE.sub(lambda m: _text(lookup(context, m.group(1))), value)
+    variables = context.get("variables")
+    if isinstance(variables, Mapping) and (name := var_name(value)) is not None:
+        return copy.deepcopy(variables.get(name))
     form = structured_form(value)
     if form == LITERAL_KEY:
         return copy.deepcopy(value[LITERAL_KEY])

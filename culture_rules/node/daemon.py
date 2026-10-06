@@ -4,7 +4,9 @@ A :class:`Node` on host ``H`` does, every cycle (:meth:`Node.run_once`):
 
 1. **heartbeat** - at :meth:`Node.start` it probes the platform
    (:func:`~culture_rules.machines.probe.probe_platform`) and publishes a heartbeat
-   carrying the probed tools (and GPU load when readable); later cycles re-beat every
+   carrying the probed tools (and GPU load when readable) and its capabilities
+   (:attr:`HeartbeatOptions.capabilities`; ``variables`` by default, see
+   :mod:`culture_rules.engine.variables`); later cycles re-beat every
    :attr:`HeartbeatOptions.beat_every` seconds. Under :meth:`Node.run` a daemon thread
    beats on that cadence as well, so a long synchronous step in the drive stage never
    makes this host look offline; the thread stops when :meth:`Node.run` returns (or the
@@ -77,6 +79,7 @@ from culture_rules.engine.decisions import RULE_DECISIONS
 from culture_rules.engine.named_lease import LEASES_COLLECTION
 from culture_rules.engine.reports import RunReporter
 from culture_rules.engine.runs import RUNS_COLLECTION, Executor
+from culture_rules.engine.variables import NODE_CAPABILITIES, VARIABLES_CAPABILITY
 from culture_rules.events.hook_sink import HOOK_STATS_COLLECTION
 from culture_rules.events.ingest import EVENTS_COLLECTION, EventIngest
 from culture_rules.events.source import EventSource
@@ -134,6 +137,9 @@ class HeartbeatOptions:
     """Reads the current load, on every beat."""
     engine_version: str | None = None
     """Published on the heartbeat (``None``: the installed version)."""
+    capabilities: tuple[str, ...] = NODE_CAPABILITIES
+    """Advertised on the heartbeat. Without ``variables`` this node refuses to evaluate a
+    rule that references a shared variable (records ``variables_unsupported``)."""
     beat_every: float = HEARTBEAT_INTERVAL_S
     """Seconds between heartbeats after the first."""
 
@@ -233,7 +239,13 @@ class Node:
                 seconds=MISSED_BEATS_OFFLINE * self._beat_options.beat_every
             ),
         )
-        self.firing = RuleFiring(store, host, self.executor, clock=self._clock)
+        self.firing = RuleFiring(
+            store,
+            host,
+            self.executor,
+            clock=self._clock,
+            variables=VARIABLES_CAPABILITY in self._beat_options.capabilities,
+        )
         self.scheduler = Scheduler(store, host, self.firing, clock=self._clock)
         self.prober = ProbeTrigger(
             store, host, self.firing, clock=self._clock, runner=options.probe_runner
@@ -285,6 +297,7 @@ class Node:
                 clock=self._clock,
                 load_reader=load,
                 engine_version=self._beat_options.engine_version,
+                capabilities=tuple(self._beat_options.capabilities),
             )
             doc = self.beat()
             pinned = CycleReport(self.host)

@@ -25,6 +25,11 @@ A rule over its fire-rate cap (``trigger.params.max_fires_per_hour``, enforced b
 :mod:`culture_rules.node.firing`, "Rate cap") is recorded as the final skip ``rate_capped``
 instead of a run.
 
+A rule that references a shared variable which the evaluating node cannot read - the node
+does not advertise the ``variables`` capability, or the variable is not defined - is
+recorded as the final skip ``variables_unsupported`` / ``variable_undefined``: an error on
+the rule's history, never a silent non-match (:mod:`culture_rules.engine.variables`).
+
 ``condition_false``, ``disabled`` and ``paused`` are not recorded: they are the normal
 "this rule did not apply" outcome and would flood the history. Standard-library only.
 """
@@ -43,6 +48,8 @@ from culture_rules.engine.matching import (
     PAUSED,
     PREDECESSOR_FAILED,
     SUPERSEDED_BY,
+    VARIABLE_UNDEFINED,
+    VARIABLES_UNSUPPORTED,
     Decision,
 )
 from culture_rules.store.port import StoreOps
@@ -68,6 +75,8 @@ RECORDED_REASONS: tuple[str, ...] = (
     GROUP_LOST,
     PREDECESSOR_FAILED,
     RATE_CAPPED,
+    VARIABLES_UNSUPPORTED,
+    VARIABLE_UNDEFINED,
 )
 FINAL_SKIP_REASONS: tuple[str, ...] = tuple(
     r for r in RECORDED_REASONS if r != BLOCKED_BY_PREDECESSOR

@@ -18,7 +18,7 @@ import dataclasses
 import json
 import math
 import re
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Collection, Iterator
 from dataclasses import dataclass
 from typing import Any, Literal, get_args, get_origin
 
@@ -38,11 +38,20 @@ from culture_rules.model.refs import (
     TRIGGER_FIELDS,
     ref_errors,
     structured_form,
+    var_name,
 )
 from culture_rules.model.rule import TRIGGER_KINDS, Rule, Trigger, WorkflowRef
+from culture_rules.model.variable import VALID_VARIABLE_NAME_RE
+from culture_rules.model.variable_refs import condition_variable_refs
 from culture_rules.model.workflow import LOOP_KINDS, Edge, Output, Port, Step, Variable, Workflow
 
-__all__ = ["CATALOG_CODES", "ValidationError", "validate", "validate_data"]
+__all__ = [
+    "CATALOG_CODES",
+    "ValidationError",
+    "validate",
+    "validate_data",
+    "variable_ref_errors",
+]
 
 #: Pseudo step id an edge uses to read from the workflow's own inputs.
 INPUTS_NODE = "inputs"
@@ -110,6 +119,36 @@ def validate(obj: Any, *, stored: bool = False) -> list[ValidationError]:
     _validate(obj, "", errors)
     if stored:
         return [e for e in errors if e.code not in CATALOG_CODES]
+    return errors
+
+
+def variable_ref_errors(rule: Rule, defined: Collection[str]) -> list[ValidationError]:
+    """``variable_undefined`` for every shared variable ``rule`` references that is not in
+    ``defined`` (the names the store holds), each naming the variable.
+
+    :func:`validate` is pure, so the save path (which can read the store) calls this with
+    the defined names: a rule that references an undefined variable is refused at save.
+    """
+    errors: Errors = []
+    missing = sorted(condition_variable_refs(rule.condition) - set(defined))
+    if missing:
+        names = ", ".join(repr(n) for n in missing)
+        _err(
+            errors,
+            "condition",
+            "variable_undefined",
+            f"the condition references undefined shared variable(s): {names}",
+        )
+    inputs = rule.workflow.inputs if rule.workflow is not None else {}
+    for input_name, mapping in sorted(inputs.items()):
+        name = var_name(mapping)
+        if name is not None and name not in defined:
+            _err(
+                errors,
+                _join(_join("workflow", "inputs"), input_name),
+                "variable_undefined",
+                f"input {input_name!r} references undefined shared variable {name!r}",
+            )
     return errors
 
 
@@ -431,13 +470,17 @@ def _check_workflow_ref(obj: WorkflowRef, path: str, errors: Errors) -> None:
                 errors,
                 _join(_join(path, "inputs"), name),
                 "invalid_input_mapping",
-                'a workflow input is a string, {"$ref": <string>} or {"$literal": <value>}',
+                'a workflow input is a string, {"$ref": <string>}, {"$literal": <value>} '
+                'or {"$var": <variable name>}',
             )
 
 
 def _input_mapping_ok(mapping: Any) -> bool:
     if isinstance(mapping, str):
         return True
+    name = var_name(mapping)
+    if name is not None:
+        return VALID_VARIABLE_NAME_RE.fullmatch(name) is not None
     form = structured_form(mapping)
     return form == LITERAL_KEY or (form == REF_KEY and isinstance(mapping[REF_KEY], str))
 

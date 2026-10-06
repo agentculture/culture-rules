@@ -41,3 +41,11 @@ def test_rule_document_refs_cover_condition_and_inputs():
 
 def test_no_condition_and_no_workflow_reference_nothing():
     assert rule_variable_refs({"condition": None, "workflow": None}) == set()
+
+
+def test_an_extra_literal_key_on_an_operator_node_does_not_hide_a_reference():
+    """Validation allows extra keys on operator nodes, so only a real {"literal": x} operand
+    is skipped; otherwise a negated reference could slip past the fail-closed check."""
+    inner = {"op": "in", "value": {"field": "author"}, "items": {"var": "trusted"}}
+    tree = {"op": "not", "arg": inner, "literal": None}
+    assert condition_variable_refs(tree) == {"trusted"}

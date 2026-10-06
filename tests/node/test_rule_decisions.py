@@ -39,6 +39,8 @@ def test_the_recorded_reasons_and_collection():
         "group_lost",
         "predecessor_failed",
         "rate_capped",
+        "variables_unsupported",
+        "variable_undefined",
     }
     assert RULE_DECISIONS in NODE_COLLECTIONS
 
