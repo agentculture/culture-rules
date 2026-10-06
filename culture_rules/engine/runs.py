@@ -902,7 +902,8 @@ class Executor:
         if placement is None:
             actor_id = guard.get("actor") or _action_actor(plan.rule.action)
             adoc = self._store.get(ACTORS_COLLECTION, actor_id) if actor_id else None
-            if adoc and not adoc.get("deleted_at") and adoc.get("machine"):
+            enabled = adoc and not adoc.get("deleted_at") and adoc.get("enabled") is not False
+            if enabled and adoc.get("machine"):  # a disabled actor is left to the router
                 placement = Placement(actor=actor_id)
         if placement is None:
             return True

@@ -280,6 +280,28 @@ def test_only_the_eligible_node_performs_the_guarded_wake(store, clock):
     assert thor.run(run["id"])["status"] == "succeeded"
 
 
+def test_a_disabled_guard_actor_does_not_strand_the_wait(store, clock):
+    """A disabled machine-bound actor yields no placement, so the lookup reaches the
+    router's failure path instead of leaving the step asleep forever (Codex t10 r2)."""
+    from culture_rules.model.actor import Actor
+    from culture_rules.node.actors import ACTORS_COLLECTION
+    from tests.engine.run_helpers import enrol_online, machine
+
+    enrol_online(store, clock, machine("spark"), machine("thor"))
+    store.put(
+        ACTORS_COLLECTION,
+        Actor(id="gh", name="gh", kind="service", machine="thor", enabled=False).to_dict(),
+    )
+    heads = Heads(SHA_A)
+    spark = make(store, clock, FakeActor(), heads, host="spark")
+    run = _sleeping_run(spark, guard_config(60))
+    clock.advance(61)
+    enrol_online(store, clock, machine("spark"), machine("thor"))
+    spark.run_until_idle()
+    assert heads.calls == [("gh", "o/r", 7)]
+    assert step_state(spark.run(run["id"]), "w")["status"] != "sleeping"
+
+
 def test_drained_node_does_not_perform_the_guarded_wake(store, clock):
     from culture_rules.engine.runs import Containment
     from tests.engine.run_helpers import enrol_online, machine
