@@ -17,11 +17,12 @@ from typing import Any
 
 from culture_rules.engine.audit import AuditLog, mutating_verb, require_identity
 from culture_rules.engine.ruleset import validate_rule_set
+from culture_rules.engine.variables import defined_variables
 from culture_rules.io import exchange, gitrepo
 from culture_rules.io.bundle import KINDS, Bundle, SecretRef, check_name
 from culture_rules.model.machine import Machine
 from culture_rules.model.rule import Rule
-from culture_rules.model.validate import validate, validate_data
+from culture_rules.model.validate import validate, validate_data, variable_ref_errors
 from culture_rules.model.workflow import Workflow
 from culture_rules.store.port import Document, StoragePort
 
@@ -211,6 +212,7 @@ class Definitions:
                     others.append(parsed)
         wfs = [w for d in ops.find("workflows") if (w := _tolerant(Workflow, d)) is not None]
         errors = _rule_set_errors([*others, obj], wfs)
+        errors += [e.to_dict() for e in variable_ref_errors(obj, defined_variables(ops))]
         if errors:
             raise Invalid("rule set failed validation", errors)
 
@@ -418,6 +420,12 @@ class Definitions:
             if d["id"] not in incoming_wf and (p := _tolerant(Workflow, d)) is not None
         ]
         errors += _rule_set_errors(rules, wfs)
+        defined = defined_variables(tx)
+        errors += [
+            {**e.to_dict(), "path": f"rules/{r.id}/{e.path}"}
+            for r in bundle.rules
+            for e in variable_ref_errors(r, defined)
+        ]
         changes: list[dict[str, str]] = []
         writes: list[tuple[str, dict[str, Any]]] = []
         for kind in (*KINDS, SECRETS):

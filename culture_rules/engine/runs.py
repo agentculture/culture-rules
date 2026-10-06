@@ -134,6 +134,7 @@ from culture_rules.engine.claims import (
 )
 from culture_rules.engine.leasekeeper import KeeperFactory, LeaseKeeper
 from culture_rules.engine.placement import MachineState, PlacementError, resolve_placement
+from culture_rules.engine.variables import variable_values
 from culture_rules.machines.enrol import enrolled_machines
 from culture_rules.machines.heartbeat import (
     HEARTBEAT_COLLECTION,
@@ -149,6 +150,7 @@ from culture_rules.model.placement import Placement
 from culture_rules.model.refs import LITERAL_KEY, resolve_refs
 from culture_rules.model.rule import Rule, Trigger, WorkflowRef
 from culture_rules.model.validate import validate
+from culture_rules.model.variable_refs import rule_variable_refs
 from culture_rules.model.workflow import LOOP_KINDS, Port, Step, Workflow
 from culture_rules.store.port import Document, StoragePort, StoreOps
 
@@ -588,10 +590,13 @@ class Executor:
         upstream: Mapping[str, Mapping[str, Any]] | None = None,
         identity: str | None = None,
         run_id: str | None = None,
+        variables: Mapping[str, Any] | None = None,
     ) -> Document:
         """Start a run of the stored rule ``rule_id`` and its stored workflow, pinning both.
 
-        The rule is validated in stored mode (see :meth:`start`).
+        The rule is validated in stored mode (see :meth:`start`). ``variables`` are the
+        shared-variable values its ``{"$var": name}`` inputs map (the snapshot a firing
+        intent carries); ``None`` reads the current values from the store.
         """
         rule_doc = self._store.get(RULES_COLLECTION, rule_id)
         if rule_doc is None:
@@ -607,6 +612,8 @@ class Executor:
             if wf_doc.get("deleted_at"):
                 raise RunError("not_fireable", f"workflow {rule.workflow.id!r} is deleted")
             workflow = Workflow.from_dict(wf_doc, strict=False)
+        if variables is None:
+            variables = variable_values(self._store, rule_variable_refs(rule))
         return self.start(
             rule,
             workflow,
@@ -615,6 +622,7 @@ class Executor:
             identity=identity,
             run_id=run_id,
             stored=True,
+            variables=variables,
         )
 
     def start_workflow(
@@ -668,6 +676,7 @@ class Executor:
         identity: str | None = None,
         run_id: str | None = None,
         stored: bool = False,
+        variables: Mapping[str, Any] | None = None,
     ) -> Document:
         """Validate, pin and persist a new run (audited). Refused while paused.
 
@@ -682,7 +691,7 @@ class Executor:
             raise RunError("invalid_rule", "rule failed validation", [e.to_dict() for e in errors])
         trigger = dict(trigger or {})
         upstream = {k: dict(v) for k, v in (upstream or {}).items()}
-        inputs = self._check_workflow(rule, workflow, trigger, upstream)
+        inputs = self._check_workflow(rule, workflow, trigger, upstream, variables or {})
         now = self._clock()
         run_id = run_id or f"run-{uuid.uuid4().hex}"
         steps = [_new_state(s.id, s.id) for s in (workflow.steps if workflow else ())]
@@ -735,6 +744,7 @@ class Executor:
         workflow: Workflow | None,
         trigger: dict[str, Any],
         upstream: dict[str, dict[str, Any]],
+        variables: Mapping[str, Any],
     ) -> dict[str, Any]:
         if rule.workflow is None:
             if workflow is not None:
@@ -759,7 +769,11 @@ class Executor:
         for s in workflow.steps:
             if s.id == ACTION_STEP or any(b.kind in LOOP_KINDS for b in s.body):
                 raise RunError("unsupported_workflow", f"step {s.id!r}: reserved id or nested loop")
-        context = {"trigger": trigger, "rules": {k: {"outputs": v} for k, v in upstream.items()}}
+        context = {
+            "trigger": trigger,
+            "rules": {k: {"outputs": v} for k, v in upstream.items()},
+            "variables": dict(variables),
+        }
         inputs = {name: resolve_refs(ref, context) for name, ref in rule.workflow.inputs.items()}
         inputs = {k: v for k, v in inputs.items() if v is not None}
         problem = _check_ports(workflow.inputs, inputs, "input")

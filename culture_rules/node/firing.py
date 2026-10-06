@@ -68,6 +68,24 @@ and the re-evaluation always writes the (rule, event) decision record, so it con
 a concurrent first evaluation of the same rule rather than racing past it. The waiting
 record is superseded by the outcome (:func:`~culture_rules.engine.decisions.settle_decision`).
 
+Shared variables
+================
+A rule may reference shared variables (``vars.<name>`` in its condition, ``{"$var": name}``
+in its workflow inputs; :mod:`culture_rules.engine.variables`). Each evaluation reads the
+current values of the referenced variables inside the trigger transaction and hands them
+to matching, so the next event after a variable changes sees the new value with no rule
+edited. A firing intent carries the values its rule references (``variables``); the run
+maps its ``{"$var": name}`` inputs from that snapshot, so the inputs are the values at
+firing time - the same the condition saw.
+
+Fail closed: a node built with ``variables=False`` (it does not advertise the
+``variables`` capability) never evaluates such a rule - matching records the final skip
+``variables_unsupported`` - and a variable that is not defined gives
+``variable_undefined``; neither reads the reference as missing (``not(a in vars.x)`` would
+be true). An intent for a variable-referencing rule that carries no ``variables`` snapshot
+was written by a node that did not resolve variables (an older binary): this node refuses
+to start it and marks it failed (``variables_unsupported``).
+
 Pause
 =====
 A global pause (:meth:`~culture_rules.engine.runs.Containment.pause`) treats the two paths
@@ -143,6 +161,7 @@ from culture_rules.engine.decisions import (
 from culture_rules.engine.matching import (
     BLOCKED_BY_PREDECESSOR,
     FIRE,
+    VARIABLES_UNSUPPORTED,
     Decision,
     RuleOutcome,
     RunFacts,
@@ -160,12 +179,14 @@ from culture_rules.engine.runs import (
     drained_machines,
     is_paused,
 )
+from culture_rules.engine.variables import variable_values
 from culture_rules.events.ingest import EVENTS_COLLECTION
 from culture_rules.events.triggers import FIRES_COLLECTION, EventTriggers
 from culture_rules.machines.enrol import enrolled_machines
 from culture_rules.machines.heartbeat import online_machines
 from culture_rules.model.actor import Actor
 from culture_rules.model.rule import Rule
+from culture_rules.model.variable_refs import rule_variable_refs
 from culture_rules.model.workflow import Workflow
 from culture_rules.node.chain import FeedConsumer, Source, live_rules
 from culture_rules.ops.logs import log_context
@@ -262,11 +283,14 @@ class RuleFiring:
         executor: Executor,
         *,
         clock: Callable[[], datetime],
+        variables: bool = True,
     ) -> None:
         self.store = store
         self.host = host
         self.executor = executor
         self._clock = clock
+        self.variables = variables
+        """Whether this node resolves shared variables (its ``variables`` capability)."""
         self._pending: dict[str, list[tuple[str, str]]] = {}
         self.placed = EventTriggers(
             store,
@@ -461,12 +485,17 @@ class RuleFiring:
         }
         facts, states = self._facts(tx, rules, event_id)
         now = self._clock()
+        refs = {r.id: rule_variable_refs(r) for r in rules}
+        wanted = set().union(*refs.values()) if self.variables else set()
+        values = variable_values(tx, wanted) if wanted else {}
         decisions = match(
             envelope,
             rules,
             facts,
             workflows=workflows,
             paused=is_paused(tx),
+            variables=values,
+            variables_supported=self.variables,
             trigger_match=_trigger_matcher(envelope, rules),
         )
         decisions = self._rate_capped(tx, decisions, rules, ours, event_id, now)
@@ -493,9 +522,11 @@ class RuleFiring:
             )
             if decision.fire:
                 _count_fire(tx, by_id[decision.rule_id], now)
+                snapshot = {n: values[n] for n in sorted(refs[decision.rule_id])}
                 tx.insert(
                     RULE_FIRES,
                     {
+                        **({"variables": snapshot} if snapshot else {}),
                         "id": intent_id,
                         "rule_id": decision.rule_id,
                         "event_id": event_id,
@@ -540,12 +571,15 @@ class RuleFiring:
             if intent.get("placed") and intent.get("host") != self.host:
                 continue  # a placed rule's run starts where it was evaluated
             with log_context(run_id=intent["run_id"], host=self.host):
+                if self._unresolved(intent):
+                    continue
                 try:
                     self.executor.start_from_store(
                         intent["rule_id"],
                         trigger=intent["trigger"],
                         upstream=intent.get("upstream") or None,
                         run_id=intent["run_id"],
+                        variables=intent.get("variables"),
                     )
                 except DuplicateKeyError:
                     pass  # another host started it first
@@ -567,6 +601,26 @@ class RuleFiring:
                     RULE_FIRES, intent["id"], {"status": "pending"}, {"status": "started"}
                 )
         return started
+
+    def _unresolved(self, intent: Mapping[str, Any]) -> bool:
+        """Refuse (mark failed) an intent for a variable-referencing rule that carries no
+        variable snapshot: a node that did not resolve variables fired it (module doc)."""
+        if "variables" in intent:
+            return False
+        rule = self.store.get("rules", intent["rule_id"])
+        if rule is None or not rule_variable_refs(rule):
+            return False
+        log.warning(
+            "rule %s on event %s not started: fired without shared variables resolved",
+            *_ids(intent),
+        )
+        self.store.update_if(
+            RULE_FIRES,
+            intent["id"],
+            {"status": "pending"},
+            {"status": "failed", "error": VARIABLES_UNSUPPORTED},
+        )
+        return True
 
 
 def _trigger_matcher(envelope: Mapping[str, Any], rules: list[Rule]) -> TriggerMatcher:

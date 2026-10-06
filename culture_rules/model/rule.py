@@ -37,7 +37,8 @@ class WorkflowRef(Model):
     version: int | None = doc("Pinned workflow version; null means latest", default=None)
     inputs: dict[str, str | dict[str, Any]] = doc(
         "Workflow input name -> reference string (e.g. trigger.data.number), "
-        '{"$ref": path} or {"$literal": value}',
+        '{"$ref": path}, {"$literal": value} or {"$var": name} (a shared variable\'s '
+        "current value at firing time)",
         default_factory=dict,
     )
 

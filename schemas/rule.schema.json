@@ -350,7 +350,7 @@
               }
             ]
           },
-          "description": "Workflow input name -> reference string (e.g. trigger.data.number), {\"$ref\": path} or {\"$literal\": value}",
+          "description": "Workflow input name -> reference string (e.g. trigger.data.number), {\"$ref\": path}, {\"$literal\": value} or {\"$var\": name} (a shared variable's current value at firing time)",
           "default": {}
         }
       },
