@@ -65,7 +65,7 @@ const settledError = (r: PromiseSettledResult<unknown>) =>
 const value = <T,>(r: PromiseSettledResult<T>, fallback: T): T =>
   r.status === "fulfilled" ? r.value : fallback;
 
-const RUN_DONE = new Set(["succeeded", "failed", "cancelled"]);
+const RUN_DONE = new Set(["succeeded", "failed", "cancelled", "superseded"]);
 const POLL_MS = 2000;
 /** Ids tried past a taken one (a 409: a live or soft-deleted workflow holds it). */
 const MAX_ID_TRIES = 20;

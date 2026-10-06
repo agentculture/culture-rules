@@ -12,7 +12,8 @@ seam. Standard-library only.
 Run document
 ============
 
-``id``, ``status`` (``running`` -> ``succeeded`` | ``failed`` | ``cancelled``), ``rev``
+``id``, ``status`` (``running`` -> ``succeeded`` | ``failed`` | ``cancelled`` |
+``superseded``), ``rev``
 (incremented by every transition), ``history`` (one entry per transition: ``rev``,
 ``at``, ``host``, ``event``, ``step``), ``rule_id`` / ``workflow_id`` (top-level copies of
 the pinned ids for filtering; ``workflow_id`` is null for a rule without a workflow; a
@@ -35,7 +36,9 @@ Step statuses: ``pending`` -> ``dispatching`` (claimed, the actor is being invok
 (actor busy; asked again after :data:`BLOCKED_RETRY_S` without using an attempt) |
 ``retry_wait`` (attempt failed or timed out; re-dispatched after the backoff) |
 ``succeeded`` | ``failed`` | ``skipped`` (disabled step) | ``cancelled``. Loop steps use
-``running`` while their iterations execute.
+``running`` while their iterations execute. A ``wait`` step is never dispatched: it goes
+``pending`` -> ``sleeping`` (``deadline`` = the wake time, persisted in the run document, so
+no worker holds it and a restarted or other node resumes it) -> ``succeeded``.
 
 Semantics
 =========
@@ -83,6 +86,17 @@ Semantics
   ``p``, the list of each iteration's final body output ``p`` (``results`` = the whole
   output objects); a ``retry_until`` loop's outputs are its last iteration's. Loops do not
   nest.
+* **Wait steps** - ``config["seconds"]`` parks the step as ``sleeping`` until
+  ``deadline``; any engine whose tick finds it due wakes it with a compare-and-set, so it
+  completes once however many nodes restart. With ``config["guard"]`` = ``head_unchanged``
+  the wake first reads the PR's current head SHA through the ``head_lookup`` seam (the
+  repo/number/actor come from the guard's ``repo``, ``number``, ``actor``, else the run's
+  inputs or trigger) and compares it with the SHA the guard's ``ref`` names (``inputs.x`` /
+  ``vars.x``). A moved head ends the run ``superseded`` (unfinished steps cancelled, nothing
+  later runs). Fail-safe: a lookup that raises, returns nothing, is not configured, or an
+  expected SHA that cannot be resolved FAILS the step (``head_lookup_failed`` /
+  ``guard_unresolved``) - the run never proceeds as if the head were unchanged. Wait steps
+  are top-level only (a wait inside a loop body is refused at start).
 * **Rule action** - after the workflow succeeds, the rule's action runs as the terminal
   step :data:`ACTION_STEP` (kind ``"action"``), its params resolved against
   ``workflow.outputs.*``, ``trigger.*`` and ``rules.<id>.outputs.*`` (whole-string
@@ -161,8 +175,11 @@ __all__ = [
     "BLOCKED_TIMEOUT",
     "CONTROLS_COLLECTION",
     "DEFAULT_TIMEOUT_S",
+    "HEAD_LOOKUP_PORT",
     "RUNS_COLLECTION",
     "RUN_COLLECTIONS",
+    "SLEEPING",
+    "SUPERSEDED",
     "Containment",
     "Executor",
     "RunError",
@@ -199,7 +216,15 @@ BLOCKED_TIMEOUT = "blocked_timeout"
 """Error code of a deadline that passed while the step was blocked (never started)."""
 
 ACTIVE = "running"
-RUN_DONE = ("succeeded", "failed", "cancelled")
+SUPERSEDED = "superseded"
+"""Run end state: a wait step's head_unchanged guard found the PR head had moved."""
+SLEEPING = "sleeping"
+"""Step status of a wait step parked until its ``deadline``."""
+HEAD_BLOCKED = "head_blocked"
+"""Internal outcome: the head lookup's actor was at a limit; the wake is retried later."""
+HEAD_LOOKUP_PORT = "action:github.pr_head"
+"""Port key the default head lookup routes through (see :class:`Executor`)."""
+RUN_DONE = ("succeeded", "failed", "cancelled", SUPERSEDED)
 STEP_DONE = ("succeeded", "failed", "skipped", "cancelled")
 STEP_OK = ("succeeded", "skipped")
 
@@ -223,6 +248,8 @@ ADHOC_RULE_PREFIX = "adhoc:"
 _MAX_TRANSITIONS_PER_TICK = 10_000
 _MAX_CAS_RETRIES = 50
 Clock = Callable[[], datetime]
+HeadLookup = Callable[[str | None, str, int], str]
+"""``lookup(actor_id, repo, number) -> head sha``; raises (or returns a non-string) on failure."""
 Ports = Mapping[str, ActorPort] | Callable[[InvocationContext], ActorPort | None]
 
 
@@ -234,6 +261,10 @@ class RunError(ValueError):
         self.code = code
         self.message = message
         self.details = list(details)
+
+
+class _HeadBlocked(Exception):
+    """The head lookup's actor refused for now (a limit); try again later."""
 
 
 class _Conflict(Exception):
@@ -551,10 +582,14 @@ class Executor:
         identity: str | None = None,
         lease_keeper: KeeperFactory = LeaseKeeper,
         holder_offline_after: timedelta = timedelta(seconds=offline_after()),
+        head_lookup: HeadLookup | None = None,
     ) -> None:
         """``lease_keeper`` builds the keeper that renews a step's lease while its actor
         is invoked; ``holder_offline_after`` is how stale a holder's heartbeat must be
-        before another host may take over its lapsed ``dispatching`` step."""
+        before another host may take over its lapsed ``dispatching`` step. ``head_lookup`` reads a
+        PR's current head SHA for a wait step's ``head_unchanged`` guard; unset, it goes
+        through the ``action:github.pr_head`` port when ``ports`` has one, else the guard
+        fails safe."""
         if not isinstance(host, str) or not host:
             raise ValueError("host must be a non-empty string")
         self._store = store
@@ -567,6 +602,7 @@ class Executor:
             store, f"{host}/{uuid.uuid4().hex[:8]}", lease=lease, clock=self._clock
         )
         self._lease_keeper = lease_keeper
+        self._head_lookup = head_lookup
         self._holder_offline_after = holder_offline_after
         # placement uses the same cadence the takeover threshold was built from
         self._beat_every = holder_offline_after.total_seconds() / MISSED_BEATS_OFFLINE
@@ -759,6 +795,8 @@ class Executor:
         for s in workflow.steps:
             if s.id == ACTION_STEP or any(b.kind in LOOP_KINDS for b in s.body):
                 raise RunError("unsupported_workflow", f"step {s.id!r}: reserved id or nested loop")
+            if any(b.kind == "wait" for b in s.body):
+                raise RunError("unsupported_workflow", f"step {s.id!r}: wait inside a loop body")
         context = {"trigger": trigger, "rules": {k: {"outputs": v} for k, v in upstream.items()}}
         inputs = {name: resolve_refs(ref, context) for name, ref in rule.workflow.inputs.items()}
         inputs = {k: v for k, v in inputs.items() if v is not None}
@@ -799,6 +837,11 @@ class Executor:
                 if self._cas(doc, new):
                     made += 1
                 continue
+            woken = self._wake_waits(plan, doc, now, is_paused(self._store))
+            if woken is not None:
+                if woken:
+                    made += 1
+                continue
             if is_paused(self._store):
                 break
             if self._dispatch_one(plan, doc, now):
@@ -806,6 +849,123 @@ class Executor:
                 continue
             break
         return made
+
+    # ------------------------------------------------------------------ wait steps
+
+    def _wake_waits(
+        self, plan: _Plan, doc: Document, now: datetime, paused: bool = False
+    ) -> bool | None:
+        """Wake the first due sleeping wait step. None: none due (or none this node may wake
+        now); else whether our CAS won (a lost CAS means another engine woke it).
+
+        A guarded wake makes an external call, so it waits while the engine is paused and
+        runs only on the node the guard's actor is placed on (and never a drained one); an
+        unguarded wake makes no external call and completes even under pause (nothing new
+        dispatches). A ``blocked`` lookup re-arms the timer instead of failing."""
+        for st in doc["steps"]:
+            wake = _parse(st.get("deadline"))
+            if st["status"] != SLEEPING or wake is None or now < wake:
+                continue
+            step = plan.step(st)
+            guard = (step.config.get("guard") if step else None) or None
+            if guard and (paused or not self._guard_eligible(plan, st, step, guard, now)):
+                continue
+            outcome = self._check_guard(plan, doc, step, guard) if guard else None
+            new, nst = _copy_with(doc, st["key"])
+            if outcome is not None and outcome["code"] == HEAD_BLOCKED:
+                nst["deadline"] = _iso(now + timedelta(seconds=BLOCKED_RETRY_S))
+                _record(new, now, self.host, "wait_blocked", st["key"])
+            elif outcome is None:
+                nst.update(status="succeeded", outputs={}, error=None)
+                _record(new, now, self.host, "wait_done", st["key"])
+            elif outcome["code"] == SUPERSEDED:
+                nst.update(status="cancelled", error=outcome)
+                for s in new["steps"]:
+                    if s["status"] not in STEP_DONE:
+                        s["status"] = "cancelled"
+                new.update(status=SUPERSEDED, finished_at=_iso(now), error=None)
+                _record(new, now, self.host, SUPERSEDED, st["key"])
+            else:
+                nst.update(status="failed", error=outcome)
+                _record(new, now, self.host, "failed", st["key"])
+            return self._cas(doc, new)
+        return None
+
+    def _guard_eligible(
+        self, plan: _Plan, st: Mapping, step: Step | None, guard: Mapping, now: datetime
+    ) -> bool:
+        """Whether this node may perform the guarded lookup: the step's placement, else the
+        guard actor's machine (where its App credentials live), resolved as dispatch does."""
+        if self._drained():
+            return False
+        placement = step.placement if step is not None else None
+        if placement is None:
+            actor_id = guard.get("actor") or _action_actor(plan.rule.action)
+            adoc = self._store.get(ACTORS_COLLECTION, actor_id) if actor_id else None
+            enabled = adoc and not adoc.get("deleted_at") and adoc.get("enabled") is not False
+            if enabled and adoc.get("machine"):  # a disabled actor is left to the router
+                placement = Placement(actor=actor_id)
+        if placement is None:
+            return True
+        return self._target_of(placement, now) == self.host
+
+    def _check_guard(
+        self, plan: _Plan, doc: Mapping, step: Step | None, guard: Mapping[str, Any]
+    ) -> dict[str, str] | None:
+        """None when the PR head is unchanged; else the error (``superseded`` when it moved,
+        a failure code when it cannot be told - never None on doubt)."""
+        expected = _guard_expected(plan, doc, guard.get("ref"))
+        if not isinstance(expected, str) or not expected:
+            return _error("guard_unresolved", f"guard ref {guard.get('ref')!r} names no head sha")
+        repo, number = _guard_target(doc, guard)
+        if not isinstance(repo, str) or number is None:
+            return _error("head_lookup_failed", "guard has no repo and PR number to look up")
+        actor = guard.get("actor") or _action_actor(plan.rule.action)
+        try:
+            current = self._lookup_head(doc, step, actor, repo, number)
+        except _HeadBlocked as exc:
+            return _error(HEAD_BLOCKED, str(exc))
+        except Exception as exc:  # noqa: BLE001 - any lookup failure is fail-safe
+            log.warning("head lookup failed for %s#%s: %s", repo, number, type(exc).__name__)
+            return _error("head_lookup_failed", f"could not read the PR head: {exc}")
+        if not isinstance(current, str) or not current:
+            return _error("head_lookup_failed", "the head lookup returned no sha")
+        if current != expected:
+            return _error(SUPERSEDED, f"PR head moved from {expected} to {current}")
+        return None
+
+    def _lookup_head(
+        self, doc: Mapping, step: Step | None, actor: str | None, repo: str, number: int
+    ) -> str | None:
+        if self._head_lookup is not None:
+            return self._head_lookup(actor, repo, number)
+        ctx = InvocationContext(
+            run_id=doc["id"],
+            step_id=step.id if step else "",
+            kind="action",
+            host=self.host,
+            actor=actor,
+            config={"kind": "github.pr_head", "params": {"actor": actor} if actor else {}},
+        )
+        ports = self._ports
+        if callable(ports) and not isinstance(ports, Mapping):
+            port = ports(ctx)
+        else:
+            port = ports.get(HEAD_LOOKUP_PORT)
+        if port is None:
+            raise RuntimeError("no head lookup configured")
+        deadline = self._clock() + timedelta(seconds=30)
+        res = port.invoke(
+            {"repo": repo, "number": number},
+            idempotency_key(doc["id"], ctx.step_id),
+            deadline,
+            context=ctx,
+        )
+        if res.outcome == BLOCKED:
+            raise _HeadBlocked(res.error or "blocked")
+        if res.outcome != COMPLETED:
+            raise RuntimeError(res.error or res.outcome)
+        return res.output.get("head_sha")
 
     def _cas(self, before: Mapping[str, Any], after: Mapping[str, Any]) -> bool:
         res = self._store.update_if(
@@ -836,6 +996,9 @@ class Executor:
             placement = self._action_placement(plan)
         if placement is None:
             return self.host
+        return self._target_of(placement, now)
+
+    def _target_of(self, placement: Placement, now: datetime) -> Any:
         online = online_machines(self._store, now, beat_every=self._beat_every)
         drained = drained_machines(self._store)
         machines = enrolled_machines(self._store)
@@ -1259,7 +1422,7 @@ def _ready(plan: _Plan, doc: Mapping, st: Mapping) -> bool:
     if st["key"] == ACTION_STEP:
         return True
     step = plan.step(st)
-    if step is None or step.kind in LOOP_KINDS or not step.enabled:
+    if step is None or step.kind in LOOP_KINDS or step.kind == "wait" or not step.enabled:
         return False
     loop = st.get("loop")
     if loop:
@@ -1350,6 +1513,10 @@ def due_steps(doc: Mapping[str, Any], now: datetime) -> list[tuple[str, datetime
             due = _parse(st.get("next_attempt_at"))
             if due is None or due <= now:
                 found.append((st["key"], due))
+        elif status == SLEEPING:
+            due = _parse(st.get("deadline"))
+            if due is not None and due <= now:
+                found.append((st["key"], due))
         elif status == "pending":
             plan = plan or _Plan.of(doc)
             if _ready(plan, doc, st):
@@ -1418,7 +1585,15 @@ def _step_inputs(plan: _Plan, doc: Mapping, st: Mapping) -> dict[str, Any]:
 
 def _housekeep(plan: _Plan, doc: Mapping, now: datetime, host: str) -> dict | None:
     """Return ``doc`` with the first due bookkeeping transition applied, or None."""
-    for fn in (_due_timers, _loop_progress, _run_failure, _skip_disabled, _loop_start, _finish):
+    for fn in (
+        _due_timers,
+        _loop_progress,
+        _run_failure,
+        _skip_disabled,
+        _wait_start,
+        _loop_start,
+        _finish,
+    ):
         found = fn(plan, doc, now)
         if found is not None:
             new, event, key = found
@@ -1605,6 +1780,53 @@ def _skip_disabled(plan: _Plan, doc: Mapping, now: datetime) -> Found:
             nst["status"] = "skipped"
             return new, "skipped", st["key"]
     return None
+
+
+def _wait_start(plan: _Plan, doc: Mapping, now: datetime) -> Found:
+    """Park a ready top-level wait step: ``sleeping`` until ``now + seconds`` (persisted)."""
+    for st in doc["steps"]:
+        if st["status"] != "pending" or st.get("loop"):
+            continue
+        step = plan.top.get(st["def"])
+        if step is None or step.kind != "wait" or not step.enabled:
+            continue
+        if not _deps_done(plan, doc, step.id):
+            continue
+        new, nst = _copy_with(doc, st["key"])
+        seconds = float(step.config["seconds"])
+        nst.update(status=SLEEPING, attempt=1, deadline=_iso(now + timedelta(seconds=seconds)))
+        return new, "wait_started", st["key"]
+    return None
+
+
+def _guard_expected(plan: _Plan, doc: Mapping, ref: Any) -> Any:
+    """The SHA a guard ref names: ``inputs.<name>`` or ``vars.<name>`` (its default)."""
+    kind, _, name = ref.partition(".") if isinstance(ref, str) else ("", "", "")
+    if kind == "inputs":
+        return (doc.get("inputs") or {}).get(name)
+    if kind == "vars" and plan.workflow:
+        return next((v.default for v in plan.workflow.variables if v.name == name), None)
+    return None
+
+
+def _guard_target(doc: Mapping, guard: Mapping[str, Any]) -> tuple[Any, int | None]:
+    """The PR a guard watches: the guard's own ``repo``/``number``, else the run's inputs,
+    else its trigger payload."""
+    trigger = doc.get("trigger") or {}
+    data = trigger.get("data") if isinstance(trigger.get("data"), Mapping) else {}
+    sources = (
+        guard,
+        doc.get("inputs") or {},
+        {"repo": data.get("repository"), "number": data.get("number")},  # normalized event
+        trigger,
+    )
+    repo = next((s["repo"] for s in sources if s.get("repo")), None)
+    raw = next((s["number"] for s in sources if s.get("number") is not None), None)
+    try:
+        number = int(raw) if raw is not None and not isinstance(raw, bool) else None
+    except (TypeError, ValueError):
+        number = None
+    return repo, number
 
 
 def _loop_start(plan: _Plan, doc: Mapping, now: datetime) -> Found:
