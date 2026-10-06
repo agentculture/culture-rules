@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-10-06T04:46:38Z",
-  "updated": "2026-10-06T15:53:30Z",
+  "updated": "2026-10-06T16:15:39Z",
   "targets": [
     {
       "id": "c1",
@@ -971,6 +971,14 @@
       "text": "An intermittent single-test failure in the full suite (seen once after the t4 merge, once by the t5 agent; a Qwen run named tests/multihost test_kill_lands_mid_action as flaky) passes on rerun; not yet identified. It predates or is unrelated to wave 1 as far as reruns show, but must be pinned before the final PR",
       "kind": "follow_up",
       "task_id": null,
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r10",
+      "text": "t3 Mongo variables embed full version history in one document; a very large value written many times can hit the 16 MiB document limit (Codex t3 r3). Variables are small admin-written values today; move history to per-version docs or bounded buckets if that changes.",
+      "kind": "follow_up",
+      "task_id": "t3",
       "resolved": false,
       "resolution": ""
     }
