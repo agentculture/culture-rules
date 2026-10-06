@@ -184,3 +184,44 @@ def test_a_disabled_actor_drops_its_cached_app(pem):
     store.put("actors", {**actor_doc(), "enabled": False})
     assert port.invoke(params(), "k2", DEADLINE, context=ctx()).error == "actor_not_found"
     assert "gh-app" not in port._apps
+
+
+class HeadFake(Fake):
+    def __init__(self, sha="c" * 40, status=200):
+        super().__init__(status)
+        self.sha = sha
+
+    def __call__(self, method, url, headers, body, timeout):
+        if "/pulls/" in url:
+            self.calls.append(url)
+            if self.status != 200:
+                return self.status, b"{}"
+            return 200, json.dumps({"head": {"sha": self.sha}}).encode()
+        return super().__call__(method, url, headers, body, timeout)
+
+
+def test_pr_head_port_reads_the_head_sha(pem):
+    from culture_rules.node.actions.github import GitHubPrHeadPort
+
+    store = MemoryStore()
+    store.put("actors", actor_doc())
+    fake = HeadFake()
+    port = GitHubPrHeadPort(store, transport=fake, secrets=lambda ref: pem)
+    res = port.invoke({"repo": "acme/widgets", "number": 3}, "k", DEADLINE, context=ctx())
+    assert res.outcome == "completed"
+    assert dict(res.output) == {"head_sha": "c" * 40}
+    assert fake.calls[-1].endswith("/repos/acme/widgets/pulls/3")
+
+
+def test_pr_head_port_refuses_unlisted_repo_and_surfaces_errors(pem):
+    from culture_rules.node.actions.github import GitHubPrHeadPort
+
+    store = MemoryStore()
+    store.put("actors", actor_doc())
+    fake = HeadFake(status=500)
+    port = GitHubPrHeadPort(store, transport=fake, secrets=lambda ref: pem)
+    bad = port.invoke({"repo": "evil/repo", "number": 3}, "k", DEADLINE, context=ctx())
+    assert (bad.outcome, bad.error) == ("failed", "repo_not_allowed")
+    assert fake.calls == []
+    res = port.invoke({"repo": "acme/widgets", "number": 3}, "k", DEADLINE, context=ctx())
+    assert res.outcome == "failed"

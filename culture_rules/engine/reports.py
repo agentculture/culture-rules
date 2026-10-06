@@ -20,7 +20,7 @@ from culture_rules.store.port import StoragePort
 
 log = logging.getLogger(__name__)
 
-TERMINAL = frozenset({"succeeded", "failed", "cancelled"})
+TERMINAL = frozenset({"succeeded", "failed", "cancelled", "superseded"})
 
 
 @runtime_checkable
