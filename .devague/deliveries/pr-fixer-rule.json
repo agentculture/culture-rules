@@ -2,7 +2,7 @@
   "plan_slug": "pr-fixer-rule",
   "schema_version": 2,
   "created": "2026-10-06T08:44:59Z",
-  "updated": "2026-10-06T17:20:53Z",
+  "updated": "2026-10-06T22:11:11Z",
   "deviations": [
     {
       "id": "d1",
@@ -122,6 +122,22 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 8
+    },
+    {
+      "id": "d9",
+      "what": "Codex returns as the merge-gate reviewer for every task and wave from here on (t7 round 3, t14, waves 3-9), amending d6: Qwen cortex is no longer used for reviews. The reviewer still differs from the implementer (no task is implemented by Codex). Max 3 rounds and the before/after full-suite gate are unchanged.",
+      "task_ref": "t7",
+      "reason": "Operator decision 2026-10-07 after the cortex review tally: 27 findings, 10 real, every P1 false, about 2.5 h lost to stalled runs; Codex had caught both real P1s of the run.",
+      "affects": [
+        "t14",
+        "t11",
+        "t12",
+        "t13"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 9
     }
   ],
   "evidence": [],
