@@ -427,11 +427,22 @@ def test_pull_request_review_data_enrichment():
 
 
 def test_check_suite_data_enrichment():
+    """check_suite event extracts nested fields: head_sha, head_branch, pr_numbers, etc."""
     s = make()
     body = json.dumps(
         {
             "action": "completed",
-            "check_suite": {"app": {"slug": "ci-bot"}, "conclusion": "success"},
+            "check_suite": {
+                "app": {"slug": "ci-bot"},
+                "conclusion": "success",
+                "status": "completed",
+                "head_sha": "abc123def",
+                "head_branch": "feature/auth",
+                "pull_requests": [
+                    {"number": 42, "url": "https://github/o/r/pull/42"},
+                    {"number": 55, "url": "https://github/o/r/pull/55"},
+                ],
+            },
             "repository": {"full_name": "o/r"},
             "sender": {"login": "ci-bot"},
         }
@@ -439,25 +450,111 @@ def test_check_suite_data_enrichment():
     assert post(s, body, hdrs(body, event="check_suite"))[0] == 202
     (ev,) = [e for e in events(s) if e["envelope"]["type"] == "github.checks.suite_completed"]
     data = ev["envelope"]["data"]
+    # Nested fields
+    assert data["head_sha"] == "abc123def"
+    assert data["head_branch"] == "feature/auth"
+    assert data["pr_numbers"] == [42, 55]
+    assert data["repository"] == "o/r"
+    # check_suite-specific
     assert data["app_slug"] == "ci-bot"
+    assert data["workflow_name"] is None
+    assert data["status"] == "completed"
     assert data["conclusion"] == "success"
+    # Legacy field (null when no top-level pull_request)
+    assert data["number"] is None
 
 
-def test_workflow_run_data_enrichment():
+def test_check_suite_empty_pull_requests_keeps_sha_and_branch():
+    """When pull_requests is empty, head_sha and head_branch must still be present."""
     s = make()
     body = json.dumps(
         {
             "action": "completed",
-            "workflow_run": {"conclusion": "failure"},
+            "check_suite": {
+                "app": {"slug": "my-app"},
+                "conclusion": "failure",
+                "status": "completed",
+                "head_sha": "deadbeef",
+                "head_branch": "main",
+                "pull_requests": [],
+            },
             "repository": {"full_name": "o/r"},
             "sender": {"login": "ci-bot"},
+        }
+    ).encode()
+    assert post(s, body, hdrs(body, event="check_suite"))[0] == 202
+    (ev,) = events(s)
+    data = ev["envelope"]["data"]
+    assert data["head_sha"] == "deadbeef"
+    assert data["head_branch"] == "main"
+    assert data["pr_numbers"] == []
+
+
+def test_workflow_run_data_enrichment():
+    """workflow_run event extracts nested fields: head_sha, head_branch, pr_numbers, etc."""
+    s = make()
+    body = json.dumps(
+        {
+            "action": "completed",
+            "workflow_run": {
+                "id": 98765,
+                "name": "CI Build",
+                "conclusion": "failure",
+                "status": "completed",
+                "head_sha": "feedface",
+                "head_branch": "develop",
+                "pull_requests": [
+                    {"number": 10, "url": "https://github/o/r/pull/10"},
+                ],
+            },
+            "repository": {"full_name": "o/r"},
+            "sender": {"login": "github-actions[bot]"},
         }
     ).encode()
     assert post(s, body, hdrs(body, event="workflow_run"))[0] == 202
     (ev,) = [e for e in events(s) if e["envelope"]["type"] == "github.checks.workflow_completed"]
     data = ev["envelope"]["data"]
+    # Nested fields
+    assert data["head_sha"] == "feedface"
+    assert data["head_branch"] == "develop"
+    assert data["pr_numbers"] == [10]
+    assert data["repository"] == "o/r"
+    # workflow_run-specific
     assert data["app_slug"] is None
+    assert data["workflow_name"] == "CI Build"
+    assert data["status"] == "completed"
     assert data["conclusion"] == "failure"
+    # Legacy field (null when no top-level pull_request)
+    assert data["number"] is None
+
+
+def test_workflow_run_empty_pull_requests_keeps_sha_and_branch():
+    """When pull_requests is empty, head_sha and head_branch must still be present."""
+    s = make()
+    body = json.dumps(
+        {
+            "action": "completed",
+            "workflow_run": {
+                "id": 11111,
+                "name": "Deploy",
+                "conclusion": "success",
+                "status": "completed",
+                "head_sha": "cafebabe",
+                "head_branch": "main",
+                "pull_requests": [],
+            },
+            "repository": {"full_name": "x/y"},
+            "sender": {"login": "github-actions[bot]"},
+        }
+    ).encode()
+    assert post(s, body, hdrs(body, event="workflow_run"))[0] == 202
+    (ev,) = events(s)
+    data = ev["envelope"]["data"]
+    assert data["head_sha"] == "cafebabe"
+    assert data["head_branch"] == "main"
+    assert data["pr_numbers"] == []
+    assert data["workflow_name"] == "Deploy"
+    assert data["repository"] == "x/y"
 
 
 def test_review_comment_author_from_comment_not_sender():
@@ -478,9 +575,9 @@ def test_review_comment_author_from_comment_not_sender():
 
 
 def test_self_authored_tagged():
-    """Bot-authored opened -> self_authored false; bot-authored synchronize -> true."""
+    """Bot-authored opened -> self_authored true; bot-authored synchronize -> true."""
     s = make()
-    # opened by bot: self_authored is False
+    # opened by bot: self_authored is True (non-exempt type)
     b_opened = pr_body("opened").replace(b'"alice"', b'"culture[bot]"')
     post(s, b_opened, hdrs(b_opened, delivery="d-opened"))
     # synchronize by bot: self_authored is true
@@ -489,9 +586,9 @@ def test_self_authored_tagged():
     # synchronize should have self_authored true
     ev_sync = [e for e in events(s) if "d-sync" in json.dumps(e)][0]
     assert ev_sync["envelope"]["data"]["self_authored"] is True
-    # opened should have self_authored false (not absent — explicit false)
+    # opened should also have self_authored true (non-exempt type)
     ev_opened = [e for e in events(s) if "d-opened" in json.dumps(e)][0]
-    assert ev_opened["envelope"]["data"]["self_authored"] is False
+    assert ev_opened["envelope"]["data"]["self_authored"] is True
 
 
 def test_check_suite_self_authored_is_false_for_bot():
@@ -506,6 +603,22 @@ def test_check_suite_self_authored_is_false_for_bot():
         }
     ).encode()
     assert post(s, body, hdrs(body, event="check_suite", delivery="d-cs"))[0] == 202
+    (ev,) = events(s)
+    assert ev["envelope"]["data"]["self_authored"] is False
+
+
+def test_workflow_run_self_authored_is_false_for_bot():
+    """A workflow_run completed by the App has self_authored false."""
+    s = make()
+    body = json.dumps(
+        {
+            "action": "completed",
+            "workflow_run": {"conclusion": "success", "name": "CI"},
+            "repository": {"full_name": "o/r"},
+            "sender": {"login": "culture[bot]"},
+        }
+    ).encode()
+    assert post(s, body, hdrs(body, event="workflow_run", delivery="d-wr"))[0] == 202
     (ev,) = events(s)
     assert ev["envelope"]["data"]["self_authored"] is False
 

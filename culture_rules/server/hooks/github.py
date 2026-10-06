@@ -138,12 +138,40 @@ def _data(event: str, action: str, payload: Mapping[str, Any]) -> dict[str, Any]
     elif event == "check_suite":
         cs = _dig(payload, "check_suite")
         if isinstance(cs, Mapping):
+            data["head_sha"] = cs.get("head_sha")
+            data["head_branch"] = cs.get("head_branch")
+            prs = cs.get("pull_requests")
+            data["pr_numbers"] = (
+                [
+                    pr["number"]
+                    for pr in prs
+                    if isinstance(pr, Mapping) and isinstance(pr.get("number"), int)
+                ]
+                if isinstance(prs, list)
+                else []
+            )
             data["app_slug"] = _dig(cs, "app", "slug")
+            data["workflow_name"] = None
+            data["status"] = cs.get("status")
             data["conclusion"] = cs.get("conclusion")
     elif event == "workflow_run":
         wr = _dig(payload, "workflow_run")
         if isinstance(wr, Mapping):
+            data["head_sha"] = wr.get("head_sha")
+            data["head_branch"] = wr.get("head_branch")
+            prs = wr.get("pull_requests")
+            data["pr_numbers"] = (
+                [
+                    pr["number"]
+                    for pr in prs
+                    if isinstance(pr, Mapping) and isinstance(pr.get("number"), int)
+                ]
+                if isinstance(prs, list)
+                else []
+            )
             data["app_slug"] = None
+            data["workflow_name"] = wr.get("name")
+            data["status"] = wr.get("status")
             data["conclusion"] = wr.get("conclusion")
     return data
 
