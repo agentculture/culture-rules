@@ -582,9 +582,12 @@ def _register_hooks(app: FastAPI, store: StoragePort) -> None:
     GitHub/Jira, not by the CLI, MCP or web clients the contract types, and the contract's
     global 401/403 envelope and credential schemes do not apply to them.
     """
+    from culture_rules.node.checks_settle import AppSuiteLister, ChecksSettler  # noqa: PLC0415
     from culture_rules.server.hooks import github, jira  # noqa: PLC0415
 
-    app.include_router(github.router(store), include_in_schema=False)
+    lister = AppSuiteLister(store)
+    settler = ChecksSettler(store, lister.list_suites, pull=lister.get_pull)
+    app.include_router(github.router(store, on_check=settler.on_check), include_in_schema=False)
     app.include_router(jira.router(store), include_in_schema=False)
 
 

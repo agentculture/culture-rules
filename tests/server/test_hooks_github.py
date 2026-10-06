@@ -713,3 +713,36 @@ def test_router_body_limit_413():
     b = b"x" * (gh.MAX_BODY_BYTES + 1)
     assert c.post("/hooks/github", content=b, headers=hdrs(b)).status_code == 413
     assert events(s) == []
+
+
+def test_on_check_called_for_check_completions_only_and_failures_are_swallowed():
+    s = make()
+    seen = []
+
+    def on_check(data):
+        seen.append(data["head_sha"])
+        raise RuntimeError("listing blew up")
+
+    def go(body, event, delivery):
+        return gh.handle(
+            s,
+            body=body,
+            headers=hdrs(body, event=event, delivery=delivery),
+            query={},
+            secrets=resolver({REF: KEY_A}),
+            on_check=on_check,
+        )
+
+    suite = json.dumps(
+        {
+            "action": "completed",
+            "check_suite": {"status": "completed", "head_sha": "abc123d", "app": {"slug": "x"}},
+            "repository": {"full_name": "o/r"},
+            "sender": {"login": "ci-bot"},
+        }
+    ).encode()
+    assert go(suite, "check_suite", "d-1")[0] == 202
+    assert go(suite, "check_suite", "d-1")[0] == 200  # redelivery retries the settle
+    pr = pr_body()
+    go(pr, "pull_request", "d-2")
+    assert seen == ["abc123d", "abc123d"]

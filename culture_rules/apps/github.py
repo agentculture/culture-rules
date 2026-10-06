@@ -43,6 +43,7 @@ DEFAULT_API_BASE = "https://api.github.com"
 API_VERSION = "2022-11-28"
 _REFRESH_MARGIN = timedelta(minutes=5)
 _TIMEOUT_S = 15
+_SHA_RE = re.compile(r"^[0-9a-fA-F]{7,64}$")
 _REPO_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9._-]+$")
 
 #: The current call's ``(deadline, clock)`` (see :meth:`GitHubApp.deadline`).
@@ -259,6 +260,35 @@ class GitHubApp:
         """The pull request ``number`` of ``repo`` (REST ``GET /repos/{repo}/pulls/{n}``)."""
         self._require_allowed(repo, "pull read")
         return self._call("GET", f"/repos/{repo}/pulls/{int(number)}", None)
+
+    def list_check_suites(self, repo: str, sha: str) -> list[dict[str, Any]]:
+        """Every check suite of commit ``sha`` (REST, paginated); read-only (Checks: read).
+
+        Each item is ``{app_slug, status, conclusion}`` - the three fields a settle decision
+        needs - so nothing else of GitHub's payload is carried around."""
+        self._require_allowed(repo, "check suites")
+        if not isinstance(sha, str) or not _SHA_RE.match(sha):
+            raise GitHubError("bad_input", "sha")
+        out: list[dict[str, Any]] = []
+        for page in range(1, _MAX_PAGES + 1):
+            data = self._call(
+                "GET", f"/repos/{repo}/commits/{sha}/check-suites?per_page=100&page={page}", None
+            )
+            suites = data.get("check_suites")
+            suites = suites if isinstance(suites, list) else []
+            for suite in suites:
+                if isinstance(suite, dict):
+                    app = suite.get("app") if isinstance(suite.get("app"), dict) else {}
+                    out.append(
+                        {
+                            "app_slug": app.get("slug"),
+                            "status": suite.get("status"),
+                            "conclusion": suite.get("conclusion"),
+                        }
+                    )
+            if len(suites) < 100:
+                return out
+        raise GitHubError("too_many_pages", "check suites")
 
     def reply_review_comment(
         self, repo: str, number: int, comment_id: int, body: str
