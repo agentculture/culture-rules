@@ -90,3 +90,60 @@ def test_no_third_party_imports(module):
 
     allowed = set(sys.stdlib_module_names) | {"culture_rules"}
     assert roots <= allowed, roots - allowed
+
+
+# ------------------------------------------------------------------- variables
+
+import threading  # noqa: E402
+
+from culture_rules.store.migrations import ensure_variables_collection  # noqa: E402
+from tests.store.test_variable import VariableContract  # noqa: E402
+
+
+class TestVariableMemoryContract(VariableContract):
+    def make_store(self) -> MemoryStore:
+        return MemoryStore()
+
+
+def test_migration_ensure_variables_is_a_noop_for_memory():
+    store = MemoryStore()
+    ensure_variables_collection(store)
+    doc = store.put_variable("a", 1, updated_by="me")
+    assert doc["version"] == 1
+
+
+def test_concurrent_puts_are_append_only():
+    """Peers racing on one variable all keep their version (compare-and-set)."""
+    store = MemoryStore()
+    peers = [store.peer() for _ in range(8)]
+    per_peer = 5
+    barrier = threading.Barrier(len(peers))
+
+    def run(handle: MemoryStore) -> None:
+        barrier.wait()
+        for i in range(per_peer):
+            handle.put_variable("counter", i, updated_by="t")
+
+    threads = [threading.Thread(target=run, args=(h,)) for h in peers]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    total = len(peers) * per_peer
+    assert store.get_variable("counter")["version"] == total
+    values = [store.get_variable_version("counter", i)["value"] for i in range(1, total + 1)]
+    assert sorted(values) == sorted(i for _ in peers for i in range(per_peer))
+    assert len(store.list_variables()) == 1
+
+
+# ------------------------------------------------------------------- T2: envelope stamping (memory)
+
+
+def test_variable_doc_carries_envelope_memory():
+    """put_variable stamps schema_version + updated_at in memory store (T2)."""
+    store = MemoryStore()
+    doc = store.put_variable("a", 1, updated_by="me")
+    assert "schema_version" in doc
+    assert "updated_at" in doc
+    assert doc["schema_version"] == "1.0"

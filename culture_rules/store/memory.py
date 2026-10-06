@@ -21,8 +21,13 @@ from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import Any
 
+from culture_rules.model.variable import (
+    validate_variable_name,
+    validate_variable_value,
+)
 from culture_rules.store.port import (
     CURSOR_COLLECTION,
+    VARIABLES_COLLECTION,
     Change,
     ChangeOp,
     Document,
@@ -306,6 +311,83 @@ class MemoryStore:
     def load_cursor(self, consumer: str, collection: str) -> str | None:
         doc = self.get(CURSOR_COLLECTION, cursor_id(consumer, collection))
         return None if doc is None else doc.get("token")
+
+    # --------------------------------------------------------------- variables
+
+    def _validate_variable_name(self, name: str) -> None:
+        validate_variable_name(name)
+
+    @staticmethod
+    def _validate_variable_value(value: Any) -> None:
+        validate_variable_value(value)
+
+    @staticmethod
+    def _variable_view(name: str, version: Mapping[str, Any]) -> Document:
+        """The flat, single-version view of a stored variable document."""
+        return {
+            "id": name,
+            "name": name,
+            "value": copy.deepcopy(version["value"]),
+            "version": version["version"],
+            "updated_by": version["updated_by"],
+            "updated_at": version["updated_at"],
+            "description": version.get("description"),
+        }
+
+    def put_variable(
+        self, name: str, value: Any, *, updated_by: str, description: str | None = None
+    ) -> Document:
+        self._validate_variable_name(name)
+        self._validate_variable_value(value)
+        now = self._now()
+        while True:
+            existing = self._get(None, VARIABLES_COLLECTION, name)
+            versions: list[Document] = list(existing.get("versions", [])) if existing else []
+            entry: Document = {
+                "version": (versions[-1]["version"] if versions else 0) + 1,
+                "value": copy.deepcopy(value),
+                "updated_by": updated_by,
+                "updated_at": now,
+                "description": description,
+            }
+            result = self._update_if(
+                None,
+                VARIABLES_COLLECTION,
+                name,
+                expected={"versions": existing.get("versions") if existing else None},
+                changes={"name": name, "versions": versions + [entry]},
+                upsert=existing is None,
+            )
+            if result.won:
+                view = self._variable_view(name, result.document["versions"][-1])
+                view["schema_version"] = result.document.get("schema_version")
+                view["updated_at"] = result.document.get("updated_at", view.get("updated_at"))
+                return view
+
+    def get_variable(self, name: str) -> Document | None:
+        doc = self._get(None, VARIABLES_COLLECTION, name)
+        if doc is None:
+            return None
+        versions = doc.get("versions", [])
+        return None if not versions else self._variable_view(doc["name"], versions[-1])
+
+    def get_variable_version(self, name: str, version: int) -> Document | None:
+        doc = self._get(None, VARIABLES_COLLECTION, name)
+        if doc is None:
+            return None
+        for v in doc.get("versions", []):
+            if v["version"] == version:
+                return self._variable_view(doc["name"], v)
+        return None
+
+    def list_variables(self) -> list[Document]:
+        result: list[Document] = []
+        for doc in self._find(None, VARIABLES_COLLECTION, None, None):
+            versions = doc.get("versions", [])
+            if versions:
+                result.append(self._variable_view(doc["name"], versions[-1]))
+        result.sort(key=lambda d: d["name"])
+        return result
 
 
 class _TxHandle:

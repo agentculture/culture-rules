@@ -21,10 +21,12 @@ import pytest
 pytest.importorskip("pymongo")
 
 from pymongo import MongoClient  # noqa: E402
-from pymongo.errors import OperationFailure, PyMongoError  # noqa: E402
+from pymongo.errors import DuplicateKeyError, OperationFailure, PyMongoError  # noqa: E402
 
+from culture_rules.store.migrations import ensure_variables_collection  # noqa: E402
 from culture_rules.store.mongo import ConfigError, MongoConfig, MongoStore  # noqa: E402
-from culture_rules.store.port import StoreError  # noqa: E402
+from culture_rules.store.port import VersionSkewError  # noqa: E402
+from culture_rules.store.port import VARIABLES_COLLECTION, StoreError  # noqa: E402
 from tests.store import mongo_rig  # noqa: E402
 from tests.store.contract import StoragePortContract  # noqa: E402
 
@@ -325,3 +327,142 @@ def test_concurrent_cas_across_independent_clients(fresh):
     finally:
         for s in stores:
             s.close()
+
+
+# ------------------------------------------------------------------- variables
+
+from tests.store.test_variable import VariableContract  # noqa: E402
+
+
+class TestVariableMongoContract(VariableContract):
+    @pytest.fixture(autouse=True)
+    def _cleanup(self):
+        yield
+        _release_stores()
+
+    def make_store(self) -> MongoStore:
+        rig = get_rig()
+        database = f"cr_{uuid.uuid4().hex[:12]}"
+        mongo_rig.create_app_user(rig, database)
+        _databases.append(database)
+        store = MongoStore(_config(rig, database))
+        _opened.append(store)
+        return store
+
+
+def test_ensure_variables_collection_creates_unique_index(fresh):
+    store = fresh
+    ensure_variables_collection(store)
+    db = store.client[store.config.database]
+    assert VARIABLES_COLLECTION in db.list_collection_names()
+    indexes = {i["name"]: i for i in db[VARIABLES_COLLECTION].list_indexes()}
+    assert indexes["name_unique"]["unique"] is True
+    assert dict(indexes["name_unique"]["key"]) == {"name": 1}
+    # Idempotent: running it again is a no-op.
+    ensure_variables_collection(store)
+    # The collection is usable straight after the migration.
+    doc = store.put_variable("a", 1, updated_by="me")
+    assert doc["version"] == 1
+    assert store.get_variable("a")["value"] == 1
+
+
+def test_variables_index_enforces_unique_names(fresh):
+    """The index (not just the _id) keeps one document per variable name."""
+    store = fresh
+    ensure_variables_collection(store)
+    coll = store.client[store.config.database][VARIABLES_COLLECTION]
+    coll.insert_one({"name": "dup"})
+    with pytest.raises(DuplicateKeyError):
+        coll.insert_one({"name": "dup"})
+
+
+# -------------------------------------------------------------------
+# T1: concurrent version allocation
+
+
+def test_concurrent_variable_puts_yield_no_duplicates_or_gaps(fresh):
+    """5 threads x 5 puts on one variable name → versions {1..25} exactly (T1)."""
+    ensure_variables_collection(fresh)
+    threads, per_thread = 5, 5
+    stores = [MongoStore(fresh.config) for _ in range(threads)]
+    barrier = threading.Barrier(threads)
+    results: list[tuple[int, int, str]] = []  # (thread_id, version, value)
+    lock = threading.Lock()
+
+    def put_loop(tid: int) -> None:
+        barrier.wait()
+        for i in range(per_thread):
+            value = f"v{tid}-{i}"
+            doc = stores[tid].put_variable("counter", value, updated_by=f"t{tid}")
+            with lock:
+                results.append((tid, doc["version"], value))
+
+    tg = [threading.Thread(target=put_loop, args=(i,)) for i in range(threads)]
+    for t in tg:
+        t.start()
+    for t in tg:
+        t.join()
+
+    versions = {v for _, v, _ in results}
+    expected = set(range(1, threads * per_thread + 1))
+    assert versions == expected, f"expected {expected}, got {versions}"
+    # Every returned version is readable back with the value that thread wrote.
+    for tid, ver, expected_value in results:
+        doc = stores[tid].get_variable_version("counter", ver)
+        assert doc is not None, f"version {ver} not found for tid {tid}"
+        assert (
+            doc["value"] == expected_value
+        ), f"tid={tid} ver={ver}: expected {expected_value!r}, got {doc['value']!r}"
+    for s in stores:
+        s.close()
+
+
+# ------------------------------------------------------------------- T2: envelope stamping
+
+
+def test_variable_doc_carries_envelope(fresh):
+    """put_variable stamps schema_version + updated_at (T2)."""
+    ensure_variables_collection(fresh)
+    doc = fresh.put_variable("a", 1, updated_by="me")
+    assert "schema_version" in doc
+    assert "updated_at" in doc
+
+
+def test_variable_doc_carries_envelope_in_mongo(fresh):
+    """The raw mongo doc also has the envelope (T2)."""
+    ensure_variables_collection(fresh)
+    fresh.put_variable("a", 1, updated_by="me")
+    raw = fresh.client[fresh.config.database][VARIABLES_COLLECTION].find_one({"_id": "a"})
+    assert raw is not None
+    assert "schema_version" in raw
+    assert "updated_at" in raw
+
+
+def test_variable_with_newer_schema_raises_version_skew(fresh):
+    """A variable doc with a newer schema_version raises VersionSkewError on write (T2)."""
+    ensure_variables_collection(fresh)
+    # Write a doc with a newer schema from a higher-versioned store.
+    high = MongoStore(fresh.config, node_schema_version="2.0")
+    try:
+        high.put_variable("skew", 1, updated_by="me")
+    finally:
+        high.close()
+    # Now a lower-versioned store should refuse to write that doc.
+    store = MongoStore(fresh.config, node_schema_version="1.0")
+    try:
+        with pytest.raises(VersionSkewError):
+            store.put_variable("skew", 2, updated_by="me")
+    finally:
+        store.close()
+
+
+def test_variable_doc_without_counter_still_accepts_a_put(fresh):
+    """A doc with history but no latest_version takes the next version (Codex t3 r2)."""
+    ensure_variables_collection(fresh)
+    fresh.put_variable("legacy", 1, updated_by="me")
+    fresh.put_variable("legacy", 2, updated_by="me")
+    fresh._collection("variables").update_one({"_id": "legacy"}, {"$unset": {"latest_version": ""}})
+    view = fresh.put_variable("legacy", 3, updated_by="me")
+    assert view["version"] == 3
+    assert fresh.get_variable_version("legacy", 2)["value"] == 2
+    assert fresh.get_variable("legacy")["value"] == 3
