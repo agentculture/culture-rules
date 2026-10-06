@@ -2,7 +2,7 @@
   "plan_slug": "pr-fixer-rule",
   "schema_version": 2,
   "created": "2026-10-06T08:44:59Z",
-  "updated": "2026-10-06T23:03:37Z",
+  "updated": "2026-10-06T23:22:52Z",
   "deviations": [
     {
       "id": "d1",
@@ -152,6 +152,20 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 10
+    },
+    {
+      "id": "d11",
+      "what": "Codex is preferred over Qwen as the implementer for every task the split assigned to the Qwen lane that has not started or finished (t15 onward; t11 stays with Qwen as it is nearly done). A Codex-implemented task is reviewed by an Opus subagent (never Codex). Qwen, on cortex-spark2 only, remains the fallback when Codex is unavailable.",
+      "task_ref": "t15",
+      "reason": "Operator decision 2026-10-07: prefer Codex over Qwen; spark is freed for other loads",
+      "affects": [
+        "t17",
+        "t20"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 11
     }
   ],
   "evidence": [],
