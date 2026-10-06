@@ -133,9 +133,7 @@ class VariableContract:
 
     def test_value_validation_accepts_list(self, store):
         store.put_variable("l", [1, 2, 3], updated_by="me")
-        store.put_variable("nested", [[1], [2]], updated_by="me")
         assert store.get_variable("l")["value"] == [1, 2, 3]
-        assert store.get_variable("nested")["value"] == [[1], [2]]
 
     def test_value_validation_refuses_dict(self, store):
         with pytest.raises(ValueError, match="JSON scalar or list"):
@@ -144,6 +142,26 @@ class VariableContract:
     def test_value_validation_refuses_tuple(self, store):
         with pytest.raises(ValueError, match="JSON scalar or list"):
             store.put_variable("t", (1, 2), updated_by="me")
+
+    def test_value_validation_refuses_nested_list(self, store):
+        with pytest.raises(ValueError, match="JSON scalar or list"):
+            store.put_variable("nl", [1, [2]], updated_by="me")
+
+    def test_value_validation_refuses_list_with_dict(self, store):
+        with pytest.raises(ValueError, match="JSON scalar or list"):
+            store.put_variable("ld", ["x", {"k": 1}], updated_by="me")
+
+    def test_value_validation_refuses_nan(self, store):
+        with pytest.raises(ValueError):
+            store.put_variable("nan", float("nan"), updated_by="me")
+
+    def test_value_validation_accepts_none_list(self, store):
+        store.put_variable("nl", [1, None, "x"], updated_by="me")
+        assert store.get_variable("nl")["value"] == [1, None, "x"]
+
+    def test_value_validation_accepts_empty_list(self, store):
+        store.put_variable("el", [], updated_by="me")
+        assert store.get_variable("el")["value"] == []
 
     # ----------------------------------------------------------- description
 
@@ -171,3 +189,10 @@ class VariableContract:
         assert not VALID_VARIABLE_NAME_RE.fullmatch("ab-c")
         assert not VALID_VARIABLE_NAME_RE.fullmatch("")
         assert not VALID_VARIABLE_NAME_RE.fullmatch("a" * 65)
+
+    # ---------------------------------------------------------- newline in name
+
+    def test_name_rejects_trailing_newline(self, store):
+        """Name with a trailing newline must be rejected (regression test)."""
+        with pytest.raises(ValueError, match="invalid variable name"):
+            store.put_variable("a\n", 1, updated_by="me")

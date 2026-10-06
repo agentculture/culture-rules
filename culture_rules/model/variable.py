@@ -7,16 +7,77 @@ version; old versions remain readable (append-only history).
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass
 from typing import Any
 
 from culture_rules.model.common import Model, doc
 
-__all__ = ["VALID_VARIABLE_NAME_RE", "Variable", "VariableVersion"]
+__all__ = [
+    "VALID_VARIABLE_NAME_RE",
+    "Variable",
+    "VariableVersion",
+    "validate_variable_name",
+    "validate_variable_value",
+]
 
 #: Regex that every variable name must match.
 VALID_VARIABLE_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+
+
+def validate_variable_name(name: str) -> None:
+    """Raise ``ValueError`` if *name* is not a valid variable name."""
+    if not isinstance(name, str) or not VALID_VARIABLE_NAME_RE.fullmatch(name):
+        raise ValueError(
+            f"invalid variable name {name!r}: must match {VALID_VARIABLE_NAME_RE.pattern}"
+        )
+
+
+def validate_variable_value(value: Any) -> None:
+    """Raise ``ValueError`` if *value* is not a valid JSON scalar or list thereof.
+
+    Valid values: a JSON scalar (str, int, float, bool, None) or a list
+    whose every element is a JSON scalar (empty list OK).  Non-finite floats
+    (NaN / inf) are rejected because they are not valid JSON.  Nested lists,
+    dicts, and other types are rejected.
+    """
+    _check_scalar(value)
+
+
+def _check_scalar(value: Any) -> None:
+    if value is None or isinstance(value, bool):
+        return
+    if isinstance(value, (str, int, float)):
+        if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
+            raise ValueError(
+                f"invalid variable value {value!r}: non-finite floats are not valid JSON"
+            )
+        return
+    if isinstance(value, list):
+        for item in value:
+            if not isinstance(item, (str, int, float, bool)) and item is not None:
+                raise ValueError(
+                    f"invalid variable value {type(item).__name__}: must be a JSON scalar or list"
+                )
+            if isinstance(item, float) and (math.isnan(item) or math.isinf(item)):
+                raise ValueError(
+                    f"invalid variable value {item!r}: non-finite floats are not valid JSON"
+                )
+            if isinstance(item, bool):
+                continue  # already handled above
+            if isinstance(item, (str, int, float)):
+                continue
+            # None is OK
+            if item is None:
+                continue
+            raise ValueError(
+                f"invalid variable value {type(item).__name__}: must be a JSON scalar or list"
+            )
+        return
+    raise ValueError(
+        f"invalid variable value {type(value).__name__}: must be a JSON scalar or list"
+    )
 
 
 @dataclass(frozen=True, kw_only=True)

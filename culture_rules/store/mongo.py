@@ -63,7 +63,10 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any
 
-from culture_rules.model.variable import VALID_VARIABLE_NAME_RE
+from culture_rules.model.variable import (
+    validate_variable_name,
+    validate_variable_value,
+)
 from culture_rules.store.port import (
     CURSOR_COLLECTION,
     VARIABLES_COLLECTION,
@@ -75,6 +78,7 @@ from culture_rules.store.port import (
     StoreOps,
     TransientStoreError,
     UpdateResult,
+    VersionSkewError,
     cursor_id,
 )
 from culture_rules.store.retry import DEFAULT_ATTEMPTS, run_transaction
@@ -559,17 +563,11 @@ class MongoStore:
     # ---------------------------------------------------------------- variables
 
     def _validate_variable_name(self, name: str) -> None:
-        if not isinstance(name, str) or not VALID_VARIABLE_NAME_RE.match(name):
-            raise ValueError(
-                f"invalid variable name {name!r}: must match {VALID_VARIABLE_NAME_RE.pattern}"
-            )
+        validate_variable_name(name)
 
     @staticmethod
     def _validate_variable_value(value: Any) -> None:
-        if not isinstance(value, (str, int, float, bool, type(None), list)):
-            raise ValueError(
-                f"invalid variable value {type(value).__name__}: must be a JSON scalar or list"
-            )
+        validate_variable_value(value)
 
     @staticmethod
     def _variable_view(name: str, version: Mapping[str, Any]) -> Document:
@@ -593,26 +591,60 @@ class MongoStore:
     ) -> Document:
         self._validate_variable_name(name)
         self._validate_variable_value(value)
-        coll = self._collection(VARIABLES_COLLECTION)
         now = self._now()
-        # Read, compute the next version, then append: the $push itself is
-        # atomic, so concurrent puts never lose entries (only a rare race can
-        # assign two entries the same version number).
-        doc = self._get_variable_doc(name)
-        versions = doc.get("versions", []) if doc else []
-        entry: Document = {
-            "version": (versions[-1]["version"] if versions else 0) + 1,
-            "value": value,
-            "updated_by": updated_by,
-            "updated_at": now,
-            "description": description,
-        }
-        coll.update_one(
-            {"_id": name},
-            {"$push": {"versions": entry}, "$setOnInsert": {"name": name}},
-            upsert=True,
-        )
-        return self._variable_view(name, entry)
+        latest_version: int = 0
+
+        for _ in range(50):
+            doc = self._get_variable_doc(name)
+            if doc is not None:
+                existing_version = SchemaVersion.parse(doc.get("schema_version", "1.0"))
+                if existing_version.major > self._node.major:
+                    raise VersionSkewError(
+                        f"document {name!r} is schema {existing_version}; "
+                        f"this node supports up to major {self._node.major}"
+                    )
+                latest_version = doc.get("latest_version", 0)
+                if latest_version == 0:
+                    # Migrated doc without latest_version: backfill from entries.
+                    versions = doc.get("versions", [])
+                    latest_version = len(versions) if versions else 0
+            next_version = latest_version + 1
+            entry: Document = {
+                "version": next_version,
+                "value": value,
+                "updated_by": updated_by,
+                "updated_at": now,
+                "description": description,
+            }
+            # Use update_if with CAS on the versions list to ensure
+            # no other writer changed it between read and write.
+            # This mirrors the MemoryStore pattern exactly.
+            result = self._update_if(
+                None,
+                VARIABLES_COLLECTION,
+                name,
+                expected={
+                    "versions": list(doc.get("versions", [])) if doc else None,
+                    "latest_version": latest_version if doc else None,
+                },
+                changes={
+                    "name": name,
+                    "value": value,
+                    "version": next_version,
+                    "updated_by": updated_by,
+                    "updated_at": now,
+                    "description": description,
+                    "versions": list(doc.get("versions", [])) + [entry] if doc else [entry],
+                    "latest_version": next_version,
+                },
+                upsert=doc is None,
+            )
+            if result.won:
+                view = self._variable_view(name, result.document["versions"][-1])
+                view["schema_version"] = result.document.get("schema_version")
+                view["updated_at"] = result.document.get("updated_at", view.get("updated_at"))
+                return view
+        raise StoreError(f"put_variable {name!r}: too much contention after 50 CAS attempts")
 
     def get_variable(self, name: str) -> Document | None:
         doc = self._get_variable_doc(name)
@@ -645,6 +677,17 @@ class MongoStore:
         unique index on ``name``."""
         self._collection(VARIABLES_COLLECTION)
         self._db[VARIABLES_COLLECTION].create_index("name", unique=True, name="name_unique")
+
+    def _backfill_variable_latest_version(self) -> None:
+        """Backfill ``latest_version`` on variable docs that lack it (t3 migration)."""
+        coll = self._collection(VARIABLES_COLLECTION)
+        for doc in coll.find({"latest_version": {"$exists": False}}):
+            versions = doc.get("versions", [])
+            if versions:
+                coll.update_one(
+                    {"_id": doc["_id"]},
+                    {"$set": {"latest_version": len(versions)}},
+                )
 
 
 _OPS: dict[str, ChangeOp] = {

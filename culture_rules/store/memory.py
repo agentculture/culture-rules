@@ -21,7 +21,10 @@ from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import Any
 
-from culture_rules.model.variable import VALID_VARIABLE_NAME_RE
+from culture_rules.model.variable import (
+    validate_variable_name,
+    validate_variable_value,
+)
 from culture_rules.store.port import (
     CURSOR_COLLECTION,
     VARIABLES_COLLECTION,
@@ -312,17 +315,11 @@ class MemoryStore:
     # --------------------------------------------------------------- variables
 
     def _validate_variable_name(self, name: str) -> None:
-        if not isinstance(name, str) or not VALID_VARIABLE_NAME_RE.match(name):
-            raise ValueError(
-                f"invalid variable name {name!r}: must match {VALID_VARIABLE_NAME_RE.pattern}"
-            )
+        validate_variable_name(name)
 
     @staticmethod
     def _validate_variable_value(value: Any) -> None:
-        if not isinstance(value, (str, int, float, bool, type(None), list)):
-            raise ValueError(
-                f"invalid variable value {type(value).__name__}: must be a JSON scalar or list"
-            )
+        validate_variable_value(value)
 
     @staticmethod
     def _variable_view(name: str, version: Mapping[str, Any]) -> Document:
@@ -362,7 +359,10 @@ class MemoryStore:
                 upsert=existing is None,
             )
             if result.won:
-                return self._variable_view(name, result.document["versions"][-1])
+                view = self._variable_view(name, result.document["versions"][-1])
+                view["schema_version"] = result.document.get("schema_version")
+                view["updated_at"] = result.document.get("updated_at", view.get("updated_at"))
+                return view
 
     def get_variable(self, name: str) -> Document | None:
         doc = self._get(None, VARIABLES_COLLECTION, name)

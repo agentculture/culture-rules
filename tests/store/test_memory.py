@@ -135,3 +135,15 @@ def test_concurrent_puts_are_append_only():
     values = [store.get_variable_version("counter", i)["value"] for i in range(1, total + 1)]
     assert sorted(values) == sorted(i for _ in peers for i in range(per_peer))
     assert len(store.list_variables()) == 1
+
+
+# ------------------------------------------------------------------- T2: envelope stamping (memory)
+
+
+def test_variable_doc_carries_envelope_memory():
+    """put_variable stamps schema_version + updated_at in memory store (T2)."""
+    store = MemoryStore()
+    doc = store.put_variable("a", 1, updated_by="me")
+    assert "schema_version" in doc
+    assert "updated_at" in doc
+    assert doc["schema_version"] == "1.0"
