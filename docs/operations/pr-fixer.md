@@ -142,7 +142,67 @@ checks the per-invocation token itself):
 
 The qwen bridge refuses a run without `mode`.
 
-## 5. Verify
+## 5. Let the node run the test gate as `culture-fixer` (operator, root; *planned*)
+
+The fixer workflow's `gate` step (`kind: code`, `config.builtin: gate`,
+`culture_rules/actors/gate.py`, task t13) runs on spark2's engine node. It
+reads the `gate:` section of `culture.yaml` **from the PR's base commit**,
+runs the diff guard, then runs the declared setup and test argv lists in the
+agent's worktree. It runs nothing as the node user: every command that
+touches the worktree goes through the prefix in `CULTURE_RULES_GATE_RUN_AS`,
+and while that is unset the step fails `gate_runner_unconfigured`.
+
+Give the node user exactly one sudo grant, to run `env` as `culture-fixer`
+without a password. Then set the prefix in the node's environment (its
+`node.env`, then restart the node). `PATH` must reach the account's
+`~/.local/bin`, because sudo resets the environment:
+
+```bash
+echo 'spark2 ALL=(culture-fixer) NOPASSWD: /usr/bin/env' \
+  | sudo tee /etc/sudoers.d/culture-rules-gate && sudo visudo -cf /etc/sudoers.d/culture-rules-gate
+# node.env:
+CULTURE_RULES_GATE_RUN_AS=sudo -n -u culture-fixer -- /usr/bin/env PATH=/home/culture-fixer/.local/bin:/usr/local/bin:/usr/bin:/bin
+```
+
+The gate appends `env -C <worktree> -- <argv>` to that prefix, so each
+command runs in the worktree as `culture-fixer`, as an argv list, with no
+shell anywhere. A prefix that starts with `ssh`, `su` or a shell is refused:
+those would join argv into a shell command line.
+
+What the grant means:
+
+- **The node user can run anything as `culture-fixer`.** That is the point of
+  the grant. `culture-fixer` is the less privileged account, and the reverse
+  direction does not exist.
+- **The PR's code never runs as the node user**, and never sees the node's
+  `node.env`, grant store or App key.
+- **On a timeout the node can only signal `sudo`.** sudo passes `SIGTERM` on
+  to the command. A process that ignores it keeps running as `culture-fixer`.
+
+The gate never reads git data in the worktree, which belongs to
+`culture-fixer`, so git there would trip `safe.directory` for the node. As
+`culture-fixer`, it streams one pack of the base, start and agent commits out
+of the worktree (`git pack-objects --revs --stdout`). The pack goes into a
+fresh bare repository that the node owns, where git checks every object's
+hash. The diff guard and the base `culture.yaml` are read there, with no
+hooks, no attributes and no global config.
+
+When the verdict is `pass`, the gate writes a bundle of the commit for
+`github.push` into `CULTURE_RULES_GATE_BUNDLE_DIR` (default
+`~/.local/state/culture-rules/gate-bundles`). Bundles older than seven days
+are pruned. The bundle path exists only on spark2, so `github.push` must run
+there too.
+
+Before a fixer run, seed the shared variable `fixer_protected_paths`. Its
+patterns are added to the built-in floor, `.github/workflows/**`. While the
+variable is unset, every verdict is `guard` with rule `protected_paths_unset`:
+
+```bash
+culture-rules variables set fixer_protected_paths --apply --value \
+  '[".github/workflows/**", "sonar-project.properties", ".coveragerc", "setup.cfg", ".flake8", "pyproject.toml"]'
+```
+
+## 6. Verify
 
 | Check | Expected |
 |---|---|

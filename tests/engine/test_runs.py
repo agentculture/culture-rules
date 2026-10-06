@@ -555,6 +555,46 @@ def test_retry_until_never_exceeds_max(store, clock):
     assert len([c for c in a.calls if c[2].step_id.startswith("poll[")]) == 4
 
 
+def test_retry_until_carry_feeds_the_previous_result_into_the_next_iteration(store, clock):
+    a = FakeActor()
+    a.on(step_key("poll", 0, "work"), ("complete", {"note": "first"}))
+    a.on(step_key("poll", 0, "check"), ("complete", {"ready": False, "hint": "try harder"}))
+    a.on(step_key("poll", 1, "work"), ("complete", {"note": "second"}))
+    a.on(step_key("poll", 1, "check"), ("complete", {"ready": True, "hint": None}))
+    wf = workflow(
+        (
+            step(
+                "poll",
+                "retry_until",
+                inputs=(port("task", "string"),),
+                outputs=(port("ready", "boolean"),),
+                max_iterations=3,
+                config={
+                    "until": {
+                        "op": "compare",
+                        "cmp": "==",
+                        "left": {"field": "ready"},
+                        "right": {"literal": True},
+                    },
+                    "carry": {"task": "hint"},
+                },
+                body=(
+                    step("work", inputs=(port("task", "string"),), outputs=(port("note"),)),
+                    step("check", outputs=(port("ready", "boolean"), port("hint", required=False))),
+                ),
+            ),
+        ),
+        (edge("inputs", "task", "poll", "task"),),
+        inputs=(port("task", "string"),),
+    )
+    ex = make_executor(store, a, clock)
+    run = ex.start(rule(workflow_inputs={"task": "trigger.task"}), wf, trigger={"task": "do it"})
+    ex.run_until_idle()
+    assert ex.run(run["id"])["status"] == "succeeded"
+    tasks = [c[1]["task"] for c in a.calls if c[2].step_id.endswith("/work")]
+    assert tasks == ["do it", "try harder"]
+
+
 # ---------------------------------------------------------------- c88 / h69 containment
 
 
