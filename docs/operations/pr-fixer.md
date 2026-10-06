@@ -71,18 +71,21 @@ G=~/.local/bin/grant
 $G generate RULES_QWEN_FIXER_TOKEN --hidden --bytes 32 --encoding hex
 $G run --inject T=RULES_QWEN_FIXER_TOKEN -- sh -c 'printf %s "$T"' \
   | sudo $G set FIXER_QWEN_BRIDGE_TOKEN - --hidden --user culture-fixer
-jq -r '.env.QWEN_CUSTOM_API_KEY_OPENAI_HTTP_LOCALHOST_8000' ~/.qwen/settings.json \
-  | sudo $G set FIXER_CORTEX_API_KEY - --hidden --user culture-fixer
+# -e: fail instead of sealing the word "null" when the key is absent
+jq -er '.env.QWEN_CUSTOM_API_KEY_OPENAI_HTTP_LOCALHOST_8000' ~/.qwen/settings.json \
+  | tr -d '\n' | sudo $G set FIXER_CORTEX_API_KEY - --hidden --user culture-fixer
 ```
 
-Then create two read-only tokens in a browser and paste each one in:
+Then create two read-only tokens in a browser and paste each one in. `grant set`
+reads stdin without a prompt, so use `read -rsp`, which prompts, hides the input and
+seals no trailing newline:
 
 - GitHub: a fine-grained token, resource owner `agentculture`, all
   repositories, permissions **Contents: Read, Pull requests: Read, Checks:
   Read, Actions: Read** (Metadata: Read is implied).
-  `sudo $G set FIXER_GITHUB_TOKEN - --hidden --user culture-fixer`
+  `read -rsp "GitHub token: " T && printf %s "$T" | sudo $G set FIXER_GITHUB_TOKEN - --hidden --user culture-fixer; unset T`
 - SonarCloud: **My Account → Security → Generate token** (a user token).
-  `sudo $G set FIXER_SONAR_TOKEN - --hidden --user culture-fixer`
+  `read -rsp "Sonar token: " T && printf %s "$T" | sudo $G set FIXER_SONAR_TOKEN - --hidden --user culture-fixer; unset T`
 
 ## 3. Install the tools and the bridge (as `culture-fixer`)
 

@@ -53,7 +53,7 @@ OPERATOR="${SUDO_USER:-$USER}"
 if [ -n "$AUTH_KEY" ]; then
   [ -f "$AUTH_KEY" ] || die "public key not found: $AUTH_KEY"
   [ "$(grep -c . "$AUTH_KEY")" -eq 1 ] || die "--authorize-key must hold exactly one public key"
-  grep -qE '^(ssh-ed25519|ssh-rsa|ecdsa-sha2-[a-z0-9-]+) [A-Za-z0-9+/=]+' "$AUTH_KEY" \
+  KEY_TYPE=$(grep -oE '^(ssh-ed25519|ssh-rsa|ecdsa-sha2-[a-z0-9-]+|sk-[a-z0-9-]+@openssh\.com|[a-z0-9-]+-cert-v01@openssh\.com) [A-Za-z0-9+/=]+' "$AUTH_KEY" | cut -d' ' -f1) \
     || die "--authorize-key is not an SSH public key: $AUTH_KEY"
 fi
 
@@ -61,7 +61,7 @@ echo "Plan for the PR-fixer account '$FIXER_USER':"
 echo "  useradd --create-home --user-group --shell /bin/bash $FIXER_USER   (skipped if it exists)"
 echo "  chmod 750 /home/$FIXER_USER"
 echo "  loginctl enable-linger $FIXER_USER"
-[ -z "$AUTH_KEY" ] || echo "  authorize $AUTH_KEY in /home/$FIXER_USER/.ssh/authorized_keys (mode 600)"
+[ -z "$AUTH_KEY" ] || echo "  authorize the $KEY_TYPE key in $AUTH_KEY as /home/$FIXER_USER/.ssh/authorized_keys (mode 600, replacing it)"
 echo "  check: the operator's home (/home/$OPERATOR) is not readable by others"
 
 if [ "$APPLY" -ne 1 ]; then

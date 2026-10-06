@@ -82,6 +82,7 @@ done
 case "$CORTEX_URL" in http://* | https://*) ;; *) die "--cortex-url must be an http(s) URL" ;; esac
 [ "$(id -u)" -ne 0 ] || die "run this as the fixer account, not root"
 
+REQUIRED_SECRETS=("$QWEN_TOKEN_SECRET" "$CORTEX_KEY_SECRET" "$GITHUB_TOKEN_SECRET" "$SONAR_TOKEN_SECRET")
 CFG="$HOME/.config/cultureagent-bridges"
 VENV="$HOME/.local/share/cultureagent-bridges/venv"
 UNIT_DIR="$HOME/.config/systemd/user"
@@ -147,7 +148,8 @@ echo "--- qwen.json ---"
 render_config
 echo "--- unit cultureagent-qwen-bridge.service ---"
 echo "  exec: grant run $INJECTS -- cultureagent-qwen-bridge --config $CFG/qwen.json"
-echo "  then:      systemctl --user daemon-reload; enable --now cultureagent-qwen-bridge"
+echo "  secrets:   must already be in this account's grant store: ${REQUIRED_SECRETS[*]}"
+echo "  then:      systemctl --user daemon-reload; enable --now cultureagent-qwen-bridge; expect 401 without a token"
 
 if [ "$APPLY" -ne 1 ]; then
   echo
@@ -158,6 +160,12 @@ fi
 mkdir -p "$CFG" "$(dirname "$VENV")" "$UNIT_DIR" "$(dirname "$QWEN_SETTINGS")"
 chmod 700 "$CFG" "$(dirname "$QWEN_SETTINGS")"
 
+GRANT=$(command -v grant || echo "$HOME/.local/bin/grant")
+[ -x "$GRANT" ] || die "grant not found (looked on PATH and in $HOME/.local/bin)"
+have=$("$GRANT" list 2>/dev/null || true)
+for s in "${REQUIRED_SECRETS[@]}"; do
+  printf '%s\n' "$have" | grep -qx "$s" || die "grant secret $s is missing from $(id -un)'s store; seal it first (docs/operations/pr-fixer.md, step 2)"
+done
 [ -x "$UV" ] || die "uv not found (looked on PATH and in $HOME/.local/bin)"
 if [ ! -x "$VENV/bin/python" ]; then
   "$UV" venv -q --python "$PYTHON_VERSION" "$VENV"
@@ -173,6 +181,15 @@ render_unit >"$UNIT_DIR/cultureagent-qwen-bridge.service"
 systemctl --user daemon-reload
 systemctl --user enable --now cultureagent-qwen-bridge 2>&1 | grep -v '^Created' || true
 systemctl --user restart cultureagent-qwen-bridge
-"$VENV/bin/cultureagent-qwen-bridge" --config "$CFG/qwen.json" --print-capabilities >/dev/null \
-  && echo "qwen bridge: capabilities OK" || echo "qwen bridge: capability check failed (see journalctl --user -u cultureagent-qwen-bridge)" >&2
-echo "Installed. Check: curl -H 'Authorization: Bearer ...' http://$HOST:8093/v1/capabilities"
+# Check the running unit itself (the grant-injected path), not a bare re-run of the binary.
+code=""
+for _ in $(seq 1 30); do
+  code=$(curl -s -o /dev/null -w '%{http_code}' "http://$HOST:8093/v1/capabilities" || true)
+  [ "$code" = 401 ] && break
+  sleep 1
+done
+if [ "$code" != 401 ]; then
+  die "the bridge did not answer 401 without a token on $HOST:8093 (got '${code:-none}'); see journalctl --user -u cultureagent-qwen-bridge"
+fi
+echo "qwen bridge: up, and refuses a request without the bearer token (401)"
+echo "Installed. Check with the token: curl -H 'Authorization: Bearer ...' http://$HOST:8093/v1/capabilities"

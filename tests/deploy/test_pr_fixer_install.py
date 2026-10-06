@@ -94,6 +94,23 @@ def test_create_user_authorizes_exactly_one_public_key(tmp_path):
     key = tmp_path / "id.pub"
     key.write_text("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIB4 spark@spark\n")
     out = run(tmp_path, CREATE_USER, "--authorize-key", str(key)).stdout
-    assert f"authorize {key}" in out
+    assert "authorize the ssh-ed25519 key" in out
+    key.write_text("sk-ssh-ed25519@openssh.com AAAAGnNrLXNzaC1lZDI1NTE5 fido\n")
+    assert (
+        "authorize the sk-ssh-ed25519@openssh.com key"
+        in run(tmp_path, CREATE_USER, "--authorize-key", str(key)).stdout
+    )
     key.write_text("not a key\n")
     assert run(tmp_path, CREATE_USER, "--authorize-key", str(key), check=False).returncode == 1
+
+
+def test_the_plan_names_every_secret_the_unit_needs(tmp_path):
+    out = plan(tmp_path)
+    line = next(ln for ln in out.splitlines() if "must already be in" in ln)
+    for name in (
+        "FIXER_QWEN_BRIDGE_TOKEN",
+        "FIXER_CORTEX_API_KEY",
+        "FIXER_GITHUB_TOKEN",
+        "FIXER_SONAR_TOKEN",
+    ):
+        assert name in line
