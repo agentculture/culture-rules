@@ -142,4 +142,3 @@ intermittent unidentified failure, r9).
   `cortex-spark2` (pinned); plain `cortex` / `main` are gone from the settings.
 - Reviews are Codex again (d9); reviewer never the implementer; Qwen-built tasks are
   reviewed by an Opus subagent or Codex.
-
