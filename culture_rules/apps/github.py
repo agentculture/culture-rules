@@ -244,17 +244,60 @@ class GitHubApp:
         out = data.get("data")
         return out if isinstance(out, dict) else {}
 
+    def _thread_has_comment(self, thread_id: str, page: Any, comment_id: int) -> bool:
+        """Whether review thread ``thread_id`` holds ``comment_id``, paging its comments."""
+        for _ in range(_MAX_PAGES):
+            page = page if isinstance(page, dict) else {}
+            if any((c or {}).get("databaseId") == comment_id for c in page.get("nodes") or ()):
+                return True
+            info = page.get("pageInfo") or {}
+            if not info.get("hasNextPage"):
+                return False
+            data = self.graphql(
+                _THREAD_COMMENTS_QUERY, {"id": thread_id, "after": info.get("endCursor")}
+            )
+            page = (data.get("node") or {}).get("comments")
+        raise GitHubError("too_many_pages", "review thread comments")
+
     def find_review_thread(self, repo: str, number: int, comment_id: int) -> str | None:
-        """The GraphQL id of the PR review thread holding REST comment ``comment_id``."""
+        """The GraphQL id of the PR review thread holding REST comment ``comment_id``.
+
+        Pages through every review thread of the PR (and each thread's comments)."""
         self._require_allowed(repo, "thread lookup")
         owner, name = repo.split("/", 1)
-        data = self.graphql(_THREADS_QUERY, {"owner": owner, "name": name, "number": int(number)})
-        pull = ((data.get("repository") or {}).get("pullRequest")) or {}
-        for thread in (pull.get("reviewThreads") or {}).get("nodes") or ():
-            comments = ((thread or {}).get("comments") or {}).get("nodes") or ()
-            if any((c or {}).get("databaseId") == int(comment_id) for c in comments):
-                return thread.get("id")
-        return None
+        after: str | None = None
+        for _ in range(_MAX_PAGES):
+            variables = {"owner": owner, "name": name, "number": int(number), "after": after}
+            data = self.graphql(_THREADS_QUERY, variables)
+            pull = ((data.get("repository") or {}).get("pullRequest")) or {}
+            threads = pull.get("reviewThreads") or {}
+            for thread in threads.get("nodes") or ():
+                tid = (thread or {}).get("id")
+                if isinstance(tid, str) and self._thread_has_comment(
+                    tid, thread.get("comments"), int(comment_id)
+                ):
+                    return tid
+            info = threads.get("pageInfo") or {}
+            if not info.get("hasNextPage"):
+                return None
+            after = info.get("endCursor")
+        raise GitHubError("too_many_pages", "review threads")
+
+    def review_thread_matches(
+        self, repo: str, number: int, thread_id: str, comment_id: int
+    ) -> bool:
+        """Whether ``thread_id`` is a review thread of PR ``number`` in ``repo`` holding
+        ``comment_id``. The installation token can reach any thread it is installed on, so a
+        caller-supplied id is never trusted unchecked."""
+        self._require_allowed(repo, "thread check")
+        node = self.graphql(_THREAD_NODE_QUERY, {"id": thread_id}).get("node") or {}
+        pull = node.get("pullRequest") or {}
+        where = (pull.get("repository") or {}).get("nameWithOwner")
+        if not isinstance(where, str) or where.lower() != repo.lower():
+            return False
+        if pull.get("number") != int(number):
+            return False
+        return self._thread_has_comment(thread_id, node.get("comments"), int(comment_id))
 
     def resolve_review_thread(self, thread_id: str) -> bool:
         """Resolve the review thread ``thread_id`` (GraphQL ``resolveReviewThread``)."""
@@ -263,10 +306,22 @@ class GitHubApp:
         return bool(thread.get("isResolved"))
 
 
+_MAX_PAGES = 50
+_PAGE = "pageInfo{hasNextPage endCursor}"
 _THREADS_QUERY = (
-    "query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name)"
-    "{pullRequest(number:$number){reviewThreads(first:100){nodes{id isResolved "
-    "comments(first:100){nodes{databaseId}}}}}}}"
+    "query($owner:String!,$name:String!,$number:Int!,$after:String)"
+    "{repository(owner:$owner,name:$name){pullRequest(number:$number)"
+    "{reviewThreads(first:100,after:$after){" + _PAGE + " nodes{id "
+    "comments(first:100){" + _PAGE + " nodes{databaseId}}}}}}}"
+)
+_THREAD_NODE_QUERY = (
+    "query($id:ID!){node(id:$id){... on PullRequestReviewThread{id "
+    "pullRequest{number repository{nameWithOwner}} "
+    "comments(first:100){" + _PAGE + " nodes{databaseId}}}}}"
+)
+_THREAD_COMMENTS_QUERY = (
+    "query($id:ID!,$after:String){node(id:$id){... on PullRequestReviewThread"
+    "{comments(first:100,after:$after){" + _PAGE + " nodes{databaseId}}}}}"
 )
 _RESOLVE_MUTATION = (
     "mutation($threadId:ID!){resolveReviewThread(input:{threadId:$threadId})"

@@ -7,16 +7,21 @@ repo allowlist and its per-actor App cache. There is deliberately no merge port.
 ``github.push``
     Fast-forwards a same-repo PR's head branch to a local commit. Params: ``repo``
     (``owner/name``), ``number`` (the PR), ``head_branch``, ``expected_head_sha`` (the head
-    the agent started from), ``source`` (an absolute path to a local git worktree, or to a
-    self-contained git bundle file) and optional ``ref`` (the commit in ``source``; default
-    ``HEAD``). In order, and refusing at the first failed check:
+    the agent started from), ``commit_sha`` (the full SHA of the commit to push: immutable, so
+    every retry targets the same commit whatever the worktree's HEAD is by then) and ``source``
+    (an absolute path to a local git worktree, or to a git bundle, that contains
+    ``commit_sha`` and its history back to ``expected_head_sha``). In order, refusing at the
+    first failed check:
 
     1. actor, allowlist and input shape (no secret read, no network);
     2. the run's source rule (or, for a direct workflow run, its workflow) is still live and
        enabled;
-    3. the commit is fetched into a fresh, node-owned bare repo (so nothing in the agent's
+    3. ``commit_sha`` is fetched into a fresh, node-owned bare repo (so nothing in the agent's
        repo config, hooks or credential helpers ever sees the token) and must descend from
-       ``expected_head_sha``: a non-fast-forward update is refused before any network call;
+       ``expected_head_sha``: a non-fast-forward update is refused before any network call.
+       If the App actor sets ``params.commit_author`` (a git author name or email), every
+       commit in ``expected_head_sha..commit_sha`` must carry it, else ``foreign_author``;
+       unset, the check is off;
     4. the PR (read as the App) must be open, its head and base repo both ``repo`` and its
        head ref ``head_branch``; its head SHA must equal ``expected_head_sha``;
     5. a fresh token is minted for this push alone: ``repositories=[repo]``,
@@ -32,7 +37,9 @@ repo allowlist and its per-actor App cache. There is deliberately no merge port.
 ``github.review_reply``
     Replies in the review thread of ``comment_id`` on PR ``number`` (REST ``.../replies``) and,
     with ``resolve: true``, resolves the thread (GraphQL ``resolveReviewThread``), all as the
-    App. The thread is located (or ``thread_id`` taken as given) *before* the reply is posted.
+    App. Before anything is posted the thread is located, or a supplied ``thread_id`` is
+    verified to belong to ``repo``, PR ``number`` and ``comment_id`` (``thread_mismatch``
+    otherwise): the installation token could otherwise resolve any thread it can reach.
 
 git always runs as an argv list with ``shell=False``; its stderr is discarded, never logged.
 Standard-library only.
@@ -60,6 +67,7 @@ from culture_rules.engine.runs import (
     WORKFLOWS_COLLECTION,
 )
 from culture_rules.node.actions.github import GitHubCommentPort
+from culture_rules.node.actors import ACTORS_COLLECTION
 
 __all__ = [
     "DEFAULT_GIT_BASE",
@@ -76,6 +84,7 @@ DEFAULT_GIT_BASE = "https://github.com"
 _SHA_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 _REF_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
 _LOCAL_REF = "refs/culture-rules/push"
+
 _GIT_TIMEOUT_S = 120.0
 
 #: ``runner(argv, env, timeout) -> (returncode, stdout)``; stderr is never surfaced.
@@ -171,17 +180,23 @@ class _PushJob:
             argv += ["-C", self.repo]
         return self._run([*argv, *args], _git_env(self._tmp, token), _GIT_TIMEOUT_S)
 
-    def import_commit(self, source: str, ref: str) -> str:
+    def import_commit(self, source: str, sha: str) -> None:
+        """Fetch exactly ``sha`` (and its history) from ``source``; no mutable ref is read."""
         if self.git("init", "--bare", "--quiet", self.repo, in_repo=False)[0] != 0:
             raise _Refused("git_unavailable", retryable=True)
-        rc, _ = self.git("fetch", "--no-tags", "--quiet", "--", source, f"{ref}:{_LOCAL_REF}")
+        rc, _ = self.git("fetch", "--no-tags", "--quiet", "--", source, f"{sha}:{_LOCAL_REF}")
         if rc != 0:
-            raise _Refused("source_unreadable")
+            raise _Refused("commit_not_found")
         rc, out = self.git("rev-parse", "--verify", "--quiet", f"{_LOCAL_REF}^{{commit}}")
-        sha = out.strip()
-        if rc != 0 or not _SHA_RE.match(sha):
-            raise _Refused("source_unreadable")
-        return sha
+        if rc != 0 or out.strip() != sha:
+            raise _Refused("commit_not_found")
+
+    def authors(self, base: str, sha: str) -> list[tuple[str, str]] | None:
+        """``(name, email)`` of every commit in ``base..sha``, or ``None`` if git failed."""
+        rc, out = self.git("log", "--format=%an%x00%ae", f"{base}..{sha}", "--")
+        if rc != 0:
+            return None
+        return [tuple(line.split("\x00", 1)) for line in out.splitlines() if "\x00" in line]
 
     def descends(self, base: str, sha: str) -> bool:
         if self.git("cat-file", "-e", f"{base}^{{commit}}")[0] != 0:
@@ -284,12 +299,14 @@ class GitHubPushPort(GitHubCommentPort):
         expected = str(input["expected_head_sha"])
         if job.git("check-ref-format", f"refs/heads/{branch}", in_repo=False)[0] != 0:
             raise _Refused("bad_input")
-        sha = job.import_commit(str(input["source"]), str(input.get("ref") or "HEAD"))
+        sha = str(input["commit_sha"])
         out = {"repo": repo, "head_branch": branch, "head_before": expected, "head_after": sha}
         if sha == expected:
             return InvocationResult.completed({**out, "pushed": False})
+        job.import_commit(str(input["source"]), sha)
         if not job.descends(expected, sha):
             raise _Refused("not_fast_forward")  # before any network call
+        self._check_authors(actor_id, job, expected, sha)
         app = self._app(actor_id, conn, allowed)
         if app is None:
             raise _Refused("secret_unavailable")
@@ -321,6 +338,17 @@ class GitHubPushPort(GitHubCommentPort):
         log.info("github.push: %s %s fast-forwarded", repo, branch)
         return InvocationResult.completed({**out, "pushed": True})
 
+    def _check_authors(self, actor_id: str, job: _PushJob, base: str, sha: str) -> None:
+        """``foreign_author`` unless every new commit is by the actor's ``commit_author``."""
+        doc = self._store.get(ACTORS_COLLECTION, actor_id) or {}
+        want = (doc.get("params") or {}).get("commit_author")
+        if not want:
+            return  # off unless configured
+        want = str(want).strip().lower()
+        authors = job.authors(base, sha)
+        if not authors or any(want not in (n.lower(), e.lower()) for n, e in authors):
+            raise _Refused("foreign_author")
+
 
 def _push_input_error(input: Mapping[str, Any]) -> str | None:
     """``bad_input`` unless every ``github.push`` param has a safe, expected shape."""
@@ -329,13 +357,13 @@ def _push_input_error(input: Mapping[str, Any]) -> str | None:
     except (KeyError, TypeError, ValueError):
         return "bad_input"
     branch, expected = input.get("head_branch"), input.get("expected_head_sha")
-    source, ref = input.get("source"), input.get("ref") or "HEAD"
+    source, sha = input.get("source"), input.get("commit_sha")
     checks = (
         number > 0,
         isinstance(branch, str) and bool(_REF_RE.match(branch)) and ".." not in branch,
         isinstance(expected, str) and bool(_SHA_RE.match(expected)),
         isinstance(source, str) and os.path.isabs(source) and os.path.exists(source),
-        isinstance(ref, str) and bool(_REF_RE.match(ref)) and ".." not in ref,
+        isinstance(sha, str) and bool(_SHA_RE.match(sha)),
     )
     return None if all(checks) else "bad_input"
 
@@ -387,7 +415,10 @@ class GitHubReviewReplyPort(GitHubCommentPort):
         if app is None:
             return InvocationResult.failed("secret_unavailable", retryable=False)
         try:
-            if resolve and not thread_id:
+            if thread_id:  # never trust a supplied id: it must be this PR's comment thread
+                if not app.review_thread_matches(repo, number, thread_id, comment_id):
+                    return InvocationResult.failed("thread_mismatch", retryable=False)
+            elif resolve:
                 thread_id = app.find_review_thread(repo, number, comment_id)
                 if not thread_id:
                     return InvocationResult.failed("thread_not_found", retryable=False)

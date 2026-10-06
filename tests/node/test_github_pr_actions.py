@@ -100,13 +100,50 @@ class World:
         return c
 
 
+def _page(items, after, size):
+    start = int(after or 0)
+    nxt = start + size
+    return items[start:nxt], {"hasNextPage": nxt < len(items), "endCursor": str(nxt)}
+
+
+class FakeThreads:
+    """GraphQL review threads, paged ``size`` at a time: ``(id, repo, number, [comment ids])``."""
+
+    def __init__(self, threads, size=100):
+        self.threads = threads
+        self.size = size
+        self.queries = []
+
+    def _comments(self, thread, after):
+        chunk, info = _page(thread[3], after, self.size)
+        return {"pageInfo": info, "nodes": [{"databaseId": c} for c in chunk]}
+
+    def answer(self, query, variables):
+        self.queries.append((query, dict(variables)))
+        if "reviewThreads" in query:
+            repo, number = f"{variables['owner']}/{variables['name']}", variables["number"]
+            mine = [t for t in self.threads if t[1] == repo and t[2] == number]
+            chunk, info = _page(mine, variables.get("after"), self.size)
+            nodes = [{"id": t[0], "comments": self._comments(t, None)} for t in chunk]
+            return {
+                "repository": {"pullRequest": {"reviewThreads": {"pageInfo": info, "nodes": nodes}}}
+            }
+        thread = next((t for t in self.threads if t[0] == variables.get("id")), None)
+        if thread is None:
+            return {"node": None}
+        node = {"id": thread[0], "comments": self._comments(thread, variables.get("after"))}
+        if "nameWithOwner" in query:
+            node["pullRequest"] = {"number": thread[2], "repository": {"nameWithOwner": thread[1]}}
+        return {"node": node}
+
+
 class FakeGitHub:
     def __init__(self, world, **pull):
         self.world = world
         self.calls = []  # (method, path, headers, payload)
         self.pull = pull
         self.on_push_token = None
-        self.threads = {"nodes": [{"id": "PRRT_1", "comments": {"nodes": [{"databaseId": 77}]}}]}
+        self.gql = FakeThreads([("PRRT_1", REPO, 3, [77])])
 
     def paths(self):
         return [c[1] for c in self.calls]
@@ -143,8 +180,8 @@ class FakeGitHub:
                     200,
                     json.dumps({"data": {"resolveReviewThread": {"thread": thread}}}).encode(),
                 )
-            pr = {"pullRequest": {"reviewThreads": self.threads}}
-            return 200, json.dumps({"data": {"repository": pr}}).encode()
+            data = self.gql.answer(payload["query"], payload["variables"])
+            return 200, json.dumps({"data": data}).encode()
         return 404, b"{}"
 
 
@@ -166,8 +203,8 @@ class RecordingGit:
         return out
 
 
-def actor_doc():
-    return {
+def actor_doc(**params):
+    doc = {
         "id": "gh-app",
         "name": "gh",
         "kind": "app",
@@ -183,11 +220,13 @@ def actor_doc():
         },
         "schema_version": "1.0",
     }
+    doc["params"].update(params)
+    return doc
 
 
-def make_store(rule_enabled=True):
+def make_store(rule_enabled=True, **actor_params):
     store = MemoryStore()
-    store.put("actors", actor_doc())
+    store.put("actors", actor_doc(**actor_params))
     store.put("rules", {"id": "fixer", "name": "fixer", "enabled": rule_enabled})
     store.put("runs", {"id": "run-1", "kind": "run", "rule_id": "fixer", "workflow_id": None})
     return store
@@ -214,6 +253,7 @@ def push_params(world, **over):
         "number": 3,
         "head_branch": "fix",
         "expected_head_sha": world.a,
+        "commit_sha": world.b,
         "source": str(world.agent),
     }
     p.update(over)
@@ -302,10 +342,10 @@ def test_remote_moved_after_the_pr_read_is_refused_by_ls_remote(pem, world):
 
 def test_non_fast_forward_is_refused_before_any_network_call(pem, world):
     git("reset", "-q", "--hard", world.a0, cwd=world.agent)
-    commit(world.agent, "divergent")  # not a descendant of A
+    divergent = commit(world.agent, "divergent")  # not a descendant of A
     fake, rec = FakeGitHub(world), RecordingGit()
     res = push_port(pem, world, fake, gitrec=rec).invoke(
-        push_params(world), "k", DEADLINE, context=ctx()
+        push_params(world, commit_sha=divergent), "k", DEADLINE, context=ctx()
     )
     assert res.outcome == "failed" and res.error == "not_fast_forward" and not res.retryable
     assert fake.calls == []
@@ -405,7 +445,9 @@ def test_repo_off_the_allowlist_fails_without_network(pem, world):
         {"head_branch": "+fix"},
         {"expected_head_sha": "HEAD"},
         {"source": "relative/path"},
-        {"ref": "--upload-pack=x"},
+        {"commit_sha": "HEAD"},
+        {"commit_sha": "--upload-pack=x"},
+        {"commit_sha": None},
         {"number": "x"},
     ],
 )
@@ -429,11 +471,59 @@ def test_retry_after_success_completes_without_pushing_again(pem, world):
     assert "push" not in rec.verbs()
 
 
-def test_nothing_to_push_when_source_is_at_expected(pem, world):
-    git("reset", "-q", "--hard", world.a, cwd=world.agent)
+def test_nothing_to_push_when_commit_is_expected(pem, world):
     fake = FakeGitHub(world)
-    res = push_port(pem, world, fake).invoke(push_params(world), "k", DEADLINE, context=ctx())
+    res = push_port(pem, world, fake).invoke(
+        push_params(world, commit_sha=world.a), "k", DEADLINE, context=ctx()
+    )
     assert res.outcome == "completed" and res.output["pushed"] is False and fake.calls == []
+
+
+def test_push_targets_commit_sha_even_after_the_agent_moves_on(pem, world):
+    """The pushed commit is commit_sha, never whatever the worktree's HEAD is now."""
+    later = commit(world.agent, "d")
+    fake, rec = FakeGitHub(world), RecordingGit()
+    res = push_port(pem, world, fake, gitrec=rec).invoke(
+        push_params(world), "k", DEADLINE, context=ctx()
+    )
+    assert res.outcome == "completed" and res.output["head_after"] == world.b
+    assert world.remote_head() == world.b != later
+    # a retry with the same input after the worktree moved again completes without pushing
+    commit(world.agent, "e")
+    rec2 = RecordingGit()
+    port = push_port(pem, world, fake, gitrec=rec2)
+    res = port.invoke(push_params(world), "k", DEADLINE, context=ctx())
+    assert res.outcome == "completed" and res.output.get("already") is True
+    assert "push" not in rec2.verbs() and world.remote_head() == world.b
+
+
+def test_commit_sha_missing_from_source_is_refused(pem, world):
+    fake, rec = FakeGitHub(world), RecordingGit()
+    res = push_port(pem, world, fake, gitrec=rec).invoke(
+        push_params(world, commit_sha="2" * 40), "k", DEADLINE, context=ctx()
+    )
+    assert res.outcome == "failed" and res.error == "commit_not_found" and not res.retryable
+    assert fake.calls == [] and "push" not in rec.verbs()
+
+
+def test_foreign_author_is_refused_when_a_commit_author_is_configured(pem, world):
+    fake, rec = FakeGitHub(world), RecordingGit()
+    store = make_store(commit_author="rules-culture-dev[bot]")
+    res = push_port(pem, world, fake, store=store, gitrec=rec).invoke(
+        push_params(world), "k", DEADLINE, context=ctx()
+    )
+    assert res.outcome == "failed" and res.error == "foreign_author" and not res.retryable
+    assert fake.calls == [] and "push" not in rec.verbs()
+    assert world.remote_head() == world.a
+
+
+def test_configured_author_matches_by_name_or_email(pem, world):
+    for author in ("t", "T@Example.invalid"):
+        store = make_store(commit_author=author)
+        res = push_port(pem, world, FakeGitHub(world), store=store).invoke(
+            push_params(world), "k", DEADLINE, context=ctx()
+        )
+        assert res.outcome == "completed", (author, res)
 
 
 def test_push_from_a_bundle(pem, world, tmp_path):
@@ -443,6 +533,7 @@ def test_push_from_a_bundle(pem, world, tmp_path):
     res = push_port(pem, world, fake).invoke(
         push_params(world, source=str(bundle)), "k", DEADLINE, context=ctx()
     )
+    assert res.output["head_after"] == world.b
     assert res.outcome == "completed" and res.output["pushed"] is True
     assert world.remote_head() == world.b
 
@@ -493,16 +584,74 @@ def test_review_reply_posts_as_the_app_without_resolving(pem):
     assert "/graphql" not in fake.paths()
 
 
-def test_review_reply_resolves_the_given_thread(pem):
+def test_review_reply_resolves_the_given_thread_after_verifying_it(pem):
     fake = FakeGitHub(None)
+    fake.gql.threads.append(("PRRT_9", REPO, 3, [12, 77]))
     res = reply_port(pem, fake).invoke(
         reply_params(resolve=True, thread_id="PRRT_9"), "k", DEADLINE, context=ctx()
     )
     assert res.outcome == "completed" and res.output["resolved"] is True
     gql = [c for c in fake.calls if c[1] == "/graphql"]
-    assert len(gql) == 1 and "resolveReviewThread" in gql[0][3]["query"]
-    assert gql[0][3]["variables"] == {"threadId": "PRRT_9"}
-    assert gql[0][2]["Authorization"] == f"Bearer {INSTALL_TOKEN}"
+    assert "nameWithOwner" in gql[0][3]["query"]  # the supplied id is verified first
+    assert "resolveReviewThread" in gql[-1][3]["query"]
+    assert gql[-1][3]["variables"] == {"threadId": "PRRT_9"}
+    assert all(c[2]["Authorization"] == f"Bearer {INSTALL_TOKEN}" for c in gql)
+
+
+@pytest.mark.parametrize(
+    "thread",
+    [
+        ("PRRT_X", "acme/other", 3, [77]),  # another repo's thread
+        ("PRRT_X", REPO, 4, [77]),  # another PR's thread
+        ("PRRT_X", REPO, 3, [5]),  # a thread on the PR that does not hold the comment
+    ],
+)
+@pytest.mark.parametrize("resolve", [True, False])
+def test_review_reply_refuses_a_thread_id_that_does_not_match(pem, thread, resolve):
+    fake = FakeGitHub(None)
+    fake.gql.threads.append(thread)
+    res = reply_port(pem, fake).invoke(
+        reply_params(resolve=resolve, thread_id="PRRT_X"), "k", DEADLINE, context=ctx()
+    )
+    assert res.outcome == "failed" and res.error == "thread_mismatch" and not res.retryable
+    assert not [p for p in fake.paths() if p.endswith("/replies")]
+    assert not [q for q, _ in fake.gql.queries if "resolveReviewThread" in q]
+
+
+def test_review_reply_refuses_an_unknown_thread_id(pem):
+    fake = FakeGitHub(None)
+    res = reply_port(pem, fake).invoke(
+        reply_params(resolve=True, thread_id="PRRT_nope"), "k", DEADLINE, context=ctx()
+    )
+    assert res.error == "thread_mismatch"
+    assert not [p for p in fake.paths() if p.endswith("/replies")]
+
+
+def test_review_reply_thread_lookup_pages_threads_and_comments(pem):
+    fake = FakeGitHub(None)
+    fake.gql.size = 2
+    fake.gql.threads = [
+        ("PRRT_a", REPO, 3, [1, 2, 3]),
+        ("PRRT_b", REPO, 3, [4]),
+        ("PRRT_c", REPO, 3, [5, 6, 7, 8, 9]),
+        ("PRRT_d", REPO, 3, [10, 11, 12, 77]),
+    ]
+    res = reply_port(pem, fake).invoke(reply_params(resolve=True), "k", DEADLINE, context=ctx())
+    assert res.outcome == "completed" and res.output["thread_id"] == "PRRT_d"
+    thread_pages = [v.get("after") for q, v in fake.gql.queries if "reviewThreads" in q]
+    assert thread_pages == [None, "2"]
+    assert any("after" in v and v.get("id") == "PRRT_d" for _, v in fake.gql.queries)
+
+
+def test_review_reply_verifies_a_given_thread_across_comment_pages(pem):
+    fake = FakeGitHub(None)
+    fake.gql.size = 2
+    fake.gql.threads = [("PRRT_z", REPO, 3, [1, 2, 3, 4, 77])]
+    res = reply_port(pem, fake).invoke(
+        reply_params(thread_id="PRRT_z"), "k", DEADLINE, context=ctx()
+    )
+    assert res.outcome == "completed" and res.output["thread_id"] == "PRRT_z"
+    assert res.output["resolved"] is False
 
 
 def test_review_reply_finds_the_thread_then_resolves(pem):
@@ -519,7 +668,7 @@ def test_review_reply_finds_the_thread_then_resolves(pem):
 
 def test_review_reply_unknown_thread_posts_nothing(pem):
     fake = FakeGitHub(None)
-    fake.threads = {"nodes": []}
+    fake.gql.threads = []
     res = reply_port(pem, fake).invoke(reply_params(resolve=True), "k", DEADLINE, context=ctx())
     assert res.outcome == "failed" and res.error == "thread_not_found"
     assert not [p for p in fake.paths() if p.endswith("/replies")]

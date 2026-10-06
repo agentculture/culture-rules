@@ -88,8 +88,8 @@ _KINDS = (
         number=ParamSpec("int", True),
         head_branch=_RS,
         expected_head_sha=_RS,
+        commit_sha=_RS,
         source=_RS,
-        ref=_S,
     ),
     _k(
         "github.review_reply",
