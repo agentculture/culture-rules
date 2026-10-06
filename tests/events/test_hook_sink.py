@@ -12,7 +12,7 @@ from culture_rules.events.ingest import EVENTS_COLLECTION
 from culture_rules.model.rule import Trigger
 from culture_rules.store.memory import MemoryStore
 
-TYPE = "github.pr.opened"
+TYPE = "github.pr.synchronize"
 
 
 def actor(**over):
@@ -62,8 +62,25 @@ def test_self_authored_tagged_case_insensitively():
     call(s, author="culture-bot")
     call(s, delivery="d2", author="alice")
     by_id = {d["id"]: d["envelope"]["data"] for d in s.find(EVENTS_COLLECTION)}
+    # synchronize + bot author -> self_authored True
     assert by_id[event_id_for("github", "d1")]["self_authored"] is True
+    # synchronize + human author -> no self_authored key
     assert "self_authored" not in by_id[event_id_for("github", "d2")]
+
+
+def test_self_authored_false_for_non_synchronize_type():
+    """A non-synchronize type with matching author gets self_authored False."""
+    s = MemoryStore()
+    a = actor(
+        params={
+            "surface": "github",
+            "events": [TYPE, "github.pr.opened"],
+            "self_identity": "Culture-Bot",
+        }
+    )
+    call(s, a=a, type="github.pr.opened", author="Culture-Bot")
+    (doc,) = s.find(EVENTS_COLLECTION)
+    assert doc["envelope"]["data"]["self_authored"] is False
 
 
 def test_payload_cannot_forge_self_authored():
@@ -71,6 +88,31 @@ def test_payload_cannot_forge_self_authored():
     call(s, data={"self_authored": True})
     (doc,) = s.find(EVENTS_COLLECTION)
     assert "self_authored" not in doc["envelope"]["data"]
+
+
+def test_payload_cannot_forge_self_authored_non_sync_type():
+    """A forged self_authored=True on a non-synchronize type must be stored as False."""
+    s = MemoryStore()
+    a = actor(
+        params={
+            "surface": "github",
+            "events": [TYPE, "github.pr.opened"],
+            "self_identity": "Culture-Bot",
+        }
+    )
+    call(s, a=a, type="github.pr.opened", author="Culture-Bot", data={"self_authored": True})
+    (doc,) = s.find(EVENTS_COLLECTION)
+    # The explicit False from the sink overrides the forged True
+    assert doc["envelope"]["data"]["self_authored"] is False
+
+
+def test_payload_cannot_forge_self_authored_sync_type():
+    """Even on synchronize, a forged self_authored=True is overwritten by True (no change)."""
+    s = MemoryStore()
+    call(s, author="Culture-Bot", data={"self_authored": False})
+    (doc,) = s.find(EVENTS_COLLECTION)
+    # sync type + matching author -> True regardless of forged value
+    assert doc["envelope"]["data"]["self_authored"] is True
 
 
 def test_envelope_shape_and_matching():

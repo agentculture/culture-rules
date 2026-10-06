@@ -188,7 +188,7 @@ def test_comment_created_event(http, store):
     assert ev["type"] == "jira.comment.created"
     assert ev["data"]["comment_id"] == "55"
     assert len(ev["data"]["comment_body"]) < 1000
-    assert ev["data"]["self_authored"] is True
+    assert ev["data"]["self_authored"] is False
 
 
 def test_redelivery_writes_one_event(http, store):

@@ -48,9 +48,14 @@ _TYPES = {
     ("pull_request", "opened"): "github.pr.opened",
     ("pull_request", "closed"): "github.pr.closed",
     ("pull_request", "reopened"): "github.pr.reopened",
+    ("pull_request", "synchronize"): "github.pr.synchronize",
+    ("pull_request", "ready_for_review"): "github.pr.ready",
     ("issue_comment", "created"): "github.comment.created",
     ("issues", "opened"): "github.issue.opened",
     ("pull_request_review", "submitted"): "github.review.submitted",
+    ("pull_request_review_comment", "created"): "github.review_comment.created",
+    ("check_suite", "completed"): "github.checks.suite_completed",
+    ("workflow_run", "completed"): "github.checks.workflow_completed",
 }
 _EVENTS = frozenset(key[0] for key in _TYPES)
 _IGNORED = (200, {"ignored": True})
@@ -114,12 +119,52 @@ def _data(event: str, action: str, payload: Mapping[str, Any]) -> dict[str, Any]
     }
     if event == "pull_request":
         data["merged"] = bool(_dig(subject, "merged"))
+        _enrich_pr(data, payload)
     elif event == "issue_comment":
         body = _dig(payload, "comment", "body")
         data["comment"] = body[:_COMMENT_MAX] if isinstance(body, str) else None
     elif event == "pull_request_review":
         data["review_state"] = _dig(payload, "review", "state")
+        _enrich_pr(data, payload)
+    elif event == "pull_request_review_comment":
+        comment = _dig(payload, "comment")
+        if isinstance(comment, Mapping):
+            comment_user = comment.get("user")
+            if isinstance(comment_user, Mapping):
+                login = comment_user.get("login")
+                if isinstance(login, str):
+                    data["author"] = login
+        _enrich_pr(data, payload)
+    elif event == "check_suite":
+        cs = _dig(payload, "check_suite")
+        if isinstance(cs, Mapping):
+            data["app_slug"] = _dig(cs, "app", "slug")
+            data["conclusion"] = cs.get("conclusion")
+    elif event == "workflow_run":
+        wr = _dig(payload, "workflow_run")
+        if isinstance(wr, Mapping):
+            data["app_slug"] = None
+            data["conclusion"] = wr.get("conclusion")
     return data
+
+
+def _enrich_pr(data: dict[str, Any], payload: Mapping[str, Any]) -> None:
+    """Add head/base PR fields from the pull_request sub-payload."""
+    pr = _dig(payload, "pull_request")
+    if not isinstance(pr, Mapping):
+        return
+    head = _dig(pr, "head")
+    base = _dig(pr, "base")
+    if isinstance(head, Mapping):
+        data["head_sha"] = head.get("sha")
+        data["head_branch"] = head.get("ref")
+        repo = _dig(head, "repo", "full_name") or head.get("full_name")
+        data["head_repo"] = repo
+    if isinstance(base, Mapping):
+        data["base_repo"] = _dig(base, "repo", "full_name") or _dig(base, "full_name")
+        data["base_branch"] = base.get("ref")
+    data["draft"] = bool(pr.get("draft"))
+    data["pr_author"] = _dig(pr, "user", "login")
 
 
 def handle(
