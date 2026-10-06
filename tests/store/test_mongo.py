@@ -21,10 +21,11 @@ import pytest
 pytest.importorskip("pymongo")
 
 from pymongo import MongoClient  # noqa: E402
-from pymongo.errors import OperationFailure, PyMongoError  # noqa: E402
+from pymongo.errors import DuplicateKeyError, OperationFailure, PyMongoError  # noqa: E402
 
+from culture_rules.store.migrations import ensure_variables_collection  # noqa: E402
 from culture_rules.store.mongo import ConfigError, MongoConfig, MongoStore  # noqa: E402
-from culture_rules.store.port import StoreError  # noqa: E402
+from culture_rules.store.port import VARIABLES_COLLECTION, StoreError  # noqa: E402
 from tests.store import mongo_rig  # noqa: E402
 from tests.store.contract import StoragePortContract  # noqa: E402
 
@@ -325,3 +326,50 @@ def test_concurrent_cas_across_independent_clients(fresh):
     finally:
         for s in stores:
             s.close()
+
+
+# ------------------------------------------------------------------- variables
+
+from tests.store.test_variable import VariableContract  # noqa: E402
+
+
+class TestVariableMongoContract(VariableContract):
+    @pytest.fixture(autouse=True)
+    def _cleanup(self):
+        yield
+        _release_stores()
+
+    def make_store(self) -> MongoStore:
+        rig = get_rig()
+        database = f"cr_{uuid.uuid4().hex[:12]}"
+        mongo_rig.create_app_user(rig, database)
+        _databases.append(database)
+        store = MongoStore(_config(rig, database))
+        _opened.append(store)
+        return store
+
+
+def test_ensure_variables_collection_creates_unique_index(fresh):
+    store = fresh
+    ensure_variables_collection(store)
+    db = store.client[store.config.database]
+    assert VARIABLES_COLLECTION in db.list_collection_names()
+    indexes = {i["name"]: i for i in db[VARIABLES_COLLECTION].list_indexes()}
+    assert indexes["name_unique"]["unique"] is True
+    assert dict(indexes["name_unique"]["key"]) == {"name": 1}
+    # Idempotent: running it again is a no-op.
+    ensure_variables_collection(store)
+    # The collection is usable straight after the migration.
+    doc = store.put_variable("a", 1, updated_by="me")
+    assert doc["version"] == 1
+    assert store.get_variable("a")["value"] == 1
+
+
+def test_variables_index_enforces_unique_names(fresh):
+    """The index (not just the _id) keeps one document per variable name."""
+    store = fresh
+    ensure_variables_collection(store)
+    coll = store.client[store.config.database][VARIABLES_COLLECTION]
+    coll.insert_one({"name": "dup"})
+    with pytest.raises(DuplicateKeyError):
+        coll.insert_one({"name": "dup"})

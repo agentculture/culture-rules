@@ -75,6 +75,9 @@ ChangeOp = Literal["insert", "update", "delete"]
 CURSOR_COLLECTION = "_cursors"
 """Reserved collection holding change-feed cursors saved via ``save_cursor``."""
 
+VARIABLES_COLLECTION = "variables"
+"""Collection holding shared variables (``put_variable`` and friends)."""
+
 
 class StoreError(Exception):
     """Base class for storage failures."""
@@ -204,6 +207,25 @@ class StoragePort(StoreOps, Protocol):
 
     def load_cursor(self, consumer: str, collection: str) -> str | None:
         """Return the token last saved by ``consumer`` for ``collection``, or None."""
+
+    def put_variable(
+        self, name: str, value: Any, *, updated_by: str, description: str | None = None
+    ) -> Document:
+        """Append a new version of variable ``name`` (version n+1, append-only).
+
+        Validates ``name`` (must match :data:`~culture_rules.model.variable.VALID_VARIABLE_NAME_RE`)
+        and ``value`` (must be a JSON scalar or list).  Returns the latest
+        version document.  Raises :class:`ValueError` on validation failure.
+        """
+
+    def get_variable(self, name: str) -> Document | None:
+        """Return the latest version document for variable ``name``, or ``None``."""
+
+    def get_variable_version(self, name: str, version: int) -> Document | None:
+        """Return a specific version document for variable ``name``, or ``None``."""
+
+    def list_variables(self) -> list[Document]:
+        """Return every variable's latest version document, ordered by name."""
 
 
 def cursor_id(consumer: str, collection: str) -> str:

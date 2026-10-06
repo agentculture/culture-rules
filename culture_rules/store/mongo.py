@@ -63,8 +63,10 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any
 
+from culture_rules.model.variable import VALID_VARIABLE_NAME_RE
 from culture_rules.store.port import (
     CURSOR_COLLECTION,
+    VARIABLES_COLLECTION,
     Change,
     ChangeOp,
     Document,
@@ -554,6 +556,96 @@ class MongoStore:
         doc = self.get(CURSOR_COLLECTION, cursor_id(consumer, collection))
         return None if doc is None else doc.get("token")
 
+    # ---------------------------------------------------------------- variables
+
+    def _validate_variable_name(self, name: str) -> None:
+        if not isinstance(name, str) or not VALID_VARIABLE_NAME_RE.match(name):
+            raise ValueError(
+                f"invalid variable name {name!r}: must match {VALID_VARIABLE_NAME_RE.pattern}"
+            )
+
+    @staticmethod
+    def _validate_variable_value(value: Any) -> None:
+        if not isinstance(value, (str, int, float, bool, type(None), list)):
+            raise ValueError(
+                f"invalid variable value {type(value).__name__}: must be a JSON scalar or list"
+            )
+
+    @staticmethod
+    def _variable_view(name: str, version: Mapping[str, Any]) -> Document:
+        """The flat, single-version view of a stored variable document."""
+        return {
+            "id": name,
+            "name": name,
+            "value": version["value"],
+            "version": version["version"],
+            "updated_by": version["updated_by"],
+            "updated_at": version["updated_at"],
+            "description": version.get("description"),
+        }
+
+    def _get_variable_doc(self, name: str) -> Document | None:
+        raw = self._collection(VARIABLES_COLLECTION).find_one({"_id": name})
+        return _to_doc(raw)
+
+    def put_variable(
+        self, name: str, value: Any, *, updated_by: str, description: str | None = None
+    ) -> Document:
+        self._validate_variable_name(name)
+        self._validate_variable_value(value)
+        coll = self._collection(VARIABLES_COLLECTION)
+        now = self._now()
+        # Read, compute the next version, then append: the $push itself is
+        # atomic, so concurrent puts never lose entries (only a rare race can
+        # assign two entries the same version number).
+        doc = self._get_variable_doc(name)
+        versions = doc.get("versions", []) if doc else []
+        entry: Document = {
+            "version": (versions[-1]["version"] if versions else 0) + 1,
+            "value": value,
+            "updated_by": updated_by,
+            "updated_at": now,
+            "description": description,
+        }
+        coll.update_one(
+            {"_id": name},
+            {"$push": {"versions": entry}, "$setOnInsert": {"name": name}},
+            upsert=True,
+        )
+        return self._variable_view(name, entry)
+
+    def get_variable(self, name: str) -> Document | None:
+        doc = self._get_variable_doc(name)
+        if doc is None:
+            return None
+        versions = doc.get("versions", [])
+        return None if not versions else self._variable_view(doc["name"], versions[-1])
+
+    def get_variable_version(self, name: str, version: int) -> Document | None:
+        doc = self._get_variable_doc(name)
+        if doc is None:
+            return None
+        for v in doc.get("versions", []):
+            if v["version"] == version:
+                return self._variable_view(doc["name"], v)
+        return None
+
+    def list_variables(self) -> list[Document]:
+        cursor = self._collection(VARIABLES_COLLECTION).find({}).sort("name", 1)
+        result: list[Document] = []
+        for raw in cursor:
+            doc = _to_doc(raw)
+            versions = doc.get("versions", [])
+            if versions:
+                result.append(self._variable_view(doc["name"], versions[-1]))
+        return result
+
+    def ensure_variables_collection(self) -> None:
+        """Create the variables collection (with change-stream images) and a
+        unique index on ``name``."""
+        self._collection(VARIABLES_COLLECTION)
+        self._db[VARIABLES_COLLECTION].create_index("name", unique=True, name="name_unique")
+
 
 _OPS: dict[str, ChangeOp] = {
     "insert": "insert",
@@ -561,47 +653,6 @@ _OPS: dict[str, ChangeOp] = {
     "replace": "update",
     "delete": "delete",
 }
-
-
-def _to_change(collection: str, event: Mapping[str, Any]) -> Change | None:
-    kind = event["operationType"]
-    if kind not in _OPS:
-        if kind in {"drop", "dropDatabase", "rename", "invalidate"}:
-            raise StoreError(f"collection {collection!r} feed ended: {kind}")
-        return None
-    return Change(
-        token=event["_id"]["_data"],
-        collection=collection,
-        op=_OPS[kind],
-        id=event["documentKey"]["_id"],
-        document=_to_doc(event.get("fullDocument")),
-    )
-
-
-def _reject_raw_id(document: Any) -> None:
-    if isinstance(document, Mapping) and "_id" in document:
-        raise ValueError("documents use 'id'; '_id' is reserved by the adapter")
-
-
-def _raise_if_in_transaction(session: Any) -> None:
-    if session is not None:
-        raise TransientStoreError("a concurrent write conflicted inside the transaction; retry it")
-
-
-def _has_label(exc: BaseException, label: str) -> bool:
-    has = getattr(exc, "has_error_label", None)
-    return bool(callable(has) and has(label))
-
-
-def _translate_transient(exc: BaseException) -> TransientStoreError | None:
-    """The typed error for a pymongo transient-transaction failure, else None."""
-    if isinstance(exc, TransientStoreError):
-        return exc
-    if isinstance(exc, StoreError):
-        return None
-    if _has_label(exc, _TRANSIENT_LABEL) or getattr(exc, "code", None) == _WRITE_CONFLICT:
-        return TransientStoreError(f"transient transaction failure, retry it: {exc}")
-    return None
 
 
 class _TxHandle:
@@ -659,3 +710,44 @@ class _TxHandle:
 
     def delete(self, collection: str, id: str) -> bool:
         return self._call(self._store._delete, collection, id)
+
+
+def _to_change(collection: str, event: Mapping[str, Any]) -> Change | None:
+    kind = event["operationType"]
+    if kind not in _OPS:
+        if kind in {"drop", "dropDatabase", "rename", "invalidate"}:
+            raise StoreError(f"collection {collection!r} feed ended: {kind}")
+        return None
+    return Change(
+        token=event["_id"]["_data"],
+        collection=collection,
+        op=_OPS[kind],
+        id=event["documentKey"]["_id"],
+        document=_to_doc(event.get("fullDocument")),
+    )
+
+
+def _reject_raw_id(document: Any) -> None:
+    if isinstance(document, Mapping) and "_id" in document:
+        raise ValueError("documents use 'id'; '_id' is reserved by the adapter")
+
+
+def _raise_if_in_transaction(session: Any) -> None:
+    if session is not None:
+        raise TransientStoreError("a concurrent write conflicted inside the transaction; retry it")
+
+
+def _has_label(exc: BaseException, label: str) -> bool:
+    has = getattr(exc, "has_error_label", None)
+    return bool(callable(has) and has(label))
+
+
+def _translate_transient(exc: BaseException) -> TransientStoreError | None:
+    """The typed error for a pymongo transient-transaction failure, else None."""
+    if isinstance(exc, TransientStoreError):
+        return exc
+    if isinstance(exc, StoreError):
+        return None
+    if _has_label(exc, _TRANSIENT_LABEL) or getattr(exc, "code", None) == _WRITE_CONFLICT:
+        return TransientStoreError(f"transient transaction failure, retry it: {exc}")
+    return None
