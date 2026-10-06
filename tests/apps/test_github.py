@@ -208,3 +208,47 @@ def test_a_401_with_a_fresh_token_is_not_retried_again(pem):
     assert err.value.code == "http_401"
     assert not err.value.retryable
     assert sum(not c[1].endswith("/access_tokens") for c in fake.calls) == 2
+
+
+def test_push_token_is_fresh_single_repo_contents_write(pem):
+    fake = Fake()
+    app, _ = make(pem, fake)
+    assert app.push_token("acme/widgets") == FAKE_BEARER
+    assert app.push_token("acme/widgets") == FAKE_BEARER
+    mints = [c for c in fake.calls if c[1].endswith("/access_tokens")]
+    assert len(mints) == 2  # never cached
+    for _, _, headers, body in mints:
+        assert json.loads(body) == {
+            "repositories": ["widgets"],
+            "permissions": {"contents": "write"},
+        }
+        assert headers["Authorization"] != f"Bearer {FAKE_BEARER}"  # signed with the App JWT
+    app.installation_token()  # the general token is a separate, unscoped exchange
+    assert fake.calls[-1][3] is None
+
+
+def test_push_token_refuses_off_allowlist_without_network(pem):
+    fake = Fake()
+    app, _ = make(pem, fake)
+    with pytest.raises(GitHubError) as err:
+        app.push_token("evil/repo")
+    assert err.value.code == "repo_not_allowed" and fake.calls == []
+
+
+def test_push_token_scope_mismatch_is_refused(pem):
+    def fake(method, url, headers, body, timeout):
+        payload = {
+            "token": FAKE_BEARER,
+            "expires_at": "2030-01-01T00:00:00Z",
+            "repositories": [{"full_name": "acme/widgets"}, {"full_name": "acme/other"}],
+        }
+        return 201, json.dumps(payload).encode()
+
+    app, _ = make(pem, fake)
+    with pytest.raises(GitHubError) as err:
+        app.push_token("acme/widgets")
+    assert err.value.code == "token_scope_mismatch"
+
+
+def test_app_has_no_merge_call():
+    assert not [n for n in dir(GitHubApp) if "merge" in n.lower()]

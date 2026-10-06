@@ -4,8 +4,9 @@ An :class:`~culture_rules.model.action.Action` has no actor slot; an action that
 actor capability names the actor in ``params.actor`` (an actor id, or a reference). Per kind
 this module says which params exist, their types and which are required.
 
-Actor policy: ``discord.message``, ``github.comment``, ``jira.comment``, ``http.call`` and
-``machine.command`` always need ``params.actor`` (the credentialed or executing party).
+Actor policy: ``discord.message``, ``github.comment``, ``github.push``, ``github.review_reply``,
+``jira.comment``, ``http.call`` and ``machine.command`` always need ``params.actor`` (the
+credentialed or executing party).
 ``message`` sends on the Culture mesh and takes no actor; a stored ``message`` that still names
 a Discord app actor (the form before ``discord.message`` existed) keeps posting through it.
 ``discord.message`` posts to a Discord channel through a Discord app actor; ``guild`` records
@@ -13,6 +14,10 @@ the server the channel was picked from. ``mesh.message`` is a legacy alias of ``
 
 Any param value may be a reference (``trigger.data.number``), a ``{"$ref": ...}`` object or a
 ``{{ }}`` template, accepted wherever a typed value is expected. Extra params are tolerated.
+
+``github.push`` fast-forwards a same-repo PR's head branch to a local commit, as the App and
+never with force; ``github.review_reply`` replies in a PR review thread and optionally resolves
+it. There is deliberately **no merge kind**: merging stays a human gate.
 Standard-library only.
 """
 
@@ -28,7 +33,7 @@ __all__ = ["ACTION_KINDS", "ActionKind", "ParamSpec", "param_type_ok"]
 
 @dataclass(frozen=True)
 class ParamSpec:
-    """One param: ``type`` is str, int, dict or list; ``required`` means present and non-empty."""
+    """A param: ``type`` is str, int, bool, dict, list or any; ``required`` means non-empty."""
 
     type: str
     required: bool = False
@@ -75,6 +80,28 @@ _KINDS = (
         number=ParamSpec("int", True),
         body=_RS,
     ),
+    _k(
+        "github.push",
+        "Fast-forward a same-repo PR's head branch as the GitHub App (never force)",
+        actor=_RS,
+        repo=_RS,
+        number=ParamSpec("int", True),
+        head_branch=_RS,
+        expected_head_sha=_RS,
+        source=_RS,
+        ref=_S,
+    ),
+    _k(
+        "github.review_reply",
+        "Reply in a PR review thread as the GitHub App, optionally resolving it",
+        actor=_RS,
+        repo=_RS,
+        number=ParamSpec("int", True),
+        comment_id=ParamSpec("int", True),
+        body=_RS,
+        thread_id=_S,
+        resolve=ParamSpec("bool"),
+    ),
     _k("jira.comment", "Comment on a Jira issue", actor=_RS, issue=_RS, body=_RS),
     _k(
         "http.call",
@@ -118,6 +145,8 @@ def param_type_ok(spec: ParamSpec, value: Any) -> bool:
     """Whether ``value`` satisfies ``spec`` (dynamic values always do)."""
     if _is_dynamic(value) or spec.type == "any":
         return True
+    if spec.type == "bool":
+        return isinstance(value, bool)
     if spec.type == "int":
         return isinstance(value, int) and not isinstance(value, bool)
     if spec.type == "str":

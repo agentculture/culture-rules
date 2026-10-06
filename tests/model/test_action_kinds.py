@@ -161,3 +161,33 @@ def test_discord_message_is_catalogued_apart_from_the_mesh_message() -> None:
     assert "discord.message" in ACTION_KINDS
     assert "guild" in ACTION_KINDS["discord.message"].params
     assert ACTION_KINDS["message"].summary.lower().startswith("send a message on the culture mesh")
+
+
+def test_github_push_and_review_reply_required_params() -> None:
+    errs = _errs("github.push", {})
+    for name in ("actor", "repo", "number", "head_branch", "expected_head_sha", "source"):
+        assert (f"action.params.{name}", "action_param_required") in errs
+    errs = _errs("github.review_reply", {})
+    for name in ("actor", "repo", "number", "comment_id", "body"):
+        assert (f"action.params.{name}", "action_param_required") in errs
+
+
+def test_github_push_accepts_references_and_review_reply_resolve_is_bool() -> None:
+    push = {
+        "actor": "gh",
+        "repo": "{{ trigger.data.repository }}",
+        "number": "trigger.data.number",
+        "head_branch": "{{ trigger.data.head_branch }}",
+        "expected_head_sha": "{{ workflow.outputs.head_before }}",
+        "source": "{{ workflow.outputs.bundle }}",
+    }
+    assert _errs("github.push", push) == set()
+    reply = {"actor": "gh", "repo": "o/r", "number": 3, "comment_id": 7, "body": "ok"}
+    assert _errs("github.review_reply", {**reply, "resolve": True}) == set()
+    assert ("action.params.resolve", "action_param_type") in _errs(
+        "github.review_reply", {**reply, "resolve": "yes"}
+    )
+
+
+def test_no_merge_kind_is_catalogued() -> None:
+    assert not [k for k in ACTION_KINDS if "merge" in k]
