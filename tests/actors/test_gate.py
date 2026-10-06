@@ -596,16 +596,62 @@ def test_path_matches(path, patterns, hit):
     assert (path_matches(path, patterns) is not None) == hit
 
 
+@pytest.mark.parametrize(
+    "path",
+    [
+        "tests with spaces/test_x.py",
+        "tests/test_\ttab.py",
+        "tests/test_\u00e9t\u00e9.py",
+        "tests/test_[g]*.py",  # glob characters: a literal pathspec, never a pattern
+    ],
+)
+def test_removing_a_test_from_an_unusually_named_file_is_guarded(store, tmp_path, clock, path):
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    repo.commit("add tests", {path: TESTS_PY})
+    repo.start = repo.commit("pr head 2", {})
+    repo.commit("drop the failing test", {path: "def test_ok():\n    assert True\n"})
+    out = judge(store, LocalRunner(), repo, tmp_path, clock)
+    assert (out["verdict"], out["rule"]) == (GUARD, "test_removed"), out["violations"]
+    assert out["violations"][0]["path"] == path
+
+
+def test_a_marker_added_in_a_file_with_spaces_is_guarded(store, tmp_path, clock):
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    repo.commit("noqa", {"src/my app.py": "import os  # noqa: F401\n"})
+    out = judge(store, LocalRunner(), repo, tmp_path, clock)
+    assert (out["verdict"], out["rule"]) == (GUARD, "suppression_marker")
+    assert out["violations"][0]["path"] == "src/my app.py"
+
+
+def test_renames_with_spaces_are_tracked(store, tmp_path, clock):
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    old = "tests with spaces/test_a b.py"
+    repo.commit("add", {old: TESTS_PY})
+    repo.start = repo.commit("pr head 2", {})
+    git(repo.wt, "mv", old, "tests with spaces/test_c d.py")
+    git(repo.wt, "commit", "-q", "-m", "rename within tests")
+    assert judge(store, LocalRunner(), repo, tmp_path, clock)["verdict"] == PASS
+    (repo.wt / "attic dir").mkdir()
+    git(repo.wt, "mv", "tests with spaces/test_c d.py", "attic dir/a b.py")
+    git(repo.wt, "commit", "-q", "-m", "move out of tests")
+    out = judge(store, LocalRunner(), repo, tmp_path, clock)
+    assert (out["verdict"], out["rule"]) == (GUARD, "test_deleted"), out["violations"]
+    assert out["violations"][0]["path"] == old  # the old name, from start..commit
+
+
 def test_diff_guard_on_raw_git_output():
-    names = "M\x00src/a.py\x00R100\x00tests/test_a.py\x00attic/a.py\x00"
-    patch = (
-        "diff --git a/src/a.py b/src/a.py\n--- a/src/a.py\n+++ b/src/a.py\n"
-        "@@ -1 +1,2 @@\n--- not a header: a removed line starting with --\n"
-        "+x = 1  # noqa\n+y = 2\n"
-    )
-    found = diff_guard(names, patch, [])
-    rules = [v.rule for v in found]
-    assert rules == ["test_deleted", "suppression_marker"]
+    names = "M\x00src/a b.py\x00R100\x00tests/test_a.py\x00attic/a.py\x00"
+    patches = {
+        # headers are ignored: the path comes from the -z name list, never a +++ line
+        "src/a b.py": "diff --git a/src/a b.py b/src/a b.py\n--- a/src/a b.py\t\n"
+        "+++ b/src/a b.py\t\n@@ -1 +1,2 @@\n--- not a header: a removed line\n"
+        "+x = 1  # noqa\n+y = 2\n",
+    }
+    found = diff_guard(names, patches, [])
+    assert [(v.rule, v.path) for v in found] == [
+        ("test_deleted", "tests/test_a.py"),
+        ("suppression_marker", "src/a b.py"),
+    ]
 
 
 # ------------------------------------------------------------------------ end to end

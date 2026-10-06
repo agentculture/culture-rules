@@ -532,66 +532,46 @@ _SUPPRESSIONS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("nolint", re.compile(r"//\s*nolint\b")),
 )
 _HUNK = re.compile(r"^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@")
-_ESCAPES = {"a": 7, "b": 8, "t": 9, "n": 10, "v": 11, "f": 12, "r": 13, '"': 34, "\\": 92}
 
 
 def is_test_path(path: str) -> bool:
     return bool(_TEST_FILE.search(path))
 
 
-def _unquote(path: str) -> str:
-    """git's C-style quoted path (``"a\\tb"``) back to text."""
-    if not (len(path) >= 2 and path[0] == '"' and path[-1] == '"'):
-        return path
-    raw, out, i = path[1:-1], bytearray(), 0
-    while i < len(raw):
-        ch = raw[i]
-        if ch == "\\" and i + 1 < len(raw):
-            nxt = raw[i + 1]
-            if nxt in "01234567" and re.match(r"[0-7]{3}", raw[i + 1 : i + 4]):
-                out.append(int(raw[i + 1 : i + 4], 8))
-                i += 4
-                continue
-            out.append(_ESCAPES.get(nxt, ord(nxt)))
-            i += 2
-            continue
-        out.extend(ch.encode("utf-8"))
-        i += 1
-    return out.decode("utf-8", errors="replace")
+def _hunk_lines(patch: str) -> Iterable[tuple[str, str]]:
+    """``("+"|"-", text)`` for every added/removed line of a one-file ``-U0`` patch.
 
-
-def _strip_side(path: str) -> str:
-    path = _unquote(path)
-    return path[2:] if path[:2] in ("a/", "b/") else path
-
-
-def _patch_lines(patch: str) -> Iterable[tuple[str, str, str]]:
-    """``(path, "+"|"-", text)`` for every added/removed line of a ``-U0`` patch."""
-    old = new = ""
+    Header lines are skipped, never parsed for a path: the caller names the file (from
+    ``--name-status -z``), so no quoting or tab-terminated header can misattribute it."""
     lines = patch.split("\n")
     i = 0
     while i < len(lines):
-        line = lines[i]
+        m = _HUNK.match(lines[i])
         i += 1
-        if line.startswith("--- "):
-            old = "" if line[4:] == "/dev/null" else _strip_side(line[4:])
-        elif line.startswith("+++ "):
-            new = "" if line[4:] == "/dev/null" else _strip_side(line[4:])
-        elif (m := _HUNK.match(line)) is not None:
-            left = 1 if m.group(1) is None else int(m.group(1))
-            right = 1 if m.group(2) is None else int(m.group(2))
-            while (left > 0 or right > 0) and i < len(lines):
-                body = lines[i]
-                i += 1
-                if body.startswith("-"):
-                    left -= 1
-                    yield old or new, "-", body[1:]
-                elif body.startswith("+"):
-                    right -= 1
-                    yield new or old, "+", body[1:]
-                elif body.startswith(" "):
-                    left, right = left - 1, right - 1
-                # "\ No newline at end of file" counts as neither side
+        if m is None:
+            continue
+        left = 1 if m.group(1) is None else int(m.group(1))
+        right = 1 if m.group(2) is None else int(m.group(2))
+        while (left > 0 or right > 0) and i < len(lines):
+            body = lines[i]
+            i += 1
+            if body.startswith("-"):
+                left -= 1
+                yield "-", body[1:]
+            elif body.startswith("+"):
+                right -= 1
+                yield "+", body[1:]
+            elif body.startswith(" "):
+                left, right = left - 1, right - 1
+            # "\ No newline at end of file" counts as neither side
+
+
+def changed_paths(name_status: str) -> list[str]:
+    """Every path ``--name-status -z`` names (both sides of a rename or copy), in order."""
+    seen: dict[str, None] = {}
+    for _status, paths in _name_status(name_status):
+        seen.update(dict.fromkeys(paths))
+    return list(seen)
 
 
 def _name_status(raw: str) -> list[tuple[str, list[str]]]:
@@ -633,8 +613,13 @@ def _added_markers(
     return found
 
 
-def diff_guard(name_status: str, patch: str, patterns: Sequence[str]) -> list[Violation]:
-    """Every diff-guard violation in one diff (``--name-status -z`` and ``-U0`` patch)."""
+def diff_guard(
+    name_status: str, patches: Mapping[str, str], patterns: Sequence[str]
+) -> list[Violation]:
+    """Every diff-guard violation in one diff.
+
+    ``name_status`` is ``git diff --name-status -z -M`` output; ``patches`` maps each path
+    it names (see :func:`changed_paths`) to that path's own ``-U0 --no-renames`` patch."""
     protected = (*ALWAYS_PROTECTED, *patterns)
     found: list[Violation] = []
     entries = _name_status(name_status)
@@ -648,7 +633,11 @@ def diff_guard(name_status: str, patch: str, patterns: Sequence[str]) -> list[Vi
             found.append(Violation("test_deleted", paths[0], "test file deleted"))
         elif status == "R" and is_test_path(paths[0]) and not is_test_path(paths[-1]):
             found.append(Violation("test_deleted", paths[0], f"moved to {paths[-1]}"))
-    lines = list(_patch_lines(patch))
+    lines = [
+        (path, side, text)
+        for path in changed_paths(name_status)
+        for side, text in _hunk_lines(patches.get(path, ""))
+    ]
     removed: Counter[str] = Counter()
     added: Counter[str] = Counter()
     where: dict[str, str] = {}
@@ -681,6 +670,7 @@ def _git_env(home: str) -> dict[str, str]:
         "GIT_TERMINAL_PROMPT": "0",
         "GIT_NO_REPLACE_OBJECTS": "1",
         "GIT_ATTR_NOSYSTEM": "1",
+        "GIT_LITERAL_PATHSPECS": "1",  # a changed path is a name, never a glob or magic
     }
 
 
@@ -996,13 +986,16 @@ class GatePort:
             name = config.get("protected_paths_variable", PROTECTED_PATHS_VARIABLE)
             return [Violation("protected_paths_unset", "", f"variable {name!r} is not set")]
         diff = ("diff", "--no-ext-diff", "--no-textconv", "--no-color")
-        names = job.git(*diff, "--name-status", "-z", "-M", start, commit, "--")
-        patch = job.git(*diff, "--text", "--no-renames", "-U0", start, commit, "--")
-        return diff_guard(
-            names.decode("utf-8", errors="replace"),
-            patch.decode("utf-8", errors="replace"),
-            patterns,
-        )
+        raw = job.git(*diff, "--name-status", "-z", "-M", start, commit, "--")
+        names = raw.decode("utf-8", errors="surrogateescape")
+        patches = {}
+        for path in changed_paths(names):  # one literal pathspec per file (-z names)
+            arg = path.encode("utf-8", errors="surrogateescape").decode("utf-8", "replace")
+            if arg != path:
+                raise _Refusal("bad_path", "a changed path is not valid UTF-8")
+            patch = job.git(*diff, "--text", "--no-renames", "-U0", start, commit, "--", path)
+            patches[path] = patch.decode("utf-8", errors="replace")
+        return diff_guard(names, patches, patterns)
 
     def _checkout(self, job: _Job, sha: str) -> str:
         """A fresh checkout of ``sha``, as the fixer user, from the node-verified pack.
