@@ -224,3 +224,37 @@ def test_a_variable_free_rule_saves_regardless_of_old_nodes():
     assert defs.create("rules", rule("plain").to_dict(), "alice")["id"] == "plain"
     files = {"rules/plain2.json": json.dumps(rule("plain2").to_dict())}
     assert defs.import_files(files, "alice", apply=True)["applied"] is True
+
+
+def test_an_old_node_blocks_enabling_a_disabled_variable_rule_but_never_disabling():
+    store, defs = _defs_with_trusted()
+    body = {**_body(NOT_IN_X), "enabled": False}
+    defs.create("rules", body, "alice")  # the fixer ships disabled (t17)
+    _beat(store, "orin", NOW)  # an old node comes online
+    with pytest.raises(Invalid) as exc:
+        defs.set_enabled("rules", "guarded", True, "alice")
+    (err,) = exc.value.errors
+    assert err["code"] == "variables_unsupported_nodes"
+    assert "orin" in err["message"]
+    assert store.get("rules", "guarded")["enabled"] is False
+
+    _beat(store, "orin", NOW, capabilities=[VARIABLES_CAPABILITY])
+    assert defs.set_enabled("rules", "guarded", True, "alice")["enabled"] is True
+    _beat(store, "orin", NOW)  # rolled back to the old binary
+    assert defs.set_enabled("rules", "guarded", False, "alice")["enabled"] is False
+
+
+def test_saving_a_disabled_variable_rule_is_checked_too():
+    store, defs = _defs_with_trusted()
+    _beat(store, "orin", NOW)
+    body = {**_body(NOT_IN_X), "enabled": False}
+    with pytest.raises(Invalid) as exc:
+        defs.create("rules", body, "alice")
+    assert [e["code"] for e in exc.value.errors] == ["variables_unsupported_nodes"]
+
+
+def test_enabling_a_variable_free_rule_is_never_blocked():
+    store, defs = _defs_with_trusted()
+    defs.create("rules", {**rule("plain").to_dict(), "enabled": False}, "alice")
+    _beat(store, "orin", NOW)
+    assert defs.set_enabled("rules", "plain", True, "alice")["enabled"] is True

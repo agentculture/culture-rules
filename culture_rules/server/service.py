@@ -120,7 +120,16 @@ def _tolerant(cls: type, doc: Mapping[str, Any]) -> Any | None:
 SaveCheck = Callable[[str, "Mapping[str, Any] | None", Mapping[str, Any]], None]
 
 
-def _old_node_errors(rules: Iterable[Rule], lacking: list[str]) -> list[dict[str, str]]:
+class _RuleRef:
+    """A stored rule document seen as ``id`` + references (for :func:`_old_node_errors`)."""
+
+    def __init__(self, rule_id: str, doc: Mapping[str, Any]) -> None:
+        self.id = rule_id
+        self.condition = doc.get("condition")
+        self.workflow = doc.get("workflow")
+
+
+def _old_node_errors(rules: Iterable[Any], lacking: list[str]) -> list[dict[str, str]]:
     """``variables_unsupported_nodes`` for each rule that references a shared variable while
     online nodes in ``lacking`` cannot resolve variables (deviation d7): such a node would
     evaluate the reference as missing (``not(a in vars.x)`` true) and fire wrongly."""
@@ -306,6 +315,15 @@ class Definitions:
                 raise NotFound(f"{kind}/{id} does not exist")
             if not _is_live(before):
                 raise Conflict(f"{kind}/{id} is deleted; restore it first")
+            if kind == "rules" and enabled and rule_variable_refs(before):
+                # Enabling is where a variable rule starts to fire (the fixer ships
+                # disabled): refuse it while an online node lacks variable support (d7).
+                # Disabling is never blocked.
+                errors = _old_node_errors(
+                    [_RuleRef(id, before)], nodes_without_variables(tx, self._clock())
+                )
+                if errors:
+                    raise Invalid("rule cannot be enabled yet", errors)
             res = tx.update_if(kind, id, {"enabled": before.get("enabled")}, {"enabled": enabled})
             if not res.won:
                 raise Conflict(f"{kind}/{id} changed concurrently")
