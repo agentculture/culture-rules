@@ -6,7 +6,8 @@ the head SHA's check suites (through the injectable ``suites`` seam; the product
 :class:`AppSuiteLister`, the GitHub App's read-only ``Checks: read``), drops suites from apps in
 the shared variable ``ignored_check_apps``, and:
 
-- every remaining suite ``completed`` -> emit ``github.pr.checks_settled`` with
+- every remaining suite ``completed`` and ``checks_settle_min_s`` elapsed since the SHA was
+  armed (by its first completion) -> emit ``github.pr.checks_settled`` with
   ``settled_by: "all_completed"``;
 - otherwise persist a pending settle record whose ``deadline`` is ``now +
   checks_settle_timeout_s``; :meth:`ChecksSettler.tick` (run from the node cycle) re-reads the
@@ -15,7 +16,9 @@ the shared variable ``ignored_check_apps``, and:
 
 Variables (read each call through ``store.get_variable``; an absent, mistyped or non-positive
 value falls back to a stated default): ``ignored_check_apps`` defaults to ``["claude"]`` and
-``checks_settle_timeout_s`` to :data:`DEFAULT_TIMEOUT_S`.
+``checks_settle_timeout_s`` to :data:`DEFAULT_TIMEOUT_S` and ``checks_settle_min_s`` (the
+minimum window before ``all_completed``, so a slower app's suite can appear) to
+:data:`DEFAULT_MIN_S`.
 
 Deduplication is durable: the event id is a hash of ``repo@sha``, so the unique id of the
 ``events`` collection makes two nodes, a redelivered webhook or the timeout racing the last
@@ -41,6 +44,7 @@ from culture_rules.store.port import DuplicateKeyError, StoragePort
 __all__ = [
     "CHECK_TYPES",
     "DEFAULT_IGNORED_APPS",
+    "DEFAULT_MIN_S",
     "DEFAULT_TIMEOUT_S",
     "SETTLED_TYPE",
     "SETTLE_COLLECTION",
@@ -56,6 +60,7 @@ SETTLED_TYPE = "github.pr.checks_settled"
 CHECK_TYPES = frozenset(("github.checks.suite_completed", "github.checks.workflow_completed"))
 DEFAULT_IGNORED_APPS: tuple[str, ...] = ("claude",)
 DEFAULT_TIMEOUT_S = 900.0
+DEFAULT_MIN_S = 60.0
 SETTLE_HOST = "checks-settle"
 SOURCE = "culture-rules://checks-settle"
 
@@ -117,6 +122,12 @@ class ChecksSettler:
             return DEFAULT_TIMEOUT_S
         return float(value)
 
+    def min_s(self) -> float:
+        value = _var(self._store, "checks_settle_min_s")
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
+            return DEFAULT_MIN_S
+        return float(value)
+
     # ------------------------------------------------------------------ decisions
 
     def _all_completed(self, repo: str, sha: str) -> bool:
@@ -130,30 +141,34 @@ class ChecksSettler:
 
     def on_check(self, data: Mapping[str, Any]) -> str:
         """Handle one check-completion event's data; return what happened:
-        ``emitted``, ``duplicate``, ``pending``, ``ignored`` or ``error`` (listing failed;
-        the next completion or the redelivery retries)."""
+        ``emitted``, ``duplicate``, ``pending``, ``ignored`` or ``error`` (listing failed; the
+        pending record is already persisted, so :meth:`tick` retries and the timeout fires)."""
         repo, sha = data.get("repository"), data.get("head_sha")
         if not isinstance(repo, str) or not repo or not isinstance(sha, str) or not sha:
             return "ignored"
         if self._store.get(EVENTS_COLLECTION, settled_event_id(repo, sha)) is not None:
             return "duplicate"
+        rec = self._arm(repo, sha, data)  # before the lookup: a failure must not lose the SHA
         try:
             done = self._all_completed(repo, sha)
         except GitHubError as exc:
             log.warning("checks settle: suite listing failed (%s)", exc.code)
             return "error"
-        if done:
-            return self._emit(repo, sha, data, "all_completed")
-        self._arm(repo, sha, data)
+        if done and self._now() >= self._window_end(rec):
+            return self._emit(repo, sha, rec, "all_completed")
         return "pending"
 
     def tick(self) -> int:
-        """Emit the settled event of every pending SHA whose settle timeout has passed."""
-        now = self._clock()
+        """Settle pending SHAs: emit ``timeout`` past the deadline, or ``all_completed`` once
+        the minimum window has passed and every counted suite is complete."""
+        now = self._now()
         emitted = 0
         for rec in self._store.find(SETTLE_COLLECTION, {"state": "pending"}):
             deadline = _parse(rec.get("deadline"))
-            if deadline is None or now < deadline:
+            if deadline is None:
+                continue
+            timed_out = now >= deadline
+            if not timed_out and now < self._window_end(rec):
                 continue
             repo, sha = rec["repository"], rec["head_sha"]
             try:
@@ -161,6 +176,8 @@ class ChecksSettler:
             except GitHubError as exc:
                 log.warning("checks settle: suite listing failed (%s)", exc.code)
                 done = False  # the timeout fires regardless of what is listed
+            if not done and not timed_out:
+                continue
             by = "all_completed" if done else "timeout"
             if self._emit(repo, sha, rec, by) == "emitted":
                 emitted += 1
@@ -168,23 +185,49 @@ class ChecksSettler:
 
     # ------------------------------------------------------------------ persistence
 
-    def _arm(self, repo: str, sha: str, data: Mapping[str, Any]) -> None:
-        """Record the SHA as pending with a deadline; the first completion's deadline stands."""
+    def _now(self) -> datetime:
+        return self._clock()
+
+    def _window_end(self, rec: Mapping[str, Any]) -> datetime:
+        armed = _parse(rec.get("armed_at")) or self._now()
+        return armed + timedelta(seconds=self.min_s())
+
+    def _arm(self, repo: str, sha: str, data: Mapping[str, Any]) -> Mapping[str, Any]:
+        """Persist the SHA as pending (first deadline and arm time stand) and merge in any PR
+        facts this completion newly carries. Returns the stored record."""
         rid = f"{repo}@{sha}".lower()
+        now = self._now()
+        numbers = [n for n in data.get("pr_numbers") or () if isinstance(n, int)]
         doc = {
             "id": rid,
             "state": "pending",
             "repository": repo,
             "head_sha": sha,
             "head_branch": data.get("head_branch"),
-            "pr_numbers": list(data.get("pr_numbers") or ()),
+            "pr_numbers": numbers,
             "number": data.get("number"),
-            "deadline": _iso(self._clock() + timedelta(seconds=self.timeout_s())),
+            "armed_at": _iso(now),
+            "deadline": _iso(now + timedelta(seconds=self.timeout_s())),
         }
         try:
-            self._store.insert(SETTLE_COLLECTION, doc)
+            return self._store.insert(SETTLE_COLLECTION, doc)
         except DuplicateKeyError:
             pass
+        for _ in range(10):
+            rec = self._store.get(SETTLE_COLLECTION, rid) or doc
+            changes: dict[str, Any] = {}
+            if numbers and not rec.get("pr_numbers"):
+                changes["pr_numbers"] = numbers
+            if data.get("number") is not None and rec.get("number") is None:
+                changes["number"] = data["number"]
+            if data.get("head_branch") and not rec.get("head_branch"):
+                changes["head_branch"] = data["head_branch"]
+            if not changes or rec.get("state") != "pending":
+                return rec
+            expected = {k: rec.get(k) for k in changes}
+            if self._store.update_if(SETTLE_COLLECTION, rid, expected, changes).won:
+                return {**rec, **changes}
+        return self._store.get(SETTLE_COLLECTION, rid) or doc
 
     def _enrich(self, repo: str, numbers: list[int]) -> dict[str, Any]:
         """Best-effort PR facts the fixer rule's condition reads; any failure omits them."""

@@ -53,6 +53,7 @@ def make(*suites, clock=None, **kw):
     store = MemoryStore()
     lister = Suites(*suites)
     clock = clock or Clock()
+    store.put_variable("checks_settle_min_s", 0, updated_by="t")
     return store, lister, clock, ChecksSettler(store, lister, clock=clock, **kw)
 
 
@@ -173,3 +174,52 @@ def test_pull_enrichment_is_best_effort():
     store, _, _, settler = make(("a", "completed"), pull=boom)
     assert settler.on_check(check_data()) == "emitted"
     assert "head_repo" not in settled(store)[0]["envelope"]["data"]
+
+
+def test_transient_failure_on_only_completion_is_retried_by_tick():
+    store, lister, clock, settler = make(("a", "completed"))
+    lister.fail = True
+    assert settler.on_check(check_data()) == "error"
+    assert settler.tick() == 0  # still failing, not yet due
+    lister.fail = False
+    assert settler.tick() == 1
+    assert [e["envelope"]["data"]["settled_by"] for e in settled(store)] == ["all_completed"]
+
+
+def test_persistent_failure_still_times_out_once():
+    store, lister, clock, settler = make(("a", "completed"))
+    lister.fail = True
+    settler.on_check(check_data())
+    clock.now = T0 + timedelta(seconds=901)
+    assert settler.tick() == 1
+    assert settler.tick() == 0
+    assert settled(store)[0]["envelope"]["data"]["settled_by"] == "timeout"
+
+
+def test_later_completion_merges_pr_numbers_but_keeps_first_deadline():
+    store, _, clock, settler = make(("a", "in_progress"))
+    settler.on_check({"repository": REPO, "head_sha": SHA})  # no PR facts yet
+    clock.now = T0 + timedelta(seconds=100)
+    settler.on_check(check_data(head_branch="feat"))
+    rec = store.get(SETTLE_COLLECTION, f"{REPO}@{SHA}")
+    assert rec["pr_numbers"] == [7] and rec["head_branch"] == "feat"
+    clock.now = T0 + timedelta(seconds=901)
+    assert settler.tick() == 1
+    data = settled(store)[0]["envelope"]["data"]
+    assert data["number"] == 7 and data["settled_by"] == "timeout"
+
+
+def test_min_window_holds_back_event_for_a_late_appearing_suite():
+    store, lister, clock, settler = make(("github-actions", "completed"))
+    store.put_variable("checks_settle_min_s", 60, updated_by="t")
+    assert settler.on_check(check_data()) == "pending"  # all listed complete, window open
+    lister.suites["sonarqubecloud"] = "in_progress"  # appears within the window
+    clock.now = T0 + timedelta(seconds=61)
+    assert settler.tick() == 0 and settled(store) == []
+    lister.suites["sonarqubecloud"] = "completed"
+    assert settler.tick() == 1
+    assert settled(store)[0]["envelope"]["data"]["settled_by"] == "all_completed"
+
+
+def test_min_window_default_is_60s():
+    assert ChecksSettler(MemoryStore(), Suites()).min_s() == 60.0
