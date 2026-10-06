@@ -715,8 +715,15 @@ class BridgeAgentActor:
         headers = {"Content-Type": "application/json", IDEMPOTENCY_HEADER: attempt_id}
         if auth:
             headers["Authorization"] = f"Bearer {auth}"
-        timeout = max(1.0, min(self._request_timeout, (deadline - self._clock()).total_seconds()))
         data = json.dumps(body, default=str).encode("utf-8")
+        # Checked right before the POST: the claim and the secret lookup may have used up the
+        # attempt, and work dispatched after its deadline could overlap a replacement attempt.
+        remaining = (deadline - self._clock()).total_seconds()
+        if remaining <= 0:
+            problem = "the attempt deadline passed before the bridge was called"
+            self._settle(doc_id, _REJECTED, error=problem)
+            return InvocationResult.failed(problem)
+        timeout = min(self._request_timeout, remaining)
         try:
             status, raw = self._transport(
                 "POST", self.bridge_url + INVOCATIONS_PATH, data, headers, timeout

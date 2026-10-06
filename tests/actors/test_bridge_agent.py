@@ -63,7 +63,13 @@ class FakeBridge:
 
     def __call__(self, method, url, body, headers, timeout):
         self.requests.append(
-            {"method": method, "url": url, "body": json.loads(body), "headers": dict(headers)}
+            {
+                "method": method,
+                "url": url,
+                "body": json.loads(body),
+                "headers": dict(headers),
+                "timeout": timeout,
+            }
         )
         answer = self.answers.pop(0) if self.answers else (202, {"invocation_id": "inv-1"})
         if isinstance(answer, BaseException):
@@ -457,6 +463,24 @@ def test_blocked_then_accepted_on_the_same_attempt_rotates_the_callback_token(st
     doc = invocation(store)
     assert doc["status"] == "accepted" and doc["invocation_id"] == "inv-2"
     assert record_bridge_event(store, doc["id"], token_of(bridge), completed_event()) == RECORDED
+
+
+def test_an_expired_attempt_deadline_dispatches_nothing(store, clock):
+    bridge = FakeBridge()
+    actor = make_actor(store, clock, bridge)
+    ctx = InvocationContext("r", "fix", "actor_task", "spark", 1, None, {})
+    res = actor.invoke(PR, "k", T0 - timedelta(seconds=1), context=ctx)
+    assert res.outcome == "failed" and res.retryable and "deadline" in res.error
+    assert bridge.requests == []
+    assert invocation(store)["status"] == "rejected"
+
+
+def test_the_request_timeout_never_runs_past_the_attempt_deadline(store, clock):
+    bridge = FakeBridge()
+    actor = make_actor(store, clock, bridge)
+    ctx = InvocationContext("r", "fix", "actor_task", "spark", 1, None, {})
+    assert actor.invoke(PR, "k", T0 + timedelta(seconds=0.25), context=ctx).outcome == "accepted"
+    assert bridge.requests[0]["timeout"] == pytest.approx(0.25)
 
 
 def test_unreachable_bridge(store, clock):
