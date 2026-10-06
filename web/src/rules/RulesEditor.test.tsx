@@ -371,6 +371,78 @@ describe("create, progressively", () => {
     });
   });
 
+  it("an author check picks vars.trusted_authors and saves a var operand, not a copied list", async () => {
+    const user = userEvent.setup();
+    renderRules("/rules/train-batch");
+    await screen.findByRole("heading", { level: 1, name: "Train batch" });
+    await user.click(screen.getByRole("button", { name: "Add stage" }));
+    await user.click(screen.getByRole("button", { name: "Add condition" }));
+    const form = screen.getByRole("form", { name: "Add condition" });
+    await user.type(within(form).getByLabelText("Variable"), "trigger.data.author");
+    await user.selectOptions(within(form).getByLabelText("Comparison"), "in");
+    const picker = await within(form).findByLabelText("Allowed list");
+    // only list-valued variables are offered; the plain number is not
+    await waitFor(() =>
+      expect(within(picker).getByRole("option", { name: "vars.trusted_authors" })).toBeInTheDocument(),
+    );
+    expect(within(picker).queryByRole("option", { name: "vars.max_fixes" })).not.toBeInTheDocument();
+    await user.selectOptions(picker, "trusted_authors");
+    await user.click(within(form).getByRole("button", { name: "Add" }));
+    await waitFor(() => expect(sent("PUT", "/rules/train-batch")).toHaveLength(1));
+    const saved = sent("PUT", "/rules/train-batch")[0].body as { condition: unknown };
+    expect(saved.condition).toEqual({
+      op: "in",
+      value: { field: "data.author" },
+      items: { var: "trusted_authors" },
+    });
+    expect(JSON.stringify(saved.condition)).not.toContain("octocat");
+    await waitFor(() =>
+      expect(screen.getByTestId("stage-condition")).toHaveTextContent("is in vars.trusted_authors"),
+    );
+  });
+
+  it("a typed list is still a literal list", async () => {
+    const user = userEvent.setup();
+    renderRules("/rules/train-batch");
+    await screen.findByRole("heading", { level: 1, name: "Train batch" });
+    await user.click(screen.getByRole("button", { name: "Add stage" }));
+    await user.click(screen.getByRole("button", { name: "Add condition" }));
+    const form = screen.getByRole("form", { name: "Add condition" });
+    await user.type(within(form).getByLabelText("Variable"), "branch");
+    await user.selectOptions(within(form).getByLabelText("Comparison"), "in");
+    await user.selectOptions(await within(form).findByLabelText("Allowed list"), "__typed__");
+    await user.type(within(form).getByLabelText("Items"), "main, dev");
+    await user.click(within(form).getByRole("button", { name: "Add" }));
+    await waitFor(() => expect(sent("PUT", "/rules/train-batch")).toHaveLength(1));
+    expect((sent("PUT", "/rules/train-batch")[0].body as { condition: unknown }).condition).toEqual({
+      op: "in",
+      value: { var: "branch" },
+      items: { literal: ["main", "dev"] },
+    });
+  });
+
+  it.each([
+    ["variable_undefined", "does not exist yet"],
+    ["variables_unsupported_nodes", "cannot read a variable"],
+  ])("explains a refused save (%s) in plain words", async (code, words) => {
+    const user = userEvent.setup();
+    renderRules("/rules/train-batch");
+    await screen.findByRole("heading", { level: 1, name: "Train batch" });
+    api.failNext["PUT /rules/train-batch"] = { status: 422, code, message: "raw server text" };
+    await user.click(screen.getByRole("button", { name: "Add stage" }));
+    await user.click(screen.getByRole("button", { name: "Add condition" }));
+    const form = screen.getByRole("form", { name: "Add condition" });
+    await user.type(within(form).getByLabelText("Variable"), "x");
+    await user.selectOptions(within(form).getByLabelText("Comparison"), "in");
+    const picker = await within(form).findByLabelText("Allowed list");
+    await waitFor(() => expect(within(picker).getByRole("option", { name: "vars.trusted_authors" })).toBeInTheDocument());
+    await user.selectOptions(picker, "trusted_authors");
+    await user.click(within(form).getByRole("button", { name: "Add" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(words);
+    expect(alert).not.toHaveTextContent("raw server text");
+  });
+
   it("grows a rule through + : adds a condition, then a workflow", async () => {
     const user = userEvent.setup();
     renderRules("/rules/train-batch");

@@ -3,6 +3,9 @@ import {
   ACTORS,
   MACHINES,
   RULES,
+  VARIABLES,
+  VARIABLE_REFS,
+  VARIABLE_VERSIONS,
   WHOAMI,
   WORKFLOWS,
   runsFor,
@@ -28,6 +31,7 @@ export async function mockApi(
     "/api/actors": { items: ACTORS },
     "/api/workflows": { items: WORKFLOWS },
     "/api/runs": { items: runsFor(now) },
+    "/api/variables": { items: VARIABLES },
   };
   await page.route("**/api/**", async (route) => {
     const url = new URL(route.request().url());
@@ -42,7 +46,10 @@ export async function mockApi(
       return;
     }
     const history = url.pathname.match(/^\/api\/rules\/([^/]+)\/history$/);
-    const body = history
+    const variable = url.pathname.match(/^\/api\/variables\/([^/]+)\/(history|refs)$/);
+    const body = variable
+      ? { items: variable[2] === "history" ? VARIABLE_VERSIONS : VARIABLE_REFS }
+      : history
       ? {
           items: runsFor(now)
             .filter((r) => r.rule_id === decodeURIComponent(history[1]))

@@ -1,8 +1,8 @@
 # web
 
 The culture-rules visual editor: Vite 6 + React 18 + TypeScript, with
-`@xyflow/react` 12 and `elkjs` for the graph views. It has exactly four
-top-level tabs: **Rules | Workflows | Actors | Statistics**. Runs, history,
+`@xyflow/react` 12 and `elkjs` for the graph views. It has exactly five
+top-level tabs: **Rules | Workflows | Actors | Variables | Statistics**. Runs, history,
 ledger and inbox are never top-level. They appear in context, inside a
 rule or a workflow.
 
@@ -14,7 +14,7 @@ recorded on the PR with a screenshot.
 ## What is here today
 
 - **The shell:**
-  - the header (brand dot, `rules` wordmark, the four tabs, the
+  - the header (brand dot, `rules` wordmark, the five tabs, the
     signed-in avatar);
   - routing, where every other path lands on Rules;
   - the design layer (`src/culture-design/`);

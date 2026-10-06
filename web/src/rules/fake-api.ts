@@ -1,5 +1,16 @@
 import type { Rule, RunSummary } from "../api/types";
-import { ACTORS, MACHINES, RULES, WHOAMI, WORKFLOWS, runsFor } from "../fixtures/rules-fixture";
+import type { Variable } from "../api/variables";
+import {
+  ACTORS,
+  MACHINES,
+  RULES,
+  VARIABLES,
+  VARIABLE_REFS,
+  VARIABLE_VERSIONS,
+  WHOAMI,
+  WORKFLOWS,
+  runsFor,
+} from "../fixtures/rules-fixture";
 
 /**
  * A stateful, in-memory culture-rules API (api/openapi.json shapes) for the
@@ -31,6 +42,8 @@ export interface FakeApi {
   rules: Rule[];
   decisions: FakeDecision[];
   trash: Rule[];
+  /** Every variable version, oldest first (the latest of each name is what lists show). */
+  variableVersions: Variable[];
   asks: FakeAsk[];
   waitingRuns: RunSummary[];
   calls: { method: string; path: string; body?: unknown }[];
@@ -49,6 +62,7 @@ export function createFakeApi(now = Date.now()): FakeApi {
     rules: structuredClone(RULES),
     decisions: [],
     trash: [],
+    variableVersions: structuredClone([...VARIABLE_VERSIONS, VARIABLES[1]]),
     asks: [],
     waitingRuns: [],
     calls: [],
@@ -101,6 +115,9 @@ function handleGet(api: FakeApi, path: string, query: URLSearchParams): FakeResp
   }
   const history = /^\/rules\/([^/]+)\/history$/.exec(path);
   if (history) return ruleHistory(api, decodeURIComponent(history[1]), query);
+  const variable = /^\/variables\/([^/]+)(?:\/(history|refs))?$/.exec(path);
+  if (path === "/variables") return json(200, { items: latestVariables(api) });
+  if (variable) return variableRead(api, decodeURIComponent(variable[1]), variable[2]);
   if (path === "/asks") {
     const run = query.get("run_id");
     return json(200, {
@@ -108,6 +125,40 @@ function handleGet(api: FakeApi, path: string, query: URLSearchParams): FakeResp
     });
   }
   return error(404, "not_found", path);
+}
+
+const latestVariables = (api: FakeApi): Variable[] => {
+  const latest = new Map<string, Variable>();
+  for (const v of api.variableVersions) latest.set(v.name, v);
+  return [...latest.values()];
+};
+
+/** `/variables/{name}[/history|/refs]` over the fixture's `trusted_authors` and `max_fixes`. */
+function variableRead(api: FakeApi, name: string, part: string | undefined): FakeResponse {
+  const latest = latestVariables(api).find((v) => v.name === name);
+  if (!latest) return error(404, "not_found", `variables/${name} does not exist`);
+  if (part === "history") {
+    return json(200, { items: api.variableVersions.filter((v) => v.name === name) });
+  }
+  if (part === "refs") return json(200, { items: name === "trusted_authors" ? VARIABLE_REFS : [] });
+  return json(200, latest);
+}
+
+/** `PUT /variables/{name}`: appends a version (the fake caller is the fixture's admin). */
+function variableWrite(api: FakeApi, name: string, body: unknown): FakeResponse {
+  const { value, description } = body as { value: Variable["value"]; description?: string };
+  const last = api.variableVersions.filter((v) => v.name === name).at(-1);
+  const next: Variable = {
+    id: name,
+    name,
+    value,
+    version: (last?.version ?? 0) + 1,
+    updated_by: WHOAMI.identity,
+    updated_at: new Date(api.now).toISOString(),
+    description: description ?? last?.description ?? null,
+  };
+  api.variableVersions.push(next);
+  return json(200, next);
 }
 
 function ruleHistory(api: FakeApi, id: string, query: URLSearchParams): FakeResponse {
@@ -188,6 +239,8 @@ export function handle(
     api.rules.push({ enabled: true, ...doc });
     return json(201, api.rules.at(-1));
   }
+  const variable = /^\/variables\/([^/]+)$/.exec(path);
+  if (method === "PUT" && variable) return variableWrite(api, decodeURIComponent(variable[1]), body);
   const rule = /^\/rules\/([^/]+)(?:\/(enable|disable|restore))?$/.exec(path);
   if (rule) {
     const done = handleRuleWrite(api, method, rule[1], rule[2], body);

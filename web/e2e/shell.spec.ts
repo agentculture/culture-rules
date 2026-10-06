@@ -14,11 +14,11 @@ async function untilReady(page: Page) {
 }
 
 test.describe("culture-rules shell", () => {
-  test("exactly four top-level tabs and no runs/history route", async ({ page }) => {
+  test("exactly five top-level tabs and no runs/history route", async ({ page }) => {
     await mockApi(page);
     await page.goto("/rules");
     const tabs = page.getByRole("navigation", { name: "Primary" }).getByRole("link");
-    await expect(tabs).toHaveText(["Rules", "Workflows", "Actors", "Statistics"]);
+    await expect(tabs).toHaveText(["Rules", "Workflows", "Actors", "Variables", "Statistics"]);
 
     for (const path of ["/runs", "/history"]) {
       await page.goto(path);
@@ -59,7 +59,7 @@ test.describe("culture-rules shell", () => {
     await page.goto("/rules/build-and-publish");
     await untilReady(page);
     const order: string[] = [];
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 7; i++) {
       await page.keyboard.press("Tab");
       order.push(
         await page.evaluate(() => {
@@ -68,8 +68,8 @@ test.describe("culture-rules shell", () => {
         }),
       );
     }
-    // Skip link first, then the four tabs, then the identity button.
-    expect(order.slice(1, 5)).toEqual(["Rules", "Workflows", "Actors", "Statistics"]);
+    // Skip link first, then the five tabs, then the identity button.
+    expect(order.slice(1, 6)).toEqual(["Rules", "Workflows", "Actors", "Variables", "Statistics"]);
     // Focus is visible on whatever holds it.
     const outline = await page.evaluate(
       () => getComputedStyle(document.activeElement as Element).outlineStyle,
@@ -84,7 +84,7 @@ test.describe("culture-rules shell", () => {
 
   test("axe: no serious or critical violations on any tab", async ({ page }) => {
     await mockApi(page);
-    for (const path of ["/rules/build-and-publish", "/workflows", "/actors", "/statistics"]) {
+    for (const path of ["/rules/build-and-publish", "/workflows", "/actors", "/variables", "/statistics"]) {
       await page.goto(path);
       await untilReady(page);
       const results = await new AxeBuilder({ page }).analyze();

@@ -1,5 +1,6 @@
 import type { Actor } from "../api/actors";
 import type { Machine, Rule, RunSummary, Whoami, Workflow } from "../api/types";
+import type { Variable, VariableRef } from "../api/variables";
 
 /**
  * The 'Chosen — Rules' board (design canvas row 'Chosen', D-Rules) as API
@@ -132,3 +133,41 @@ export function runsFor(now: number): RunSummary[] {
     { id: "run-1", status: "succeeded", rule_id: SELECTED_RULE_ID, workflow_id: "build-image", started_by: "trigger", created_at: at(26 * 60), finished_at: at(26 * 60 - 2) },
   ];
 }
+
+/** Shared variables: a list of trusted authors (v2 of two) and a plain number. */
+export const VARIABLE_VERSIONS: Variable[] = [
+  {
+    id: "trusted_authors",
+    name: "trusted_authors",
+    value: ["octocat"],
+    version: 1,
+    updated_by: "ori",
+    updated_at: "2026-10-05T09:00:00Z",
+    description: "PR authors the fixer may act on",
+  },
+  {
+    id: "trusted_authors",
+    name: "trusted_authors",
+    value: ["octocat", "hubot"],
+    version: 2,
+    updated_by: "ori",
+    updated_at: "2026-10-06T09:00:00Z",
+    description: "PR authors the fixer may act on",
+  },
+];
+
+export const VARIABLES: Variable[] = [
+  VARIABLE_VERSIONS[1],
+  {
+    id: "max_fixes",
+    name: "max_fixes",
+    value: 3,
+    version: 1,
+    updated_by: "ori",
+    updated_at: "2026-10-04T09:00:00Z",
+    description: null,
+  },
+];
+
+/** The rules that read `trusted_authors` (`GET /variables/{name}/refs`). */
+export const VARIABLE_REFS: VariableRef[] = [{ id: "build-and-publish", name: "Build and publish", enabled: true }];

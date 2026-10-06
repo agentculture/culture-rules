@@ -22,7 +22,7 @@ describe("App shell", () => {
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  it("has exactly four top-level tabs, in order", () => {
+  it("has exactly five top-level tabs, in order", () => {
     renderAt("/rules");
     const nav = screen.getByRole("navigation", { name: "Primary" });
     const links = within(nav).getAllByRole("link");
@@ -30,6 +30,7 @@ describe("App shell", () => {
       "Rules",
       "Workflows",
       "Actors",
+      "Variables",
       "Statistics",
     ]);
   });

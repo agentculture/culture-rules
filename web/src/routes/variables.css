@@ -1,0 +1,209 @@
+/*
+ * The Variables tab: the same large-type column as the Actors board. A list
+ * of variables on the left, the selected one's value, version history and
+ * referencing rules on the right. Colors are tokens.css / app.css properties
+ * only; targets are at least 44px; motion is the global reduced-motion kill
+ * switch's to cancel.
+ */
+
+.vars {
+  box-sizing: content-box;
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 24px 40px 36px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  line-height: normal;
+}
+
+.vars__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 40px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+.vars__body {
+  display: grid;
+  grid-template-columns: minmax(220px, 300px) 1fr;
+  gap: 24px;
+  align-items: start;
+}
+
+@media (max-width: 760px) {
+  .vars {
+    padding: 16px;
+  }
+  .vars__body {
+    grid-template-columns: 1fr;
+  }
+}
+
+.vars-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.vars-row {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  min-height: 56px;
+  padding: 8px 18px;
+  border-radius: 16px;
+  background: var(--surface);
+  color: var(--ink);
+  text-decoration: none;
+  transition: background-color 0.2s var(--ease-out);
+}
+
+.vars-row[aria-current="true"] {
+  background: var(--ink);
+  color: var(--surface);
+}
+
+.vars-row__name {
+  font: 600 18px var(--font-mono);
+}
+
+.vars-row__value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 400 15px var(--font-body);
+  opacity: 0.8;
+}
+
+.vars-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 22px 26px;
+  border-radius: 22px;
+  background: var(--surface);
+  border: 2px solid var(--line);
+}
+
+.vars-detail__name {
+  margin: 0;
+  font: 600 28px var(--font-mono);
+}
+
+.vars-detail__meta,
+.vars-detail__ref,
+.vars-note {
+  margin: 0;
+  font-size: 16px;
+  color: var(--ink-soft);
+}
+
+.vars-detail__heading {
+  margin: 14px 0 0;
+  font: 600 20px var(--font-display);
+}
+
+.vars-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.vars-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.vars-form input,
+.vars-form textarea {
+  min-height: 44px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 2px solid var(--line);
+  background: var(--bg);
+  color: var(--ink);
+  font: 400 17px var(--font-mono);
+}
+
+.vars-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.vars-btn {
+  min-height: 44px;
+  padding: 0 18px;
+  border-radius: 12px;
+  border: 0;
+  background: var(--muted);
+  color: var(--ink);
+  font: 600 16px var(--font-body);
+  transition: background-color 0.2s var(--ease-out);
+}
+
+.vars-btn--primary {
+  background: var(--accent-strong);
+  color: var(--on-accent);
+}
+
+.vars-btn:disabled {
+  opacity: 0.55;
+}
+
+.vars-items,
+.vars-history,
+.vars-refs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.vars-items li,
+.vars-scalar {
+  margin: 0;
+  font: 400 17px var(--font-mono);
+}
+
+.vars-history__row {
+  display: grid;
+  grid-template-columns: 3em 1fr auto;
+  gap: 12px;
+  align-items: baseline;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.vars-history__value {
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.vars-history__by {
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+
+.vars-refs__link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 17px;
+}
+
+.vars :focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}

@@ -41,8 +41,8 @@ code, services, robots, …). It is built and on disk:
 - a thin `culture-rules` CLI (`rules`, `workflows`, `actors`, `machines`,
   `runs`, `serve`, `node`, `mcp`), an HTTP API with its contract pinned in
   `api/openapi.json`, and an MCP server exposing the same verbs as tools;
-- a Node.js + React Flow editor in `web/` with four tabs: **Rules |
-  Workflows | Actors | Statistics**. Runs and history appear in context,
+- a Node.js + React Flow editor in `web/` with five tabs: **Rules |
+  Workflows | Actors | Variables | Statistics**. Runs and history appear in context,
   never as a tab.
 
 **Status: the first mile is shipped on `main` (PR #4); the second
