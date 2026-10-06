@@ -134,3 +134,12 @@ intermittent unidentified failure, r9).
   reinstall the spark2 node with `--secret RULES_QWEN_FIXER_TOKEN` (already in spark2's grant
   store; the unit does not inject it yet) and register actor `qwen-fixer` per
   docs/operations/pr-fixer.md section 4.
+
+## Qwen lane (operator, 2026-10-07)
+
+- From t15 on, Qwen Code runs ONLY on spark2's cortex: `qwen -m cortex-spark2 ...`
+  (spark is kept free for other loads). The model ids on spark are now `cortex-spark` /
+  `cortex-spark2` (pinned); plain `cortex` / `main` are gone from the settings.
+- Reviews are Codex again (d9); reviewer never the implementer; Qwen-built tasks are
+  reviewed by an Opus subagent or Codex.
+
