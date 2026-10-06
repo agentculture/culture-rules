@@ -515,3 +515,16 @@ def test_literals_that_look_like_trigger_paths_are_not_trigger_references(config
 def test_trigger_references_in_a_workflow_are_flagged(config) -> None:
     wf = dataclasses.replace(make_workflow(), steps=(make_step(config=config),), edges=())
     assert "trigger_reference" in codes(validate(wf))
+
+
+def test_wait_step_with_null_config_reports_an_error_not_a_crash() -> None:
+    """A wait step whose config is null is a validation error, never a TypeError."""
+    from culture_rules.model.serde import to_plain
+    from culture_rules.model.validate import validate_data
+    from culture_rules.model.workflow import Workflow
+
+    step = make_step(kind="wait", config={"seconds": 300})
+    data = to_plain(make_workflow(steps=(step,), edges=(), outputs=()))
+    data["steps"][0]["config"] = None
+    _, errors = validate_data(Workflow, data)
+    assert errors

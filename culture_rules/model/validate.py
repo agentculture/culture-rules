@@ -500,6 +500,9 @@ def _check_edge(obj: Edge, path: str, errors: Errors) -> None:
 
 def _check_wait_config(config: dict, path: str, errors: Errors) -> None:
     """Validate wait-step config: seconds (required, > 0) and head_unchanged guard."""
+    if not isinstance(config, dict):
+        _err(errors, path, "type", "wait steps require a config object with seconds")
+        return
     if "seconds" not in config:
         _err(
             errors,
