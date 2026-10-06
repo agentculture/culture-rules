@@ -198,7 +198,10 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
     by one that fails ``extra_missing``. Detection uses ``find_spec``: nothing is imported.
     """
     del host
-    from culture_rules.node.actions.github import GitHubCommentPort  # noqa: PLC0415
+    from culture_rules.node.actions.github import (  # noqa: PLC0415
+        GitHubCommentPort,
+        GitHubPrHeadPort,
+    )
     from culture_rules.node.actions.github_pr import (  # noqa: PLC0415
         GitHubPushPort,
         GitHubReviewReplyPort,
@@ -216,8 +219,10 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
     github: Any = GitHubCommentPort(store) if has_github else MissingExtraPort("github")
     push: Any = GitHubPushPort(store) if has_github else MissingExtraPort("github")
     reply: Any = GitHubReviewReplyPort(store) if has_github else MissingExtraPort("github")
+    head: Any = GitHubPrHeadPort(store) if has_github else MissingExtraPort("github")
     return {
         "action:noop": NoopAction(),
+        "action:github.pr_head": head,  # not a rule action: the wait guard's head lookup
         "action:message": message,
         "action:mesh.message": message,  # legacy alias of message
         "action:discord.message": DiscordMessageAction(store),
