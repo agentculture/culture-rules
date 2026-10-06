@@ -22,6 +22,8 @@ from culture_rules.io.bundle import KINDS, Bundle, SecretRef, check_name
 from culture_rules.model.machine import Machine
 from culture_rules.model.rule import Rule
 from culture_rules.model.validate import validate, validate_data
+from culture_rules.model.variable import validate_variable_name
+from culture_rules.model.variable_refs import rule_variable_refs
 from culture_rules.model.workflow import Workflow
 from culture_rules.store.port import Document, StoragePort
 
@@ -33,6 +35,7 @@ __all__ = [
     "RuleReferenced",
     "NotFound",
     "ServiceError",
+    "Variables",
 ]
 
 #: kind -> model class; the kind is also the store collection.
@@ -507,6 +510,63 @@ class _LiveView:
 
     def find(self, collection: str, where: Any = None, *, limit: int | None = None) -> list:
         return [d for d in self._store.find(collection, where, limit=limit) if _is_live(d)]
+
+
+class Variables:
+    """Shared variables behind the API: reads, an append-only write, history and referrers.
+
+    Authorization (admin-only writes) is the route matrix's job; this class records whichever
+    identity it is handed as ``updated_by``.
+    """
+
+    def __init__(self, store: StoragePort) -> None:
+        self._store = store
+
+    @staticmethod
+    def _checked(name: str) -> str:
+        try:
+            validate_variable_name(name)
+        except ValueError as exc:
+            raise Invalid(str(exc), [{"path": "name", "code": "invalid_name", "message": str(exc)}])
+        return name
+
+    def list(self) -> list[Document]:
+        return self._store.list_variables()
+
+    def get(self, name: str) -> Document:
+        self._checked(name)
+        doc = self._store.get_variable(name)
+        if doc is None:
+            raise NotFound(f"variables/{name} does not exist")
+        return doc
+
+    def set(self, name: str, value: Any, identity: str, description: str | None = None) -> Document:
+        self._checked(name)
+        principal = require_identity(identity)  # outside the try: not a value error
+        try:
+            return self._store.put_variable(
+                name, value, updated_by=principal, description=description
+            )
+        except ValueError as exc:
+            raise Invalid(
+                str(exc), [{"path": "value", "code": "invalid_value", "message": str(exc)}]
+            )
+
+    def history(self, name: str) -> list[Document]:
+        """Every version, oldest first (the store is append-only, so versions are 1..latest)."""
+        latest = self.get(name)["version"]
+        out = [self._store.get_variable_version(name, n) for n in range(1, latest + 1)]
+        return [v for v in out if v is not None]
+
+    def refs(self, name: str) -> list[Document]:
+        """Live rules whose condition or workflow inputs reference ``name``, by id."""
+        self._checked(name)
+        docs = [d for d in self._store.find("rules") if _is_live(d)]
+        hits = [d for d in docs if name in rule_variable_refs(d)]
+        return [
+            {"id": d.get("id"), "name": d.get("name"), "enabled": d.get("enabled", True)}
+            for d in sorted(hits, key=lambda d: str(d.get("id")))
+        ]
 
 
 def dumps(value: Any) -> str:

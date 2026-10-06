@@ -40,8 +40,8 @@ stops being per-host glue only its author understands.
 - `culture-rules overview` — descriptive snapshot of the agent.
 - `culture-rules doctor` — check the agent-identity invariants.
 - `culture-rules cli overview` — describe the CLI surface.
-- `culture-rules rules|workflows|actors|machines|runs <verb>` — the engine's nouns over the
-  HTTP API; `culture-rules explain <noun>` lists each noun's verbs.
+- `culture-rules rules|workflows|actors|machines|runs|variables <verb>` — the engine's nouns
+  over the HTTP API; `culture-rules explain <noun>` lists each noun's verbs.
 - `culture-rules serve` — run the HTTP API (needs the `server` extra).
 - `culture-rules node run` — run this host's engine node (talks to the store directly).
 - `culture-rules mcp` — serve the CLI verbs as MCP tools over stdio (needs the `mcp` extra).
@@ -231,6 +231,11 @@ _NOUN_BLURBS = {
     "workflows": "Workflows are the reusable *how*: steps, branching and waits.",
     "actors": "Actors are who or what can perform work: agents, humans, code, services.",
     "machines": "Machines are the hosts that execute steps; drain one to stop new placements.",
+    "variables": (
+        "Variables are shared values (a scalar or a flat list) that rule conditions and workflow "
+        "inputs read; every change appends a version naming who made it, and only an admin may "
+        "write."
+    ),
     "runs": "Runs are executions of a rule's workflow; pause and resume gate the whole engine.",
 }
 
