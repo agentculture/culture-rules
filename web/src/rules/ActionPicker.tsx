@@ -3,7 +3,7 @@ import { getDiscordTargets } from "../api/actors";
 import type { Actor, DiscordTargets, HttpPolicy, RunnerActorParams } from "../api/actors";
 import type { Action, Workflow } from "../api/types";
 
-type ParamType = "str" | "int" | "dict" | "any";
+type ParamType = "str" | "int" | "bool" | "dict" | "any";
 
 interface ParamSpec {
   type: ParamType;
@@ -33,6 +33,30 @@ export const ACTION_KINDS: Record<string, KindSpec> = {
   "github.comment": {
     label: "Comment on GitHub",
     params: { actor: RS, repo: RS, number: { type: "int", required: true }, body: RS },
+  },
+  "github.push": {
+    label: "Push a fix to a GitHub PR",
+    params: {
+      actor: RS,
+      repo: RS,
+      number: { type: "int", required: true },
+      head_branch: RS,
+      expected_head_sha: RS,
+      commit_sha: RS,
+      source: RS,
+    },
+  },
+  "github.review_reply": {
+    label: "Reply in a GitHub review thread",
+    params: {
+      actor: RS,
+      repo: RS,
+      number: { type: "int", required: true },
+      comment_id: { type: "int", required: true },
+      body: RS,
+      thread_id: S,
+      resolve: { type: "bool" },
+    },
   },
   "jira.comment": { label: "Comment on Jira", params: { actor: RS, issue: RS, body: RS } },
   "http.call": {
@@ -88,6 +112,7 @@ function typeOk(type: ParamType, value: unknown): boolean {
   if (isDynamic(value) || type === "any") return true;
   if (type === "int") return typeof value === "number" && Number.isInteger(value);
   if (type === "str") return typeof value === "string";
+  if (type === "bool") return typeof value === "boolean";
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -533,7 +558,10 @@ interface Props {
   loadDiscordTargets?: LoadTargets;
 }
 
-const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+const cap = (s: string) => {
+  const words = s.replaceAll("_", " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+};
 
 interface ParamFieldsProps {
   id: string;
@@ -640,6 +668,18 @@ function ParamField({
             </option>
           ))}
         </select>
+      </label>
+    );
+  }
+  if (p.type === "bool") {
+    return (
+      <label key={name} className="action-picker__check">
+        <input
+          type="checkbox"
+          checked={params[name] === true}
+          onChange={(e) => setParam(name, e.target.checked ? true : undefined)}
+        />
+        <span>{name === "resolve" ? "Resolve the thread" : cap(name)}</span>
       </label>
     );
   }

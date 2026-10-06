@@ -3,18 +3,19 @@ import { useWhoami, type WhoamiState } from "../hooks/useWhoami";
 
 /**
  * The shell header from the design canvas ('Chosen' row): the brand dot and
- * the `rules` wordmark, the four primary tabs in a floating pill, and the
+ * the `rules` wordmark, the five primary tabs in a floating pill, and the
  * signed-in avatar.
  *
- * Exactly four tabs, and the count is the decision (CLAUDE.md, issue #2):
+ * Exactly five tabs, and the count is the decision (CLAUDE.md, issue #2):
  * runs, history, ledger and inbox are never top-level navigation — they
- * appear contextually inside a rule or workflow. Adding a fifth link means
+ * appear contextually inside a rule or workflow. Adding a sixth link means
  * changing the assertion in App.test.tsx and e2e/shell.spec.ts.
  */
 export const TABS = [
   { to: "/rules", label: "Rules" },
   { to: "/workflows", label: "Workflows" },
   { to: "/actors", label: "Actors" },
+  { to: "/variables", label: "Variables" },
   { to: "/statistics", label: "Statistics" },
 ] as const;
 

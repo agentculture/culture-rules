@@ -10,7 +10,7 @@
  */
 
 export type AgentStatus = "loading" | "ready";
-export type Tab = "rules" | "workflows" | "actors" | "statistics";
+export type Tab = "rules" | "workflows" | "actors" | "variables" | "statistics";
 
 export interface AgentIdentity {
   status: "loading" | "signed-in" | "unauthenticated" | "unavailable";

@@ -278,8 +278,8 @@ build it once and link it where the API looks (both paths are gitignored):
 ln -s ../web/dist culture_rules/web_dist     # then restart `culture-rules serve`
 ```
 
-A browser at `http://127.0.0.1:8791/` then shows the four tabs, **Rules |
-Workflows | Actors | Statistics**. (The dev identity is a header, so the
+A browser at `http://127.0.0.1:8791/` then shows the five tabs, **Rules |
+Workflows | Actors | Variables | Statistics**. (The dev identity is a header, so the
 screenshots below were taken with Playwright sending
 `X-Culture-Identity: ori`. Behind Cloudflare Access the browser needs
 nothing.) Runs are shown in context, never as a tab.

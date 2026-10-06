@@ -107,6 +107,15 @@ const TABLE: Record<string, Guidance> = {
   action_param_type: g("One of the action's settings has the wrong type.", EDIT),
   not_implemented: g("The server does not support this yet.", RELOAD),
   replay_invalid: g("This run cannot be replayed because its rule or workflow changed.", EDIT, RELOAD),
+  // variables (a rule that reads `{"var": name}`)
+  variable_undefined: g(
+    "This rule uses a variable that does not exist yet. Create it on the Variables tab, or pick another.",
+    EDIT,
+  ),
+  variables_unsupported_nodes: g(
+    "Part of this condition cannot read a variable, so the rule was not saved. Type a value there instead.",
+    EDIT,
+  ),
   not_json: g("The server answered in a form the editor cannot read.", RELOAD, RETRY),
 
   // ServiceError
