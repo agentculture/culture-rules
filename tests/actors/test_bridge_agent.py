@@ -545,3 +545,82 @@ def test_imports_with_no_extras_installed():
         [sys.executable, "-c", code], capture_output=True, text=True, cwd=ROOT, check=False
     )
     assert proc.returncode == 0, proc.stderr
+
+
+# ---- a superseded attempt's result never finishes a newer attempt (Codex review P1) -------
+
+
+def two_attempts(store, clock):
+    """Attempt 1 accepted, then times out; the step (declared idempotent) re-dispatches
+    attempt 2. Returns (executor, run id, bridge, attempt-1 record, attempt-1 token)."""
+    bridge = FakeBridge()
+    ex = executor(store, clock, make_actor(store, clock, bridge))
+    run_id = start(ex, retry=RetryPolicy(max_attempts=2, backoff_s=1), config={"idempotent": True})
+    first, first_token = invocation(store), token_of(bridge)
+    clock.advance(3601)  # attempt 1 times out -> retry_wait
+    ex.run_until_idle()
+    assert step_state(ex.run(run_id), "fix")["status"] == "retry_wait"
+    return ex, run_id, bridge, first, first_token
+
+
+def dispatch_attempt_2(ex, clock, run_id, bridge):
+    clock.advance(5)
+    ex.run_until_idle()
+    fix = step_state(ex.run(run_id), "fix")
+    assert fix["attempt"] == 2 and fix["status"] == "waiting"
+    assert bridge.requests[-1]["headers"]["Idempotency-Key"].endswith("#2")
+
+
+def assert_attempt_2_still_waiting(store, ex, run_id, first_id):
+    fix = step_state(ex.run(run_id), "fix")
+    assert fix["status"] == "waiting" and fix["attempt"] == 2
+    assert not fix.get("outputs")
+    old = store.get(BRIDGE_INVOCATIONS, first_id)
+    assert old["status"] in ("superseded", "expired") and old["pending_delivery"] is False
+
+
+def test_attempt_1_completion_recorded_late_does_not_finish_attempt_2(store, clock):
+    ex, run_id, bridge, first, first_token = two_attempts(store, clock)
+    # attempt 1's completion is recorded while the step waits to retry, but not delivered yet
+    assert record_bridge_event(store, first["id"], first_token, completed_event()) == RECORDED
+    dispatch_attempt_2(ex, clock, run_id, bridge)
+    assert redeliver_bridge(store, ex) == 0
+    ex.run_until_idle()
+    assert_attempt_2_still_waiting(store, ex, run_id, first["id"])
+
+
+def test_deliver_checks_the_current_attempt_even_if_the_record_was_not_superseded(store, clock):
+    ex, run_id, bridge, first, first_token = two_attempts(store, clock)
+    dispatch_attempt_2(ex, clock, run_id, bridge)
+    # simulate the race: attempt 1's result became pending without being superseded
+    store.update_if(
+        BRIDGE_INVOCATIONS,
+        first["id"],
+        {},
+        {
+            "status": "completed",
+            "pending_delivery": True,
+            "result": result_from_terminal("completed", completed_event()["payload"]).to_dict(),
+        },
+    )
+    assert redeliver_bridge(store, ex) == 0
+    assert_attempt_2_still_waiting(store, ex, run_id, first["id"])
+
+
+def test_a_terminal_event_for_a_no_longer_current_attempt_is_refused(store, clock):
+    ex, run_id, bridge, first, first_token = two_attempts(store, clock)
+    dispatch_attempt_2(ex, clock, run_id, bridge)
+    store.update_if(BRIDGE_INVOCATIONS, first["id"], {}, {"status": "accepted"})  # expiry lost
+    assert record_bridge_event(store, first["id"], first_token, completed_event()) == EXPIRED
+    assert redeliver_bridge(store, ex) == 0
+    assert_attempt_2_still_waiting(store, ex, run_id, first["id"])
+    # attempt 2's own completion still finishes the step
+    second = store.get(BRIDGE_INVOCATIONS, invocation_for(store, 2)["id"])
+    assert record_bridge_event(store, second["id"], token_of(bridge), completed_event()) == RECORDED
+    assert redeliver_bridge(store, ex) == 1
+    assert step_state(ex.run(run_id), "fix")["status"] == "succeeded"
+
+
+def invocation_for(store, attempt):
+    (doc,) = [d for d in store.find(BRIDGE_INVOCATIONS) if d["attempt"] == attempt]
+    return doc

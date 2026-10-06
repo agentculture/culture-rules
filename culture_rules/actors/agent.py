@@ -45,10 +45,13 @@ the unrelated PyPI project named ``agentirc`` is NOT it) lives behind the option
     :func:`redeliver_bridge` hands recorded results to ``Executor.deliver`` (through
     :func:`culture_rules.node.completions.deliver`, which also frees the actor's limit
     slot), so a completion recorded while no node was driving the run - or across a node
-    restart - still finishes the step. The bridge dedupes a transport retry by
-    ``Idempotency-Key`` (one key per step attempt), but a new attempt is new work, so the
-    adapter declares ``supports_idempotency_key = False`` like the other agents. Every
-    wire field name lives in the ``-- bridge wire format --`` section below.
+    restart - still finishes the step. A result belongs to one step attempt: once the step
+    has moved on to a newer attempt, an older attempt's events are refused and its pending
+    result is discarded (``superseded``), never delivered to the newer attempt. The bridge
+    dedupes a transport retry by ``Idempotency-Key`` (one key per step attempt), but a new
+    attempt is new work, so the adapter declares ``supports_idempotency_key = False`` like
+    the other agents. Every wire field name lives in the ``-- bridge wire format --``
+    section below.
 """
 
 from __future__ import annotations
@@ -445,7 +448,7 @@ BRIDGE_CALLBACK_PATH = "/v1/bridge-invocations/{id}/events"
 """Callback path, relative to the actor's ``callback_url`` (whoever hosts the receiver)."""
 BRIDGE_SCHEMA_VERSION = 1
 _DISPATCHING, _ACCEPTED, _COMPLETED, _FAILED = "dispatching", "accepted", "completed", "failed"
-_REJECTED, _EXPIRED = "rejected", "expired"
+_REJECTED, _EXPIRED, _SUPERSEDED = "rejected", "expired", "superseded"
 _OPEN = (_DISPATCHING, _ACCEPTED)
 
 RECORDED, DUPLICATE, UNKNOWN, UNAUTHORIZED, EXPIRED, INVALID = (
@@ -484,6 +487,31 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _current_attempt(store: Any, key: str) -> int | None:
+    """The attempt the step with idempotency key ``key`` is on now (None: unknown key)."""
+    from culture_rules.engine.claims import CLAIMS_COLLECTION
+    from culture_rules.engine.runs import RUNS_COLLECTION, step_state
+
+    claim = store.get(CLAIMS_COLLECTION, key)
+    if not claim or claim.get("kind") != "step":
+        return None
+    run = store.get(RUNS_COLLECTION, claim["run_id"])
+    st = step_state(run, claim["step_id"]) if run else None
+    return st.get("attempt") if st else None
+
+
+def _superseded(store: Any, doc: Mapping[str, Any]) -> bool:
+    """Whether the step has moved on to a newer attempt than this invocation's."""
+    current = _current_attempt(store, doc["idempotency_key"])
+    return isinstance(current, int) and current > doc["attempt"]
+
+
+def _supersede(store: Any, doc: Mapping[str, Any], expected: Mapping[str, Any]) -> bool:
+    return store.update_if(
+        BRIDGE_INVOCATIONS, doc["id"], expected, {"status": _SUPERSEDED, "pending_delivery": False}
+    ).won
+
+
 def record_bridge_event(
     store: Any,
     invocation_id: str,
@@ -498,7 +526,9 @@ def record_bridge_event(
     ``token`` must be the one handed to the bridge for this invocation (only its hash
     is stored). Non-terminal events update liveness (``last_heartbeat_at``) and are
     ignored when their ``sequence`` is not newer; the first terminal event records the
-    result for :func:`redeliver_bridge`, later ones are :data:`DUPLICATE`.
+    result for :func:`redeliver_bridge`, later ones are :data:`DUPLICATE`. Events for an
+    attempt the step no longer runs (expired, or a newer attempt started) are
+    :data:`EXPIRED`; a terminal one marks the invocation ``superseded``.
     """
     now = _iso((clock or _utcnow)())
     for _ in range(5):  # compare-and-set; a lost race re-reads
@@ -516,13 +546,16 @@ def record_bridge_event(
             return INVALID
         if not isinstance(seq, int) or isinstance(seq, bool):
             return INVALID
-        if doc["status"] == _EXPIRED:
+        if doc["status"] in (_EXPIRED, _SUPERSEDED):
             return EXPIRED
         payload = event.get("payload")
         payload = payload if isinstance(payload, Mapping) else {}
         if kind in TERMINAL_KINDS:
             if doc["status"] not in _OPEN:
                 return DUPLICATE
+            if _superseded(store, doc):  # a newer attempt runs: never finish it with this
+                _supersede(store, doc, {"status": doc["status"]})
+                return EXPIRED
             result = result_from_terminal(str(kind), payload)
             changes = {
                 "status": _COMPLETED if result.outcome == COMPLETED else _FAILED,
@@ -549,8 +582,13 @@ def record_bridge_event(
 
 def _deliver_one(store: Any, executor: Any, doc: Mapping[str, Any]) -> bool:
     """Deliver a recorded result (freeing the actor's slot) and flag it; True iff it
-    changed the run."""
+    changed the run. A result for an attempt the step has moved past is discarded
+    (``superseded``), never delivered: ``Executor.deliver`` does not check attempts."""
     from culture_rules.node import completions  # the node layer; imported lazily
+
+    if _superseded(store, doc):
+        _supersede(store, doc, {"pending_delivery": True})
+        return False
 
     result = InvocationResult.from_dict(doc["result"])
     changed = completions.deliver(store, executor, doc["idempotency_key"], result)
@@ -742,12 +780,17 @@ class BridgeAgentActor:
         return res.document if res.won else self._store.get(BRIDGE_INVOCATIONS, doc_id)
 
     def _expire_previous(self, key: str, attempt: int) -> None:
-        """A new attempt supersedes older ones: their callbacks are refused from now on."""
+        """A new attempt supersedes older ones: their callbacks are refused from now on,
+        and a result of theirs still waiting for delivery is discarded."""
         for old in self._store.find(BRIDGE_INVOCATIONS, {"idempotency_key": key}):
-            if old["attempt"] < attempt and old["status"] in _OPEN:
+            if old["attempt"] >= attempt:
+                continue
+            if old["status"] in _OPEN:
                 self._store.update_if(
                     BRIDGE_INVOCATIONS, old["id"], {"status": old["status"]}, {"status": _EXPIRED}
                 )
+            elif old.get("pending_delivery"):
+                _supersede(self._store, old, {"status": old["status"], "pending_delivery": True})
 
     def _settle(self, doc_id: str, status: str, **changes: Any) -> bool:
         return self._store.update_if(
