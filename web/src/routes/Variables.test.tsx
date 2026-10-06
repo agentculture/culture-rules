@@ -6,7 +6,7 @@ import { getAgentState, resetAgentState } from "../agent-state/store";
 import { resetWhoamiForTests } from "../hooks/useWhoami";
 import { WHOAMI } from "../fixtures/rules-fixture";
 import { createFakeApi, fetchFor, type FakeApi } from "../rules/fake-api";
-import Variables, { parseDraft } from "./Variables";
+import Variables, { rowsOf, valueOfRows } from "./Variables";
 
 let api: FakeApi;
 
@@ -64,13 +64,13 @@ describe("Variables tab", () => {
     );
   });
 
-  it("lets an admin edit a list value, one item per line, and appends a version", async () => {
+  it("lets an admin edit a list one item per row and appends a version", async () => {
     const user = userEvent.setup();
     renderTab();
-    const box = await screen.findByLabelText("Items, one per line");
-    expect(box).toHaveValue("octocat\nhubot");
-    await user.clear(box);
-    await user.type(box, "octocat\nhubot\nmonalisa");
+    expect(await screen.findByLabelText("Item 1")).toHaveValue("octocat");
+    expect(screen.getByLabelText("Item 2")).toHaveValue("hubot");
+    await user.click(screen.getByRole("button", { name: "Add item" }));
+    await user.type(screen.getByLabelText("Item 3"), "monalisa");
     await user.click(screen.getByRole("button", { name: "Save new version" }));
     await waitFor(() =>
       expect(api.calls.filter((c) => c.method === "PUT" && c.path === "/variables/trusted_authors")).toHaveLength(1),
@@ -80,6 +80,15 @@ describe("Variables tab", () => {
     });
     const history = await screen.findByRole("list", { name: "Version history" });
     await waitFor(() => expect(within(history).getAllByRole("listitem")[0]).toHaveTextContent("v3"));
+  });
+
+  it("removes one item and leaves the rest", async () => {
+    const user = userEvent.setup();
+    renderTab();
+    await screen.findByLabelText("Item 1");
+    await user.click(screen.getByRole("button", { name: "Remove item 1" }));
+    await user.click(screen.getByRole("button", { name: "Save new version" }));
+    await waitFor(() => expect(api.calls.find((c) => c.method === "PUT")?.body).toMatchObject({ value: ["hubot"] }));
   });
 
   it("keeps a numeric list numeric and a scalar a scalar", async () => {
@@ -99,7 +108,7 @@ describe("Variables tab", () => {
     expect(await screen.findByText(/Only admins can change variables/)).toBeVisible();
     await screen.findByRole("list", { name: "Version history" });
     expect(screen.queryByRole("button", { name: "Save new version" })).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Items, one per line")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Item 1")).not.toBeInTheDocument();
     expect(screen.getByRole("list", { name: "Current items" })).toHaveTextContent("octocat");
     expect(api.calls.some((c) => c.method === "PUT")).toBe(false);
   });
@@ -108,7 +117,7 @@ describe("Variables tab", () => {
     const user = userEvent.setup();
     renderTab();
     api.failNext["PUT /variables/trusted_authors"] = { status: 403, code: "forbidden_role", message: "raw" };
-    await user.type(await screen.findByLabelText("Items, one per line"), "\nx");
+    await user.type(await screen.findByLabelText("Item 2"), "x");
     await user.click(screen.getByRole("button", { name: "Save new version" }));
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("Your role is not allowed");
@@ -116,30 +125,89 @@ describe("Variables tab", () => {
   });
 });
 
+const NASTY = [" alice ", "a\nb", 1, null, "", true] as const;
+
 describe("lossless editing", () => {
-  it("a mixed list saved without edits round-trips exactly", () => {
-    const list = [1, "alice", null, "", true];
-    const text = list.map((v) => (v === null ? "" : String(v))).join("\n");
-    expect(parseDraft(list, text)).toEqual(list);
+  it("a list saved without edits is unchanged, whatever its items", () => {
+    const list = [...NASTY];
+    expect(valueOfRows(list, rowsOf(list)).value).toEqual(list);
   });
 
-  it("editing one string item leaves the others' types intact", () => {
-    expect(parseDraft([1, "alice", null, ""], "1\nbob\n\n")).toEqual([1, "bob", null, ""]);
+  it("editing one item leaves the others exact", () => {
+    const list = [...NASTY];
+    const rows = rowsOf(list);
+    rows[0] = { ...rows[0], text: " alice2 " };
+    expect(valueOfRows(list, rows).value).toEqual([" alice2 ", "a\nb", 1, null, "", true]);
   });
 
-  it("removing a line removes only that item; new blank lines are not added", () => {
-    expect(parseDraft([1, "alice", null], "alice\n")).toEqual(["alice", null]);
-    expect(parseDraft(["a"], "a\n\n\n")).toEqual(["a"]);
+  it("an edited number stays a number, and a bad number is flagged", () => {
+    const list = [1, 2];
+    const rows = rowsOf(list);
+    rows[1] = { ...rows[1], text: "7" };
+    expect(valueOfRows(list, rows).value).toEqual([1, 7]);
+    rows[1] = { ...rows[1], text: "x" };
+    expect(valueOfRows(list, rows).invalid).toEqual([1]);
   });
 
-  it("a uniform numeric list stays numeric for new items", () => {
-    expect(parseDraft([1, 2], "1\n2\n3")).toEqual([1, 2, 3]);
+  it("a new row is typed like a uniform numeric list, else a string", () => {
+    const rows = [...rowsOf([1, 2]), { id: 99, text: "3" }];
+    expect(valueOfRows([1, 2], rows).value).toEqual([1, 2, 3]);
+    expect(valueOfRows(["a"], [...rowsOf(["a"]), { id: 99, text: "3" }]).value).toEqual(["a", "3"]);
+  });
+
+  it("the editor shows untouched odd strings exactly and saves nothing until something changes", async () => {
+    const user = userEvent.setup();
+    api.variableVersions.push({
+      id: "odd",
+      name: "odd",
+      value: [" alice ", "a\nb", 1, null, ""],
+      version: 1,
+      updated_by: "ori",
+      updated_at: "2026-10-07T00:00:00Z",
+      description: null,
+    });
+    renderTab();
+    await user.click(await screen.findByRole("link", { name: /odd/ }));
+    expect(await screen.findByLabelText("Item 1")).toHaveValue(" alice ");
+    expect(screen.getByRole("button", { name: "Save new version" })).toBeDisabled();
+    await user.type(screen.getByLabelText("Item 5"), "z");
+    await user.click(screen.getByRole("button", { name: "Save new version" }));
+    await waitFor(() => expect(api.calls.find((c) => c.method === "PUT")).toBeTruthy());
+    expect(api.calls.find((c) => c.method === "PUT")?.body).toMatchObject({
+      value: [" alice ", "a\nb", 1, null, "z"],
+    });
+  });
+
+  it("after switching variables the old one's history and rules are not shown while the new load is pending", async () => {
+    const user = userEvent.setup();
+    const inner = fetchFor(api);
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((r) => (release = r));
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes("/variables/max_fixes/")) await gate;
+      return inner(input, init);
+    });
+    resetWhoamiForTests();
+    render(
+      <MemoryRouter initialEntries={["/variables"]}>
+        <Variables />
+      </MemoryRouter>,
+    );
+    const history = await screen.findByRole("list", { name: "Version history" });
+    await waitFor(() => expect(within(history).getAllByRole("listitem")).toHaveLength(2));
+    await user.click(screen.getByRole("link", { name: /max_fixes/ }));
+    await screen.findByRole("heading", { level: 2, name: "max_fixes" });
+    expect(screen.queryByRole("list", { name: "Version history" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Build and publish/ })).not.toBeInTheDocument();
+    expect(screen.getByText(/Loading/)).toBeVisible();
+    release();
+    await waitFor(() => expect(screen.queryByText(/Loading/)).not.toBeInTheDocument());
   });
 
   it("an edit keeps the description (the backend stores an omitted one as null)", async () => {
     const user = userEvent.setup();
     renderTab();
-    await user.type(await screen.findByLabelText("Items, one per line"), "\nx");
+    await user.type(await screen.findByLabelText("Item 2"), "x");
     await user.click(screen.getByRole("button", { name: "Save new version" }));
     await waitFor(() => expect(api.calls.find((c) => c.method === "PUT")).toBeTruthy());
     expect(api.calls.find((c) => c.method === "PUT")?.body).toMatchObject({

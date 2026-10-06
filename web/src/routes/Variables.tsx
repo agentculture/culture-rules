@@ -29,83 +29,112 @@ export function valueText(value: VariableValue): string {
   return Array.isArray(value) ? value.map(itemText).join(", ") : itemText(value);
 }
 
-/** Text typed for one item, typed like the existing items (numbers stay numbers). */
-function typedLike(sample: Scalar | undefined, text: string): Scalar {
-  if (typeof sample === "number" && NUMBER.test(text)) return Number(text);
-  if (typeof sample === "boolean" && (text === "true" || text === "false")) return text === "true";
-  return text;
+/** One editable list item: the stored item (`orig`, absent for a new row) and its text. */
+export interface Row {
+  id: number;
+  orig?: Scalar;
+  text: string;
 }
+
+let nextRowId = 1;
+const newRowId = () => nextRowId++;
+
+/** One row per stored item; each starts as its exact stored text. */
+export const rowsOf = (list: Scalar[]): Row[] =>
+  list.map((orig) => ({ id: newRowId(), orig, text: itemText(orig) }));
 
 /**
- * The value a draft would save. A list is one item per line, matched back to the stored items
- * by text, so an item the author did not touch keeps its own type (number, true, null, "").
- * Only a line with new text is typed afresh. Blank lines survive only where a stored item
- * (null or "") has that text; extra blank lines are dropped.
+ * The list a set of rows would save, lossless by construction: a row whose text still equals
+ * its stored item's text yields that stored item itself (type and exact string). Only an edited
+ * row is re-typed: a number stays a number (`invalid` lists the rows whose text no longer is
+ * one), a boolean takes true/false, anything else is the exact text. A new blank row is dropped.
  */
-export function parseDraft(current: VariableValue, text: string): VariableValue {
-  if (!Array.isArray(current)) {
-    return text.trim() === itemText(current) ? current : typedLike(current ?? undefined, text.trim());
-  }
-  const unused = [...current];
+export function valueOfRows(current: Scalar[], rows: Row[]): { value: Scalar[]; invalid: number[] } {
   const sample = current.find((v) => v !== null && v !== "");
   const uniform = sample !== undefined && current.every((v) => typeof v === typeof sample);
-  const out: Scalar[] = [];
-  for (const raw of text.split("\n")) {
-    const line = raw.trim();
-    const at = unused.findIndex((v) => itemText(v) === line);
-    if (at >= 0) {
-      out.push(unused.splice(at, 1)[0]);
-    } else if (line) {
-      out.push(typedLike(uniform ? sample : undefined, line));
+  const value: Scalar[] = [];
+  const invalid: number[] = [];
+  rows.forEach((row, i) => {
+    if (row.orig !== undefined && row.text === itemText(row.orig)) {
+      value.push(row.orig);
+    } else if (row.orig === undefined && row.text === "") {
+      // a blank new row is not an item
+    } else if (typeof (row.orig ?? (uniform ? sample : undefined)) === "number") {
+      if (NUMBER.test(row.text.trim())) value.push(Number(row.text));
+      else invalid.push(i);
+    } else if (typeof row.orig === "boolean" && (row.text === "true" || row.text === "false")) {
+      value.push(row.text === "true");
+    } else {
+      value.push(row.text);
     }
-  }
-  return out;
+  });
+  return { value, invalid };
 }
 
-const draftOf = (value: VariableValue) =>
-  Array.isArray(value) ? value.map(itemText).join("\n") : itemText(value);
+/** A scalar variable's value from its text (an untouched text keeps the stored value). */
+function scalarOf(current: Scalar, text: string): { value: Scalar; invalid: boolean } {
+  if (text === itemText(current)) return { value: current, invalid: false };
+  if (typeof current === "number") {
+    return NUMBER.test(text.trim()) ? { value: Number(text), invalid: false } : { value: current, invalid: true };
+  }
+  if (typeof current === "boolean" && (text === "true" || text === "false")) {
+    return { value: text === "true", invalid: false };
+  }
+  return { value: text, invalid: false };
+}
 
 interface DetailProps {
   variable: Variable;
   admin: boolean;
-  history: VariableVersion[];
-  refs: VariableRef[];
-  detailError: string | null;
+  /** History and referrers of THIS variable; null while they load. */
+  details: { history: VariableVersion[]; refs: VariableRef[]; error: string | null } | null;
   onSaved: (saved: Variable) => void;
 }
 
 function ValueEditor({ variable, admin, onSaved }: Readonly<Pick<DetailProps, "variable" | "admin" | "onSaved">>) {
-  const isList = Array.isArray(variable.value);
-  const [text, setText] = useState(draftOf(variable.value));
+  const stored = variable.value;
+  const [rows, setRows] = useState<Row[]>(Array.isArray(stored) ? rowsOf(stored) : []);
+  const [text, setText] = useState(Array.isArray(stored) ? "" : itemText(stored));
   const [pending, setPending] = useState(false);
   const [refused, setRefused] = useState<ApiError | null>(null);
-  useEffect(() => {
-    setText(draftOf(variable.value));
-    setRefused(null);
-  }, [variable.name, variable.version, variable.value]);
+  const reset = () => {
+    setRows(Array.isArray(stored) ? rowsOf(stored) : []);
+    setText(Array.isArray(stored) ? "" : itemText(stored));
+  };
 
   if (!admin) {
     return (
       <>
-        {Array.isArray(variable.value) ? (
+        {Array.isArray(stored) ? (
           <ul className="vars-items" aria-label="Current items">
-            {variable.value.map((item, i) => (
+            {stored.map((item, i) => (
               <li key={`${itemText(item)}-${i}`}>{itemText(item)}</li>
             ))}
           </ul>
         ) : (
-          <p className="vars-scalar">{valueText(variable.value)}</p>
+          <p className="vars-scalar">{valueText(stored)}</p>
         )}
         <p className="vars-note">Only admins can change variables.</p>
       </>
     );
   }
 
-  const next = parseDraft(variable.value, text);
-  const unchanged = JSON.stringify(next) === JSON.stringify(variable.value);
+  let next: VariableValue;
+  let badRows: number[] = [];
+  if (Array.isArray(stored)) {
+    const built = valueOfRows(stored, rows);
+    next = built.value;
+    badRows = built.invalid;
+  } else {
+    const built = scalarOf(stored, text);
+    next = built.value;
+    if (built.invalid) badRows = [0];
+  }
+  const unchanged = JSON.stringify(next) === JSON.stringify(stored);
+  const blocked = unchanged || pending || badRows.length > 0;
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    if (unchanged || pending) return;
+    if (blocked) return;
     setPending(true);
     setRefused(null);
     try {
@@ -116,23 +145,50 @@ function ValueEditor({ variable, admin, onSaved }: Readonly<Pick<DetailProps, "v
       setPending(false);
     }
   };
-  const label = isList ? "Items, one per line" : "Value";
+  const edit = (id: number, value: string) =>
+    setRows((rs) => rs.map((r) => (r.id === id ? { ...r, text: value } : r)));
   return (
     <form className="vars-form" onSubmit={submit} aria-label={`Edit ${variable.name}`}>
-      <label>
-        <span>{label}</span>
-        {isList ? (
-          <textarea rows={Math.max(3, text.split("\n").length + 1)} value={text} onChange={(e) => setText(e.target.value)} />
-        ) : (
-          <input value={text} onChange={(e) => setText(e.target.value)} />
-        )}
-      </label>
+      {Array.isArray(stored) ? (
+        <fieldset className="vars-rows plain-group">
+          <legend>Items</legend>
+          {rows.map((row, i) => (
+            <div key={row.id} className="vars-rows__row">
+              <input
+                aria-label={`Item ${i + 1}`}
+                aria-invalid={badRows.includes(i) || undefined}
+                value={row.text}
+                placeholder={row.orig === null ? "(empty)" : undefined}
+                spellCheck={false}
+                onChange={(e) => edit(row.id, e.target.value)}
+              />
+              <button
+                type="button"
+                className="vars-btn"
+                aria-label={`Remove item ${i + 1}`}
+                onClick={() => setRows((rs) => rs.filter((r) => r.id !== row.id))}
+              >
+                Remove
+              </button>
+            </div>
+          ))}
+          <button type="button" className="vars-btn" onClick={() => setRows((rs) => [...rs, { id: newRowId(), text: "" }])}>
+            Add item
+          </button>
+        </fieldset>
+      ) : (
+        <label>
+          <span>Value</span>
+          <input value={text} aria-invalid={badRows.length > 0 || undefined} onChange={(e) => setText(e.target.value)} />
+        </label>
+      )}
+      {badRows.length > 0 ? <p className="vars-note">That has to be a number.</p> : null}
       {refused ? <GuidedNotice error={refused} /> : null}
       <div className="vars-actions">
-        <button type="submit" className="vars-btn vars-btn--primary" disabled={unchanged || pending}>
+        <button type="submit" className="vars-btn vars-btn--primary" disabled={blocked}>
           Save new version
         </button>
-        <button type="button" className="vars-btn" disabled={unchanged || pending} onClick={() => setText(draftOf(variable.value))}>
+        <button type="button" className="vars-btn" disabled={unchanged || pending} onClick={reset}>
           Revert
         </button>
       </div>
@@ -140,8 +196,9 @@ function ValueEditor({ variable, admin, onSaved }: Readonly<Pick<DetailProps, "v
   );
 }
 
-function Detail({ variable, admin, history, refs, detailError, onSaved }: Readonly<DetailProps>) {
-  const newestFirst = [...history].reverse();
+function Detail({ variable, admin, details, onSaved }: Readonly<DetailProps>) {
+  const newestFirst = [...(details?.history ?? [])].reverse();
+  const refs = details?.refs ?? [];
   return (
     <section className="vars-detail" aria-labelledby="vars-detail-name">
       <h2 id="vars-detail-name" className="vars-detail__name">
@@ -153,12 +210,14 @@ function Detail({ variable, admin, history, refs, detailError, onSaved }: Readon
       <p className="vars-detail__ref">
         Used in a rule as <code>vars.{variable.name}</code>
       </p>
-      <ValueEditor variable={variable} admin={admin} onSaved={onSaved} />
-      {detailError ? (
+      <ValueEditor key={`${variable.name}@${variable.version}`} variable={variable} admin={admin} onSaved={onSaved} />
+      {details?.error ? (
         <p className="notice notice--error" role="alert">
-          {detailError}
+          {details.error}
         </p>
       ) : null}
+      {details ? (
+        <>
       <h3 className="vars-detail__heading">Version history</h3>
       <ol className="vars-history" aria-label="Version history">
         {newestFirst.map((v) => (
@@ -186,6 +245,10 @@ function Detail({ variable, admin, history, refs, detailError, onSaved }: Readon
           ))}
         </ul>
       )}
+        </>
+      ) : (
+        <p className="vars-note">Loading history and rules…</p>
+      )}
     </section>
   );
 }
@@ -202,9 +265,13 @@ export function Variables() {
   const [params] = useSearchParams();
   const [variables, setVariables] = useState<Variable[] | null>(null);
   const [loadErrors, setLoadErrors] = useState<string[]>([]);
-  const [history, setHistory] = useState<VariableVersion[]>([]);
-  const [refs, setRefs] = useState<VariableRef[]>([]);
-  const [detailError, setDetailError] = useState<string | null>(null);
+  /** The fetched details, tagged with the variable they belong to. */
+  const [fetched, setFetched] = useState<{
+    name: string;
+    history: VariableVersion[];
+    refs: VariableRef[];
+    error: string | null;
+  } | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -227,14 +294,16 @@ export function Variables() {
   useEffect(() => {
     if (!name) return;
     const controller = new AbortController();
-    setDetailError(null);
     Promise.allSettled([getVariableHistory(name, controller.signal), getVariableRefs(name, controller.signal)]).then(
       ([h, r]) => {
         if (controller.signal.aborted) return;
-        setHistory(h.status === "fulfilled" ? h.value : []);
-        setRefs(r.status === "fulfilled" ? r.value : []);
         const failed = [h, r].find((x) => x.status === "rejected") as PromiseRejectedResult | undefined;
-        setDetailError(failed ? describe(failed.reason) : null);
+        setFetched({
+          name,
+          history: h.status === "fulfilled" ? h.value : [],
+          refs: r.status === "fulfilled" ? r.value : [],
+          error: failed ? describe(failed.reason) : null,
+        });
       },
     );
     return () => controller.abort();
@@ -276,9 +345,7 @@ export function Variables() {
           <Detail
             variable={selected}
             admin={admin}
-            history={history}
-            refs={refs}
-            detailError={detailError}
+            details={fetched && fetched.name === selected.name ? fetched : null}
             onSaved={saved}
           />
         ) : null}

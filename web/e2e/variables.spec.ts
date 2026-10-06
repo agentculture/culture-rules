@@ -33,10 +33,9 @@ test.describe("Variables tab", () => {
     const api = await mockRulesApi(page);
     await page.goto("/variables");
     await untilReady(page);
-    const items = page.getByLabel("Items, one per line");
-    await items.focus();
-    await page.keyboard.press("Control+End");
-    await page.keyboard.type("\nmonalisa");
+    await page.getByRole("button", { name: "Add item" }).focus();
+    await page.keyboard.press("Enter");
+    await page.getByRole("textbox", { name: "Item 3" }).fill("monalisa");
     await page.getByRole("button", { name: "Save new version" }).focus();
     await page.keyboard.press("Enter");
     await expect(page.getByRole("list", { name: "Version history" }).getByRole("listitem").first()).toContainText("v3");

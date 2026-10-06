@@ -207,3 +207,33 @@
   outline: 3px solid var(--accent);
   outline-offset: 2px;
 }
+
+.vars-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+}
+
+.vars-rows legend {
+  padding: 0;
+  margin-bottom: 4px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.vars-rows__row {
+  display: flex;
+  gap: 8px;
+}
+
+.vars-rows__row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.vars-rows .vars-btn {
+  align-self: flex-start;
+}
