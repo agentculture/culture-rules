@@ -100,3 +100,15 @@ def test_refs_lists_every_rule_referencing_the_variable(world):
     assert [i["id"] for i in r.json()["items"]] == ["by-cond", "by-input"]
     assert client.get("/variables/unused/refs", headers=hdr["viewer"]).json()["items"] == []
     assert client.get("/variables/Bad-Name/refs", headers=hdr["viewer"]).status_code == 422
+
+
+def test_a_missing_identity_is_not_reported_as_a_bad_value():
+    """require_identity raises AuditError (a ValueError); it must not become invalid_value."""
+    import pytest
+
+    from culture_rules.engine.audit import AuditError
+    from culture_rules.server.service import Variables
+    from culture_rules.store.memory import MemoryStore
+
+    with pytest.raises(AuditError):
+        Variables(MemoryStore()).set("limit", 3, "")

@@ -542,9 +542,10 @@ class Variables:
 
     def set(self, name: str, value: Any, identity: str, description: str | None = None) -> Document:
         self._checked(name)
+        principal = require_identity(identity)  # outside the try: not a value error
         try:
             return self._store.put_variable(
-                name, value, updated_by=require_identity(identity), description=description
+                name, value, updated_by=principal, description=description
             )
         except ValueError as exc:
             raise Invalid(
