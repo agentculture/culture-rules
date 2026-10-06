@@ -78,7 +78,7 @@ def _render_variables(items: list) -> str:
     return "\n".join(lines)
 
 
-def render_text(result: Any) -> str:
+def render_text(result: Any, noun: str | None = None) -> str:
     if isinstance(result, dict) and "sections" in result and "subject" in result:
         from culture_rules.cli._commands.overview import render_text as render  # noqa: PLC0415
 
@@ -93,7 +93,11 @@ def render_text(result: Any) -> str:
             + "\nre-run with --apply to commit"
         )
     if isinstance(result, dict) and isinstance(result.get("items"), list):
-        if result["items"] and all("value" in i and "version" in i for i in result["items"]):
+        if (
+            noun == "variables"
+            and result["items"]
+            and all("value" in i and "version" in i for i in result["items"])
+        ):
             return _render_variables(result["items"])
         lines = [f"{len(result['items'])} item(s)"]
         for item in result["items"]:
@@ -125,7 +129,7 @@ def _handler(verb: Verb) -> Callable[[argparse.Namespace], int]:
         )
         result = verb.handler(ctx, **params)
         json_mode = bool(getattr(args, "json", False))
-        emit_result(result if json_mode else render_text(result), json_mode=json_mode)
+        emit_result(result if json_mode else render_text(result, verb.noun), json_mode=json_mode)
         return 0
 
     return run
