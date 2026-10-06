@@ -45,28 +45,30 @@ def test_dry_run_writes_nothing(tmp_path):
     assert not (tmp_path / "home" / ".config").exists()
 
 
-def test_both_bridges_bind_the_tailnet_host_and_author_as_the_app_bot(tmp_path):
-    out = plan(tmp_path)
-    for backend, port in (("qwen", 8093), ("codex", 8094)):
-        cfg = config_from(out, backend)
-        assert cfg["host"] == "100.64.0.9"
-        assert cfg["port"] == port
-        assert cfg["commit_author"] == BOT
-        assert cfg["repo_allowlist_prefixes"] == ["https://github.com/agentculture/"]
-        assert cfg["max_concurrent"] == 1
+def test_the_qwen_bridge_binds_the_tailnet_host_and_authors_as_the_app_bot(tmp_path):
+    cfg = config_from(plan(tmp_path), "qwen")
+    assert cfg["host"] == "100.64.0.9"
+    assert cfg["port"] == 8093
+    assert cfg["commit_author"] == BOT
+    assert cfg["repo_allowlist_prefixes"] == ["https://github.com/agentculture/"]
+    assert cfg["max_concurrent"] == 1
 
 
-def test_no_token_is_ever_written_to_a_config(tmp_path):
-    out = plan(tmp_path)
-    for backend in ("qwen", "codex"):
-        assert "auth_token" not in config_from(out, backend)
+def test_only_the_qwen_bridge_is_planned_on_the_fixer_machine(tmp_path):
+    """d8: Codex stays on spark; the fixer machine runs only the qwen bridge."""
+    assert "codex" not in plan(tmp_path).lower()
 
 
-def test_bridge_tokens_and_the_model_key_are_injected_by_grant(tmp_path):
+def test_no_token_is_ever_written_to_the_config(tmp_path):
+    assert "auth_token" not in config_from(plan(tmp_path), "qwen")
+
+
+def test_every_token_and_the_model_key_are_injected_by_grant(tmp_path):
     out = plan(tmp_path)
     assert "--inject QWEN_BRIDGE_AUTH_TOKEN=FIXER_QWEN_BRIDGE_TOKEN" in out
-    assert "--inject CODEX_BRIDGE_AUTH_TOKEN=FIXER_CODEX_BRIDGE_TOKEN" in out
     assert "--inject QWEN_CUSTOM_API_KEY_CORTEX=FIXER_CORTEX_API_KEY" in out
+    assert "--inject GH_TOKEN=FIXER_GITHUB_TOKEN" in out
+    assert "--inject SONAR_TOKEN=FIXER_SONAR_TOKEN" in out
 
 
 def test_the_qwen_bridge_pins_a_handshake_approved_qwen_and_cortex(tmp_path):
@@ -86,3 +88,12 @@ def test_create_user_is_a_dry_run_without_apply(tmp_path):
     assert "useradd" in out and "culture-fixer" in out
     assert "enable-linger culture-fixer" in out
     assert "Dry run: nothing was changed" in out
+
+
+def test_create_user_authorizes_exactly_one_public_key(tmp_path):
+    key = tmp_path / "id.pub"
+    key.write_text("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIB4 spark@spark\n")
+    out = run(tmp_path, CREATE_USER, "--authorize-key", str(key)).stdout
+    assert f"authorize {key}" in out
+    key.write_text("not a key\n")
+    assert run(tmp_path, CREATE_USER, "--authorize-key", str(key), check=False).returncode == 1
