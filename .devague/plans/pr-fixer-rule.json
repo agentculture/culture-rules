@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-10-06T04:46:38Z",
-  "updated": "2026-10-06T05:06:09Z",
+  "updated": "2026-10-06T12:50:37Z",
   "targets": [
     {
       "id": "c1",
@@ -946,6 +946,22 @@
       "id": "r6",
       "text": "Bridge completion callbacks need a reachable endpoint: the node daemon has no HTTP listener, so callbacks likely land on the API server and are delivered from the store",
       "kind": "unknown_nonblocking",
+      "task_id": "t9",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r7",
+      "text": "steward 0.19.3 'steward doctor .' crashes (TypeError PosixPath / list in steward/cli/_commands/_agents.py:157, backend-consistency check) on culture-rules main without any gate change, so t6's 'steward doctor stays green' criterion cannot be shown; culture-rules doctor and culture's loader both pass",
+      "kind": "follow_up",
+      "task_id": "t6",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r8",
+      "text": "A node crash after a RETRYABLE bridge failure is recorded but before its actor slot is released leaves the slot held until the retry or the deadline; freeing it early could race the retry for the same key's slot (t9 final-round note)",
+      "kind": "follow_up",
       "task_id": "t9",
       "resolved": false,
       "resolution": ""
