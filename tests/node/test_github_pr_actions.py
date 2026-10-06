@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
 import subprocess
+import time
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -22,6 +24,8 @@ from cryptography.hazmat.primitives.asymmetric import rsa  # noqa: E402
 from culture_rules.engine.actorport import InvocationContext  # noqa: E402
 from culture_rules.model.action_kinds import ACTION_KINDS  # noqa: E402
 from culture_rules.node.actions.github_pr import (  # noqa: E402
+    GIT_TIMED_OUT,
+    GIT_UNAVAILABLE,
     GitHubPushPort,
     GitHubReviewReplyPort,
     subprocess_git,
@@ -769,3 +773,75 @@ def test_review_reply_honours_the_deadline(pem):
     res = port.invoke(reply_params(), "k", past, context=ctx())
     assert res.outcome == "failed" and res.error == "deadline_exceeded" and res.retryable
     assert not [p for p in fake.paths() if p.endswith("/replies")]
+
+
+# ---------------------------------------------------------------- git timeouts
+
+
+def _alive(pid):
+    try:
+        with open(f"/proc/{pid}/stat") as fh:
+            return fh.read().split(")")[-1].split()[0] != "Z"
+    except FileNotFoundError:
+        return False
+
+
+@pytest.mark.skipif(not hasattr(os, "killpg"), reason="POSIX process groups")
+def test_git_timeout_kills_the_whole_process_group(tmp_path):
+    pidfile = tmp_path / "child.pid"
+    script = tmp_path / "fake-git"
+    script.write_text(f"#!/bin/sh\nsleep 30 &\necho $! > {pidfile}\nsleep 30\n")
+    script.chmod(0o755)
+    started = time.monotonic()
+    rc, out = subprocess_git([str(script)], {"PATH": os.environ["PATH"]}, 0.5)
+    assert rc == GIT_TIMED_OUT and out == ""
+    assert time.monotonic() - started < 10
+    child = int(pidfile.read_text().strip())
+    assert not _alive(child)  # the grandchild (stand-in for git-remote-https) is gone
+
+
+def test_subprocess_git_reports_a_missing_binary_as_unavailable(tmp_path):
+    rc, _ = subprocess_git([str(tmp_path / "nope")], {"PATH": ""}, 5)
+    assert rc == GIT_UNAVAILABLE
+
+
+class TimingOutGit(RecordingGit):
+    """Real git, except the first call whose verb is ``verb`` times out."""
+
+    def __init__(self, verb):
+        super().__init__()
+        self.verb = verb
+
+    def __call__(self, argv, env, timeout):
+        if self.verb in argv:
+            self.calls.append((list(argv), dict(env)))
+            return GIT_TIMED_OUT, ""
+        return super().__call__(argv, env, timeout)
+
+
+@pytest.mark.parametrize("verb", ["fetch", "rev-parse", "cat-file", "merge-base", "log"])
+def test_git_timeouts_are_retryable_not_validation_failures(pem, world, verb):
+    store = make_store(commit_author="t")  # so the author check (git log) runs too
+    fake, rec = FakeGitHub(world), TimingOutGit(verb)
+    res = push_port(pem, world, fake, store=store, gitrec=rec).invoke(
+        push_params(world), "k", DEADLINE, context=ctx()
+    )
+    assert res.outcome == "failed" and res.error == "git_timeout" and res.retryable, res
+    assert fake.calls == [] and "push" not in rec.verbs()
+
+
+def test_git_timeout_past_the_deadline_is_deadline_exceeded(pem, world):
+    clock = StepClock()
+    deadline = clock.now + timedelta(seconds=60)
+
+    class Late(RecordingGit):
+        def __call__(self, argv, env, timeout):
+            if "fetch" in argv:
+                clock.now = deadline + timedelta(seconds=1)
+                return GIT_TIMED_OUT, ""
+            return super().__call__(argv, env, timeout)
+
+    res = push_port(pem, world, FakeGitHub(world), gitrec=Late(), clock=clock).invoke(
+        push_params(world), "k", deadline, context=ctx()
+    )
+    assert res.error == "deadline_exceeded" and res.retryable

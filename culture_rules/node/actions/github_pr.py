@@ -57,8 +57,10 @@ import logging
 import os
 import re
 import shutil
+import signal
 import subprocess  # argv lists only, shell=False (B404/B603 skipped in pyproject)
 import tempfile
+import time
 from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any
@@ -78,6 +80,8 @@ __all__ = [
     "DEFAULT_GIT_BASE",
     "GitHubPushPort",
     "GitHubReviewReplyPort",
+    "GIT_TIMED_OUT",
+    "GIT_UNAVAILABLE",
     "GitRunner",
     "source_rule_refusal",
     "subprocess_git",
@@ -91,30 +95,80 @@ _REF_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
 _LOCAL_REF = "refs/culture-rules/push"
 
 _GIT_TIMEOUT_S = 120.0
+_TERM_GRACE_S = 2.0
+#: Runner return codes outside git's own range (git exits 0..255; signals are negative).
+GIT_TIMED_OUT = -1000
+GIT_UNAVAILABLE = -1001
 #: The network push is not started with less than this left before the step's deadline.
 PUSH_MARGIN_S = 10.0
 
-#: ``runner(argv, env, timeout) -> (returncode, stdout)``; stderr is never surfaced.
+#: ``runner(argv, env, timeout) -> (returncode, stdout)``; stderr is never surfaced. A
+#: runner returns :data:`GIT_TIMED_OUT` / :data:`GIT_UNAVAILABLE` for a timeout / no git.
 GitRunner = Callable[[Sequence[str], Mapping[str, str], float], tuple[int, str]]
 
 
-def subprocess_git(argv: Sequence[str], env: Mapping[str, str], timeout: float) -> tuple[int, str]:
-    """Default runner: one ``git`` process, argv list, no shell, stdin closed."""
+def _signal_group(pgid: int, sig: int) -> bool:
+    """Send ``sig`` to process group ``pgid``; False once the group no longer exists."""
     try:
-        proc = subprocess.run(
+        os.killpg(pgid, sig)
+    except ProcessLookupError:
+        return False
+    except PermissionError:  # pragma: no cover - only our own children are in the group
+        return False
+    return True
+
+
+def _wait_group_gone(pgid: int, seconds: float) -> bool:
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:
+        if not _signal_group(pgid, 0):
+            return True
+        time.sleep(0.05)
+    return not _signal_group(pgid, 0)
+
+
+def _kill_group(proc: subprocess.Popen[str]) -> None:
+    """SIGTERM then SIGKILL git's whole process group (git-remote-https, send-pack, ...),
+    and reap git, so nothing of this push outlives the call."""
+    pgid = proc.pid  # start_new_session: git leads its own group
+    _signal_group(pgid, signal.SIGTERM)
+    if not _wait_group_gone(pgid, _TERM_GRACE_S):
+        _signal_group(pgid, signal.SIGKILL)
+        _wait_group_gone(pgid, _TERM_GRACE_S)
+    try:
+        proc.communicate(timeout=_TERM_GRACE_S)  # reap git, drain and close the pipe
+    except subprocess.TimeoutExpired:  # pragma: no cover - the group is already gone
+        proc.kill()
+        proc.wait()
+
+
+def subprocess_git(argv: Sequence[str], env: Mapping[str, str], timeout: float) -> tuple[int, str]:
+    """Default runner: one ``git`` process group, argv list, no shell, stdin closed.
+
+    Returns :data:`GIT_TIMED_OUT` when ``timeout`` passes (the whole group is killed and
+    reaped first) and :data:`GIT_UNAVAILABLE` when git cannot be started."""
+    try:
+        proc = subprocess.Popen(
             list(argv),
             env=dict(env),
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             text=True,
-            timeout=timeout,
-            check=False,
             shell=False,
+            start_new_session=True,
         )
-    except (OSError, subprocess.TimeoutExpired):
-        return 127, ""
-    return proc.returncode, proc.stdout or ""
+    except OSError:
+        return GIT_UNAVAILABLE, ""
+    try:
+        out, _ = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        _kill_group(proc)
+        return GIT_TIMED_OUT, ""
+    # git exited; a helper it left behind in its group must not keep running either
+    if _signal_group(proc.pid, 0):
+        _signal_group(proc.pid, signal.SIGKILL)
+    return proc.returncode, out or ""
 
 
 def _live(doc: Mapping[str, Any] | None) -> bool:
@@ -200,7 +254,13 @@ class _PushJob:
         argv += ["-c", "protocol.ext.allow=never"]
         if in_repo:
             argv += ["-C", self.repo]
-        return self._run([*argv, *args], _git_env(self._tmp, token), timeout)
+        rc, out = self._run([*argv, *args], _git_env(self._tmp, token), timeout)
+        if rc == GIT_TIMED_OUT:  # never a validation verdict: say so, and let it retry
+            self.require()  # deadline_exceeded if the deadline has passed meanwhile
+            raise _Refused("git_timeout", retryable=True)
+        if rc == GIT_UNAVAILABLE:
+            raise _Refused("git_unavailable", retryable=True)
+        return rc, out
 
     def import_commit(self, source: str, sha: str) -> None:
         """Fetch exactly ``sha`` (and its history) from ``source``; no mutable ref is read."""
