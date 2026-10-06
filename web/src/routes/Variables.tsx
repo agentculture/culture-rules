@@ -36,18 +36,30 @@ function typedLike(sample: Scalar | undefined, text: string): Scalar {
   return text;
 }
 
-/** The value a draft would save: a list one item per line, a scalar its text. */
+/**
+ * The value a draft would save. A list is one item per line, matched back to the stored items
+ * by text, so an item the author did not touch keeps its own type (number, true, null, "").
+ * Only a line with new text is typed afresh. Blank lines survive only where a stored item
+ * (null or "") has that text; extra blank lines are dropped.
+ */
 export function parseDraft(current: VariableValue, text: string): VariableValue {
-  if (Array.isArray(current)) {
-    const sample = current.find((v) => v !== null);
-    const uniform = current.every((v) => typeof v === typeof sample);
-    return text
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((line) => typedLike(uniform ? sample : undefined, line));
+  if (!Array.isArray(current)) {
+    return text.trim() === itemText(current) ? current : typedLike(current ?? undefined, text.trim());
   }
-  return typedLike(current ?? undefined, text.trim());
+  const unused = [...current];
+  const sample = current.find((v) => v !== null && v !== "");
+  const uniform = sample !== undefined && current.every((v) => typeof v === typeof sample);
+  const out: Scalar[] = [];
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    const at = unused.findIndex((v) => itemText(v) === line);
+    if (at >= 0) {
+      out.push(unused.splice(at, 1)[0]);
+    } else if (line) {
+      out.push(typedLike(uniform ? sample : undefined, line));
+    }
+  }
+  return out;
 }
 
 const draftOf = (value: VariableValue) =>
@@ -97,7 +109,7 @@ function ValueEditor({ variable, admin, onSaved }: Readonly<Pick<DetailProps, "v
     setPending(true);
     setRefused(null);
     try {
-      onSaved(await putVariable(variable.name, next));
+      onSaved(await putVariable(variable.name, next, variable.description));
     } catch (err) {
       setRefused(err instanceof ApiError ? err : new ApiError(0, "unreachable", describe(err)));
     } finally {

@@ -155,7 +155,8 @@ function variableWrite(api: FakeApi, name: string, body: unknown): FakeResponse 
     version: (last?.version ?? 0) + 1,
     updated_by: WHOAMI.identity,
     updated_at: new Date(api.now).toISOString(),
-    description: description ?? last?.description ?? null,
+    // like the backend (put_variable): an omitted description is stored as null
+    description: description ?? null,
   };
   api.variableVersions.push(next);
   return json(200, next);

@@ -6,7 +6,7 @@ import { getAgentState, resetAgentState } from "../agent-state/store";
 import { resetWhoamiForTests } from "../hooks/useWhoami";
 import { WHOAMI } from "../fixtures/rules-fixture";
 import { createFakeApi, fetchFor, type FakeApi } from "../rules/fake-api";
-import Variables from "./Variables";
+import Variables, { parseDraft } from "./Variables";
 
 let api: FakeApi;
 
@@ -113,5 +113,38 @@ describe("Variables tab", () => {
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("Your role is not allowed");
     expect(alert).not.toHaveTextContent("raw");
+  });
+});
+
+describe("lossless editing", () => {
+  it("a mixed list saved without edits round-trips exactly", () => {
+    const list = [1, "alice", null, "", true];
+    const text = list.map((v) => (v === null ? "" : String(v))).join("\n");
+    expect(parseDraft(list, text)).toEqual(list);
+  });
+
+  it("editing one string item leaves the others' types intact", () => {
+    expect(parseDraft([1, "alice", null, ""], "1\nbob\n\n")).toEqual([1, "bob", null, ""]);
+  });
+
+  it("removing a line removes only that item; new blank lines are not added", () => {
+    expect(parseDraft([1, "alice", null], "alice\n")).toEqual(["alice", null]);
+    expect(parseDraft(["a"], "a\n\n\n")).toEqual(["a"]);
+  });
+
+  it("a uniform numeric list stays numeric for new items", () => {
+    expect(parseDraft([1, 2], "1\n2\n3")).toEqual([1, 2, 3]);
+  });
+
+  it("an edit keeps the description (the backend stores an omitted one as null)", async () => {
+    const user = userEvent.setup();
+    renderTab();
+    await user.type(await screen.findByLabelText("Items, one per line"), "\nx");
+    await user.click(screen.getByRole("button", { name: "Save new version" }));
+    await waitFor(() => expect(api.calls.find((c) => c.method === "PUT")).toBeTruthy());
+    expect(api.calls.find((c) => c.method === "PUT")?.body).toMatchObject({
+      description: "PR authors the fixer may act on",
+    });
+    expect(api.variableVersions.at(-1)?.description).toBe("PR authors the fixer may act on");
   });
 });
