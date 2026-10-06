@@ -22,7 +22,9 @@ a retry) inserts exactly once. The stored document is the ingest shape
 (:func:`~culture_rules.events.ingest.event_document`) around an events-cli wire envelope whose
 ``source`` is ``app://<actor id>`` and whose ``data`` is the payload plus ``delivery_id``,
 ``actor`` and, when ``author`` equals ``params.self_identity`` (case-insensitive),
-``self_authored: true``. A payload key of those names is overwritten, never trusted.
+``self_authored`` — ``true`` for every type except the exempt check-completion types
+(``github.checks.suite_completed``, ``github.checks.workflow_completed``), for which the field is
+set to ``false`` explicitly. A payload key of those names is overwritten, never trusted.
 
 Outcome counters live in :data:`HOOK_STATS_COLLECTION`, one document per (actor, outcome) with
 a ``count`` and the ``surface`` (receiver refusals are counted by
@@ -51,6 +53,7 @@ __all__ = [
     "IGNORED",
     "OUTCOMES",
     "REFUSALS",
+    "SELF_TAG_EXEMPT_TYPES",
     "TOO_LARGE",
     "UNAUTHORIZED",
     "event_id_for",
@@ -69,6 +72,13 @@ OUTCOMES = (ACCEPTED, DUPLICATE, IGNORED, DISABLED)
 UNAUTHORIZED, BAD_REQUEST, TOO_LARGE = "unauthorized", "bad_request", "too_large"
 REFUSALS = (UNAUTHORIZED, BAD_REQUEST, TOO_LARGE)
 """Outcomes of deliveries refused before the sink (see :func:`record_outcome`)."""
+SELF_TAG_EXEMPT_TYPES = frozenset(
+    ("github.checks.suite_completed", "github.checks.workflow_completed")
+)
+"""Event types for which a matching author sets ``self_authored`` to *false* explicitly.
+
+Every other matching type sets it to *true*; a non-matching author leaves the key absent.
+"""
 _CAS_RETRIES = 50
 
 
@@ -160,7 +170,7 @@ def sink(
         and isinstance(author, str)
         and author.casefold() == me.casefold()
     ):
-        payload["self_authored"] = True
+        payload["self_authored"] = type not in SELF_TAG_EXEMPT_TYPES
 
     envelope = derive_envelope(
         None,
