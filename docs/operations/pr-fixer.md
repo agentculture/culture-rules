@@ -147,10 +147,11 @@ The qwen bridge refuses a run without `mode`.
 The fixer workflow's `gate` step (`kind: code`, `config.builtin: gate`,
 `culture_rules/actors/gate.py`, task t13) runs on spark2's engine node. It
 reads the `gate:` section of `culture.yaml` **from the PR's base commit**,
-runs the diff guard, then runs the declared setup and test argv lists in the
-agent's worktree. It runs nothing as the node user: every command that
-touches the worktree goes through the prefix in `CULTURE_RULES_GATE_RUN_AS`,
-and while that is unset the step fails `gate_runner_unconfigured`.
+runs the diff guard, then runs the declared setup and test argv lists in a
+fresh checkout of the agent's commit (never in the agent's worktree). It runs
+nothing as the node user: every command that touches the worktree or the
+checkout goes through the prefix in `CULTURE_RULES_GATE_RUN_AS`, and while
+that is unset the step fails `gate_runner_unconfigured`.
 
 Give the node user exactly one sudo grant, to run `env` as `culture-fixer`
 without a password. Then set the prefix in the node's environment (its
@@ -164,9 +165,9 @@ echo 'spark2 ALL=(culture-fixer) NOPASSWD: /usr/bin/env' \
 CULTURE_RULES_GATE_RUN_AS=sudo -n -u culture-fixer -- /usr/bin/env PATH=/home/culture-fixer/.local/bin:/usr/local/bin:/usr/bin:/bin
 ```
 
-The gate appends `env -C <worktree> -- <argv>` to that prefix, so each
-command runs in the worktree as `culture-fixer`, as an argv list, with no
-shell anywhere. A prefix that starts with `ssh`, `su` or a shell is refused:
+The gate appends `env -C <dir> -- <argv>` to that prefix, so each command
+runs in that directory as `culture-fixer`, as an argv list, with no shell
+anywhere. A prefix that starts with `ssh`, `su` or a shell is refused:
 those would join argv into a shell command line.
 
 What the grant means:
@@ -186,6 +187,27 @@ of the worktree (`git pack-objects --revs --stdout`). The pack goes into a
 fresh bare repository that the node owns, where git checks every object's
 hash. The diff guard and the base `culture.yaml` are read there, with no
 hooks, no attributes and no global config.
+
+The tests run in a fresh checkout, not in the worktree, because the agent
+controls the worktree's index and untracked files. A `--skip-worktree` edit
+or a stray `conftest.py` there would otherwise change what is tested. Each
+gate run works like this:
+
+1. As `culture-fixer`, the gate makes a directory with `mktemp -d` in that
+   account's own temp space (mode 700, owned by `culture-fixer`).
+2. It runs `git init` there and feeds the node-verified pack to
+   `git index-pack --stdin`. The node opens the pack file (mode 600, in the
+   node's own mode-700 temp directory) and passes it as `culture-fixer`'s
+   stdin, so that account never reads a path the node owns.
+3. It checks out the commit, verifies that `HEAD` is the commit and that
+   `git status --porcelain --ignored` is empty, runs the gate, and removes
+   the directory, also on failure.
+
+Every git call in that checkout ignores `culture-fixer`'s own git config,
+which the agent can edit. It runs with `GIT_CONFIG_GLOBAL=/dev/null`,
+`GIT_CONFIG_NOSYSTEM=1`, an empty template and `core.hooksPath=/dev/null`, so
+no hook runs. `culture-fixer` never needs read access to the bundle either:
+only `github.push`, running as the node user, reads it.
 
 When the verdict is `pass`, the gate writes a bundle of the commit for
 `github.push` into `CULTURE_RULES_GATE_BUNDLE_DIR` (default

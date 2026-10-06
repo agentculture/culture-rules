@@ -68,8 +68,8 @@ node user would hand the agent's commits the node's credentials. So every comman
 touches the worktree goes through a :data:`CommandRunner` seam. Production builds it from
 ``CULTURE_RULES_GATE_RUN_AS``: an operator-configured argv prefix (split with
 :func:`shlex.split`, never a shell), for example ``sudo -n -u culture-fixer --``. The gate
-appends ``env -C <worktree> -- <argv>``, so the command runs in the worktree, as that
-user, as an argv list with ``shell=False`` end to end. **Unset, the gate refuses**
+appends ``env -C <dir> -- <argv>``, so the command runs in that directory (the fresh checkout
+below), as that user, as an argv list with ``shell=False`` end to end. **Unset, the gate refuses**
 (``gate_runner_unconfigured``) rather than silently running as the node user. A prefix
 whose first word is a remote or login shell (``ssh``, ``su``, ``sh``, ...) is refused: those
 join argv into a shell command line. Trade-off: the node user can run anything as the fixer
@@ -112,10 +112,24 @@ Run over ``start_sha..commit_sha`` before any test command, in this order:
     ``@ts-nocheck``, ``pragma: no cover``, ``nolint``.
 
 A marker counts as added when, in one file, more lines carrying it were added than
-removed (so moving or reformatting an existing line is not flagged). After the guard the
-worktree itself is checked through the runner: ``worktree_moved`` when its ``HEAD`` is not
-``commit_sha`` and ``worktree_dirty`` when tracked files differ from it, since tests must
-judge exactly the commit that would be pushed.
+removed (so moving or reformatting an existing line is not flagged).
+
+Where the commands run: a fresh checkout, never the worktree
+============================================================
+
+The agent controls its worktree's index and untracked files (``--skip-worktree`` edits, a
+stray ``conftest.py``), so tests there would judge code other than the commit that is
+bundled and pushed. Setup and test commands therefore run in a **fresh checkout of
+``commit_sha``**, made as the fixer user in its own ``mktemp -d`` directory from the
+node-verified pack (fed to ``git index-pack --stdin`` on stdin: the fixer never reads a
+node-owned path). Every git call there ignores the fixer's own git configuration, which the
+agent can edit: ``GIT_CONFIG_GLOBAL=/dev/null``, ``GIT_CONFIG_NOSYSTEM=1``, an empty
+template (``--template=``, ``GIT_TEMPLATE_DIR=``), ``core.hooksPath=/dev/null`` (no
+post-checkout hook), no fsmonitor. After the checkout ``HEAD`` must be ``commit_sha`` and
+``git status --porcelain --ignored`` must be empty, else the step fails
+``checkout_failed``. The directory is removed afterwards (``rm -rf`` as the fixer user,
+with its own timeout), also on failure or timeout. The worktree is only ever the source of
+the pack.
 
 Re-running the gate on the same commit is harmless (it only re-judges), so the port
 declares ``supports_idempotency_key``. Standard-library only (the ``yaml`` extra parses
@@ -192,6 +206,18 @@ _SHA_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 #: Prefix words that would join argv into a shell command line.
 _SHELL_JOINING = frozenset({"ssh", "su", "sh", "bash", "dash", "zsh", "ksh", "fish", "csh"})
 _LOCAL_REF = "refs/culture-rules/gate"
+_CLEANUP_S = 60.0
+_CHECKOUT_PREFIX = "culture-rules-gate-"
+#: The fixer user can edit its own ~/.gitconfig and git templates: ignore all of them.
+_HARD_GIT_ENV = (
+    "env",
+    "GIT_CONFIG_GLOBAL=/dev/null",
+    "GIT_CONFIG_NOSYSTEM=1",
+    "GIT_TEMPLATE_DIR=",
+    "GIT_ATTR_NOSYSTEM=1",
+    "GIT_NO_REPLACE_OBJECTS=1",
+    "GIT_TERMINAL_PROMPT=0",
+)
 
 
 class GateConfigError(ValueError):
@@ -719,14 +745,15 @@ class _Job:
         stdin: IO[bytes] | None = None,
         merge_stderr: bool = True,
         timeout_code: str | None = None,
+        cwd: str | None = None,
     ) -> int:
-        """Run ``argv`` in the worktree as the fixer user; returns its exit code.
+        """Run ``argv`` as the fixer user in ``cwd`` (default: the agent's worktree).
 
         With ``timeout_code``, a timeout is a retryable refusal of that code instead of
         :data:`TIMED_OUT` (only a gate command's own timeout is a verdict)."""
         rc = self._run_as(
             list(argv),
-            cwd=self.worktree,
+            cwd=cwd or self.worktree,
             timeout=self.left(),
             stdout=out,
             stdin=stdin,
@@ -739,11 +766,38 @@ class _Job:
             raise _Refusal(timeout_code, "timed out", retryable=True)
         return rc
 
-    def fixer_text(self, argv: Sequence[str]) -> tuple[int, str]:
+    def fixer_text(
+        self,
+        argv: Sequence[str],
+        *,
+        cwd: str,
+        stdin: IO[bytes] | None = None,
+        timeout_code: str = "checkout_timeout",
+    ) -> tuple[int, str]:
         with tempfile.TemporaryFile(dir=self.tmp) as out:
-            rc = self.fixer(argv, out, timeout_code="worktree_timeout")
+            rc = self.fixer(argv, out, stdin=stdin, timeout_code=timeout_code, cwd=cwd)
             out.seek(0)
             return rc, out.read().decode("utf-8", errors="replace")
+
+    def remove_checkout(self, path: str) -> None:
+        """``rm -rf`` the fixer-owned checkout, with its own timeout (even past the deadline)."""
+        with tempfile.TemporaryFile(dir=self.tmp) as out:
+            self._run_as(["rm", "-rf", "--", path], cwd="/", timeout=_CLEANUP_S, stdout=out)
+
+
+def _hard_git(*args: str) -> list[str]:
+    """git as the fixer user, immune to the fixer's own git config, templates and hooks."""
+    return [
+        *_HARD_GIT_ENV,
+        "git",
+        "-c",
+        "core.hooksPath=/dev/null",
+        "-c",
+        "core.fsmonitor=false",
+        "-c",
+        "core.quotePath=false",
+        *args,
+    ]
 
 
 def _sha_input(input: Mapping[str, Any], name: str) -> str:
@@ -863,7 +917,7 @@ class GatePort:
                 verdict["verdict"] = NO_GATE
                 return verdict
             verdict["gate"] = spec.to_dict()
-            violations = self._guard(job, shas, config) or self._worktree(job, shas)
+            violations = self._guard(job, shas, config)
             if violations:
                 verdict.update(
                     verdict=GUARD,
@@ -871,7 +925,7 @@ class GatePort:
                     violations=[v.to_dict() for v in violations],
                 )
             else:
-                self._run(job, spec, verdict, tail_bytes)
+                self._judge(job, spec, verdict, tail_bytes)
                 if verdict["verdict"] == PASS:
                     verdict["bundle"] = self._bundle(job, shas["commit_sha"], context)
             verdict["instruction"] = _instruction(verdict)
@@ -950,26 +1004,61 @@ class GatePort:
             patterns,
         )
 
-    def _worktree(self, job: _Job, shas: Mapping[str, str]) -> list[Violation]:
-        git = ["git", "-c", "core.fsmonitor=false"]
-        rc, head = job.fixer_text([*git, "rev-parse", "--verify", "HEAD^{commit}"])
-        if rc != 0:
-            raise _Refusal("worktree_unavailable", "cannot read the worktree's HEAD")
-        if head.strip() != shas["commit_sha"]:
-            detail = f"HEAD is {head.strip()[:12]}, not commit_sha"
-            return [Violation("worktree_moved", "", detail)]
-        rc, dirty = job.fixer_text([*git, "status", "--porcelain", "--untracked-files=no"])
-        if rc != 0:
-            raise _Refusal("worktree_unavailable", "cannot read the worktree's status")
-        if dirty.strip():
-            return [Violation("worktree_dirty", "", dirty.strip()[:500])]
-        return []
+    def _checkout(self, job: _Job, sha: str) -> str:
+        """A fresh checkout of ``sha``, as the fixer user, from the node-verified pack.
 
-    def _run(self, job: _Job, spec: GateSpec, verdict: dict[str, Any], tail_bytes: int) -> None:
+        The pack reaches the fixer's ``git index-pack`` on stdin (a descriptor the node
+        opened), so the fixer never reads a node path. The directory is the fixer's own
+        ``mktemp -d``; the caller removes it."""
+        rc, out = job.fixer_text(["mktemp", "-d", "-t", f"{_CHECKOUT_PREFIX}XXXXXXXXXX"], cwd="/")
+        path = out.strip()
+        if (
+            rc != 0
+            or "\n" in path
+            or not os.path.isabs(path)
+            or os.path.normpath(path) != path
+            or not os.path.basename(path).startswith(_CHECKOUT_PREFIX)
+        ):
+            raise _Refusal("checkout_failed", "mktemp -d did not return a fresh directory")
+        return path
+
+    def _fill_checkout(self, job: _Job, path: str, sha: str) -> None:
+        def step(argv: list[str], what: str, stdin: IO[bytes] | None = None) -> str:
+            rc, out = job.fixer_text(argv, cwd=path, stdin=stdin)
+            if rc != 0:
+                raise _Refusal("checkout_failed", f"{what} failed: {out.strip()[:300]}")
+            return out
+
+        step(_hard_git("init", "--quiet", "--template=", "."), "git init")
+        with open(os.path.join(job.tmp, "in.pack"), "rb") as pack:
+            step(_hard_git("index-pack", "--stdin", "--strict"), "git index-pack", pack)
+        step(
+            _hard_git("-c", "advice.detachedHead=false", "checkout", "--quiet", "--detach", sha),
+            "git checkout",
+        )
+        head = step(_hard_git("rev-parse", "--verify", "HEAD^{commit}"), "git rev-parse")
+        if head.strip() != sha:
+            raise _Refusal("checkout_failed", f"checkout HEAD is {head.strip()[:12]}")
+        status = step(_hard_git("status", "--porcelain", "--ignored"), "git status")
+        if status.strip():
+            raise _Refusal("checkout_failed", f"checkout is not clean: {status.strip()[:300]}")
+
+    def _judge(self, job: _Job, spec: GateSpec, verdict: dict[str, Any], tail_bytes: int) -> None:
+        """Run the gate in a fresh checkout of the commit, never in the agent's worktree."""
+        path = self._checkout(job, verdict["commit_sha"])
+        try:
+            self._fill_checkout(job, path, verdict["commit_sha"])
+            self._run(job, spec, verdict, tail_bytes, path)
+        finally:
+            job.remove_checkout(path)
+
+    def _run(
+        self, job: _Job, spec: GateSpec, verdict: dict[str, Any], tail_bytes: int, cwd: str
+    ) -> None:
         for phase, commands in (("setup", spec.setup), ("test", spec.test)):
             for argv in commands:
                 with tempfile.TemporaryFile(dir=job.tmp) as out:
-                    rc = job.fixer(argv, out)
+                    rc = job.fixer(argv, out, cwd=cwd)
                     tail = _tail(out, tail_bytes)
                 verdict["output_tail"] = tail
                 if rc == TIMED_OUT:

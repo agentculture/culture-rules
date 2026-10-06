@@ -117,12 +117,15 @@ class Repo:
 class LocalRunner:
     """The run-as seam for tests: runs as the current user, records every argv."""
 
-    def __init__(self) -> None:
+    def __init__(self, env: dict[str, str] | None = None) -> None:
         self.calls: list[list[str]] = []
+        self.cwds: list[str] = []
+        self.env = env
 
     def __call__(self, argv, *, cwd, timeout, stdout, stdin=None, merge_stderr=False):
         self.calls.append(list(argv))
-        env = {**GIT_ENV, "HOME": cwd}
+        self.cwds.append(cwd)
+        env = self.env if self.env is not None else {**GIT_ENV, "HOME": cwd}
         return run_process(
             argv,
             cwd=cwd,
@@ -134,7 +137,11 @@ class LocalRunner:
         )
 
     def gate_calls(self) -> list[list[str]]:
-        return [c for c in self.calls if c[0] != "git"]
+        """The gate's own commands (not git, mktemp or the checkout's removal)."""
+        return [c for c in self.calls if c[0] not in ("git", "env", "mktemp", "rm")]
+
+    def gate_cwds(self) -> list[str]:
+        return [d for c, d in zip(self.calls, self.cwds) if c in self.gate_calls()]
 
 
 @pytest.fixture
@@ -284,20 +291,85 @@ def test_rewritten_history_is_guarded(store, tmp_path, clock):
     assert (out["verdict"], out["rule"]) == (GUARD, "history_rewritten")
 
 
-def test_worktree_not_at_the_commit_is_guarded(store, tmp_path, clock):
+def test_gate_runs_in_a_fresh_checkout_that_is_removed_afterwards(store, tmp_path, clock):
     repo = Repo(tmp_path, gate_yaml([PASSING]))
+    repo.commit("fix", {"src/app.py": "x = 3\n"})
+    runner = LocalRunner()
+    assert judge(store, runner, repo, tmp_path, clock)["verdict"] == PASS
+    (cwd,) = runner.gate_cwds()
+    assert cwd != str(repo.wt) and os.path.basename(cwd).startswith("culture-rules-gate-")
+    assert not os.path.exists(cwd)
+
+
+def test_checkout_is_removed_after_a_failure_too(store, tmp_path, clock):
+    repo = Repo(tmp_path, gate_yaml([[PY, "-c", "raise SystemExit(2)"]]))
+    repo.commit("fix", {"src/app.py": "x = 3\n"})
+    runner = LocalRunner()
+    assert judge(store, runner, repo, tmp_path, clock)["verdict"] == FAIL
+    assert not os.path.exists(runner.gate_cwds()[0])
+
+
+def test_skip_worktree_edits_in_the_agent_worktree_do_not_change_the_result(store, tmp_path, clock):
+    check = [PY, "-c", "import sys; sys.exit('assert 1 == 2' in open('tests/test_x.py').read())"]
+    repo = Repo(tmp_path, gate_yaml([check]))
+    repo.commit("fix", {"src/app.py": "x = 3\n"})
+    git(repo.wt, "update-index", "--skip-worktree", "tests/test_x.py")
+    (repo.wt / "tests/test_x.py").write_text("def test_broken():\n    assert True\n")
+    assert git(repo.wt, "status", "--porcelain") == ""  # the worktree looks clean
+    out = judge(store, LocalRunner(), repo, tmp_path, clock)
+    assert out["verdict"] == FAIL  # the committed test file was judged
+
+
+def test_untracked_files_in_the_agent_worktree_do_not_reach_the_gate(store, tmp_path, clock):
+    check = [PY, "-c", "import os, sys; sys.exit(os.path.exists('conftest.py'))"]
+    repo = Repo(tmp_path, gate_yaml([check]))
+    repo.commit("fix", {"src/app.py": "x = 3\n"})
+    (repo.wt / "conftest.py").write_text("collect_ignore = ['tests']\n")
+    assert judge(store, LocalRunner(), repo, tmp_path, clock)["verdict"] == PASS
+
+
+def test_the_commit_is_judged_wherever_the_worktree_head_is(store, tmp_path, clock):
+    check = [PY, "-c", "import sys; sys.exit(open('src/app.py').read() != 'x = 3\\n')"]
+    repo = Repo(tmp_path, gate_yaml([check]))
     first = repo.commit("one", {"src/app.py": "x = 3\n"})
     repo.commit("two", {"src/app.py": "x = 4\n"})
-    out = judge(store, LocalRunner(), repo, tmp_path, clock, commit=first)
-    assert (out["verdict"], out["rule"]) == (GUARD, "worktree_moved")
-
-
-def test_dirty_worktree_is_guarded(store, tmp_path, clock):
-    repo = Repo(tmp_path, gate_yaml([PASSING]))
-    repo.commit("one", {"src/app.py": "x = 3\n"})
     (repo.wt / "src/app.py").write_text("x = 'uncommitted'\n")
-    out = judge(store, LocalRunner(), repo, tmp_path, clock)
-    assert (out["verdict"], out["rule"]) == (GUARD, "worktree_dirty")
+    assert judge(store, LocalRunner(), repo, tmp_path, clock, commit=first)["verdict"] == PASS
+
+
+def test_checkout_ignores_a_hostile_fixer_gitconfig(store, tmp_path, clock):
+    marker = tmp_path / "hook-ran"
+    home = tmp_path / "fixer-home"
+    hooks = home / "hooks"
+    template = home / "template"
+    for d in (hooks, template / "hooks"):
+        d.mkdir(parents=True)
+        script = d / "post-checkout"
+        script.write_text(f"#!/bin/sh\ntouch {marker}\n")
+        script.chmod(0o755)
+    (home / ".gitconfig").write_text(
+        f"[core]\n\thooksPath = {hooks}\n[init]\n\ttemplateDir = {template}\n"
+        "[user]\n\tname = x\n\temail = x@example.invalid\n"
+    )
+    hostile = {"PATH": GIT_ENV["PATH"], "HOME": str(home), "LC_ALL": "C"}
+    # control: plain git as this user does run the hook
+    control = tmp_path / "control"
+    subprocess.run(["git", "init", "-q", str(control)], env=hostile, check=True)
+    subprocess.run(
+        ["git", "-C", str(control), "commit", "-q", "--allow-empty", "-m", "c"],
+        env=hostile,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(control), "checkout", "-q", "--detach", "HEAD"], env=hostile, check=True
+    )
+    assert marker.exists()
+    marker.unlink()
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    repo.commit("fix", {"src/app.py": "x = 3\n"})
+    out = judge(store, LocalRunner(env=hostile), repo, tmp_path, clock)
+    assert out["verdict"] == PASS, out
+    assert not marker.exists()
 
 
 def test_no_gate_section_gives_no_gate_and_runs_nothing(store, tmp_path, clock):
@@ -386,7 +458,10 @@ def test_gate_runs_exactly_the_declared_argv_and_never_a_shell(store, tmp_path, 
     shells = {"sh", "bash", "dash", "zsh"}
     assert not any(os.path.basename(argv[0]) in shells for argv, _ in spawned)
     gate_runs = [argv for argv, _ in spawned if declared[2] in argv]
-    assert gate_runs == [["env", "env", "-C", str(repo.wt), "--", *declared]]
+    assert len(gate_runs) == 1
+    prefix, checkout, rest = gate_runs[0][:3], gate_runs[0][3], gate_runs[0][4:]
+    assert prefix == ["env", "env", "-C"] and rest == ["--", *declared]
+    assert checkout != str(repo.wt) and "culture-rules-gate-" in checkout
     assert not marker.exists()
     assert f"$(touch {marker})" in out["output_tail"]
 
