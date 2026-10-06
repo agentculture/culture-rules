@@ -35,10 +35,12 @@ A :class:`Node` on host ``H`` does, every cycle (:meth:`Node.run_once`):
 5. **start** - turns pending intents into runs (run id derived from rule + event);
    then **redeliver** - resumes runs for human asks that were answered but whose
    delivery was lost (a crash between recording the answer and delivering it;
-   :func:`~culture_rules.actors.human.redeliver`). The run's compare-and-set keeps it
-   exactly once when several nodes redeliver the same answer, and the actor's limit slot
-   is freed (:mod:`culture_rules.node.completions`). Mesh replies are not polled:
-   ``MeshAgentActor`` is not among the production adapters;
+   :func:`~culture_rules.actors.human.redeliver`), and delivers bridge agent results the
+   API recorded from a bridge's callback (:func:`~culture_rules.actors.agent.redeliver_bridge`;
+   a result for an attempt the step has moved past is discarded). The run's
+   compare-and-set keeps it exactly once when several nodes redeliver the same answer,
+   and the actor's limit slot is freed (:mod:`culture_rules.node.completions`). Mesh
+   replies are not polled: ``MeshAgentActor`` is not among the production adapters;
 6. **drive** - ticks the :class:`~culture_rules.engine.runs.Executor` until idle; actors
    are reached through :class:`~culture_rules.node.actors.ActorRouter`;
 7. **report** - optional: posts finished runs this node started through
@@ -63,7 +65,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from culture_rules.actors import human
+from culture_rules.actors import agent, human
 from culture_rules.apps.discord_gateway import (
     GATEWAY_STATE_COLLECTION,
     Gateway,
@@ -111,6 +113,7 @@ NODE_COLLECTIONS = (
     RULE_DECISIONS,
     "actor_usage",
     human.ASKS_COLLECTION,
+    agent.BRIDGE_INVOCATIONS,
     PROBE_STATE,
     LEASES_COLLECTION,
     HOOK_STATS_COLLECTION,
@@ -426,6 +429,7 @@ class Node:
 
     def _redeliver(self, report: CycleReport) -> None:
         report.redelivered += human.redeliver(self._store, self.executor)
+        report.redelivered += agent.redeliver_bridge(self._store, self.executor)
 
     def _drive(self, report: CycleReport) -> None:
         report.transitions += self.executor.run_until_idle(self._max_ticks)

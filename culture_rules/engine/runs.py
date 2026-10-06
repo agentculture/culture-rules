@@ -1099,11 +1099,16 @@ class Executor:
 
     # ------------------------------------------------------------------ events
 
-    def deliver(self, idempotency_key: str, result: InvocationResult) -> bool:
+    def deliver(
+        self, idempotency_key: str, result: InvocationResult, *, attempt: int | None = None
+    ) -> bool:
         """Record the completion (or failure) of accepted work reported later by an event.
 
         Returns True iff the result changed the run. Results for finished steps,
-        cancelled or finished runs, and unknown keys are ignored (False).
+        cancelled or finished runs, and unknown keys are ignored (False). With ``attempt``,
+        a result for an attempt other than the step's current one is ignored too (checked
+        inside the compare-and-set, so a retry dispatched meanwhile is never finished by an
+        older attempt's result).
         """
         claim = self._claims.get(idempotency_key)
         if claim is None or claim.get("kind") != "step":
@@ -1116,6 +1121,8 @@ class Executor:
             st = step_state(doc, key) if doc else None
             if doc is None or doc["status"] != ACTIVE or st is None or st["status"] in STEP_DONE:
                 return False
+            if attempt is not None and st["attempt"] != attempt:
+                return False  # a newer attempt runs (or none ran yet): not this result's
             plan = _Plan.of(doc)
             now = self._clock()
             new = copy.deepcopy(doc)

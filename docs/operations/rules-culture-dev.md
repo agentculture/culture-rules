@@ -230,6 +230,20 @@ The app authenticates every delivery itself, so Bypass does not mean open:
 
 A delivery for a disabled app actor answers `202` and is dropped.
 
+### Bridge callbacks
+
+One more `POST` route skips principal resolution: the bridge callback
+`/bridge-invocations/bri_<24 hex>/events` (`BRIDGE_CALLBACK_RE` in
+`culture_rules/server/app.py`, full match, the same raw-path and `/api` rules).
+A cultureagent bridge posts its heartbeat and terminal events there for a
+bridge agent actor's invocation. The only credential is the per-attempt
+callback token the actor handed the bridge (`Authorization: Bearer`), checked
+against its stored hash. It is no credential on any other route. The route
+records the event in the `bridge_invocations` collection, and each node cycle
+delivers recorded results to their runs. Point a bridge actor's
+`params.callback_url` at a listener the bridge host can reach, for example the
+LAN listener over the tailnet. No Access Bypass is needed for that.
+
 ## App secrets inside the services (hidden `grant` secrets)
 
 Some secrets are used inside the API and node processes, not by a subprocess:

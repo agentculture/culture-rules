@@ -192,3 +192,29 @@ def test_a_crash_after_delivery_but_before_the_flag_still_frees_the_slot(asking)
     run = c.run("r", "evt_1")
     assert len(delivered_events(run)) == 1
     assert run["status"] == "succeeded"
+
+
+# --------------------------------------------------------------------------- d3: attempts
+
+
+def test_a_refused_older_attempt_result_leaves_the_newer_attempts_slot_held():
+    from culture_rules.node import completions
+
+    c, _ = accepting_cluster(retry=RetryPolicy(max_attempts=2, backoff_s=1))
+    node = c.nodes["spark"]
+    key = waiting_key(c, 1)
+    assert node.deliver(key, InvocationResult.failed("flaky", retryable=True)) is True
+    c.clock.advance(5)
+    c.cycle()  # attempt 2 is dispatched and accepted: it holds the slot
+    run = c.run("r", "evt_1")
+    assert (step_state(run, "s1")["attempt"], step_state(run, "s1")["status"]) == (2, "waiting")
+    assert completions.step_attempt(c.base, key) == 2
+    assert usage(c, "bot")["inflight"]
+
+    late = InvocationResult.completed({"n": 1})
+    assert completions.deliver(c.base, node.executor, key, late, attempt=1) is False
+    assert step_state(c.run("r", "evt_1"), "s1")["status"] == "waiting"
+    assert usage(c, "bot")["inflight"]  # attempt 2's slot is not freed by attempt 1
+
+    assert completions.deliver(c.base, node.executor, key, late, attempt=2) is True
+    assert usage(c, "bot")["inflight"] == []

@@ -136,6 +136,21 @@
         "title": "BackfillResult",
         "type": "object"
       },
+      "BridgeEventAck": {
+        "description": "What :func:`culture_rules.actors.agent.record_bridge_event` did with the event.",
+        "properties": {
+          "status": {
+            "description": "recorded | duplicate | invalid | unauthorized | unknown | expired",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "BridgeEventAck",
+        "type": "object"
+      },
       "Controls": {
         "properties": {
           "drained": {
@@ -2266,6 +2281,128 @@
         "summary": "Answer",
         "tags": [
           "asks"
+        ]
+      }
+    },
+    "/bridge-invocations/{invocation_id}/events": {
+      "post": {
+        "description": "Called by a cultureagent bridge, not by clients: one callback event (heartbeat, progress, completed, failed, ...) for a bridge invocation. Authenticated only by that invocation's callback token (Bearer); no service token or Access JWT applies. The node delivers a recorded result to its run.",
+        "operationId": "bridge_callback",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "invocation_id",
+            "required": true,
+            "schema": {
+              "title": "Invocation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "event_id": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "enum": [
+                      "completed",
+                      "failed",
+                      "blocked",
+                      "accepted",
+                      "heartbeat",
+                      "progress",
+                      "artifact",
+                      "signal"
+                    ],
+                    "type": "string"
+                  },
+                  "payload": {
+                    "type": "object"
+                  },
+                  "sequence": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "sequence"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BridgeEventAck"
+                }
+              }
+            },
+            "description": "Recorded, or a duplicate of one already recorded"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BridgeEventAck"
+                }
+              }
+            },
+            "description": "Not a callback event"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BridgeEventAck"
+                }
+              }
+            },
+            "description": "Missing or wrong callback token"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BridgeEventAck"
+                }
+              }
+            },
+            "description": "No such bridge invocation"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BridgeEventAck"
+                }
+              }
+            },
+            "description": "The attempt was expired or superseded"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BridgeEventAck"
+                }
+              }
+            },
+            "description": "Event too large"
+          }
+        },
+        "security": [],
+        "summary": "Bridge callback event (callback token auth)",
+        "tags": [
+          "bridge"
         ]
       }
     },

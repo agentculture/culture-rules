@@ -21,7 +21,14 @@
   ``action:<kind>``, ``action``, then the step kind, then ``"*"``.
 
 :func:`default_factories` gives the production adapters: ``agent`` -> one-shot
-``colleague work`` (:class:`~culture_rules.actors.agent.ColleagueActor`), ``runner`` ->
+``colleague work`` (:class:`~culture_rules.actors.agent.ColleagueActor`), or, when the
+actor's ``params`` name a ``bridge_url``, an async cultureagent bridge session
+(:class:`~culture_rules.actors.agent.BridgeAgentActor`; ``params``: ``bridge_url``,
+``callback_url`` the API base URL the bridge posts its callbacks to (``POST
+/bridge-invocations/{id}/events``; an ``{id}`` placeholder in it is filled instead),
+``bridge_token`` a ``grant:`` reference for the bridge's bearer token, and
+``model``/``sandbox``/``mode`` defaults),
+``runner`` ->
 registered commands only (:class:`~culture_rules.actors.code.CodeRunner`, inline scripts
 refused), ``human`` -> asks (:class:`~culture_rules.actors.human.HumanAdapter`, only when
 an event emitter is configured). :meth:`ActorRouter.release` frees a LimitedActor slot for
@@ -59,11 +66,24 @@ AdapterFactory = Callable[[Actor], ActorPort]
 
 def default_factories(store: Any, *, emitter: Any = None) -> dict[str, AdapterFactory]:
     """The production adapter factories (see the module docstring)."""
-    from culture_rules.actors.agent import ColleagueActor
+    from culture_rules.actors.agent import BridgeAgentActor, ColleagueActor
     from culture_rules.actors.code import CodeRunner
 
     def agent(actor: Actor) -> ActorPort:
         params = actor.params
+        if params.get("bridge_url"):
+            return BridgeAgentActor(
+                store,
+                bridge_url=str(params["bridge_url"]),
+                callback_url=params.get("callback_url"),
+                token=params.get("bridge_token"),
+                defaults={
+                    "model": params.get("model") or actor.model,
+                    "sandbox": params.get("sandbox"),
+                    "mode": params.get("mode"),
+                },
+                actor_id=actor.id,
+            )
         return ColleagueActor(
             repo=params.get("repo") or actor.repo, engine=params.get("engine"), model=actor.model
         )
