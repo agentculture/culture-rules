@@ -504,7 +504,7 @@ def _check_wait_config(config: dict, path: str, errors: Errors) -> None:
         _err(
             errors,
             _join(path, "seconds"),
-            "range",
+            "required",
             "wait steps require config.seconds (a positive number)",
         )
         return
@@ -567,14 +567,13 @@ def _check_step(obj: Step, path: str, errors: Errors) -> None:
             _err(errors, max_path, "loop_max_required", f"{obj.kind} loop needs max_iterations")
         elif isinstance(obj.max_iterations, int) and obj.max_iterations < 1:
             _err(errors, max_path, "range", "max_iterations must be >= 1")
-    # Wait-step config: seconds + head_unchanged guard
-    elif obj.kind == "wait":
-        _check_wait_config(obj.config, _join(path, "config"), errors)
     else:
         if obj.max_iterations is not None:
             _err(errors, max_path, "not_allowed", "only loop steps take max_iterations")
         if obj.body:
             _err(errors, _join(path, "body"), "not_allowed", "only loop steps have a body")
+        if obj.kind == "wait":
+            _check_wait_config(obj.config, _join(path, "config"), errors)
 
 
 def _check_actor(obj: Actor, path: str, errors: Errors) -> None:

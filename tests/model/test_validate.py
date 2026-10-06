@@ -258,7 +258,7 @@ def test_wait_step_missing_seconds_is_refused() -> None:
     step = make_step(kind="wait", config={})
     wf = make_workflow(steps=(step,), edges=(), outputs=())
     errors = validate(wf)
-    assert ("steps[0].config.seconds", "range") in {(e.path, e.code) for e in errors}
+    assert ("steps[0].config.seconds", "required") in {(e.path, e.code) for e in errors}
 
 
 def test_wait_step_zero_seconds_is_refused() -> None:
@@ -312,6 +312,14 @@ def test_wait_step_valid_ref_to_vars_works() -> None:
     )
     wf = make_workflow(steps=(step,), edges=(), outputs=())
     assert validate(wf) == []
+
+
+def test_wait_step_cannot_carry_max_or_body() -> None:
+    """A wait step, like any non-loop step, cannot carry max_iterations or a body."""
+    step = make_step(
+        kind="wait", config={"seconds": 60}, max_iterations=3, body=(make_step(id="x"),)
+    )
+    assert {"max_iterations", "body"} <= paths(validate(step))
 
 
 def test_duplicate_step_ids_rejected_including_nested() -> None:

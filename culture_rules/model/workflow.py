@@ -89,7 +89,7 @@ class Step(Model):
     id: str = doc("Step id, unique within the workflow (including loop bodies)")
     name: str = doc("Display name", default="")
     description: str = doc(_FREE_TEXT, default="")
-    kind: StepKind = doc("logic | ai | code | actor_task | for_each | retry_until")
+    kind: StepKind = doc("logic | ai | code | actor_task | for_each | retry_until | wait")
     inputs: tuple[Port, ...] = doc("Typed input ports", default=())
     outputs: tuple[Port, ...] = doc("Typed output ports", default=())
     placement: Placement | None = doc(
