@@ -122,9 +122,26 @@ per-invocation token itself):
 }
 ```
 
-`codex-fixer` is the same with port `8094`, `grant:RULES_CODEX_FIXER_TOKEN`,
-and `"sandbox": "workspace-write"` instead of `mode`. The qwen bridge refuses
-a run without `mode`.
+`codex-fixer` runs Codex with its own default model (leave `model` unset, or
+name a model the Codex login offers; never `cortex`):
+
+```json
+{
+  "id": "codex-fixer",
+  "name": "PR fixer (Codex)",
+  "kind": "agent",
+  "machine": "spark2",
+  "harness": "codex",
+  "params": {
+    "bridge_url": "http://<spark2 tailnet IP>:8094",
+    "callback_url": "http://<API LAN host>:<port>",
+    "bridge_token": "grant:RULES_CODEX_FIXER_TOKEN",
+    "sandbox": "workspace-write"
+  }
+}
+```
+
+The qwen bridge refuses a run without `mode`; the codex bridge takes `sandbox`.
 
 ## 6. Verify
 
