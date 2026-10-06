@@ -337,7 +337,8 @@
             "code",
             "actor_task",
             "for_each",
-            "retry_until"
+            "retry_until",
+            "wait"
           ],
           "description": "logic | ai | code | actor_task | for_each | retry_until"
         },

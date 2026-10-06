@@ -46,6 +46,16 @@ stops being per-host glue only its author understands.
 - `culture-rules node run` — run this host's engine node (talks to the store directly).
 - `culture-rules mcp` — serve the CLI verbs as MCP tools over stdio (needs the `mcp` extra).
 
+## Step kinds
+
+logic — pure computation (expressions, conditionals).
+ai — invoke an LLM with a prompt.
+code — run a Python function or script.
+actor_task — delegate to a named actor.
+for_each — iterate over a collection.
+retry_until — loop until a condition is met.
+wait — pause for a duration with an optional resume guard.
+
 ## Exit-code policy
 
 - `0` success

@@ -498,6 +498,62 @@ def _check_edge(obj: Edge, path: str, errors: Errors) -> None:
     _nonempty(obj, ("source", "source_port", "target", "target_port"), path, errors)
 
 
+def _check_wait_config(config: dict, path: str, errors: Errors) -> None:
+    """Validate wait-step config: seconds (required, > 0) and head_unchanged guard."""
+    if "seconds" not in config:
+        _err(
+            errors,
+            _join(path, "seconds"),
+            "range",
+            "wait steps require config.seconds (a positive number)",
+        )
+        return
+    seconds = config["seconds"]
+    if not isinstance(seconds, (int, float)) or isinstance(seconds, bool):
+        _err(errors, _join(path, "seconds"), "type", "wait config.seconds must be a number")
+        return
+    if not math.isfinite(seconds) or seconds <= 0:
+        _err(
+            errors,
+            _join(path, "seconds"),
+            "range",
+            "wait config.seconds must be a finite number > 0",
+        )
+        return
+    guard = config.get("guard")
+    if guard is None:
+        return
+    if not isinstance(guard, dict):
+        _err(errors, _join(path, "guard"), "type", "wait config.guard must be an object")
+        return
+    guard_value = guard.get("value")
+    if guard_value != "head_unchanged":
+        _err(
+            errors,
+            _join(path, "guard.value"),
+            "invalid_guard",
+            f"wait guard value must be 'head_unchanged' (got {guard_value!r})",
+        )
+        return
+    ref = guard.get("ref")
+    if not ref or not isinstance(ref, str):
+        _err(
+            errors,
+            _join(path, "guard.ref"),
+            "missing_ref",
+            "head_unchanged guard requires a config.guard.ref pointing to an input or variable",
+        )
+        return
+    if not (ref.startswith("inputs.") or ref.startswith("vars.")):
+        _err(
+            errors,
+            _join(path, "guard.ref"),
+            "invalid_ref",
+            "head_unchanged guard ref must point to an input (inputs.<name>) "
+            "or variable (vars.<name>)",
+        )
+
+
 def _check_step(obj: Step, path: str, errors: Errors) -> None:
     _nonempty(obj, ("id",), path, errors)
     if isinstance(obj.id, str) and obj.id in _RESERVED_STEP_IDS:
@@ -511,6 +567,9 @@ def _check_step(obj: Step, path: str, errors: Errors) -> None:
             _err(errors, max_path, "loop_max_required", f"{obj.kind} loop needs max_iterations")
         elif isinstance(obj.max_iterations, int) and obj.max_iterations < 1:
             _err(errors, max_path, "range", "max_iterations must be >= 1")
+    # Wait-step config: seconds + head_unchanged guard
+    elif obj.kind == "wait":
+        _check_wait_config(obj.config, _join(path, "config"), errors)
     else:
         if obj.max_iterations is not None:
             _err(errors, max_path, "not_allowed", "only loop steps take max_iterations")

@@ -24,10 +24,18 @@ __all__ = [
 ]
 
 PortType = Literal["string", "number", "integer", "boolean", "object", "array", "any"]
-StepKind = Literal["logic", "ai", "code", "actor_task", "for_each", "retry_until"]
+StepKind = Literal["logic", "ai", "code", "actor_task", "for_each", "retry_until", "wait"]
 
 PORT_TYPES: tuple[str, ...] = ("string", "number", "integer", "boolean", "object", "array", "any")
-STEP_KINDS: tuple[str, ...] = ("logic", "ai", "code", "actor_task", "for_each", "retry_until")
+STEP_KINDS: tuple[str, ...] = (
+    "logic",
+    "ai",
+    "code",
+    "actor_task",
+    "for_each",
+    "retry_until",
+    "wait",
+)
 LOOP_KINDS: tuple[str, ...] = ("for_each", "retry_until")
 
 _VALUE_TYPE = "Value type"
