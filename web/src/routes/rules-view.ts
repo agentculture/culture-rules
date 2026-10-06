@@ -59,6 +59,13 @@ function operandText(op: Operand): string {
   return typeof op.literal === "string" ? op.literal : JSON.stringify(op.literal);
 }
 
+/** The list side of an `in`: a variable reads `vars.name`, a typed list its items. */
+function itemsText(op: Operand): string {
+  if ("var" in op) return `vars.${op.var}`;
+  if ("literal" in op && Array.isArray(op.literal)) return op.literal.join(", ");
+  return operandText(op);
+}
+
 const CMP_WORDS: Record<string, string> = { "==": "is", "!=": "is not" };
 
 /** A condition tree in words; anything beyond one comparison stays honest and short. */
@@ -71,7 +78,7 @@ export function conditionText(c: Condition): ConditionText {
   }
   if (c.op === "exists") return { subject: operandText(c.arg), rest: "exists" };
   if (c.op === "matches") return { subject: operandText(c.value), rest: `matches ${c.pattern}` };
-  if (c.op === "in") return { subject: operandText(c.value), rest: `is in ${operandText(c.items)}` };
+  if (c.op === "in") return { subject: operandText(c.value), rest: `is in ${itemsText(c.items)}` };
   if (c.op === "and" || c.op === "or") {
     return { subject: null, rest: `${c.args.length} conditions, ${c.op === "and" ? "all" : "any"} must hold` };
   }
