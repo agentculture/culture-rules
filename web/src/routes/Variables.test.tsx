@@ -155,6 +155,19 @@ describe("lossless editing", () => {
     expect(valueOfRows(["a"], [...rowsOf(["a"]), { id: 99, text: "3" }]).value).toEqual(["a", "3"]);
   });
 
+  it("a new row in a uniform boolean list is a boolean; other text is refused", () => {
+    const added = (text: string) => [...rowsOf([true]), { id: 99, text }];
+    expect(valueOfRows([true], added("false"))).toEqual({ value: [true, false], invalid: [] });
+    expect(valueOfRows([true], added("true")).value).toEqual([true, true]);
+    expect(valueOfRows([true], added("maybe")).invalid).toEqual([1]);
+    // a mixed list keeps new rows as text
+    expect(valueOfRows([true, "x"], [...rowsOf([true, "x"]), { id: 99, text: "false" }]).value).toEqual([
+      true,
+      "x",
+      "false",
+    ]);
+  });
+
   it("the editor shows untouched odd strings exactly and saves nothing until something changes", async () => {
     const user = userEvent.setup();
     api.variableVersions.push({

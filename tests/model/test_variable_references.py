@@ -303,3 +303,15 @@ def test_a_refused_group_member_that_could_win_blocks_the_winner():
     weak = replace(hi, priority=0)
     out = {d.rule_id: d for d in match(EVENT, [weak, lo], variables_supported=False)}
     assert out["lo"].fire
+
+
+def test_a_refused_rule_superseded_by_a_matched_rule_is_no_group_rival():
+    # a (refused) can never win: matched b supersedes it whatever x holds, so c wins.
+    a = replace(rule("a", condition=IN_X), exclusive_group="g", priority=9)
+    b = _plain("b", supersedes=("a",))
+    c = _plain("c", exclusive_group="g", priority=1)
+    for kw in ({"variables_supported": False}, {"variables": {}}):
+        out = {d.rule_id: d for d in match(EVENT, [a, b, c], **kw)}
+        assert not out["a"].fire
+        assert out["b"].fire
+        assert out["c"].fire, out["c"]
