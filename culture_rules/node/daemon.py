@@ -94,6 +94,7 @@ from culture_rules.machines.heartbeat import (
 from culture_rules.machines.probe import ProbeResult, probe_platform, read_load
 from culture_rules.node import completions
 from culture_rules.node.actors import ACTORS_COLLECTION, ActorRouter, AdapterFactory
+from culture_rules.node.checks_settle import SETTLE_COLLECTION, AppSuiteLister, ChecksSettler
 from culture_rules.node.firing import RULE_FIRES, RuleFiring
 from culture_rules.node.probe_trigger import PROBE_STATE, CommandRunner, ProbeTrigger
 from culture_rules.node.schedule import Scheduler
@@ -121,6 +122,7 @@ NODE_COLLECTIONS = (
     LEASES_COLLECTION,
     HOOK_STATS_COLLECTION,
     GATEWAY_STATE_COLLECTION,
+    SETTLE_COLLECTION,
 )
 """Collections a node touches (created up front on MongoDB)."""
 
@@ -265,6 +267,10 @@ class Node:
             host=host,
         )
         self._listen_gateways = options.listen_gateways
+        lister = AppSuiteLister(store, secrets=resolve_secret)
+        self.settler = ChecksSettler(
+            store, lister.list_suites, pull=lister.get_pull, clock=self._clock
+        )
         self.heartbeat: HeartbeatPublisher | None = None
         self._last_beat: datetime | None = None
         self._reporter = reporter
@@ -385,6 +391,7 @@ class Node:
                 self._stage(report, self._ingest, report)
             self._stage(report, self._schedule, report)
             self._stage(report, self._probe, report)
+            self._stage(report, self._settle, report)
             if self._listen_gateways:
                 self._stage(report, self._discord_gateway, report)
             for consumer in self.firing.consumers:
@@ -423,6 +430,9 @@ class Node:
 
     def _probe(self, report: CycleReport) -> None:
         report.probed += self.prober.tick()
+
+    def _settle(self, report: CycleReport) -> None:
+        self.settler.tick()
 
     def _discord_gateway(self, report: CycleReport) -> None:
         report.listening += self.gateways.tick()

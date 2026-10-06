@@ -713,3 +713,36 @@ def test_router_body_limit_413():
     b = b"x" * (gh.MAX_BODY_BYTES + 1)
     assert c.post("/hooks/github", content=b, headers=hdrs(b)).status_code == 413
     assert events(s) == []
+
+
+def test_on_check_failure_answers_503_and_redelivery_settles():
+    s = make()
+    seen = []
+
+    def on_check(data):
+        seen.append(data["head_sha"])
+        if len(seen) == 1:
+            raise RuntimeError("arming blew up")
+
+    def go(body, event, delivery):
+        return gh.handle(
+            s,
+            body=body,
+            headers=hdrs(body, event=event, delivery=delivery),
+            query={},
+            secrets=resolver({REF: KEY_A}),
+            on_check=on_check,
+        )
+
+    suite = json.dumps(
+        {
+            "action": "completed",
+            "check_suite": {"status": "completed", "head_sha": "abc123d", "app": {"slug": "x"}},
+            "repository": {"full_name": "o/r"},
+            "sender": {"login": "ci-bot"},
+        }
+    ).encode()
+    assert go(suite, "check_suite", "d-1")[0] == 503  # stored, but arming failed: retry
+    assert go(suite, "check_suite", "d-1")[0] == 200  # redelivery re-runs on_check, now fine
+    go(pr_body(), "pull_request", "d-2")  # non-check events never call it
+    assert seen == ["abc123d", "abc123d"]
