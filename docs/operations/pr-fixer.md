@@ -81,8 +81,11 @@ reads stdin without a prompt, so use `read -rsp`, which prompts, hides the input
 seals no trailing newline:
 
 - GitHub: a fine-grained token, resource owner `agentculture`, all
-  repositories, permissions **Contents: Read, Pull requests: Read, Checks:
-  Read, Actions: Read** (Metadata: Read is implied).
+  repositories, permissions **Contents: Read, Pull requests: Read, Actions:
+  Read, Commit statuses: Read** (Metadata: Read is implied). Fine-grained
+  tokens have no Checks permission (it exists only for GitHub Apps); the engine
+  reads check runs through the App and hands the failing ones to the agent, and
+  Actions: Read covers the job logs.
   `read -rsp "GitHub token: " T && printf %s "$T" | sudo $G set FIXER_GITHUB_TOKEN - --hidden --user culture-fixer; unset T`
 - SonarCloud: **My Account → Security → Generate token** (a user token).
   `read -rsp "Sonar token: " T && printf %s "$T" | sudo $G set FIXER_SONAR_TOKEN - --hidden --user culture-fixer; unset T`
