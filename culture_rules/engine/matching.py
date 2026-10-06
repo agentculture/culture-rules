@@ -14,6 +14,10 @@ this precedence order:
    variable (in its condition or a ``{"$var": name}`` workflow input) and this node does
    not resolve variables, or the variable is not defined. Fail closed: a reference is never
    evaluated as missing, since a missing operand makes ``not(a in vars.x)`` true.
+   A refusal never turns into an extra firing: a matched rule that a refused rule
+   supersedes (directly or transitively), or that a refused member of its exclusive group
+   would outrank, is refused the same way (``by`` names the refused rule), since the
+   refused rule might have matched and suppressed it.
    ``condition_false`` -- the condition evaluated false (or could not be evaluated);
    ``vars.<name>`` reads the ``variables`` mapping the caller passes.
 4. ``superseded_by`` -- a *matched* rule supersedes it, directly or transitively
@@ -299,6 +303,64 @@ def _supersede(
     return superseded
 
 
+_VARIABLE_REASONS = (VARIABLES_UNSUPPORTED, VARIABLE_UNDEFINED)
+
+
+def _refused(out: Mapping[str, Decision], snapshot: Mapping[str, Rule]) -> list[Rule]:
+    """Candidates refused for a variables reason (they might have matched)."""
+    return [snapshot[rid] for rid, d in sorted(out.items()) if d.reason in _VARIABLE_REASONS]
+
+
+def _gap(rule_id: str, cause: Decision, why: str) -> Decision:
+    return Decision(
+        rule_id=rule_id,
+        fire=False,
+        reason=cause.reason,
+        by=(cause.rule_id,),
+        detail=f"{why} {cause.rule_id}, which could not be evaluated: {cause.detail}",
+    )
+
+
+def _supersede_gaps(
+    matched: Mapping[str, Rule],
+    snapshot: Mapping[str, Rule],
+    superseded: dict[str, list[str]],
+    out: dict[str, Decision],
+) -> None:
+    """Refuse the matched rules a variables-refused rule supersedes (transitively)."""
+    edges = {rid: r.supersedes for rid, r in snapshot.items()}
+    for r in _refused(out, snapshot):
+        cause = out[r.id]
+        for bid in sorted(_closure(r.id, edges)):
+            if bid in matched and bid not in out:
+                out[bid] = _gap(bid, cause, "superseded by")
+                superseded.setdefault(bid, []).append(r.id)
+
+
+def _group_gaps(
+    matched: Mapping[str, Rule],
+    snapshot: Mapping[str, Rule],
+    superseded: Mapping[str, list[str]],
+    out: dict[str, Decision],
+) -> None:
+    """Refuse a group's would-be winner when a variables-refused member outranks it."""
+    refused = [r for r in _refused(out, snapshot) if r.exclusive_group is not None]
+    if not refused:
+        return
+    groups: dict[str, list[Rule]] = {}
+    for rid, r in matched.items():
+        if rid not in superseded and rid not in out and r.exclusive_group is not None:
+            groups.setdefault(r.exclusive_group, []).append(r)
+    for group, members in groups.items():
+        winner = min(members, key=lambda r: (-r.priority, r.id))
+        rivals = [r for r in refused if r.exclusive_group == group]
+        if not rivals:
+            continue
+        best = min(rivals, key=lambda r: (-r.priority, r.id))
+        if (-best.priority, best.id) < (-winner.priority, winner.id):
+            out[winner.id] = _gap(winner.id, out[best.id], f"exclusive group {group} outranked by")
+
+
 def _group_losers(
     matched: Mapping[str, Rule], superseded: Mapping[str, list[str]], out: dict[str, Decision]
 ) -> None:
@@ -368,6 +430,8 @@ def match(
 
     matched = _screen(candidates, event, variables, variables_supported, out)
     superseded = _supersede(matched, snapshot, out)
+    _supersede_gaps(matched, snapshot, superseded, out)
+    _group_gaps(matched, snapshot, superseded, out)
     _group_losers(matched, superseded, out)
     for rid, r in matched.items():
         if rid not in out:

@@ -10,10 +10,12 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+import pytest
+
 from culture_rules.engine.claims import firing_key
 from culture_rules.engine.decisions import RULE_DECISIONS, decision_key
 from culture_rules.engine.matching import VARIABLE_UNDEFINED, VARIABLES_UNSUPPORTED
-from culture_rules.engine.runs import RUNS_COLLECTION
+from culture_rules.engine.runs import RUNS_COLLECTION, RunError
 from culture_rules.engine.variables import VARIABLES_CAPABILITY
 from culture_rules.machines.heartbeat import HEARTBEAT_COLLECTION
 from culture_rules.model.action import Action
@@ -174,3 +176,36 @@ def test_an_intent_fired_without_variable_support_is_not_started():
     assert intent["status"] == "failed"
     assert intent["error"] == VARIABLES_UNSUPPORTED
     assert c.base.get(RUNS_COLLECTION, "run-old") is None
+
+
+# --------------------------------------------------------------------------- review: direct runs
+
+
+def _var_input_cluster() -> Cluster:
+    c = Cluster("spark")
+    wf = workflow(
+        (step("s1", inputs=(port("authors", required=False),)),),
+        (edge("inputs", "authors", "s1", "authors"),),
+        inputs=(port("authors", required=False),),
+    )
+    c.define(
+        wf,
+        var_rule("r", workflow=WorkflowRef(id="wf", inputs={"authors": {"$var": "trusted"}})),
+    )
+    return c
+
+
+def test_a_direct_run_with_an_undefined_var_input_is_refused():
+    c = _var_input_cluster()
+    with pytest.raises(RunError) as exc:
+        c.nodes["spark"].executor.start_from_store("r", trigger=envelope(1), run_id="run-x")
+    assert exc.value.code == "variable_undefined"
+    assert "trusted" in str(exc.value)
+    assert c.base.get(RUNS_COLLECTION, "run-x") is None
+
+
+def test_a_direct_run_reads_the_current_variable_value():
+    c = _var_input_cluster()
+    c.base.put_variable("trusted", ["a"], updated_by=ADMIN)
+    run = c.nodes["spark"].executor.start_from_store("r", trigger=envelope(1), run_id="run-y")
+    assert run["inputs"] == {"authors": ["a"]}

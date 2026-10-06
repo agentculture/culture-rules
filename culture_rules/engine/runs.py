@@ -161,7 +161,7 @@ from culture_rules.model.action import Action
 from culture_rules.model.actor import Actor
 from culture_rules.model.common import RetryPolicy
 from culture_rules.model.placement import Placement
-from culture_rules.model.refs import LITERAL_KEY, resolve_refs
+from culture_rules.model.refs import LITERAL_KEY, resolve_refs, var_name
 from culture_rules.model.rule import Rule, Trigger, WorkflowRef
 from culture_rules.model.validate import validate
 from culture_rules.model.variable_refs import rule_variable_refs
@@ -634,22 +634,25 @@ class Executor:
         shared-variable values its ``{"$var": name}`` inputs map (the snapshot a firing
         intent carries); ``None`` reads the current values from the store.
         """
-        rule_doc = self._store.get(RULES_COLLECTION, rule_id)
-        if rule_doc is None:
-            raise RunError("rule_not_found", f"rule {rule_id!r} does not exist")
-        if rule_doc.get("deleted_at"):
-            raise RunError("not_fireable", f"rule {rule_id!r} is deleted")
-        rule = Rule.from_dict(rule_doc, strict=False)
-        workflow = None
-        if rule.workflow is not None:
-            wf_doc = self._store.get(WORKFLOWS_COLLECTION, rule.workflow.id)
-            if wf_doc is None:
-                raise RunError("workflow_not_found", f"workflow {rule.workflow.id!r} missing")
-            if wf_doc.get("deleted_at"):
-                raise RunError("not_fireable", f"workflow {rule.workflow.id!r} is deleted")
-            workflow = Workflow.from_dict(wf_doc, strict=False)
-        if variables is None:
-            variables = variable_values(self._store, rule_variable_refs(rule))
+        # One read-only transaction: the rule, its workflow and the variable values it maps
+        # come from the same snapshot.
+        with self._store.transaction() as tx:
+            rule_doc = tx.get(RULES_COLLECTION, rule_id)
+            if rule_doc is None:
+                raise RunError("rule_not_found", f"rule {rule_id!r} does not exist")
+            if rule_doc.get("deleted_at"):
+                raise RunError("not_fireable", f"rule {rule_id!r} is deleted")
+            rule = Rule.from_dict(rule_doc, strict=False)
+            workflow = None
+            if rule.workflow is not None:
+                wf_doc = tx.get(WORKFLOWS_COLLECTION, rule.workflow.id)
+                if wf_doc is None:
+                    raise RunError("workflow_not_found", f"workflow {rule.workflow.id!r} missing")
+                if wf_doc.get("deleted_at"):
+                    raise RunError("not_fireable", f"workflow {rule.workflow.id!r} is deleted")
+                workflow = Workflow.from_dict(wf_doc, strict=False)
+            if variables is None:
+                variables = variable_values(tx, rule_variable_refs(rule))
         return self.start(
             rule,
             workflow,
@@ -807,6 +810,15 @@ class Executor:
                 raise RunError("unsupported_workflow", f"step {s.id!r}: reserved id or nested loop")
             if any(b.kind == "wait" for b in s.body):
                 raise RunError("unsupported_workflow", f"step {s.id!r}: wait inside a loop body")
+        missing = sorted(
+            {n for ref in rule.workflow.inputs.values() if (n := var_name(ref)) is not None}
+            - set(variables)
+        )
+        if missing:  # fail closed, as matching does: never run without the value
+            raise RunError(
+                "variable_undefined",
+                "workflow input(s) reference undefined shared variable(s): " + ", ".join(missing),
+            )
         context = {
             "trigger": trigger,
             "rules": {k: {"outputs": v} for k, v in upstream.items()},

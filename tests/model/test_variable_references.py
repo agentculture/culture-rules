@@ -6,6 +6,7 @@ Pure-layer tests; the node-level behaviour lives in ``tests/node/test_shared_var
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -258,3 +259,46 @@ def test_enabling_a_variable_free_rule_is_never_blocked():
     defs.create("rules", {**rule("plain").to_dict(), "enabled": False}, "alice")
     _beat(store, "orin", NOW)
     assert defs.set_enabled("rules", "plain", True, "alice")["enabled"] is True
+
+
+# --------------------------------------------------------------------------- review: supersede
+
+
+def _plain(id: str, **kw) -> Rule:
+    return replace(rule(id), **kw)
+
+
+def test_a_refused_superseder_refuses_what_it_supersedes():
+    never = {"op": "compare", "cmp": "==", "left": {"literal": 1}, "right": {"literal": 2}}
+    a = replace(rule("a", condition=IN_X), supersedes=("b", "m"))
+    b = _plain("b")
+    m = _plain("m", supersedes=("c",), condition=never)  # does not match: chain passes on
+    c = _plain("c")
+    out = {d.rule_id: d for d in match(EVENT, [a, b, m, c], variables_supported=False)}
+    assert out["a"].reason == VARIABLES_UNSUPPORTED
+    for rid in ("b", "c"):  # directly and transitively: a matched a would suppress both
+        assert not out[rid].fire
+        assert out[rid].reason == VARIABLES_UNSUPPORTED
+        assert out[rid].by == ("a",)
+        assert "a" in out[rid].message
+    out = {d.rule_id: d for d in match(EVENT, [a, b, m, c], variables={})}
+    assert out["b"].reason == VARIABLE_UNDEFINED and not out["b"].fire
+
+
+def test_an_evaluable_superseder_is_unchanged():
+    a = replace(rule("a", condition=IN_X), supersedes=("b",))
+    out = {d.rule_id: d for d in match(EVENT, [a, _plain("b")], variables={"x": ["nobody"]})}
+    assert out["a"].reason == CONDITION_FALSE
+    assert out["b"].fire  # a really did not match: b fires as before
+
+
+def test_a_refused_group_member_that_could_win_blocks_the_winner():
+    hi = replace(rule("hi", condition=IN_X), exclusive_group="g", priority=9)
+    lo = _plain("lo", exclusive_group="g", priority=1)
+    out = {d.rule_id: d for d in match(EVENT, [hi, lo], variables_supported=False)}
+    assert not out["lo"].fire and out["lo"].reason == VARIABLES_UNSUPPORTED
+    assert out["lo"].by == ("hi",)
+    # a refused member that would lose anyway does not block the winner
+    weak = replace(hi, priority=0)
+    out = {d.rule_id: d for d in match(EVENT, [weak, lo], variables_supported=False)}
+    assert out["lo"].fire
