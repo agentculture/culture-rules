@@ -61,6 +61,8 @@ CHECK_TYPES = frozenset(("github.checks.suite_completed", "github.checks.workflo
 DEFAULT_IGNORED_APPS: tuple[str, ...] = ("claude",)
 DEFAULT_TIMEOUT_S = 900.0
 DEFAULT_MIN_S = 60.0
+POLL_BASE_S = 15.0
+POLL_CAP_S = 120.0
 SETTLE_HOST = "checks-settle"
 SOURCE = "culture-rules://checks-settle"
 
@@ -170,6 +172,8 @@ class ChecksSettler:
             timed_out = now >= deadline
             if not timed_out and now < self._window_end(rec):
                 continue
+            if not self._claim_poll(rec, now, deadline):
+                continue  # not due yet, or another node holds this interval's poll
             repo, sha = rec["repository"], rec["head_sha"]
             try:
                 done = self._all_completed(repo, sha)
@@ -184,6 +188,24 @@ class ChecksSettler:
         return emitted
 
     # ------------------------------------------------------------------ persistence
+
+    def _claim_poll(self, rec: Mapping[str, Any], now: datetime, deadline: datetime) -> bool:
+        """Claim this SHA's poll for one interval (compare-and-set on ``next_poll_at``), so
+        one node lists it per interval. The interval backs off ``POLL_BASE_S`` doubling to
+        ``POLL_CAP_S`` and never runs past the deadline, so the timeout is never delayed."""
+        due = _parse(rec.get("next_poll_at"))
+        if due is not None and now < due:
+            return False
+        n = int(rec.get("polls") or 0)
+        step = timedelta(seconds=min(POLL_BASE_S * 2**n, POLL_CAP_S))
+        nxt = min(now + step, deadline)
+        res = self._store.update_if(
+            SETTLE_COLLECTION,
+            rec["id"],
+            {"next_poll_at": rec.get("next_poll_at"), "state": "pending"},
+            {"next_poll_at": _iso(nxt), "polls": n + 1},
+        )
+        return res.won
 
     def _now(self) -> datetime:
         return self._clock()

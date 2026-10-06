@@ -715,13 +715,14 @@ def test_router_body_limit_413():
     assert events(s) == []
 
 
-def test_on_check_called_for_check_completions_only_and_failures_are_swallowed():
+def test_on_check_failure_answers_503_and_redelivery_settles():
     s = make()
     seen = []
 
     def on_check(data):
         seen.append(data["head_sha"])
-        raise RuntimeError("listing blew up")
+        if len(seen) == 1:
+            raise RuntimeError("arming blew up")
 
     def go(body, event, delivery):
         return gh.handle(
@@ -741,8 +742,7 @@ def test_on_check_called_for_check_completions_only_and_failures_are_swallowed()
             "sender": {"login": "ci-bot"},
         }
     ).encode()
-    assert go(suite, "check_suite", "d-1")[0] == 202
-    assert go(suite, "check_suite", "d-1")[0] == 200  # redelivery retries the settle
-    pr = pr_body()
-    go(pr, "pull_request", "d-2")
+    assert go(suite, "check_suite", "d-1")[0] == 503  # stored, but arming failed: retry
+    assert go(suite, "check_suite", "d-1")[0] == 200  # redelivery re-runs on_check, now fine
+    go(pr_body(), "pull_request", "d-2")  # non-check events never call it
     assert seen == ["abc123d", "abc123d"]

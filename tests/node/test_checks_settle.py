@@ -180,8 +180,10 @@ def test_transient_failure_on_only_completion_is_retried_by_tick():
     store, lister, clock, settler = make(("a", "completed"))
     lister.fail = True
     assert settler.on_check(check_data()) == "error"
-    assert settler.tick() == 0  # still failing, not yet due
+    assert settler.tick() == 0  # still failing
     lister.fail = False
+    assert settler.tick() == 0  # the failed poll backs off
+    clock.now = T0 + timedelta(seconds=16)
     assert settler.tick() == 1
     assert [e["envelope"]["data"]["settled_by"] for e in settled(store)] == ["all_completed"]
 
@@ -217,9 +219,45 @@ def test_min_window_holds_back_event_for_a_late_appearing_suite():
     clock.now = T0 + timedelta(seconds=61)
     assert settler.tick() == 0 and settled(store) == []
     lister.suites["sonarqubecloud"] = "completed"
+    clock.now = T0 + timedelta(seconds=80)  # past the poll backoff
     assert settler.tick() == 1
     assert settled(store)[0]["envelope"]["data"]["settled_by"] == "all_completed"
 
 
 def test_min_window_default_is_60s():
     assert ChecksSettler(MemoryStore(), Suites()).min_s() == 60.0
+
+
+def test_polls_are_claimed_once_per_interval_across_nodes_and_deadline_still_emits():
+    store, lister, clock, a = make(("x", "in_progress"))
+    b = ChecksSettler(store, lister, clock=clock)
+    a.on_check(check_data())
+    base = lister.calls  # the webhook's own listing
+    for _ in range(20):  # many cycles on two nodes within one interval
+        a.tick()
+        b.tick()
+    assert lister.calls == base + 1
+    clock.now = T0 + timedelta(seconds=16)
+    a.tick()
+    b.tick()
+    assert lister.calls == base + 2
+    clock.now = T0 + timedelta(seconds=40)  # second interval backed off to 30 s: not due
+    a.tick()
+    assert lister.calls == base + 2
+    clock.now = T0 + timedelta(seconds=47)
+    a.tick()
+    assert lister.calls == base + 3
+    clock.now = T0 + timedelta(seconds=901)
+    assert a.tick() + b.tick() == 1
+    assert len(settled(store)) == 1
+    assert settled(store)[0]["envelope"]["data"]["settled_by"] == "timeout"
+
+
+def test_next_poll_never_runs_past_the_deadline():
+    store, lister, clock, settler = make(("x", "in_progress"))
+    store.put_variable("checks_settle_timeout_s", 20, updated_by="t")
+    settler.on_check(check_data())
+    clock.now = T0 + timedelta(seconds=16)
+    settler.tick()
+    rec = store.get(SETTLE_COLLECTION, f"{REPO}@{SHA}")
+    assert rec["next_poll_at"] == rec["deadline"]

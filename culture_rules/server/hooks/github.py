@@ -250,8 +250,11 @@ def handle(
     ):
         try:
             on_check(data)
-        except Exception:  # noqa: BLE001 - settling is best-effort; the delivery is recorded
+        except Exception:  # noqa: BLE001 - arming failed after the sink stored the event
+            # 5xx so GitHub redelivers; the sink dedupes the delivery id and a duplicate
+            # re-runs on_check, so the SHA is armed on the retry rather than lost.
             _log.warning("check settle failed type=%s", etype)
+            return 503, {"error": "settle failed, retry"}
     if outcome == DUPLICATE:
         return 200, {"duplicate": True}
     return 202, {"accepted": True}
