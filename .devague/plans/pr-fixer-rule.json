@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-10-06T04:46:38Z",
-  "updated": "2026-10-06T12:50:37Z",
+  "updated": "2026-10-06T15:53:30Z",
   "targets": [
     {
       "id": "c1",
@@ -947,8 +947,8 @@
       "text": "Bridge completion callbacks need a reachable endpoint: the node daemon has no HTTP listener, so callbacks likely land on the API server and are delivered from the store",
       "kind": "unknown_nonblocking",
       "task_id": "t9",
-      "resolved": false,
-      "resolution": ""
+      "resolved": true,
+      "resolution": "Resolved by deviation d1: callbacks land on POST /bridge-invocations/{id}/events on the API (t9, merged); the node redelivers from the store each cycle"
     },
     {
       "id": "r7",
@@ -963,6 +963,14 @@
       "text": "A node crash after a RETRYABLE bridge failure is recorded but before its actor slot is released leaves the slot held until the retry or the deadline; freeing it early could race the retry for the same key's slot (t9 final-round note)",
       "kind": "follow_up",
       "task_id": "t9",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r9",
+      "text": "An intermittent single-test failure in the full suite (seen once after the t4 merge, once by the t5 agent; a Qwen run named tests/multihost test_kill_lands_mid_action as flaky) passes on rerun; not yet identified. It predates or is unrelated to wave 1 as far as reruns show, but must be pinned before the final PR",
+      "kind": "follow_up",
+      "task_id": null,
       "resolved": false,
       "resolution": ""
     }

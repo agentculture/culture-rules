@@ -1,0 +1,83 @@
+{
+  "plan_slug": "pr-fixer-rule",
+  "schema_version": 2,
+  "created": "2026-10-06T08:44:59Z",
+  "updated": "2026-10-06T14:21:28Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "Bridge completion callbacks land on an API server route (POST /bridge-invocations/{id}/events on the LAN listener, authenticated by each attempt's callback token, not service tokens); the node daemon calls redeliver_bridge each cycle. t9 grows to cover one route in culture_rules/server/app.py and one call in culture_rules/node/daemon.py",
+      "task_ref": "t9",
+      "reason": "the node daemon has no HTTP listener and a bridge retries a callback only about 5 times in a few seconds, so a node-hosted receiver loses completions when that node is down; operator chose the API route (plan risk r6)",
+      "affects": [
+        "t8",
+        "t7",
+        "c3",
+        "h3"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 1
+    },
+    {
+      "id": "d2",
+      "what": "self_authored stays set for every event type whose author matches self_identity; only the check-completion types (github.checks.suite_completed, github.checks.workflow_completed) are exempt, instead of 'synchronize only'",
+      "task_ref": "t2",
+      "reason": "built literally, c28 stopped self-tagging the bot's own Jira, Discord and GitHub comment events, which lets rules fire on the bot's own messages; the intent was only that check results on App-pushed commits still fire the fixer",
+      "affects": [
+        "c28",
+        "h22"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 2
+    },
+    {
+      "id": "d3",
+      "what": "Executor.deliver takes an optional attempt= argument checked inside its compare-and-set; bridge redelivery and completions.deliver pass the recorded attempt, so a superseded attempt's result is refused atomically",
+      "task_ref": "t9",
+      "reason": "t9's attempt check ran before Executor.deliver, leaving a narrow race where an old attempt's result could finish a newer attempt of an idempotent step; the fix needs a small change in engine/runs.py, outside t9's named files",
+      "affects": [
+        "t10",
+        "h3"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 3
+    },
+    {
+      "id": "d4",
+      "what": "Live GitHub probes (t16) and the end-to-end and live runs (t20, t21) operate on agentculture/culture-rules itself instead of a separate scratch repo; throwaway branches and PRs there are closed and deleted after each probe",
+      "task_ref": "t16",
+      "reason": "operator chose culture-rules as the test repo (2026-10-06); no new scratch repo is created",
+      "affects": [
+        "t20",
+        "t21"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 4
+    },
+    {
+      "id": "d5",
+      "what": "The App keeps Actions: Read and write (not Read only as c12 says); the fixer itself uses only read (workflow_run webhooks, failing job logs) and github.push still mints contents-only tokens",
+      "task_ref": "t16",
+      "reason": "operator decision 2026-10-06: Actions write is kept on purpose for future cases",
+      "affects": [
+        "c12",
+        "h7"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 5
+    }
+  ],
+  "evidence": [],
+  "deltas": [],
+  "supersessions": []
+}
