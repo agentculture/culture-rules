@@ -16,8 +16,9 @@ Any param value may be a reference (``trigger.data.number``), a ``{"$ref": ...}`
 ``{{ }}`` template, accepted wherever a typed value is expected. Extra params are tolerated.
 
 ``github.push`` fast-forwards a same-repo PR's head branch to a local commit, as the App and
-never with force; ``github.review_reply`` replies in a PR review thread and optionally resolves
-it. There is deliberately **no merge kind**: merging stays a human gate.
+never with force (and, with ``gate_verdict`` wired in, only after a test gate ``pass``);
+``github.review_reply`` replies in a PR review thread and optionally resolves it. There is
+deliberately **no merge kind**: merging stays a human gate.
 Standard-library only.
 """
 
@@ -90,6 +91,7 @@ _KINDS = (
         expected_head_sha=_RS,
         commit_sha=_RS,
         source=_RS,
+        gate_verdict=_S,
     ),
     _k(
         "github.review_reply",

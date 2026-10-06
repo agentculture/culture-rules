@@ -314,6 +314,22 @@ def test_push_fast_forwards_the_pr_head_branch(pem, world, caplog):
     assert PUSH_TOKEN not in caplog.text and INSTALL_TOKEN not in caplog.text
 
 
+@pytest.mark.parametrize("verdict", ["fail", "guard", "no_gate", None, ""])
+def test_push_refuses_unless_the_wired_gate_verdict_is_pass(pem, world, verdict):
+    fake, rec = FakeGitHub(world), RecordingGit()
+    port = push_port(pem, world, fake, gitrec=rec)
+    res = port.invoke(push_params(world, gate_verdict=verdict), "k", DEADLINE, context=ctx())
+    assert (res.outcome, res.error, res.retryable) == ("failed", "gate_not_passed", False)
+    assert fake.calls == [] and rec.verbs() == []
+    assert world.remote_head() == world.a
+
+
+def test_push_with_a_passing_gate_verdict_pushes(pem, world):
+    port = push_port(pem, world, FakeGitHub(world))
+    res = port.invoke(push_params(world, gate_verdict="pass"), "k", DEADLINE, context=ctx())
+    assert res.outcome == "completed" and res.output["pushed"] is True
+
+
 def test_push_token_is_minted_for_exactly_one_repo_with_contents_write_only(pem, world):
     fake = FakeGitHub(world)
     push_port(pem, world, fake).invoke(push_params(world), "k", DEADLINE, context=ctx())

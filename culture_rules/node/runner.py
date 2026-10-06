@@ -14,6 +14,10 @@ Production wiring done by :func:`run_node`:
   ``CULTURE_RULES_REPORT_CHANNEL`` (unset: no reporter) through the agent mesh
   (``culture channel message``) when ``culture`` is on PATH, else to the log.
 * **Logs** - :func:`~culture_rules.ops.logs.configure_logging` with the node's host.
+* **Built-in code steps** - a ``code`` step with no actor runs the built-in named by its
+  ``config.builtin`` (:class:`BuiltinCodePort`); today only ``gate``, the PR fixer's test
+  gate and diff guard (:class:`~culture_rules.actors.gate.GatePort`, which runs commands
+  only through ``CULTURE_RULES_GATE_RUN_AS`` and refuses while it is unset).
 """
 
 from __future__ import annotations
@@ -38,6 +42,7 @@ from culture_rules.store.port import DuplicateKeyError, StoragePort, StoreError
 
 __all__ = [
     "REPORT_CHANNEL_ENV",
+    "BuiltinCodePort",
     "LoggingPoster",
     "MeshPoster",
     "NodeSetupError",
@@ -191,13 +196,46 @@ class MissingExtraPort:
         )
 
 
+class BuiltinCodePort:
+    """Routes an actor-less ``code`` step to the built-in its ``config.builtin`` names.
+
+    An unknown or missing name fails the step at once (``no_builtin``): a code step that
+    names neither an actor nor a built-in has nothing to run."""
+
+    supports_idempotency_key = True  # every built-in here is safe to re-invoke
+
+    def __init__(self, builtins: Mapping[str, Any]) -> None:
+        self._builtins = dict(builtins)
+
+    def invoke(
+        self,
+        input: Mapping[str, Any],
+        idempotency_key: str,
+        deadline: datetime,
+        *,
+        context: InvocationContext,
+    ) -> InvocationResult:
+        name = (context.config or {}).get("builtin")
+        port = self._builtins.get(name) if isinstance(name, str) else None
+        if port is None:
+            known = ", ".join(sorted(self._builtins)) or "none"
+            return InvocationResult.failed(
+                f"no_builtin: code step names no actor and builtin {name!r} is unknown "
+                f"(known: {known})",
+                retryable=False,
+            )
+        return port.invoke(input, idempotency_key, deadline, context=context)
+
+
 def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
     """Action ports for every catalogued kind (stored actors are wired by the router).
 
     A port whose extra is missing (the ``github.*`` kinds need ``cryptography``) is replaced
     by one that fails ``extra_missing``. Detection uses ``find_spec``: nothing is imported.
+    ``code`` serves actor-less code steps through :class:`BuiltinCodePort`.
     """
     del host
+    from culture_rules.actors.gate import GatePort  # noqa: PLC0415
     from culture_rules.node.actions.github import (  # noqa: PLC0415
         GitHubCommentPort,
         GitHubPrHeadPort,
@@ -232,6 +270,7 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
         "action:jira.comment": JiraCommentPort(store),
         "action:http.call": HttpCallPort(store),
         "action:machine.command": MachineCommandPort(store),
+        "code": BuiltinCodePort({"gate": GatePort.from_env(store)}),
     }
 
 

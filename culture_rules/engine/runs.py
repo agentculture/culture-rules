@@ -79,7 +79,9 @@ Semantics
   than ``max_iterations`` fails the loop before any iteration runs. ``retry_until`` runs
   its body until ``config["until"]`` (a condition tree; ``field``/``var`` operands read the
   iteration's final body outputs, ``var: iteration`` the 0-based iteration) holds, and
-  fails with ``loop_max_exceeded`` after ``max_iterations`` iterations. Body steps run in
+  fails with ``loop_max_exceeded`` after ``max_iterations`` iterations; its
+  ``config["carry"]`` (``{input: result field}``) hands fields of one iteration's result to
+  the next iteration's body inputs (the fixer's gate instruction to its agent). Body steps run in
   declared order; a body step's input port named ``item``/``index`` (for_each) or
   ``iteration`` (retry_until), or named like one of the loop's inputs, is filled
   implicitly when no edge feeds it. A ``for_each`` loop's outputs are, per declared port
@@ -1575,14 +1577,30 @@ def _edge_source(
     return _latest_output(doc, plan, source)
 
 
-def _implicit_loop_inputs(loop: Mapping, loop_state: Mapping) -> dict[str, Any]:
-    """The loop's own inputs plus ``iteration``/``index`` (and ``item`` for for_each)."""
+def _implicit_loop_inputs(
+    loop: Mapping, loop_state: Mapping, loop_step: Step | None = None
+) -> dict[str, Any]:
+    """The loop's own inputs plus ``iteration``/``index`` (and ``item`` for for_each).
+
+    A ``retry_until`` loop's ``config["carry"]`` (``{input name: result field}``) feeds the
+    previous iteration's result (the final body outputs ``until`` read) into the next one:
+    from iteration 1 on, each named input takes that field, overriding a loop input of the
+    same name; iteration 0 sees only the loop's inputs."""
     implicit = dict(loop_state.get("inputs") or {})
     i = loop["iteration"]
     implicit.update(iteration=i, index=i)
     items = loop_state.get("items")
     if isinstance(items, list) and i < len(items):
         implicit["item"] = items[i]
+    carry = loop_step.config.get("carry") if loop_step is not None else None
+    results = loop_state.get("results") or []
+    if loop_step is not None and loop_step.kind == "retry_until" and isinstance(carry, dict):
+        previous = results[i - 1] if 0 < i <= len(results) else None
+        if isinstance(previous, Mapping):
+            for name, field_name in carry.items():
+                if isinstance(name, str) and isinstance(field_name, str):
+                    if field_name in previous:
+                        implicit[name] = previous[field_name]
     return implicit
 
 
@@ -1599,7 +1617,7 @@ def _step_inputs(plan: _Plan, doc: Mapping, st: Mapping) -> dict[str, Any]:
         if e.source_port in src:
             values[e.target_port] = src[e.source_port]
     if loop and loop_state is not None:
-        implicit = _implicit_loop_inputs(loop, loop_state)
+        implicit = _implicit_loop_inputs(loop, loop_state, plan.top.get(loop["parent"]))
         values.update(
             (p.name, implicit[p.name])
             for p in step.inputs

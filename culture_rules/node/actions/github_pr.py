@@ -10,8 +10,11 @@ repo allowlist and its per-actor App cache. There is deliberately no merge port.
     the agent started from), ``commit_sha`` (the full SHA of the commit to push: immutable, so
     every retry targets the same commit whatever the worktree's HEAD is by then) and ``source``
     (an absolute path to a local git worktree, or to a git bundle, that contains
-    ``commit_sha`` and its history back to ``expected_head_sha``). In order, refusing at the
-    first failed check:
+    ``commit_sha`` and its history back to ``expected_head_sha``; the test gate's ``bundle``
+    output is one). Optional ``gate_verdict``: when the param is given at all it must be
+    ``"pass"`` (:mod:`culture_rules.actors.gate`), else ``gate_not_passed`` before anything
+    else is read, so a workflow that wires the gate's verdict in can never push a commit the
+    gate did not pass. In order, refusing at the first failed check:
 
     1. actor, allowlist and input shape (no secret read, no network);
     2. the run's source rule (or, for a direct workflow run, its workflow) is still live and
@@ -340,6 +343,8 @@ class GitHubPushPort(GitHubCommentPort):
         *,
         context: InvocationContext,
     ) -> InvocationResult:
+        if "gate_verdict" in input and input["gate_verdict"] != "pass":
+            return InvocationResult.failed("gate_not_passed", retryable=False)
         actor_id = context.actor or input.get("actor")
         conn = self._connection(actor_id)
         if conn is None:
