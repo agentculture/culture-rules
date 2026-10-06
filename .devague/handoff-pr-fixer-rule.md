@@ -116,3 +116,21 @@ intermittent unidentified failure, r9).
   an accepted id as lost.
 - Qodo has no credits (not reviewing PRs) — affects t21/t22.
 - steward doctor crashes on its own (r7).
+
+## spark2 fixer machine (2026-10-07)
+
+- `culture-fixer` exists (no extra groups; cannot read /home/spark2 or node.env). Spark's
+  ed25519 key is authorized: `ssh culture-fixer@spark2`.
+- Installed in its ~/.local: uv, grant 0.11.0, Node v24.13.1, Qwen Code 0.24.7, gh 2.102.0;
+  git uses gh's credential helper (GH_TOKEN). cultureagent 0.14.0 qwen bridge is a user
+  unit on 100.93.248.8:8093, active and enabled (no Codex on spark2, d8).
+- Its grant store: FIXER_QWEN_BRIDGE_TOKEN, FIXER_CORTEX_API_KEY, FIXER_GITHUB_TOKEN
+  (fine-grained read-only, OriNachum), FIXER_SONAR_TOKEN. Verified: bridge 200 with token /
+  401 without, cortex 200, Sonar valid, PRs/Actions/check runs readable (public), private
+  repo metadata and git fetch OK, private check runs 403 (PAT limit; the engine reads checks
+  via the App), all writes 403 except permissionless public issue creation (r12, accepted;
+  probe issue #16 closed).
+- DEFERRED to t20 (node is 0.12.0, no bridge actor yet; d7 also needs all nodes upgraded):
+  reinstall the spark2 node with `--secret RULES_QWEN_FIXER_TOKEN` (already in spark2's grant
+  store; the unit does not inject it yet) and register actor `qwen-fixer` per
+  docs/operations/pr-fixer.md section 4.
