@@ -98,8 +98,7 @@ Settled constraints that shape the architecture:
   Prefer **explicit exported outputs** over a global mutable bag. Mappings
   (output → action input / downstream rule input) are graphical, with
   the textual reference form inspectable but never required.
-- **Exactly five primary tabs: Rules | Workflows | Actors | Variables |
-  Statistics.** Variables are the shared values rules read as `vars.<name>`.
+- **Exactly five primary tabs: Rules | Workflows | Actors | Variables | Statistics.** Variables are the shared values rules read as `vars.<name>`.
   Statistics is per-machine state and work (one lane per enrolled machine).
   Runs, history, ledger and inbox are never top-level navigation. They
   appear contextually, as details of a rule or workflow. Raw YAML/JSON is an

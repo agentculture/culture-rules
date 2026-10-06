@@ -75,8 +75,7 @@ Further settled constraints:
 - **Explicit exported variables.** Prefer them over a global mutable bag.
 - **One pinned API contract**, `api/openapi.json`, shared by frontend and
   backend.
-- **Navigation is exactly five tabs: Rules | Workflows | Actors |
-  Variables | Statistics.** Statistics is per-machine state and work. Runs, history and
+- **Exactly five primary tabs: Rules | Workflows | Actors | Variables | Statistics.** Statistics is per-machine state and work. Runs, history and
   debugging appear only in context, never as a tab.
 
 ## Prompt files by harness
