@@ -2,7 +2,10 @@
 
 Every save path - create, update and import - validates the definition with the model
 validators and, for rules, runs :func:`culture_rules.engine.ruleset.validate_rule_set` over the
-whole resulting rule set, refusing with :class:`Invalid` (HTTP 422) on any error. Every
+whole resulting rule set, refusing with :class:`Invalid` (HTTP 422) on any error. A rule
+that references a shared variable is also refused when the variable is undefined
+(``variable_undefined``) or while any online node does not advertise variable support
+(``variables_unsupported_nodes``, deviation d7). Every
 mutating verb writes its change and exactly one audit entry in one transaction. Nothing is
 cached in the process: each call reads the store.
 """
@@ -17,11 +20,12 @@ from typing import Any
 
 from culture_rules.engine.audit import AuditLog, mutating_verb, require_identity
 from culture_rules.engine.ruleset import validate_rule_set
+from culture_rules.engine.variables import defined_variables, nodes_without_variables
 from culture_rules.io import exchange, gitrepo
 from culture_rules.io.bundle import KINDS, Bundle, SecretRef, check_name
 from culture_rules.model.machine import Machine
 from culture_rules.model.rule import Rule
-from culture_rules.model.validate import validate, validate_data
+from culture_rules.model.validate import validate, validate_data, variable_ref_errors
 from culture_rules.model.variable import validate_variable_name
 from culture_rules.model.variable_refs import rule_variable_refs
 from culture_rules.model.workflow import Workflow
@@ -116,6 +120,35 @@ def _tolerant(cls: type, doc: Mapping[str, Any]) -> Any | None:
 #: save. Runs inside the write transaction, so it sees the version it compares against
 #: (``culture_rules.auth.guards.save_check`` builds the API's).
 SaveCheck = Callable[[str, "Mapping[str, Any] | None", Mapping[str, Any]], None]
+
+
+class _RuleRef:
+    """A stored rule document seen as ``id`` + references (for :func:`_old_node_errors`)."""
+
+    def __init__(self, rule_id: str, doc: Mapping[str, Any]) -> None:
+        self.id = rule_id
+        self.condition = doc.get("condition")
+        self.workflow = doc.get("workflow")
+
+
+def _old_node_errors(rules: Iterable[Any], lacking: list[str]) -> list[dict[str, str]]:
+    """``variables_unsupported_nodes`` for each rule that references a shared variable while
+    online nodes in ``lacking`` cannot resolve variables (deviation d7): such a node would
+    evaluate the reference as missing (``not(a in vars.x)`` true) and fire wrongly."""
+    if not lacking:
+        return []
+    nodes = ", ".join(lacking)
+    return [
+        {
+            "path": f"rules/{r.id}",
+            "code": "variables_unsupported_nodes",
+            "message": f"rule {r.id!r} references shared variable(s) "
+            f"{', '.join(sorted(rule_variable_refs(r)))}, but online node(s) without "
+            f"variable support would evaluate it wrongly: {nodes}; upgrade them first",
+        }
+        for r in rules
+        if rule_variable_refs(r)
+    ]
 
 
 def _rule_set_errors(rules: Iterable[Rule], workflows: Iterable[Workflow]) -> list[dict[str, str]]:
@@ -214,6 +247,9 @@ class Definitions:
                     others.append(parsed)
         wfs = [w for d in ops.find("workflows") if (w := _tolerant(Workflow, d)) is not None]
         errors = _rule_set_errors([*others, obj], wfs)
+        errors += [e.to_dict() for e in variable_ref_errors(obj, defined_variables(ops))]
+        if rule_variable_refs(obj):
+            errors += _old_node_errors([obj], nodes_without_variables(ops, self._clock()))
         if errors:
             raise Invalid("rule set failed validation", errors)
 
@@ -281,6 +317,15 @@ class Definitions:
                 raise NotFound(f"{kind}/{id} does not exist")
             if not _is_live(before):
                 raise Conflict(f"{kind}/{id} is deleted; restore it first")
+            if kind == "rules" and enabled and rule_variable_refs(before):
+                # Enabling is where a variable rule starts to fire (the fixer ships
+                # disabled): refuse it while an online node lacks variable support (d7).
+                # Disabling is never blocked.
+                errors = _old_node_errors(
+                    [_RuleRef(id, before)], nodes_without_variables(tx, self._clock())
+                )
+                if errors:
+                    raise Invalid("rule cannot be enabled yet", errors)
             res = tx.update_if(kind, id, {"enabled": before.get("enabled")}, {"enabled": enabled})
             if not res.won:
                 raise Conflict(f"{kind}/{id} changed concurrently")
@@ -421,6 +466,14 @@ class Definitions:
             if d["id"] not in incoming_wf and (p := _tolerant(Workflow, d)) is not None
         ]
         errors += _rule_set_errors(rules, wfs)
+        defined = defined_variables(tx)
+        errors += [
+            {**e.to_dict(), "path": f"rules/{r.id}/{e.path}"}
+            for r in bundle.rules
+            for e in variable_ref_errors(r, defined)
+        ]
+        if any(rule_variable_refs(r) for r in bundle.rules):
+            errors += _old_node_errors(bundle.rules, nodes_without_variables(tx, self._clock()))
         changes: list[dict[str, str]] = []
         writes: list[tuple[str, dict[str, Any]]] = []
         for kind in (*KINDS, SECRETS):

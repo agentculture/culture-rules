@@ -19,8 +19,8 @@ def condition_variable_refs(tree: Any) -> set[str]:
     while stack:
         node = stack.pop()
         if isinstance(node, Mapping):
-            if "literal" in node:
-                continue  # a literal is data, never a reference
+            if len(node) == 1 and "literal" in node:
+                continue  # a literal operand is data, never a reference
             name = node.get("var")
             if isinstance(name, str) and len(node) == 1:
                 found.add(name)

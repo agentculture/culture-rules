@@ -10,7 +10,16 @@ this precedence order:
 
 1. ``paused`` -- the global pause flag is set; nothing fires.
 2. ``disabled`` -- the rule is disabled.
-3. ``condition_false`` -- the condition evaluated false (or could not be evaluated).
+3. ``variables_unsupported`` / ``variable_undefined`` -- the rule references a shared
+   variable (in its condition or a ``{"$var": name}`` workflow input) and this node does
+   not resolve variables, or the variable is not defined. Fail closed: a reference is never
+   evaluated as missing, since a missing operand makes ``not(a in vars.x)`` true.
+   A refusal never turns into an extra firing: a matched rule that a refused rule
+   supersedes (directly or transitively), or that a refused member of its exclusive group
+   would outrank, is refused the same way (``by`` names the refused rule), since the
+   refused rule might have matched and suppressed it.
+   ``condition_false`` -- the condition evaluated false (or could not be evaluated);
+   ``vars.<name>`` reads the ``variables`` mapping the caller passes.
 4. ``superseded_by`` -- a *matched* rule supersedes it, directly or transitively
    (A supersedes B supersedes C: a matched A also skips C). Per event: when the
    superseding rule's condition is false, the superseded rule fires.
@@ -37,6 +46,7 @@ from typing import Any
 
 from culture_rules.model import condition as cond
 from culture_rules.model.rule import Rule, Trigger
+from culture_rules.model.variable_refs import rule_variable_refs
 from culture_rules.model.workflow import Workflow
 
 __all__ = [
@@ -50,6 +60,8 @@ __all__ = [
     "REASONS",
     "SUCCEEDED",
     "SUPERSEDED_BY",
+    "VARIABLES_UNSUPPORTED",
+    "VARIABLE_UNDEFINED",
     "Decision",
     "RuleOutcome",
     "RunFacts",
@@ -63,6 +75,10 @@ FIRE = "matched"
 PAUSED = "paused"
 DISABLED = "disabled"
 CONDITION_FALSE = "condition_false"
+VARIABLES_UNSUPPORTED = "variables_unsupported"
+"""The rule references a shared variable and the evaluating node does not resolve them."""
+VARIABLE_UNDEFINED = "variable_undefined"
+"""The rule references a shared variable that is not defined."""
 SUPERSEDED_BY = "superseded_by"
 GROUP_LOST = "group_lost"
 BLOCKED_BY_PREDECESSOR = "blocked_by_predecessor"
@@ -72,6 +88,8 @@ REASONS = (
     FIRE,
     PAUSED,
     DISABLED,
+    VARIABLES_UNSUPPORTED,
+    VARIABLE_UNDEFINED,
     CONDITION_FALSE,
     SUPERSEDED_BY,
     GROUP_LOST,
@@ -118,6 +136,9 @@ class Decision:
             PAUSED: "engine paused",
             DISABLED: "rule disabled",
             CONDITION_FALSE: "condition false",
+            VARIABLES_UNSUPPORTED: "not evaluated: this node does not resolve shared "
+            f"variables ({self.detail})",
+            VARIABLE_UNDEFINED: f"not evaluated: shared variable not defined: {self.detail}",
             SUPERSEDED_BY: f"superseded by {who}",
             GROUP_LOST: f"lost exclusive group {self.detail} to {who}",
             BLOCKED_BY_PREDECESSOR: f"waiting for predecessor {who}",
@@ -222,10 +243,31 @@ def _upstream(
     return visible
 
 
+def _unresolvable(rule: Rule, variables: Mapping[str, Any], supported: bool) -> Decision | None:
+    """A fail-closed skip when ``rule`` references a variable this evaluation cannot read."""
+    names = rule_variable_refs(rule)
+    if not names:
+        return None
+    if not supported:
+        return Decision(
+            rule_id=rule.id,
+            fire=False,
+            reason=VARIABLES_UNSUPPORTED,
+            detail="references " + ", ".join(sorted(names)),
+        )
+    missing = sorted(n for n in names if n not in variables)
+    if missing:
+        return Decision(
+            rule_id=rule.id, fire=False, reason=VARIABLE_UNDEFINED, detail=", ".join(missing)
+        )
+    return None
+
+
 def _screen(
     candidates: Iterable[Rule],
     event: Mapping[str, Any],
     variables: Mapping[str, Any],
+    supported: bool,
     out: dict[str, Decision],
 ) -> dict[str, Rule]:
     """The enabled candidates whose condition holds; the others are decided into ``out``."""
@@ -233,6 +275,10 @@ def _screen(
     for r in candidates:
         if not r.enabled:
             out[r.id] = Decision(rule_id=r.id, fire=False, reason=DISABLED)
+            continue
+        refused = _unresolvable(r, variables, supported)
+        if refused is not None:
+            out[r.id] = refused
             continue
         err = _condition(r, event, variables)
         if err is not None:
@@ -255,6 +301,64 @@ def _supersede(
     for bid, by in superseded.items():
         out[bid] = Decision(rule_id=bid, fire=False, reason=SUPERSEDED_BY, by=tuple(sorted(by)))
     return superseded
+
+
+_VARIABLE_REASONS = (VARIABLES_UNSUPPORTED, VARIABLE_UNDEFINED)
+
+
+def _refused(out: Mapping[str, Decision], snapshot: Mapping[str, Rule]) -> list[Rule]:
+    """Candidates refused for a variables reason (they might have matched)."""
+    return [snapshot[rid] for rid, d in sorted(out.items()) if d.reason in _VARIABLE_REASONS]
+
+
+def _gap(rule_id: str, cause: Decision, why: str) -> Decision:
+    return Decision(
+        rule_id=rule_id,
+        fire=False,
+        reason=cause.reason,
+        by=(cause.rule_id,),
+        detail=f"{why} {cause.rule_id}, which could not be evaluated: {cause.detail}",
+    )
+
+
+def _supersede_gaps(
+    matched: Mapping[str, Rule],
+    snapshot: Mapping[str, Rule],
+    superseded: dict[str, list[str]],
+    out: dict[str, Decision],
+) -> None:
+    """Refuse the matched rules a variables-refused rule supersedes (transitively)."""
+    edges = {rid: r.supersedes for rid, r in snapshot.items()}
+    for r in _refused(out, snapshot):
+        cause = out[r.id]
+        for bid in sorted(_closure(r.id, edges)):
+            if bid in matched and bid not in out:
+                out[bid] = _gap(bid, cause, "superseded by")
+                superseded.setdefault(bid, []).append(r.id)
+
+
+def _group_gaps(
+    matched: Mapping[str, Rule],
+    snapshot: Mapping[str, Rule],
+    superseded: Mapping[str, list[str]],
+    out: dict[str, Decision],
+) -> None:
+    """Refuse a group's would-be winner when a variables-refused member outranks it."""
+    refused = [r for r in _refused(out, snapshot) if r.exclusive_group is not None]
+    if not refused:
+        return
+    groups: dict[str, list[Rule]] = {}
+    for rid, r in matched.items():
+        if rid not in superseded and rid not in out and r.exclusive_group is not None:
+            groups.setdefault(r.exclusive_group, []).append(r)
+    for group, members in groups.items():
+        winner = min(members, key=lambda r: (-r.priority, r.id))
+        rivals = [r for r in refused if r.exclusive_group == group]
+        if not rivals:
+            continue
+        best = min(rivals, key=lambda r: (-r.priority, r.id))
+        if (-best.priority, best.id) < (-winner.priority, winner.id):
+            out[winner.id] = _gap(winner.id, out[best.id], f"exclusive group {group} outranked by")
 
 
 def _group_losers(
@@ -301,12 +405,16 @@ def match(
     workflows: Mapping[str, Workflow] | None = None,
     paused: bool = False,
     variables: Mapping[str, Any] | None = None,
+    variables_supported: bool = True,
     trigger_match: TriggerMatcher = trigger_matches,
 ) -> tuple[Decision, ...]:
     """Decide, for every rule whose trigger matches ``event``, whether it fires and why.
 
     ``rules`` is the rule snapshot, ``facts`` the run outcomes for this event, ``workflows``
-    the workflow snapshot (id -> workflow) used for exported outputs. Decisions are sorted
+    the workflow snapshot (id -> workflow) used for exported outputs, ``variables`` the
+    current values of the shared variables the rules reference (name -> value; a name
+    absent is undefined) and ``variables_supported`` whether the evaluating node resolves
+    variables at all (when false, every rule referencing one is refused). Decisions are sorted
     by rule id. Assumes a validated snapshot (see ``culture_rules.engine.ruleset``); a
     supersede cycle would skip every rule on it.
     """
@@ -320,8 +428,10 @@ def match(
     if paused:
         return tuple(Decision(rule_id=r.id, fire=False, reason=PAUSED) for r in candidates)
 
-    matched = _screen(candidates, event, variables, out)
+    matched = _screen(candidates, event, variables, variables_supported, out)
     superseded = _supersede(matched, snapshot, out)
+    _supersede_gaps(matched, snapshot, superseded, out)
+    _group_gaps(matched, snapshot, superseded, out)
     _group_losers(matched, superseded, out)
     for rid, r in matched.items():
         if rid not in out:
