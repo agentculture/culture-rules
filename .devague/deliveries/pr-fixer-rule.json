@@ -2,7 +2,7 @@
   "plan_slug": "pr-fixer-rule",
   "schema_version": 2,
   "created": "2026-10-06T08:44:59Z",
-  "updated": "2026-10-06T14:21:28Z",
+  "updated": "2026-10-06T16:57:05Z",
   "deviations": [
     {
       "id": "d1",
@@ -75,6 +75,23 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 5
+    },
+    {
+      "id": "d6",
+      "what": "Merge-gate reviewer must differ from the implementer: Qwen-implemented tasks are reviewed by an Opus subagent; Opus/Sonnet-implemented tasks (and the main agent's own) are reviewed by Qwen Code on cortex. Replaces Codex as the per-task and per-wave reviewer from wave 2 on (t7, t8 onward); max 3 review rounds and the before/after full-suite gate are unchanged.",
+      "task_ref": "t7",
+      "reason": "Operator decision 2026-10-06: a reviewer different from the implementer; Codex also hit its usage limit mid-wave-2.",
+      "affects": [
+        "t8",
+        "t11",
+        "t12",
+        "t13",
+        "t14"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 6
     }
   ],
   "evidence": [],

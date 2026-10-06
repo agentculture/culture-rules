@@ -326,3 +326,8 @@ Integration branch: `rules/pr-fixer`. Task branches: `rules/pr-fixer-<task-id>`.
 `../.worktrees.culture-rules/pr-fixer-<task-id>/` (and `../.worktrees.<repo>/` for t1 and t6 in other repos).
 
 Gate 2 approved by the operator on 2026-10-06, with these review gates.
+
+**Reviewer amendment (d6, operator, 2026-10-06):** the reviewer is never the implementer. Qwen-implemented
+tasks are reviewed by an Opus subagent; tasks implemented by Opus or Sonnet subagents, or by the main agent, are
+reviewed by Qwen Code on cortex (`qwen -m cortex --approval-mode plan`, read-only). This replaces Codex from wave 2
+(t7, t8) on, for both the between-task and the between-wave reviews. Max 3 rounds per task is unchanged.
