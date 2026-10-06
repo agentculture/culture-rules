@@ -21,12 +21,20 @@ def _noop(ctx, **params):
     return {}
 
 
-def test_registry_covers_the_five_nouns_with_overview():
-    assert {v.noun for v in REGISTRY.verbs()} == NOUNS
+def test_registry_covers_the_nouns_with_overview():
+    assert {v.noun for v in REGISTRY.verbs()} == NOUNS | {"variables"}
     for noun in NOUNS:
         assert REGISTRY.get(noun, "overview") is not None
         assert REGISTRY.get(noun, "list") is not None
         assert REGISTRY.get(noun, "show") is not None
+
+
+def test_variables_noun_verbs_and_admin_only_write():
+    names = {v.name for v in REGISTRY.verbs("variables")}
+    assert names == {"overview", "list", "get", "set", "history", "refs"}
+    assert REGISTRY.get("variables", "set").mutating
+    assert REGISTRY.get("variables", "set").role == "admin"
+    assert not any(v.mutating for v in REGISTRY.verbs("variables") if v.name != "set")
 
 
 def test_required_verbs_exist_per_noun():

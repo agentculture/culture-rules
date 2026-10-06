@@ -128,7 +128,9 @@ def dummy_args(verb: Verb, bundle: Path, *, full: bool) -> dict:
 def _dummy(p: Param, bundle: Path):
     if p.name == "path":
         return str(bundle)
-    return {"string": "x", "integer": 1, "boolean": False, "object": {}, "array": []}[p.type]
+    return {"string": "x", "integer": 1, "boolean": False, "object": {}, "array": [], "any": "x"}[
+        p.type
+    ]
 
 
 def recorded_requests(verb: Verb, bundle: Path) -> set[tuple[str, str]]:

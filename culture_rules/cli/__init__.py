@@ -74,6 +74,7 @@ def _build_parser() -> argparse.ArgumentParser:
     from culture_rules.cli._commands import rules as _rules
     from culture_rules.cli._commands import runs as _runs
     from culture_rules.cli._commands import serve as _serve
+    from culture_rules.cli._commands import variables as _variables
     from culture_rules.cli._commands import whoami as _whoami_cmd
     from culture_rules.cli._commands import workflows as _workflows
 
@@ -97,7 +98,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _doctor_cmd.register(sub)
     _cli_group.register(sub)
     # Noun groups over the HTTP API; their verbs come from cli/verbs.py (the one registry).
-    for noun_group in (_rules, _workflows, _actors, _machines, _runs):
+    for noun_group in (_rules, _workflows, _actors, _machines, _runs, _variables):
         noun_group.register(sub)
     _serve.register(sub)
     _node.register(sub)  # the engine node: talks to the store directly (lazy import)
