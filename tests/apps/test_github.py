@@ -252,3 +252,23 @@ def test_push_token_scope_mismatch_is_refused(pem):
 
 def test_app_has_no_merge_call():
     assert not [n for n in dir(GitHubApp) if "merge" in n.lower()]
+
+
+def test_deadline_bounds_http_timeouts_and_refuses_when_past(pem):
+    seen = []
+
+    def fake(method, url, headers, body, timeout):
+        seen.append(timeout)
+        return Fake()(method, url, headers, body, timeout)
+
+    app, now = make(pem, fake)
+    with app.deadline(NOW + timedelta(seconds=4)):
+        app.post_comment("acme/widgets", 1, "x")
+    assert seen and max(seen) <= 4
+    seen.clear()
+    with app.deadline(NOW - timedelta(seconds=1)):
+        with pytest.raises(GitHubError) as err:
+            app.post_comment("acme/widgets", 1, "x")
+    assert err.value.code == "deadline_exceeded" and err.value.retryable and seen == []
+    app.post_comment("acme/widgets", 1, "x")  # outside the block: the default bound again
+    assert seen == [15]

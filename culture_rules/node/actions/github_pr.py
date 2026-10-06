@@ -31,6 +31,11 @@ repo allowlist and its per-actor App cache. There is deliberately no merge port.
     7. the rule is checked again, then one plain ``git push`` (no force, no ``+`` refspec,
        hooks off) of ``<sha>:refs/heads/<head_branch>``. The server also refuses non-ff.
 
+    Every git and HTTP call is bounded by the time left before the invocation's deadline
+    (past it the executor stops renewing the step's claim and another host may take over),
+    and the push itself is not started with under ``PUSH_MARGIN_S`` (10 s) left: both fail
+    ``deadline_exceeded``, retryable, with nothing pushed.
+
     A retry after a lost acknowledgement finds the branch already at the commit and completes
     without pushing again, so the port is idempotent on its target state.
 
@@ -55,7 +60,7 @@ import shutil
 import subprocess  # argv lists only, shell=False (B404/B603 skipped in pyproject)
 import tempfile
 from collections.abc import Callable, Mapping, Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from culture_rules.apps.github import DEFAULT_API_BASE, GitHubApp, GitHubError, Transport
@@ -86,6 +91,8 @@ _REF_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
 _LOCAL_REF = "refs/culture-rules/push"
 
 _GIT_TIMEOUT_S = 120.0
+#: The network push is not started with less than this left before the step's deadline.
+PUSH_MARGIN_S = 10.0
 
 #: ``runner(argv, env, timeout) -> (returncode, stdout)``; stderr is never surfaced.
 GitRunner = Callable[[Sequence[str], Mapping[str, str], float], tuple[int, str]]
@@ -168,17 +175,32 @@ def _same(a: Any, b: str) -> bool:
 class _PushJob:
     """One ``github.push`` invocation's local repo and git calls (see the module docstring)."""
 
-    def __init__(self, runner: GitRunner, tmp: str) -> None:
+    def __init__(
+        self, runner: GitRunner, tmp: str, deadline: datetime, clock: Callable[[], datetime]
+    ) -> None:
         self._run = runner
         self._tmp = tmp
         self.repo = os.path.join(tmp, "push.git")
+        self.deadline = deadline
+        self.clock = clock
+
+    def require(self, margin: float = 0.0) -> float:
+        """Seconds left before the deadline; ``deadline_exceeded`` if not more than ``margin``.
+
+        Past the deadline the executor stops renewing the step's claim and another host may
+        take the step over, so nothing may still be running (or start pushing) by then."""
+        left = (self.deadline - self.clock()).total_seconds()
+        if left <= margin:
+            raise _Refused("deadline_exceeded", retryable=True)
+        return left
 
     def git(self, *args: str, token: str | None = None, in_repo: bool = True) -> tuple[int, str]:
+        timeout = min(_GIT_TIMEOUT_S, self.require())
         argv = ["git", "-c", "core.hooksPath=/dev/null", "-c", "credential.helper="]
         argv += ["-c", "protocol.ext.allow=never"]
         if in_repo:
             argv += ["-C", self.repo]
-        return self._run([*argv, *args], _git_env(self._tmp, token), _GIT_TIMEOUT_S)
+        return self._run([*argv, *args], _git_env(self._tmp, token), timeout)
 
     def import_commit(self, source: str, sha: str) -> None:
         """Fetch exactly ``sha`` (and its history) from ``source``; no mutable ref is read."""
@@ -243,16 +265,18 @@ class GitHubPushPort(GitHubCommentPort):
         api_base: str = DEFAULT_API_BASE,
         git: GitRunner | None = None,
         git_base: str = DEFAULT_GIT_BASE,
+        clock: Callable[[], datetime] | None = None,
     ) -> None:
         super().__init__(store, transport=transport, secrets=secrets, api_base=api_base)
         self._git = git or subprocess_git
         self._git_base = git_base.rstrip("/")
+        self._clock = clock or (lambda: datetime.now(UTC))
 
     def invoke(
         self,
         input: Mapping[str, Any],
         _idempotency_key: str,
-        _deadline: datetime,
+        deadline: datetime,
         *,
         context: InvocationContext,
     ) -> InvocationResult:
@@ -273,11 +297,12 @@ class GitHubPushPort(GitHubCommentPort):
         refusal = source_rule_refusal(self._store, context.run_id)
         if refusal:
             return InvocationResult.failed(refusal, retryable=False)
+        if self._clock() >= deadline:
+            return InvocationResult.failed("deadline_exceeded", retryable=True)
         tmp = tempfile.mkdtemp(prefix="culture-rules-push-")
+        job = _PushJob(self._git, tmp, deadline, self._clock)
         try:
-            return self._push(
-                str(actor_id), conn, allowed, input, context, _PushJob(self._git, tmp)
-            )
+            return self._push(str(actor_id), conn, allowed, input, context, job)
         except _Refused as exc:
             log.info("github.push refused: %s", exc.code)
             return InvocationResult.failed(exc.code, retryable=exc.retryable)
@@ -310,6 +335,23 @@ class GitHubPushPort(GitHubCommentPort):
         app = self._app(actor_id, conn, allowed)
         if app is None:
             raise _Refused("secret_unavailable")
+        with app.deadline(job.deadline, job.clock):  # every HTTP call bounded too
+            return self._publish(app, input, context, job, out)
+
+    def _publish(
+        self,
+        app: GitHubApp,
+        input: Mapping[str, Any],
+        context: InvocationContext,
+        job: _PushJob,
+        out: dict[str, Any],
+    ) -> InvocationResult:
+        repo, branch, expected, sha = (
+            out["repo"],
+            out["head_branch"],
+            out["head_before"],
+            out["head_after"],
+        )
         pull = app.get_pull(repo, int(input["number"]))
         head, base = pull.get("head") or {}, pull.get("base") or {}
         if pull.get("state") != "open":
@@ -334,6 +376,7 @@ class GitHubPushPort(GitHubCommentPort):
         refusal = source_rule_refusal(self._store, context.run_id)
         if refusal:
             raise _Refused(refusal)
+        job.require(PUSH_MARGIN_S)  # never start the push this close to the deadline
         job.push(url, sha, branch, token)
         log.info("github.push: %s %s fast-forwarded", repo, branch)
         return InvocationResult.completed({**out, "pushed": True})
@@ -388,7 +431,7 @@ class GitHubReviewReplyPort(GitHubCommentPort):
         self,
         input: Mapping[str, Any],
         _idempotency_key: str,
-        _deadline: datetime,
+        deadline: datetime,
         *,
         context: InvocationContext,
     ) -> InvocationResult:
@@ -414,6 +457,19 @@ class GitHubReviewReplyPort(GitHubCommentPort):
         app = self._app(str(actor_id), conn, allowed)
         if app is None:
             return InvocationResult.failed("secret_unavailable", retryable=False)
+        with app.deadline(deadline):  # every HTTP call bounded by the step's deadline
+            return self._reply(app, repo, number, comment_id, body, resolve, thread_id)
+
+    @staticmethod
+    def _reply(
+        app: GitHubApp,
+        repo: str,
+        number: int,
+        comment_id: int,
+        body: str,
+        resolve: bool,
+        thread_id: str | None,
+    ) -> InvocationResult:
         try:
             if thread_id:  # never trust a supplied id: it must be this PR's comment thread
                 if not app.review_thread_matches(repo, number, thread_id, comment_id):

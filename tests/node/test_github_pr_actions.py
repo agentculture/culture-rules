@@ -188,9 +188,11 @@ class FakeGitHub:
 class RecordingGit:
     def __init__(self):
         self.calls = []  # (argv, env)
+        self.timeouts = []
 
     def __call__(self, argv, env, timeout):
         self.calls.append((list(argv), dict(env)))
+        self.timeouts.append(timeout)
         return subprocess_git(argv, env, timeout)
 
     def verbs(self):
@@ -236,14 +238,33 @@ def ctx(run_id="run-1"):
     return InvocationContext(run_id=run_id, step_id="push", kind="action", host="h", actor="gh-app")
 
 
-def push_port(pem, world, fake, store=None, gitrec=None):
+def push_port(pem, world, fake, store=None, gitrec=None, clock=None):
     return GitHubPushPort(
         store or make_store(),
         transport=fake,
         secrets=lambda ref: pem,
         git=gitrec or RecordingGit(),
         git_base=f"file://{world.base}",
+        clock=clock,
     )
+
+
+class StepClock:
+    def __init__(self):
+        self.now = datetime.now(UTC)
+
+    def __call__(self):
+        return self.now
+
+
+class TimedFake(FakeGitHub):
+    def __init__(self, world, **pull):
+        super().__init__(world, **pull)
+        self.timeouts = []
+
+    def __call__(self, method, url, headers, body, timeout):
+        self.timeouts.append(timeout)
+        return super().__call__(method, url, headers, body, timeout)
 
 
 def push_params(world, **over):
@@ -687,3 +708,64 @@ def test_review_reply_refuses_off_allowlist_and_bad_input(pem):
         "bad_input"
     )
     assert fake.calls == []
+
+
+# ---------------------------------------------------------------- deadlines
+
+
+def test_deadline_passing_before_the_push_pushes_nothing(pem, world):
+    clock = StepClock()
+    deadline = clock.now + timedelta(seconds=60)
+    fake, rec = FakeGitHub(world), RecordingGit()
+    port = push_port(pem, world, fake, gitrec=rec, clock=clock)
+
+    def late():
+        clock.now = deadline + timedelta(seconds=1)
+
+    fake.on_push_token = late
+    res = port.invoke(push_params(world), "k", deadline, context=ctx())
+    assert res.outcome == "failed" and res.error == "deadline_exceeded" and res.retryable
+    assert "push" not in rec.verbs()
+    assert world.remote_head() == world.a
+
+
+def test_push_is_not_started_inside_the_safety_margin(pem, world):
+    clock = StepClock()
+    deadline = clock.now + timedelta(seconds=60)
+    fake, rec = FakeGitHub(world), RecordingGit()
+    port = push_port(pem, world, fake, gitrec=rec, clock=clock)
+
+    def nearly():
+        clock.now = deadline - timedelta(seconds=5)
+
+    fake.on_push_token = nearly
+    res = port.invoke(push_params(world), "k", deadline, context=ctx())
+    assert res.error == "deadline_exceeded" and res.retryable
+    assert "push" not in rec.verbs() and world.remote_head() == world.a
+
+
+def test_expired_deadline_refuses_before_any_git_or_network(pem, world):
+    clock = StepClock()
+    fake, rec = FakeGitHub(world), RecordingGit()
+    port = push_port(pem, world, fake, gitrec=rec, clock=clock)
+    res = port.invoke(push_params(world), "k", clock.now - timedelta(seconds=1), context=ctx())
+    assert res.error == "deadline_exceeded" and fake.calls == [] and rec.calls == []
+
+
+def test_git_and_http_calls_are_bounded_by_the_remaining_time(pem, world):
+    clock = StepClock()
+    fake, rec = TimedFake(world), RecordingGit()
+    port = push_port(pem, world, fake, gitrec=rec, clock=clock)
+    res = port.invoke(push_params(world), "k", clock.now + timedelta(seconds=30), context=ctx())
+    assert res.outcome == "completed", res
+    assert rec.timeouts and max(rec.timeouts) <= 30
+    assert fake.timeouts and max(fake.timeouts) <= 30
+
+
+def test_review_reply_honours_the_deadline(pem):
+    fake = FakeGitHub(None)
+    port = GitHubReviewReplyPort(make_store(), transport=fake, secrets=lambda ref: pem)
+    past = datetime.now(UTC) - timedelta(seconds=1)
+    res = port.invoke(reply_params(), "k", past, context=ctx())
+    assert res.outcome == "failed" and res.error == "deadline_exceeded" and res.retryable
+    assert not [p for p in fake.paths() if p.endswith("/replies")]

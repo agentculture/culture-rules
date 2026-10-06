@@ -29,7 +29,9 @@ import logging
 import re
 import urllib.error
 import urllib.request
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -42,6 +44,11 @@ API_VERSION = "2022-11-28"
 _REFRESH_MARGIN = timedelta(minutes=5)
 _TIMEOUT_S = 15
 _REPO_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9._-]+$")
+
+#: The current call's ``(deadline, clock)`` (see :meth:`GitHubApp.deadline`).
+_DEADLINE: ContextVar[tuple[datetime, Callable[[], datetime]] | None] = ContextVar(
+    "github_deadline", default=None
+)
 
 Transport = Callable[[str, str, dict[str, str], bytes | None, float], tuple[int, bytes]]
 
@@ -138,9 +145,35 @@ class GitHubApp:
             raise GitHubError("bad_private_key", type(exc).__name__) from None
         return f"{signing}.{_b64url(signature)}"
 
+    @contextmanager
+    def deadline(
+        self, deadline: datetime, clock: Callable[[], datetime] | None = None
+    ) -> Iterator[None]:
+        """Bound every HTTP call in the block by the time left until ``deadline``.
+
+        A call that would start at or after the deadline raises ``deadline_exceeded``
+        (retryable) without touching the network. Held in a ContextVar, so concurrent
+        callers do not see each other's deadline."""
+        reset = _DEADLINE.set((deadline, clock or self._clock))
+        try:
+            yield
+        finally:
+            _DEADLINE.reset(reset)
+
+    @staticmethod
+    def _timeout() -> float:
+        bound = _DEADLINE.get()
+        if bound is None:
+            return _TIMEOUT_S
+        left = (bound[0] - bound[1]()).total_seconds()
+        if left <= 0:
+            raise GitHubError("deadline_exceeded", retryable=True)
+        return min(float(_TIMEOUT_S), left)
+
     def _request(
         self, method: str, path: str, bearer: str, payload: dict[str, Any] | None
     ) -> tuple[int, dict[str, Any]]:
+        timeout = self._timeout()
         headers = {
             "Authorization": f"Bearer {bearer}",
             "Accept": "application/vnd.github+json",
@@ -152,7 +185,7 @@ class GitHubApp:
             body = json.dumps(payload).encode()
             headers["Content-Type"] = "application/json"
         try:
-            status, raw = self._transport(method, self._api_base + path, headers, body, _TIMEOUT_S)
+            status, raw = self._transport(method, self._api_base + path, headers, body, timeout)
         except Exception as exc:  # noqa: BLE001 - network failure is retryable; text withheld
             raise GitHubError("network_error", type(exc).__name__, retryable=True) from None
         if status >= 400:
