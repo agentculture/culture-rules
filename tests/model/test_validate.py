@@ -220,9 +220,106 @@ def test_non_loop_step_cannot_carry_max_or_body() -> None:
     assert {"max_iterations", "body"} <= paths(errors)
 
 
-def test_all_six_step_kinds_known() -> None:
-    assert set(STEP_KINDS) == {"logic", "ai", "code", "actor_task", "for_each", "retry_until"}
+def test_all_seven_step_kinds_known() -> None:
+    assert set(STEP_KINDS) == {
+        "logic",
+        "ai",
+        "code",
+        "actor_task",
+        "for_each",
+        "retry_until",
+        "wait",
+    }
     assert "kind" in paths(validate(make_step(kind="shell")))
+
+
+def test_wait_step_validates_with_seconds_only() -> None:
+    """A wait step with just seconds validates."""
+    step = make_step(kind="wait", config={"seconds": 300})
+    wf = make_workflow(steps=(step,), edges=(), outputs=())
+    assert validate(wf) == []
+
+
+def test_wait_step_validates_with_head_unchanged_guard() -> None:
+    """A wait step with seconds and head_unchanged guard validates."""
+    step = make_step(
+        kind="wait",
+        config={
+            "seconds": 300,
+            "guard": {"value": "head_unchanged", "ref": "inputs.head_sha"},
+        },
+    )
+    wf = make_workflow(steps=(step,), edges=(), outputs=())
+    assert validate(wf) == []
+
+
+def test_wait_step_missing_seconds_is_refused() -> None:
+    """A wait step without config.seconds is refused."""
+    step = make_step(kind="wait", config={})
+    wf = make_workflow(steps=(step,), edges=(), outputs=())
+    errors = validate(wf)
+    assert ("steps[0].config.seconds", "required") in {(e.path, e.code) for e in errors}
+
+
+def test_wait_step_zero_seconds_is_refused() -> None:
+    """A wait step with seconds=0 is refused."""
+    step = make_step(kind="wait", config={"seconds": 0})
+    wf = make_workflow(steps=(step,), edges=(), outputs=())
+    errors = validate(wf)
+    assert ("steps[0].config.seconds", "range") in {(e.path, e.code) for e in errors}
+
+
+def test_wait_step_negative_seconds_is_refused() -> None:
+    """A wait step with negative seconds is refused."""
+    step = make_step(kind="wait", config={"seconds": -5})
+    wf = make_workflow(steps=(step,), edges=(), outputs=())
+    errors = validate(wf)
+    assert ("steps[0].config.seconds", "range") in {(e.path, e.code) for e in errors}
+
+
+def test_wait_step_unknown_guard_is_refused() -> None:
+    """A wait step with an unknown guard value is refused."""
+    step = make_step(kind="wait", config={"seconds": 60, "guard": {"value": "timer_expired"}})
+    wf = make_workflow(steps=(step,), edges=(), outputs=())
+    errors = validate(wf)
+    assert ("steps[0].config.guard.value", "invalid_guard") in {(e.path, e.code) for e in errors}
+
+
+def test_wait_step_head_unchanged_missing_ref_is_refused() -> None:
+    """A head_unchanged guard without a ref is refused."""
+    step = make_step(kind="wait", config={"seconds": 60, "guard": {"value": "head_unchanged"}})
+    wf = make_workflow(steps=(step,), edges=(), outputs=())
+    errors = validate(wf)
+    assert ("steps[0].config.guard.ref", "missing_ref") in {(e.path, e.code) for e in errors}
+
+
+def test_wait_step_head_unchanged_invalid_ref_is_refused() -> None:
+    """A head_unchanged guard with an invalid ref is refused."""
+    step = make_step(
+        kind="wait",
+        config={"seconds": 60, "guard": {"value": "head_unchanged", "ref": "hello"}},
+    )
+    wf = make_workflow(steps=(step,), edges=(), outputs=())
+    errors = validate(wf)
+    assert ("steps[0].config.guard.ref", "invalid_ref") in {(e.path, e.code) for e in errors}
+
+
+def test_wait_step_valid_ref_to_vars_works() -> None:
+    """A wait step with a head_unchanged guard referencing a variable validates."""
+    step = make_step(
+        kind="wait",
+        config={"seconds": 60, "guard": {"value": "head_unchanged", "ref": "vars.head_sha"}},
+    )
+    wf = make_workflow(steps=(step,), edges=(), outputs=())
+    assert validate(wf) == []
+
+
+def test_wait_step_cannot_carry_max_or_body() -> None:
+    """A wait step, like any non-loop step, cannot carry max_iterations or a body."""
+    step = make_step(
+        kind="wait", config={"seconds": 60}, max_iterations=3, body=(make_step(id="x"),)
+    )
+    assert {"max_iterations", "body"} <= paths(validate(step))
 
 
 def test_duplicate_step_ids_rejected_including_nested() -> None:
@@ -418,3 +515,16 @@ def test_literals_that_look_like_trigger_paths_are_not_trigger_references(config
 def test_trigger_references_in_a_workflow_are_flagged(config) -> None:
     wf = dataclasses.replace(make_workflow(), steps=(make_step(config=config),), edges=())
     assert "trigger_reference" in codes(validate(wf))
+
+
+def test_wait_step_with_null_config_reports_an_error_not_a_crash() -> None:
+    """A wait step whose config is null is a validation error, never a TypeError."""
+    from culture_rules.model.serde import to_plain
+    from culture_rules.model.validate import validate_data
+    from culture_rules.model.workflow import Workflow
+
+    step = make_step(kind="wait", config={"seconds": 300})
+    data = to_plain(make_workflow(steps=(step,), edges=(), outputs=()))
+    data["steps"][0]["config"] = None
+    _, errors = validate_data(Workflow, data)
+    assert errors
