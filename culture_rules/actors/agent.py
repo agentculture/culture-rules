@@ -39,8 +39,9 @@ the unrelated PyPI project named ``agentirc`` is NOT it) lives behind the option
     works for hours. The bridge reports back with callback events (``heartbeat``,
     ``progress``, ``completed``, ``failed``, ``blocked``) on the callback URL it was
     handed. :func:`record_bridge_event` is the store-only receiver for one event (any
-    process with the store can host it: the node's :class:`BridgeCallbackServer`, or an
-    API route); it verifies the per-invocation callback token, ignores replays and
+    process with the store can host it: in production the API's
+    ``POST /bridge-invocations/{id}/events``, or a stdlib :class:`BridgeCallbackServer`);
+    it verifies the per-invocation callback token, ignores replays and
     stale sequences, and records a terminal result exactly once.
     :func:`redeliver_bridge` hands recorded results to ``Executor.deliver`` (through
     :func:`culture_rules.node.completions.deliver`, which also frees the actor's limit
@@ -80,6 +81,9 @@ __all__ = [
     "AgentActorError",
     "AgentClient",
     "BRIDGE_CALLBACK_PATH",
+    "BRIDGE_CALLBACK_RE",
+    "BRIDGE_EVENT_STATUS",
+    "BRIDGE_MAX_EVENT_BYTES",
     "BRIDGE_INVOCATIONS",
     "BridgeAgentActor",
     "BridgeCallbackServer",
@@ -320,92 +324,86 @@ def load_agentirc_client(importer: Callable[[str], Any] = import_module) -> Any:
 
 
 # -- bridge wire format ---------------------------------------------------------------
-# Every field name of the bridge protocol (culture-nodes' actor protocol 1.0, as lifted
-# into cultureagent) is spelled in this section and nowhere else, so aligning with the
-# bridge's final schema is a change here only.
+# Every field name of the cultureagent bridge protocol (request ``protocol_version`` 1.0,
+# result schema ``cultureagent.bridge.result/v1``) is spelled in this section and nowhere
+# else, so following the bridge's schema is a change here only. Unknown keys in a result
+# are kept (passed through as outputs), never an error.
 
 PROTOCOL_VERSION = "1.0"
+RESULT_SCHEMA = "cultureagent.bridge.result/v1"
 INVOCATIONS_PATH = "/v1/invocations"
 IDEMPOTENCY_HEADER = "Idempotency-Key"
 ADDRESS_FIELDS = ("repo", "head_branch", "head_sha")
 """Where the bridge checks out: taken from the step's inputs (or config), never the actor."""
-PASSTHROUGH_CONFIG = ("model", "sandbox", "mode", "permission_mode", "success_outcome")
-"""Step-config keys forwarded into the bridge input (the actor supplies defaults)."""
+PASSTHROUGH_CONFIG = ("model", "sandbox", "mode")
+"""Step-config keys forwarded into the bridge input (the actor supplies defaults); the qwen
+bridge requires ``mode``."""
 RESULT_FIELDS = (
+    "schema",
+    "invocation_id",
+    "backend",
     "status",
     "summary",
+    "repo",
+    "head_branch",
     "head_before",
     "head_after",
     "commits",
     "changed_files",
     "diffstat",
+    "dirty",
     "threads_addressed",
+    "worktree",
+    "error",
+    "model",
+    "session_id",
+    "preserve",
 )
-"""The plain result a bridge reports; each becomes a step output of the same name."""
-_MEASURED_FIELDS = ("head_before", "head_after", "changed_files", "diffstat")
+"""The result keys; each becomes a step output of the same name (None when absent)."""
+TURN_ENDED = frozenset({"completed", "no_changes", "uncommitted", "permission_blocked"})
+"""Result statuses where the agent's turn ran to its end: the step completes."""
 TERMINAL_KINDS = ("completed", "failed", "blocked")
 NON_TERMINAL_KINDS = ("accepted", "heartbeat", "progress", "artifact", "signal")
-_NON_RETRYABLE_CLASSES = frozenset({"actor_rejected_input", "auth_or_policy"})
+NON_RETRYABLE_CLASSES = frozenset({"actor_rejected_input", "credential", "provision"})
+"""Error classes where retrying cannot help (bad input, missing credential, no checkout)."""
 _SHA_RE = re.compile(r"^[0-9a-fA-F]{7,64}$")
 
 
 def build_invocation_request(
-    *,
-    run_id: str,
-    step_id: str,
-    attempt_id: str,
-    attempt: int,
-    input: Mapping[str, Any],
-    deadline: datetime,
-    callback_url: str,
-    callback_token: str,
+    *, input: Mapping[str, Any], callback_url: str, callback_token: str
 ) -> dict[str, Any]:
-    """The ``POST /v1/invocations`` body for one step attempt."""
+    """The ``POST /v1/invocations`` body for one step attempt (always asynchronous)."""
     return {
         "protocol_version": PROTOCOL_VERSION,
-        "run_id": run_id,
-        "token_id": step_id,
-        "node_run_id": f"{run_id}/{step_id}",
-        "attempt_id": attempt_id,
-        "attempt": attempt,
-        "workflow": {"name": "", "version_digest": ""},
-        "node": {"id": step_id, "contract_digest": ""},
-        "input": dict(input),
-        "artifact_refs": [],
-        "context_refs": [],
-        "deadline": _iso(deadline),
+        "input": {**input, "async": True},
         "callback": {"url": callback_url, "token": callback_token},
     }
 
 
 def result_from_terminal(kind: str, payload: Mapping[str, Any] | None) -> InvocationResult:
-    """Map a terminal event (or a synchronous ``200`` body, kind ``completed``) to a result.
+    """Map a terminal event, or a synchronous ``200`` body (kind ``completed``), to a result.
 
-    ``completed`` keeps the bridge's ``output`` and lifts the plain result fields
-    (:data:`RESULT_FIELDS`) to top-level outputs, falling back to the payload and its
-    ``workspace_measured`` block; ``outcome`` is the bridge's domain outcome. ``failed`` is
-    retryable unless its class says retrying cannot help; ``blocked`` (the agent cannot
-    proceed) fails the step without a retry.
+    The bridge result sits in ``payload["result"]``. A ``completed`` event whose status is
+    one of :data:`TURN_ENDED` (or absent) completes the step with every result key as an
+    output. Anything else fails it: the class comes from the event (``class``/``message``)
+    or the result's ``error``, and is retryable unless it is in
+    :data:`NON_RETRYABLE_CLASSES`. ``blocked`` (the agent cannot proceed) never retries.
     """
     payload = payload if isinstance(payload, Mapping) else {}
-    if kind == "completed":
-        raw = payload.get("output")
-        output: dict[str, Any] = dict(raw) if isinstance(raw, Mapping) else {}
-        measured = payload.get("workspace_measured")
-        measured = measured if isinstance(measured, Mapping) else {}
-        for name in RESULT_FIELDS:
-            value = output.get(name, payload.get(name))
-            if value is None and name in _MEASURED_FIELDS:
-                value = measured.get(name)
-            output[name] = value
-        output["outcome"] = payload.get("outcome")
-        return InvocationResult.completed(output)
+    raw = payload.get("result")
+    result: dict[str, Any] = dict(raw) if isinstance(raw, Mapping) else {}
+    for name in RESULT_FIELDS:
+        result.setdefault(name, None)
+    status = result.get("status")
+    if kind == "completed" and (status is None or status in TURN_ENDED):
+        return InvocationResult.completed(result)
     if kind == "blocked":
-        reason = payload.get("message") or payload.get("outcome") or "the agent cannot proceed"
+        reason = payload.get("message") or status or "the agent cannot proceed"
         return InvocationResult.failed(f"blocked: {reason}", retryable=False)
-    cls = str(payload.get("class") or "execution")
-    message = str(payload.get("message") or "the bridge reported a failure")
-    return InvocationResult.failed(f"{cls}: {message}", retryable=cls not in _NON_RETRYABLE_CLASSES)
+    error = result.get("error") if isinstance(result.get("error"), Mapping) else {}
+    cls = str(payload.get("class") or error.get("class") or "execution")
+    message = str(payload.get("message") or error.get("message") or status or "bridge failure")
+    return InvocationResult.failed(f"{cls}: {message}", retryable=cls not in NON_RETRYABLE_CLASSES)
 
 
 # -- bridge transport -----------------------------------------------------------------
@@ -444,8 +442,11 @@ def _urllib_transport(
 # -- bridge invocations in the store --------------------------------------------------
 
 BRIDGE_INVOCATIONS = "bridge_invocations"
-BRIDGE_CALLBACK_PATH = "/v1/bridge-invocations/{id}/events"
-"""Callback path, relative to the actor's ``callback_url`` (whoever hosts the receiver)."""
+BRIDGE_CALLBACK_PATH = "/bridge-invocations/{id}/events"
+"""The callback route (the API's ``POST /bridge-invocations/{id}/events``), appended to an
+actor's ``callback_url`` unless that URL already carries an ``{id}`` placeholder."""
+BRIDGE_CALLBACK_RE = re.compile(r"^/bridge-invocations/(bri_[0-9a-f]{24})/events$")
+"""Exactly the callback paths :func:`bridge_invocation_id` can produce."""
 BRIDGE_SCHEMA_VERSION = 1
 _DISPATCHING, _ACCEPTED, _COMPLETED, _FAILED = "dispatching", "accepted", "completed", "failed"
 _REJECTED, _EXPIRED, _SUPERSEDED = "rejected", "expired", "superseded"
@@ -487,22 +488,11 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _current_attempt(store: Any, key: str) -> int | None:
-    """The attempt the step with idempotency key ``key`` is on now (None: unknown key)."""
-    from culture_rules.engine.claims import CLAIMS_COLLECTION
-    from culture_rules.engine.runs import RUNS_COLLECTION, step_state
-
-    claim = store.get(CLAIMS_COLLECTION, key)
-    if not claim or claim.get("kind") != "step":
-        return None
-    run = store.get(RUNS_COLLECTION, claim["run_id"])
-    st = step_state(run, claim["step_id"]) if run else None
-    return st.get("attempt") if st else None
-
-
 def _superseded(store: Any, doc: Mapping[str, Any]) -> bool:
     """Whether the step has moved on to a newer attempt than this invocation's."""
-    current = _current_attempt(store, doc["idempotency_key"])
+    from culture_rules.node.completions import step_attempt  # the node layer; lazily
+
+    current = step_attempt(store, doc["idempotency_key"])
     return isinstance(current, int) and current > doc["attempt"]
 
 
@@ -583,15 +573,20 @@ def record_bridge_event(
 def _deliver_one(store: Any, executor: Any, doc: Mapping[str, Any]) -> bool:
     """Deliver a recorded result (freeing the actor's slot) and flag it; True iff it
     changed the run. A result for an attempt the step has moved past is discarded
-    (``superseded``), never delivered: ``Executor.deliver`` does not check attempts."""
+    (``superseded``), never delivered: the delivery names its attempt, and
+    ``Executor.deliver`` refuses it inside its compare-and-set when the step is on
+    another attempt (the early check only spares the call)."""
     from culture_rules.node import completions  # the node layer; imported lazily
 
     if _superseded(store, doc):
         _supersede(store, doc, {"pending_delivery": True})
         return False
-
     result = InvocationResult.from_dict(doc["result"])
-    changed = completions.deliver(store, executor, doc["idempotency_key"], result)
+    key = doc["idempotency_key"]
+    changed = completions.deliver(store, executor, key, result, attempt=doc["attempt"])
+    if not changed and _superseded(store, doc):  # a newer attempt started meanwhile
+        _supersede(store, doc, {"pending_delivery": True})
+        return False
     store.update_if(
         BRIDGE_INVOCATIONS,
         doc["id"],
@@ -652,6 +647,12 @@ class BridgeAgentActor:
         if callable(ensure):
             ensure(BRIDGE_INVOCATIONS)
 
+    def callback_for(self, invocation_id: str) -> str:
+        """The callback URL handed to the bridge for one invocation."""
+        if "{id}" in self.callback_url:
+            return self.callback_url.replace("{id}", invocation_id)
+        return self.callback_url + BRIDGE_CALLBACK_PATH.format(id=invocation_id)
+
     # ---------------------------------------------------------------- input
 
     def bridge_input(
@@ -707,13 +708,8 @@ class BridgeAgentActor:
             return InvocationResult.from_dict(doc["result"])
         attempt_id = f"{idempotency_key}#{context.attempt}"
         body = build_invocation_request(
-            run_id=context.run_id,
-            step_id=context.step_id,
-            attempt_id=attempt_id,
-            attempt=context.attempt,
             input=payload or {},
-            deadline=deadline,
-            callback_url=self.callback_url + BRIDGE_CALLBACK_PATH.format(id=doc_id),
+            callback_url=self.callback_for(doc_id),
             callback_token=callback_token,
         )
         headers = {"Content-Type": "application/json", IDEMPOTENCY_HEADER: attempt_id}
@@ -825,9 +821,8 @@ class BridgeAgentActor:
 
 # -- the callback endpoint ------------------------------------------------------------
 
-_CALLBACK_RE = re.compile(r"^/v1/bridge-invocations/(bri_[0-9a-f]{24})/events$")
-_MAX_EVENT_BYTES = 1 << 20
-_HTTP_STATUS = {
+BRIDGE_MAX_EVENT_BYTES = 1 << 20
+BRIDGE_EVENT_STATUS = {  # what a receiver answers for each record_bridge_event outcome
     RECORDED: 200,
     DUPLICATE: 200,
     INVALID: 400,
@@ -880,7 +875,7 @@ class BridgeCallbackServer:
                     length = int(self.headers.get("Content-Length") or 0)
                 except ValueError:
                     return None
-                if length < 0 or length > _MAX_EVENT_BYTES:
+                if length < 0 or length > BRIDGE_MAX_EVENT_BYTES:
                     return None
                 return self.rfile.read(length)
 
@@ -894,7 +889,7 @@ class BridgeCallbackServer:
 
     def handle(self, path: str, authorization: str, raw: bytes | None) -> tuple[int, dict]:
         """One callback request -> ``(http status, body)`` (also usable without a socket)."""
-        match = _CALLBACK_RE.match(path.split("?", 1)[0])
+        match = BRIDGE_CALLBACK_RE.fullmatch(path.split("?", 1)[0])
         if match is None:
             return 404, {"error": "not found"}
         token = authorization[7:] if authorization.startswith("Bearer ") else ""
@@ -908,7 +903,7 @@ class BridgeCallbackServer:
                 redeliver_bridge(self._store, self._executor, match.group(1))
             except Exception:  # noqa: BLE001 - recorded; the node's redeliver retries
                 pass  # nosec B110
-        return _HTTP_STATUS[outcome], {"status": outcome}
+        return BRIDGE_EVENT_STATUS[outcome], {"status": outcome}
 
     def start(self) -> str:
         self._thread = threading.Thread(

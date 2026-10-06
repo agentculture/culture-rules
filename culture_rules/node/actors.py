@@ -24,8 +24,10 @@
 ``colleague work`` (:class:`~culture_rules.actors.agent.ColleagueActor`), or, when the
 actor's ``params`` name a ``bridge_url``, an async cultureagent bridge session
 (:class:`~culture_rules.actors.agent.BridgeAgentActor`; ``params``: ``bridge_url``,
-``callback_url`` where the bridge posts its callbacks, ``bridge_token`` a ``grant:``
-reference for the bridge's bearer token, and ``model``/``sandbox``/``mode`` defaults),
+``callback_url`` the API base URL the bridge posts its callbacks to (``POST
+/bridge-invocations/{id}/events``; an ``{id}`` placeholder in it is filled instead),
+``bridge_token`` a ``grant:`` reference for the bridge's bearer token, and
+``model``/``sandbox``/``mode`` defaults),
 ``runner`` ->
 registered commands only (:class:`~culture_rules.actors.code.CodeRunner`, inline scripts
 refused), ``human`` -> asks (:class:`~culture_rules.actors.human.HumanAdapter`, only when

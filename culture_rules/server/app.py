@@ -10,6 +10,7 @@ an unauthenticated or unauthorized caller. Every mutating route goes through an 
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -21,7 +22,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.security import APIKeyHeader, HTTPBearer
 from pydantic import BaseModel, ConfigDict, Field
 
-from culture_rules.actors import human
+from culture_rules.actors import agent, human
 from culture_rules.actors.code import InlineScriptDenied
 from culture_rules.actors.secrets import SecretError
 from culture_rules.auth import guards
@@ -62,6 +63,7 @@ from culture_rules.store.port import StoragePort
 
 __all__ = [
     "API_VERSION",
+    "BRIDGE_CALLBACK_RE",
     "HOOK_PATHS",
     "IDENTITY_HEADER",
     "create_app",
@@ -74,6 +76,11 @@ __all__ = [
 # the decoded *and* raw path, so a prefix, a trailing slash, a case or percent-encoding
 # variant, or the ``/api`` alias never matches. Nothing else is public - not even ``/health``.
 HOOK_PATHS = frozenset({"/hooks/github", "/hooks/jira"})
+BRIDGE_CALLBACK_RE = agent.BRIDGE_CALLBACK_RE
+"""The one other exemption: ``POST`` to a bridge callback path,
+``/bridge-invocations/bri_<24 hex>/events`` (full match, same raw-path and ``/api`` rules).
+The bridge holds only the per-attempt callback token, which the handler checks against the
+stored hash; the token is no credential anywhere else."""
 
 API_VERSION = "1.0.0"
 """The HTTP contract version (independent of the package version, so a release bump never
@@ -515,6 +522,7 @@ def create_app(
     _register_asks(app, store, answer_ask)
     _register_stream(app, store)
     _register_hooks(app, store)
+    _register_bridge_callbacks(app, store)
     _register_discord_targets(app, store, resolve_secret, discord_transport)
     static.install(app, web_dist)
     # outermost: every answer, 401/403 envelopes included, says how it may be cached
@@ -546,12 +554,15 @@ def _install_auth(app: FastAPI, resolver: Resolver, sign_in: humans.HumanSignIn)
 
 
 def _hook_exempt(request: Request) -> bool:
-    """``POST`` to an exact :data:`HOOK_PATHS` entry, as sent (not via ``/api``, not encoded)."""
+    """``POST`` to an exact :data:`HOOK_PATHS` entry or a :data:`BRIDGE_CALLBACK_RE` path, as
+    sent (not via ``/api``, not encoded)."""
     if request.method != "POST":
         return False
     scope = request.scope
     path = scope.get("path", "")
-    if path not in HOOK_PATHS or scope.get(static._FLAG):  # /api alias
+    if scope.get(static._FLAG):  # /api alias
+        return False
+    if path not in HOOK_PATHS and BRIDGE_CALLBACK_RE.fullmatch(path) is None:
         return False
     raw = scope.get("raw_path")
     return raw is None or raw == path.encode("ascii")
@@ -568,6 +579,107 @@ def _register_hooks(app: FastAPI, store: StoragePort) -> None:
 
     app.include_router(github.router(store), include_in_schema=False)
     app.include_router(jira.router(store), include_in_schema=False)
+
+
+class BridgeEventAck(BaseModel):
+    """What :func:`culture_rules.actors.agent.record_bridge_event` did with the event."""
+
+    status: str = Field(
+        description="recorded | duplicate | invalid | unauthorized | unknown | expired"
+    )
+
+
+_BRIDGE_EVENT_SCHEMA = {
+    "type": "object",
+    "required": ["kind", "sequence"],
+    "properties": {
+        "event_id": {"type": "string"},
+        "sequence": {"type": "integer"},
+        "kind": {
+            "type": "string",
+            "enum": [*agent.TERMINAL_KINDS, *agent.NON_TERMINAL_KINDS],
+        },
+        "payload": {"type": "object"},
+    },
+}
+
+
+_BRIDGE_CALLBACK_ROUTE = "/bridge-invocations/{invocation_id}/events"
+
+
+def _register_bridge_callbacks(app: FastAPI, store: StoragePort) -> None:
+    """``POST /bridge-invocations/{id}/events``: a bridge's callback, recorded in the store.
+
+    Exempt from principal resolution (:func:`_hook_exempt`); authenticated by the per-attempt
+    callback token in ``Authorization: Bearer``. The node delivers recorded results on its
+    next cycle (:func:`culture_rules.actors.agent.redeliver_bridge`).
+    """
+    from starlette.concurrency import run_in_threadpool  # noqa: PLC0415
+
+    ack = {"model": BridgeEventAck}
+
+    @app.post(
+        _BRIDGE_CALLBACK_ROUTE,
+        tags=["bridge"],
+        operation_id="bridge_callback",
+        response_model=BridgeEventAck,
+        summary="Bridge callback event (callback token auth)",
+        description=(
+            "Called by a cultureagent bridge, not by clients: one callback event "
+            "(heartbeat, progress, completed, failed, ...) for a bridge invocation. "
+            "Authenticated only by that invocation's callback token (Bearer); no service "
+            "token or Access JWT applies. The node delivers a recorded result to its run."
+        ),
+        responses={
+            200: {**ack, "description": "Recorded, or a duplicate of one already recorded"},
+            400: {**ack, "description": "Not a callback event"},
+            401: {**ack, "description": "Missing or wrong callback token"},
+            404: {**ack, "description": "No such bridge invocation"},
+            410: {**ack, "description": "The attempt was expired or superseded"},
+            413: {**ack, "description": "Event too large"},
+        },
+        openapi_extra={
+            "requestBody": {
+                "required": True,
+                "content": {"application/json": {"schema": _BRIDGE_EVENT_SCHEMA}},
+            },
+        },
+    )
+    async def bridge_callback(invocation_id: str, request: Request) -> JSONResponse:
+        limit = agent.BRIDGE_MAX_EVENT_BYTES
+        declared = request.headers.get("content-length", "")
+        if declared.isdigit() and int(declared) > limit:
+            return JSONResponse({"status": "too_large"}, status_code=413)
+        chunks, size = [], 0
+        async for chunk in request.stream():
+            size += len(chunk)
+            if size > limit:
+                return JSONResponse({"status": "too_large"}, status_code=413)
+            chunks.append(chunk)
+        header = request.headers.get("authorization", "")
+        token = header[len("Bearer ") :] if header.startswith("Bearer ") else ""
+        try:
+            event = json.loads(b"".join(chunks).decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            event = None
+        outcome = await run_in_threadpool(
+            agent.record_bridge_event, store, invocation_id, token, event
+        )
+        return JSONResponse({"status": outcome}, status_code=agent.BRIDGE_EVENT_STATUS[outcome])
+
+    generate = app.openapi
+
+    def openapi() -> dict[str, Any]:
+        """The app's schema, minus the global credential schemes and 403 on this route."""
+        if app.openapi_schema is None:
+            schema = generate()
+            op = schema["paths"][_BRIDGE_CALLBACK_ROUTE]["post"]
+            op["security"] = []  # the callback token is checked by the handler
+            for code in ("403", "422"):  # no role, and the raw body is read by hand
+                op["responses"].pop(code, None)
+        return app.openapi_schema
+
+    app.openapi = openapi  # type: ignore[method-assign]
 
 
 class DiscordChannel(BaseModel):

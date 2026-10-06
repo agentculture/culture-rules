@@ -84,6 +84,7 @@ def store() -> MemoryStore:
 
 def make_actor(store, clock, bridge=None, **kw) -> BridgeAgentActor:
     kw.setdefault("callback_url", CALLBACK)
+    kw.setdefault("actor_id", "qwen-fixer")
     return BridgeAgentActor(
         store,
         bridge_url="http://127.0.0.1:8765/",
@@ -91,7 +92,6 @@ def make_actor(store, clock, bridge=None, **kw) -> BridgeAgentActor:
         resolve_secret=lambda ref: ref,
         transport=bridge if bridge is not None else FakeBridge(),
         clock=clock,
-        actor_id="qwen-fixer",
         **kw,
     )
 
@@ -136,17 +136,39 @@ def token_of(bridge: FakeBridge, n: int = -1) -> str:
     return bridge.requests[n]["body"]["callback"]["token"]
 
 
-def completed_event(seq=3, **output):
-    output.setdefault("summary", "fixed the lint")
+def bridge_result(**fields):
+    """A ``cultureagent.bridge.result/v1`` object (t1's shape), overridable per field."""
+    result = {
+        "schema": "cultureagent.bridge.result/v1",
+        "invocation_id": "inv-1",
+        "backend": "qwen",
+        "status": "completed",
+        "summary": "fixed the lint",
+        "repo": PR["repo"],
+        "head_branch": "feature/x",
+        "head_before": SHA,
+        "head_after": "f" * 40,
+        "commits": [{"sha": "f" * 40, "subject": "fix lint", "author": "q", "committed_at": "t"}],
+        "changed_files": ["a.py"],
+        "diffstat": "1 file changed",
+        "dirty": False,
+        "threads_addressed": [{"thread_id": "T1", "commit": "f" * 40, "reply": "done"}],
+        "worktree": "/w",
+        "error": None,
+        "model": "qwen3-coder",
+        "session_id": "s-1",
+        "preserve": None,
+    }
+    result.update(fields)
+    return result
+
+
+def completed_event(seq=3, **fields):
     return {
         "event_id": f"evt_{seq}",
         "sequence": seq,
         "kind": "completed",
-        "payload": {
-            "outcome": "success",
-            "output": output,
-            "workspace_measured": {"head_before": SHA, "head_after": "f" * 40},
-        },
+        "payload": {"result": bridge_result(**fields)},
     }
 
 
@@ -228,25 +250,36 @@ def test_restart_before_the_callback_then_the_callback_server_delivers(store, cl
 def test_request_carries_repo_head_branch_and_head_sha_from_step_inputs(store, clock):
     bridge = FakeBridge()
     ex = executor(store, clock, make_actor(store, clock, bridge, defaults={"model": "qwen"}))
-    run_id = start(ex, config={"sandbox": "workspace-write"})
+    start(ex, config={"sandbox": "workspace-write", "mode": "yolo"})
     (req,) = bridge.requests
     assert req["method"] == "POST"
     assert req["url"] == "http://127.0.0.1:8765/v1/invocations"
     body = req["body"]
+    assert set(body) == {"protocol_version", "input", "callback"}
     assert body["protocol_version"] == "1.0"
-    assert body["run_id"] == run_id
     assert body["input"]["repo"] == PR["repo"]
     assert body["input"]["head_branch"] == "feature/x"
     assert body["input"]["head_sha"] == SHA
     assert body["input"]["instruction"] == "Fix the failing check"
     assert body["input"]["sandbox"] == "workspace-write"
     assert body["input"]["model"] == "qwen"
+    assert body["input"]["mode"] == "yolo"
+    assert body["input"]["async"] is True  # never a synchronous multi-hour request
     doc = invocation(store)
     assert body["callback"]["url"] == CALLBACK + BRIDGE_CALLBACK_PATH.format(id=doc["id"])
     assert body["callback"]["token"] not in json.dumps(doc)  # only its hash is stored
     assert req["headers"]["Authorization"] == "Bearer bridge-secret"
     assert req["headers"]["Idempotency-Key"] == f"{doc['idempotency_key']}#1"
-    assert body["attempt_id"] == req["headers"]["Idempotency-Key"]
+
+
+def test_callback_url_may_carry_an_id_placeholder(store, clock):
+    template = "http://127.0.0.1:8791/bridge-invocations/{id}/events"
+    actor = make_actor(store, clock, callback_url=template)
+    assert actor.callback_for("bri_" + "0" * 24) == (
+        "http://127.0.0.1:8791/bridge-invocations/bri_000000000000000000000000/events"
+    )
+    base = make_actor(store, clock, callback_url="http://127.0.0.1:8791/")
+    assert base.callback_for("bri_x") == "http://127.0.0.1:8791/bridge-invocations/bri_x/events"
 
 
 def test_address_comes_from_the_step_not_the_actor(store, clock):
@@ -331,7 +364,11 @@ def test_failed_callback_fails_or_retries_by_class(store, clock):
         "event_id": "e",
         "sequence": 2,
         "kind": "failed",
-        "payload": {"class": "auth_or_policy", "message": "repo not allowed"},
+        "payload": {
+            "class": "actor_rejected_input",
+            "message": "repo not allowed",
+            "result": bridge_result(status="rejected"),
+        },
     }
     assert record_bridge_event(store, doc["id"], token, event) == RECORDED
     redeliver_bridge(store, ex)
@@ -390,11 +427,11 @@ def invoke_once(store, clock, *answers, attempt=1, key="k"):
 
 
 def test_synchronous_200_completes_at_once(store, clock):
-    body = {"outcome": "success", "output": {"summary": "done", "commits": ["abc"]}}
+    body = {"invocation_id": "inv-1", "result": bridge_result(summary="done", commits=[])}
     res, _ = invoke_once(store, clock, (200, body))
     assert res.outcome == "completed"
-    assert res.output["summary"] == "done" and res.output["commits"] == ["abc"]
-    assert res.output["outcome"] == "success"
+    assert res.output["summary"] == "done" and res.output["commits"] == []
+    assert res.output["status"] == "completed"
     assert invocation(store)["status"] == "completed"
     assert invocation(store)["pending_delivery"] is False
 
@@ -431,20 +468,29 @@ def test_unreachable_bridge(store, clock):
 
 
 def test_result_mapping():
+    for status in ("completed", "no_changes", "uncommitted", "permission_blocked"):
+        res = result_from_terminal("completed", {"result": bridge_result(status=status)})
+        assert res.outcome == "completed" and res.output["status"] == status
     res = result_from_terminal(
-        "completed",
-        {
-            "outcome": "no_changes",
-            "output": {"summary": "nothing to do", "threads_addressed": []},
-            "workspace_measured": {"changed_files": [], "diffstat": ""},
-        },
+        "completed", {"result": {"status": "no_changes", "summary": "nothing", "extra": 1}}
     )
-    assert res.output["outcome"] == "no_changes"
-    assert res.output["changed_files"] == [] and res.output["threads_addressed"] == []
-    assert res.output["commits"] is None
+    assert res.output["changed_files"] is None and res.output["commits"] is None  # absent
+    assert res.output["extra"] == 1  # unknown keys pass through
+    assert res.output["summary"] == "nothing"
+    # a completed event whose status says the turn did not end is not a success
+    odd = result_from_terminal(
+        "completed",
+        {"result": bridge_result(status="timed_out", error={"class": "timeout", "message": "t"})},
+    )
+    assert odd.outcome == "failed" and odd.retryable and odd.error.startswith("timeout")
     assert not result_from_terminal("blocked", {"message": "needs a human"}).retryable
-    assert result_from_terminal("failed", {"class": "timeout"}).retryable
-    assert not result_from_terminal("failed", {"class": "actor_rejected_input"}).retryable
+    for cls in ("execution", "capacity_exhausted", "timeout", "cancelled", "actor_unavailable"):
+        assert result_from_terminal("failed", {"class": cls, "message": "m"}).retryable, cls
+    for cls in ("actor_rejected_input", "credential", "provision"):
+        assert not result_from_terminal("failed", {"class": cls}).retryable, cls
+    # the class may come only from the result's error
+    nested = {"result": bridge_result(status="failed", error={"class": "credential"})}
+    assert not result_from_terminal("failed", nested).retryable
 
 
 # ---- the stdlib transport against a loopback fake bridge ----------------------------------
@@ -624,3 +670,90 @@ def test_a_terminal_event_for_a_no_longer_current_attempt_is_refused(store, cloc
 def invocation_for(store, attempt):
     (doc,) = [d for d in store.find(BRIDGE_INVOCATIONS) if d["attempt"] == attempt]
     return doc
+
+
+def test_attempt_2_dispatched_between_the_check_and_the_delivery_is_not_finished(
+    store, clock, monkeypatch
+):
+    """The race d3 closes: the early superseded check passes (attempt 1 is still current),
+    then attempt 2 is dispatched, then attempt 1's result is delivered. Executor.deliver's
+    attempt check inside its compare-and-set refuses it."""
+    from culture_rules.actors import agent
+
+    ex, run_id, bridge, first, first_token = two_attempts(store, clock)
+    assert record_bridge_event(store, first["id"], first_token, completed_event()) == RECORDED
+    real = agent._superseded
+    calls = []
+
+    def racing(store_, doc):
+        calls.append(doc["attempt"])
+        stale = real(store_, doc)  # attempt 1 is still current: False
+        if len(calls) == 1:  # attempt 2 dispatches right after the check
+            store_.update_if(BRIDGE_INVOCATIONS, doc["id"], {}, {"pending_delivery": True})
+            monkeypatch.setattr(agent, "_superseded", real)
+            dispatch_attempt_2(ex, clock, run_id, bridge)
+            monkeypatch.setattr(agent, "_superseded", racing)
+            store_.update_if(  # keep the record pending, as if the expiry write raced too
+                BRIDGE_INVOCATIONS,
+                doc["id"],
+                {},
+                {"status": "completed", "pending_delivery": True},
+            )
+        return stale
+
+    monkeypatch.setattr(agent, "_superseded", racing)
+    assert redeliver_bridge(store, ex) == 0
+    assert calls[0] == 1
+    assert_attempt_2_still_waiting(store, ex, run_id, first["id"])
+
+
+# ---- d1: the node delivers recorded bridge results every cycle -------------------------
+
+
+def test_the_node_cycle_delivers_a_recorded_bridge_result_and_frees_the_slot():
+    from culture_rules.model.placement import Placement
+    from tests.events.fakes import envelope
+    from tests.node.test_node import Cluster, event_rule
+
+    c = Cluster("spark")
+    fixer = Actor(
+        id="qwen-fixer",
+        name="qwen fixer",
+        kind="agent",
+        machine="spark",
+        params={"max_concurrency": 1, "bridge_url": "http://127.0.0.1:8765"},
+    )
+    c.base.put("actors", fixer.to_dict())
+    bridge = FakeBridge()
+    c.nodes["spark"] = c.node(
+        "spark",
+        adapters={"agent": lambda actor: make_actor(c.base, c.clock, bridge, actor_id=actor.id)},
+    )
+    wf = workflow(
+        (
+            step(
+                "s1",
+                "actor_task",
+                outputs=(port("summary", "any"),),
+                placement=Placement(actor="qwen-fixer"),
+                timeout_s=3600,
+                config=dict(PR),
+            ),
+        )
+    )
+    c.define(wf, event_rule("r", "wf"))
+    c.start()
+    c.publish(envelope(1))
+    c.cycle()
+    assert step_state(c.run("r", "evt_1"), "s1")["status"] == "waiting"
+    assert c.base.get("actor_usage", "qwen-fixer")["inflight"]
+    doc = invocation(c.base)
+    assert record_bridge_event(c.base, doc["id"], token_of(bridge), completed_event()) == RECORDED
+
+    (report,) = c.cycle().values()
+    assert report.redelivered == 1
+    run = c.run("r", "evt_1")
+    assert run["status"] == "succeeded"
+    assert step_state(run, "s1")["outputs"]["summary"] == "fixed the lint"
+    assert c.base.get("actor_usage", "qwen-fixer")["inflight"] == []
+    assert len(bridge.requests) == 1
