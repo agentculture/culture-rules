@@ -194,11 +194,15 @@ class MissingExtraPort:
 def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
     """Action ports for every catalogued kind (stored actors are wired by the router).
 
-    A port whose extra is missing (``github.comment`` needs ``cryptography``) is replaced
+    A port whose extra is missing (the ``github.*`` kinds need ``cryptography``) is replaced
     by one that fails ``extra_missing``. Detection uses ``find_spec``: nothing is imported.
     """
     del host
     from culture_rules.node.actions.github import GitHubCommentPort  # noqa: PLC0415
+    from culture_rules.node.actions.github_pr import (  # noqa: PLC0415
+        GitHubPushPort,
+        GitHubReviewReplyPort,
+    )
     from culture_rules.node.actions.http import HttpCallPort  # noqa: PLC0415
     from culture_rules.node.actions.jira import JiraCommentPort  # noqa: PLC0415
     from culture_rules.node.actions.machine import MachineCommandPort  # noqa: PLC0415
@@ -208,17 +212,18 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
     )
 
     message = MessageAction(store)
-    github: Any = (
-        GitHubCommentPort(store)
-        if importlib.util.find_spec("cryptography") is not None
-        else MissingExtraPort("github")
-    )
+    has_github = importlib.util.find_spec("cryptography") is not None
+    github: Any = GitHubCommentPort(store) if has_github else MissingExtraPort("github")
+    push: Any = GitHubPushPort(store) if has_github else MissingExtraPort("github")
+    reply: Any = GitHubReviewReplyPort(store) if has_github else MissingExtraPort("github")
     return {
         "action:noop": NoopAction(),
         "action:message": message,
         "action:mesh.message": message,  # legacy alias of message
         "action:discord.message": DiscordMessageAction(store),
         "action:github.comment": github,
+        "action:github.push": push,
+        "action:github.review_reply": reply,
         "action:jira.comment": JiraCommentPort(store),
         "action:http.call": HttpCallPort(store),
         "action:machine.command": MachineCommandPort(store),
