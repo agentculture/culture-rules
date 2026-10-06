@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-10-06T04:46:38Z",
-  "updated": "2026-10-06T16:15:39Z",
+  "updated": "2026-10-06T16:26:23Z",
   "targets": [
     {
       "id": "c1",
@@ -979,6 +979,14 @@
       "text": "t3 Mongo variables embed full version history in one document; a very large value written many times can hit the 16 MiB document limit (Codex t3 r3). Variables are small admin-written values today; move history to per-version docs or bounded buckets if that changes.",
       "kind": "follow_up",
       "task_id": "t3",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r11",
+      "text": "A cultureagent bridge passes its environment (including its own bearer token) to the agent, which runs as the same Unix user, so the agent can call its own bridge. Reach is limited to what the account can already do (fetch allowlisted repos, commit locally); a separate bridge user would close it. Found in t18.",
+      "kind": "follow_up",
+      "task_id": "t18",
       "resolved": false,
       "resolution": ""
     }

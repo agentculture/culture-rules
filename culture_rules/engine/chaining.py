@@ -54,6 +54,7 @@ START_FAILED = "start_failed"
 _WORDS = {
     "failed": "failed",
     "cancelled": "was cancelled",
+    "superseded": "was superseded",
     "succeeded": "succeeded",
     START_FAILED: "could not start",
 }
