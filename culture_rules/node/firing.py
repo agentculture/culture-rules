@@ -150,7 +150,13 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from culture_rules.engine.chaining import LIVE, START_FAILED, sequence
-from culture_rules.engine.claims import firing_key
+from culture_rules.engine.claims import (
+    RULE_ATTEMPT_BUDGETS,
+    firing_key,
+    reserve_concurrency,
+    reset_attempt_budget,
+    resolve_concurrency_key,
+)
 from culture_rules.engine.decisions import (
     FINAL_SKIP_REASONS,
     RATE_CAPPED,
@@ -297,7 +303,7 @@ class RuleFiring:
             lambda tx, ev: self._evaluate(tx, ev, placed=True),
             host=host,
             consumer=placed_consumer(host),
-            handler_collections=(RULE_FIRES, RULE_DECISIONS, RULE_RATES),
+            handler_collections=(RULE_FIRES, RULE_DECISIONS, RULE_RATES, RULE_ATTEMPT_BUDGETS),
             clock=clock,
         )
         self.shared = EventTriggers(
@@ -305,7 +311,7 @@ class RuleFiring:
             lambda tx, ev: self._evaluate(tx, ev, placed=False),
             host=host,
             consumer=SHARED_CONSUMER,
-            handler_collections=(RULE_FIRES, RULE_DECISIONS, RULE_RATES),
+            handler_collections=(RULE_FIRES, RULE_DECISIONS, RULE_RATES, RULE_ATTEMPT_BUDGETS),
             clock=clock,
         )
         self.chain_placed = self._chain(placed_chain(host), placed=True)
@@ -328,6 +334,7 @@ class RuleFiring:
                 RULE_FIRES,
                 RULE_DECISIONS,
                 RULE_RATES,
+                RULE_ATTEMPT_BUDGETS,
                 RUNS_COLLECTION,
                 EVENTS_COLLECTION,
             ),
@@ -418,6 +425,13 @@ class RuleFiring:
         self._pending[marker_id] = []  # a retried transaction re-evaluates from scratch
         rules = self._live_rules(tx)
         ours = self._ours(tx, rules, event_id, placed=placed)
+        if envelope.get("type") == "github.pr.synchronize" and (
+            envelope.get("data", {}).get("self_authored") is False
+        ):
+            for rule in rules:
+                if rule.id in ours and rule.concurrency_key is not None:
+                    key = resolve_concurrency_key(rule.concurrency_key, envelope)
+                    reset_attempt_budget(tx, rule.id, key)
         if ours:
             self._decide(tx, envelope, rules, ours, marker_id, placed=placed, chained=False)
 
@@ -508,6 +522,13 @@ class RuleFiring:
                 continue  # already fired for this event (by another host, or another path)
             self._pending[marker_id].append((decision.rule_id, event_id))
             run_id = run_id_for(decision.rule_id, event_id)
+            key = None
+            if decision.fire and by_id[decision.rule_id].concurrency_key is not None:
+                rule = by_id[decision.rule_id]
+                key = resolve_concurrency_key(rule.concurrency_key, envelope)
+                reason = reserve_concurrency(tx, rule.id, key, run_id, intent_id, rule.max_attempts)
+                if reason is not None:
+                    decision = Decision(rule_id=rule.id, fire=False, reason=reason, detail=key)
             # A skip that matters ("superseded by A", ...) is part of the rule's history;
             # it commits (or rolls back) with this transaction, once per (rule, event). A
             # waiting record is superseded by the outcome once the predecessor settles.
@@ -527,6 +548,7 @@ class RuleFiring:
                     RULE_FIRES,
                     {
                         **({"variables": snapshot} if snapshot else {}),
+                        **({"concurrency_key": key} if key is not None else {}),
                         "id": intent_id,
                         "rule_id": decision.rule_id,
                         "event_id": event_id,
@@ -580,6 +602,7 @@ class RuleFiring:
                         upstream=intent.get("upstream") or None,
                         run_id=intent["run_id"],
                         variables=intent.get("variables"),
+                        concurrency_key=intent.get("concurrency_key"),
                     )
                 except DuplicateKeyError:
                     pass  # another host started it first

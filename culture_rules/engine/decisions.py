@@ -42,7 +42,9 @@ from typing import Any
 
 from culture_rules.engine.claims import firing_key
 from culture_rules.engine.matching import (
+    ATTEMPT_BUDGET_EXHAUSTED,
     BLOCKED_BY_PREDECESSOR,
+    DEDUPLICATED,
     FIRE,
     GROUP_LOST,
     PAUSED,
@@ -77,6 +79,8 @@ RECORDED_REASONS: tuple[str, ...] = (
     RATE_CAPPED,
     VARIABLES_UNSUPPORTED,
     VARIABLE_UNDEFINED,
+    DEDUPLICATED,
+    ATTEMPT_BUDGET_EXHAUSTED,
 )
 FINAL_SKIP_REASONS: tuple[str, ...] = tuple(
     r for r in RECORDED_REASONS if r != BLOCKED_BY_PREDECESSOR

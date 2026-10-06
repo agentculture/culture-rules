@@ -123,6 +123,7 @@ NODE_COLLECTIONS = (
     HOOK_STATS_COLLECTION,
     GATEWAY_STATE_COLLECTION,
     SETTLE_COLLECTION,
+    "rule_attempt_budgets",
 )
 """Collections a node touches (created up front on MongoDB)."""
 

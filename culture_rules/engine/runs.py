@@ -629,6 +629,7 @@ class Executor:
         identity: str | None = None,
         run_id: str | None = None,
         variables: Mapping[str, Any] | None = None,
+        concurrency_key: str | None = None,
     ) -> Document:
         """Start a run of the stored rule ``rule_id`` and its stored workflow, pinning both.
 
@@ -662,6 +663,7 @@ class Executor:
             upstream=upstream,
             identity=identity,
             run_id=run_id,
+            concurrency_key=concurrency_key,
             stored=True,
             variables=variables,
         )
@@ -718,6 +720,7 @@ class Executor:
         run_id: str | None = None,
         stored: bool = False,
         variables: Mapping[str, Any] | None = None,
+        concurrency_key: str | None = None,
     ) -> Document:
         """Validate, pin and persist a new run (audited). Refused while paused.
 
@@ -764,6 +767,7 @@ class Executor:
             "created_at": _iso(now),
             "finished_at": None,
             "steps": steps,
+            **({"concurrency_key": concurrency_key} if concurrency_key is not None else {}),
         }
         _record(doc, now, self.host, "started", None)
         with self._store.transaction() as tx:

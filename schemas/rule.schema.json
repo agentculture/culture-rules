@@ -109,6 +109,30 @@
       "description": "Disabled rules never fire",
       "default": true
     },
+    "concurrency_key": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Per-rule concurrency key template, e.g. {trigger.data.repository}#{trigger.data.number}. An active run or pending firing with the same key deduplicates new firings. Missing template values fail evaluation. None preserves independent firings.",
+      "default": null
+    },
+    "max_attempts": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Attempt budget: after ``max_attempts`` runs for a concurrency key without the key going green (``succeeded``), further firings are skipped until a non-self push resets the counter. ``None`` means no budget.",
+      "default": null
+    },
     "schema_version": {
       "type": "string",
       "description": "Document schema version (MAJOR.MINOR)",

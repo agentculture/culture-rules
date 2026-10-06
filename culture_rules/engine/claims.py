@@ -351,3 +351,113 @@ class Claims:
             "completed" if current is not None and current.get("status") == "completed" else "held"
         )
         return ClaimResult._from(False, key, reason, current)
+
+
+RULE_ATTEMPT_BUDGETS = "rule_attempt_budgets"
+"""Durable key reservations and consecutive attempt counters, scoped to a rule."""
+
+
+def resolve_concurrency_key(template: str, envelope: Mapping[str, Any]) -> str:
+    """Render dotted trigger paths without attribute access or executable expressions.
+
+    Preserve literal separators (and escaped braces). Missing or non-scalar values
+    fail closed: an invalid key must never silently disable concurrency protection.
+    """
+    from string import Formatter
+
+    parts = []
+    for literal, name, spec, conversion in Formatter().parse(template):
+        parts.append(literal)
+        if name is None:
+            continue
+        if spec or conversion or not name.startswith("trigger."):
+            raise ValueError(f"invalid concurrency key placeholder: {name}")
+        value: Any = {"trigger": envelope}
+        for segment in name.split("."):
+            if not isinstance(value, Mapping) or segment not in value:
+                raise ValueError(f"missing concurrency key value: {name}")
+            value = value[segment]
+        if not isinstance(value, (str, int, float, bool)):
+            raise ValueError(f"non-scalar concurrency key value: {name}")
+        parts.append(str(value))
+    return "".join(parts)
+
+
+def _budget_id(rule_id: str, key: str) -> str:
+    return _digest(["concurrency", rule_id, key])
+
+
+def reset_attempt_budget(store: StoreOps, rule_id: str, key: str) -> None:
+    """Reset on a human synchronize event, preserving an outstanding reservation.
+
+    Called in the event's exactly-once transaction, including when this event does
+    not match the rule's trigger or the key currently has an active run.
+    """
+    doc_id = _budget_id(rule_id, key)
+    while True:
+        current = store.get(RULE_ATTEMPT_BUDGETS, doc_id) or {}
+        revision = current.get("revision")
+        if store.update_if(
+            RULE_ATTEMPT_BUDGETS,
+            doc_id,
+            {"revision": revision},
+            {"rule_id": rule_id, "key": key, "count": 0, "revision": (revision or 0) + 1},
+            upsert=not current,
+        ).won:
+            return
+
+
+def reserve_concurrency(
+    store: StoreOps,
+    rule_id: str,
+    key: str,
+    run_id: str,
+    intent_id: str,
+    max_attempts: int | None,
+) -> str | None:
+    """Atomically reserve a key and consume one attempt, or return a skip reason.
+
+    The reservation commits with the firing intent, before starting the run. A
+    crashed node's pending intent therefore retains the key until another node
+    starts it. Read the actual run's terminal status on admission: cancellation,
+    supersession and completion need no fallible secondary completion callback.
+    CAS losers re-read *all* admission facts, never just increment the counter.
+    """
+    from culture_rules.engine.runs import RUN_DONE, RUNS_COLLECTION
+
+    doc_id = _budget_id(rule_id, key)
+    while True:
+        current = store.get(RULE_ATTEMPT_BUDGETS, doc_id) or {}
+        count = current.get("count", 0)
+        active = current.get("run_id")
+        if active:
+            run = store.get(RUNS_COLLECTION, active)
+            if run is None:
+                intent = store.get("rule_fires", current["intent_id"])
+                if not intent or intent.get("status") != "failed":
+                    return "deduplicated"
+                # A failed start never produced a run.
+                count = max(0, count - 1)
+            elif run.get("status") not in RUN_DONE:
+                return "deduplicated"
+            elif run.get("status") == "succeeded":
+                count = 0
+        if max_attempts is not None and count >= max_attempts:
+            return "attempt_budget_exhausted"
+        revision = current.get("revision")
+        outcome = store.update_if(
+            RULE_ATTEMPT_BUDGETS,
+            doc_id,
+            {"revision": revision},
+            {
+                "rule_id": rule_id,
+                "key": key,
+                "count": count + 1,
+                "run_id": run_id,
+                "intent_id": intent_id,
+                "revision": (revision or 0) + 1,
+            },
+            upsert=not current,
+        )
+        if outcome.won:
+            return None

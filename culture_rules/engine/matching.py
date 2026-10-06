@@ -52,6 +52,7 @@ from culture_rules.model.workflow import Workflow
 __all__ = [
     "BLOCKED_BY_PREDECESSOR",
     "CONDITION_FALSE",
+    "DEDUPLICATED",
     "DISABLED",
     "FIRE",
     "GROUP_LOST",
@@ -62,6 +63,7 @@ __all__ = [
     "SUPERSEDED_BY",
     "VARIABLES_UNSUPPORTED",
     "VARIABLE_UNDEFINED",
+    "ATTEMPT_BUDGET_EXHAUSTED",
     "Decision",
     "RuleOutcome",
     "RunFacts",
@@ -84,6 +86,10 @@ GROUP_LOST = "group_lost"
 BLOCKED_BY_PREDECESSOR = "blocked_by_predecessor"
 PREDECESSOR_FAILED = "predecessor_failed"
 """Final skip set by the node's sequencing: a ``must_after`` predecessor will not succeed."""
+DEDUPLICATED = "deduplicated"
+"""A firing dropped because a run with the same concurrency key is active."""
+ATTEMPT_BUDGET_EXHAUSTED = "attempt_budget_exhausted"
+"""A firing skipped because the attempt budget is exhausted and the last run did not succeed."""
 REASONS = (
     FIRE,
     PAUSED,
@@ -95,6 +101,8 @@ REASONS = (
     GROUP_LOST,
     BLOCKED_BY_PREDECESSOR,
     PREDECESSOR_FAILED,
+    DEDUPLICATED,
+    ATTEMPT_BUDGET_EXHAUSTED,
 )
 
 #: Run status that satisfies ``must_after`` and makes exports visible.
@@ -143,6 +151,8 @@ class Decision:
             GROUP_LOST: f"lost exclusive group {self.detail} to {who}",
             BLOCKED_BY_PREDECESSOR: f"waiting for predecessor {who}",
             PREDECESSOR_FAILED: f"predecessor did not succeed: {self.detail or who}",
+            DEDUPLICATED: "concurrency key active: run already exists",
+            ATTEMPT_BUDGET_EXHAUSTED: "attempt budget exhausted",
         }.get(self.reason, self.reason)
         if self.reason == CONDITION_FALSE and self.detail:
             text = f"{text} (condition error: {self.detail})"

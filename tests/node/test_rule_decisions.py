@@ -41,6 +41,8 @@ def test_the_recorded_reasons_and_collection():
         "rate_capped",
         "variables_unsupported",
         "variable_undefined",
+        "deduplicated",
+        "attempt_budget_exhausted",
     }
     assert RULE_DECISIONS in NODE_COLLECTIONS
 
