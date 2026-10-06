@@ -281,7 +281,3 @@ def ensure_variables_collection(store: StoragePort) -> None:
     ensure = getattr(store, "ensure_variables_collection", None)
     if callable(ensure):
         ensure()
-    # Backfill ``latest_version`` on migrated variable docs that lack it.
-    backfill = getattr(store, "_backfill_variable_latest_version", None)
-    if callable(backfill):
-        backfill()

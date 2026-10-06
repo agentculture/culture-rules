@@ -454,3 +454,15 @@ def test_variable_with_newer_schema_raises_version_skew(fresh):
             store.put_variable("skew", 2, updated_by="me")
     finally:
         store.close()
+
+
+def test_variable_doc_without_counter_still_accepts_a_put(fresh):
+    """A doc with history but no latest_version takes the next version (Codex t3 r2)."""
+    ensure_variables_collection(fresh)
+    fresh.put_variable("legacy", 1, updated_by="me")
+    fresh.put_variable("legacy", 2, updated_by="me")
+    fresh._collection("variables").update_one({"_id": "legacy"}, {"$unset": {"latest_version": ""}})
+    view = fresh.put_variable("legacy", 3, updated_by="me")
+    assert view["version"] == 3
+    assert fresh.get_variable_version("legacy", 2)["value"] == 2
+    assert fresh.get_variable("legacy")["value"] == 3

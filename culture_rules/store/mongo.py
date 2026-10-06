@@ -603,11 +603,10 @@ class MongoStore:
                         f"document {name!r} is schema {existing_version}; "
                         f"this node supports up to major {self._node.major}"
                     )
-                latest_version = doc.get("latest_version", 0)
-                if latest_version == 0:
-                    # Migrated doc without latest_version: backfill from entries.
-                    versions = doc.get("versions", [])
-                    latest_version = len(versions) if versions else 0
+                # A doc without the counter derives it from its history; the CAS
+                # below still matches the stored value (absent -> None), and
+                # _update_if replaces the exact document it read.
+                latest_version = doc.get("latest_version") or len(doc.get("versions", []))
             next_version = latest_version + 1
             entry: Document = {
                 "version": next_version,
@@ -625,7 +624,7 @@ class MongoStore:
                 name,
                 expected={
                     "versions": list(doc.get("versions", [])) if doc else None,
-                    "latest_version": latest_version if doc else None,
+                    "latest_version": doc.get("latest_version") if doc else None,
                 },
                 changes={
                     "name": name,
@@ -677,17 +676,6 @@ class MongoStore:
         unique index on ``name``."""
         self._collection(VARIABLES_COLLECTION)
         self._db[VARIABLES_COLLECTION].create_index("name", unique=True, name="name_unique")
-
-    def _backfill_variable_latest_version(self) -> None:
-        """Backfill ``latest_version`` on variable docs that lack it (t3 migration)."""
-        coll = self._collection(VARIABLES_COLLECTION)
-        for doc in coll.find({"latest_version": {"$exists": False}}):
-            versions = doc.get("versions", [])
-            if versions:
-                coll.update_one(
-                    {"_id": doc["_id"]},
-                    {"$set": {"latest_version": len(versions)}},
-                )
 
 
 _OPS: dict[str, ChangeOp] = {
