@@ -22,7 +22,8 @@ __all__ = ["ROLES", "Context", "DuplicateVerb", "Param", "Registry", "Verb", "ro
 ROLES: tuple[str, ...] = ("viewer", "editor", "admin")
 """Ordered least to most privileged."""
 
-_JSON_TYPES = {"string", "integer", "boolean", "object", "array"}
+_JSON_TYPES = {"string", "integer", "boolean", "object", "array", "any"}
+"""``any`` is any JSON value (a scalar, list or object); its schema carries no ``type``."""
 
 
 class DuplicateVerb(ValueError):
@@ -50,7 +51,9 @@ class Param:
             raise ValueError(f"unsupported param type {self.type!r}")
 
     def schema(self) -> dict[str, Any]:
-        out: dict[str, Any] = {"type": self.type, "description": self.help}
+        out: dict[str, Any] = {"description": self.help}
+        if self.type != "any":
+            out = {"type": self.type, **out}
         if self.default is not None:
             out["default"] = self.default
         return out

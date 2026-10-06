@@ -57,6 +57,7 @@ from culture_rules.server.service import (
     NotFound,
     RuleReferenced,
     ServiceError,
+    Variables,
 )
 from culture_rules.store.migrations import backfill_run_ids, disable_typeless_event_rules
 from culture_rules.store.port import StoragePort
@@ -263,6 +264,11 @@ class ReplayRequest(BaseModel):
 
 class PurgeRequest(BaseModel):
     apply: bool = Field(False, description="false = dry-run: check only, remove nothing")
+
+
+class VariableWrite(BaseModel):
+    value: Any = Field(description="a JSON scalar, or a flat list of JSON scalars")
+    description: str | None = Field(None, description="what the variable is for")
 
 
 class MigrateRequest(BaseModel):
@@ -514,6 +520,7 @@ def create_app(
     _register_auth_routes(app, tokens)
     _register_ops(app, store, node)
     _register_migrations(app, store, defs)
+    _register_variables(app, Variables(store))
     for kind in DEFINITION_KINDS:
         _register_kind(app, kind, defs, life, store, audit)
     _register_runs(app, store, defs, executor, containment)
@@ -827,6 +834,59 @@ def _register_migrations(app: FastAPI, store: StoragePort, defs: Definitions) ->
         """Fill top-level rule_id / workflow_id on legacy run documents."""
         apply = (body or MigrateRequest()).apply
         return {"count": backfill_run_ids(store, dry_run=not apply), "applied": apply}
+
+
+def _register_variables(app: FastAPI, variables: Variables) -> None:
+    """Shared variables; writes need the admin role (the route matrix) and record the caller."""
+
+    @app.get(
+        "/variables", response_model=ItemList, tags=["variables"], operation_id="list_variables"
+    )
+    def list_variables():
+        return {"items": variables.list()}
+
+    @app.get(
+        "/variables/{name}",
+        tags=["variables"],
+        operation_id="get_variable",
+        responses={404: ERRORS[404], 422: ERRORS[422]},
+        response_model=dict[str, Any],
+    )
+    def get_variable(name: str):
+        return variables.get(name)
+
+    @app.put(
+        "/variables/{name}",
+        tags=["variables"],
+        operation_id="set_variable",
+        responses={422: ERRORS[422]},
+        response_model=dict[str, Any],
+    )
+    def set_variable(name: str, body: VariableWrite, identity: Identity):
+        """Append a new version of the variable (admin only); the version names the caller."""
+        return variables.set(name, body.value, identity, body.description)
+
+    @app.get(
+        "/variables/{name}/history",
+        response_model=ItemList,
+        tags=["variables"],
+        operation_id="variable_history",
+        responses={404: ERRORS[404], 422: ERRORS[422]},
+    )
+    def variable_history(name: str):
+        """Every version of the variable, oldest first."""
+        return {"items": variables.history(name)}
+
+    @app.get(
+        "/variables/{name}/refs",
+        response_model=ItemList,
+        tags=["variables"],
+        operation_id="variable_refs",
+        responses={422: ERRORS[422]},
+    )
+    def variable_refs(name: str):
+        """Live rules whose condition or workflow inputs reference the variable."""
+        return {"items": variables.refs(name)}
 
 
 def _register_runs(

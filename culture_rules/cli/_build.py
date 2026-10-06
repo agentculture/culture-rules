@@ -50,7 +50,7 @@ def _add_param(p: argparse.ArgumentParser, param: Param) -> None:
     kw = {"dest": param.name, "help": param.help, "required": param.required}
     if param.type == "integer":
         kw["type"] = int
-    if param.type == "object":
+    if param.type in ("object", "any"):
         kw["metavar"] = "JSON|@FILE|-"
     if param.type == "array":
         kw["action"] = "append"
@@ -98,7 +98,7 @@ def _handler(verb: Verb) -> Callable[[argparse.Namespace], int]:
         params: dict[str, Any] = {}
         for param in verb.params:
             value = getattr(args, param.name, None)
-            if param.type == "object" and isinstance(value, str):
+            if param.type in ("object", "any") and isinstance(value, str):
                 value = parse_object(value)
             if value is None and param.type == "boolean":
                 value = False
