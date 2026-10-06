@@ -23,7 +23,7 @@ from typing import Any
 from culture_rules.actors.limits import USAGE_COLLECTION, ActorLimits, LimitedActor, tokens_of
 from culture_rules.engine.actorport import COMPLETED, FAILED, InvocationResult
 from culture_rules.engine.claims import CLAIMS_COLLECTION
-from culture_rules.engine.runs import RUNS_COLLECTION
+from culture_rules.engine.runs import RUNS_COLLECTION, STEP_DONE
 from culture_rules.store.port import StoreOps
 
 __all__ = ["actor_of", "deliver", "release_slot", "step_attempt"]
@@ -51,16 +51,28 @@ def actor_of(store: StoreOps, key: str) -> str | None:
     return None
 
 
-def step_attempt(store: StoreOps, key: str) -> int | None:
-    """The attempt the step whose idempotency key is ``key`` is on now (None: unknown)."""
+def _step_state(store: StoreOps, key: str) -> Mapping[str, Any] | None:
+    """The run's state of the step whose idempotency key is ``key`` (None: unknown)."""
     claim = store.get(CLAIMS_COLLECTION, key)
     if not claim or claim.get("kind") != "step":
         return None
     run = store.get(RUNS_COLLECTION, claim["run_id"]) or {}
     for step in run.get("steps") or ():
         if step.get("key") == claim["step_id"]:
-            return step.get("attempt")
+            return step
     return None
+
+
+def step_attempt(store: StoreOps, key: str) -> int | None:
+    """The attempt the step whose idempotency key is ``key`` is on now (None: unknown)."""
+    step = _step_state(store, key)
+    return step.get("attempt") if step is not None else None
+
+
+def _slot_held(store: StoreOps, key: str) -> bool:
+    actor = actor_of(store, key)
+    usage = store.get(USAGE_COLLECTION, actor) if actor else None
+    return bool(usage) and any(s.get("key") == key for s in usage.get("inflight") or ())
 
 
 def release_slot(
@@ -91,15 +103,27 @@ def deliver(
     delivery still frees a slot left behind. A stale failure is never released: its key
     may already hold a retry's slot. With ``attempt`` (the attempt that produced the
     result), ``Executor.deliver`` refuses it once the step is on another attempt, and the
-    slot - then held by that other attempt - is left alone.
+    slot - then held by that other attempt - is left alone. A failure the run already
+    recorded (a crash between the delivery and the release) is released too, once, when
+    the step finished on that very attempt and the key still holds a slot: no retry can
+    hold it then.
     """
     if attempt is None:
         changed = bool(executor.deliver(key, result))
     else:
         changed = bool(executor.deliver(key, result, attempt=attempt))
     finished = result.outcome in (COMPLETED, FAILED)
+    clock = clock or getattr(executor, "_clock", None)
     if finished and (changed or result.outcome == COMPLETED):
         if not changed and attempt is not None and step_attempt(store, key) != attempt:
             return changed  # refused: another attempt holds the key's slot
-        release_slot(store, key, result, clock=clock or getattr(executor, "_clock", None))
+        release_slot(store, key, result, clock=clock)
+    elif finished and attempt is not None and _finished_on(store, key, attempt):
+        if _slot_held(store, key):  # a recorded failure whose release was lost
+            release_slot(store, key, result, clock=clock)
     return changed
+
+
+def _finished_on(store: StoreOps, key: str, attempt: int) -> bool:
+    step = _step_state(store, key)
+    return step is not None and step.get("attempt") == attempt and step.get("status") in STEP_DONE

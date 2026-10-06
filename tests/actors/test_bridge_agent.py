@@ -710,7 +710,8 @@ def test_attempt_2_dispatched_between_the_check_and_the_delivery_is_not_finished
 # ---- d1: the node delivers recorded bridge results every cycle -------------------------
 
 
-def test_the_node_cycle_delivers_a_recorded_bridge_result_and_frees_the_slot():
+def fixer_cluster():
+    """One node whose step s1 runs on a limited bridge actor and is waiting (slot held)."""
     from culture_rules.model.placement import Placement
     from tests.events.fakes import envelope
     from tests.node.test_node import Cluster, event_rule
@@ -747,7 +748,11 @@ def test_the_node_cycle_delivers_a_recorded_bridge_result_and_frees_the_slot():
     c.cycle()
     assert step_state(c.run("r", "evt_1"), "s1")["status"] == "waiting"
     assert c.base.get("actor_usage", "qwen-fixer")["inflight"]
-    doc = invocation(c.base)
+    return c, bridge, invocation(c.base)
+
+
+def test_the_node_cycle_delivers_a_recorded_bridge_result_and_frees_the_slot():
+    c, bridge, doc = fixer_cluster()
     assert record_bridge_event(c.base, doc["id"], token_of(bridge), completed_event()) == RECORDED
 
     (report,) = c.cycle().values()
@@ -757,3 +762,45 @@ def test_the_node_cycle_delivers_a_recorded_bridge_result_and_frees_the_slot():
     assert step_state(run, "s1")["outputs"]["summary"] == "fixed the lint"
     assert c.base.get("actor_usage", "qwen-fixer")["inflight"] == []
     assert len(bridge.requests) == 1
+
+
+FAILED_EVENT = {
+    "event_id": "e",
+    "sequence": 2,
+    "kind": "failed",
+    "payload": {"class": "credential", "message": "no codex login", "result": None},
+}
+
+
+@pytest.mark.parametrize("event", [FAILED_EVENT, completed_event()], ids=["failed", "completed"])
+def test_a_crash_between_deliver_and_release_frees_the_slot_next_cycle(event, monkeypatch):
+    """Codex P2: the run records the result, then the node dies before the actor slot is
+    released. The next cycle's redelivery finds the step finished on this record's attempt
+    and frees that slot (once) instead of leaving it held until the deadline."""
+    from culture_rules.node import completions
+
+    c, bridge, doc = fixer_cluster()
+    assert record_bridge_event(c.base, doc["id"], token_of(bridge), event) == RECORDED
+    real = completions.release_slot
+
+    def crash(*_a, **_kw):
+        raise RuntimeError("node died after Executor.deliver, before the slot was freed")
+
+    monkeypatch.setattr(completions, "release_slot", crash)
+    (report,) = c.cycle().values()
+    assert report.errors  # the redeliver stage died mid-way
+    run = c.run("r", "evt_1")
+    assert step_state(run, "s1")["status"] in ("failed", "succeeded")
+    assert c.base.get("actor_usage", "qwen-fixer")["inflight"]  # still held
+    assert c.base.get(BRIDGE_INVOCATIONS, doc["id"])["pending_delivery"] is True
+
+    monkeypatch.setattr(completions, "release_slot", real)
+    c.cycle()
+    usage = c.base.get("actor_usage", "qwen-fixer")
+    assert usage["inflight"] == []
+    assert c.base.get(BRIDGE_INVOCATIONS, doc["id"])["pending_delivery"] is False
+    tokens = usage["tokens"]
+    c.base.update_if(BRIDGE_INVOCATIONS, doc["id"], {}, {"pending_delivery": True})
+    c.cycle()  # a further redelivery changes nothing and counts nothing twice
+    assert c.base.get("actor_usage", "qwen-fixer")["tokens"] == tokens
+    assert c.base.get("actor_usage", "qwen-fixer")["inflight"] == []
