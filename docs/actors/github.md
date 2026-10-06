@@ -38,9 +38,16 @@ Keep the printed value for step 2, then clear your terminal.
    | Webhook: Active | ticked |
    | Webhook URL | `https://<rules host>/hooks/github` |
    | Webhook secret | the value printed in step 1 |
-   | Repository permissions | Issues: Read and write; Pull requests: Read and write; Metadata: Read |
-   | Subscribe to events | Pull request, Issue comment, Issues, Pull request review |
+   | Repository permissions | Issues: Read and write; Pull requests: Read and write; Metadata: Read; Contents: Read and write; Checks: Read; Actions: Read. Never Workflows |
+   | Subscribe to events | Pull request, Issue comment, Issues, Pull request review, Pull request review comment, Check suite, Workflow run |
    | Where can this App be installed | Only on this account |
+
+   Contents write is for `github.push`, which mints a fresh token per push
+   scoped to the one repository and to `contents: write` only. Checks and
+   Actions read let the fixer see check suites and workflow runs finish and
+   read failing job logs. Changing permissions on an existing App only takes
+   effect after the installation owner accepts the update under the org's
+   **Settings → GitHub Apps**.
 
    **Do not skip the webhook secret.** Without it GitHub sends unsigned
    deliveries, and every one is refused with 401.
@@ -177,4 +184,6 @@ is deduplicated by `X-GitHub-Delivery`.
 |---|---|
 | Actor id, machine | `github-app`, `spark` |
 | App | `rules-culture-dev`, App ID `5183824`, installation `167755039` (all `agentculture` repositories) |
+| Bot identity | `rules-culture-dev[bot]`, user id `337624453`, commit email `337624453+rules-culture-dev[bot]@users.noreply.github.com` |
+| Live permissions | Contents RW, Checks R, Actions RW (Read is the documented target), Issues RW, Pull requests RW, Metadata R; push verified 2026-10-06 |
 | Access bypass app | `rules.culture.dev/hooks/github` |
