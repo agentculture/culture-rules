@@ -47,7 +47,9 @@ export const rowsOf = (list: Scalar[]): Row[] =>
  * The list a set of rows would save, lossless by construction: a row whose text still equals
  * its stored item's text yields that stored item itself (type and exact string). Only an edited
  * row is re-typed: a number stays a number (`invalid` lists the rows whose text no longer is
- * one), a boolean takes true/false, anything else is the exact text. A new blank row is dropped.
+ * one), a boolean takes true/false, anything else is the exact text. A new row is typed like
+ * a uniform list: numeric or boolean (other text is then refused in `invalid`); otherwise it is
+ * the exact text. A new blank row is dropped.
  */
 export function valueOfRows(current: Scalar[], rows: Row[]): { value: Scalar[]; invalid: number[] } {
   const sample = current.find((v) => v !== null && v !== "");
@@ -62,8 +64,11 @@ export function valueOfRows(current: Scalar[], rows: Row[]): { value: Scalar[]; 
     } else if (typeof (row.orig ?? (uniform ? sample : undefined)) === "number") {
       if (NUMBER.test(row.text.trim())) value.push(Number(row.text));
       else invalid.push(i);
-    } else if (typeof row.orig === "boolean" && (row.text === "true" || row.text === "false")) {
-      value.push(row.text === "true");
+    } else if (row.text === "true" || row.text === "false") {
+      if (typeof (row.orig ?? (uniform ? sample : undefined)) === "boolean") value.push(row.text === "true");
+      else value.push(row.text);
+    } else if (row.orig === undefined && uniform && typeof sample === "boolean") {
+      invalid.push(i); // a new row in a boolean list must be true or false
     } else {
       value.push(row.text);
     }
