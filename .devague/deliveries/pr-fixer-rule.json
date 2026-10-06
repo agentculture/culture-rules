@@ -2,7 +2,7 @@
   "plan_slug": "pr-fixer-rule",
   "schema_version": 2,
   "created": "2026-10-06T08:44:59Z",
-  "updated": "2026-10-06T22:11:11Z",
+  "updated": "2026-10-06T23:03:37Z",
   "deviations": [
     {
       "id": "d1",
@@ -138,6 +138,20 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 9
+    },
+    {
+      "id": "d10",
+      "what": "t13 adds three engine/action pieces beyond its listed files: retry_until config.carry (feed the previous iteration's result into the next iteration's inputs), an optional gate_verdict param on github.push (refuse unless 'pass', before any credential or network access), and a BuiltinCodePort registered for kind 'code' (runs config.builtin gate; unknown builtins fail no_builtin)",
+      "task_ref": "t13",
+      "reason": "Operator approved 2026-10-07: AC4 (a failing run's output becomes the agent's next instruction) cannot be met without carry, since a gate->agent back edge is rejected as a cycle; the engine has no branch step, so gate_verdict is how no_gate/guard end without a push; the gate step needs a code port",
+      "affects": [
+        "t17",
+        "t5"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 10
     }
   ],
   "evidence": [],
