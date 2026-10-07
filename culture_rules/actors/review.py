@@ -93,13 +93,22 @@ __all__ = [
     "ReviewError",
     "ReviewVerdictPort",
     "parse_review",
+    "CURRENT_COLLECTION",
+    "approved_review",
+    "current_review",
+    "record_review",
     "review_refusal",
 ]
 
 REVIEW_BUILTIN = "review"
 """``config.builtin`` of the code step that reads the reviewer's verdict."""
 REVIEWS_COLLECTION = "fixer_reviews"
-"""One document per run (id = run id): the latest review outcome, read by ``github.push``."""
+"""Immutable review records, one per verdict-step attempt: id ``<run>:<iteration>:<attempt>``,
+carrying repo, PR number, reviewed start and tip, the verdict and both identities."""
+CURRENT_COLLECTION = "fixer_review_current"
+"""One pointer per run (id = run id) to its current review record. It only ever moves
+forward in ``(iteration, attempt)`` order, by compare-and-set, so a late or replayed
+verdict for an older try can never make an obsolete approval current again."""
 
 APPROVE, REQUEST_CHANGES, NOT_RUN = "approve", "request_changes", "not_run"
 VERDICTS = (APPROVE, REQUEST_CHANGES)
@@ -306,6 +315,60 @@ def _same_target(doc: Mapping[str, Any], repo: Any, number: Any) -> bool:
     return same_number and rec_repo.casefold() == repo.casefold()
 
 
+def record_review(
+    store: Any, run_id: str, *, iteration: int, attempt: int, fields: Mapping[str, Any]
+) -> str:
+    """Write one immutable review record and move the run's pointer to it unless a newer
+    ``(iteration, attempt)`` is already current. Returns the record id. An existing record
+    of the same attempt is kept as it is (records are never overwritten)."""
+    from culture_rules.store.port import DuplicateKeyError  # noqa: PLC0415
+
+    record_id = f"{run_id}:{iteration}:{attempt}"
+    doc = {**fields, "id": record_id, "run_id": run_id, "iteration": iteration, "attempt": attempt}
+    try:
+        store.insert(REVIEWS_COLLECTION, doc)
+    except DuplicateKeyError:
+        pass  # the first write of this attempt stands
+    order = (iteration, attempt)
+    for _ in range(16):  # compare-and-set; a lost race re-reads
+        cur = store.get(CURRENT_COLLECTION, run_id)
+        if cur is None:
+            try:
+                store.insert(
+                    CURRENT_COLLECTION,
+                    {
+                        "id": run_id,
+                        "run_id": run_id,
+                        "record": record_id,
+                        "iteration": iteration,
+                        "attempt": attempt,
+                    },
+                )
+                return record_id
+            except DuplicateKeyError:
+                continue
+        if (cur.get("iteration"), cur.get("attempt")) >= order:
+            return record_id  # stale or the same attempt: the pointer stays
+        expected = {k: cur.get(k) for k in ("record", "iteration", "attempt")}
+        changes = {"record": record_id, "iteration": iteration, "attempt": attempt}
+        if store.update_if(CURRENT_COLLECTION, run_id, expected, changes).won:
+            return record_id
+    raise ReviewError("review_invalid", "could not record the review (sustained contention)")
+
+
+def current_review(store: Any, run_id: Any) -> tuple[str | None, Mapping[str, Any] | None]:
+    """``(record id, record)`` the run's pointer names, or ``(None, None)``."""
+    if not isinstance(run_id, str) or not run_id:
+        return None, None
+    cur = store.get(CURRENT_COLLECTION, run_id)
+    if not cur or cur.get("run_id") != run_id or not isinstance(cur.get("record"), str):
+        return None, None
+    doc = store.get(REVIEWS_COLLECTION, cur["record"])
+    if not doc or doc.get("run_id") != run_id:
+        return None, None
+    return cur["record"], doc
+
+
 def review_refusal(
     store: Any,
     run_id: str,
@@ -323,8 +386,31 @@ def review_refusal(
     ``review_rejected``, ``review_target_mismatch`` (another repo or PR),
     ``review_commit_mismatch`` (another start or tip than the one reviewed),
     ``reviewer_is_implementer``."""
-    doc = store.get(REVIEWS_COLLECTION, run_id) if isinstance(run_id, str) and run_id else None
-    if not doc or doc.get("run_id") != run_id:
+    return approved_review(
+        store, run_id, commit_sha, repo=repo, number=number, start_sha=start_sha
+    )[0]
+
+
+def approved_review(
+    store: Any,
+    run_id: str,
+    commit_sha: str,
+    *,
+    repo: Any = None,
+    number: Any = None,
+    start_sha: Any = None,
+) -> tuple[str | None, str | None]:
+    """``(refusal, record id)``: :func:`review_refusal`'s answer and the current record it
+    judged, so a caller can check right before acting that the same record still holds."""
+    record_id, doc = current_review(store, run_id)
+    refusal = _refusal_of(doc, commit_sha, repo=repo, number=number, start_sha=start_sha)
+    return refusal, record_id
+
+
+def _refusal_of(
+    doc: Mapping[str, Any] | None, commit_sha: str, *, repo: Any, number: Any, start_sha: Any
+) -> str | None:
+    if not doc:
         return "review_missing"
     if doc.get("verdict") != APPROVE:
         return "review_rejected"
@@ -419,7 +505,7 @@ class ReviewVerdictPort:
         self._clock = clock or (lambda: datetime.now(UTC))
         ensure = getattr(store, "ensure_collections", None)
         if callable(ensure):
-            ensure(REVIEWS_COLLECTION)
+            ensure(REVIEWS_COLLECTION, CURRENT_COLLECTION)
 
     def invoke(
         self,
@@ -440,13 +526,19 @@ class ReviewVerdictPort:
     # ------------------------------------------------------------------ helpers
 
     def _record(self, context: InvocationContext, fields: Mapping[str, Any]) -> None:
-        """Overwrite the run's one review record (an older approval never outlives this)."""
-        self._store.put(
-            REVIEWS_COLLECTION,
-            {
-                "id": context.run_id,
-                "run_id": context.run_id,
+        """Record this attempt's outcome (immutable) and make it current unless a newer try
+        already is (see :func:`record_review`)."""
+        where = _LOOP_KEY_RE.match(context.step_id or "")
+        record_review(
+            self._store,
+            context.run_id,
+            iteration=int(where.group("i")) if where else -1,
+            attempt=context.attempt if isinstance(context.attempt, int) else 0,
+            fields={
                 "step": context.step_id,
+                "repo": None,
+                "number": None,
+                "start_sha": None,
                 "commit_sha": None,
                 "reviewed_commit": None,
                 "findings": [],

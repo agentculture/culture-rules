@@ -244,14 +244,15 @@ def ctx(run_id="run-1"):
 
 def approve_review(store, sha, run_id="run-1", *, start, repo=REPO, number=3):
     """The run's reviewer approved ``start..sha`` on ``repo#number`` (d20): every push
-    needs this record."""
-    from culture_rules.actors.review import REVIEWS_COLLECTION
+    needs this record as the run's current review."""
+    from culture_rules.actors.review import record_review
 
-    store.put(
-        REVIEWS_COLLECTION,
-        {
-            "id": run_id,
-            "run_id": run_id,
+    record_review(
+        store,
+        run_id,
+        iteration=0,
+        attempt=1,
+        fields={
             "commit_sha": sha,
             "reviewed_commit": sha,
             "verdict": "approve",
@@ -272,7 +273,7 @@ def push_port(
     """The push port. ``review``: ``True`` (default) records an approval of ``world.b`` for
     run-1, a SHA approves that commit instead, ``False`` records nothing."""
     store = store if store is not None else make_store()
-    if review and store.get("fixer_reviews", "run-1") is None:
+    if review and store.get("fixer_review_current", "run-1") is None:
         approve_review(store, world.b if review is True else review, start=review_start or world.a)
     return GitHubPushPort(
         store,

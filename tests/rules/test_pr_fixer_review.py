@@ -12,7 +12,7 @@ import copy
 
 import pytest
 
-from culture_rules.actors.review import REVIEWER_BRIEF, REVIEWS_COLLECTION, review_refusal
+from culture_rules.actors.review import REVIEWER_BRIEF, current_review, review_refusal
 from culture_rules.engine.actorport import InvocationResult
 from culture_rules.engine.runs import FAILURE_STEP, step_state
 from tests.actors.test_gate import PushSpy, git
@@ -37,7 +37,8 @@ def changes(commit: str) -> str:
 
 
 def record(w: World, doc: dict) -> dict:
-    return w.c.base.get(REVIEWS_COLLECTION, doc["id"])
+    """The run's current review record."""
+    return current_review(w.c.base, doc["id"])[1]
 
 
 def refusal(w: World, doc: dict, commit: str):
@@ -543,3 +544,32 @@ def test_only_an_actor_flagged_as_a_codex_reviewer_may_review(tmp_path):
 def test_the_shipped_reviewer_is_flagged():
     assert reviewer_actor()["params"]["reviewer"] is True
     assert reviewer_actor()["harness"] == "codex"
+
+
+# --------------------------------------------------------------------------- #6: stale writes
+
+
+def test_a_late_verdict_for_an_older_try_cannot_resurrect_an_approval(tmp_path):
+    from culture_rules.actors.review import ReviewVerdictPort
+    from culture_rules.engine.actorport import InvocationContext
+    from culture_rules.engine.runs import RUNS_COLLECTION
+
+    w = World(tmp_path, reviews=[changes, changes, changes])
+    doc = w.fire()
+    assert doc["status"] == "failed"
+    first = pushed_commit(doc, 0)
+    assert refusal(w, doc, first) == "review_rejected"
+    # try 0's review now reads as an approval (a late or replayed reviewer result) and its
+    # verdict step runs again on some node, after try 2 recorded request_changes
+    run = w.c.base.get(RUNS_COLLECTION, doc["id"])
+    for st in run["steps"]:
+        if st["key"] == "fix[0]/review":
+            st["outputs"]["summary"] = verdict_text(st["inputs"]["commit_sha"])
+    w.c.base.put(RUNS_COLLECTION, run)
+    ctx = InvocationContext(
+        doc["id"], "fix[0]/verdict", "code", "spark", attempt=1, config={"builtin": "review"}
+    )
+    late = ReviewVerdictPort(w.c.base).invoke({}, "k", None, context=ctx)
+    assert late.outcome == "completed" and late.output["review"] == "approve"
+    # the newer try's rejection stays current: no push can use the stale approval
+    assert refusal(w, doc, first) == "review_rejected"

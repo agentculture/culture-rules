@@ -24,7 +24,9 @@ repo allowlist and its per-actor App cache. There is deliberately no merge port.
        read from a param, must approve exactly ``commit_sha``, by a reviewer whose actor and
        backend both differ from the implementer's - else ``review_missing``,
        ``review_rejected``, ``review_commit_mismatch`` or ``reviewer_is_implementer``. This
-       holds for every push, so a workflow that skips the review step pushes nothing;
+       holds for every push, so a workflow that skips the review step pushes nothing.
+       The approving record is re-read right before the final ``git push`` (step 8); a
+       different current record refuses ``review_changed``;
     4. ``commit_sha`` is fetched into a fresh, node-owned bare repo (so nothing in the agent's
        repo config, hooks or credential helpers ever sees the token) and must descend from
        ``expected_head_sha``: a non-fast-forward update is refused before any network call.
@@ -88,7 +90,7 @@ from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any
 
-from culture_rules.actors.review import review_refusal
+from culture_rules.actors.review import approved_review
 from culture_rules.apps.github import DEFAULT_API_BASE, GitHubApp, GitHubError, Transport
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
 from culture_rules.engine.runs import (
@@ -265,6 +267,7 @@ class _PushJob:
         self.repo = os.path.join(tmp, "push.git")
         self.deadline = deadline
         self.clock = clock
+        self.review_record: str | None = None
 
     def require(self, margin: float = 0.0) -> float:
         """Seconds left before the deadline; ``deadline_exceeded`` if not more than ``margin``.
@@ -389,14 +392,7 @@ class GitHubPushPort(GitHubCommentPort):
             return InvocationResult.failed(refusal, retryable=False)
         # d20: the run's reviewer must have approved exactly this commit (read from the
         # store, never a param), whatever the workflow wires
-        refusal = review_refusal(
-            self._store,
-            context.run_id,
-            str(input["commit_sha"]),
-            repo=input.get("repo"),
-            number=input.get("number"),
-            start_sha=input.get("expected_head_sha"),
-        )
+        refusal, review_record = self._review(input, context)
         if refusal:
             log.info("github.push refused: %s", refusal)
             return InvocationResult.failed(refusal, retryable=False)
@@ -404,6 +400,7 @@ class GitHubPushPort(GitHubCommentPort):
             return InvocationResult.failed("deadline_exceeded", retryable=True)
         tmp = tempfile.mkdtemp(prefix="culture-rules-push-")
         job = _PushJob(self._git, tmp, deadline, self._clock)
+        job.review_record = review_record
         try:
             return self._push(str(actor_id), conn, allowed, input, context, job)
         except _Refused as exc:
@@ -479,10 +476,30 @@ class GitHubPushPort(GitHubCommentPort):
         refusal = source_rule_refusal(self._store, context.run_id)
         if refusal:
             raise _Refused(refusal)
+        # d20 (Codex review #6): the approval is re-read right before the push; a newer
+        # review result, or any other current record, stops it
+        refusal, record = self._review(input, context)
+        if refusal:
+            raise _Refused(refusal)
+        if record != job.review_record:
+            raise _Refused("review_changed")
         job.require(PUSH_MARGIN_S)  # never start the push this close to the deadline
         job.push(url, sha, branch, token)
         log.info("github.push: %s %s fast-forwarded", repo, branch)
         return InvocationResult.completed({**out, "pushed": True})
+
+    def _review(
+        self, input: Mapping[str, Any], context: InvocationContext
+    ) -> tuple[str | None, str | None]:
+        """This run's current review record, judged for exactly this push (d20)."""
+        return approved_review(
+            self._store,
+            context.run_id,
+            str(input["commit_sha"]),
+            repo=input.get("repo"),
+            number=input.get("number"),
+            start_sha=input.get("expected_head_sha"),
+        )
 
     def _check_authors(self, actor_id: str, job: _PushJob, base: str, sha: str) -> None:
         """``foreign_author`` unless every new commit is by the actor's ``commit_author``."""

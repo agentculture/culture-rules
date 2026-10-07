@@ -12,7 +12,7 @@ import pytest
 
 pytest.importorskip("cryptography")
 
-from culture_rules.actors.review import REVIEWS_COLLECTION  # noqa: E402
+from culture_rules.actors.review import record_review  # noqa: E402
 from tests.node.test_github_pr_actions import (  # noqa: E402,F401 - fixtures
     DEADLINE,
     FakeGitHub,
@@ -27,10 +27,8 @@ from tests.node.test_github_pr_actions import (  # noqa: E402,F401 - fixtures
 )
 
 
-def approve(store, sha, **over):
-    doc = {
-        "id": "run-1",
-        "run_id": "run-1",
+def approve(store, sha, *, iteration=0, attempt_no=1, **over):
+    fields = {
         "commit_sha": sha,
         "reviewed_commit": sha,
         "verdict": "approve",
@@ -40,10 +38,12 @@ def approve(store, sha, **over):
         "implementer_backend": "qwen",
         "repo": "acme/widgets",
         "number": 3,
-        "start_sha": None,  # filled from the world below
+        "start_sha": None,
     }
-    doc.update(over)
-    store.put(REVIEWS_COLLECTION, doc)
+    run_id = over.pop("run_id", "run-1")
+    over.pop("id", None)
+    fields.update(over)
+    record_review(store, run_id, iteration=iteration, attempt=attempt_no, fields=fields)
 
 
 def attempt(pem, world, store, **params):  # noqa: F811
@@ -156,3 +156,49 @@ def test_the_reviewed_range_matching_the_push_pushes(pem, world):  # noqa: F811
     approve(store, world.b, start_sha=world.a, repo="ACME/Widgets")  # repo case-insensitive
     res, _fake, _rec = attempt(pem, world, store)
     assert res.outcome == "completed" and res.output["pushed"] is True
+
+
+# --------------------------------------------------------------------------- #6: re-check
+
+
+def _revoked_in_flight(pem, world, write):  # noqa: F811
+    store = make_store()
+    approve(store, world.b, start_sha=world.a)
+    fake, rec = FakeGitHub(world), RecordingGit()
+    fake.on_push_token = lambda: write(store)  # after the first check, before the push
+    port = push_port(pem, world, fake, store=store, gitrec=rec, review=False)
+    res = port.invoke(push_params(world), "k", DEADLINE, context=ctx())
+    return res, rec
+
+
+def test_a_newer_rejection_landing_mid_push_stops_the_push(pem, world):  # noqa: F811
+    res, rec = _revoked_in_flight(
+        pem,
+        world,
+        lambda store: approve(
+            store, world.b, start_sha=world.a, iteration=1, verdict="request_changes"
+        ),
+    )
+    assert (res.outcome, res.error) == ("failed", "review_rejected")
+    assert "push" not in rec.verbs() and world.remote_head() == world.a
+
+
+def test_another_current_approval_mid_push_is_review_changed(pem, world):  # noqa: F811
+    # even an equivalent approval, if it is a different record, is not the one judged
+    res, rec = _revoked_in_flight(
+        pem, world, lambda store: approve(store, world.b, start_sha=world.a, iteration=1)
+    )
+    assert (res.outcome, res.error) == ("failed", "review_changed")
+    assert "push" not in rec.verbs() and world.remote_head() == world.a
+
+
+def test_a_stale_record_written_mid_push_changes_nothing(pem, world):  # noqa: F811
+    store = make_store()
+    approve(store, world.b, start_sha=world.a, iteration=2)
+    fake = FakeGitHub(world)
+    fake.on_push_token = lambda: approve(
+        store, world.b, start_sha=world.a, iteration=0, verdict="request_changes"
+    )
+    port = push_port(pem, world, fake, store=store, review=False)
+    res = port.invoke(push_params(world), "k", DEADLINE, context=ctx())
+    assert res.outcome == "completed" and world.remote_head() == world.b
