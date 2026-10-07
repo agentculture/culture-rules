@@ -187,7 +187,7 @@ draws them, and the (i) costs one small control per row. The button is
 into the panel (`role="dialog"`, `aria-modal="false"`), and Escape closes
 it and returns focus to the button, as Close does. A press outside closes
 it. A click on a row's (i) never opens the row. The lines are a `<pre>`
-in the mono face, so indentation and the symbols `∈ ∉ ≠ × ≤` read exactly
+in the mono face, so indentation and the symbols `∈ ≠ × ≤` read exactly
 as the CLI prints them. Copy puts them on the clipboard. The panel has no
 motion, and at phone width (640px and under) it docks to the bottom of
 the screen. A failed call shows its error in the panel.

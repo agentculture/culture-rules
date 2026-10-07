@@ -41,7 +41,7 @@ PR_FIXER_CHECKS = [
     "If head_repo = base_repo",
     "and draft = false",
     "and repository ∈ vars.fixer_repos",
-    "and repository ∉ vars.fixer_excluded_repos",
+    "and not (repository ∈ vars.fixer_excluded_repos)",
     "and conclusion ≠ success",
     "and conclusion ≠ no_checks",
     "Run workflow pr-fixer (6 steps)",
@@ -242,18 +242,32 @@ def test_compare_operators(cmp, sym):
         ({"op": "exists", "arg": _f("data.a")}, "a exists"),
         ({"op": "matches", "value": _f("title"), "pattern": "fix: .*"}, "title matches /fix: .*/"),
         ({"op": "in", "value": _f("x"), "items": _lit(["a", "b"])}, "x ∈ {a, b}"),
-        ({"op": "not", "arg": {"op": "in", "value": _f("x"), "items": {"var": "v"}}}, "x ∉ vars.v"),
+        (
+            {"op": "not", "arg": {"op": "in", "value": _f("x"), "items": {"var": "v"}}},
+            "not (x ∈ vars.v)",
+        ),
         ({"op": "not", "arg": {"op": "exists", "arg": _f("a")}}, "a missing"),
         (
             {"op": "not", "arg": {"op": "matches", "value": _f("t"), "pattern": "x"}},
-            "t does not match /x/",
+            "not (t matches /x/)",
         ),
         (
             {
                 "op": "not",
                 "arg": {"op": "compare", "cmp": "==", "left": _f("a"), "right": _lit("")},
             },
-            'a ≠ ""',
+            'not (a = "")',
+        ),
+        (
+            {
+                "op": "not",
+                "arg": {"op": "compare", "cmp": "!=", "left": _f("a"), "right": _lit(1)},
+            },
+            "not (a ≠ 1)",
+        ),
+        (
+            {"op": "not", "arg": {"op": "not", "arg": {"op": "exists", "arg": _f("a")}}},
+            "not (a missing)",
         ),
         (
             {"op": "not", "arg": {"op": "compare", "cmp": "<", "left": _f("a"), "right": _lit(1)}},
@@ -416,3 +430,20 @@ def test_a_single_loop_child_keeps_its_own_body():
 def test_a_pinned_version_is_described_only_when_it_is_the_stored_one(stored, line):
     rule = {"trigger": {"kind": "manual"}, "workflow": {"id": "w", "version": 1}}
     assert render(describe_rule(rule, stored))[1] == line
+
+
+def test_negation_is_folded_only_where_the_evaluator_agrees():
+    """``not (a = b)`` is not ``a ≠ b``: a missing operand makes both comparisons false, so
+    only the explicit negation is true. ``not exists`` reads ``missing``: the same truth."""
+    from culture_rules.model.condition import evaluate
+
+    eq = {"op": "compare", "cmp": "==", "left": _f("a"), "right": _lit(1)}
+    ne = {"op": "compare", "cmp": "!=", "left": _f("a"), "right": _lit(1)}
+    missing = {"trigger": {}}
+    assert evaluate({"op": "not", "arg": eq}, missing) is True
+    assert evaluate(ne, missing) is False  # so folding not(=) into ≠ would misdescribe it
+    assert condition_text({"op": "not", "arg": eq}) == "not (a = 1)"
+    absent = {"op": "not", "arg": {"op": "exists", "arg": _f("a")}}
+    for ctx, want in (({"trigger": {}}, True), ({"trigger": {"a": None}}, False)):
+        assert evaluate(absent, ctx) is want
+    assert condition_text(absent) == "a missing"

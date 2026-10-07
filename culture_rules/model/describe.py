@@ -39,8 +39,6 @@ __all__ = [
 
 #: Comparison operators as symbols (``conclusion ≠ success``).
 CMP_SYMBOLS: dict[str, str] = {"==": "=", "!=": "≠", "<": "<", "<=": "≤", ">": ">", ">=": "≥"}
-#: ``not (a == b)`` reads as ``a ≠ b``; only the equalities negate safely in words.
-_NEGATED_CMP: dict[str, str] = {"==": "≠", "!=": "="}
 
 #: Built-in ``code`` steps (``config.builtin``): a gloss appended after the name, or a
 #: replacement name. ``action`` is handled separately (it reads as its action kind).
@@ -173,16 +171,13 @@ def condition_text(node: Any, *, nested: bool = False) -> str:
 
 
 def _negated(arg: Any) -> str:
+    """``not``, written out. Folding it into another operator is only honest where the
+    evaluator agrees: a missing operand makes ``=``, ``≠``, ``∈`` and ``matches`` all false,
+    so ``not (a = b)`` is true there while ``a ≠ b`` is not. The one fold kept is
+    ``not exists`` -> ``missing``, which is the same truth by definition."""
     op = arg.get("op") if isinstance(arg, Mapping) else None
-    if op == "in":
-        return f"{_operand(arg.get('value'))} ∉ {_operand(arg.get('items'))}"
     if op == "exists":
         return f"{_operand(arg.get('arg'))} missing"
-    if op == "matches":
-        return f"{_operand(arg.get('value'))} does not match /{arg.get('pattern', '')}/"
-    if op == "compare" and arg.get("cmp") in _NEGATED_CMP:
-        sym = _NEGATED_CMP[arg["cmp"]]
-        return f"{_operand(arg.get('left'))} {sym} {_operand(arg.get('right'))}"
     return f"not ({condition_text(arg)})"
 
 

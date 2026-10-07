@@ -444,7 +444,7 @@ When github.pr.checks_settled
 If head_repo = base_repo
 and draft = false
 and repository ∈ vars.fixer_repos
-and repository ∉ vars.fixer_excluded_repos
+and not (repository ∈ vars.fixer_excluded_repos)
 and conclusion ≠ success
 and conclusion ≠ no_checks
 Run workflow pr-fixer (6 steps)

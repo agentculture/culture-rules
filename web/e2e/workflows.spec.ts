@@ -278,6 +278,41 @@ test.describe("Workflows tab", () => {
     await expect.poll(async () => parseInt((await level.textContent())!.replace(/\D/g, ""), 10)).toBeLessThan(parseInt(fitted!.replace(/\D/g, ""), 10));
   });
 
+  test("phone width: the zoom row and the step + do not overlap and both take clicks (d19)", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 800 });
+    await open(page);
+    const zoom = page.getByRole("group", { name: "Zoom" });
+    const add = page.getByRole("button", { name: "Add step" });
+    // No width between a phone and the desktop board puts the + under the zoom row.
+    for (const width of [1280, 1000, 860, 760, 700, 640, 560, 480, 390, 360]) {
+      await page.setViewportSize({ width, height: 800 });
+      await add.scrollIntoViewIfNeeded();
+      const a = (await zoom.boundingBox())!;
+      const b = (await add.boundingBox())!;
+      const intersects =
+        a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+      expect(intersects, `at ${width}px`).toBe(false);
+    }
+    await page.setViewportSize({ width: 390, height: 800 });
+    await add.scrollIntoViewIfNeeded();
+    // Every zoom button and the + receive a click at their centre (nothing paints over them).
+    for (const control of [
+      zoom.getByRole("button", { name: "Zoom out" }),
+      zoom.getByRole("button", { name: "Zoom in" }),
+      zoom.getByRole("button", { name: "Fit to width" }),
+      add,
+    ]) {
+      const hit = await control.evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        const at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return at === el || el.contains(at);
+      });
+      expect(hit).toBe(true);
+    }
+    await zoom.getByRole("button", { name: "Zoom in" }).click({ trial: true });
+    await add.click({ trial: true });
+  });
+
   test("Fit after narrowing the window fits the new width (d19)", async ({ page }) => {
     await open(page);
     const scroller = page.locator(".wf-canvas__scroll");

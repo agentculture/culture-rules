@@ -284,7 +284,7 @@ returns `{id, kind, lines, entries}`, each entry `{label, text, depth}` plus
 `step` (the step id) on a workflow entry. The web editor shows the same lines.
 
 A rule reads `When` (the trigger), `If` / `and` / `or` (the condition, symbols
-`= ≠ < ≤ > ≥ ∈ ∉`), `After`, `Supersedes`, `Run` (the workflow and its step
+`= ≠ < ≤ > ≥ ∈`, `not (…)`), `After`, `Supersedes`, `Run` (the workflow and its step
 count), `On` (placement), `Then`, `On failure`, `Key`, `Group`, `Disabled`. A
 workflow reads its steps numbered `1`, `2`, `3.1` ..., a loop's body one level
 deeper (a one-step body inline). API: `GET /rules/{id}/describe`,

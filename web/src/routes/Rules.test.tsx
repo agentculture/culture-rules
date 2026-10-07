@@ -30,7 +30,7 @@ describe("Rules board (Chosen — Rules)", () => {
 
   it("the rule's (i), in the head and on its list row, opens GET /rules/{id}/describe (d19)", async () => {
     vi.unstubAllGlobals();
-    const lines = ["When push", "If verdict = approve", "and repo ∉ vars.excluded", "Then publish"];
+    const lines = ["When push", "If verdict = approve", "and not (repo ∈ vars.excluded)", "Then publish"];
     mockFetch({
       ...defaultRoutes(Date.parse("2026-10-03T12:00:00Z")),
       [`/api/rules/${SELECTED_RULE_ID}/describe`]: {

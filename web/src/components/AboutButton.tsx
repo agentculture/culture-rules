@@ -10,7 +10,7 @@ type Loaded = { doc: Description | null; error: string | null };
  * itself with the definition's plain description — the same lines as
  * `culture-rules rules describe` / `workflows describe`, fetched from the API
  * (`GET /<noun>/{id}/describe`) each time it opens, shown monospace so the
- * indentation and the symbols (∈ ∉ ≠ ×) read exactly as the CLI prints them.
+ * indentation and the symbols (∈ ≠ × ≤) read exactly as the CLI prints them.
  *
  * Keyboard: Enter / Space on the button opens it and moves focus into the
  * panel; Escape (anywhere inside) closes it and returns focus to the button.

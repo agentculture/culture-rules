@@ -501,6 +501,18 @@
   color: var(--ink-soft);
 }
 
+/* A narrow canvas (a phone): the centred step + would sit under the zoom row, so the row
+   moves up above it (+ is 48px, 24px off the bottom; 12px between them). */
+.wf-canvas {
+  container-type: inline-size;
+}
+
+@container (max-width: 640px) {
+  .wf-zoom {
+    bottom: 84px;
+  }
+}
+
 @media (prefers-reduced-motion: no-preference) {
   .wf-zoom__button {
     transition: border-color 0.2s var(--ease-out), color 0.2s var(--ease-out);
