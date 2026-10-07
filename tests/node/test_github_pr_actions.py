@@ -242,8 +242,9 @@ def ctx(run_id="run-1"):
     return InvocationContext(run_id=run_id, step_id="push", kind="action", host="h", actor="gh-app")
 
 
-def approve_review(store, sha, run_id="run-1"):
-    """The run's reviewer approved ``sha`` (d20): every push needs this record."""
+def approve_review(store, sha, run_id="run-1", *, start, repo=REPO, number=3):
+    """The run's reviewer approved ``start..sha`` on ``repo#number`` (d20): every push
+    needs this record."""
     from culture_rules.actors.review import REVIEWS_COLLECTION
 
     store.put(
@@ -258,16 +259,21 @@ def approve_review(store, sha, run_id="run-1"):
             "reviewer_backend": "codex",
             "implementer_actor": "qwen-fixer",
             "implementer_backend": "qwen",
+            "repo": repo,
+            "number": number,
+            "start_sha": start,
         },
     )
 
 
-def push_port(pem, world, fake, store=None, gitrec=None, clock=None, review=True):
+def push_port(
+    pem, world, fake, store=None, gitrec=None, clock=None, review=True, review_start=None
+):
     """The push port. ``review``: ``True`` (default) records an approval of ``world.b`` for
     run-1, a SHA approves that commit instead, ``False`` records nothing."""
     store = store if store is not None else make_store()
     if review and store.get("fixer_reviews", "run-1") is None:
-        approve_review(store, world.b if review is True else review)
+        approve_review(store, world.b if review is True else review, start=review_start or world.a)
     return GitHubPushPort(
         store,
         transport=fake,
@@ -387,7 +393,7 @@ def test_push_never_forces_and_keeps_the_token_out_of_argv(pem, world):
 
 def test_stale_expected_head_sha_fails_and_pushes_nothing(pem, world):
     fake, rec = FakeGitHub(world), RecordingGit()
-    port = push_port(pem, world, fake, gitrec=rec)
+    port = push_port(pem, world, fake, gitrec=rec, review_start=world.a0)
     res = port.invoke(push_params(world, expected_head_sha=world.a0), "k", DEADLINE, context=ctx())
     assert res.outcome == "failed" and res.error == "head_moved" and not res.retryable
     assert world.remote_head() == world.a
@@ -421,7 +427,7 @@ def test_non_fast_forward_is_refused_before_any_network_call(pem, world):
 
 def test_unknown_expected_sha_is_not_fast_forward(pem, world):
     fake = FakeGitHub(world)
-    res = push_port(pem, world, fake).invoke(
+    res = push_port(pem, world, fake, review_start="1" * 40).invoke(
         push_params(world, expected_head_sha="1" * 40), "k", DEADLINE, context=ctx()
     )
     assert res.error == "not_fast_forward" and fake.calls == []

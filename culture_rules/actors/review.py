@@ -216,18 +216,44 @@ def _distinct(a: Any, b: Any) -> bool:
     )
 
 
-def review_refusal(store: Any, run_id: str, commit_sha: str) -> str | None:
-    """Why ``github.push`` may not push ``commit_sha`` for run ``run_id``, or ``None``.
+def _same_target(doc: Mapping[str, Any], repo: Any, number: Any) -> bool:
+    rec_repo, rec_number = doc.get("repo"), doc.get("number")
+    if not (isinstance(rec_repo, str) and isinstance(repo, str)):
+        return False
+    try:
+        same_number = isinstance(rec_number, int) and rec_number == int(number)
+    except (TypeError, ValueError):
+        return False
+    return same_number and rec_repo.casefold() == repo.casefold()
+
+
+def review_refusal(
+    store: Any,
+    run_id: str,
+    commit_sha: str,
+    *,
+    repo: Any = None,
+    number: Any = None,
+    start_sha: Any = None,
+) -> str | None:
+    """Why ``github.push`` may not push ``start_sha..commit_sha`` to ``repo#number`` for run
+    ``run_id``, or ``None``.
 
     Reads the run's review record (written only by the built-in ``review`` step), never a
     param, so it holds whatever the workflow wires: ``review_missing``,
-    ``review_rejected``, ``review_commit_mismatch``, ``reviewer_is_implementer``."""
+    ``review_rejected``, ``review_target_mismatch`` (another repo or PR),
+    ``review_commit_mismatch`` (another start or tip than the one reviewed),
+    ``reviewer_is_implementer``."""
     doc = store.get(REVIEWS_COLLECTION, run_id) if isinstance(run_id, str) and run_id else None
     if not doc or doc.get("run_id") != run_id:
         return "review_missing"
     if doc.get("verdict") != APPROVE:
         return "review_rejected"
+    if not _same_target(doc, repo, number):
+        return "review_target_mismatch"
     if doc.get("commit_sha") != commit_sha or doc.get("reviewed_commit") != commit_sha:
+        return "review_commit_mismatch"
+    if not isinstance(start_sha, str) or doc.get("start_sha") != start_sha:
         return "review_commit_mismatch"
     if not _distinct(doc.get("reviewer_actor"), doc.get("implementer_actor")):
         return "reviewer_is_implementer"
@@ -379,6 +405,8 @@ class ReviewVerdictPort:
         if not run:
             raise ReviewError("run_not_found", context.run_id)
         parent, i = where.group("parent"), int(where.group("i"))
+        run_inputs = run.get("inputs") or {}
+        facts.update(repo=run_inputs.get("repo"), number=run_inputs.get("number"))
 
         def state(role: str) -> dict[str, Any] | None:
             return _state(run, f"{parent}[{i}]/{names[role]}")
@@ -404,7 +432,12 @@ class ReviewVerdictPort:
             raise ReviewError("review_invalid", "the gate reported no commit_sha")
         if not (isinstance(start, str) and _SHA_RE.match(start)):
             raise ReviewError("review_invalid", "the gate reported no start_sha")
-        facts["commit_sha"] = commit
+        facts.update(commit_sha=commit, start_sha=start)
+        if start != run_inputs.get("head_sha"):
+            raise ReviewError(
+                "review_invalid",
+                "the gate's start_sha is not the PR head this run was started for",
+            )
         task = input.get("task")
         if g.get("diff_truncated") is True:
             findings = _unreviewable(g)

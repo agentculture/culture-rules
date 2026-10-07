@@ -40,6 +40,11 @@ def record(w: World, doc: dict) -> dict:
     return w.c.base.get(REVIEWS_COLLECTION, doc["id"])
 
 
+def refusal(w: World, doc: dict, commit: str):
+    """github.push's check for this run's PR, from its PR head, to ``commit``."""
+    return review_refusal(w.c.base, doc["id"], commit, repo="o/r", number=7, start_sha=w.repo.start)
+
+
 def pushed_commit(doc: dict, i: int = 0) -> str:
     return step_state(doc, f"fix[{i}]/agent")["outputs"]["head_after"]
 
@@ -69,7 +74,7 @@ def test_an_approved_fix_is_pushed_after_an_independent_read_only_review(tmp_pat
     assert rec["verdict"] == "approve" and rec["commit_sha"] == commit
     assert (rec["reviewer_actor"], rec["reviewer_backend"]) == ("codex-reviewer", "codex")
     assert (rec["implementer_actor"], rec["implementer_backend"]) == ("qwen-fixer", "qwen")
-    assert review_refusal(w.c.base, doc["id"], commit) is None
+    assert refusal(w, doc, commit) is None
     (push_call,) = w.push.calls
     assert push_call[1]["commit_sha"] == commit
     (comment,) = w.comment.calls
@@ -112,7 +117,7 @@ def test_three_requests_for_changes_hand_back_with_the_findings_and_push_nothing
     assert w.push.calls == [] and w.reply.calls == []
     assert_handed_back(w, doc, "fix", FINDING["detail"])
     assert record(w, doc)["verdict"] == "request_changes"
-    assert review_refusal(w.c.base, doc["id"], pushed_commit(doc, 2)) == "review_rejected"
+    assert refusal(w, doc, pushed_commit(doc, 2)) == "review_rejected"
 
 
 # --------------------------------------------------------------------------- fail closed
@@ -148,7 +153,7 @@ def test_anything_but_a_clear_approval_of_this_commit_pushes_nothing(tmp_path, r
     assert len(w.agent.calls) == 1  # a broken review hands back; it is not retried
     assert_handed_back(w, doc, "fix", code)
     assert record(w, doc)["verdict"] == code
-    assert review_refusal(w.c.base, doc["id"], pushed_commit(doc)) == "review_rejected"
+    assert refusal(w, doc, pushed_commit(doc)) == "review_rejected"
 
 
 def test_a_reviewer_bridge_failure_pushes_nothing(tmp_path):
@@ -158,7 +163,7 @@ def test_a_reviewer_bridge_failure_pushes_nothing(tmp_path):
     assert "fix[0]/review" in doc["error"]["message"]
     assert w.push.calls == []
     assert_handed_back(w, doc, "fix", "codex took too long")
-    assert review_refusal(w.c.base, doc["id"], pushed_commit(doc)) == "review_missing"
+    assert refusal(w, doc, pushed_commit(doc)) == "review_missing"
 
 
 def test_a_failing_gate_never_runs_the_reviewer(tmp_path, monkeypatch):
@@ -343,3 +348,40 @@ def test_a_binary_change_is_never_reviewed_or_pushed(tmp_path, monkeypatch):
     out = step_state(doc, "fix[0]/verdict")["outputs"]
     assert out["review"] == "request_changes"
     assert_handed_back(w, doc, "fix", "binary change")
+
+
+# --------------------------------------------------------------------------- #3: range
+
+
+def test_the_record_binds_repo_pr_start_and_tip(tmp_path):
+    w = World(tmp_path)
+    doc = w.fire()
+    rec = record(w, doc)
+    assert (rec["repo"], rec["number"]) == ("o/r", 7)
+    assert rec["start_sha"] == w.repo.start
+    assert rec["commit_sha"] == step_state(doc, "fix[0]/gate")["outputs"]["commit_sha"]
+
+
+def test_a_gate_start_that_is_not_the_pr_head_is_never_approved(tmp_path, monkeypatch):
+    # the agent reports it started from an older commit: the reviewed range would not be
+    # the PR's, so nothing is approved (the start must be the trigger's PR head)
+    w = World(tmp_path)
+
+    def elsewhere(input, key, deadline, *, context):
+        git(w.repo.wt, "reset", "-q", "--hard", w.repo.base)
+        head = w.repo.commit("fix", {"src/app.py": "x = 3\n"})
+        return InvocationResult.completed(
+            {
+                "head_before": w.repo.base,
+                "head_after": head,
+                "worktree": str(w.repo.wt),
+                "threads_addressed": [],
+                "backend": "qwen",
+            }
+        )
+
+    monkeypatch.setattr(w.agent, "invoke", elsewhere)
+    doc = w.fire()
+    assert doc["status"] == "failed" and w.push.calls == []
+    assert "fix[0]/verdict: review_invalid" in doc["error"]["message"]
+    assert "PR head" in doc["error"]["message"]

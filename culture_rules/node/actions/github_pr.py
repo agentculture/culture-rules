@@ -389,7 +389,14 @@ class GitHubPushPort(GitHubCommentPort):
             return InvocationResult.failed(refusal, retryable=False)
         # d20: the run's reviewer must have approved exactly this commit (read from the
         # store, never a param), whatever the workflow wires
-        refusal = review_refusal(self._store, context.run_id, str(input["commit_sha"]))
+        refusal = review_refusal(
+            self._store,
+            context.run_id,
+            str(input["commit_sha"]),
+            repo=input.get("repo"),
+            number=input.get("number"),
+            start_sha=input.get("expected_head_sha"),
+        )
         if refusal:
             log.info("github.push refused: %s", refusal)
             return InvocationResult.failed(refusal, retryable=False)

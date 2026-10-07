@@ -38,6 +38,9 @@ def approve(store, sha, **over):
         "reviewer_backend": "codex",
         "implementer_actor": "qwen-fixer",
         "implementer_backend": "qwen",
+        "repo": "acme/widgets",
+        "number": 3,
+        "start_sha": None,  # filled from the world below
     }
     doc.update(over)
     store.put(REVIEWS_COLLECTION, doc)
@@ -78,7 +81,7 @@ def test_a_made_up_review_param_is_not_a_review(pem, world):  # noqa: F811
 @pytest.mark.parametrize("verdict", ["request_changes", "not_run", "review_invalid"])
 def test_a_review_that_did_not_approve_pushes_nothing(pem, world, verdict):  # noqa: F811
     store = make_store()
-    approve(store, world.b, verdict=verdict)
+    approve(store, world.b, start_sha=world.a, verdict=verdict)
     assert_refused(*attempt(pem, world, store), world, "review_rejected")
 
 
@@ -87,7 +90,7 @@ def test_an_approval_of_another_commit_pushes_nothing(pem, world):  # noqa: F811
     approve(store, world.a0)
     assert_refused(*attempt(pem, world, store), world, "review_commit_mismatch")
     store = make_store()
-    approve(store, world.b, reviewed_commit=world.a0)
+    approve(store, world.b, start_sha=world.a, reviewed_commit=world.a0)
     assert_refused(*attempt(pem, world, store), world, "review_commit_mismatch")
 
 
@@ -101,19 +104,19 @@ def test_an_approval_of_another_commit_pushes_nothing(pem, world):  # noqa: F811
 )
 def test_a_reviewer_that_is_the_implementer_pushes_nothing(pem, world, over):  # noqa: F811
     store = make_store()
-    approve(store, world.b, **over)
+    approve(store, world.b, start_sha=world.a, **over)
     assert_refused(*attempt(pem, world, store), world, "reviewer_is_implementer")
 
 
 def test_another_runs_approval_does_not_count(pem, world):  # noqa: F811
     store = make_store()
-    approve(store, world.b, id="run-2", run_id="run-2")
+    approve(store, world.b, start_sha=world.a, id="run-2", run_id="run-2")
     assert_refused(*attempt(pem, world, store), world, "review_missing")
 
 
 def test_an_approval_of_this_commit_by_another_backend_pushes(pem, world):  # noqa: F811
     store = make_store()
-    approve(store, world.b)
+    approve(store, world.b, start_sha=world.a)
     res, _fake, _rec = attempt(pem, world, store, gate_verdict="pass")
     assert res.outcome == "completed" and res.output["pushed"] is True
     assert world.remote_head() == world.b
@@ -121,6 +124,35 @@ def test_an_approval_of_this_commit_by_another_backend_pushes(pem, world):  # no
 
 def test_the_gate_verdict_is_still_checked_first(pem, world):  # noqa: F811
     store = make_store()
-    approve(store, world.b)
+    approve(store, world.b, start_sha=world.a)
     res, fake, rec = attempt(pem, world, store, gate_verdict="fail")
     assert_refused(res, fake, rec, world, "gate_not_passed")
+
+
+# --------------------------------------------------------------------------- #3: range binding
+
+
+@pytest.mark.parametrize(
+    "over, code",
+    [
+        ({"repo": "acme/other"}, "review_target_mismatch"),
+        ({"repo": None}, "review_target_mismatch"),
+        ({"number": 4}, "review_target_mismatch"),
+        ({"number": None}, "review_target_mismatch"),
+        ({"start_sha": "a0"}, "review_commit_mismatch"),  # reviewed from another start
+        ({"start_sha": None}, "review_commit_mismatch"),
+    ],
+)
+def test_an_approval_for_another_pr_or_range_pushes_nothing(pem, world, over, code):  # noqa: F811
+    store = make_store()
+    if over.get("start_sha") == "a0":
+        over = {**over, "start_sha": world.a0}
+    approve(store, world.b, **{"start_sha": world.a, **over})
+    assert_refused(*attempt(pem, world, store), world, code)
+
+
+def test_the_reviewed_range_matching_the_push_pushes(pem, world):  # noqa: F811
+    store = make_store()
+    approve(store, world.b, start_sha=world.a, repo="ACME/Widgets")  # repo case-insensitive
+    res, _fake, _rec = attempt(pem, world, store)
+    assert res.outcome == "completed" and res.output["pushed"] is True

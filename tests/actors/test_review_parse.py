@@ -179,15 +179,22 @@ def record(**over) -> dict:
         "reviewer_backend": "codex",
         "implementer_actor": "qwen-fixer",
         "implementer_backend": "qwen",
+        "repo": "o/r",
+        "number": 7,
+        "start_sha": START,
     }
     doc.update(over)
     return doc
 
 
+START = "c" * 40
+TARGET = {"repo": "o/r", "number": 7, "start_sha": START}
+
+
 def refusal(**over) -> str | None:
     store = MemoryStore()
     store.put("fixer_reviews", record(**over))
-    return review_refusal(store, "run-1", SHA)
+    return review_refusal(store, "run-1", SHA, **TARGET)
 
 
 def test_an_approving_review_of_this_commit_by_another_backend_lets_the_push_through():
@@ -195,10 +202,10 @@ def test_an_approving_review_of_this_commit_by_another_backend_lets_the_push_thr
 
 
 def test_no_review_record_is_review_missing():
-    assert review_refusal(MemoryStore(), "run-1", SHA) == "review_missing"
+    assert review_refusal(MemoryStore(), "run-1", SHA, **TARGET) == "review_missing"
     store = MemoryStore()
     store.put("fixer_reviews", record(id="run-2", run_id="run-2"))
-    assert review_refusal(store, "run-1", SHA) == "review_missing"
+    assert review_refusal(store, "run-1", SHA, **TARGET) == "review_missing"
 
 
 @pytest.mark.parametrize("value", ["request_changes", "not_run", "review_invalid", None, ""])
@@ -231,7 +238,7 @@ def test_the_reviewer_must_provably_differ_from_the_implementer(over):
 def test_a_record_for_another_run_never_counts():
     store = MemoryStore()
     store.put("fixer_reviews", record(run_id="run-2"))  # id says run-1, body says run-2
-    assert review_refusal(store, "run-1", SHA) == "review_missing"
+    assert review_refusal(store, "run-1", SHA, **TARGET) == "review_missing"
 
 
 # --------------------------------------------------------------------------- the shipped brief

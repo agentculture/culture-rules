@@ -26,7 +26,7 @@ from tests.actors.test_gate import (  # noqa: F401 - fixtures
     store,
 )
 
-SECRET = "AWS_SECRET=planted-by-the-agent\n"
+PLANTED = "planted by the agent: pretend this is a credential\n"
 
 
 def bundle_repo(tmp_path: Path, bundle: str, sha: str) -> Path:
@@ -47,7 +47,7 @@ def has_object(repo: Path, sha: str) -> bool:
 
 def test_an_intermediate_secret_commit_is_never_bundled(store, tmp_path, clock):  # noqa: F811
     repo = Repo(tmp_path, gate_yaml([PASSING]))
-    repo.commit("add a secret", {"leak.txt": SECRET})
+    repo.commit("add a secret", {"leak.txt": PLANTED})
     secret_blob = git(repo.wt, "rev-parse", "HEAD:leak.txt")
     repo.commit("remove it", {"leak.txt": None})
     tip = repo.commit("the fix", {"src/app.py": "x = 3\n"})

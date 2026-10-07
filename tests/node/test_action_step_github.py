@@ -109,7 +109,7 @@ def run_fixer(pem, world, *, verdict: str, rule_enabled: bool = True, reviewed: 
     ex = Executor(store, "spark", ActorRouter(store, ports=ports, clock=clock), clock=clock)
     run = ex.start(rule(id="fixer"), fixer_workflow(world))
     if reviewed:  # d20: this hand-built workflow has no review step; record the approval
-        gh.approve_review(store, world.b, run_id=run["id"])
+        gh.approve_review(store, world.b, run_id=run["id"], start=world.a)
     ex.run_until_idle()
     return ex.run(run["id"]), fake, rec, comment
 
