@@ -239,7 +239,8 @@ def test_a_reviewer_on_the_implementers_backend_is_refused(tmp_path):
     w = World(tmp_path, reviews=[{"backend": "qwen"}])
     w.c.base.put("actors", {**reviewer_actor(), "harness": "qwen"})
     doc = w.fire()
-    assert "fix[0]/verdict: reviewer_is_implementer" in doc["error"]["message"]
+    # a reviewer on the fixer's backend is not an allowed reviewer at all
+    assert "fix[0]/verdict: reviewer_not_allowed" in doc["error"]["message"]
     assert w.push.calls == []
     assert step_state(doc, FAILURE_STEP) is not None
 
@@ -256,7 +257,7 @@ def test_the_implementer_reviewing_itself_is_refused(tmp_path):
     )
     doc = w.fire()
     assert doc["status"] == "failed" and w.push.calls == []
-    assert "reviewer_is_implementer" in doc["error"]["message"]
+    assert "reviewer_not_allowed" in doc["error"]["message"]
 
 
 def test_a_reviewer_actor_that_is_not_read_only_is_refused(tmp_path):
@@ -448,3 +449,97 @@ def test_a_review_that_bypassed_the_locked_bridge_path_is_not_an_approval(tmp_pa
     assert doc["status"] == "failed" and w.push.calls == []
     assert "fix[0]/verdict: review_invalid" in doc["error"]["message"]
     assert "brief" in doc["error"]["message"]
+
+
+# --------------------------------------------------------------------------- #2: identities
+
+
+def _qwen_can_review(w: World, **params) -> None:
+    """An admin edit: the Qwen fixer actor made read-only with the locked brief."""
+    doc = w.c.base.get("actors", "qwen-fixer")
+    w.c.base.put(
+        "actors",
+        {
+            **doc,
+            "params": {
+                **doc["params"],
+                "sandbox": "read-only",
+                "locked_instruction": "pr-fixer-review",
+                **params,
+            },
+        },
+    )
+
+
+def _decoy_workflow() -> dict:
+    """Codex's bypass: the review step on Qwen, a skipped decoy on codex-reviewer named as
+    the implementer in the verdict step's config."""
+    wf = workflow_doc()
+    fix = next(s for s in wf["steps"] if s["id"] == "fix")
+    review = next(b for b in fix["body"] if b["id"] == "review")
+    review["placement"]["actor"] = "qwen-fixer"
+    decoy = copy.deepcopy(review)
+    decoy.update(
+        id="decoy", placement={"actor": "codex-reviewer", "machine": None, "requirement": None}
+    )
+    decoy["config"]["when"] = {
+        "op": "compare",
+        "cmp": "==",
+        "left": {"field": "gate_verdict"},
+        "right": {"literal": "never"},
+    }
+    fix["body"].insert(3, decoy)
+    verdict = next(b for b in fix["body"] if b["id"] == "verdict")
+    verdict["config"]["implementer_step"] = "decoy"
+    wf["edges"] += [{**e, "target": "decoy"} for e in wf["edges"] if e["target"] == "review"]
+    return wf
+
+
+def test_a_decoy_implementer_cannot_let_the_fixer_review_itself(tmp_path):
+    w = World(
+        tmp_path, workflow=_decoy_workflow(), qwen_reviews=True, reviews=[{"backend": "qwen"}]
+    )
+    _qwen_can_review(w)
+    doc = w.fire()
+    assert step_state(doc, "fix[0]/decoy")["status"] == "skipped"
+    assert doc["status"] == "failed" and w.push.calls == []
+    assert record(w, doc)["verdict"] in ("reviewer_not_allowed", "reviewer_is_implementer")
+
+
+def test_a_reviewer_flag_forged_on_the_fixer_still_finds_the_real_implementer(tmp_path):
+    # even an actor marked as a codex reviewer is refused when it made the gated commit:
+    # the implementer is whichever agent step produced the gate's tip, not a config name
+    w = World(tmp_path, workflow=_decoy_workflow(), qwen_reviews=True)
+    _qwen_can_review(w, reviewer=True)
+    doc_ = w.c.base.get("actors", "qwen-fixer")
+    w.c.base.put("actors", {**doc_, "harness": "codex"})
+    scripted = w.agent.on
+
+    def claims_codex(key, *behaviours):  # the fixer's bridge also reports codex
+        return scripted(
+            key,
+            *(
+                (b[0], {**b[1], "backend": "codex"}) if b[0] == "complete" else b
+                for b in behaviours
+            ),
+        )
+
+    w.agent.on = claims_codex
+    doc = w.fire()
+    assert doc["status"] == "failed" and w.push.calls == []
+    assert record(w, doc)["verdict"] == "reviewer_is_implementer"
+
+
+def test_only_an_actor_flagged_as_a_codex_reviewer_may_review(tmp_path):
+    w = World(tmp_path)
+    actor = reviewer_actor()
+    actor["params"] = {k: v for k, v in actor["params"].items() if k != "reviewer"}
+    w.c.base.put("actors", actor)
+    doc = w.fire()
+    assert doc["status"] == "failed" and w.push.calls == []
+    assert "fix[0]/verdict: reviewer_not_allowed" in doc["error"]["message"]
+
+
+def test_the_shipped_reviewer_is_flagged():
+    assert reviewer_actor()["params"]["reviewer"] is True
+    assert reviewer_actor()["harness"] == "codex"

@@ -29,11 +29,15 @@ The built-in ``review`` step
 It runs as the last step of the fixer's ``retry_until`` body, so its outputs are the
 loop's result (``until`` and ``carry`` read them). It takes nothing that matters for safety
 from wired inputs: it reads the run document in the store for its own iteration - the
-``gate`` step's outputs, the reviewer step's inputs and outputs and the implementer step's
-outputs (step ids in ``config.gate_step``, ``config.review_step``,
-``config.implementer_step``; defaults ``gate``, ``review``, ``agent``) - and the actors from
-the pinned workflow's placements and the ``actors`` collection. Its only wired input,
-``task`` (the original instruction), is prose for the next attempt.
+``gate`` step's outputs (it must be the built-in gate) and the reviewer step's inputs and
+outputs (an ``ai`` step; ids in ``config.gate_step`` / ``config.review_step``, defaults
+``gate`` / ``review``) - and the actors from the pinned workflow's placements and the
+``actors`` collection. The implementer is never named by config: it is the one ``ai`` step
+of this try that succeeded with ``head_after`` equal to the gate's ``agent_commit_sha``.
+The reviewer must be an actor with ``params.reviewer: true`` on a backend in
+:data:`REVIEWER_BACKENDS` (``reviewer_not_allowed``), and its invocation must carry the
+locked brief's digest. Its only wired input, ``task`` (the original instruction), is prose
+for the next attempt.
 
 * gate verdict not ``pass``/``no_gate``: ``review`` is ``not_run`` and the gate's own
   ``instruction`` goes on to the next attempt;
@@ -49,8 +53,8 @@ Outputs: ``verdict`` (the gate's), ``review`` (``approve`` / ``request_changes``
 the gate's text, or the findings plus the original task; none on approval). Anything else
 fails the step - and so the run, which hands back - with ``code: detail``:
 ``review_missing``, ``review_invalid``, ``review_commit_mismatch``,
-``reviewer_not_read_only``, ``reviewer_is_implementer``, ``gate_missing``, ``bad_config``,
-``run_not_found``.
+``reviewer_not_read_only``, ``reviewer_not_allowed``, ``reviewer_is_implementer``,
+``gate_missing``, ``bad_config``, ``run_not_found``.
 
 Every outcome, failures included, overwrites the run's one record in
 :data:`REVIEWS_COLLECTION` (document id = run id), so an older approval never outlives a
@@ -103,6 +107,9 @@ SEVERITIES = ("critical", "high", "medium", "low", "info")
 BLOCKING = frozenset({"critical", "high"})
 MAX_FINDINGS = 50
 READ_ONLY = "read-only"
+REVIEWER_BACKENDS = frozenset({"codex"})
+"""Backends a reviewer may run on (Codex review #2): with ``params.reviewer: true`` on the
+actor, trusted actor config rather than anything in the workflow."""
 NO_CHANGES = "no_changes"
 _PASSING_GATE = ("pass", "no_gate")
 
@@ -452,6 +459,38 @@ class ReviewVerdictPort:
             },
         )
 
+    @staticmethod
+    def _implementer(
+        run: Mapping[str, Any],
+        parent: str,
+        i: int,
+        body: Mapping[str, Any],
+        review_step: str,
+        g: Mapping[str, Any],
+    ) -> tuple[Mapping[str, Any], Mapping[str, Any]]:
+        """The agent step that actually made the gated commit (Codex review #2): of this
+        try's ai steps other than the review, the one that succeeded with ``head_after`` ==
+        the gate's ``agent_commit_sha``. Never a name from the workflow config; none or more
+        than one is ``review_invalid``."""
+        tip = g.get("agent_commit_sha")
+        found = []
+        for sid, definition in body.items():
+            if sid == review_step or definition.get("kind") != "ai":
+                continue
+            st = _state(run, f"{parent}[{i}]/{sid}")
+            if (
+                st
+                and st.get("status") == "succeeded"
+                and isinstance(tip, str)
+                and (st.get("outputs") or {}).get("head_after") == tip
+            ):
+                found.append((definition, st))
+        if len(found) != 1:
+            raise ReviewError(
+                "review_invalid", "cannot tell which agent step made the gated commit"
+            )
+        return found[0]
+
     def _locked_brief(
         self, run: Mapping[str, Any], review: Mapping[str, Any], reviewer_id: str | None
     ) -> None:
@@ -498,10 +537,10 @@ class ReviewVerdictPort:
         config = context.config or {}
         names = {
             role: config.get(f"{role}_step", default)
-            for role, default in (("gate", "gate"), ("review", "review"), ("implementer", "agent"))
+            for role, default in (("gate", "gate"), ("review", "review"))
         }
         if not all(isinstance(n, str) and n for n in names.values()):
-            raise ReviewError("bad_config", "gate_step, review_step and implementer_step")
+            raise ReviewError("bad_config", "gate_step and review_step must name steps")
         run = self._store.get(_RUNS, context.run_id)
         if not run:
             raise ReviewError("run_not_found", context.run_id)
@@ -551,7 +590,7 @@ class ReviewVerdictPort:
             }
         if g.get("diff_truncated") is not False or not isinstance(g.get("diff"), str):
             raise ReviewError("review_invalid", "the gate did not report the diff it verified")
-        parsed = self._review(run, parent, names, state, g, facts)
+        parsed = self._review(run, parent, i, names, state, g, facts)
         self._record(context, {**facts, **parsed})
         approved = parsed["verdict"] == APPROVE
         return {
@@ -568,6 +607,7 @@ class ReviewVerdictPort:
         self,
         run: Mapping[str, Any],
         parent: str,
+        i: int,
         names: Mapping[str, str],
         state: Any,
         g: Mapping[str, Any],
@@ -588,8 +628,17 @@ class ReviewVerdictPort:
                 "review_invalid", "the reviewer was not given the gate's commit and diff"
             )
         body = _body_steps(run, parent)
-        review_def, impl_def = body.get(names["review"]), body.get(names["implementer"])
-        reviewer_id, implementer_id = _placed_actor(review_def), _placed_actor(impl_def)
+        review_def = body.get(names["review"]) or {}
+        gate_def = body.get(names["gate"]) or {}
+        if (gate_def.get("config") or {}).get("builtin") != "gate" or review_def.get(
+            "kind"
+        ) != "ai":
+            raise ReviewError(
+                "bad_config", "gate_step must be the built-in gate, review_step an ai step"
+            )
+        reviewer_id = _placed_actor(review_def)
+        impl_def, impl_state = self._implementer(run, parent, i, body, names["review"], g)
+        implementer_id = _placed_actor(impl_def)
         facts.update(reviewer_actor=reviewer_id, implementer_actor=implementer_id)
         reviewer = self._actor(reviewer_id, "reviewer")
         implementer = self._actor(implementer_id, "implementer")
@@ -600,8 +649,15 @@ class ReviewVerdictPort:
         ):
             raise ReviewError("reviewer_not_read_only", f"{reviewer_id} is not read-only")
         r = review.get("outputs") or {}
-        impl_state = state("implementer") or {}
         reviewer_backend = _backend(r.get("backend"), reviewer.get("harness"))
+        if (reviewer.get("params") or {}).get("reviewer") is not True or (
+            reviewer_backend not in REVIEWER_BACKENDS
+        ):
+            raise ReviewError(
+                "reviewer_not_allowed",
+                f"{reviewer_id} is not an actor flagged as a reviewer with backend in "
+                f"{sorted(REVIEWER_BACKENDS)}",
+            )
         implementer_backend = _backend(
             (impl_state.get("outputs") or {}).get("backend"), implementer.get("harness")
         )

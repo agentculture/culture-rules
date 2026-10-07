@@ -697,6 +697,7 @@ class World:
         reviews=None,
         workflow=None,
         reviewer_fake=None,
+        qwen_reviews=False,
     ) -> None:
         self.repo = Repo(tmp_path, gate_yaml([PASSING]))
         self.c = Cluster("spark", "spark2")
@@ -763,7 +764,26 @@ class World:
             ),
         }
 
+        base_ = base
+        world = self
+
+        class ReviewRouter:
+            """``qwen_reviews``: a Qwen actor's review steps go through the real bridge
+            adapter too (to prove a non-reviewer actor cannot review)."""
+
+            supports_idempotency_key = False
+
+            def __init__(self, actor) -> None:
+                self.bridge = reviewer_adapter(base_, actor, world.reviewer, world.c.clock)
+
+            def invoke(self, input, key, deadline, *, context):
+                if context.step_id.endswith("/review"):
+                    return self.bridge.invoke(input, key, deadline, context=context)
+                return world.agent.invoke(input, key, deadline, context=context)
+
         def agent_for(actor):
+            if actor.id != "codex-reviewer" and qwen_reviews:
+                return ReviewRouter(actor)
             if actor.id != "codex-reviewer":
                 return self.agent
             if self.reviewer_fake is not None:

@@ -16,6 +16,7 @@
     "locked_instruction": "pr-fixer-review",
     "max_bound_input_chars": 60000,
     "max_concurrency": 1,
+    "reviewer": true,
     "sandbox": "read-only"
   },
   "repo": null,
