@@ -18,6 +18,7 @@ from culture_rules.store.memory import MemoryStore
 REF = "grant:GH_HOOK"
 KEY_A = pysecrets.token_hex(16)
 KEY_B = pysecrets.token_hex(16)
+HEAD_SHA, BASE_SHA, H1_SHA = "abc123" + "0" * 34, "def456" + "0" * 34, "1" * 40
 ALL_TYPES = [
     "github.pr.opened",
     "github.pr.closed",
@@ -66,12 +67,12 @@ def pr_body(action="opened", **over):
         "merged": False,
         "draft": False,
         "head": {
-            "sha": "abc123",
+            "sha": HEAD_SHA,
             "ref": "feature-branch",
             "repo": {"full_name": "o/r"},
         },
         "base": {
-            "sha": "def456",
+            "sha": BASE_SHA,
             "ref": "main",
             "repo": {"full_name": "o/r"},
         },
@@ -248,7 +249,7 @@ def test_event_mapping_and_data():
                         "html_url": "https://x/pr/7",
                         "merged": False,
                         "draft": True,
-                        "head": {"sha": "abc123", "ref": "feat", "repo": {"full_name": "o/r"}},
+                        "head": {"sha": HEAD_SHA, "ref": "feat", "repo": {"full_name": "o/r"}},
                         "base": {"ref": "main", "repo": {"full_name": "o/r"}},
                         "user": {"login": "bob"},
                     },
@@ -287,7 +288,7 @@ def test_event_mapping_and_data():
                     "check_suite": {
                         "app": {"slug": "ci-bot"},
                         "conclusion": "success",
-                        "head_sha": "abc123",
+                        "head_sha": HEAD_SHA,
                     },
                     "repository": {"full_name": "o/r"},
                     "sender": {"login": "ci-bot"},
@@ -302,7 +303,7 @@ def test_event_mapping_and_data():
                     "action": "completed",
                     "workflow_run": {
                         "conclusion": "failure",
-                        "head_sha": "def456",
+                        "head_sha": BASE_SHA,
                     },
                     "repository": {"full_name": "o/r"},
                     "sender": {"login": "ci-bot"},
@@ -350,7 +351,7 @@ def test_pull_request_data_enrichment():
     assert len(pr_events) == len(pr_actions)
     for ev in pr_events:
         data = ev["envelope"]["data"]
-        assert data["head_sha"] == "abc123"
+        assert data["head_sha"] == HEAD_SHA
         assert data["head_branch"] == "feature-branch"
         assert data["head_repo"] == "o/r"
         assert data["base_repo"] == "o/r"
@@ -372,7 +373,7 @@ def test_pull_request_review_data_enrichment():
                 "html_url": "https://x/pr/7",
                 "merged": False,
                 "draft": True,
-                "head": {"sha": "abc123", "ref": "feat", "repo": {"full_name": "o/r"}},
+                "head": {"sha": HEAD_SHA, "ref": "feat", "repo": {"full_name": "o/r"}},
                 "base": {"ref": "main", "repo": {"full_name": "o/r"}},
                 "user": {"login": "alice"},
             },
@@ -394,7 +395,7 @@ def test_pull_request_review_data_enrichment():
                 "html_url": "https://x/pr/7",
                 "merged": False,
                 "draft": False,
-                "head": {"sha": "def456", "ref": "fix", "repo": {"full_name": "o/r"}},
+                "head": {"sha": BASE_SHA, "ref": "fix", "repo": {"full_name": "o/r"}},
                 "base": {"ref": "main", "repo": {"full_name": "o/r"}},
                 "user": {"login": "carol"},
             },
@@ -747,3 +748,298 @@ def test_on_check_failure_answers_503_and_redelivery_settles():
     assert go(suite, "check_suite", "d-1")[0] == 200  # redelivery re-runs on_check, now fine
     go(pr_body(), "pull_request", "d-2")  # non-check events never call it
     assert seen == ["abc123d", "abc123d"]
+
+
+# ---------------------------------------------------------------- d14: PR facts everywhere
+
+PR_FIELDS = (
+    "head_sha",
+    "head_branch",
+    "head_repo",
+    "base_repo",
+    "base_branch",
+    "base_sha",
+    "draft",
+    "pr_author",
+)
+
+
+def full_pr(**over):
+    pr = {
+        "number": 7,
+        "draft": False,
+        "head": {"sha": HEAD_SHA, "ref": "feature-branch", "repo": {"full_name": "o/r"}},
+        "base": {"sha": BASE_SHA, "ref": "main", "repo": {"full_name": "o/r"}},
+        "user": {"login": "alice"},
+    }
+    pr.update(over)
+    return pr
+
+
+def comment_body(pr=True, number=7, author="bob"):
+    issue = {"number": number, "title": "T", "html_url": f"https://x/pull/{number}"}
+    if pr:
+        issue["pull_request"] = {"url": f"https://api.github.com/repos/o/r/pulls/{number}"}
+    return json.dumps(
+        {
+            "action": "created",
+            "issue": issue,
+            "comment": {"body": "please fix"},
+            "repository": {"full_name": "o/r"},
+            "sender": {"login": author},
+        }
+    ).encode()
+
+
+class Pulls:
+    """A fake read-only App PR lookup: ``(repo, number) -> PR document``."""
+
+    def __init__(self, pr=None, fail=None):
+        self.pr = pr if pr is not None else full_pr()
+        self.fail = fail
+        self.calls: list[tuple[str, int]] = []
+
+    def __call__(self, repo, number):
+        self.calls.append((repo, number))
+        if self.fail is not None:
+            raise self.fail
+        return self.pr
+
+
+def post_pull(store, body, headers, pull):
+    return gh.handle(
+        store, body=body, headers=headers, query={}, secrets=resolver({REF: KEY_A}), pull=pull
+    )
+
+
+def data_of(store, etype):
+    return [e["envelope"]["data"] for e in events(store) if e["envelope"]["type"] == etype]
+
+
+def test_pr_review_and_review_comment_events_carry_base_sha_and_base_branch():
+    s = make()
+    b = pr_body("synchronize")
+    assert post(s, b, hdrs(b, delivery="d-pr"))[0] == 202
+    for event, extra, delivery in (
+        ("pull_request_review", {"review": {"state": "commented"}}, "d-rv"),
+        ("pull_request_review_comment", {"comment": {"id": 1, "user": {"login": "x"}}}, "d-rc"),
+    ):
+        payload = {
+            "action": "submitted" if event == "pull_request_review" else "created",
+            "pull_request": {**full_pr(), "title": "T", "html_url": "https://x/pr/7"},
+            "repository": {"full_name": "o/r"},
+            "sender": {"login": "bob"},
+            **extra,
+        }
+        body = json.dumps(payload).encode()
+        assert post(s, body, hdrs(body, event=event, delivery=delivery))[0] == 202
+    for etype in (
+        "github.pr.synchronize",
+        "github.review.submitted",
+        "github.review_comment.created",
+    ):
+        (data,) = data_of(s, etype)
+        assert data["base_sha"] == BASE_SHA, etype
+        assert data["base_branch"] == "main", etype
+        assert set(PR_FIELDS) <= set(data), etype
+
+
+def test_pr_comment_is_enriched_from_the_app_lookup():
+    s = make()
+    pulls = Pulls(
+        full_pr(draft=True, head={"sha": H1_SHA, "ref": "fx", "repo": {"full_name": "f/r"}})
+    )
+    b = comment_body()
+    assert post_pull(s, b, hdrs(b, event="issue_comment"), pulls)[0] == 202
+    assert pulls.calls == [("o/r", 7)]
+    (data,) = data_of(s, "github.comment.created")
+    assert data["pr_enriched"] is True
+    assert data["head_sha"] == H1_SHA
+    assert data["head_branch"] == "fx"
+    assert data["head_repo"] == "f/r"
+    assert data["base_repo"] == "o/r"
+    assert data["base_branch"] == "main"
+    assert data["base_sha"] == BASE_SHA
+    assert data["draft"] is True
+    assert data["pr_author"] == "alice"
+    assert data["author"] == "bob"  # the commenter, not the PR author
+    assert data["comment"] == "please fix"
+
+
+def test_plain_issue_comment_is_not_looked_up():
+    s = make()
+    pulls = Pulls()
+    b = comment_body(pr=False, number=3)
+    assert post_pull(s, b, hdrs(b, event="issue_comment"), pulls)[0] == 202
+    assert pulls.calls == []
+    (data,) = data_of(s, "github.comment.created")
+    assert "pr_enriched" not in data
+    assert not set(PR_FIELDS) & set(data)
+
+
+def test_failed_lookup_stores_comment_unenriched_and_later_events_flow():
+    from culture_rules.apps.github import GitHubError
+
+    s = make()
+    pulls = Pulls(fail=GitHubError("network_error", retryable=True))
+    b = comment_body()
+    assert post_pull(s, b, hdrs(b, event="issue_comment", delivery="d-c1"), pulls)[0] == 202
+    (data,) = data_of(s, "github.comment.created")
+    assert data["pr_enriched"] is False
+    assert not set(PR_FIELDS) & set(data)
+    # an unexpected exception type is contained the same way
+    pulls.fail = RuntimeError("boom")
+    b2 = comment_body(number=8)
+    assert post_pull(s, b2, hdrs(b2, event="issue_comment", delivery="d-c2"), pulls)[0] == 202
+    assert [d["pr_enriched"] for d in data_of(s, "github.comment.created")] == [False, False]
+    # and the next delivery of any kind still flows
+    pr = pr_body()
+    assert post_pull(s, pr, hdrs(pr, delivery="d-pr"), pulls)[0] == 202
+    assert len(data_of(s, "github.pr.opened")) == 1
+
+
+def test_bad_lookup_result_is_treated_as_a_failure():
+    s = make()
+    b = comment_body()
+    assert post_pull(s, b, hdrs(b, event="issue_comment"), Pulls(pr=["not", "a", "pr"]))[0] == 202
+    (data,) = data_of(s, "github.comment.created")
+    assert data["pr_enriched"] is False
+
+
+def test_redelivered_pr_comment_is_not_looked_up_again_and_keeps_stored_data():
+    s = make()
+    pulls = Pulls()
+    b = comment_body()
+    h = hdrs(b, event="issue_comment", delivery="d-same")
+    assert post_pull(s, b, h, pulls)[0] == 202
+    before = data_of(s, "github.comment.created")
+    pulls.pr = full_pr(head={"sha": "9" * 40, "ref": "fx", "repo": {"full_name": "o/r"}})
+    assert post_pull(s, b, h, pulls) == (200, {"duplicate": True})
+    assert pulls.calls == [("o/r", 7)]  # the redelivery did not look the PR up again
+    assert data_of(s, "github.comment.created") == before
+
+
+def test_pr_comment_lookup_skipped_when_the_sink_would_not_store_it():
+    actor = app_actor()
+    actor["params"]["events"] = [t for t in ALL_TYPES if t != "github.comment.created"]
+    s = make(actor)
+    pulls = Pulls()
+    b = comment_body()
+    assert post_pull(s, b, hdrs(b, event="issue_comment"), pulls)[0] == 202
+    assert pulls.calls == []
+    disabled = make(app_actor(enabled=False))
+    post_pull(disabled, b, hdrs(b, event="issue_comment"), pulls)
+    assert pulls.calls == []
+
+
+def test_pr_comment_without_lookup_seam_is_marked_unenriched():
+    s = make()
+    b = comment_body()
+    assert post(s, b, hdrs(b, event="issue_comment"))[0] == 202
+    (data,) = data_of(s, "github.comment.created")
+    assert data["pr_enriched"] is False
+
+
+def test_router_passes_the_pull_seam():
+    s = make()
+    pulls = Pulls()
+    app = FastAPI()
+    app.include_router(gh.router(s, secrets=resolver({REF: KEY_A}), pull=pulls))
+    b = comment_body()
+    r = TestClient(app).post("/hooks/github", content=b, headers=hdrs(b, event="issue_comment"))
+    assert r.status_code == 202
+    assert pulls.calls == [("o/r", 7)]
+    assert data_of(s, "github.comment.created")[0]["pr_enriched"] is True
+
+
+# ------------------------------------- d14 review: malformed PR facts never read as a match
+
+FIXER_SAME_REPO = {
+    "op": "compare",
+    "cmp": "==",
+    "left": {"field": "head_repo"},
+    "right": {"field": "base_repo"},
+}
+FIXER_NOT_DRAFT = {
+    "op": "compare",
+    "cmp": "==",
+    "left": {"field": "draft"},
+    "right": {"literal": False},
+}
+
+
+def _fixer_matches(data):
+    from culture_rules.model.condition import evaluate
+
+    tree = {"op": "and", "args": [FIXER_SAME_REPO, FIXER_NOT_DRAFT]}
+    return evaluate(tree, {"trigger": data, "variables": {}})
+
+
+MALFORMED_PULLS = {
+    "empty": {},
+    "no_head_repo": full_pr(head={"sha": HEAD_SHA, "ref": "fx", "repo": None}),
+    "both_repos_null": full_pr(
+        head={"sha": HEAD_SHA, "ref": "fx", "repo": None},
+        base={"sha": BASE_SHA, "ref": "main", "repo": None},
+    ),
+    "repo_not_a_string": full_pr(
+        head={"sha": HEAD_SHA, "ref": "fx", "repo": {"full_name": 5}},
+    ),
+    "repo_empty": full_pr(head={"sha": HEAD_SHA, "ref": "fx", "repo": {"full_name": ""}}),
+    "short_sha": full_pr(head={"sha": "abc123", "ref": "fx", "repo": {"full_name": "o/r"}}),
+    "base_sha_missing": full_pr(base={"ref": "main", "repo": {"full_name": "o/r"}}),
+    "empty_branch": full_pr(head={"sha": HEAD_SHA, "ref": "", "repo": {"full_name": "o/r"}}),
+    "draft_string": full_pr(draft="false"),
+    "draft_missing": {k: v for k, v in full_pr().items() if k != "draft"},
+    "draft_null": full_pr(draft=None),
+    "no_author": full_pr(user=None),
+}
+
+
+def test_malformed_lookup_result_is_not_enriched():
+    for name, pr in MALFORMED_PULLS.items():
+        s = make()
+        b = comment_body()
+        assert post_pull(s, b, hdrs(b, event="issue_comment"), Pulls(pr=pr))[0] == 202, name
+        (data,) = data_of(s, "github.comment.created")
+        assert data["pr_enriched"] is False, name
+        assert not set(PR_FIELDS) & set(data), name
+        assert not _fixer_matches(data), name
+
+
+def test_well_formed_lookup_result_matches_the_fixer_condition():
+    s = make()
+    b = comment_body()
+    assert post_pull(s, b, hdrs(b, event="issue_comment"), Pulls())[0] == 202
+    (data,) = data_of(s, "github.comment.created")
+    assert data["pr_enriched"] is True and _fixer_matches(data)
+
+
+def test_pr_event_with_malformed_facts_omits_them_and_never_matches():
+    s = make()
+    deleted_fork = {"sha": HEAD_SHA, "ref": "fx", "repo": None}
+    cases = {
+        "d-fork": {"head": deleted_fork},
+        "d-none": {"head": None, "base": None},
+        "d-draft": {"draft": "no"},
+        "d-shas": {
+            "head": {"sha": "nope", "ref": "fx", "repo": {"full_name": "o/r"}},
+            "base": {"sha": "", "ref": "main", "repo": {"full_name": "o/r"}},
+        },
+    }
+    for delivery, over in cases.items():
+        b = pr_body("synchronize", **over)
+        assert post(s, b, hdrs(b, delivery=delivery))[0] == 202
+    by_delivery = {d["delivery_id"]: d for d in data_of(s, "github.pr.synchronize")}
+    fork = by_delivery["d-fork"]
+    assert "head_repo" not in fork and fork["base_repo"] == "o/r"
+    assert fork["head_sha"] == HEAD_SHA and fork["draft"] is False
+    none = by_delivery["d-none"]
+    assert not {"head_repo", "base_repo", "head_sha", "base_sha"} & set(none)
+    assert "draft" not in by_delivery["d-draft"]
+    shas = by_delivery["d-shas"]
+    assert "head_sha" not in shas and "base_sha" not in shas
+    for delivery in ("d-fork", "d-none", "d-draft"):
+        assert not _fixer_matches(by_delivery[delivery]), delivery
+    for data in by_delivery.values():
+        assert None not in [data.get(k, "absent") for k in PR_FIELDS]

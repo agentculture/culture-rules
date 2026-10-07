@@ -159,14 +159,73 @@ repositories. Events arrive from every repository the App is installed on.
 | GitHub event / action | Event type |
 |---|---|
 | `pull_request` opened / closed / reopened | `github.pr.opened` / `.closed` / `.reopened` |
+| `pull_request` synchronize / ready_for_review | `github.pr.synchronize` / `github.pr.ready` |
 | `issue_comment` created | `github.comment.created` |
 | `issues` opened | `github.issue.opened` |
 | `pull_request_review` submitted | `github.review.submitted` |
+| `pull_request_review_comment` created | `github.review_comment.created` |
+| `check_suite` completed | `github.checks.suite_completed` |
+| `workflow_run` completed | `github.checks.workflow_completed` |
+| (derived, once per head SHA) | `github.pr.checks_settled` |
 
-The event `data` holds `repository`, `number`, `title`, `url`, `author` and
-`action`. It adds `merged` for PRs, `comment` (truncated) for comments, and
-`review_state` for reviews. A `ping` answers `200 {"pong": true}`. A redelivery
-is deduplicated by `X-GitHub-Delivery`.
+Every event's `data` holds `repository`, `number`, `title`, `url`, `author`
+and `action`, plus `delivery_id` and `actor`. With a `self_identity` it also
+holds `self_authored`. Each type then adds:
+
+| Event type | Extra fields |
+|---|---|
+| `github.pr.*` | `merged` and the PR facts |
+| `github.review.submitted` | `review_state` and the PR facts |
+| `github.review_comment.created` | the PR facts; `author` is the comment's author |
+| `github.comment.created` on a PR | `comment` (truncated), `pr_enriched` and, when enriched, the PR facts |
+| `github.comment.created` on an issue | `comment` (truncated) |
+| `github.checks.*` | `head_sha`, `head_branch`, `pr_numbers`, `app_slug`, `workflow_name`, `status`, `conclusion` |
+| `github.pr.checks_settled` | `head_sha`, `head_branch`, `pr_numbers`, `number`, `settled_by`, `conclusion` and the PR facts |
+
+The **PR facts** have the same names on every PR-scoped type, so the fixer
+rules share one condition shape and the workflow gets the same inputs
+whichever rule fired:
+
+| Field | From the pull request |
+|---|---|
+| `head_sha`, `head_branch`, `head_repo` | `head.sha`, `head.ref`, `head.repo.full_name` |
+| `base_repo`, `base_branch`, `base_sha` | `base.repo.full_name`, `base.ref`, `base.sha` |
+| `draft` | `draft` (a boolean) |
+| `pr_author` | `user.login` |
+
+Each fact is checked: repos must be `owner/name`, SHAs 40 hex digits,
+branches and `pr_author` non-empty strings, and `draft` a real boolean. A
+missing or malformed fact is **left out**, never stored as `null` or given a
+default. A comparison on a missing field is false, so two missing repos never
+satisfy `head_repo == base_repo`. A PR from a deleted fork (`head.repo` is
+`null`) has no `head_repo`.
+
+Where the facts come from:
+
+- **PR, review and review-comment events** take them from the webhook
+  payload.
+- **A comment on a PR** has no head or base in its payload. The receiver reads
+  the PR through the App, read-only (`GET /repos/{repo}/pulls/{n}`), within 5
+  seconds. The repository must be in some enabled GitHub actor's
+  `connection.repos`.
+  - On success, `pr_enriched` is `true`, and all eight facts are present.
+  - If there is no allow-listed actor, the read fails or times out, or the
+    answer lacks any valid fact, the comment is still stored, without the
+    facts and with `pr_enriched: false`. A condition on
+    `head_repo == base_repo` and `draft == false` then does not match, so the
+    fixer does not fire.
+  - The 5 seconds cover the whole lookup, including resolving the App's
+    private key. A slow first resolve finishes in the background and is
+    cached, so later lookups are fast. At most two lookups run at once; one
+    more fails at once and is stored unenriched.
+  - A comment on a plain issue is never looked up and has no `pr_enriched`.
+- **`github.pr.checks_settled`** reads its first PR the same way, best-effort.
+  It adds the facts only when all of them are valid.
+  `head_sha` stays the settled SHA and `head_branch` the check's own.
+
+A `ping` answers `200 {"pong": true}`. A redelivery is deduplicated by
+`X-GitHub-Delivery`. It is never looked up again, so it cannot change what
+was stored.
 
 ## Troubleshooting
 
