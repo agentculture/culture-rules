@@ -13,6 +13,7 @@ cached in the process: each call reads the store.
 from __future__ import annotations
 
 import json
+import math
 import uuid
 from collections.abc import Callable, Iterable, Mapping
 from datetime import UTC, datetime
@@ -30,7 +31,7 @@ from culture_rules.model.validate import validate, validate_data, variable_ref_e
 from culture_rules.model.variable import validate_variable_name
 from culture_rules.model.variable_refs import rule_variable_refs
 from culture_rules.model.workflow import Workflow
-from culture_rules.store.port import Document, StoragePort
+from culture_rules.store.port import Document, StoragePort, VariableVersionConflict
 
 __all__ = [
     "DEFINITION_KINDS",
@@ -586,6 +587,46 @@ class _LiveView:
         return [d for d in self._store.find(collection, where, limit=limit) if _is_live(d)]
 
 
+_EDIT_ATTEMPTS = 20
+
+
+def _item_kind(value: Any) -> str:
+    """The JSON type of a list item (a boolean is not a number)."""
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, (int, float)):
+        return "number"
+    if isinstance(value, str):
+        return "string"
+    if value is None:
+        return "null"
+    return "other"
+
+
+def _same_item(a: Any, b: Any) -> bool:
+    return _item_kind(a) == _item_kind(b) and a == b
+
+
+def _check_item(value: list, item: Any, *, add: bool) -> None:
+    """``item`` must be a finite JSON scalar. An added one must also be of a type the list
+    already holds - each item's own type, so mixed and null-holding lists work (any scalar
+    for an empty list). A removed one may be any scalar: one the list does not hold is
+    simply absent (no new version)."""
+    kind = _item_kind(item)
+    if kind == "other" or (isinstance(item, float) and not math.isfinite(item)):
+        raise Invalid(
+            "an item is a JSON scalar",
+            [{"path": "item", "code": "invalid_item", "message": "not a finite JSON scalar"}],
+        )
+    kinds = {_item_kind(v) for v in value}
+    if add and kinds and kind not in kinds:
+        expected = " or ".join(sorted(kinds))
+        raise Invalid(
+            f"the list holds {expected} items, not {kind}",
+            [{"path": "item", "code": "item_type_mismatch", "message": f"expected {expected}"}],
+        )
+
+
 class Variables:
     """Shared variables behind the API: reads, an append-only write, history and referrers.
 
@@ -625,6 +666,51 @@ class Variables:
             raise Invalid(
                 str(exc), [{"path": "value", "code": "invalid_value", "message": str(exc)}]
             )
+
+    def add_item(self, name: str, item: Any, identity: str) -> dict[str, Any]:
+        """Add ``item`` to list variable ``name`` (admin): a new version naming the caller, or
+        ``changed: false`` (no version) when it is already there."""
+        return self._edit(name, item, identity, add=True)
+
+    def remove_item(self, name: str, item: Any, identity: str) -> dict[str, Any]:
+        """Remove every copy of ``item`` from list variable ``name`` (admin): a new version
+        naming the caller, or ``changed: false`` (no version) when it is not there."""
+        return self._edit(name, item, identity, add=False)
+
+    def _edit(self, name: str, item: Any, identity: str, *, add: bool) -> dict[str, Any]:
+        """Read, change and write back with a compare-and-set on the version, retrying when
+        another writer got in between, so concurrent edits never lose one another."""
+        self._checked(name)
+        principal = require_identity(identity)
+        for _ in range(_EDIT_ATTEMPTS):
+            current = self.get(name)
+            value = current.get("value")
+            if not isinstance(value, list):
+                raise Invalid(
+                    f"variable {name!r} is not a list",
+                    [{"path": "name", "code": "not_a_list", "message": "the value is a scalar"}],
+                )
+            _check_item(value, item, add=add)
+            present = any(_same_item(v, item) for v in value)
+            if add == present:
+                return {"changed": False, "variable": current}
+            new = [*value, item] if add else [v for v in value if not _same_item(v, item)]
+            try:
+                doc = self._store.put_variable(
+                    name,
+                    new,
+                    updated_by=principal,
+                    description=current.get("description"),
+                    expected_version=current["version"],
+                )
+            except VariableVersionConflict:
+                continue
+            except ValueError as exc:
+                raise Invalid(
+                    str(exc), [{"path": "item", "code": "invalid_value", "message": str(exc)}]
+                )
+            return {"changed": True, "variable": doc}
+        raise Conflict(f"variables/{name}: too many concurrent writers, try again")
 
     def history(self, name: str) -> list[Document]:
         """Every version, oldest first (the store is append-only, so versions are 1..latest)."""

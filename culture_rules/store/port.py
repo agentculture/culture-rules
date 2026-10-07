@@ -100,6 +100,11 @@ class VersionSkewError(StoreError):
     """A write involves a document of a newer major schema version than this node supports."""
 
 
+class VariableVersionConflict(StoreError):
+    """``put_variable(..., expected_version=n)`` found the variable at another version: someone
+    else wrote it since it was read. Re-read and retry (a compare-and-set on the version)."""
+
+
 class SchemaDowngradeError(StoreError):
     """A write would lower an existing document's ``schema_version``."""
 
@@ -231,13 +236,21 @@ class StoragePort(StoreOps, Protocol):
         """
 
     def put_variable(
-        self, name: str, value: Any, *, updated_by: str, description: str | None = None
+        self,
+        name: str,
+        value: Any,
+        *,
+        updated_by: str,
+        description: str | None = None,
+        expected_version: int | None = None,
     ) -> Document:
         """Append a new version of variable ``name`` (version n+1, append-only).
 
         Validates ``name`` (must match :data:`~culture_rules.model.variable.VALID_VARIABLE_NAME_RE`)
         and ``value`` (must be a JSON scalar or list).  Returns the latest
         version document.  Raises :class:`ValueError` on validation failure.
+        With ``expected_version`` (0 = the variable must not exist yet) the write is a
+        compare-and-set: :class:`VariableVersionConflict` when the latest version differs.
         """
 
     def get_variable(self, name: str) -> Document | None:

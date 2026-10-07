@@ -1,13 +1,16 @@
 """Variable references in a rule's action params and workflow-input mappings.
 
-A run resolves values against a context with three namespaces: ``trigger`` (the event
-envelope), ``workflow`` (``workflow.outputs.<name>``, action params only) and ``rules``
-(``rules.<id>.outputs.<name>``, outputs exported by a predecessor). Three forms:
+A run resolves values against a context with four namespaces: ``trigger`` (the event
+envelope), ``workflow`` (``workflow.outputs.<name>``, action params only), ``rules``
+(``rules.<id>.outputs.<name>``, outputs exported by a predecessor) and ``run`` (``run.id``,
+the run's own id, rule action params only - so a terminal comment can link its run; a rule's
+``on_failure`` params also read ``run.error.step`` / ``.code`` / ``.message``, the failure that
+ended the run). Three forms:
 
 * a **plain string** is a reference only when its whole path fits a namespace's shape
   (:func:`is_reference`): ``trigger.<f>...`` where ``f`` is an envelope field
   (:data:`TRIGGER_FIELDS`) or a key the event carries, ``workflow.outputs.<name>...``,
-  ``rules.<id>.outputs.<name>...``. Any other string is a literal, so ``rules.yaml``,
+  ``rules.<id>.outputs.<name>...``, ``run.id``. Any other string is a literal, so ``rules.yaml``,
   ``workflow.md`` and ``trigger.sh`` reach the actor unchanged. A reference whose value
   is absent resolves to ``None`` (an optional input stays missing);
 * ``{"$ref": "<path>"}`` (a one-key object) always references, ``None`` when absent;
@@ -51,6 +54,7 @@ __all__ = [
     "ref_error",
     "ref_errors",
     "resolve_refs",
+    "run_error_refs",
     "scanned_strings",
     "structured_form",
     "var_name",
@@ -59,7 +63,11 @@ __all__ = [
 REF_KEY = "$ref"
 LITERAL_KEY = "$literal"
 VAR_KEY = "$var"
-NAMESPACES = ("trigger", "workflow", "rules")
+NAMESPACES = ("trigger", "workflow", "rules", "run")
+RUN_FIELDS = frozenset({"id"})
+"""The ``run.<field>`` paths a rule action may read (the run's own id)."""
+RUN_ERROR_FIELDS = frozenset({"step", "code", "message"})
+"""The ``run.error.<field>`` paths a rule's ``on_failure`` params may read."""
 INPUTS_NAMESPACE = "inputs"
 """The step-input namespace, resolved only by a context that carries it (action steps)."""
 
@@ -80,8 +88,12 @@ TRIGGER_FIELDS = frozenset(
     }
 )
 
-_PATH = re.compile(r"^(?:workflow|trigger|rules)(?:\.[^.\s{}]+)+$")
-_TEMPLATE = re.compile(r"\{\{\s*((?:workflow|trigger|rules)(?:\.[^.\s{}]+)+)\s*\}\}")
+_PATH = re.compile(r"^(?:workflow|trigger|rules|run)(?:\.[^.\s{}]+)+$")
+_TEMPLATE = re.compile(
+    r"\{\{\s*((?:workflow|trigger|rules)(?:\.[^.\s{}]+)+"
+    r"|run\.id|run\.error\.(?:step|code|message))\s*\}\}"
+)
+_RUN_ERROR = re.compile(r"^run\.error(?:\.|$)|\{\{\s*run\.error\b")
 _INPUT_PATH = re.compile(r"^inputs(?:\.[^.\s{}]+)+$")
 _STEP_TEMPLATE = re.compile(r"\{\{\s*((?:workflow|trigger|rules|inputs)(?:\.[^.\s{}]+)+)\s*\}\}")
 
@@ -103,6 +115,10 @@ def _shape_ok(parts: list[str]) -> bool:
         return len(parts) >= 3 and parts[1] == "outputs"
     if parts[0] == "rules":
         return len(parts) >= 4 and parts[2] == "outputs"
+    if parts[0] == "run":
+        if len(parts) == 3 and parts[1] == "error":
+            return parts[2] in RUN_ERROR_FIELDS
+        return len(parts) == 2 and parts[1] in RUN_FIELDS
     return len(parts) >= 2
 
 
@@ -147,12 +163,20 @@ def ref_error(path: Any, *, has_workflow: bool) -> str | None:
     parts = path.split(".")
     if not _shape_ok(parts):
         return (
-            f"{path!r} does not resolve: use trigger.<field>, workflow.outputs.<name> "
-            "or rules.<id>.outputs.<name>"
+            f"{path!r} does not resolve: use trigger.<field>, workflow.outputs.<name>, "
+            "rules.<id>.outputs.<name>, run.id or (on_failure only) run.error.<step|code|message>"
         )
     if parts[0] == "workflow" and not has_workflow:
         return f"{path!r} does not resolve: the rule runs no workflow"
     return None
+
+
+def run_error_refs(value: Any, path: str, join: Any) -> Iterator[str]:
+    """Paths of every ``run.error...`` reference inside ``value`` (whole string, template or
+    ``$ref``): only a rule's ``on_failure`` may hold one."""
+    for where, text in scanned_strings(value, path, join):
+        if _RUN_ERROR.search(text.strip()):
+            yield where
 
 
 def scanned_strings(value: Any, path: str, join: Any) -> Iterator[tuple[str, str]]:

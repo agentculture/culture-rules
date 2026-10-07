@@ -73,7 +73,7 @@ repos at provisioning). Operator also confirmed the
 - Version bump once, in the final PR (Codex flags it every time; ignore).
 - NEVER write an unquoted heredoc containing backticks (it once ran `uv sync` in the
   main checkout and removed 25 extras; fixed with `uv sync --all-extras`).
-- Status loop: cron `5134657f` at :07/:37; one-shot `11f2abed` at 06:13 to start the
+- Status loop: cron `067039de` at :07/:37 (recreated after the 14:10 restart); earlier one-shot `11f2abed` at 06:13 to start the
   Codex reviews (session-only jobs; recreate after a restart).
 
 ## Current state (2026-10-07 ~04:00)
@@ -91,13 +91,12 @@ last full suite 2669 passed, 1 skipped.
 | t11 concurrency key + budget | MERGED (befc925) after 3 Codex rounds; r18/r19 open |
 | t17a built-in action step (d12) | MERGED (6b55087) after 3 Codex rounds |
 | t17b PR facts (d14) | MERGED (edb9ed8) after 2 Codex rounds; facts validated, lookup bound covers secret resolve |
-| t17 fixer rule + workflow as data | Branch `rules/pr-fixer-t17` rebased on the merges (583eb29, 61b55e5 d15, af18543 d16); suite 2899; Codex r1 P2 (on_failure double-add) fixed by Opus `2026501`, suite 2905; Codex r2 at 13:16 |
-| r14 fix | Codex WIP hit the limit; Opus finished `fee5e09` on `rules/pr-fixer-r14` (shared watermark, find_events + Mongo index, bounded); suite 2833; Codex review at 13:16; r20 rollout notes |
-| r19 (+r18) fix | Opus `d8016a6` on `rules/pr-fixer-r19` (non-owner completion guard write); Codex review at 13:16 |
-| t17 d18 allow-list + `variables add/remove` | DONE `5ef0ec1` on rules/pr-fixer-t17 (suite 2931); Codex review at 13:16 (cron 1de3f115) |
-| t17c (d17) | Opus `5653634` on `rules/pr-fixer-t17c`; Codex review at 13:16 |
+| t17 fixer rule + workflow as data | MERGED (incl. d15, d16, d18 allow-list + variables add/remove), Codex 2 rounds |
+| r14 fix | MERGED (Codex clean) |
+| r19 (+r18) fix | MERGED (Codex clean); suite 2849 |
+| t17c (d17) | MERGED, Codex 2 rounds; suite 3004, vitest 399 |
 | t20 sandbox repo | agentculture/pr-fixer-sandbox CREATED (public, guild create finished by hand after a black genesis-gate failure; configure-repo applied, SONAR_TOKEN set). Ledger registration committed-to-be in guildmaster worktree `../.worktrees.guildmaster/register-pr-fixer-sandbox` (branch ledger/register-pr-fixer-sandbox, docs/skill-sources.md only) — guildmaster PR #139 opened (operator OK). App + SonarCloud installed by operator |
-| wave-3 review | interrupted by the Codex limit; re-run at 13:16 (cron b2c896e0) in detached worktree `wave-3-review` |
+| wave-3 review | Codex: P1 settle polling claimed by nodes without App creds; P2 replay lacks variables; P2 restore bypasses d7 guard. Opus fixing in worktree `pr-fixer-wave3-fix` |
 | t20-t24 | Not started |
 
 Open risks worth carrying: r16 push on spark2 needs the App key there (t20); r15 agent can still

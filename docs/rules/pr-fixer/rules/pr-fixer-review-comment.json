@@ -1,0 +1,135 @@
+{
+  "action": {
+    "idempotent": false,
+    "kind": "github.comment",
+    "name": "Comment with the run link",
+    "params": {
+      "actor": "github-app",
+      "body": "PR fixer: gate verdict {{ workflow.outputs.verdict }}, pushed {{ workflow.outputs.pushed }}, head {{ workflow.outputs.head_after }}.\n\n{{ workflow.outputs.summary }}\n\nRun: https://rules.culture.dev/api/runs/{{ run.id }}",
+      "number": "trigger.data.number",
+      "repo": "trigger.data.repository"
+    },
+    "retry": null,
+    "timeout_s": null
+  },
+  "concurrency_key": "pr-fixer:{trigger.data.repository}#{trigger.data.number}",
+  "condition": {
+    "args": [
+      {
+        "cmp": "==",
+        "left": {
+          "field": "data.head_repo"
+        },
+        "op": "compare",
+        "right": {
+          "field": "data.base_repo"
+        }
+      },
+      {
+        "cmp": "==",
+        "left": {
+          "field": "data.draft"
+        },
+        "op": "compare",
+        "right": {
+          "literal": false
+        }
+      },
+      {
+        "items": {
+          "var": "fixer_repos"
+        },
+        "op": "in",
+        "value": {
+          "field": "data.repository"
+        }
+      },
+      {
+        "arg": {
+          "items": {
+            "var": "fixer_excluded_repos"
+          },
+          "op": "in",
+          "value": {
+            "field": "data.repository"
+          }
+        },
+        "op": "not"
+      },
+      {
+        "items": {
+          "var": "trusted_authors"
+        },
+        "op": "in",
+        "value": {
+          "field": "data.author"
+        }
+      },
+      {
+        "arg": {
+          "cmp": "==",
+          "left": {
+            "field": "data.self_authored"
+          },
+          "op": "compare",
+          "right": {
+            "literal": true
+          }
+        },
+        "op": "not"
+      }
+    ],
+    "op": "and"
+  },
+  "description": "Fires on a review comment by an author in vars.trusted_authors (never the App itself). Same-repo, non-draft PRs of repos in vars.fixer_repos only; vars.fixer_excluded_repos overrides it. Shares the pr-fixer workflow and the per-PR concurrency key and attempt budget with the other pr-fixer-* rules.",
+  "enabled": false,
+  "exclusive_group": null,
+  "id": "pr-fixer-review-comment",
+  "max_attempts": 3,
+  "may_after": [],
+  "must_after": [],
+  "name": "PR fixer: trusted review comment",
+  "on_failure": {
+    "idempotent": false,
+    "kind": "github.comment",
+    "name": "Hand back with the run link",
+    "params": {
+      "actor": "github-app",
+      "body": "PR fixer handed back ({{ run.error.code }}): {{ run.error.message }}\n\nRun: https://rules.culture.dev/api/runs/{{ run.id }}",
+      "number": "trigger.data.number",
+      "repo": "trigger.data.repository"
+    },
+    "retry": null,
+    "timeout_s": null
+  },
+  "placement": {
+    "actor": null,
+    "machine": "spark2",
+    "requirement": null
+  },
+  "priority": 0,
+  "schema_version": "1.0",
+  "supersedes": [],
+  "trigger": {
+    "kind": "event",
+    "params": {
+      "type": "github.review_comment.created"
+    }
+  },
+  "workflow": {
+    "id": "pr-fixer",
+    "inputs": {
+      "base_sha": "trigger.data.base_sha",
+      "clone_url": "https://github.com/{{ trigger.data.repository }}.git",
+      "head_branch": "trigger.data.head_branch",
+      "head_sha": "trigger.data.head_sha",
+      "instruction": "{{ trigger.data.author }} (a trusted author) left a review comment on PR {{ trigger.data.repository }}#{{ trigger.data.number }}. Work on the PR head branch {{ trigger.data.head_branch }} only. Fix the failing checks and the SonarCloud issues on this PR, and address the review threads in the threads input (and no other thread). Never edit .github/workflows, never delete or skip tests and never add suppression markers. In threads_addressed, use each thread's thread_id exactly as the threads input gives it.",
+      "number": "trigger.data.number",
+      "repo": "trigger.data.repository",
+      "trusted_authors": {
+        "$var": "trusted_authors"
+      }
+    },
+    "version": null
+  }
+}

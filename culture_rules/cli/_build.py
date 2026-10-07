@@ -108,6 +108,8 @@ def render_text(result: Any, noun: str | None = None) -> str:
         return "\n".join(lines)
     if isinstance(result, dict) and isinstance(result.get("files"), dict):
         return "\n".join(f"# {k}\n{v}" for k, v in result["files"].items())
+    if isinstance(result, dict) and result.get("applied") and isinstance(result.get("hint"), str):
+        return json.dumps(result, indent=2, ensure_ascii=False) + "\nhint: " + result["hint"]
     return json.dumps(result, indent=2, ensure_ascii=False)
 
 

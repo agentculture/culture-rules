@@ -17,7 +17,9 @@ Production wiring done by :func:`run_node`:
 * **Built-in code steps** - a ``code`` step with no actor runs the built-in named by its
   ``config.builtin`` (:class:`BuiltinCodePort`): ``gate``, the PR fixer's test gate and diff
   guard (:class:`~culture_rules.actors.gate.GatePort`, which runs commands only through
-  ``CULTURE_RULES_GATE_RUN_AS`` and refuses while it is unset), and ``action`` (d12), which
+  ``CULTURE_RULES_GATE_RUN_AS`` and refuses while it is unset), ``github.threads`` and
+  ``github.threads_addressed`` (d15, the fixer's trusted review threads and the agent's
+  replies to them, :mod:`culture_rules.node.actions.github_pr`), and ``action`` (d12), which
   never reaches this port: the executor routes a ``builtin: action`` step exactly like a
   rule's terminal action, to the ``action:<kind>`` port through the actor router
   (:mod:`culture_rules.model.action_step`).
@@ -252,8 +254,12 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
         GitHubPrHeadPort,
     )
     from culture_rules.node.actions.github_pr import (  # noqa: PLC0415
+        ADDRESSED_BUILTIN,
+        THREADS_BUILTIN,
+        AddressedThreadsPort,
         GitHubPushPort,
         GitHubReviewReplyPort,
+        GitHubThreadsPort,
     )
     from culture_rules.node.actions.http import HttpCallPort  # noqa: PLC0415
     from culture_rules.node.actions.jira import JiraCommentPort  # noqa: PLC0415
@@ -269,6 +275,7 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
     push: Any = GitHubPushPort(store) if has_github else MissingExtraPort("github")
     reply: Any = GitHubReviewReplyPort(store) if has_github else MissingExtraPort("github")
     head: Any = GitHubPrHeadPort(store) if has_github else MissingExtraPort("github")
+    threads: Any = GitHubThreadsPort(store) if has_github else MissingExtraPort("github")
     return {
         "action:noop": NoopAction(),
         "action:github.pr_head": head,  # not a rule action: the wait guard's head lookup
@@ -281,7 +288,13 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
         "action:jira.comment": JiraCommentPort(store),
         "action:http.call": HttpCallPort(store),
         "action:machine.command": MachineCommandPort(store),
-        "code": BuiltinCodePort({"gate": GatePort.from_env(store)}),
+        "code": BuiltinCodePort(
+            {
+                "gate": GatePort.from_env(store),
+                THREADS_BUILTIN: threads,
+                ADDRESSED_BUILTIN: AddressedThreadsPort(),
+            }
+        ),
     }
 
 

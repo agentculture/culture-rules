@@ -49,6 +49,20 @@ repo allowlist and its per-actor App cache. There is deliberately no merge port.
     verified to belong to ``repo``, PR ``number`` and ``comment_id`` (``thread_mismatch``
     otherwise): the installation token could otherwise resolve any thread it can reach.
 
+``github.threads`` (a built-in code step, d15)
+    Lists PR ``number``'s unresolved review threads as the App (read-only) and keeps those
+    whose opening comment's author is in ``trusted_authors`` (case-insensitive): output
+    ``threads`` (``{thread_id, comment_id, path, line, author, body}`` each) and the count of
+    ``untrusted`` ones left out. The App actor is ``config.actor``, else the step's placement
+    actor. Fail closed: a lookup error, the page cap or bad input fails the step, so no
+    thread list is ever handed on.
+
+``github.threads_addressed`` (a built-in code step, d15)
+    Pure: of the agent's ``addressed`` entries (``{thread_id, commit, reply}``), keeps each
+    whose ``thread_id`` is in ``threads`` (once) and outputs ``replies``: ``{thread_id,
+    comment_id, commit, reply}``. An id that is not in the list is ``dropped``, never
+    answered.
+
 git always runs as an argv list with ``shell=False``; its stderr is discarded, never logged.
 Standard-library only.
 """
@@ -80,7 +94,11 @@ from culture_rules.node.actions.github import GitHubCommentPort
 from culture_rules.node.actors import ACTORS_COLLECTION
 
 __all__ = [
+    "ADDRESSED_BUILTIN",
+    "AddressedThreadsPort",
     "DEFAULT_GIT_BASE",
+    "THREADS_BUILTIN",
+    "GitHubThreadsPort",
     "GitHubPushPort",
     "GitHubReviewReplyPort",
     "GIT_TIMED_OUT",
@@ -555,3 +573,100 @@ class GitHubReviewReplyPort(GitHubCommentPort):
             if not resolved:
                 return InvocationResult.failed("resolve_failed", retryable=False)
         return InvocationResult.completed({**out, "thread_id": thread_id, "resolved": resolved})
+
+
+THREADS_BUILTIN = "github.threads"
+"""``config.builtin`` of the code step that lists trusted, unresolved review threads."""
+ADDRESSED_BUILTIN = "github.threads_addressed"
+"""``config.builtin`` of the code step that matches the agent's report against that list."""
+
+
+class GitHubThreadsPort(GitHubCommentPort):
+    """Built-in ``github.threads`` (see the module docstring)."""
+
+    supports_idempotency_key = True  # a read: re-asking is harmless
+
+    def invoke(
+        self,
+        input: Mapping[str, Any],
+        _idempotency_key: str,
+        deadline: datetime,
+        *,
+        context: InvocationContext,
+    ) -> InvocationResult:
+        actor_id = (context.config or {}).get("actor") or context.actor
+        conn = self._connection(actor_id)
+        if conn is None:
+            self._apps.pop(str(actor_id), None)
+            return InvocationResult.failed("actor_not_found", retryable=False)
+        repo = input.get("repo")
+        allowed = {str(r).lower() for r in conn.get("repos") or ()}
+        if not GitHubApp.is_repo_name(repo) or repo.lower() not in allowed:
+            return InvocationResult.failed("repo_not_allowed", retryable=False)
+        trusted = input.get("trusted_authors")
+        number = input.get("number")
+        if (
+            not isinstance(trusted, list)
+            or not all(isinstance(a, str) for a in trusted)
+            or not isinstance(number, int)
+            or isinstance(number, bool)
+        ):
+            return InvocationResult.failed("bad_input", retryable=False)
+        if not conn.get("app_id") or not conn.get("installation_id"):
+            return InvocationResult.failed("actor_misconfigured", retryable=False)
+        app = self._app(str(actor_id), conn, allowed)
+        if app is None:
+            return InvocationResult.failed("secret_unavailable", retryable=False)
+        try:
+            with app.deadline(deadline):
+                listed = app.list_review_threads(repo, number)
+        except GitHubError as exc:
+            return InvocationResult.failed(exc.code, retryable=exc.retryable)
+        names = {a.casefold() for a in trusted}
+        kept = [t for t in listed if str(t.get("author") or "").casefold() in names]
+        return InvocationResult.completed({"threads": kept, "untrusted": len(listed) - len(kept)})
+
+
+class AddressedThreadsPort:
+    """Built-in ``github.threads_addressed`` (see the module docstring). No I/O."""
+
+    supports_idempotency_key = True
+
+    def invoke(
+        self,
+        input: Mapping[str, Any],
+        _idempotency_key: str,
+        _deadline: datetime,
+        *,
+        context: InvocationContext,
+    ) -> InvocationResult:
+        del context
+        threads, addressed = input.get("threads"), input.get("addressed")
+        if not isinstance(threads, list) or not isinstance(addressed, list):
+            return InvocationResult.failed("bad_input", retryable=False)
+        listed = {
+            t["thread_id"]: t["comment_id"]
+            for t in threads
+            if isinstance(t, Mapping)
+            and isinstance(t.get("thread_id"), str)
+            and isinstance(t.get("comment_id"), int)
+        }
+        replies: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for entry in addressed:
+            tid = entry.get("thread_id") if isinstance(entry, Mapping) else None
+            if not isinstance(tid, str) or tid not in listed or tid in seen:
+                continue
+            seen.add(tid)
+            reply = entry.get("reply")
+            replies.append(
+                {
+                    "thread_id": tid,
+                    "comment_id": listed[tid],
+                    "commit": entry.get("commit"),
+                    "reply": reply if isinstance(reply, str) else "",
+                }
+            )
+        return InvocationResult.completed(
+            {"replies": replies, "dropped": len(addressed) - len(replies)}
+        )

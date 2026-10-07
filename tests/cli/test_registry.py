@@ -31,10 +31,12 @@ def test_registry_covers_the_nouns_with_overview():
 
 def test_variables_noun_verbs_and_admin_only_write():
     names = {v.name for v in REGISTRY.verbs("variables")}
-    assert names == {"overview", "list", "get", "set", "history", "refs"}
-    assert REGISTRY.get("variables", "set").mutating
-    assert REGISTRY.get("variables", "set").role == "admin"
-    assert not any(v.mutating for v in REGISTRY.verbs("variables") if v.name != "set")
+    writes = {"set", "add", "remove"}
+    assert names == {"overview", "list", "get", "history", "refs"} | writes
+    for name in writes:
+        assert REGISTRY.get("variables", name).mutating
+        assert REGISTRY.get("variables", name).role == "admin"
+    assert not any(v.mutating for v in REGISTRY.verbs("variables") if v.name not in writes)
 
 
 def test_required_verbs_exist_per_noun():

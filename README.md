@@ -117,7 +117,7 @@ From a checkout, `uv sync` installs everything above, and
 
 | Verb | What it does |
 |------|--------------|
-| `rules`, `workflows`, `actors`, `machines` | `list`, `show`, `create`, `update`, `enable`, `disable`, `delete`, `restore`, `purge`; rules, workflows and actors also `export` / `import`; machines also `drain` / `undrain`; rules also `run` and `replay`. |
+| `rules`, `workflows`, `actors`, `machines` | `list`, `show`, `create`, `update`, `enable`, `disable`, `delete`, `restore`, `purge`; rules, workflows and actors also `export` / `import`; machines also `drain` / `undrain`; rules also `run`, `replay` and `stop-runs` (cancel a disabled rule's current runs; a disable reports them). |
 | `runs` | `list`, `show`, `cancel`, `pause`, `resume`, `controls`. |
 | `serve` | Run the HTTP API (needs the `server` extra). |
 | `node run` | Run this host's engine node (`--once` for one cycle). |

@@ -612,6 +612,21 @@ class StoragePortContract:
         assert calls == []
         assert SchemaVersion.parse(new.get("rules", "a")["schema_version"]).major == 1
 
+    # ------------------------------------------------------------ variable compare-and-set
+
+    def test_put_variable_expected_version_is_a_compare_and_set(self):
+        from culture_rules.store.port import VariableVersionConflict  # noqa: PLC0415
+
+        store = self.make_store()
+        store.put_variable("cas", ["a"], updated_by="alice", expected_version=0)
+        with pytest.raises(VariableVersionConflict):
+            store.put_variable("cas", ["b"], updated_by="bob", expected_version=0)
+        doc = store.put_variable("cas", ["a", "b"], updated_by="bob", expected_version=1)
+        assert doc["version"] == 2 and doc["value"] == ["a", "b"]
+        with pytest.raises(VariableVersionConflict):
+            store.put_variable("cas", ["c"], updated_by="carol", expected_version=1)
+        assert store.get_variable("cas")["version"] == 2
+
     # ------------------------------------------------------------ engine variable reads
 
     def test_engine_reads_current_variable_values_inside_a_transaction(self):

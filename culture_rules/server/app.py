@@ -40,6 +40,7 @@ from culture_rules.engine.runs import (
     Containment,
     Executor,
     RunError,
+    active_runs,
     drained_machines,
     is_paused,
 )
@@ -145,6 +146,31 @@ class WorkflowRun(BaseModel):
 
 class RunCancel(BaseModel):
     reason: str = ""
+
+
+class StopRunsRequest(BaseModel):
+    apply: bool = Field(False, description="false = dry-run: list the active runs, cancel nothing")
+    reason: str = Field(
+        "", description="recorded on each cancelled run; default 'rule disabled: stopped by <you>'"
+    )
+
+
+class ActiveRun(BaseModel):
+    id: str
+    status: str | None = None
+    started_at: str | None = None
+
+
+class StopRunsResult(BaseModel):
+    """d17: the active runs of a disabled rule, and which of them this call cancelled."""
+
+    rule_id: str
+    applied: bool
+    runs: list[ActiveRun] = Field(description="the active runs, oldest first (at most 50)")
+    total: int = Field(description="how many runs were active")
+    cancelled: list[str] = Field(
+        description="ids this call cancelled (status cancelled); empty in a dry-run"
+    )
 
 
 class ImportRequest(BaseModel):
@@ -269,6 +295,10 @@ class PurgeRequest(BaseModel):
 class VariableWrite(BaseModel):
     value: Any = Field(description="a JSON scalar, or a flat list of JSON scalars")
     description: str | None = Field(None, description="what the variable is for")
+
+
+class VariableItem(BaseModel):
+    item: Any = Field(description="a JSON scalar of the list's item type")
 
 
 class MigrateRequest(BaseModel):
@@ -875,6 +905,29 @@ def _register_variables(app: FastAPI, variables: Variables) -> None:
         """Append a new version of the variable (admin only); the version names the caller."""
         return variables.set(name, body.value, identity, body.description)
 
+    @app.post(
+        "/variables/{name}/items/add",
+        tags=["variables"],
+        operation_id="add_variable_item",
+        responses={404: ERRORS[404], 409: ERRORS[409], 422: ERRORS[422]},
+        response_model=dict[str, Any],
+    )
+    def add_variable_item(name: str, body: VariableItem, identity: Identity):
+        """Add an item to a list variable (admin) with a compare-and-set, so concurrent adds
+        all land; already present means no new version (``changed: false``)."""
+        return variables.add_item(name, body.item, identity)
+
+    @app.post(
+        "/variables/{name}/items/remove",
+        tags=["variables"],
+        operation_id="remove_variable_item",
+        responses={404: ERRORS[404], 409: ERRORS[409], 422: ERRORS[422]},
+        response_model=dict[str, Any],
+    )
+    def remove_variable_item(name: str, body: VariableItem, identity: Identity):
+        """Remove an item from a list variable (admin); absent means no new version."""
+        return variables.remove_item(name, body.item, identity)
+
     @app.get(
         "/variables/{name}/history",
         response_model=ItemList,
@@ -1006,6 +1059,22 @@ def _register_runs(
     )
     def cancel_run(run_id: str, identity: Identity, body: RunCancel | None = None):
         return containment.cancel(run_id, identity, (body or RunCancel()).reason)
+
+    @app.post(
+        "/rules/{rule_id}/stop-runs",
+        tags=["runs"],
+        operation_id="stop_rule_runs",
+        response_model=StopRunsResult,
+        responses=ERRORS,
+    )
+    def stop_rule_runs(rule_id: str, identity: Identity, body: StopRunsRequest | None = None):
+        """d17: cancel every active run of a **disabled** rule (409 ``rule_enabled`` while it is
+        enabled). ``apply: false`` (the default) lists them only. Each run is cancelled through
+        ``POST /runs/{run_id}/cancel``'s path (status ``cancelled``, audited ``runs.cancel``),
+        so it pushes nothing more and hands nothing back; runs on any node are included.
+        Idempotent: once none are active it cancels nothing."""
+        req = body or StopRunsRequest()
+        return containment.stop_rule_runs(rule_id, identity, apply=req.apply, reason=req.reason)
 
 
 def _register_controls(app: FastAPI, store: StoragePort, containment: Containment) -> None:
@@ -1220,6 +1289,28 @@ def _register_stream(app: FastAPI, store: StoragePort) -> None:
         )
 
 
+_DISABLE_RULE_NOTE = (
+    "Disable the rule. The answer is the stored rule plus `active_runs` (its non-terminal "
+    "runs, oldest first, at most 50, each `{id, status, started_at}`) and "
+    "`active_runs_total`. Disabling never stops those runs: offer "
+    "`POST /rules/{id}/stop-runs` to cancel them (d17); left running, a push step still "
+    "refuses with `rule_disabled`."
+)
+_UPDATE_RULE_NOTE = (
+    "Replace the rule. A save that switches an enabled rule off answers `active_runs` and "
+    "`active_runs_total` too, as `POST /rules/{id}/disable` does (d17)."
+)
+
+
+def _with_active_runs(store: StoragePort, doc: dict[str, Any]) -> dict[str, Any]:
+    """The stored rule plus its active runs: what a disable offers to stop (d17).
+
+    Response-only fields: they are never stored, and a client saving the rule back drops them.
+    """
+    listed, total = active_runs(store, doc["id"])
+    return {**doc, "active_runs": listed, "active_runs_total": total}
+
+
 def _register_kind(
     app: FastAPI,
     kind: str,
@@ -1265,15 +1356,25 @@ def _register_kind(
         operation_id=f"update_{one}",
         responses=ERRORS,
         response_model=dict[str, Any],
+        description=_UPDATE_RULE_NOTE if kind == "rules" else None,
     )
     def update(id: str, body: dict[str, Any], principal: Caller):
         guards.check_definition(principal, kind, body)
-        return defs.update(kind, id, body, principal.identity, check=guards.save_check(principal))
+        before = store.get(kind, id) if kind == "rules" else None
+        doc = defs.update(kind, id, body, principal.identity, check=guards.save_check(principal))
+        if (
+            before is not None
+            and before.get("enabled") is not False
+            and doc.get("enabled") is False
+        ):
+            return _with_active_runs(store, doc)  # this save switched the rule off (d17)
+        return doc
 
     for verb, flag in (("enable", True), ("disable", False)):
 
         def toggle(id: str, identity: Identity, _flag: bool = flag):
-            return defs.set_enabled(kind, id, _flag, identity)
+            doc = defs.set_enabled(kind, id, _flag, identity)
+            return _with_active_runs(store, doc) if kind == "rules" and not _flag else doc
 
         app.post(
             f"{path}/{verb}",
@@ -1281,6 +1382,7 @@ def _register_kind(
             operation_id=f"{verb}_{one}",
             responses=ERRORS,
             response_model=dict[str, Any],
+            description=_DISABLE_RULE_NOTE if (kind, flag) == ("rules", False) else None,
         )(toggle)
 
     @app.delete(

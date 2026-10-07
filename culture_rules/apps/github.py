@@ -13,7 +13,8 @@ allowlist is enforced *before* any network call, and secrets are held only in me
 * :meth:`GitHubApp.push_token` mints a fresh, *uncached* token per push, scoped to exactly
   one repository with ``{contents: write}`` only; the caller holds it for one push alone.
 * Review threads: :meth:`GitHubApp.reply_review_comment` (REST) and
-  :meth:`GitHubApp.resolve_review_thread` (GraphQL ``resolveReviewThread``), both as the App.
+  :meth:`GitHubApp.resolve_review_thread` (GraphQL ``resolveReviewThread``), both as the App;
+  :meth:`GitHubApp.list_review_threads` reads the unresolved ones (GraphQL, bounded pages).
 * There is deliberately no merge call: merging stays a human gate.
 * Neither the key, the JWT nor the token is ever logged or put in an error message.
 
@@ -454,6 +455,38 @@ class GitHubApp:
             return False
         return self._thread_has_comment(thread_id, node.get("comments"), int(comment_id))
 
+    def list_review_threads(
+        self, repo: str, number: int, *, max_pages: int | None = None
+    ) -> list[dict[str, Any]]:
+        """The PR's **unresolved** review threads, each described by its opening comment.
+
+        One GraphQL ``reviewThreads`` page (100 threads) per call, at most ``max_pages``
+        (default :data:`THREAD_PAGES`) pages, else ``too_many_pages``. Each item is
+        ``{thread_id, comment_id, path, line, author, body}``: ``thread_id`` the GraphQL node
+        id (what ``resolveReviewThread`` takes), ``comment_id`` the opening comment's REST id
+        (what a reply targets), ``author`` its login with GraphQL's bare bot login given the
+        REST ``[bot]`` suffix (so it compares with webhook ``author`` values), ``body``
+        clipped to :data:`THREAD_BODY_MAX` characters. A thread whose opening comment cannot
+        be read is left out."""
+        self._require_allowed(repo, "review threads")
+        owner, name = repo.split("/", 1)
+        out: list[dict[str, Any]] = []
+        after: str | None = None
+        for _ in range(max_pages or THREAD_PAGES):
+            variables = {"owner": owner, "name": name, "number": int(number), "after": after}
+            data = self.graphql(_OPEN_THREADS_QUERY, variables)
+            pull = ((data.get("repository") or {}).get("pullRequest")) or {}
+            threads = pull.get("reviewThreads") or {}
+            for node in threads.get("nodes") or ():
+                item = _open_thread(node)
+                if item is not None:
+                    out.append(item)
+            info = threads.get("pageInfo") or {}
+            if not info.get("hasNextPage"):
+                return out
+            after = info.get("endCursor")
+        raise GitHubError("too_many_pages", "review threads")
+
     def resolve_review_thread(self, thread_id: str) -> bool:
         """Resolve the review thread ``thread_id`` (GraphQL ``resolveReviewThread``)."""
         data = self.graphql(_RESOLVE_MUTATION, {"threadId": thread_id})
@@ -462,12 +495,50 @@ class GitHubApp:
 
 
 _MAX_PAGES = 50
+THREAD_PAGES = 10
+"""Page cap of :meth:`GitHubApp.list_review_threads` (100 threads a page)."""
+THREAD_BODY_MAX = 4000
+"""Characters of a thread's opening comment kept by :meth:`GitHubApp.list_review_threads`."""
+
+
+def _open_thread(node: Any) -> dict[str, Any] | None:
+    """One unresolved thread of a ``reviewThreads`` page, or None (resolved / unreadable)."""
+    if not isinstance(node, dict) or node.get("isResolved") is not False:
+        return None
+    tid = node.get("id")
+    first = ((node.get("comments") or {}).get("nodes") or [None])[0]
+    if not isinstance(tid, str) or not tid or not isinstance(first, dict):
+        return None
+    cid, author = first.get("databaseId"), first.get("author") or {}
+    login = author.get("login") if isinstance(author, dict) else None
+    if not isinstance(cid, int) or isinstance(cid, bool) or not isinstance(login, str):
+        return None
+    if author.get("__typename") == "Bot" and not login.endswith("[bot]"):
+        login += "[bot]"
+    body = first.get("body")
+    line = node.get("line")
+    return {
+        "thread_id": tid,
+        "comment_id": cid,
+        "path": node.get("path") if isinstance(node.get("path"), str) else None,
+        "line": line if isinstance(line, int) and not isinstance(line, bool) else None,
+        "author": login,
+        "body": body[:THREAD_BODY_MAX] if isinstance(body, str) else "",
+    }
+
+
 _PAGE = "pageInfo{hasNextPage endCursor}"
 _THREADS_QUERY = (
     "query($owner:String!,$name:String!,$number:Int!,$after:String)"
     "{repository(owner:$owner,name:$name){pullRequest(number:$number)"
     "{reviewThreads(first:100,after:$after){" + _PAGE + " nodes{id "
     "comments(first:100){" + _PAGE + " nodes{databaseId}}}}}}}"
+)
+_OPEN_THREADS_QUERY = (
+    "query($owner:String!,$name:String!,$number:Int!,$after:String)"
+    "{repository(owner:$owner,name:$name){pullRequest(number:$number)"
+    "{reviewThreads(first:100,after:$after){" + _PAGE + " nodes{id isResolved path line "
+    "comments(first:1){nodes{databaseId body author{__typename login}}}}}}}}"
 )
 _THREAD_NODE_QUERY = (
     "query($id:ID!){node(id:$id){... on PullRequestReviewThread{id "
