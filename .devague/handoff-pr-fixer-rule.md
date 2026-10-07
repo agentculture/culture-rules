@@ -88,7 +88,7 @@ last full suite 2669 passed, 1 skipped.
 | t11 concurrency key + budget | Branch `rules/pr-fixer-t11` at `e10202c` (round 2 + d13 global key, Opus-built on Codex WIP); suite 2721; WAITING for Codex review (06:13), then merge |
 | t17a built-in action step (d12) | Branch `rules/pr-fixer-t17a` at `e16e4a3` (Opus); suite 2700; WAITING for Codex review; likely small conflict with t11 in model/validate.py |
 | t17b PR facts (d14) | Branch `rules/pr-fixer-t17b` at `e2507f5` (Opus, on top of t11); suite 2733; lookup failure stores the comment with `pr_enriched: false` (fails closed); WAITING for Codex review |
-| t17 fixer rule + workflow as data | Opus subagent; branch `rules/pr-fixer-t17` at `a6346e2` on a PROVISIONAL local merge of t17b+t17a (rebase onto the real merges); suite 2822; JSON bundle in docs/rules/pr-fixer/, seed-variables.sh, `run.id` ref namespace. Same subagent now building d15 (`github.threads` builtin) and d16 (rule `on_failure`); then Codex review |
+| t17 fixer rule + workflow as data | Opus subagent; branch `rules/pr-fixer-t17` at `a6346e2` on a PROVISIONAL local merge of t17b+t17a (rebase onto the real merges); suite 2822; JSON bundle in docs/rules/pr-fixer/, seed-variables.sh, `run.id` ref namespace. d15 `818fd72` (`github.threads` + `github.threads_addressed` builtins), d16 `b9c65fb` (rule `on_failure`, `run.error.*`); suite 2852; next: rebase onto real merges, Codex review |
 | t20-t24 | Not started |
 
 Open risks worth carrying: r16 push on spark2 needs the App key there (t20); r15 agent can still
