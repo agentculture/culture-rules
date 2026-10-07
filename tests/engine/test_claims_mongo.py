@@ -38,7 +38,11 @@ class TestClaimsOnMongoStore(ClaimsContract):
     open_peer = _Binding.open_peer
 
     def test_concurrency_claim_write_conflict_rereads_to_deduplicated(self):
-        from culture_rules.engine.claims import RULE_ATTEMPT_BUDGETS, reserve_concurrency
+        from culture_rules.engine.claims import (
+            RULE_ATTEMPT_BUDGETS,
+            budget_id,
+            reserve_concurrency,
+        )
         from culture_rules.engine.runs import RUNS_COLLECTION
         from culture_rules.store.port import TransientStoreError
 
@@ -48,6 +52,7 @@ class TestClaimsOnMongoStore(ClaimsContract):
         assert reserve_concurrency(store, "a", "pr", "old", "old-intent", 3) is None
         store.put(RUNS_COLLECTION, {"id": "old", "status": "failed"})
         budget = store.find(RULE_ATTEMPT_BUDGETS)[0]
+        assert budget["id"] == budget_id("pr")  # global: the key alone, no rule id
         with pytest.raises(TransientStoreError):
             with peer.transaction() as loser:
                 assert loser.get(RULE_ATTEMPT_BUDGETS, budget["id"])["count"] == 1

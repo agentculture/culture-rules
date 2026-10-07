@@ -355,14 +355,19 @@ class Claims:
 
 
 RULE_ATTEMPT_BUDGETS = "rule_attempt_budgets"
-"""Durable key reservations and admitted attempt counters, scoped to a rule.
+"""Durable key reservations and admitted attempt counters, one per resolved key.
 
-One document per (rule, concurrency key): ``run_id`` / ``intent_id`` of the run holding
-the key, ``count`` (runs admitted since the last reset - every admitted run counts,
-whatever its outcome), ``pending_event_id`` (the newest firing deduplicated while the
-key was held: it is fired once the holding run ends, so the latest event is never lost)
-and ``revision`` (the compare-and-set token every write bumps). The counter resets only on
-an explicit signal (:func:`reset_attempt_budget`): a human push or green checks.
+The key is **global** (deviation d13): one document per resolved concurrency key string,
+whichever rule resolved it, id :func:`budget_id` (a digest of the key alone). Rules whose
+templates resolve to the same key share one active run and one budget; a rule that wants
+isolation uses a distinct template (a namespace prefix such as ``pr-fixer:``). Fields:
+``key``; ``rule_id`` / ``run_id`` / ``intent_id`` of the rule and run holding the key;
+``count`` (runs admitted since the last reset, by any rule sharing the key - every admitted
+run counts, whatever its outcome); ``pending_event_id`` / ``pending_rule_id`` (the newest
+firing deduplicated while the key was held, and the rule that recorded it: it is fired once,
+through that rule, when the holding run ends, so the latest event is never lost); and
+``revision`` (the compare-and-set token every write bumps). The counter resets only on an
+explicit signal (:func:`reset_attempt_budget`): a human push or green checks.
 """
 
 
@@ -392,30 +397,31 @@ def resolve_concurrency_key(template: str, envelope: Mapping[str, Any]) -> str:
     return "".join(parts)
 
 
-def _budget_id(rule_id: str, key: str) -> str:
-    return _digest(["concurrency", rule_id, key])
+def budget_id(key: str) -> str:
+    """The budget document id of the resolved concurrency ``key`` (global: no rule id).
+
+    A sha256 over an unambiguous JSON encoding, in its own ``"concurrency"`` key space, so
+    it never collides with a firing or step key and any key string fits a document id."""
+    return _digest(["concurrency", key])
 
 
-def reset_attempt_budget(store: StoreOps, rule_id: str, key: str) -> None:
-    """Reset on human synchronize or explicit green checks, preserving a reservation.
+def reset_attempt_budget(store: StoreOps, key: str, event_id: str) -> None:
+    """Reset ``key``'s counter on the reset event ``event_id`` (human push or green checks),
+    preserving a reservation.
 
-    Called in the event's exactly-once transaction, including when this event does
-    not match the rule's trigger or the key currently has an active run.
+    Called once per key in the event's exactly-once transaction, whichever and however many
+    rules share the key, including when the event does not match their triggers or the key
+    has an active run. The event is noted (``reset_by``): a second consumer evaluating the
+    same event (placed and shared rules sharing a key) does not reset again, which would
+    erase an attempt admitted in between. A key with no budget yet has nothing to reset.
     """
-    doc_id = _budget_id(rule_id, key)
-    for _ in range(DEFAULT_ATTEMPTS):
-        current = store.get(RULE_ATTEMPT_BUDGETS, doc_id) or {}
-        revision = current.get("revision")
-        if store.update_if(
-            RULE_ATTEMPT_BUDGETS,
-            doc_id,
-            {"revision": revision},
-            {"rule_id": rule_id, "key": key, "count": 0, "revision": (revision or 0) + 1},
-            upsert=not current,
-        ).won:
-            return
 
-    raise TransientStoreError("attempt budget reset contention")
+    def change(current: Document) -> dict[str, Any] | None:
+        if current.get("reset_by") == event_id:
+            return None
+        return {"count": 0, "reset_by": event_id}
+
+    _cas_budget(store, budget_id(key), change, "attempt budget reset")
 
 
 def reserve_concurrency(
@@ -436,7 +442,7 @@ def reserve_concurrency(
     """
     from culture_rules.engine.runs import RUN_DONE, RUNS_COLLECTION
 
-    doc_id = _budget_id(rule_id, key)
+    doc_id = budget_id(key)
     for _ in range(DEFAULT_ATTEMPTS):
         current = store.get(RULE_ATTEMPT_BUDGETS, doc_id) or {}
         count = current.get("count", 0)
@@ -465,6 +471,7 @@ def reserve_concurrency(
                 "run_id": run_id,
                 "intent_id": intent_id,
                 "pending_event_id": None,
+                "pending_rule_id": None,
                 "revision": (revision or 0) + 1,
             },
             upsert=not current,
@@ -506,37 +513,42 @@ def _cas_budget(
 
 
 def note_deduplicated(store: StoreOps, rule_id: str, key: str, event_id: str) -> str | None:
-    """Remember ``event_id`` as the key's newest deduplicated firing; answer the holding run.
+    """Remember ``event_id`` (recorded by ``rule_id``) as the key's newest deduplicated
+    firing; answer the holding run.
 
     Called in the trigger transaction right after :func:`reserve_concurrency` answered
-    ``"deduplicated"``. A newer deduplicated event replaces an older one (coalescing: the
-    holding run's successor handles the latest state, never a stale one).
+    ``"deduplicated"``. A newer deduplicated event - from any rule sharing the key -
+    replaces an older one (coalescing: the holding run's successor handles the latest
+    state, never a stale one).
     """
     doc = _cas_budget(
         store,
-        _budget_id(rule_id, key),
-        lambda _current: {"pending_event_id": event_id},
+        budget_id(key),
+        lambda _current: {"pending_event_id": event_id, "pending_rule_id": rule_id},
         "deduplicated-event note",
     )
     return None if doc is None else doc.get("run_id")
 
 
-def release_concurrency(store: StoreOps, budget_id: str, run_id: str) -> str | None:
-    """The holding run ``run_id`` ended: clear and answer the key's pending event, if any.
+def release_concurrency(store: StoreOps, doc_id: str, run_id: str) -> tuple[str, str] | None:
+    """The holding run ``run_id`` ended: clear and answer the key's pending event, if any,
+    as ``(event_id, rule_id)`` - the rule that recorded it fires it.
 
     Always writes the budget document while ``run_id`` still holds the key, even with no
     pending event: a concurrent trigger transaction that read the run as active and is
     about to note a deduplicated event then write-conflicts with this one instead of
     committing an event nobody would fire (MongoDB snapshot isolation, write skew).
     """
-    taken: list[str | None] = []
+    taken: list[tuple[str, str]] = []
 
     def change(current: Document) -> dict[str, Any] | None:
         taken.clear()
         if current.get("run_id") != run_id:
             return None  # another run already holds the key: it cleared the pending event
-        taken.append(current.get("pending_event_id"))
-        return {"pending_event_id": None}
+        event, rule = current.get("pending_event_id"), current.get("pending_rule_id")
+        if event and rule:
+            taken.append((event, rule))
+        return {"pending_event_id": None, "pending_rule_id": None}
 
-    _cas_budget(store, budget_id, change, "concurrency release")
+    _cas_budget(store, doc_id, change, "concurrency release")
     return taken[0] if taken else None

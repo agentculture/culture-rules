@@ -494,7 +494,7 @@ def test_budget_cas_retries_are_bounded(operation):
         calls = 0
 
         def get(self, *_):
-            return None
+            return {"id": "b", "count": 0, "revision": 1}
 
         def update_if(self, *args, **kwargs):
             self.calls += 1
@@ -504,7 +504,152 @@ def test_budget_cas_retries_are_bounded(operation):
     store = Contended()
     with pytest.raises(TransientStoreError):
         if operation == "reset":
-            reset_attempt_budget(store, "a", "key")
+            reset_attempt_budget(store, "key", "evt")
         else:
             reserve_concurrency(store, "a", "key", "run", "intent", 2)
     assert store.calls == DEFAULT_ATTEMPTS
+
+
+# ---------------------------------------------------------------- d13: a global key
+
+COMMENT = "github.comment.created"
+SHARED_KEY = "pr-fixer:{trigger.data.repository}#{trigger.data.number}"
+
+
+def keyed(rid, typ, key=SHARED_KEY, max_attempts=None):
+    doc = rule(concurrency_key=key, max_attempts=max_attempts).to_dict()
+    doc["id"] = rid
+    doc["name"] = rid
+    doc["trigger"]["params"]["type"] = typ
+    return doc
+
+
+def shared_cluster(a_max=3, b_max=3, b_key=SHARED_KEY):
+    """Rule A (checks_settled) and rule B (comment) keyed alike: one key per PR."""
+    c = Cluster("spark")
+    c.start()
+    c.base.put("rules", keyed("A", SETTLED, max_attempts=a_max))
+    c.base.put("rules", keyed("B", COMMENT, key=b_key, max_attempts=b_max))
+    return c
+
+
+def send(c, n, typ, number=42, **data):
+    c.publish({**event(n, number, **data), "type": typ})
+    reports = c.cycle()
+    assert all(not report.errors for report in reports.values()), reports
+
+
+def test_rules_sharing_a_key_share_one_active_run():
+    c = shared_cluster()
+    c.actor.on(ACTION_STEP, ("accept",))
+    send(c, 1, SETTLED, conclusion="failure")
+    holder = c.run("A", "evt_1")
+    assert holder is not None
+    send(c, 2, COMMENT)
+    assert c.run("B", "evt_2") is None
+    (decision,) = c.base.find(RULE_DECISIONS, {"rule_id": "B"})
+    assert decision["reason"] == "deduplicated"
+    assert holder["id"] in decision["detail"]
+    # A different PR is independent.
+    send(c, 3, COMMENT, number=43)
+    assert c.run("B", "evt_3") is not None
+
+
+def test_distinct_templates_isolate_rules():
+    c = shared_cluster(b_key="other:{trigger.data.repository}#{trigger.data.number}")
+    c.actor.on(ACTION_STEP, ("accept",))
+    send(c, 1, SETTLED, conclusion="failure")
+    send(c, 2, COMMENT)
+    assert c.run("A", "evt_1") is not None and c.run("B", "evt_2") is not None
+
+
+def test_budget_is_consumed_across_rules_sharing_the_key():
+    from culture_rules.engine.claims import RULE_ATTEMPT_BUDGETS
+
+    c = shared_cluster(a_max=2, b_max=2)
+    send(c, 1, SETTLED, conclusion="failure")
+    send(c, 2, COMMENT)
+    assert c.run("A", "evt_1") is not None and c.run("B", "evt_2") is not None
+    send(c, 3, SETTLED, conclusion="failure")
+    send(c, 4, COMMENT)
+    assert c.run("A", "evt_3") is None and c.run("B", "evt_4") is None
+    assert reasons(c) == ["attempt_budget_exhausted"] * 2
+    (budget,) = c.base.find(RULE_ATTEMPT_BUDGETS)
+    assert budget["count"] == 2
+    # The other PR has its own budget.
+    send(c, 5, COMMENT, number=43)
+    assert c.run("B", "evt_5") is not None
+
+
+def test_smallest_max_attempts_of_rules_sharing_the_key_wins():
+    c = shared_cluster(a_max=5, b_max=1)
+    send(c, 1, SETTLED, conclusion="failure")
+    assert c.run("A", "evt_1") is not None
+    send(c, 2, SETTLED, conclusion="failure")
+    assert c.run("A", "evt_2") is None
+    assert reasons(c) == ["attempt_budget_exhausted"]
+
+
+def test_unbudgeted_rule_sharing_a_key_is_bounded_by_the_budgeted_one():
+    c = shared_cluster(a_max=1, b_max=None)
+    send(c, 1, COMMENT)
+    assert c.run("B", "evt_1") is not None
+    send(c, 2, COMMENT)
+    assert c.run("B", "evt_2") is None
+
+
+def test_coalescing_fires_the_latest_event_through_the_rule_that_recorded_it():
+    c = shared_cluster()
+    c.actor.on(ACTION_STEP, ("accept",))
+    send(c, 1, SETTLED, conclusion="failure")
+    holder = c.run("A", "evt_1")
+    send(c, 2, SETTLED, conclusion="failure")
+    send(c, 3, COMMENT)
+    assert reasons(c) == ["deduplicated"] * 2
+    c.clock.advance(1)
+    c.base.update_if(RUNS_COLLECTION, holder["id"], {}, {"status": "failed"})
+    c.cycle()
+    c.cycle()
+    assert c.run("A", "evt_2") is None
+    assert c.run("B", "evt_3") is not None
+    assert len(c.base.find(RUNS_COLLECTION)) == 2
+
+
+def test_reset_resets_the_shared_budget_once():
+    from culture_rules.engine.claims import RULE_ATTEMPT_BUDGETS
+
+    c = shared_cluster(a_max=1, b_max=1)
+    send(c, 1, SETTLED, conclusion="failure")
+    send(c, 2, COMMENT)
+    assert c.run("B", "evt_2") is None
+    (before,) = c.base.find(RULE_ATTEMPT_BUDGETS)
+    send(c, 3, SETTLED, conclusion="success")  # green: resets, and A fires on it
+    (after,) = c.base.find(RULE_ATTEMPT_BUDGETS)
+    # one reset write (revision +1) plus A's admission (+1): never once per rule
+    assert after["revision"] == before["revision"] + 2
+    assert c.run("A", "evt_3") is not None
+    assert after["count"] == 1
+
+
+def test_budget_id_is_the_key_alone_and_a_reset_applies_once_per_event():
+    from culture_rules.engine.claims import (
+        RULE_ATTEMPT_BUDGETS,
+        budget_id,
+        reserve_concurrency,
+        reset_attempt_budget,
+    )
+    from culture_rules.store.memory import MemoryStore
+
+    assert budget_id("pr#1") != budget_id("pr#2")
+    assert budget_id('a","b') != budget_id("a") and budget_id("x") == budget_id("x")
+    store = MemoryStore()
+    assert reserve_concurrency(store, "A", "pr#1", "run1", "i1", 3) is None
+    assert reserve_concurrency(store, "B", "pr#1", "run2", "i2", 3) == "deduplicated"
+    (budget,) = store.find(RULE_ATTEMPT_BUDGETS)
+    assert budget["id"] == budget_id("pr#1") and budget["rule_id"] == "A"
+    reset_attempt_budget(store, "pr#1", "evt_9")
+    store.update_if(RULE_ATTEMPT_BUDGETS, budget["id"], {}, {"count": 1})  # admitted after
+    reset_attempt_budget(store, "pr#1", "evt_9")  # the same event via a second consumer
+    assert store.get(RULE_ATTEMPT_BUDGETS, budget["id"])["count"] == 1
+    reset_attempt_budget(store, "pr#1", "evt_10")
+    assert store.get(RULE_ATTEMPT_BUDGETS, budget["id"])["count"] == 0
