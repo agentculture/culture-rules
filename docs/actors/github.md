@@ -240,6 +240,13 @@ rule's attempt budget, so `no_checks` never does.
 
 The receiver stores a check completion first and then arms its head SHA for
 the settle. If arming fails (a store error, say), the webhook answers `503`.
+
+After arming, the receiver may settle the SHA at once. Its GitHub reads, the
+suite listing and the PR read, share one 5-second budget per delivery,
+including resolving the App's private key. They run on the same two capped
+lookup workers as the comment lookup. If the listing runs out of time, or the
+PR read does, the receiver still answers quickly. The SHA stays armed, and the
+node's settle tick emits the settled event with the PR facts.
 GitHub does **not** redeliver a failed delivery on its own, so the node
 recovers it instead:
 

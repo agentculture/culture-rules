@@ -612,18 +612,18 @@ def _register_hooks(app: FastAPI, store: StoragePort) -> None:
     GitHub/Jira, not by the CLI, MCP or web clients the contract types, and the contract's
     global 401/403 envelope and credential schemes do not apply to them.
     """
-    from culture_rules.node.checks_settle import AppSuiteLister, ChecksSettler  # noqa: PLC0415
+    from culture_rules.node import checks_settle  # noqa: PLC0415
     from culture_rules.server.hooks import github, jira  # noqa: PLC0415
 
-    lister = AppSuiteLister(store)
-    settler = ChecksSettler(store, lister.list_suites, pull=lister.get_pull)
+    lister = checks_settle.AppSuiteLister(store)
+    # Every GitHub read on the delivery path is bounded (suites, PR read and secret resolve
+    # within one budget); past it the SHA stays armed and the node's tick settles it.
+    on_check = checks_settle.webhook_on_check(store, lister)
 
     def pull(repo: str, number: int) -> Any:  # read-only, bounded PR lookup for PR comments
         return lister.get_pull(repo, number, timeout_s=github.PULL_LOOKUP_TIMEOUT_S)
 
-    app.include_router(
-        github.router(store, on_check=settler.on_check, pull=pull), include_in_schema=False
-    )
+    app.include_router(github.router(store, on_check=on_check, pull=pull), include_in_schema=False)
     app.include_router(jira.router(store), include_in_schema=False)
 
 

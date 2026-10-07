@@ -104,9 +104,11 @@ __all__ = [
     "SETTLED_TYPE",
     "SETTLE_COLLECTION",
     "UNRESOLVED_RETRY_S",
+    "WEBHOOK_SETTLE_BUDGET_S",
     "AppSuiteLister",
     "ChecksSettler",
     "settled_event_id",
+    "webhook_on_check",
 ]
 
 log = logging.getLogger(__name__)
@@ -143,6 +145,10 @@ Serves = Callable[[str], bool]
 """``repo -> whether this node can serve the repo's App actor`` (placement and key)."""
 
 
+class _PullDeferred(Exception):
+    """The bounded webhook path's PR read ran out of time: emit from the tick instead."""
+
+
 def settled_event_id(repo: str, sha: str) -> str:
     """The deterministic events id of the one settled event of ``repo@sha``."""
     digest = hashlib.sha256(f"{repo}@{sha}".lower().encode()).hexdigest()[:24]
@@ -176,10 +182,14 @@ class ChecksSettler:
         pull: PullLookup | None = None,
         serves: Serves | None = None,
         clock: Callable[[], datetime] | None = None,
+        defer_slow_pull: bool = False,
     ) -> None:
         self._store = store
         self._suites = suites
         self._pull = pull
+        self._defer_slow_pull = defer_slow_pull
+        """A retryable PR-read failure leaves the SHA pending instead of emitting without
+        the PR facts (the bounded webhook path, :func:`webhook_on_check`)."""
         self._serves = serves
         self._clock = clock or (lambda: datetime.now(UTC))
 
@@ -236,7 +246,10 @@ class ChecksSettler:
             log.warning("checks settle: suite listing failed (%s)", exc.code)
             return "error"
         if done and self._now() >= self._window_end(rec):
-            return self._emit(repo, sha, rec, "all_completed", conclusion)
+            try:
+                return self._emit(repo, sha, rec, "all_completed", conclusion)
+            except _PullDeferred:
+                return "pending"  # the node's tick emits it, with the PR facts
         return "pending"
 
     def tick(self) -> int:
@@ -419,6 +432,10 @@ class ChecksSettler:
             return {}
         try:
             facts = complete_pr_facts(dict(self._pull(repo, numbers[0])))
+        except GitHubError as exc:
+            if self._defer_slow_pull and exc.retryable:
+                raise _PullDeferred from exc
+            return {}
         except Exception:  # noqa: BLE001 - enrichment must never block the settle
             return {}
         if facts is None:
@@ -534,8 +551,14 @@ class AppSuiteLister(GitHubCommentPort):
                     return app
         raise GitHubError("repo_not_allowed", "no app actor covers the repo")
 
-    def list_suites(self, repo: str, sha: str) -> list[dict[str, Any]]:
-        return self._app_for(repo).list_check_suites(repo, sha)
+    def list_suites(
+        self, repo: str, sha: str, *, timeout_s: float | None = None
+    ) -> list[dict[str, Any]]:
+        """Every check suite of ``repo@sha`` (read-only ``Checks: read``); ``timeout_s``
+        bounds the whole lookup, paging included, as for :meth:`get_pull`."""
+        if timeout_s is None:
+            return self._app_for(repo).list_check_suites(repo, sha)
+        return self._bounded(repo, lambda app: app.list_check_suites(repo, sha), timeout_s)
 
     def get_pull(
         self, repo: str, number: int, *, timeout_s: float | None = None
@@ -552,27 +575,67 @@ class AppSuiteLister(GitHubCommentPort):
         ``lookup_busy`` instead of starting another thread."""
         if timeout_s is None:
             return self._app_for(repo).get_pull(repo, number)
+        return self._bounded(repo, lambda app: app.get_pull(repo, number), timeout_s)
+
+    def _bounded(self, repo: str, read: Callable[[GitHubApp], Any], timeout_s: float) -> Any:
+        """``read`` through ``repo``'s App on a capped worker, the whole lookup bounded by
+        ``timeout_s`` (see :meth:`get_pull`). No time left: ``deadline_exceeded`` at once."""
+        if timeout_s <= 0:
+            raise GitHubError("deadline_exceeded", retryable=True)
         deadline = datetime.now(UTC) + timedelta(seconds=timeout_s)
         if not self._lookup_slots.acquire(blocking=False):
             raise GitHubError("lookup_busy", "every lookup worker is busy", retryable=True)
-        result: Future[Mapping[str, Any]] = Future()
+        result: Future[Any] = Future()
 
         def work() -> None:
             try:
                 app = self._app_for(repo)
                 with app.deadline(deadline):
-                    result.set_result(app.get_pull(repo, number))
+                    result.set_result(read(app))
             except BaseException as exc:  # noqa: BLE001 - handed to the waiting caller
                 result.set_exception(exc)
             finally:
                 self._lookup_slots.release()
 
         try:
-            threading.Thread(target=work, name="github-pull-lookup", daemon=True).start()
+            threading.Thread(target=work, name="github-lookup", daemon=True).start()
         except BaseException:
             self._lookup_slots.release()
             raise
         try:
-            return result.result(timeout=max(0.0, timeout_s))
+            return result.result(timeout=timeout_s)
         except FutureTimeout:
             raise GitHubError("deadline_exceeded", retryable=True) from None
+
+
+WEBHOOK_SETTLE_BUDGET_S = 5.0
+"""The time one webhook delivery's settle may spend on GitHub (suite listing and PR read
+together, secret resolve included), like the PR-comment lookup on the same route - well
+inside GitHub's 10 s delivery timeout."""
+
+
+def webhook_on_check(
+    store: StoragePort, lister: Any, *, budget_s: float = WEBHOOK_SETTLE_BUDGET_S
+) -> Callable[[Mapping[str, Any]], str]:
+    """The API server's ``on_check``: :meth:`ChecksSettler.on_check` with every GitHub read
+    bounded by one per-delivery budget of ``budget_s`` (``lister`` is an
+    :class:`AppSuiteLister`). A suite listing past it answers ``error`` (the SHA stays
+    armed); a PR read past it (or with every lookup worker busy) leaves the SHA pending
+    rather than emit without the PR facts. Either way the node's tick settles it - the
+    webhook answers quickly."""
+
+    def on_check(data: Mapping[str, Any]) -> str:
+        end = time.monotonic() + budget_s
+
+        def left() -> float:
+            return end - time.monotonic()
+
+        settler = ChecksSettler(
+            store,
+            lambda repo, sha: lister.list_suites(repo, sha, timeout_s=left()),
+            pull=lambda repo, number: lister.get_pull(repo, number, timeout_s=left()),
+            defer_slow_pull=True,
+        )
+        return settler.on_check(data)
+
+    return on_check

@@ -863,3 +863,115 @@ def test_a_suite_appearing_before_the_timeout_still_settles_normally():
     clock.now = T0 + timedelta(seconds=20)
     assert settler.on_check(check_data()) == "emitted"
     assert settled(store)[0]["envelope"]["data"]["conclusion"] == "failure"
+
+
+# --------------------------------- review #17 finding 5: the webhook settle path is bounded
+
+
+def _suites_transport(method, url, headers, body, timeout):
+    import json
+
+    if "/check-suites" in url:
+        suite = {"app": {"slug": "ci"}, "status": "completed", "conclusion": "failure"}
+        return 200, json.dumps({"check_suites": [suite]}).encode()
+    return _ok_transport(method, url, headers, body, timeout)
+
+
+def test_app_lister_list_suites_is_bounded_like_get_pull():
+    import time
+
+    import pytest
+
+    pytest.importorskip("cryptography")
+    from culture_rules.node.checks_settle import AppSuiteLister
+
+    secrets = SlowSecrets(_pem())
+    lister = AppSuiteLister(_lister_store(), transport=_suites_transport, secrets=secrets)
+    try:
+        started = time.monotonic()
+        with pytest.raises(GitHubError) as err:
+            lister.list_suites(REPO, SHA, timeout_s=0.2)
+        assert err.value.code == "deadline_exceeded" and err.value.retryable
+        assert time.monotonic() - started < 2
+        with pytest.raises(GitHubError) as err:
+            lister.list_suites(REPO, SHA, timeout_s=0)  # no budget left: no worker started
+        assert err.value.code in ("deadline_exceeded", "lookup_busy")
+    finally:
+        secrets.release.set()
+
+
+def test_webhook_on_check_answers_within_its_budget_and_leaves_the_settle_pending():
+    """A cold ``grant get`` on the webhook path: on_check returns within the budget, the
+    SHA stays armed (pending) and the node tick settles it later."""
+    import time
+
+    import pytest
+
+    pytest.importorskip("cryptography")
+    from culture_rules.node.checks_settle import AppSuiteLister, webhook_on_check
+
+    store = _lister_store()
+    store.put_variable("checks_settle_min_s", 0, updated_by="t")
+    secrets = SlowSecrets(_pem())
+    lister = AppSuiteLister(store, transport=_suites_transport, secrets=secrets)
+    try:
+        on_check = webhook_on_check(store, lister, budget_s=0.3)
+        started = time.monotonic()
+        assert on_check(check_data()) == "error"
+        assert time.monotonic() - started < 2
+        assert store.get(SETTLE_COLLECTION, f"{REPO}@{SHA}")["state"] == "pending"
+        assert settled(store) == []
+    finally:
+        secrets.release.set()
+
+
+def test_webhook_settle_defers_to_the_tick_when_the_pr_lookup_times_out():
+    """The suites list in time but the PR read does not: the webhook does not emit a
+    settled event without the PR facts (the fixer condition would never match it); the
+    SHA stays pending for the node tick, whose emit carries them."""
+    from culture_rules.node.checks_settle import webhook_on_check
+
+    class Lister:
+        def list_suites(self, repo, sha, *, timeout_s=None):
+            assert timeout_s is not None and timeout_s > 0
+            return [{"app_slug": "ci", "status": "completed", "conclusion": "failure"}]
+
+        def get_pull(self, repo, number, *, timeout_s=None):
+            assert timeout_s is not None
+            raise GitHubError("deadline_exceeded", retryable=True)
+
+    store = MemoryStore()
+    store.put_variable("checks_settle_min_s", 0, updated_by="t")
+    assert webhook_on_check(store, Lister())(check_data()) == "pending"
+    assert settled(store) == []
+    pr = {
+        "head": {"sha": SHA, "ref": "feat", "repo": {"full_name": REPO}},
+        "base": {"sha": "c" * 40, "ref": "main", "repo": {"full_name": REPO}},
+        "draft": False,
+        "user": {"login": "alice"},
+    }
+    node = ChecksSettler(
+        store,
+        lambda r, s: Lister().list_suites(r, s, timeout_s=1),
+        pull=lambda r, n: pr,
+        clock=lambda: datetime.now(UTC) + timedelta(hours=1),
+    )
+    assert node.tick() == 1
+    assert settled(store)[0]["envelope"]["data"]["base_repo"] == REPO
+
+
+def test_api_server_wires_the_bounded_webhook_settle(monkeypatch):
+    from fastapi import FastAPI
+
+    import culture_rules.node.checks_settle as cs
+    from culture_rules.server import app as server_app
+
+    seen = {}
+
+    def fake(store, lister, **kw):
+        seen["lister"] = lister
+        return lambda data: "pending"
+
+    monkeypatch.setattr(cs, "webhook_on_check", fake)
+    server_app._register_hooks(FastAPI(), MemoryStore())
+    assert isinstance(seen["lister"], cs.AppSuiteLister)
