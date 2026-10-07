@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-05T20:43:33Z",
-  "updated": "2026-10-07T19:11:25Z",
+  "updated": "2026-10-07T21:02:39Z",
   "claims": [
     {
       "id": "c1",
@@ -1200,6 +1200,30 @@
       "refs": [
         "d20",
         "rules/pr-fixer-review@22c71af"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l5",
+      "code": "control-absent",
+      "what": "queue-fix rollout: upgraded the engine node by node without pausing the engine; for ~2 min spark (new) adopted lobes-cli#302's queued step while spark2 (old) re-dispatched it under the old deadline rules, and the bridge adapter failed it 'attempt deadline passed before the bridge was called' (run-3d55dbdc, extra hand-back comment on the operator's PR, nothing pushed)",
+      "skipped_check": "pause the engine (culture-rules runs pause) or upgrade the placement host first during an engine-semantics upgrade",
+      "refs": [
+        "run-3d55dbdc699a",
+        "35d8bea"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l6",
+      "code": "grader-unverified",
+      "what": "d20 fix #3 was committed with 4 failing tests: a pipe through tail hid pytest's exit code (fixed and amended before any push)",
+      "skipped_check": "check pytest's own exit status (set -o pipefail) before committing",
+      "refs": [
+        "d20",
+        "rules/pr-fixer-review@1e22648"
       ],
       "origin": "llm",
       "status": "proposed"
