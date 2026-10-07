@@ -1304,7 +1304,7 @@ def _register_kind(
     )
     def restore(id: str, identity: Identity):
         defs.get(kind, id)
-        return life.restore(kind, id, identity)
+        return defs.restore(kind, id, identity, life)  # d7: the node-capability guard
 
     @app.post(
         f"{path}/purge",
