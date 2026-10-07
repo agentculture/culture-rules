@@ -121,7 +121,7 @@ fixer token, r13 dedup vs must_after chaining.
    - Seed variables: trusted_authors, ignored_check_apps (["claude"]),
      fixer_excluded_repos, fixer_protected_paths, checks_settle_timeout_s (900),
      checks_settle_min_s (60) via `culture-rules variables set ... --apply`.
-   - Committed as importable files (rules/<id>.yaml, workflows/<id>.yaml) under
+   - Committed as importable files (`rules/<id>.yaml`, `workflows/<id>.yaml`) under
      e.g. docs/rules/pr-fixer/ plus a seed script; AC tests by replay.
    - Also update the design canvas (claude.ai artifact Jgm3JPnAhKWpeiCxFXvNBi, row
      "Chosen") with the Variables tab (owed from t14).
