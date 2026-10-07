@@ -74,7 +74,7 @@
     "name": "Hand back with the run link",
     "params": {
       "actor": "github-app",
-      "body": "PR fixer handed back: {{ run.error.step }} failed ({{ run.error.code }}: {{ run.error.message }}).\n\nRun: https://rules.culture.dev/api/runs/{{ run.id }}",
+      "body": "PR fixer handed back ({{ run.error.code }}): {{ run.error.message }}\n\nRun: https://rules.culture.dev/api/runs/{{ run.id }}",
       "number": "trigger.data.number",
       "repo": "trigger.data.repository"
     },

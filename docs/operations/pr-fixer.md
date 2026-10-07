@@ -259,7 +259,8 @@ All four rules have the same settings:
 
 - they ship with `enabled: false`;
 - their `on_failure` action (d16) is a `github.comment` as `github-app`:
-  `PR fixer handed back: <step> failed (<code>: <message>)` with the run link;
+  `PR fixer handed back (<code>): <message>` with the run link (the failing step is on
+  the run);
 - placement is machine `spark2`;
 - `concurrency_key` is `pr-fixer:{trigger.data.repository}#{trigger.data.number}`
   and `max_attempts` is 3, both shared across the four rules;

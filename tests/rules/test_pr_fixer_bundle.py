@@ -625,7 +625,7 @@ def assert_handed_back(w: World, doc: dict, step: str, text: str) -> None:
     assert doc["status"] == "failed" and doc["error"]["step"] == step
     (call,) = w.comment.calls
     body = call[1]["body"]
-    assert body.startswith(f"PR fixer handed back: {step} failed (")
+    assert body.startswith(f"PR fixer handed back ({doc['error']['code']}): ")
     assert text in body
     assert f"https://rules.culture.dev/api/runs/{doc['id']}" in body
     assert call[1]["repo"] == REPO and call[1]["number"] == 7
