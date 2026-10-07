@@ -26,7 +26,8 @@ repo allowlist and its per-actor App cache. There is deliberately no merge port.
        ``review_rejected``, ``review_commit_mismatch`` or ``reviewer_is_implementer``. This
        holds for every push, so a workflow that skips the review step pushes nothing.
        The approving record is re-read right before the final ``git push`` (step 8); a
-       different current record refuses ``review_changed``;
+       different current record refuses ``review_changed``. The PR's base (read in step 5)
+       must still be the base the review recorded, else ``base_changed``;
     4. ``commit_sha`` is fetched into a fresh, node-owned bare repo (so nothing in the agent's
        repo config, hooks or credential helpers ever sees the token) and must descend from
        ``expected_head_sha``: a non-fast-forward update is refused before any network call.
@@ -91,7 +92,11 @@ from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any
 
-from culture_rules.actors.review import approved_review, consume_approval
+from culture_rules.actors.review import (
+    REVIEWS_COLLECTION,
+    approved_review,
+    consume_approval,
+)
 from culture_rules.actors.trusted import actor_refusal, workflow_refusal
 from culture_rules.apps.github import DEFAULT_API_BASE, GitHubApp, GitHubError, Transport
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
@@ -478,6 +483,12 @@ class GitHubPushPort(GitHubCommentPort):
             return InvocationResult.completed({**out, "pushed": False, "already": True})
         if head.get("sha") != expected:
             raise _Refused("head_moved")
+        # round 4 (#2): the gate policy came from the base the review recorded; a base that
+        # moved or was retargeted since then means it is not the policy this commit passed.
+        # The next checks event runs the gate and the review again against the new base.
+        reviewed = self._store.get(REVIEWS_COLLECTION, job.review_record or "") or {}
+        if not isinstance(base.get("sha"), str) or base.get("sha") != reviewed.get("base_sha"):
+            raise _Refused("base_changed")
         url = f"{self._git_base}/{repo}.git"
         token = app.push_token(repo)  # held by this call alone; never cached or logged
         remote = job.remote_head(url, branch, token)

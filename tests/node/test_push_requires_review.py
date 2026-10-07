@@ -15,6 +15,7 @@ pytest.importorskip("cryptography")
 from culture_rules.actors.review import record_review  # noqa: E402
 from tests.node.test_github_pr_actions import (  # noqa: E402,F401 - fixtures
     DEADLINE,
+    PR_BASE_SHA,
     FakeGitHub,
     RecordingGit,
     World,
@@ -40,6 +41,7 @@ def approve(store, sha, *, iteration=0, attempt_no=1, **over):
         "repo": "acme/widgets",
         "number": 3,
         "start_sha": None,
+        "base_sha": PR_BASE_SHA,
     }
     run_id = over.pop("run_id", "run-1")
     over.pop("id", None)
@@ -285,3 +287,28 @@ def test_r3_1_an_edited_app_actor_pushes_nothing(pem, world, monkeypatch):  # no
     edited = actor_doc()  # commit_author dropped: foreign commits would pass the push
     store.put("actors", edited)
     assert_refused(*attempt(pem, world, store), world, "actor_not_trusted")
+
+
+# --------------------------------------------------------------------------- round 4, #2
+
+
+@pytest.mark.parametrize("pr_base", ["f" * 40, None])
+def test_r4_2_a_base_that_moved_since_the_gate_pushes_nothing(pem, world, pr_base):  # noqa: F811
+    store = make_store()
+    approve(store, world.b, start_sha=world.a)  # reviewed under base PR_BASE_SHA
+    fake, rec = FakeGitHub(world, base_sha=pr_base), RecordingGit()
+    port = push_port(pem, world, fake, store=store, gitrec=rec, review=False)
+    res = port.invoke(push_params(world), "k", DEADLINE, context=ctx())
+    assert (res.outcome, res.error, res.retryable) == ("failed", "base_changed", False)
+    assert "push" not in rec.verbs() and world.remote_head() == world.a
+    from culture_rules.actors.review import current_review
+
+    assert current_review(store, "run-1")[2] == "current"  # not consumed
+
+
+def test_r4_2_a_record_without_a_base_pushes_nothing(pem, world):  # noqa: F811
+    store = make_store()
+    approve(store, world.b, start_sha=world.a, base_sha=None)
+    res = attempt(pem, world, store)[0]
+    assert (res.outcome, res.error) == ("failed", "base_changed")
+    assert world.remote_head() == world.a

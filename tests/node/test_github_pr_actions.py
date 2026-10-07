@@ -39,6 +39,7 @@ INSTALL_TOKEN = "ghs" + "_" + "FAKEINSTALLATIONTOKEN0123456789abcdefABCD"
 PUSH_TOKEN = "ghs" + "_" + "FAKEPUSHTOKEN0123456789abcdefABCDEFGHIJ"
 DEADLINE = datetime(2030, 1, 1, tzinfo=UTC)
 REPO = "acme/widgets"
+PR_BASE_SHA = "e" * 40  # the PR's base as the fake App reports it; reviews record the same
 
 
 @pytest.fixture(scope="module")
@@ -172,7 +173,11 @@ class FakeGitHub:
                     "sha": self.pull.get("head_sha", head_sha),
                     "repo": {"full_name": self.pull.get("head_repo", REPO)},
                 },
-                "base": {"ref": "main", "repo": {"full_name": REPO}},
+                "base": {
+                    "ref": "main",
+                    "sha": self.pull.get("base_sha", PR_BASE_SHA),
+                    "repo": {"full_name": REPO},
+                },
             }
             return 200, json.dumps(doc).encode()
         if path.endswith("/replies"):
@@ -298,6 +303,7 @@ def approve_review(store, sha, run_id="run-1", *, start, repo=REPO, number=3):
             "repo": repo,
             "number": number,
             "start_sha": start,
+            "base_sha": PR_BASE_SHA,
         },
     )
 
