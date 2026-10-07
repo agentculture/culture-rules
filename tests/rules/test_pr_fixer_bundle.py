@@ -21,6 +21,7 @@ from pathlib import Path
 
 import pytest
 
+from culture_rules.actors.agent import BridgeAgentActor, record_bridge_event
 from culture_rules.actors.gate import GatePort
 from culture_rules.actors.review import ReviewVerdictPort
 from culture_rules.apps.github import GitHubError
@@ -555,29 +556,35 @@ def verdict_text(commit: str, verdict: str = "approve", findings=None) -> str:
     return json.dumps({"verdict": verdict, "findings": findings or [], "reviewed_commit": commit})
 
 
-class ReviewerBridge(FakeActor):
-    """A codex bridge double: read-only, returns the scripted verdict for each attempt.
+class ReviewerBridge:
+    """A codex bridge behind the real :class:`BridgeAgentActor`: a transport double.
 
+    Each ``POST /v1/invocations`` is answered 202, and the scripted terminal event is
+    recorded at once through :func:`record_bridge_event` with the per-invocation callback
+    token, exactly as the bridge would call back; the node cycle then delivers it.
     ``script`` holds one entry per review: a callable ``(commit) -> summary`` or a dict of
-    bridge-result overrides (``summary`` may be such a callable too)."""
+    bridge-result overrides (``summary`` may be such a callable; ``fail`` sends a failed
+    event). ``inputs`` are the bridge ``input`` objects it received."""
 
-    def __init__(self, repo: Repo, script=None) -> None:
-        super().__init__()
-        self.repo = repo
+    def __init__(self, base, script=None) -> None:
+        self.store = base
         self.script = list(script or [])
         self.inputs: list[dict] = []
+        self.seq = 0
 
-    def invoke(self, input, key, deadline, *, context):
-        self.inputs.append(dict(input))
-        commit = input.get("commit_sha")
-        entry = self.script.pop(0) if self.script else (lambda c: verdict_text(c))
+    def __call__(self, method, url, body, headers, timeout):
+        doc = json.loads(body)
+        given = doc["input"]
+        self.inputs.append(given)
+        commit = given.get("commit_sha")
+        entry = self.script.pop(0) if self.script else verdict_text
         over = entry if isinstance(entry, dict) else {"summary": entry}
         result = {
             "schema": "cultureagent.bridge.result/v1",
             "backend": "codex",
             "status": "no_changes",
-            "head_before": input.get("head_sha"),
-            "head_after": input.get("head_sha"),
+            "head_before": given.get("head_sha"),
+            "head_after": given.get("head_sha"),
             "commits": [],
             "dirty": False,
             "threads_addressed": [],
@@ -586,11 +593,40 @@ class ReviewerBridge(FakeActor):
         }
         if callable(result["summary"]):
             result["summary"] = result["summary"](commit)
+        self.seq += 1
         if result.get("fail"):
-            self.on(context.step_id, ("fail", result["fail"], False))
+            event = {
+                "kind": "failed",
+                "sequence": self.seq,
+                "payload": {"class": "timeout", "message": result["fail"]},
+            }
         else:
-            self.on(context.step_id, ("complete", result))
-        return super().invoke(input, key, deadline, context=context)
+            event = {"kind": "completed", "sequence": self.seq, "payload": {"result": result}}
+        inv = doc["callback"]["url"].rsplit("/", 2)[-2]
+        assert record_bridge_event(self.store, inv, doc["callback"]["token"], event) == "recorded"
+        return 202, json.dumps({"invocation_id": f"inv-{self.seq}"}).encode()
+
+
+def reviewer_adapter(base, actor, transport, clock) -> BridgeAgentActor:
+    """The codex-reviewer adapter as the node factory builds it, with a fake transport."""
+    params = actor.params
+    return BridgeAgentActor(
+        base,
+        bridge_url=params["bridge_url"],
+        callback_url=params["callback_url"],
+        token="t",  # a fake bridge needs no real bearer
+        resolve_secret=lambda ref: ref,
+        defaults={
+            "model": params.get("model") or actor.model,
+            "sandbox": params.get("sandbox"),
+            "mode": params.get("mode"),
+            "locked_instruction": params.get("locked_instruction"),
+        },
+        actor_id=actor.id,
+        transport=transport,
+        clock=clock,
+        max_bound_input_chars=params.get("max_bound_input_chars"),
+    )
 
 
 class BridgeAgent(FakeActor):
@@ -653,7 +689,14 @@ class World:
     """Two nodes on one store: spark (the App actor) and spark2 (the fixer machine)."""
 
     def __init__(
-        self, tmp_path: Path, *, push=None, on_invoke=None, reviews=None, workflow=None
+        self,
+        tmp_path: Path,
+        *,
+        push=None,
+        on_invoke=None,
+        reviews=None,
+        workflow=None,
+        reviewer_fake=None,
     ) -> None:
         self.repo = Repo(tmp_path, gate_yaml([PASSING]))
         self.c = Cluster("spark", "spark2")
@@ -667,7 +710,8 @@ class World:
         base.put("workflows", workflow if workflow is not None else workflow_doc())
         seed(base)
         self.agent = BridgeAgent(self.repo, on_invoke=on_invoke)
-        self.reviewer = ReviewerBridge(self.repo, reviews)
+        self.reviewer = ReviewerBridge(base, reviews)
+        self.reviewer_fake = reviewer_fake  # a FakeActor standing in for the bridge path
         self.runner = LocalRunner()
         gate = GatePort(
             base, run_as=self.runner, bundle_dir=tmp_path / "bundles", clock=self.c.clock
@@ -720,7 +764,11 @@ class World:
         }
 
         def agent_for(actor):
-            return self.reviewer if actor.id == "codex-reviewer" else self.agent
+            if actor.id != "codex-reviewer":
+                return self.agent
+            if self.reviewer_fake is not None:
+                return self.reviewer_fake
+            return reviewer_adapter(base, actor, self.reviewer, self.c.clock)
 
         for host in ("spark", "spark2"):
             self.c.nodes[host] = self.c.node(host, actors=ports, adapters={"agent": agent_for})

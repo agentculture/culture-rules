@@ -245,11 +245,18 @@ def test_a_record_for_another_run_never_counts():
 
 
 def _brief() -> str:
-    from tests.rules.test_pr_fixer_bundle import workflow_doc
+    from culture_rules.actors.review import REVIEWER_BRIEF
+
+    return REVIEWER_BRIEF
+
+
+def test_the_shipped_workflow_carries_no_brief_and_the_actor_locks_it():
+    from tests.rules.test_pr_fixer_bundle import reviewer_actor, workflow_doc
 
     fix = next(s for s in workflow_doc()["steps"] if s["id"] == "fix")
     review = next(b for b in fix["body"] if b["id"] == "review")
-    return review["config"]["instruction"]
+    assert "instruction" not in review["config"]
+    assert reviewer_actor()["params"]["locked_instruction"] == "pr-fixer-review"
 
 
 def _bridge_summary(final_message: str):

@@ -75,6 +75,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib import import_module
 from typing import Any, Protocol, runtime_checkable
 
+from culture_rules.actors.review import LOCKED_INSTRUCTIONS, instruction_digest
 from culture_rules.engine.actorport import COMPLETED, InvocationContext, InvocationResult
 from culture_rules.store.port import DuplicateKeyError
 
@@ -113,8 +114,12 @@ def valid_mesh_nick(nick: str) -> bool:
     return bool(_NICK_RE.match(nick or ""))
 
 
+INSTRUCTION_KEYS = ("instruction", "prompt", "task", "text")
+"""Input or config names an agent step's instruction is read from (first non-empty wins)."""
+
+
 def _instruction(input: Mapping[str, Any]) -> str | None:
-    for name in ("instruction", "prompt", "task", "text"):
+    for name in INSTRUCTION_KEYS:
         value = input.get(name)
         if isinstance(value, str) and value.strip():
             return value
@@ -679,11 +684,33 @@ class BridgeAgentActor:
 
     # ---------------------------------------------------------------- input
 
+    def _locked_instruction(
+        self, input: Mapping[str, Any], config: Mapping[str, Any]
+    ) -> tuple[str | None, str | None]:
+        """``(brief, None)`` for an actor with ``locked_instruction`` (any instruction from
+        the step's inputs or config is refused), ``(None, None)`` otherwise."""
+        name = self._defaults.get("locked_instruction")
+        if name is None:
+            return None, None
+        brief = LOCKED_INSTRUCTIONS.get(name) if isinstance(name, str) else None
+        if brief is None:
+            return None, f"instruction_locked: no locked brief named {name!r}"
+        for where, source in (("an input", input), ("the step config", config)):
+            for key in INSTRUCTION_KEYS:
+                if source.get(key) is not None:
+                    return None, (
+                        f"instruction_locked: the actor's brief is fixed; {where} sets {key!r}"
+                    )
+        return brief, None
+
     def bridge_input(
         self, input: Mapping[str, Any], config: Mapping[str, Any]
     ) -> tuple[dict[str, Any] | None, str | None]:
         """The bridge's ``input`` object, or ``(None, problem)``."""
-        instruction = _instruction(input) or _instruction(config)
+        instruction, problem = self._locked_instruction(input, config)
+        if problem:
+            return None, problem
+        instruction = instruction or _instruction(input) or _instruction(config)
         if not instruction:
             return None, "no instruction in the step input"
         out: dict[str, Any] = {k: v for k, v in input.items() if v is not None}
@@ -752,7 +779,8 @@ class BridgeAgentActor:
         doc_id = bridge_invocation_id(idempotency_key, context.attempt)
         self._expire_previous(idempotency_key, context.attempt)
         callback_token = secrets.token_urlsafe(32)
-        doc = self._claim(doc_id, idempotency_key, context, callback_token)
+        digest = instruction_digest(str((payload or {}).get("instruction") or ""))
+        doc = self._claim(doc_id, idempotency_key, context, callback_token, digest)
         if doc["status"] == _ACCEPTED:
             return InvocationResult.accepted()
         if doc["status"] in (_COMPLETED, _FAILED):  # the callback beat this re-invoke
@@ -796,7 +824,12 @@ class BridgeAgentActor:
         return secret_refs.resolve_or_literal(self._token_ref)
 
     def _claim(
-        self, doc_id: str, key: str, context: InvocationContext, callback_token: str
+        self,
+        doc_id: str,
+        key: str,
+        context: InvocationContext,
+        callback_token: str,
+        instruction_sha256: str,
     ) -> Mapping[str, Any]:
         """Insert this attempt's invocation (before posting, so an early callback finds it),
         or add a fresh callback token to one left ``dispatching``/``rejected``."""
@@ -811,6 +844,7 @@ class BridgeAgentActor:
             "actor": self.actor_id or context.actor,
             "bridge_url": self.bridge_url,
             "status": _DISPATCHING,
+            "instruction_sha256": instruction_sha256,
             "token_hashes": [_token_hash(callback_token)],
             "invocation_id": None,
             "last_sequence": 0,
@@ -829,7 +863,11 @@ class BridgeAgentActor:
             BRIDGE_INVOCATIONS,
             doc_id,
             {"status": existing["status"]},
-            {"status": _DISPATCHING, "token_hashes": hashes},
+            {
+                "status": _DISPATCHING,
+                "token_hashes": hashes,
+                "instruction_sha256": instruction_sha256,
+            },
         )
         return res.document if res.won else self._store.get(BRIDGE_INVOCATIONS, doc_id)
 

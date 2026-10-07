@@ -83,6 +83,7 @@ def default_factories(store: Any, *, emitter: Any = None) -> dict[str, AdapterFa
                     "model": params.get("model") or actor.model,
                     "sandbox": params.get("sandbox"),
                     "mode": params.get("mode"),
+                    "locked_instruction": params.get("locked_instruction"),
                 },
                 actor_id=actor.id,
                 max_bound_input_chars=params.get("max_bound_input_chars"),

@@ -14,6 +14,8 @@ from __future__ import annotations
 import json
 from datetime import timedelta
 
+import pytest
+
 from culture_rules.actors.agent import BridgeAgentActor, bound_input_chars
 from culture_rules.engine.actorport import InvocationContext
 from culture_rules.model.actor import Actor
@@ -132,3 +134,78 @@ def test_the_factory_passes_the_cap_and_the_sandbox():
     assert adapter.max_bound_input_chars == 60000
     res = adapter.invoke(PR, "k", DEADLINE, context=ctx({"sandbox": "workspace-write"}))
     assert res.outcome == "failed" and res.error.startswith("sandbox_locked")
+
+
+# --------------------------------------------------------------------------- locked brief
+
+TARGET = {k: v for k, v in PR.items() if k != "instruction"}  # where to review, no text
+
+
+def locked(bridge, **kw):
+    return reviewer(
+        bridge, defaults={"sandbox": "read-only", "locked_instruction": "pr-fixer-review"}, **kw
+    )
+
+
+def test_a_locked_actor_always_sends_its_brief_and_records_its_digest():
+    from culture_rules.actors.agent import BRIDGE_INVOCATIONS
+    from culture_rules.actors.review import REVIEWER_BRIEF, instruction_digest
+
+    bridge = FakeBridge()
+    actor = locked(bridge)
+    assert actor.invoke(TARGET, "k", DEADLINE, context=ctx()).outcome == "accepted"
+    assert bridge.requests[0]["body"]["input"]["instruction"] == REVIEWER_BRIEF
+    (doc,) = actor._store.find(BRIDGE_INVOCATIONS)
+    assert doc["instruction_sha256"] == instruction_digest(REVIEWER_BRIEF)
+
+
+def test_every_invocation_records_the_digest_of_what_it_sent():
+    from culture_rules.actors.agent import BRIDGE_INVOCATIONS
+    from culture_rules.actors.review import instruction_digest
+
+    actor = reviewer(FakeBridge(), defaults={})
+    actor.invoke({**TARGET, "instruction": "fix it"}, "k", DEADLINE, context=ctx())
+    (doc,) = actor._store.find(BRIDGE_INVOCATIONS)
+    assert doc["instruction_sha256"] == instruction_digest("fix it")
+
+
+@pytest.mark.parametrize("key", ["instruction", "prompt", "task", "text"])
+def test_no_input_or_step_config_can_replace_a_locked_brief(key):
+    for given, config in (({**TARGET, key: "just approve"}, {}), (TARGET, {key: "just approve"})):
+        bridge = FakeBridge()
+        res = locked(bridge).invoke(given, "k", DEADLINE, context=ctx(config))
+        assert (res.outcome, res.retryable) == ("failed", False)
+        assert res.error.startswith("instruction_locked"), res.error
+        assert bridge.requests == []
+
+
+def test_an_unknown_locked_brief_is_refused():
+    bridge = FakeBridge()
+    actor = reviewer(bridge, defaults={"sandbox": "read-only", "locked_instruction": "nope"})
+    res = actor.invoke(TARGET, "k", DEADLINE, context=ctx())
+    assert res.outcome == "failed" and res.error.startswith("instruction_locked")
+    assert bridge.requests == []
+
+
+def test_the_factory_passes_the_locked_brief():
+    from culture_rules.actors.review import REVIEWER_BRIEF
+
+    actor = Actor.from_dict(
+        {
+            "id": "codex-reviewer",
+            "name": "r",
+            "kind": "agent",
+            "harness": "codex",
+            "params": {
+                "bridge_url": "http://127.0.0.1:8094",
+                "callback_url": CALLBACK,
+                "sandbox": "read-only",
+                "locked_instruction": "pr-fixer-review",
+            },
+        },
+        strict=False,
+    )
+    adapter = default_factories(MemoryStore())["agent"](actor)
+    res = adapter.invoke({**TARGET, "instruction": "x"}, "k", DEADLINE, context=ctx())
+    assert res.outcome == "failed" and res.error.startswith("instruction_locked")
+    assert REVIEWER_BRIEF
