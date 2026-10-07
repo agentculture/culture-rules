@@ -67,20 +67,13 @@ def test_an_intermediate_secret_commit_is_never_bundled(store, tmp_path, clock):
     assert "leak.txt" not in out["diff"]
 
 
-def test_the_built_commit_keeps_the_tips_message_and_author_and_is_deterministic(
-    store, tmp_path, clock  # noqa: F811
-):
+def test_the_built_commit_is_deterministic(store, tmp_path, clock):  # noqa: F811
     repo = Repo(tmp_path, gate_yaml([PASSING]))
     repo.commit("step one", {"src/a.py": "a = 1\n"})
-    tip = repo.commit("fix: make x 3\n\nbody text", {"src/app.py": "x = 3\n"})
+    repo.commit("fix: make x 3", {"src/app.py": "x = 3\n"})
     first = judge(store, LocalRunner(), repo, tmp_path, clock)
     again = judge(store, LocalRunner(), repo, tmp_path, clock)
     assert first["commit_sha"] == again["commit_sha"]
-    check = bundle_repo(tmp_path, first["bundle"], first["commit_sha"])
-    fmt = "%an <%ae>|%cn <%ce>|%B"
-    assert git(check, "log", "-1", f"--format={fmt}", first["commit_sha"]) == git(
-        repo.wt, "log", "-1", f"--format={fmt}", tip
-    )
 
 
 def test_no_gate_reports_the_built_commit_too(store, tmp_path, clock):  # noqa: F811
@@ -92,13 +85,13 @@ def test_no_gate_reports_the_built_commit_too(store, tmp_path, clock):  # noqa: 
     assert out["agent_commit_sha"] == tip and out["commit_sha"] != tip
 
 
-def test_a_single_plain_agent_commit_rebuilds_to_the_same_sha(store, tmp_path, clock):  # noqa: F811
-    # same tree, parent, author, committer, dates and message: byte-identical, so the
-    # pushed commit is the agent's - and still nothing but the reviewed change
+def test_even_a_single_agent_commit_is_rebuilt_with_engine_metadata(
+    store, tmp_path, clock  # noqa: F811
+):  # noqa: F811
     repo = Repo(tmp_path, gate_yaml([PASSING]))
     tip = repo.commit("fix", {"src/app.py": "x = 3\n"})
     out = judge(store, LocalRunner(), repo, tmp_path, clock)
-    assert out["commit_sha"] == tip == out["agent_commit_sha"]
+    assert out["agent_commit_sha"] == tip and out["commit_sha"] != tip
 
 
 def test_no_agent_commit_pushes_nothing_new(store, tmp_path, clock):  # noqa: F811
@@ -116,3 +109,41 @@ def test_a_merge_in_the_range_is_guarded(store, tmp_path, clock):  # noqa: F811
     out = judge(store, LocalRunner(), repo, tmp_path, clock)
     assert out["verdict"] == GUARD and out["rule"] == "merge_commit"
     assert out["bundle"] is None
+
+
+# --------------------------------------------------------------------------- round 2, #1
+
+
+def test_nothing_agent_written_reaches_the_built_commits_metadata(
+    store, tmp_path, clock  # noqa: F811
+):  # noqa: F811
+    from culture_rules.actors.gate import FIXER_COMMIT_IDENTITY
+
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    git(repo.wt, "add", "-A")
+    (repo.wt / "src/app.py").write_text("x = 3\n")
+    git(repo.wt, "add", "src/app.py")
+    env = {
+        "GIT_COMMITTER_EMAIL": "planted-in-the-committer@leak.example",
+        "GIT_AUTHOR_NAME": "planted-author-name",
+    }
+    subprocess.run(
+        ["git", "commit", "-q", "-m", "fix\n\nplanted-in-the-message"],
+        cwd=repo.wt,
+        env={**GIT_ENV, **env},
+        check=True,
+    )
+    out = judge(store, LocalRunner(), repo, tmp_path, clock)
+    built = out["commit_sha"]
+    check = bundle_repo(tmp_path, out["bundle"], built)
+    raw = git(check, "cat-file", "commit", built)
+    for planted in ("planted-in-the-committer", "planted-author-name", "planted-in-the-message"):
+        assert planted not in raw
+    who = git(check, "log", "-1", "--format=%an <%ae>|%cn <%ce>", built)
+    assert who == f"{FIXER_COMMIT_IDENTITY}|{FIXER_COMMIT_IDENTITY}"
+    assert git(check, "log", "-1", "--format=%B", built).startswith("pr-fixer: ")
+    # deterministic: the dates are the PR head's, so a re-run builds the same commit
+    assert judge(store, LocalRunner(), repo, tmp_path, clock)["commit_sha"] == built
+    assert git(check, "log", "-1", "--format=%cd", "--date=raw", built) == git(
+        repo.wt, "log", "-1", "--format=%cd", "--date=raw", repo.start
+    )

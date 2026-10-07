@@ -219,6 +219,21 @@ DEFAULT_BUNDLE_DIR = "~/.local/state/culture-rules/gate-bundles"
 BUNDLE_TTL_S = 7 * 24 * 3600.0
 DEFAULT_TAIL_BYTES = 8000
 _MAX_TAIL_BYTES = 100_000
+FIXER_COMMIT_IDENTITY = (
+    "rules-culture-dev[bot] <337624453+rules-culture-dev[bot]@users.noreply.github.com>"
+)
+"""Author and committer of every gate-built commit (the GitHub App's bot identity, the
+``commit_author`` github.push checks); ``config.commit_identity`` overrides it."""
+_IDENTITY_RE = re.compile(r"^(?P<name>[^<>\n]+?) <(?P<email>[^<>\s]+@[^<>\s]+)>$")
+_REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+_TRY_RE = re.compile(r"\[(\d+)\]/[^/]+$")
+
+
+def _identity(value: Any) -> tuple[str, str] | None:
+    m = _IDENTITY_RE.match(value) if isinstance(value, str) else None
+    return (m.group("name"), m.group("email")) if m else None
+
+
 DEFAULT_DIFF_MAX_CHARS = 30_000
 """Characters of ``start_sha..commit_sha`` diff handed to the reviewer (d20); a longer diff
 is cut and flagged ``diff_truncated``. Leaves room in a bridge's 60000-character budget for
@@ -1067,7 +1082,7 @@ class GatePort:
             spec = self._spec(job, shas["base_sha"])
             if spec is None:
                 verdict["verdict"] = NO_GATE
-                verdict.update(self._built(job, shas, diff_cap))
+                verdict.update(self._built(job, shas, diff_cap, context))
                 return verdict
             verdict["gate"] = spec.to_dict()
             violations = self._guard(job, shas, config)
@@ -1080,45 +1095,69 @@ class GatePort:
             else:
                 self._judge(job, spec, verdict, tail_bytes)
                 if verdict["verdict"] == PASS:
-                    verdict.update(self._built(job, shas, diff_cap))
+                    verdict.update(self._built(job, shas, diff_cap, context))
                     verdict["bundle"] = self._bundle(job, verdict["commit_sha"], context)
             verdict["instruction"] = _instruction(verdict)
             return verdict
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
-    def _built(self, job: _Job, shas: Mapping[str, str], cap: int) -> dict[str, Any]:
+    def _built(
+        self, job: _Job, shas: Mapping[str, str], cap: int, context: InvocationContext
+    ) -> dict[str, Any]:
         """The gate-built commit (see :meth:`_build_commit`) as ``commit_sha``, and its diff."""
-        built = self._build_commit(job, shas["start_sha"], shas["commit_sha"])
+        identity = (context.config or {}).get("commit_identity", FIXER_COMMIT_IDENTITY)
+        parsed = _identity(identity)
+        if parsed is None:
+            raise _Refusal("bad_config", "commit_identity must look like 'Name <email>'")
+        message = self._message(context)
+        built = self._build_commit(job, shas["start_sha"], shas["commit_sha"], parsed, message)
         return {"commit_sha": built, **self._diff(job, shas["start_sha"], built, cap)}
 
+    def _message(self, context: InvocationContext) -> str:
+        """An engine-written message from trusted run state only (never agent text)."""
+        run = self._store.get("runs", context.run_id) if context.run_id else None
+        inputs = (run or {}).get("inputs") or {}
+        repo, number = inputs.get("repo"), inputs.get("number")
+        target = (
+            f" for {repo}#{number}"
+            if isinstance(repo, str) and _REPO_RE.match(repo) and isinstance(number, int)
+            else ""
+        )
+        try_no = _TRY_RE.search(context.step_id or "")
+        attempt = f", try {int(try_no.group(1)) + 1}" if try_no else ""
+        return f"pr-fixer: automated fix{target} (run {context.run_id}{attempt})"
+
     @staticmethod
-    def _build_commit(job: _Job, start: str, tip: str) -> str:
-        """ONE commit made by the gate: the agent tip's tree on ``start``, with the tip's
-        message, author and committer (and dates, so a re-run builds the same SHA). Only
-        this commit is diffed, reviewed, bundled and pushed; the agent's own commits, and
-        anything they added and later removed, never leave this machine. No agent commit
-        (``tip == start``) pushes nothing new. Merges and odd ancestry are refused."""
+    def _build_commit(
+        job: _Job, start: str, tip: str, identity: tuple[str, str], message: str
+    ) -> str:
+        """ONE commit made by the gate: the agent tip's **tree** on ``start`` and nothing
+        else of the agent's. Author and committer are ``identity``, the message is
+        ``message`` (engine-written), both dates are the PR head's committer date, so a
+        re-run builds the same SHA and no agent-written byte (message, names, emails, dates)
+        reaches the pushed commit. The agent's own commits never leave this machine. No
+        agent commit (``tip == start``) pushes nothing new. Merges and odd ancestry are
+        refused."""
         if tip == start:
             return start
         if job.git_rc("merge-base", "--is-ancestor", start, tip)[0] != 0:
             raise _Refusal("history_rewritten", "commit_sha does not descend from start_sha")
         if job.git("rev-list", "--min-parents=2", f"{start}..{tip}", "--").strip():
             raise _Refusal("merge_commit", "start_sha..commit_sha holds a merge")
-        fields = "%an%x00%ae%x00%ad%x00%cn%x00%ce%x00%cd%x00%B"
-        raw = job.git("log", "-1", "--date=raw", f"--format={fields}", tip, "--")
-        an, ae, ad, cn, ce, cd, message = raw.decode("utf-8", "replace").split("\x00", 6)
+        date = job.git("log", "-1", "--date=raw", "--format=%cd", start, "--").decode().strip()
+        name, email = identity
         env = {
-            "GIT_AUTHOR_NAME": an,
-            "GIT_AUTHOR_EMAIL": ae,
-            "GIT_AUTHOR_DATE": ad,
-            "GIT_COMMITTER_NAME": cn,
-            "GIT_COMMITTER_EMAIL": ce,
-            "GIT_COMMITTER_DATE": cd,
+            "GIT_AUTHOR_NAME": name,
+            "GIT_AUTHOR_EMAIL": email,
+            "GIT_AUTHOR_DATE": date,
+            "GIT_COMMITTER_NAME": name,
+            "GIT_COMMITTER_EMAIL": email,
+            "GIT_COMMITTER_DATE": date,
         }
         tree = job.git("rev-parse", "--verify", f"{tip}^{{tree}}").decode().strip()
         msg = os.path.join(job.tmp, "message")
-        Path(msg).write_bytes(message.rstrip("\n").encode("utf-8") + b"\n")
+        Path(msg).write_bytes(message.encode("utf-8") + b"\n")
         with open(msg, "rb") as stdin:
             built = job.git("commit-tree", tree, "-p", start, "-F", "-", stdin=stdin, env=env)
         return built.decode().strip()

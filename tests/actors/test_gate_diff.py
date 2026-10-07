@@ -35,7 +35,7 @@ def test_a_passing_gate_reports_the_verified_diff(store, tmp_path, clock):  # no
     assert "-x = 2" in out["diff"] and "+x = 3" in out["diff"] and "+y = 1" in out["diff"]
     assert out["diff_truncated"] is False
     assert out["diff_chars"] == len(out["diff"])
-    assert out["commit_sha"] == head and out["start_sha"] == repo.start
+    assert out["agent_commit_sha"] == head and out["start_sha"] == repo.start
 
 
 def test_no_gate_reports_the_diff_too(store, tmp_path, clock):  # noqa: F811

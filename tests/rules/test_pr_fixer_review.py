@@ -47,7 +47,8 @@ def refusal(w: World, doc: dict, commit: str):
 
 
 def pushed_commit(doc: dict, i: int = 0) -> str:
-    return step_state(doc, f"fix[{i}]/agent")["outputs"]["head_after"]
+    """The commit try ``i`` would push: the gate-built one."""
+    return step_state(doc, f"fix[{i}]/gate")["outputs"]["commit_sha"]
 
 
 # --------------------------------------------------------------------------- approve

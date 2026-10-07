@@ -848,7 +848,7 @@ def test_a_settled_failing_pr_is_fixed_pushed_replied_and_commented(tmp_path):
     assert push_call[1]["gate_verdict"] == "pass"
     assert push_call[1]["source"] == gate["outputs"]["bundle"]
     assert push_call[1]["expected_head_sha"] == w.repo.start
-    assert push_call[1]["commit_sha"] == step_state(doc, "fix[0]/agent")["outputs"]["head_after"]
+    assert push_call[1]["commit_sha"] == gate["outputs"]["commit_sha"]  # the gate-built one
     assert step_state(doc, "push")["host"] == "spark2"
     assert step_state(doc, "fix[0]/agent")["host"] == "spark2"
     # one reply per addressed thread, by REST comment id, resolving it

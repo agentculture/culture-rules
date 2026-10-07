@@ -202,8 +202,10 @@ def test_passing_gate_runs_setup_then_test_and_bundles_the_commit(store, tmp_pat
     assert bundle.is_file() and bundle.parent == tmp_path / "bundles"
     check = tmp_path / "check.git"
     git(tmp_path, "init", "-q", "--bare", str(check))
-    git(check, "fetch", "-q", str(bundle), f"{head}:refs/x")
-    assert git(check, "rev-parse", "refs/x") == head
+    built = out["commit_sha"]  # the gate-built commit: the agent tip's tree, nothing else
+    git(check, "fetch", "-q", str(bundle), f"{built}:refs/x")
+    assert git(check, "rev-parse", "refs/x^{tree}") == git(repo.wt, "rev-parse", f"{head}^{{tree}}")
+    assert out["agent_commit_sha"] == head
 
 
 def test_deleting_a_failing_test_is_guarded_by_name(store, tmp_path, clock):
