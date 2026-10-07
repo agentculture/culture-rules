@@ -80,4 +80,22 @@ class Rule(Model):
     )
     priority: int = doc("Higher wins within an exclusive group", default=0)
     enabled: bool = doc("Disabled rules never fire", default=True)
+    concurrency_key: str | None = doc(
+        "Concurrency key template, e.g. pr-fixer:{trigger.data.repository}#{trigger.data.number} "
+        "(only {trigger.<path>} placeholders). The resolved key is global: every rule whose "
+        "template resolves to the same string shares one active run and one attempt budget, so "
+        "use a distinct template (a namespace prefix) to isolate a rule. An active run or "
+        "pending firing with the same key deduplicates new firings; the newest one fires once "
+        "the run ends. A key that does not resolve skips the firing "
+        "(concurrency_key_unresolved). None preserves independent firings.",
+        default=None,
+    )
+    max_attempts: int | None = doc(
+        "Attempt budget (>= 1): after ``max_attempts`` admitted runs for a concurrency key "
+        "(by any rule sharing it; the smallest max_attempts among those rules applies), "
+        "further firings are skipped until a non-self push (github.pr.synchronize with "
+        "self_authored false) or green checks (github.pr.checks_settled with conclusion "
+        "success) resets the counter. ``None`` means no budget.",
+        default=None,
+    )
     schema_version: str = doc("Document schema version (MAJOR.MINOR)", default=SCHEMA_VERSION)

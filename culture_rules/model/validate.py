@@ -20,6 +20,7 @@ import math
 import re
 from collections.abc import Callable, Collection, Iterator
 from dataclasses import dataclass
+from string import Formatter
 from typing import Any, Literal, get_args, get_origin
 
 from culture_rules.model import condition as condition_tree
@@ -491,9 +492,38 @@ def _input_mapping_ok(mapping: Any) -> bool:
     return form == LITERAL_KEY or (form == REF_KEY and isinstance(mapping[REF_KEY], str))
 
 
+_KEY_PLACEHOLDER_RE = re.compile(r"trigger(?:\.[A-Za-z0-9_-]+)+")
+
+
+def _concurrency_key_problem(template: str) -> str | None:
+    """Why ``template`` is not a valid concurrency key, or ``None``: only
+    ``{trigger.<path>}`` placeholders, balanced braces (``{{`` / ``}}`` escape one), no
+    format spec or conversion - the same template the engine resolves
+    (:func:`culture_rules.engine.claims.resolve_concurrency_key`)."""
+    if not template.strip():
+        return "concurrency_key must not be empty"
+    unescaped = template.replace("{{", "").replace("}}", "")
+    if re.search(r"\{[^{}]*[:!]", unescaped):
+        return "format specs and conversions are not allowed"
+    try:
+        fields = list(Formatter().parse(template))
+    except ValueError as exc:
+        return f"unbalanced braces: {exc}"
+    for _literal, name, _spec, _conversion in fields:
+        if name is not None and not _KEY_PLACEHOLDER_RE.fullmatch(name):
+            return f"only {{trigger.<path>}} placeholders are allowed, not {{{name}}}"
+    return None
+
+
 def _check_rule(obj: Rule, path: str, errors: Errors) -> None:
     _nonempty(obj, ("id", "name"), path, errors)
     _schema_version(obj.schema_version, _join(path, "schema_version"), errors)
+    if isinstance(obj.max_attempts, int) and obj.max_attempts < 1:
+        _err(errors, _join(path, "max_attempts"), "range", "max_attempts must be >= 1")
+    if isinstance(obj.concurrency_key, str):
+        problem = _concurrency_key_problem(obj.concurrency_key)
+        if problem is not None:
+            _err(errors, _join(path, "concurrency_key"), "invalid_template", problem)
     if obj.exclusive_group is not None:
         _nonempty(obj, ("exclusive_group",), path, errors)
     if isinstance(obj.condition, dict):

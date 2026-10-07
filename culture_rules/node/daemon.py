@@ -74,7 +74,7 @@ from culture_rules.apps.discord_gateway import (
     GatewayOptions,
     GatewaySupervisor,
 )
-from culture_rules.engine.claims import DEFAULT_LEASE
+from culture_rules.engine.claims import DEFAULT_LEASE, RULE_ATTEMPT_BUDGETS
 from culture_rules.engine.decisions import RULE_DECISIONS
 from culture_rules.engine.named_lease import LEASES_COLLECTION
 from culture_rules.engine.reports import RunReporter
@@ -123,6 +123,7 @@ NODE_COLLECTIONS = (
     HOOK_STATS_COLLECTION,
     GATEWAY_STATE_COLLECTION,
     SETTLE_COLLECTION,
+    RULE_ATTEMPT_BUDGETS,
 )
 """Collections a node touches (created up front on MongoDB)."""
 

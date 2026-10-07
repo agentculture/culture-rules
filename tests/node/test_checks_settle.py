@@ -105,6 +105,7 @@ def test_timeout_emits_one_event_settled_by_timeout():
     assert settler.tick() == 0
     [event] = settled(store)
     assert event["envelope"]["data"]["settled_by"] == "timeout"
+    assert event["envelope"]["data"]["conclusion"] == "timeout"
     # a completion arriving after the timeout does not emit a second event
     assert settler.on_check(check_data()) == "duplicate"
 
@@ -261,3 +262,17 @@ def test_next_poll_never_runs_past_the_deadline():
     settler.tick()
     rec = store.get(SETTLE_COLLECTION, f"{REPO}@{SHA}")
     assert rec["next_poll_at"] == rec["deadline"]
+
+
+def test_settle_conclusions_include_only_counted_suites():
+    for conclusions, expected in [
+        (["success", "neutral", "skipped"], "success"),
+        (["failure"], "failure"),
+        ([None], "failure"),
+    ]:
+        store, _, clock, _ = make()
+        suites = [{"app_slug": "ci", "status": "completed", "conclusion": c} for c in conclusions]
+        suites.append({"app_slug": "claude", "status": "completed", "conclusion": "failure"})
+        settler = ChecksSettler(store, lambda *_: suites, clock=clock)
+        assert settler.on_check(check_data()) == "emitted"
+        assert settled(store)[0]["envelope"]["data"]["conclusion"] == expected

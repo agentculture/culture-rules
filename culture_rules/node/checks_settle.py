@@ -14,6 +14,12 @@ the shared variable ``ignored_check_apps``, and:
   suites once it is due and emits with ``settled_by: "timeout"`` if some are still running.
   The deadline lives in the store, so a node restart loses nothing.
 
+The event also carries ``conclusion``: ``"success"`` when every counted (non-ignored) suite
+concluded ``success``, ``neutral`` or ``skipped`` (vacuously so with none counted),
+``"timeout"`` when settled by the timeout, else ``"failure"``. A ``"success"`` is the explicit
+green signal that resets a rule's attempt budget for the PR (:mod:`culture_rules.node.firing`,
+"Concurrency keys").
+
 Variables (read each call through ``store.get_variable``; an absent, mistyped or non-positive
 value falls back to a stated default): ``ignored_check_apps`` defaults to ``["claude"]`` and
 ``checks_settle_timeout_s`` to :data:`DEFAULT_TIMEOUT_S` and ``checks_settle_min_s`` (the
@@ -132,14 +138,16 @@ class ChecksSettler:
 
     # ------------------------------------------------------------------ decisions
 
-    def _all_completed(self, repo: str, sha: str) -> bool:
+    def _check_state(self, repo: str, sha: str) -> tuple[bool, str]:
         ignored = self.ignored_apps()
-        suites = self._suites(repo, sha)
-        return all(
-            s.get("status") == "completed"
-            for s in suites
+        suites = [
+            s
+            for s in self._suites(repo, sha)
             if str(s.get("app_slug") or "").casefold() not in ignored
-        )
+        ]
+        done = all(s.get("status") == "completed" for s in suites)
+        green = all(s.get("conclusion") in {"success", "neutral", "skipped"} for s in suites)
+        return done, "success" if green else "failure"
 
     def on_check(self, data: Mapping[str, Any]) -> str:
         """Handle one check-completion event's data; return what happened:
@@ -152,12 +160,12 @@ class ChecksSettler:
             return "duplicate"
         rec = self._arm(repo, sha, data)  # before the lookup: a failure must not lose the SHA
         try:
-            done = self._all_completed(repo, sha)
+            done, conclusion = self._check_state(repo, sha)
         except GitHubError as exc:
             log.warning("checks settle: suite listing failed (%s)", exc.code)
             return "error"
         if done and self._now() >= self._window_end(rec):
-            return self._emit(repo, sha, rec, "all_completed")
+            return self._emit(repo, sha, rec, "all_completed", conclusion)
         return "pending"
 
     def tick(self) -> int:
@@ -176,14 +184,14 @@ class ChecksSettler:
                 continue  # not due yet, or another node holds this interval's poll
             repo, sha = rec["repository"], rec["head_sha"]
             try:
-                done = self._all_completed(repo, sha)
+                done, conclusion = self._check_state(repo, sha)
             except GitHubError as exc:
                 log.warning("checks settle: suite listing failed (%s)", exc.code)
                 done = False  # the timeout fires regardless of what is listed
             if not done and not timed_out:
                 continue
             by = "all_completed" if done else "timeout"
-            if self._emit(repo, sha, rec, by) == "emitted":
+            if self._emit(repo, sha, rec, by, conclusion if done else "timeout") == "emitted":
                 emitted += 1
         return emitted
 
@@ -268,7 +276,9 @@ class ChecksSettler:
             "pr_author": (pr.get("user") or {}).get("login"),
         }
 
-    def _emit(self, repo: str, sha: str, src: Mapping[str, Any], settled_by: str) -> str:
+    def _emit(
+        self, repo: str, sha: str, src: Mapping[str, Any], settled_by: str, conclusion: str
+    ) -> str:
         numbers = [n for n in src.get("pr_numbers") or () if isinstance(n, int)]
         payload: dict[str, Any] = {
             "repository": repo,
@@ -277,6 +287,7 @@ class ChecksSettler:
             "pr_numbers": numbers,
             "number": numbers[0] if numbers else src.get("number"),
             "settled_by": settled_by,
+            "conclusion": conclusion,
         }
         payload.update(self._enrich(repo, numbers))
         envelope = derive_envelope(

@@ -65,7 +65,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
-from culture_rules.store.port import Document, StoreOps
+from culture_rules.store.port import Document, StoreOps, TransientStoreError
+from culture_rules.store.retry import DEFAULT_ATTEMPTS
 from culture_rules.store.versioning import utc_timestamp
 
 CLAIMS_COLLECTION = "claims"
@@ -351,3 +352,230 @@ class Claims:
             "completed" if current is not None and current.get("status") == "completed" else "held"
         )
         return ClaimResult._from(False, key, reason, current)
+
+
+RULE_ATTEMPT_BUDGETS = "rule_attempt_budgets"
+"""Durable key reservations and admitted attempt counters, one per resolved key.
+
+The key is **global** (deviation d13): one document per resolved concurrency key string,
+whichever rule resolved it, id :func:`budget_id` (a digest of the key alone). Rules whose
+templates resolve to the same key share one active run and one budget; a rule that wants
+isolation uses a distinct template (a namespace prefix such as ``pr-fixer:``). Fields:
+``key``; ``rule_id`` / ``run_id`` / ``intent_id`` of the rule and run holding the key;
+``count`` (runs admitted since the last reset, by any rule sharing the key - every admitted
+run counts, whatever its outcome); ``pending_event_id`` / ``pending_rule_id`` (the newest
+firing deduplicated while the key was held, and the rule that recorded it: it is fired once,
+through that rule, when the holding run ends, so the latest event is never lost); and
+``revision`` (the compare-and-set token every write bumps). The counter resets only on an
+explicit signal (:func:`reset_attempt_budget`, once per key and reset event): a human push
+or green checks.
+"""
+
+
+def resolve_concurrency_key(template: str, envelope: Mapping[str, Any]) -> str:
+    """Render dotted trigger paths without attribute access or executable expressions.
+
+    Preserve literal separators (and escaped braces). Missing or non-scalar values
+    fail closed: an invalid key must never silently disable concurrency protection.
+    """
+    from string import Formatter
+
+    parts = []
+    for literal, name, spec, conversion in Formatter().parse(template):
+        parts.append(literal)
+        if name is None:
+            continue
+        if spec or conversion or not name.startswith("trigger."):
+            raise ValueError(f"invalid concurrency key placeholder: {name}")
+        value: Any = {"trigger": envelope}
+        for segment in name.split("."):
+            if not isinstance(value, Mapping) or segment not in value:
+                raise ValueError(f"missing concurrency key value: {name}")
+            value = value[segment]
+        if not isinstance(value, (str, int, float, bool)):
+            raise ValueError(f"non-scalar concurrency key value: {name}")
+        parts.append(str(value))
+    return "".join(parts)
+
+
+def budget_id(key: str) -> str:
+    """The budget document id of the resolved concurrency ``key`` (global: no rule id).
+
+    A sha256 over an unambiguous JSON encoding, in its own ``"concurrency"`` key space, so
+    it never collides with a firing or step key and any key string fits a document id."""
+    return _digest(["concurrency", key])
+
+
+RESET_MARKERS = "event_fires"
+"""Where :func:`reset_attempt_budget` notes each (key, reset event) it applied: the
+exactly-once marker collection the trigger consumers already write
+(:data:`culture_rules.events.triggers.FIRES_COLLECTION`)."""
+
+
+def reset_marker_id(key: str, event_id: str) -> str:
+    """The marker id noting that reset event ``event_id`` was applied to ``key``."""
+    return f"budget-reset/{budget_id(key)}/{event_id}"
+
+
+def reset_attempt_budget(store: StoreOps, key: str, event_id: str) -> None:
+    """Reset ``key``'s counter on the reset event ``event_id`` (human push or green checks),
+    preserving a reservation - at most once per (key, event), whatever the order.
+
+    Called once per key in the event's exactly-once transaction, whichever and however many
+    rules share the key, including when the event does not match their triggers or the key
+    has an active run. Placed and shared rules sharing a key reach it through different
+    consumers that may progress at different speeds, so the (key, event) pair is noted with
+    a marker document (:func:`reset_marker_id`) inserted in the same transaction: a second
+    consumer handling the same event - even after the first has handled newer resets and
+    admitted another attempt - finds the marker and resets nothing. The marker is written
+    even when the key has no budget yet (nothing to reset), so an attempt admitted later is
+    not erased by a lagging consumer either. A per-(key, event) marker rather than a
+    watermark on the budget: the consumers share no comparable order (feed tokens are
+    opaque and envelope times may tie or skew), and the budget document stays bounded (the
+    markers grow like the per-event fire markers beside them).
+    """
+    marker_id = reset_marker_id(key, event_id)
+    if store.get(RESET_MARKERS, marker_id) is not None:
+        return
+    # Two consumers racing on one event both insert: one write conflicts and its retry
+    # sees the marker (the same serialisation as the trigger fire markers).
+    store.insert(
+        RESET_MARKERS,
+        {"id": marker_id, "kind": "budget-reset", "key": key, "event_id": event_id},
+    )
+    _cas_budget(store, budget_id(key), lambda _current: {"count": 0}, "attempt budget reset")
+
+
+def reserve_concurrency(
+    store: StoreOps,
+    rule_id: str,
+    key: str,
+    run_id: str,
+    intent_id: str,
+    max_attempts: int | None,
+) -> str | None:
+    """Atomically reserve a key and consume one attempt, or return a skip reason.
+
+    The reservation commits with the firing intent, before starting the run. A
+    crashed node's pending intent therefore retains the key until another node
+    starts it. Read the actual run's terminal status on admission: cancellation,
+    supersession and completion need no fallible secondary completion callback.
+    CAS losers re-read *all* admission facts, never just increment the counter.
+
+    A successful reservation clears the key's pending deduplicated event: its holder ended
+    (the completion may not be handled yet, and then finds the key held by this run), and
+    the newer firing supersedes it. The caller settles the displaced event's decision in
+    the same transaction (:mod:`culture_rules.node.firing`, ``_coalesce_away``).
+    """
+    from culture_rules.engine.runs import RUN_DONE, RUNS_COLLECTION
+
+    doc_id = budget_id(key)
+    for _ in range(DEFAULT_ATTEMPTS):
+        current = store.get(RULE_ATTEMPT_BUDGETS, doc_id) or {}
+        count = current.get("count", 0)
+        active = current.get("run_id")
+        if active:
+            run = store.get(RUNS_COLLECTION, active)
+            if run is None:
+                intent = store.get("rule_fires", current["intent_id"])
+                if not intent or intent.get("status") != "failed":
+                    return "deduplicated"
+                # A failed start never produced a run.
+                count = max(0, count - 1)
+            elif run.get("status") not in RUN_DONE:
+                return "deduplicated"
+        if max_attempts is not None and count >= max_attempts:
+            return "attempt_budget_exhausted"
+        revision = current.get("revision")
+        outcome = store.update_if(
+            RULE_ATTEMPT_BUDGETS,
+            doc_id,
+            {"revision": revision},
+            {
+                "rule_id": rule_id,
+                "key": key,
+                "count": count + 1,
+                "run_id": run_id,
+                "intent_id": intent_id,
+                "pending_event_id": None,
+                "pending_rule_id": None,
+                "revision": (revision or 0) + 1,
+            },
+            upsert=not current,
+        )
+        if outcome.won:
+            return None
+
+    raise TransientStoreError("concurrency reservation contention")
+
+
+def _cas_budget(
+    store: StoreOps,
+    doc_id: str,
+    change: Callable[[Document], dict[str, Any] | None],
+    what: str,
+) -> Document | None:
+    """Apply ``change`` to a budget document under its revision (bounded retries).
+
+    ``change`` answers the fields to write, or ``None`` to leave the document alone; the
+    answer is ``None`` then, else the written document.
+    """
+    for _ in range(DEFAULT_ATTEMPTS):
+        current = store.get(RULE_ATTEMPT_BUDGETS, doc_id)
+        if current is None:
+            return None
+        fields = change(current)
+        if fields is None:
+            return None
+        revision = current.get("revision")
+        outcome = store.update_if(
+            RULE_ATTEMPT_BUDGETS,
+            doc_id,
+            {"revision": revision},
+            {**fields, "revision": (revision or 0) + 1},
+        )
+        if outcome.won:
+            return outcome.document or {**current, **fields}
+    raise TransientStoreError(f"{what} contention")
+
+
+def note_deduplicated(store: StoreOps, rule_id: str, key: str, event_id: str) -> str | None:
+    """Remember ``event_id`` (recorded by ``rule_id``) as the key's newest deduplicated
+    firing; answer the holding run.
+
+    Called in the trigger transaction right after :func:`reserve_concurrency` answered
+    ``"deduplicated"``. A newer deduplicated event - from any rule sharing the key -
+    replaces an older one (coalescing: the holding run's successor handles the latest
+    state, never a stale one).
+    """
+    doc = _cas_budget(
+        store,
+        budget_id(key),
+        lambda _current: {"pending_event_id": event_id, "pending_rule_id": rule_id},
+        "deduplicated-event note",
+    )
+    return None if doc is None else doc.get("run_id")
+
+
+def release_concurrency(store: StoreOps, doc_id: str, run_id: str) -> tuple[str, str] | None:
+    """The holding run ``run_id`` ended: clear and answer the key's pending event, if any,
+    as ``(event_id, rule_id)`` - the rule that recorded it fires it.
+
+    Always writes the budget document while ``run_id`` still holds the key, even with no
+    pending event: a concurrent trigger transaction that read the run as active and is
+    about to note a deduplicated event then write-conflicts with this one instead of
+    committing an event nobody would fire (MongoDB snapshot isolation, write skew).
+    """
+    taken: list[tuple[str, str]] = []
+
+    def change(current: Document) -> dict[str, Any] | None:
+        taken.clear()
+        if current.get("run_id") != run_id:
+            return None  # another run already holds the key: it cleared the pending event
+        event, rule = current.get("pending_event_id"), current.get("pending_rule_id")
+        if event and rule:
+            taken.append((event, rule))
+        return {"pending_event_id": None, "pending_rule_id": None}
+
+    _cas_budget(store, doc_id, change, "concurrency release")
+    return taken[0] if taken else None

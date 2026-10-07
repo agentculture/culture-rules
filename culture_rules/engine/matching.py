@@ -52,6 +52,8 @@ from culture_rules.model.workflow import Workflow
 __all__ = [
     "BLOCKED_BY_PREDECESSOR",
     "CONDITION_FALSE",
+    "CONCURRENCY_KEY_UNRESOLVED",
+    "DEDUPLICATED",
     "DISABLED",
     "FIRE",
     "GROUP_LOST",
@@ -62,6 +64,7 @@ __all__ = [
     "SUPERSEDED_BY",
     "VARIABLES_UNSUPPORTED",
     "VARIABLE_UNDEFINED",
+    "ATTEMPT_BUDGET_EXHAUSTED",
     "Decision",
     "RuleOutcome",
     "RunFacts",
@@ -84,6 +87,14 @@ GROUP_LOST = "group_lost"
 BLOCKED_BY_PREDECESSOR = "blocked_by_predecessor"
 PREDECESSOR_FAILED = "predecessor_failed"
 """Final skip set by the node's sequencing: a ``must_after`` predecessor will not succeed."""
+DEDUPLICATED = "deduplicated"
+"""A firing dropped because a run with the same concurrency key is active."""
+ATTEMPT_BUDGET_EXHAUSTED = "attempt_budget_exhausted"
+"""A firing skipped because ``max_attempts`` runs were admitted for its concurrency key
+since the last reset (a human push or green checks)."""
+CONCURRENCY_KEY_UNRESOLVED = "concurrency_key_unresolved"
+"""A firing skipped because the rule's concurrency key does not resolve on the event
+(a missing or non-scalar value): fail closed, never fire without the protection."""
 REASONS = (
     FIRE,
     PAUSED,
@@ -95,6 +106,9 @@ REASONS = (
     GROUP_LOST,
     BLOCKED_BY_PREDECESSOR,
     PREDECESSOR_FAILED,
+    DEDUPLICATED,
+    ATTEMPT_BUDGET_EXHAUSTED,
+    CONCURRENCY_KEY_UNRESOLVED,
 )
 
 #: Run status that satisfies ``must_after`` and makes exports visible.
@@ -143,6 +157,9 @@ class Decision:
             GROUP_LOST: f"lost exclusive group {self.detail} to {who}",
             BLOCKED_BY_PREDECESSOR: f"waiting for predecessor {who}",
             PREDECESSOR_FAILED: f"predecessor did not succeed: {self.detail or who}",
+            DEDUPLICATED: "concurrency key active: run already exists",
+            ATTEMPT_BUDGET_EXHAUSTED: "attempt budget exhausted",
+            CONCURRENCY_KEY_UNRESOLVED: f"concurrency key unresolved: {self.detail}",
         }.get(self.reason, self.reason)
         if self.reason == CONDITION_FALSE and self.detail:
             text = f"{text} (condition error: {self.detail})"

@@ -623,13 +623,14 @@ def test_workflow_run_self_authored_is_false_for_bot():
     assert ev["envelope"]["data"]["self_authored"] is False
 
 
-def test_sync_self_authored_absent_for_human_author():
-    """Synchronize by a human user carries no self_authored key."""
+def test_sync_self_authored_false_for_human_author():
+    """Synchronize by a human user is tagged self_authored false explicitly (the attempt
+    budget resets only on an explicit false, never on an absent tag)."""
     s = make()
     b_sync = pr_body("synchronize")  # author is "alice"
     post(s, b_sync, hdrs(b_sync, delivery="d-human"))
     (ev,) = events(s)
-    assert "self_authored" not in ev["envelope"]["data"]
+    assert ev["envelope"]["data"]["self_authored"] is False
 
 
 def test_multiple_app_actors_selected_by_target_id():
