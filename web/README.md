@@ -22,6 +22,10 @@ recorded on the PR with a screenshot.
 - **Rules** (`/rules/:ruleId?`) is the 'Chosen — Rules' board, editable:
   - the rule list, with machine dots and enable switches (`POST
     /rules/{id}/enable|disable`, rolled back when refused);
+  - switching a rule off while it has runs going shows a non-modal
+    "Stop N current runs?" notice: Approve calls `POST
+    /rules/{id}/stop-runs` and reports how many stopped, Keep running
+    leaves them going (d17);
   - the focused rule as a relationship ghost → Trigger → Condition →
     Workflow → Action → `+`;
   - edit (`PUT`), delete (soft `DELETE`, with an Undo that calls

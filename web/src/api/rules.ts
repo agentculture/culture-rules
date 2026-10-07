@@ -1,5 +1,13 @@
 import { ApiError, listRuns, request } from "./client";
-import type { Ask, ItemList, Rule, RuleHistoryItem, RunSummary } from "./types";
+import type {
+  ActiveRun,
+  Ask,
+  ItemList,
+  Rule,
+  RuleHistoryItem,
+  RunSummary,
+  StopRunsResult,
+} from "./types";
 
 export type {
   Action,
@@ -22,7 +30,7 @@ export type {
 
 /** A rule as the API stores it (`supersedes` included). */
 export type RuleDoc = Rule;
-export type { Ask, RuleHistoryItem };
+export type { ActiveRun, Ask, RuleHistoryItem, StopRunsResult };
 
 const enc = encodeURIComponent;
 
@@ -34,16 +42,45 @@ function asRule(answer: unknown, fallback: RuleDoc): RuleDoc {
     : fallback;
 }
 
-export async function setRuleEnabled(rule: RuleDoc, enabled: boolean): Promise<RuleDoc> {
+/** What a toggle answers: the stored rule, and (on disable) the runs still going (d17). */
+export interface RuleToggle {
+  rule: RuleDoc;
+  activeRuns: ActiveRun[];
+  activeRunsTotal: number;
+}
+
+/**
+ * Split a disable answer: `active_runs` / `active_runs_total` are response-only
+ * (never stored), so they are taken off the rule before it goes back in the list.
+ */
+function splitActiveRuns(answer: unknown): { doc: unknown; runs: ActiveRun[]; total: number } {
+  if (!answer || typeof answer !== "object") return { doc: answer, runs: [], total: 0 };
+  const { active_runs, active_runs_total, ...doc } = answer as Record<string, unknown>;
+  const runs = Array.isArray(active_runs) ? (active_runs as ActiveRun[]) : [];
+  const total = typeof active_runs_total === "number" ? active_runs_total : runs.length;
+  return { doc, runs, total };
+}
+
+export async function setRuleEnabled(rule: RuleDoc, enabled: boolean): Promise<RuleToggle> {
   const answer = await request<unknown>(
     "POST",
     `/rules/${enc(rule.id)}/${enabled ? "enable" : "disable"}`,
   );
-  return asRule(answer, { ...rule, enabled });
+  const { doc, runs, total } = splitActiveRuns(answer);
+  return { rule: asRule(doc, { ...rule, enabled }), activeRuns: runs, activeRunsTotal: total };
+}
+
+/**
+ * `POST /rules/{id}/stop-runs` with `apply: true`: cancel every active run of
+ * a disabled rule (the 'Stop N current runs?' approval, d17).
+ */
+export async function stopRuleRuns(ruleId: string): Promise<StopRunsResult> {
+  return request<StopRunsResult>("POST", `/rules/${enc(ruleId)}/stop-runs`, { apply: true });
 }
 
 export async function updateRule(rule: RuleDoc): Promise<RuleDoc> {
-  return asRule(await request<unknown>("PUT", `/rules/${enc(rule.id)}`, rule), rule);
+  const { doc } = splitActiveRuns(await request<unknown>("PUT", `/rules/${enc(rule.id)}`, rule));
+  return asRule(doc, rule);
 }
 
 export async function createRule(rule: RuleDoc): Promise<RuleDoc> {

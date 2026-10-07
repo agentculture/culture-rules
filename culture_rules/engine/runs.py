@@ -200,10 +200,12 @@ __all__ = [
     "RUNS_COLLECTION",
     "RUN_COLLECTIONS",
     "SLEEPING",
+    "STOP_RUNS_LIMIT",
     "SUPERSEDED",
     "Containment",
     "Executor",
     "RunError",
+    "active_runs",
     "drained_machines",
     "due_steps",
     "ensure_collections",
@@ -546,6 +548,71 @@ class Containment:
                 after=res.document,
             )
         return res.document
+
+    def stop_rule_runs(
+        self, rule_id: str, identity: str, *, apply: bool = False, reason: str = ""
+    ) -> dict[str, Any]:
+        """Cancel every active run of a disabled rule (d17); a dry-run only lists them.
+
+        Stopping is offered only once the rule is off: a rule that is still live and enabled
+        is refused (``rule_enabled``). Each run goes through :meth:`cancel` (status
+        ``cancelled``, audited as ``runs.cancel``), so a stopped run never reaches a later
+        step, its action or any failure hand-back. The runs are read from the store, so a
+        run another node is executing is cancelled too. A run that finishes in between is
+        skipped, so calling this twice is a no-op the second time.
+        """
+        require_identity(identity)
+        rule_doc = self._store.get(RULES_COLLECTION, rule_id)
+        if rule_doc is None:
+            raise RunError("rule_not_found", f"rule {rule_id!r} does not exist")
+        if not rule_doc.get("deleted_at") and rule_doc.get("enabled") is not False:
+            raise RunError(
+                "rule_enabled",
+                f"rule {rule_id!r} is enabled; disable it before stopping its runs",
+            )
+        listed, total = active_runs(self._store, rule_id, limit=None)
+        cancelled: list[str] = []
+        if apply:
+            why = reason or f"rule disabled: stopped by {identity}"
+            for item in listed:
+                try:
+                    self.cancel(item["id"], identity, why)
+                except RunError as exc:
+                    if exc.code not in ("run_finished", "run_not_found"):
+                        raise
+                    continue  # finished (or purged) meanwhile: nothing left to stop
+                cancelled.append(item["id"])
+        return {
+            "rule_id": rule_id,
+            "applied": apply,
+            "runs": listed[:STOP_RUNS_LIMIT],
+            "total": total,
+            "cancelled": cancelled,
+        }
+
+
+STOP_RUNS_LIMIT = 50
+"""How many active runs a disable response or a stop-runs answer lists (``total`` counts all)."""
+
+
+def active_runs(
+    store: StoragePort, rule_id: str, *, limit: int | None = STOP_RUNS_LIMIT
+) -> tuple[list[dict[str, Any]], int]:
+    """A rule's non-terminal runs, oldest first, as ``{id, status, started_at}``; and the count.
+
+    Every run that is not in :data:`RUN_DONE` is active (today that is ``running``). Reads the
+    store, so runs on every node are included.
+    """
+    docs = [
+        d
+        for d in store.find(RUNS_COLLECTION, {"rule_id": rule_id})
+        if d.get("status") not in RUN_DONE
+    ]
+    docs.sort(key=lambda d: (d.get("created_at") or "", d["id"]))
+    items = [
+        {"id": d["id"], "status": d.get("status"), "started_at": d.get("created_at")} for d in docs
+    ]
+    return (items if limit is None else items[:limit]), len(items)
 
 
 _MUTABLE = ("status", "rev", "steps", "history", "outputs", "error", "finished_at")

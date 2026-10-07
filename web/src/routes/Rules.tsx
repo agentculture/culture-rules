@@ -9,6 +9,7 @@ import { machineColors } from "../culture-design/chart";
 import { AddStageButton, Stage, StageArrow, machineStyle, type StageKind } from "../culture-design/stages";
 import { AddStageForm, AsksPanel, NewRuleForm, RuleEditForm, type StageChoice } from "../rules/Forms";
 import { RuleList } from "../rules/RuleList";
+import { StopRunsNotice } from "../rules/StopRunsNotice";
 import { RelationCard, RelationSlots } from "../rules/Relationships";
 import {
   canRelate,
@@ -372,7 +373,8 @@ function slotFor(slots: Map<string, number>, rule: RuleDoc): number | null {
  * the rule list on the left, the focused rule drawn as a vertical stage flow
  * in the middle (relationship ghost → trigger → condition → workflow →
  * action → `+`), its last runs on the right (runs are contextual, never a
- * tab of their own). Toggle, edit, delete (with undo), relationship editing
+ * tab of their own). Toggle (a disable with runs still going asks 'Stop N
+ * current runs?', d17), edit, delete (with undo), relationship editing
  * by direct manipulation, creation from "New rule" ("When does this happen?") and
  * answering pending human asks all happen here.
  */
@@ -492,6 +494,9 @@ export function Rules() {
               ×
             </button>
           </output>
+        ) : null}
+        {data.stopOffer ? (
+          <StopRunsNotice offer={data.stopOffer} onApprove={() => void data.stopRuns()} onDismiss={data.dismissStop} />
         ) : null}
         {flow}
       </main>

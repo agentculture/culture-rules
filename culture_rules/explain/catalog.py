@@ -252,6 +252,33 @@ def _noun_entry(noun: str, verbs: list) -> str:
     )
 
 
+_STOP_RUNS_NOTE = """\
+## Disabling a rule with current runs (d17)
+
+Disabling a rule stops it firing; it never stops the runs already going.
+`rules disable` (and a `rules update` that sets `enabled: false`) answers the
+rule plus `active_runs` (each `{id, status, started_at}`, at most 50, oldest first)
+and `active_runs_total`, and adds a hint when there are any. Then either:
+
+- **stop them**: `culture-rules rules stop-runs <id> --apply` cancels every
+  active run of the rule (status `cancelled`, reason
+  `rule disabled: stopped by <you>`), on whichever node it runs. A cancelled run
+  pushes nothing more and has no failure hand-back. Without `--apply` it lists
+  what it would cancel. It is refused (`rule_enabled`, exit 1) while the rule is
+  still enabled, and a second call is a no-op;
+- **leave them**: they keep running, and a push step still refuses with
+  `rule_disabled` because the push checks the live rule.
+
+The editor asks the same question: "Stop N current runs?".
+"""
+
+_VERB_NOTES = {
+    ("rules", "disable"): _STOP_RUNS_NOTE,
+    ("rules", "update"): _STOP_RUNS_NOTE,
+    ("rules", "stop-runs"): _STOP_RUNS_NOTE,
+}
+
+
 def _verb_entry(v) -> str:
     params = "\n".join(
         f"- `{p.name}` ({p.type}{', required' if p.required else ''}) — {p.help}" for p in v.params
@@ -269,6 +296,7 @@ def _verb_entry(v) -> str:
         f"# culture-rules {v.noun} {v.name}\n\n{v.summary}.\n\n{mode} "
         f"Required role: `{v.role}`.\n\n## Parameters\n\n{params or '(none)'}\n\n"
         f"## Usage\n\n    culture-rules {v.noun} {v.name} --json\n"
+        + (f"\n{_VERB_NOTES[v.path]}" if v.path in _VERB_NOTES else "")
     )
 
 

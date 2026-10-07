@@ -10,6 +10,7 @@ import {
   listWaitingRuns,
   restoreRule,
   setRuleEnabled,
+  stopRuleRuns,
   updateRule,
   type Ask,
   type RuleDoc,
@@ -31,6 +32,17 @@ function describe(err: unknown): string {
   // The nested message names the variable or the nodes at fault; it rides after the plain words.
   const detail = typeof hit === "string" ? "" : ` (${hit.message})`;
   return `${guidanceFor(code).message}${detail}`;
+}
+
+/**
+ * The 'Stop N current runs?' offer after a disable (d17): `ask` waits for the
+ * operator, `busy` is the stop in flight, `done` reports how many stopped.
+ */
+export interface StopOffer {
+  rule: RuleDoc;
+  total: number;
+  phase: "ask" | "busy" | "done";
+  stopped?: number;
 }
 
 interface Loaded {
@@ -121,17 +133,36 @@ export function useRulesData(routeRuleId: string | undefined) {
     }
   }, []);
 
+  // d17: disabling a rule with runs still going offers to stop them (never automatically).
+  const [stopOffer, setStopOffer] = useState<StopOffer | null>(null);
+
   const { pending: togglePending, run: runToggle } = usePending();
   const toggle = useCallback(
     (rule: RuleDoc) =>
       runToggle(rule.id, async () => {
         const next = rule.enabled === false;
         replace({ ...rule, enabled: next }); // optimistic; rolled back below on refusal
-        const doc = await attempt(() => setRuleEnabled(rule, next));
-        replace(doc ?? rule);
+        const answer = await attempt(() => setRuleEnabled(rule, next));
+        replace(answer?.rule ?? rule);
+        if (answer && next) setStopOffer((o) => (o?.rule.id === rule.id ? null : o));
+        if (answer && !next && answer.activeRunsTotal > 0) {
+          setStopOffer({ rule: answer.rule, total: answer.activeRunsTotal, phase: "ask" });
+        }
       }),
     [attempt, replace, runToggle],
   );
+
+  /** Approve the offer: cancel the rule's active runs, then say how many stopped. */
+  const stopRuns = useCallback(async () => {
+    const offer = stopOffer;
+    if (offer?.phase !== "ask") return;
+    setStopOffer({ ...offer, phase: "busy" });
+    const done = await attempt(() => stopRuleRuns(offer.rule.id));
+    setStopOffer(done ? { ...offer, phase: "done", stopped: done.cancelled.length } : { ...offer, phase: "ask" });
+  }, [attempt, stopOffer]);
+
+  /** Dismiss the offer (or its report): the runs, if any, keep going. */
+  const dismissStop = useCallback(() => setStopOffer(null), []);
 
   const save = useCallback(
     async (rule: RuleDoc): Promise<boolean> => {
@@ -216,6 +247,9 @@ export function useRulesData(routeRuleId: string | undefined) {
     setNotice,
     toggle,
     togglePending,
+    stopOffer,
+    stopRuns,
+    dismissStop,
     save,
     create,
     remove,

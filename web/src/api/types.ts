@@ -161,6 +161,28 @@ export interface Machine {
 }
 
 /** `GET /runs` items (server/app.py `_run_summary`). */
+/**
+ * One active (non-terminal) run of a rule, as `POST /rules/{id}/disable`
+ * answers it in `active_runs` and `POST /rules/{id}/stop-runs` lists it (d17).
+ */
+export interface ActiveRun {
+  id: string;
+  status: string | null;
+  started_at: string | null;
+}
+
+/** `POST /rules/{id}/stop-runs` — the StopRunsResult schema in api/openapi.json. */
+export interface StopRunsResult {
+  rule_id: string;
+  applied: boolean;
+  /** The active runs, oldest first (at most 50). */
+  runs: ActiveRun[];
+  /** How many runs were active. */
+  total: number;
+  /** The ids this call cancelled; empty in a dry-run. */
+  cancelled: string[];
+}
+
 export interface RunSummary {
   id: string;
   /**
