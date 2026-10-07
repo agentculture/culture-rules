@@ -7,6 +7,7 @@ No real network: the bridge is an injected transport, or a loopback stdlib serve
 from __future__ import annotations
 
 import json
+import ssl
 import subprocess
 import sys
 import threading
@@ -248,6 +249,20 @@ def test_restart_before_the_callback_then_the_callback_server_delivers(store, cl
     ex2.run_until_idle()
     assert ex2.run(run_id)["status"] == "succeeded"
     assert store.get(BRIDGE_INVOCATIONS, doc["id"])["pending_delivery"] is False
+
+
+def test_callback_server_url_reports_the_bound_scheme(store):
+    plain = BridgeCallbackServer(store)
+    tls = BridgeCallbackServer(store, ssl_context=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER))
+    try:
+        assert plain.url.startswith("http://127.0.0.1:")
+        assert tls.url.startswith("https://127.0.0.1:")
+        assert isinstance(tls._server.socket, ssl.SSLSocket)  # TLS is bound, not just labeled
+        plain.start()
+        tls.start()
+    finally:
+        plain.close()
+        tls.close()
 
 
 # ---- acceptance: the request carries repo, head_branch and head_sha from the step inputs ----

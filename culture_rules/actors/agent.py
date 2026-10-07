@@ -62,6 +62,7 @@ import hmac
 import json
 import re
 import secrets
+import ssl
 import subprocess  # nosec B404 - argv-list only, never a shell
 import threading
 import urllib.error
@@ -840,12 +841,14 @@ BRIDGE_EVENT_STATUS = {  # what a receiver answers for each record_bridge_event 
 
 
 class BridgeCallbackServer:
-    """A stdlib HTTP endpoint for bridge callbacks (``POST`` :data:`BRIDGE_CALLBACK_PATH`).
+    """A stdlib endpoint for bridge callbacks (``POST`` :data:`BRIDGE_CALLBACK_PATH`).
 
     Each event goes through :func:`record_bridge_event`; a recorded terminal event is
     delivered at once when an ``executor`` is given (else by the next
     :func:`redeliver_bridge`). Bind it where the bridges can reach it and set the bridge
-    actors' ``callback_url`` to :attr:`url` (or the address in front of it).
+    actors' ``callback_url`` to :attr:`url` (or the address in front of it). Pass an
+    ``ssl_context`` to serve the callbacks over HTTPS - the callback token travels in the
+    ``Authorization`` header, so do not expose the plain-HTTP server past loopback.
     """
 
     def __init__(
@@ -856,6 +859,7 @@ class BridgeCallbackServer:
         host: str = "127.0.0.1",
         port: int = 0,
         clock: Callable[[], datetime] | None = None,
+        ssl_context: ssl.SSLContext | None = None,
     ) -> None:
         self._store, self._executor, self._clock = store, executor, clock
         outer = self
@@ -887,12 +891,15 @@ class BridgeCallbackServer:
                 return self.rfile.read(length)
 
         self._server = ThreadingHTTPServer((host, port), Handler)
+        if ssl_context is not None:
+            self._server.socket = ssl_context.wrap_socket(self._server.socket, server_side=True)
         self._thread: threading.Thread | None = None
 
     @property
     def url(self) -> str:
         host, port = self._server.server_address[:2]
-        return f"http://{host}:{port}"
+        scheme = "https" if isinstance(self._server.socket, ssl.SSLSocket) else "http"
+        return f"{scheme}://{host}:{port}"
 
     def handle(self, path: str, authorization: str, raw: bytes | None) -> tuple[int, dict]:
         """One callback request -> ``(http status, body)`` (also usable without a socket)."""

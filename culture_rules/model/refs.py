@@ -93,7 +93,7 @@ _TEMPLATE = re.compile(
     r"\{\{\s*((?:workflow|trigger|rules)(?:\.[^.\s{}]+)+"
     r"|run\.id|run\.error\.(?:step|code|message))\s*\}\}"
 )
-_RUN_ERROR = re.compile(r"^run\.error(?:\.|$)|\{\{\s*run\.error\b")
+_RUN_ERROR = re.compile(r"(?:^run\.error(?:\.|$)|\{\{\s*run\.error\b)")
 _INPUT_PATH = re.compile(r"^inputs(?:\.[^.\s{}]+)+$")
 _STEP_TEMPLATE = re.compile(r"\{\{\s*((?:workflow|trigger|rules|inputs)(?:\.[^.\s{}]+)+)\s*\}\}")
 
