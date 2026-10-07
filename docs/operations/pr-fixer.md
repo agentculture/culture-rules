@@ -359,6 +359,12 @@ the same moment both land. An item already present (for `add`) or absent (for
 `remove`) writes no new version. Every change is a new version naming the
 caller, as with `variables set`.
 
+An added item must be of a type the list already holds, judged per item, so
+mixed lists and lists holding `null` work. An empty list takes any scalar. A
+removed item may be any scalar. The CLI reads `ITEM` as text unless the list
+holds numbers, booleans or `null` and the text parses as one. `--json-item`
+takes the item as JSON instead, so `'"123"'` adds the string `123`.
+
 *Planned* (guildmaster#138): guildmaster adds each repository to
 `fixer_repos` when it provisions it. Whether a repository gets the fixer is
 chosen at provisioning time, like public or private.

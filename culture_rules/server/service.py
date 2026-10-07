@@ -13,6 +13,7 @@ cached in the process: each call reads the store.
 from __future__ import annotations
 
 import json
+import math
 import uuid
 from collections.abc import Callable, Iterable, Mapping
 from datetime import UTC, datetime
@@ -585,16 +586,19 @@ def _same_item(a: Any, b: Any) -> bool:
     return _item_kind(a) == _item_kind(b) and a == b
 
 
-def _check_item(value: list, item: Any) -> None:
-    """``item`` must be a JSON scalar of the list's item type (any scalar for an empty list)."""
+def _check_item(value: list, item: Any, *, add: bool) -> None:
+    """``item`` must be a finite JSON scalar. An added one must also be of a type the list
+    already holds - each item's own type, so mixed and null-holding lists work (any scalar
+    for an empty list). A removed one may be any scalar: one the list does not hold is
+    simply absent (no new version)."""
     kind = _item_kind(item)
-    if kind == "other":
+    if kind == "other" or (isinstance(item, float) and not math.isfinite(item)):
         raise Invalid(
             "an item is a JSON scalar",
-            [{"path": "item", "code": "invalid_item", "message": "not a JSON scalar"}],
+            [{"path": "item", "code": "invalid_item", "message": "not a finite JSON scalar"}],
         )
     kinds = {_item_kind(v) for v in value}
-    if kinds and kind not in kinds:
+    if add and kinds and kind not in kinds:
         expected = " or ".join(sorted(kinds))
         raise Invalid(
             f"the list holds {expected} items, not {kind}",
@@ -665,7 +669,7 @@ class Variables:
                     f"variable {name!r} is not a list",
                     [{"path": "name", "code": "not_a_list", "message": "the value is a scalar"}],
                 )
-            _check_item(value, item)
+            _check_item(value, item, add=add)
             present = any(_same_item(v, item) for v in value)
             if add == present:
                 return {"changed": False, "variable": current}

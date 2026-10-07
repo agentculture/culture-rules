@@ -212,3 +212,82 @@ def test_cli_item_is_a_string_unless_it_parses_as_a_json_scalar(store, wire, cap
     assert store.get_variable("nums")["value"] == [1, 2]
     code, _ = cli(capsys, "add", "nums", "abc", "--apply")
     assert code == 1  # a string into a number list
+
+
+# ------------------------------------------------------------------ mixed and null lists (Codex P2)
+
+
+@pytest.mark.parametrize(
+    "value, argv, expected",
+    [
+        ([True, 2], ("remove", "true"), [2]),
+        ([1, None], ("remove", "1"), [None]),
+        ([None], ("remove", "null"), []),
+        ([1, None], ("remove", "null"), [1]),
+        (["a"], ("add", "123"), ["a", "123"]),  # a string list keeps the text
+        ([1, "a"], ("add", "123"), [1, "a", 123]),  # a number is present: it parses
+        ([1, "a"], ("add", "123", "--json-item"), [1, "a", 123]),
+        ([1, "a"], ("add", '"123"', "--json-item"), [1, "a", "123"]),  # typed form: a string
+        ([1, "a"], ("add", "b"), [1, "a", "b"]),
+        ([], ("add", "x/a"), ["x/a"]),
+        ([], ("add", "true", "--json-item"), [True]),
+    ],
+)
+def test_cli_coerces_against_each_item_type_in_the_list(
+    store, wire, capsys, value, argv, expected  # noqa: F811
+):
+    store.put_variable("mix", value, updated_by="seed")
+    op, item, *rest = argv
+    code, out = cli(capsys, op, "mix", item, *rest, "--apply")
+    assert code == 0, out
+    assert store.get_variable("mix")["value"] == expected
+
+
+@pytest.mark.parametrize(
+    "value, argv",
+    [
+        ([1, 2], ("add", "abc")),
+        ([True], ("add", "1")),
+        ([None], ("add", "x")),
+        (["a"], ("add", "x", "--json-item")),  # not JSON
+        (["a"], ("add", "[1]", "--json-item")),  # not a scalar
+        ([1], ("add", "NaN", "--json-item")),  # not finite
+    ],
+)
+def test_cli_refuses_an_item_of_a_type_the_list_does_not_hold(
+    store, wire, capsys, value, argv  # noqa: F811
+):
+    store.put_variable("mix", value, updated_by="seed")
+    op, item, *rest = argv
+    code, _ = cli(capsys, op, "mix", item, *rest, "--apply")
+    assert code == 1
+    assert store.get_variable("mix")["version"] == 1
+
+
+def test_cli_dry_run_would_change_is_type_aware(store, wire, capsys):  # noqa: F811
+    store.put_variable("mix", [True], updated_by="seed")
+    _, out = cli(capsys, "remove", "mix", "true")
+    assert out["would_change"] is True
+    store.put_variable("nums", [1], updated_by="seed")
+    _, out = cli(capsys, "add", "nums", "1")
+    assert out["would_change"] is False
+
+
+def test_service_accepts_mixed_and_null_lists_and_refuses_new_types():
+    s = MemoryStore()
+    s.put_variable("mix", [1, "a", None], updated_by="seed")
+    v = Variables(s)
+    assert v.add_item("mix", "b", "admin")["variable"]["value"] == [1, "a", None, "b"]
+    assert v.remove_item("mix", None, "admin")["variable"]["value"] == [1, "a", "b"]
+    assert v.remove_item("mix", True, "admin")["changed"] is False  # never matches the 1
+    with pytest.raises(Invalid) as err:
+        v.add_item("mix", True, "admin")
+    assert err.value.errors[0]["code"] == "item_type_mismatch"
+
+
+def test_http_takes_a_null_item(world):
+    s, client, hdr = world
+    s.put_variable("nul", [None, 1], updated_by="seed")
+    r = client.post("/variables/nul/items/remove", json={"item": None}, headers=hdr["admin"])
+    assert r.status_code == 200, r.text
+    assert r.json()["variable"]["value"] == [1]
