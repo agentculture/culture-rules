@@ -278,6 +278,20 @@ test.describe("Workflows tab", () => {
     await expect.poll(async () => parseInt((await level.textContent())!.replace(/\D/g, ""), 10)).toBeLessThan(parseInt(fitted!.replace(/\D/g, ""), 10));
   });
 
+  test("Fit after narrowing the window fits the new width (d19)", async ({ page }) => {
+    await open(page);
+    const scroller = page.locator(".wf-canvas__scroll");
+    const overflow = () => scroller.evaluate((el) => el.scrollWidth - el.clientWidth);
+    const fit = page.getByRole("button", { name: "Fit to width" });
+    await fit.click();
+    await expect.poll(overflow).toBeLessThanOrEqual(1);
+    const wide = await page.getByTestId("zoom-level").textContent();
+    await page.setViewportSize({ width: 1000, height: 880 });
+    await fit.click();
+    await expect(page.getByTestId("zoom-level")).not.toHaveText(wide!);
+    await expect.poll(overflow).toBeLessThanOrEqual(1);
+  });
+
   test("(i) on the head and the list row: mouse and keyboard, the API's lines, focus return (d19)", async ({ page }) => {
     await open(page);
     const head = page.locator(".wf-head");

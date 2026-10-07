@@ -403,3 +403,16 @@ def test_a_single_loop_child_keeps_its_own_body():
         "1 outer — for each item (≤2):",
         "  1.1 inner — for each item (≤4): code `make`",
     ]
+
+
+@pytest.mark.parametrize(
+    "stored,line",
+    [
+        ({"version": 2, "steps": [_step("logic")]}, "Run workflow w v1 (version unavailable)"),
+        ({"steps": [_step("logic")]}, "Run workflow w v1 (1 step)"),  # no version field means 1
+        ({"version": 1, "steps": [_step("logic")]}, "Run workflow w v1 (1 step)"),
+    ],
+)
+def test_a_pinned_version_is_described_only_when_it_is_the_stored_one(stored, line):
+    rule = {"trigger": {"kind": "manual"}, "workflow": {"id": "w", "version": 1}}
+    assert render(describe_rule(rule, stored))[1] == line

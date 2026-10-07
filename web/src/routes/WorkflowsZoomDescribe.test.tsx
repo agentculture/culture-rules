@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -90,6 +90,50 @@ describe("Workflows: zoom and the (i) description (d19)", () => {
     for (let i = 0; i < 10; i++) fireEvent.click(zoomOut);
     expect(level()).toHaveTextContent("25%");
     expect(zoomOut).toBeDisabled();
+  });
+
+  it("Fit uses the canvas's current width after a resize (not the width at mount)", async () => {
+    // A ResizeObserver whose callbacks the test can fire again after changing a width.
+    const observers: { cb: ResizeObserverCallback; targets: Element[] }[] = [];
+    class RecordingObserver extends MeasuringResizeObserver {
+      private readonly entry: { cb: ResizeObserverCallback; targets: Element[] };
+      constructor(cb: ResizeObserverCallback) {
+        super(cb);
+        this.entry = { cb, targets: [] };
+        observers.push(this.entry);
+      }
+      observe(target: Element) {
+        this.entry.targets.push(target);
+        super.observe(target);
+      }
+    }
+    vi.stubGlobal("ResizeObserver", RecordingObserver);
+    let canvasWidth = 4000;
+    const widthSpy = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      return this.classList.contains("wf-canvas") ? canvasWidth : 0;
+    });
+    renderWorkflows();
+    await loaded();
+    const canvas = screen.getByRole("region", { name: "Workflow canvas" });
+    const fit = screen.getByRole("button", { name: "Fit to width" });
+    await userEvent.click(fit);
+    expect(level()).toHaveTextContent("100%"); // wide canvas: the graph fits at 100%
+    // Narrow the window: the canvas shrinks and its observer reports it.
+    canvasWidth = 700;
+    act(() => {
+      for (const o of observers) {
+        if (o.targets.includes(canvas)) o.cb([{ target: canvas } as unknown as ResizeObserverEntry], {} as ResizeObserver);
+      }
+    });
+    await userEvent.click(fit);
+    const zoom = parseInt(level().textContent!.replace(/\D/g, ""), 10) / 100;
+    expect(zoom).toBeLessThan(1);
+    // The fitted graph (plus its 20px margins) is no wider than the narrowed canvas.
+    const graph = document.querySelector<HTMLElement>(".wf-canvas__graph")!;
+    expect(parseFloat(graph.style.width)).toBeLessThanOrEqual(700);
+    widthSpy.mockRestore();
   });
 
   it("+ / - / 0 zoom while focus is in the canvas, but not while typing", async () => {

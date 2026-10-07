@@ -267,6 +267,10 @@ def _workflow_line(ref: Mapping[str, Any], workflow: Any) -> str:
     wf = _plain(workflow)
     if not wf:
         return text + " (not found)"
+    if ref.get("version") is not None and wf.get("version", 1) != ref["version"]:
+        # the engine refuses this pairing (workflow_version_unavailable): never describe
+        # another version under the pinned one's name
+        return text + " (version unavailable)"
     steps = wf.get("steps") if isinstance(wf.get("steps"), list) else []
     text += f" ({len(steps)} step{'' if len(steps) == 1 else 's'}"
     return text + (", disabled)" if wf.get("enabled") is False else ")")
@@ -276,7 +280,8 @@ def describe_rule(rule: Any, workflow: Any = None) -> list[dict[str, Any]]:
     """Entries describing ``rule`` (a :class:`Rule` or its dict form).
 
     ``workflow`` (the referenced workflow, optional) adds its step count; pass ``{}`` for a
-    workflow that does not exist (``not found``).
+    workflow that does not exist (``not found``). A rule pinned to a version other than the
+    stored one reads ``version unavailable``, as the engine refuses to run it.
     """
     r = _plain(rule)
     out = [_entry("When", trigger_text(r.get("trigger")))]

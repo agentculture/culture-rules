@@ -276,19 +276,22 @@ function CanvasInner(props: Readonly<CanvasProps>) {
   // At the zoom, centred horizontally when it fits, toolbar room on top. A graph wider
   // than the canvas (beside the workflow list) scrolls sideways, as the design
   // board's canvas does (`overflow-x: auto`), instead of being clipped.
+  // The canvas's width, kept current: read when the section mounts, then from a
+  // ResizeObserver, so a narrowed window or a turned phone re-centres and re-fits.
   const [width, setWidth] = useState(0);
-  const containerRef = useCallback((el: HTMLElement | null) => {
-    if (el) setWidth(el.clientWidth);
-  }, []);
   // One stable ref for the section: an inline ref is a new function every render, so React
   // re-runs it (null, then the element) on every commit, and setWidth inside it can loop.
-  const sectionCallbackRef = useCallback(
-    (el: HTMLElement | null) => {
-      sectionRef.current = el;
-      containerRef(el);
-    },
-    [containerRef],
-  );
+  const sectionCallbackRef = useCallback((el: HTMLElement | null) => {
+    sectionRef.current = el;
+    if (el) setWidth(el.clientWidth);
+  }, []);
+  useEffect(() => {
+    const section = sectionRef.current;
+    if (!section || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => setWidth(section.clientWidth));
+    observer.observe(section);
+    return () => observer.disconnect();
+  }, []);
   const flowWidth = Math.max(width, graphWidth + 2 * EDGE_ROOM);
   useEffect(() => {
     const graph = (bounds.maxX - bounds.minX) * zoom;
@@ -308,7 +311,9 @@ function CanvasInner(props: Readonly<CanvasProps>) {
     (to: "in" | "out" | "fit") => {
       animateNext.current = true;
       setZoom((z) => {
-        if (to === "fit") return fitZoom(bounds.maxX - bounds.minX, width, EDGE_ROOM);
+        // the width now, not the last one rendered: a resize may not have reached state yet
+        const now = sectionRef.current?.clientWidth || width;
+        if (to === "fit") return fitZoom(bounds.maxX - bounds.minX, now, EDGE_ROOM);
         return stepZoom(z, to === "in" ? 1 : -1);
       });
     },

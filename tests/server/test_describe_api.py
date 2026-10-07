@@ -73,3 +73,11 @@ def test_unknown_id_is_404(viewer, path):
     r = client.get(path)
     assert r.status_code == 404
     assert r.json()["error"]["code"] == "not_found"
+
+
+def test_rule_pinned_to_another_workflow_version_says_unavailable(viewer):
+    store, client = viewer
+    rule = store.get("rules", "pr-fixer-checks")
+    store.put("rules", {**rule, "workflow": {**rule["workflow"], "version": 7}})
+    lines = client.get("/rules/pr-fixer-checks/describe").json()["lines"]
+    assert "Run workflow pr-fixer v7 (version unavailable)" in lines
