@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.1] - 2026-10-07
+
+### Added
+
+- `culture.yaml` declares the PR fixer test gate (`uv sync`, then `uv run pytest -n auto`). The gate is read from a PR's base commit, so it must be on `main` before the fixer can push to culture-rules PRs.
+
 ## [0.12.0] - 2026-10-05
 
 ### Added
