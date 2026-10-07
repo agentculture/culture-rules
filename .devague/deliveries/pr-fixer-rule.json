@@ -2,7 +2,7 @@
   "plan_slug": "pr-fixer-rule",
   "schema_version": 2,
   "created": "2026-10-06T08:44:59Z",
-  "updated": "2026-10-07T01:11:16Z",
+  "updated": "2026-10-07T05:12:29Z",
   "deviations": [
     {
       "id": "d1",
@@ -210,6 +210,33 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 14
+    },
+    {
+      "id": "d15",
+      "what": "add a code builtin github.threads (lists unresolved review threads via the App, keeps only vars.trusted_authors, outputs them with numeric reply comment ids) feeding the agent's threads input and the reply loop; the reply loop answers only threads from that list",
+      "task_ref": "t17",
+      "reason": "the engine had no way to list or filter review threads, so spec honesty 'an untrusted thread is never handed to the agent' was enforced only by the agent; bridge thread ids are not REST comment ids",
+      "affects": [
+        "h1",
+        "c36"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 15
+    },
+    {
+      "id": "d16",
+      "what": "add an optional rule field on_failure (an action like the rule action, may reference run.id and the failing step's error) run when the workflow fails, not when it is superseded; the fixer posts a hand-back comment with the run link",
+      "task_ref": "t17",
+      "reason": "the engine had no on-failure action, so guard/test failures and no_gate repos posted nothing and acceptance criterion 4 (every run's final comment links the run) held for successful runs only",
+      "affects": [
+        "h30"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 16
     }
   ],
   "evidence": [],

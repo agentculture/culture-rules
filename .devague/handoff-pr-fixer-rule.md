@@ -21,7 +21,7 @@ final PR.
   `devague plan show`, `devague plan waves --json` gives every brief verbatim).
 - Split (gate 2): `docs/plans/2026-10-06-pr-fixer-rule-split.md` (hand-added
   "Review gates" section, amended by d6).
-- Deviations d1-d14: `devague deviate --list`. Risks r1-r13: `devague plan show`.
+- Deviations d1-d16: `devague deviate --list`. Risks r1-r16: `devague plan show`.
 - Evidence log for /validate-delivery: `.devague/evidence-log-pr-fixer.md`.
 - Ops recipe and gate repo list: `docs/operations/pr-fixer.md`.
 
@@ -50,7 +50,8 @@ d8 no Codex on spark2; d9 Codex is the reviewer again; d10 t13's `retry_until`
 `carry`, `github.push` `gate_verdict`, BuiltinCodePort; d11 Codex preferred over Qwen
 as implementer (Qwen fallback on `cortex-spark2` only); d12 built-in `action` code
 step; d13 four fixer rules + global concurrency key; d14 base_sha everywhere + PR
-comment enrichment + checks_settled base_sha.
+comment enrichment + checks_settled base_sha; d15 `github.threads` builtin (trusted-only
+threads to the agent and replies); d16 rule `on_failure` action (hand-back comment).
 
 ## Workforce rules in force
 
@@ -87,10 +88,11 @@ last full suite 2669 passed, 1 skipped.
 | t11 concurrency key + budget | Branch `rules/pr-fixer-t11` at `e10202c` (round 2 + d13 global key, Opus-built on Codex WIP); suite 2721; WAITING for Codex review (06:13), then merge |
 | t17a built-in action step (d12) | Branch `rules/pr-fixer-t17a` at `e16e4a3` (Opus); suite 2700; WAITING for Codex review; likely small conflict with t11 in model/validate.py |
 | t17b PR facts (d14) | Branch `rules/pr-fixer-t17b` at `e2507f5` (Opus, on top of t11); suite 2733; lookup failure stores the comment with `pr_enriched: false` (fails closed); WAITING for Codex review |
-| t17 fixer rule + workflow as data | Main agent; worktree `pr-fixer-t17` exists (empty); needs t11 + t17a + t17b merged first |
+| t17 fixer rule + workflow as data | Opus subagent; branch `rules/pr-fixer-t17` at `a6346e2` on a PROVISIONAL local merge of t17b+t17a (rebase onto the real merges); suite 2822; JSON bundle in docs/rules/pr-fixer/, seed-variables.sh, `run.id` ref namespace. Same subagent now building d15 (`github.threads` builtin) and d16 (rule `on_failure`); then Codex review |
 | t20-t24 | Not started |
 
-Open risks worth carrying: r14 t12's 503-on-arm-failure relies on GitHub redelivery, which is not automatic (fix: recover from stored events in the settle tick); r9 intermittent test, r10 variable history doc size, r11
+Open risks worth carrying: r16 push on spark2 needs the App key there (t20); r15 agent can still
+read untrusted threads; r14 t12's 503-on-arm-failure relies on GitHub redelivery, which is not automatic (fix: recover from stored events in the settle tick); r9 intermittent test, r10 variable history doc size, r11
 bridge token visible to agent, r12 permissionless public issue creation by the
 fixer token, r13 dedup vs must_after chaining.
 

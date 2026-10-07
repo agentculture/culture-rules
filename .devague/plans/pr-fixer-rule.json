@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-10-06T04:46:38Z",
-  "updated": "2026-10-07T01:18:02Z",
+  "updated": "2026-10-07T05:12:29Z",
   "targets": [
     {
       "id": "c1",
@@ -1011,6 +1011,22 @@
       "text": "t12 answers 503 when arming a settle record fails, relying on GitHub to redeliver; GitHub does NOT redeliver failed webhook deliveries automatically, so that SHA's settle can be lost. Fix: have the node's settle tick also arm records from stored check-completion events that have none (recover from the events collection), instead of relying on redelivery. Found by the d14 agent.",
       "kind": "follow_up",
       "task_id": "t12",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r15",
+      "text": "the fixer agent can still read every PR thread with its read-only GitHub token, so the d15 thread filter stops untrusted threads from being handed or answered, not from being read",
+      "kind": "follow_up",
+      "task_id": "t17",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r16",
+      "text": "github.push runs on spark2, so spark2's node needs the App private key (RULES_GITHUB_APP_PRIVATE_KEY) in the spark2 user's grant store, next to the fixer account",
+      "kind": "unknown_nonblocking",
+      "task_id": "t20",
       "resolved": false,
       "resolution": ""
     }
