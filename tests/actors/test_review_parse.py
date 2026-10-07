@@ -408,3 +408,35 @@ def test_r2_5_two_verdict_steps_writing_the_same_try_fail_closed():
 def _fields(**over):
     doc = {k: v for k, v in record(**over).items() if k not in ("id", "run_id")}
     return doc
+
+
+# --------------------------------------------------------------------------- round 3
+
+
+def test_r3_3_an_identical_replay_of_a_verdict_is_not_a_conflict():
+    # a crash between recording and the step completing replays the same write
+    store = MemoryStore()
+    put(store, record(), iteration=1, attempt=1)
+    put(store, record(), iteration=1, attempt=1)
+    assert review_refusal(store, "run-1", SHA, **TARGET) is None
+
+
+def test_r3_4_a_clash_before_any_pointer_exists_is_still_a_conflict():
+    from culture_rules.actors.review import REVIEWS_COLLECTION
+
+    store = MemoryStore()
+    fields = {k: v for k, v in record().items() if k not in ("id", "run_id")}
+    fields["step"] = "fix[1]/verdict"
+    # writer A recorded its approval and paused before creating the pointer
+    store.insert(
+        REVIEWS_COLLECTION,
+        {**fields, "id": "run-1:fix[1]/verdict:1", "run_id": "run-1", "iteration": 1, "attempt": 1},
+    )
+    # writer B replays the same try with another result: the first pointer must be a conflict
+    record_review(
+        store, "run-1", iteration=1, attempt=1, fields={**fields, "verdict": "request_changes"}
+    )
+    assert review_refusal(store, "run-1", SHA, **TARGET) == "review_conflict"
+    # A resumes: nothing it does can make its approval current
+    record_review(store, "run-1", iteration=1, attempt=1, fields=fields)
+    assert review_refusal(store, "run-1", SHA, **TARGET) == "review_conflict"

@@ -323,8 +323,33 @@ CURRENT, CONFLICT, CONSUMED = "current", "conflict", "consumed"
 terminal - no later verdict moves the pointer again."""
 
 
+CONTENT_FIELDS = (
+    "run_id",
+    "iteration",
+    "attempt",
+    "step",
+    "verdict",
+    "error",
+    "findings",
+    "reviewed_commit",
+    "commit_sha",
+    "start_sha",
+    "base_sha",
+    "repo",
+    "number",
+    "gate_verdict",
+    "reviewer_actor",
+    "reviewer_backend",
+    "implementer_actor",
+    "implementer_backend",
+    "trusted_actors",
+)
+"""What a review record says. Two writes of one record id clash only when these differ;
+storage envelope fields (``schema_version``, timestamps, ...) never count."""
+
+
 def _content(doc: Mapping[str, Any] | None) -> dict[str, Any]:
-    return {k: v for k, v in (doc or {}).items() if k not in ("recorded_at", "updated_at")}
+    return {k: (doc or {}).get(k) for k in CONTENT_FIELDS}
 
 
 def record_review(
@@ -351,18 +376,13 @@ def record_review(
     for _ in range(16):  # compare-and-set; a lost race re-reads
         cur = store.get(CURRENT_COLLECTION, run_id)
         if cur is None:
+            first = {"id": run_id, "run_id": run_id, "iteration": iteration, "attempt": attempt}
+            if clash:  # a clash is a conflict even before any pointer exists
+                first.update(record=None, state=CONFLICT, conflict=[record_id, record_id])
+            else:
+                first.update(record=record_id, state=CURRENT)
             try:
-                store.insert(
-                    CURRENT_COLLECTION,
-                    {
-                        "id": run_id,
-                        "run_id": run_id,
-                        "record": record_id,
-                        "iteration": iteration,
-                        "attempt": attempt,
-                        "state": CURRENT,
-                    },
-                )
+                store.insert(CURRENT_COLLECTION, first)
                 return record_id
             except DuplicateKeyError:
                 continue
