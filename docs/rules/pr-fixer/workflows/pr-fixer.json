@@ -204,6 +204,12 @@
       "source_port": "instruction",
       "target": "verdict",
       "target_port": "task"
+    },
+    {
+      "source": "push",
+      "source_port": "head_after",
+      "target": "pick",
+      "target_port": "commit"
     }
   ],
   "enabled": true,
@@ -1012,6 +1018,12 @@
           "name": "pushed",
           "required": true,
           "type": "boolean"
+        },
+        {
+          "description": "the pushed commit the replies name",
+          "name": "commit",
+          "required": false,
+          "type": "string"
         }
       ],
       "kind": "code",

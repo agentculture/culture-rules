@@ -202,3 +202,24 @@ def test_a_stale_record_written_mid_push_changes_nothing(pem, world):  # noqa: F
     port = push_port(pem, world, fake, store=store, review=False)
     res = port.invoke(push_params(world), "k", DEADLINE, context=ctx())
     assert res.outcome == "completed" and world.remote_head() == world.b
+
+
+# --------------------------------------------------------------------------- round 2, #7
+
+
+def test_replies_name_the_given_pushed_commit_and_refuse_a_malformed_one():
+    from culture_rules.engine.actorport import InvocationContext
+    from culture_rules.node.actions.github_pr import AddressedThreadsPort
+
+    threads = [{"thread_id": "T1", "comment_id": 1}]
+    addressed = [{"thread_id": "T1", "commit": "a" * 40, "reply": "done"}]
+    ctx_ = InvocationContext("r", "pick", "code", "h")
+    port = AddressedThreadsPort()
+    out = port.invoke(
+        {"threads": threads, "addressed": addressed, "commit": "b" * 40}, "k", None, context=ctx_
+    )
+    assert out.output["replies"][0]["commit"] == "b" * 40
+    bad = port.invoke(
+        {"threads": threads, "addressed": addressed, "commit": "HEAD"}, "k", None, context=ctx_
+    )
+    assert bad.outcome == "failed" and bad.error == "bad_input"

@@ -68,7 +68,8 @@ repo allowlist and its per-actor App cache. There is deliberately no merge port.
 ``github.threads_addressed`` (a built-in code step, d15)
     Pure: of the agent's ``addressed`` entries (``{thread_id, commit, reply}``), keeps each
     whose ``thread_id`` is in ``threads`` (once) and outputs ``replies``: ``{thread_id,
-    comment_id, commit, reply}``. An id that is not in the list is ``dropped``, never
+    comment_id, commit, reply}``. With a ``commit`` input (the pushed SHA), every reply names
+    that commit instead of the agent's. An id that is not in the list is ``dropped``, never
     answered.
 
 git always runs as an argv list with ``shell=False``; its stderr is discarded, never logged.
@@ -688,6 +689,11 @@ class AddressedThreadsPort:
             and isinstance(t.get("thread_id"), str)
             and isinstance(t.get("comment_id"), int)
         }
+        pushed_commit = input.get("commit")
+        if pushed_commit is not None and not (
+            isinstance(pushed_commit, str) and _SHA_RE.match(pushed_commit)
+        ):
+            return InvocationResult.failed("bad_input", retryable=False)
         replies: list[dict[str, Any]] = []
         seen: set[str] = set()
         for entry in addressed:
@@ -700,7 +706,9 @@ class AddressedThreadsPort:
                 {
                     "thread_id": tid,
                     "comment_id": listed[tid],
-                    "commit": entry.get("commit"),
+                    # the pushed (gate-built) commit when given: the agent's own
+                    # commits never reach GitHub, so its SHAs would name nothing
+                    "commit": pushed_commit or entry.get("commit"),
                     "reply": reply if isinstance(reply, str) else "",
                 }
             )

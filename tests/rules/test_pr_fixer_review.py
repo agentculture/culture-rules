@@ -574,3 +574,18 @@ def test_a_late_verdict_for_an_older_try_cannot_resurrect_an_approval(tmp_path):
     assert late.outcome == "completed" and late.output["review"] == "approve"
     # the newer try's rejection stays current: no push can use the stale approval
     assert refusal(w, doc, first) == "review_rejected"
+
+
+# --------------------------------------------------------------------------- round 2, #7
+
+
+def test_thread_replies_name_the_pushed_commit_not_the_agents(tmp_path):
+    w = World(tmp_path)
+    doc = w.fire()
+    assert doc["status"] == "succeeded", doc.get("error")
+    pushed = step_state(doc, "push")["outputs"]["head_after"]
+    agent_tip = step_state(doc, "fix[0]/agent")["outputs"]["head_after"]
+    assert pushed == pushed_commit(doc) != agent_tip
+    (reply,) = w.reply.calls
+    assert reply[1]["body"].endswith(f"(addressed in {pushed})")
+    assert agent_tip not in reply[1]["body"]
