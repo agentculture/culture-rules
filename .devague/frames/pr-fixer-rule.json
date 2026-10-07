@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-05T20:43:33Z",
-  "updated": "2026-10-07T12:36:54Z",
+  "updated": "2026-10-07T17:07:23Z",
   "claims": [
     {
       "id": "c1",
@@ -1164,6 +1164,18 @@
         "t13",
         "t20",
         "run-d6e5dabdf5ec61e8a47a912091a37e0f"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l2",
+      "code": "instrument-changed-mid-series",
+      "what": "d19 Playwright: the (i) panel's Close button was intermittently detached under the parallel suite; cause not found, and the test switched to Playwright's retrying trial click, which hides the symptom",
+      "skipped_check": "root-cause the detach (possible panel remount on re-render) before relaxing the check",
+      "refs": [
+        "d19",
+        "web/e2e/workflows.spec.ts"
       ],
       "origin": "llm",
       "status": "proposed"

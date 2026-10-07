@@ -54,3 +54,10 @@ and an unused local variable.
   - A trusted bot's boilerplate comment (Qodo billing) starts a run.
   - A failure the code cannot fix (environment or publisher) burns up to 60 min of agent time per attempt.
   - The agent re-locked uv.lock, which was stale in the PR, and that change was accepted.
+
+## t22 dogfood (in progress)
+
+| Run | Trigger | Outcome |
+|---|---|---|
+| run-47bd8394c94ef496f203d40e2daef289 | `pr-fixer-checks` on culture-rules#17 at eb9087d (SonarCloud gate and one `test` job red) | Attempt 1: the agent fixed the 4 Sonar new-code issues (S5850 regex, S5332 x2 via an optional `ssl_context` on BridgeCallbackServer plus a TLS loopback test, S9383 `.catch`) in 8dfbfff. The gate returned verdict `guard`: the new test added `pytest.skip("openssl not available")` and `# nosec B310`. Nothing was pushed; the guard's instruction went to attempt 2 (agent on spark2, deadline 18:03Z). |
+| run-96a1e3a45721cce64db1a7605ca83f1b | `pr-fixer-comment` on lobes-cli#302 (the operator's PR): Qodo's billing-blocked notice | The t20 delta recurred on a real PR. My cancel was refused by the session's permission policy, so it was left to the operator. The fix step then waited: `actor qwen-fixer at concurrency cap 1` (#17's run holds the only seat). |
