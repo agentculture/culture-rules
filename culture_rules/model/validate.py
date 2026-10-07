@@ -641,7 +641,7 @@ def _check_action_step(obj: Step, path: str, errors: Errors) -> None:
         return
     _check_action_spec_fields(spec, path, errors)
     _check_action_kind(Action(kind=kind, params=validation_params(params)), path, errors)
-    ports = {p.name for p in obj.inputs if isinstance(p, Port)}
+    ports = {p.name for _i, p in _items(obj.inputs, Port)}
     for where, reason in ref_problems(params, ports):
         _err(errors, _join(_join(path, "params"), where), "action_step_ref", reason)
 

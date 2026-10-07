@@ -156,3 +156,11 @@ def test_spec_type_checks_hold_in_stored_mode_too():
     assert ("steps[0].config.action.idempotent", "type") in codes(
         spec_wf(idempotent="false"), stored=True
     )
+
+
+@pytest.mark.parametrize("bad", [None, "item", 5, {"name": "item"}])
+def test_malformed_input_ports_are_reported_not_raised(bad: Any):
+    body = action_wf("github.review_reply", REPLY, inputs=(port("item", "object"),)).to_dict()
+    body["steps"][0]["inputs"] = bad
+    _obj, errors = validate_data(Workflow, body)
+    assert errors
