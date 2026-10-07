@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-10-06T04:46:38Z",
-  "updated": "2026-10-07T15:29:50Z",
+  "updated": "2026-10-07T16:26:19Z",
   "targets": [
     {
       "id": "c1",
@@ -1035,8 +1035,8 @@
       "text": "the checks settler's on_check webhook path calls _app_for/list_suites inline without the 5 s whole-lookup bound t17b added for comment enrichment; a cold grant resolve can hold a check_run webhook past GitHub's delivery timeout",
       "kind": "follow_up",
       "task_id": "t12",
-      "resolved": false,
-      "resolution": ""
+      "resolved": true,
+      "resolution": "fixed by the code-review #17 fixes (webhook_on_check, 5 s shared budget), merged into rules/pr-fixer"
     },
     {
       "id": "r18",
