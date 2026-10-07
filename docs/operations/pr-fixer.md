@@ -331,6 +331,10 @@ Workflow `pr-fixer`:
    - `agent`: an `ai` step on actor `qwen-fixer` in mode `yolo`. Its `threads`
      input (the bridge's `threads` field) holds only the trusted threads, each
      `{thread_id, comment_id, path, line, author, body}`.
+     While `qwen-fixer` is at its concurrency cap, the step waits `blocked` in
+     the actor's queue. Its 3900 s working budget starts only when the bridge
+     accepts the work. The wait is bounded at twice that budget (130 minutes);
+     past it the step fails `queue_timeout`.
    - `gate`: the built-in `gate` on spark2. It reads the agent's `worktree`,
      `head_before` and `head_after`.
 4. `push`: a built-in `action` step, `github.push` as `github-app`, on spark2
