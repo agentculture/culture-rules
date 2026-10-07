@@ -246,7 +246,8 @@ class GitHubApp:
         """Bound every HTTP call in the block by the time left until ``deadline``.
 
         A call that would start at or after the deadline raises ``deadline_exceeded``
-        (retryable) without touching the network. Held in a ContextVar, so concurrent
+        (retryable) without touching the network, and so does a call the deadline cuts off in
+        flight (its transport timeout). Held in a ContextVar, so concurrent
         callers do not see each other's deadline."""
         reset = _DEADLINE.set((deadline, clock or self._clock))
         try:
@@ -263,6 +264,21 @@ class GitHubApp:
         if left <= 0:
             raise GitHubError("deadline_exceeded", retryable=True)
         return min(float(_TIMEOUT_S), left)
+
+    @staticmethod
+    def _cut_by_deadline(exc: BaseException, timeout: float) -> bool:
+        """Whether a transport failure is the active :meth:`deadline` cutting a call off: a
+        timeout (``TimeoutError``, bare or as urllib's ``URLError.reason``) of a call whose
+        timeout was the deadline's remainder, or any failure once the deadline has passed.
+        Callers then see ``deadline_exceeded`` (retryable), as for a call never started."""
+        bound = _DEADLINE.get()
+        if bound is None:
+            return False
+        if (bound[0] - bound[1]()).total_seconds() <= 0:
+            return True
+        reason = getattr(exc, "reason", None)
+        timed_out = isinstance(exc, TimeoutError) or isinstance(reason, TimeoutError)
+        return timed_out and timeout < _TIMEOUT_S
 
     def _request(
         self, method: str, path: str, bearer: str, payload: dict[str, Any] | None
@@ -281,6 +297,8 @@ class GitHubApp:
         try:
             status, raw = self._transport(method, self._api_base + path, headers, body, timeout)
         except Exception as exc:  # noqa: BLE001 - network failure is retryable; text withheld
+            if self._cut_by_deadline(exc, timeout):
+                raise GitHubError("deadline_exceeded", retryable=True) from None
             raise GitHubError("network_error", type(exc).__name__, retryable=True) from None
         if status >= 400:
             raise GitHubError(f"http_{status}", retryable=status >= 500 or status == 429)
