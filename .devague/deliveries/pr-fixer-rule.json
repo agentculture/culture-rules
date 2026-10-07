@@ -2,7 +2,7 @@
   "plan_slug": "pr-fixer-rule",
   "schema_version": 2,
   "created": "2026-10-06T08:44:59Z",
-  "updated": "2026-10-07T06:59:46Z",
+  "updated": "2026-10-07T07:34:31Z",
   "deviations": [
     {
       "id": "d1",
@@ -250,6 +250,21 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 17
+    },
+    {
+      "id": "d18",
+      "what": "replace the deny-list rollout with an allow-list: new shared variable fixer_repos; every fixer rule fires only when trigger.data.repository is in vars.fixer_repos (fixer_excluded_repos stays as an override); widening the fixer = adding a repo to fixer_repos; guildmaster gets an issue to add a repo to fixer_repos at provisioning, chosen like public/private",
+      "task_ref": "t17",
+      "reason": "operator decision 2026-10-07: a deny-list fixes every new repo by default and makes 'only the scratch repo' (t20) a list of every other repo",
+      "affects": [
+        "t20",
+        "t21",
+        "t22"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 18
     }
   ],
   "evidence": [],

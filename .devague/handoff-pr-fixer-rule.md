@@ -21,7 +21,7 @@ final PR.
   `devague plan show`, `devague plan waves --json` gives every brief verbatim).
 - Split (gate 2): `docs/plans/2026-10-06-pr-fixer-rule-split.md` (hand-added
   "Review gates" section, amended by d6).
-- Deviations d1-d17: `devague deviate --list`. Risks r1-r20: `devague plan show`.
+- Deviations d1-d18: `devague deviate --list`. Risks r1-r20: `devague plan show`.
 - Evidence log for /validate-delivery: `.devague/evidence-log-pr-fixer.md`.
 - Ops recipe and gate repo list: `docs/operations/pr-fixer.md`.
 
@@ -52,7 +52,8 @@ as implementer (Qwen fallback on `cortex-spark2` only); d12 built-in `action` co
 step; d13 four fixer rules + global concurrency key; d14 base_sha everywhere + PR
 comment enrichment + checks_settled base_sha; d15 `github.threads` builtin (trusted-only
 threads to the agent and replies); d16 rule `on_failure` action (hand-back comment); d17 disabling a rule offers
-'Stop N current runs?' (approve cancels them). Operator also confirmed the
+'Stop N current runs?' (approve cancels them); d18 allow-list `vars.fixer_repos` (+ guildmaster#138 to add
+repos at provisioning). Operator also confirmed the
 `trusted_authors` seed and accepted r16 (App key on spark2).
 
 ## Workforce rules in force
@@ -93,7 +94,9 @@ last full suite 2669 passed, 1 skipped.
 | t17 fixer rule + workflow as data | Branch `rules/pr-fixer-t17` rebased on the merges (583eb29, 61b55e5 d15, af18543 d16); suite 2899; Codex r1 P2 (on_failure double-add) fixed by Opus `2026501`, suite 2905; Codex r2 at 13:16 |
 | r14 fix | Codex WIP hit the limit; Opus finished `fee5e09` on `rules/pr-fixer-r14` (shared watermark, find_events + Mongo index, bounded); suite 2833; Codex review at 13:16; r20 rollout notes |
 | r19 (+r18) fix | Opus `d8016a6` on `rules/pr-fixer-r19` (non-owner completion guard write); Codex review at 13:16 |
-| t17c stop runs on disable (d17) | Opus subagent in worktree `pr-fixer-t17c`; Codex review after |
+| t17 d18 allow-list + `variables add/remove` | t17 Opus subagent, on rules/pr-fixer-t17 |
+| t17c (d17) | Opus `5653634` on `rules/pr-fixer-t17c`; Codex review at 13:16 |
+| t20 sandbox repo | agentculture/pr-fixer-sandbox CREATED (public, guild create finished by hand after a black genesis-gate failure; configure-repo applied, SONAR_TOKEN set). Ledger registration committed-to-be in guildmaster worktree `../.worktrees.guildmaster/register-pr-fixer-sandbox` (branch ledger/register-pr-fixer-sandbox, docs/skill-sources.md only) — needs operator OK for the guildmaster PR. Operator: install the App + SonarCloud on it |
 | wave-3 review | interrupted by the Codex limit; re-run at 13:16 (cron b2c896e0) in detached worktree `wave-3-review` |
 | t20-t24 | Not started |
 
