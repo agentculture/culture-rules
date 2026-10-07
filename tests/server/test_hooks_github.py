@@ -1043,3 +1043,58 @@ def test_pr_event_with_malformed_facts_omits_them_and_never_matches():
         assert not _fixer_matches(by_delivery[delivery]), delivery
     for data in by_delivery.values():
         assert None not in [data.get(k, "absent") for k in PR_FIELDS]
+
+
+def test_failed_arm_is_recovered_by_the_settle_tick_without_any_redelivery(monkeypatch):
+    """Risk r14 end to end: the hook stores the completion *before* arming, so a store
+    error while arming answers 503 yet leaves the event the node recovers from - GitHub
+    never redelivers it, and the settled event still fires exactly once."""
+    from datetime import UTC, datetime, timedelta
+
+    from culture_rules.node.checks_settle import (
+        RECOVERY_GRACE_S,
+        SETTLE_COLLECTION,
+        SETTLED_TYPE,
+        ChecksSettler,
+    )
+    from culture_rules.store.port import StoreError
+
+    s = make()
+    s.put_variable("checks_settle_min_s", 0, updated_by="test")
+    now = [datetime.now(UTC)]
+    settler = ChecksSettler(s, lambda *_: [], clock=lambda: now[0])
+    original = s.insert
+
+    def fail_arm(collection, document):
+        if collection == SETTLE_COLLECTION:
+            raise StoreError("temporary outage")
+        return original(collection, document)
+
+    monkeypatch.setattr(s, "insert", fail_arm)
+    body = json.dumps(
+        {
+            "action": "completed",
+            "check_suite": {"head_sha": HEAD_SHA, "head_branch": "feat", "pull_requests": []},
+            "repository": {"full_name": "o/r"},
+        }
+    ).encode()
+    status, _ = gh.handle(
+        s,
+        body=body,
+        headers=hdrs(body, event="check_suite"),
+        query={},
+        secrets=resolver({REF: KEY_A}),
+        on_check=settler.on_check,
+    )
+    assert status == 503
+    [stored] = events(s)  # the recovery source exists although arming failed
+    assert stored["envelope"]["type"] == "github.checks.suite_completed"
+    assert s.get(SETTLE_COLLECTION, f"o/r@{HEAD_SHA}") is None
+    monkeypatch.setattr(s, "insert", original)  # the outage ends; no redelivery arrives
+    assert settler.tick() == 0  # still inside the grace
+    now[0] += timedelta(seconds=RECOVERY_GRACE_S + 1)
+    assert settler.tick() == 1
+    assert settler.tick() == 0
+    assert ChecksSettler(s.peer(), lambda *_: [], clock=lambda: now[0]).tick() == 0
+    [settled] = [e for e in events(s) if e["envelope"]["type"] == SETTLED_TYPE]
+    assert settled["envelope"]["data"]["head_sha"] == HEAD_SHA

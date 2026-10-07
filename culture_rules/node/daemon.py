@@ -94,7 +94,12 @@ from culture_rules.machines.heartbeat import (
 from culture_rules.machines.probe import ProbeResult, probe_platform, read_load
 from culture_rules.node import completions
 from culture_rules.node.actors import ACTORS_COLLECTION, ActorRouter, AdapterFactory
-from culture_rules.node.checks_settle import SETTLE_COLLECTION, AppSuiteLister, ChecksSettler
+from culture_rules.node.checks_settle import (
+    RECOVERY_COLLECTION,
+    SETTLE_COLLECTION,
+    AppSuiteLister,
+    ChecksSettler,
+)
 from culture_rules.node.firing import RULE_FIRES, RuleFiring
 from culture_rules.node.probe_trigger import PROBE_STATE, CommandRunner, ProbeTrigger
 from culture_rules.node.schedule import Scheduler
@@ -123,6 +128,7 @@ NODE_COLLECTIONS = (
     HOOK_STATS_COLLECTION,
     GATEWAY_STATE_COLLECTION,
     SETTLE_COLLECTION,
+    RECOVERY_COLLECTION,
     RULE_ATTEMPT_BUDGETS,
 )
 """Collections a node touches (created up front on MongoDB)."""
