@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { ApiError } from "../api/client";
 import { useLiveUpdates, type LiveChange } from "../api/live";
 import { getRuleHistory, type RuleDoc, type RuleHistoryItem } from "../api/rules";
+import { Description, useDescription } from "../components/Description";
 import type { Condition } from "../api/types";
 import { setAgentState } from "../agent-state/store";
 import { machineColors } from "../culture-design/chart";
@@ -296,6 +297,7 @@ function FocusedRule({
   const workflowName = (id: string) => data.workflows.find((w) => w.id === id)?.name ?? id;
   const outgoingChip = (rel: Relation, i: number) =>
     rel.kind === "must_after" && i === 0 ? upstreamVars(rule).join(", ") : undefined;
+  const description = useDescription("rules", rule.id, rule);
   return (
     <>
       <div className="rule-flow__head">
@@ -350,6 +352,8 @@ function FocusedRule({
           }}
         />
       ) : null}
+
+      <Description doc={description} />
 
       {incoming.length > 0 ? (
         <div className="relationship-after">

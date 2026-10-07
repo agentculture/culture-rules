@@ -27,6 +27,40 @@ describe("Rules board (Chosen — Rules)", () => {
     vi.restoreAllMocks();
   });
 
+  it("shows the rule 'In words' from GET /rules/{id}/describe (d19)", async () => {
+    vi.unstubAllGlobals();
+    const { calls } = mockFetch({
+      ...defaultRoutes(Date.parse("2026-10-03T12:00:00Z")),
+      [`/api/rules/${SELECTED_RULE_ID}/describe`]: {
+        body: {
+          id: SELECTED_RULE_ID,
+          kind: "rule",
+          lines: ["When push", "If verdict = approve", "Then publish"],
+          entries: [
+            { label: "When", text: "push", depth: 0 },
+            { label: "If", text: "verdict = approve", depth: 0 },
+            { label: "Then", text: "publish", depth: 0 },
+          ],
+        },
+      },
+    });
+    renderRules();
+    const words = await screen.findByRole("region", { name: "In words" });
+    expect(within(words).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
+      "Whenpush",
+      "Ifverdict = approve",
+      "Thenpublish",
+    ]);
+    expect(calls.some((c) => c.endsWith(`/rules/${SELECTED_RULE_ID}/describe`))).toBe(true);
+  });
+
+  it("shows no 'In words' when the rule cannot be described", async () => {
+    renderRules();
+    expect(await screen.findByRole("heading", { level: 1, name: "Build and publish" })).toBeInTheDocument();
+    await waitFor(() => expect(getAgentState().status).toBe("ready"));
+    expect(screen.queryByRole("region", { name: "In words" })).toBeNull();
+  });
+
   it("lists every rule with an enable switch, the first affordance a 'New rule' button", async () => {
     renderRules();
     const list = await screen.findByRole("navigation", { name: "Rules" });

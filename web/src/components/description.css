@@ -1,0 +1,56 @@
+/* "In words" (d19): the plain description beside a rule's stages and under the workflow canvas. */
+
+.describe {
+  margin-block: 28px 8px;
+  max-width: var(--ac-measure-prose);
+}
+
+.describe__title {
+  margin: 0 0 10px;
+  font: 600 var(--ac-type-ui) var(--font-body);
+  letter-spacing: var(--ac-tracking-caps);
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.describe__note {
+  text-transform: none;
+  letter-spacing: var(--ac-tracking-flat);
+  font-weight: 400;
+}
+
+.describe__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.describe__line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 0.6em;
+  padding: 5px 0 5px calc(var(--describe-depth, 0) * 1.6em);
+  font-size: var(--ac-type-body);
+  line-height: var(--ac-leading-ui);
+  color: var(--ink);
+}
+
+.describe__label {
+  min-width: 2.2em;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.describe__step {
+  font-family: var(--font-mono);
+  font-size: 0.95em;
+  font-weight: 600;
+}
+
+.describe__step::after {
+  content: " —";
+  font-family: var(--font-body);
+  font-weight: 400;
+  color: var(--ink-soft);
+}

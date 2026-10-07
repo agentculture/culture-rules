@@ -23,6 +23,7 @@ import {
 } from "../api/workflows";
 import { setWorkflowsState } from "../workflows/agentState";
 import WorkflowCanvas, { type CanvasProps } from "../workflows/Canvas";
+import { Description, useDescription } from "../components/Description";
 import IoControls from "../workflows/IoControls";
 import IoEditor from "../workflows/IoEditor";
 import RunForm, { RunOutputs } from "../workflows/RunForm";
@@ -758,6 +759,7 @@ export function Workflows() {
 
   const workflow = draftOf(current, draft);
   const empty = isEmptyList(loaded, workflows);
+  const description = useDescription("workflows", current?.id, current);
 
   // A workflow just created opens with the step `+` focused: add the first step.
   useFocusAddStep(focusAddStep, workflow?.id, stageRef, () => setFocusAddStep(null));
@@ -1121,6 +1123,8 @@ export function Workflows() {
         {run?.doc?.status === "succeeded" && run.doc.outputs ? <RunOutputs outputs={run.doc.outputs} /> : null}
 
         {body}
+
+        {workflow && !creating ? <Description doc={description} stale={draft?.dirty === true} /> : null}
 
         <div className="wf-foot">
           <span className="wf-legend">

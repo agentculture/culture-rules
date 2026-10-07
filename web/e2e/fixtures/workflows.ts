@@ -3,6 +3,7 @@ import {
   ACTORS,
   EXPORT_RESULT,
   REPOS,
+  REVIEW_PR_DESCRIBED,
   RUN_7,
   STARTED_RUN,
   WORKFLOW_DOCS,
@@ -102,6 +103,11 @@ export async function mockWorkflowsApi(
       }
       workflows = workflows.map((w) => (w.id === id ? { ...w, enabled: action === "enable" } : w));
       return json(200, workflows.find((w) => w.id === id));
+    }
+    const described = path.match(/^\/api\/workflows\/([^/]+)\/describe$/);
+    if (described && method === "GET") {
+      if (described[1] !== REVIEW_PR_DESCRIBED.id) return fail(404, "not_found", `workflows/${described[1]}`);
+      return json(200, REVIEW_PR_DESCRIBED);
     }
     const one = path.match(/^\/api\/workflows\/([^/]+)$/);
     if (one && method === "DELETE") {
