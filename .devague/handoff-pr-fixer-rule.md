@@ -88,7 +88,7 @@ Ask the operator to confirm before recording or building it.
 - **Merging:** the main agent verifies every finding. At most 3 rounds. Run the full suite before and after `git merge --no-ff`. Expect 1 skip; more skips mean the venv lost optional deps.
 - **Ignore** Codex's "missing version bump" findings. 0.13.0 is the single bump, on #17.
 - **Never write an unquoted heredoc containing backticks.**
-- **Portability:** committed files must not contain absolute home paths (`/home/<user>/`). harness-smoke and `devex pr lint` refuse them. Use placeholders such as FIXER_HOME or `~user`. `docs/operations/pr-fixer.md` is waived for its per-account `~/.local` paths.
+- **Portability:** committed files must not contain absolute home paths (`/home/<user>/`). harness-smoke and `devex pr lint` refuse them. Use placeholders such as FIXER_HOME or `~user`. `docs/operations/pr-fixer.md` is waived for its per-account home-directory paths.
 - **Session-only crons:**
   - the status loop at :07 and :37, prompt "Give the operator a status update…";
   - recreate it after a restart (it was `067039de`).
@@ -192,7 +192,7 @@ On the sandbox, test-publish should now pass, because the repo name matches the 
 
 ## Machines
 
-- **spark:** API (LAN listener `100.127.105.72:8791`, Access listener `127.0.0.1:18765`) and node. One shared venv at `~/.local/share/culture-rules/venv`. Mongo `culture-rules-mongod` in docker.
+- **spark:** API (LAN listener `100.127.105.72:8791`, Access listener `127.0.0.1:18765`) and node. One shared venv at `$XDG_DATA_HOME/culture-rules/venv` (the account's data dir). Mongo `culture-rules-mongod` in docker.
 - **thor, orin:** nodes only, installed with `install.sh` (default extras include yaml).
 - **spark2:**
   - **access:** reach it as `ssh spark2`; the bare IP has no known_hosts entry. Tailnet IP `100.93.248.8`.
