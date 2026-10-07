@@ -2,7 +2,7 @@
   "plan_slug": "pr-fixer-rule",
   "schema_version": 2,
   "created": "2026-10-06T08:44:59Z",
-  "updated": "2026-10-07T00:49:06Z",
+  "updated": "2026-10-07T01:11:16Z",
   "deviations": [
     {
       "id": "d1",
@@ -195,6 +195,21 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 13
+    },
+    {
+      "id": "d14",
+      "what": "PR facts for every fixer trigger: (a) the GitHub webhook normalizer records base_sha (pull_request.base.sha); (b) a PR comment (issue_comment on a pull request) is enriched at the webhook path with the PR's head_sha, head_branch, head_repo, base_repo, base_branch, base_sha, draft and pr_author via a read-only App PR lookup; (c) checks_settled's PR enrichment adds base_sha. The four fixer rules then share one condition shape and the workflow gets the same inputs whichever rule fired.",
+      "task_ref": "t17",
+      "reason": "Operator approved 2026-10-07: issue_comment payloads carry no PR details and no event carried the base SHA the t13 gate needs to read culture.yaml at the base commit",
+      "affects": [
+        "t2",
+        "t12",
+        "t13"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 14
     }
   ],
   "evidence": [],
