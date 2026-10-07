@@ -21,7 +21,7 @@ final PR.
   `devague plan show`, `devague plan waves --json` gives every brief verbatim).
 - Split (gate 2): `docs/plans/2026-10-06-pr-fixer-rule-split.md` (hand-added
   "Review gates" section, amended by d6).
-- Deviations d1-d16: `devague deviate --list`. Risks r1-r19: `devague plan show`.
+- Deviations d1-d16: `devague deviate --list`. Risks r1-r20: `devague plan show`.
 - Evidence log for /validate-delivery: `.devague/evidence-log-pr-fixer.md`.
 - Ops recipe and gate repo list: `docs/operations/pr-fixer.md`.
 
@@ -88,9 +88,9 @@ last full suite 2669 passed, 1 skipped.
 | t11 concurrency key + budget | MERGED (befc925) after 3 Codex rounds; r18/r19 open |
 | t17a built-in action step (d12) | MERGED (6b55087) after 3 Codex rounds |
 | t17b PR facts (d14) | MERGED (edb9ed8) after 2 Codex rounds; facts validated, lookup bound covers secret resolve |
-| t17 fixer rule + workflow as data | Branch `rules/pr-fixer-t17` rebased on the merges (583eb29, 61b55e5 d15, af18543 d16); suite 2899; Codex review round 1 running |
-| r14 fix | Codex exec in worktree `pr-fixer-r14` (settle tick re-arms from stored events); Opus reviews it |
-| wave-3 review | Codex, detached worktree `wave-3-review`, base rules/pr-fixer-wave-3-base |
+| t17 fixer rule + workflow as data | Branch `rules/pr-fixer-t17` rebased on the merges (583eb29, 61b55e5 d15, af18543 d16); suite 2899; Codex r1 P2 (on_failure double-add) fixed by Opus `2026501`, suite 2905; Codex r2 at 13:16 |
+| r14 fix | Codex WIP hit the limit; Opus finished `fee5e09` on `rules/pr-fixer-r14` (shared watermark, find_events + Mongo index, bounded); suite 2833; Codex review at 13:16; r20 rollout notes |
+| wave-3 review | interrupted by the Codex limit; re-run at 13:16 (cron b2c896e0) in detached worktree `wave-3-review` |
 | t20-t24 | Not started |
 
 Open risks worth carrying: r16 push on spark2 needs the App key there (t20); r15 agent can still

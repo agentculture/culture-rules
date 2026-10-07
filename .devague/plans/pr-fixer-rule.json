@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-10-06T04:46:38Z",
-  "updated": "2026-10-07T06:20:01Z",
+  "updated": "2026-10-07T06:40:49Z",
   "targets": [
     {
       "id": "c1",
@@ -1051,6 +1051,14 @@
       "text": "t11 (Codex round 3, unfixed after the 3-round cap): on MongoDB, when a placed and a shared rule share a concurrency key, the non-owner consumer's completion skips the budget write, so a concurrent trigger transaction can commit a pending event with no write conflict and neither consumer fires it. Not reachable with the shipped fixer (all four rules placed on spark2, one consumer). Fix: always write the budget guard during completion, owner or not",
       "kind": "follow_up",
       "task_id": "t11",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r20",
+      "text": "r14 recovery (fee5e09): the first deploy scans back 24 h and arms every SHA with stored check completions but no settle record (settled events fire for pre-t12 SHAs; harmless while the fixer rules ship disabled); a hook-server clock >120 s behind the node's can land a completion behind the watermark and miss recovery; an event-store write failure still needs a manual redelivery",
+      "kind": "follow_up",
+      "task_id": "t20",
       "resolved": false,
       "resolution": ""
     }
