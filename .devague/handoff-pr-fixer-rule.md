@@ -166,6 +166,20 @@ fixer token, r13 dedup vs must_after chaining.
 - Sandbox PRs: #1 seeded (floor-division failing test + unused variable; version bumped),
   #2 draft. Fork PR still to do (needs a fork from the operator's account).
 
+## t22 prep (2026-10-07 ~19:00)
+
+- Operator: let the rule fix #17's Sonar issues now (t22 brought forward); 3 attempts
+  is the accepted loop bound (r26). Blocker: the gate is read from the BASE (main),
+  which had no `gate:` -> PR #18 (0.12.1, culture.yaml gate section) awaits the
+  operator's merge. Then: merge main into rules/pr-fixer (CHANGELOG/version clash
+  0.12.1 vs 0.13.0), push, `variables add fixer_repos agentculture/culture-rules
+  --apply`, and stop pushing to #17 while the fixer works.
+- Merged since t20: t20 live fixes (--gate-run-as, run_as_blocked, gate stderr, yaml
+  extra) and the /code-review #17 fixes (review17). Suite 3063.
+- Redeployed d068dc5 wheel to all nodes + API; spark2 now uses install.sh
+  --gate-run-as (manual drop-in removed, NoNewPrivileges=no). Rules re-imported and
+  re-enabled (pr-fixer-checks now also skips conclusion no_checks).
+
 ## Machines
 
 - spark: API, node, tunnel units active after the 2026-10-07 reboot; culture-rules
