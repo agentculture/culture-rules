@@ -80,3 +80,15 @@ def test_a_text_only_change_has_no_problems(store, tmp_path, clock):  # noqa: F8
     repo.commit("fix", {"src/app.py": "x = 3\n", "src/new.py": "y = 1\n"})
     out = judge(store, LocalRunner(), repo, tmp_path, clock)
     assert out["diff_truncated"] is False and out["diff_problems"] == []
+
+
+def test_non_utf8_text_is_incomplete_not_replaced(store, tmp_path, clock):  # noqa: F811
+    # git calls latin-1 text "text", but decoding it with replacement would hide bytes
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    (repo.wt / "src/app.py").write_bytes(b"x = 3  # caf\xe9 \xff\xfe hidden\n")
+    git(repo.wt, "add", "src/app.py")
+    git(repo.wt, "commit", "-q", "-m", "fix")
+    out = judge(store, LocalRunner(), repo, tmp_path, clock)
+    assert out["verdict"] == PASS
+    assert out["diff_truncated"] is True
+    assert any("UTF-8" in p for p in out["diff_problems"]), out["diff_problems"]

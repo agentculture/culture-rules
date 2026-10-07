@@ -1176,8 +1176,12 @@ class GatePort:
             commit,
             "--",
         )
-        text = raw.decode("utf-8", errors="replace")
         problems = _non_text_changes(job, start, commit)
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError:  # replacement would hide bytes: never "complete"
+            text = raw.decode("utf-8", errors="replace")
+            problems.append("the diff is not valid UTF-8 text (bytes the reviewer cannot read)")
         if len(text) > cap:
             problems.insert(
                 0, f"the diff is {len(text)} characters, over the {cap} the reviewer reads"
