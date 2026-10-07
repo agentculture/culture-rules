@@ -62,7 +62,9 @@ Semantics
   third of the lease (until the step's deadline), so a slow actor never looks abandoned.
   Another host takes over a ``dispatching`` step only when its lease lapsed *and* the
   holder's machine is offline (no heartbeat for ``holder_offline_after``) or the step's
-  deadline has passed; the holder's own host may always reclaim it (a restarted node).
+  deadline has passed; the holder's own host may always reclaim it (a restarted node). A
+  placed step - its own placement, or the actor-derived one of the rule action and of an
+  action step - is never taken over by another host: it resumes only on its holder.
 * **Placement** - each step resolves its own placement
   (:func:`~culture_rules.engine.placement.resolve_placement` over enrolled machines,
   heartbeats and drain flags) and only the engine on that host dispatches it. A step with
@@ -110,6 +112,20 @@ Semantics
   The action's ``params.actor`` (a literal actor id, never resolved) is the invocation
   context's ``actor``; a port answering ``failed`` with error :data:`ACTOR_UNAVAILABLE`
   (that actor is unknown or disabled) fails the step at once with that code.
+* **Action steps** (d12, :mod:`culture_rules.model.action_step`) - a ``code`` step with
+  ``config = {"builtin": "action", "action": {"kind", "params"}}`` dispatches exactly like
+  the rule action: its invocation context is an ``"action"`` one (``config`` = the kind, name
+  and *unresolved* params, ``actor`` = the literal ``params.actor``), so the same ``ports``
+  routing (``action:<kind>``, and through a router the named actor's limits or
+  ``actor_unavailable``) and the same action ports' refusals apply. Its params resolve as the
+  rule action's do, against one namespace: ``inputs.*``, the step's input ports (including a
+  loop body's implicit ``item``/``index``) - a workflow never sees its trigger. The resolved
+  params are the step's persisted ``inputs`` and what the port is invoked with. With no
+  placement of its own it runs (and resumes) where its actor lives, like the rule action.
+  Its idempotency key is the step's (run id, step key - ``<loop>[<i>]/<id>`` per
+  iteration), its retry and timeout the step's, ``config.action.idempotent`` counts like
+  ``Action.idempotent`` (only a boolean ``true`` - a wrong type fails closed); the
+  port's result becomes the step's outcome (outputs checked against its output ports).
 * **Containment** (:class:`Containment`, every verb audited) - a global pause stops new
   runs and all new dispatch (accepted work may still complete); draining a machine stops
   new placements on it while its running steps finish; cancelling a run cancels every
@@ -160,6 +176,7 @@ from culture_rules.machines.heartbeat import (
 )
 from culture_rules.model import condition as cond
 from culture_rules.model.action import Action
+from culture_rules.model.action_step import action_spec, spec_idempotent
 from culture_rules.model.actor import Actor
 from culture_rules.model.common import RetryPolicy
 from culture_rules.model.placement import Placement
@@ -1018,13 +1035,22 @@ class Executor:
         return False
 
     def _target(self, plan: _Plan, st: Mapping[str, Any], now: datetime) -> Any:
-        step = plan.step(st)
-        placement = step.placement if step is not None else None
-        if placement is None and st["key"] == ACTION_STEP:
-            placement = self._action_placement(plan)
+        placement = self._placement(plan, st)
         if placement is None:
             return self.host
         return self._target_of(placement, now)
+
+    def _placement(self, plan: _Plan, st: Mapping[str, Any]) -> Placement | None:
+        """Where a step must run: its own placement, else - for the rule action and a
+        built-in action step - its actor's machine (see :meth:`_action_placement`). Fresh
+        and resumed dispatches both read it, so recovery never leaves that machine."""
+        step = plan.step(st)
+        placement = step.placement if step is not None else None
+        if placement is None and st["key"] == ACTION_STEP:
+            placement = self._action_placement(_action_actor(plan.rule.action))
+        elif placement is None and (spec := _step_action(plan, st)) is not None:
+            placement = self._action_placement(_params_actor(spec.get("params")))
+        return placement
 
     def _target_of(self, placement: Placement, now: datetime) -> Any:
         online = online_machines(self._store, now, beat_every=self._beat_every)
@@ -1035,11 +1061,10 @@ class Executor:
         resolved = resolve_placement(placement, machines, states, actors)
         return resolved if isinstance(resolved, PlacementError) else resolved.machine
 
-    def _action_placement(self, plan: _Plan) -> Placement | None:
+    def _action_placement(self, actor_id: str | None) -> Placement | None:
         """An action through an enabled actor that lives on a machine runs on that machine
         (its app credentials are injected there); an unknown or disabled actor is left to
         the router, which fails the run with ``actor_unavailable``."""
-        actor_id = _action_actor(plan.rule.action)
         doc = self._store.get(ACTORS_COLLECTION, actor_id) if actor_id else None
         if not doc or doc.get("deleted_at") or doc.get("enabled") is False:
             return None
@@ -1146,8 +1171,7 @@ class Executor:
 
     def _resume_inputs(self, plan: _Plan, st: dict) -> dict | bool:
         """The inputs a resumed step re-runs with, or False when it resumes elsewhere."""
-        step = plan.step(st)
-        placed = step is not None and step.placement is not None
+        placed = self._placement(plan, st) is not None  # own or actor-derived placement
         if st.get("host") != self.host and (placed or self._drained()):
             return False  # a placed step resumes only on its host
         return st["inputs"] or {}
@@ -1163,6 +1187,9 @@ class Executor:
         resolved = _step_inputs(plan, doc, st)
         if "inputs" not in resolved:
             return self._fail_now(doc, key, resolved, now)
+        spec = _step_action(plan, st)
+        if spec is not None:  # an action step runs with its params resolved, as the action
+            return _action_step_params(spec, resolved["inputs"])
         return resolved["inputs"]
 
     def _placement_failed(
@@ -1225,6 +1252,13 @@ class Executor:
             return InvocationContext(
                 doc["id"], ACTION_STEP, "action", self.host, attempt, _action_actor(act), config
             )
+        spec = _step_action(plan, st)
+        if spec is not None:  # routed exactly like the rule action (see the module docstring)
+            params = dict(spec.get("params") or {})
+            config = {"kind": spec.get("kind"), "name": spec.get("name", ""), "params": params}
+            return InvocationContext(
+                doc["id"], st["key"], "action", self.host, attempt, _params_actor(params), config
+            )
         step = plan.step(st)
         actor = step.placement.actor if step.placement is not None else None
         return InvocationContext(
@@ -1236,7 +1270,10 @@ class Executor:
             act: Action = plan.rule.action
             return _retry_of(act.retry), act.timeout_s, act.idempotent
         step = plan.step(st)
-        return _retry_of(step.retry), step.timeout_s, bool(step.config.get("idempotent", False))
+        # only a boolean true counts: a "false" string that slipped past validation fails
+        # closed (no blind retry), never truthy
+        idempotent = step.config.get("idempotent") is True or spec_idempotent(action_spec(step))
+        return _retry_of(step.retry), step.timeout_s, idempotent
 
     def _timeout(self, plan: _Plan, st: Mapping) -> float:
         return self._policy(plan, st)[1] or DEFAULT_TIMEOUT_S
@@ -1400,14 +1437,36 @@ def _actor_of(plan: _Plan, st: Mapping) -> str | None:
     """The actor a step (or the rule action) names, for messages."""
     if st["key"] == ACTION_STEP:
         return _action_actor(plan.rule.action)
+    spec = _step_action(plan, st)
+    if spec is not None:
+        return _params_actor(spec.get("params"))
     step = plan.step(st)
     return step.placement.actor if step is not None and step.placement is not None else None
 
 
 def _action_actor(action: Action) -> str | None:
     """The actor id a rule action names in ``params.actor`` (a literal, never resolved)."""
-    actor = action.params.get("actor")
+    return _params_actor(action.params)
+
+
+def _params_actor(params: Any) -> str | None:
+    """The literal actor id in an action's ``params.actor`` (never resolved), else None."""
+    actor = params.get("actor") if isinstance(params, Mapping) else None
     return actor if isinstance(actor, str) and actor else None
+
+
+def _step_action(plan: _Plan, st: Mapping) -> Mapping[str, Any] | None:
+    """The ``config.action`` of a built-in action step state, else None (d12)."""
+    if st["key"] == ACTION_STEP:
+        return None
+    step = plan.step(st)
+    return action_spec(step) if step is not None else None
+
+
+def _action_step_params(spec: Mapping[str, Any], inputs: Mapping[str, Any]) -> dict[str, Any]:
+    """An action step's params resolved as the rule action's are (see :func:`_finish`),
+    against the step's input ports (the ``inputs`` namespace) only."""
+    return resolve_refs(dict(spec.get("params") or {}), {"inputs": dict(inputs)})
 
 
 def _attempt_failed(

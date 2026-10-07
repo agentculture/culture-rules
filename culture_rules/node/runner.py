@@ -15,9 +15,12 @@ Production wiring done by :func:`run_node`:
   (``culture channel message``) when ``culture`` is on PATH, else to the log.
 * **Logs** - :func:`~culture_rules.ops.logs.configure_logging` with the node's host.
 * **Built-in code steps** - a ``code`` step with no actor runs the built-in named by its
-  ``config.builtin`` (:class:`BuiltinCodePort`); today only ``gate``, the PR fixer's test
-  gate and diff guard (:class:`~culture_rules.actors.gate.GatePort`, which runs commands
-  only through ``CULTURE_RULES_GATE_RUN_AS`` and refuses while it is unset).
+  ``config.builtin`` (:class:`BuiltinCodePort`): ``gate``, the PR fixer's test gate and diff
+  guard (:class:`~culture_rules.actors.gate.GatePort`, which runs commands only through
+  ``CULTURE_RULES_GATE_RUN_AS`` and refuses while it is unset), and ``action`` (d12), which
+  never reaches this port: the executor routes a ``builtin: action`` step exactly like a
+  rule's terminal action, to the ``action:<kind>`` port through the actor router
+  (:mod:`culture_rules.model.action_step`).
 """
 
 from __future__ import annotations
@@ -35,6 +38,7 @@ from culture_rules.engine.reports import RunReporter
 from culture_rules.events.emit import Emitter
 from culture_rules.events.ingest import EVENTS_COLLECTION, event_document
 from culture_rules.events.source import EventFabricError, EventSource
+from culture_rules.model.action_step import ACTION_BUILTIN
 from culture_rules.node.mesh import MeshPoster
 from culture_rules.ops.logs import configure_logging
 from culture_rules.ops.nodename import node_name
@@ -200,7 +204,9 @@ class BuiltinCodePort:
     """Routes an actor-less ``code`` step to the built-in its ``config.builtin`` names.
 
     An unknown or missing name fails the step at once (``no_builtin``): a code step that
-    names neither an actor nor a built-in has nothing to run."""
+    names neither an actor nor a built-in has nothing to run. ``action`` is registered but
+    served by the executor's action routing; reaching it here means the step was not
+    routed as an action, which fails ``action_step_unrouted`` instead of running anything."""
 
     supports_idempotency_key = True  # every built-in here is safe to re-invoke
 
@@ -216,6 +222,11 @@ class BuiltinCodePort:
         context: InvocationContext,
     ) -> InvocationResult:
         name = (context.config or {}).get("builtin")
+        if name == ACTION_BUILTIN and name not in self._builtins:
+            return InvocationResult.failed(
+                "action_step_unrouted: a builtin action step runs through the action router",
+                retryable=False,
+            )
         port = self._builtins.get(name) if isinstance(name, str) else None
         if port is None:
             known = ", ".join(sorted(self._builtins)) or "none"

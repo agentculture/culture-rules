@@ -26,6 +26,12 @@ from culture_rules.model import condition as condition_tree
 from culture_rules.model import serde
 from culture_rules.model.action import Action
 from culture_rules.model.action_kinds import ACTION_KINDS, is_lenient, param_type_ok, resolve_kind
+from culture_rules.model.action_step import (
+    ACTION_SPEC_FIELDS,
+    is_action_step,
+    ref_problems,
+    validation_params,
+)
 from culture_rules.model.actor import Actor
 from culture_rules.model.app_actor import app_param_errors
 from culture_rules.model.common import SCHEMA_VERSION, RetryPolicy
@@ -620,6 +626,38 @@ def _check_step(obj: Step, path: str, errors: Errors) -> None:
             _err(errors, _join(path, "body"), "not_allowed", "only loop steps have a body")
         if obj.kind == "wait":
             _check_wait_config(obj.config, _join(path, "config"), errors)
+        elif is_action_step(obj.kind, obj.config):
+            _check_action_step(obj, _join(path, "config.action"), errors)
+
+
+def _check_action_step(obj: Step, path: str, errors: Errors) -> None:
+    """A built-in action step (d12): a catalogued kind whose params pass the rule-action
+    kind-param checks; its references must be ``inputs.<declared input port>``."""
+    spec = obj.config.get("action")
+    kind = spec.get("kind") if isinstance(spec, dict) else None
+    params = spec.get("params", {}) if isinstance(spec, dict) else None
+    if not isinstance(kind, str) or not kind.strip() or not isinstance(params, dict):
+        _err(errors, path, "action_step_invalid", "needs config.action {kind, params: object}")
+        return
+    _check_action_spec_fields(spec, path, errors)
+    _check_action_kind(Action(kind=kind, params=validation_params(params)), path, errors)
+    ports = {p.name for _i, p in _items(obj.inputs, Port)}
+    for where, reason in ref_problems(params, ports):
+        _err(errors, _join(_join(path, "params"), where), "action_step_ref", reason)
+
+
+def _check_action_spec_fields(spec: dict, path: str, errors: Errors) -> None:
+    """``config.action``'s own fields, typed as on a rule :class:`Action` (an untyped dict
+    gets no serde pass): a non-boolean ``idempotent`` (``"false"``) must never pass for
+    true. ``retry`` / ``timeout_s`` are the step's own, and any other key is unknown."""
+    for key, value in spec.items():
+        where = _join(path, str(key))
+        if key in ACTION_SPEC_FIELDS:
+            _check_scalar(ACTION_SPEC_FIELDS[key], value, where, errors)
+        elif key in ("retry", "timeout_s"):
+            _err(errors, where, "not_allowed", f"an action step's {key} is the step's own")
+        elif key not in ("kind", "params"):
+            _err(errors, where, "unknown_field", "unknown field")
 
 
 def _check_actor(obj: Actor, path: str, errors: Errors) -> None:
