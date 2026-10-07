@@ -130,3 +130,44 @@ def test_a_second_stop_is_a_no_op(pem, world):
     assert again == {"rule_id": "fixer", "applied": True, "runs": [], "total": 0, "cancelled": []}
     cancels = [e for e in f.store.find("audit") if e["verb"] == "runs.cancel"]
     assert len(cancels) == 1
+
+
+class _FindSpy:
+    """A store wrapper that records every ``runs`` query and the documents it returned."""
+
+    def __init__(self, inner: MemoryStore) -> None:
+        self._inner = inner
+        self.queries: list[tuple[dict, list[str]]] = []
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+    def find(self, collection, where=None, *, limit=None):
+        docs = self._inner.find(collection, where, limit=limit)
+        if collection == "runs":
+            self.queries.append((dict(where or {}), [d.get("status") for d in docs]))
+        return docs
+
+
+def test_active_runs_are_filtered_in_the_store_query_not_after_loading():
+    """A long-lived rule's finished runs are never loaded to list or stop its active ones."""
+    from tests.engine.run_helpers import ports_for, step, workflow
+
+    store = MemoryStore()
+    store.put("rules", {"id": "r1", "name": "r1", "enabled": True})
+    ex = Executor(store, "spark", ports_for(FakeActor().on("a", ("accept",))))
+    wf = workflow((step("a"),))
+    finished = [ex.start(rule(id="r1"), wf)["id"] for _ in range(3)]
+    for run_id in finished:
+        Containment(store).cancel(run_id, "ori")
+    live = ex.start(rule(id="r1"), wf)["id"]
+    store.put("rules", {"id": "r1", "name": "r1", "enabled": False})
+    spy = _FindSpy(store)
+    listed, total = active_runs(spy, "r1")
+    assert [r["id"] for r in listed] == [live] and total == 1
+    out = Containment(spy).stop_rule_runs("r1", "ori", apply=True)
+    assert out["cancelled"] == [live]
+    assert spy.queries, "expected a runs query"
+    for where, statuses in spy.queries:
+        assert where == {"rule_id": "r1", "status": "running"}
+        assert set(statuses) <= {"running"}  # no terminal run was materialised

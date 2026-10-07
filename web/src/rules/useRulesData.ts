@@ -152,13 +152,22 @@ export function useRulesData(routeRuleId: string | undefined) {
     [attempt, replace, runToggle],
   );
 
-  /** Approve the offer: cancel the rule's active runs, then say how many stopped. */
+  /**
+   * Approve the offer: cancel the rule's active runs, then say how many stopped.
+   * The answer lands only if the offer is still the one this request belongs to
+   * (identity of the `busy` offer): a newer offer (another rule disabled
+   * meanwhile) or a withdrawal (the rule re-enabled) is never overwritten.
+   */
   const stopRuns = useCallback(async () => {
     const offer = stopOffer;
     if (offer?.phase !== "ask") return;
-    setStopOffer({ ...offer, phase: "busy" });
+    const pending: StopOffer = { ...offer, phase: "busy" };
+    setStopOffer(pending);
     const done = await attempt(() => stopRuleRuns(offer.rule.id));
-    setStopOffer(done ? { ...offer, phase: "done", stopped: done.cancelled.length } : { ...offer, phase: "ask" });
+    const settled: StopOffer = done
+      ? { ...offer, phase: "done", stopped: done.cancelled.length }
+      : { ...offer, phase: "ask" };
+    setStopOffer((current) => (current === pending ? settled : current));
   }, [attempt, stopOffer]);
 
   /** Dismiss the offer (or its report): the runs, if any, keep going. */

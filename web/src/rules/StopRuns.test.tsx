@@ -143,3 +143,64 @@ describe("rules API: active runs are response-only", () => {
     expect(saved).not.toHaveProperty("active_runs");
   });
 });
+
+/** A fetch over the fake API that holds `stop-runs` requests until released. */
+function holdStops(base: FakeApi) {
+  const held: (() => void)[] = [];
+  const inner = fetchFor(base);
+  const fetchFn = ((input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    if (!url.includes("/stop-runs")) return inner(input, init);
+    return new Promise<Response>((resolve) => held.push(() => resolve(inner(input, init))));
+  }) as typeof fetch;
+  return { fetchFn, releaseAll: () => held.splice(0).forEach((go) => go()), held };
+}
+
+describe("a stop in flight never clobbers a newer offer", () => {
+  it("disabling another rule while a stop is pending keeps the new question", async () => {
+    withActiveRuns(api, "train-batch", 2);
+    withActiveRuns(api, "review-on-approve", 1);
+    const hold = holdStops(api);
+    vi.stubGlobal("fetch", hold.fetchFn);
+    const user = userEvent.setup();
+    renderRules();
+    await disableTrainBatch(user);
+    await user.click(await screen.findByRole("button", { name: /^Approve/ }));
+    await waitFor(() => expect(hold.held).toHaveLength(1));
+
+    const other = screen.getByRole("switch", { name: "Review on approve enabled" });
+    await user.click(other);
+    expect(await screen.findByText(/Review on approve is off\. Stop 1 current run\?/)).toBeInTheDocument();
+
+    hold.releaseAll();
+    await waitFor(() => expect(api.activeRuns["train-batch"]).toEqual([]));
+    // the older request settled, but the newer question (and its controls) stay
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.getByText(/Review on approve is off\. Stop 1 current run\?/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Approve: stop 1 current run of Review on approve/ })).toBeEnabled();
+    expect(screen.queryByText(/Stopped 2 runs/)).not.toBeInTheDocument();
+  });
+
+  it("a failed stop does not bring back an offer withdrawn by re-enabling", async () => {
+    withActiveRuns(api, "train-batch", 2);
+    api.failNext["POST /rules/train-batch/stop-runs"] = {
+      status: 409,
+      code: "rule_enabled",
+      message: "rule train-batch is enabled",
+    };
+    const hold = holdStops(api);
+    vi.stubGlobal("fetch", hold.fetchFn);
+    const user = userEvent.setup();
+    renderRules();
+    const sw = await disableTrainBatch(user);
+    await user.click(await screen.findByRole("button", { name: /^Approve/ }));
+    await waitFor(() => expect(hold.held).toHaveLength(1));
+    await user.click(sw); // re-enable: the question is withdrawn
+    await waitFor(() => expect(sw).toHaveAttribute("aria-checked", "true"));
+    expect(screen.queryByText(/current runs\?/)).not.toBeInTheDocument();
+
+    hold.releaseAll();
+    expect(await screen.findByRole("alert")).toHaveTextContent("rule train-batch is enabled");
+    expect(screen.queryByText(/current runs\?/)).not.toBeInTheDocument();
+  });
+});

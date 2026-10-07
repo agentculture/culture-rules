@@ -600,14 +600,12 @@ def active_runs(
 ) -> tuple[list[dict[str, Any]], int]:
     """A rule's non-terminal runs, oldest first, as ``{id, status, started_at}``; and the count.
 
-    Every run that is not in :data:`RUN_DONE` is active (today that is ``running``). Reads the
-    store, so runs on every node are included.
+    The only non-terminal run status is :data:`ACTIVE` (every other one is in
+    :data:`RUN_DONE`), so the store is asked for exactly ``{rule_id, status: running}``, an
+    equality filter: a long-lived rule's finished runs are never loaded. Reads the store, so
+    runs on every node are included.
     """
-    docs = [
-        d
-        for d in store.find(RUNS_COLLECTION, {"rule_id": rule_id})
-        if d.get("status") not in RUN_DONE
-    ]
+    docs = store.find(RUNS_COLLECTION, {"rule_id": rule_id, "status": ACTIVE})
     docs.sort(key=lambda d: (d.get("created_at") or "", d["id"]))
     items = [
         {"id": d["id"], "status": d.get("status"), "started_at": d.get("created_at")} for d in docs
