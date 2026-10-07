@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-05T20:43:33Z",
-  "updated": "2026-10-06T04:45:10Z",
+  "updated": "2026-10-07T12:36:54Z",
   "claims": [
     {
       "id": "c1",
@@ -1154,6 +1154,20 @@
       ]
     }
   ],
-  "lapses": [],
+  "lapses": [
+    {
+      "id": "l1",
+      "code": "control-absent",
+      "what": "the spark2 gate run-as probe (evidence log) ran sudo from an interactive shell, not from inside the hardened node unit, so the NoNewPrivileges=true block on sudo was missed until the first live gate failed with source_unavailable",
+      "skipped_check": "run the run-as probe inside the systemd user unit (systemd-run --user -p NoNewPrivileges=true)",
+      "refs": [
+        "t13",
+        "t20",
+        "run-d6e5dabdf5ec61e8a47a912091a37e0f"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    }
+  ],
   "obligations": []
 }

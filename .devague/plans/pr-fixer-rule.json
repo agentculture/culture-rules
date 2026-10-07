@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-10-06T04:46:38Z",
-  "updated": "2026-10-07T11:57:50Z",
+  "updated": "2026-10-07T14:21:26Z",
   "targets": [
     {
       "id": "c1",
@@ -1075,6 +1075,30 @@
       "text": "published wheels (PyPI 0.12.0, TestPyPI 0.13.0.dev57) do not contain culture_rules/web_dist although publish.yml builds the web UI first (uv build makes the wheel from the sdist, which lacks the gitignored bundle); spark's editor only works because it runs a locally built wheel. Fix publish (build the wheel directly or include web_dist in the sdist) before relying on PyPI installs for the editor",
       "kind": "follow_up",
       "task_id": "t20",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r23",
+      "text": "variable version history lives in one document per variable: every write rewrites the full versions array and history() re-reads it per version (O(N^2)); move versions to their own collection or return them from one read (code-review of #17)",
+      "kind": "follow_up",
+      "task_id": null,
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r24",
+      "text": "the gate packs and indexes the full repository history per iteration and bundles full history on pass; large repos can hit source/checkout timeouts; pack only what the gate needs (code-review of #17)",
+      "kind": "follow_up",
+      "task_id": null,
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r25",
+      "text": "variable helpers duplicated between MemoryStore and MongoStore (validation, view) and CLI/service item-kind; already drifted (deep copy, retry bound) (code-review of #17)",
+      "kind": "follow_up",
+      "task_id": null,
       "resolved": false,
       "resolution": ""
     }
