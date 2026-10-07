@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.0] - 2026-10-07
+
+### Added
+
+- PR fixer (plan pr-fixer-rule): four disabled-by-default rules sharing one `pr-fixer` workflow, shipped as importable data in docs/rules/pr-fixer/ with a variable seed script. Settled red checks or a trusted comment or review starts a wait, then an agent on the cultureagent Qwen bridge, a test gate with a diff guard, and a GitHub App push. Review threads are replied to and resolved, and the run link is posted. The rules fire only for repos in vars.fixer_repos.
+- Shared variables: a fifth editor tab (Variables), `vars.<name>` in conditions and `$var` inputs, the CLI/API/MCP `variables` noun with list `add`/`remove`, and fail-closed evaluation. Saving, enabling, importing or restoring a variable rule is refused while an online node lacks the capability.
+- Engine: `wait` steps (quiet period, head_unchanged guard, superseded runs), `retry_until` with `carry`, built-in code steps (`gate`, `action`, `github.threads`, `github.threads_addressed`), the rule `on_failure` action and `run.id`/`run.error.*` references.
+- Per-PR concurrency keys with a shared attempt budget (max_attempts, reset on a human push or green checks, coalescing of deduplicated events). Runs can be cancelled when a rule is disabled: `rules stop-runs` and an editor prompt.
+- GitHub: once-per-SHA checks settle (`github.pr.checks_settled`, recovered from stored completions, polled only on a node that can serve the App), PR facts (head/base repo, branch, SHA, draft, author) on every fixer trigger, PR-comment enrichment, and the `github.push` and `github.review_reply` action kinds.
+- Bridge actors (cultureagent bridge protocol) with callbacks on the API, plus the test gate run as a separate OS user and the spark2 fixer install scripts and ops recipe (docs/operations/pr-fixer.md).
+
+### Changed
+
+- Replay previews evaluate shared variables like live matching.
+- Resumed action steps keep the placement derived from their actor.
+
 ## [0.12.0] - 2026-10-05
 
 ### Added
