@@ -230,15 +230,31 @@ controls the worktree's index and untracked files. A `--skip-worktree` edit
 or a stray `conftest.py` there would otherwise change what is tested. Each
 gate run works like this:
 
-1. As `culture-fixer`, the gate makes a directory with `mktemp -d` in that
-   account's own temp space (mode 700, owned by `culture-fixer`).
-2. It runs `git init` there and feeds the node-verified pack to
+1. As `culture-fixer`, the gate makes a workspace with `mktemp -d` in that
+   account's own temp space (`culture_rules_gate.XXXXXXXXXX`, mode 700, owned
+   by `culture-fixer`). Inside it, it makes `checkout/` and `tmp/`.
+2. It runs `git init` in `checkout/` and feeds the node-verified pack to
    `git index-pack --stdin`. The node opens the pack file (mode 600, in the
    node's own mode-700 temp directory) and passes it as `culture-fixer`'s
    stdin, so that account never reads a path the node owns.
 3. It checks out the commit, verifies that `HEAD` is the commit and that
    `git status --porcelain --ignored` is empty, runs the gate, and removes
-   the directory, also on failure.
+   the whole workspace, also on failure.
+
+The setup and test commands run with their temp space in the workspace's
+`tmp/`, not the account's. The gate puts
+`env TMPDIR=<workspace>/tmp PYTEST_ADDOPTS=--basetemp=<workspace>/tmp/pytest`
+in front of each declared argv, after the prefix and the `env -C`. This is
+the same way it passes git's settings, since sudo resets the environment.
+Without it, pytest's default basetemp is `<tmp>/pytest-of-culture-fixer`, so
+every `tmp_path` names the account. A repo test that asserts a flag such as
+`-f` is absent from output echoing a temp path then failed only in the gate
+(lobes-cli#302). The workspace name has no `-` for the same reason.
+`PYTEST_ADDOPTS` goes in front of pytest's command line, so a repo's own
+`--basetemp` in its gate command still wins. A command that is not pytest
+ignores `PYTEST_ADDOPTS` and just gets a private `TMPDIR`. The verdict's
+`command` is still the declared argv. A repo whose gate command sets its own
+`PYTEST_ADDOPTS` through `env` replaces the gate's, basetemp included.
 
 Every git call in that checkout ignores `culture-fixer`'s own git config,
 which the agent can edit. It runs with `GIT_CONFIG_GLOBAL=/dev/null`,

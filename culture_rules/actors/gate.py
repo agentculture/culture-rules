@@ -83,7 +83,9 @@ join argv into a shell command line. Trade-off: the node user can run anything a
 user (that is the grant; the fixer user is the less privileged of the two, and the reverse
 is impossible), and on a timeout the node can signal only ``sudo`` itself (it relays
 ``SIGTERM`` to the command); processes that ignore it are not the node's to kill. Commands
-get the environment the prefix gives them (``sudo`` resets it), not the node's.
+get the environment the prefix gives them (``sudo`` resets it), not the node's, plus
+:func:`gate_env` in front of each setup and test argv: ``TMPDIR`` and pytest's
+``--basetemp`` inside the gate's workspace, so no temp path names the run-as account.
 
 A ``sudo`` prefix cannot work in a process with the kernel's ``no_new_privs`` flag set
 (systemd ``NoNewPrivileges=true``): sudo refuses before it runs anything. :meth:`GatePort.from_env`
@@ -197,6 +199,7 @@ __all__ = [
     "Violation",
     "diff_guard",
     "no_new_privs",
+    "gate_env",
     "gate_from_mapping",
     "parse_gate",
     "path_matches",
@@ -233,7 +236,9 @@ _SHA_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 _SHELL_JOINING = frozenset({"ssh", "su", "sh", "bash", "dash", "zsh", "ksh", "fish", "csh"})
 _LOCAL_REF = "refs/culture-rules/gate"
 _CLEANUP_S = 60.0
-_CHECKOUT_PREFIX = "culture-rules-gate-"
+#: The gate's workspace: no dash, so no run-as account name or ``-x`` flag look-alike can
+#: reach a repo's temp paths through it (lobes-cli#302).
+_CHECKOUT_PREFIX = "culture_rules_gate."
 _STDERR_TAIL_BYTES = 500
 _CONTROL_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
 _PROC_STATUS = "/proc/self/status"
@@ -839,7 +844,7 @@ class _Job:
             return rc, out.read().decode("utf-8", errors="replace")
 
     def remove_checkout(self, path: str) -> None:
-        """``rm -rf`` the fixer-owned checkout, with its own timeout (even past the deadline)."""
+        """``rm -rf`` the fixer-owned workspace, with its own timeout (even past the deadline)."""
         with tempfile.TemporaryFile(dir=self.tmp) as out:
             self._run_as(["rm", "-rf", "--", path], cwd="/", timeout=_CLEANUP_S, stdout=out)
 
@@ -857,6 +862,20 @@ def _hard_git(*args: str) -> list[str]:
         "core.quotePath=false",
         *args,
     ]
+
+
+def gate_env(tmpdir: str, addopts: str | None = None) -> list[str]:
+    """The ``env`` words in front of every setup and test command (lobes-cli#302).
+
+    sudo resets the environment, so the run-as account's temp space is its own, and
+    pytest's default basetemp is ``<tmp>/pytest-of-<user>``: every ``tmp_path`` would
+    carry the account's name (``culture-fixer``, which contains ``-f``). ``TMPDIR`` and
+    ``--basetemp`` point into the gate's workspace instead. ``PYTEST_ADDOPTS`` goes before
+    pytest's command line, so a repo's own ``--basetemp`` in its command still wins; any
+    ``addopts`` already given are kept in front."""
+    basetemp = shlex.quote(f"--basetemp={os.path.join(tmpdir, 'pytest')}")
+    opts = f"{addopts} {basetemp}" if addopts else basetemp
+    return ["env", f"TMPDIR={tmpdir}", f"PYTEST_ADDOPTS={opts}"]
 
 
 def _sha_input(input: Mapping[str, Any], name: str) -> str:
@@ -1152,12 +1171,11 @@ class GatePort:
             patches[path] = patch.decode("utf-8", errors="replace")
         return diff_guard(names, patches, patterns)
 
-    def _checkout(self, job: _Job, sha: str) -> str:
-        """A fresh checkout of ``sha``, as the fixer user, from the node-verified pack.
+    def _workspace(self, job: _Job) -> str:
+        """The fixer's own fresh ``mktemp -d`` workspace; the caller removes it.
 
-        The pack reaches the fixer's ``git index-pack`` on stdin (a descriptor the node
-        opened), so the fixer never reads a node path. The directory is the fixer's own
-        ``mktemp -d``; the caller removes it."""
+        It holds the checkout (``checkout/``) and the gate commands' temp space
+        (``tmp/``), side by side so a repo's temp files never land in its tree."""
         rc, out = job.fixer_text(["mktemp", "-d", "-t", f"{_CHECKOUT_PREFIX}XXXXXXXXXX"], cwd="/")
         path = out.strip()
         if (
@@ -1170,7 +1188,20 @@ class GatePort:
             raise _Refusal("checkout_failed", "mktemp -d did not return a fresh directory")
         return path
 
+    @staticmethod
+    def _make_dirs(job: _Job, workspace: str) -> tuple[str, str]:
+        checkout, tmp = os.path.join(workspace, "checkout"), os.path.join(workspace, "tmp")
+        rc, out = job.fixer_text(["mkdir", "-m", "700", "--", checkout, tmp], cwd=workspace)
+        if rc != 0:
+            raise _Refusal("checkout_failed", f"mkdir failed: {out.strip()[:300]}")
+        return checkout, tmp
+
     def _fill_checkout(self, job: _Job, path: str, sha: str) -> None:
+        """Check ``sha`` out in ``path``, as the fixer user, from the node-verified pack.
+
+        The pack reaches the fixer's ``git index-pack`` on stdin (a descriptor the node
+        opened), so the fixer never reads a node path."""
+
         def step(argv: list[str], what: str, stdin: IO[bytes] | None = None) -> str:
             rc, out = job.fixer_text(argv, cwd=path, stdin=stdin)
             if rc != 0:
@@ -1193,20 +1224,28 @@ class GatePort:
 
     def _judge(self, job: _Job, spec: GateSpec, verdict: dict[str, Any], tail_bytes: int) -> None:
         """Run the gate in a fresh checkout of the commit, never in the agent's worktree."""
-        path = self._checkout(job, verdict["commit_sha"])
+        workspace = self._workspace(job)
         try:
-            self._fill_checkout(job, path, verdict["commit_sha"])
-            self._run(job, spec, verdict, tail_bytes, path)
+            checkout, tmp = self._make_dirs(job, workspace)
+            self._fill_checkout(job, checkout, verdict["commit_sha"])
+            self._run(job, spec, verdict, tail_bytes, checkout, tmp)
         finally:
-            job.remove_checkout(path)
+            job.remove_checkout(workspace)
 
     def _run(
-        self, job: _Job, spec: GateSpec, verdict: dict[str, Any], tail_bytes: int, cwd: str
+        self,
+        job: _Job,
+        spec: GateSpec,
+        verdict: dict[str, Any],
+        tail_bytes: int,
+        cwd: str,
+        tmp: str,
     ) -> None:
+        env = gate_env(tmp)
         for phase, commands in (("setup", spec.setup), ("test", spec.test)):
             for argv in commands:
                 with tempfile.TemporaryFile(dir=job.tmp) as out:
-                    rc = job.fixer(argv, out, cwd=cwd)
+                    rc = job.fixer([*env, *argv], out, cwd=cwd)
                     tail = _tail(out, tail_bytes)
                 verdict["output_tail"] = tail
                 if rc == TIMED_OUT:

@@ -31,6 +31,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The node install's default extras include `yaml`, so the test gate can read a repo's `culture.yaml` (the first live gate failed with `extra_missing`).
 
 - The node unit no longer blocks a sudo gate run-as: `deploy/node/install.sh --gate-run-as PREFIX` writes `CULTURE_RULES_GATE_RUN_AS` into node.env (kept across reinstalls) and, for a sudo prefix, `NoNewPrivileges=false`. A node that starts with a sudo prefix under no_new_privs logs an error naming the fix, and the gate refuses `run_as_blocked`.
+- The gate's setup and test commands no longer see the run-as account's name in their temp paths (lobes-cli#302). They run with `TMPDIR` and pytest's `--basetemp` (through `PYTEST_ADDOPTS`, so a repo's own `--basetemp` still wins) inside the gate's workspace. The workspace is now `culture_rules_gate.XXXXXXXXXX/` holding `checkout/` and `tmp/`, and is removed whole. Under the default basetemp, every `tmp_path` held `pytest-of-culture-fixer`, so a lobes-cli test asserting `-f` was absent from a dry-run output failed only in the gate.
 - The gate no longer hides run-as errors: a failed worktree pack carries a bounded stderr tail, and a probe tells `run_as_failed`/`run_as_blocked` (the prefix itself cannot run) from `source_unavailable` (a missing commit).
 
 ## [0.12.1] - 2026-10-07
