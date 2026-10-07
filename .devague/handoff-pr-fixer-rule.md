@@ -94,7 +94,7 @@ last full suite 2669 passed, 1 skipped.
 | t17 fixer rule + workflow as data | Branch `rules/pr-fixer-t17` rebased on the merges (583eb29, 61b55e5 d15, af18543 d16); suite 2899; Codex r1 P2 (on_failure double-add) fixed by Opus `2026501`, suite 2905; Codex r2 at 13:16 |
 | r14 fix | Codex WIP hit the limit; Opus finished `fee5e09` on `rules/pr-fixer-r14` (shared watermark, find_events + Mongo index, bounded); suite 2833; Codex review at 13:16; r20 rollout notes |
 | r19 (+r18) fix | Opus `d8016a6` on `rules/pr-fixer-r19` (non-owner completion guard write); Codex review at 13:16 |
-| t17 d18 allow-list + `variables add/remove` | t17 Opus subagent, on rules/pr-fixer-t17 |
+| t17 d18 allow-list + `variables add/remove` | DONE `5ef0ec1` on rules/pr-fixer-t17 (suite 2931); Codex review at 13:16 (cron 1de3f115) |
 | t17c (d17) | Opus `5653634` on `rules/pr-fixer-t17c`; Codex review at 13:16 |
 | t20 sandbox repo | agentculture/pr-fixer-sandbox CREATED (public, guild create finished by hand after a black genesis-gate failure; configure-repo applied, SONAR_TOKEN set). Ledger registration committed-to-be in guildmaster worktree `../.worktrees.guildmaster/register-pr-fixer-sandbox` (branch ledger/register-pr-fixer-sandbox, docs/skill-sources.md only) — needs operator OK for the guildmaster PR. Operator: install the App + SonarCloud on it |
 | wave-3 review | interrupted by the Codex limit; re-run at 13:16 (cron b2c896e0) in detached worktree `wave-3-review` |
