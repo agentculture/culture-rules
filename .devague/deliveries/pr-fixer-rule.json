@@ -2,7 +2,7 @@
   "plan_slug": "pr-fixer-rule",
   "schema_version": 2,
   "created": "2026-10-06T08:44:59Z",
-  "updated": "2026-10-07T00:33:06Z",
+  "updated": "2026-10-07T00:49:06Z",
   "deviations": [
     {
       "id": "d1",
@@ -180,6 +180,21 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 12
+    },
+    {
+      "id": "d13",
+      "what": "The fixer is four rules (checks settled, PR comment, review submitted, review comment) sharing one pr-fixer workflow, because an event trigger matches exactly one type; and t11's concurrency key is GLOBAL: the active-run check, the attempt budget and coalescing are keyed by the resolved key string alone (e.g. pr-fixer:{repo}#{number}), not by rule id plus key, so one PR has one active fixer run and one budget whichever rule fired.",
+      "task_ref": "t17",
+      "reason": "Operator confirmed 2026-10-07: one trigger type per rule; the per-PR limit must hold across all fixer triggers; no editor change needed",
+      "affects": [
+        "t11",
+        "c6",
+        "h4"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 13
     }
   ],
   "evidence": [],
