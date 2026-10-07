@@ -196,11 +196,11 @@ def test_cli_add_is_a_dry_run_without_apply(store, wire, capsys):  # noqa: F811
 
 def test_cli_add_and_remove_with_apply(store, wire, capsys):  # noqa: F811
     store.put_variable(REPOS, ["x/a"], updated_by="seed")
-    code, out = cli(capsys, "add", REPOS, "agentculture/pr-fixer-sandbox", "--apply")
+    code, out = cli(capsys, "add", REPOS, "agentculture/culture-rules-tester", "--apply")
     assert code == 0 and out["applied"] is True and out["result"]["changed"] is True
-    assert store.get_variable(REPOS)["value"] == ["x/a", "agentculture/pr-fixer-sandbox"]
+    assert store.get_variable(REPOS)["value"] == ["x/a", "agentculture/culture-rules-tester"]
     code, out = cli(capsys, "remove", REPOS, "x/a", "--apply")
-    assert out["result"]["variable"]["value"] == ["agentculture/pr-fixer-sandbox"]
+    assert out["result"]["variable"]["value"] == ["agentculture/culture-rules-tester"]
     code, out = cli(capsys, "remove", REPOS, "x/a", "--apply")
     assert out["result"]["changed"] is False
     assert store.get_variable(REPOS)["version"] == 3

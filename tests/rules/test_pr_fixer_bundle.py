@@ -241,7 +241,7 @@ def test_seed_script_calls_work_through_the_real_cli(tmp_path, store, wire, caps
     assert values["checks_settle_timeout_s"] == 900
     assert values["checks_settle_min_s"] == 60
     assert values["ignored_check_apps"] == ["claude"]
-    assert values["fixer_repos"] == ["agentculture/pr-fixer-sandbox"]
+    assert values["fixer_repos"] == ["agentculture/culture-rules-tester"]
     assert values["fixer_excluded_repos"] == []
     assert ".github/workflows/**" in values["fixer_protected_paths"]
     assert "qodo-code-review[bot]" in values["trusted_authors"]

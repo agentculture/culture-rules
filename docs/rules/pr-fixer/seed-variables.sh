@@ -46,7 +46,7 @@ set_var checks_settle_timeout_s '900' \
   "Seconds after a head SHA's first check completion before it settles anyway (settled_by timeout)"
 set_var checks_settle_min_s '60' \
   "Minimum seconds before all_completed settles, so a slower app's suite can appear"
-set_var fixer_repos '["agentculture/pr-fixer-sandbox"]' \
+set_var fixer_repos '["agentculture/culture-rules-tester"]' \
   "Repositories (owner/name) the fixer runs on (the allow-list); widen with: variables add fixer_repos owner/repo"
 set_var fixer_excluded_repos '[]' \
   "Repositories (owner/name) the fixer never runs on, even when in fixer_repos (an override)"

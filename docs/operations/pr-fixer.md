@@ -379,7 +379,7 @@ The seed values are:
 - `ignored_check_apps`: `["claude"]`;
 - `checks_settle_timeout_s`: 900;
 - `checks_settle_min_s`: 60;
-- `fixer_repos`: `["agentculture/pr-fixer-sandbox"]`, the scratch repository
+- `fixer_repos`: `["agentculture/culture-rules-tester"]`, the scratch repository (created as `pr-fixer-sandbox`, renamed)
   for t20;
 - `fixer_excluded_repos`: `[]`. culture-rules is out because it is not on the
   allow-list;

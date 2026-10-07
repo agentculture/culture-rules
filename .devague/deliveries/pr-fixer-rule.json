@@ -2,7 +2,7 @@
   "plan_slug": "pr-fixer-rule",
   "schema_version": 2,
   "created": "2026-10-06T08:44:59Z",
-  "updated": "2026-10-07T07:34:31Z",
+  "updated": "2026-10-07T16:02:25Z",
   "deviations": [
     {
       "id": "d1",
@@ -265,6 +265,19 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 18
+    },
+    {
+      "id": "d19",
+      "what": "editor: (1) a deterministic, non-AI plain description of a rule and of a workflow generated only from its config (trigger, condition, steps, placement, action), shown in the editor and available via CLI/API/MCP; (2) zoom in/out (and fit) on the workflow canvas, which is locked at zoom 1 today",
+      "task_ref": "t14",
+      "reason": "operator request 2026-10-07 while reviewing the PR fixer workflow: the flow needs a short readable explanation without prose or an LLM, and the canvas needs zoom",
+      "affects": [
+        "t15"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 19
     }
   ],
   "evidence": [],
