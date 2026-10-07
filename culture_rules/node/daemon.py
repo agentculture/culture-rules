@@ -97,6 +97,7 @@ from culture_rules.node.actors import ACTORS_COLLECTION, ActorRouter, AdapterFac
 from culture_rules.node.checks_settle import (
     RECOVERY_COLLECTION,
     SETTLE_COLLECTION,
+    UNRESOLVED_RETRY_S,
     AppSuiteLister,
     ChecksSettler,
 )
@@ -274,9 +275,16 @@ class Node:
             host=host,
         )
         self._listen_gateways = options.listen_gateways
-        lister = AppSuiteLister(store, secrets=resolve_secret)
+        # placed: this node settles only the SHAs whose App actor it can serve (wave-3 P1)
+        lister = AppSuiteLister(
+            store, secrets=resolve_secret, host=host, unresolved_retry_s=UNRESOLVED_RETRY_S
+        )
         self.settler = ChecksSettler(
-            store, lister.list_suites, pull=lister.get_pull, clock=self._clock
+            store,
+            lister.list_suites,
+            pull=lister.get_pull,
+            serves=lister.serves,
+            clock=self._clock,
         )
         self.heartbeat: HeartbeatPublisher | None = None
         self._last_beat: datetime | None = None

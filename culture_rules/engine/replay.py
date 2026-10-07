@@ -10,6 +10,12 @@ module. The ``events`` collection (written by ``culture_rules.events.ingest``) i
 read, and ``actions_executed`` in the report is always 0. ``must_after`` predecessors have
 no recorded runs during replay, so a rule with one is reported as blocked unless the caller
 supplies ``facts_for(envelope)`` with hypothetical outcomes.
+
+Shared variables (``vars.<name>`` conditions, ``{"$var": name}`` inputs) are evaluated as
+live matching evaluates them: replaying a store's ``events`` reads the *current* value of
+each variable the rules reference from that store (not its value when the event arrived);
+an envelope list has no store, so the caller passes ``variables``. A referenced variable
+that is not defined is reported ``variable_undefined``, as live.
 """
 
 from __future__ import annotations
@@ -19,7 +25,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from culture_rules.engine.matching import Decision, RunFacts, match
+from culture_rules.engine.variables import variable_values
 from culture_rules.model.rule import Rule
+from culture_rules.model.variable_refs import rule_variable_refs
 from culture_rules.model.workflow import Workflow
 from culture_rules.store.port import StoreOps
 
@@ -87,6 +95,14 @@ def _load(source: StoreOps | Iterable[Mapping[str, Any]], limit: int | None) -> 
     return envelopes if limit is None else envelopes[:limit]
 
 
+def _variables(source: Any, snapshot: list[Rule]) -> dict[str, Any]:
+    """The store's current values of the variables ``snapshot`` references (live's read)."""
+    if not hasattr(source, "get"):
+        return {}
+    wanted = set().union(*(rule_variable_refs(r) for r in snapshot)) if snapshot else set()
+    return variable_values(source, wanted) if wanted else {}
+
+
 def _event_id(envelope: Mapping[str, Any]) -> str:
     eid = envelope.get("id")
     if not isinstance(eid, str) or not eid:
@@ -101,10 +117,13 @@ def _decide(
     paused: bool,
     facts_for: Callable[[Mapping[str, Any]], RunFacts] | None,
     rule_id: str | None,
+    variables: Mapping[str, Any],
 ) -> tuple[Decision, ...]:
     """Match one envelope against the whole snapshot; only ``rule_id``'s decision if given."""
     facts = facts_for(envelope) if facts_for else None
-    decisions = match(envelope, snapshot, facts, workflows=workflows, paused=paused)
+    decisions = match(
+        envelope, snapshot, facts, workflows=workflows, paused=paused, variables=variables
+    )
     if rule_id is not None:
         decisions = tuple(d for d in decisions if d.rule_id == rule_id)
     return decisions
@@ -131,12 +150,15 @@ def replay(
     limit: int | None = None,
     paused: bool = False,
     facts_for: Callable[[Mapping[str, Any]], RunFacts] | None = None,
+    variables: Mapping[str, Any] | None = None,
 ) -> ReplayReport:
     """Replay recorded envelopes (a list, or a store's ``events`` collection) through matching.
 
     With ``rule_id`` only that rule's decisions are reported, but matching still sees the
-    whole snapshot so supersede and exclusive-group effects are faithful. Pure and
-    read-only: nothing is executed and nothing is written.
+    whole snapshot so supersede and exclusive-group effects are faithful. ``variables``
+    (name -> value) defaults to the store's current values of the variables the rules
+    reference (none for an envelope list). Pure and read-only: nothing is executed and
+    nothing is written.
     """
     if limit is not None and limit < 1:
         raise ReplayError("limit must be at least 1")
@@ -144,12 +166,14 @@ def replay(
     if rule_id is not None and rule_id not in {r.id for r in snapshot}:
         raise ReplayError(f"unknown rule {rule_id!r}")
     envelopes = _load(source, limit)
+    if variables is None:
+        variables = _variables(source, snapshot)
     fire: list[ReplayedDecision] = []
     skipped: list[ReplayedDecision] = []
     unmatched: list[str] = []
     for envelope in envelopes:
         eid = _event_id(envelope)
-        decisions = _decide(envelope, snapshot, workflows, paused, facts_for, rule_id)
+        decisions = _decide(envelope, snapshot, workflows, paused, facts_for, rule_id, variables)
         if not decisions:
             unmatched.append(eid)
             continue

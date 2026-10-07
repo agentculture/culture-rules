@@ -33,3 +33,23 @@ def test_replay_unknown_rule_is_422(store):
     r = client.post("/replay", json={"rule_id": "nope"}, headers=ALICE)
     assert r.status_code == 422
     assert r.json()["error"]["code"] == "replay_invalid"
+
+
+def test_replay_reads_shared_variables_like_live_matching(store):
+    client = TestClient(dev_app(store))
+    from tests.server.conftest import workflow_body
+
+    assert client.post("/workflows", json=workflow_body("wf"), headers=ALICE).status_code == 201
+    body = rule_body(
+        "rv",
+        trigger={"kind": "event", "params": {"type": "t"}},
+        workflow={"id": "wf", "inputs": {"allow": {"$var": "trusted"}}},
+    )
+    store.put_variable("trusted", ["alice"], updated_by="t")
+    assert client.post("/rules", json=body, headers=ALICE).status_code == 201, body
+    envelope = {"id": "e1", "kind": "event", "type": "t", "data": {}}
+    store.insert(EVENTS_COLLECTION, event_document(envelope, host="h"))
+    r = client.post("/replay", json={"rule_id": "rv"}, headers=ALICE)
+    assert r.status_code == 200, r.text
+    out = r.json()
+    assert [w["rule_id"] for w in out["would_fire"]] == ["rv"], out

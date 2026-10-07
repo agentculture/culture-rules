@@ -20,6 +20,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from culture_rules.engine.audit import AuditLog, mutating_verb, require_identity
+from culture_rules.engine.lifecycle import Lifecycle
 from culture_rules.engine.ruleset import validate_rule_set
 from culture_rules.engine.variables import defined_variables, nodes_without_variables
 from culture_rules.io import exchange, gitrepo
@@ -340,6 +341,26 @@ class Definitions:
                 after=res.document,
             )
         return res.document
+
+    def restore(self, kind: str, id: str, identity: str, life: Lifecycle) -> Document:
+        """Restore a tombstoned definition through ``life`` (audited there), refusing an
+        *enabled* rule that references a shared variable while an online node lacks variable
+        support (d7, as :meth:`set_enabled` refuses enabling it). The check runs inside the
+        restore transaction, so the rule never goes live past it. A disabled rule restores
+        freely: enabling it later is where the guard applies."""
+        self._cls(kind)
+
+        def check(tx: Any, before: Mapping[str, Any]) -> None:
+            if kind != "rules" or before.get("enabled") is False:
+                return
+            ref = _RuleRef(id, before)
+            if not rule_variable_refs(ref):
+                return
+            errors = _old_node_errors([ref], nodes_without_variables(tx, self._clock()))
+            if errors:
+                raise Invalid("rule cannot be restored enabled yet", errors)
+
+        return life.restore(kind, id, identity, check=check)
 
     # ------------------------------------------------------------------ export / import
 

@@ -315,3 +315,42 @@ def test_a_refused_rule_superseded_by_a_matched_rule_is_no_group_rival():
         assert not out["a"].fire
         assert out["b"].fire
         assert out["c"].fire, out["c"]
+
+
+# --------------------------------------------------------------------------- d7: restore (wave-3)
+
+
+def _deleted_guarded(enabled: bool = True):
+    from culture_rules.engine.audit import AuditLog
+    from culture_rules.engine.lifecycle import Lifecycle
+
+    store, defs = _defs_with_trusted()
+    defs.create("rules", {**_body(NOT_IN_X), "enabled": enabled}, "alice")
+    life = Lifecycle(store, AuditLog(), clock=lambda: NOW)
+    life.soft_delete("rules", "guarded", "alice")
+    return store, defs, life
+
+
+def test_restoring_an_enabled_variable_rule_is_refused_while_an_old_node_is_online():
+    store, defs, life = _deleted_guarded()
+    _beat(store, "orin", NOW)  # an old node came online after the delete
+    with pytest.raises(Invalid) as exc:
+        defs.restore("rules", "guarded", "alice", life)
+    (err,) = exc.value.errors
+    assert err["code"] == "variables_unsupported_nodes" and "orin" in err["message"]
+    assert store.get("rules", "guarded")["deleted_at"]  # still tombstoned: never went live
+
+    _beat(store, "orin", NOW, capabilities=[VARIABLES_CAPABILITY])  # upgraded
+    doc = defs.restore("rules", "guarded", "alice", life)
+    assert not doc.get("deleted_at") and doc["enabled"] is True
+
+
+def test_restoring_a_disabled_variable_rule_or_a_plain_rule_is_not_blocked():
+    store, defs, life = _deleted_guarded(enabled=False)
+    _beat(store, "orin", NOW)
+    assert not defs.restore("rules", "guarded", "alice", life).get("deleted_at")
+    with pytest.raises(Invalid):  # enabling it is still where d7 refuses
+        defs.set_enabled("rules", "guarded", True, "alice")
+    defs.create("rules", rule("plain").to_dict(), "alice")
+    life.soft_delete("rules", "plain", "alice")
+    assert not defs.restore("rules", "plain", "alice", life).get("deleted_at")
