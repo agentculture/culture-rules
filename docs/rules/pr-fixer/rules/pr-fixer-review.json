@@ -80,6 +80,19 @@
   "may_after": [],
   "must_after": [],
   "name": "PR fixer: trusted review",
+  "on_failure": {
+    "idempotent": false,
+    "kind": "github.comment",
+    "name": "Hand back with the run link",
+    "params": {
+      "actor": "github-app",
+      "body": "PR fixer handed back: {{ run.error.step }} failed ({{ run.error.code }}: {{ run.error.message }}).\n\nRun: https://rules.culture.dev/api/runs/{{ run.id }}",
+      "number": "trigger.data.number",
+      "repo": "trigger.data.repository"
+    },
+    "retry": null,
+    "timeout_s": null
+  },
   "placement": {
     "actor": null,
     "machine": "spark2",

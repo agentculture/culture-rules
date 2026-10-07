@@ -137,6 +137,11 @@ export interface Rule {
   condition?: Condition | null;
   workflow?: WorkflowRef | null;
   action: Action;
+  /**
+   * Run once when the run ends failed (d16). The editor does not show or edit
+   * it yet; it rides along on save like any other untyped field.
+   */
+  on_failure?: Action | null;
   placement?: Placement | null;
   must_after?: string[];
   may_after?: string[];

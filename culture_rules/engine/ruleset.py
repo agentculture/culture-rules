@@ -66,6 +66,12 @@ def _references(rule: Rule, path: str) -> Iterator[tuple[str, str, str]]:
         for p, s in _strings(rule.action.params, join(join(path, "action"), "params"))
         for m in OUTPUT_REF.finditer(s)
     )
+    if rule.on_failure is not None:
+        yield from (
+            (p, m.group(1), m.group(2))
+            for p, s in _strings(rule.on_failure.params, join(join(path, "on_failure"), "params"))
+            for m in OUTPUT_REF.finditer(s)
+        )
     if rule.workflow is not None:
         yield from (
             (p, m.group(1), m.group(2))

@@ -25,7 +25,7 @@ from culture_rules.actors.gate import GatePort
 from culture_rules.apps.github import GitHubError
 from culture_rules.cli import main
 from culture_rules.engine.actorport import InvocationResult
-from culture_rules.engine.runs import ACTION_STEP, RUNS_COLLECTION, step_state
+from culture_rules.engine.runs import ACTION_STEP, FAILURE_STEP, RUNS_COLLECTION, step_state
 from culture_rules.io.exchange import bundle_files, read_bundle
 from culture_rules.model.variable_refs import rule_variable_refs
 from culture_rules.node.actions.github_pr import AddressedThreadsPort, GitHubThreadsPort
@@ -555,6 +555,7 @@ class World:
         self.reply = FakeActor(default=lambda inp, ctx: {"comment_id": 1, "resolved": True})
         self.comment = FakeActor(default=lambda inp, ctx: {"comment_id": 2})
         self.heads: list[tuple] = []
+        self.moved_head: str | None = None
         self.app = ThreadsApp(
             [
                 {
@@ -580,7 +581,7 @@ class World:
 
         def head(inp, ctx):
             self.heads.append((ctx.host, inp["repo"], inp["number"]))
-            return {"head_sha": self.repo.start}
+            return {"head_sha": self.moved_head or self.repo.start}
 
         ports = {
             "action:github.pr_head": FakeActor(default=head),
@@ -619,6 +620,18 @@ class World:
         return doc["id"]
 
 
+def assert_handed_back(w: World, doc: dict, step: str, text: str) -> None:
+    """The run failed at ``step`` and posted exactly one hand-back comment linking it."""
+    assert doc["status"] == "failed" and doc["error"]["step"] == step
+    (call,) = w.comment.calls
+    body = call[1]["body"]
+    assert body.startswith(f"PR fixer handed back: {step} failed (")
+    assert text in body
+    assert f"https://rules.culture.dev/api/runs/{doc['id']}" in body
+    assert call[1]["repo"] == REPO and call[1]["number"] == 7
+    assert step_state(doc, FAILURE_STEP)["host"] == "spark"  # where the App lives
+
+
 def test_a_settled_failing_pr_is_fixed_pushed_replied_and_commented(tmp_path):
     w = World(tmp_path)
     doc = w.fire()
@@ -655,8 +668,10 @@ def test_a_settled_failing_pr_is_fixed_pushed_replied_and_commented(tmp_path):
     assert step_state(doc, "pick")["outputs"]["dropped"] == 2
     assert reply_call[1]["body"].startswith("Done (addressed in ")
     # the terminal comment links this run
-    (comment_call,) = w.comment.calls
+    (comment_call,) = w.comment.calls  # the success comment only: no hand-back
     body = comment_call[1]["body"]
+    assert "handed back" not in body
+    assert step_state(doc, FAILURE_STEP) is None
     assert f"https://rules.culture.dev/api/runs/{doc['id']}" in body
     assert "pass" in body and "made x 3" in body
     assert comment_call[1]["repo"] == REPO and comment_call[1]["number"] == 7
@@ -679,7 +694,8 @@ def test_disabling_the_rule_mid_run_leaves_no_app_push(tmp_path):
     assert doc["status"] == "failed"
     assert doc["error"]["step"] == "push" and doc["error"]["message"] == "rule_disabled"
     assert push.git_calls == [] and push.http_calls == []
-    assert w.reply.calls == [] and w.comment.calls == []
+    assert w.reply.calls == []
+    assert_handed_back(w, doc, "push", "rule_disabled")
     assert step_state(doc, ACTION_STEP) is None
     assert "spark2" in run_hosts(doc)
 
@@ -704,7 +720,8 @@ def test_a_failing_gate_never_reaches_push(tmp_path, monkeypatch):
     doc = w.fire()
     assert doc["status"] == "failed"
     assert step_state(doc, "fix")["error"]["code"] == "loop_max_exceeded"
-    assert w.push.calls == [] and w.reply.calls == [] and w.comment.calls == []
+    assert w.push.calls == [] and w.reply.calls == []
+    assert_handed_back(w, doc, "fix", "loop_max_exceeded")
 
 
 def test_a_thread_lookup_error_fails_the_run_before_the_agent(tmp_path):
@@ -718,3 +735,29 @@ def test_a_thread_lookup_error_fails_the_run_before_the_agent(tmp_path):
     assert doc["status"] == "failed"
     assert doc["error"]["step"] == "threads" and doc["error"]["message"] == "http_502"
     assert w.agent.calls == [] and w.push.calls == [] and w.reply.calls == []
+    assert_handed_back(w, doc, "threads", "http_502")
+
+
+def test_a_superseded_run_posts_nothing(tmp_path):
+    w = World(tmp_path)
+    w.moved_head = "f" * 40  # someone pushed during the quiet period
+    doc = w.fire()
+    assert doc["status"] == "superseded"
+    assert w.agent.calls == [] and w.push.calls == [] and w.comment.calls == []
+
+
+def test_a_failing_hand_back_comment_is_tried_once_and_the_run_ends(tmp_path, monkeypatch):
+    w = World(tmp_path)
+
+    def broken(repo, number):
+        raise GitHubError("http_502")
+
+    w.app.list_review_threads = broken
+    w.comment.on(FAILURE_STEP, ("fail", "github down", True), ("fail", "github down", True))
+    doc = w.fire()
+    w.c.clock.advance(3600)
+    w.cycle()
+    doc = w.c.base.get(RUNS_COLLECTION, doc["id"])
+    assert doc["status"] == "failed" and doc["error"]["step"] == "threads"
+    assert len(w.comment.calls) == 1  # no retry policy: one attempt, never again
+    assert step_state(doc, FAILURE_STEP)["status"] == "failed"

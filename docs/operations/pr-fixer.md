@@ -258,6 +258,8 @@ a list.
 All four rules have the same settings:
 
 - they ship with `enabled: false`;
+- their `on_failure` action (d16) is a `github.comment` as `github-app`:
+  `PR fixer handed back: <step> failed (<code>: <message>)` with the run link;
 - placement is machine `spark2`;
 - `concurrency_key` is `pr-fixer:{trigger.data.repository}#{trigger.data.number}`
   and `max_attempts` is 3, both shared across the four rules;
@@ -302,6 +304,18 @@ rule-action reference to the run's own id. The editor has no run page yet, so
 the link opens the run document. The run's agent, gate and push steps run on
 spark2, which puts the run on spark2's Statistics lane.
 
+A rule's optional `on_failure` (d16) has the shape, validation and routing of
+its `action`. The executor runs it exactly once when the run fails: a failed
+step, a failed terminal action, or a mistyped workflow output. It first
+cancels the unfinished steps. Its params can also read `run.error.step`,
+`run.error.code` and `run.error.message` (only `on_failure` may), as well as
+`run.id`, `trigger.*` and whatever workflow outputs exist. A superseded,
+cancelled or successful run never runs it. If `on_failure` itself fails, it
+gets its own retry policy and no more. The run then ends `failed` with the
+original error, and `on_failure` never fires twice. The editor does not show
+or edit the field yet. It is kept on save like any other field it does not
+type.
+
 Install order: variables first (an import that references an undefined
 variable is refused), then the workflow, then the rules.
 
@@ -329,12 +343,10 @@ Known limits of this version:
 - **The agent can still read the PR.** Only trusted threads are handed to it
   and answered, but the agent works in a checkout with a read-only token and
   could read other threads itself.
-- **Only a successful run comments.** A run that fails (loop exhausted, rule
-  disabled, a failed reply) or is superseded posts no comment. The rule action
-  runs only after the workflow succeeds.
-- **`no_gate` posts nothing.** On a repo without a `gate:` section, `push`
-  refuses `gate_not_passed` and the run fails, so nothing is pushed and nothing
-  is commented.
+- **A superseded run posts nothing.** Every failed run posts the hand-back
+  comment, but a run ended by a push during the quiet period posts nothing.
+- **`no_gate` hands back.** On a repo without a `gate:` section, `push`
+  refuses `gate_not_passed`, so nothing is pushed and the run hands back.
 - **Only the last try's replies.** `threads_addressed` comes from the last
   agent try only.
 

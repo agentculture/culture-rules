@@ -44,6 +44,7 @@ from culture_rules.model.refs import (
     REF_KEY,
     TRIGGER_FIELDS,
     ref_errors,
+    run_error_refs,
     structured_form,
     var_name,
 )
@@ -531,13 +532,17 @@ def _check_rule(obj: Rule, path: str, errors: Errors) -> None:
             condition_tree.validate(obj.condition)
         except condition_tree.ConditionError as exc:
             _err(errors, _join(path, "condition"), "condition_invalid", str(exc))
-    if isinstance(obj.action, Action) and isinstance(obj.action.params, dict):
-        params_path = _join(_join(path, "action"), "params")
+    for field in ("action", "on_failure"):
+        act = getattr(obj, field)
+        if not isinstance(act, Action) or not isinstance(act.params, dict):
+            continue
+        params_path = _join(_join(path, field), "params")
         has_workflow = obj.workflow is not None
-        for p, reason in ref_errors(
-            obj.action.params, params_path, _join, has_workflow=has_workflow
-        ):
+        for p, reason in ref_errors(act.params, params_path, _join, has_workflow=has_workflow):
             _err(errors, p, "invalid_reference", reason)
+        if field == "action":
+            for p in run_error_refs(act.params, params_path, _join):
+                _err(errors, p, "invalid_reference", "run.error is set only for on_failure")
     for rel in ("must_after", "may_after", "supersedes"):
         _check_relation(obj, rel, path, errors)
 
