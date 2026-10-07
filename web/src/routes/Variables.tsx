@@ -299,8 +299,11 @@ export function Variables() {
   useEffect(() => {
     if (!name) return;
     const controller = new AbortController();
-    Promise.allSettled([getVariableHistory(name, controller.signal), getVariableRefs(name, controller.signal)]).then(
-      ([h, r]) => {
+    Promise.allSettled([
+      getVariableHistory(name, controller.signal),
+      getVariableRefs(name, controller.signal),
+    ])
+      .then(([h, r]) => {
         if (controller.signal.aborted) return;
         const failed = [h, r].find((x) => x.status === "rejected") as PromiseRejectedResult | undefined;
         setFetched({
@@ -309,8 +312,11 @@ export function Variables() {
           refs: r.status === "fulfilled" ? r.value : [],
           error: failed ? describe(failed.reason) : null,
         });
-      },
-    );
+      })
+      .catch((err: unknown) => {
+        if (controller.signal.aborted) return;
+        setFetched({ name, history: [], refs: [], error: describe(err) });
+      });
     return () => controller.abort();
   }, [name, version]);
 
