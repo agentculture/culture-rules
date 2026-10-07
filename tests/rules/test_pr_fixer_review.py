@@ -760,3 +760,23 @@ def test_r2_2_even_trusted_an_actor_routed_gate_is_refused_by_the_verdict_step(t
     doc = w.fire()
     assert w.push.calls == [] and doc["status"] == "failed"
     assert "fix[0]/verdict: bad_config" in doc["error"]["message"]
+
+
+# --------------------------------------------------------------------------- round 3, #2
+
+
+def test_r3_2_a_base_other_than_the_prs_real_base_is_refused_by_the_gate(tmp_path):
+    # a rule or variable editor hands the run another (e.g. older) base, whose culture.yaml
+    # gate policy is weaker; the gate checks the base against the PR as the App sees it
+    w = World(tmp_path)
+    doc = w.fire(base_sha=w.repo.start)
+    assert doc["status"] == "failed" and w.push.calls == []
+    assert "base_mismatch" in doc["error"]["message"]
+    assert w.reviewer.inputs == []
+
+
+def test_r3_2_the_review_record_names_the_gate_policy_commit(tmp_path):
+    w = World(tmp_path)
+    doc = w.fire()
+    assert doc["status"] == "succeeded", doc.get("error")
+    assert record(w, doc)["base_sha"] == w.repo.base

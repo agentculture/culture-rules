@@ -760,7 +760,7 @@ class ReviewVerdictPort:
             raise ReviewError("review_invalid", "the gate reported no commit_sha")
         if not (isinstance(start, str) and _SHA_RE.match(start)):
             raise ReviewError("review_invalid", "the gate reported no start_sha")
-        facts.update(commit_sha=commit, start_sha=start)
+        facts.update(commit_sha=commit, start_sha=start, base_sha=g.get("base_sha"))
         if start != run_inputs.get("head_sha"):
             raise ReviewError(
                 "review_invalid",

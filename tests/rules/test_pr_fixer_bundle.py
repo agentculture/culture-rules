@@ -716,8 +716,23 @@ class World:
         self.reviewer = ReviewerBridge(base, reviews)
         self.reviewer_fake = reviewer_fake  # a FakeActor standing in for the bridge path
         self.runner = LocalRunner()
+
+        def head(inp, ctx):
+            self.heads.append((ctx.host, inp["repo"], inp["number"]))
+            return {"head_sha": self.moved_head or self.repo.start, "base_sha": self.repo.base}
+
+        def gate_lookup(inp, ctx):  # the App's view of the PR, as the gate reads it
+            self.gate_lookups.append((ctx.actor, inp["repo"], inp["number"]))
+            return {"head_sha": self.moved_head or self.repo.start, "base_sha": self.repo.base}
+
+        self.head_port = FakeActor(default=head)
+        self.gate_lookups: list[tuple] = []
         gate = GatePort(
-            base, run_as=self.runner, bundle_dir=tmp_path / "bundles", clock=self.c.clock
+            base,
+            run_as=self.runner,
+            bundle_dir=tmp_path / "bundles",
+            clock=self.c.clock,
+            pr_lookup=FakeActor(default=gate_lookup),
         )
         self.push = push(base) if push is not None else PushRecorder()
         self.reply = FakeActor(default=lambda inp, ctx: {"comment_id": 1, "resolved": True})
@@ -747,12 +762,8 @@ class World:
         threads = GitHubThreadsPort(base)
         threads._app = lambda actor_id, conn, allowed: self.app  # the App seam
 
-        def head(inp, ctx):
-            self.heads.append((ctx.host, inp["repo"], inp["number"]))
-            return {"head_sha": self.moved_head or self.repo.start}
-
         ports = {
-            "action:github.pr_head": FakeActor(default=head),
+            "action:github.pr_head": self.head_port,
             "action:github.push": self.push,
             "action:github.review_reply": self.reply,
             "action:github.comment": self.comment,
@@ -802,8 +813,12 @@ class World:
             self.c.nodes[host] = self.c.node(host, actors=ports, adapters={"agent": agent_for})
         self.c.start()
 
-    def fire(self) -> dict:
-        data = pr_facts(head_sha=self.repo.start, base_sha=self.repo.base, conclusion="failure")
+    def fire(self, base_sha: str | None = None) -> dict:
+        """Settle red checks on the PR; ``base_sha`` overrides the base the run is given
+        (the PR's real base, which the App reports, stays ``repo.base``)."""
+        data = pr_facts(
+            head_sha=self.repo.start, base_sha=base_sha or self.repo.base, conclusion="failure"
+        )
         self.c.publish(envelope(1, type="github.pr.checks_settled", data=data))
         self.cycle()
         self.c.clock.advance(301)  # past the quiet period

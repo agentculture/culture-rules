@@ -982,8 +982,10 @@ class GatePort:
         bundle_dir: str | Path | None = None,
         clock: Callable[[], datetime] | None = None,
         blocked_reason: str = "",
+        pr_lookup: Any = None,
     ) -> None:
         self._store = store
+        self._pr_lookup = pr_lookup
         self._run_as = run_as
         self._blocked = blocked_reason
         self._why = unconfigured_reason or f"{RUN_AS_ENV} is not set"
@@ -1000,6 +1002,7 @@ class GatePort:
         environ: Mapping[str, str] | None = None,
         *,
         no_new_privs: Callable[[], bool | None] = no_new_privs,
+        pr_lookup: Any = None,
     ) -> GatePort:
         """The production port; a sudo prefix under ``no_new_privs`` is logged and blocked."""
         environ = os.environ if environ is None else environ
@@ -1017,6 +1020,7 @@ class GatePort:
             unconfigured_reason=why,
             bundle_dir=environ.get(BUNDLE_DIR_ENV) or None,
             blocked_reason=blocked,
+            pr_lookup=pr_lookup,
         )
 
     def invoke(
@@ -1056,6 +1060,8 @@ class GatePort:
             raise _Refusal("gate_runner_unconfigured", self._why)
         if self._blocked:
             raise _Refusal("run_as_blocked", self._blocked)
+        if self._pr_lookup is not None:
+            self._check_base(shas["base_sha"], config, deadline, context)
         verdict: dict[str, Any] = {
             "verdict": None,
             "rule": None,
@@ -1109,6 +1115,46 @@ class GatePort:
             return verdict
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
+
+    def _check_base(
+        self,
+        base_sha: str,
+        config: Mapping[str, Any],
+        deadline: datetime,
+        context: InvocationContext,
+    ) -> None:
+        """Round 3 (#2): ``base_sha`` selects the gate policy (``culture.yaml`` at that
+        commit), and it comes from rule inputs; so it must be the PR's base as the App
+        reads it now (``config.app_actor``, default ``github-app``), else ``base_mismatch``.
+        A lookup that cannot be made is ``base_unverified`` (fail closed)."""
+        run = self._store.get("runs", context.run_id) if context.run_id else None
+        inputs = (run or {}).get("inputs") or {}
+        repo, number = inputs.get("repo"), inputs.get("number")
+        if not isinstance(repo, str) or not isinstance(number, int):
+            raise _Refusal("base_unverified", "the run has no repo and PR number to check")
+        actor = config.get("app_actor", "github-app")
+        ctx = InvocationContext(
+            context.run_id,
+            context.step_id,
+            "action",
+            context.host,
+            context.attempt,
+            actor,
+            {"kind": "github.pr_head"},
+        )
+        res = self._pr_lookup.invoke(
+            {"repo": repo, "number": number}, f"gate-base:{context.run_id}", deadline, context=ctx
+        )
+        if res.outcome != "completed":
+            raise _Refusal("base_unverified", str(res.error), retryable=res.retryable)
+        actual = (res.output or {}).get("base_sha")
+        if not isinstance(actual, str) or not actual:
+            raise _Refusal("base_unverified", "the App reported no base for the PR")
+        if actual != base_sha:
+            raise _Refusal(
+                "base_mismatch",
+                f"base_sha {base_sha[:12]} is not the PR's base ({str(actual)[:12]})",
+            )
 
     def _build(self, job: _Job, shas: Mapping[str, str], context: InvocationContext) -> str:
         """The gate-built commit (see :meth:`_build_commit`)."""
