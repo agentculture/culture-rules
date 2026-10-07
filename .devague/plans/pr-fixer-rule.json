@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-10-06T04:46:38Z",
-  "updated": "2026-10-07T06:40:49Z",
+  "updated": "2026-10-07T06:59:46Z",
   "targets": [
     {
       "id": "c1",
@@ -1027,8 +1027,8 @@
       "text": "github.push runs on spark2, so spark2's node needs the App private key (RULES_GITHUB_APP_PRIVATE_KEY) in the spark2 user's grant store, next to the fixer account",
       "kind": "unknown_nonblocking",
       "task_id": "t20",
-      "resolved": false,
-      "resolution": ""
+      "resolved": true,
+      "resolution": "operator: acceptable \u2014 the App private key sits in the spark2 node account's grant store on the fixer machine (separate OS user from culture-fixer)"
     },
     {
       "id": "r17",
