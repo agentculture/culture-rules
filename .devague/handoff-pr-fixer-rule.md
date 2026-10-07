@@ -1,144 +1,156 @@
 # Handoff: pr-fixer-rule workforce run
 
-Working state for resuming after context compaction. Written 2026-10-06 by the
-main agent. The authoritative records are the devague frame, plan and delivery
+Working state for resuming after context compaction. Rewritten 2026-10-07 ~04:00 by
+the main agent. The authoritative records are the devague frame, plan and delivery
 store; this file points at them and adds what they do not hold.
 
 ## Original request (operator, verbatim intent)
 
-"Set up a rule that when we have a new PR, an agent gets it and starts fixing
-the issues (SonarCloud, failing tests, etc.) for all repos. What are we
-missing? We can re-use bridges from ../culture-nodes, take them, or commit on
-separate repos. I'm also open to using vercel agent sdk for wrapping
-harnesses." Flow run: /scope -> /think -> /challenge -> /spec-to-plan ->
-/assign-to-workforce, with /validate-delivery and /summarize-delivery as the
-last steps before the final PR, plus live testing and dogfooding.
+"Set up a rule that when we have a new PR, an agent gets it and starts fixing the
+issues (SonarCloud, failing tests, etc.) for all repos. What are we missing? We can
+re-use bridges from ../culture-nodes, take them, or commit on separate repos. I'm
+also open to using vercel agent sdk for wrapping harnesses." Flow: /scope -> /think
+-> /challenge -> /spec-to-plan -> /assign-to-workforce, then live testing and
+dogfooding, /validate-delivery and /summarize-delivery as the last steps before the
+final PR.
 
 ## Artifacts
 
-- Spec: `docs/specs/2026-10-05-pr-fixer-rule.md` (frame `pr-fixer-rule`, 43
-  claims; `devague show`).
+- Spec: `docs/specs/2026-10-05-pr-fixer-rule.md` (frame `pr-fixer-rule`).
 - Plan: `docs/plans/2026-10-06-pr-fixer-rule.md` (24 tasks, 9 waves;
-  `devague plan show`, `devague plan waves --json`).
-- Split (gate 2, approved with Codex review gates):
-  `docs/plans/2026-10-06-pr-fixer-rule-split.md`.
-- Deviations: `devague deviate --list` (d1-d5). Risks: `devague plan show`.
-- Live evidence log for /validate-delivery:
-  `.devague/evidence-log-pr-fixer.md`. No devague obligations filed yet.
-- Briefs and logs (session scratchpad, may be gone after the session):
-  `/tmp/claude-1000/-home-spark-git-culture-rules/<session>/scratchpad/`
-  (`brief-tN.md`, `prompt-*.txt`, `qwen-*.log`, `codex-*.log`). Briefs can
-  be regenerated from `devague plan waves --json`.
+  `devague plan show`, `devague plan waves --json` gives every brief verbatim).
+- Split (gate 2): `docs/plans/2026-10-06-pr-fixer-rule-split.md` (hand-added
+  "Review gates" section, amended by d6).
+- Deviations d1-d14: `devague deviate --list`. Risks r1-r13: `devague plan show`.
+- Evidence log for /validate-delivery: `.devague/evidence-log-pr-fixer.md`.
+- Ops recipe and gate repo list: `docs/operations/pr-fixer.md`.
 
 ## Key operator decisions (do not re-litigate)
 
-- The bridges live in agentculture/cultureagent (shared core, qwen ACP +
-  codex only). Vercel AI SDK rejected.
-- The GitHub App pushes, never the agent; the engine test gate decides push
-  vs hand back. The gate reads `culture.yaml` `gate:` from the PR's BASE
-  branch (r1). Test commands are configuration only, no defaults in code.
-- Fixer harness: Qwen Code on cortex, or Codex. Fixer machine spark2
-  (internet confirmed back 2026-10-06).
-- Trigger: check suites / workflow runs completed (once per head SHA, settle
-  with ignored_check_apps), pull_request opened as fallback. Fork PRs and
-  drafts skipped. Quiet period = workflow `wait` step. No `no-fixer` label.
-- Trusted comment authors = shared variable `trusted_authors`, referenced from
-  a field on the fixer rule's condition. Shared variables get a fifth editor
-  tab, Variables (Rules | Workflows | Actors | Variables | Statistics).
-- Replaces culture-nodes' pr-upkeep (taken down). Never merges, never
-  force-pushes.
-- Test repo for live probes: agentculture/culture-rules itself (d4).
-- App keeps Actions: write on purpose (d5).
+- Bridges in agentculture/cultureagent (0.14.0 on PyPI). Vercel AI SDK rejected.
+- The GitHub App pushes, never the agent; the engine's test gate decides push vs
+  hand back; gate read from culture.yaml `gate:` on the PR's BASE commit; commands are
+  configuration, never defaults in code.
+- Fixer machine spark2, account `culture-fixer`; Qwen bridge only there (d8, no Codex
+  on spark2). Fork PRs and drafts skipped; quiet period = workflow `wait` step.
+- Trusted comment authors = shared variable `trusted_authors`; fifth editor tab
+  Variables. Replaces culture-nodes' pr-upkeep. Never merges, never force-pushes.
+- culture-rules is the live test repo (d4); App keeps Actions: write (d5).
 - Push announcements: the App's own PR comment (rules.culture.dev).
+- The fixer is FOUR rules sharing one workflow, with a GLOBAL per-PR concurrency key
+  (d13). PR facts for every trigger via d14.
 
-## Workforce setup
+## Deviations d1-d14 (all approved)
 
-- Integration branch `rules/pr-fixer` (in the main checkout). Task branches
+d1 bridge callbacks on an API route + node redelivery; d2 self-tag exempts only
+check-completion types; d3 `Executor.deliver(attempt=)`; d4 culture-rules is the test
+repo; d5 App keeps Actions write; d6 reviewer differs from implementer (amended by
+d9); d7 save/enable refused while any online node lacks the `variables` capability;
+d8 no Codex on spark2; d9 Codex is the reviewer again; d10 t13's `retry_until`
+`carry`, `github.push` `gate_verdict`, BuiltinCodePort; d11 Codex preferred over Qwen
+as implementer (Qwen fallback on `cortex-spark2` only); d12 built-in `action` code
+step; d13 four fixer rules + global concurrency key; d14 base_sha everywhere + PR
+comment enrichment + checks_settled base_sha.
+
+## Workforce rules in force
+
+- Integration branch `rules/pr-fixer` (main checkout). Task branches
   `rules/pr-fixer-<tN>`, worktrees `../.worktrees.culture-rules/pr-fixer-<tN>/`.
-- Lanes: two Qwen Code lanes, one task each at a time, both `qwen -m cortex
-  --approval-mode yolo -o text "<brief>"` in the task worktree. The lobes
-  gateway (localhost:8001, container model-gear-gateway) pools spark and
-  spark2 cortex (unsloth/Qwen3.8-27B-NVFP4) under `cortex`; `-m main` pins
-  spark2. Opus/Sonnet subagents for the rest; the main agent owns t17-t24
-  and t18/t19.
-- Merge gate: Codex `codex review --base rules/pr-fixer` (no custom prompt
-  allowed with --base) per task; main agent verifies each finding before
-  routing it; max 3 Codex rounds per task (P1s always fixed); full suite
-  before and after `git merge --no-ff`; then remove the worktree. After a
-  wave: Codex review of the wave diff (`--base rules/pr-fixer-wave-<N>-base`).
-- Version bump: once, in the final PR (Codex flags it every time; ignore).
-- Status update loop: cron job `270465ef` at :07 and :37 (session-only).
+- Implementer: Codex preferred (`codex exec -s workspace-write -c
+  'sandbox_workspace_write.writable_roots=["/home/spark/git/culture-rules/.git","/home/spark/.cache"]'
+  -c sandbox_workspace_write.network_access=true "<brief>"` from the worktree);
+  Opus/Sonnet subagents; Qwen only as fallback and only `qwen -m cortex-spark2`
+  (spark must stay free; spark's own vLLM is down after the reboot anyway).
+- Reviewer never the implementer: Codex reviews Opus/Sonnet/main-agent work
+  (`codex review --base rules/pr-fixer` in the worktree); an Opus subagent reviews
+  Codex-built work. Main agent verifies every finding; max 3 rounds; full suite
+  before and after `git merge --no-ff`; remove worktree. Wave review afterwards
+  (`--base rules/pr-fixer-wave-<N>-base`, run in a throwaway detached worktree).
+- Version bump once, in the final PR (Codex flags it every time; ignore).
+- NEVER write an unquoted heredoc containing backticks (it once ran `uv sync` in the
+  main checkout and removed 25 extras; fixed with `uv sync --all-extras`).
+- Status loop: cron `5134657f` at :07/:37; one-shot `11f2abed` at 06:13 to start the
+  Codex reviews (session-only jobs; recreate after a restart).
 
-## Current state (2026-10-06)
+## Current state (2026-10-07 ~04:00)
 
-Wave 1 (t1 t2 t3 t4 t5 t6 t9 t16):
+Integration branch `rules/pr-fixer` head after d14 record (`devague` commit);
+last full suite 2669 passed, 1 skipped.
 
 | Task | State |
 |---|---|
-| t1 bridges | Merged as cultureagent#52; cultureagent 0.14.0 on PyPI |
-| t2 webhook events | Merged (d2 applied) |
-| t3 variables model/store | Qwen lane fixing 4 Codex findings (Mongo version race P1, envelope/schema guard, list content validation, name fullmatch) in `pr-fixer-t3`; prompt `prompt-t3-fix.txt` |
-| t4 wait step model | Merged (null-config fix by main agent) |
-| t5 github.push / review_reply | Merged (3 Codex rounds) |
-| t6 gate section | Merged here; culture-agent-template#34 open, all green, awaiting operator merge |
-| t9 bridge agent actor | Merged (d1, d3) |
-| t16 App permissions | Done, live-verified (PR #14 probe, closed) |
+| Waves 1-2 (t1-t10, t14, t16, t18) | Merged, incl. wave-2 review fixes |
+| t12 checks settle | Merged |
+| t13 gate + diff guard | Merged (d10) |
+| t15 five-tab docs | Merged (Codex-built, Opus-reviewed) |
+| t19 gate rollout | Batch 1 merged: culture-agent-template#34, devague#122, steward#85, guildmaster#137; list in docs/operations/pr-fixer.md; culture-rules gets it via the final PR |
+| t11 concurrency key + budget | Branch `rules/pr-fixer-t11` at `e10202c` (round 2 + d13 global key, Opus-built on Codex WIP); suite 2721; WAITING for Codex review (06:13), then merge |
+| t17a built-in action step (d12) | Branch `rules/pr-fixer-t17a` at `e16e4a3` (Opus); suite 2700; WAITING for Codex review; likely small conflict with t11 in model/validate.py |
+| t17b PR facts (d14) | Opus subagent building in `pr-fixer-t17b` (branch from t11) |
+| t17 fixer rule + workflow as data | Main agent; worktree `pr-fixer-t17` exists (empty); needs t11 + t17a + t17b merged first |
+| t20-t24 | Not started |
 
-Full suite on `rules/pr-fixer` at `42f827f`: 2418 passed, 1 skipped (one
-intermittent unidentified failure, r9).
+Open risks worth carrying: r9 intermittent test, r10 variable history doc size, r11
+bridge token visible to agent, r12 permissionless public issue creation by the
+fixer token, r13 dedup vs must_after chaining.
 
 ## Next steps
 
-1. When the t3 Qwen run finishes: read its report, run Codex
-   (`codex review --base rules/pr-fixer` in `pr-fixer-t3`), verify, merge
-   with the full-suite gate, remove the worktree.
-2. Wave-1 review: `codex review --base rules/pr-fixer-wave-1-base` on
-   `rules/pr-fixer`; fix verified findings.
-3. Wave 2: create `rules/pr-fixer-wave-2-base`; t7 (Opus), t8 (Sonnet), t10
-   (Sonnet, or Qwen lane B if the operator agrees), t18 (main agent: spark2
-   `culture-fixer` user, bridges as user units with `commit_author`
-   `rules-culture-dev[bot] <337624453+rules-culture-dev[bot]@users.noreply.github.com>`,
-   qwen actor needs `params.mode`).
-4. Waves 3-9 per the plan, then t20 e2e, t21 live, t22 dogfood,
-   /validate-delivery (t23), /summarize-delivery (t24), final PR via cicd.
+1. When t17b reports: Codex reviews it (06:13 onwards).
+2. 06:13: `codex review --base rules/pr-fixer` in pr-fixer-t11, pr-fixer-t17a,
+   pr-fixer-t17b; verify; route fixes; merge t11, then t17a, then t17b (full suite
+   before/after each; resolve the validate.py conflict).
+3. Codex review of wave 3 as a whole.
+4. t17 (main agent), on the merged base. Design already settled:
+   - Four rules `pr-fixer-checks` (github.pr.checks_settled), `pr-fixer-comment`
+     (github.comment.created), `pr-fixer-review` (github.review.submitted),
+     `pr-fixer-review-comment` (github.review_comment.created); all `enabled: false`,
+     `concurrency_key: "pr-fixer:{trigger.data.repository}#{trigger.data.number}"`,
+     `max_attempts: 3`, placement machine spark2; condition: head_repo == base_repo,
+     not draft, repository not in vars.fixer_excluded_repos, and for comment/review
+     rules author in vars.trusted_authors; rule action = github.comment with the run
+     link (App actor `github-app`).
+   - Workflow `pr-fixer`: wait (quiet period, head_unchanged guard) -> retry_until
+     (max 3, until verdict in [pass, no_gate], carry instruction){ actor_task on
+     placement.actor `qwen-fixer` (mode yolo, threads filtered to trusted_authors) ->
+     code builtin gate (worktree, base_sha, start_sha=head_before,
+     commit_sha=head_after) } -> code builtin action github.push (source = bundle,
+     gate_verdict = verdict, runs on spark2) -> for_each code builtin action
+     github.review_reply over threads_addressed. Action-step params may only
+     reference `inputs.*` (t17a), so wire values through edges.
+   - Seed variables: trusted_authors, ignored_check_apps (["claude"]),
+     fixer_excluded_repos, fixer_protected_paths, checks_settle_timeout_s (900),
+     checks_settle_min_s (60) via `culture-rules variables set ... --apply`.
+   - Committed as importable files (rules/<id>.yaml, workflows/<id>.yaml) under
+     e.g. docs/rules/pr-fixer/ plus a seed script; AC tests by replay.
+   - Also update the design canvas (claude.ai artifact Jgm3JPnAhKWpeiCxFXvNBi, row
+     "Chosen") with the Variables tab (owed from t14).
+5. t20 e2e on culture-rules: ASK THE OPERATOR before deploying to nodes. Upgrade all
+   nodes (d7 needs it); on spark2 node add `--secret RULES_QWEN_FIXER_TOKEN` and
+   `CULTURE_RULES_GATE_RUN_AS=sudo -n -u culture-fixer -- /usr/bin/env
+   PATH=/home/culture-fixer/.local/bin:/usr/local/bin:/usr/bin:/bin`; register actor
+   `qwen-fixer` (docs/operations/pr-fixer.md section 4).
+6. t21 live, t22 dogfood, t23 /validate-delivery, t24 /summarize-delivery, final PR
+   via the cicd skill with the version bump.
 
-## Carry-forward notes for later tasks
+## Machines
 
-- t14 must add `github.push` / `github.review_reply` to the web action
-  pickers (`web/src/rules/ActionPicker.tsx`, `web/src/actors/app-config.ts`).
-- t17/t18: hand the agent's commit to `github.push` as a git bundle or a
-  worktree readable by the node (a worktree owned by `culture-fixer` trips
-  git `safe.directory`); set `params.commit_author` on the App actor and on
-  both bridges.
-- t13 must cover `.github/workflows` edits (culture-nodes' scope_guard was
-  dropped in the lift).
-- Bridges lose in-flight runs on restart (GET 404); t9 should treat 404 for
-  an accepted id as lost.
-- Qodo has no credits (not reviewing PRs) — affects t21/t22.
-- steward doctor crashes on its own (r7).
+- spark: API, node, tunnel units active after the 2026-10-07 reboot; culture-rules
+  Mongo up; spark's vLLM (cortex) did NOT come back (fine: spark is to stay free).
+- spark2: UNREACHABLE since the reboot (ssh times out). Needed for t20 and the Qwen
+  fallback. Operator to check.
+- spark2 setup (done, verified before the reboot): account `culture-fixer` (spark's
+  key authorized), uv, grant, Node 24, Qwen Code 0.24.7, gh 2.102 in its ~/.local;
+  qwen bridge user unit on 100.93.248.8:8093; grant store FIXER_QWEN_BRIDGE_TOKEN,
+  FIXER_CORTEX_API_KEY, FIXER_GITHUB_TOKEN (fine-grained read-only), FIXER_SONAR_TOKEN;
+  sudoers `/etc/sudoers.d/culture-fixer-gate` (`spark2 ALL=(culture-fixer) NOPASSWD:
+  /usr/bin/env`), run-as path probed (evidence log).
 
-## spark2 fixer machine (2026-10-07)
+## Carry-forward notes
 
-- `culture-fixer` exists (no extra groups; cannot read /home/spark2 or node.env). Spark's
-  ed25519 key is authorized: `ssh culture-fixer@spark2`.
-- Installed in its ~/.local: uv, grant 0.11.0, Node v24.13.1, Qwen Code 0.24.7, gh 2.102.0;
-  git uses gh's credential helper (GH_TOKEN). cultureagent 0.14.0 qwen bridge is a user
-  unit on 100.93.248.8:8093, active and enabled (no Codex on spark2, d8).
-- Its grant store: FIXER_QWEN_BRIDGE_TOKEN, FIXER_CORTEX_API_KEY, FIXER_GITHUB_TOKEN
-  (fine-grained read-only, OriNachum), FIXER_SONAR_TOKEN. Verified: bridge 200 with token /
-  401 without, cortex 200, Sonar valid, PRs/Actions/check runs readable (public), private
-  repo metadata and git fetch OK, private check runs 403 (PAT limit; the engine reads checks
-  via the App), all writes 403 except permissionless public issue creation (r12, accepted;
-  probe issue #16 closed).
-- DEFERRED to t20 (node is 0.12.0, no bridge actor yet; d7 also needs all nodes upgraded):
-  reinstall the spark2 node with `--secret RULES_QWEN_FIXER_TOKEN` (already in spark2's grant
-  store; the unit does not inject it yet) and register actor `qwen-fixer` per
-  docs/operations/pr-fixer.md section 4.
-
-## Qwen lane (operator, 2026-10-07)
-
-- From t15 on, Qwen Code runs ONLY on spark2's cortex: `qwen -m cortex-spark2 ...`
-  (spark is kept free for other loads). The model ids on spark are now `cortex-spark` /
-  `cortex-spark2` (pinned); plain `cortex` / `main` are gone from the settings.
-- Reviews are Codex again (d9); reviewer never the implementer; Qwen-built tasks are
-  reviewed by an Opus subagent or Codex.
+- devex refuses steward's `backend: colleague` (opened steward#85 with gh, signed by
+  hand); cultureagent has no culture.yaml (swapped out of t19 batch 1).
+- Fine-grained PATs have no Checks permission; the engine reads checks via the App.
+- Qodo has no credits (affects t21/t22). steward doctor crash (r7).
+- t14's Variables tab cannot create a new variable (CLI/API only) — note in summary.
+- t12 picked checks_settle_timeout_s fallback 900 s and checks_settle_min_s 60 s.
