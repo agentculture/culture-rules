@@ -6,9 +6,11 @@ that moved during the wait ends the run ``superseded`` with no later step run.
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 import pytest
 
-from culture_rules.engine.runs import RUNS_COLLECTION, Executor, step_state
+from culture_rules.engine.runs import RUNS_COLLECTION, Containment, Executor, step_state
 from culture_rules.store.memory import MemoryStore
 from tests.engine.run_helpers import (
     Clock,
@@ -533,3 +535,139 @@ def test_a_slow_failed_lookup_backs_off_from_when_it_returned(store, clock, answ
     st = step_state(ex.run(run["id"]), "w")
     assert st["status"] == "sleeping"
     assert st["deadline"] == (clock() + timedelta(seconds=BLOCKED_RETRY_S)).isoformat()
+
+
+def test_a_blocked_guarded_wake_backs_off_and_records_once(store, clock):
+    """The blocked-queue churn on a guarded wait: its head lookup's actor stays at a limit.
+    Re-arms back off like a blocked step (5, 10, 20, 40, 60 s) and history records the
+    first ``wait_blocked`` only (a counter on the step tracks the repeats)."""
+    from culture_rules.engine.runs import BLOCKED_RETRY_MAX_S
+
+    inner = ScriptedHead(*[("blocked", None)] * 8, ("ok", SHA_A))
+    ex, _ = _router_executor(store, clock, inner)
+    run = _sleeping_run(ex, guard_config(60))
+    clock.advance(61)
+    wakes = []
+    for _ in range(400):
+        before = inner.calls
+        ex.run_until_idle()
+        if inner.calls != before:
+            wakes.append(clock())
+        clock.advance(1)
+    gaps = [(b - a).total_seconds() for a, b in zip(wakes, wakes[1:], strict=False)]
+    assert gaps[:5] == [5.0, 10.0, 20.0, 40.0, BLOCKED_RETRY_MAX_S]
+    doc = ex.run(run["id"])
+    assert doc["status"] == "succeeded", doc["error"]
+    assert [h["event"] for h in doc["history"]].count("wait_blocked") == 1
+    assert step_state(doc, "w")["lookup_blocked"] == 8
+
+
+def test_a_guarded_wake_blocked_past_its_queue_bound_fails_queue_timeout(store, clock):
+    """The guard lookup's queue has the same bound as a blocked step's (2 x the wait
+    step's timeout_s, default 3600 s): past it the step fails ``queue_timeout`` - never
+    proceeds as if the head were unchanged, never waits forever."""
+    from culture_rules.engine.runs import DEFAULT_TIMEOUT_S, QUEUE_TIMEOUT, queue_limit_s
+
+    inner = ScriptedHead(*[("blocked", None)] * 1000)
+    ex, _ = _router_executor(store, clock, inner)
+    run = _sleeping_run(ex, guard_config(60))
+    clock.advance(61)
+    bound = queue_limit_s(DEFAULT_TIMEOUT_S)
+    for _ in range(int(bound / 60) + 3):
+        ex.run_until_idle()
+        clock.advance(60)
+    doc = ex.run(run["id"])
+    st = step_state(doc, "w")
+    assert st["status"] == "failed", st
+    assert st["error"]["code"] == QUEUE_TIMEOUT
+    assert doc["status"] == "failed"
+    assert [h["event"] for h in doc["history"]].count("wait_blocked") == 1
+
+
+def test_a_blocked_guarded_wake_expires_at_its_bound_even_while_its_node_is_drained(store, clock):
+    """Codex r2 on f6d31f3: the lookup's queue bound is checked in housekeeping, not only
+    when another lookup answers blocked. Blocked once, node drained past the bound: the
+    wait fails ``queue_timeout`` without another lookup, and an undrained node never lets
+    a later successful lookup carry the run on past the expired bound."""
+    from culture_rules.engine.runs import DEFAULT_TIMEOUT_S, QUEUE_TIMEOUT, queue_limit_s
+
+    inner = ScriptedHead(("blocked", None), ("ok", SHA_A))
+    ex, _ = _router_executor(store, clock, inner)
+    run = _sleeping_run(ex, guard_config(60))
+    clock.advance(61)
+    ex.run_until_idle()
+    assert inner.calls == 1
+    assert step_state(ex.run(run["id"]), "w")["status"] == "sleeping"
+    Containment(store).drain("spark", "ops")
+    clock.advance(queue_limit_s(DEFAULT_TIMEOUT_S) + 1)  # 7201 s
+    ex.run_until_idle()
+    doc = ex.run(run["id"])
+    st = step_state(doc, "w")
+    assert st["status"] == "failed", st
+    assert st["error"]["code"] == QUEUE_TIMEOUT
+    assert "7200" in st["error"]["message"]  # names the bound
+    assert inner.calls == 1  # no further lookup
+    Containment(store).undrain("spark", "ops")
+    ex.run_until_idle()
+    assert inner.calls == 1
+    assert ex.run(run["id"])["status"] == "failed"
+
+
+@pytest.mark.parametrize("drained", [False, True])
+def test_a_legacy_mid_blocked_guarded_wake_adopts_the_bound(store, clock, drained):
+    """The old engine left a refused lookup as a plain ``sleeping`` wake re-armed 5 s out,
+    with one ``wait_blocked`` history entry per refusal and no counter: on upgrade the spell
+    is dated from the first entry of its trailing ``wait_blocked`` run and bounded."""
+    from culture_rules.engine.runs import QUEUE_TIMEOUT
+
+    inner = ScriptedHead(*[("blocked", None)] * 3, ("ok", SHA_A))
+    ex, _ = _router_executor(store, clock, inner)
+    run = _sleeping_run(ex, guard_config(60))
+    clock.advance(61)
+    ex.run_until_idle()  # refused once
+    first_refusal = clock()
+    doc = store.get(RUNS_COLLECTION, run["id"])
+    st = step_state(doc, "w")
+    for k in ("lookup_blocked", "lookup_blocked_since"):
+        st.pop(k, None)
+    # the old engine's second refusal: another entry, re-armed BLOCKED_RETRY_S out
+    doc["rev"] += 1
+    doc["history"].append(
+        {
+            "rev": doc["rev"],
+            "at": (first_refusal + timedelta(seconds=5)).isoformat(),
+            "host": "spark",
+            "event": "wait_blocked",
+            "step": "w",
+        }
+    )
+    st["deadline"] = (first_refusal + timedelta(seconds=10)).isoformat()
+    store.put(RUNS_COLLECTION, doc)
+    if drained:
+        Containment(store).drain("spark", "ops")
+    clock.advance(7200 + 1)
+    ex.run_until_idle()
+    doc = ex.run(run["id"])
+    st = step_state(doc, "w")
+    assert st["status"] == "failed", st
+    assert st["error"]["code"] == QUEUE_TIMEOUT
+    assert inner.calls == 1
+
+
+def test_a_legacy_mid_blocked_guarded_wake_within_its_bound_keeps_waiting(store, clock):
+    inner = ScriptedHead(("blocked", None), ("ok", SHA_A))
+    ex, _ = _router_executor(store, clock, inner)
+    run = _sleeping_run(ex, guard_config(60))
+    clock.advance(61)
+    ex.run_until_idle()
+    first_refusal = clock()
+    doc = store.get(RUNS_COLLECTION, run["id"])
+    st = step_state(doc, "w")
+    for k in ("lookup_blocked", "lookup_blocked_since"):
+        st.pop(k, None)
+    store.put(RUNS_COLLECTION, doc)
+    clock.advance(30)
+    ex.run_until_idle()
+    doc = ex.run(run["id"])
+    assert doc["status"] == "succeeded", doc["error"]
+    assert step_state(doc, "w")["lookup_blocked_since"] == first_refusal.isoformat()

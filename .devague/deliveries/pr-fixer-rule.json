@@ -2,7 +2,7 @@
   "plan_slug": "pr-fixer-rule",
   "schema_version": 2,
   "created": "2026-10-06T08:44:59Z",
-  "updated": "2026-10-07T16:02:25Z",
+  "updated": "2026-10-07T17:45:43Z",
   "deviations": [
     {
       "id": "d1",
@@ -278,6 +278,21 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 19
+    },
+    {
+      "id": "d20",
+      "what": "pr-fixer workflow gains an agent review step: after the gate passes, a codex-reviewer agent (Codex via the culture-nodes codex bridge on spark, read-only) reviews the fix commit (start..commit diff, PR intent, threads, gate verdict) and returns approve or request_changes; github.push runs only when the gate passes AND the reviewer approves; request_changes feeds the findings into the next fix attempt within the same 3-attempt budget, otherwise the run hands back with the findings on the PR. Live fixer rules stay enabled meanwhile (operator choice).",
+      "task_ref": "t9",
+      "reason": "operator: the fixer's commit must be reviewed by another agent step and pushed by the rule's code, not by a human/main-agent review; Qwen will author PRs from tomorrow and this process is the safety net",
+      "affects": [
+        "t10",
+        "t13",
+        "t20"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "needs-follow-up",
+      "seq": 20
     }
   ],
   "evidence": [],
