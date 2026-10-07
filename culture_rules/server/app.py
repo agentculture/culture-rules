@@ -44,6 +44,7 @@ from culture_rules.engine.runs import (
     drained_machines,
     is_paused,
 )
+from culture_rules.model import describe
 from culture_rules.ops.health import health_status
 from culture_rules.ops.nodename import node_name
 from culture_rules.server import events, humans, static
@@ -153,6 +154,22 @@ class StopRunsRequest(BaseModel):
     reason: str = Field(
         "", description="recorded on each cancelled run; default 'rule disabled: stopped by <you>'"
     )
+
+
+class DescribeEntry(BaseModel):
+    label: str = Field(description="When/If/and/Then/... for a rule; 1, 3.1 ... for a step")
+    text: str
+    depth: int = Field(description="nesting: a loop's body is one deeper")
+    step: str | None = Field(default=None, description="the step id (workflow entries only)")
+
+
+class Description(BaseModel):
+    """d19: a plain description generated only from the definition's config (no AI)."""
+
+    id: str
+    kind: str = Field(description="rule or workflow")
+    lines: list[str] = Field(description="the entries as text, one per line")
+    entries: list[DescribeEntry]
 
 
 class ActiveRun(BaseModel):
@@ -999,6 +1016,39 @@ def _register_runs(
         return {"items": merged[:limit]}
 
     @app.get(
+        "/rules/{id}/describe",
+        response_model=Description,
+        response_model_exclude_none=True,
+        tags=["rules"],
+        operation_id="describe_rule",
+        responses={404: ERRORS[404]},
+    )
+    def describe_rule_route(id: str):
+        """The rule in plain words, from its config only (d19): ``When``, ``If``, ``Run``,
+        ``On``, ``Then``, ``On failure``, ``Key`` ... The referenced workflow adds its step
+        count, or ``not found`` when it is missing or deleted."""
+        rule = defs.get("rules", id)
+        ref = rule.get("workflow")
+        workflow = None
+        if isinstance(ref, Mapping) and ref.get("id"):
+            found = store.get("workflows", str(ref["id"]))
+            workflow = found if found and not found.get("deleted_at") else {}
+        return _description(id, "rule", describe.describe_rule(rule, workflow))
+
+    @app.get(
+        "/workflows/{id}/describe",
+        response_model=Description,
+        response_model_exclude_none=True,
+        tags=["workflows"],
+        operation_id="describe_workflow",
+        responses={404: ERRORS[404]},
+    )
+    def describe_workflow_route(id: str):
+        """The workflow's steps in plain words, from its config only (d19): numbered, a
+        loop's body nested one level deeper."""
+        return _description(id, "workflow", describe.describe_workflow(defs.get("workflows", id)))
+
+    @app.get(
         "/runs/{run_id}",
         tags=["runs"],
         operation_id="get_run",
@@ -1287,6 +1337,10 @@ def _register_stream(app: FastAPI, store: StoragePort) -> None:
             media_type="text/event-stream",
             headers={"Cache-Control": NO_STORE, "X-Accel-Buffering": "no"},
         )
+
+
+def _description(id: str, kind: str, entries: list[dict[str, Any]]) -> dict[str, Any]:
+    return {"id": id, "kind": kind, "lines": describe.render(entries), "entries": entries}
 
 
 _DISABLE_RULE_NOTE = (

@@ -207,6 +207,80 @@
         "title": "Controls",
         "type": "object"
       },
+      "DescribeEntry": {
+        "properties": {
+          "depth": {
+            "description": "nesting: a loop's body is one deeper",
+            "title": "Depth",
+            "type": "integer"
+          },
+          "label": {
+            "description": "When/If/and/Then/... for a rule; 1, 3.1 ... for a step",
+            "title": "Label",
+            "type": "string"
+          },
+          "step": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "the step id (workflow entries only)",
+            "title": "Step"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "text",
+          "depth"
+        ],
+        "title": "DescribeEntry",
+        "type": "object"
+      },
+      "Description": {
+        "description": "d19: a plain description generated only from the definition's config (no AI).",
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/DescribeEntry"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "description": "rule or workflow",
+            "title": "Kind",
+            "type": "string"
+          },
+          "lines": {
+            "description": "the entries as text, one per line",
+            "items": {
+              "type": "string"
+            },
+            "title": "Lines",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "lines",
+          "entries"
+        ],
+        "title": "Description",
+        "type": "object"
+      },
       "DiscordChannel": {
         "properties": {
           "id": {
@@ -4778,6 +4852,87 @@
         ]
       }
     },
+    "/rules/{id}/describe": {
+      "get": {
+        "description": "The rule in plain words, from its config only (d19): ``When``, ``If``, ``Run``,\n``On``, ``Then``, ``On failure``, ``Key`` ... The referenced workflow adds its step\ncount, or ``not found`` when it is missing or deleted.",
+        "operationId": "describe_rule",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "title": "Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Description"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Describe Rule Route",
+        "tags": [
+          "rules"
+        ]
+      }
+    },
     "/rules/{id}/disable": {
       "post": {
         "description": "Disable the rule. The answer is the stored rule plus `active_runs` (its non-terminal runs, oldest first, at most 50, each `{id, status, started_at}`) and `active_runs_total`. Disabling never stops those runs: offer `POST /rules/{id}/stop-runs` to cancel them (d17); left running, a push step still refuses with `rule_disabled`.",
@@ -7123,6 +7278,87 @@
           }
         ],
         "summary": "Update",
+        "tags": [
+          "workflows"
+        ]
+      }
+    },
+    "/workflows/{id}/describe": {
+      "get": {
+        "description": "The workflow's steps in plain words, from its config only (d19): numbered, a\nloop's body nested one level deeper.",
+        "operationId": "describe_workflow",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "title": "Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Description"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Describe Workflow Route",
         "tags": [
           "workflows"
         ]

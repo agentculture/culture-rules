@@ -273,7 +273,27 @@ and `active_runs_total`, and adds a hint when there are any. Then either:
 The editor asks the same question: "Stop N current runs?".
 """
 
+_DESCRIBE_NOTE = """\
+## Output
+
+A deterministic description built only from the definition's config (no AI, and
+never its name or description fields): one fixed phrase per trigger kind, step
+kind, built-in, action kind and condition operator, with the raw name as a
+fallback for anything unknown. Text mode prints one line per entry; `--json`
+returns `{id, kind, lines, entries}`, each entry `{label, text, depth}` plus
+`step` (the step id) on a workflow entry. The web editor shows the same lines.
+
+A rule reads `When` (the trigger), `If` / `and` / `or` (the condition, symbols
+`= ≠ < ≤ > ≥ ∈ ∉`), `After`, `Supersedes`, `Run` (the workflow and its step
+count), `On` (placement), `Then`, `On failure`, `Key`, `Group`, `Disabled`. A
+workflow reads its steps numbered `1`, `2`, `3.1` ..., a loop's body one level
+deeper (a one-step body inline). API: `GET /rules/{id}/describe`,
+`GET /workflows/{id}/describe`.
+"""
+
 _VERB_NOTES = {
+    ("rules", "describe"): _DESCRIBE_NOTE,
+    ("workflows", "describe"): _DESCRIBE_NOTE,
     ("rules", "disable"): _STOP_RUNS_NOTE,
     ("rules", "update"): _STOP_RUNS_NOTE,
     ("rules", "stop-runs"): _STOP_RUNS_NOTE,
