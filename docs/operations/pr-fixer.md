@@ -154,18 +154,51 @@ checkout goes through the prefix in `CULTURE_RULES_GATE_RUN_AS`, and while
 that is unset the step fails `gate_runner_unconfigured`.
 
 Give the node user exactly one sudo grant, to run `env` as `culture-fixer`
-without a password. Then set the prefix in the node's environment (its
-`node.env`, then restart the node). `PATH` must reach the account's
+without a password. Then put the prefix in the node's environment with the
+node installer's `--gate-run-as` (re-run it with the flags the node was
+installed with, plus this one). `PATH` must reach the account's
 `~/.local/bin`, because sudo resets the environment:
 
 ```bash
 echo 'spark2 ALL=(culture-fixer) NOPASSWD: /usr/bin/env' \
   | sudo tee /etc/sudoers.d/culture-rules-gate && sudo visudo -cf /etc/sudoers.d/culture-rules-gate
-# node.env (FIXER_HOME is the account's home directory: getent passwd culture-fixer | cut -d: -f6):
-CULTURE_RULES_GATE_RUN_AS=sudo -n -u culture-fixer -- /usr/bin/env PATH=FIXER_HOME/.local/bin:/usr/local/bin:/usr/bin:/bin
+# as the node user (FIXER_HOME is the account's home: getent passwd culture-fixer | cut -d: -f6)
+bash deploy/node/install.sh --node-name spark2 ...the flags it was installed with... \
+  --gate-run-as 'sudo -n -u culture-fixer -- /usr/bin/env PATH=FIXER_HOME/.local/bin:/usr/local/bin:/usr/bin:/bin'
+# read the plan, then the same command with --apply
 ```
 
 Write the absolute path in place of `FIXER_HOME`: `env` does not expand `~`.
+
+Use the flag rather than editing `node.env` by hand: `install.sh` rewrites
+`node.env` on every run, so a hand-added `CULTURE_RULES_GATE_RUN_AS` line
+disappears at the next upgrade. The flag also changes the unit. By default
+the unit sets `NoNewPrivileges=true`, which sets the kernel's
+`no_new_privs` flag on the node and everything it starts, and with that flag
+sudo refuses to run at all ("The "no new privileges" flag is set, which
+prevents sudo from running as root"). A `--gate-run-as` prefix that starts
+with `sudo` therefore writes `NoNewPrivileges=false`. Any other prefix keeps
+`NoNewPrivileges=true`.
+
+If you would rather not re-run the installer, a drop-in does the same for
+the unit (the `CULTURE_RULES_GATE_RUN_AS` line still has to be in
+`node.env`, and is lost at the next install without the flag):
+
+```bash
+mkdir -p "$HOME/.config/systemd/user/culture-rules-node.service.d"
+printf '[Service]\nNoNewPrivileges=false\n' \
+  > "$HOME/.config/systemd/user/culture-rules-node.service.d/gate-sudo.conf"
+systemctl --user daemon-reload && systemctl --user restart culture-rules-node
+```
+
+At start the node checks for the conflict: when the prefix starts with
+`sudo` and the node has `no_new_privs` set, it logs an error naming both
+fixes, and every gate step fails `run_as_blocked` until the unit is fixed.
+When a worktree command fails later, the gate probes the prefix with `true`.
+If the probe fails too, the step fails `run_as_failed` (or `run_as_blocked`
+when sudo names the flag) with the end of sudo's stderr. Otherwise it fails
+`source_unavailable` with the end of git's stderr, for example a commit the
+worktree does not have.
 
 The gate appends `env -C <dir> -- <argv>` to that prefix, so each command
 runs in that directory as `culture-fixer`, as an argv list, with no shell

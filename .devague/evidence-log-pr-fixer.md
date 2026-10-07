@@ -20,3 +20,37 @@ Probed through the gate's exact prefix
 - `mktemp -d -t culture-rules-gate-XXXXXXXXXX` -> owned by `culture-fixer`, mode 700; removed by `rm -rf` as that user
 - git 2.43.0 and uv 0.12.23 resolve on that PATH
 - the node user (spark2) still cannot read `~culture-fixer` (permission denied)
+
+Caveat, found in t20: this probe ran from an interactive shell. Inside the node's
+systemd unit (`NoNewPrivileges=true`) sudo refuses. See lapse l1.
+
+## t20 live run on agentculture/pr-fixer-sandbox, 2026-10-07
+
+Deployed a local 0.13.0 wheel (d782924) to spark (API and node), thor, orin and
+spark2. Imported the workflow and the four rules, seeded the variables and enabled
+the rules, with the allow-list set to `["agentculture/pr-fixer-sandbox"]`. Outcomes
+are read from run history (`culture-rules runs show`) and the PR's GitHub timeline,
+never from the agent's report.
+
+PR #1 was seeded with a floor-division bug that fails `test_mean_of_two_values`
+and an unused local variable.
+
+| Run | Trigger | Outcome |
+|---|---|---|
+| run-65c792ba3e7ef7d5ede86a48693c0f3e | `pr-fixer-comment`, Qodo's billing notice; Qodo is a trusted author | `superseded` in the quiet period: a human push moved the head from 30d73fe to c5f1b58. The agent never ran. |
+| run-d6e5dabdf5ec61e8a47a912091a37e0f | `pr-fixer-checks`, coalesced behind the run above | The agent fixed both seeded issues (commit 0e09b25). The gate failed `source_unavailable` because the unit's `NoNewPrivileges=true` blocked sudo. The hand-back comment was posted and nothing was pushed. |
+| run-b2a00c810276679164166f0ff71dc08c | `pr-fixer-comment`, the operator's retry comment | The agent fixed both again (ab81835). The gate failed `extra_missing: install culture-rules[yaml]`. The hand-back comment was posted and nothing was pushed. |
+| run-4144cb0428806afe37cc95ed1ace2eb3 | `pr-fixer-checks`, settled `failure` at aca0f2a with PR facts (`head_repo == base_repo`, `draft: false`, `base_sha`) | **Full pass.** The agent produced 0e1b4bf. The gate read the `culture.yaml` gate section at the base commit and returned verdict `pass`. The App pushed 0e1b4bf as rules-culture-dev[bot] and posted the run-link comment. On the new head, tests (119 passed) and lint were green. |
+| run-ef30c89bceb105c88e5a5d383999e51e | `pr-fixer-checks`, settled `failure` at 0e1b4bf: sandbox Sonar automatic analysis, TestPyPI publisher | `superseded` in the quiet period when a human push landed (3d80d8a). |
+| run-f4e47b1b927291f8a9b656fc1ca2ec81 | `pr-fixer-checks`, settled `failure` at 3d80d8a: `test-publish` only (the TestPyPI publisher; the code cannot fix it) | The agent ran until the bridge's 3600 s timeout. The hand-back comment was posted, nothing was pushed and the head is unchanged. |
+
+- Draft PR #2 and fork PR #3 (from OriNachum/pr-fixer-sandbox) got zero fixer runs.
+  The checks on #3 were green; on #2 they were red.
+- Live defects fixed during t20:
+  - `NoNewPrivileges` on the node unit: a live drop-in, plus a21e07d `--gate-run-as`.
+  - The `yaml` extra missing from the node install: installed live, plus 755aaf8.
+  - The gate hid the run-as stderr: a21e07d.
+- Behavioural deltas to file at t23:
+  - A trusted bot's boilerplate comment (Qodo billing) starts a run.
+  - A failure the code cannot fix (environment or publisher) burns up to 60 min of agent time per attempt.
+  - The agent re-locked uv.lock, which was stale in the PR, and that change was accepted.

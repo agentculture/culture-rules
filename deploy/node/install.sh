@@ -17,11 +17,12 @@ WHEEL=""
 CA_FILE=""
 MONGO_SECRET="RULES_MONGO_URI"
 SECRETS=()
-EXTRAS="store,events,github,discord"
+EXTRAS="store,events,github,discord,yaml"
 WHEELHOUSE=""
 EVENTS_HOST=""
 EVENTS_PORT=""
 PYTHON_VERSION="3.12"
+GATE_RUN_AS=""
 APPLY=0
 
 usage() {
@@ -41,11 +42,15 @@ Options:
   --mongo-secret NAME   grant secret holding the Mongo URI (default: RULES_MONGO_URI)
   --secret NAME         a grant secret an app actor on this machine references (repeatable);
                         injected as CULTURE_RULES_SECRET_<NAME>, so a --hidden secret works
-  --extras LIST         extras to install (default: store,events,github,discord)
+  --extras LIST         extras to install (default: store,events,github,discord,yaml)
   --wheelhouse DIR      offline install: pip --no-index --find-links DIR
   --events-host HOST    write EVENTS_BROKER_HOST into node.env (optional)
   --events-port PORT    write EVENTS_BROKER_PORT into node.env (optional)
   --python VERSION      Python for the venv (default: 3.12)
+  --gate-run-as PREFIX  write CULTURE_RULES_GATE_RUN_AS=PREFIX into node.env (the PR fixer
+                        gate's run-as prefix, e.g. 'sudo -n -u culture-fixer -- /usr/bin/env
+                        PATH=...'); a prefix starting with sudo also sets
+                        NoNewPrivileges=false in the unit, or sudo cannot run
   --apply               perform the install (without it nothing is written)
   -h, --help            show this help
 USAGE
@@ -68,6 +73,7 @@ while [ $# -gt 0 ]; do
     --events-host) EVENTS_HOST="${2:?--events-host needs a value}"; shift 2 ;;
     --events-port) EVENTS_PORT="${2:?--events-port needs a value}"; shift 2 ;;
     --python) PYTHON_VERSION="${2:?--python needs a value}"; shift 2 ;;
+    --gate-run-as) GATE_RUN_AS="${2:?--gate-run-as needs a value}"; shift 2 ;;
     --apply) APPLY=1; shift ;;
     -h | --help) usage; exit 0 ;;
     *) usage >&2; die "unknown argument: $1" ;;
@@ -97,6 +103,32 @@ if [ -z "$CA_FILE" ] && [ -f "$SELF_DIR/ca.pem" ]; then
 fi
 [ -z "$CA_FILE" ] || [ -f "$CA_FILE" ] || die "CA file not found: $CA_FILE"
 [ -z "$WHEELHOUSE" ] || [ -d "$WHEELHOUSE" ] || die "wheelhouse is not a directory: $WHEELHOUSE"
+
+# The gate's run-as prefix (culture_rules.actors.gate, docs/operations/pr-fixer.md section 5).
+# One line in node.env: no newline or carriage return. sudo needs the unit to allow new
+# privileges: with NoNewPrivileges=true the kernel's no_new_privs flag makes sudo refuse.
+NO_NEW_PRIVS=true
+GATE_ENV_LINE=""
+if [ -n "$GATE_RUN_AS" ]; then
+  case "$GATE_RUN_AS" in
+    *$'\n'* | *$'\r'*) die "--gate-run-as must be a single line" ;;
+  esac
+  read -r GATE_FIRST _ <<<"$GATE_RUN_AS" || true
+  [ -n "${GATE_FIRST:-}" ] || die "--gate-run-as must not be blank"
+  # The gate splits the prefix with shlex. A first word free of quotes and backslashes reads
+  # the same under shlex as under this whitespace split, so the sudo check below agrees with
+  # the gate's; a quoted or escaped executable could disagree, so it is refused.
+  case "$GATE_FIRST" in
+    *[\'\"\\]*) die "--gate-run-as: write the executable without quotes or backslashes: $GATE_FIRST" ;;
+  esac
+  [ "$(basename -- "$GATE_FIRST")" != "sudo" ] || NO_NEW_PRIVS=false
+  # systemd EnvironmentFile double quotes: backslash-escape \ " $ and backtick.
+  quoted=${GATE_RUN_AS//\\/\\\\}
+  quoted=${quoted//\"/\\\"}
+  quoted=${quoted//\$/\\\$}
+  quoted=${quoted//\`/\\\`}
+  GATE_ENV_LINE="CULTURE_RULES_GATE_RUN_AS=\"$quoted\""
+fi
 
 CFG="$HOME/.config/culture-rules"
 VENV="$HOME/.local/share/culture-rules/venv"
@@ -132,6 +164,15 @@ render_env() {
   echo "CULTURE_RULES_NODE_NAME=$NODE_NAME"
   [ -z "$EVENTS_HOST" ] || echo "EVENTS_BROKER_HOST=$EVENTS_HOST"
   [ -z "$EVENTS_PORT" ] || echo "EVENTS_BROKER_PORT=$EVENTS_PORT"
+  [ -z "$GATE_ENV_LINE" ] || printf '%s\n' "$GATE_ENV_LINE"
+}
+
+render_hardening() {
+  if [ "$NO_NEW_PRIVS" = false ]; then
+    echo "# The gate's run-as prefix (CULTURE_RULES_GATE_RUN_AS) starts with sudo, and sudo refuses"
+    echo "# to run when the no_new_privs flag is set: install.sh --gate-run-as relaxes it."
+  fi
+  echo "NoNewPrivileges=$NO_NEW_PRIVS"
 }
 
 render_unit() {
@@ -149,7 +190,7 @@ ExecStart=%h/.local/bin/grant run --inject CULTURE_RULES_MONGO_URI=$MONGO_SECRET
 Restart=always
 RestartSec=5
 UMask=0077
-NoNewPrivileges=true
+$(render_hardening)
 
 [Install]
 WantedBy=default.target
@@ -172,6 +213,11 @@ fi
 echo "  node.env:     $ENV_FILE (mode 600)"
 render_env | sed 's/^/                /'
 echo "  unit:         $UNIT"
+if [ "$NO_NEW_PRIVS" = false ]; then
+  echo "                NoNewPrivileges=false (the gate's run-as prefix uses sudo)"
+else
+  echo "                NoNewPrivileges=true"
+fi
 echo "  mongo secret: grant:$MONGO_SECRET (injected at exec time; never written)"
 echo "  exec:         grant run --inject CULTURE_RULES_MONGO_URI=$MONGO_SECRET$INJECTS -- culture-rules node run"
 echo "  then:         systemctl --user daemon-reload; enable --now culture-rules-node"
