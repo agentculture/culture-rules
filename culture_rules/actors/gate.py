@@ -78,6 +78,16 @@ is impossible), and on a timeout the node can signal only ``sudo`` itself (it re
 ``SIGTERM`` to the command); processes that ignore it are not the node's to kill. Commands
 get the environment the prefix gives them (``sudo`` resets it), not the node's.
 
+A ``sudo`` prefix cannot work in a process with the kernel's ``no_new_privs`` flag set
+(systemd ``NoNewPrivileges=true``): sudo refuses before it runs anything. :meth:`GatePort.from_env`
+checks for that at node start (``NoNewPrivs`` in ``/proc/self/status``), logs an error naming
+the fix (``deploy/node/install.sh --gate-run-as``, or a unit drop-in with
+``NoNewPrivileges=false``) and the gate then refuses ``run_as_blocked`` instead of failing
+later on an opaque error. When a worktree command fails, the gate probes the run-as with
+``true``: if that fails too, the run-as itself is broken (``run_as_failed``, or
+``run_as_blocked`` when sudo names the flag); otherwise the worktree lacks a commit
+(``source_unavailable``). Both carry a bounded, control-character-free stderr tail.
+
 Diff guard
 ==========
 
@@ -138,6 +148,7 @@ declares ``supports_idempotency_key``. Standard-library only (the ``yaml`` extra
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import shlex
@@ -155,6 +166,8 @@ from typing import IO, Any, Protocol
 
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
 from culture_rules.engine.variables import variable_values
+
+log = logging.getLogger(__name__)
 
 __all__ = [
     "ALWAYS_PROTECTED",
@@ -176,6 +189,7 @@ __all__ = [
     "VERDICTS",
     "Violation",
     "diff_guard",
+    "no_new_privs",
     "gate_from_mapping",
     "parse_gate",
     "path_matches",
@@ -208,6 +222,15 @@ _SHELL_JOINING = frozenset({"ssh", "su", "sh", "bash", "dash", "zsh", "ksh", "fi
 _LOCAL_REF = "refs/culture-rules/gate"
 _CLEANUP_S = 60.0
 _CHECKOUT_PREFIX = "culture-rules-gate-"
+_STDERR_TAIL_BYTES = 500
+_CONTROL_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+_PROC_STATUS = "/proc/self/status"
+#: What fixes a sudo prefix under no_new_privs (logged at start, and in the refusal).
+NO_NEW_PRIVS_FIX = (
+    "re-run deploy/node/install.sh with --gate-run-as (it writes NoNewPrivileges=false), or "
+    "add a drop-in ~/.config/systemd/user/culture-rules-node.service.d/gate-sudo.conf with "
+    "[Service] NoNewPrivileges=false, then daemon-reload and restart the node"
+)
 #: The fixer user can edit its own ~/.gitconfig and git templates: ignore all of them.
 _HARD_GIT_ENV = (
     "env",
@@ -310,8 +333,9 @@ def parse_gate(text: str, where: str = CULTURE_YAML) -> GateSpec | None:
 class CommandRunner(Protocol):
     """Runs ``argv`` in ``cwd`` as the fixer user; returns the exit code (or a sentinel).
 
-    stdout (with stderr merged when asked, else discarded) goes to ``stdout``; ``stdin``
-    is closed unless given. Returns :data:`TIMED_OUT` / :data:`UNAVAILABLE`."""
+    stdout (with stderr merged when asked) goes to ``stdout``; unmerged stderr goes to
+    ``stderr`` when given, else is discarded. ``stdin`` is closed unless given. Returns
+    :data:`TIMED_OUT` / :data:`UNAVAILABLE`."""
 
     def __call__(
         self,
@@ -322,6 +346,7 @@ class CommandRunner(Protocol):
         stdout: IO[bytes],
         stdin: IO[bytes] | None = None,
         merge_stderr: bool = False,
+        stderr: IO[bytes] | None = None,
     ) -> int: ...
 
 
@@ -364,6 +389,7 @@ def run_process(
     stdin: IO[bytes] | None = None,
     merge_stderr: bool = False,
     env: Mapping[str, str] | None = None,
+    stderr: IO[bytes] | None = None,
 ) -> int:
     """One process group, argv list, ``shell=False``; the whole group dies on timeout."""
     try:
@@ -373,7 +399,7 @@ def run_process(
             env=dict(env) if env is not None else _base_env(),
             stdin=stdin if stdin is not None else subprocess.DEVNULL,
             stdout=stdout,
-            stderr=subprocess.STDOUT if merge_stderr else subprocess.DEVNULL,
+            stderr=subprocess.STDOUT if merge_stderr else (stderr or subprocess.DEVNULL),
             shell=False,
             start_new_session=True,
         )
@@ -417,11 +443,17 @@ class RunAs:
         stdout: IO[bytes],
         stdin: IO[bytes] | None = None,
         merge_stderr: bool = False,
+        stderr: IO[bytes] | None = None,
     ) -> int:
         full = [*self.prefix, "env", "-C", cwd, "--", *argv]
+        extra = {} if stderr is None else {"stderr": stderr}
         return self._run(
-            full, timeout=timeout, stdout=stdout, stdin=stdin, merge_stderr=merge_stderr
+            full, timeout=timeout, stdout=stdout, stdin=stdin, merge_stderr=merge_stderr, **extra
         )
+
+    @property
+    def uses_sudo(self) -> bool:
+        return os.path.basename(self.prefix[0]) == "sudo"
 
 
 def run_as_from_env(environ: Mapping[str, str] | None = None) -> tuple[RunAs | None, str]:
@@ -437,6 +469,28 @@ def run_as_from_env(environ: Mapping[str, str] | None = None) -> tuple[RunAs | N
         return RunAs(shlex.split(value)), ""
     except ValueError as exc:
         return None, f"{RUN_AS_ENV}: {exc}"
+
+
+def no_new_privs(status_path: str = _PROC_STATUS) -> bool | None:
+    """Whether this process has the kernel's ``no_new_privs`` flag (``None``: unknown)."""
+    try:
+        with open(status_path, encoding="utf-8", errors="replace") as status:
+            for line in status:
+                if line.startswith("NoNewPrivs:"):
+                    return line.split(":", 1)[1].strip() == "1"
+    except OSError:
+        return None
+    return None
+
+
+def _stderr_tail(handle: IO[bytes], limit: int = _STDERR_TAIL_BYTES) -> str:
+    """The last ``limit`` bytes of ``handle`` as one printable line (no control chars)."""
+    handle.flush()
+    size = handle.seek(0, os.SEEK_END)
+    handle.seek(max(0, size - limit))
+    text = handle.read().decode("utf-8", errors="replace")
+    lines = (_CONTROL_RE.sub("?", line).strip() for line in text.splitlines())
+    return " | ".join(line for line in lines if line)
 
 
 def _tail(handle: IO[bytes], limit: int) -> str:
@@ -736,11 +790,13 @@ class _Job:
         merge_stderr: bool = True,
         timeout_code: str | None = None,
         cwd: str | None = None,
+        stderr: IO[bytes] | None = None,
     ) -> int:
         """Run ``argv`` as the fixer user in ``cwd`` (default: the agent's worktree).
 
         With ``timeout_code``, a timeout is a retryable refusal of that code instead of
         :data:`TIMED_OUT` (only a gate command's own timeout is a verdict)."""
+        extra = {} if stderr is None else {"stderr": stderr}
         rc = self._run_as(
             list(argv),
             cwd=cwd or self.worktree,
@@ -748,6 +804,7 @@ class _Job:
             stdout=out,
             stdin=stdin,
             merge_stderr=merge_stderr,
+            **extra,
         )
         if rc == UNAVAILABLE:
             raise _Refusal("gate_runner_unavailable", "the run-as command could not start")
@@ -835,9 +892,11 @@ class GatePort:
         git: Callable[..., int] = run_process,
         bundle_dir: str | Path | None = None,
         clock: Callable[[], datetime] | None = None,
+        blocked_reason: str = "",
     ) -> None:
         self._store = store
         self._run_as = run_as
+        self._blocked = blocked_reason
         self._why = unconfigured_reason or f"{RUN_AS_ENV} is not set"
         self._git = git
         self._bundle_dir = Path(
@@ -846,14 +905,29 @@ class GatePort:
         self._clock = clock or (lambda: datetime.now(UTC))
 
     @classmethod
-    def from_env(cls, store: Any, environ: Mapping[str, str] | None = None) -> GatePort:
+    def from_env(
+        cls,
+        store: Any,
+        environ: Mapping[str, str] | None = None,
+        *,
+        no_new_privs: Callable[[], bool | None] = no_new_privs,
+    ) -> GatePort:
+        """The production port; a sudo prefix under ``no_new_privs`` is logged and blocked."""
         environ = os.environ if environ is None else environ
         run_as, why = run_as_from_env(environ)
+        blocked = ""
+        if run_as is not None and run_as.uses_sudo and no_new_privs():
+            blocked = (
+                f"{RUN_AS_ENV} starts with sudo but the node runs with no_new_privs set "
+                f"(systemd NoNewPrivileges=true), so sudo refuses; {NO_NEW_PRIVS_FIX}"
+            )
+            log.error("gate: %s", blocked)
         return cls(
             store,
             run_as=run_as,
             unconfigured_reason=why,
             bundle_dir=environ.get(BUNDLE_DIR_ENV) or None,
+            blocked_reason=blocked,
         )
 
     def invoke(
@@ -884,6 +958,8 @@ class GatePort:
             raise _Refusal("bad_config", f"tail_bytes must be 1..{_MAX_TAIL_BYTES}")
         if self._run_as is None:
             raise _Refusal("gate_runner_unconfigured", self._why)
+        if self._blocked:
+            raise _Refusal("run_as_blocked", self._blocked)
         verdict: dict[str, Any] = {
             "verdict": None,
             "rule": None,
@@ -929,14 +1005,26 @@ class GatePort:
         Path(revs).write_text("".join(f"{s}\n" for s in dict.fromkeys(shas.values())))
         pack = os.path.join(job.tmp, "in.pack")
         argv = ["git", "-c", "core.fsmonitor=false", "pack-objects", "--revs", "--stdout", "-q"]
-        with open(revs, "rb") as stdin, open(pack, "wb") as out:
+        with (
+            open(revs, "rb") as stdin,
+            open(pack, "wb") as out,
+            tempfile.TemporaryFile(dir=job.tmp) as err,
+        ):
             rc = job.fixer(
-                argv, out, stdin=stdin, merge_stderr=False, timeout_code="source_timeout"
+                argv,
+                out,
+                stdin=stdin,
+                merge_stderr=False,
+                timeout_code="source_timeout",
+                stderr=err,
             )
+            tail = _stderr_tail(err) if rc != 0 else ""
         if rc != 0:
+            self._diagnose_run_as(job)
             raise _Refusal(
                 "source_unavailable",
-                "the worktree could not supply base_sha, start_sha and commit_sha",
+                "the worktree could not supply base_sha, start_sha and commit_sha"
+                + (f" (git pack-objects exited {rc}: {tail})" if tail else f" (exit {rc})"),
             )
         job.git("init", "--bare", "--quiet", job.repo, in_repo=False)
         with open(pack, "rb") as stdin:
@@ -945,6 +1033,32 @@ class GatePort:
         for name, sha in shas.items():
             if job.git_rc("cat-file", "-e", f"{sha}^{{commit}}")[0] != 0:
                 raise _Refusal("source_unavailable", f"{name} is not in the worktree")
+
+    @staticmethod
+    def _diagnose_run_as(job: _Job) -> None:
+        """After a failed worktree command: raise if the run-as itself cannot run ``true``.
+
+        The probe runs in ``/`` so a missing worktree still reads as ``source_unavailable``;
+        a sudo or env failure fails the probe too, with its own stderr."""
+        with tempfile.TemporaryFile(dir=job.tmp) as out, tempfile.TemporaryFile(dir=job.tmp) as err:
+            rc = job.fixer(
+                ["true"],
+                out,
+                merge_stderr=False,
+                timeout_code="source_timeout",
+                cwd="/",
+                stderr=err,
+            )
+            if rc == 0:
+                return
+            tail = _stderr_tail(err)
+        if "no new privileges" in tail.lower():
+            raise _Refusal("run_as_blocked", f"{tail}; {NO_NEW_PRIVS_FIX}")
+        raise _Refusal(
+            "run_as_failed",
+            f"the run-as prefix ({RUN_AS_ENV}) could not run a command (exit {rc})"
+            + (f": {tail}" if tail else ""),
+        )
 
     def _spec(self, job: _Job, base: str) -> GateSpec | None:
         rc, kind = job.git_rc("cat-file", "-t", f"{base}:{CULTURE_YAML}")

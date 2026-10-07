@@ -21,6 +21,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Replay previews evaluate shared variables like live matching.
 - Resumed action steps keep the placement derived from their actor.
 
+### Fixed
+
+- The node unit no longer blocks a sudo gate run-as: `deploy/node/install.sh --gate-run-as PREFIX` writes `CULTURE_RULES_GATE_RUN_AS` into node.env (kept across reinstalls) and, for a sudo prefix, `NoNewPrivileges=false`. A node that starts with a sudo prefix under no_new_privs logs an error naming the fix, and the gate refuses `run_as_blocked`.
+- The gate no longer hides run-as errors: a failed worktree pack carries a bounded stderr tail, and a probe tells `run_as_failed`/`run_as_blocked` (the prefix itself cannot run) from `source_unavailable` (a missing commit).
+
 ## [0.12.0] - 2026-10-05
 
 ### Added

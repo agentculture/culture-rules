@@ -122,7 +122,7 @@ class LocalRunner:
         self.cwds: list[str] = []
         self.env = env
 
-    def __call__(self, argv, *, cwd, timeout, stdout, stdin=None, merge_stderr=False):
+    def __call__(self, argv, *, cwd, timeout, stdout, stdin=None, merge_stderr=False, stderr=None):
         self.calls.append(list(argv))
         self.cwds.append(cwd)
         env = self.env if self.env is not None else {**GIT_ENV, "HOME": cwd}
@@ -134,6 +134,7 @@ class LocalRunner:
             stdin=stdin,
             merge_stderr=merge_stderr,
             env=env,
+            stderr=stderr,
         )
 
     def gate_calls(self) -> list[list[str]]:
@@ -499,6 +500,128 @@ def test_run_as_prefix_wraps_the_argv(tmp_path):
     assert seen == [
         ["sudo", "-n", "-u", "culture-fixer", "--", "env", "-C", "/w", "--", "uv", "run", "pytest"]
     ]
+
+
+# ------------------------------------------------------- run-as failures (t20 defects)
+
+SUDO = "sudo -n -u culture-fixer -- /usr/bin/env PATH=/usr/bin:/bin"
+NNP_STDERR = (
+    b'sudo: The "no new privileges" flag is set, which prevents sudo from running as root.\n'
+    b"sudo: If sudo is running in a container, you may need to adjust the container "
+    b"configuration to disable the flag.\n"
+)
+
+
+def sudo_like(stderr_bytes: bytes, rc: int = 1):
+    """A RunAs whose process step fails before running anything, the way sudo does."""
+    calls = []
+
+    def fake(argv, *, timeout, stdout, stdin=None, merge_stderr=False, stderr=None):
+        calls.append(list(argv))
+        target = stdout if merge_stderr else stderr
+        if target is not None:
+            target.write(stderr_bytes)
+        return rc
+
+    return RunAs(SUDO.split(), run=fake), calls
+
+
+def test_sudo_under_no_new_privs_is_blocked_at_start_and_logged(store, tmp_path, clock, caplog):
+    inputs = Repo(tmp_path, gate_yaml([PASSING])).inputs()
+    probed = []
+
+    def nnp():
+        probed.append(1)
+        return True
+
+    with caplog.at_level("ERROR", logger="culture_rules.actors.gate"):
+        port_ = GatePort.from_env(
+            store, environ={"CULTURE_RULES_GATE_RUN_AS": SUDO}, no_new_privs=nnp
+        )
+    assert probed == [1]
+    assert any(r.levelname == "ERROR" and "--gate-run-as" in r.getMessage() for r in caplog.records)
+    assert "NoNewPrivileges=false" in caplog.text
+    result = port_.invoke(inputs, "k", T0 + timedelta(hours=1), context=ctx())
+    assert result.outcome == "failed" and not result.retryable
+    assert result.error.startswith("run_as_blocked")
+    assert "gate-sudo.conf" in result.error
+
+
+def test_no_new_privs_is_checked_only_for_a_sudo_prefix(store):
+    def boom():
+        raise AssertionError("probed")
+
+    port_ = GatePort.from_env(
+        store,
+        environ={"CULTURE_RULES_GATE_RUN_AS": "/usr/local/bin/as-fixer --"},
+        no_new_privs=boom,
+    )
+    assert port_._blocked == ""
+    port_ = GatePort.from_env(store, environ={}, no_new_privs=boom)
+    assert port_._blocked == ""
+    port_ = GatePort.from_env(
+        store, environ={"CULTURE_RULES_GATE_RUN_AS": SUDO}, no_new_privs=lambda: False
+    )
+    assert port_._blocked == ""
+    port_ = GatePort.from_env(
+        store, environ={"CULTURE_RULES_GATE_RUN_AS": SUDO}, no_new_privs=lambda: None
+    )
+    assert port_._blocked == ""  # unknown (not Linux): let sudo speak for itself
+
+
+def test_no_new_privs_reads_the_status_file(tmp_path):
+    status = tmp_path / "status"
+    status.write_text("Name:\tpython\nNoNewPrivs:\t1\nSeccomp:\t0\n")
+    assert gate_mod.no_new_privs(str(status)) is True
+    status.write_text("Name:\tpython\nNoNewPrivs:\t0\n")
+    assert gate_mod.no_new_privs(str(status)) is False
+    status.write_text("Name:\tpython\n")
+    assert gate_mod.no_new_privs(str(status)) is None
+    assert gate_mod.no_new_privs(str(tmp_path / "missing")) is None
+
+
+def test_a_sudo_no_new_privs_refusal_is_run_as_blocked_with_sudos_words(store, tmp_path, clock):
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    runner, calls = sudo_like(NNP_STDERR)
+    result = make_port(store, runner, tmp_path, clock).invoke(
+        repo.inputs(), "k", T0 + timedelta(hours=1), context=ctx()
+    )
+    assert result.outcome == "failed" and not result.retryable
+    assert result.error.startswith('run_as_blocked: sudo: The "no new privileges" flag is set')
+    assert "--gate-run-as" in result.error
+    assert calls[-1][-1] == "true" and calls[-1][-3:-1] == ["/", "--"]  # the probe, in /
+
+
+def test_any_other_run_as_failure_is_run_as_failed_with_the_stderr(store, tmp_path, clock):
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    runner, _ = sudo_like(b"sudo: a password is required\n")
+    result = make_port(store, runner, tmp_path, clock).invoke(
+        repo.inputs(), "k", T0 + timedelta(hours=1), context=ctx()
+    )
+    assert result.outcome == "failed" and not result.retryable
+    assert result.error.startswith("run_as_failed: ")
+    assert result.error.endswith("(exit 1): sudo: a password is required")
+
+
+def test_a_missing_commit_is_source_unavailable_with_gits_stderr(store, tmp_path, clock):
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    inputs = {**repo.inputs(), "commit_sha": "0" * 40}
+    result = make_port(store, LocalRunner(), tmp_path, clock).invoke(
+        inputs, "k", T0 + timedelta(hours=1), context=ctx()
+    )
+    assert result.outcome == "failed" and not result.retryable
+    assert result.error.startswith("source_unavailable: the worktree could not supply")
+    assert "git pack-objects exited 128: fatal:" in result.error
+    assert "\n" not in result.error
+
+
+def test_the_stderr_tail_is_bounded_and_printable(tmp_path):
+    with open(tmp_path / "err", "w+b") as err:
+        err.write(b"x" * 2000 + b"\nfirst\x1b[31m red\x07\nsecond\x00\n\xff\n")
+        tail = gate_mod._stderr_tail(err)
+    assert len(tail.encode()) <= 520
+    assert tail.endswith("first?[31m red? | second? | �")
+    assert not any(ord(c) < 32 for c in tail)
 
 
 # ------------------------------------------------------------------------ refusals
