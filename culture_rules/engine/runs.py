@@ -309,6 +309,8 @@ ADHOC_RULE_PREFIX = "adhoc:"
 _MAX_TRANSITIONS_PER_TICK = 10_000
 _MAX_CAS_RETRIES = 50
 Clock = Callable[[], datetime]
+Fence = Callable[[StoreOps], None]
+"""Run inside a run's insert transaction before the insert (see :meth:`Executor.start`)."""
 HeadLookup = Callable[[str | None, str, int], str]
 """``lookup(actor_id, repo, number) -> head sha``; raises (or returns a non-string) on failure."""
 Ports = Mapping[str, ActorPort] | Callable[[InvocationContext], ActorPort | None]
@@ -755,6 +757,7 @@ class Executor:
         run_id: str | None = None,
         variables: Mapping[str, Any] | None = None,
         concurrency_key: str | None = None,
+        fence: Fence | None = None,
     ) -> Document:
         """Start a run of the stored rule ``rule_id`` and its stored workflow, pinning both.
 
@@ -791,6 +794,7 @@ class Executor:
             concurrency_key=concurrency_key,
             stored=True,
             variables=variables,
+            fence=fence,
         )
 
     def start_workflow(
@@ -846,11 +850,15 @@ class Executor:
         stored: bool = False,
         variables: Mapping[str, Any] | None = None,
         concurrency_key: str | None = None,
+        fence: Fence | None = None,
     ) -> Document:
         """Validate, pin and persist a new run (audited). Refused while paused.
 
         ``stored=True`` marks ``rule`` as read back from the store: it is validated in stored
-        mode, so a rule saved before the save-time catalog checks still runs.
+        mode, so a rule saved before the save-time catalog checks still runs. ``fence`` runs
+        first inside the transaction that inserts the run, so its reads and writes commit
+        atomically with the insert (or it raises, and nothing is written) - a firing intent
+        uses it to move itself from ``pending`` to ``started``.
         """
         identity = require_identity(identity or self.identity)
         if is_paused(self._store):
@@ -896,6 +904,8 @@ class Executor:
         }
         _record(doc, now, self.host, "started", None)
         with self._store.transaction() as tx:
+            if fence is not None:
+                fence(tx)
             stored = tx.insert(RUNS_COLLECTION, doc)
             self._audit.write(
                 tx,

@@ -29,9 +29,13 @@ key's pending deduplicated event fires through the chain feed's ``rule_fires`` s
 its must-after dependants settle. A host that comes back after that finds the intent failed
 and does not start it late; a host that still beats, however slow, keeps its intent. (A
 host that started the run but died before marking the intent: the run exists, so the
-intent is marked ``started`` instead. If the host starts the run in the instant the intent
-is abandoned, the run exists and holds the key, and the pending event is re-deduplicated
-behind it - nothing is lost.)
+intent is marked ``started`` instead.) A start and an abandonment never both commit: the
+run is inserted in one transaction with the intent's ``pending`` -> ``started`` move, fenced
+on the intent still being ``pending`` and still holding its key's reservation, and the
+abandonment is a ``pending`` -> ``failed`` compare-and-set - whichever writes the intent
+first wins, the other's write fails or conflicts and it does nothing. So a host resuming
+after its intent was abandoned (and the key admitted another run) never starts a second run
+on the key.
 
 Drained or offline host (the t39 gap, fixed here)
 =================================================
@@ -273,7 +277,12 @@ from culture_rules.model.variable_refs import rule_variable_refs
 from culture_rules.model.workflow import Workflow
 from culture_rules.node.chain import FeedConsumer, Source, live_rules
 from culture_rules.ops.logs import log_context
-from culture_rules.store.port import DuplicateKeyError, StoragePort, StoreOps
+from culture_rules.store.port import (
+    DuplicateKeyError,
+    StoragePort,
+    StoreOps,
+    TransientStoreError,
+)
 from culture_rules.store.versioning import utc_timestamp
 
 __all__ = [
@@ -766,7 +775,16 @@ class RuleFiring:
                         run_id=intent["run_id"],
                         variables=intent.get("variables"),
                         concurrency_key=intent.get("concurrency_key"),
+                        fence=_claim_intent(intent),
                     )
+                except _IntentGone as gone:
+                    log.info("rule %s on event %s not started: %s", *_ids(intent), gone)
+                    continue  # abandoned, started elsewhere, or its reservation is gone
+                except TransientStoreError:
+                    # A write conflict on the intent: someone else moved it (an abandonment
+                    # or another host's start) first. The next cycle re-reads it.
+                    log.info("rule %s on event %s: start conflicted, re-read", *_ids(intent))
+                    continue
                 except DuplicateKeyError:
                     pass  # another host started it first
                 except RunError as exc:
@@ -1037,6 +1055,34 @@ def _count_fire(tx: StoreOps, rule: Rule, now: datetime) -> None:
     recent = _recent_fires(tx.get(RULE_RATES, rule.id), now)
     fires = [*recent, utc_timestamp(now)][-cap:]
     tx.put(RULE_RATES, {"id": rule.id, "rule_id": rule.id, "fires": fires})
+
+
+class _IntentGone(Exception):
+    """A firing intent's start was fenced off: it is no longer pending, or no longer holds
+    its concurrency reservation."""
+
+
+def _claim_intent(intent: Mapping[str, Any]) -> Callable[[StoreOps], None]:
+    """The fence a pending intent's run insert runs in (module doc, "Stranded placed
+    intents"): in the insert's own transaction, the intent must still be ``pending`` and -
+    keyed - still the key's reservation holder, and it moves to ``started`` there. So the
+    start and an abandonment (``pending`` -> ``failed`` by compare-and-set) never both
+    commit: whichever writes the intent first wins, the other's write fails or conflicts."""
+
+    def fence(tx: StoreOps) -> None:
+        current = tx.get(RULE_FIRES, intent["id"])
+        if current is None or current.get("status") != "pending":
+            raise _IntentGone(f"intent is {(current or {}).get('status', 'gone')}")
+        key = intent.get("concurrency_key")
+        if key is not None:
+            budget = tx.get(RULE_ATTEMPT_BUDGETS, budget_id(key)) or {}
+            if budget.get("intent_id") != intent["id"]:
+                raise _IntentGone("the concurrency reservation is held by another firing")
+        moved = tx.update_if(RULE_FIRES, intent["id"], {"status": "pending"}, {"status": "started"})
+        if not moved.won:
+            raise _IntentGone("intent changed while starting")
+
+    return fence
 
 
 def _moment(text: Any) -> datetime | None:

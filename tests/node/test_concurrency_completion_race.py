@@ -51,7 +51,7 @@ class _Pausing:
         self._racing = racing
 
     def update_if(self, collection: str, *args: Any, **kw: Any) -> Any:
-        if collection == RULE_ATTEMPT_BUDGETS:
+        if collection == self._racing.pause_on:
             self._racing.fire_hook()
         return self._tx.update_if(collection, *args, **kw)
 
@@ -97,9 +97,13 @@ class Racing:
     """The store a trigger consumer is given: everything goes to ``store`` except
     transactions, which open on ``begin`` and run ``hook`` once (see :class:`_Pausing`)."""
 
-    def __init__(self, store: Any, begin: Callable[[Racing], Any]) -> None:
+    def __init__(
+        self, store: Any, begin: Callable[[Racing], Any], pause_on: str = RULE_ATTEMPT_BUDGETS
+    ) -> None:
         self._store = store
         self._begin = begin
+        self.pause_on = pause_on
+        """The collection whose first ``update_if`` in a transaction runs the hook."""
         self.hook: Callable[[], None] | None = None
 
     def fire_hook(self) -> None:
@@ -119,15 +123,15 @@ class Racing:
 class MongoCluster(Cluster):
     """:class:`~tests.node.test_node.Cluster` on the disposable MongoDB replica set."""
 
-    def __init__(self, binding: Any) -> None:
+    def __init__(self, binding: Any, hosts: tuple[str, ...] = (HOST,)) -> None:
         self.binding = binding
         self.clock = Clock()
         self.base = binding.make_store()
-        enrol_online(self.base, self.clock, machine(HOST))
+        enrol_online(self.base, self.clock, *(machine(h) for h in hosts))
         self.actor = FakeActor(default=lambda inp, ctx: {})
-        self.sources = {HOST: FakeEventSource(name=f"sub@{HOST}")}
+        self.sources = {h: FakeEventSource(name=f"sub@{h}") for h in hosts}
         self.evaluations = []
-        self.nodes = {HOST: self.node(HOST)}
+        self.nodes = {h: self.node(h) for h in hosts}
 
     def peer(self) -> Any:
         return self.binding.open_peer(self.base, "1.0")
@@ -285,3 +289,110 @@ def test_guard_writes_only_while_the_run_holds_the_key():
     assert {**guarded, stamp: None} == {**budget, "revision": budget["revision"] + 1, stamp: None}
     guard_concurrency(store, budget["id"], "other")  # no longer the holder: no write
     assert store.find(RULE_ATTEMPT_BUDGETS) == [guarded]
+
+
+# ------------------ Codex r17b finding 1: abandoning a placed intent vs its late start
+
+
+STARTER = "thor"
+"""The host that evaluated the placed rule, went silent, and resumes to start its intent."""
+
+
+@pytest.fixture(params=["memory", pytest.param("mongo", marks=pytest.mark.mongo)])
+def two_hosts(request):
+    """(cluster of HOST + STARTER, begin): ``begin`` opens a snapshot-isolated transaction
+    (emulated on MemoryStore, real on MongoDB) for a :class:`Racing` store."""
+    if request.param == "memory":
+        c = Cluster(HOST, STARTER)
+        yield c, lambda racing: _SnapshotTx(c.base).open(racing)
+        return
+    pytest.importorskip("pymongo", reason="pymongo (culture-rules[store]) is not installed")
+    mongo_tests = pytest.importorskip("tests.store.test_mongo", reason="Mongo binding missing")
+    mongo_tests.get_rig()
+    c = MongoCluster(mongo_tests.TestMongoStore(), hosts=(HOST, STARTER))
+    peer = c.peer()
+
+    @contextmanager
+    def begin(racing: Racing) -> Iterator[Any]:
+        with peer.transaction() as tx:
+            yield _Pausing(tx, racing)
+
+    try:
+        yield c, begin
+    finally:
+        mongo_tests._release_stores()
+
+
+def _stranded(c: Cluster) -> None:
+    """P (placed on STARTER) and S (unplaced) share a key; STARTER commits P's intent and
+    the reservation, then goes silent past the abandonment bound."""
+    from culture_rules.engine.runs import PLACEMENT_ABANDON_AFTER
+
+    c.base.put("rules", {**_rule("P", SETTLED, placed=False), "placement": {"machine": STARTER}})
+    c.base.put("rules", _rule("S", COMMENT, placed=False))
+    c.start()
+    c.actor.on(ACTION_STEP, ("accept",))
+    c.cycle(HOST)  # pin HOST's feed positions
+    with c.base.transaction() as tx:
+        c.nodes[STARTER].firing._evaluate(
+            tx, {"envelope": {**event(1, conclusion="failure"), "type": SETTLED}}, placed=True
+        )
+    c.clock.advance(PLACEMENT_ABANDON_AFTER.total_seconds() + 60)
+
+
+def _abandon_and_admit(c: Cluster) -> Callable[[], None]:
+    """What HOST does while STARTER is between reading its pending intent and starting it:
+    abandons the intent (STARTER's beat is stale), then admits S's newer firing."""
+
+    def meanwhile() -> None:
+        c.cycle(HOST)
+        assert c.base.find(RULE_FIRES, {"rule_id": "P"})[0]["status"] == "failed"
+        c.publish({**event(2), "type": COMMENT})
+        c.cycle(HOST)
+        c.cycle(HOST)
+        assert c.run("S", "evt_2") is not None, "S was not admitted behind the failed intent"
+
+    return meanwhile
+
+
+def _one_live_run(c: Cluster) -> None:
+    live = [r for r in c.base.find(RUNS_COLLECTION) if r["status"] == "running"]
+    assert [r["rule_id"] for r in live] == ["S"], live
+    assert c.run("P", "evt_1") is None
+    assert c.base.find(RULE_FIRES, {"rule_id": "P"})[0]["status"] == "failed"
+    (budget,) = c.base.find(RULE_ATTEMPT_BUDGETS)
+    assert budget["run_id"] == c.run("S", "evt_2")["id"]
+
+
+def test_abandonment_before_the_late_start_wins(two_hosts):
+    """STARTER read its intent as pending; HOST then abandons it and admits S. STARTER's
+    start must find the intent gone - never a second run on the key."""
+    c, _begin = two_hosts
+    _stranded(c)
+    executor = c.nodes[STARTER].firing.executor
+    original = executor.start_from_store
+    meanwhile = _abandon_and_admit(c)
+
+    def late_start(*args: Any, **kw: Any) -> Any:
+        meanwhile()
+        return original(*args, **kw)
+
+    executor.start_from_store = late_start
+    assert c.nodes[STARTER].firing.start_fired() == []  # no beat: STARTER is still stale
+    _one_live_run(c)
+
+
+def test_abandonment_committing_inside_the_start_transaction_aborts_the_start(two_hosts):
+    """The tighter interleaving: STARTER's start transaction has read the intent as pending
+    when HOST's abandonment commits (and S is admitted). The start's own intent write then
+    conflicts (first committer wins): the start aborts and is not retried."""
+    c, begin = two_hosts
+    _stranded(c)
+    executor = c.nodes[STARTER].firing.executor
+    racing = Racing(executor._store, begin, pause_on=RULE_FIRES)
+    racing.hook = _abandon_and_admit(c)
+    executor._store = racing
+    assert c.nodes[STARTER].firing.start_fired() == []
+    assert racing.hook is None, "the race did not happen"
+    assert c.nodes[STARTER].firing.start_fired() == []  # the next cycle: nothing pending
+    _one_live_run(c)
