@@ -19,7 +19,7 @@ from culture_rules.engine.actorport import InvocationContext
 from culture_rules.engine.runs import Executor, due_steps, step_state
 from culture_rules.model.common import RetryPolicy
 from culture_rules.store.memory import MemoryStore
-from tests.engine.run_helpers import Clock, FakeActor, rule, step, workflow
+from tests.engine.run_helpers import Clock, Crash, FakeActor, rule, step, workflow
 
 T_DISPATCH = datetime(2026, 10, 7, 16, 47, 47, tzinfo=UTC)
 T_SEAT_FREE = datetime(2026, 10, 7, 17, 40, 9, tzinfo=UTC)
@@ -224,3 +224,49 @@ def test_a_polled_queue_step_is_not_reported_as_executor_lag(store, clock):
     assert new is not None and step_state(new, "agent")["status"] == "pending"
     found = due_steps(new, clock())
     assert found == [("agent", clock())]
+
+
+def test_the_queue_bound_holds_while_the_step_is_pending_on_a_drained_node(store, clock):
+    """Codex P2 on 88cb212: a queued step made ``pending`` by a due re-poll that its node
+    cannot dispatch (drained) must still fail at its bound, not dispatch when undrained."""
+    actor = FakeActor().on("agent", ("block", "at cap"))  # then: accepts at once
+    ex = Executor(store, "spark", {"*": actor}, clock=clock)
+    run = ex.start(rule(), agent_workflow(timeout_s=10))
+    ex.run_until_idle()  # blocked at 0 s; the bound is 20 s
+    runs_mod.Containment(store).drain("spark", "ops")
+    clock.advance(5)
+    ex.run_until_idle()  # the re-poll is due: pending, but a drained node dispatches nothing
+    assert step_state(ex.run(run["id"]), "agent")["status"] == "pending"
+    clock.advance(20)  # 25 s: past the bound while pending
+    ex.run_until_idle()
+    clock.advance(10)
+    runs_mod.Containment(store).undrain("spark", "ops")
+    ex.run_until_idle()
+    st = step_state(ex.run(run["id"]), "agent")
+    assert st["status"] == "failed", st
+    assert st["error"]["code"] == runs_mod.QUEUE_TIMEOUT
+    assert len(actor.calls_for("agent")) == 1  # never asked again past its bound
+    assert actor.effects_for("agent") == 0
+
+
+def test_a_dispatching_queued_step_past_its_bound_is_not_expired(store, clock):
+    """A re-poll that is mid-dispatch may already have started the work: the queue bound
+    never fails it; the resumed dispatch settles it."""
+    actor = FakeActor().on("agent", ("block", "at cap"), ("crash", {}))
+    ex = Executor(store, "spark", {"*": actor}, clock=clock)
+    run = ex.start(rule(), agent_workflow(timeout_s=10))
+    ex.run_until_idle()  # blocked at 0 s
+    clock.advance(5)
+    with pytest.raises(Crash):  # the re-poll started the work, then the engine died
+        ex.run_until_idle()
+    doc = ex.run(run["id"])
+    st = step_state(doc, "agent")
+    assert st["status"] == "dispatching"
+    assert st["queue"]["left_at"] is None
+    clock.advance(60)  # far past the 20 s queue bound
+    plan = runs_mod._Plan.of(doc)
+    assert runs_mod._due_timers(plan, doc, clock()) is None
+    Executor(store, "spark", {"*": actor}, clock=clock).run_until_idle()  # restarted node
+    st = step_state(ex.run(run["id"]), "agent")
+    assert st["status"] == "succeeded", st["error"]
+    assert actor.effects_for("agent") == 1

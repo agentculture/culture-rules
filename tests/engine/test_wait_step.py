@@ -558,3 +558,25 @@ def test_a_blocked_guarded_wake_backs_off_and_records_once(store, clock):
     assert doc["status"] == "succeeded", doc["error"]
     assert [h["event"] for h in doc["history"]].count("wait_blocked") == 1
     assert step_state(doc, "w")["lookup_blocked"] == 8
+
+
+def test_a_guarded_wake_blocked_past_its_queue_bound_fails_queue_timeout(store, clock):
+    """The guard lookup's queue has the same bound as a blocked step's (2 x the wait
+    step's timeout_s, default 3600 s): past it the step fails ``queue_timeout`` - never
+    proceeds as if the head were unchanged, never waits forever."""
+    from culture_rules.engine.runs import DEFAULT_TIMEOUT_S, QUEUE_TIMEOUT, queue_limit_s
+
+    inner = ScriptedHead(*[("blocked", None)] * 1000)
+    ex, _ = _router_executor(store, clock, inner)
+    run = _sleeping_run(ex, guard_config(60))
+    clock.advance(61)
+    bound = queue_limit_s(DEFAULT_TIMEOUT_S)
+    for _ in range(int(bound / 60) + 3):
+        ex.run_until_idle()
+        clock.advance(60)
+    doc = ex.run(run["id"])
+    st = step_state(doc, "w")
+    assert st["status"] == "failed", st
+    assert st["error"]["code"] == QUEUE_TIMEOUT
+    assert doc["status"] == "failed"
+    assert [h["event"] for h in doc["history"]].count("wait_blocked") == 1

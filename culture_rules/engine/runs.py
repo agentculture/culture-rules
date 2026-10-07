@@ -32,7 +32,8 @@ the pinned workflow), ``loop`` (``{"parent", "iteration"}`` for body steps), ``s
 ``deadline``, ``next_attempt_at``, ``placement_error``, ``queue`` (the last spell in an
 actor's queue: ``since``, ``deadline`` - its bound -, ``polls``, ``last_at``, ``left_at``;
 null until the step is first ``blocked``) and, for loops, ``iteration`` and ``results``.
-A guarded wait step also carries ``lookup_retries`` and ``lookup_blocked``.
+A guarded wait step also carries ``lookup_retries``, ``lookup_blocked`` and
+``lookup_blocked_since``.
 
 Step statuses: ``pending`` -> ``dispatching`` (claimed, the actor is being invoked) ->
 ``waiting`` (actor accepted; completes later via :meth:`Executor.deliver`) | ``blocked``
@@ -72,7 +73,11 @@ Semantics
   outcome that ends it - while the repeats only move ``rev`` and update ``queue``
   (``polls``, ``last_at``), so a long queue cannot grow the run document. A guarded
   wake whose lookup is ``blocked`` re-arms with the same backoff and records
-  ``wait_blocked`` once (``lookup_blocked`` counts the repeats).
+  ``wait_blocked`` once (``lookup_blocked`` counts the repeats); past the same bound from
+  ``lookup_blocked_since`` (the wait step's ``timeout_s``, default
+  :data:`DEFAULT_TIMEOUT_S`) it fails ``queue_timeout``. The bound also holds while a
+  re-poll left the step ``pending`` (a drained or unavailable node), but never once it is
+  ``dispatching``: that work may have started, and its resumed dispatch settles it.
 * **Exactly-once dispatch** - a step is invoked only under its claim
   (:mod:`culture_rules.engine.claims`). While ``invoke`` blocks, a
   :class:`~culture_rules.engine.leasekeeper.LeaseKeeper` renews the claim's lease every
@@ -1113,8 +1118,15 @@ class Executor:
                 # the lookup's actor is at a limit: back off like a blocked step, and record
                 # the first refusal only (the counter tracks repeats; history stays bounded)
                 blocked = int(st.get("lookup_blocked") or 0) + 1
+                since = _parse(st.get("lookup_blocked_since")) or later
+                limit = timedelta(seconds=queue_limit_s(_timeout_of(plan, st)))
+                if later >= since + limit:  # the same queue bound as a blocked step's
+                    nst.update(status="failed", error=_error(QUEUE_TIMEOUT, outcome["message"]))
+                    _record(new, later, self.host, "failed", st["key"])
+                    return self._cas(doc, new)
                 nst["deadline"] = _iso(later + timedelta(seconds=_blocked_delay(blocked)))
                 nst["lookup_blocked"] = blocked
+                nst["lookup_blocked_since"] = _iso(since)
                 if blocked == 1:
                     _record(new, later, self.host, "wait_blocked", st["key"])
                 else:
@@ -2020,7 +2032,11 @@ def _due_timers(plan: _Plan, doc: Mapping, now: datetime) -> Found:
             nst["resume"] = False
             return new, "timeout", st["key"]
         queue = st.get("queue") or {}
-        bound = _parse(queue.get("deadline")) if status == "blocked" else None
+        # The bound holds while the step is blocked and while a re-poll left it pending
+        # (a drained or unavailable node may hold it there), never once it is dispatching:
+        # that work may have started, and its resumed dispatch settles it.
+        queued = status == "blocked" or (status == "pending" and _in_queue(st))
+        bound = _parse(queue.get("deadline")) if queued else None
         if bound is not None and now >= bound:
             # Queued work never started (the outcome is known): fail it outright - a retry
             # would only queue again, and the queue bound is the explicit end of waiting.
