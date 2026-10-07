@@ -43,6 +43,7 @@ def approve(store, sha, *, iteration=0, attempt_no=1, **over):
     run_id = over.pop("run_id", "run-1")
     over.pop("id", None)
     fields.update(over)
+    fields.setdefault("step", f"fix[{iteration}]/verdict")
     record_review(store, run_id, iteration=iteration, attempt=attempt_no, fields=fields)
 
 
@@ -223,3 +224,42 @@ def test_replies_name_the_given_pushed_commit_and_refuse_a_malformed_one():
         {"threads": threads, "addressed": addressed, "commit": "HEAD"}, "k", None, context=ctx_
     )
     assert bad.outcome == "failed" and bad.error == "bad_input"
+
+
+# --------------------------------------------------------------------------- round 2, #4
+
+
+class RevokeAtPush(RecordingGit):
+    """Runs ``on_push`` the instant git is asked to push: after every check has passed."""
+
+    def __init__(self, on_push):
+        super().__init__()
+        self.on_push = on_push
+        self.outcome = None
+
+    def __call__(self, argv, env, timeout):
+        if "push" in argv:
+            try:
+                self.on_push()
+                self.outcome = "recorded"
+            except Exception as exc:  # noqa: BLE001 - the test inspects it
+                self.outcome = exc
+        return super().__call__(argv, env, timeout)
+
+
+def test_r2_4_no_revocation_can_land_once_the_approval_is_consumed(pem, world):  # noqa: F811
+    from culture_rules.actors.review import ReviewError, current_review
+
+    store = make_store()
+    approve(store, world.b, start_sha=world.a)
+    git_ = RevokeAtPush(
+        lambda: approve(store, world.b, start_sha=world.a, iteration=1, verdict="request_changes")
+    )
+    port = push_port(pem, world, FakeGitHub(world), store=store, gitrec=git_, review=False)
+    res = port.invoke(push_params(world), "k", DEADLINE, context=ctx())
+    assert res.outcome == "completed" and world.remote_head() == world.b
+    # the newer verdict arrived after consumption: refused and recorded, never current
+    assert isinstance(git_.outcome, ReviewError) and git_.outcome.code == "review_consumed"
+    _rid, doc, state = current_review(store, "run-1")
+    assert state == "consumed" and doc["verdict"] == "approve"
+    assert store.get("fixer_reviews", "run-1:fix[1]/verdict:1") is not None

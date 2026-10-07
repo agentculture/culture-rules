@@ -247,7 +247,14 @@ def test_a_record_for_another_run_never_counts():
     # a run-1 pointer naming run-2's record (forged or corrupt) is no review
     store.put(
         "fixer_review_current",
-        {"id": "run-1", "run_id": "run-1", "record": rid, "iteration": 9, "attempt": 9},
+        {
+            "id": "run-1",
+            "run_id": "run-1",
+            "record": rid,
+            "iteration": 9,
+            "attempt": 9,
+            "state": "current",
+        },
     )
     assert review_refusal(store, "run-1", SHA, **TARGET) == "review_missing"
 
@@ -259,18 +266,25 @@ def test_records_are_immutable_and_the_pointer_only_moves_forward():
     store = MemoryStore()
     first = put(store, record(), iteration=1, attempt=1)
     assert review_refusal(store, "run-1", SHA, **TARGET) is None
-    # the same attempt written again with another verdict: the first write stands
-    put(store, record(verdict="request_changes"), iteration=1, attempt=1)
-    assert store.get("fixer_reviews", first)["verdict"] == "approve"
     # a newer try's rejection becomes current; an older try's approval never comes back
     put(store, record(verdict="request_changes"), iteration=2, attempt=1)
     assert review_refusal(store, "run-1", SHA, **TARGET) == "review_rejected"
     put(store, record(), iteration=0, attempt=3)
-    put(store, record(), iteration=1, attempt=1)
     assert review_refusal(store, "run-1", SHA, **TARGET) == "review_rejected"
+    assert store.get("fixer_reviews", first)["verdict"] == "approve"  # kept, never rewritten
     # a later attempt of the newest try moves it on
     put(store, record(), iteration=2, attempt=2)
     assert review_refusal(store, "run-1", SHA, **TARGET) is None
+
+
+def test_rewriting_a_record_with_another_result_is_a_terminal_conflict():
+    store = MemoryStore()
+    first = put(store, record(), iteration=1, attempt=1)
+    put(store, record(verdict="request_changes"), iteration=1, attempt=1)  # same id, other text
+    assert store.get("fixer_reviews", first)["verdict"] == "approve"  # the first write stands
+    assert review_refusal(store, "run-1", SHA, **TARGET) == "review_conflict"
+    put(store, record(), iteration=5, attempt=1)  # nothing moves a conflict on
+    assert review_refusal(store, "run-1", SHA, **TARGET) == "review_conflict"
 
 
 def test_the_record_keeps_the_shape_a_per_commit_key_will_need():
@@ -370,3 +384,27 @@ def test_the_review_step_outside_a_loop_is_a_config_error():
     port = ReviewVerdictPort(MemoryStore())
     res = port.invoke({}, "k", None, context=InvocationContext("r", "verdict", "code", "h"))
     assert res.outcome == "failed" and res.error.startswith("bad_config") and not res.retryable
+
+
+# --------------------------------------------------------------------------- round 2, #5
+
+
+def test_r2_5_two_verdict_steps_writing_the_same_try_fail_closed():
+    store = MemoryStore()
+    record_review(
+        store, "run-1", iteration=0, attempt=1, fields={**_fields(), "step": "fix[0]/verdict"}
+    )
+    # a second verdict step in the same try (another key) disagrees: neither may stand
+    record_review(
+        store,
+        "run-1",
+        iteration=0,
+        attempt=1,
+        fields={**_fields(verdict="request_changes"), "step": "fix[0]/verdict_b"},
+    )
+    assert review_refusal(store, "run-1", SHA, **TARGET) is not None
+
+
+def _fields(**over):
+    doc = {k: v for k, v in record(**over).items() if k not in ("id", "run_id")}
+    return doc

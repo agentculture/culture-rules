@@ -698,7 +698,9 @@ class World:
         workflow=None,
         reviewer_fake=None,
         qwen_reviews=False,
+        extra_actors=None,
     ) -> None:
+        """``extra_actors``: ``{actor doc: adapter}`` for workflow-edit scenarios."""
         self.repo = Repo(tmp_path, gate_yaml([PASSING]))
         self.c = Cluster("spark", "spark2")
         base = self.c.base
@@ -781,7 +783,13 @@ class World:
                     return self.bridge.invoke(input, key, deadline, context=context)
                 return world.agent.invoke(input, key, deadline, context=context)
 
+        extra = {doc["id"]: adapter for doc, adapter in (extra_actors or [])}
+        for doc, _adapter in extra_actors or []:
+            base.put("actors", copy.deepcopy(doc))
+
         def agent_for(actor):
+            if actor.id in extra:
+                return extra[actor.id]
             if actor.id != "codex-reviewer" and qwen_reviews:
                 return ReviewRouter(actor)
             if actor.id != "codex-reviewer":

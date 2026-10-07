@@ -80,6 +80,7 @@ from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
 
+from culture_rules.actors.trusted import workflow_refusal
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
 
 __all__ = [
@@ -95,6 +96,7 @@ __all__ = [
     "parse_review",
     "CURRENT_COLLECTION",
     "approved_review",
+    "consume_approval",
     "current_review",
     "record_review",
     "review_refusal",
@@ -315,20 +317,36 @@ def _same_target(doc: Mapping[str, Any], repo: Any, number: Any) -> bool:
     return same_number and rec_repo.casefold() == repo.casefold()
 
 
+CURRENT, CONFLICT, CONSUMED = "current", "conflict", "consumed"
+"""States of a run's review pointer: ``current`` names the newest record; ``conflict``
+(two different results for the same try) and ``consumed`` (a push used the approval) are
+terminal - no later verdict moves the pointer again."""
+
+
+def _content(doc: Mapping[str, Any] | None) -> dict[str, Any]:
+    return {k: v for k, v in (doc or {}).items() if k not in ("recorded_at", "updated_at")}
+
+
 def record_review(
     store: Any, run_id: str, *, iteration: int, attempt: int, fields: Mapping[str, Any]
 ) -> str:
-    """Write one immutable review record and move the run's pointer to it unless a newer
-    ``(iteration, attempt)`` is already current. Returns the record id. An existing record
-    of the same attempt is kept as it is (records are never overwritten)."""
+    """Write one immutable review record (id ``<run>:<verdict step key>:<attempt>``) and
+    move the run's pointer to it unless a newer ``(iteration, attempt)`` is current.
+
+    Fails closed: a second, different result for the same try (another verdict step, or a
+    rewrite of the same record) turns the pointer to ``conflict`` for good; once a push
+    consumed the approval, any later write raises ``review_consumed`` (the record itself
+    is kept). Returns the record id."""
     from culture_rules.store.port import DuplicateKeyError  # noqa: PLC0415
 
-    record_id = f"{run_id}:{iteration}:{attempt}"
+    step = str(fields.get("step") or f"[{iteration}]")
+    record_id = f"{run_id}:{step}:{attempt}"
     doc = {**fields, "id": record_id, "run_id": run_id, "iteration": iteration, "attempt": attempt}
+    clash = False
     try:
         store.insert(REVIEWS_COLLECTION, doc)
-    except DuplicateKeyError:
-        pass  # the first write of this attempt stands
+    except DuplicateKeyError:  # the first write stands; a different second one is a clash
+        clash = _content(store.get(REVIEWS_COLLECTION, record_id)) != _content(doc)
     order = (iteration, attempt)
     for _ in range(16):  # compare-and-set; a lost race re-reads
         cur = store.get(CURRENT_COLLECTION, run_id)
@@ -342,31 +360,78 @@ def record_review(
                         "record": record_id,
                         "iteration": iteration,
                         "attempt": attempt,
+                        "state": CURRENT,
                     },
                 )
                 return record_id
             except DuplicateKeyError:
                 continue
-        if (cur.get("iteration"), cur.get("attempt")) >= order:
-            return record_id  # stale or the same attempt: the pointer stays
-        expected = {k: cur.get(k) for k in ("record", "iteration", "attempt")}
-        changes = {"record": record_id, "iteration": iteration, "attempt": attempt}
+        state = cur.get("state")
+        if state == CONSUMED:
+            raise ReviewError(
+                "review_consumed", "a push already used this run's approval; recorded only"
+            )
+        if state != CURRENT:
+            return record_id  # conflict (or anything unknown) stays: fail closed
+        cur_order = (cur.get("iteration"), cur.get("attempt"))
+        same_try_other = cur_order == order and cur.get("record") != record_id
+        if (clash and cur_order <= order) or same_try_other:
+            changes = {
+                "record": None,
+                "state": CONFLICT,
+                "conflict": [cur.get("record"), record_id],
+            }
+        elif cur_order >= order:
+            return record_id  # stale, or this record is already current
+        else:
+            changes = {"record": record_id, "iteration": iteration, "attempt": attempt}
+        expected = {k: cur.get(k) for k in ("record", "iteration", "attempt", "state")}
         if store.update_if(CURRENT_COLLECTION, run_id, expected, changes).won:
             return record_id
     raise ReviewError("review_invalid", "could not record the review (sustained contention)")
 
 
-def current_review(store: Any, run_id: Any) -> tuple[str | None, Mapping[str, Any] | None]:
-    """``(record id, record)`` the run's pointer names, or ``(None, None)``."""
+def current_review(
+    store: Any, run_id: Any
+) -> tuple[str | None, Mapping[str, Any] | None, str | None]:
+    """``(record id, record, pointer state)`` for the run; ``(None, None, None)`` without a
+    pointer, ``(None, None, "conflict")`` after conflicting results."""
     if not isinstance(run_id, str) or not run_id:
-        return None, None
+        return None, None, None
     cur = store.get(CURRENT_COLLECTION, run_id)
-    if not cur or cur.get("run_id") != run_id or not isinstance(cur.get("record"), str):
-        return None, None
+    if not cur or cur.get("run_id") != run_id:
+        return None, None, None
+    state = cur.get("state")
+    if state not in (CURRENT, CONSUMED) or not isinstance(cur.get("record"), str):
+        return None, None, CONFLICT
     doc = store.get(REVIEWS_COLLECTION, cur["record"])
     if not doc or doc.get("run_id") != run_id:
-        return None, None
-    return cur["record"], doc
+        return None, None, None
+    return cur["record"], doc, state
+
+
+def consume_approval(
+    store: Any, run_id: str, record_id: str | None, commit_sha: str, *, by: str
+) -> str | None:
+    """Mark ``record_id`` consumed by the push of ``commit_sha`` (compare-and-set from
+    ``current``), or say why not. After this no verdict can move the run's pointer, so the
+    approval cannot be revoked between this call and ``git push``. A retry of the same push
+    finds it already consumed for the same commit and goes on."""
+    for _ in range(16):
+        cur = store.get(CURRENT_COLLECTION, run_id) if isinstance(run_id, str) else None
+        if not cur or not record_id or cur.get("record") != record_id:
+            return "review_changed"
+        state = cur.get("state")
+        if state == CONSUMED:
+            return None if cur.get("consumed_commit") == commit_sha else "review_consumed"
+        if state != CURRENT:
+            return "review_conflict"
+        changes = {"state": CONSUMED, "consumed_commit": commit_sha, "consumed_by": by}
+        if store.update_if(
+            CURRENT_COLLECTION, run_id, {"record": record_id, "state": CURRENT}, changes
+        ).won:
+            return None
+    return "review_changed"
 
 
 def review_refusal(
@@ -402,7 +467,13 @@ def approved_review(
 ) -> tuple[str | None, str | None]:
     """``(refusal, record id)``: :func:`review_refusal`'s answer and the current record it
     judged, so a caller can check right before acting that the same record still holds."""
-    record_id, doc = current_review(store, run_id)
+    record_id, doc, state = current_review(store, run_id)
+    if state == CONFLICT:
+        return "review_conflict", None
+    if state == CONSUMED:  # only a retry of the push that consumed it may go on
+        cur = store.get(CURRENT_COLLECTION, run_id) or {}
+        if cur.get("consumed_commit") != commit_sha:
+            return "review_consumed", record_id
     refusal = _refusal_of(doc, commit_sha, repo=repo, number=number, start_sha=start_sha)
     return refusal, record_id
 
@@ -519,7 +590,10 @@ class ReviewVerdictPort:
         try:
             out = self._judge(input, context, facts)
         except ReviewError as exc:
-            self._record(context, {**facts, "verdict": exc.code, "error": str(exc)})
+            try:
+                self._record(context, {**facts, "verdict": exc.code, "error": str(exc)})
+            except ReviewError:
+                pass  # consumed or contended: the run's pointer is already final
             return InvocationResult.failed(str(exc), retryable=False)
         return InvocationResult.completed(out)
 
@@ -636,6 +710,8 @@ class ReviewVerdictPort:
         run = self._store.get(_RUNS, context.run_id)
         if not run:
             raise ReviewError("run_not_found", context.run_id)
+        if workflow_refusal(run):
+            raise ReviewError("workflow_not_trusted", "the run's workflow is not a trusted one")
         parent, i = where.group("parent"), int(where.group("i"))
         run_inputs = run.get("inputs") or {}
         facts.update(repo=run_inputs.get("repo"), number=run_inputs.get("number"))
@@ -722,9 +798,13 @@ class ReviewVerdictPort:
         body = _body_steps(run, parent)
         review_def = body.get(names["review"]) or {}
         gate_def = body.get(names["gate"]) or {}
-        if (gate_def.get("config") or {}).get("builtin") != "gate" or review_def.get(
-            "kind"
-        ) != "ai":
+        gate_placement = gate_def.get("placement") or {}
+        if (
+            gate_def.get("kind") != "code"
+            or (gate_def.get("config") or {}).get("builtin") != "gate"
+            or (isinstance(gate_placement, Mapping) and gate_placement.get("actor"))
+            or review_def.get("kind") != "ai"
+        ):
             raise ReviewError(
                 "bad_config", "gate_step must be the built-in gate, review_step an ai step"
             )

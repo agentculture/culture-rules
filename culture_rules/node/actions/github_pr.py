@@ -91,7 +91,8 @@ from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any
 
-from culture_rules.actors.review import approved_review
+from culture_rules.actors.review import approved_review, consume_approval
+from culture_rules.actors.trusted import workflow_refusal
 from culture_rules.apps.github import DEFAULT_API_BASE, GitHubApp, GitHubError, Transport
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
 from culture_rules.engine.runs import (
@@ -391,6 +392,11 @@ class GitHubPushPort(GitHubCommentPort):
         refusal = source_rule_refusal(self._store, context.run_id)
         if refusal:
             return InvocationResult.failed(refusal, retryable=False)
+        # d20 round 2: only a run of a workflow pinned as trusted in code may push
+        refusal = workflow_refusal(self._store.get(RUNS_COLLECTION, context.run_id))
+        if refusal:
+            log.info("github.push refused: %s", refusal)
+            return InvocationResult.failed(refusal, retryable=False)
         # d20: the run's reviewer must have approved exactly this commit (read from the
         # store, never a param), whatever the workflow wires
         refusal, review_record = self._review(input, context)
@@ -484,6 +490,12 @@ class GitHubPushPort(GitHubCommentPort):
             raise _Refused(refusal)
         if record != job.review_record:
             raise _Refused("review_changed")
+        # round 2 (#4): consume the approval - a compare-and-set no later verdict can undo
+        refusal = consume_approval(
+            self._store, context.run_id, record, sha, by=f"{context.step_id}#{context.attempt}"
+        )
+        if refusal:
+            raise _Refused(refusal)
         job.require(PUSH_MARGIN_S)  # never start the push this close to the deadline
         job.push(url, sha, branch, token)
         log.info("github.push: %s %s fast-forwarded", repo, branch)

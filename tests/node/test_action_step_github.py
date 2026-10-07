@@ -10,9 +10,11 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from typing import Any
+from unittest import mock
 
 import pytest
 
+from culture_rules.actors import trusted
 from culture_rules.engine.runs import Executor, step_state
 from culture_rules.node.actors import ActorRouter
 from culture_rules.store.memory import MemoryStore
@@ -88,7 +90,9 @@ def fixer_workflow(world: World) -> Any:
     )
 
 
-def run_fixer(pem, world, *, verdict: str, rule_enabled: bool = True, reviewed: bool = True):
+def run_fixer(
+    pem, world, *, verdict: str, rule_enabled: bool = True, reviewed: bool = True, trusted_wf=True
+):
     clock = Clock(datetime.now(UTC))
     store = MemoryStore(clock=clock)
     store.put("actors", actor_doc())
@@ -107,10 +111,15 @@ def run_fixer(pem, world, *, verdict: str, rule_enabled: bool = True, reviewed: 
         "*": worker,
     }
     ex = Executor(store, "spark", ActorRouter(store, ports=ports, clock=clock), clock=clock)
-    run = ex.start(rule(id="fixer"), fixer_workflow(world))
+    wf = fixer_workflow(world)
+    run = ex.start(rule(id="fixer"), wf)
     if reviewed:  # d20: this hand-built workflow has no review step; record the approval
         gh.approve_review(store, world.b, run_id=run["id"], start=world.a)
-    ex.run_until_idle()
+    digests = trusted.TRUSTED_WORKFLOW_DIGESTS | (
+        {trusted.workflow_digest(wf)} if trusted_wf else set()
+    )
+    with mock.patch.object(trusted, "TRUSTED_WORKFLOW_DIGESTS", digests):
+        ex.run_until_idle()
     return ex.run(run["id"]), fake, rec, comment
 
 
@@ -121,6 +130,13 @@ def test_push_step_pushes_after_a_passing_gate_and_feeds_the_comment(pem, world)
     assert "push" in rec.verbs()
     assert step_state(doc, "push")["outputs"]["pushed"] is True
     assert [c[1]["body"] for c in comment.calls] == [f"pushed {world.b}"]
+
+
+def test_push_step_of_an_untrusted_workflow_is_refused(pem, world):
+    doc, fake, rec, comment = run_fixer(pem, world, verdict="pass", trusted_wf=False)
+    assert doc["status"] == "failed"
+    assert doc["error"]["step"] == "push" and doc["error"]["message"] == "workflow_not_trusted"
+    assert world.remote_head() == world.a and fake.calls == [] and rec.calls == []
 
 
 def test_push_step_without_an_approving_review_is_refused(pem, world):

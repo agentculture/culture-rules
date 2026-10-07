@@ -230,11 +230,29 @@ def actor_doc(**params):
     return doc
 
 
+def trusted_workflow() -> dict:
+    """The shipped pr-fixer workflow: the only kind of run github.push serves (d20)."""
+    import json
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    return json.loads((root / "docs/rules/pr-fixer/workflows/pr-fixer.json").read_text())
+
+
 def make_store(rule_enabled=True, **actor_params):
     store = MemoryStore()
     store.put("actors", actor_doc(**actor_params))
     store.put("rules", {"id": "fixer", "name": "fixer", "enabled": rule_enabled})
-    store.put("runs", {"id": "run-1", "kind": "run", "rule_id": "fixer", "workflow_id": None})
+    store.put(
+        "runs",
+        {
+            "id": "run-1",
+            "kind": "run",
+            "rule_id": "fixer",
+            "workflow_id": "pr-fixer",
+            "workflow": {"definition": trusted_workflow()},  # the shipped, trusted one
+        },
+    )
     return store
 
 
