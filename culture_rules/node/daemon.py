@@ -68,6 +68,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from culture_rules.actors import agent, human
+from culture_rules.actors.review import REVIEWS_COLLECTION
 from culture_rules.apps.discord_gateway import (
     GATEWAY_STATE_COLLECTION,
     Gateway,
@@ -124,6 +125,7 @@ NODE_COLLECTIONS = (
     "actor_usage",
     human.ASKS_COLLECTION,
     agent.BRIDGE_INVOCATIONS,
+    REVIEWS_COLLECTION,
     PROBE_STATE,
     LEASES_COLLECTION,
     HOOK_STATS_COLLECTION,

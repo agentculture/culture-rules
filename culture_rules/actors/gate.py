@@ -21,6 +21,13 @@ Verdicts
     the base branch's ``culture.yaml`` has no ``gate`` section (or there is no
     ``culture.yaml``). Nothing runs. There is **no built-in default command**.
 
+On ``pass`` and ``no_gate`` the gate also reports the change it verified, for the reviewer
+agent (d20), which cannot fetch a commit that is not pushed yet: ``diff`` (``git diff
+start_sha commit_sha`` in the node-owned scratch repo below, with no external diff driver,
+textconv or attributes), ``diff_chars`` (its full length) and ``diff_truncated`` (the diff
+was cut at ``config.diff_max_chars``, default :data:`DEFAULT_DIFF_MAX_CHARS`; the fixer's
+review step then never approves).
+
 Anything that is not a judgement of the commits (bad input, no runner configured, the
 worktree cannot be read, a malformed ``gate`` section, the deadline) fails the step
 instead, with a ``code: detail`` error, so a broken environment never reads as a verdict.
@@ -209,6 +216,11 @@ DEFAULT_BUNDLE_DIR = "~/.local/state/culture-rules/gate-bundles"
 BUNDLE_TTL_S = 7 * 24 * 3600.0
 DEFAULT_TAIL_BYTES = 8000
 _MAX_TAIL_BYTES = 100_000
+DEFAULT_DIFF_MAX_CHARS = 30_000
+"""Characters of ``start_sha..commit_sha`` diff handed to the reviewer (d20); a longer diff
+is cut and flagged ``diff_truncated``. Leaves room in a bridge's 60000-character budget for
+the threads and the gate output."""
+_MAX_DIFF_CHARS = 200_000
 CULTURE_YAML = "culture.yaml"
 
 #: Runner return codes outside any process's own range.
@@ -956,6 +968,13 @@ class GatePort:
         tail_bytes = config.get("tail_bytes", DEFAULT_TAIL_BYTES)
         if not isinstance(tail_bytes, int) or not 0 < tail_bytes <= _MAX_TAIL_BYTES:
             raise _Refusal("bad_config", f"tail_bytes must be 1..{_MAX_TAIL_BYTES}")
+        diff_cap = config.get("diff_max_chars", DEFAULT_DIFF_MAX_CHARS)
+        if (
+            not isinstance(diff_cap, int)
+            or isinstance(diff_cap, bool)
+            or not 0 < diff_cap <= _MAX_DIFF_CHARS
+        ):
+            raise _Refusal("bad_config", f"diff_max_chars must be 1..{_MAX_DIFF_CHARS}")
         if self._run_as is None:
             raise _Refusal("gate_runner_unconfigured", self._why)
         if self._blocked:
@@ -972,6 +991,9 @@ class GatePort:
             "instruction": None,
             "gate": None,
             "bundle": None,
+            "diff": None,
+            "diff_chars": None,
+            "diff_truncated": None,
             **shas,
         }
         tmp = tempfile.mkdtemp(prefix="culture-rules-gate-")
@@ -981,6 +1003,7 @@ class GatePort:
             spec = self._spec(job, shas["base_sha"])
             if spec is None:
                 verdict["verdict"] = NO_GATE
+                verdict.update(self._diff(job, shas, diff_cap))
                 return verdict
             verdict["gate"] = spec.to_dict()
             violations = self._guard(job, shas, config)
@@ -994,10 +1017,28 @@ class GatePort:
                 self._judge(job, spec, verdict, tail_bytes)
                 if verdict["verdict"] == PASS:
                     verdict["bundle"] = self._bundle(job, shas["commit_sha"], context)
+                    verdict.update(self._diff(job, shas, diff_cap))
             verdict["instruction"] = _instruction(verdict)
             return verdict
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
+
+    @staticmethod
+    def _diff(job: _Job, shas: Mapping[str, str], cap: int) -> dict[str, Any]:
+        """``start_sha..commit_sha`` as text, read in the node-verified scratch repo (no
+        external diff, no textconv, no attributes), cut at ``cap`` characters (d20)."""
+        raw = job.git(
+            "diff",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--no-color",
+            "-M",
+            shas["start_sha"],
+            shas["commit_sha"],
+            "--",
+        )
+        text = raw.decode("utf-8", errors="replace")
+        return {"diff": text[:cap], "diff_chars": len(text), "diff_truncated": len(text) > cap}
 
     def _import(self, job: _Job, shas: Mapping[str, str]) -> None:
         """Stream the three commits' history out of the worktree into the scratch repo."""

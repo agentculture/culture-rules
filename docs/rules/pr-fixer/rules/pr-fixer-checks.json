@@ -5,7 +5,7 @@
     "name": "Comment with the run link",
     "params": {
       "actor": "github-app",
-      "body": "PR fixer: gate verdict {{ workflow.outputs.verdict }}, pushed {{ workflow.outputs.pushed }}, head {{ workflow.outputs.head_after }}.\n\n{{ workflow.outputs.summary }}\n\nRun: https://rules.culture.dev/api/runs/{{ run.id }}",
+      "body": "PR fixer: gate verdict {{ workflow.outputs.verdict }}, review {{ workflow.outputs.review }}, pushed {{ workflow.outputs.pushed }}, head {{ workflow.outputs.head_after }}.\n\n{{ workflow.outputs.summary }}\n\nRun: https://rules.culture.dev/api/runs/{{ run.id }}",
       "number": "trigger.data.number",
       "repo": "trigger.data.repository"
     },

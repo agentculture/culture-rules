@@ -368,10 +368,12 @@ test.describe("Workflows tab", () => {
     const lines = [
       "1 quiet — wait 300 s; stop if the PR head moves (head_unchanged, as github-app)",
       "2 threads — github.threads as github-app: unresolved threads by trusted authors",
-      "3 fix — retry up to 3×, until verdict ∈ {pass, no_gate}:",
+      "3 fix — retry up to 3×, until verdict ∈ {pass, no_gate} and review = approve:",
       "  3.1 agent — qwen-fixer (agent)",
       "  3.2 gate — test gate on spark2",
-      "4 push — github.push as github-app on spark2 (only on a passing gate)",
+      "  3.3 review — codex-reviewer (agent, read-only), when gate_verdict ∈ {pass, no_gate} and diff_truncated = false",
+      "  3.4 verdict — review verdict, recorded for github.push",
+      "4 push — github.push as github-app on spark2 (only on a passing gate and an approving review)",
       "5 pick — github.threads_addressed",
       "6 replies — for each item (≤200): github.review_reply as github-app and resolve",
     ];

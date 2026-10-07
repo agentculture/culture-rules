@@ -92,6 +92,7 @@ __all__ = [
     "MeshAgentActor",
     "MeshReply",
     "load_agentirc_client",
+    "bound_input_chars",
     "build_invocation_request",
     "parse_task_result",
     "record_bridge_event",
@@ -339,6 +340,12 @@ ADDRESS_FIELDS = ("repo", "head_branch", "head_sha")
 PASSTHROUGH_CONFIG = ("model", "sandbox", "mode")
 """Step-config keys forwarded into the bridge input (the actor supplies defaults); the qwen
 bridge requires ``mode``."""
+READ_ONLY_SANDBOX = "read-only"
+"""An actor whose ``sandbox`` default is this one cannot be widened by a step or an input
+(``sandbox_locked``): the PR fixer's reviewer must never be able to write or commit."""
+BRIDGE_CORE_INPUTS = frozenset({"instruction", "repo", "head_branch", "head_sha", "model", "async"})
+"""Input keys a bridge reads itself; every other key is appended to the agent's prompt as
+JSON, which the bridge cuts at its ``max_bound_input_chars`` (60000 by default)."""
 RESULT_FIELDS = (
     "schema",
     "invocation_id",
@@ -368,6 +375,20 @@ NON_TERMINAL_KINDS = ("accepted", "heartbeat", "progress", "artifact", "signal")
 NON_RETRYABLE_CLASSES = frozenset({"actor_rejected_input", "credential", "provision"})
 """Error classes where retrying cannot help (bad input, missing credential, no checkout)."""
 _SHA_RE = re.compile(r"^[0-9a-fA-F]{7,64}$")
+
+
+def bound_input_chars(payload: Mapping[str, Any]) -> int:
+    """How many characters of ``payload`` a bridge appends to the prompt as bound inputs,
+    measured the way it serialises them (``json.dumps(..., indent=2, ensure_ascii=False)``
+    over the keys that are neither core inputs nor backend options)."""
+    extras = {
+        k: v
+        for k, v in payload.items()
+        if k not in BRIDGE_CORE_INPUTS and k not in PASSTHROUGH_CONFIG
+    }
+    if not extras:
+        return 0
+    return len(json.dumps(extras, indent=2, ensure_ascii=False, default=str))
 
 
 def build_invocation_request(
@@ -633,8 +654,10 @@ class BridgeAgentActor:
         transport: Transport | None = None,
         clock: Callable[[], datetime] | None = None,
         request_timeout: float = 30.0,
+        max_bound_input_chars: Any = None,
     ) -> None:
         self._store = store
+        self.max_bound_input_chars = max_bound_input_chars
         self.bridge_url = bridge_url.rstrip("/")
         self.callback_url = (callback_url or "").rstrip("/")
         self._token_ref = token
@@ -671,12 +694,37 @@ class BridgeAgentActor:
             out[name] = value.strip()
         if not _SHA_RE.match(out["head_sha"]):
             return None, f"head_sha {out['head_sha']!r} is not a commit SHA"
+        locked = self._defaults.get("sandbox") == READ_ONLY_SANDBOX
+        if locked:
+            for where, source in (("an input", input), ("the step config", config)):
+                if "sandbox" in source and source["sandbox"] != READ_ONLY_SANDBOX:
+                    return None, (
+                        f"sandbox_locked: the actor is {READ_ONLY_SANDBOX}; "
+                        f"{where} asks for sandbox {source['sandbox']!r}"
+                    )
         for name in PASSTHROUGH_CONFIG:
             value = config.get(name, self._defaults.get(name))
             if value is not None:
                 out.setdefault(name, value)
+        if locked:
+            out["sandbox"] = READ_ONLY_SANDBOX
         out["instruction"] = instruction
         return out, None
+
+    def _bound_inputs_problem(self, payload: Mapping[str, Any]) -> str | None:
+        """Refuse what the bridge would cut silently (only when the actor sets a cap)."""
+        cap = self.max_bound_input_chars
+        if cap is None:
+            return None
+        if not isinstance(cap, int) or isinstance(cap, bool) or cap < 1:
+            return f"bound_inputs_cap_invalid: max_bound_input_chars {cap!r}"
+        size = bound_input_chars(payload)
+        if size > cap:
+            return (
+                f"bound_inputs_too_large: {size} characters of bound inputs; the bridge "
+                f"would cut them at {cap}"
+            )
+        return None
 
     # ---------------------------------------------------------------- invoke
 
@@ -689,6 +737,8 @@ class BridgeAgentActor:
         context: InvocationContext,
     ) -> InvocationResult:
         payload, problem = self.bridge_input(input, context.config or {})
+        if not problem:
+            problem = self._bound_inputs_problem(payload or {})
         if problem:
             return InvocationResult.failed(problem, retryable=False)
         if not self.callback_url:

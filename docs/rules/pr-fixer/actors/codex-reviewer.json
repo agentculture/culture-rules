@@ -1,0 +1,22 @@
+{
+  "capabilities": [],
+  "config_source": "db",
+  "description": "d20: reviews the PR fixer's gated commit before github.push. Codex through the cultureagent codex bridge on spark, as its own unprivileged account; sandbox read-only, one review at a time. Never commits or pushes.",
+  "enabled": true,
+  "harness": "codex",
+  "id": "codex-reviewer",
+  "kind": "agent",
+  "machine": "spark",
+  "model": null,
+  "name": "PR fixer reviewer (Codex, read-only)",
+  "params": {
+    "bridge_token": "grant:RULES_CODEX_REVIEWER_TOKEN",
+    "bridge_url": "http://127.0.0.1:8094",
+    "callback_url": "http://127.0.0.1:18765",
+    "max_bound_input_chars": 60000,
+    "max_concurrency": 1,
+    "sandbox": "read-only"
+  },
+  "repo": null,
+  "schema_version": "1.0"
+}

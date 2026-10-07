@@ -1203,7 +1203,12 @@ class Executor:
             if st["status"] == "dispatching":
                 if self._dispatch(plan, doc, st, now, resume=True):
                     return True
-            elif st["status"] == "pending" and not drained and _ready(plan, doc, st):
+            elif (
+                st["status"] == "pending"
+                and not drained
+                and _ready(plan, doc, st)
+                and _when(plan, doc, st) in (None, True)  # false/invalid: housekeeping's
+            ):
                 if self._dispatch(plan, doc, st, now, resume=False):
                     return True
         return False
@@ -1849,6 +1854,15 @@ def _step_inputs(plan: _Plan, doc: Mapping, st: Mapping) -> dict[str, Any]:
     if st["key"] in TERMINAL_STEPS:
         return {"inputs": dict(st.get("inputs") or {})}
     step = plan.step(st)
+    values = _gathered_inputs(plan, doc, st)
+    problem = _check_ports(step.inputs, values, "input")
+    return problem or {"inputs": values}
+
+
+def _gathered_inputs(plan: _Plan, doc: Mapping, st: Mapping) -> dict[str, Any]:
+    """The values a body or top-level step's edges (and a loop's implicit inputs) give it,
+    before any port check."""
+    step = plan.step(st)
     values: dict[str, Any] = {}
     loop = st.get("loop")
     loop_state = step_state(doc, loop["parent"]) if loop else None
@@ -1863,8 +1877,59 @@ def _step_inputs(plan: _Plan, doc: Mapping, st: Mapping) -> dict[str, Any]:
             for p in step.inputs
             if p.name not in values and p.name in implicit
         )
-    problem = _check_ports(step.inputs, values, "input")
-    return problem or {"inputs": values}
+    return values
+
+
+WHEN_INVALID = "when_invalid"
+"""Failure code of a step whose ``config.when`` cannot be evaluated."""
+EXPLAIN_MAX_CHARS = 2000
+"""How much of a ``retry_until`` loop's ``explain`` field its failure message keeps."""
+
+
+def _when(plan: _Plan, doc: Mapping, st: Mapping) -> bool | dict | None:
+    """A step's ``config.when`` over its gathered inputs: ``True``/``False``, an error dict
+    when it cannot be evaluated, or ``None`` when the step has no ``when``."""
+    step = plan.step(st)
+    config = step.config if step is not None and isinstance(step.config, dict) else {}
+    if "when" not in config:
+        return None
+    values = _gathered_inputs(plan, doc, st)
+    try:
+        return bool(cond.evaluate(config["when"], {"trigger": values, "variables": values}))
+    except (cond.ConditionError, TypeError, ValueError, AttributeError, KeyError) as exc:
+        return _error(WHEN_INVALID, f"config.when cannot be evaluated: {exc}")
+
+
+def _skip_when(plan: _Plan, doc: Mapping, now: datetime) -> Found:
+    """Skip a ready step whose ``when`` is false (any node may: no placement is needed),
+    or fail it ``when_invalid``; a true ``when`` leaves it to be dispatched."""
+    for st in doc["steps"]:
+        if st["status"] != "pending" or st["key"] in TERMINAL_STEPS:
+            continue
+        if not _ready(plan, doc, st):
+            continue
+        verdict = _when(plan, doc, st)
+        if verdict is None or verdict is True:
+            continue
+        new, nst = _copy_with(doc, st["key"])
+        if verdict is False:
+            nst["status"] = "skipped"
+            return new, "skipped", st["key"]
+        nst.update(status="failed", error=verdict)
+        return new, "failed", st["key"]
+    return None
+
+
+def _explained(step: Step, result: Mapping[str, Any], message: str) -> str:
+    """``message`` plus the last result's ``config.explain`` field, capped, when it has text."""
+    name = step.config.get("explain") if isinstance(step.config, dict) else None
+    text = result.get(name) if isinstance(name, str) else None
+    if not isinstance(text, str) or not text.strip():
+        return message
+    text = text.strip()
+    if len(text) > EXPLAIN_MAX_CHARS:
+        text = text[:EXPLAIN_MAX_CHARS] + "…"
+    return f"{message}; last: {text}"
 
 
 def _housekeep(plan: _Plan, doc: Mapping, now: datetime, host: str) -> dict | None:
@@ -1874,6 +1939,7 @@ def _housekeep(plan: _Plan, doc: Mapping, now: datetime, host: str) -> dict | No
         _loop_progress,
         _run_failure,
         _skip_disabled,
+        _skip_when,
         _wait_start,
         _loop_start,
         _finish,
@@ -2011,11 +2077,10 @@ def _progress_loop(plan: _Plan, doc: Mapping, st: Mapping) -> Found:
     if _until(step, result, i):
         return _loop_done(new, nst, step, results)
     if i + 1 >= (step.max_iterations or 1):
+        message = f"until not met after {step.max_iterations} iterations"
         nst.update(
             status="failed",
-            error=_error(
-                "loop_max_exceeded", f"until not met after {step.max_iterations} iterations"
-            ),
+            error=_error("loop_max_exceeded", _explained(step, result, message)),
         )
         return new, "failed", st["key"]
     return _next_iteration(new, nst, step, i)

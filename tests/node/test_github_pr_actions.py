@@ -242,9 +242,34 @@ def ctx(run_id="run-1"):
     return InvocationContext(run_id=run_id, step_id="push", kind="action", host="h", actor="gh-app")
 
 
-def push_port(pem, world, fake, store=None, gitrec=None, clock=None):
+def approve_review(store, sha, run_id="run-1"):
+    """The run's reviewer approved ``sha`` (d20): every push needs this record."""
+    from culture_rules.actors.review import REVIEWS_COLLECTION
+
+    store.put(
+        REVIEWS_COLLECTION,
+        {
+            "id": run_id,
+            "run_id": run_id,
+            "commit_sha": sha,
+            "reviewed_commit": sha,
+            "verdict": "approve",
+            "reviewer_actor": "codex-reviewer",
+            "reviewer_backend": "codex",
+            "implementer_actor": "qwen-fixer",
+            "implementer_backend": "qwen",
+        },
+    )
+
+
+def push_port(pem, world, fake, store=None, gitrec=None, clock=None, review=True):
+    """The push port. ``review``: ``True`` (default) records an approval of ``world.b`` for
+    run-1, a SHA approves that commit instead, ``False`` records nothing."""
+    store = store if store is not None else make_store()
+    if review and store.get("fixer_reviews", "run-1") is None:
+        approve_review(store, world.b if review is True else review)
     return GitHubPushPort(
-        store or make_store(),
+        store,
         transport=fake,
         secrets=lambda ref: pem,
         git=gitrec or RecordingGit(),
@@ -385,7 +410,7 @@ def test_non_fast_forward_is_refused_before_any_network_call(pem, world):
     git("reset", "-q", "--hard", world.a0, cwd=world.agent)
     divergent = commit(world.agent, "divergent")  # not a descendant of A
     fake, rec = FakeGitHub(world), RecordingGit()
-    res = push_port(pem, world, fake, gitrec=rec).invoke(
+    res = push_port(pem, world, fake, gitrec=rec, review=divergent).invoke(
         push_params(world, commit_sha=divergent), "k", DEADLINE, context=ctx()
     )
     assert res.outcome == "failed" and res.error == "not_fast_forward" and not res.retryable
@@ -514,7 +539,7 @@ def test_retry_after_success_completes_without_pushing_again(pem, world):
 
 def test_nothing_to_push_when_commit_is_expected(pem, world):
     fake = FakeGitHub(world)
-    res = push_port(pem, world, fake).invoke(
+    res = push_port(pem, world, fake, review=world.a).invoke(
         push_params(world, commit_sha=world.a), "k", DEADLINE, context=ctx()
     )
     assert res.outcome == "completed" and res.output["pushed"] is False and fake.calls == []
@@ -540,7 +565,7 @@ def test_push_targets_commit_sha_even_after_the_agent_moves_on(pem, world):
 
 def test_commit_sha_missing_from_source_is_refused(pem, world):
     fake, rec = FakeGitHub(world), RecordingGit()
-    res = push_port(pem, world, fake, gitrec=rec).invoke(
+    res = push_port(pem, world, fake, gitrec=rec, review="2" * 40).invoke(
         push_params(world, commit_sha="2" * 40), "k", DEADLINE, context=ctx()
     )
     assert res.outcome == "failed" and res.error == "commit_not_found" and not res.retryable

@@ -22,6 +22,7 @@ from pathlib import Path
 import pytest
 
 from culture_rules.actors.gate import GatePort
+from culture_rules.actors.review import ReviewVerdictPort
 from culture_rules.apps.github import GitHubError
 from culture_rules.cli import main
 from culture_rules.engine.actorport import InvocationResult
@@ -148,14 +149,36 @@ def test_the_workflow_steps_and_placements():
     assert top["quiet"].config["guard"]["value"] == "head_unchanged"
     fix = top["fix"]
     assert fix.kind == "retry_until" and fix.max_iterations == 3
-    assert fix.config["until"]["items"] == {"literal": ["pass", "no_gate"]}
-    agent, gate = fix.body
+    gate_ok, approved = fix.config["until"]["args"]
+    assert fix.config["until"]["op"] == "and"
+    assert gate_ok["items"] == {"literal": ["pass", "no_gate"]}
+    assert gate_ok["value"] == {"field": "verdict"}
+    assert approved == {
+        "op": "compare",
+        "cmp": "==",
+        "left": {"field": "review"},
+        "right": {"literal": "approve"},
+    }
+    assert fix.config["carry"] == {"instruction": "instruction"}
+    assert fix.config["explain"] == "instruction"
+    agent, gate, review, verdict = fix.body
     assert agent.placement.actor == "qwen-fixer" and agent.config["mode"] == "yolo"
     assert gate.config == {"builtin": "gate"} and gate.placement.machine == "spark2"
+    # d20: an independent, read-only reviewer, only after a passing gate whose diff fit
+    assert review.kind == "ai" and review.placement.actor == "codex-reviewer"
+    assert review.config["sandbox"] == "read-only"
+    assert review.config["when"]["args"][0]["items"] == {"literal": ["pass", "no_gate"]}
+    assert review.config["when"]["args"][1]["right"] == {"literal": False}
+    assert "instruction" not in {p.name for p in review.inputs}  # the brief is the config's
+    assert not {"prompt", "task", "text"} & {p.name for p in review.inputs}
+    assert verdict.config == {"builtin": "review"} and verdict.placement is None
+    assert [p.name for p in verdict.inputs] == ["task"]  # nothing safety-relevant is wired
     push = top["push"]
     assert push.config["action"]["kind"] == "github.push"
     assert push.config["action"]["params"]["gate_verdict"] == "inputs.verdict"
     assert push.placement.machine == "spark2"
+    # the review is enforced by the push port from the store, never a wired param
+    assert not [k for k in push.config["action"]["params"] if "review" in k]
     (reply,) = top["replies"].body
     assert reply.config["action"]["kind"] == "github.review_reply"
     assert reply.config["action"]["params"]["comment_id"] == "inputs.item.comment_id"
@@ -177,9 +200,18 @@ def test_import_with_apply_validates_and_writes_the_definitions():
     seed(mem)
     defs = Definitions(mem)
     files = _files()
+    actors = {k: v for k, v in files.items() if k.startswith("actors/")}
     workflows = {k: v for k, v in files.items() if k.startswith("workflows/")}
     rules = {k: v for k, v in files.items() if k.startswith("rules/")}
-    # As the CLI does it: `workflows import`, then `rules import` (a rule needs its workflow).
+    assert sorted(actors) == ["actors/codex-reviewer.json"]  # d20: the reviewer ships too
+    # As the CLI does it: `actors import`, `workflows import`, then `rules import`.
+    assert defs.import_files(actors, "admin@test", apply=True)["applied"] is True
+    reviewer = mem.get("actors", "codex-reviewer")
+    assert reviewer["machine"] == "spark" and reviewer["harness"] == "codex"
+    assert reviewer["params"]["sandbox"] == "read-only"
+    assert reviewer["params"]["max_concurrency"] == 1
+    assert reviewer["params"]["max_bound_input_chars"] == 60000
+    assert reviewer["params"]["bridge_token"].startswith("grant:")
     assert defs.import_files(workflows, "admin@test", apply=True)["applied"] is True
     plan = defs.import_files(rules, "admin@test", apply=True)
     assert plan["applied"] is True and plan["errors"] == []
@@ -505,10 +537,60 @@ AGENT_ACTOR = {
     "id": "qwen-fixer",
     "name": "PR fixer",
     "kind": "agent",
+    "harness": "qwen",
     "machine": "spark2",
     "params": {"bridge_url": "http://127.0.0.1:8093", "callback_url": "http://127.0.0.1:1"},
     "schema_version": "1.0",
 }
+
+
+def reviewer_actor() -> dict:
+    """The shipped codex-reviewer actor (docs/rules/pr-fixer/actors)."""
+    (actor,) = bundle().actors
+    return actor.to_dict()
+
+
+def verdict_text(commit: str, verdict: str = "approve", findings=None) -> str:
+    """What a reviewer's bridge result carries in ``summary``: the verdict as JSON text."""
+    return json.dumps({"verdict": verdict, "findings": findings or [], "reviewed_commit": commit})
+
+
+class ReviewerBridge(FakeActor):
+    """A codex bridge double: read-only, returns the scripted verdict for each attempt.
+
+    ``script`` holds one entry per review: a callable ``(commit) -> summary`` or a dict of
+    bridge-result overrides (``summary`` may be such a callable too)."""
+
+    def __init__(self, repo: Repo, script=None) -> None:
+        super().__init__()
+        self.repo = repo
+        self.script = list(script or [])
+        self.inputs: list[dict] = []
+
+    def invoke(self, input, key, deadline, *, context):
+        self.inputs.append(dict(input))
+        commit = input.get("commit_sha")
+        entry = self.script.pop(0) if self.script else (lambda c: verdict_text(c))
+        over = entry if isinstance(entry, dict) else {"summary": entry}
+        result = {
+            "schema": "cultureagent.bridge.result/v1",
+            "backend": "codex",
+            "status": "no_changes",
+            "head_before": input.get("head_sha"),
+            "head_after": input.get("head_sha"),
+            "commits": [],
+            "dirty": False,
+            "threads_addressed": [],
+            "summary": verdict_text,
+            **over,
+        }
+        if callable(result["summary"]):
+            result["summary"] = result["summary"](commit)
+        if result.get("fail"):
+            self.on(context.step_id, ("fail", result["fail"], False))
+        else:
+            self.on(context.step_id, ("complete", result))
+        return super().invoke(input, key, deadline, context=context)
 
 
 class BridgeAgent(FakeActor):
@@ -530,6 +612,7 @@ class BridgeAgent(FakeActor):
                 "complete",
                 {
                     "schema": "cultureagent.bridge.result/v1",
+                    "backend": "qwen",
                     "status": "completed",
                     "summary": "made x 3",
                     "head_before": self.repo.start,
@@ -569,18 +652,22 @@ class PushRecorder(FakeActor):
 class World:
     """Two nodes on one store: spark (the App actor) and spark2 (the fixer machine)."""
 
-    def __init__(self, tmp_path: Path, *, push=None, on_invoke=None) -> None:
+    def __init__(
+        self, tmp_path: Path, *, push=None, on_invoke=None, reviews=None, workflow=None
+    ) -> None:
         self.repo = Repo(tmp_path, gate_yaml([PASSING]))
         self.c = Cluster("spark", "spark2")
         base = self.c.base
         enrol_online(base, self.c.clock, machine("spark"), machine("spark2"))
         base.put("actors", copy.deepcopy(APP_ACTOR))
         base.put("actors", copy.deepcopy(AGENT_ACTOR))
+        base.put("actors", reviewer_actor())
         for doc in rule_docs().values():
             base.put("rules", doc)
-        base.put("workflows", workflow_doc())
+        base.put("workflows", workflow if workflow is not None else workflow_doc())
         seed(base)
         self.agent = BridgeAgent(self.repo, on_invoke=on_invoke)
+        self.reviewer = ReviewerBridge(self.repo, reviews)
         self.runner = LocalRunner()
         gate = GatePort(
             base, run_as=self.runner, bundle_dir=tmp_path / "bundles", clock=self.c.clock
@@ -625,15 +712,18 @@ class World:
             "code": BuiltinCodePort(
                 {
                     "gate": gate,
+                    "review": ReviewVerdictPort(base, clock=self.c.clock),
                     "github.threads": threads,
                     "github.threads_addressed": AddressedThreadsPort(),
                 }
             ),
         }
+
+        def agent_for(actor):
+            return self.reviewer if actor.id == "codex-reviewer" else self.agent
+
         for host in ("spark", "spark2"):
-            self.c.nodes[host] = self.c.node(
-                host, actors=ports, adapters={"agent": lambda actor: self.agent}
-            )
+            self.c.nodes[host] = self.c.node(host, actors=ports, adapters={"agent": agent_for})
         self.c.start()
 
     def fire(self) -> dict:

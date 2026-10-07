@@ -88,7 +88,7 @@ def fixer_workflow(world: World) -> Any:
     )
 
 
-def run_fixer(pem, world, *, verdict: str, rule_enabled: bool = True):
+def run_fixer(pem, world, *, verdict: str, rule_enabled: bool = True, reviewed: bool = True):
     clock = Clock(datetime.now(UTC))
     store = MemoryStore(clock=clock)
     store.put("actors", actor_doc())
@@ -101,13 +101,15 @@ def run_fixer(pem, world, *, verdict: str, rule_enabled: bool = True):
         )
     )
     ports = {
-        "action:github.push": push_port(pem, world, fake, store=store, gitrec=rec),
+        "action:github.push": push_port(pem, world, fake, store=store, gitrec=rec, review=False),
         "action:github.comment": comment,
         "action:noop": FakeActor(),
         "*": worker,
     }
     ex = Executor(store, "spark", ActorRouter(store, ports=ports, clock=clock), clock=clock)
     run = ex.start(rule(id="fixer"), fixer_workflow(world))
+    if reviewed:  # d20: this hand-built workflow has no review step; record the approval
+        gh.approve_review(store, world.b, run_id=run["id"])
     ex.run_until_idle()
     return ex.run(run["id"]), fake, rec, comment
 
@@ -119,6 +121,15 @@ def test_push_step_pushes_after_a_passing_gate_and_feeds_the_comment(pem, world)
     assert "push" in rec.verbs()
     assert step_state(doc, "push")["outputs"]["pushed"] is True
     assert [c[1]["body"] for c in comment.calls] == [f"pushed {world.b}"]
+
+
+def test_push_step_without_an_approving_review_is_refused(pem, world):
+    doc, fake, rec, comment = run_fixer(pem, world, verdict="pass", reviewed=False)
+    assert doc["status"] == "failed"
+    assert doc["error"]["step"] == "push" and doc["error"]["message"] == "review_missing"
+    assert world.remote_head() == world.a
+    assert fake.calls == [] and rec.calls == []  # refused before any network or git
+    assert comment.calls == []
 
 
 @pytest.mark.parametrize("verdict", ["fail", "guard", "no_gate"])

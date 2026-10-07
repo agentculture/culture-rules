@@ -19,19 +19,25 @@ repo allowlist and its per-actor App cache. There is deliberately no merge port.
     1. actor, allowlist and input shape (no secret read, no network);
     2. the run's source rule (or, for a direct workflow run, its workflow) is still live and
        enabled;
-    3. ``commit_sha`` is fetched into a fresh, node-owned bare repo (so nothing in the agent's
+    3. the run's review (d20, :func:`culture_rules.actors.review.review_refusal`): the
+       review record of this run, written only by the built-in ``review`` step and never
+       read from a param, must approve exactly ``commit_sha``, by a reviewer whose actor and
+       backend both differ from the implementer's - else ``review_missing``,
+       ``review_rejected``, ``review_commit_mismatch`` or ``reviewer_is_implementer``. This
+       holds for every push, so a workflow that skips the review step pushes nothing;
+    4. ``commit_sha`` is fetched into a fresh, node-owned bare repo (so nothing in the agent's
        repo config, hooks or credential helpers ever sees the token) and must descend from
        ``expected_head_sha``: a non-fast-forward update is refused before any network call.
        If the App actor sets ``params.commit_author`` (a git author name or email), every
        commit in ``expected_head_sha..commit_sha`` must carry it, else ``foreign_author``;
        unset, the check is off;
-    4. the PR (read as the App) must be open, its head and base repo both ``repo`` and its
+    5. the PR (read as the App) must be open, its head and base repo both ``repo`` and its
        head ref ``head_branch``; its head SHA must equal ``expected_head_sha``;
-    5. a fresh token is minted for this push alone: ``repositories=[repo]``,
+    6. a fresh token is minted for this push alone: ``repositories=[repo]``,
        ``permissions={contents: write}``. It reaches git only through the child process's
        environment (an ``http.extraHeader``), never argv, a file or a log;
-    6. ``git ls-remote`` with that token must still report ``expected_head_sha``;
-    7. the rule is checked again, then one plain ``git push`` (no force, no ``+`` refspec,
+    7. ``git ls-remote`` with that token must still report ``expected_head_sha``;
+    8. the rule is checked again, then one plain ``git push`` (no force, no ``+`` refspec,
        hooks off) of ``<sha>:refs/heads/<head_branch>``. The server also refuses non-ff.
 
     Every git and HTTP call is bounded by the time left before the invocation's deadline
@@ -82,6 +88,7 @@ from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any
 
+from culture_rules.actors.review import review_refusal
 from culture_rules.apps.github import DEFAULT_API_BASE, GitHubApp, GitHubError, Transport
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
 from culture_rules.engine.runs import (
@@ -379,6 +386,12 @@ class GitHubPushPort(GitHubCommentPort):
             return InvocationResult.failed(bad, retryable=False)
         refusal = source_rule_refusal(self._store, context.run_id)
         if refusal:
+            return InvocationResult.failed(refusal, retryable=False)
+        # d20: the run's reviewer must have approved exactly this commit (read from the
+        # store, never a param), whatever the workflow wires
+        refusal = review_refusal(self._store, context.run_id, str(input["commit_sha"]))
+        if refusal:
+            log.info("github.push refused: %s", refusal)
             return InvocationResult.failed(refusal, retryable=False)
         if self._clock() >= deadline:
             return InvocationResult.failed("deadline_exceeded", retryable=True)

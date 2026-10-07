@@ -26,8 +26,10 @@ actor's ``params`` name a ``bridge_url``, an async cultureagent bridge session
 (:class:`~culture_rules.actors.agent.BridgeAgentActor`; ``params``: ``bridge_url``,
 ``callback_url`` the API base URL the bridge posts its callbacks to (``POST
 /bridge-invocations/{id}/events``; an ``{id}`` placeholder in it is filled instead),
-``bridge_token`` a ``grant:`` reference for the bridge's bearer token, and
-``model``/``sandbox``/``mode`` defaults),
+``bridge_token`` a ``grant:`` reference for the bridge's bearer token,
+``model``/``sandbox``/``mode`` defaults - a ``read-only`` sandbox cannot be widened by a
+step - and an optional ``max_bound_input_chars`` that refuses bound inputs the bridge would
+cut),
 ``runner`` ->
 registered commands only (:class:`~culture_rules.actors.code.CodeRunner`, inline scripts
 refused), ``human`` -> asks (:class:`~culture_rules.actors.human.HumanAdapter`, only when
@@ -83,6 +85,7 @@ def default_factories(store: Any, *, emitter: Any = None) -> dict[str, AdapterFa
                     "mode": params.get("mode"),
                 },
                 actor_id=actor.id,
+                max_bound_input_chars=params.get("max_bound_input_chars"),
             )
         return ColleagueActor(
             repo=params.get("repo") or actor.repo, engine=params.get("engine"), model=actor.model

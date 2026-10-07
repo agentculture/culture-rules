@@ -6,7 +6,7 @@ import { mockFetch } from "../test/mockApi";
 
 const LINES = [
   "1 quiet — wait 300 s; stop if the PR head moves (head_unchanged, as github-app)",
-  "3 fix — retry up to 3×, until verdict ∈ {pass, no_gate}:",
+  "3 fix — retry up to 3×, until verdict ∈ {pass, no_gate} and review = approve:",
   "  3.1 agent — qwen-fixer (agent)",
 ];
 

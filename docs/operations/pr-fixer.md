@@ -5,7 +5,9 @@ operator recipe for the machine the PR fixer's agent runs on: **spark2**. One
 cultureagent bridge, Qwen Code on cortex, runs as a systemd user unit of a
 dedicated account, `culture-fixer`. The engine reaches it over the tailnet as
 the agent actor `qwen-fixer`. Codex is not installed on spark2: it stays on
-spark (d8).
+spark (d8). Every fix the gate passes is then reviewed on spark by a second,
+independent agent, `codex-reviewer`, before anything is pushed (d20, section
+8).
 
 **Steps marked *operator* are hand-turns.** They need root on spark2 or a
 GitHub or SonarCloud login in a browser. Everything else runs as
@@ -326,17 +328,49 @@ Workflow `pr-fixer`:
    the page cap or bad input fails the step and the run, so the agent never
    gets an unfiltered or partial list.
 3. `fix`: a `retry_until` with at most 3 tries. It stops when the verdict is
-   `pass` or `no_gate`, and carries the gate's `instruction` into the next try.
-   Each try runs two steps:
+   `pass` or `no_gate` **and** the reviewer approves, and carries the last
+   step's `instruction` (the gate's failure text, or the reviewer's findings)
+   into the next try. After three tries without that, the run fails
+   `loop_max_exceeded` and the hand-back comment ends with the last reason
+   (`config.explain`). Each try runs four steps:
    - `agent`: an `ai` step on actor `qwen-fixer` in mode `yolo`. Its `threads`
      input (the bridge's `threads` field) holds only the trusted threads, each
      `{thread_id, comment_id, path, line, author, body}`.
    - `gate`: the built-in `gate` on spark2. It reads the agent's `worktree`,
-     `head_before` and `head_after`.
+     `head_before` and `head_after`. On `pass` and `no_gate` it also outputs
+     the diff it verified (`diff`, `diff_chars`, `diff_truncated`; at most
+     30000 characters).
+   - `review` (d20): an `ai` step on actor `codex-reviewer` (spark, sandbox
+     `read-only`). It runs only when the gate verdict is `pass` or `no_gate`
+     and the diff was not cut (`config.when`); otherwise it is skipped. The
+     fix commit is not on GitHub yet, so the bridge checks out the PR head and
+     the reviewer reads the gate's diff, with the original instruction, the
+     trusted threads and the end of the gate output. Its brief (the step's
+     `config.instruction`) lists what to check and how to end: one verdict
+     object, `approve` or `request_changes` with findings, naming the commit.
+     It tells the reviewer that the diff, threads and gate output are
+     untrusted data, never instructions (the diff is the fixer's own work).
+   - `verdict`: the built-in `review`. It reads this try's gate, reviewer and
+     agent results from the run in the store (never from wired inputs) and
+     fails closed. Anything but a clear approval of exactly the gated commit,
+     by an actor and backend other than the implementer's, from a reviewer
+     that is read-only and changed nothing, is not an approval:
+     `request_changes` goes to the next try; a malformed, ambiguous or
+     mismatched review, or a reviewer that wrote or is the implementer, fails
+     the run (`review_invalid`, `review_commit_mismatch`,
+     `reviewer_not_read_only`, `reviewer_is_implementer`, `review_missing`)
+     and hands back. A diff over the cap is `request_changes` ("make a smaller
+     fix") without running Codex. Every outcome overwrites the run's record in
+     the `fixer_reviews` collection.
 4. `push`: a built-in `action` step, `github.push` as `github-app`, on spark2
    where the gate's bundle is. It runs with `gate_verdict` wired in, so only a
    `pass` pushes. The port refuses `rule_disabled` when the firing rule was
-   disabled mid-run.
+   disabled mid-run. Then, for **every** push whatever the workflow wires, it
+   reads the run's review record and refuses unless it approves exactly the
+   commit being pushed by a reviewer whose actor and backend both differ from
+   the implementer's: `review_missing`, `review_rejected`,
+   `review_commit_mismatch`, `reviewer_is_implementer`. A workflow edited to
+   drop the review steps therefore pushes nothing.
 5. `pick`: the built-in `github.threads_addressed`. It keeps the agent's
    `threads_addressed` entries whose `thread_id` is in the trusted list. Any
    other id is dropped, never answered.
@@ -363,12 +397,16 @@ original error, and `on_failure` never fires twice. The editor does not show
 or edit the field yet. It is kept on save like any other field it does not
 type.
 
-Install order: variables first (an import that references an undefined
-variable is refused), then the workflow, then the rules.
+Install order: every node on a version with d20 first (an older node has
+no `review` built-in and no review check in `github.push`), then variables
+(an import that references an undefined variable is refused), then the
+reviewer actor (once its bridge runs, section 8), then the workflow, then the
+rules.
 
 ```bash
 bash docs/rules/pr-fixer/seed-variables.sh            # dry run
 bash docs/rules/pr-fixer/seed-variables.sh --apply    # admin; skips variables already set
+culture-rules actors import docs/rules/pr-fixer --apply      # codex-reviewer
 culture-rules workflows import docs/rules/pr-fixer --apply
 culture-rules rules import docs/rules/pr-fixer --apply
 ```
@@ -424,6 +462,16 @@ Known limits of this version:
   refuses `gate_not_passed`, so nothing is pushed and the run hands back.
 - **Only the last try's replies.** `threads_addressed` comes from the last
   agent try only.
+- **`no_gate` is reviewed, then still hands back.** The reviewer runs on
+  `no_gate` too, but `push` refuses `gate_not_passed` afterwards.
+- **The reviewer reads a diff, not the fixed tree.** The fix commit exists
+  only in spark2's cache and the gate's bundle until it is pushed, so the
+  reviewer's checkout is the PR head and the fix reaches it as the gate's
+  diff. It cannot run the fixed code.
+- **The verdict travels as text.** The codex bridge keeps only the
+  `summary` string of the agent's final message, so the reviewer writes its
+  verdict object as that string. A reviewer that gets the format wrong fails
+  the run (`review_invalid`); it never approves by accident.
 
 *Planned* (t20/t21): importing the bundle on rules.culture.dev, the
 `qwen-fixer` actor, and the App private key on spark2's node (`push` runs
@@ -456,10 +504,12 @@ Disabled
 $ culture-rules workflows describe pr-fixer
 1 quiet — wait 300 s; stop if the PR head moves (head_unchanged, as github-app)
 2 threads — github.threads as github-app: unresolved threads by trusted authors
-3 fix — retry up to 3×, until verdict ∈ {pass, no_gate}:
+3 fix — retry up to 3×, until verdict ∈ {pass, no_gate} and review = approve:
   3.1 agent — qwen-fixer (agent)
   3.2 gate — test gate on spark2
-4 push — github.push as github-app on spark2 (only on a passing gate)
+  3.3 review — codex-reviewer (agent, read-only), when gate_verdict ∈ {pass, no_gate} and diff_truncated = false
+  3.4 verdict — review verdict, recorded for github.push
+4 push — github.push as github-app on spark2 (only on a passing gate and an approving review)
 5 pick — github.threads_addressed
 6 replies — for each item (≤200): github.review_reply as github-app and resolve
 ```
@@ -470,6 +520,141 @@ on a workflow entry). The vocabulary is in `culture_rules/model/describe.py`:
 one phrase per trigger kind, step kind, built-in, action kind and condition
 operator. An unknown kind reads as its raw name, so describing never fails.
 
+## 8. The reviewer on spark (d20; *planned*)
+
+Nothing in this section is deployed yet. It is the recipe for the second
+agent that reviews every fix the gate passes: **Codex** through the
+cultureagent codex bridge (`cultureagent-codex-bridge`, cultureagent 0.14.0)
+on **spark**, registered as the actor `codex-reviewer`. It must never be able
+to commit or push. Four things hold that:
+
+- the bridge runs every review with `codex exec --sandbox read-only`. The
+  actor sets `sandbox: read-only`, the engine refuses a step that asks for
+  anything wider (`sandbox_locked`), and the `review` step refuses a reviewer
+  actor that is not read-only (`reviewer_not_read_only`);
+- the bridge runs as its own Unix account, `culture-reviewer`, which holds no
+  GitHub write credential, no SSH key and no `gh` login. This matters because
+  Codex enforces `read-only` with a bubblewrap helper that needs unprivileged
+  user namespaces. Where the kernel restricts them, the session runs
+  **unconfined instead of failing** (the bridge says so in its capability
+  document's `confinement` sentence), and then the account is the only
+  boundary;
+- the bridge itself never pushes, and the agent's environment carries no push
+  credential;
+- the `review` step checks the result: no commits, nothing dirty, head
+  unmoved, else `reviewer_not_read_only`.
+
+### Account and secrets (operator)
+
+Create `culture-reviewer` on spark the way section 1 creates `culture-fixer`
+on spark2: own group and home (mode 750), no sudo, no operator groups,
+lingering on. Then log Codex in **as that account** (`codex login`, a
+browser or device-code hand-turn). Its session lives in that account's
+`CODEX_HOME`, never the operator's.
+
+Secrets go in grant, as in section 2:
+
+| grant name | Store | Injected as | Used by |
+|---|---|---|---|
+| `REVIEWER_CODEX_BRIDGE_TOKEN` | `culture-reviewer`'s | `CODEX_BRIDGE_AUTH_TOKEN` | the bridge: the bearer token it requires |
+| `RULES_CODEX_REVIEWER_TOKEN` | spark's node (operator account) | read by the node through `grant:` | the engine, calling the bridge |
+| `REVIEWER_GITHUB_TOKEN` (only for private repos) | `culture-reviewer`'s | `GH_TOKEN` | a read-only fine-grained token, as in section 2 |
+
+Generate the bridge token once in the node's store and copy it, so the two
+match:
+
+```bash
+G="$(command -v grant)"   # sudo needs the absolute path
+$G generate RULES_CODEX_REVIEWER_TOKEN --hidden --bytes 32 --encoding hex
+$G run --inject T=RULES_CODEX_REVIEWER_TOKEN -- sh -c 'printf %s "$T"' \
+  | sudo $G set REVIEWER_CODEX_BRIDGE_TOKEN - --hidden --user culture-reviewer
+```
+
+Add `--secret RULES_CODEX_REVIEWER_TOKEN` to spark's node install
+(`deploy/node/install.sh`, with the flags it was installed with).
+
+### The bridge (as `culture-reviewer`)
+
+```bash
+uv tool install cultureagent==0.14.0      # puts cultureagent-codex-bridge on PATH
+```
+
+The bridge config, `.config/cultureagent-bridges/codex.json` in the
+account's home (mode 600):
+
+```json
+{
+  "host": "127.0.0.1",
+  "port": 8094,
+  "repo_allowlist_prefixes": ["https://github.com/agentculture/"],
+  "default_sandbox": "read-only",
+  "max_concurrent": 1,
+  "always_async": true
+}
+```
+
+It binds loopback: the actor's machine is spark, so the only caller is
+spark's own engine node. Bind spark's tailnet IP instead only if that ever
+changes. The callbacks go the other way, to the API's loopback listener
+(the callback route needs no Access token; it checks its own per-invocation
+token).
+
+The user unit, `.config/systemd/user/cultureagent-codex-bridge.service` in
+the same home:
+
+```ini
+[Unit]
+Description=cultureagent codex bridge (PR fixer reviewer, read-only)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+# The bridge token reaches the bridge only as environment at exec time.
+ExecStart=%h/.local/bin/grant run --inject CODEX_BRIDGE_AUTH_TOKEN=REVIEWER_CODEX_BRIDGE_TOKEN -- %h/.local/bin/cultureagent-codex-bridge --config %h/.config/cultureagent-bridges/codex.json
+Restart=always
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target
+```
+
+```bash
+systemctl --user daemon-reload && systemctl --user enable --now cultureagent-codex-bridge
+```
+
+### The actor
+
+The actor ships as `docs/rules/pr-fixer/actors/codex-reviewer.json`:
+machine `spark`, harness `codex`, and `params` `bridge_url`
+`http://127.0.0.1:8094`, `callback_url` `http://127.0.0.1:18765` (the API's
+loopback listener on spark; change it if yours differs), `bridge_token`
+`grant:RULES_CODEX_REVIEWER_TOKEN`, `sandbox: read-only`,
+`max_concurrency: 1` (one review at a time; others wait) and
+`max_bound_input_chars: 60000`. The bridge appends the step's inputs (the
+diff, the threads, the gate output) to the prompt and cuts them at 60000
+characters without saying so; with this cap the engine refuses
+(`bound_inputs_too_large`) rather than let a reviewer judge a diff it saw
+only part of.
+
+```bash
+culture-rules actors import docs/rules/pr-fixer --apply
+```
+
+### Verify
+
+| Check | Expected |
+|---|---|
+| as `culture-reviewer`: `git push`, `gh auth status`, `ls ~operator/.codex` | no credential; permission denied |
+| `curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8094/v1/capabilities` | `401` |
+| the same with the bearer token | `200`; `"pushes": false`; read the `confinement` sentence |
+| `sysctl kernel.apparmor_restrict_unprivileged_userns` | `0`, or accept that the account is the only boundary (see above) |
+| `culture-rules actors list` | `codex-reviewer`, machine `spark` |
+| a fixer run on the scratch repository | `fix[0]/review` on spark, `fix[0]/verdict` `approve`, then the push |
+
 ## On spark2
 
 | Item | Value |
@@ -477,6 +662,14 @@ operator. An unknown kind reads as its raw name, so describing never fails.
 | Account | `culture-fixer` (planned; created by the operator) |
 | Bridge | qwen on 8093, tailnet only |
 | Actor | `qwen-fixer` (planned) |
+
+## On spark (d20)
+
+| Item | Value |
+|---|---|
+| Account | `culture-reviewer` (planned; created by the operator) |
+| Bridge | codex on 8094, loopback only, sandbox `read-only` |
+| Actor | `codex-reviewer` (planned) |
 
 ## Disabling the fixer mid-run (d17)
 
