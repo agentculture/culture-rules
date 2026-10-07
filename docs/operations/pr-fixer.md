@@ -269,20 +269,31 @@ Workflow `pr-fixer`:
 
 1. `quiet`: a 300-second `wait` with the `head_unchanged` guard (the App
    actor reads the head). A push during the wait ends the run `superseded`.
-2. `fix`: a `retry_until` with at most 3 tries. It stops when the verdict is
+2. `threads`: the built-in `github.threads` (d15), as `github-app` on its
+   machine. It lists the PR's unresolved review threads through GraphQL, at
+   most 10 pages of 100, and keeps the threads whose opening comment's author
+   is in `trusted_authors`. Logins are compared case-insensitively, and a bot's
+   GraphQL login gets the REST `[bot]` suffix. It fails closed: a lookup error,
+   the page cap or bad input fails the step and the run, so the agent never
+   gets an unfiltered or partial list.
+3. `fix`: a `retry_until` with at most 3 tries. It stops when the verdict is
    `pass` or `no_gate`, and carries the gate's `instruction` into the next try.
    Each try runs two steps:
-   - `agent`: an `ai` step on actor `qwen-fixer` in mode `yolo`. Its bound
-     inputs include `trusted_authors`.
+   - `agent`: an `ai` step on actor `qwen-fixer` in mode `yolo`. Its `threads`
+     input (the bridge's `threads` field) holds only the trusted threads, each
+     `{thread_id, comment_id, path, line, author, body}`.
    - `gate`: the built-in `gate` on spark2. It reads the agent's `worktree`,
      `head_before` and `head_after`.
-3. `push`: a built-in `action` step, `github.push` as `github-app`, on spark2
+4. `push`: a built-in `action` step, `github.push` as `github-app`, on spark2
    where the gate's bundle is. It runs with `gate_verdict` wired in, so only a
    `pass` pushes. The port refuses `rule_disabled` when the firing rule was
    disabled mid-run.
-4. `replies`: a `for_each` over the agent's `threads_addressed`. Each item gets
-   one `github.review_reply` (`comment_id` = the entry's `thread_id`,
-   `resolve: true`).
+5. `pick`: the built-in `github.threads_addressed`. It keeps the agent's
+   `threads_addressed` entries whose `thread_id` is in the trusted list. Any
+   other id is dropped, never answered.
+6. `replies`: a `for_each` over `pick`'s list. Each item gets one
+   `github.review_reply` (`comment_id` is the integer REST id of the opening
+   comment, `thread_id` the GraphQL id, `resolve: true`).
 
 The rule's terminal action is a `github.comment` as `github-app`. It reports
 the verdict, the push and the agent's summary, and links the run as
@@ -315,13 +326,9 @@ Re-running the script leaves a variable that already exists alone. Pass
 
 Known limits of this version:
 
-- **Thread filtering is the agent's job.** The engine hands the agent
-  `trusted_authors` and the instruction, then replies to every thread id the
-  agent reports. Nothing in the engine lists or filters threads by author, so
-  the agent could still read, and reply to, a thread from someone else.
-- **Reply ids must be numeric.** `github.review_reply` needs the REST comment
-  id. The instruction asks the agent to report each thread's first review
-  comment id as `thread_id`. A non-numeric id fails the reply step.
+- **The agent can still read the PR.** Only trusted threads are handed to it
+  and answered, but the agent works in a checkout with a read-only token and
+  could read other threads itself.
 - **Only a successful run comments.** A run that fails (loop exhausted, rule
   disabled, a failed reply) or is superseded posts no comment. The rule action
   runs only after the workflow succeeds.

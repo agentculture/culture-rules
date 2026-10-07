@@ -1,11 +1,35 @@
 {
-  "description": "Quiet period -> (bridge agent -> test gate) up to 3 times -> github.push as the App -> one github.review_reply per addressed thread. Trigger-agnostic: the four pr-fixer-* rules map their event into these inputs.",
+  "description": "Quiet period -> trusted review threads -> (bridge agent -> test gate) up to 3 times -> github.push as the App -> one github.review_reply per trusted thread the agent addressed. Trigger-agnostic: the four pr-fixer-* rules map their event into these inputs.",
   "edges": [
     {
       "source": "quiet",
       "source_port": "done",
-      "target": "fix",
+      "target": "threads",
       "target_port": "done"
+    },
+    {
+      "source": "inputs",
+      "source_port": "repo",
+      "target": "threads",
+      "target_port": "repo"
+    },
+    {
+      "source": "inputs",
+      "source_port": "number",
+      "target": "threads",
+      "target_port": "number"
+    },
+    {
+      "source": "inputs",
+      "source_port": "trusted_authors",
+      "target": "threads",
+      "target_port": "trusted_authors"
+    },
+    {
+      "source": "threads",
+      "source_port": "threads",
+      "target": "fix",
+      "target_port": "threads"
     },
     {
       "source": "inputs",
@@ -36,12 +60,6 @@
       "source_port": "base_sha",
       "target": "fix",
       "target_port": "base_sha"
-    },
-    {
-      "source": "inputs",
-      "source_port": "trusted_authors",
-      "target": "fix",
-      "target_port": "trusted_authors"
     },
     {
       "source": "agent",
@@ -104,8 +122,26 @@
       "target_port": "verdict"
     },
     {
+      "source": "threads",
+      "source_port": "threads",
+      "target": "pick",
+      "target_port": "threads"
+    },
+    {
       "source": "agent",
       "source_port": "threads_addressed",
+      "target": "pick",
+      "target_port": "addressed"
+    },
+    {
+      "source": "push",
+      "source_port": "pushed",
+      "target": "pick",
+      "target_port": "pushed"
+    },
+    {
+      "source": "pick",
+      "source_port": "replies",
       "target": "replies",
       "target_port": "items"
     },
@@ -120,12 +156,6 @@
       "source_port": "number",
       "target": "replies",
       "target_port": "number"
-    },
-    {
-      "source": "push",
-      "source_port": "pushed",
-      "target": "replies",
-      "target_port": "pushed"
     }
   ],
   "enabled": true,
@@ -235,13 +265,73 @@
       "timeout_s": null
     },
     {
+      "body": [],
+      "config": {
+        "actor": "github-app",
+        "builtin": "github.threads"
+      },
+      "description": "Lists the PR's unresolved review threads as the App and keeps those opened by an author in trusted_authors. Fails the run on any lookup error (no list is handed on).",
+      "enabled": true,
+      "id": "threads",
+      "inputs": [
+        {
+          "description": "",
+          "name": "done",
+          "required": false,
+          "type": "any"
+        },
+        {
+          "description": "",
+          "name": "repo",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "number",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "description": "",
+          "name": "trusted_authors",
+          "required": true,
+          "type": "array"
+        }
+      ],
+      "kind": "code",
+      "max_iterations": null,
+      "name": "Trusted review threads",
+      "outputs": [
+        {
+          "description": "",
+          "name": "threads",
+          "required": true,
+          "type": "array"
+        },
+        {
+          "description": "",
+          "name": "untrusted",
+          "required": false,
+          "type": "integer"
+        }
+      ],
+      "placement": {
+        "actor": "github-app",
+        "machine": null,
+        "requirement": null
+      },
+      "retry": null,
+      "timeout_s": 60.0
+    },
+    {
       "body": [
         {
           "body": [],
           "config": {
             "mode": "yolo"
           },
-          "description": "The cultureagent bridge checks out head_sha in a fresh worktree on spark2, runs the agent with the instruction and the bound inputs (trusted_authors among them), and returns cultureagent.bridge.result/v1. The agent commits locally and never pushes.",
+          "description": "The cultureagent bridge checks out head_sha in a fresh worktree on spark2, runs the agent with the instruction and the bound inputs (trusted_authors among them), and returns cultureagent.bridge.result/v1. Its threads input holds only the trusted, unresolved threads. The agent commits locally and never pushes.",
           "enabled": true,
           "id": "agent",
           "inputs": [
@@ -270,8 +360,8 @@
               "type": "string"
             },
             {
-              "description": "only threads opened by these authors",
-              "name": "trusted_authors",
+              "description": "the trusted, unresolved review threads",
+              "name": "threads",
               "required": true,
               "type": "array"
             }
@@ -450,7 +540,7 @@
         },
         {
           "description": "",
-          "name": "trusted_authors",
+          "name": "threads",
           "required": true,
           "type": "array"
         }
@@ -561,6 +651,55 @@
       "timeout_s": 300.0
     },
     {
+      "body": [],
+      "config": {
+        "builtin": "github.threads_addressed"
+      },
+      "description": "Keeps the agent's threads_addressed entries that are in the trusted list; any other id is dropped, never answered.",
+      "enabled": true,
+      "id": "pick",
+      "inputs": [
+        {
+          "description": "",
+          "name": "threads",
+          "required": true,
+          "type": "array"
+        },
+        {
+          "description": "",
+          "name": "addressed",
+          "required": true,
+          "type": "array"
+        },
+        {
+          "description": "",
+          "name": "pushed",
+          "required": true,
+          "type": "boolean"
+        }
+      ],
+      "kind": "code",
+      "max_iterations": null,
+      "name": "Threads to answer",
+      "outputs": [
+        {
+          "description": "",
+          "name": "replies",
+          "required": true,
+          "type": "array"
+        },
+        {
+          "description": "",
+          "name": "dropped",
+          "required": false,
+          "type": "integer"
+        }
+      ],
+      "placement": null,
+      "retry": null,
+      "timeout_s": 30.0
+    },
+    {
       "body": [
         {
           "body": [],
@@ -570,10 +709,11 @@
               "params": {
                 "actor": "github-app",
                 "body": "{{ inputs.item.reply }} (addressed in {{ inputs.item.commit }})",
-                "comment_id": "inputs.item.thread_id",
+                "comment_id": "inputs.item.comment_id",
                 "number": "inputs.number",
                 "repo": "inputs.repo",
-                "resolve": true
+                "resolve": true,
+                "thread_id": "inputs.item.thread_id"
               }
             },
             "builtin": "action"
@@ -611,7 +751,7 @@
         }
       ],
       "config": {},
-      "description": "github.review_reply per entry of the agent's threads_addressed, after the push.",
+      "description": "github.review_reply per trusted thread the agent addressed, after the push.",
       "enabled": true,
       "id": "replies",
       "inputs": [
@@ -632,12 +772,6 @@
           "name": "number",
           "required": true,
           "type": "integer"
-        },
-        {
-          "description": "",
-          "name": "pushed",
-          "required": true,
-          "type": "boolean"
         }
       ],
       "kind": "for_each",

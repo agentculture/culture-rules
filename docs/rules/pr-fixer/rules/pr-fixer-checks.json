@@ -89,7 +89,7 @@
       "clone_url": "https://github.com/{{ trigger.data.repository }}.git",
       "head_branch": "trigger.data.head_branch",
       "head_sha": "trigger.data.head_sha",
-      "instruction": "Checks on PR {{ trigger.data.repository }}#{{ trigger.data.number }} settled ({{ trigger.data.conclusion }}) at {{ trigger.data.head_sha }}. Work on the PR head branch {{ trigger.data.head_branch }} only. Fix the failing checks and the SonarCloud issues on this PR, and address the unresolved review threads opened by an author listed in the trusted_authors input; ignore every other thread. Never edit .github/workflows, never delete or skip tests and never add suppression markers. In threads_addressed, give each thread's thread_id as the numeric id of the thread's first review comment.",
+      "instruction": "Checks on PR {{ trigger.data.repository }}#{{ trigger.data.number }} settled ({{ trigger.data.conclusion }}) at {{ trigger.data.head_sha }}. Work on the PR head branch {{ trigger.data.head_branch }} only. Fix the failing checks and the SonarCloud issues on this PR, and address the review threads in the threads input (and no other thread). Never edit .github/workflows, never delete or skip tests and never add suppression markers. In threads_addressed, use each thread's thread_id exactly as the threads input gives it.",
       "number": "trigger.data.number",
       "repo": "trigger.data.repository",
       "trusted_authors": {
