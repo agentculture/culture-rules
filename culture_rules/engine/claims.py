@@ -461,6 +461,11 @@ def reserve_concurrency(
     starts it. Read the actual run's terminal status on admission: cancellation,
     supersession and completion need no fallible secondary completion callback.
     CAS losers re-read *all* admission facts, never just increment the counter.
+
+    A successful reservation clears the key's pending deduplicated event: its holder ended
+    (the completion may not be handled yet, and then finds the key held by this run), and
+    the newer firing supersedes it. The caller settles the displaced event's decision in
+    the same transaction (:mod:`culture_rules.node.firing`, ``_coalesce_away``).
     """
     from culture_rules.engine.runs import RUN_DONE, RUNS_COLLECTION
 

@@ -832,3 +832,77 @@ def test_coalesced_event_fires_after_the_holding_rule_changes(change):
     c.cycle()
     c.cycle()
     assert c.run("B", "evt_2") is not None
+
+
+# ------------------------------- round 2: a reservation displacing the pending event
+
+
+def displacement_cluster(max_attempts=None):
+    """Keyed A whose first run stays active, and an unkeyed B that must run after A."""
+    c = Cluster("spark")
+    c.start()
+    c.base.put("rules", keyed("A", SYNC, max_attempts=max_attempts))
+    b = rule().to_dict()
+    b.update(id="B", name="B", must_after=["A"])
+    c.base.put("rules", b)
+    c.actor.on(ACTION_STEP, ("accept",))
+    send(c, 1, SYNC)
+    holder = c.run("A", "evt_1")
+    send(c, 2, SYNC)  # deduplicated behind the active run: the key's pending event
+    assert c.base.get(RULE_DECISIONS, decision_key("A", "evt_2"))["reason"] == "deduplicated"
+    c.clock.advance(1)
+    c.base.update_if(RUNS_COLLECTION, holder["id"], {}, {"status": "failed"})
+    # evt_3 reaches the trigger consumer before the chain consumer handles the completion
+    # (a cycle polls the trigger consumers first).
+    send(c, 3, SYNC)
+    for _ in range(4):
+        c.cycle()
+    return c
+
+
+def test_admission_displacing_the_pending_event_settles_it_as_coalesced():
+    c = displacement_cluster()
+    assert c.run("A", "evt_3") is not None
+    assert c.run("A", "evt_2") is None  # coalesced: the newer event handles the PR
+    a2 = c.base.get(RULE_DECISIONS, decision_key("A", "evt_2"))
+    assert a2["reason"] == "deduplicated" and a2["coalesced"] is True
+    b2 = c.base.get(RULE_DECISIONS, decision_key("B", "evt_2"))
+    assert b2["reason"] == "predecessor_failed", b2
+    assert c.run("B", "evt_3") is not None  # A's evt_3 run succeeded: B runs after it
+
+
+def test_exhausted_newer_event_keeps_the_pending_one_which_then_settles():
+    """The newer event is refused by the budget (no write), so the pending event stays and
+    is re-decided on the completion - exhausted too - and both dependants settle."""
+    c = displacement_cluster(max_attempts=1)
+    assert c.run("A", "evt_2") is None and c.run("A", "evt_3") is None
+    a2 = c.base.get(RULE_DECISIONS, decision_key("A", "evt_2"))
+    assert a2["reason"] == "attempt_budget_exhausted"
+    assert a2["superseded"][0]["reason"] == "deduplicated"
+    for n in (2, 3):
+        b = c.base.get(RULE_DECISIONS, decision_key("B", f"evt_{n}"))
+        assert b["reason"] == "predecessor_failed", (n, b)
+
+
+def test_failed_start_holder_displaced_by_admission_settles_the_pending_event():
+    """Same race with a holder whose intent failed to start (no run ever existed)."""
+    from culture_rules.engine.claims import RULE_ATTEMPT_BUDGETS
+    from culture_rules.node.firing import RULE_FIRES
+
+    c = Cluster("spark")
+    c.start()
+    c.base.put("rules", keyed("A", SYNC))
+    b = rule().to_dict()
+    b.update(id="B", name="B", must_after=["A"])
+    c.base.put("rules", b)
+    firing = c.nodes["spark"].firing
+    for n in (1, 2):  # evaluated, never started: evt_1's intent holds the key
+        with c.base.transaction() as tx:
+            firing._evaluate(tx, {"envelope": event(n)}, placed=False)
+    (budget,) = c.base.find(RULE_ATTEMPT_BUDGETS)
+    assert budget["pending_event_id"] == "evt_2"
+    c.base.update_if(RULE_FIRES, budget["intent_id"], {}, {"status": "failed"})
+    with c.base.transaction() as tx:
+        firing._evaluate(tx, {"envelope": event(3)}, placed=False)
+    a2 = c.base.get(RULE_DECISIONS, decision_key("A", "evt_2"))
+    assert a2.get("coalesced") is True

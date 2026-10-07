@@ -178,7 +178,9 @@ prefix (``pr-fixer:``). :mod:`culture_rules.engine.claims` keeps one
   the same evaluation waits; every later evaluation of that event (the chain re-evaluation
   the skip record triggers included) applies the recorded final admission skip -
   ``attempt_budget_exhausted``, ``concurrency_key_unresolved``, or a ``deduplicated``
-  event marked ``coalesced`` once a newer one replaced it as the key's pending event - to
+  event marked ``coalesced`` once a newer one displaced it as the key's pending event (by
+  being deduplicated in its place, or admitted before the holder's completion was
+  handled, which clears the slot) - to
   the predecessor *before* sequencing, so a must-after dependant settles as
   ``predecessor_failed`` and a may-after one fires without it. A deduplicated event still
   pending keeps its dependants waiting: it fires once the holding run ends. A holding
@@ -584,12 +586,16 @@ class RuleFiring:
             )
             return skip, None
         limit = _shared_max_attempts(rules, envelope, key)
+        # Read before reserving (same transaction): an admission clears the key's pending
+        # event and a deduplication replaces it - either way it never fires (module doc).
+        displaced = _pending(tx, key)
         reason = reserve_concurrency(tx, rule.id, key, run_id, intent_id, limit)
+        if reason in (None, DEDUPLICATED):
+            _coalesce_away(tx, displaced, rule.id, envelope["id"])
         if reason is None:
             return decision, key
         detail = key
         if reason == DEDUPLICATED:
-            _coalesce_away(tx, key, rule.id, envelope["id"])
             holder = note_deduplicated(tx, rule.id, key, envelope["id"])
             detail = f"{key}: held by run {holder}"
         return Decision(rule_id=rule.id, fire=False, reason=reason, detail=detail), key
@@ -891,14 +897,24 @@ def _admission_settled(
     return tuple(out)
 
 
-def _coalesce_away(tx: StoreOps, key: str, rule_id: str, event_id: str) -> None:
-    """``event_id`` (via ``rule_id``) is about to replace the key's pending deduplicated
-    event: mark the replaced one's record ``coalesced``, final - it will never fire - so
-    the chain feed settles its dependants (:func:`_settled_skip`)."""
+def _pending(tx: StoreOps, key: str) -> tuple[str, str] | None:
+    """The key's pending deduplicated event as ``(event_id, rule_id)``, if any."""
     budget = tx.get(RULE_ATTEMPT_BUDGETS, budget_id(key)) or {}
     event, rule = budget.get("pending_event_id"), budget.get("pending_rule_id")
-    if not event or not rule or (event, rule) == (event_id, rule_id):
+    return (event, rule) if event and rule else None
+
+
+def _coalesce_away(
+    tx: StoreOps, displaced: tuple[str, str] | None, rule_id: str, event_id: str
+) -> None:
+    """``event_id`` (via ``rule_id``) displaced the key's pending deduplicated event - it was
+    admitted (the reservation clears the slot: the holder ended but its completion was not
+    handled yet) or deduplicated in its place: mark the displaced record ``coalesced``,
+    final - it will never fire, the holder's completion finds the key held by another run
+    - so the chain feed settles its dependants (:func:`_settled_skip`)."""
+    if displaced is None or displaced == (event_id, rule_id):
         return
+    event, rule = displaced
     tx.update_if(
         RULE_DECISIONS, decision_key(rule, event), {"reason": DEDUPLICATED}, {"coalesced": True}
     )
