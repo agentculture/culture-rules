@@ -8,7 +8,9 @@ culture_rules/actors/trusted.py (see that module for the rollout order).
 from __future__ import annotations
 
 import copy
+import json
 import re
+from pathlib import Path
 
 from culture_rules.actors.trusted import (
     TRUSTED_WORKFLOW_DIGESTS,
@@ -97,7 +99,7 @@ def test_cosmetic_actor_fields_keep_trust_security_fields_lose_it():
     assert actor_digest({**doc, "harness": "qwen"}) != base
 
 
-def test_app_digests_cover_identity_allowlist_and_author():
+def test_app_digests_cover_identity_key_and_author_but_not_the_repo_scope():
     from culture_rules.actors.trusted import actor_digest
 
     app = {
@@ -118,25 +120,51 @@ def test_app_digests_cover_identity_allowlist_and_author():
     }
     base = actor_digest(app)
     conn = app["params"]["connection"]
-    assert (
-        actor_digest(
-            {**app, "params": {**app["params"], "connection": {**conn, "repos": ["O/B", "o/a"]}}}
-        )
-        == base
-    )  # order and case do not matter
-    for change in ({"repos": ["o/a", "o/b", "o/c"]}, {"app_id": "9"}, {"private_key": "grant:X"}):
+    # which repos the App reaches is scope (guildmaster adds repos at provisioning, d18):
+    # adding one never needs a release
+    for repos in (["o/a", "o/b", "o/c"], ["o/a"], []):
+        edited = {**app, "params": {**app["params"], "connection": {**conn, "repos": repos}}}
+        assert actor_digest(edited) == base, repos
+    for change in ({"app_id": "9"}, {"installation_id": "8"}, {"private_key": "grant:X"}):
         edited = {**app, "params": {**app["params"], "connection": {**conn, **change}}}
         assert actor_digest(edited) != base, change
     assert actor_digest({**app, "params": {**app["params"], "commit_author": None}}) != base
+    assert actor_digest({**app, "params": {**app["params"], "commit_author": "other"}}) != base
 
 
-def test_github_app_is_untrusted_until_its_live_digest_is_added():
-    from culture_rules.actors.trusted import TRUSTED_ACTOR_DIGESTS, actor_refusal
+LIVE_APP = Path(__file__).parent / "fixtures" / "github-app.live.json"
+
+
+def test_the_pinned_github_app_digest_is_the_live_actors():
+    from culture_rules.actors.trusted import TRUSTED_ACTOR_DIGESTS, actor_digest
+
+    live = json.loads(LIVE_APP.read_text())
+    assert TRUSTED_ACTOR_DIGESTS["github-app"] == frozenset({actor_digest(live)})
+    # a new repo for the App (guildmaster at provisioning) keeps it trusted
+    more = copy.deepcopy(live)
+    more["params"]["connection"]["repos"].append("agentculture/brand-new-repo")
+    assert actor_digest(more) in TRUSTED_ACTOR_DIGESTS["github-app"]
+
+
+def test_the_live_app_fixture_holds_references_not_secrets():
+    live = json.loads(LIVE_APP.read_text())
+    conn = live["params"]["connection"]
+    for key in ("private_key", "webhook_secret"):
+        assert conn[key].startswith("grant:"), key
+    assert "commit_author" not in live["params"]  # see the ops doc: proposed, not set
+
+
+def test_an_unknown_or_changed_app_actor_is_not_trusted():
+    from culture_rules.actors.trusted import actor_refusal
     from culture_rules.store.memory import MemoryStore
 
-    assert TRUSTED_ACTOR_DIGESTS["github-app"] == frozenset()
     store = MemoryStore()
-    store.put("actors", {"id": "github-app", "name": "a", "kind": "app", "params": {}})
+    live = json.loads(LIVE_APP.read_text())
+    store.put("actors", live)
+    assert actor_refusal(store, "github-app")[0] is None
+    other = copy.deepcopy(live)
+    other["params"]["connection"]["app_id"] = "1"
+    store.put("actors", other)
     assert actor_refusal(store, "github-app")[0] == "actor_not_trusted"
     assert actor_refusal(store, "nobody")[0] == "actor_not_trusted"
 

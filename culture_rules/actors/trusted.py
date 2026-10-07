@@ -86,16 +86,22 @@ def workflow_refusal(run: Mapping[str, Any] | None) -> str | None:
 #: its output is reviewed. A fully malicious admin who controls actors and a bridge is out
 #: of scope; this makes such a change need a release.
 #:
-#: ``github-app`` is empty on purpose: its live values (App id, installation, key reference,
-#: repos, commit author) are not in this repository. Until the operator adds the live
-#: digest, every push refuses ``actor_not_trusted`` (fail closed). Compute it from an
-#: exported actor with ``python -m culture_rules.actors.trusted actor <file.json>``.
+#: The ``github-app`` digest is the live actor's (fixture: tests/rules/fixtures/
+#: github-app.live.json). Compute a new one from the stored document (``culture-rules actors
+#: show github-app --json``, a bare actor object) with ``python -m
+#: culture_rules.actors.trusted actor <file.json>``. Its ``repos`` are deliberately not part
+#: of the digest (see ``_APP_CONNECTION``).
 TRUSTED_ACTOR_DIGESTS: dict[str, frozenset[str]] = {
     # docs/rules/pr-fixer/actors/codex-reviewer.json (d20 round 3)
     "codex-reviewer": frozenset(
         {"sha256:dc26a418ca33b5e604542a03569c0ff31ad7b86b04140d56776ece4e72b3a339"}
     ),
-    "github-app": frozenset(),
+    # the live rules-culture-dev App actor as of 2026-10-07 (App 5183824, installation
+    # 167755039, key grant:RULES_GITHUB_APP_PRIVATE_KEY, surface github, machine spark, NO
+    # commit_author); tests/rules/fixtures/github-app.live.json is that document
+    "github-app": frozenset(
+        {"sha256:0d358b11bfa3e6bac5bcb6ba1b57bb88419023e335f87d42ad87f096c9352a63"}
+    ),
 }
 
 _AGENT_FIELDS = ("id", "kind", "harness", "model", "machine")
@@ -112,7 +118,11 @@ _AGENT_PARAMS = (
 )
 _APP_FIELDS = ("id", "kind", "machine")
 _APP_PARAMS = ("surface", "commit_author", "permissions")
-_APP_CONNECTION = ("app_id", "installation_id", "private_key", "repos")
+_APP_CONNECTION = ("app_id", "installation_id", "private_key")
+"""Not ``repos``: which repositories the App can reach is scope, not review integrity, and
+guildmaster adds repos at provisioning (d18); a digest over it would block every push after
+each new repo until a release. Every push still needs a trusted workflow, a genuine Codex
+approval of the exact commit, and the fixer rules' own allow-list (``vars.fixer_repos``)."""
 
 
 def _actor_projection(doc: Mapping[str, Any]) -> dict[str, Any]:
@@ -122,11 +132,7 @@ def _actor_projection(doc: Mapping[str, Any]) -> dict[str, Any]:
         conn = params.get("connection") if isinstance(params.get("connection"), Mapping) else {}
         out = {k: doc.get(k) for k in _APP_FIELDS}
         out["params"] = {k: params.get(k) for k in _APP_PARAMS}
-        connection = {k: conn.get(k) for k in _APP_CONNECTION}
-        repos = connection.get("repos")
-        if isinstance(repos, list):
-            connection["repos"] = sorted({str(r).casefold() for r in repos})
-        out["params"]["connection"] = connection
+        out["params"]["connection"] = {k: conn.get(k) for k in _APP_CONNECTION}
         return out
     out = {k: doc.get(k) for k in _AGENT_FIELDS}
     out["params"] = {k: params.get(k) for k in _AGENT_PARAMS}

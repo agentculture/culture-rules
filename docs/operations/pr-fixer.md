@@ -473,136 +473,42 @@ set of digests, in `culture_rules/actors/trusted.py`):
   step refuses any other shape (`actor_not_trusted`) and the review record
   snapshots the digest it checked (`trusted_actors`).
 - `github-app`: id, kind, machine, `params.surface`, `commit_author`,
-  `permissions`, and `connection` `app_id`, `installation_id`,
-  `private_key` (the reference) and `repos` (order and case ignored).
-  `github.push` refuses any other shape.
+  `permissions`, and `connection` `app_id`, `installation_id` and
+  `private_key` (the reference). `github.push` refuses any other shape.
 - `qwen-fixer` is not pinned: everything it produces is reviewed.
 
 Names, descriptions and limits such as `max_concurrency` are not part of
 the digest. A fully malicious admin who controls actors and a bridge stays
 out of scope; this makes such a change need a release.
 
-**`github-app` ships with an empty set**, because its live values are not
-in this repository. Until its digest is added, every push refuses
-`actor_not_trusted`. Before the first push with this build:
+**The App's `repos` list is deliberately not pinned.** It holds about 120
+agentculture repositories, and guildmaster adds repositories at provisioning
+(d18). Pinning it would block every fixer push after each new repository
+until a release. Which repositories the App can reach is scope, not review
+integrity: every push still needs the trusted workflow, a genuine Codex
+approval of the exact commit, and the fixer rules' own allow-list
+(`vars.fixer_repos`).
+
+The shipped `github-app` digest is the live actor's, from
+`tests/rules/fixtures/github-app.live.json` (a copy of the stored document:
+ids and grant reference names only). To recompute it after a change:
 
 ```bash
-culture-rules actors export --json \
-  | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["files"]["actors/github-app.json"])' \
-  > github-app.json
+culture-rules actors show github-app --json > github-app.json   # the bare actor document
 python -m culture_rules.actors.trusted actor github-app.json
 ```
 
-(Check the export's shape with `culture-rules actors export --json` first;
-any copy of the stored `github-app` document works.)
+Add the printed digest to `TRUSTED_ACTOR_DIGESTS["github-app"]` (and refresh
+the fixture), release, and upgrade every node before editing the live actor.
+The same command with `workflow FILE` prints a workflow digest.
 
-Add the printed digest to `TRUSTED_ACTOR_DIGESTS["github-app"]`, release,
-and upgrade every node. The same command with `workflow FILE` prints a
-workflow digest. Any later change to these fields (a new repo in the App's
-allow-list, a moved bridge) follows the same order as a workflow change:
-new digest in the set, release, upgrade, then edit the actor.
-6. `replies`: a `for_each` over `pick`'s list. Each item gets one
-   `github.review_reply` (`comment_id` is the integer REST id of the opening
-   comment, `thread_id` the GraphQL id, `resolve: true`).
-
-The rule's terminal action is a `github.comment` as `github-app`. It reports
-the verdict, the push and the agent's summary, and links the run as
-`https://rules.culture.dev/api/runs/{{ run.id }}`. `run.id` is the
-rule-action reference to the run's own id. The editor has no run page yet, so
-the link opens the run document. The run's agent, gate and push steps run on
-spark2, which puts the run on spark2's Statistics lane.
-
-A rule's optional `on_failure` (d16) has the shape, validation and routing of
-its `action`. The executor runs it exactly once when the run fails: a failed
-step, a failed terminal action, or a mistyped workflow output. It first
-cancels the unfinished steps. Its params can also read `run.error.step`,
-`run.error.code` and `run.error.message` (only `on_failure` may), as well as
-`run.id`, `trigger.*` and whatever workflow outputs exist. A superseded,
-cancelled or successful run never runs it. If `on_failure` itself fails, it
-gets its own retry policy and no more. The run then ends `failed` with the
-original error, and `on_failure` never fires twice. The editor does not show
-or edit the field yet. It is kept on save like any other field it does not
-type.
-
-Install order: every node on a version with d20 first (an older node has
-no `review` built-in and no review check in `github.push`), then variables
-(an import that references an undefined variable is refused), then the
-reviewer actor (once its bridge runs, section 8), then the workflow, then the
-rules.
-
-```bash
-bash docs/rules/pr-fixer/seed-variables.sh            # dry run
-bash docs/rules/pr-fixer/seed-variables.sh --apply    # admin; skips variables already set
-culture-rules actors import docs/rules/pr-fixer --apply      # codex-reviewer
-culture-rules workflows import docs/rules/pr-fixer --apply
-culture-rules rules import docs/rules/pr-fixer --apply
-```
-
-The seed values are:
-
-- `trusted_authors`: the operator and Qodo's bot;
-- `ignored_check_apps`: `["claude"]`;
-- `checks_settle_timeout_s`: 900;
-- `checks_settle_min_s`: 60;
-- `fixer_repos`: `["agentculture/culture-rules-tester"]`, the scratch repository (created as `pr-fixer-sandbox`, renamed)
-  for t20;
-- `fixer_excluded_repos`: `[]`. culture-rules is out because it is not on the
-  allow-list;
-- `fixer_protected_paths`: the list in section 5.
-
-Re-running the script leaves a variable that already exists alone. Pass
-`--force` to replace it.
-
-Widening the fixer means adding a repository to `fixer_repos`. Narrowing it
-means removing one, or adding it to `fixer_excluded_repos`:
-
-```bash
-culture-rules variables add fixer_repos agentculture/some-repo            # dry run
-culture-rules variables add fixer_repos agentculture/some-repo --apply    # admin
-culture-rules variables remove fixer_repos agentculture/some-repo --apply
-```
-
-`variables add` and `variables remove` edit one item atomically. The server
-does a compare-and-set on the version and retries, so two callers adding at
-the same moment both land. An item already present (for `add`) or absent (for
-`remove`) writes no new version. Every change is a new version naming the
-caller, as with `variables set`.
-
-An added item must be of a type the list already holds, judged per item, so
-mixed lists and lists holding `null` work. An empty list takes any scalar. A
-removed item may be any scalar. The CLI reads `ITEM` as text unless the list
-holds numbers, booleans or `null` and the text parses as one. `--json-item`
-takes the item as JSON instead, so `'"123"'` adds the string `123`.
-
-*Planned* (guildmaster#138): guildmaster adds each repository to
-`fixer_repos` when it provisions it. Whether a repository gets the fixer is
-chosen at provisioning time, like public or private.
-
-Known limits of this version:
-
-- **The agent can still read the PR.** Only trusted threads are handed to it
-  and answered, but the agent works in a checkout with a read-only token and
-  could read other threads itself.
-- **A superseded run posts nothing.** Every failed run posts the hand-back
-  comment, but a run ended by a push during the quiet period posts nothing.
-- **`no_gate` hands back.** On a repo without a `gate:` section, `push`
-  refuses `gate_not_passed`, so nothing is pushed and the run hands back.
-- **Only the last try's replies.** `threads_addressed` comes from the last
-  agent try only.
-- **`no_gate` is reviewed, then still hands back.** The reviewer runs on
-  `no_gate` too, but `push` refuses `gate_not_passed` afterwards.
-- **The reviewer reads a diff, not the fixed tree.** The fix commit exists
-  only in spark2's cache and the gate's bundle until it is pushed, so the
-  reviewer's checkout is the PR head and the fix reaches it as the gate's
-  diff. It cannot run the fixed code.
-- **The verdict travels as text.** The codex bridge keeps only the
-  `summary` string of the agent's final message, so the reviewer writes its
-  verdict object as that string. A reviewer that gets the format wrong fails
-  the run (`review_invalid`); it never approves by accident.
-
-*Planned* (t20/t21): importing the bundle on rules.culture.dev, the
-`qwen-fixer` actor, and the App private key on spark2's node (`push` runs
-there), then enabling the rules for one repository.
+**`commit_author` is not set on the live App actor.** The digest therefore
+pins it as unset, and `github.push`'s author check (`foreign_author`) stays
+off, as it is today. The gate-built commit is always authored as
+`rules-culture-dev[bot]`, so the check would pass. *Proposed, not applied:*
+set `params.commit_author` to `rules-culture-dev[bot]` on the live actor,
+and in the same release replace the pinned digest with the one for that
+shape. The push would then also refuse any commit not authored by the bot.
 
 ### Reading it back in plain words (d19)
 
