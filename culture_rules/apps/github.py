@@ -35,7 +35,14 @@ from contextvars import ContextVar
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-__all__ = ["DEFAULT_API_BASE", "GitHubApp", "GitHubError", "urllib_transport"]
+__all__ = [
+    "DEFAULT_API_BASE",
+    "PR_FACT_FIELDS",
+    "GitHubApp",
+    "GitHubError",
+    "pr_facts",
+    "urllib_transport",
+]
 
 log = logging.getLogger(__name__)
 
@@ -52,6 +59,46 @@ _DEADLINE: ContextVar[tuple[datetime, Callable[[], datetime]] | None] = ContextV
 )
 
 Transport = Callable[[str, str, dict[str, str], bytes | None, float], tuple[int, bytes]]
+
+
+PR_FACT_FIELDS = (
+    "head_sha",
+    "head_branch",
+    "head_repo",
+    "base_repo",
+    "base_branch",
+    "base_sha",
+    "draft",
+    "pr_author",
+)
+"""The PR facts every fixer-trigger event carries under the same names (d14)."""
+
+
+def _get(obj: Any, *path: str) -> Any:
+    for key in path:
+        if not isinstance(obj, dict):
+            return None
+        obj = obj.get(key)
+    return obj
+
+
+def pr_facts(pr: Any) -> dict[str, Any]:
+    """The :data:`PR_FACT_FIELDS` of one pull-request document (a webhook's ``pull_request``
+    object or a REST ``GET /repos/{repo}/pulls/{n}`` result; same shape). Missing parts are
+    ``None`` (``draft`` is ``False``); a non-mapping yields ``{}``."""
+    if not isinstance(pr, dict):
+        return {}
+    head, base = pr.get("head"), pr.get("base")
+    return {
+        "head_sha": _get(head, "sha"),
+        "head_branch": _get(head, "ref"),
+        "head_repo": _get(head, "repo", "full_name") or _get(head, "full_name"),
+        "base_repo": _get(base, "repo", "full_name") or _get(base, "full_name"),
+        "base_branch": _get(base, "ref"),
+        "base_sha": _get(base, "sha"),
+        "draft": bool(pr.get("draft")),
+        "pr_author": _get(pr, "user", "login"),
+    }
 
 
 class GitHubError(Exception):

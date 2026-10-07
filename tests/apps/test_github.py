@@ -303,3 +303,27 @@ def test_list_check_suites_paginates_and_trims(pem):
     with pytest.raises(GitHubError) as err:
         app.list_check_suites("other/repo", "ab12" * 10)
     assert err.value.code == "repo_not_allowed"
+
+
+def test_pr_facts_shape():
+    from culture_rules.apps.github import PR_FACT_FIELDS, pr_facts
+
+    pr = {
+        "draft": True,
+        "head": {"sha": "h", "ref": "feat", "repo": {"full_name": "fork/r"}},
+        "base": {"sha": "b", "ref": "main", "repo": {"full_name": "o/r"}},
+        "user": {"login": "alice"},
+    }
+    assert pr_facts(pr) == {
+        "head_sha": "h",
+        "head_branch": "feat",
+        "head_repo": "fork/r",
+        "base_repo": "o/r",
+        "base_branch": "main",
+        "base_sha": "b",
+        "draft": True,
+        "pr_author": "alice",
+    }
+    assert tuple(pr_facts({})) == PR_FACT_FIELDS
+    assert pr_facts({})["draft"] is False and pr_facts({})["head_repo"] is None
+    assert pr_facts(None) == {} and pr_facts(["x"]) == {}

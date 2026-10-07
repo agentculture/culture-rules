@@ -177,6 +177,24 @@ def test_pull_enrichment_is_best_effort():
     assert "head_repo" not in settled(store)[0]["envelope"]["data"]
 
 
+def test_settled_event_carries_base_sha_and_the_full_pr_fact_set():
+    pr = {
+        "head": {"sha": "b" * 40, "ref": "feat-now", "repo": {"full_name": "acme/widgets"}},
+        "base": {"sha": "c" * 40, "ref": "main", "repo": {"full_name": "acme/widgets"}},
+        "draft": False,
+        "user": {"login": "alice"},
+    }
+    store, _, _, settler = make(("a", "completed"), pull=lambda r, n: pr)
+    settler.on_check(check_data())
+    data = settled(store)[0]["envelope"]["data"]
+    assert data["base_sha"] == "c" * 40
+    assert data["base_branch"] == "main"
+    assert data["pr_author"] == "alice"
+    # the settled SHA and the check's branch are the event's own, not the PR's current head
+    assert data["head_sha"] == SHA
+    assert data["head_branch"] == "feat"
+
+
 def test_transient_failure_on_only_completion_is_retried_by_tick():
     store, lister, clock, settler = make(("a", "completed"))
     lister.fail = True
@@ -276,3 +294,59 @@ def test_settle_conclusions_include_only_counted_suites():
         settler = ChecksSettler(store, lambda *_: suites, clock=clock)
         assert settler.on_check(check_data()) == "emitted"
         assert settled(store)[0]["envelope"]["data"]["conclusion"] == expected
+
+
+def test_app_lister_get_pull_is_read_only_allowlisted_and_bounded():
+    import json
+
+    import pytest
+
+    pytest.importorskip("cryptography")
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    from culture_rules.node.checks_settle import AppSuiteLister
+
+    pem = (
+        rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        .private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        )
+        .decode()
+    )
+    calls = []
+
+    def transport(method, url, headers, body, timeout):
+        calls.append((method, url, timeout))
+        if url.endswith("/access_tokens"):
+            expires = (datetime.now(UTC) + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+            return 201, json.dumps({"token": "t", "expires_at": expires}).encode()
+        return 200, json.dumps({"number": 7, "base": {"sha": "c" * 40}}).encode()
+
+    store = MemoryStore()
+    store.insert(
+        "actors",
+        {
+            "id": "gh",
+            "kind": "app",
+            "params": {
+                "surface": "github",
+                "connection": {
+                    "app_id": "1",
+                    "installation_id": "2",
+                    "private_key": "grant:K",
+                    "repos": [REPO],
+                },
+            },
+        },
+    )
+    lister = AppSuiteLister(store, transport=transport, secrets=lambda ref: pem)
+    assert lister.get_pull(REPO, 7, timeout_s=3)["base"]["sha"] == "c" * 40
+    token, read = calls
+    assert token[0] == "POST" and token[1].endswith("/access_tokens") and token[2] <= 3
+    assert read[0] == "GET" and read[1].endswith(f"/repos/{REPO}/pulls/7") and read[2] <= 3
+    with pytest.raises(GitHubError) as err:
+        lister.get_pull("other/repo", 7, timeout_s=3)
+    assert err.value.code == "repo_not_allowed" and len(calls) == 2

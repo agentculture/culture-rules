@@ -587,7 +587,13 @@ def _register_hooks(app: FastAPI, store: StoragePort) -> None:
 
     lister = AppSuiteLister(store)
     settler = ChecksSettler(store, lister.list_suites, pull=lister.get_pull)
-    app.include_router(github.router(store, on_check=settler.on_check), include_in_schema=False)
+
+    def pull(repo: str, number: int) -> Any:  # read-only, bounded PR lookup for PR comments
+        return lister.get_pull(repo, number, timeout_s=github.PULL_LOOKUP_TIMEOUT_S)
+
+    app.include_router(
+        github.router(store, on_check=settler.on_check, pull=pull), include_in_schema=False
+    )
     app.include_router(jira.router(store), include_in_schema=False)
 
 

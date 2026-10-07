@@ -747,3 +747,205 @@ def test_on_check_failure_answers_503_and_redelivery_settles():
     assert go(suite, "check_suite", "d-1")[0] == 200  # redelivery re-runs on_check, now fine
     go(pr_body(), "pull_request", "d-2")  # non-check events never call it
     assert seen == ["abc123d", "abc123d"]
+
+
+# ---------------------------------------------------------------- d14: PR facts everywhere
+
+PR_FIELDS = (
+    "head_sha",
+    "head_branch",
+    "head_repo",
+    "base_repo",
+    "base_branch",
+    "base_sha",
+    "draft",
+    "pr_author",
+)
+
+
+def full_pr(**over):
+    pr = {
+        "number": 7,
+        "draft": False,
+        "head": {"sha": "abc123", "ref": "feature-branch", "repo": {"full_name": "o/r"}},
+        "base": {"sha": "def456", "ref": "main", "repo": {"full_name": "o/r"}},
+        "user": {"login": "alice"},
+    }
+    pr.update(over)
+    return pr
+
+
+def comment_body(pr=True, number=7, author="bob"):
+    issue = {"number": number, "title": "T", "html_url": f"https://x/pull/{number}"}
+    if pr:
+        issue["pull_request"] = {"url": f"https://api.github.com/repos/o/r/pulls/{number}"}
+    return json.dumps(
+        {
+            "action": "created",
+            "issue": issue,
+            "comment": {"body": "please fix"},
+            "repository": {"full_name": "o/r"},
+            "sender": {"login": author},
+        }
+    ).encode()
+
+
+class Pulls:
+    """A fake read-only App PR lookup: ``(repo, number) -> PR document``."""
+
+    def __init__(self, pr=None, fail=None):
+        self.pr = pr if pr is not None else full_pr()
+        self.fail = fail
+        self.calls: list[tuple[str, int]] = []
+
+    def __call__(self, repo, number):
+        self.calls.append((repo, number))
+        if self.fail is not None:
+            raise self.fail
+        return self.pr
+
+
+def post_pull(store, body, headers, pull):
+    return gh.handle(
+        store, body=body, headers=headers, query={}, secrets=resolver({REF: KEY_A}), pull=pull
+    )
+
+
+def data_of(store, etype):
+    return [e["envelope"]["data"] for e in events(store) if e["envelope"]["type"] == etype]
+
+
+def test_pr_review_and_review_comment_events_carry_base_sha_and_base_branch():
+    s = make()
+    b = pr_body("synchronize")
+    assert post(s, b, hdrs(b, delivery="d-pr"))[0] == 202
+    for event, extra, delivery in (
+        ("pull_request_review", {"review": {"state": "commented"}}, "d-rv"),
+        ("pull_request_review_comment", {"comment": {"id": 1, "user": {"login": "x"}}}, "d-rc"),
+    ):
+        payload = {
+            "action": "submitted" if event == "pull_request_review" else "created",
+            "pull_request": {**full_pr(), "title": "T", "html_url": "https://x/pr/7"},
+            "repository": {"full_name": "o/r"},
+            "sender": {"login": "bob"},
+            **extra,
+        }
+        body = json.dumps(payload).encode()
+        assert post(s, body, hdrs(body, event=event, delivery=delivery))[0] == 202
+    for etype in (
+        "github.pr.synchronize",
+        "github.review.submitted",
+        "github.review_comment.created",
+    ):
+        (data,) = data_of(s, etype)
+        assert data["base_sha"] == "def456", etype
+        assert data["base_branch"] == "main", etype
+        assert set(PR_FIELDS) <= set(data), etype
+
+
+def test_pr_comment_is_enriched_from_the_app_lookup():
+    s = make()
+    pulls = Pulls(
+        full_pr(draft=True, head={"sha": "h1", "ref": "fx", "repo": {"full_name": "f/r"}})
+    )
+    b = comment_body()
+    assert post_pull(s, b, hdrs(b, event="issue_comment"), pulls)[0] == 202
+    assert pulls.calls == [("o/r", 7)]
+    (data,) = data_of(s, "github.comment.created")
+    assert data["pr_enriched"] is True
+    assert data["head_sha"] == "h1"
+    assert data["head_branch"] == "fx"
+    assert data["head_repo"] == "f/r"
+    assert data["base_repo"] == "o/r"
+    assert data["base_branch"] == "main"
+    assert data["base_sha"] == "def456"
+    assert data["draft"] is True
+    assert data["pr_author"] == "alice"
+    assert data["author"] == "bob"  # the commenter, not the PR author
+    assert data["comment"] == "please fix"
+
+
+def test_plain_issue_comment_is_not_looked_up():
+    s = make()
+    pulls = Pulls()
+    b = comment_body(pr=False, number=3)
+    assert post_pull(s, b, hdrs(b, event="issue_comment"), pulls)[0] == 202
+    assert pulls.calls == []
+    (data,) = data_of(s, "github.comment.created")
+    assert "pr_enriched" not in data
+    assert not set(PR_FIELDS) & set(data)
+
+
+def test_failed_lookup_stores_comment_unenriched_and_later_events_flow():
+    from culture_rules.apps.github import GitHubError
+
+    s = make()
+    pulls = Pulls(fail=GitHubError("network_error", retryable=True))
+    b = comment_body()
+    assert post_pull(s, b, hdrs(b, event="issue_comment", delivery="d-c1"), pulls)[0] == 202
+    (data,) = data_of(s, "github.comment.created")
+    assert data["pr_enriched"] is False
+    assert not set(PR_FIELDS) & set(data)
+    # an unexpected exception type is contained the same way
+    pulls.fail = RuntimeError("boom")
+    b2 = comment_body(number=8)
+    assert post_pull(s, b2, hdrs(b2, event="issue_comment", delivery="d-c2"), pulls)[0] == 202
+    assert [d["pr_enriched"] for d in data_of(s, "github.comment.created")] == [False, False]
+    # and the next delivery of any kind still flows
+    pr = pr_body()
+    assert post_pull(s, pr, hdrs(pr, delivery="d-pr"), pulls)[0] == 202
+    assert len(data_of(s, "github.pr.opened")) == 1
+
+
+def test_bad_lookup_result_is_treated_as_a_failure():
+    s = make()
+    b = comment_body()
+    assert post_pull(s, b, hdrs(b, event="issue_comment"), Pulls(pr=["not", "a", "pr"]))[0] == 202
+    (data,) = data_of(s, "github.comment.created")
+    assert data["pr_enriched"] is False
+
+
+def test_redelivered_pr_comment_is_not_looked_up_again_and_keeps_stored_data():
+    s = make()
+    pulls = Pulls()
+    b = comment_body()
+    h = hdrs(b, event="issue_comment", delivery="d-same")
+    assert post_pull(s, b, h, pulls)[0] == 202
+    before = data_of(s, "github.comment.created")
+    pulls.pr = full_pr(head={"sha": "moved", "ref": "fx", "repo": {"full_name": "o/r"}})
+    assert post_pull(s, b, h, pulls) == (200, {"duplicate": True})
+    assert pulls.calls == [("o/r", 7)]  # the redelivery did not look the PR up again
+    assert data_of(s, "github.comment.created") == before
+
+
+def test_pr_comment_lookup_skipped_when_the_sink_would_not_store_it():
+    actor = app_actor()
+    actor["params"]["events"] = [t for t in ALL_TYPES if t != "github.comment.created"]
+    s = make(actor)
+    pulls = Pulls()
+    b = comment_body()
+    assert post_pull(s, b, hdrs(b, event="issue_comment"), pulls)[0] == 202
+    assert pulls.calls == []
+    disabled = make(app_actor(enabled=False))
+    post_pull(disabled, b, hdrs(b, event="issue_comment"), pulls)
+    assert pulls.calls == []
+
+
+def test_pr_comment_without_lookup_seam_is_marked_unenriched():
+    s = make()
+    b = comment_body()
+    assert post(s, b, hdrs(b, event="issue_comment"))[0] == 202
+    (data,) = data_of(s, "github.comment.created")
+    assert data["pr_enriched"] is False
+
+
+def test_router_passes_the_pull_seam():
+    s = make()
+    pulls = Pulls()
+    app = FastAPI()
+    app.include_router(gh.router(s, secrets=resolver({REF: KEY_A}), pull=pulls))
+    b = comment_body()
+    r = TestClient(app).post("/hooks/github", content=b, headers=hdrs(b, event="issue_comment"))
+    assert r.status_code == 202
+    assert pulls.calls == [("o/r", 7)]
+    assert data_of(s, "github.comment.created")[0]["pr_enriched"] is True

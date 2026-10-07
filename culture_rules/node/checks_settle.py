@@ -20,6 +20,11 @@ concluded ``success``, ``neutral`` or ``skipped`` (vacuously so with none counte
 green signal that resets a rule's attempt budget for the PR (:mod:`culture_rules.node.firing`,
 "Concurrency keys").
 
+With a ``pull`` seam the event also carries the PR facts of its first PR number
+(:func:`~culture_rules.apps.github.pr_facts`: ``head_repo``, ``base_repo``, ``base_branch``,
+``base_sha``, ``draft``, ``pr_author``; best-effort, omitted on failure); ``head_sha`` stays the
+settled SHA and the check's own ``head_branch`` wins.
+
 Variables (read each call through ``store.get_variable``; an absent, mistyped or non-positive
 value falls back to a stated default): ``ignored_check_apps`` defaults to ``["claude"]`` and
 ``checks_settle_timeout_s`` to :data:`DEFAULT_TIMEOUT_S` and ``checks_settle_min_s`` (the
@@ -41,7 +46,13 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from culture_rules.actors.secrets import resolve as resolve_secret
-from culture_rules.apps.github import DEFAULT_API_BASE, GitHubApp, GitHubError, Transport
+from culture_rules.apps.github import (
+    DEFAULT_API_BASE,
+    GitHubApp,
+    GitHubError,
+    Transport,
+    pr_facts,
+)
 from culture_rules.events.emit import derive_envelope
 from culture_rules.events.ingest import EVENTS_COLLECTION, event_document
 from culture_rules.node.actions.github import GitHubCommentPort
@@ -260,21 +271,16 @@ class ChecksSettler:
         return self._store.get(SETTLE_COLLECTION, rid) or doc
 
     def _enrich(self, repo: str, numbers: list[int]) -> dict[str, Any]:
-        """Best-effort PR facts the fixer rule's condition reads; any failure omits them."""
+        """Best-effort PR facts the fixer rules' condition reads (:func:`pr_facts`, d14); any
+        failure omits them. ``head_sha`` stays the settled SHA (the PR may have moved on)."""
         if self._pull is None or not numbers:
             return {}
         try:
-            pr = self._pull(repo, numbers[0])
+            facts = pr_facts(dict(self._pull(repo, numbers[0])))
         except Exception:  # noqa: BLE001 - enrichment must never block the settle
             return {}
-        head, base = pr.get("head") or {}, pr.get("base") or {}
-        return {
-            "head_repo": (head.get("repo") or {}).get("full_name"),
-            "base_repo": (base.get("repo") or {}).get("full_name"),
-            "base_branch": base.get("ref"),
-            "draft": bool(pr.get("draft")),
-            "pr_author": (pr.get("user") or {}).get("login"),
-        }
+        facts.pop("head_sha", None)
+        return facts
 
     def _emit(
         self, repo: str, sha: str, src: Mapping[str, Any], settled_by: str, conclusion: str
@@ -289,7 +295,9 @@ class ChecksSettler:
             "settled_by": settled_by,
             "conclusion": conclusion,
         }
-        payload.update(self._enrich(repo, numbers))
+        for key, value in self._enrich(repo, numbers).items():
+            if key != "head_branch" or not payload.get("head_branch"):
+                payload[key] = value
         envelope = derive_envelope(
             None,
             type=SETTLED_TYPE,
@@ -342,5 +350,14 @@ class AppSuiteLister(GitHubCommentPort):
     def list_suites(self, repo: str, sha: str) -> list[dict[str, Any]]:
         return self._app_for(repo).list_check_suites(repo, sha)
 
-    def get_pull(self, repo: str, number: int) -> Mapping[str, Any]:
-        return self._app_for(repo).get_pull(repo, number)
+    def get_pull(
+        self, repo: str, number: int, *, timeout_s: float | None = None
+    ) -> Mapping[str, Any]:
+        """Read one PR (read-only ``Pull requests: read``). ``timeout_s`` bounds the whole
+        lookup, token exchange included (the webhook path passes one, so a slow GitHub cannot
+        hold a delivery past its own timeout)."""
+        app = self._app_for(repo)
+        if timeout_s is None:
+            return app.get_pull(repo, number)
+        with app.deadline(datetime.now(UTC) + timedelta(seconds=timeout_s)):
+            return app.get_pull(repo, number)
