@@ -159,8 +159,8 @@ def test_event_without_sha_is_ignored_and_shas_are_independent():
 
 def test_pull_enrichment_is_best_effort():
     pr = {
-        "head": {"repo": {"full_name": "acme/widgets"}},
-        "base": {"repo": {"full_name": "acme/widgets"}, "ref": "main"},
+        "head": {"sha": "b" * 40, "ref": "feat", "repo": {"full_name": "acme/widgets"}},
+        "base": {"sha": "c" * 40, "repo": {"full_name": "acme/widgets"}, "ref": "main"},
         "draft": False,
         "user": {"login": "alice"},
     }
@@ -350,3 +350,139 @@ def test_app_lister_get_pull_is_read_only_allowlisted_and_bounded():
     with pytest.raises(GitHubError) as err:
         lister.get_pull("other/repo", 7, timeout_s=3)
     assert err.value.code == "repo_not_allowed" and len(calls) == 2
+
+
+def test_malformed_pull_result_adds_no_pr_facts():
+    """A ``{}`` or partial PR must not yield null repos (null == null) or a default draft."""
+    partial = {
+        "head": {"sha": "b" * 40, "ref": "feat", "repo": None},
+        "base": {"sha": "c" * 40, "ref": "main", "repo": {"full_name": "acme/widgets"}},
+        "draft": False,
+        "user": {"login": "alice"},
+    }
+    for pr in ({}, partial, {"draft": "false"}):
+        store, _, _, settler = make(("a", "completed"), pull=lambda r, n, pr=pr: pr)
+        assert settler.on_check(check_data()) == "emitted"
+        data = settled(store)[0]["envelope"]["data"]
+        for key in ("head_repo", "base_repo", "base_branch", "base_sha", "draft", "pr_author"):
+            assert key not in data, (pr, key)
+        assert data["head_sha"] == SHA and data["head_branch"] == "feat"
+
+
+def _pem():
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    return (
+        rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        .private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        )
+        .decode()
+    )
+
+
+def _lister_store():
+    store = MemoryStore()
+    store.insert(
+        "actors",
+        {
+            "id": "gh",
+            "kind": "app",
+            "params": {
+                "surface": "github",
+                "connection": {
+                    "app_id": "1",
+                    "installation_id": "2",
+                    "private_key": "grant:K",
+                    "repos": [REPO],
+                },
+            },
+        },
+    )
+    return store
+
+
+def _ok_transport(method, url, headers, body, timeout):
+    import json
+
+    if url.endswith("/access_tokens"):
+        expires = (datetime.now(UTC) + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        return 201, json.dumps({"token": "t", "expires_at": expires}).encode()
+    return 200, json.dumps({"number": 7, "base": {"sha": "c" * 40}}).encode()
+
+
+class SlowSecrets:
+    """A ``grant get`` stand-in that blocks until released (a cold, slow secret resolve)."""
+
+    def __init__(self, pem):
+        import threading
+
+        self.pem = pem
+        self.release = threading.Event()
+        self.calls = 0
+
+    def __call__(self, ref):
+        self.calls += 1
+        self.release.wait(10)
+        return self.pem
+
+
+def test_app_lister_bound_covers_cold_secret_resolution_and_warms_the_cache():
+    import time
+
+    import pytest
+
+    pytest.importorskip("cryptography")
+    from culture_rules.node.checks_settle import AppSuiteLister
+
+    secrets = SlowSecrets(_pem())
+    lister = AppSuiteLister(_lister_store(), transport=_ok_transport, secrets=secrets)
+    started = time.monotonic()
+    with pytest.raises(GitHubError) as err:
+        lister.get_pull(REPO, 7, timeout_s=0.2)
+    assert err.value.code == "deadline_exceeded" and err.value.retryable
+    assert time.monotonic() - started < 2  # not held for the secret resolve
+    secrets.release.set()  # the resolve finishes in the background and caches the App
+    deadline = time.monotonic() + 5
+    while "gh" not in lister._apps:  # the timed-out worker warmed the per-actor App cache
+        assert time.monotonic() < deadline
+        time.sleep(0.01)
+    while True:  # its slot frees once its (deadline-cut) token call has failed
+        try:
+            pr = lister.get_pull(REPO, 7, timeout_s=1)
+            break
+        except GitHubError as exc:
+            assert exc.code == "lookup_busy" and time.monotonic() < deadline
+            time.sleep(0.01)
+    assert pr["base"]["sha"] == "c" * 40
+    assert secrets.calls == 1  # steady state reuses the warmed App, no second resolve
+
+
+def test_app_lister_caps_the_threads_stuck_on_slow_lookups():
+    import threading
+    import time
+
+    import pytest
+
+    pytest.importorskip("cryptography")
+    from culture_rules.node.checks_settle import LOOKUP_WORKERS, AppSuiteLister
+
+    secrets = SlowSecrets(_pem())
+    lister = AppSuiteLister(_lister_store(), transport=_ok_transport, secrets=secrets)
+    before = threading.active_count()
+    codes = []
+    try:
+        for _ in range(LOOKUP_WORKERS + 5):
+            started = time.monotonic()
+            with pytest.raises(GitHubError) as err:
+                lister.get_pull(REPO, 7, timeout_s=0.05)
+            assert time.monotonic() - started < 1
+            codes.append(err.value.code)
+        assert threading.active_count() - before <= LOOKUP_WORKERS
+        assert secrets.calls <= LOOKUP_WORKERS
+        assert codes.count("lookup_busy") >= 5
+    finally:
+        secrets.release.set()

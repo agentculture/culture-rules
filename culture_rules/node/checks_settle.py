@@ -21,9 +21,10 @@ green signal that resets a rule's attempt budget for the PR (:mod:`culture_rules
 "Concurrency keys").
 
 With a ``pull`` seam the event also carries the PR facts of its first PR number
-(:func:`~culture_rules.apps.github.pr_facts`: ``head_repo``, ``base_repo``, ``base_branch``,
-``base_sha``, ``draft``, ``pr_author``; best-effort, omitted on failure); ``head_sha`` stays the
-settled SHA and the check's own ``head_branch`` wins.
+(:func:`~culture_rules.apps.github.complete_pr_facts`: ``head_repo``, ``base_repo``,
+``base_branch``, ``base_sha``, ``draft``, ``pr_author``; best-effort, all omitted on failure or
+when any fact is missing or malformed); ``head_sha`` stays the settled SHA and the check's own
+``head_branch`` wins.
 
 Variables (read each call through ``store.get_variable``; an absent, mistyped or non-positive
 value falls back to a stated default): ``ignored_check_apps`` defaults to ``["claude"]`` and
@@ -41,7 +42,10 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import threading
 from collections.abc import Callable, Mapping
+from concurrent.futures import Future
+from concurrent.futures import TimeoutError as FutureTimeout
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -51,7 +55,7 @@ from culture_rules.apps.github import (
     GitHubApp,
     GitHubError,
     Transport,
-    pr_facts,
+    complete_pr_facts,
 )
 from culture_rules.events.emit import derive_envelope
 from culture_rules.events.ingest import EVENTS_COLLECTION, event_document
@@ -63,6 +67,7 @@ __all__ = [
     "DEFAULT_IGNORED_APPS",
     "DEFAULT_MIN_S",
     "DEFAULT_TIMEOUT_S",
+    "LOOKUP_WORKERS",
     "SETTLED_TYPE",
     "SETTLE_COLLECTION",
     "AppSuiteLister",
@@ -271,13 +276,16 @@ class ChecksSettler:
         return self._store.get(SETTLE_COLLECTION, rid) or doc
 
     def _enrich(self, repo: str, numbers: list[int]) -> dict[str, Any]:
-        """Best-effort PR facts the fixer rules' condition reads (:func:`pr_facts`, d14); any
-        failure omits them. ``head_sha`` stays the settled SHA (the PR may have moved on)."""
+        """Best-effort PR facts the fixer rules' condition reads (:func:`complete_pr_facts`,
+        d14); any failure, or an answer missing any valid fact, omits them all. ``head_sha``
+        stays the settled SHA (the PR may have moved on)."""
         if self._pull is None or not numbers:
             return {}
         try:
-            facts = pr_facts(dict(self._pull(repo, numbers[0])))
+            facts = complete_pr_facts(dict(self._pull(repo, numbers[0])))
         except Exception:  # noqa: BLE001 - enrichment must never block the settle
+            return {}
+        if facts is None:
             return {}
         facts.pop("head_sha", None)
         return facts
@@ -319,6 +327,11 @@ class ChecksSettler:
         return outcome
 
 
+LOOKUP_WORKERS = 2
+"""The most bounded PR lookups (:meth:`AppSuiteLister.get_pull` with ``timeout_s``) running at
+once; it caps the threads a stuck secret resolve or slow GitHub can hold."""
+
+
 class AppSuiteLister(GitHubCommentPort):
     """The production ``suites`` / ``pull`` seams: reads through the GitHub app actor whose
     ``connection.repos`` allowlist holds the repository (first match, enabled actors only)."""
@@ -334,6 +347,7 @@ class AppSuiteLister(GitHubCommentPort):
         super().__init__(
             store, transport=transport, secrets=secrets or resolve_secret, api_base=api_base
         )
+        self._lookup_slots = threading.BoundedSemaphore(LOOKUP_WORKERS)
 
     def _app_for(self, repo: str) -> GitHubApp:
         for doc in self._store.find("actors"):
@@ -353,11 +367,39 @@ class AppSuiteLister(GitHubCommentPort):
     def get_pull(
         self, repo: str, number: int, *, timeout_s: float | None = None
     ) -> Mapping[str, Any]:
-        """Read one PR (read-only ``Pull requests: read``). ``timeout_s`` bounds the whole
-        lookup, token exchange included (the webhook path passes one, so a slow GitHub cannot
-        hold a delivery past its own timeout)."""
-        app = self._app_for(repo)
+        """Read one PR (read-only ``Pull requests: read``).
+
+        ``timeout_s`` bounds the *whole* lookup - finding the actor, resolving its private key
+        (a cold ``grant get`` can take 30 s), the token exchange and the read - so the webhook
+        path cannot hold a delivery past GitHub's own timeout. The lookup runs on one of at
+        most :data:`LOOKUP_WORKERS` daemon threads; at the bound the caller gets a retryable
+        ``deadline_exceeded`` while the worker finishes in the background (its HTTP calls are
+        cut off by the same deadline), so a slow secret resolve still caches the App and the
+        next lookup is warm. With every worker still busy a lookup fails at once with
+        ``lookup_busy`` instead of starting another thread."""
         if timeout_s is None:
-            return app.get_pull(repo, number)
-        with app.deadline(datetime.now(UTC) + timedelta(seconds=timeout_s)):
-            return app.get_pull(repo, number)
+            return self._app_for(repo).get_pull(repo, number)
+        deadline = datetime.now(UTC) + timedelta(seconds=timeout_s)
+        if not self._lookup_slots.acquire(blocking=False):
+            raise GitHubError("lookup_busy", "every lookup worker is busy", retryable=True)
+        result: Future[Mapping[str, Any]] = Future()
+
+        def work() -> None:
+            try:
+                app = self._app_for(repo)
+                with app.deadline(deadline):
+                    result.set_result(app.get_pull(repo, number))
+            except BaseException as exc:  # noqa: BLE001 - handed to the waiting caller
+                result.set_exception(exc)
+            finally:
+                self._lookup_slots.release()
+
+        try:
+            threading.Thread(target=work, name="github-pull-lookup", daemon=True).start()
+        except BaseException:
+            self._lookup_slots.release()
+            raise
+        try:
+            return result.result(timeout=max(0.0, timeout_s))
+        except FutureTimeout:
+            raise GitHubError("deadline_exceeded", retryable=True) from None

@@ -306,24 +306,50 @@ def test_list_check_suites_paginates_and_trims(pem):
 
 
 def test_pr_facts_shape():
-    from culture_rules.apps.github import PR_FACT_FIELDS, pr_facts
+    from culture_rules.apps.github import PR_FACT_FIELDS, complete_pr_facts, pr_facts
 
     pr = {
         "draft": True,
-        "head": {"sha": "h", "ref": "feat", "repo": {"full_name": "fork/r"}},
-        "base": {"sha": "b", "ref": "main", "repo": {"full_name": "o/r"}},
+        "head": {"sha": "a" * 40, "ref": "feat", "repo": {"full_name": "fork/r"}},
+        "base": {"sha": "b" * 40, "ref": "main", "repo": {"full_name": "o/r"}},
         "user": {"login": "alice"},
     }
-    assert pr_facts(pr) == {
-        "head_sha": "h",
+    facts = {
+        "head_sha": "a" * 40,
         "head_branch": "feat",
         "head_repo": "fork/r",
         "base_repo": "o/r",
         "base_branch": "main",
-        "base_sha": "b",
+        "base_sha": "b" * 40,
         "draft": True,
         "pr_author": "alice",
     }
-    assert tuple(pr_facts({})) == PR_FACT_FIELDS
-    assert pr_facts({})["draft"] is False and pr_facts({})["head_repo"] is None
+    assert pr_facts(pr) == facts and tuple(pr_facts(pr)) == PR_FACT_FIELDS
+    assert complete_pr_facts(pr) == facts
     assert pr_facts(None) == {} and pr_facts(["x"]) == {}
+
+
+def test_pr_facts_omit_missing_and_malformed_fields_never_null():
+    from culture_rules.apps.github import complete_pr_facts, pr_facts
+
+    assert pr_facts({}) == {}  # no null repos to compare equal, no default draft
+    assert complete_pr_facts({}) is None and complete_pr_facts(None) is None
+    bad = {
+        "draft": "false",
+        "head": {"sha": "abc123", "ref": "", "repo": None},
+        "base": {"sha": "g" * 40, "ref": 7, "repo": {"full_name": "not a repo"}},
+        "user": {"login": ""},
+    }
+    assert pr_facts(bad) == {}
+    assert complete_pr_facts(bad) is None
+    # a deleted fork: only head_repo is gone, so head_repo == base_repo cannot hold
+    fork = {
+        "draft": False,
+        "head": {"sha": "a" * 40, "ref": "feat", "repo": None},
+        "base": {"sha": "b" * 40, "ref": "main", "repo": {"full_name": "o/r"}},
+        "user": {"login": "alice"},
+    }
+    facts = pr_facts(fork)
+    assert "head_repo" not in facts and facts["base_repo"] == "o/r" and facts["draft"] is False
+    assert complete_pr_facts(fork) is None
+    assert pr_facts({"draft": 0}) == {}  # a real bool only

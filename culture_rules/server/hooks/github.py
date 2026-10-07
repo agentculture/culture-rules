@@ -18,7 +18,9 @@ the same :data:`~culture_rules.apps.github.PR_FACT_FIELDS` (``head_sha``, ``head
 ``issue_comment`` payload has no head/base, so a comment on a PR is enriched through the
 read-only ``pull`` lookup (the GitHub App, bounded by :data:`PULL_LOOKUP_TIMEOUT_S`) and
 marked ``pr_enriched``; a failed lookup stores the comment without the PR fields and
-``pr_enriched: false`` (fail-closed for the fixer's condition). The lookup runs only when the
+``pr_enriched: false`` (fail-closed for the fixer's condition); so does an answer missing any
+valid PR fact. On every type a missing or malformed fact is omitted rather than null, so it
+never compares equal (a deleted fork has no ``head_repo``). The lookup runs only when the
 sink would store the delivery, so a redelivery never re-reads the PR. The endpoint is public:
 authentication is the signature alone, failures are a bare 401 that does not say whether the
 app, the header or the secret was wrong, and logs carry the outcome and event type only -
@@ -35,7 +37,7 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 from culture_rules.actors.secrets import resolve
-from culture_rules.apps.github import PR_FACT_FIELDS, pr_facts
+from culture_rules.apps.github import PR_FACT_FIELDS, complete_pr_facts, pr_facts
 from culture_rules.events.hook_sink import (
     BAD_REQUEST,
     DUPLICATE,
@@ -199,7 +201,8 @@ def _data(event: str, action: str, payload: Mapping[str, Any]) -> dict[str, Any]
 
 
 def _enrich_pr(data: dict[str, Any], payload: Mapping[str, Any]) -> None:
-    """Add the PR facts (:data:`PR_FACT_FIELDS`) from the pull_request sub-payload."""
+    """Add the PR facts (:data:`PR_FACT_FIELDS`) from the pull_request sub-payload; a missing
+    or malformed fact is omitted (:func:`pr_facts`), never stored as null."""
     data.update(pr_facts(_dig(payload, "pull_request")))
 
 
@@ -223,24 +226,28 @@ def _would_store(store: Any, actor: Mapping[str, Any], etype: str, delivery: str
 def _enrich_comment(data: dict[str, Any], pull: PullLookup | None) -> None:
     """Add the PR facts to a PR comment through the read-only App lookup (d14).
 
-    Fail-closed: when there is no lookup seam, or it fails (network, allowlist, timeout, a
-    malformed answer), the comment is stored *without* the PR fields and ``pr_enriched:
-    false``, so a condition that needs ``head_repo == base_repo`` and ``not draft`` does not
-    match - rather than dropping the comment or holding the delivery open."""
+    Fail-closed: when there is no lookup seam, or it fails (network, allowlist, timeout), or
+    its answer lacks a valid value for any PR fact (:func:`complete_pr_facts`: an empty or
+    malformed mapping, a null repo, a short SHA, a non-bool ``draft``), the comment is stored
+    *without* the PR fields and ``pr_enriched: false``, so a condition that needs
+    ``head_repo == base_repo`` and ``draft == false`` does not match - rather than dropping
+    the comment or holding the delivery open."""
     repo, number = data.get("repository"), data.get("number")
-    facts: dict[str, Any] = {}
+    facts: dict[str, Any] | None = None
     if pull is not None and isinstance(repo, str) and isinstance(number, int):
         try:
             pr = pull(repo, number)
             if isinstance(pr, Mapping):
-                facts = pr_facts(dict(pr))
+                facts = complete_pr_facts(dict(pr))
+                if facts is None:
+                    _log.warning("github pr comment lookup failed (malformed)")
         except Exception as exc:  # noqa: BLE001 - enrichment must never fail the delivery
             _log.warning("github pr comment lookup failed (%s)", getattr(exc, "code", "error"))
-            facts = {}
+            facts = None
     for key in PR_FACT_FIELDS:
         data.pop(key, None)
-    data.update(facts)
-    data["pr_enriched"] = bool(facts)
+    data.update(facts or {})
+    data["pr_enriched"] = facts is not None
 
 
 def handle(

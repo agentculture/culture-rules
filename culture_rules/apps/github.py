@@ -40,6 +40,7 @@ __all__ = [
     "PR_FACT_FIELDS",
     "GitHubApp",
     "GitHubError",
+    "complete_pr_facts",
     "pr_facts",
     "urllib_transport",
 ]
@@ -74,6 +75,9 @@ PR_FACT_FIELDS = (
 """The PR facts every fixer-trigger event carries under the same names (d14)."""
 
 
+_FULL_SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
+
+
 def _get(obj: Any, *path: str) -> Any:
     for key in path:
         if not isinstance(obj, dict):
@@ -82,23 +86,64 @@ def _get(obj: Any, *path: str) -> Any:
     return obj
 
 
+def _is_text(value: Any) -> bool:
+    return isinstance(value, str) and bool(value)
+
+
+def _is_repo(value: Any) -> bool:
+    return isinstance(value, str) and bool(_REPO_RE.match(value))
+
+
+def _is_full_sha(value: Any) -> bool:
+    return isinstance(value, str) and bool(_FULL_SHA_RE.match(value))
+
+
+def _is_bool(value: Any) -> bool:
+    return isinstance(value, bool)
+
+
+_FACT_VALID: dict[str, Callable[[Any], bool]] = {
+    "head_sha": _is_full_sha,
+    "head_branch": _is_text,
+    "head_repo": _is_repo,
+    "base_repo": _is_repo,
+    "base_branch": _is_text,
+    "base_sha": _is_full_sha,
+    "draft": _is_bool,
+    "pr_author": _is_text,
+}
+
+
 def pr_facts(pr: Any) -> dict[str, Any]:
-    """The :data:`PR_FACT_FIELDS` of one pull-request document (a webhook's ``pull_request``
-    object or a REST ``GET /repos/{repo}/pulls/{n}`` result; same shape). Missing parts are
-    ``None`` (``draft`` is ``False``); a non-mapping yields ``{}``."""
+    """The valid :data:`PR_FACT_FIELDS` of one pull-request document (a webhook's
+    ``pull_request`` object or a REST ``GET /repos/{repo}/pulls/{n}`` result; same shape).
+
+    Each fact is checked: repos are ``owner/name`` strings, SHAs 40 hex digits, branches and
+    the author non-empty strings, ``draft`` a real bool. A missing or malformed fact is
+    *omitted*, never ``None`` and never defaulted, so a condition comparing it is false (two
+    missing repos cannot read as ``head_repo == base_repo``; a deleted fork's null
+    ``head.repo`` drops only ``head_repo``). A non-mapping yields ``{}``."""
     if not isinstance(pr, dict):
         return {}
     head, base = pr.get("head"), pr.get("base")
-    return {
+    raw = {
         "head_sha": _get(head, "sha"),
         "head_branch": _get(head, "ref"),
         "head_repo": _get(head, "repo", "full_name") or _get(head, "full_name"),
         "base_repo": _get(base, "repo", "full_name") or _get(base, "full_name"),
         "base_branch": _get(base, "ref"),
         "base_sha": _get(base, "sha"),
-        "draft": bool(pr.get("draft")),
+        "draft": pr.get("draft"),
         "pr_author": _get(pr, "user", "login"),
     }
+    return {key: value for key, value in raw.items() if _FACT_VALID[key](value)}
+
+
+def complete_pr_facts(pr: Any) -> dict[str, Any] | None:
+    """:func:`pr_facts` when *every* fact is present and valid, else ``None``: the all-or-
+    nothing form a lookup-based enrichment uses, so it is never half-applied."""
+    facts = pr_facts(pr)
+    return facts if len(facts) == len(PR_FACT_FIELDS) else None
 
 
 class GitHubError(Exception):

@@ -193,6 +193,13 @@ whichever rule fired:
 | `draft` | `draft` (a boolean) |
 | `pr_author` | `user.login` |
 
+Each fact is checked: repos must be `owner/name`, SHAs 40 hex digits,
+branches and `pr_author` non-empty strings, and `draft` a real boolean. A
+missing or malformed fact is **left out**, never stored as `null` or given a
+default. A comparison on a missing field is false, so two missing repos never
+satisfy `head_repo == base_repo`. A PR from a deleted fork (`head.repo` is
+`null`) has no `head_repo`.
+
 Where the facts come from:
 
 - **PR, review and review-comment events** take them from the webhook
@@ -201,13 +208,19 @@ Where the facts come from:
   the PR through the App, read-only (`GET /repos/{repo}/pulls/{n}`), within 5
   seconds. The repository must be in some enabled GitHub actor's
   `connection.repos`.
-  - On success, `pr_enriched` is `true`.
-  - If there is no allow-listed actor, or the read fails, the comment is still
-    stored, without the facts and with `pr_enriched: false`. A condition on
-    `head_repo == base_repo` and `not draft` then does not match, so the fixer
-    does not fire.
+  - On success, `pr_enriched` is `true`, and all eight facts are present.
+  - If there is no allow-listed actor, the read fails or times out, or the
+    answer lacks any valid fact, the comment is still stored, without the
+    facts and with `pr_enriched: false`. A condition on
+    `head_repo == base_repo` and `draft == false` then does not match, so the
+    fixer does not fire.
+  - The 5 seconds cover the whole lookup, including resolving the App's
+    private key. A slow first resolve finishes in the background and is
+    cached, so later lookups are fast. At most two lookups run at once; one
+    more fails at once and is stored unenriched.
   - A comment on a plain issue is never looked up and has no `pr_enriched`.
 - **`github.pr.checks_settled`** reads its first PR the same way, best-effort.
+  It adds the facts only when all of them are valid.
   `head_sha` stays the settled SHA and `head_branch` the check's own.
 
 A `ping` answers `200 {"pong": true}`. A redelivery is deduplicated by
