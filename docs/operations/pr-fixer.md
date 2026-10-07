@@ -161,9 +161,11 @@ without a password. Then set the prefix in the node's environment (its
 ```bash
 echo 'spark2 ALL=(culture-fixer) NOPASSWD: /usr/bin/env' \
   | sudo tee /etc/sudoers.d/culture-rules-gate && sudo visudo -cf /etc/sudoers.d/culture-rules-gate
-# node.env:
-CULTURE_RULES_GATE_RUN_AS=sudo -n -u culture-fixer -- /usr/bin/env PATH=/home/culture-fixer/.local/bin:/usr/local/bin:/usr/bin:/bin
+# node.env (FIXER_HOME is the account's home directory: getent passwd culture-fixer | cut -d: -f6):
+CULTURE_RULES_GATE_RUN_AS=sudo -n -u culture-fixer -- /usr/bin/env PATH=FIXER_HOME/.local/bin:/usr/local/bin:/usr/bin:/bin
 ```
+
+Write the absolute path in place of `FIXER_HOME`: `env` does not expand `~`.
 
 The gate appends `env -C <dir> -- <argv>` to that prefix, so each command
 runs in that directory as `culture-fixer`, as an argv list, with no shell
@@ -228,7 +230,7 @@ culture-rules variables set fixer_protected_paths --apply --value \
 
 | Check | Expected |
 |---|---|
-| as `culture-fixer`: `cat /home/spark2/.config/culture-rules/node.env`, `ls /home/spark2/.qwen`, `grant list` | permission denied twice; `grant list` shows only the four `FIXER_*` names |
+| as `culture-fixer`: `cat ~spark2/.config/culture-rules/node.env`, `ls ~spark2/.qwen`, `grant list` | permission denied twice; `grant list` shows only the four `FIXER_*` names |
 | `curl -s -o /dev/null -w '%{http_code}' http://<spark2 tailnet IP>:8093/v1/capabilities` | `401` |
 | the same with `-H "Authorization: Bearer <token>"` | `200` and the capability document (`"pushes": false`) |
 | as `culture-fixer`, through grant: `gh api repos/agentculture/culture-rules/pulls` | `200`; a `gh pr merge` or a push is refused |
