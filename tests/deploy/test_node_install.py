@@ -122,3 +122,37 @@ def test_apply_writes_the_prefix_so_the_node_reads_it_back_verbatim(tmp_path):
         check=True,
     )
     assert read_back.stdout == prefix
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        '"/usr/bin/sudo" -n -u culture-fixer -- /usr/bin/env',
+        "'sudo' -n -u culture-fixer --",
+        "su\\do -n -u culture-fixer --",
+        '"/usr/local/bin/as-fixer" --',
+        "'/opt/as fixer' --",
+    ],
+)
+def test_a_quoted_or_escaped_executable_is_refused(tmp_path, prefix):
+    """The gate splits the prefix with shlex; the unit's NoNewPrivileges must agree with it,
+    so an executable whose shell quoting could change what it names is refused outright."""
+    with pytest.raises(subprocess.CalledProcessError) as exc:
+        plan(tmp_path, "--gate-run-as", prefix)
+    assert "--gate-run-as" in exc.value.stderr and "quote" in exc.value.stderr
+
+
+@pytest.mark.parametrize(
+    ("prefix", "nnp"),
+    [
+        ('/usr/bin/sudo -n -u culture-fixer -- /usr/bin/env "PATH=/a b"', "false"),
+        ("\tsudo -n -u x --", "false"),
+        ("/usr/local/bin/as-fixer 'quoted later' --", "true"),
+    ],
+)
+def test_the_unit_agrees_with_the_gates_own_parse_of_the_executable(tmp_path, prefix, nnp):
+    from culture_rules.actors.gate import run_as_from_env
+
+    run_as, _ = run_as_from_env({"CULTURE_RULES_GATE_RUN_AS": prefix})
+    assert run_as is not None and run_as.uses_sudo == (nnp == "false")
+    assert f"NoNewPrivileges={nnp}" in plan(tmp_path, "--gate-run-as", prefix)

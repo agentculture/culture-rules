@@ -39,7 +39,7 @@ before the first start.
 | `--wheelhouse DIR` | offline install: `--no-index --find-links DIR` |
 | `--events-host HOST`, `--events-port PORT` | optional `EVENTS_BROKER_*` lines in `node.env` |
 | `--python VERSION` | Python for the venv (default 3.12) |
-| `--gate-run-as PREFIX` | the PR fixer gate's run-as prefix, written to `node.env` as `CULTURE_RULES_GATE_RUN_AS`; a prefix starting with `sudo` also makes the unit `NoNewPrivileges=false` (see below) |
+| `--gate-run-as PREFIX` | the PR fixer gate's run-as prefix, written to `node.env` as `CULTURE_RULES_GATE_RUN_AS`; a prefix starting with `sudo` also makes the unit `NoNewPrivileges=false` (see below); write the executable without quotes or backslashes, so the installer and the gate (which splits the prefix with `shlex`) agree on whether it is sudo |
 | `--apply` | actually install |
 
 ## The unit and `NoNewPrivileges`

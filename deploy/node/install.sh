@@ -115,6 +115,12 @@ if [ -n "$GATE_RUN_AS" ]; then
   esac
   read -r GATE_FIRST _ <<<"$GATE_RUN_AS" || true
   [ -n "${GATE_FIRST:-}" ] || die "--gate-run-as must not be blank"
+  # The gate splits the prefix with shlex. A first word free of quotes and backslashes reads
+  # the same under shlex as under this whitespace split, so the sudo check below agrees with
+  # the gate's; a quoted or escaped executable could disagree, so it is refused.
+  case "$GATE_FIRST" in
+    *[\'\"\\]*) die "--gate-run-as: write the executable without quotes or backslashes: $GATE_FIRST" ;;
+  esac
   [ "$(basename -- "$GATE_FIRST")" != "sudo" ] || NO_NEW_PRIVS=false
   # systemd EnvironmentFile double quotes: backslash-escape \ " $ and backtick.
   quoted=${GATE_RUN_AS//\\/\\\\}
