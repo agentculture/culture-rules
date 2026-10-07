@@ -73,7 +73,7 @@ repos at provisioning). Operator also confirmed the
 - Version bump once, in the final PR (Codex flags it every time; ignore).
 - NEVER write an unquoted heredoc containing backticks (it once ran `uv sync` in the
   main checkout and removed 25 extras; fixed with `uv sync --all-extras`).
-- Status loop: cron `5134657f` at :07/:37; one-shot `11f2abed` at 06:13 to start the
+- Status loop: cron `067039de` at :07/:37 (recreated after the 14:10 restart); earlier one-shot `11f2abed` at 06:13 to start the
   Codex reviews (session-only jobs; recreate after a restart).
 
 ## Current state (2026-10-07 ~04:00)
