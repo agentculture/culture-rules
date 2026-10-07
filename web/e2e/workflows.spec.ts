@@ -235,11 +235,70 @@ test.describe("Workflows tab", () => {
     await check("editor");
   });
 
+  test("zoom (d19): buttons, keys and ctrl + wheel zoom; a plain wheel scrolls the page", async ({ page }) => {
+    await open(page);
+    const zoom = page.getByRole("group", { name: "Zoom" });
+    const level = page.getByTestId("zoom-level");
+    const card = async () => Math.round((await step(page, "Review").boundingBox())!.width);
+    await expect(level).toHaveText(/100%/);
+    expect(await card()).toBe(190);
+    // Large targets: every zoom button is at least 44px square.
+    for (const name of ["Zoom out", "Zoom in", "Fit to width"]) {
+      const box = (await zoom.getByRole("button", { name }).boundingBox())!;
+      expect(Math.min(box.width, box.height)).toBeGreaterThanOrEqual(44);
+    }
+    await zoom.getByRole("button", { name: "Zoom out" }).click();
+    await expect(level).toHaveText(/80%/);
+    await expect.poll(card).toBe(152);
+    // Keyboard, with focus in the canvas.
+    await step(page, "Review").focus();
+    await page.keyboard.press("+");
+    await page.keyboard.press("+");
+    await expect(level).toHaveText(/125%/);
+    // 0 fits the graph to the canvas width: no more sideways scrolling.
+    const scroller = page.locator(".wf-canvas__scroll");
+    const overflow = () => scroller.evaluate((el) => el.scrollWidth - el.clientWidth);
+    expect(await overflow()).toBeGreaterThan(0); // the board's graph is wider than the canvas
+    await page.keyboard.press("0");
+    await expect(level).not.toHaveText(/125%/);
+    await expect.poll(overflow).toBeLessThanOrEqual(1);
+    const fitted = await level.textContent();
+    // A plain wheel over the canvas scrolls the page and leaves the zoom alone.
+    const canvas = page.getByRole("region", { name: "Workflow canvas" });
+    const box = (await canvas.boundingBox())!;
+    await page.mouse.move(box.x + 30, box.y + box.height / 2);
+    await page.mouse.wheel(0, 200);
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+    await expect(level).toHaveText(fitted!);
+    // ctrl + wheel (a trackpad pinch arrives as one) zooms.
+    await page.keyboard.down("Control");
+    await page.mouse.wheel(0, 300);
+    await page.keyboard.up("Control");
+    await expect.poll(async () => parseInt((await level.textContent())!.replace(/\D/g, ""), 10)).toBeLessThan(parseInt(fitted!.replace(/\D/g, ""), 10));
+  });
+
+  test("the workflow reads 'In words' under the canvas (d19)", async ({ page }) => {
+    await open(page);
+    const words = page.getByRole("region", { name: "In words" });
+    await expect(words.getByRole("listitem")).toHaveText([
+      /1\s*fetch-diff\s*—?\s*code on spark$/,
+      /2\s*run-tests\s*—?\s*code on spark2/,
+      /3\s*review\s*—?\s*agent on thor/,
+      /4\s*decide\s*—?\s*logic on spark/,
+    ]);
+  });
+
   test("prefers-reduced-motion disables the canvas transitions", async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
     await open(page);
     const card = step(page, "Review").locator(".wf-card");
     const d = await card.evaluate((el) => getComputedStyle(el).transitionDuration);
     expect(d.split(",").every((v) => parseFloat(v) <= 0.00001)).toBe(true);
+    // A button zoom lands at once (no animated transition) under reduced motion (d19).
+    await page.getByRole("button", { name: "Zoom in" }).click();
+    const transform = await page
+      .locator(".wf-canvas .react-flow__viewport")
+      .evaluate((el) => (el as HTMLElement).style.transform);
+    expect(transform).toContain("scale(1.25)");
   });
 });

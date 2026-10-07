@@ -4,8 +4,11 @@
  * mismatched wire, dashed edges for machine hops and — with a run overlaid —
  * the travelled path lit and each step badged with its host and outcome.
  *
- * Zoom stays at 1 (the board's 190px cards); the canvas pans, it does not
- * scroll-zoom, so the page keeps scrolling under the wheel.
+ * Zoom 1 is the board's 190px cards. A plain wheel never zooms: the page keeps
+ * scrolling under it (why zoom was locked before d19). Zoom is a pinch, ctrl/cmd
+ * + wheel, the on-canvas zoom out / zoom in / fit buttons, or `+` / `-` / `0`
+ * while focus is in the canvas, within 25%–200% (./zoom.ts). The canvas is sized
+ * like a document at its zoom, so zooming out shrinks it to fit a wide graph.
  */
 import {
   ReactFlow,
@@ -45,6 +48,17 @@ import {
   type RunOverlay,
 } from "./model";
 import { NODE_TYPES, type IoNodeData, type StepNodeData } from "./nodes";
+import {
+  MAX_ZOOM,
+  MIN_ZOOM,
+  ZOOM_DURATION_MS,
+  clampZoom,
+  fitZoom,
+  prefersReducedMotion,
+  stepZoom,
+  zoomKey,
+  zoomPercent,
+} from "./zoom";
 
 export interface CanvasProps {
   workflow: WorkflowDef;
@@ -90,6 +104,57 @@ function subtitleOf(step: Step): string | null {
   if (bits.length) return bits.join(", ");
   if (step.placement?.actor) return step.placement.actor;
   return null;
+}
+
+/** Is a keydown aimed at a text field (whose `+` / `-` / `0` are typing, not zoom)? */
+function isTyping(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
+}
+
+/** The on-canvas zoom buttons: large targets, labelled, with the current zoom read out. */
+function ZoomControls({
+  zoom,
+  onZoom,
+}: Readonly<{ zoom: number; onZoom: (to: "in" | "out" | "fit") => void }>) {
+  return (
+    <div className="wf-zoom" role="group" aria-label="Zoom">
+      <button
+        type="button"
+        className="wf-zoom__button"
+        aria-label="Zoom out"
+        aria-keyshortcuts="-"
+        disabled={zoom <= MIN_ZOOM}
+        onClick={() => onZoom("out")}
+      >
+        <span aria-hidden="true">−</span>
+      </button>
+      {/* not an <output>: that is a second "status" beside the board's own */}
+      <span className="wf-zoom__level" aria-live="polite" data-testid="zoom-level">
+        <span className="sr-only">Zoom </span>
+        {zoomPercent(zoom)}
+      </span>
+      <button
+        type="button"
+        className="wf-zoom__button"
+        aria-label="Zoom in"
+        aria-keyshortcuts="+"
+        disabled={zoom >= MAX_ZOOM}
+        onClick={() => onZoom("in")}
+      >
+        <span aria-hidden="true">+</span>
+      </button>
+      <button
+        type="button"
+        className="wf-zoom__button wf-zoom__button--fit"
+        aria-label="Fit to width"
+        aria-keyshortcuts="0"
+        onClick={() => onZoom("fit")}
+      >
+        Fit
+      </button>
+    </div>
+  );
 }
 
 function CanvasInner(props: Readonly<CanvasProps>) {
@@ -202,10 +267,13 @@ function CanvasInner(props: Readonly<CanvasProps>) {
     () => canvasBounds(positions, JSON.parse(heightKey) as Record<string, number>),
     [positions, heightKey],
   );
-  const height = canvasHeight(bounds);
-  const graphWidth = bounds.maxX - bounds.minX;
+  const [zoom, setZoom] = useState(1);
+  // Set by a button or key zoom: the next viewport move animates (unless reduced motion).
+  const animateNext = useRef(false);
+  const height = canvasHeight(bounds, zoom);
+  const graphWidth = (bounds.maxX - bounds.minX) * zoom;
 
-  // Zoom 1, centred horizontally when it fits, toolbar room on top. A graph wider
+  // At the zoom, centred horizontally when it fits, toolbar room on top. A graph wider
   // than the canvas (beside the workflow list) scrolls sideways, as the design
   // board's canvas does (`overflow-x: auto`), instead of being clipped.
   const [width, setWidth] = useState(0);
@@ -223,14 +291,33 @@ function CanvasInner(props: Readonly<CanvasProps>) {
   );
   const flowWidth = Math.max(width, graphWidth + 2 * EDGE_ROOM);
   useEffect(() => {
-    const graph = bounds.maxX - bounds.minX;
-    const x = width > graph ? (width - graph) / 2 - bounds.minX : EDGE_ROOM - bounds.minX;
+    const graph = (bounds.maxX - bounds.minX) * zoom;
+    const left = bounds.minX * zoom;
+    const x = width > graph ? (width - graph) / 2 - left : EDGE_ROOM - left;
+    const duration = animateNext.current && !prefersReducedMotion() ? ZOOM_DURATION_MS : 0;
+    animateNext.current = false;
     // React Flow resolves this once the transform is applied. It only rejects if d3 throws
     // while applying it; the viewport is cosmetic, so say so in the console and carry on.
-    flow.setViewport({ x, y: TOP - bounds.minY, zoom: 1 }).catch((err: unknown) => {
+    flow.setViewport({ x, y: TOP - bounds.minY * zoom, zoom }, { duration }).catch((err: unknown) => {
       console.warn("could not position the workflow canvas", err);
     });
-  }, [bounds, width, flow]);
+  }, [bounds, width, zoom, flow]);
+
+  /** A button or key zoom: one step in or out, or fit the graph to the canvas width. */
+  const zoomTo = useCallback(
+    (to: "in" | "out" | "fit") => {
+      animateNext.current = true;
+      setZoom((z) => {
+        if (to === "fit") return fitZoom(bounds.maxX - bounds.minX, width, EDGE_ROOM);
+        return stepZoom(z, to === "in" ? 1 : -1);
+      });
+    },
+    [bounds, width],
+  );
+  const zoomToRef = useRef(zoomTo);
+  useEffect(() => {
+    zoomToRef.current = zoomTo;
+  }, [zoomTo]);
 
   const edges = useMemo<Edge[]>(() => {
     const graph = graphEdges(workflow, ctx, overlay);
@@ -285,6 +372,12 @@ function CanvasInner(props: Readonly<CanvasProps>) {
     const section = sectionRef.current;
     if (!section) return;
     const onKeyDown = (e: KeyboardEvent) => {
+      const zoomTo = isTyping(e.target) ? null : zoomKey(e);
+      if (zoomTo) {
+        e.preventDefault();
+        zoomToRef.current(zoomTo);
+        return;
+      }
       if (e.key !== "Enter" && e.key !== " ") return;
       const target = e.target as HTMLElement;
       const id = target.classList.contains("react-flow__node") ? target.dataset.id : undefined;
@@ -292,8 +385,19 @@ function CanvasInner(props: Readonly<CanvasProps>) {
       e.preventDefault();
       openIoRef.current(id, target);
     };
+    // cmd + wheel zooms as ctrl + wheel does (React Flow's pinch path handles ctrl); a plain
+    // wheel is left alone, so the page scrolls.
+    const onWheel = (e: WheelEvent) => {
+      if (!e.metaKey || e.ctrlKey || e.deltaY === 0) return;
+      e.preventDefault();
+      zoomToRef.current(e.deltaY < 0 ? "in" : "out");
+    };
     section.addEventListener("keydown", onKeyDown);
-    return () => section.removeEventListener("keydown", onKeyDown);
+    section.addEventListener("wheel", onWheel, { passive: false });
+    return () => {
+      section.removeEventListener("keydown", onKeyDown);
+      section.removeEventListener("wheel", onWheel);
+    };
   }, []);
 
   const asConnection = (c: FlowConnection | Edge): Connection | null =>
@@ -350,11 +454,16 @@ function CanvasInner(props: Readonly<CanvasProps>) {
             isValidConnection={isValidConnection}
             deleteKeyCode={null}
             zoomOnScroll={false}
-            zoomOnPinch={false}
+            zoomOnPinch
             zoomOnDoubleClick={false}
+            zoomActivationKeyCode={null}
             preventScrolling={false}
-            minZoom={1}
-            maxZoom={1}
+            minZoom={MIN_ZOOM}
+            maxZoom={MAX_ZOOM}
+            onMove={(event, viewport) => {
+              // a pinch or ctrl + wheel (a user event); our own setViewport passes none
+              if (event) setZoom(clampZoom(viewport.zoom));
+            }}
             defaultViewport={{ x: 20, y: TOP, zoom: 1 }}
             nodeOrigin={[0, 0]}
             edgesFocusable={false}
@@ -380,6 +489,7 @@ function CanvasInner(props: Readonly<CanvasProps>) {
           </div>
         </section>
       ) : null}
+      <ZoomControls zoom={zoom} onZoom={zoomTo} />
       <button type="button" className="wf-add-step" aria-label="Add step" onClick={props.onAddStep}>
         +
       </button>
