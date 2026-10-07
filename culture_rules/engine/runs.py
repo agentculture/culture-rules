@@ -80,6 +80,11 @@ Semantics
   The bound also holds while a re-poll left the step ``pending`` (a drained or
   unavailable node), but never once it is ``dispatching``: that work may have started,
   and its resumed dispatch settles it.
+  Upgrade: a queued step or refused guarded wake an older engine persisted without a
+  queue record is adopted first (``queue_adopted``): its spell is dated from the old
+  working deadline minus ``timeout_s`` (its first blocked dispatch), else its first
+  ``blocked`` / ``wait_blocked`` entry, and bounded as above - one past the bound fails
+  ``queue_timeout`` without another dispatch or lookup.
 * **Exactly-once dispatch** - a step is invoked only under its claim
   (:mod:`culture_rules.engine.claims`). While ``invoke`` blocks, a
   :class:`~culture_rules.engine.leasekeeper.LeaseKeeper` renews the claim's lease every
@@ -2042,6 +2047,9 @@ def _due_timers(plan: _Plan, doc: Mapping, now: datetime) -> Found:
 
     The event ``None`` marks a write without a history entry (a queued step's repeat poll,
     see :func:`_housekeep`)."""
+    adopted = _adopt_legacy_queue(plan, doc, now)
+    if adopted is not None:
+        return adopted
     for st in doc["steps"]:
         status = st["status"]
         deadline = _parse(st.get("deadline"))
@@ -2092,6 +2100,75 @@ def _due_timers(plan: _Plan, doc: Mapping, now: datetime) -> Found:
                 return new, None, st["key"]
             return new, "unblocked", st["key"]
     return None
+
+
+QUEUE_ADOPTED = "queue_adopted"
+"""History event of a queued step or guarded wake an older engine left without a queue
+record, given one on upgrade (:func:`_adopt_legacy_queue`)."""
+
+
+def _adopt_legacy_queue(plan: _Plan, doc: Mapping, now: datetime) -> Found:
+    """Give a queued step the pre-queue-record engine persisted a bounded ``queue`` record.
+
+    That engine left a ``blocked`` step (or one its ``unblocked`` made ``pending`` with
+    ``resume``) with the working ``deadline`` of its first, blocked dispatch and no
+    ``queue``; a guarded wake whose lookup was refused stayed ``sleeping`` with one
+    ``wait_blocked`` entry per refusal and no ``lookup_blocked_since``. Unadopted, neither
+    is bounded. The spell is dated from the earliest trustworthy time: the old deadline
+    minus ``timeout_s`` (the first blocked dispatch), else the step's first ``blocked``
+    entry of its trailing spell, else now; the bound is then the normal one, so a step
+    already past it fails ``queue_timeout`` before any dispatch or lookup."""
+    for st in doc["steps"]:
+        status = st["status"]
+        if st.get("queue") is None and (
+            status == "blocked" or (status == "pending" and st.get("resume"))
+        ):
+            since = _legacy_queue_since(plan, doc, st, now)
+            limit = queue_limit_s(_timeout_of(plan, st))
+            new, nst = _copy_with(doc, st["key"])
+            nst["deadline"] = None
+            nst["queue"] = {
+                "since": _iso(since),
+                "deadline": _iso(since + timedelta(seconds=limit)),
+                "polls": max(1, len(_trailing_events(doc, st["key"], ("blocked",)))),
+                "last_at": _iso(now),
+                "left_at": None,
+            }
+            return new, QUEUE_ADOPTED, st["key"]
+        if status == SLEEPING and st.get("lookup_blocked_since") is None:
+            refusals = _trailing_events(doc, st["key"], ("wait_blocked",), strict=True)
+            if refusals:
+                new, nst = _copy_with(doc, st["key"])
+                nst["lookup_blocked_since"] = refusals[0].get("at") or _iso(now)
+                nst["lookup_blocked"] = len(refusals)
+                return new, QUEUE_ADOPTED, st["key"]
+    return None
+
+
+def _trailing_events(
+    doc: Mapping, key: str, events: tuple[str, ...], *, strict: bool = False
+) -> list[Mapping]:
+    """The step's history entries of ``events`` in its latest spell, oldest first: those
+    after its last entry that is not one of ``events`` (the old queue cycle's
+    ``unblocked`` / ``dispatched`` entries are skipped unless ``strict``)."""
+    cycle = set(events) if strict else {*events, "unblocked", "dispatched"}
+    found: list[Mapping] = []
+    for h in reversed(doc.get("history") or []):
+        if h.get("step") != key:
+            continue
+        if h.get("event") not in cycle:
+            break
+        if h.get("event") in events:
+            found.append(h)
+    return found[::-1]
+
+
+def _legacy_queue_since(plan: _Plan, doc: Mapping, st: Mapping, now: datetime) -> datetime:
+    deadline = _parse(st.get("deadline"))
+    if deadline is not None:
+        return min(deadline - timedelta(seconds=_timeout_of(plan, st)), now)
+    blocked = _trailing_events(doc, st["key"], ("blocked",))
+    return (_parse(blocked[0].get("at")) if blocked else None) or now
 
 
 def _loop_states(doc: Mapping, parent: str, iteration: int) -> list[dict]:

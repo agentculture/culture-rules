@@ -6,6 +6,8 @@ that moved during the wait ends the run ``superseded`` with no later step run.
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 import pytest
 
 from culture_rules.engine.runs import RUNS_COLLECTION, Containment, Executor, step_state
@@ -609,3 +611,63 @@ def test_a_blocked_guarded_wake_expires_at_its_bound_even_while_its_node_is_drai
     ex.run_until_idle()
     assert inner.calls == 1
     assert ex.run(run["id"])["status"] == "failed"
+
+
+@pytest.mark.parametrize("drained", [False, True])
+def test_a_legacy_mid_blocked_guarded_wake_adopts_the_bound(store, clock, drained):
+    """The old engine left a refused lookup as a plain ``sleeping`` wake re-armed 5 s out,
+    with one ``wait_blocked`` history entry per refusal and no counter: on upgrade the spell
+    is dated from the first entry of its trailing ``wait_blocked`` run and bounded."""
+    from culture_rules.engine.runs import QUEUE_TIMEOUT
+
+    inner = ScriptedHead(*[("blocked", None)] * 3, ("ok", SHA_A))
+    ex, _ = _router_executor(store, clock, inner)
+    run = _sleeping_run(ex, guard_config(60))
+    clock.advance(61)
+    ex.run_until_idle()  # refused once
+    first_refusal = clock()
+    doc = store.get(RUNS_COLLECTION, run["id"])
+    st = step_state(doc, "w")
+    for k in ("lookup_blocked", "lookup_blocked_since"):
+        st.pop(k, None)
+    # the old engine's second refusal: another entry, re-armed BLOCKED_RETRY_S out
+    doc["rev"] += 1
+    doc["history"].append(
+        {
+            "rev": doc["rev"],
+            "at": (first_refusal + timedelta(seconds=5)).isoformat(),
+            "host": "spark",
+            "event": "wait_blocked",
+            "step": "w",
+        }
+    )
+    st["deadline"] = (first_refusal + timedelta(seconds=10)).isoformat()
+    store.put(RUNS_COLLECTION, doc)
+    if drained:
+        Containment(store).drain("spark", "ops")
+    clock.advance(7200 + 1)
+    ex.run_until_idle()
+    doc = ex.run(run["id"])
+    st = step_state(doc, "w")
+    assert st["status"] == "failed", st
+    assert st["error"]["code"] == QUEUE_TIMEOUT
+    assert inner.calls == 1
+
+
+def test_a_legacy_mid_blocked_guarded_wake_within_its_bound_keeps_waiting(store, clock):
+    inner = ScriptedHead(("blocked", None), ("ok", SHA_A))
+    ex, _ = _router_executor(store, clock, inner)
+    run = _sleeping_run(ex, guard_config(60))
+    clock.advance(61)
+    ex.run_until_idle()
+    first_refusal = clock()
+    doc = store.get(RUNS_COLLECTION, run["id"])
+    st = step_state(doc, "w")
+    for k in ("lookup_blocked", "lookup_blocked_since"):
+        st.pop(k, None)
+    store.put(RUNS_COLLECTION, doc)
+    clock.advance(30)
+    ex.run_until_idle()
+    doc = ex.run(run["id"])
+    assert doc["status"] == "succeeded", doc["error"]
+    assert step_state(doc, "w")["lookup_blocked_since"] == first_refusal.isoformat()

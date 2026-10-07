@@ -16,7 +16,7 @@ import pytest
 from culture_rules.actors.limits import ActorLimits, LimitedActor
 from culture_rules.engine import runs as runs_mod
 from culture_rules.engine.actorport import InvocationContext
-from culture_rules.engine.runs import Executor, due_steps, step_state
+from culture_rules.engine.runs import RUNS_COLLECTION, Executor, due_steps, step_state
 from culture_rules.model.common import RetryPolicy
 from culture_rules.store.memory import MemoryStore
 from tests.engine.run_helpers import Clock, Crash, FakeActor, rule, step, workflow
@@ -270,3 +270,75 @@ def test_a_dispatching_queued_step_past_its_bound_is_not_expired(store, clock):
     st = step_state(ex.run(run["id"]), "agent")
     assert st["status"] == "succeeded", st["error"]
     assert actor.effects_for("agent") == 1
+
+
+# ------------------------------------------------- upgrade: steps the pre-0.13 engine left
+
+
+def legacy_blocked(store, clock, run_id: str, *, pending: bool = False) -> None:
+    """Rewrite the run as the old engine persisted a blocked step: the working ``deadline``
+    of its first (blocked) dispatch kept, a 5 s re-ask, and no ``queue`` record at all.
+    ``pending``: the old ``unblocked`` shape (pending, ``resume`` set, deadline kept)."""
+    doc = store.get(RUNS_COLLECTION, run_id)
+    st = step_state(doc, "agent")
+    assert st["status"] == "blocked"
+    st.pop("queue", None)
+    st["deadline"] = (T_DISPATCH + timedelta(seconds=600)).isoformat()
+    st["next_attempt_at"] = (T_DISPATCH + timedelta(seconds=5)).isoformat()
+    if pending:
+        st.update(status="pending", next_attempt_at=None, resume=True)
+    store.put(RUNS_COLLECTION, doc)
+
+
+def blocked_once(store, clock) -> tuple[Executor, FakeActor, str]:
+    actor = FakeActor().on("agent", *[("block", "at cap")] * 50)
+    ex = Executor(store, "spark", {"*": actor}, clock=clock)
+    run = ex.start(rule(), agent_workflow(timeout_s=600))  # bound: 1200 s
+    ex.run_until_idle()
+    return ex, actor, run["id"]
+
+
+@pytest.mark.parametrize("pending", [False, True])
+def test_a_legacy_blocked_step_adopts_a_bounded_queue_and_keeps_queuing(store, clock, pending):
+    ex, actor, run_id = blocked_once(store, clock)
+    legacy_blocked(store, clock, run_id, pending=pending)
+    clock.now = T_DISPATCH + timedelta(seconds=700)  # past the old deadline, not the bound
+    ex.run_until_idle()
+    st = step_state(ex.run(run_id), "agent")
+    assert st["status"] == "blocked", st["error"]
+    assert st["queue"]["since"] == T_DISPATCH.isoformat()  # old deadline - timeout_s
+    assert st["queue"]["deadline"] == (T_DISPATCH + timedelta(seconds=1200)).isoformat()
+    assert st["deadline"] is None
+    assert len(actor.calls_for("agent")) == 2  # asked again, still queued
+
+
+@pytest.mark.parametrize("pending", [False, True])
+@pytest.mark.parametrize("drained", [False, True])
+def test_a_legacy_blocked_step_past_its_bound_fails_without_dispatching(
+    store, clock, pending, drained
+):
+    ex, actor, run_id = blocked_once(store, clock)
+    legacy_blocked(store, clock, run_id, pending=pending)
+    if drained:
+        runs_mod.Containment(store).drain("spark", "ops")
+    clock.now = T_DISPATCH + timedelta(seconds=1201)
+    ex.run_until_idle()
+    doc = ex.run(run_id)
+    st = step_state(doc, "agent")
+    assert st["status"] == "failed", st
+    assert st["error"]["code"] == runs_mod.QUEUE_TIMEOUT
+    assert doc["status"] == "failed"
+    assert len(actor.calls_for("agent")) == 1  # never asked again
+
+
+def test_a_legacy_blocked_step_without_a_deadline_dates_its_spell_from_history(store, clock):
+    ex, actor, run_id = blocked_once(store, clock)
+    legacy_blocked(store, clock, run_id)
+    doc = store.get(RUNS_COLLECTION, run_id)
+    step_state(doc, "agent")["deadline"] = None
+    store.put(RUNS_COLLECTION, doc)
+    clock.now = T_DISPATCH + timedelta(seconds=1201)
+    ex.run_until_idle()
+    st = step_state(ex.run(run_id), "agent")
+    assert st["error"]["code"] == runs_mod.QUEUE_TIMEOUT  # since = its "blocked" entry
+    assert len(actor.calls_for("agent")) == 1
