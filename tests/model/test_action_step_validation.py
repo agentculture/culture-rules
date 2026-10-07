@@ -109,3 +109,50 @@ def test_save_path_refuses_through_validate_data():
     obj, errors = validate_data(Workflow, body)
     assert obj is None or errors
     assert any(e.code == "action_kind_unknown" for e in errors)
+
+
+def spec_wf(**extra: Any) -> Workflow:
+    """A valid reply step whose ``config.action`` also carries ``extra``."""
+    wf = action_wf("github.review_reply", REPLY, inputs=(port("item", "object"),))
+    wf.steps[0].config["action"].update(extra)
+    return wf
+
+
+@pytest.mark.parametrize("flag", ["false", "true", 0, 1, None, []])
+def test_non_boolean_idempotent_is_refused(flag):
+    assert ("steps[0].config.action.idempotent", "type") in codes(spec_wf(idempotent=flag))
+
+
+@pytest.mark.parametrize("name", [5, None, ["x"]])
+def test_non_string_name_is_refused(name):
+    assert ("steps[0].config.action.name", "type") in codes(spec_wf(name=name))
+
+
+def test_typed_spec_fields_of_the_right_type_pass():
+    assert codes(spec_wf(idempotent=True, name="reply")) == set()
+    assert codes(spec_wf(idempotent=False)) == set()
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"retry": {"max_attempts": 3}},
+        {"retry": "3"},
+        {"timeout_s": 30},
+        {"timeout_s": "30"},
+    ],
+)
+def test_retry_and_timeout_belong_to_the_step_not_the_action_spec(extra):
+    (key,) = extra
+    assert (f"steps[0].config.action.{key}", "not_allowed") in codes(spec_wf(**extra))
+
+
+def test_unknown_action_spec_fields_are_refused():
+    found = codes(spec_wf(idempotnet=True))
+    assert ("steps[0].config.action.idempotnet", "unknown_field") in found
+
+
+def test_spec_type_checks_hold_in_stored_mode_too():
+    assert ("steps[0].config.action.idempotent", "type") in codes(
+        spec_wf(idempotent="false"), stored=True
+    )

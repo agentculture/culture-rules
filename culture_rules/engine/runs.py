@@ -62,7 +62,9 @@ Semantics
   third of the lease (until the step's deadline), so a slow actor never looks abandoned.
   Another host takes over a ``dispatching`` step only when its lease lapsed *and* the
   holder's machine is offline (no heartbeat for ``holder_offline_after``) or the step's
-  deadline has passed; the holder's own host may always reclaim it (a restarted node).
+  deadline has passed; the holder's own host may always reclaim it (a restarted node). A
+  placed step - its own placement, or the actor-derived one of the rule action and of an
+  action step - is never taken over by another host: it resumes only on its holder.
 * **Placement** - each step resolves its own placement
   (:func:`~culture_rules.engine.placement.resolve_placement` over enrolled machines,
   heartbeats and drain flags) and only the engine on that host dispatches it. A step with
@@ -119,9 +121,10 @@ Semantics
   rule action's do, against one namespace: ``inputs.*``, the step's input ports (including a
   loop body's implicit ``item``/``index``) - a workflow never sees its trigger. The resolved
   params are the step's persisted ``inputs`` and what the port is invoked with. With no
-  placement of its own it runs where its actor lives, like the rule action. Its idempotency
-  key is the step's (run id, step key - ``<loop>[<i>]/<id>`` per iteration), its retry and
-  timeout the step's, ``config.action.idempotent`` counts like ``Action.idempotent``; the
+  placement of its own it runs (and resumes) where its actor lives, like the rule action.
+  Its idempotency key is the step's (run id, step key - ``<loop>[<i>]/<id>`` per
+  iteration), its retry and timeout the step's, ``config.action.idempotent`` counts like
+  ``Action.idempotent`` (only a boolean ``true`` - a wrong type fails closed); the
   port's result becomes the step's outcome (outputs checked against its output ports).
 * **Containment** (:class:`Containment`, every verb audited) - a global pause stops new
   runs and all new dispatch (accepted work may still complete); draining a machine stops
@@ -173,7 +176,7 @@ from culture_rules.machines.heartbeat import (
 )
 from culture_rules.model import condition as cond
 from culture_rules.model.action import Action
-from culture_rules.model.action_step import action_spec
+from culture_rules.model.action_step import action_spec, spec_idempotent
 from culture_rules.model.actor import Actor
 from culture_rules.model.common import RetryPolicy
 from culture_rules.model.placement import Placement
@@ -1032,15 +1035,22 @@ class Executor:
         return False
 
     def _target(self, plan: _Plan, st: Mapping[str, Any], now: datetime) -> Any:
+        placement = self._placement(plan, st)
+        if placement is None:
+            return self.host
+        return self._target_of(placement, now)
+
+    def _placement(self, plan: _Plan, st: Mapping[str, Any]) -> Placement | None:
+        """Where a step must run: its own placement, else - for the rule action and a
+        built-in action step - its actor's machine (see :meth:`_action_placement`). Fresh
+        and resumed dispatches both read it, so recovery never leaves that machine."""
         step = plan.step(st)
         placement = step.placement if step is not None else None
         if placement is None and st["key"] == ACTION_STEP:
             placement = self._action_placement(_action_actor(plan.rule.action))
         elif placement is None and (spec := _step_action(plan, st)) is not None:
             placement = self._action_placement(_params_actor(spec.get("params")))
-        if placement is None:
-            return self.host
-        return self._target_of(placement, now)
+        return placement
 
     def _target_of(self, placement: Placement, now: datetime) -> Any:
         online = online_machines(self._store, now, beat_every=self._beat_every)
@@ -1161,8 +1171,7 @@ class Executor:
 
     def _resume_inputs(self, plan: _Plan, st: dict) -> dict | bool:
         """The inputs a resumed step re-runs with, or False when it resumes elsewhere."""
-        step = plan.step(st)
-        placed = step is not None and step.placement is not None
+        placed = self._placement(plan, st) is not None  # own or actor-derived placement
         if st.get("host") != self.host and (placed or self._drained()):
             return False  # a placed step resumes only on its host
         return st["inputs"] or {}
@@ -1261,8 +1270,9 @@ class Executor:
             act: Action = plan.rule.action
             return _retry_of(act.retry), act.timeout_s, act.idempotent
         step = plan.step(st)
-        spec = action_spec(step) or {}
-        idempotent = bool(step.config.get("idempotent", False) or spec.get("idempotent", False))
+        # only a boolean true counts: a "false" string that slipped past validation fails
+        # closed (no blind retry), never truthy
+        idempotent = step.config.get("idempotent") is True or spec_idempotent(action_spec(step))
         return _retry_of(step.retry), step.timeout_s, idempotent
 
     def _timeout(self, plan: _Plan, st: Mapping) -> float:
