@@ -1,9 +1,12 @@
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { getDescription, type Description } from "../api/describe";
 import { ApiError } from "../api/client";
 import "./about.css";
 
 type Loaded = { doc: Description | null; error: string | null };
+
+/** The phone-width layout, where about.css docks the panel to the screen's bottom. */
+const DOCKED = "(max-width: 640px)";
 
 /**
  * The (i) button (d19): "About <name>". It opens a non-modal panel anchored to
@@ -79,6 +82,47 @@ export function AboutButton({
     document.addEventListener("pointerdown", onDown);
     return () => document.removeEventListener("pointerdown", onDown);
   }, [open]);
+
+  // Keep the open panel inside the window: as wide as its lines need, never wider than the
+  // window less a 16px gutter each side, and moved left of its button when it would pass the
+  // right edge. At phone width the CSS docks it to the screen's bottom instead.
+  useLayoutEffect(() => {
+    if (!open) return;
+    const place = () => {
+      const el = panel.current;
+      const anchor = wrap.current;
+      if (!el || !anchor) return;
+      el.style.left = "";
+      el.style.maxWidth = "";
+      if (window.matchMedia?.(DOCKED)?.matches) return;
+      const gutter = 16;
+      const room = window.innerWidth - 2 * gutter;
+      el.style.left = "0px";
+      el.style.maxWidth = `min(44rem, ${room}px)`;
+      const from = anchor.getBoundingClientRect().left;
+      const width = el.getBoundingClientRect().width;
+      const left = Math.max(gutter, Math.min(from, window.innerWidth - gutter - width));
+      el.style.left = `${left - from}px`;
+    };
+    place();
+    // Re-place when the window or the panel itself changes size (its mono face may load late).
+    window.addEventListener("resize", place);
+    let width = panel.current?.getBoundingClientRect().width ?? 0;
+    const observer =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(() => {
+            const now = panel.current?.getBoundingClientRect().width ?? 0;
+            if (Math.abs(now - width) < 0.5) return; // our own move: no loop
+            width = now;
+            place();
+          });
+    if (panel.current) observer?.observe(panel.current);
+    return () => {
+      window.removeEventListener("resize", place);
+      observer?.disconnect();
+    };
+  }, [open, loaded]);
 
   const text = loaded?.doc?.lines.join("\n") ?? "";
   const copy = () => {

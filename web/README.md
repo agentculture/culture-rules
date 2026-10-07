@@ -186,7 +186,9 @@ draws them, and the (i) costs one small control per row. The button is
 `aria-expanded` and `aria-controls`. Enter or Space opens it, focus moves
 into the panel (`role="dialog"`, `aria-modal="false"`), and Escape closes
 it and returns focus to the button, as Close does. A press outside closes
-it. A click on a row's (i) never opens the row. The lines are a `<pre>`
+it. The panel stays inside the window: it is never wider than the window
+less a 16px gutter each side, and it moves left of its button when it would
+pass the right edge. A click on a row's (i) never opens the row. The lines are a `<pre>`
 in the mono face, so indentation and the symbols `∈ ≠ × ≤` read exactly
 as the CLI prints them. Copy puts them on the clipboard. The panel has no
 motion, and at phone width (640px and under) it docks to the bottom of

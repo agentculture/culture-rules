@@ -363,6 +363,53 @@ test.describe("Workflows tab", () => {
     await expect(list.getByRole("dialog", { name: "About Review PR" })).toBeHidden();
   });
 
+  test("(i) panels stay inside the window beside a long description (d19)", async ({ page }) => {
+    // The shipped pr-fixer workflow's lines: the longest description the bundle produces.
+    const lines = [
+      "1 quiet — wait 300 s; stop if the PR head moves (head_unchanged, as github-app)",
+      "2 threads — github.threads as github-app: unresolved threads by trusted authors",
+      "3 fix — retry up to 3×, until verdict ∈ {pass, no_gate}:",
+      "  3.1 agent — qwen-fixer (agent)",
+      "  3.2 gate — test gate on spark2",
+      "4 push — github.push as github-app on spark2 (only on a passing gate)",
+      "5 pick — github.threads_addressed",
+      "6 replies — for each item (≤200): github.review_reply as github-app and resolve",
+    ];
+    await open(page);
+    // Registered last, so it wins over the fixture for every workflow's describe.
+    await page.route(/\/api\/workflows\/[^/]+\/describe$/, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ id: "review-pr", kind: "workflow", lines, entries: [] }),
+      }),
+    );
+    for (const width of [1280, 1000, 800]) {
+      await page.setViewportSize({ width, height: 880 });
+      for (const scope of [page.locator(".wf-head"), page.getByRole("navigation", { name: "Workflows" })]) {
+        const about = scope.getByRole("button", { name: "About Review PR" });
+        await about.click();
+        const panel = scope.getByRole("dialog", { name: "About Review PR" });
+        await expect(panel.getByTestId("about-lines")).toHaveText(lines.join("\n"));
+        const box = (await panel.boundingBox())!;
+        expect(box.x, `left at ${width}px`).toBeGreaterThanOrEqual(0);
+        expect(box.x + box.width, `right at ${width}px`).toBeLessThanOrEqual(width);
+        expect(
+          await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+          `no page overflow at ${width}px`,
+        ).toBe(true);
+        const close = panel.getByRole("button", { name: "Close" });
+        // Clickable: Playwright's trial click waits for it to be stable and checks that the
+        // click would land on it (nothing paints over it), without clicking.
+        await close.click({ trial: true });
+        const closeBox = (await close.boundingBox())!;
+        expect(closeBox.x + closeBox.width, `Close inside at ${width}px`).toBeLessThanOrEqual(width);
+        await close.click();
+        await expect(panel).toBeHidden();
+      }
+    }
+  });
+
   test("(i) docks to the bottom of the screen at phone width (d19)", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 800 });
     await open(page);
