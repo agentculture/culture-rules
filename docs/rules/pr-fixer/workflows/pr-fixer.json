@@ -98,14 +98,14 @@
       "target_port": "head_branch"
     },
     {
-      "source": "agent",
-      "source_port": "head_before",
+      "source": "gate",
+      "source_port": "start_sha",
       "target": "push",
       "target_port": "expected_head_sha"
     },
     {
-      "source": "agent",
-      "source_port": "head_after",
+      "source": "gate",
+      "source_port": "commit_sha",
       "target": "push",
       "target_port": "commit_sha"
     },
@@ -531,7 +531,7 @@
               "type": "string"
             },
             {
-              "description": "",
+              "description": "the gate-built commit: the agent tip's tree on start_sha (what is reviewed and pushed)",
               "name": "commit_sha",
               "required": false,
               "type": "string"
@@ -561,10 +561,22 @@
               "type": "integer"
             },
             {
-              "description": "",
+              "description": "the diff text does not show the whole change: never reviewed",
               "name": "diff_truncated",
               "required": false,
               "type": "boolean"
+            },
+            {
+              "description": "the agent's own tip (never pushed)",
+              "name": "agent_commit_sha",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "description": "why the diff text is not the whole change (size, binary, modes, symlinks, submodules)",
+              "name": "diff_problems",
+              "required": false,
+              "type": "array"
             }
           ],
           "placement": {

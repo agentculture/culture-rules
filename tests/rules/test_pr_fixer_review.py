@@ -202,8 +202,8 @@ def test_a_diff_too_large_to_review_asks_for_a_smaller_fix_and_never_runs_codex(
     doc = w.fire()
     assert doc["status"] == "failed"
     assert w.reviewer.inputs == [] and w.push.calls == []
-    assert "too large to review" in w.agent.calls[1][1]["instruction"]
-    assert_handed_back(w, doc, "fix", "too large to review")
+    assert "over the 10 the reviewer reads" in w.agent.calls[1][1]["instruction"]
+    assert_handed_back(w, doc, "fix", "smaller, text-only fix")
 
 
 def _without_review(wf: dict) -> dict:
@@ -261,3 +261,85 @@ def test_a_reviewer_actor_that_is_not_read_only_is_refused(tmp_path):
     doc = w.fire()
     assert "fix[0]/verdict: reviewer_not_read_only" in doc["error"]["message"]
     assert w.push.calls == []
+
+
+# --------------------------------------------------------------------------- #4: built commit
+
+
+def test_push_takes_the_gate_built_commit_and_its_start_never_the_agents_outputs():
+    wf = workflow_doc()
+    into_push = {
+        e["target_port"]: (e["source"], e["source_port"])
+        for e in wf["edges"]
+        if e["target"] == "push"
+    }
+    assert into_push["commit_sha"] == ("gate", "commit_sha")
+    assert into_push["expected_head_sha"] == ("gate", "start_sha")
+    assert into_push["source"] == ("gate", "bundle")
+
+
+def test_an_agent_that_commits_then_removes_a_secret_pushes_one_clean_commit(tmp_path, monkeypatch):
+    w = World(tmp_path)
+
+    def sneaky(input, key, deadline, *, context):
+        git(w.repo.wt, "reset", "-q", "--hard", w.repo.start)
+        w.repo.commit("add", {"leak.txt": "TOKEN=planted\n"})
+        head = w.repo.commit("fix x and drop leak", {"leak.txt": None, "src/app.py": "x = 3\n"})
+        return InvocationResult.completed(
+            {
+                "head_before": w.repo.start,
+                "head_after": head,
+                "worktree": str(w.repo.wt),
+                "threads_addressed": [],
+                "backend": "qwen",
+                "summary": "made x 3",
+            }
+        )
+
+    monkeypatch.setattr(w.agent, "invoke", sneaky)
+    doc = w.fire()
+    assert doc["status"] == "succeeded", doc.get("error")
+    gate = step_state(doc, "fix[0]/gate")["outputs"]
+    agent_tip = step_state(doc, "fix[0]/agent")["outputs"]["head_after"]
+    assert gate["agent_commit_sha"] == agent_tip != gate["commit_sha"]
+    (push_call,) = w.push.calls
+    assert push_call[1]["commit_sha"] == gate["commit_sha"]
+    assert w.reviewer.inputs[0]["commit_sha"] == gate["commit_sha"]
+    assert "leak.txt" not in w.reviewer.inputs[0]["diff"]
+
+
+# --------------------------------------------------------------------------- #5: non-text
+
+
+def test_a_binary_change_is_never_reviewed_or_pushed(tmp_path, monkeypatch):
+    w = World(tmp_path)
+    calls: list[str] = []
+
+    def binary(input, key, deadline, *, context):
+        calls.append(input["instruction"])
+        git(w.repo.wt, "reset", "-q", "--hard", w.repo.start)
+        (w.repo.wt / "src/app.py").write_text("x = 3\n")
+        (w.repo.wt / "src/payload.bin").write_bytes(b"\x00\x7fELF\x00" * 20)
+        git(w.repo.wt, "add", "-A")
+        git(w.repo.wt, "commit", "-q", "-m", "fix")
+        head = git(w.repo.wt, "rev-parse", "HEAD")
+        return InvocationResult.completed(
+            {
+                "head_before": w.repo.start,
+                "head_after": head,
+                "worktree": str(w.repo.wt),
+                "threads_addressed": [],
+                "backend": "qwen",
+            }
+        )
+
+    monkeypatch.setattr(w.agent, "invoke", binary)
+    doc = w.fire()
+    assert doc["status"] == "failed"
+    assert w.reviewer.inputs == [] and w.push.calls == []
+    assert len(calls) == 3
+    assert "src/payload.bin: binary change" in calls[1]
+    assert "text-only" in calls[1]
+    out = step_state(doc, "fix[0]/verdict")["outputs"]
+    assert out["review"] == "request_changes"
+    assert_handed_back(w, doc, "fix", "binary change")

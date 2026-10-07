@@ -768,15 +768,25 @@ class _Job:
             raise _Refusal("deadline_exceeded", retryable=True)
         return left
 
-    def git(self, *args: str, stdin: IO[bytes] | None = None, in_repo: bool = True) -> bytes:
+    def git(
+        self,
+        *args: str,
+        stdin: IO[bytes] | None = None,
+        in_repo: bool = True,
+        env: Mapping[str, str] | None = None,
+    ) -> bytes:
         """Run git on the scratch repo; returns stdout, raising on a non-zero exit."""
-        rc, out = self.git_rc(*args, stdin=stdin, in_repo=in_repo)
+        rc, out = self.git_rc(*args, stdin=stdin, in_repo=in_repo, env=env)
         if rc != 0:
             raise _Refusal("git_failed", f"git {args[0]} exited {rc}")
         return out
 
     def git_rc(
-        self, *args: str, stdin: IO[bytes] | None = None, in_repo: bool = True
+        self,
+        *args: str,
+        stdin: IO[bytes] | None = None,
+        in_repo: bool = True,
+        env: Mapping[str, str] | None = None,
     ) -> tuple[int, bytes]:
         argv = ["git", "-c", "core.hooksPath=/dev/null", "-c", "core.quotePath=false"]
         if in_repo:
@@ -787,7 +797,7 @@ class _Job:
                 timeout=self.left(),
                 stdout=out,
                 stdin=stdin,
-                env=_git_env(self.tmp),
+                env={**_git_env(self.tmp), **(env or {})},
             )
             out.seek(0)
             data = out.read()
@@ -909,6 +919,37 @@ def _instruction(verdict: dict[str, Any]) -> str | None:
     return None
 
 
+_PLAIN_MODES = frozenset({"000000", "100644"})
+_MODE_WORDS = {"120000": "symlink", "160000": "submodule"}
+
+
+def _non_text_changes(job: _Job, start: str, commit: str) -> list[str]:
+    """Changes the text diff cannot show in full (Codex review #5): binary content, any
+    file mode other than a plain 100644 (an executable bit, a symlink, a submodule
+    pointer) or a mode change. Each is one ``"<path>: <why>"`` line; any of them makes the
+    review material incomplete (``diff_truncated``), fail closed."""
+    base = ("diff", "--no-ext-diff", "--no-textconv", "--no-renames", "-z")
+    problems: list[str] = []
+    numstat = job.git(*base, "--numstat", start, commit, "--").decode("utf-8", "replace")
+    for entry in numstat.split("\x00"):
+        added, _, rest = entry.partition("\t")
+        deleted, _, path = rest.partition("\t")
+        if path and added == "-" and deleted == "-":
+            problems.append(f"{path}: binary change")
+    raw = job.git(*base, "--raw", "--no-abbrev", start, commit, "--").decode("utf-8", "replace")
+    fields = raw.split("\x00")
+    for meta, path in zip(fields[0::2], fields[1::2]):
+        parts = meta.lstrip(":").split()
+        if len(parts) < 2 or not path:
+            continue
+        old, new = parts[0], parts[1]
+        if old in _PLAIN_MODES and new in _PLAIN_MODES:
+            continue
+        word = _MODE_WORDS.get(new) or _MODE_WORDS.get(old) or "mode"
+        problems.append(f"{path}: {word} change (mode {old} -> {new})")
+    return problems
+
+
 class GatePort:
     """ActorPort for the built-in ``gate`` code step (see the module docstring)."""
 
@@ -1013,7 +1054,9 @@ class GatePort:
             "diff": None,
             "diff_chars": None,
             "diff_truncated": None,
+            "diff_problems": None,
             **shas,
+            "agent_commit_sha": shas["commit_sha"],
         }
         tmp = tempfile.mkdtemp(prefix="culture-rules-gate-")
         try:
@@ -1022,7 +1065,7 @@ class GatePort:
             spec = self._spec(job, shas["base_sha"])
             if spec is None:
                 verdict["verdict"] = NO_GATE
-                verdict.update(self._diff(job, shas, diff_cap))
+                verdict.update(self._built(job, shas, diff_cap))
                 return verdict
             verdict["gate"] = spec.to_dict()
             violations = self._guard(job, shas, config)
@@ -1035,29 +1078,75 @@ class GatePort:
             else:
                 self._judge(job, spec, verdict, tail_bytes)
                 if verdict["verdict"] == PASS:
-                    verdict["bundle"] = self._bundle(job, shas["commit_sha"], context)
-                    verdict.update(self._diff(job, shas, diff_cap))
+                    verdict.update(self._built(job, shas, diff_cap))
+                    verdict["bundle"] = self._bundle(job, verdict["commit_sha"], context)
             verdict["instruction"] = _instruction(verdict)
             return verdict
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
+    def _built(self, job: _Job, shas: Mapping[str, str], cap: int) -> dict[str, Any]:
+        """The gate-built commit (see :meth:`_build_commit`) as ``commit_sha``, and its diff."""
+        built = self._build_commit(job, shas["start_sha"], shas["commit_sha"])
+        return {"commit_sha": built, **self._diff(job, shas["start_sha"], built, cap)}
+
     @staticmethod
-    def _diff(job: _Job, shas: Mapping[str, str], cap: int) -> dict[str, Any]:
-        """``start_sha..commit_sha`` as text, read in the node-verified scratch repo (no
-        external diff, no textconv, no attributes), cut at ``cap`` characters (d20)."""
+    def _build_commit(job: _Job, start: str, tip: str) -> str:
+        """ONE commit made by the gate: the agent tip's tree on ``start``, with the tip's
+        message, author and committer (and dates, so a re-run builds the same SHA). Only
+        this commit is diffed, reviewed, bundled and pushed; the agent's own commits, and
+        anything they added and later removed, never leave this machine. No agent commit
+        (``tip == start``) pushes nothing new. Merges and odd ancestry are refused."""
+        if tip == start:
+            return start
+        if job.git_rc("merge-base", "--is-ancestor", start, tip)[0] != 0:
+            raise _Refusal("history_rewritten", "commit_sha does not descend from start_sha")
+        if job.git("rev-list", "--min-parents=2", f"{start}..{tip}", "--").strip():
+            raise _Refusal("merge_commit", "start_sha..commit_sha holds a merge")
+        fields = "%an%x00%ae%x00%ad%x00%cn%x00%ce%x00%cd%x00%B"
+        raw = job.git("log", "-1", "--date=raw", f"--format={fields}", tip, "--")
+        an, ae, ad, cn, ce, cd, message = raw.decode("utf-8", "replace").split("\x00", 6)
+        env = {
+            "GIT_AUTHOR_NAME": an,
+            "GIT_AUTHOR_EMAIL": ae,
+            "GIT_AUTHOR_DATE": ad,
+            "GIT_COMMITTER_NAME": cn,
+            "GIT_COMMITTER_EMAIL": ce,
+            "GIT_COMMITTER_DATE": cd,
+        }
+        tree = job.git("rev-parse", "--verify", f"{tip}^{{tree}}").decode().strip()
+        msg = os.path.join(job.tmp, "message")
+        Path(msg).write_bytes(message.rstrip("\n").encode("utf-8") + b"\n")
+        with open(msg, "rb") as stdin:
+            built = job.git("commit-tree", tree, "-p", start, "-F", "-", stdin=stdin, env=env)
+        return built.decode().strip()
+
+    @staticmethod
+    def _diff(job: _Job, start: str, commit: str, cap: int) -> dict[str, Any]:
+        """``start..commit`` as text, read in the node-verified scratch repo (no external
+        diff, no textconv, no attributes), cut at ``cap`` characters (d20)."""
         raw = job.git(
             "diff",
             "--no-ext-diff",
             "--no-textconv",
             "--no-color",
             "-M",
-            shas["start_sha"],
-            shas["commit_sha"],
+            start,
+            commit,
             "--",
         )
         text = raw.decode("utf-8", errors="replace")
-        return {"diff": text[:cap], "diff_chars": len(text), "diff_truncated": len(text) > cap}
+        problems = _non_text_changes(job, start, commit)
+        if len(text) > cap:
+            problems.insert(
+                0, f"the diff is {len(text)} characters, over the {cap} the reviewer reads"
+            )
+        return {
+            "diff": text[:cap],
+            "diff_chars": len(text),
+            "diff_truncated": bool(problems),
+            "diff_problems": problems,
+        }
 
     def _import(self, job: _Job, shas: Mapping[str, str]) -> None:
         """Stream the three commits' history out of the worktree into the scratch repo."""
@@ -1155,6 +1244,8 @@ class GatePort:
             return [Violation("history_rewritten", "", "commit_sha does not descend from start")]
         if rc != 0:
             raise _Refusal("git_failed", f"merge-base exited {rc}")
+        if job.git("rev-list", "--min-parents=2", f"{start}..{commit}", "--").strip():
+            return [Violation("merge_commit", "", "start_sha..commit_sha holds a merge")]
         patterns = self._patterns(config)
         if patterns is None:
             name = config.get("protected_paths_variable", PROTECTED_PATHS_VARIABLE)

@@ -269,6 +269,23 @@ def _backend(reported: Any, declared: Any) -> str | None:
     return rep or dec
 
 
+def _unreviewable(g: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Findings for a change the reviewer cannot be shown in full (too large, or not text):
+    never reviewed, the next attempt asks for a smaller, text-only fix."""
+    problems = g.get("diff_problems")
+    if not isinstance(problems, list) or not problems:
+        problems = [f"the diff is {g.get('diff_chars')} characters, over the reviewer's limit"]
+    ask = (
+        "The reviewer cannot be shown this change in full. Make a smaller, text-only fix: "
+        "no binary files, file mode changes, symlinks or submodule pointers."
+    )
+    return [
+        {"path": "", "line": None, "severity": "high", "detail": f"{p}. {ask}"}
+        for p in problems[:MAX_FINDINGS]
+        if isinstance(p, str)
+    ] or [{"path": "", "line": None, "severity": "high", "detail": ask}]
+
+
 def _finding_line(f: Mapping[str, Any]) -> str:
     where = f["path"] + (f":{f['line']}" if f.get("line") is not None else "")
     return f"- [{f['severity']}] {where} {f['detail']}".replace("  ", " ").rstrip()
@@ -390,17 +407,7 @@ class ReviewVerdictPort:
         facts["commit_sha"] = commit
         task = input.get("task")
         if g.get("diff_truncated") is True:
-            findings = [
-                {
-                    "path": "",
-                    "line": None,
-                    "severity": "high",
-                    "detail": (
-                        f"The change is too large to review ({g.get('diff_chars')} characters "
-                        "of diff, over the reviewer's limit). Make a smaller, focused fix."
-                    ),
-                }
-            ]
+            findings = _unreviewable(g)
             self._record(context, {**facts, "verdict": REQUEST_CHANGES, "findings": findings})
             return {
                 **out,
