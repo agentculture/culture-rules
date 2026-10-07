@@ -148,6 +148,24 @@ fixer token, r13 dedup vs must_after chaining.
 6. t21 live, t22 dogfood, t23 /validate-delivery, t24 /summarize-delivery, final PR
    via the cicd skill with the version bump.
 
+## t20 live state (2026-10-07 ~15:15)
+
+- Delivery PR agentculture/culture-rules#17 OPEN (0.13.0); keep it open through t22-t24.
+  Sonar gate ERROR (295 issues) is left for the t22 dogfood. Tests and other CI green.
+- All four nodes and the API run a LOCAL 0.13.0 wheel built at d782924 (published
+  wheels lack web_dist, r22). spark's API LAN listener now binds 100.127.105.72:8791
+  (operator), so bridge callbacks from spark2 reach it.
+- CLI against prod: `grant run --inject CULTURE_RULES_TOKEN=RULES_CULTURE_RULES_SERVICE_TOKEN
+  -- env CULTURE_RULES_API_URL=http://100.127.105.72:8791 culture-rules ...`.
+- spark2 node: secrets RULES_QWEN_FIXER_TOKEN + RULES_GITHUB_APP_PRIVATE_KEY (piped
+  grant->grant), CULTURE_RULES_GATE_RUN_AS appended to node.env (re-add after any
+  install.sh run: install.sh rewrites node.env).
+- github-app actor: added the fixer events/actions and repo pr-fixer-sandbox.
+  qwen-fixer actor registered (machine spark2, bridge 100.93.248.8:8093, max_concurrency 1).
+- Variables seeded; workflow + four rules imported and ENABLED (allow-list = sandbox).
+- Sandbox PRs: #1 seeded (floor-division failing test + unused variable; version bumped),
+  #2 draft. Fork PR still to do (needs a fork from the operator's account).
+
 ## Machines
 
 - spark: API, node, tunnel units active after the 2026-10-07 reboot; culture-rules
