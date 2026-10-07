@@ -352,6 +352,11 @@ class ScriptedHead:
         kind, value = self.results.pop(0)
         if kind == "blocked":
             return InvocationResult.blocked("busy")
+        if kind == "timeout":
+            return InvocationResult.failed("deadline_exceeded", retryable=True)
+        if kind == "busy":
+            return InvocationResult.failed("lookup_busy", retryable=True)
+        self.deadlines = [*getattr(self, "deadlines", []), deadline]
         return InvocationResult.completed({"head_sha": value})
 
 
@@ -456,3 +461,44 @@ def test_guard_actor_host_unenrolled_fails_the_wait_at_once(store, clock):
     doc = spark.run(run["id"])
     assert step_state(doc, "w")["error"]["code"] == "placement.machine_unknown"
     assert doc["status"] == "failed"
+
+
+def test_a_timed_out_head_lookup_is_retried_later_not_failed(store, clock):
+    """Review #17 finding 6: the head port honours the invocation deadline, so a cold
+    secret resolve or slow GitHub answers ``deadline_exceeded`` (retryable) while the App
+    warms in the background; the wake re-arms instead of failing the run."""
+    from datetime import timedelta
+
+    from culture_rules.engine.runs import HEAD_LOOKUP_TIMEOUT_S
+
+    inner = ScriptedHead(("timeout", None), ("busy", None), ("ok", SHA_A))
+    ex, _ = _router_executor(store, clock, inner)
+    run = _sleeping_run(ex, guard_config(60))
+    clock.advance(61)
+    ex.run_until_idle()
+    st = step_state(ex.run(run["id"]), "w")
+    assert st["status"] == "sleeping" and st["lookup_retries"] == 1
+    for _ in range(2):
+        clock.advance(10)
+        ex.run_until_idle()
+    doc = ex.run(run["id"])
+    assert doc["status"] == "succeeded", doc
+    assert inner.calls == 3
+    # the lookup's deadline is the short head-lookup bound, not a step timeout
+    assert inner.deadlines[0] == clock() + timedelta(seconds=HEAD_LOOKUP_TIMEOUT_S)
+
+
+def test_a_head_lookup_that_keeps_timing_out_fails_safe(store, clock):
+    from culture_rules.engine.runs import HEAD_LOOKUP_RETRIES
+
+    inner = ScriptedHead(*[("timeout", None)] * (HEAD_LOOKUP_RETRIES + 1))
+    ex, _ = _router_executor(store, clock, inner)
+    run = _sleeping_run(ex, guard_config(60))
+    clock.advance(61)
+    for _ in range(HEAD_LOOKUP_RETRIES + 1):
+        ex.run_until_idle()
+        clock.advance(10)
+    doc = ex.run(run["id"])
+    assert step_state(doc, "w")["error"]["code"] == "head_lookup_failed"
+    assert doc["status"] == "failed"
+    assert inner.calls == HEAD_LOOKUP_RETRIES + 1

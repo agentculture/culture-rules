@@ -99,7 +99,10 @@ Semantics
   ``vars.x``). A moved head ends the run ``superseded`` (unfinished steps cancelled, nothing
   later runs). Fail-safe: a lookup that raises, returns nothing, is not configured, or an
   expected SHA that cannot be resolved FAILS the step (``head_lookup_failed`` /
-  ``guard_unresolved``) - the run never proceeds as if the head were unchanged. The guarded
+  ``guard_unresolved``) - the run never proceeds as if the head were unchanged. The lookup
+  port gets a :data:`HEAD_LOOKUP_TIMEOUT_S` deadline (it runs inside the tick); a lookup
+  that ran out of time (``deadline_exceeded`` / ``lookup_busy``, retryable) re-arms the
+  wake like a ``blocked`` one, at most :data:`HEAD_LOOKUP_RETRIES` times, then fails. The guarded
   lookup runs on the guard actor's machine; when that placement resolves nowhere, a fatal
   error fails the step at once and an unavailable host (offline, drained) is waited for up
   to :data:`PLACEMENT_ABANDON_AFTER` past the wake, then the step fails
@@ -163,6 +166,7 @@ from culture_rules.engine.actorport import (
     ACCEPTED,
     BLOCKED,
     COMPLETED,
+    FAILED,
     ActorPort,
     InvocationContext,
     InvocationResult,
@@ -263,6 +267,15 @@ HEAD_BLOCKED = "head_blocked"
 """Internal outcome: the head lookup's actor was at a limit; the wake is retried later."""
 HEAD_LOOKUP_PORT = "action:github.pr_head"
 """Port key the default head lookup routes through (see :class:`Executor`)."""
+HEAD_LOOKUP_TIMEOUT_S = 10.0
+"""The invocation deadline of a guarded wake's head lookup. It runs inside the executor's
+tick, so the port honours it (secret resolve and HTTP calls) rather than block the tick."""
+HEAD_RETRY = "head_retry"
+"""Internal outcome: the head lookup timed out (``deadline_exceeded``/``lookup_busy``)."""
+HEAD_LOOKUP_RETRIES = 5
+"""How many timed-out head lookups a guarded wake re-arms for before it fails
+``head_lookup_failed`` (fail-safe: never proceeds as if the head were unchanged)."""
+_HEAD_RETRY_CODES = frozenset({"deadline_exceeded", "lookup_busy"})
 RUN_DONE = ("succeeded", "failed", "cancelled", SUPERSEDED)
 STEP_DONE = ("succeeded", "failed", "skipped", "cancelled")
 STEP_OK = ("succeeded", "skipped")
@@ -313,6 +326,11 @@ class RunError(ValueError):
 
 class _HeadBlocked(Exception):
     """The head lookup's actor refused for now (a limit); try again later."""
+
+
+class _HeadRetry(Exception):
+    """The head lookup ran out of time (or lookup workers); try again, a bounded number of
+    times (:data:`HEAD_LOOKUP_RETRIES`)."""
 
 
 class _Conflict(Exception):
@@ -1020,9 +1038,17 @@ class Executor:
                     continue
             outcome = self._check_guard(plan, doc, step, guard) if guard else None
             new, nst = _copy_with(doc, st["key"])
+            retries = int(st.get("lookup_retries") or 0) + 1
+            if outcome is not None and outcome["code"] == HEAD_RETRY:
+                if retries > HEAD_LOOKUP_RETRIES:
+                    outcome = _error("head_lookup_failed", outcome["message"])
             if outcome is not None and outcome["code"] == HEAD_BLOCKED:
                 nst["deadline"] = _iso(now + timedelta(seconds=BLOCKED_RETRY_S))
                 _record(new, now, self.host, "wait_blocked", st["key"])
+            elif outcome is not None and outcome["code"] == HEAD_RETRY:
+                nst["deadline"] = _iso(now + timedelta(seconds=BLOCKED_RETRY_S))
+                nst["lookup_retries"] = retries
+                _record(new, now, self.host, "wait_retry", st["key"])
             elif outcome is None:
                 nst.update(status="succeeded", outputs={}, error=None)
                 _record(new, now, self.host, "wait_done", st["key"])
@@ -1101,6 +1127,8 @@ class Executor:
             current = self._lookup_head(doc, step, actor, repo, number)
         except _HeadBlocked as exc:
             return _error(HEAD_BLOCKED, str(exc))
+        except _HeadRetry as exc:
+            return _error(HEAD_RETRY, f"could not read the PR head in time: {exc}")
         except Exception as exc:  # noqa: BLE001 - any lookup failure is fail-safe
             log.warning("head lookup failed for %s#%s: %s", repo, number, type(exc).__name__)
             return _error("head_lookup_failed", f"could not read the PR head: {exc}")
@@ -1130,7 +1158,7 @@ class Executor:
             port = ports.get(HEAD_LOOKUP_PORT)
         if port is None:
             raise RuntimeError("no head lookup configured")
-        deadline = self._clock() + timedelta(seconds=30)
+        deadline = self._clock() + timedelta(seconds=HEAD_LOOKUP_TIMEOUT_S)
         res = port.invoke(
             {"repo": repo, "number": number},
             idempotency_key(doc["id"], ctx.step_id),
@@ -1139,6 +1167,8 @@ class Executor:
         )
         if res.outcome == BLOCKED:
             raise _HeadBlocked(res.error or "blocked")
+        if res.outcome == FAILED and res.retryable and res.error in _HEAD_RETRY_CODES:
+            raise _HeadRetry(res.error)
         if res.outcome != COMPLETED:
             raise RuntimeError(res.error or res.outcome)
         return res.output.get("head_sha")

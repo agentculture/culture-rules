@@ -12,8 +12,11 @@ The GitHub REST API cannot deduplicate comments, so ``supports_idempotency_key``
 from __future__ import annotations
 
 import logging
+import threading
 from collections.abc import Callable, Mapping
-from datetime import datetime
+from concurrent.futures import Future
+from concurrent.futures import TimeoutError as FutureTimeout
+from datetime import UTC, datetime
 from typing import Any
 
 from culture_rules.actors.secrets import resolve as resolve_secret
@@ -21,9 +24,13 @@ from culture_rules.apps.github import DEFAULT_API_BASE, GitHubApp, GitHubError, 
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
 from culture_rules.node.actors import ACTORS_COLLECTION
 
-__all__ = ["GitHubCommentPort", "GitHubPrHeadPort"]
+__all__ = ["RESOLVE_WORKERS", "GitHubCommentPort", "GitHubPrHeadPort"]
 
 log = logging.getLogger(__name__)
+
+RESOLVE_WORKERS = 2
+"""The most deadline-bounded App resolves (:meth:`GitHubCommentPort._app_within`) running at
+once per port; it caps the threads a stuck ``grant get`` can hold."""
 
 
 class GitHubCommentPort:
@@ -44,6 +51,7 @@ class GitHubCommentPort:
         self._secrets = secrets
         self._api_base = api_base
         self._apps: dict[str, tuple[tuple[Any, ...], GitHubApp]] = {}
+        self._resolve_slots = threading.BoundedSemaphore(RESOLVE_WORKERS)
 
     def _connection(self, actor_id: str | None) -> Mapping[str, Any] | None:
         if not actor_id:
@@ -57,14 +65,54 @@ class GitHubCommentPort:
             return None
         return conn
 
-    def _app(self, actor_id: str, conn: Mapping[str, Any], allowed: set[str]) -> GitHubApp | None:
-        """The per-actor App (so its installation token cache survives across invocations)."""
-        fingerprint = (
+    @staticmethod
+    def _fingerprint(conn: Mapping[str, Any], allowed: set[str]) -> tuple[Any, ...]:
+        return (
             conn.get("app_id"),
             conn.get("installation_id"),
             conn.get("private_key"),
             tuple(sorted(allowed)),
         )
+
+    def _app_within(
+        self, actor_id: str, conn: Mapping[str, Any], allowed: set[str], deadline: datetime
+    ) -> GitHubApp | None:
+        """:meth:`_app`, bounded by ``deadline``: a cached App answers at once; a cold one is
+        resolved (``grant get``) on one of at most :data:`RESOLVE_WORKERS` daemon threads.
+        Past the deadline the caller gets a retryable ``deadline_exceeded`` while the worker
+        finishes and caches the App, so the next call is warm; with every worker busy,
+        ``lookup_busy`` at once. Raises :class:`GitHubError` for those two only."""
+        cached = self._apps.get(actor_id)
+        if cached is not None and cached[0] == self._fingerprint(conn, allowed):
+            return cached[1]
+        left = (deadline - datetime.now(UTC)).total_seconds()
+        if left <= 0:
+            raise GitHubError("deadline_exceeded", retryable=True)
+        if not self._resolve_slots.acquire(blocking=False):
+            raise GitHubError("lookup_busy", "every resolve worker is busy", retryable=True)
+        result: Future[GitHubApp | None] = Future()
+
+        def work() -> None:
+            try:
+                result.set_result(self._app(actor_id, conn, allowed))
+            except BaseException as exc:  # noqa: BLE001 - handed to the waiting caller
+                result.set_exception(exc)
+            finally:
+                self._resolve_slots.release()
+
+        try:
+            threading.Thread(target=work, name="github-app-resolve", daemon=True).start()
+        except BaseException:
+            self._resolve_slots.release()
+            raise
+        try:
+            return result.result(timeout=left)
+        except FutureTimeout:
+            raise GitHubError("deadline_exceeded", retryable=True) from None
+
+    def _app(self, actor_id: str, conn: Mapping[str, Any], allowed: set[str]) -> GitHubApp | None:
+        """The per-actor App (so its installation token cache survives across invocations)."""
+        fingerprint = self._fingerprint(conn, allowed)
         cached = self._apps.get(actor_id)
         if cached is not None and cached[0] == fingerprint:
             return cached[1]
@@ -121,6 +169,12 @@ class GitHubPrHeadPort(GitHubCommentPort):
 
     Input ``{repo, number}`` (the repo must be in the actor's allowlist); completes with
     ``{"head_sha": ...}``. It reads, so retrying is harmless.
+
+    The executor calls it synchronously inside its tick, so the whole lookup honours the
+    invocation ``deadline``: a cold private-key resolve runs on a capped worker
+    (:meth:`~GitHubCommentPort._app_within`, cached once it finishes) and every HTTP call
+    is bounded by the time left. Past the deadline it fails ``deadline_exceeded`` (or
+    ``lookup_busy``), retryable - the wait step re-arms and asks again.
     """
 
     supports_idempotency_key = True
@@ -129,7 +183,7 @@ class GitHubPrHeadPort(GitHubCommentPort):
         self,
         input: Mapping[str, Any],
         _idempotency_key: str,
-        _deadline: datetime,
+        deadline: datetime,
         *,
         context: InvocationContext,
     ) -> InvocationResult:
@@ -148,11 +202,15 @@ class GitHubPrHeadPort(GitHubCommentPort):
             number = int(input["number"])
         except (KeyError, TypeError, ValueError):
             return InvocationResult.failed("bad_input", retryable=False)
-        app = self._app(str(actor_id), conn, allowed)
+        try:
+            app = self._app_within(str(actor_id), conn, allowed, deadline)
+        except GitHubError as exc:
+            return InvocationResult.failed(exc.code, retryable=exc.retryable)
         if app is None:
             return InvocationResult.failed("secret_unavailable", retryable=False)
         try:
-            sha = (app.get_pull(repo, number).get("head") or {}).get("sha")
+            with app.deadline(deadline):
+                sha = (app.get_pull(repo, number).get("head") or {}).get("sha")
         except GitHubError as exc:
             return InvocationResult.failed(exc.code, retryable=exc.retryable)
         if not isinstance(sha, str) or not sha:

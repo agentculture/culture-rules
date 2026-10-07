@@ -282,6 +282,9 @@ Workflow `pr-fixer`:
    If the App actor's machine is offline or drained when the wait ends, the
    run waits up to 10 minutes for it, then fails `placement_unavailable`
    (an unenrolled machine fails it at once), which frees the PR's key.
+   The head read has 10 seconds, including a cold `grant get` of the App
+   key. A read that runs out of time is retried 5 seconds later, up to 5
+   times, then fails the run (`head_lookup_failed`).
 2. `threads`: the built-in `github.threads` (d15), as `github-app` on its
    machine. It lists the PR's unresolved review threads through GraphQL, at
    most 10 pages of 100, and keeps the threads whose opening comment's author
