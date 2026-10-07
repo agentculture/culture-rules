@@ -1906,6 +1906,8 @@ def _fail_run(plan: _Plan, new: dict, failure: dict, now: datetime) -> Found:
     """End ``new`` failed with ``failure`` - or, when the rule has an ``on_failure`` action,
     first cancel the unfinished steps and add its step (once; the run ends when it is done,
     whatever its outcome, with ``failure`` as its error). ``new`` is a copy to mutate."""
+    if step_state(new, FAILURE_STEP) is not None:  # never a second handler (defensive)
+        return None
     for s in new["steps"]:
         if s["status"] not in STEP_DONE:
             s["status"] = "cancelled"
@@ -2062,6 +2064,8 @@ def _workflow_outputs(plan: _Plan, doc: Mapping) -> dict[str, Any]:
 
 
 def _finish(plan: _Plan, doc: Mapping, now: datetime) -> Found:
+    if step_state(doc, FAILURE_STEP) is not None:  # the run is failing: _run_failure ends it
+        return None
     top = [s for s in doc["steps"] if not s.get("loop") and s["key"] not in TERMINAL_STEPS]
     if any(s["status"] not in STEP_OK for s in top):
         return None

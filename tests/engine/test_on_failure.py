@@ -9,9 +9,11 @@ ends the run failed with the original error and never fires it again.
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import timedelta
 
 import pytest
 
+from culture_rules.engine.actorport import InvocationResult
 from culture_rules.engine.runs import (
     ACTION_STEP,
     FAILURE_STEP,
@@ -25,7 +27,7 @@ from culture_rules.model.common import RetryPolicy
 from culture_rules.model.rule import Rule
 from culture_rules.model.validate import validate
 from culture_rules.store.memory import MemoryStore
-from tests.engine.run_helpers import Clock, FakeActor, edge, port, rule, step, workflow
+from tests.engine.run_helpers import Clock, Crash, FakeActor, edge, port, rule, step, workflow
 from tests.engine.test_wait_step import SHA_A, SHA_B, Heads, guard_config
 
 BODY = "handed back: {{ run.error.step }} {{ run.error.code }} {{ run.error.message }} {{ run.id }}"
@@ -191,3 +193,111 @@ def test_without_on_failure_a_failed_run_is_unchanged(store, clock):
     _ex, doc = run(store, clock, actor, rule(), one_step())
     assert doc["status"] == "failed" and doc["error"]["step"] == "s1"
     assert step_state(doc, FAILURE_STEP) is None
+
+
+# ------------------------------------------------------------------ entry paths (Codex P2)
+
+
+def handlers(doc) -> list[dict]:
+    return [s for s in doc["steps"] if s["key"] == FAILURE_STEP]
+
+
+def drive(ex, clock, rounds=5, step_s=60):
+    for _ in range(rounds):
+        clock.advance(step_s)
+        ex.run_until_idle()
+
+
+def test_a_mistyped_workflow_output_hands_back_exactly_once(store, clock):
+    from culture_rules.model.workflow import Output  # noqa: PLC0415
+
+    wf = replace(
+        one_step(), outputs=(Output(name="n", type="string", source="steps.s1.outputs.n"),)
+    )
+    actor = FakeActor().on("s1", ("complete", {"n": 3}))
+    ex, doc = run(store, clock, actor, failing_rule(), wf)
+    drive(ex, clock)
+    doc = ex.run(doc["id"])
+    assert doc["status"] == "failed"
+    assert doc["error"]["code"] == "output_type_mismatch" and doc["error"]["step"] is None
+    (h,) = handlers(doc)
+    assert h["status"] == "succeeded"
+    (inp,) = calls(actor, FAILURE_STEP)
+    assert "output_type_mismatch" in inp["body"]
+    assert calls(actor, ACTION_STEP) == [] and step_state(doc, ACTION_STEP) is None
+
+
+def test_a_failed_rule_action_hands_back_exactly_once(store, clock):
+    actor = FakeActor().on(ACTION_STEP, ("fail", "no comment", False))
+    ex, doc = run(store, clock, actor, failing_rule(), one_step())
+    drive(ex, clock)
+    doc = ex.run(doc["id"])
+    assert len(handlers(doc)) == 1 and len(calls(actor, FAILURE_STEP)) == 1
+    assert doc["error"]["step"] == ACTION_STEP
+
+
+def test_a_failed_step_beside_accepted_work_hands_back_once_and_ignores_late_results(store, clock):
+    wf = workflow((step("slow"), step("bad")))
+    actor = FakeActor().on("slow", ("accept",)).on("bad", ("fail", "boom", False))
+    ex, doc = run(store, clock, actor, failing_rule(), wf)
+    doc = ex.run(doc["id"])
+    assert step_state(doc, "slow")["status"] == "cancelled"
+    slow_key = actor.calls_for("slow")[0][0]
+    assert ex.deliver(slow_key, InvocationResult.completed({})) is False  # stays cancelled
+    drive(ex, clock)
+    doc = ex.run(doc["id"])
+    assert doc["status"] == "failed" and doc["error"]["step"] == "bad"
+    assert len(handlers(doc)) == 1 and len(calls(actor, FAILURE_STEP)) == 1
+
+
+def test_an_accepted_handler_completes_by_delivery_once(store, clock):
+    actor = FakeActor().on("s1", ("fail", "boom", False)).on(FAILURE_STEP, ("accept",))
+    ex, doc = run(store, clock, actor, failing_rule(), one_step())
+    doc = ex.run(doc["id"])
+    assert doc["status"] == "running" and handlers(doc)[0]["status"] == "waiting"
+    drive(ex, clock, rounds=2, step_s=1)  # nothing re-adds or finishes it meanwhile
+    assert len(handlers(ex.run(doc["id"]))) == 1 and ex.run(doc["id"])["status"] == "running"
+    key = actor.calls_for(FAILURE_STEP)[0][0]
+    assert ex.deliver(key, InvocationResult.completed({})) is True
+    ex.run_until_idle()
+    doc = ex.run(doc["id"])
+    assert doc["status"] == "failed" and doc["error"]["message"] == "boom"
+    assert len(handlers(doc)) == 1 and len(calls(actor, FAILURE_STEP)) == 1
+
+
+def test_a_handler_crash_resumes_on_another_node_with_one_side_effect(store, clock):
+    actor = FakeActor().on("s1", ("fail", "boom", False)).on(FAILURE_STEP, ("crash", {}))
+    ex = Executor(store, "spark", {"*": actor}, clock=clock, lease=timedelta(seconds=30))
+    doc = ex.start(failing_rule(), one_step())
+    with pytest.raises(Crash):
+        ex.run_until_idle()
+    assert handlers(ex.run(doc["id"]))[0]["status"] == "dispatching"
+    other = Executor(store, "thor", {"*": actor}, clock=clock, lease=timedelta(seconds=30))
+    other.run_until_idle()
+    clock.advance(31)
+    other.run_until_idle()
+    doc = other.run(doc["id"])
+    assert doc["status"] == "failed" and doc["error"]["message"] == "boom"
+    assert len(handlers(doc)) == 1
+    assert actor.effects_for(FAILURE_STEP) == 1  # the same key, deduplicated
+
+
+def test_a_handler_whose_lease_and_deadline_lapse_ends_the_run_without_a_second_handler(
+    store, clock
+):
+    # The target cannot deduplicate: an unknown outcome is never blindly retried.
+    actor = FakeActor(idempotent=False).on("s1", ("fail", "boom", False))
+    actor.on(FAILURE_STEP, ("accept",))
+    r = replace(failing_rule(), on_failure=replace(HAND_BACK, timeout_s=30.0))
+    ex = Executor(store, "spark", {"*": actor}, clock=clock, lease=timedelta(seconds=10))
+    doc = ex.start(r, one_step())
+    ex.run_until_idle()
+    other = Executor(store, "thor", {"*": actor}, clock=clock, lease=timedelta(seconds=10))
+    for e in (ex, other) * 3:
+        clock.advance(20)
+        e.run_until_idle()
+    doc = other.run(doc["id"])
+    assert doc["status"] == "failed" and doc["error"]["step"] == "s1"
+    (h,) = handlers(doc)
+    assert h["status"] == "failed"
+    assert len(calls(actor, FAILURE_STEP)) == 1
