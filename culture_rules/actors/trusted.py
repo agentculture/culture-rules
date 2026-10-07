@@ -33,6 +33,8 @@ __all__ = [
     "TRUSTED_WORKFLOW_DIGESTS",
     "actor_digest",
     "actor_refusal",
+    "doc_refusal",
+    "is_pinned",
     "workflow_digest",
     "workflow_refusal",
 ]
@@ -155,11 +157,24 @@ def actor_refusal(store: Any, actor_id: Any) -> tuple[str | None, str | None]:
     """``(refusal, digest)``: ``actor_not_trusted`` unless the actor's current stored
     document hashes to a digest listed for its id."""
     doc = store.get("actors", actor_id) if isinstance(actor_id, str) and actor_id else None
-    if not doc or doc.get("deleted_at") or doc.get("enabled") is False:
+    return doc_refusal(actor_id, doc)
+
+
+def doc_refusal(actor_id: Any, doc: Any) -> tuple[str | None, str | None]:
+    """:func:`actor_refusal` for a document already read (a snapshot the caller then uses
+    for its work, so the trusted document and the used one cannot differ)."""
+    if not isinstance(doc, Mapping) or doc.get("deleted_at") or doc.get("enabled") is False:
+        return "actor_not_trusted", None
+    if doc.get("id") != actor_id:
         return "actor_not_trusted", None
     digest = actor_digest(doc)
-    allowed = TRUSTED_ACTOR_DIGESTS.get(actor_id, frozenset())
+    allowed = TRUSTED_ACTOR_DIGESTS.get(actor_id, frozenset()) if isinstance(actor_id, str) else ()
     return (None if digest in allowed else "actor_not_trusted"), digest
+
+
+def is_pinned(actor_id: Any) -> bool:
+    """Whether ``actor_id`` is one whose configuration must match a pinned digest."""
+    return isinstance(actor_id, str) and actor_id in TRUSTED_ACTOR_DIGESTS
 
 
 def main(argv: list[str] | None = None) -> int:

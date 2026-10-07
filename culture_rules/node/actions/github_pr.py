@@ -97,7 +97,7 @@ from culture_rules.actors.review import (
     approved_review,
     consume_approval,
 )
-from culture_rules.actors.trusted import actor_refusal, workflow_refusal
+from culture_rules.actors.trusted import doc_refusal, workflow_refusal
 from culture_rules.apps.github import DEFAULT_API_BASE, GitHubApp, GitHubError, Transport
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
 from culture_rules.engine.runs import (
@@ -381,7 +381,10 @@ class GitHubPushPort(GitHubCommentPort):
         if "gate_verdict" in input and input["gate_verdict"] != "pass":
             return InvocationResult.failed("gate_not_passed", retryable=False)
         actor_id = context.actor or input.get("actor")
-        conn = self._connection(actor_id)
+        # round 4 (#1): ONE snapshot of the actor; its digest is checked and its connection
+        # and commit author are what every git and API call below uses
+        snapshot = self._store.get(ACTORS_COLLECTION, actor_id) if actor_id else None
+        conn = self._connection_of(snapshot)
         if conn is None:
             self._apps.pop(str(actor_id), None)
             return InvocationResult.failed("actor_not_found", retryable=False)
@@ -409,7 +412,7 @@ class GitHubPushPort(GitHubCommentPort):
             log.info("github.push refused: %s", refusal)
             return InvocationResult.failed(refusal, retryable=False)
         # round 3 (#1): the App actor's security fields must match a digest pinned in code
-        refusal, _digest = actor_refusal(self._store, actor_id)
+        refusal, _digest = doc_refusal(actor_id, snapshot)
         if refusal:
             log.info("github.push refused: %s", refusal)
             return InvocationResult.failed(refusal, retryable=False)
@@ -419,7 +422,7 @@ class GitHubPushPort(GitHubCommentPort):
         job = _PushJob(self._git, tmp, deadline, self._clock)
         job.review_record = review_record
         try:
-            return self._push(str(actor_id), conn, allowed, input, context, job)
+            return self._push(str(actor_id), conn, allowed, input, context, job, snapshot)
         except _Refused as exc:
             log.info("github.push refused: %s", exc.code)
             return InvocationResult.failed(exc.code, retryable=exc.retryable)
@@ -436,6 +439,7 @@ class GitHubPushPort(GitHubCommentPort):
         input: Mapping[str, Any],
         context: InvocationContext,
         job: _PushJob,
+        snapshot: Mapping[str, Any] | None,
     ) -> InvocationResult:
         repo, branch = str(input["repo"]), str(input["head_branch"])
         expected = str(input["expected_head_sha"])
@@ -448,7 +452,7 @@ class GitHubPushPort(GitHubCommentPort):
         job.import_commit(str(input["source"]), sha)
         if not job.descends(expected, sha):
             raise _Refused("not_fast_forward")  # before any network call
-        self._check_authors(actor_id, job, expected, sha)
+        self._check_authors(snapshot, job, expected, sha)
         app = self._app(actor_id, conn, allowed)
         if app is None:
             raise _Refused("secret_unavailable")
@@ -530,10 +534,10 @@ class GitHubPushPort(GitHubCommentPort):
             start_sha=input.get("expected_head_sha"),
         )
 
-    def _check_authors(self, actor_id: str, job: _PushJob, base: str, sha: str) -> None:
-        """``foreign_author`` unless every new commit is by the actor's ``commit_author``."""
-        doc = self._store.get(ACTORS_COLLECTION, actor_id) or {}
-        want = (doc.get("params") or {}).get("commit_author")
+    @staticmethod
+    def _check_authors(doc: Mapping[str, Any] | None, job: _PushJob, base: str, sha: str) -> None:
+        """``foreign_author`` unless every new commit is by the snapshot's ``commit_author``."""
+        want = ((doc or {}).get("params") or {}).get("commit_author")
         if not want:
             return  # off unless configured
         want = str(want).strip().lower()

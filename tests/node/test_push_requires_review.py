@@ -312,3 +312,31 @@ def test_r4_2_a_record_without_a_base_pushes_nothing(pem, world):  # noqa: F811
     res = attempt(pem, world, store)[0]
     assert (res.outcome, res.error) == ("failed", "base_changed")
     assert world.remote_head() == world.a
+
+
+# --------------------------------------------------------------------------- round 4, #1
+
+
+def test_r4_1_push_trusts_and_uses_one_actor_snapshot(pem, world):  # noqa: F811
+    """An actor editor swaps the App's key reference for the first read and restores the
+    pinned shape for later reads: the push must judge the very document it works with."""
+    from tests.node.test_github_pr_actions import actor_doc
+
+    store = make_store()
+    approve(store, world.b, start_sha=world.a)
+    trusted_doc = store.get("actors", "gh-app")
+    edited = actor_doc()
+    edited["params"]["connection"]["private_key"] = "grant:SOMEONE_ELSES_APP_KEY"
+    reads = {"n": 0}
+    real_get = store.get
+
+    def get(collection, id):
+        if collection == "actors" and id == "gh-app":
+            reads["n"] += 1
+            return edited if reads["n"] == 1 else trusted_doc
+        return real_get(collection, id)
+
+    store.get = get
+    res, fake, rec = attempt(pem, world, store)
+    assert (res.outcome, res.error) == ("failed", "actor_not_trusted")
+    assert fake.calls == [] and "push" not in rec.verbs() and world.remote_head() == world.a

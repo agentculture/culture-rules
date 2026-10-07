@@ -41,6 +41,20 @@ def trust(monkeypatch):
     return add
 
 
+@pytest.fixture
+def trust_actor(monkeypatch):
+    """Trust an edited reviewer actor too, to test the verdict checks behind its digest."""
+    from culture_rules.actors import trusted
+
+    def add(doc: dict) -> dict:
+        table = dict(trusted.TRUSTED_ACTOR_DIGESTS)
+        table[doc["id"]] = table.get(doc["id"], frozenset()) | {trusted.actor_digest(doc)}
+        monkeypatch.setattr(trusted, "TRUSTED_ACTOR_DIGESTS", table)
+        return doc
+
+    return add
+
+
 FINDING = {
     "path": "src/app.py",
     "line": 1,
@@ -254,9 +268,9 @@ def test_a_workflow_edited_to_skip_the_review_still_pushes_nothing(tmp_path):
     assert_handed_back(w, doc, "push", "workflow_not_trusted")
 
 
-def test_a_reviewer_on_the_implementers_backend_is_refused(tmp_path):
+def test_a_reviewer_on_the_implementers_backend_is_refused(tmp_path, trust_actor):
     w = World(tmp_path, reviews=[{"backend": "qwen"}])
-    w.c.base.put("actors", {**reviewer_actor(), "harness": "qwen"})
+    w.c.base.put("actors", trust_actor({**reviewer_actor(), "harness": "qwen"}))
     doc = w.fire()
     # a reviewer on the fixer's backend is not an allowed reviewer at all
     assert "fix[0]/verdict: reviewer_not_allowed" in doc["error"]["message"]
@@ -279,11 +293,11 @@ def test_the_implementer_reviewing_itself_is_refused(tmp_path, trust):
     assert "reviewer_not_allowed" in doc["error"]["message"]
 
 
-def test_a_reviewer_actor_that_is_not_read_only_is_refused(tmp_path):
+def test_a_reviewer_actor_that_is_not_read_only_is_refused(tmp_path, trust_actor):
     w = World(tmp_path)
     actor = reviewer_actor()
     actor["params"] = {**actor["params"], "sandbox": "workspace-write"}
-    w.c.base.put("actors", actor)
+    w.c.base.put("actors", trust_actor(actor))
     doc = w.fire()
     assert "fix[0]/verdict: reviewer_not_read_only" in doc["error"]["message"]
     assert w.push.calls == []
@@ -552,11 +566,11 @@ def test_a_reviewer_flag_forged_on_the_fixer_still_finds_the_real_implementer(tm
     assert record(w, doc)["verdict"] == "reviewer_is_implementer"
 
 
-def test_only_an_actor_flagged_as_a_codex_reviewer_may_review(tmp_path):
+def test_only_an_actor_flagged_as_a_codex_reviewer_may_review(tmp_path, trust_actor):
     w = World(tmp_path)
     actor = reviewer_actor()
     actor["params"] = {k: v for k, v in actor["params"].items() if k != "reviewer"}
-    w.c.base.put("actors", actor)
+    w.c.base.put("actors", trust_actor(actor))
     doc = w.fire()
     assert doc["status"] == "failed" and w.push.calls == []
     assert "fix[0]/verdict: reviewer_not_allowed" in doc["error"]["message"]
@@ -793,7 +807,9 @@ def test_r3_1_a_reviewer_actor_pointed_at_another_bridge_is_not_trusted(tmp_path
     w.c.base.put("actors", actor)
     doc = w.fire()
     assert doc["status"] == "failed" and w.push.calls == []
-    assert "fix[0]/verdict: actor_not_trusted" in doc["error"]["message"]
+    # round 4: refused before the review is even sent there
+    assert "fix[0]/review: actor_not_trusted" in doc["error"]["message"]
+    assert w.reviewer.inputs == []
 
 
 def test_r3_1_the_record_snapshots_the_checked_actor_digest(tmp_path):
@@ -803,3 +819,33 @@ def test_r3_1_the_record_snapshots_the_checked_actor_digest(tmp_path):
     doc = w.fire()
     assert doc["status"] == "succeeded", doc.get("error")
     assert record(w, doc)["trusted_actors"] == {"codex-reviewer": actor_digest(reviewer_actor())}
+
+
+# --------------------------------------------------------------------------- round 4, #1
+
+
+def test_r4_1_a_reviewer_swapped_for_the_dispatch_and_restored_is_refused(tmp_path):
+    # codex-reviewer is pointed at another bridge, the review goes out there, and the
+    # pinned actor is put back before the verdict step reads it
+    w = World(tmp_path)
+    pinned = reviewer_actor()
+    w.c.base.put(
+        "actors", {**pinned, "params": {**pinned["params"], "bridge_url": "http://127.0.0.1:9999"}}
+    )
+    w.reviewer.on_request = lambda: w.c.base.put("actors", copy.deepcopy(pinned))
+    doc = w.fire()
+    assert doc["status"] == "failed" and w.push.calls == []
+    assert "actor_not_trusted" in doc["error"]["message"]
+    assert not any("9999" in u for u in w.reviewer.urls)  # refused before dispatch
+
+
+def test_r4_1_the_invocation_records_the_digest_and_endpoint_it_used(tmp_path):
+    from culture_rules.actors.agent import BRIDGE_INVOCATIONS
+    from culture_rules.actors.trusted import actor_digest
+
+    w = World(tmp_path)
+    doc = w.fire()
+    assert doc["status"] == "succeeded", doc.get("error")
+    (inv,) = [d for d in w.c.base.find(BRIDGE_INVOCATIONS) if d["actor"] == "codex-reviewer"]
+    assert inv["actor_digest"] == actor_digest(reviewer_actor())
+    assert inv["bridge_url"] == reviewer_actor()["params"]["bridge_url"]

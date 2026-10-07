@@ -425,10 +425,15 @@ Workflow `pr-fixer`:
    the record again right before the final `git push` and refuses if
    another record has become current (`review_changed`). Then it
    **consumes** the approval: a compare-and-set turns the pointer to
-   `consumed`, bound to the pushed commit. No later verdict can move a
+   `consumed`, bound to the pushed commit. Before that, the PR's base as
+   GitHub reports it must still be the base the review recorded
+   (`base_changed` otherwise; the next checks event runs the gate and the
+   review again against the new base). No later verdict can move a
    consumed pointer (it is recorded and fails `review_consumed`), so no
    revocation can land between that moment and the push. What remains is the
-   git network call itself, which cannot be part of a store transaction: a
+   GitHub reads and the git network call themselves, which cannot be part
+   of a store transaction (a base could still move between the PR read and
+   the push): a
    push that fails after consumption pushed nothing, and its retry finds the
    approval consumed for the same commit. The push takes `commit_sha` and
    `expected_head_sha` from the gate.
@@ -469,12 +474,19 @@ set of digests, in `culture_rules/actors/trusted.py`):
 
 - `codex-reviewer`: id, kind, harness, model, machine, and `params`
   `bridge_url`, `callback_url`, `bridge_token`, `sandbox`, `model`, `mode`,
-  `locked_instruction`, `reviewer`, `max_bound_input_chars`. The verdict
-  step refuses any other shape (`actor_not_trusted`) and the review record
-  snapshots the digest it checked (`trusted_actors`).
+  `locked_instruction`, `reviewer`, `max_bound_input_chars`. The check
+  happens where the configuration is used: the bridge adapter refuses to
+  dispatch from an untrusted snapshot (`actor_not_trusted`) and records the
+  digest and the endpoint it called on the invocation. The verdict step
+  requires that recorded digest to be trusted, and checks the current actor
+  too, so swapping the actor for the dispatch and restoring it before the
+  verdict does not help. The review record keeps the digest it checked
+  (`trusted_actors`).
 - `github-app`: id, kind, machine, `params.surface`, `commit_author`,
   `permissions`, and `connection` `app_id`, `installation_id` and
-  `private_key` (the reference). `github.push` refuses any other shape.
+  `private_key` (the reference). `github.push` reads the actor **once**,
+  checks that snapshot, and uses the same snapshot's connection and commit
+  author for every GitHub and git call; any other shape is refused.
 - `qwen-fixer` is not pinned: everything it produces is reviewed.
 
 Names, descriptions and limits such as `max_concurrency` are not part of

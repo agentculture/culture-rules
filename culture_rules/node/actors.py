@@ -87,6 +87,7 @@ def default_factories(store: Any, *, emitter: Any = None) -> dict[str, AdapterFa
                 },
                 actor_id=actor.id,
                 max_bound_input_chars=params.get("max_bound_input_chars"),
+                actor_doc=actor.to_dict(),
             )
         return ColleagueActor(
             repo=params.get("repo") or actor.repo, engine=params.get("engine"), model=actor.model

@@ -56,7 +56,11 @@ class GitHubCommentPort:
     def _connection(self, actor_id: str | None) -> Mapping[str, Any] | None:
         if not actor_id:
             return None
-        doc = self._store.get(ACTORS_COLLECTION, actor_id)
+        return self._connection_of(self._store.get(ACTORS_COLLECTION, actor_id))
+
+    @staticmethod
+    def _connection_of(doc: Mapping[str, Any] | None) -> Mapping[str, Any] | None:
+        """The GitHub connection of an actor document already read."""
         if not doc or doc.get("enabled") is False:
             return None
         params = doc.get("params") or {}

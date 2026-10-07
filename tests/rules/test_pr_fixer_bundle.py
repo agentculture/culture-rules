@@ -570,9 +570,14 @@ class ReviewerBridge:
         self.store = base
         self.script = list(script or [])
         self.inputs: list[dict] = []
+        self.urls: list[str] = []
         self.seq = 0
+        self.on_request = None  # called as each review request arrives
 
     def __call__(self, method, url, body, headers, timeout):
+        self.urls.append(url)
+        if self.on_request is not None:
+            self.on_request()
         doc = json.loads(body)
         given = doc["input"]
         self.inputs.append(given)
@@ -626,6 +631,7 @@ def reviewer_adapter(base, actor, transport, clock) -> BridgeAgentActor:
         transport=transport,
         clock=clock,
         max_bound_input_chars=params.get("max_bound_input_chars"),
+        actor_doc=actor.to_dict(),
     )
 
 

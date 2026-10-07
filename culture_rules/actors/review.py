@@ -80,6 +80,7 @@ from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
 
+from culture_rules.actors import trusted as _trusted
 from culture_rules.actors.trusted import actor_refusal, workflow_refusal
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
 
@@ -704,6 +705,13 @@ class ReviewVerdictPort:
         ):
             raise ReviewError(
                 "review_invalid", "the review did not run with the locked reviewer brief"
+            )
+        # round 4 (#1): the configuration that EXECUTED must have been trusted - the
+        # adapter recorded its digest before dispatch; the current actor is checked too
+        pinned = _trusted.TRUSTED_ACTOR_DIGESTS.get(str(reviewer_id), frozenset())
+        if doc.get("actor_digest") not in pinned:
+            raise ReviewError(
+                "actor_not_trusted", f"{reviewer_id} ran with an untrusted configuration"
             )
 
     def _actor(self, actor_id: str | None, role: str) -> Mapping[str, Any]:
