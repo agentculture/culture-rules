@@ -26,6 +26,7 @@ from culture_rules.model import condition as condition_tree
 from culture_rules.model import serde
 from culture_rules.model.action import Action
 from culture_rules.model.action_kinds import ACTION_KINDS, is_lenient, param_type_ok, resolve_kind
+from culture_rules.model.action_step import is_action_step, ref_problems, validation_params
 from culture_rules.model.actor import Actor
 from culture_rules.model.app_actor import app_param_errors
 from culture_rules.model.common import SCHEMA_VERSION, RetryPolicy
@@ -620,6 +621,23 @@ def _check_step(obj: Step, path: str, errors: Errors) -> None:
             _err(errors, _join(path, "body"), "not_allowed", "only loop steps have a body")
         if obj.kind == "wait":
             _check_wait_config(obj.config, _join(path, "config"), errors)
+        elif is_action_step(obj.kind, obj.config):
+            _check_action_step(obj, _join(path, "config.action"), errors)
+
+
+def _check_action_step(obj: Step, path: str, errors: Errors) -> None:
+    """A built-in action step (d12): a catalogued kind whose params pass the rule-action
+    kind-param checks; its references must be ``inputs.<declared input port>``."""
+    spec = obj.config.get("action")
+    kind = spec.get("kind") if isinstance(spec, dict) else None
+    params = spec.get("params", {}) if isinstance(spec, dict) else None
+    if not isinstance(kind, str) or not kind.strip() or not isinstance(params, dict):
+        _err(errors, path, "action_step_invalid", "needs config.action {kind, params: object}")
+        return
+    _check_action_kind(Action(kind=kind, params=validation_params(params)), path, errors)
+    ports = {p.name for p in obj.inputs if isinstance(p, Port)}
+    for where, reason in ref_problems(params, ports):
+        _err(errors, _join(_join(path, "params"), where), "action_step_ref", reason)
 
 
 def _check_actor(obj: Actor, path: str, errors: Errors) -> None:

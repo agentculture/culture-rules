@@ -22,7 +22,13 @@ fourth, ``{"$var": <name>}`` (a one-key object): the current value of the shared
 ``name``, read from the context's ``variables`` namespace (``None`` when undefined). Only
 a context that carries ``variables`` (the engine passes it when it maps workflow inputs)
 resolves it; elsewhere, such as action params, the object passes through as written. The
-model validator refuses any other value. Standard-library only.
+model validator refuses any other value.
+
+A context that carries ``inputs`` (the built-in action step's input ports,
+:mod:`culture_rules.model.action_step`) also resolves ``inputs.<port>...`` as a whole string
+and inside ``{{ }}`` templates (``{"$ref": "inputs..."}`` resolves anywhere). Without that
+key such strings stay literals, so a rule action's params are unaffected. Standard-library
+only.
 """
 
 from __future__ import annotations
@@ -33,11 +39,13 @@ from collections.abc import Iterator, Mapping
 from typing import Any
 
 __all__ = [
+    "INPUTS_NAMESPACE",
     "LITERAL_KEY",
     "NAMESPACES",
     "REF_KEY",
     "TRIGGER_FIELDS",
     "VAR_KEY",
+    "is_input_reference",
     "is_reference",
     "lookup",
     "ref_error",
@@ -52,6 +60,8 @@ REF_KEY = "$ref"
 LITERAL_KEY = "$literal"
 VAR_KEY = "$var"
 NAMESPACES = ("trigger", "workflow", "rules")
+INPUTS_NAMESPACE = "inputs"
+"""The step-input namespace, resolved only by a context that carries it (action steps)."""
 
 #: Fields an event envelope may carry (events-cli wire form): ``trigger.<field>...`` is a
 #: reference even on an event that lacks the field.
@@ -72,6 +82,8 @@ TRIGGER_FIELDS = frozenset(
 
 _PATH = re.compile(r"^(?:workflow|trigger|rules)(?:\.[^.\s{}]+)+$")
 _TEMPLATE = re.compile(r"\{\{\s*((?:workflow|trigger|rules)(?:\.[^.\s{}]+)+)\s*\}\}")
+_INPUT_PATH = re.compile(r"^inputs(?:\.[^.\s{}]+)+$")
+_STEP_TEMPLATE = re.compile(r"\{\{\s*((?:workflow|trigger|rules|inputs)(?:\.[^.\s{}]+)+)\s*\}\}")
 
 
 def lookup(context: Mapping[str, Any], path: str) -> Any:
@@ -102,6 +114,11 @@ def is_reference(path: str, trigger: Mapping[str, Any] | None = None) -> bool:
     if parts[0] == "trigger":
         return parts[1] in TRIGGER_FIELDS or parts[1] in (trigger or {})
     return _shape_ok(parts)
+
+
+def is_input_reference(path: str) -> bool:
+    """Whether the whole string ``path`` is a step-input reference (``inputs.<port>...``)."""
+    return bool(_INPUT_PATH.match(path))
 
 
 def structured_form(value: Any) -> str | None:
@@ -159,9 +176,11 @@ def _text(value: Any) -> str:
 def resolve_refs(value: Any, context: Mapping[str, Any]) -> Any:
     """Resolve every reference form (see the module docstring) inside ``value``."""
     if isinstance(value, str):
-        if is_reference(value, context.get("trigger")):
+        step = INPUTS_NAMESPACE in context
+        if is_reference(value, context.get("trigger")) or (step and is_input_reference(value)):
             return lookup(context, value)
-        return _TEMPLATE.sub(lambda m: _text(lookup(context, m.group(1))), value)
+        template = _STEP_TEMPLATE if step else _TEMPLATE  # one pass: no re-expansion
+        return template.sub(lambda m: _text(lookup(context, m.group(1))), value)
     variables = context.get("variables")
     if isinstance(variables, Mapping) and (name := var_name(value)) is not None:
         return copy.deepcopy(variables.get(name))
