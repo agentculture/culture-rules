@@ -248,8 +248,10 @@ share one workflow (d13):
 | `pr-fixer-review` | `github.review.submitted` | trusted author, not the App |
 | `pr-fixer-review-comment` | `github.review_comment.created` | trusted author, not the App |
 
-Every rule also requires `head_repo == base_repo`, `draft == false` and the
-repository not in `vars.fixer_excluded_repos`. A missing fact makes the
+Every rule also requires `head_repo == base_repo` and `draft == false`.
+`fixer_repos` is an allow-list (d18): the repository must be in
+`vars.fixer_repos`. `vars.fixer_excluded_repos` overrides it: a repository in
+both lists never fires. A missing fact makes the
 comparison false, so an event without PR facts never fires. "Trusted author"
 is `data.author in vars.trusted_authors`, and "not the App" is
 `self_authored != true`. The conditions reference the variables and never copy
@@ -333,11 +335,33 @@ The seed values are:
 - `ignored_check_apps`: `["claude"]`;
 - `checks_settle_timeout_s`: 900;
 - `checks_settle_min_s`: 60;
-- `fixer_excluded_repos`: `["agentculture/culture-rules"]`;
+- `fixer_repos`: `["agentculture/pr-fixer-sandbox"]`, the scratch repository
+  for t20;
+- `fixer_excluded_repos`: `[]`. culture-rules is out because it is not on the
+  allow-list;
 - `fixer_protected_paths`: the list in section 5.
 
 Re-running the script leaves a variable that already exists alone. Pass
 `--force` to replace it.
+
+Widening the fixer means adding a repository to `fixer_repos`. Narrowing it
+means removing one, or adding it to `fixer_excluded_repos`:
+
+```bash
+culture-rules variables add fixer_repos agentculture/some-repo            # dry run
+culture-rules variables add fixer_repos agentculture/some-repo --apply    # admin
+culture-rules variables remove fixer_repos agentculture/some-repo --apply
+```
+
+`variables add` and `variables remove` edit one item atomically. The server
+does a compare-and-set on the version and retries, so two callers adding at
+the same moment both land. An item already present (for `add`) or absent (for
+`remove`) writes no new version. Every change is a new version naming the
+caller, as with `variables set`.
+
+*Planned* (guildmaster#138): guildmaster adds each repository to
+`fixer_repos` when it provisions it. Whether a repository gets the fixer is
+chosen at provisioning time, like public or private.
 
 Known limits of this version:
 

@@ -31,7 +31,7 @@ from culture_rules.model.variable_refs import rule_variable_refs
 from culture_rules.node.actions.github_pr import AddressedThreadsPort, GitHubThreadsPort
 from culture_rules.node.runner import BuiltinCodePort
 from culture_rules.server.hooks import github as gh_hook
-from culture_rules.server.service import Definitions, Invalid
+from culture_rules.server.service import Definitions, Invalid, Variables
 from culture_rules.server.status import run_hosts
 from culture_rules.store.memory import MemoryStore
 from tests.actors.test_gate import PASSING, LocalRunner, PushSpy, Repo, gate_yaml, git
@@ -57,6 +57,7 @@ VARIABLES = {
     "ignored_check_apps": ["claude"],
     "checks_settle_timeout_s": 900,
     "checks_settle_min_s": 60,
+    "fixer_repos": [REPO, "o/excluded"],
     "fixer_excluded_repos": ["o/excluded"],
     "fixer_protected_paths": [".github/workflows/**"],
 }
@@ -126,7 +127,10 @@ def _literal_lists(node):
 def test_conditions_reference_the_variables_never_a_copied_list():
     for r in bundle().rules:
         refs = rule_variable_refs(r)
-        assert "fixer_excluded_repos" in refs, r.id
+        assert {"fixer_repos", "fixer_excluded_repos"} <= refs, r.id
+        text = json.dumps(r.condition)
+        assert '"items": {"var": "fixer_repos"}' in text
+        assert '"items": {"var": "fixer_excluded_repos"}' in text
         assert list(_literal_lists(r.condition)) == [], r.id
         assert r.workflow.inputs["trusted_authors"] == {"$var": "trusted_authors"}
         if r.id in COMMENT_RULES:
@@ -237,7 +241,8 @@ def test_seed_script_calls_work_through_the_real_cli(tmp_path, store, wire, caps
     assert values["checks_settle_timeout_s"] == 900
     assert values["checks_settle_min_s"] == 60
     assert values["ignored_check_apps"] == ["claude"]
-    assert values["fixer_excluded_repos"] == ["agentculture/culture-rules"]
+    assert values["fixer_repos"] == ["agentculture/pr-fixer-sandbox"]
+    assert values["fixer_excluded_repos"] == []
     assert ".github/workflows/**" in values["fixer_protected_paths"]
     assert "qodo-code-review[bot]" in values["trusted_authors"]
     assert store.get_variable("trusted_authors")["description"]
@@ -331,10 +336,34 @@ def test_editing_trusted_authors_changes_what_fires_without_editing_the_rule():
         {"draft": True},
         {"head_repo": "fork/r"},
     ],
-    ids=["excluded_repo", "draft", "fork"],
+    ids=["in_both_lists", "draft", "fork"],
 )
 def test_excluded_repos_drafts_and_forks_never_fire(rule_id, data):
     assert not fires(rule_id, **data)
+
+
+@pytest.mark.parametrize("rule_id", sorted(RULE_IDS))
+def test_a_repo_not_in_fixer_repos_never_fires(rule_id):
+    other = {"repository": "o/other", "head_repo": "o/other", "base_repo": "o/other"}
+    assert not fires(rule_id, **other)
+    assert fires(rule_id)  # REPO is on the allow-list
+
+
+def test_widening_is_adding_the_repo_to_fixer_repos():
+    other = {"repository": "o/other", "head_repo": "o/other", "base_repo": "o/other"}
+    c = cluster()
+    c.publish(
+        envelope(1, type=RULE_IDS["pr-fixer-checks"], data=EVENTS["pr-fixer-checks"](**other))
+    )
+    c.cycle()
+    assert c.run("pr-fixer-checks", "evt_1") is None
+    out = Variables(c.base).add_item("fixer_repos", "o/other", "guildmaster")
+    assert out["changed"] is True
+    c.publish(
+        envelope(2, type=RULE_IDS["pr-fixer-checks"], data=EVENTS["pr-fixer-checks"](**other))
+    )
+    c.cycle()
+    assert c.run("pr-fixer-checks", "evt_2") is not None
 
 
 def test_adding_the_repo_to_fixer_excluded_repos_stops_the_next_event():
@@ -366,8 +395,9 @@ def test_green_checks_do_not_start_a_fixer_run():
 
 
 def test_an_undefined_variable_fails_closed():
-    values = {k: v for k, v in VARIABLES.items() if k != "fixer_excluded_repos"}
-    assert not fires("pr-fixer-checks", c=cluster(variables=values))
+    for missing in ("fixer_repos", "fixer_excluded_repos"):
+        values = {k: v for k, v in VARIABLES.items() if k != missing}
+        assert not fires("pr-fixer-checks", c=cluster(variables=values))
 
 
 HOOK_KEY = "hook-secret"

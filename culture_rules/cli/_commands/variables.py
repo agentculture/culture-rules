@@ -1,15 +1,19 @@
 """``culture-rules variables`` — shared variables over the HTTP API.
 
-Reads are viewer; ``set`` needs the admin role and appends a version naming the caller.
+Reads are viewer; ``set``, ``add`` and ``remove`` need the admin role and append a version
+naming the caller. ``add`` / ``remove`` edit one item of a list variable atomically (the server
+retries a compare-and-set on the version), so two callers adding at once both land.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 from typing import Any
 
 from culture_rules.cli import _api
 from culture_rules.cli._build import register_noun
+from culture_rules.cli._errors import EXIT_USER_ERROR, CliError
 from culture_rules.cli._nounlib import sections_overview, seg, write
 from culture_rules.cli.registry import Context, Param, Verb
 
@@ -53,6 +57,60 @@ def _set(ctx: Context, name: str, value: Any, description: str | None = None) ->
     return out
 
 
+def _coerce(item: str, value: Any) -> Any:
+    """The CLI's text ``item`` as the list's item type: a number or boolean when the list
+    holds those (the text must parse as one), else the text itself."""
+    kinds = {type(v).__name__ for v in value} if isinstance(value, list) else set()
+    if kinds and kinds <= {"int", "float", "bool"}:
+        try:
+            parsed = json.loads(item)
+        except ValueError:
+            parsed = None
+        ok = (
+            isinstance(parsed, bool)
+            if kinds == {"bool"}
+            else (isinstance(parsed, (int, float)) and not isinstance(parsed, bool))
+        )
+        if not ok:
+            raise CliError(
+                EXIT_USER_ERROR,
+                f"{item!r} is not a {' or '.join(sorted(kinds))} like the list's items",
+                "pass an item of the list's type",
+            )
+        return parsed
+    return item
+
+
+def _edit(ctx: Context, op: str, name: str, item: str) -> dict[str, Any]:
+    current = _get(ctx, name)
+    value = current.get("value")
+    body = {"item": _coerce(item, value)}
+    path = f"/variables/{seg(name)}/items/{op}"
+    out = write(ctx, f"variables {op}", "POST", path, body)
+    if not ctx.apply:
+        present = isinstance(value, list) and body["item"] in value
+        out["current"] = current
+        out["would_change"] = (not present) if op == "add" else present
+    return out
+
+
+def _add(ctx: Context, name: str, item: str) -> dict[str, Any]:
+    """Add one item to a list variable; already present writes no version."""
+    return _edit(ctx, "add", name, item)
+
+
+def _remove(ctx: Context, name: str, item: str) -> dict[str, Any]:
+    """Remove one item from a list variable; absent writes no version."""
+    return _edit(ctx, "remove", name, item)
+
+
+ITEM = Param(
+    "item",
+    help="the item (text; a number or boolean when the list holds those), e.g. owner/repo",
+    required=True,
+    positional=True,
+)
+
 VERBS: list[Verb] = [
     Verb(NOUN, "overview", f"Describe the {NOUN} noun and its verbs", _overview),
     Verb(NOUN, "list", "List variables (latest version of each)", _list),
@@ -67,6 +125,24 @@ VERBS: list[Verb] = [
             Param("value", "any", "the new value: JSON scalar or flat list", required=True),
             Param("description", help="what the variable is for"),
         ),
+        True,
+        "admin",
+    ),
+    Verb(
+        NOUN,
+        "add",
+        "Add an item to a list variable atomically; no new version if present (admin)",
+        _add,
+        (NAME, ITEM),
+        True,
+        "admin",
+    ),
+    Verb(
+        NOUN,
+        "remove",
+        "Remove an item from a list variable atomically; no new version if absent (admin)",
+        _remove,
+        (NAME, ITEM),
         True,
         "admin",
     ),

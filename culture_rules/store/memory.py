@@ -34,6 +34,7 @@ from culture_rules.store.port import (
     DuplicateKeyError,
     StoreError,
     UpdateResult,
+    VariableVersionConflict,
     cursor_id,
 )
 from culture_rules.store.versioning import (
@@ -335,7 +336,13 @@ class MemoryStore:
         }
 
     def put_variable(
-        self, name: str, value: Any, *, updated_by: str, description: str | None = None
+        self,
+        name: str,
+        value: Any,
+        *,
+        updated_by: str,
+        description: str | None = None,
+        expected_version: int | None = None,
     ) -> Document:
         self._validate_variable_name(name)
         self._validate_variable_value(value)
@@ -343,6 +350,11 @@ class MemoryStore:
         while True:
             existing = self._get(None, VARIABLES_COLLECTION, name)
             versions: list[Document] = list(existing.get("versions", [])) if existing else []
+            current = versions[-1]["version"] if versions else 0
+            if expected_version is not None and current != expected_version:
+                raise VariableVersionConflict(
+                    f"variable {name!r} is at version {current}, not {expected_version}"
+                )
             entry: Document = {
                 "version": (versions[-1]["version"] if versions else 0) + 1,
                 "value": copy.deepcopy(value),

@@ -78,6 +78,7 @@ from culture_rules.store.port import (
     StoreOps,
     TransientStoreError,
     UpdateResult,
+    VariableVersionConflict,
     VersionSkewError,
     cursor_id,
 )
@@ -587,7 +588,13 @@ class MongoStore:
         return _to_doc(raw)
 
     def put_variable(
-        self, name: str, value: Any, *, updated_by: str, description: str | None = None
+        self,
+        name: str,
+        value: Any,
+        *,
+        updated_by: str,
+        description: str | None = None,
+        expected_version: int | None = None,
     ) -> Document:
         self._validate_variable_name(name)
         self._validate_variable_value(value)
@@ -607,6 +614,10 @@ class MongoStore:
                 # below still matches the stored value (absent -> None), and
                 # _update_if replaces the exact document it read.
                 latest_version = doc.get("latest_version") or len(doc.get("versions", []))
+            if expected_version is not None and latest_version != expected_version:
+                raise VariableVersionConflict(
+                    f"variable {name!r} is at version {latest_version}, not {expected_version}"
+                )
             next_version = latest_version + 1
             entry: Document = {
                 "version": next_version,

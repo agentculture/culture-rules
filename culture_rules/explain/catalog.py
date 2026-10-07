@@ -234,7 +234,8 @@ _NOUN_BLURBS = {
     "variables": (
         "Variables are shared values (a scalar or a flat list) that rule conditions and workflow "
         "inputs read; every change appends a version naming who made it, and only an admin may "
-        "write."
+        "write. `add` / `remove` change one item of a list atomically (concurrent adds all "
+        "land; a no-op writes no version)."
     ),
     "runs": "Runs are executions of a rule's workflow; pause and resume gate the whole engine.",
 }

@@ -36,6 +36,15 @@
         }
       },
       {
+        "items": {
+          "var": "fixer_repos"
+        },
+        "op": "in",
+        "value": {
+          "field": "data.repository"
+        }
+      },
+      {
         "arg": {
           "items": {
             "var": "fixer_excluded_repos"
@@ -60,7 +69,7 @@
     ],
     "op": "and"
   },
-  "description": "Fires once per PR head SHA when its checks settle not green. Same-repo, non-draft PRs only; repos in vars.fixer_excluded_repos are skipped. Shares the pr-fixer workflow and the per-PR concurrency key and attempt budget with the other pr-fixer-* rules.",
+  "description": "Fires once per PR head SHA when its checks settle not green. Same-repo, non-draft PRs of repos in vars.fixer_repos only; vars.fixer_excluded_repos overrides it. Shares the pr-fixer workflow and the per-PR concurrency key and attempt budget with the other pr-fixer-* rules.",
   "enabled": false,
   "exclusive_group": null,
   "id": "pr-fixer-checks",
