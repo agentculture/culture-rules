@@ -17,7 +17,7 @@ WHEEL=""
 CA_FILE=""
 MONGO_SECRET="RULES_MONGO_URI"
 SECRETS=()
-EXTRAS="store,events,github,discord"
+EXTRAS="store,events,github,discord,yaml"
 WHEELHOUSE=""
 EVENTS_HOST=""
 EVENTS_PORT=""
@@ -42,7 +42,7 @@ Options:
   --mongo-secret NAME   grant secret holding the Mongo URI (default: RULES_MONGO_URI)
   --secret NAME         a grant secret an app actor on this machine references (repeatable);
                         injected as CULTURE_RULES_SECRET_<NAME>, so a --hidden secret works
-  --extras LIST         extras to install (default: store,events,github,discord)
+  --extras LIST         extras to install (default: store,events,github,discord,yaml)
   --wheelhouse DIR      offline install: pip --no-index --find-links DIR
   --events-host HOST    write EVENTS_BROKER_HOST into node.env (optional)
   --events-port PORT    write EVENTS_BROKER_PORT into node.env (optional)
