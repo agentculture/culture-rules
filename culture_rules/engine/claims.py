@@ -367,7 +367,8 @@ run counts, whatever its outcome); ``pending_event_id`` / ``pending_rule_id`` (t
 firing deduplicated while the key was held, and the rule that recorded it: it is fired once,
 through that rule, when the holding run ends, so the latest event is never lost); and
 ``revision`` (the compare-and-set token every write bumps). The counter resets only on an
-explicit signal (:func:`reset_attempt_budget`): a human push or green checks.
+explicit signal (:func:`reset_attempt_budget`, once per key and reset event): a human push
+or green checks.
 """
 
 
@@ -405,23 +406,44 @@ def budget_id(key: str) -> str:
     return _digest(["concurrency", key])
 
 
+RESET_MARKERS = "event_fires"
+"""Where :func:`reset_attempt_budget` notes each (key, reset event) it applied: the
+exactly-once marker collection the trigger consumers already write
+(:data:`culture_rules.events.triggers.FIRES_COLLECTION`)."""
+
+
+def reset_marker_id(key: str, event_id: str) -> str:
+    """The marker id noting that reset event ``event_id`` was applied to ``key``."""
+    return f"budget-reset/{budget_id(key)}/{event_id}"
+
+
 def reset_attempt_budget(store: StoreOps, key: str, event_id: str) -> None:
     """Reset ``key``'s counter on the reset event ``event_id`` (human push or green checks),
-    preserving a reservation.
+    preserving a reservation - at most once per (key, event), whatever the order.
 
     Called once per key in the event's exactly-once transaction, whichever and however many
     rules share the key, including when the event does not match their triggers or the key
-    has an active run. The event is noted (``reset_by``): a second consumer evaluating the
-    same event (placed and shared rules sharing a key) does not reset again, which would
-    erase an attempt admitted in between. A key with no budget yet has nothing to reset.
+    has an active run. Placed and shared rules sharing a key reach it through different
+    consumers that may progress at different speeds, so the (key, event) pair is noted with
+    a marker document (:func:`reset_marker_id`) inserted in the same transaction: a second
+    consumer handling the same event - even after the first has handled newer resets and
+    admitted another attempt - finds the marker and resets nothing. The marker is written
+    even when the key has no budget yet (nothing to reset), so an attempt admitted later is
+    not erased by a lagging consumer either. A per-(key, event) marker rather than a
+    watermark on the budget: the consumers share no comparable order (feed tokens are
+    opaque and envelope times may tie or skew), and the budget document stays bounded (the
+    markers grow like the per-event fire markers beside them).
     """
-
-    def change(current: Document) -> dict[str, Any] | None:
-        if current.get("reset_by") == event_id:
-            return None
-        return {"count": 0, "reset_by": event_id}
-
-    _cas_budget(store, budget_id(key), change, "attempt budget reset")
+    marker_id = reset_marker_id(key, event_id)
+    if store.get(RESET_MARKERS, marker_id) is not None:
+        return
+    # Two consumers racing on one event both insert: one write conflicts and its retry
+    # sees the marker (the same serialisation as the trigger fire markers).
+    store.insert(
+        RESET_MARKERS,
+        {"id": marker_id, "kind": "budget-reset", "key": key, "event_id": event_id},
+    )
+    _cas_budget(store, budget_id(key), lambda _current: {"count": 0}, "attempt budget reset")
 
 
 def reserve_concurrency(

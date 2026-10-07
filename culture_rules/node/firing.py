@@ -168,11 +168,21 @@ prefix (``pr-fixer:``). :mod:`culture_rules.engine.claims` keeps one
   app actor names its ``self_identity``), or a ``github.pr.checks_settled`` with
   ``data.conclusion`` ``"success"``. It resets each distinct key once per event: the keys
   that this consumer's keyed rules triggered by a ``github.*`` event resolve on the reset
-  event, whatever the event's own type (the budget notes the resetting event, so a second
-  consumer does not reset again);
+  event, whatever the event's own type. A reset applies once per (key, event) whatever the
+  order consumers reach it in (a marker per pair, see ``reset_attempt_budget``), so a
+  lagging consumer never grants an attempt without a new signal;
 * **fail closed per rule.** A key that does not resolve on a firing event (a missing or
   non-scalar value) records the final skip ``concurrency_key_unresolved``; other rules on
-  the same event, and later events, are unaffected.
+  the same event, and later events, are unaffected;
+* **admission skips reach dependants.** Admission runs after sequencing, so a dependant in
+  the same evaluation waits; every later evaluation of that event (the chain re-evaluation
+  the skip record triggers included) applies the recorded final admission skip -
+  ``attempt_budget_exhausted``, ``concurrency_key_unresolved``, or a ``deduplicated``
+  event marked ``coalesced`` once a newer one replaced it as the key's pending event - to
+  the predecessor *before* sequencing, so a must-after dependant settles as
+  ``predecessor_failed`` and a may-after one fires without it. A deduplicated event still
+  pending keeps its dependants waiting: it fires once the holding run ends. A holding
+  run's end is processed even after its rule was deleted or lost its key.
 
 Standard-library only.
 """
@@ -190,6 +200,7 @@ from typing import Any
 from culture_rules.engine.chaining import LIVE, START_FAILED, sequence
 from culture_rules.engine.claims import (
     RULE_ATTEMPT_BUDGETS,
+    budget_id,
     firing_key,
     note_deduplicated,
     release_concurrency,
@@ -205,6 +216,7 @@ from culture_rules.engine.decisions import (
     settle_decision,
 )
 from culture_rules.engine.matching import (
+    ATTEMPT_BUDGET_EXHAUSTED,
     BLOCKED_BY_PREDECESSOR,
     CONCURRENCY_KEY_UNRESOLVED,
     DEDUPLICATED,
@@ -577,6 +589,7 @@ class RuleFiring:
             return decision, key
         detail = key
         if reason == DEDUPLICATED:
+            _coalesce_away(tx, key, rule.id, envelope["id"])
             holder = note_deduplicated(tx, rule.id, key, envelope["id"])
             detail = f"{key}: held by run {holder}"
         return Decision(rule_id=rule.id, fire=False, reason=reason, detail=detail), key
@@ -629,6 +642,7 @@ class RuleFiring:
             trigger_match=_trigger_matcher(envelope, rules),
         )
         decisions = self._rate_capped(tx, decisions, rules, ours, event_id, now)
+        decisions = _admission_settled(tx, decisions, rules, ours, event_id)
         by_id = {r.id: r for r in rules}
         for decision in sequence(decisions, rules, states):
             if decision.rule_id not in ours:
@@ -833,6 +847,63 @@ def _shared_max_attempts(rules: list[Rule], envelope: Mapping[str, Any], key: st
     return min(limits) if limits else None
 
 
+ADMISSION_FINAL = (ATTEMPT_BUDGET_EXHAUSTED, CONCURRENCY_KEY_UNRESOLVED)
+"""Admission skips that are final for their (rule, event): no later evaluation admits it."""
+
+
+def _admission_final(record: Mapping[str, Any]) -> bool:
+    """Whether a decision record is a final admission skip: the budget was spent or the key
+    did not resolve, or the event was deduplicated and then replaced as its key's newest
+    deduplicated event (``coalesced``: it will never fire). A deduplicated event that is
+    still its key's pending one is not final - it fires once the holding run ends."""
+    reason = record.get("reason")
+    return reason in ADMISSION_FINAL or (reason == DEDUPLICATED and bool(record.get("coalesced")))
+
+
+def _admission_settled(
+    tx: StoreOps,
+    decisions: tuple[Decision, ...],
+    rules: list[Rule],
+    ours: set[str],
+    event_id: str,
+) -> tuple[Decision, ...]:
+    """``decisions`` with every fire whose (rule, event) already recorded a final admission
+    skip turned back into that skip, *before* sequencing (module doc, "Concurrency keys").
+
+    Admission runs after :func:`sequence`, so a chain re-evaluation would otherwise rebuild
+    the predecessor as eligible from matching alone and keep its dependant waiting forever;
+    with it, a must-after dependant settles as ``predecessor_failed`` and a may-after one
+    fires without it. Sticky, like ``rate_capped``: never re-admitted for that event."""
+    predecessors = {p for r in rules for p in (*r.must_after, *r.may_after)}
+    out: list[Decision] = []
+    for d in decisions:
+        rid = d.rule_id
+        if d.fire and (rid in ours or rid in predecessors):
+            record = tx.get(RULE_DECISIONS, decision_key(rid, event_id))
+            if record is not None and _admission_final(record):
+                d = Decision(
+                    rule_id=rid,
+                    fire=False,
+                    reason=record["reason"],
+                    detail=record.get("detail") or "",
+                )
+        out.append(d)
+    return tuple(out)
+
+
+def _coalesce_away(tx: StoreOps, key: str, rule_id: str, event_id: str) -> None:
+    """``event_id`` (via ``rule_id``) is about to replace the key's pending deduplicated
+    event: mark the replaced one's record ``coalesced``, final - it will never fire - so
+    the chain feed settles its dependants (:func:`_settled_skip`)."""
+    budget = tx.get(RULE_ATTEMPT_BUDGETS, budget_id(key)) or {}
+    event, rule = budget.get("pending_event_id"), budget.get("pending_rule_id")
+    if not event or not rule or (event, rule) == (event_id, rule_id):
+        return
+    tx.update_if(
+        RULE_DECISIONS, decision_key(rule, event), {"reason": DEDUPLICATED}, {"coalesced": True}
+    )
+
+
 def _capped(rule_id: str, detail: str) -> Decision:
     return Decision(rule_id=rule_id, fire=False, reason=RATE_CAPPED, detail=detail)
 
@@ -908,6 +979,11 @@ def _settled_skip(doc: Mapping[str, Any]) -> str | None:
     reason = doc.get("reason")
     if reason in (BLOCKED_BY_PREDECESSOR, FIRE):
         return None
+    if reason == DEDUPLICATED:
+        # Not final while it is its key's newest deduplicated event (it may still fire);
+        # final once a newer one replaced it (its own marker key: the record may have
+        # settled a waiting state before).
+        return f"{doc.get('id')}/coalesced" if doc.get("coalesced") else None
     if not doc.get("superseded") and reason not in FINAL_SKIP_REASONS:
         return None
     return doc.get("id")

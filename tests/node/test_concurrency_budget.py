@@ -486,15 +486,24 @@ def test_release_always_writes_the_budget():
 def test_budget_cas_retries_are_bounded(operation):
     from types import SimpleNamespace
 
-    from culture_rules.engine.claims import reserve_concurrency, reset_attempt_budget
+    from culture_rules.engine.claims import (
+        RESET_MARKERS,
+        reserve_concurrency,
+        reset_attempt_budget,
+    )
     from culture_rules.store.port import TransientStoreError
     from culture_rules.store.retry import DEFAULT_ATTEMPTS
 
     class Contended:
         calls = 0
 
-        def get(self, *_):
+        def get(self, collection, _id):
+            if collection == RESET_MARKERS:
+                return None  # this reset event has not been applied yet
             return {"id": "b", "count": 0, "revision": 1}
+
+        def insert(self, *_):
+            pass
 
         def update_if(self, *args, **kwargs):
             self.calls += 1
@@ -653,3 +662,173 @@ def test_budget_id_is_the_key_alone_and_a_reset_applies_once_per_event():
     assert store.get(RULE_ATTEMPT_BUDGETS, budget["id"])["count"] == 1
     reset_attempt_budget(store, "pr#1", "evt_10")
     assert store.get(RULE_ATTEMPT_BUDGETS, budget["id"])["count"] == 0
+
+
+# ------------------------------------------- review fixes: sequencing, resets, deleted holders
+
+
+def dependant_cluster(relation):
+    """Keyed A (budget 1) and an unkeyed B that must / may run after A, on one event type."""
+    c = Cluster("spark")
+    c.start()
+    c.base.put("rules", keyed("A", SYNC, max_attempts=1))
+    b = rule().to_dict()
+    b.update(id="B", name="B", **{relation: ["A"]})
+    c.base.put("rules", b)
+    return c
+
+
+def test_exhausted_predecessor_settles_a_must_after_dependant():
+    c = dependant_cluster("must_after")
+    send(c, 1, SYNC)
+    c.cycle()
+    assert c.run("A", "evt_1")["status"] == "succeeded"
+    assert c.run("B", "evt_1") is not None
+    send(c, 2, SYNC)
+    c.cycle()
+    c.cycle()
+    assert c.run("A", "evt_2") is None
+    a = c.base.get(RULE_DECISIONS, decision_key("A", "evt_2"))
+    assert a["reason"] == "attempt_budget_exhausted"
+    b = c.base.get(RULE_DECISIONS, decision_key("B", "evt_2"))
+    assert b["reason"] == "predecessor_failed", b
+    assert b["by"] == ["A"]
+
+
+def test_exhausted_predecessor_lets_a_may_after_dependant_fire():
+    c = dependant_cluster("may_after")
+    send(c, 1, SYNC)
+    c.cycle()
+    send(c, 2, SYNC)
+    c.cycle()
+    c.cycle()
+    assert c.run("A", "evt_2") is None
+    assert c.run("B", "evt_2") is not None
+
+
+def test_coalesced_away_predecessor_settles_its_dependant():
+    """A deduplicated predecessor waits (it may still fire as the key's newest event); once a
+    newer event replaces it, it never will, so its must-after dependant is settled."""
+    c = Cluster("spark")
+    c.start()
+    c.base.put("rules", keyed("A", SYNC))
+    b = rule().to_dict()
+    b.update(id="B", name="B", must_after=["A"])
+    c.base.put("rules", b)
+    c.actor.on(ACTION_STEP, ("accept",))
+    send(c, 1, SYNC)
+    holder = c.run("A", "evt_1")
+    send(c, 2, SYNC)
+    c.cycle()
+    assert c.base.get(RULE_DECISIONS, decision_key("B", "evt_2"))["reason"] == (
+        "blocked_by_predecessor"
+    )
+    send(c, 3, SYNC)  # replaces evt_2 as the newest deduplicated event
+    c.cycle()
+    b = c.base.get(RULE_DECISIONS, decision_key("B", "evt_2"))
+    assert b["reason"] == "predecessor_failed", b
+    # evt_3 is still the key's pending event: its dependant keeps waiting, then runs after A.
+    assert c.base.get(RULE_DECISIONS, decision_key("B", "evt_3"))["reason"] == (
+        "blocked_by_predecessor"
+    )
+    c.clock.advance(1)
+    c.base.update_if(RUNS_COLLECTION, holder["id"], {}, {"status": "failed"})
+    for _ in range(4):
+        c.cycle()
+    assert c.run("A", "evt_3") is not None
+    assert c.run("B", "evt_3") is not None
+
+
+def test_lagging_consumer_does_not_reset_again_after_interleaved_progress():
+    """Consumer X handles resets E1 and E2 and an attempt is admitted; a lagging consumer Y
+    then handles E1: no new reset signal, so no new attempt."""
+    from culture_rules.engine.claims import (
+        RULE_ATTEMPT_BUDGETS,
+        budget_id,
+        reserve_concurrency,
+        reset_attempt_budget,
+    )
+    from culture_rules.store.memory import MemoryStore
+
+    store = MemoryStore()
+    assert reserve_concurrency(store, "A", "pr#1", "run1", "i1", 1) is None
+    store.put(RUNS_COLLECTION, {"id": "run1", "status": "failed"})
+    reset_attempt_budget(store, "pr#1", "E1")  # consumer X
+    reset_attempt_budget(store, "pr#1", "E2")  # consumer X
+    assert reserve_concurrency(store, "A", "pr#1", "run2", "i2", 1) is None
+    store.put(RUNS_COLLECTION, {"id": "run2", "status": "failed"})
+    reset_attempt_budget(store, "pr#1", "E1")  # consumer Y, lagging
+    reset_attempt_budget(store, "pr#1", "E2")  # consumer Y
+    assert store.get(RULE_ATTEMPT_BUDGETS, budget_id("pr#1"))["count"] == 1
+    assert reserve_concurrency(store, "A", "pr#1", "run3", "i3", 1) == "attempt_budget_exhausted"
+
+
+def test_reset_seen_before_the_budget_exists_is_not_replayed_by_a_lagging_consumer():
+    from culture_rules.engine.claims import reserve_concurrency, reset_attempt_budget
+    from culture_rules.store.memory import MemoryStore
+
+    store = MemoryStore()
+    from culture_rules.engine.claims import RESET_MARKERS
+    from culture_rules.events.triggers import FIRES_COLLECTION
+
+    assert RESET_MARKERS == FIRES_COLLECTION  # the engine layer names it without importing
+    reset_attempt_budget(store, "pr#1", "E1")  # consumer X: no budget yet
+    assert reserve_concurrency(store, "A", "pr#1", "run1", "i1", 1) is None
+    store.put(RUNS_COLLECTION, {"id": "run1", "status": "failed"})
+    reset_attempt_budget(store, "pr#1", "E1")  # consumer Y, lagging
+    assert reserve_concurrency(store, "A", "pr#1", "run2", "i2", 1) == "attempt_budget_exhausted"
+
+
+def test_placed_and_shared_consumers_interleaving_resets_grant_no_extra_attempt():
+    """Through the node: a placed and an unplaced rule share a key; the shared consumer
+    runs ahead over two resets and an admission, then the placed one catches up."""
+    from culture_rules.model.placement import Placement
+
+    c = Cluster("spark")
+    c.start()
+    c.base.put("rules", keyed("S", COMMENT, max_attempts=1))
+    placed = Rule.from_dict(keyed("P", SETTLED, max_attempts=1))
+    placed = Rule.from_dict({**placed.to_dict(), "placement": Placement(machine="spark").to_dict()})
+    c.base.put("rules", placed.to_dict())
+    firing = c.nodes["spark"].firing
+
+    def evaluate(env, *, placed):
+        with c.base.transaction() as tx:
+            firing._evaluate(tx, {"envelope": env}, placed=placed)
+        c.cycle()  # start the run, and let it finish
+
+    exhausting = {**event(1), "type": COMMENT}
+    evaluate(exhausting, placed=False)
+    assert c.run("S", "evt_1") is not None
+    resets = [{**event(n, self_authored=False), "type": SYNC} for n in (2, 3)]
+    for env in resets:  # the shared consumer runs ahead
+        evaluate(env, placed=False)
+    evaluate({**event(4), "type": COMMENT}, placed=False)
+    assert c.run("S", "evt_4") is not None  # the one attempt the resets granted
+    for env in resets:  # the placed consumer catches up on the same resets
+        evaluate(env, placed=True)
+    evaluate({**event(5), "type": COMMENT}, placed=False)
+    assert c.run("S", "evt_5") is None
+    assert c.base.get(RULE_DECISIONS, decision_key("S", "evt_5"))["reason"] == (
+        "attempt_budget_exhausted"
+    )
+
+
+@pytest.mark.parametrize("change", ["delete", "unkey"])
+def test_coalesced_event_fires_after_the_holding_rule_changes(change):
+    c = shared_cluster()
+    c.actor.on(ACTION_STEP, ("accept",))
+    send(c, 1, SETTLED, conclusion="failure")
+    holder = c.run("A", "evt_1")
+    send(c, 2, COMMENT)
+    assert reasons(c) == ["deduplicated"]
+    a = c.base.get("rules", "A")
+    if change == "delete":
+        c.base.put("rules", {**a, "deleted_at": "2026-10-07T00:00:00Z"})
+    else:
+        c.base.put("rules", {**a, "concurrency_key": None, "max_attempts": None})
+    c.clock.advance(1)
+    c.base.update_if(RUNS_COLLECTION, holder["id"], {}, {"status": "failed"})
+    c.cycle()
+    c.cycle()
+    assert c.run("B", "evt_2") is not None

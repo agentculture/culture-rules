@@ -19,9 +19,10 @@ with ``fire: true`` and the ``run_id`` when the rule then fired ("ran after X"),
 and the waiting state moves to its ``superseded`` list, so the rule's history shows both
 what it waited for and how that ended. ``deduplicated`` (a concurrency key was held by an
 active run) is superseded the same way when the node later fires that event as the key's
-newest deduplicated one. Every other recorded reason is final and is never rewritten. A
-fired record is not a skip: :func:`decisions_for` leaves it out with ``skips_only`` (the run
-itself is the history entry).
+newest deduplicated one; a ``deduplicated`` record replaced as its key's newest is marked
+``coalesced`` (final: it never fires). Every other recorded reason is final and is never
+rewritten. A fired record is not a skip: :func:`decisions_for` leaves it out with
+``skips_only`` (the run itself is the history entry).
 
 A rule over its fire-rate cap (``trigger.params.max_fires_per_hour``, enforced by the node,
 :mod:`culture_rules.node.firing`, "Rate cap") is recorded as the final skip ``rate_capped``
