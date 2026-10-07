@@ -2,7 +2,7 @@
   "plan_slug": "pr-fixer-rule",
   "schema_version": 2,
   "created": "2026-10-06T08:44:59Z",
-  "updated": "2026-10-07T17:45:43Z",
+  "updated": "2026-10-07T18:49:08Z",
   "deviations": [
     {
       "id": "d1",
@@ -293,6 +293,21 @@
       "status": "approved",
       "classification": "needs-follow-up",
       "seq": 20
+    },
+    {
+      "id": "d21",
+      "what": "split the PR fixer into rules + workflows chained by events (d22): the engine emits rules.run.succeeded / rules.run.failed events on run completion (rule, workflow, concurrency key, exported outputs, causation/correlation lineage) that triggers can match; derived events carry a hop count and firing past a cap fails closed; only fix runs count against the per-key attempt budget; the review record is keyed by repo+commit (written only by the review builtin) and github.push checks the exact commit; one hand-back comment per chain; editor trigger picker + describe support. Shape: pr-fixer-{checks,comment,review,review-comment} -> workflow pr-fix (quiet, threads, agent, gate); pr-fixer-review (on pr-fix succeeded) -> review-commit; pr-fixer-refix (review = request_changes) -> pr-fix with findings; pr-fixer-publish (review = approve) -> publish-fix (push, pick, replies). Disabling pr-fixer-publish gives review-only mode. Built on top of d20, after d20's review.",
+      "task_ref": "t9",
+      "reason": "operator: the workflow needs splitting; chose rules+workflows (the product model's composition) over a new sub-workflow step kind, and asked to make the engine work for it, events and all",
+      "affects": [
+        "t10",
+        "t13",
+        "t20"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "needs-follow-up",
+      "seq": 21
     }
   ],
   "evidence": [],

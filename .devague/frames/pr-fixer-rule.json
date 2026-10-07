@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-05T20:43:33Z",
-  "updated": "2026-10-07T17:07:23Z",
+  "updated": "2026-10-07T19:11:25Z",
   "claims": [
     {
       "id": "c1",
@@ -1176,6 +1176,30 @@
       "refs": [
         "d19",
         "web/e2e/workflows.spec.ts"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l3",
+      "code": "grader-unverified",
+      "what": "d21 phase 1: code written before tests (not test-first); several first tests were wrong and were corrected afterwards, so they risk confirming the implementation rather than the spec",
+      "skipped_check": "red-first tests for run events, hop limit, counts_toward_budget",
+      "refs": [
+        "d21",
+        "rules/pr-fixer-split@eaa047b"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l4",
+      "code": "grader-unverified",
+      "what": "d20: parser tests written before review.py but never run red first; end-to-end bundle tests written after the code",
+      "skipped_check": "red-first run of the verdict parser and bundle tests",
+      "refs": [
+        "d20",
+        "rules/pr-fixer-review@22c71af"
       ],
       "origin": "llm",
       "status": "proposed"
