@@ -533,3 +533,28 @@ def test_a_slow_failed_lookup_backs_off_from_when_it_returned(store, clock, answ
     st = step_state(ex.run(run["id"]), "w")
     assert st["status"] == "sleeping"
     assert st["deadline"] == (clock() + timedelta(seconds=BLOCKED_RETRY_S)).isoformat()
+
+
+def test_a_blocked_guarded_wake_backs_off_and_records_once(store, clock):
+    """The blocked-queue churn on a guarded wait: its head lookup's actor stays at a limit.
+    Re-arms back off like a blocked step (5, 10, 20, 40, 60 s) and history records the
+    first ``wait_blocked`` only (a counter on the step tracks the repeats)."""
+    from culture_rules.engine.runs import BLOCKED_RETRY_MAX_S
+
+    inner = ScriptedHead(*[("blocked", None)] * 8, ("ok", SHA_A))
+    ex, _ = _router_executor(store, clock, inner)
+    run = _sleeping_run(ex, guard_config(60))
+    clock.advance(61)
+    wakes = []
+    for _ in range(400):
+        before = inner.calls
+        ex.run_until_idle()
+        if inner.calls != before:
+            wakes.append(clock())
+        clock.advance(1)
+    gaps = [(b - a).total_seconds() for a, b in zip(wakes, wakes[1:], strict=False)]
+    assert gaps[:5] == [5.0, 10.0, 20.0, 40.0, BLOCKED_RETRY_MAX_S]
+    doc = ex.run(run["id"])
+    assert doc["status"] == "succeeded", doc["error"]
+    assert [h["event"] for h in doc["history"]].count("wait_blocked") == 1
+    assert step_state(doc, "w")["lookup_blocked"] == 8
