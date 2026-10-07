@@ -2,7 +2,7 @@
   "plan_slug": "pr-fixer-rule",
   "schema_version": 2,
   "created": "2026-10-06T08:44:59Z",
-  "updated": "2026-10-06T23:22:52Z",
+  "updated": "2026-10-07T00:33:06Z",
   "deviations": [
     {
       "id": "d1",
@@ -166,6 +166,20 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 11
+    },
+    {
+      "id": "d12",
+      "what": "A built-in 'action' code step: a workflow step of kind code with config {builtin: action, action: {kind, params}} runs any registered action kind through the same router as a rule's terminal action (actor checks, limits, gate_verdict refusal, disabled-rule refusal). The fixer workflow uses it for github.push and a for_each of github.review_reply; the rule's own action stays the final github.comment with the run link.",
+      "task_ref": "t17",
+      "reason": "Operator chose option A 2026-10-07: t17's workflow needs four GitHub actions per run, but only a rule's single terminal action can reach action ports; workflow steps route by step kind only",
+      "affects": [
+        "t13",
+        "t5"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 12
     }
   ],
   "evidence": [],
