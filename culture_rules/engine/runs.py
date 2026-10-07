@@ -99,7 +99,11 @@ Semantics
   ``vars.x``). A moved head ends the run ``superseded`` (unfinished steps cancelled, nothing
   later runs). Fail-safe: a lookup that raises, returns nothing, is not configured, or an
   expected SHA that cannot be resolved FAILS the step (``head_lookup_failed`` /
-  ``guard_unresolved``) - the run never proceeds as if the head were unchanged. Wait steps
+  ``guard_unresolved``) - the run never proceeds as if the head were unchanged. The guarded
+  lookup runs on the guard actor's machine; when that placement resolves nowhere, a fatal
+  error fails the step at once and an unavailable host (offline, drained) is waited for up
+  to :data:`PLACEMENT_ABANDON_AFTER` past the wake, then the step fails
+  ``placement_unavailable`` (any node may do it) - never asleep forever. Wait steps
   are top-level only (a wait inside a loop body is refused at start).
 * **Rule action** - after the workflow succeeds, the rule's action runs as the terminal
   step :data:`ACTION_STEP` (kind ``"action"``), its params resolved against
@@ -262,6 +266,15 @@ HEAD_LOOKUP_PORT = "action:github.pr_head"
 RUN_DONE = ("succeeded", "failed", "cancelled", SUPERSEDED)
 STEP_DONE = ("succeeded", "failed", "skipped", "cancelled")
 STEP_OK = ("succeeded", "skipped")
+
+PLACEMENT_UNAVAILABLE = "placement_unavailable"
+"""Failure code of work whose placed host stayed unavailable past
+:data:`PLACEMENT_ABANDON_AFTER`: a guarded wait whose lookup host is offline or drained, and
+a placed rule's firing intent whose evaluating host went offline before starting it."""
+PLACEMENT_ABANDON_AFTER = timedelta(minutes=10)
+"""How long a placed host may stay unavailable before work only it may do is failed by any
+node (``placement_unavailable``). Far above the heartbeat's offline threshold (30 s), so a
+slow or restarting host keeps its work; bounded, so a dead one never strands it."""
 
 #: Placement failures that waiting cannot fix: the step fails instead of staying pending.
 FATAL_PLACEMENT = frozenset(
@@ -994,8 +1007,17 @@ class Executor:
                 continue
             step = plan.step(st)
             guard = (step.config.get("guard") if step else None) or None
-            if guard and (paused or not self._guard_eligible(plan, st, step, guard, now)):
+            if guard and paused:
                 continue
+            if guard:
+                where = self._guard_eligible(plan, st, step, guard, now)
+                if isinstance(where, PlacementError):
+                    answer = self._guard_unplaceable(doc, st, where, wake, now)
+                    if answer is None:
+                        continue
+                    return answer
+                if not where:
+                    continue
             outcome = self._check_guard(plan, doc, step, guard) if guard else None
             new, nst = _copy_with(doc, st["key"])
             if outcome is not None and outcome["code"] == HEAD_BLOCKED:
@@ -1019,9 +1041,11 @@ class Executor:
 
     def _guard_eligible(
         self, plan: _Plan, st: Mapping, step: Step | None, guard: Mapping, now: datetime
-    ) -> bool:
+    ) -> bool | PlacementError:
         """Whether this node may perform the guarded lookup: the step's placement, else the
-        guard actor's machine (where its App credentials live), resolved as dispatch does."""
+        guard actor's machine (where its App credentials live), resolved as dispatch does.
+        A placement that resolves nowhere is answered as its :class:`PlacementError` (to a
+        node that is not drained), see :meth:`_guard_unplaceable`."""
         if self._drained():
             return False
         placement = step.placement if step is not None else None
@@ -1033,7 +1057,33 @@ class Executor:
                 placement = Placement(actor=actor_id)
         if placement is None:
             return True
-        return self._target_of(placement, now) == self.host
+        target = self._target_of(placement, now)
+        return target if isinstance(target, PlacementError) else target == self.host
+
+    def _guard_unplaceable(
+        self, doc: Document, st: Mapping, error: PlacementError, wake: datetime, now: datetime
+    ) -> bool | None:
+        """A due guarded wake whose lookup host resolves nowhere (review #17 finding 1).
+
+        Waiting cannot fix a fatal placement: the step fails with its code. A temporarily
+        unavailable host (offline, drained) is waited for, its ``placement_error`` recorded
+        once, until :data:`PLACEMENT_ABANDON_AFTER` past the wake; then the step fails
+        ``placement_unavailable`` - never proceeds as if the head were unchanged, and never
+        sleeps forever holding the run's concurrency key. Any node may do it (CAS). None:
+        nothing to write now."""
+        key = st["key"]
+        if error.code in FATAL_PLACEMENT:
+            return self._fail_now(doc, key, _error(error.code, error.message), now)
+        if now - wake >= PLACEMENT_ABANDON_AFTER:
+            message = f"guard lookup host unavailable since the wake: {error.message}"
+            return self._fail_now(doc, key, _error(PLACEMENT_UNAVAILABLE, message), now)
+        recorded = _error(error.code, error.message)
+        if st.get("placement_error") == recorded:
+            return None
+        new, nst = _copy_with(doc, key)
+        nst["placement_error"] = recorded
+        _record(new, now, self.host, "placement_waiting", key)
+        return self._cas(doc, new)
 
     def _check_guard(
         self, plan: _Plan, doc: Mapping, step: Step | None, guard: Mapping[str, Any]
