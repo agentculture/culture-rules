@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-10-06T04:46:38Z",
-  "updated": "2026-10-07T00:41:58Z",
+  "updated": "2026-10-07T01:18:02Z",
   "targets": [
     {
       "id": "c1",
@@ -1003,6 +1003,14 @@
       "text": "t11 coalescing: a 'deduplicated' decision is still a final skip for the chain feed, so a rule that must_after a keyed rule settles predecessor_failed on that event even if the event later fires through coalescing. Edge case, untested.",
       "kind": "follow_up",
       "task_id": "t11",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r14",
+      "text": "t12 answers 503 when arming a settle record fails, relying on GitHub to redeliver; GitHub does NOT redeliver failed webhook deliveries automatically, so that SHA's settle can be lost. Fix: have the node's settle tick also arm records from stored check-completion events that have none (recover from the events collection), instead of relying on redelivery. Found by the d14 agent.",
+      "kind": "follow_up",
+      "task_id": "t12",
       "resolved": false,
       "resolution": ""
     }

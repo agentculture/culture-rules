@@ -86,17 +86,17 @@ last full suite 2669 passed, 1 skipped.
 | t19 gate rollout | Batch 1 merged: culture-agent-template#34, devague#122, steward#85, guildmaster#137; list in docs/operations/pr-fixer.md; culture-rules gets it via the final PR |
 | t11 concurrency key + budget | Branch `rules/pr-fixer-t11` at `e10202c` (round 2 + d13 global key, Opus-built on Codex WIP); suite 2721; WAITING for Codex review (06:13), then merge |
 | t17a built-in action step (d12) | Branch `rules/pr-fixer-t17a` at `e16e4a3` (Opus); suite 2700; WAITING for Codex review; likely small conflict with t11 in model/validate.py |
-| t17b PR facts (d14) | Opus subagent building in `pr-fixer-t17b` (branch from t11) |
+| t17b PR facts (d14) | Branch `rules/pr-fixer-t17b` at `e2507f5` (Opus, on top of t11); suite 2733; lookup failure stores the comment with `pr_enriched: false` (fails closed); WAITING for Codex review |
 | t17 fixer rule + workflow as data | Main agent; worktree `pr-fixer-t17` exists (empty); needs t11 + t17a + t17b merged first |
 | t20-t24 | Not started |
 
-Open risks worth carrying: r9 intermittent test, r10 variable history doc size, r11
+Open risks worth carrying: r14 t12's 503-on-arm-failure relies on GitHub redelivery, which is not automatic (fix: recover from stored events in the settle tick); r9 intermittent test, r10 variable history doc size, r11
 bridge token visible to agent, r12 permissionless public issue creation by the
 fixer token, r13 dedup vs must_after chaining.
 
 ## Next steps
 
-1. When t17b reports: Codex reviews it (06:13 onwards).
+1. t17b has reported (e2507f5); it is in the 06:13 Codex batch.
 2. 06:13: `codex review --base rules/pr-fixer` in pr-fixer-t11, pr-fixer-t17a,
    pr-fixer-t17b; verify; route fixes; merge t11, then t17a, then t17b (full suite
    before/after each; resolve the validate.py conflict).
