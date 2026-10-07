@@ -166,9 +166,12 @@ class FeedConsumer:
         return True
 
     def _dependencies(self) -> set[str]:
-        """Rule ids some live rule must or may run after."""
+        """Rule ids some live rule must or may run after, plus every keyed rule (its run
+        ending releases its concurrency key, :mod:`culture_rules.node.firing`)."""
         out: set[str] = set()
         for rule in live_rules(self.store.find("rules")):
+            if rule.concurrency_key is not None:
+                out.add(rule.id)
             out.update(rule.must_after)
             out.update(rule.may_after)
         return out

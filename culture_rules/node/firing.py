@@ -136,6 +136,35 @@ of a firing intent.
   before it is recorded, so the dependant waits; the predecessor's ``rate_capped`` record
   is final in one step and settles it through the chain feed.
 
+Concurrency keys
+================
+A rule with a ``concurrency_key`` template (``Rule.concurrency_key``, e.g.
+``{trigger.data.repository}#{trigger.data.number}``) holds that key from the moment it
+fires until its run ends; :mod:`culture_rules.engine.claims` keeps one
+``rule_attempt_budgets`` document per (rule, key), written in the trigger transaction:
+
+* **one active run per key.** A firing whose key is held by a pending intent or a live run
+  is recorded as ``deduplicated`` (its detail names the holding run) and remembered as the
+  key's ``pending_event_id``; a newer deduplicated event replaces it. When the holding run
+  ends (any terminal status, ``superseded`` included) or its intent fails to start, the
+  chain consumer that owns the rule releases the key and re-decides that newest event once
+  - so a human push arriving while a run sleeps in its quiet-period wait is handled after
+  the stale run supersedes itself, never dropped. (Coalescing, not preemption: a newer
+  event never cancels the run holding the key.) The release always writes the budget, so
+  a concurrent trigger transaction noting a deduplicated event conflicts with it;
+* **an attempt budget.** Every admitted run counts, whatever its outcome - a fixer whose
+  own push produces new failing checks must not loop. After ``max_attempts`` admissions
+  further firings are recorded as ``attempt_budget_exhausted``. Only an explicit signal
+  resets the counter (an outstanding reservation is kept): a ``github.pr.synchronize``
+  whose ``data.self_authored`` is explicitly false (the hook sink tags every event once the
+  app actor names its ``self_identity``), or a ``github.pr.checks_settled`` with
+  ``data.conclusion`` ``"success"``. The reset applies to every budgeted rule of this
+  consumer triggered by a ``github.pr.*`` / ``github.checks.*`` event whose key resolves on
+  the reset event, whatever the event's own type;
+* **fail closed per rule.** A key that does not resolve on a firing event (a missing or
+  non-scalar value) records the final skip ``concurrency_key_unresolved``; other rules on
+  the same event, and later events, are unaffected.
+
 Standard-library only.
 """
 
@@ -153,6 +182,8 @@ from culture_rules.engine.chaining import LIVE, START_FAILED, sequence
 from culture_rules.engine.claims import (
     RULE_ATTEMPT_BUDGETS,
     firing_key,
+    note_deduplicated,
+    release_concurrency,
     reserve_concurrency,
     reset_attempt_budget,
     resolve_concurrency_key,
@@ -166,6 +197,8 @@ from culture_rules.engine.decisions import (
 )
 from culture_rules.engine.matching import (
     BLOCKED_BY_PREDECESSOR,
+    CONCURRENCY_KEY_UNRESOLVED,
+    DEDUPLICATED,
     FIRE,
     VARIABLES_UNSUPPORTED,
     Decision,
@@ -425,12 +458,13 @@ class RuleFiring:
         self._pending[marker_id] = []  # a retried transaction re-evaluates from scratch
         rules = self._live_rules(tx)
         ours = self._ours(tx, rules, event_id, placed=placed)
-        if envelope.get("type") == "github.pr.synchronize" and (
-            envelope.get("data", {}).get("self_authored") is False
-        ):
+        if _resets_budgets(envelope):
             for rule in rules:
-                if rule.id in ours and rule.concurrency_key is not None:
-                    key = resolve_concurrency_key(rule.concurrency_key, envelope)
+                if rule.id in ours and _budget_reset_applies(rule):
+                    try:
+                        key = resolve_concurrency_key(rule.concurrency_key or "", envelope)
+                    except ValueError:
+                        continue  # not this rule's key space: nothing to reset, never wedge
                     reset_attempt_budget(tx, rule.id, key)
         if ours:
             self._decide(tx, envelope, rules, ours, marker_id, placed=placed, chained=False)
@@ -453,6 +487,10 @@ class RuleFiring:
         if not predecessor or not event_id:
             return
         rules = self._live_rules(tx)
+        if kind in ("run", "intent"):
+            holding = doc.get("id") if kind == "run" else doc.get("run_id")
+            if holding:
+                self._fire_coalesced(tx, holding, event_id, rules, marker_id, placed=placed)
         dependants = {r.id for r in rules if predecessor in (*r.must_after, *r.may_after)}
         if not dependants:
             return
@@ -464,6 +502,66 @@ class RuleFiring:
             # so the re-evaluation happens once the pause lifts (module doc, "Pause").
             raise Deferred(", ".join(sorted(ours)), event_id, "paused: re-evaluated on resume")
         self._decide(tx, envelope, rules, ours, marker_id, placed=placed, chained=True)
+
+    def _fire_coalesced(
+        self,
+        tx: StoreOps,
+        holding: str,
+        event_id: str,
+        rules: list[Rule],
+        marker_id: str,
+        *,
+        placed: bool,
+    ) -> None:
+        """The run ``holding`` a concurrency key ended (or never started): release the key
+        and fire the newest event deduplicated meanwhile, once (module doc, "Concurrency
+        keys"). Only the consumer that owns the rule does it."""
+        by_id = {r.id: r for r in rules}
+        for budget in tx.find(RULE_ATTEMPT_BUDGETS, {"run_id": holding}):
+            rule = by_id.get(budget.get("rule_id") or "")
+            if rule is None or not self._ours(tx, [rule], event_id, placed=placed):
+                continue
+            pending = release_concurrency(tx, budget["id"], holding)
+            if pending is None:
+                continue
+            if is_paused(tx):
+                # Accepted before the pause, like a waiting dependant: defer, never drop.
+                raise Deferred(rule.id, pending, "paused: coalesced event fired on resume")
+            stored = tx.get(EVENTS_COLLECTION, pending)
+            if stored is None:
+                continue
+            self._decide(
+                tx, stored["envelope"], rules, {rule.id}, marker_id, placed=placed, chained=False
+            )
+
+    def _admit(
+        self,
+        tx: StoreOps,
+        rule: Rule,
+        envelope: Mapping[str, Any],
+        decision: Decision,
+        run_id: str,
+        intent_id: str,
+    ) -> tuple[Decision, str | None]:
+        """Reserve ``rule``'s concurrency key for a firing ``decision``: the decision (a
+        skip in its place when the key is held, the budget spent or the key unresolved)
+        and the resolved key."""
+        try:
+            key = resolve_concurrency_key(rule.concurrency_key or "", envelope)
+        except ValueError as exc:
+            # Fail closed for this rule only: never fire unprotected, never wedge the feed.
+            skip = Decision(
+                rule_id=rule.id, fire=False, reason=CONCURRENCY_KEY_UNRESOLVED, detail=str(exc)
+            )
+            return skip, None
+        reason = reserve_concurrency(tx, rule.id, key, run_id, intent_id, rule.max_attempts)
+        if reason is None:
+            return decision, key
+        detail = key
+        if reason == DEDUPLICATED:
+            holder = note_deduplicated(tx, rule.id, key, envelope["id"])
+            detail = f"{key}: held by run {holder}"
+        return Decision(rule_id=rule.id, fire=False, reason=reason, detail=detail), key
 
     def _facts(
         self, tx: StoreOps, rules: list[Rule], event_id: str
@@ -524,11 +622,9 @@ class RuleFiring:
             run_id = run_id_for(decision.rule_id, event_id)
             key = None
             if decision.fire and by_id[decision.rule_id].concurrency_key is not None:
-                rule = by_id[decision.rule_id]
-                key = resolve_concurrency_key(rule.concurrency_key, envelope)
-                reason = reserve_concurrency(tx, rule.id, key, run_id, intent_id, rule.max_attempts)
-                if reason is not None:
-                    decision = Decision(rule_id=rule.id, fire=False, reason=reason, detail=key)
+                decision, key = self._admit(
+                    tx, by_id[decision.rule_id], envelope, decision, run_id, intent_id
+                )
             # A skip that matters ("superseded by A", ...) is part of the rule's history;
             # it commits (or rolls back) with this transaction, once per (rule, event). A
             # waiting record is superseded by the outcome once the predecessor settles.
@@ -658,6 +754,37 @@ def _trigger_matcher(envelope: Mapping[str, Any], rules: list[Rule]) -> TriggerM
     # Identity, not equality: two rules may carry equal triggers (same cron).
     return lambda trigger, event: any(trigger is t for t in targets) and trigger_matches(
         trigger, event
+    )
+
+
+BUDGET_RESET_FAMILIES = ("github.pr.", "github.checks.")
+"""Trigger types whose rules a budget-reset event concerns (the GitHub pull-request family)."""
+
+
+def _resets_budgets(envelope: Mapping[str, Any]) -> bool:
+    """Whether ``envelope`` is an explicit attempt-budget reset signal: a push not by this
+    node's own identity (``self_authored`` explicitly false; an absent tag is never read as
+    human), or checks settled green (module doc, "Concurrency keys")."""
+    data = envelope.get("data")
+    if not isinstance(data, Mapping):
+        return False
+    kind = envelope.get("type")
+    if kind == "github.pr.synchronize":
+        return data.get("self_authored") is False
+    return kind == "github.pr.checks_settled" and data.get("conclusion") == "success"
+
+
+def _budget_reset_applies(rule: Rule) -> bool:
+    """Whether a reset event concerns ``rule``: a budgeted, keyed rule triggered by an event
+    of the GitHub pull-request family (whatever its exact type: a fixer triggered by
+    settled checks is reset by a human push). Its key must also resolve on the event."""
+    wanted = rule.trigger.params.get("type")
+    return (
+        rule.concurrency_key is not None
+        and rule.max_attempts is not None
+        and rule.trigger.kind == "event"
+        and isinstance(wanted, str)
+        and wanted.startswith(BUDGET_RESET_FAMILIES)
     )
 
 

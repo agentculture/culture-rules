@@ -89,7 +89,9 @@ These rules apply in every guide.
   Discord gateway connection.
 - **`params.self_identity` is the app's own login.** Events it authored are
   tagged `self_authored`, and they fire a rule only when the trigger sets
-  `include_self`.
+  `include_self`. With a `self_identity` set, every other event carries
+  `self_authored: false`, which is how a human push resets a rule's attempt
+  budget.
 
 ## Using an app in a rule
 

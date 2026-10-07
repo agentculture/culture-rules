@@ -43,6 +43,7 @@ def test_the_recorded_reasons_and_collection():
         "variable_undefined",
         "deduplicated",
         "attempt_budget_exhausted",
+        "concurrency_key_unresolved",
     }
     assert RULE_DECISIONS in NODE_COLLECTIONS
 

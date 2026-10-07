@@ -52,6 +52,7 @@ from culture_rules.model.workflow import Workflow
 __all__ = [
     "BLOCKED_BY_PREDECESSOR",
     "CONDITION_FALSE",
+    "CONCURRENCY_KEY_UNRESOLVED",
     "DEDUPLICATED",
     "DISABLED",
     "FIRE",
@@ -89,7 +90,11 @@ PREDECESSOR_FAILED = "predecessor_failed"
 DEDUPLICATED = "deduplicated"
 """A firing dropped because a run with the same concurrency key is active."""
 ATTEMPT_BUDGET_EXHAUSTED = "attempt_budget_exhausted"
-"""A firing skipped because the attempt budget is exhausted and the last run did not succeed."""
+"""A firing skipped because ``max_attempts`` runs were admitted for its concurrency key
+since the last reset (a human push or green checks)."""
+CONCURRENCY_KEY_UNRESOLVED = "concurrency_key_unresolved"
+"""A firing skipped because the rule's concurrency key does not resolve on the event
+(a missing or non-scalar value): fail closed, never fire without the protection."""
 REASONS = (
     FIRE,
     PAUSED,
@@ -103,6 +108,7 @@ REASONS = (
     PREDECESSOR_FAILED,
     DEDUPLICATED,
     ATTEMPT_BUDGET_EXHAUSTED,
+    CONCURRENCY_KEY_UNRESOLVED,
 )
 
 #: Run status that satisfies ``must_after`` and makes exports visible.
@@ -153,6 +159,7 @@ class Decision:
             PREDECESSOR_FAILED: f"predecessor did not succeed: {self.detail or who}",
             DEDUPLICATED: "concurrency key active: run already exists",
             ATTEMPT_BUDGET_EXHAUSTED: "attempt budget exhausted",
+            CONCURRENCY_KEY_UNRESOLVED: f"concurrency key unresolved: {self.detail}",
         }.get(self.reason, self.reason)
         if self.reason == CONDITION_FALSE and self.detail:
             text = f"{text} (condition error: {self.detail})"

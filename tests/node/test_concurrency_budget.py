@@ -5,7 +5,7 @@ from threading import Barrier
 
 import pytest
 
-from culture_rules.engine.decisions import RULE_DECISIONS
+from culture_rules.engine.decisions import RULE_DECISIONS, decision_key
 from culture_rules.engine.runs import ACTION_STEP, RUNS_COLLECTION
 from culture_rules.model.action import Action
 from culture_rules.model.rule import Rule, Trigger
@@ -96,7 +96,7 @@ def test_attempt_counter_is_per_key():
     assert reasons(c) == ["attempt_budget_exhausted"] * 2
 
 
-def test_green_run_resets_consecutive_attempts():
+def test_explicit_green_resets_attempts():
     c = cluster(max_attempts=2)
     c.actor.on(
         ACTION_STEP,
@@ -106,6 +106,9 @@ def test_green_run_resets_consecutive_attempts():
         ("fail", "broken", False),
     )
     for n in range(1, 5):
+        if n == 3:
+            c.publish({**event(99, conclusion="success"), "type": "github.pr.checks_settled"})
+            c.cycle()
         assert fire(c, n) is not None
     assert fire(c, 5) is None
     assert reasons(c) == ["attempt_budget_exhausted"]
@@ -237,3 +240,271 @@ def test_claim_cas_loser_rechecks_active_run_and_counter(existing):
     assert results.count("deduplicated") == 1
     (budget,) = store.find(RULE_ATTEMPT_BUDGETS)
     assert budget["count"] == (2 if existing else 1)
+
+
+SETTLED = "github.pr.checks_settled"
+
+
+def settled(n, conclusion="failure", **data):
+    return {**event(n, conclusion=conclusion, **data), "type": SETTLED}
+
+
+def settled_rule_cluster(max_attempts):
+    """A fixer-shaped rule: fires on settled checks, keyed per PR, with a budget."""
+    c = cluster(max_attempts=max_attempts)
+    doc = rule(concurrency_key=KEY, max_attempts=max_attempts).to_dict()
+    doc["trigger"]["params"]["type"] = SETTLED
+    c.base.put("rules", doc)
+    return c
+
+
+@pytest.mark.parametrize(
+    "identity,author,resets",
+    [("bot", "alice", True), ("bot", "BOT", False), (None, "alice", False)],
+)
+def test_real_sink_human_push_resets_exhausted_budget(identity, author, resets):
+    """Through the real hook sink: a human synchronize resets an exhausted budget, the
+    App's own push does not, and without a self_identity (no tag at all) nothing does."""
+    from culture_rules.events.hook_sink import sink
+
+    c = settled_rule_cluster(max_attempts=1)
+    c.publish(settled(1))
+    c.cycle()
+    assert c.run("a", "evt_1") is not None
+    c.publish(settled(2))
+    c.cycle()
+    assert c.run("a", "evt_2") is None
+    assert reasons(c) == ["attempt_budget_exhausted"]
+    params = {"surface": "github", "events": [SYNC]}
+    if identity is not None:
+        params["self_identity"] = identity
+    outcome = sink(
+        c.base,
+        {"id": "app", "enabled": True, "params": params},
+        SYNC,
+        {"repository": "org/repo", "number": 42},
+        "push-1",
+        author,
+    )
+    assert outcome == "accepted"
+    c.cycle()
+    c.publish(settled(3))
+    c.cycle()
+    assert (c.run("a", "evt_3") is not None) is resets
+
+
+def test_unresolved_key_skips_and_consumer_advances():
+    """A key that does not resolve (checks_settled may carry number: None) records the
+    final skip for that rule only; the consumer keeps going."""
+    c = cluster()
+    other = rule().to_dict()
+    other["id"] = "other"
+    c.base.put("rules", other)
+    assert fire(c, 1, number=None) is None
+    (decision,) = c.base.find(RULE_DECISIONS, {"rule_id": "a"})
+    assert decision["reason"] == "concurrency_key_unresolved"
+    assert "number" in decision["detail"]
+    assert c.run("other", "evt_1") is not None
+    assert fire(c, 2) is not None
+    assert c.run("other", "evt_2") is not None
+
+
+def test_reset_skips_unrelated_and_unresolvable_rules():
+    from culture_rules.engine.claims import RULE_ATTEMPT_BUDGETS
+
+    c = cluster(max_attempts=1)
+    for rid, typ, key in [
+        ("unrelated", "timer.tick", "fixed"),
+        ("missing", "github.checks.failed", "{trigger.data.absent}"),
+    ]:
+        doc = rule(concurrency_key=key, max_attempts=1).to_dict()
+        doc["id"] = rid
+        doc["trigger"]["params"]["type"] = typ
+        c.base.put("rules", doc)
+    assert fire(c, 1, self_authored=False) is not None
+    assert {b["rule_id"] for b in c.base.find(RULE_ATTEMPT_BUDGETS)} == {"a"}
+
+
+def test_app_push_cycles_stop_at_max_attempts():
+    """App push -> checks settle red -> new run, repeated: every admitted run counts
+    (even succeeded ones), so the loop stops at max_attempts."""
+    c = settled_rule_cluster(max_attempts=2)
+    for n in range(1, 5):
+        fire(c, 100 + n, self_authored=True)
+        c.publish(settled(n))
+        c.cycle()
+    runs = c.base.find(RUNS_COLLECTION)
+    assert len(runs) == 2
+    assert {r["status"] for r in runs} == {"succeeded"}
+    assert reasons(c) == ["attempt_budget_exhausted"] * 2
+
+
+@pytest.mark.parametrize("conclusion", ["failure", "timeout"])
+def test_red_or_timed_out_checks_do_not_reset(conclusion):
+    c = cluster(max_attempts=1)
+    assert fire(c, 1) is not None
+    c.publish(settled(2, conclusion=conclusion))
+    c.cycle()
+    assert fire(c, 3) is None
+    assert reasons(c) == ["attempt_budget_exhausted"]
+
+
+def test_successful_run_alone_does_not_reset():
+    c = cluster(max_attempts=1)
+    assert fire(c, 1)["status"] == "succeeded"
+    assert fire(c, 2) is None
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"max_attempts": 0},
+        {"max_attempts": -1},
+        {"concurrency_key": ""},
+        {"concurrency_key": "{other.path}"},
+        {"concurrency_key": "{trigger}"},
+        {"concurrency_key": "{trigger.data"},
+        {"concurrency_key": "trigger.data}"},
+        {"concurrency_key": "{trigger.data!r}"},
+        {"concurrency_key": "{trigger.data:>10}"},
+        {"concurrency_key": "{trigger.data.number:}"},
+        {"concurrency_key": "{trigger.data[0]}"},
+        {"concurrency_key": "{trigger.}"},
+        {"concurrency_key": "{}"},
+    ],
+)
+def test_invalid_budget_fields_rejected(fields):
+    from culture_rules.model.validate import validate
+
+    errors = validate(rule(**fields))
+    assert errors
+    assert {e.path.rsplit(".", 1)[-1] for e in errors} <= {"max_attempts", "concurrency_key"}
+
+
+@pytest.mark.parametrize("template", [KEY, "fixed", "{{literal}}-{trigger.data.number}"])
+def test_valid_budget_fields_accepted(template):
+    from culture_rules.model.validate import validate
+
+    assert validate(rule(concurrency_key=template, max_attempts=1)) == []
+
+
+def test_latest_deduplicated_event_fires_after_holding_run_ends():
+    c = cluster()
+    c.actor.on(ACTION_STEP, ("accept",))
+    run = fire(c, 1, head_sha="old")
+    assert fire(c, 2, head_sha="middle") is None
+    assert fire(c, 3, head_sha="new") is None
+    details = [d["detail"] for d in c.base.find(RULE_DECISIONS)]
+    assert all(run["id"] in d for d in details), details
+    c.clock.advance(1)
+    c.base.update_if(RUNS_COLLECTION, run["id"], {}, {"status": "superseded"})
+    c.cycle()
+    assert c.run("a", "evt_2") is None
+    assert c.run("a", "evt_3")["trigger"]["data"]["head_sha"] == "new"
+    record = c.base.get(RULE_DECISIONS, decision_key("a", "evt_3"))
+    assert record["fire"] is True
+    assert record["superseded"][0]["reason"] == "deduplicated"
+    # The stale one stays deduplicated, and the coalesced event fired exactly once.
+    assert c.base.get(RULE_DECISIONS, decision_key("a", "evt_2"))["reason"] == "deduplicated"
+    c.cycle()
+    assert len(c.base.find(RUNS_COLLECTION)) == 2
+
+
+def test_wait_then_superseded_hands_the_key_to_the_new_sha():
+    """A run sleeping in its quiet-period wait holds the key; a human push meanwhile is
+    deduplicated, the stale run wakes and supersedes itself, and the new SHA is handled."""
+    from culture_rules.engine.runs import step_state
+    from culture_rules.model.rule import WorkflowRef
+    from tests.engine.test_wait_step import SHA_A, SHA_B, Heads, guard_config, two_step
+
+    c = Cluster("spark")
+    heads = Heads()
+    c.nodes["spark"].executor._head_lookup = heads
+    wf = two_step(guard_config(10))
+    c.define(
+        wf,
+        rule(
+            concurrency_key=KEY,
+            workflow=WorkflowRef(id=wf.id, inputs={"head_sha": "trigger.data.head_sha"}),
+        ),
+    )
+    c.start()
+    old = fire(c, 1, head_sha=SHA_A)
+    assert step_state(old, "w")["status"] == "sleeping"
+    heads.sha = SHA_B
+    assert fire(c, 2, head_sha=SHA_B, self_authored=False) is None
+    assert reasons(c) == ["deduplicated"]
+    c.clock.advance(11)
+    c.cycle()
+    assert c.run("a", "evt_1")["status"] == "superseded"
+    c.cycle()
+    new = c.run("a", "evt_2")
+    assert new is not None and new["trigger"]["data"]["head_sha"] == SHA_B
+    c.clock.advance(11)
+    c.cycle()
+    assert c.run("a", "evt_2")["status"] == "succeeded"
+
+
+def test_coalesced_event_waits_out_a_pause():
+    from culture_rules.engine.runs import Containment
+
+    c = cluster()
+    c.actor.on(ACTION_STEP, ("accept",))
+    run = fire(c, 1)
+    assert fire(c, 2) is None
+    containment = Containment(c.base, clock=c.clock)
+    containment.pause("ops@test")
+    c.base.update_if(RUNS_COLLECTION, run["id"], {}, {"status": "failed"})
+    c.cycle()
+    assert c.run("a", "evt_2") is None
+    containment.resume("ops@test")
+    c.cycle()
+    c.cycle()
+    assert c.run("a", "evt_2") is not None
+
+
+def test_release_always_writes_the_budget():
+    """The write-skew guard: releasing a key bumps the revision even with nothing pending."""
+    from culture_rules.engine.claims import (
+        RULE_ATTEMPT_BUDGETS,
+        release_concurrency,
+        reserve_concurrency,
+    )
+    from culture_rules.store.memory import MemoryStore
+
+    store = MemoryStore()
+    assert reserve_concurrency(store, "a", "pr", "run1", "intent1", None) is None
+    (budget,) = store.find(RULE_ATTEMPT_BUDGETS)
+    assert release_concurrency(store, budget["id"], "run1") is None
+    assert store.get(RULE_ATTEMPT_BUDGETS, budget["id"])["revision"] == budget["revision"] + 1
+    # A run that no longer holds the key releases nothing.
+    assert release_concurrency(store, budget["id"], "other") is None
+    assert store.get(RULE_ATTEMPT_BUDGETS, budget["id"])["revision"] == budget["revision"] + 1
+
+
+@pytest.mark.parametrize("operation", ["reset", "reserve"])
+def test_budget_cas_retries_are_bounded(operation):
+    from types import SimpleNamespace
+
+    from culture_rules.engine.claims import reserve_concurrency, reset_attempt_budget
+    from culture_rules.store.port import TransientStoreError
+    from culture_rules.store.retry import DEFAULT_ATTEMPTS
+
+    class Contended:
+        calls = 0
+
+        def get(self, *_):
+            return None
+
+        def update_if(self, *args, **kwargs):
+            self.calls += 1
+            assert self.calls <= DEFAULT_ATTEMPTS
+            return SimpleNamespace(won=False)
+
+    store = Contended()
+    with pytest.raises(TransientStoreError):
+        if operation == "reset":
+            reset_attempt_budget(store, "a", "key")
+        else:
+            reserve_concurrency(store, "a", "key", "run", "intent", 2)
+    assert store.calls == DEFAULT_ATTEMPTS

@@ -81,15 +81,18 @@ class Rule(Model):
     priority: int = doc("Higher wins within an exclusive group", default=0)
     enabled: bool = doc("Disabled rules never fire", default=True)
     concurrency_key: str | None = doc(
-        "Per-rule concurrency key template, e.g. {trigger.data.repository}#{trigger.data.number}. "
-        "An active run or pending firing with the same key deduplicates new firings. "
-        "Missing template values fail evaluation. None preserves independent firings.",
+        "Per-rule concurrency key template, e.g. {trigger.data.repository}#{trigger.data.number} "
+        "(only {trigger.<path>} placeholders). An active run or pending firing with the same "
+        "key deduplicates new firings; the newest one fires once the run ends. A key that does "
+        "not resolve skips the firing (concurrency_key_unresolved). None preserves independent "
+        "firings.",
         default=None,
     )
     max_attempts: int | None = doc(
-        "Attempt budget: after ``max_attempts`` runs for a concurrency key without the "
-        "key going green (``succeeded``), further firings are skipped until a "
-        "non-self push resets the counter. ``None`` means no budget.",
+        "Attempt budget (>= 1): after ``max_attempts`` admitted runs for a concurrency key, "
+        "further firings are skipped until a non-self push (github.pr.synchronize with "
+        "self_authored false) or green checks (github.pr.checks_settled with conclusion "
+        "success) resets the counter. ``None`` means no budget.",
         default=None,
     )
     schema_version: str = doc("Document schema version (MAJOR.MINOR)", default=SCHEMA_VERSION)

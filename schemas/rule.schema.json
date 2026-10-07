@@ -118,7 +118,7 @@
           "type": "null"
         }
       ],
-      "description": "Per-rule concurrency key template, e.g. {trigger.data.repository}#{trigger.data.number}. An active run or pending firing with the same key deduplicates new firings. Missing template values fail evaluation. None preserves independent firings.",
+      "description": "Per-rule concurrency key template, e.g. {trigger.data.repository}#{trigger.data.number} (only {trigger.<path>} placeholders). An active run or pending firing with the same key deduplicates new firings; the newest one fires once the run ends. A key that does not resolve skips the firing (concurrency_key_unresolved). None preserves independent firings.",
       "default": null
     },
     "max_attempts": {
@@ -130,7 +130,7 @@
           "type": "null"
         }
       ],
-      "description": "Attempt budget: after ``max_attempts`` runs for a concurrency key without the key going green (``succeeded``), further firings are skipped until a non-self push resets the counter. ``None`` means no budget.",
+      "description": "Attempt budget (>= 1): after ``max_attempts`` admitted runs for a concurrency key, further firings are skipped until a non-self push (github.pr.synchronize with self_authored false) or green checks (github.pr.checks_settled with conclusion success) resets the counter. ``None`` means no budget.",
       "default": null
     },
     "schema_version": {

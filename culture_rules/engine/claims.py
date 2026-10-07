@@ -65,7 +65,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
-from culture_rules.store.port import Document, StoreOps
+from culture_rules.store.port import Document, StoreOps, TransientStoreError
+from culture_rules.store.retry import DEFAULT_ATTEMPTS
 from culture_rules.store.versioning import utc_timestamp
 
 CLAIMS_COLLECTION = "claims"
@@ -354,7 +355,15 @@ class Claims:
 
 
 RULE_ATTEMPT_BUDGETS = "rule_attempt_budgets"
-"""Durable key reservations and consecutive attempt counters, scoped to a rule."""
+"""Durable key reservations and admitted attempt counters, scoped to a rule.
+
+One document per (rule, concurrency key): ``run_id`` / ``intent_id`` of the run holding
+the key, ``count`` (runs admitted since the last reset - every admitted run counts,
+whatever its outcome), ``pending_event_id`` (the newest firing deduplicated while the
+key was held: it is fired once the holding run ends, so the latest event is never lost)
+and ``revision`` (the compare-and-set token every write bumps). The counter resets only on
+an explicit signal (:func:`reset_attempt_budget`): a human push or green checks.
+"""
 
 
 def resolve_concurrency_key(template: str, envelope: Mapping[str, Any]) -> str:
@@ -388,13 +397,13 @@ def _budget_id(rule_id: str, key: str) -> str:
 
 
 def reset_attempt_budget(store: StoreOps, rule_id: str, key: str) -> None:
-    """Reset on a human synchronize event, preserving an outstanding reservation.
+    """Reset on human synchronize or explicit green checks, preserving a reservation.
 
     Called in the event's exactly-once transaction, including when this event does
     not match the rule's trigger or the key currently has an active run.
     """
     doc_id = _budget_id(rule_id, key)
-    while True:
+    for _ in range(DEFAULT_ATTEMPTS):
         current = store.get(RULE_ATTEMPT_BUDGETS, doc_id) or {}
         revision = current.get("revision")
         if store.update_if(
@@ -405,6 +414,8 @@ def reset_attempt_budget(store: StoreOps, rule_id: str, key: str) -> None:
             upsert=not current,
         ).won:
             return
+
+    raise TransientStoreError("attempt budget reset contention")
 
 
 def reserve_concurrency(
@@ -426,7 +437,7 @@ def reserve_concurrency(
     from culture_rules.engine.runs import RUN_DONE, RUNS_COLLECTION
 
     doc_id = _budget_id(rule_id, key)
-    while True:
+    for _ in range(DEFAULT_ATTEMPTS):
         current = store.get(RULE_ATTEMPT_BUDGETS, doc_id) or {}
         count = current.get("count", 0)
         active = current.get("run_id")
@@ -440,8 +451,6 @@ def reserve_concurrency(
                 count = max(0, count - 1)
             elif run.get("status") not in RUN_DONE:
                 return "deduplicated"
-            elif run.get("status") == "succeeded":
-                count = 0
         if max_attempts is not None and count >= max_attempts:
             return "attempt_budget_exhausted"
         revision = current.get("revision")
@@ -455,9 +464,79 @@ def reserve_concurrency(
                 "count": count + 1,
                 "run_id": run_id,
                 "intent_id": intent_id,
+                "pending_event_id": None,
                 "revision": (revision or 0) + 1,
             },
             upsert=not current,
         )
         if outcome.won:
             return None
+
+    raise TransientStoreError("concurrency reservation contention")
+
+
+def _cas_budget(
+    store: StoreOps,
+    doc_id: str,
+    change: Callable[[Document], dict[str, Any] | None],
+    what: str,
+) -> Document | None:
+    """Apply ``change`` to a budget document under its revision (bounded retries).
+
+    ``change`` answers the fields to write, or ``None`` to leave the document alone; the
+    answer is ``None`` then, else the written document.
+    """
+    for _ in range(DEFAULT_ATTEMPTS):
+        current = store.get(RULE_ATTEMPT_BUDGETS, doc_id)
+        if current is None:
+            return None
+        fields = change(current)
+        if fields is None:
+            return None
+        revision = current.get("revision")
+        outcome = store.update_if(
+            RULE_ATTEMPT_BUDGETS,
+            doc_id,
+            {"revision": revision},
+            {**fields, "revision": (revision or 0) + 1},
+        )
+        if outcome.won:
+            return outcome.document or {**current, **fields}
+    raise TransientStoreError(f"{what} contention")
+
+
+def note_deduplicated(store: StoreOps, rule_id: str, key: str, event_id: str) -> str | None:
+    """Remember ``event_id`` as the key's newest deduplicated firing; answer the holding run.
+
+    Called in the trigger transaction right after :func:`reserve_concurrency` answered
+    ``"deduplicated"``. A newer deduplicated event replaces an older one (coalescing: the
+    holding run's successor handles the latest state, never a stale one).
+    """
+    doc = _cas_budget(
+        store,
+        _budget_id(rule_id, key),
+        lambda _current: {"pending_event_id": event_id},
+        "deduplicated-event note",
+    )
+    return None if doc is None else doc.get("run_id")
+
+
+def release_concurrency(store: StoreOps, budget_id: str, run_id: str) -> str | None:
+    """The holding run ``run_id`` ended: clear and answer the key's pending event, if any.
+
+    Always writes the budget document while ``run_id`` still holds the key, even with no
+    pending event: a concurrent trigger transaction that read the run as active and is
+    about to note a deduplicated event then write-conflicts with this one instead of
+    committing an event nobody would fire (MongoDB snapshot isolation, write skew).
+    """
+    taken: list[str | None] = []
+
+    def change(current: Document) -> dict[str, Any] | None:
+        taken.clear()
+        if current.get("run_id") != run_id:
+            return None  # another run already holds the key: it cleared the pending event
+        taken.append(current.get("pending_event_id"))
+        return {"pending_event_id": None}
+
+    _cas_budget(store, budget_id, change, "concurrency release")
+    return taken[0] if taken else None

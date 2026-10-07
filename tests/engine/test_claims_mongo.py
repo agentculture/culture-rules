@@ -36,3 +36,58 @@ _Binding = _bindings[0]
 class TestClaimsOnMongoStore(ClaimsContract):
     make_store = _Binding.make_store
     open_peer = _Binding.open_peer
+
+    def test_concurrency_claim_write_conflict_rereads_to_deduplicated(self):
+        from culture_rules.engine.claims import RULE_ATTEMPT_BUDGETS, reserve_concurrency
+        from culture_rules.engine.runs import RUNS_COLLECTION
+        from culture_rules.store.port import TransientStoreError
+
+        store = self.make_store()
+        peer = self.open_peer(store, "1.0")
+        store.ensure_collections(RULE_ATTEMPT_BUDGETS, RUNS_COLLECTION, "rule_fires")
+        assert reserve_concurrency(store, "a", "pr", "old", "old-intent", 3) is None
+        store.put(RUNS_COLLECTION, {"id": "old", "status": "failed"})
+        budget = store.find(RULE_ATTEMPT_BUDGETS)[0]
+        with pytest.raises(TransientStoreError):
+            with peer.transaction() as loser:
+                assert loser.get(RULE_ATTEMPT_BUDGETS, budget["id"])["count"] == 1
+                with store.transaction() as winner:
+                    assert reserve_concurrency(winner, "a", "pr", "winner", "win-intent", 3) is None
+                reserve_concurrency(loser, "a", "pr", "loser", "lose-intent", 3)
+        with peer.transaction() as retry:
+            assert (
+                reserve_concurrency(retry, "a", "pr", "loser", "lose-intent", 3) == "deduplicated"
+            )
+        assert store.find(RULE_ATTEMPT_BUDGETS)[0]["count"] == 2
+
+    def test_release_write_conflicts_with_a_concurrent_dedup_note(self):
+        """Write-skew guard: a trigger transaction that read the holding run as active
+        conflicts with the chain transaction releasing the key, and its retry is admitted
+        instead of leaving a pending event nobody would fire."""
+        from culture_rules.engine.claims import (
+            RULE_ATTEMPT_BUDGETS,
+            note_deduplicated,
+            release_concurrency,
+            reserve_concurrency,
+        )
+        from culture_rules.engine.runs import RUNS_COLLECTION
+        from culture_rules.store.port import TransientStoreError
+
+        store = self.make_store()
+        peer = self.open_peer(store, "1.0")
+        store.ensure_collections(RULE_ATTEMPT_BUDGETS, RUNS_COLLECTION, "rule_fires")
+        assert reserve_concurrency(store, "a", "pr", "run1", "intent1", None) is None
+        store.put(RUNS_COLLECTION, {"id": "run1", "status": "running"})
+        budget = store.find(RULE_ATTEMPT_BUDGETS)[0]
+        with pytest.raises(TransientStoreError):
+            with peer.transaction() as trigger:
+                assert reserve_concurrency(trigger, "a", "pr", "run2", "i2", None) == (
+                    "deduplicated"
+                )
+                store.put(RUNS_COLLECTION, {"id": "run1", "status": "failed"})
+                with store.transaction() as chain:
+                    assert release_concurrency(chain, budget["id"], "run1") is None
+                note_deduplicated(trigger, "a", "pr", "evt_2")
+        with peer.transaction() as retry:
+            assert reserve_concurrency(retry, "a", "pr", "run2", "i2", None) is None
+        assert store.get(RULE_ATTEMPT_BUDGETS, budget["id"])["pending_event_id"] is None

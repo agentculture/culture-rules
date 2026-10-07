@@ -64,8 +64,8 @@ def test_self_authored_tagged_case_insensitively():
     by_id = {d["id"]: d["envelope"]["data"] for d in s.find(EVENTS_COLLECTION)}
     # synchronize + bot author -> self_authored True
     assert by_id[event_id_for("github", "d1")]["self_authored"] is True
-    # synchronize + human author -> no self_authored key
-    assert "self_authored" not in by_id[event_id_for("github", "d2")]
+    # synchronize + human author -> explicit False
+    assert by_id[event_id_for("github", "d2")]["self_authored"] is False
 
 
 def test_self_authored_true_for_non_exempt_github_type():
@@ -87,7 +87,7 @@ def test_payload_cannot_forge_self_authored():
     s = MemoryStore()
     call(s, data={"self_authored": True})
     (doc,) = s.find(EVENTS_COLLECTION)
-    assert "self_authored" not in doc["envelope"]["data"]
+    assert doc["envelope"]["data"]["self_authored"] is False
 
 
 def test_payload_cannot_forge_self_authored_non_exempt_type():
@@ -218,7 +218,7 @@ def test_case_insensitive_matching_preserved():
         if author != "alice":
             assert data["self_authored"] is True, f"author={author}"
         else:
-            assert "self_authored" not in data, f"author={author}"
+            assert data["self_authored"] is False, f"author={author}"
 
 
 def test_envelope_shape_and_matching():
@@ -230,7 +230,12 @@ def test_envelope_shape_and_matching():
     assert env["id"].startswith("hook_github_")
     assert env["type"] == TYPE
     assert env["source"] == "app://gh-app"
-    assert env["data"] == {"number": 7, "delivery_id": "d1", "actor": "gh-app"}
+    assert env["data"] == {
+        "number": 7,
+        "delivery_id": "d1",
+        "actor": "gh-app",
+        "self_authored": False,
+    }
     assert trigger_matches(Trigger(kind="event", params={"type": TYPE}), env)
 
 
