@@ -38,7 +38,12 @@ recorded on the PR with a screenshot.
     answered with `POST /asks/{id}/answer`;
   - the rule's last runs and recorded skips, newest first (`GET
     /rules/{id}/history`): a skipped rule reads `superseded by <rule>`
-    (or "lost its group to", "waiting for") with an icon and a label.
+    (or "lost its group to", "waiting for") with an icon and a label;
+  - "In words" under the stages (d19): the rule as short labelled lines
+    (`When …`, `If …`, `and …`, `Run …`, `On …`, `Then …`, `On failure …`,
+    `Key …`), from `GET /rules/{id}/describe`. The API builds the lines from
+    the config alone (no AI), so the editor, the CLI and the MCP tools read
+    the same text. A failed call shows nothing.
   Code: `src/routes/Rules.tsx`, `src/rules/`, `src/api/rules.ts`.
 - **Workflows** (`/workflows?id=&run=`) is the 'Chosen — Workflows' board:
   - New workflow (in the head next to Import, and the empty state's
@@ -54,6 +59,16 @@ recorded on the PR with a screenshot.
   - the workflow as a React Flow graph laid out by elkjs (Inputs → steps
     → Outputs), with typed ports: a drag between mismatched types is
     refused;
+  - zoom (d19), from 25% to 200%: a pinch or ctrl/cmd + wheel, the
+    on-canvas Zoom out / Zoom in / Fit to width buttons (with the level
+    read out), or `+` / `-` / `0` while focus is in the canvas. A plain
+    wheel never zooms, so the page keeps scrolling. The canvas is sized
+    like a document at its zoom, so Fit shrinks a wide graph to the canvas
+    width and returns to 100% when the graph already fits
+    (`src/workflows/zoom.ts`);
+  - "In words" under the canvas (d19): the stored workflow's steps,
+    numbered, with a loop's body nested (`GET /workflows/{id}/describe`).
+    While the draft has unsaved edits it is marked "the saved version";
   - a step panel to edit a step, its placement and its enable switch; add
     and delete steps; save with `PUT /workflows/{id}`;
   - Run (`POST /runs` through the rule that uses the workflow) and a run
@@ -167,7 +182,11 @@ rendered as an alert. It does not leave the page "loading".
 - A run's status is announced in words. It is never carried by the dot's
   color alone.
 - `prefers-reduced-motion: reduce` disables every transition (the
-  `tokens.css` kill switch).
+  `tokens.css` kill switch), and a button or key zoom on the workflow
+  canvas then lands at once instead of animating.
+- The workflow canvas zooms from the keyboard: `+`, `-` and `0` (fit)
+  while focus is in it, never while typing in a field. The zoom buttons
+  are labelled and announce the new level.
 - The Playwright suite runs axe on every tab and requires zero serious or
   critical violations.
 
