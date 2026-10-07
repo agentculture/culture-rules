@@ -48,3 +48,28 @@ def test_run_survives_restart_and_cancel_on_mongo(mongo_store):
     again.run_until_idle()
     Containment(mongo_store, clock=clock).cancel(second["id"], "alice")
     assert again.run(second["id"])["status"] == "cancelled"
+
+
+def test_completion_record_outbox_and_verification_on_mongo(mongo_store):
+    """d21: the terminal CAS and the completion record commit together on a real replica
+    set; the outbox delivers once; a stored copy verifies only when identical."""
+    from culture_rules.engine.run_completions import RUN_COMPLETIONS
+    from culture_rules.events.ingest import EVENTS_COLLECTION, QUARANTINE_COLLECTION
+    from culture_rules.node.run_events import RunEventOutbox, verify_run_event
+
+    clock = Clock()
+    a = human_actor_for_mongo()
+    ex = Executor(mongo_store, "spark", ports_for(a), clock=clock)
+    run = ex.start(rule(), three_steps())
+    ex.run_until_idle()
+    Containment(mongo_store, clock=clock).cancel(run["id"], "alice")
+    record = mongo_store.get(RUN_COMPLETIONS, run["id"])
+    assert record["status"] == "cancelled" and record["emitted"] is False
+    mongo_store.ensure_collections(EVENTS_COLLECTION, QUARANTINE_COLLECTION)
+    outbox = RunEventOutbox(mongo_store, paused=lambda tx: False, defer=Exception)
+    assert outbox.poll() == [record["envelope"]["id"]]
+    assert outbox.poll() == []
+    stored = mongo_store.get(EVENTS_COLLECTION, record["envelope"]["id"])["envelope"]
+    with mongo_store.transaction() as tx:
+        assert verify_run_event(tx, stored) is None
+        assert verify_run_event(tx, {**stored, "hops": 0}) is not None

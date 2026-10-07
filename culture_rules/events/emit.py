@@ -52,21 +52,73 @@ def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
 
 
-def _wire(cause: Mapping[str, Any]) -> Mapping[str, Any]:
-    """Accept a wire envelope or a stored ``events`` document (``{"envelope": ...}``)."""
-    inner = cause.get("envelope")
-    return inner if isinstance(inner, Mapping) else cause
+INTERNAL_SOURCE_PREFIX = "culture-rules://"
+"""Sources the engine writes straight into the store (run events, checks settle). The bus
+may not carry them (:func:`reserved_reason`), and a derived event from one must carry
+``hops`` (:func:`event_hops`)."""
+RUN_EVENT_ID_PREFIX = "runevt_"
+RUN_EVENT_TYPE_PREFIX = "rules.run."
+
+
+def is_stored_document(doc: Mapping[str, Any]) -> bool:
+    """Whether ``doc`` is a stored ``events`` document (the storage boundary), not a wire
+    envelope: it holds an ``envelope`` mapping whose id is its own id, and no wire ``type``.
+    A wire envelope that merely carries an ``envelope`` field is *not* one."""
+    inner = doc.get("envelope")
+    return (
+        isinstance(inner, Mapping)
+        and "type" not in doc
+        and isinstance(doc.get("id"), str)
+        and doc.get("id") == inner.get("id")
+    )
+
+
+def wire_envelope(doc: Mapping[str, Any]) -> Mapping[str, Any]:
+    """The wire envelope of a stored ``events`` document, or ``doc`` itself when it is a
+    wire envelope (the only place a stored document is unwrapped)."""
+    return doc["envelope"] if is_stored_document(doc) else doc
 
 
 def event_hops(envelope: Mapping[str, Any]) -> int | None:
-    """The hop count of ``envelope`` (a wire envelope or a stored ``events`` document): 0
-    when absent (an external event), else the non-negative integer it carries. A value that
-    is not one (a string, a bool, a negative number) answers ``None``: the caller fails
-    closed and treats it as past :data:`MAX_EVENT_HOPS`."""
-    hops = _wire(envelope).get("hops", 0)
+    """The hop count of the **wire** ``envelope`` (never unwrapped), or ``None`` - the
+    caller then fails closed and treats it as past :data:`MAX_EVENT_HOPS` - when:
+
+    * it is malformed (a string, a bool, a negative number);
+    * the envelope carries an ``envelope`` field (ambiguous with a stored document);
+    * it is absent on a derived event (a ``causationId``) from an internal source
+      (:data:`INTERNAL_SOURCE_PREFIX`): the engine always stamps the hops it derives.
+
+    Absent on a root event, or on an event from an outside source (whose producers do not
+    count hops), it is 0."""
+    if "envelope" in envelope:
+        return None
+    if "hops" not in envelope:
+        source = envelope.get("source")
+        internal = isinstance(source, str) and source.startswith(INTERNAL_SOURCE_PREFIX)
+        return None if internal and envelope.get("causationId") else 0
+    hops = envelope["hops"]
     if isinstance(hops, bool) or not isinstance(hops, int) or hops < 0:
         return None
     return hops
+
+
+def reserved_reason(envelope: Mapping[str, Any]) -> str | None:
+    """Why ``envelope`` may not enter the store from the bus or a webhook, or ``None``.
+
+    The run-event namespace (ids ``runevt_*``, types ``rules.run.*``) and the internal
+    sources are written only by the engine itself (deviation d21): a copy from outside could
+    otherwise squat a run's event id. An envelope carrying an ``envelope`` field is refused
+    as ambiguous with a stored document."""
+    if "envelope" in envelope:
+        return "an envelope field makes it ambiguous with a stored event document"
+    eid, kind, source = envelope.get("id"), envelope.get("type"), envelope.get("source")
+    if isinstance(eid, str) and eid.startswith(RUN_EVENT_ID_PREFIX):
+        return f"id prefix {RUN_EVENT_ID_PREFIX} is reserved for the engine's run events"
+    if isinstance(kind, str) and kind.startswith(RUN_EVENT_TYPE_PREFIX):
+        return f"type {RUN_EVENT_TYPE_PREFIX}* is reserved for the engine's run events"
+    if isinstance(source, str) and source.startswith(INTERNAL_SOURCE_PREFIX):
+        return f"source {INTERNAL_SOURCE_PREFIX}* is reserved for the engine"
+    return None
 
 
 def derive_envelope(
@@ -96,7 +148,7 @@ def derive_envelope(
     if cause is None:
         env["correlationId"] = env["id"]
     else:
-        wire = _wire(cause)
+        wire = wire_envelope(cause)
         cause_id = wire.get("id")
         if not isinstance(cause_id, str) or not cause_id:
             raise ValueError("the causing event has no id")

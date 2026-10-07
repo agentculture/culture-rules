@@ -8,8 +8,9 @@ compose:
   the **same** event;
 - run events chain a rule to the **end of another rule's run**.
 
-The code is `culture_rules/node/run_events.py`, `culture_rules/node/firing.py`
-and `culture_rules/events/emit.py`.
+The code is `culture_rules/engine/run_completions.py`,
+`culture_rules/node/run_events.py`, `culture_rules/node/firing.py` and
+`culture_rules/events/emit.py`.
 
 ## The events
 
@@ -54,7 +55,13 @@ The event's lineage:
 - `hops` is the trigger's hop count plus one.
 
 The id is `runevt_` plus a digest of the run id. `time` is the run's
-`finished_at`. So the event is a deterministic function of the finished run.
+`finished_at`.
+
+The event is built **once**, in the run's terminal transition. It is stored
+in the same transaction as an immutable completion record in
+`run_completions`, so the status change and the record commit together or not
+at all. A later edit of the run document changes neither what is emitted nor
+what a downstream rule is checked against.
 
 ## Firing on them
 
@@ -92,44 +99,58 @@ until the hop cap stops it.
 
 ## Guards
 
-Two refusals guard these events. Both are final skips, recorded on the
-rule's history (`rule_decisions`):
+Three refusals guard these events:
 
+- **Reserved namespace.** Ingest from the bus and the webhook sink refuse
+  `runevt_*` ids, `rules.run.*` types, `culture-rules://` sources, and any
+  envelope that carries an `envelope` field (ambiguous with a stored event
+  document). A refused envelope is never stored or evaluated. It is kept in
+  `event_quarantine` with the reason, and counted on the ingest result.
+- **`run_event_unverified`.** Before a rule fires on a `rules.run.*` event,
+  the node compares the whole envelope, extra keys included, with the
+  envelope in the run's completion record. The id must also be the one the
+  record says it was emitted as. On any difference every rule on it is
+  refused, with this reason recorded on its history. The record is the
+  reference, never the mutable run document.
 - **`hop_limit`.** Each derived event carries `hops`: an external event has
   0, and each derivation adds one. Matching refuses any firing on an event
-  with more than `MAX_EVENT_HOPS` (8) hops, or with a malformed hop count.
-  The node also logs the refusal as a warning. Two rules that fire on each
-  other's runs therefore stop after eight hops. No refused firing is dropped
-  silently.
-- **`run_event_unverified`.** Run-event types also reach `events` from the
-  bus, so anyone who can publish there could claim any outputs. Before a rule
-  fires on a `rules.run.*` event, the node rebuilds the event from the run it
-  names and refuses on any difference. The difference can be in the run (it
-  is unknown or not finished), or in the id, type, time, lineage, hop count or
-  any field of `data`. A faithful copy carries the same id as the real event,
-  so at most one of the two is stored and evaluated.
+  with more than `MAX_EVENT_HOPS` (8) hops, and also when the count is
+  malformed, missing on a derived event from an internal source, or the
+  envelope carries an `envelope` field. The node logs the refusal as a
+  warning and records it. Two rules that fire on each other's runs therefore
+  stop after eight hops.
+
+Hop counts are only as good as their producers. An event from an outside
+source with no `hops` counts as 0, even when it names a cause, because
+outside producers do not count hops. A loop that passes through an outside
+agent therefore resets its count.
 
 ## Exactly once
 
-Emission is a change-feed consumer on `runs`, `run-events`, which every node
-shares and polls first in each cycle. For each run whose post-image is
-terminal, one store transaction commits three things:
-
-- the consumer's marker for that run;
-- the event insert, preceded by a read of the deterministic id;
-- the advanced resume token.
+Delivery is an outbox that every node polls first in each cycle. For each
+completion record not yet `emitted`, one transaction inserts the event (read
+first) and moves the record to `emitted: true`, with the `event_id` it was
+stored under.
 
 What this gives:
 
-- **A node dies before the commit.** Nothing is left behind, and the next
-  poll emits the event. That poll can run on any node, or on this one after a
-  restart.
-- **A stale node replays an old token.** It finds the marker and skips.
-- **The markers are lost.** The deterministic id still absorbs the replay.
-- **A pause is in force.** Emission is deferred until the pause lifts, and the
-  run then emits its event once.
-- **A node first runs this version.** Its first poll pins the feed's head, so
-  runs that finished earlier emit nothing. An upgrade never replays history.
+- **A node dies inside the terminal transition.** Neither the status nor the
+  record is written; the run finishes on the next tick.
+- **A node dies inside delivery.** Neither the event nor the mark is written;
+  the next poll, on any node, delivers it.
+- **A commit's acknowledgement is lost.** The record is already `emitted` and
+  is skipped; an identical stored event is accepted as delivered.
+- **Two nodes race.** Both write the same record; one transaction loses.
+- **A different event already holds the id.** It is quarantined as a
+  conflict, and the genuine event is stored under `<id>-genuine`.
+- **A pause is in force.** Delivery is deferred until the pause lifts.
+- **Upgrade.** Only terminal transitions written by this engine have a
+  record. Runs that finished earlier emit nothing, and nothing in between is
+  lost, because delivery never reads change-feed history.
+
+The change-feed consumers that remain (triggers and chains) now initialise
+their cursor once, by insert: two nodes starting together agree on one
+starting token.
 
 ## Runs outside the attempt budget
 
@@ -146,6 +167,11 @@ fires on a fix's finished run. The field needs a `concurrency_key`, and a rule
 cannot set it to `false` together with `max_attempts`. The description's
 `Key` line then ends with `outside the attempt budget`.
 
+The field is trusted configuration, not a security boundary. Whoever can save
+a rule decides whether it is counted, as they decide everything else about
+it. A value that is not a boolean is refused when the rule is read, and a
+stored `null` is treated as counted.
+
 ## The pr-fixer split (*planned*)
 
 Phase 2 of d21 (*planned*, not built) re-shapes the PR fixer on these events:
@@ -161,3 +187,7 @@ Phase 2 of d21 (*planned*, not built) re-shapes the PR fixer on these events:
 Only fix runs will count against the per-PR budget. Disabling
 `pr-fixer-publish` will give a review-only mode. Until then, the shipped
 bundle in `docs/rules/pr-fixer/` is the single-workflow fixer.
+
+Phase 2 will also need two integration tests that reach the push guard and
+push nothing: a genuine completion that claims approval with no genuine
+review record, and a PR head that moved after the review.

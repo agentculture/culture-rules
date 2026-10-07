@@ -554,3 +554,25 @@ def test_counts_toward_budget_must_be_a_boolean() -> None:
     doc["counts_toward_budget"] = "no"
     with pytest.raises(ValueError):
         Rule.from_dict(doc)
+
+
+@pytest.mark.parametrize("value", [0, 1, [], {}, "false"])
+def test_counts_toward_budget_rejects_non_booleans(value) -> None:
+    doc = make_rule(concurrency_key="k").to_dict()
+    doc["counts_toward_budget"] = value
+    with pytest.raises(ValueError):
+        Rule.from_dict(doc)
+    with pytest.raises(ValueError):
+        Rule.from_dict(doc, strict=False)
+
+
+def test_counts_toward_budget_null_is_reported_required() -> None:
+    doc = make_rule(concurrency_key="k").to_dict()
+    doc["counts_toward_budget"] = None
+    errors = validate(Rule.from_dict(doc))
+    assert ("counts_toward_budget", "required") in {(e.path, e.code) for e in errors}
+
+
+def test_counts_toward_budget_false_with_an_empty_key_is_refused() -> None:
+    errors = validate(make_rule(concurrency_key="  ", counts_toward_budget=False))
+    assert "concurrency_key" in paths(errors)

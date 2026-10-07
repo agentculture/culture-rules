@@ -215,14 +215,15 @@ Run events (d21)
 ================
 A rule may also fire when another rule's run *finishes*: every terminal run emits one
 ``rules.run.succeeded`` / ``.failed`` / ``.cancelled`` / ``.superseded`` event
-(:mod:`culture_rules.node.run_events`), through a fifth consumer every node shares,
-``run-events``, polled first each cycle. It is evaluated like any other event - an
+(:mod:`culture_rules.node.run_events`), delivered from the run's immutable completion record
+by the outbox every node polls first each cycle. It is evaluated like any other event - an
 ``event`` trigger on that type plus a condition over ``trigger.data.*`` (``rule_id``,
 ``outputs.<name>``, ``repository`` ...) - with two guards, both final skips recorded on the
 rule's history:
 
-* ``run_event_unverified`` - the event does not equal what its run emits (a forged or stale
-  copy from the bus); checked in the evaluating transaction, before the rate cap;
+* ``run_event_unverified`` - the event does not equal the envelope in its run's immutable
+  completion record (a copy written past ingest's reserved-namespace guard); checked in the
+  evaluating transaction, before the rate cap;
 * ``hop_limit`` - matching refuses every fire on an event more than
   :data:`~culture_rules.events.emit.MAX_EVENT_HOPS` derivations from an external one (or with
   a malformed hop count), so rules firing on each other's runs stop; logged as a warning.
@@ -297,12 +298,7 @@ from culture_rules.model.rule import Rule
 from culture_rules.model.variable_refs import rule_variable_refs
 from culture_rules.model.workflow import Workflow
 from culture_rules.node.chain import FeedConsumer, Source, live_rules
-from culture_rules.node.run_events import (
-    RUN_EVENTS_CONSUMER,
-    emit_run_event,
-    is_run_event,
-    verify_run_event,
-)
+from culture_rules.node.run_events import RunEventOutbox, is_run_event, verify_run_event
 from culture_rules.ops.logs import log_context
 from culture_rules.store.port import (
     DuplicateKeyError,
@@ -429,14 +425,14 @@ class RuleFiring:
         )
         self.chain_placed = self._chain(placed_chain(host), placed=True)
         self.chain_shared = self._chain(SHARED_CHAIN, placed=False)
-        self.run_events = FeedConsumer(
+        self.run_events = RunEventOutbox(
             store,
-            (Source(RUNS_COLLECTION, _terminal_run, self._emit_run_event),),
-            host=host,
-            consumer=RUN_EVENTS_CONSUMER,
-            handler_collections=(EVENTS_COLLECTION,),
-            clock=clock,
-            every_document=True,
+            paused=is_paused,
+            defer=lambda record: Deferred(
+                str(record.get("rule_id") or "?"),
+                str(record.get("run_id")),
+                "paused: run event emitted on resume",
+            ),
         )
 
     def _chain(self, consumer: str, *, placed: bool) -> FeedConsumer:
@@ -464,25 +460,14 @@ class RuleFiring:
         )
 
     @property
-    def consumers(self) -> tuple[EventTriggers | FeedConsumer, ...]:
+    def consumers(self) -> tuple[EventTriggers | FeedConsumer | RunEventOutbox, ...]:
         """Every consumer a node polls each cycle, in order: the run-events emitter first,
         so a run that finished last cycle has its ``rules.run.*`` event evaluated in this one."""
         return (self.run_events, self.placed, self.shared, self.chain_placed, self.chain_shared)
 
-    def _emit_run_event(self, tx: StoreOps, doc: Mapping[str, Any], marker_id: str) -> None:
-        """A run finished: store its ``rules.run.*`` event (module doc, "Run events"). Deferred
-        while paused - the run was accepted before the pause - so it is emitted on resume."""
-        if is_paused(tx):
-            raise Deferred(
-                str((doc.get("rule") or {}).get("id") or doc.get("rule_id") or "?"),
-                str(doc.get("id")),
-                "paused: run event emitted on resume",
-            )
-        emit_run_event(tx, doc)
-
     # ------------------------------------------------------------------ polling
 
-    def poll(self, consumer: EventTriggers | FeedConsumer) -> PollOutcome:
+    def poll(self, consumer: EventTriggers | FeedConsumer | RunEventOutbox) -> PollOutcome:
         """Poll one consumer; report committed evaluations, a deferral, and any error.
 
         A failure part-way (e.g. a transient conflict on one event) is returned on
@@ -1183,11 +1168,6 @@ def _finished_run(doc: Mapping[str, Any]) -> str | None:
     if not rule_id or not event_id or doc.get("id") != run_id_for(rule_id, event_id):
         return None  # started by hand, not by an event: no chain to continue
     return doc["id"]
-
-
-def _terminal_run(doc: Mapping[str, Any]) -> str | None:
-    """Any run that reached a terminal state (its id), else None: each emits its event."""
-    return doc.get("id") if doc.get("status") in RUN_DONE else None
 
 
 def _settled_skip(doc: Mapping[str, Any]) -> str | None:

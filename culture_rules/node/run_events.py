@@ -18,129 +18,98 @@ One type per terminal status, never a shared type with a status field:
 
 Separate types keep supersession and cancellation out of downstream work by construction: a
 rule on ``rules.run.failed`` (a hand-back, a re-fix) never sees a superseded or cancelled run,
-and there is no condition an author could forget. They are still emitted, so the
-exactly-one-event-per-finished-run invariant holds and the history shows them.
+and there is no condition an author could forget.
 
 Data
 ====
-``data`` holds, verbatim:
+``data`` holds ``run_id``, ``rule_id``, ``workflow_id``, ``workflow_version``, ``status``,
+``concurrency_key``, ``outputs`` (only the explicitly exported outputs), ``error_code``,
+``error_message``, ``trigger_event_id``, ``trigger_type`` and the trigger's subject fields
+(:data:`~culture_rules.engine.run_completions.SUBJECT_FIELDS`) at the top level. Lineage:
+``causationId`` = the run's trigger, ``correlationId`` inherited, ``runId`` = the run,
+``hops`` = the trigger's hops plus one. See :mod:`culture_rules.engine.run_completions`.
 
-* ``run_id``, ``rule_id``, ``workflow_id``, ``workflow_version`` (``None`` without a
-  workflow), ``status`` and ``concurrency_key`` (the resolved key, ``None`` when unkeyed);
-* ``outputs`` - only the outputs the run's pinned workflow explicitly exports
-  (:func:`~culture_rules.engine.matching.exported_outputs`; ``{}`` when it did not produce
-  them, e.g. a failed run);
-* ``error_code`` / ``error_message`` - the run's error (``None`` on success);
-* ``trigger_event_id`` / ``trigger_type`` - the event the run fired on (``None`` for a run
-  started by hand);
-* the subject fields of the trigger's ``data`` that are present and scalar,
-  :data:`SUBJECT_FIELDS` (``repository``, ``number``, ``head_sha`` ...), at the top level,
-  so a downstream rule resolves the same concurrency-key template
-  (``pr-fixer:{trigger.data.repository}#{trigger.data.number}``) and they carry on down a
-  chain. Nothing else of the trigger is copied (free text such as a comment body stays out).
+Exactly once: an outbox
+=======================
+The event is built **once**, in the run's terminal transition, and stored with it in the same
+transaction as an immutable completion record (:mod:`culture_rules.engine.run_completions`).
+:class:`RunEventOutbox` - polled by every node, first in each cycle - delivers each record not
+yet ``emitted``, in one transaction per record:
 
-Lineage (:func:`~culture_rules.events.emit.derive_envelope`): ``causationId`` is the run's
-trigger event, ``correlationId`` is inherited from it, ``runId`` is the finished run and
-``hops`` is the trigger's hops plus one (a run started by hand has hops 1). The id is
-:func:`run_event_id` (a digest of the run id) and ``time`` is the run's ``finished_at``, so
-the event is a deterministic function of the finished run document.
+* the event is inserted under the record's id (read first: a duplicate key aborts a MongoDB
+  transaction), and the record moves ``emitted: False -> True`` with the ``event_id`` it was
+  stored under (compare-and-set);
+* a node that dies before the commit leaves both untouched; the next poll, on any node,
+  delivers it (no loss); two nodes racing write the same record and one transaction loses
+  (no duplicate); a commit whose acknowledgement was lost is found ``emitted`` and skipped, and
+  an identical event already stored is accepted as delivered;
+* the outbox never consults change-feed history, so there is no head to pin and no upgrade
+  window: a run finished by an older engine has no record and emits nothing; every terminal
+  transition written by this engine has one and is delivered;
+* during a global pause delivery is deferred (the run was accepted before the pause) and
+  happens on resume.
 
-Exactly once
-============
-Emission is a change-feed consumer on ``runs`` (:class:`~culture_rules.node.chain.FeedConsumer`,
-one shared consumer :data:`RUN_EVENTS_CONSUMER` polled by every node): for each run whose
-post-image is terminal it commits, in **one store transaction**, the consumer's marker for the
-run, the event insert and the advanced resume token. So:
-
-* a node that dies before the commit leaves nothing; the token stays before that change and the
-  next poll - on any node, or this one restarted - emits it (no loss);
-* a node that committed recorded both the event and the token; a stale node replaying an old
-  token finds the marker and skips (no duplicate);
-* two nodes racing on the same run write the same marker; one transaction wins, the other
-  conflicts and, retried, skips;
-* independently of the marker, the event id is deterministic and the insert is preceded by a
-  read in the same transaction, so even a lost marker can never store a second event.
-
-The consumer's first poll pins the feed's head (as every consumer does): runs that finished
-before a node first ran this version emit nothing, so an upgrade never replays history.
-During a global pause emission is deferred (the token stays;
-:class:`~culture_rules.node.firing.Deferred`) and resumes in order once the pause lifts, like a
-chain re-evaluation: the run was accepted before the pause.
+The id namespace is the engine's alone: ingest and the webhook sink refuse ``runevt_*`` ids,
+``rules.run.*`` types and internal sources (:func:`~culture_rules.events.emit.reserved_reason`;
+refused envelopes are quarantined, visible, never evaluated). Should a *different* event still
+occupy the id (written past those guards), it is quarantined as a conflict and the genuine
+event is stored under ``<id>-genuine``; the record's ``event_id`` names it.
 
 Verification
 ============
-Events reach the ``events`` collection from the bus too, so anyone who can publish there
-could publish a ``rules.run.succeeded`` claiming any outputs. Before a rule fires on a
-``rules.run.*`` event the node rebuilds the event from the run it names
-(:func:`verify_run_event`) and refuses every rule on any difference - an unknown or
-unfinished run, another id, type, time, lineage, hop count or byte of ``data`` - with the
-final skip ``run_event_unverified``. A faithful copy is indistinguishable from the real event,
-and both carry the same id, so at most one is stored and evaluated.
+Before a rule fires on a ``rules.run.*`` event the node compares it, field for field (the
+whole envelope, extra keys included), with the envelope in the run's completion record under
+the id that record says it was emitted as (:func:`verify_run_event`) and refuses every rule on
+any difference - no record, not emitted, another id, any other byte - with the final skip
+``run_event_unverified``. The record, not the mutable run document, is the reference.
 Standard-library only.
 """
 
 from __future__ import annotations
 
-import hashlib
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any
 
-from culture_rules.engine.matching import exported_outputs
-from culture_rules.engine.runs import RUN_DONE, RUNS_COLLECTION, SUPERSEDED
-from culture_rules.events.emit import MAX_EVENT_HOPS, derive_envelope, event_hops
-from culture_rules.events.ingest import EVENTS_COLLECTION, event_document
-from culture_rules.model.rule import Rule
-from culture_rules.model.workflow import Workflow
-from culture_rules.store.port import StoreOps
+from culture_rules.engine.run_completions import (
+    RUN_COMPLETIONS,
+    RUN_EVENT_PREFIX,
+    RUN_EVENT_SOURCE,
+    RUN_EVENT_TYPES,
+    SUBJECT_FIELDS,
+    build_run_event,
+    run_event_id,
+)
+from culture_rules.events.ingest import (
+    EVENTS_COLLECTION,
+    QUARANTINE_COLLECTION,
+    event_document,
+)
+from culture_rules.store.port import StoragePort, StoreOps
+from culture_rules.store.versioning import utc_timestamp
 
 __all__ = [
-    "RUN_EVENTS_CONSUMER",
+    "GENUINE_SUFFIX",
+    "OUTBOX_BATCH",
+    "RUN_COMPLETIONS",
     "RUN_EVENTS_HOST",
     "RUN_EVENT_PREFIX",
     "RUN_EVENT_SOURCE",
     "RUN_EVENT_TYPES",
     "SUBJECT_FIELDS",
+    "RunEventOutbox",
     "build_run_event",
-    "emit_run_event",
+    "deliver",
     "is_run_event",
     "run_event_id",
     "verify_run_event",
 ]
 
-RUN_EVENT_PREFIX = "rules.run."
-RUN_EVENT_TYPES: dict[str, str] = {
-    "succeeded": "rules.run.succeeded",
-    "failed": "rules.run.failed",
-    "cancelled": "rules.run.cancelled",
-    SUPERSEDED: "rules.run.superseded",
-}
-"""Terminal run status -> the event type its run emits (one type per status)."""
-RUN_EVENT_SOURCE = "culture-rules://runs"
 RUN_EVENTS_HOST = "run-events"
 """The ``host`` recorded on the stored event (it is not ingested from a host's subscription)."""
-RUN_EVENTS_CONSUMER = "run-events"
-"""The one change-feed consumer every node shares to emit run events."""
-SUBJECT_FIELDS = (
-    "repository",
-    "number",
-    "head_sha",
-    "head_branch",
-    "base_sha",
-    "base_branch",
-    "base_repo",
-    "head_repo",
-    "pr_author",
-    "draft",
-)
-"""Trigger ``data`` fields copied to the top level of a run event when present and scalar:
-what a downstream rule needs to correlate (its concurrency key, its PR)."""
-
-assert set(RUN_EVENT_TYPES) == set(RUN_DONE), "every terminal run status emits one event type"
-
-
-def run_event_id(run_id: str) -> str:
-    """The id of the event run ``run_id`` emits when it finishes (the same on every node)."""
-    return "runevt_" + hashlib.sha256(run_id.encode("utf-8")).hexdigest()[:32]
+GENUINE_SUFFIX = "-genuine"
+"""Appended to a run event's id when a different event already occupies it."""
+OUTBOX_BATCH = 100
+"""At most this many completion records are delivered per poll (the rest on the next)."""
 
 
 def is_run_event(envelope: Mapping[str, Any]) -> bool:
@@ -149,119 +118,104 @@ def is_run_event(envelope: Mapping[str, Any]) -> bool:
     return isinstance(kind, str) and kind.startswith(RUN_EVENT_PREFIX)
 
 
-def _exported(run: Mapping[str, Any]) -> dict[str, Any]:
-    """The run's outputs its pinned workflow explicitly exports (nothing when unreadable)."""
-    outputs = run.get("outputs")
-    pinned_rule = (run.get("rule") or {}).get("definition")
-    pinned_wf = (run.get("workflow") or {}).get("definition")
-    if not isinstance(outputs, Mapping) or not isinstance(pinned_rule, Mapping):
-        return {}
-    if not isinstance(pinned_wf, Mapping):
-        return {}
-    try:
-        rule = Rule.from_dict(dict(pinned_rule), strict=False)
-        wf = Workflow.from_dict(dict(pinned_wf), strict=False)
-    except ValueError:
-        return {}  # fail closed: export nothing rather than everything
-    names = exported_outputs(rule, {wf.id: wf})
-    return {k: outputs[k] for k in sorted(outputs) if k in names}
-
-
-def _subject(trigger: Mapping[str, Any]) -> dict[str, Any]:
-    data = trigger.get("data")
-    if not isinstance(data, Mapping):
-        return {}
-    return {
-        k: data[k]
-        for k in SUBJECT_FIELDS
-        if k in data and (data[k] is None or isinstance(data[k], str | int | float | bool))
-    }
-
-
-def build_run_event(run: Mapping[str, Any]) -> dict[str, Any] | None:
-    """The wire envelope finished run ``run`` emits, or ``None`` while it is not finished.
-
-    A pure function of the run document (module doc, "Data")."""
-    status = run.get("status")
-    if status not in RUN_EVENT_TYPES or not isinstance(run.get("id"), str):
+def deliver(tx: StoreOps, record_id: str) -> str | None:
+    """Deliver completion record ``record_id`` through ``tx``: store its event and mark it
+    emitted. Answer the stored event id, or ``None`` when there was nothing to deliver."""
+    record = tx.get(RUN_COMPLETIONS, record_id)
+    if record is None or record.get("emitted") is not False:
         return None
-    trigger = run.get("trigger") if isinstance(run.get("trigger"), Mapping) else {}
-    cause = trigger if isinstance(trigger.get("id"), str) and trigger.get("id") else None
-    if cause is None:
-        hops = 1
-    else:
-        trigger_hops = event_hops(cause)
-        hops = MAX_EVENT_HOPS + 1 if trigger_hops is None else trigger_hops + 1
-    workflow = run.get("workflow") if isinstance(run.get("workflow"), Mapping) else {}
-    error = run.get("error") if isinstance(run.get("error"), Mapping) else {}
-    data: dict[str, Any] = {
-        **_subject(trigger),
-        "run_id": run["id"],
-        "rule_id": run.get("rule_id"),
-        "workflow_id": run.get("workflow_id"),
-        "workflow_version": workflow.get("version"),
-        "status": status,
-        "concurrency_key": run.get("concurrency_key"),
-        "outputs": _exported(run),
-        "error_code": error.get("code"),
-        "error_message": error.get("message"),
-        "trigger_event_id": trigger.get("id") if cause is not None else None,
-        "trigger_type": trigger.get("type") if cause is not None else None,
-    }
-    return derive_envelope(
-        cause,
-        type=RUN_EVENT_TYPES[status],
-        source=RUN_EVENT_SOURCE,
-        data=data,
-        run_id=run["id"],
-        id=run_event_id(run["id"]),
-        time=run.get("finished_at") or run.get("created_at") or "",
-        hops=hops,
+    envelope = dict(record["envelope"])
+    event_id = envelope["id"]
+    existing = tx.get(EVENTS_COLLECTION, event_id)
+    if existing is not None and existing.get("envelope") != envelope:
+        _quarantine_conflict(tx, existing, record_id)
+        event_id = envelope["id"] + GENUINE_SUFFIX
+        envelope["id"] = event_id
+        existing = tx.get(EVENTS_COLLECTION, event_id)
+    if existing is None:
+        tx.insert(EVENTS_COLLECTION, event_document(envelope, host=RUN_EVENTS_HOST))
+    moved = tx.update_if(
+        RUN_COMPLETIONS, record_id, {"emitted": False}, {"emitted": True, "event_id": event_id}
+    )
+    if not moved.won:  # pragma: no cover - the transaction serialises it on every adapter
+        raise RuntimeError(f"completion {record_id} changed while delivering")
+    return event_id
+
+
+def _quarantine_conflict(tx: StoreOps, existing: Mapping[str, Any], record_id: str) -> None:
+    doc_id = f"conflict/{existing.get('id')}"
+    if tx.get(QUARANTINE_COLLECTION, doc_id) is not None:
+        return
+    tx.insert(
+        QUARANTINE_COLLECTION,
+        {
+            "id": doc_id,
+            "envelope": dict(existing.get("envelope") or {}),
+            "reason": f"occupies the event id of run {record_id}'s completion",
+            "host": RUN_EVENTS_HOST,
+            "received_at": utc_timestamp(None),
+        },
     )
 
 
-def emit_run_event(tx: StoreOps, run: Mapping[str, Any]) -> bool:
-    """Store the event of finished run ``run`` through ``tx`` unless it is already stored;
-    answer whether it was inserted. Read-before-insert: on MongoDB a duplicate key inside a
-    transaction aborts it, so the existing event is looked up first."""
-    current = tx.get(RUNS_COLLECTION, run["id"]) or run
-    envelope = build_run_event(current)
-    if envelope is None:
-        return False
-    if tx.get(EVENTS_COLLECTION, envelope["id"]) is not None:
-        return False
-    tx.insert(EVENTS_COLLECTION, event_document(envelope, host=RUN_EVENTS_HOST))
-    return True
+class RunEventOutbox:
+    """Delivers un-emitted completion records (module doc, "Exactly once: an outbox").
 
+    ``paused(tx)`` answers whether delivery is deferred; ``defer(record)`` builds the
+    exception raised then (the node's :class:`~culture_rules.node.firing.Deferred`)."""
 
-_COMPARED = (
-    "id",
-    "type",
-    "source",
-    "time",
-    "schemaVersion",
-    "correlationId",
-    "causationId",
-    "runId",
-    "hops",
-    "data",
-)
+    def __init__(
+        self,
+        store: StoragePort,
+        *,
+        paused: Callable[[StoreOps], bool],
+        defer: Callable[[Mapping[str, Any]], Exception],
+        batch: int = OUTBOX_BATCH,
+    ) -> None:
+        self.store = store
+        self._paused = paused
+        self._defer = defer
+        self._batch = batch
+        ensure = getattr(store, "ensure_collections", None)
+        if callable(ensure):  # Mongo: collections must exist before a transaction uses them
+            ensure(RUN_COMPLETIONS, EVENTS_COLLECTION, QUARANTINE_COLLECTION)
+
+    def pending(self) -> list[Mapping[str, Any]]:
+        """Un-emitted records, oldest first, at most one batch."""
+        records = self.store.find(RUN_COMPLETIONS, {"emitted": False})
+        records.sort(key=lambda r: (r.get("recorded_at") or "", r["id"]))
+        return records[: self._batch]
+
+    def poll(self) -> list[str]:
+        """Deliver every pending record (one transaction each); answer the stored event ids.
+        A pause raises the deferral before anything is written."""
+        delivered: list[str] = []
+        for record in self.pending():
+            with self.store.transaction() as tx:
+                if self._paused(tx):
+                    raise self._defer(record)
+                event_id = deliver(tx, record["id"])
+            if event_id is not None:
+                delivered.append(event_id)
+        return delivered
 
 
 def verify_run_event(tx: StoreOps, envelope: Mapping[str, Any]) -> str | None:
-    """``None`` when ``envelope`` is exactly the event its run emits; otherwise why not (the
-    ``run_event_unverified`` detail). Reads the run through ``tx``."""
+    """``None`` when ``envelope`` is exactly the event its run's completion record emitted;
+    otherwise why not (the ``run_event_unverified`` detail). Reads the record through ``tx``."""
     data = envelope.get("data")
     run_id = data.get("run_id") if isinstance(data, Mapping) else None
     if not isinstance(run_id, str) or not run_id:
         return "names no run"
-    run = tx.get(RUNS_COLLECTION, run_id)
-    if run is None:
-        return f"run {run_id} does not exist"
-    expected = build_run_event(run)
-    if expected is None:
-        return f"run {run_id} has not finished"
-    for key in _COMPARED:
-        if envelope.get(key) != expected.get(key):
+    record = tx.get(RUN_COMPLETIONS, run_id)
+    if record is None:
+        return f"no completion is recorded for run {run_id}"
+    if record.get("emitted") is not True or not record.get("event_id"):
+        return f"run {run_id}'s completion has not been emitted"
+    expected = {**dict(record["envelope"]), "id": record["event_id"]}
+    if dict(envelope) == expected:
+        return None
+    for key in sorted(set(expected) | set(envelope)):
+        if (key in envelope) != (key in expected) or envelope.get(key) != expected.get(key):
             return f"{key} differs from what run {run_id} emitted"
-    return None
+    return f"differs from what run {run_id} emitted"  # pragma: no cover - unequal, no key?

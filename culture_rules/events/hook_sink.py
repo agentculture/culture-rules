@@ -11,8 +11,8 @@ optional ``params.self_identity`` are read from it.
 Outcomes, checked in this order:
 
 - ``disabled``  - the actor is disabled; nothing is written;
-- ``ignored``   - ``type`` is not in the actor's declared ``params.events`` (the allow-list);
-  nothing is written;
+- ``ignored``   - ``type`` is not in the actor's declared ``params.events`` (the allow-list),
+  or is reserved for the engine (``rules.run.*``, d21); nothing is written;
 - ``duplicate`` - an event for this surface + delivery id already exists (the deterministic
   event id hit the unique id); nothing new is written;
 - ``accepted``  - the envelope was inserted; the ``events`` change feed fires triggers on it.
@@ -42,7 +42,7 @@ import logging
 from collections.abc import Mapping
 from typing import Any
 
-from culture_rules.events.emit import derive_envelope
+from culture_rules.events.emit import derive_envelope, reserved_reason
 from culture_rules.events.ingest import EVENTS_COLLECTION, event_document
 from culture_rules.store.port import DuplicateKeyError, StoragePort
 
@@ -160,7 +160,8 @@ def sink(
         raise ValueError("type must be a non-empty string")
     if view.get("enabled", True) is False:
         return _finish(store, actor_id, type, DISABLED, surface)
-    if type not in (params.get("events") or ()):
+    if type not in (params.get("events") or ()) or reserved_reason({"type": type}):
+        # an app may never inject the engine's own run events, even if it declares them
         return _finish(store, actor_id, type, IGNORED, surface)
 
     payload = dict(data or {})

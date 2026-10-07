@@ -277,3 +277,10 @@ def test_logs_carry_no_payload_or_delivery_id(caplog):
     assert TYPE in text
     for leak in ("s3cr3t-token", "deliv-xyz", "alice"):
         assert leak not in text
+
+
+def test_an_app_may_not_inject_the_engines_run_events_even_if_it_declares_them():
+    store = MemoryStore()
+    a = actor(params={"surface": "github", "events": ["rules.run.succeeded"]})
+    assert call(store, a, type="rules.run.succeeded") == "ignored"
+    assert store.find(EVENTS_COLLECTION) == []

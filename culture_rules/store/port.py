@@ -289,3 +289,32 @@ def cursor_id(consumer: str, collection: str) -> str:
     if not isinstance(collection, str) or not collection:
         raise ValueError("collection must be a non-empty string")
     return f"{consumer}/{collection}"
+
+
+def init_cursor(store: StoragePort, consumer: str, collection: str) -> str:
+    """``consumer``'s resume token for ``collection``, initialised once at the feed's head.
+
+    A consumer's first poll pins the head. Two nodes initialising the same shared consumer
+    at once must agree on one token, or the one that saved later (a newer head) would skip
+    the changes in between for every node. So the first token is *inserted*: the loser of
+    the insert loads the winner's token instead of overwriting it (d21 review)."""
+    position = store.load_cursor(consumer, collection)
+    if position is not None:
+        return position
+    head = store.head(collection)
+    try:
+        store.insert(
+            CURSOR_COLLECTION,
+            {
+                "id": cursor_id(consumer, collection),
+                "consumer": consumer,
+                "collection": collection,
+                "token": head,
+            },
+        )
+    except DuplicateKeyError:
+        won = store.load_cursor(consumer, collection)
+        if won is None:
+            raise TransientStoreError("cursor initialisation raced; retry") from None
+        return won
+    return head

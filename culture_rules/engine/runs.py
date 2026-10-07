@@ -176,6 +176,10 @@ Semantics
   new placements on it while its running steps finish; cancelling a run cancels every
   unfinished step and ignores late results.
 
+Every transition that finishes a run (``succeeded``, ``failed``, ``cancelled``,
+``superseded``) also inserts the run's immutable completion record in the same transaction
+(:mod:`culture_rules.engine.run_completions`, deviation d21).
+
 Collections written in transactions are listed in :data:`RUN_COLLECTIONS`; on MongoDB they
 are created up front (``ensure_collections``).
 """
@@ -212,6 +216,7 @@ from culture_rules.engine.claims import (
 )
 from culture_rules.engine.leasekeeper import KeeperFactory, LeaseKeeper
 from culture_rules.engine.placement import MachineState, PlacementError, resolve_placement
+from culture_rules.engine.run_completions import RUN_COMPLETIONS, record_completion
 from culture_rules.engine.variables import variable_values
 from culture_rules.machines.enrol import enrolled_machines
 from culture_rules.machines.heartbeat import (
@@ -273,6 +278,7 @@ RUN_COLLECTIONS: tuple[str, ...] = (
     CONTROLS_COLLECTION,
     CLAIMS_COLLECTION,
     AUDIT_COLLECTION,
+    RUN_COMPLETIONS,
 )
 RULES_COLLECTION = "rules"
 WORKFLOWS_COLLECTION = "workflows"
@@ -625,6 +631,7 @@ class Containment:
             res = tx.update_if(RUNS_COLLECTION, run_id, {"rev": before["rev"]}, _mutable(doc))
             if not res.won:  # pragma: no cover - transactions serialise this on every adapter
                 raise RunError("conflict", f"run {run_id!r} changed concurrently")
+            record_completion(tx, before, doc)
             self._audit.write(
                 tx,
                 identity=identity,
@@ -1269,6 +1276,17 @@ class Executor:
         return res.output.get("head_sha")
 
     def _cas(self, before: Mapping[str, Any], after: Mapping[str, Any]) -> bool:
+        """Write ``after`` over ``before`` by compare-and-set on ``rev``. A transition that
+        finishes the run also inserts its completion record, in the same transaction
+        (:mod:`culture_rules.engine.run_completions`): both commit or neither does."""
+        if after.get("status") in RUN_DONE and before.get("status") not in RUN_DONE:
+            with self._store.transaction() as tx:
+                res = tx.update_if(
+                    RUNS_COLLECTION, before["id"], {"rev": before["rev"]}, _mutable(after)
+                )
+                if res.won:
+                    record_completion(tx, before, after)
+            return res.won
         res = self._store.update_if(
             RUNS_COLLECTION, before["id"], {"rev": before["rev"]}, _mutable(after)
         )
@@ -1588,6 +1606,7 @@ class Executor:
                     res = tx.update_if(RUNS_COLLECTION, run_id, {"rev": doc["rev"]}, _mutable(new))
                     if not res.won:
                         raise _Conflict
+                    record_completion(tx, doc, new)
                     if nst["status"] in STEP_DONE:
                         claims.complete(claim)
                     else:

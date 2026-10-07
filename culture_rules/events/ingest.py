@@ -14,6 +14,10 @@ The stored document (the seam consumed by triggers, replay and human asks)::
      "received_at": <ISO-8601 UTC>, "host": <ingesting host>,
      "schema_version": ..., "updated_at": ...}   # store envelope fields
 
+An envelope claiming the engine's own namespace (run-event ids and types, internal sources)
+or carrying an ``envelope`` field is never stored: it is quarantined
+(:data:`QUARANTINE_COLLECTION`, :func:`quarantine`) and counted on the result (deviation d21).
+
 Nothing in culture-rules updates or deletes a stored event; a redelivered
 envelope with the same id - even with different content - never rewrites it.
 
@@ -26,11 +30,15 @@ Standard-library only.
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
+import logging
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+from culture_rules.events.emit import reserved_reason
 from culture_rules.events.source import EventFabricError, EventSource
 from culture_rules.store.port import (
     CURSOR_COLLECTION,
@@ -42,6 +50,13 @@ from culture_rules.store.port import (
 from culture_rules.store.versioning import utc_timestamp
 
 # EVENTS_COLLECTION (the collection, keyed by envelope id) lives in the store port.
+
+log = logging.getLogger(__name__)
+
+QUARANTINE_COLLECTION = "event_quarantine"
+"""Envelopes refused at ingest because they claim the engine's own namespace
+(:func:`~culture_rules.events.emit.reserved_reason`): one document per (refused envelope id,
+content), never evaluated by a trigger, kept so the refusal is visible."""
 
 DEFAULT_BATCH = 100
 MAX_BATCH = 1000
@@ -60,6 +75,36 @@ def event_document(
     }
 
 
+def quarantine(
+    store: StoragePort,
+    envelope: Mapping[str, Any],
+    reason: str,
+    *,
+    host: str,
+    at: datetime | None = None,
+) -> bool:
+    """Record a refused ``envelope`` in :data:`QUARANTINE_COLLECTION` (once per id and
+    content: the same refusal redelivered, or from every host, is one record); answer
+    whether it was new. It is never inserted into ``events``, so no trigger sees it."""
+    body = json.dumps(envelope, sort_keys=True, default=str).encode("utf-8")
+    doc_id = "q_" + hashlib.sha256(body).hexdigest()[:32]
+    log.warning("quarantined event %r: %s", envelope.get("id"), reason)
+    try:
+        store.insert(
+            QUARANTINE_COLLECTION,
+            {
+                "id": doc_id,
+                "envelope": copy.deepcopy(dict(envelope)),
+                "reason": reason,
+                "host": host,
+                "received_at": utc_timestamp(at),
+            },
+        )
+    except DuplicateKeyError:
+        return False
+    return True
+
+
 @dataclass(frozen=True)
 class IngestResult:
     """What one bounded drain did."""
@@ -70,6 +115,7 @@ class IngestResult:
     rejected: int
     cursor: str | None
     has_more: bool
+    quarantined: int = 0
 
 
 def _usable(envelope: Any) -> bool:
@@ -128,10 +174,15 @@ class EventIngest:
                 f"source {self.source.name!r} returned {len(batch.envelopes)} envelopes, "
                 f"over the bound of {self.batch_size}"
             )
-        inserted = duplicates = rejected = 0
+        inserted = duplicates = rejected = quarantined = 0
         for envelope in batch.envelopes:
             if not _usable(envelope):
                 rejected += 1
+                continue
+            reason = reserved_reason(envelope)
+            if reason is not None:
+                quarantine(self.store, envelope, reason, host=self.host, at=self._clock())
+                quarantined += 1
                 continue
             doc = event_document(envelope, host=self.host, received_at=self._clock())
             try:
@@ -149,6 +200,7 @@ class EventIngest:
             rejected=rejected,
             cursor=batch.cursor,
             has_more=batch.has_more,
+            quarantined=quarantined,
         )
 
     def ingest(self, max_batches: int = 10, timeout: float = 0.0) -> list[IngestResult]:
