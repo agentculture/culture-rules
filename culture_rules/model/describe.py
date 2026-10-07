@@ -305,6 +305,8 @@ def describe_rule(rule: Any, workflow: Any = None) -> list[dict[str, Any]]:
     key = [_key_text(str(r["concurrency_key"]))] if r.get("concurrency_key") else []
     if r.get("max_attempts"):
         key.append(f"≤{r['max_attempts']} attempts")
+    if key and r.get("counts_toward_budget") is False:
+        key.append("outside the attempt budget")
     if key:
         out.append(_entry("Key", ", ".join(key)))
     if r.get("exclusive_group"):

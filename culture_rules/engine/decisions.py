@@ -33,6 +33,10 @@ does not advertise the ``variables`` capability, or the variable is not defined 
 recorded as the final skip ``variables_unsupported`` / ``variable_undefined``: an error on
 the rule's history, never a silent non-match (:mod:`culture_rules.engine.variables`).
 
+A firing on an event more than :data:`~culture_rules.events.emit.MAX_EVENT_HOPS` derivations
+from an external one is recorded as the final skip ``hop_limit`` (d21), and a firing on a
+``rules.run.*`` event that does not verify against its run as ``run_event_unverified``.
+
 ``condition_false``, ``disabled`` and ``paused`` are not recorded: they are the normal
 "this rule did not apply" outcome and would flood the history. Standard-library only.
 """
@@ -51,6 +55,7 @@ from culture_rules.engine.matching import (
     DEDUPLICATED,
     FIRE,
     GROUP_LOST,
+    HOP_LIMIT,
     PAUSED,
     PREDECESSOR_FAILED,
     SUPERSEDED_BY,
@@ -65,6 +70,7 @@ __all__ = [
     "RATE_CAPPED",
     "RECORDED_REASONS",
     "RULE_DECISIONS",
+    "RUN_EVENT_UNVERIFIED",
     "decision_key",
     "decisions_for",
     "record_decision",
@@ -75,6 +81,10 @@ RULE_DECISIONS = "rule_decisions"
 """Persisted skip decisions: one per (rule, event) whose skip reason is recorded."""
 RATE_CAPPED = "rate_capped"
 """Final skip set by the node: the rule already fired its ``max_fires_per_hour``."""
+RUN_EVENT_UNVERIFIED = "run_event_unverified"
+"""Final skip set by the node: a ``rules.run.*`` event that does not match the run it names
+(no such finished run, or any field differs from what the engine emits for it) - a forged
+or stale copy never fires a rule (:mod:`culture_rules.node.run_events`)."""
 RECORDED_REASONS: tuple[str, ...] = (
     SUPERSEDED_BY,
     BLOCKED_BY_PREDECESSOR,
@@ -86,6 +96,8 @@ RECORDED_REASONS: tuple[str, ...] = (
     DEDUPLICATED,
     CONCURRENCY_KEY_UNRESOLVED,
     ATTEMPT_BUDGET_EXHAUSTED,
+    HOP_LIMIT,
+    RUN_EVENT_UNVERIFIED,
 )
 FINAL_SKIP_REASONS: tuple[str, ...] = tuple(
     r for r in RECORDED_REASONS if r != BLOCKED_BY_PREDECESSOR

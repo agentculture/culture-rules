@@ -521,6 +521,21 @@ def _check_rule(obj: Rule, path: str, errors: Errors) -> None:
     _schema_version(obj.schema_version, _join(path, "schema_version"), errors)
     if isinstance(obj.max_attempts, int) and obj.max_attempts < 1:
         _err(errors, _join(path, "max_attempts"), "range", "max_attempts must be >= 1")
+    if obj.counts_toward_budget is False:
+        if obj.concurrency_key is None:
+            _err(
+                errors,
+                _join(path, "counts_toward_budget"),
+                "requires_concurrency_key",
+                "counts_toward_budget applies only to a rule with a concurrency_key",
+            )
+        if obj.max_attempts is not None:
+            _err(
+                errors,
+                _join(path, "counts_toward_budget"),
+                "conflict",
+                "a rule outside the attempt budget cannot set max_attempts",
+            )
     if isinstance(obj.concurrency_key, str):
         problem = _concurrency_key_problem(obj.concurrency_key)
         if problem is not None:

@@ -20,7 +20,9 @@ once, at the end of the poll). A keyed document whose rule no live rule depends 
 is in no rule's ``must_after`` / ``may_after``, and the rule has no concurrency key) is
 treated the same way: nothing could continue a chain from it, so it opens no transaction -
 unless it is a run or firing intent still recorded as a concurrency budget's holder, whose
-end releases the key even after its rule was deleted or unkeyed. The dependants set is read from the
+end releases the key even after its rule was deleted or unkeyed. A consumer built with
+``every_document=True`` (the run-events emitter, :mod:`culture_rules.node.run_events`) skips
+that prefilter and handles every keyed document. The dependants set is read from the
 ``rules`` collection at most once per poll of a source, lazily, so a rule saved between
 polls is seen by the next poll. The first poll of a new consumer pins each feed's head.
 Standard-library only.
@@ -110,6 +112,7 @@ class FeedConsumer:
         consumer: str,
         handler_collections: tuple[str, ...] = (),
         clock: Callable[[], datetime] | None = None,
+        every_document: bool = False,
     ) -> None:
         if not isinstance(consumer, str) or not consumer:
             raise ValueError("consumer must be a non-empty string")
@@ -117,6 +120,7 @@ class FeedConsumer:
         self.sources = sources
         self.host = host
         self.consumer = consumer
+        self.every_document = every_document
         self._clock = clock or (lambda: datetime.now(UTC))
         ensure = getattr(store, "ensure_collections", None)
         if callable(ensure):  # Mongo: collections must exist before a transaction uses them
@@ -205,7 +209,7 @@ class FeedConsumer:
             key = _change_key(source, change)
             if key is None:
                 continue
-            rid = _rule_of(doc)
+            rid = None if self.every_document else _rule_of(doc)
             if rid is not None:
                 if depended is None:
                     depended = self._dependencies()

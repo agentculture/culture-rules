@@ -51,6 +51,32 @@ describe("event triggers", () => {
   });
 });
 
+describe("run-finished triggers (d21)", () => {
+  it("offers the engine's run events as a built-in surface", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    await user.selectOptions(screen.getByLabelText("Surface"), "@rules-engine");
+    const options = within(screen.getByLabelText("Event"))
+      .getAllByRole("option")
+      .map((o) => o.getAttribute("value"));
+    expect(options).toEqual([
+      "",
+      "rules.run.succeeded",
+      "rules.run.failed",
+      "rules.run.cancelled",
+      "rules.run.superseded",
+    ]);
+    await user.selectOptions(screen.getByLabelText("Event"), "rules.run.succeeded");
+    expect(saved()).toEqual({ kind: "event", params: { type: "rules.run.succeeded" } });
+  });
+
+  it("preselects the engine surface for a stored run-event trigger", () => {
+    render(<Harness start={{ kind: "event", params: { type: "rules.run.failed" } }} />);
+    expect(screen.getByLabelText("Surface")).toHaveValue("@rules-engine");
+    expect(screen.getByLabelText("Event")).toHaveValue("rules.run.failed");
+  });
+});
+
 describe("schedule triggers", () => {
   it("writes a preset's cron", async () => {
     const user = userEvent.setup();

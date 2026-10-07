@@ -184,7 +184,10 @@ prefix (``pr-fixer:``). :mod:`culture_rules.engine.claims` keeps one
   further firings are recorded as ``attempt_budget_exhausted``. Rules sharing a key share
   the count; the limit is the smallest ``max_attempts`` declared among the live rules whose
   template resolves to that key on the firing event (a rule without one is bounded by the
-  others; nothing is refused at save time). Only an explicit signal
+  others; nothing is refused at save time). A rule with ``counts_toward_budget`` false
+  (d21: a review firing on a fix's finished run is not a fix attempt) shares the key's one
+  active run and coalescing but is never counted, never refused by the budget, and its
+  ``max_attempts`` (refused at save time) is never the limit. Only an explicit signal
   resets the counter (an outstanding reservation is kept): a ``github.pr.synchronize``
   whose ``data.self_authored`` is explicitly false (the hook sink tags every event once the
   app actor names its ``self_identity``), or a ``github.pr.checks_settled`` with
@@ -207,6 +210,22 @@ prefix (``pr-fixer:``). :mod:`culture_rules.engine.claims` keeps one
   ``predecessor_failed`` and a may-after one fires without it. A deduplicated event still
   pending keeps its dependants waiting: it fires once the holding run ends. A holding
   run's end is processed even after its rule was deleted or lost its key.
+
+Run events (d21)
+================
+A rule may also fire when another rule's run *finishes*: every terminal run emits one
+``rules.run.succeeded`` / ``.failed`` / ``.cancelled`` / ``.superseded`` event
+(:mod:`culture_rules.node.run_events`), through a fifth consumer every node shares,
+``run-events``, polled first each cycle. It is evaluated like any other event - an
+``event`` trigger on that type plus a condition over ``trigger.data.*`` (``rule_id``,
+``outputs.<name>``, ``repository`` ...) - with two guards, both final skips recorded on the
+rule's history:
+
+* ``run_event_unverified`` - the event does not equal what its run emits (a forged or stale
+  copy from the bus); checked in the evaluating transaction, before the rate cap;
+* ``hop_limit`` - matching refuses every fire on an event more than
+  :data:`~culture_rules.events.emit.MAX_EVENT_HOPS` derivations from an external one (or with
+  a malformed hop count), so rules firing on each other's runs stop; logged as a warning.
 
 Standard-library only.
 """
@@ -237,6 +256,7 @@ from culture_rules.engine.decisions import (
     FINAL_SKIP_REASONS,
     RATE_CAPPED,
     RULE_DECISIONS,
+    RUN_EVENT_UNVERIFIED,
     decision_key,
     settle_decision,
 )
@@ -246,6 +266,7 @@ from culture_rules.engine.matching import (
     CONCURRENCY_KEY_UNRESOLVED,
     DEDUPLICATED,
     FIRE,
+    HOP_LIMIT,
     VARIABLES_UNSUPPORTED,
     Decision,
     RuleOutcome,
@@ -276,6 +297,12 @@ from culture_rules.model.rule import Rule
 from culture_rules.model.variable_refs import rule_variable_refs
 from culture_rules.model.workflow import Workflow
 from culture_rules.node.chain import FeedConsumer, Source, live_rules
+from culture_rules.node.run_events import (
+    RUN_EVENTS_CONSUMER,
+    emit_run_event,
+    is_run_event,
+    verify_run_event,
+)
 from culture_rules.ops.logs import log_context
 from culture_rules.store.port import (
     DuplicateKeyError,
@@ -402,6 +429,15 @@ class RuleFiring:
         )
         self.chain_placed = self._chain(placed_chain(host), placed=True)
         self.chain_shared = self._chain(SHARED_CHAIN, placed=False)
+        self.run_events = FeedConsumer(
+            store,
+            (Source(RUNS_COLLECTION, _terminal_run, self._emit_run_event),),
+            host=host,
+            consumer=RUN_EVENTS_CONSUMER,
+            handler_collections=(EVENTS_COLLECTION,),
+            clock=clock,
+            every_document=True,
+        )
 
     def _chain(self, consumer: str, *, placed: bool) -> FeedConsumer:
         def handle(kind: str) -> Callable[[StoreOps, Mapping[str, Any], str], None]:
@@ -429,8 +465,20 @@ class RuleFiring:
 
     @property
     def consumers(self) -> tuple[EventTriggers | FeedConsumer, ...]:
-        """Every consumer a node polls each cycle, in order."""
-        return (self.placed, self.shared, self.chain_placed, self.chain_shared)
+        """Every consumer a node polls each cycle, in order: the run-events emitter first,
+        so a run that finished last cycle has its ``rules.run.*`` event evaluated in this one."""
+        return (self.run_events, self.placed, self.shared, self.chain_placed, self.chain_shared)
+
+    def _emit_run_event(self, tx: StoreOps, doc: Mapping[str, Any], marker_id: str) -> None:
+        """A run finished: store its ``rules.run.*`` event (module doc, "Run events"). Deferred
+        while paused - the run was accepted before the pause - so it is emitted on resume."""
+        if is_paused(tx):
+            raise Deferred(
+                str((doc.get("rule") or {}).get("id") or doc.get("rule_id") or "?"),
+                str(doc.get("id")),
+                "paused: run event emitted on resume",
+            )
+        emit_run_event(tx, doc)
 
     # ------------------------------------------------------------------ polling
 
@@ -625,7 +673,8 @@ class RuleFiring:
         # Read before reserving (same transaction): an admission clears the key's pending
         # event and a deduplication replaces it - either way it never fires (module doc).
         displaced = _pending(tx, key)
-        reason = reserve_concurrency(tx, rule.id, key, run_id, intent_id, limit)
+        counts = rule.counts_toward_budget is not False
+        reason = reserve_concurrency(tx, rule.id, key, run_id, intent_id, limit, counts=counts)
         if reason in (None, DEDUPLICATED):
             _coalesce_away(tx, displaced, rule.id, envelope["id"])
         if reason is None:
@@ -683,6 +732,7 @@ class RuleFiring:
             variables_supported=self.variables,
             trigger_match=_trigger_matcher(envelope, rules),
         )
+        decisions = _verified(tx, decisions, envelope)
         decisions = self._rate_capped(tx, decisions, rules, ours, event_id, now)
         decisions = _admission_settled(tx, decisions, rules, ours, event_id)
         by_id = {r.id: r for r in rules}
@@ -711,6 +761,10 @@ class RuleFiring:
                 run_id=run_id,
                 always=chained,
             )
+            if decision.reason == HOP_LIMIT:
+                log.warning(
+                    "rule %s on event %s refused: %s", decision.rule_id, event_id, decision.detail
+                )
             if decision.fire:
                 _count_fire(tx, by_id[decision.rule_id], now)
                 snapshot = {n: values[n] for n in sorted(refs[decision.rule_id])}
@@ -867,6 +921,27 @@ class RuleFiring:
         return True
 
 
+def _verified(
+    tx: StoreOps, decisions: tuple[Decision, ...], envelope: Mapping[str, Any]
+) -> tuple[Decision, ...]:
+    """``decisions`` with every fire on a ``rules.run.*`` event that does not verify against
+    its run turned into the final skip ``run_event_unverified`` (module doc, "Run events")."""
+    if not is_run_event(envelope) or not any(d.fire for d in decisions):
+        return decisions
+    why = verify_run_event(tx, envelope)
+    if why is None:
+        return decisions
+    log.warning("run event %s refused: %s", envelope.get("id"), why)
+    return tuple(
+        (
+            Decision(rule_id=d.rule_id, fire=False, reason=RUN_EVENT_UNVERIFIED, detail=why)
+            if d.fire
+            else d
+        )
+        for d in decisions
+    )
+
+
 def _trigger_matcher(envelope: Mapping[str, Any], rules: list[Rule]) -> TriggerMatcher:
     """The trigger test for ``envelope``: a schedule or probe event
     (:mod:`culture_rules.node.schedule`, :mod:`culture_rules.node.probe_trigger`) targets one
@@ -929,12 +1004,14 @@ def _reset_keys(rules: list[Rule], ours: set[str], envelope: Mapping[str, Any]) 
 
 def _shared_max_attempts(rules: list[Rule], envelope: Mapping[str, Any], key: str) -> int | None:
     """The attempt budget of ``key``: the smallest ``max_attempts`` declared by a live rule
-    whose template resolves to ``key`` on ``envelope`` (``None``: no rule sets one)."""
+    that counts toward the budget and whose template resolves to ``key`` on ``envelope``
+    (``None``: no rule sets one)."""
     limits = [
         r.max_attempts
         for r in rules
         if r.concurrency_key is not None
         and r.max_attempts is not None
+        and r.counts_toward_budget is not False
         and _resolved_key(r, envelope) == key
     ]
     return min(limits) if limits else None
@@ -1106,6 +1183,11 @@ def _finished_run(doc: Mapping[str, Any]) -> str | None:
     if not rule_id or not event_id or doc.get("id") != run_id_for(rule_id, event_id):
         return None  # started by hand, not by an event: no chain to continue
     return doc["id"]
+
+
+def _terminal_run(doc: Mapping[str, Any]) -> str | None:
+    """Any run that reached a terminal state (its id), else None: each emits its event."""
+    return doc.get("id") if doc.get("status") in RUN_DONE else None
 
 
 def _settled_skip(doc: Mapping[str, Any]) -> str | None:

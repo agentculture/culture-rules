@@ -484,3 +484,38 @@ def test_negation_is_folded_only_where_the_evaluator_agrees():
     for ctx, want in (({"trigger": {}}, True), ({"trigger": {"a": None}}, False)):
         assert evaluate(absent, ctx) is want
     assert condition_text(absent) == "a missing"
+
+
+# --------------------------------------------------------------------------- d21 run events
+
+
+def test_a_rule_on_a_finished_run_reads_its_type_and_conditions():
+    rule = {
+        "trigger": {"kind": "event", "params": {"type": "rules.run.succeeded"}},
+        "condition": {
+            "op": "and",
+            "args": [
+                {
+                    "op": "in",
+                    "value": {"field": "data.rule_id"},
+                    "items": {"literal": ["pr-fixer-checks", "pr-fixer-comment"]},
+                },
+                {
+                    "op": "compare",
+                    "cmp": "==",
+                    "left": {"field": "data.outputs.verdict"},
+                    "right": {"literal": "approve"},
+                },
+            ],
+        },
+        "action": {"kind": "noop", "params": {}},
+        "concurrency_key": "pr-fixer:{trigger.data.repository}#{trigger.data.number}",
+        "counts_toward_budget": False,
+    }
+    assert render(describe_rule(rule)) == [
+        "When rules.run.succeeded",
+        "If rule_id ∈ {pr-fixer-checks, pr-fixer-comment}",
+        "and verdict = approve",
+        "Then noop",
+        "Key pr-fixer:{repository}#{number}, outside the attempt budget",
+    ]

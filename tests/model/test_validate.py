@@ -528,3 +528,29 @@ def test_wait_step_with_null_config_reports_an_error_not_a_crash() -> None:
     data["steps"][0]["config"] = None
     _, errors = validate_data(Workflow, data)
     assert errors
+
+
+# --- counts_toward_budget (d21) ---------------------------------------------
+
+
+def test_counts_toward_budget_defaults_true_and_round_trips() -> None:
+    rule = make_rule(concurrency_key="k:{trigger.data.n}", counts_toward_budget=False)
+    assert make_rule().counts_toward_budget is True
+    assert Rule.from_dict(rule.to_dict()).counts_toward_budget is False
+    assert validate(rule) == []
+
+
+def test_counts_toward_budget_false_needs_a_key_and_no_max_attempts() -> None:
+    unkeyed = validate(make_rule(counts_toward_budget=False))
+    assert ("counts_toward_budget", "requires_concurrency_key") in {
+        (e.path, e.code) for e in unkeyed
+    }
+    both = validate(make_rule(concurrency_key="k", max_attempts=2, counts_toward_budget=False))
+    assert ("counts_toward_budget", "conflict") in {(e.path, e.code) for e in both}
+
+
+def test_counts_toward_budget_must_be_a_boolean() -> None:
+    doc = make_rule().to_dict()
+    doc["counts_toward_budget"] = "no"
+    with pytest.raises(ValueError):
+        Rule.from_dict(doc)

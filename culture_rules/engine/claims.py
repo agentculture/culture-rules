@@ -363,9 +363,12 @@ templates resolve to the same key share one active run and one budget; a rule th
 isolation uses a distinct template (a namespace prefix such as ``pr-fixer:``). Fields:
 ``key``; ``rule_id`` / ``run_id`` / ``intent_id`` of the rule and run holding the key;
 ``count`` (runs admitted since the last reset, by any rule sharing the key - every admitted
-run counts, whatever its outcome); ``pending_event_id`` / ``pending_rule_id`` (the newest
-firing deduplicated while the key was held, and the rule that recorded it: it is fired once,
-through that rule, when the holding run ends, so the latest event is never lost); and
+run of a rule that counts toward the budget counts, whatever its outcome); ``counted``
+(whether the holding run was counted: a rule with ``counts_toward_budget`` false shares the
+key's one active run but is neither counted nor refused, d21); ``pending_event_id`` /
+``pending_rule_id`` (the newest firing deduplicated while the key was held, and the rule
+that recorded it: it is fired once, through that rule, when the holding run ends, so the
+latest event is never lost); and
 ``revision`` (the compare-and-set token every write bumps). The counter resets only on an
 explicit signal (:func:`reset_attempt_budget`, once per key and reset event): a human push
 or green checks.
@@ -453,8 +456,15 @@ def reserve_concurrency(
     run_id: str,
     intent_id: str,
     max_attempts: int | None,
+    *,
+    counts: bool = True,
 ) -> str | None:
     """Atomically reserve a key and consume one attempt, or return a skip reason.
+
+    ``counts`` false (a rule outside the budget, ``counts_toward_budget``): the key is
+    reserved exactly the same way - one active run, ``deduplicated`` while held - but the
+    attempt is neither checked against ``max_attempts`` nor counted; ``counted`` on the
+    budget records which, so a failed start gives back only an attempt that was taken.
 
     The reservation commits with the firing intent, before starting the run. A
     crashed node's pending intent therefore retains the key until it is started - by
@@ -485,11 +495,12 @@ def reserve_concurrency(
                 intent = store.get("rule_fires", current["intent_id"])
                 if not intent or intent.get("status") != "failed":
                     return "deduplicated"
-                # A failed start never produced a run.
-                count = max(0, count - 1)
+                # A failed start never produced a run: give back its attempt, if it took one.
+                if current.get("counted", True):
+                    count = max(0, count - 1)
             elif run.get("status") not in RUN_DONE:
                 return "deduplicated"
-        if max_attempts is not None and count >= max_attempts:
+        if counts and max_attempts is not None and count >= max_attempts:
             return "attempt_budget_exhausted"
         revision = current.get("revision")
         outcome = store.update_if(
@@ -499,7 +510,8 @@ def reserve_concurrency(
             {
                 "rule_id": rule_id,
                 "key": key,
-                "count": count + 1,
+                "count": count + 1 if counts else count,
+                "counted": counts,
                 "run_id": run_id,
                 "intent_id": intent_id,
                 "pending_event_id": None,

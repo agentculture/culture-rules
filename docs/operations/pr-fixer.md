@@ -276,7 +276,9 @@ culture-rules variables set fixer_protected_paths --apply --value \
 The fixer is committed data in `docs/rules/pr-fixer/`, in the import format
 (`rules/<id>.json`, `workflows/<id>.json`). JSON rather than YAML, so the import
 works on an API without the `yaml` extra. Four rules, one trigger type each,
-share one workflow (d13):
+share one workflow (d13). Splitting the fixer into rules and workflows chained
+by run events is *planned* (d21 phase 2); the engine support is built, see
+[run events](../run-events.md). The four rules today:
 
 | Rule | Trigger | Extra condition |
 |---|---|---|

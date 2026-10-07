@@ -9,7 +9,12 @@ lineage stamped:
   cause has none), so a whole chain shares one correlation; a root event with
   no cause correlates to itself;
 - ``runId`` - the run this event belongs to: an explicit ``run_id`` wins,
-  otherwise it is inherited from the cause.
+  otherwise it is inherited from the cause;
+- ``hops`` - how many derivations separate this event from an external one: the
+  cause's hops plus one (an explicit ``hops`` wins). A root event (no cause) carries
+  none, which reads as 0 (:func:`event_hops`). The engine refuses to fire a rule on an
+  event past :data:`MAX_EVENT_HOPS` (deviation d21: an event chain - a run's finish
+  firing a rule whose run's finish fires another - always terminates).
 
 Publishing goes through an :class:`EventSink`; the events-cli sink lives in
 :mod:`culture_rules.events.events_cli_adapter`. Standard-library only.
@@ -25,6 +30,11 @@ from datetime import UTC, datetime
 from typing import Any, Protocol, runtime_checkable
 
 SCHEMA_VERSION = "1"
+MAX_EVENT_HOPS = 8
+"""The deepest derived event a rule may fire on: an event whose :func:`event_hops` exceeds
+it is refused (the skip ``hop_limit``, recorded on the rule's history, never fired). Eight
+derivations allow a long chain of rules on ``rules.run.*`` events while bounding a loop
+(two rules firing on each other's runs) to a few runs."""
 _CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 
 
@@ -48,6 +58,17 @@ def _wire(cause: Mapping[str, Any]) -> Mapping[str, Any]:
     return inner if isinstance(inner, Mapping) else cause
 
 
+def event_hops(envelope: Mapping[str, Any]) -> int | None:
+    """The hop count of ``envelope`` (a wire envelope or a stored ``events`` document): 0
+    when absent (an external event), else the non-negative integer it carries. A value that
+    is not one (a string, a bool, a negative number) answers ``None``: the caller fails
+    closed and treats it as past :data:`MAX_EVENT_HOPS`."""
+    hops = _wire(envelope).get("hops", 0)
+    if isinstance(hops, bool) or not isinstance(hops, int) or hops < 0:
+        return None
+    return hops
+
+
 def derive_envelope(
     cause: Mapping[str, Any] | None,
     *,
@@ -57,8 +78,13 @@ def derive_envelope(
     run_id: str | None = None,
     id: str | None = None,
     time: str | None = None,
+    hops: int | None = None,
 ) -> dict[str, Any]:
-    """Build a new wire-form envelope caused by ``cause`` (None for a root event)."""
+    """Build a new wire-form envelope caused by ``cause`` (None for a root event).
+
+    ``hops`` defaults to the cause's hops plus one (none on a root event); a cause whose
+    hop count is malformed gives :data:`MAX_EVENT_HOPS` plus one, so whatever it causes is
+    refused too (fail closed)."""
     env: dict[str, Any] = {
         "id": id or new_event_id(),
         "type": type,
@@ -77,6 +103,13 @@ def derive_envelope(
         env["correlationId"] = wire.get("correlationId") or cause_id
         env["causationId"] = cause_id
         inherited_run = wire.get("runId")
+        if hops is None:
+            cause_hops = event_hops(wire)
+            hops = MAX_EVENT_HOPS + 1 if cause_hops is None else cause_hops + 1
+    if hops is not None:
+        if isinstance(hops, bool) or not isinstance(hops, int) or hops < 0:
+            raise ValueError("hops must be a non-negative int")
+        env["hops"] = hops
     run = run_id or inherited_run
     if run:
         env["runId"] = run
