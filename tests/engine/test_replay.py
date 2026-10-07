@@ -108,3 +108,44 @@ def test_bad_inputs_raise():
     events = [env(1)]
     with pytest.raises(ReplayError):
         replay(events, rules, limit=0)
+
+
+# ---------------------------------------------------------------------- shared variables (wave-3)
+
+
+def _var_rule(rid: str = "v", **kw) -> Rule:
+    from culture_rules.model.rule import WorkflowRef
+
+    return rule(rid, workflow=WorkflowRef(id="wf", inputs={"allow": {"$var": "trusted"}}), **kw)
+
+
+def test_replay_from_a_store_reads_the_shared_variables_the_rules_reference():
+    store = MemoryStore()
+    store.put_variable("trusted", ["alice"], updated_by="t")
+    store.insert(EVENTS_COLLECTION, event_document(env(1), host="h"))
+    report = replay(store, [_var_rule()])
+    assert [(w.event_id, w.rule_id, w.reason) for w in report.would_fire] == [("e1", "v", FIRE)]
+    assert report.skipped == ()
+
+
+def test_replay_condition_on_a_variable_matches_like_live_evaluation():
+    cond = {"op": "in", "value": {"field": "data.base"}, "items": {"var": "branches"}}
+    store = MemoryStore()
+    store.put_variable("branches", ["main"], updated_by="t")
+    for e in (env(1), env(2, base="dev")):
+        store.insert(EVENTS_COLLECTION, event_document(e, host="h"))
+    report = replay(store, [rule("c", condition=cond)])
+    assert [w.event_id for w in report.would_fire] == ["e1"]
+    assert [(s.event_id, s.reason) for s in report.skipped] == [("e2", CONDITION_FALSE)]
+
+
+def test_replay_reports_an_undefined_variable_and_takes_explicit_values():
+    from culture_rules.engine.matching import VARIABLE_UNDEFINED
+
+    store = MemoryStore()
+    store.insert(EVENTS_COLLECTION, event_document(env(1), host="h"))
+    [skip] = replay(store, [_var_rule()]).skipped
+    assert skip.reason == VARIABLE_UNDEFINED
+    # an envelope list has no store: the caller supplies the values
+    report = replay([env(1)], [_var_rule()], variables={"trusted": []})
+    assert [w.rule_id for w in report.would_fire] == ["v"]
