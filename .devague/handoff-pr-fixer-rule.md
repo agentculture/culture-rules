@@ -21,7 +21,7 @@ final PR.
   `devague plan show`, `devague plan waves --json` gives every brief verbatim).
 - Split (gate 2): `docs/plans/2026-10-06-pr-fixer-rule-split.md` (hand-added
   "Review gates" section, amended by d6).
-- Deviations d1-d16: `devague deviate --list`. Risks r1-r16: `devague plan show`.
+- Deviations d1-d16: `devague deviate --list`. Risks r1-r19: `devague plan show`.
 - Evidence log for /validate-delivery: `.devague/evidence-log-pr-fixer.md`.
 - Ops recipe and gate repo list: `docs/operations/pr-fixer.md`.
 
@@ -85,10 +85,12 @@ last full suite 2669 passed, 1 skipped.
 | t13 gate + diff guard | Merged (d10) |
 | t15 five-tab docs | Merged (Codex-built, Opus-reviewed) |
 | t19 gate rollout | Batch 1 merged: culture-agent-template#34, devague#122, steward#85, guildmaster#137; list in docs/operations/pr-fixer.md; culture-rules gets it via the final PR |
-| t11 concurrency key + budget | Branch `rules/pr-fixer-t11` at `e10202c` (round 2 + d13 global key, Opus-built on Codex WIP); suite 2721; WAITING for Codex review (06:13), then merge |
-| t17a built-in action step (d12) | Branch `rules/pr-fixer-t17a` at `e16e4a3` (Opus); suite 2700; WAITING for Codex review; likely small conflict with t11 in model/validate.py |
-| t17b PR facts (d14) | Branch `rules/pr-fixer-t17b` at `e2507f5` (Opus, on top of t11); suite 2733; lookup failure stores the comment with `pr_enriched: false` (fails closed); WAITING for Codex review |
-| t17 fixer rule + workflow as data | Opus subagent; branch `rules/pr-fixer-t17` at `a6346e2` on a PROVISIONAL local merge of t17b+t17a (rebase onto the real merges); suite 2822; JSON bundle in docs/rules/pr-fixer/, seed-variables.sh, `run.id` ref namespace. d15 `818fd72` (`github.threads` + `github.threads_addressed` builtins), d16 `b9c65fb` (rule `on_failure`, `run.error.*`); suite 2852; next: rebase onto real merges, Codex review |
+| t11 concurrency key + budget | MERGED (befc925) after 3 Codex rounds; r18/r19 open |
+| t17a built-in action step (d12) | MERGED (6b55087) after 3 Codex rounds |
+| t17b PR facts (d14) | MERGED (edb9ed8) after 2 Codex rounds; facts validated, lookup bound covers secret resolve |
+| t17 fixer rule + workflow as data | Branch `rules/pr-fixer-t17` rebased on the merges (583eb29, 61b55e5 d15, af18543 d16); suite 2899; Codex review round 1 running |
+| r14 fix | Codex exec in worktree `pr-fixer-r14` (settle tick re-arms from stored events); Opus reviews it |
+| wave-3 review | Codex, detached worktree `wave-3-review`, base rules/pr-fixer-wave-3-base |
 | t20-t24 | Not started |
 
 Open risks worth carrying: r16 push on spark2 needs the App key there (t20); r15 agent can still
@@ -139,8 +141,8 @@ fixer token, r13 dedup vs must_after chaining.
 
 - spark: API, node, tunnel units active after the 2026-10-07 reboot; culture-rules
   Mongo up; spark's vLLM (cortex) did NOT come back (fine: spark is to stay free).
-- spark2: UNREACHABLE since the reboot (ssh times out). Needed for t20 and the Qwen
-  fallback. Operator to check.
+- spark2: back (reach it as `ssh spark2`; the bare IP has no known_hosts entry). Node
+  active; bridge on :8093 answers 401.
 - spark2 setup (done, verified before the reboot): account `culture-fixer` (spark's
   key authorized), uv, grant, Node 24, Qwen Code 0.24.7, gh 2.102 in its ~/.local;
   qwen bridge user unit on 100.93.248.8:8093; grant store FIXER_QWEN_BRIDGE_TOKEN,
