@@ -1062,7 +1062,8 @@ def test_failed_arm_is_recovered_by_the_settle_tick_without_any_redelivery(monke
     s = make()
     s.put_variable("checks_settle_min_s", 0, updated_by="test")
     now = [datetime.now(UTC)]
-    settler = ChecksSettler(s, lambda *_: [], clock=lambda: now[0])
+    ci = [{"app_slug": "ci", "status": "completed", "conclusion": "failure"}]
+    settler = ChecksSettler(s, lambda *_: ci, clock=lambda: now[0])
     original = s.insert
 
     def fail_arm(collection, document):
@@ -1095,6 +1096,6 @@ def test_failed_arm_is_recovered_by_the_settle_tick_without_any_redelivery(monke
     now[0] += timedelta(seconds=RECOVERY_GRACE_S + 1)
     assert settler.tick() == 1
     assert settler.tick() == 0
-    assert ChecksSettler(s.peer(), lambda *_: [], clock=lambda: now[0]).tick() == 0
+    assert ChecksSettler(s.peer(), lambda *_: ci, clock=lambda: now[0]).tick() == 0
     [settled] = [e for e in events(s) if e["envelope"]["type"] == SETTLED_TYPE]
     assert settled["envelope"]["data"]["head_sha"] == HEAD_SHA
