@@ -14,7 +14,7 @@ allows a blind retry, so a wrong type that reached a run fails closed.
 Params resolve like a rule action's (:func:`culture_rules.model.refs.resolve_refs`: whole
 strings, ``{{ }}`` templates, ``{"$ref": ...}``, ``{"$literal": ...}``) against one namespace,
 the step's input ports: ``inputs.<port>...``. A workflow never knows its trigger, so
-``trigger.*`` / ``rules.*`` / ``workflow.*`` references are refused at save time
+``trigger.*`` / ``rules.*`` / ``workflow.*`` / ``run.*`` references are refused at save time
 (``action_step_ref``): a value from the trigger reaches the step through the rule's
 workflow-input mapping and an edge, like any other step input. Inside a loop body the
 implicit ``item`` / ``index`` ports are inputs like any other, so a ``for_each`` can post one
@@ -59,7 +59,7 @@ ACTION_SPEC_FIELDS: Mapping[str, type] = {"name": str, "idempotent": bool}
 """The optional typed fields of ``config.action`` (beside ``kind`` / ``params``), typed as
 on a rule :class:`~culture_rules.model.action.Action`."""
 
-_ANY_TEMPLATE = re.compile(r"\{\{\s*((?:workflow|trigger|rules|inputs)(?:\.[^.\s{}]+)+)\s*\}\}")
+_ANY_TEMPLATE = re.compile(r"\{\{\s*((?:workflow|trigger|rules|run|inputs)(?:\.[^.\s{}]+)+)\s*\}\}")
 
 
 def is_action_step(kind: Any, config: Any) -> bool:

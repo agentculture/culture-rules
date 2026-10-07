@@ -164,3 +164,10 @@ def test_malformed_input_ports_are_reported_not_raised(bad: Any):
     body["steps"][0]["inputs"] = bad
     _obj, errors = validate_data(Workflow, body)
     assert errors
+
+
+@pytest.mark.parametrize("value", ["run.id", "{{ run.id }}", {"$ref": "run.id"}])
+def test_run_id_is_not_readable_from_an_action_step(value):
+    params = {**REPLY, "body": value}
+    found = codes(action_wf("github.review_reply", params, inputs=(port("item", "object"),)))
+    assert ("steps[0].config.action.params.body", "action_step_ref") in found

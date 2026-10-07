@@ -234,6 +234,107 @@ culture-rules variables set fixer_protected_paths --apply --value \
 | as `culture-fixer`, through grant: `gh api repos/agentculture/culture-rules/pulls` | `200`; a `gh pr merge` or a push is refused |
 | `culture-rules actors list` | `qwen-fixer`, machine `spark2` |
 
+## 7. The fixer rules and workflow (t17)
+
+The fixer is committed data in `docs/rules/pr-fixer/`, in the import format
+(`rules/<id>.json`, `workflows/<id>.json`). JSON rather than YAML, so the import
+works on an API without the `yaml` extra. Four rules, one trigger type each,
+share one workflow (d13):
+
+| Rule | Trigger | Extra condition |
+|---|---|---|
+| `pr-fixer-checks` | `github.pr.checks_settled` | `conclusion != "success"` (a green head is left alone) |
+| `pr-fixer-comment` | `github.comment.created` | trusted author, not the App, `pr_enriched == true` |
+| `pr-fixer-review` | `github.review.submitted` | trusted author, not the App |
+| `pr-fixer-review-comment` | `github.review_comment.created` | trusted author, not the App |
+
+Every rule also requires `head_repo == base_repo`, `draft == false` and the
+repository not in `vars.fixer_excluded_repos`. A missing fact makes the
+comparison false, so an event without PR facts never fires. "Trusted author"
+is `data.author in vars.trusted_authors`, and "not the App" is
+`self_authored != true`. The conditions reference the variables and never copy
+a list.
+
+All four rules have the same settings:
+
+- they ship with `enabled: false`;
+- placement is machine `spark2`;
+- `concurrency_key` is `pr-fixer:{trigger.data.repository}#{trigger.data.number}`
+  and `max_attempts` is 3, both shared across the four rules;
+- they pass the same workflow inputs: `repo`, `number`, `head_sha`,
+  `head_branch`, `base_sha`, `clone_url`, `trusted_authors` (`{"$var":
+  "trusted_authors"}`) and an `instruction` written for their trigger type.
+
+Workflow `pr-fixer`:
+
+1. `quiet`: a 300-second `wait` with the `head_unchanged` guard (the App
+   actor reads the head). A push during the wait ends the run `superseded`.
+2. `fix`: a `retry_until` with at most 3 tries. It stops when the verdict is
+   `pass` or `no_gate`, and carries the gate's `instruction` into the next try.
+   Each try runs two steps:
+   - `agent`: an `ai` step on actor `qwen-fixer` in mode `yolo`. Its bound
+     inputs include `trusted_authors`.
+   - `gate`: the built-in `gate` on spark2. It reads the agent's `worktree`,
+     `head_before` and `head_after`.
+3. `push`: a built-in `action` step, `github.push` as `github-app`, on spark2
+   where the gate's bundle is. It runs with `gate_verdict` wired in, so only a
+   `pass` pushes. The port refuses `rule_disabled` when the firing rule was
+   disabled mid-run.
+4. `replies`: a `for_each` over the agent's `threads_addressed`. Each item gets
+   one `github.review_reply` (`comment_id` = the entry's `thread_id`,
+   `resolve: true`).
+
+The rule's terminal action is a `github.comment` as `github-app`. It reports
+the verdict, the push and the agent's summary, and links the run as
+`https://rules.culture.dev/api/runs/{{ run.id }}`. `run.id` is the
+rule-action reference to the run's own id. The editor has no run page yet, so
+the link opens the run document. The run's agent, gate and push steps run on
+spark2, which puts the run on spark2's Statistics lane.
+
+Install order: variables first (an import that references an undefined
+variable is refused), then the workflow, then the rules.
+
+```bash
+bash docs/rules/pr-fixer/seed-variables.sh            # dry run
+bash docs/rules/pr-fixer/seed-variables.sh --apply    # admin; skips variables already set
+culture-rules workflows import docs/rules/pr-fixer --apply
+culture-rules rules import docs/rules/pr-fixer --apply
+```
+
+The seed values are:
+
+- `trusted_authors`: the operator and Qodo's bot;
+- `ignored_check_apps`: `["claude"]`;
+- `checks_settle_timeout_s`: 900;
+- `checks_settle_min_s`: 60;
+- `fixer_excluded_repos`: `["agentculture/culture-rules"]`;
+- `fixer_protected_paths`: the list in section 5.
+
+Re-running the script leaves a variable that already exists alone. Pass
+`--force` to replace it.
+
+Known limits of this version:
+
+- **Thread filtering is the agent's job.** The engine hands the agent
+  `trusted_authors` and the instruction, then replies to every thread id the
+  agent reports. Nothing in the engine lists or filters threads by author, so
+  the agent could still read, and reply to, a thread from someone else.
+- **Reply ids must be numeric.** `github.review_reply` needs the REST comment
+  id. The instruction asks the agent to report each thread's first review
+  comment id as `thread_id`. A non-numeric id fails the reply step.
+- **Only a successful run comments.** A run that fails (loop exhausted, rule
+  disabled, a failed reply) or is superseded posts no comment. The rule action
+  runs only after the workflow succeeds.
+- **`no_gate` posts nothing.** On a repo without a `gate:` section, `push`
+  refuses `gate_not_passed` and the run fails, so nothing is pushed and nothing
+  is commented.
+- **Only the last try's replies.** `threads_addressed` comes from the last
+  agent try only.
+
+*Planned* (t20/t21): importing the bundle on rules.culture.dev, the
+`qwen-fixer` actor, and the App private key on spark2's node (`push` runs
+there), then enabling the rules for one repository.
+
 ## On spark2
 
 | Item | Value |

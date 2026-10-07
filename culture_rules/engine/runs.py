@@ -103,8 +103,9 @@ Semantics
   are top-level only (a wait inside a loop body is refused at start).
 * **Rule action** - after the workflow succeeds, the rule's action runs as the terminal
   step :data:`ACTION_STEP` (kind ``"action"``), its params resolved against
-  ``workflow.outputs.*``, ``trigger.*`` and ``rules.<id>.outputs.*`` (whole-string
-  references or ``{{ ref }}`` templates). A rule without a workflow runs only its action.
+  ``workflow.outputs.*``, ``trigger.*``, ``rules.<id>.outputs.*`` and ``run.id`` (the run's
+  own id; whole-string references or ``{{ ref }}`` templates). A rule without a workflow
+  runs only its action.
   A whole string is a reference only when its path fits a namespace's shape; any other
   string (``rules.yaml``, ``workflow.md``, ``trigger.sh``) is a literal.
   ``{"$ref": path}`` always references and ``{"$literal": value}`` never does (see
@@ -2027,6 +2028,7 @@ def _finish(plan: _Plan, doc: Mapping, now: datetime) -> Found:
             "workflow": {"outputs": outputs},
             "trigger": doc.get("trigger") or {},
             "rules": {k: {"outputs": v} for k, v in (doc.get("upstream") or {}).items()},
+            "run": {"id": doc["id"]},
         }
         state = _new_state(ACTION_STEP, ACTION_STEP)
         state["inputs"] = resolve_refs(dict(plan.rule.action.params), context)

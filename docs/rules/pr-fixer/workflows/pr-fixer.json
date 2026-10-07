@@ -1,0 +1,654 @@
+{
+  "description": "Quiet period -> (bridge agent -> test gate) up to 3 times -> github.push as the App -> one github.review_reply per addressed thread. Trigger-agnostic: the four pr-fixer-* rules map their event into these inputs.",
+  "edges": [
+    {
+      "source": "quiet",
+      "source_port": "done",
+      "target": "fix",
+      "target_port": "done"
+    },
+    {
+      "source": "inputs",
+      "source_port": "instruction",
+      "target": "fix",
+      "target_port": "instruction"
+    },
+    {
+      "source": "inputs",
+      "source_port": "clone_url",
+      "target": "fix",
+      "target_port": "repo"
+    },
+    {
+      "source": "inputs",
+      "source_port": "head_branch",
+      "target": "fix",
+      "target_port": "head_branch"
+    },
+    {
+      "source": "inputs",
+      "source_port": "head_sha",
+      "target": "fix",
+      "target_port": "head_sha"
+    },
+    {
+      "source": "inputs",
+      "source_port": "base_sha",
+      "target": "fix",
+      "target_port": "base_sha"
+    },
+    {
+      "source": "inputs",
+      "source_port": "trusted_authors",
+      "target": "fix",
+      "target_port": "trusted_authors"
+    },
+    {
+      "source": "agent",
+      "source_port": "worktree",
+      "target": "gate",
+      "target_port": "worktree"
+    },
+    {
+      "source": "agent",
+      "source_port": "head_before",
+      "target": "gate",
+      "target_port": "start_sha"
+    },
+    {
+      "source": "agent",
+      "source_port": "head_after",
+      "target": "gate",
+      "target_port": "commit_sha"
+    },
+    {
+      "source": "inputs",
+      "source_port": "repo",
+      "target": "push",
+      "target_port": "repo"
+    },
+    {
+      "source": "inputs",
+      "source_port": "number",
+      "target": "push",
+      "target_port": "number"
+    },
+    {
+      "source": "inputs",
+      "source_port": "head_branch",
+      "target": "push",
+      "target_port": "head_branch"
+    },
+    {
+      "source": "agent",
+      "source_port": "head_before",
+      "target": "push",
+      "target_port": "expected_head_sha"
+    },
+    {
+      "source": "agent",
+      "source_port": "head_after",
+      "target": "push",
+      "target_port": "commit_sha"
+    },
+    {
+      "source": "gate",
+      "source_port": "bundle",
+      "target": "push",
+      "target_port": "source"
+    },
+    {
+      "source": "fix",
+      "source_port": "verdict",
+      "target": "push",
+      "target_port": "verdict"
+    },
+    {
+      "source": "agent",
+      "source_port": "threads_addressed",
+      "target": "replies",
+      "target_port": "items"
+    },
+    {
+      "source": "inputs",
+      "source_port": "repo",
+      "target": "replies",
+      "target_port": "repo"
+    },
+    {
+      "source": "inputs",
+      "source_port": "number",
+      "target": "replies",
+      "target_port": "number"
+    },
+    {
+      "source": "push",
+      "source_port": "pushed",
+      "target": "replies",
+      "target_port": "pushed"
+    }
+  ],
+  "enabled": true,
+  "id": "pr-fixer",
+  "inputs": [
+    {
+      "description": "owner/name",
+      "name": "repo",
+      "required": true,
+      "type": "string"
+    },
+    {
+      "description": "",
+      "name": "number",
+      "required": true,
+      "type": "integer"
+    },
+    {
+      "description": "",
+      "name": "head_sha",
+      "required": true,
+      "type": "string"
+    },
+    {
+      "description": "",
+      "name": "head_branch",
+      "required": true,
+      "type": "string"
+    },
+    {
+      "description": "",
+      "name": "base_sha",
+      "required": true,
+      "type": "string"
+    },
+    {
+      "description": "",
+      "name": "clone_url",
+      "required": true,
+      "type": "string"
+    },
+    {
+      "description": "",
+      "name": "instruction",
+      "required": true,
+      "type": "string"
+    },
+    {
+      "description": "",
+      "name": "trusted_authors",
+      "required": true,
+      "type": "array"
+    }
+  ],
+  "name": "PR fixer",
+  "outputs": [
+    {
+      "name": "verdict",
+      "source": "steps.fix.outputs.verdict",
+      "type": "string"
+    },
+    {
+      "name": "pushed",
+      "source": "steps.push.outputs.pushed",
+      "type": "boolean"
+    },
+    {
+      "name": "head_after",
+      "source": "steps.push.outputs.head_after",
+      "type": "string"
+    },
+    {
+      "name": "summary",
+      "source": "steps.agent.outputs.summary",
+      "type": "string"
+    }
+  ],
+  "schema_version": "1.0",
+  "steps": [
+    {
+      "body": [],
+      "config": {
+        "guard": {
+          "actor": "github-app",
+          "ref": "inputs.head_sha",
+          "value": "head_unchanged"
+        },
+        "seconds": 300
+      },
+      "description": "Wait 5 minutes; if the PR head moved meanwhile the run ends superseded.",
+      "enabled": true,
+      "id": "quiet",
+      "inputs": [],
+      "kind": "wait",
+      "max_iterations": null,
+      "name": "Quiet period",
+      "outputs": [
+        {
+          "description": "",
+          "name": "done",
+          "required": false,
+          "type": "any"
+        }
+      ],
+      "placement": null,
+      "retry": null,
+      "timeout_s": null
+    },
+    {
+      "body": [
+        {
+          "body": [],
+          "config": {
+            "mode": "yolo"
+          },
+          "description": "The cultureagent bridge checks out head_sha in a fresh worktree on spark2, runs the agent with the instruction and the bound inputs (trusted_authors among them), and returns cultureagent.bridge.result/v1. The agent commits locally and never pushes.",
+          "enabled": true,
+          "id": "agent",
+          "inputs": [
+            {
+              "description": "",
+              "name": "instruction",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "clone URL (the bridge's allowlist checks it)",
+              "name": "repo",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "head_branch",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "head_sha",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "only threads opened by these authors",
+              "name": "trusted_authors",
+              "required": true,
+              "type": "array"
+            }
+          ],
+          "kind": "ai",
+          "max_iterations": null,
+          "name": "Fix the PR (bridge agent)",
+          "outputs": [
+            {
+              "description": "",
+              "name": "head_before",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "head_after",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "worktree",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "threads_addressed",
+              "required": true,
+              "type": "array"
+            },
+            {
+              "description": "",
+              "name": "summary",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "status",
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "placement": {
+            "actor": "qwen-fixer",
+            "machine": null,
+            "requirement": null
+          },
+          "retry": null,
+          "timeout_s": 3900.0
+        },
+        {
+          "body": [],
+          "config": {
+            "builtin": "gate"
+          },
+          "description": "Reads gate: from culture.yaml at base_sha, guards start_sha..commit_sha and runs the declared tests in a fresh checkout as culture-fixer; on pass writes the bundle.",
+          "enabled": true,
+          "id": "gate",
+          "inputs": [
+            {
+              "description": "",
+              "name": "worktree",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "base_sha",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "start_sha",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "commit_sha",
+              "required": true,
+              "type": "string"
+            }
+          ],
+          "kind": "code",
+          "max_iterations": null,
+          "name": "Test gate and diff guard",
+          "outputs": [
+            {
+              "description": "",
+              "name": "verdict",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "instruction",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "bundle",
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "placement": {
+            "actor": null,
+            "machine": "spark2",
+            "requirement": null
+          },
+          "retry": null,
+          "timeout_s": 1800.0
+        }
+      ],
+      "config": {
+        "carry": {
+          "instruction": "instruction"
+        },
+        "until": {
+          "items": {
+            "literal": [
+              "pass",
+              "no_gate"
+            ]
+          },
+          "op": "in",
+          "value": {
+            "field": "verdict"
+          }
+        }
+      },
+      "description": "Each try hands the gate's failure text to the next agent run as its instruction. Ends on verdict pass or no_gate; fail or guard three times fails the run.",
+      "enabled": true,
+      "id": "fix",
+      "inputs": [
+        {
+          "description": "",
+          "name": "done",
+          "required": false,
+          "type": "any"
+        },
+        {
+          "description": "",
+          "name": "instruction",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "repo",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "head_branch",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "head_sha",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "base_sha",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "trusted_authors",
+          "required": true,
+          "type": "array"
+        }
+      ],
+      "kind": "retry_until",
+      "max_iterations": 3,
+      "name": "Agent, then gate (up to 3 tries)",
+      "outputs": [
+        {
+          "description": "",
+          "name": "verdict",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "placement": null,
+      "retry": null,
+      "timeout_s": null
+    },
+    {
+      "body": [],
+      "config": {
+        "action": {
+          "kind": "github.push",
+          "params": {
+            "actor": "github-app",
+            "commit_sha": "inputs.commit_sha",
+            "expected_head_sha": "inputs.expected_head_sha",
+            "gate_verdict": "inputs.verdict",
+            "head_branch": "inputs.head_branch",
+            "number": "inputs.number",
+            "repo": "inputs.repo",
+            "source": "inputs.source"
+          }
+        },
+        "builtin": "action"
+      },
+      "description": "github.push fast-forwards the PR head branch to the gated commit from the gate's bundle, only on verdict pass and only while the firing rule is enabled. Runs on spark2, where the bundle is.",
+      "enabled": true,
+      "id": "push",
+      "inputs": [
+        {
+          "description": "",
+          "name": "repo",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "number",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "description": "",
+          "name": "head_branch",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "expected_head_sha",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "commit_sha",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "source",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "verdict",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "kind": "code",
+      "max_iterations": null,
+      "name": "Push as the App",
+      "outputs": [
+        {
+          "description": "",
+          "name": "head_after",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "pushed",
+          "required": true,
+          "type": "boolean"
+        }
+      ],
+      "placement": {
+        "actor": null,
+        "machine": "spark2",
+        "requirement": null
+      },
+      "retry": null,
+      "timeout_s": 300.0
+    },
+    {
+      "body": [
+        {
+          "body": [],
+          "config": {
+            "action": {
+              "kind": "github.review_reply",
+              "params": {
+                "actor": "github-app",
+                "body": "{{ inputs.item.reply }} (addressed in {{ inputs.item.commit }})",
+                "comment_id": "inputs.item.thread_id",
+                "number": "inputs.number",
+                "repo": "inputs.repo",
+                "resolve": true
+              }
+            },
+            "builtin": "action"
+          },
+          "description": "",
+          "enabled": true,
+          "id": "reply",
+          "inputs": [
+            {
+              "description": "",
+              "name": "item",
+              "required": true,
+              "type": "object"
+            },
+            {
+              "description": "",
+              "name": "repo",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "number",
+              "required": true,
+              "type": "integer"
+            }
+          ],
+          "kind": "code",
+          "max_iterations": null,
+          "name": "Reply and resolve",
+          "outputs": [],
+          "placement": null,
+          "retry": null,
+          "timeout_s": 120.0
+        }
+      ],
+      "config": {},
+      "description": "github.review_reply per entry of the agent's threads_addressed, after the push.",
+      "enabled": true,
+      "id": "replies",
+      "inputs": [
+        {
+          "description": "",
+          "name": "items",
+          "required": true,
+          "type": "array"
+        },
+        {
+          "description": "",
+          "name": "repo",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "number",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "description": "",
+          "name": "pushed",
+          "required": true,
+          "type": "boolean"
+        }
+      ],
+      "kind": "for_each",
+      "max_iterations": 200,
+      "name": "One reply per addressed thread",
+      "outputs": [],
+      "placement": null,
+      "retry": null,
+      "timeout_s": null
+    }
+  ],
+  "variables": [],
+  "version": 1
+}
