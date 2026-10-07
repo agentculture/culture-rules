@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-10-06T04:46:38Z",
-  "updated": "2026-10-07T05:12:29Z",
+  "updated": "2026-10-07T05:53:39Z",
   "targets": [
     {
       "id": "c1",
@@ -1027,6 +1027,22 @@
       "text": "github.push runs on spark2, so spark2's node needs the App private key (RULES_GITHUB_APP_PRIVATE_KEY) in the spark2 user's grant store, next to the fixer account",
       "kind": "unknown_nonblocking",
       "task_id": "t20",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r17",
+      "text": "the checks settler's on_check webhook path calls _app_for/list_suites inline without the 5 s whole-lookup bound t17b added for comment enrichment; a cold grant resolve can hold a check_run webhook past GitHub's delivery timeout",
+      "kind": "follow_up",
+      "task_id": "t12",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r18",
+      "text": "t11 _fire_coalesced: when the holding rule was deleted and nothing is pending at release time, no owner consumer writes the release guard; a deduplicated event recorded in that exact window could be left pending with nothing to fire it",
+      "kind": "unknown_nonblocking",
+      "task_id": "t11",
       "resolved": false,
       "resolution": ""
     }
