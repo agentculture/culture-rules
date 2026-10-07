@@ -80,7 +80,7 @@ from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
 
-from culture_rules.actors.trusted import workflow_refusal
+from culture_rules.actors.trusted import actor_refusal, workflow_refusal
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
 
 __all__ = [
@@ -871,4 +871,8 @@ class ReviewVerdictPort:
             raise ReviewError("reviewer_not_read_only", "the reviewer changed its checkout")
         if status != NO_CHANGES:
             raise ReviewError("review_invalid", f"the reviewer's session ended {status!r}")
+        refusal, digest = actor_refusal(self._store, reviewer_id)
+        facts["trusted_actors"] = {str(reviewer_id): digest}
+        if refusal:  # round 3 (#1): the reviewer actor's security fields are pinned in code
+            raise ReviewError(refusal, f"{reviewer_id} does not match a trusted digest")
         return parse_review(r.get("summary"), commit)

@@ -92,7 +92,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from culture_rules.actors.review import approved_review, consume_approval
-from culture_rules.actors.trusted import workflow_refusal
+from culture_rules.actors.trusted import actor_refusal, workflow_refusal
 from culture_rules.apps.github import DEFAULT_API_BASE, GitHubApp, GitHubError, Transport
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
 from culture_rules.engine.runs import (
@@ -400,6 +400,11 @@ class GitHubPushPort(GitHubCommentPort):
         # d20: the run's reviewer must have approved exactly this commit (read from the
         # store, never a param), whatever the workflow wires
         refusal, review_record = self._review(input, context)
+        if refusal:
+            log.info("github.push refused: %s", refusal)
+            return InvocationResult.failed(refusal, retryable=False)
+        # round 3 (#1): the App actor's security fields must match a digest pinned in code
+        refusal, _digest = actor_refusal(self._store, actor_id)
         if refusal:
             log.info("github.push refused: %s", refusal)
             return InvocationResult.failed(refusal, retryable=False)

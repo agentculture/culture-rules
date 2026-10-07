@@ -780,3 +780,26 @@ def test_r3_2_the_review_record_names_the_gate_policy_commit(tmp_path):
     doc = w.fire()
     assert doc["status"] == "succeeded", doc.get("error")
     assert record(w, doc)["base_sha"] == w.repo.base
+
+
+# --------------------------------------------------------------------------- round 3, #1
+
+
+def test_r3_1_a_reviewer_actor_pointed_at_another_bridge_is_not_trusted(tmp_path):
+    # an actor editor redirects codex-reviewer to a bridge that "approves" everything
+    w = World(tmp_path)
+    actor = reviewer_actor()
+    actor["params"] = {**actor["params"], "bridge_url": "http://127.0.0.1:9999"}
+    w.c.base.put("actors", actor)
+    doc = w.fire()
+    assert doc["status"] == "failed" and w.push.calls == []
+    assert "fix[0]/verdict: actor_not_trusted" in doc["error"]["message"]
+
+
+def test_r3_1_the_record_snapshots_the_checked_actor_digest(tmp_path):
+    from culture_rules.actors.trusted import actor_digest
+
+    w = World(tmp_path)
+    doc = w.fire()
+    assert doc["status"] == "succeeded", doc.get("error")
+    assert record(w, doc)["trusted_actors"] == {"codex-reviewer": actor_digest(reviewer_actor())}

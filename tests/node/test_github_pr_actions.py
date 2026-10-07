@@ -209,6 +209,23 @@ class RecordingGit:
         return out
 
 
+#: The App actor shapes these push-mechanics tests use; each is trusted for them (d20 round
+#: 3). Production trusts only the digests pinned in culture_rules/actors/trusted.py.
+TEST_APP_AUTHORS = (None, "t", "T@Example.invalid", "rules-culture-dev[bot]")
+
+
+@pytest.fixture(autouse=True)
+def trusted_test_app(monkeypatch):
+    from culture_rules.actors import trusted
+
+    shapes = [actor_doc(**({"commit_author": a} if a else {})) for a in TEST_APP_AUTHORS]
+    monkeypatch.setattr(
+        trusted,
+        "TRUSTED_ACTOR_DIGESTS",
+        {**trusted.TRUSTED_ACTOR_DIGESTS, "gh-app": frozenset(map(trusted.actor_digest, shapes))},
+    )
+
+
 def actor_doc(**params):
     doc = {
         "id": "gh-app",

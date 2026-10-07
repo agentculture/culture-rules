@@ -20,6 +20,7 @@ from culture_rules.node.actors import ActorRouter
 from culture_rules.store.memory import MemoryStore
 from tests.engine.run_helpers import Clock, FakeActor, edge, port, rule, step, workflow
 from tests.node import test_github_pr_actions as gh  # skips without cryptography / git
+from tests.node.test_github_pr_actions import trusted_test_app  # noqa: F401
 from tests.node.test_github_pr_actions import (
     REPO,
     FakeGitHub,

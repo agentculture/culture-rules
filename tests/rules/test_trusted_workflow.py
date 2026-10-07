@@ -56,3 +56,98 @@ def test_workflow_refusal_reads_the_pinned_definition():
     assert workflow_refusal(run) == "workflow_not_trusted"
     for run in (None, {}, {"workflow": None}, {"workflow": {"definition": "nope"}}):
         assert workflow_refusal(run) == "workflow_not_trusted"
+
+
+# --------------------------------------------------------------------------- actors (round 3)
+
+
+def _reviewer() -> dict:
+    from tests.rules.test_pr_fixer_bundle import reviewer_actor
+
+    return reviewer_actor()
+
+
+def test_the_shipped_reviewer_actor_is_trusted():
+    from culture_rules.actors.trusted import TRUSTED_ACTOR_DIGESTS, actor_digest
+
+    digest = actor_digest(_reviewer())
+    assert digest in TRUSTED_ACTOR_DIGESTS["codex-reviewer"], (
+        f"docs/rules/pr-fixer/actors/codex-reviewer.json now hashes to {digest}: if intended, "
+        "add it to TRUSTED_ACTOR_DIGESTS['codex-reviewer'] in culture_rules/actors/trusted.py"
+    )
+
+
+def test_cosmetic_actor_fields_keep_trust_security_fields_lose_it():
+    from culture_rules.actors.trusted import actor_digest
+
+    doc = _reviewer()
+    base = actor_digest(doc)
+    for cosmetic in ({"name": "x"}, {"description": "y"}):
+        assert actor_digest({**doc, **cosmetic}) == base
+    assert actor_digest({**doc, "params": {**doc["params"], "max_concurrency": 4}}) == base
+    for key, value in (
+        ("bridge_url", "http://127.0.0.1:9"),
+        ("sandbox", "workspace-write"),
+        ("locked_instruction", None),
+        ("reviewer", False),
+        ("max_bound_input_chars", None),
+        ("model", "o3"),
+    ):
+        assert actor_digest({**doc, "params": {**doc["params"], key: value}}) != base, key
+    assert actor_digest({**doc, "harness": "qwen"}) != base
+
+
+def test_app_digests_cover_identity_allowlist_and_author():
+    from culture_rules.actors.trusted import actor_digest
+
+    app = {
+        "id": "github-app",
+        "kind": "app",
+        "machine": "spark2",
+        "params": {
+            "surface": "github",
+            "commit_author": "bot",
+            "connection": {
+                "app_id": "1",
+                "installation_id": "2",
+                "private_key": "grant:K",
+                "webhook_secret": "grant:W",
+                "repos": ["o/a", "o/b"],
+            },
+        },
+    }
+    base = actor_digest(app)
+    conn = app["params"]["connection"]
+    assert (
+        actor_digest(
+            {**app, "params": {**app["params"], "connection": {**conn, "repos": ["O/B", "o/a"]}}}
+        )
+        == base
+    )  # order and case do not matter
+    for change in ({"repos": ["o/a", "o/b", "o/c"]}, {"app_id": "9"}, {"private_key": "grant:X"}):
+        edited = {**app, "params": {**app["params"], "connection": {**conn, **change}}}
+        assert actor_digest(edited) != base, change
+    assert actor_digest({**app, "params": {**app["params"], "commit_author": None}}) != base
+
+
+def test_github_app_is_untrusted_until_its_live_digest_is_added():
+    from culture_rules.actors.trusted import TRUSTED_ACTOR_DIGESTS, actor_refusal
+    from culture_rules.store.memory import MemoryStore
+
+    assert TRUSTED_ACTOR_DIGESTS["github-app"] == frozenset()
+    store = MemoryStore()
+    store.put("actors", {"id": "github-app", "name": "a", "kind": "app", "params": {}})
+    assert actor_refusal(store, "github-app")[0] == "actor_not_trusted"
+    assert actor_refusal(store, "nobody")[0] == "actor_not_trusted"
+
+
+def test_the_digest_helper_prints_what_the_checks_compute(tmp_path, capsys):
+    import json
+
+    from culture_rules.actors.trusted import actor_digest, main
+
+    path = tmp_path / "a.json"
+    path.write_text(json.dumps(_reviewer()))
+    assert main(["actor", str(path)]) == 0
+    assert capsys.readouterr().out.strip() == actor_digest(_reviewer())
+    assert main(["nope"]) == 1

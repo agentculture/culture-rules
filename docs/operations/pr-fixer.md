@@ -357,15 +357,20 @@ Workflow `pr-fixer`:
      input (the bridge's `threads` field) holds only the trusted threads, each
      `{thread_id, comment_id, path, line, author, body}`.
    - `gate`: the built-in `gate` on spark2. It reads the agent's `worktree`,
-     `head_before` and `head_after`. A merge in the agent's commits is a
+     `head_before` and `head_after`. Before anything else it reads the PR as
+     the App and refuses a `base_sha` that is not the PR's base
+     (`base_mismatch`; `base_unverified` when it cannot tell), because the
+     base selects the gate policy. A merge in the agent's commits is a
      `guard` verdict (`merge_commit`). On `pass` and `no_gate` the gate then
      builds **one commit itself** (`git commit-tree`): the agent tip's tree on
      the PR head and nothing else of the agent's. Author and committer are the
      App bot (`commit_identity`, default the `rules-culture-dev[bot]`
      identity), the message is written by the engine from trusted run state
      (`pr-fixer: automated fix for <repo>#<n> (run <id>, try <k>)`), and both
-     dates are the PR head's, so a re-run builds the same SHA. Only that
-     commit is diffed, reviewed, bundled and pushed (`commit_sha`; the agent's
+     dates are the PR head's, so a re-run builds the same SHA. The gate
+     builds it **before** testing: setup and tests run in a fresh checkout of
+     that commit, so one commit is tested, diffed, reviewed, bundled and
+     pushed (`commit_sha`; the agent's
      tip is `agent_commit_sha`). The agent's own commits, and anything they
      added and later removed, never leave spark2. The gate also outputs the diff of the built commit
      (`diff`, `diff_chars`) and `diff_truncated`, which is true when the text
@@ -455,6 +460,47 @@ To change the workflow on purpose:
 4. Import the workflow (`culture-rules workflows import ... --apply`).
 
 It is a set, so the split workflows planned for d21 can sit beside it.
+
+### Trusted actors (d20 round 3)
+
+Actor documents are outside the workflow digest, so their security-relevant
+fields are pinned the same way, in `TRUSTED_ACTOR_DIGESTS` (per actor id, a
+set of digests, in `culture_rules/actors/trusted.py`):
+
+- `codex-reviewer`: id, kind, harness, model, machine, and `params`
+  `bridge_url`, `callback_url`, `bridge_token`, `sandbox`, `model`, `mode`,
+  `locked_instruction`, `reviewer`, `max_bound_input_chars`. The verdict
+  step refuses any other shape (`actor_not_trusted`) and the review record
+  snapshots the digest it checked (`trusted_actors`).
+- `github-app`: id, kind, machine, `params.surface`, `commit_author`,
+  `permissions`, and `connection` `app_id`, `installation_id`,
+  `private_key` (the reference) and `repos` (order and case ignored).
+  `github.push` refuses any other shape.
+- `qwen-fixer` is not pinned: everything it produces is reviewed.
+
+Names, descriptions and limits such as `max_concurrency` are not part of
+the digest. A fully malicious admin who controls actors and a bridge stays
+out of scope; this makes such a change need a release.
+
+**`github-app` ships with an empty set**, because its live values are not
+in this repository. Until its digest is added, every push refuses
+`actor_not_trusted`. Before the first push with this build:
+
+```bash
+culture-rules actors export --json \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["files"]["actors/github-app.json"])' \
+  > github-app.json
+python -m culture_rules.actors.trusted actor github-app.json
+```
+
+(Check the export's shape with `culture-rules actors export --json` first;
+any copy of the stored `github-app` document works.)
+
+Add the printed digest to `TRUSTED_ACTOR_DIGESTS["github-app"]`, release,
+and upgrade every node. The same command with `workflow FILE` prints a
+workflow digest. Any later change to these fields (a new repo in the App's
+allow-list, a moved bridge) follows the same order as a workflow change:
+new digest in the set, release, upgrade, then edit the actor.
 6. `replies`: a `for_each` over `pick`'s list. Each item gets one
    `github.review_reply` (`comment_id` is the integer REST id of the opening
    comment, `thread_id` the GraphQL id, `resolve: true`).

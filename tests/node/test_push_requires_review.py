@@ -23,6 +23,7 @@ from tests.node.test_github_pr_actions import (  # noqa: E402,F401 - fixtures
     pem,
     push_params,
     push_port,
+    trusted_test_app,
     world,
 )
 
@@ -263,3 +264,24 @@ def test_r2_4_no_revocation_can_land_once_the_approval_is_consumed(pem, world): 
     _rid, doc, state = current_review(store, "run-1")
     assert state == "consumed" and doc["verdict"] == "approve"
     assert store.get("fixer_reviews", "run-1:fix[1]/verdict:1") is not None
+
+
+# --------------------------------------------------------------------------- round 3, #1
+
+
+def test_r3_1_an_edited_app_actor_pushes_nothing(pem, world, monkeypatch):  # noqa: F811
+    from culture_rules.actors import trusted
+    from tests.node.test_github_pr_actions import actor_doc
+
+    # only the shape that pins the commit author is trusted here
+    monkeypatch.setattr(
+        trusted,
+        "TRUSTED_ACTOR_DIGESTS",
+        {"gh-app": frozenset({trusted.actor_digest(actor_doc(commit_author="t"))})},
+    )
+    store = make_store(commit_author="t")
+    assert trusted.actor_refusal(store, "gh-app")[0] is None  # the trusted shape
+    approve(store, world.b, start_sha=world.a)
+    edited = actor_doc()  # commit_author dropped: foreign commits would pass the push
+    store.put("actors", edited)
+    assert_refused(*attempt(pem, world, store), world, "actor_not_trusted")
