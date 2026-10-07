@@ -113,4 +113,60 @@ describe("AboutButton (d19)", () => {
     await userEvent.click(button);
     await waitFor(() => expect(screen.getByText("The saved version.")).toBeInTheDocument());
   });
+
+  it("reopening keeps the last description (same Close) until the fresh one lands: no blink", async () => {
+    // Each describe call waits until the test releases it with the lines to answer.
+    const pending: ((lines: string[]) => void)[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            pending.push((lines) =>
+              resolve(
+                new Response(JSON.stringify({ id: "pr-fixer", kind: "workflow", lines, entries: [] }), {
+                  status: 200,
+                  headers: { "content-type": "application/json" },
+                }),
+              ),
+            );
+          }),
+      ),
+    );
+    render(<AboutButton noun="workflows" id="pr-fixer" name="PR fixer" />);
+    const button = screen.getByRole("button", { name: "About PR fixer" });
+    await userEvent.click(button);
+    expect(screen.getByText("Reading…")).toBeInTheDocument(); // nothing shown yet: say so
+    await act(async () => pending[0](["1 old"]));
+    const close = await screen.findByRole("button", { name: "Close" });
+    await userEvent.click(close);
+    // Reopen: a fresh fetch starts, but the panel keeps the last lines and the same controls.
+    const seen: string[] = [];
+    const watch = new MutationObserver(() => {
+      if (screen.queryByText("Reading…")) seen.push("reading");
+    });
+    watch.observe(document.body, { childList: true, subtree: true, characterData: true });
+    await userEvent.click(button);
+    expect(pending).toHaveLength(2);
+    expect(screen.getByTestId("about-lines").textContent).toBe("1 old");
+    const kept = screen.getByRole("button", { name: "Close" });
+    await act(async () => pending[1](["1 new"]));
+    expect(screen.getByTestId("about-lines").textContent).toBe("1 new");
+    expect(screen.getByRole("button", { name: "Close" })).toBe(kept); // never unmounted
+    watch.disconnect();
+    expect(seen).toEqual([]);
+  });
+
+  it("a different id never shows the previous one's lines", async () => {
+    mockFetch({
+      "/api/rules/a/describe": { body: { id: "a", kind: "rule", lines: ["When a"], entries: [] } },
+    });
+    const { rerender } = render(<AboutButton noun="rules" id="a" name="A" />);
+    await userEvent.click(screen.getByRole("button", { name: "About A" }));
+    expect(await screen.findByTestId("about-lines")).toHaveTextContent("When a");
+    await userEvent.click(screen.getByRole("button", { name: "Close" }));
+    rerender(<AboutButton noun="rules" id="b" name="B" />);
+    await userEvent.click(screen.getByRole("button", { name: "About B" }));
+    expect(screen.queryByText("When a")).toBeNull();
+  });
 });

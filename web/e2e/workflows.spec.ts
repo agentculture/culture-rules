@@ -399,11 +399,16 @@ test.describe("Workflows tab", () => {
           `no page overflow at ${width}px`,
         ).toBe(true);
         const close = panel.getByRole("button", { name: "Close" });
-        // Clickable: Playwright's trial click waits for it to be stable and checks that the
-        // click would land on it (nothing paints over it), without clicking.
-        await close.click({ trial: true });
-        const closeBox = (await close.boundingBox())!;
-        expect(closeBox.x + closeBox.width, `Close inside at ${width}px`).toBeLessThanOrEqual(width);
+        // Strict: hit-test Close's centre once, with no retry. (A reopened panel used to show
+        // the last lines, then "Reading…", then the fresh lines, so this caught a Close that
+        // had just been replaced; the panel now keeps its content while it re-reads.)
+        const hit = await close.evaluate((el) => {
+          el.scrollIntoView({ block: "center", behavior: "instant" as ScrollBehavior });
+          const r = el.getBoundingClientRect();
+          const at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+          return r.right <= window.innerWidth && (at === el || el.contains(at));
+        });
+        expect(hit, `Close clickable at ${width}px`).toBe(true);
         await close.click();
         await expect(panel).toBeHidden();
       }

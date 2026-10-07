@@ -3,7 +3,8 @@ import { getDescription, type Description } from "../api/describe";
 import { ApiError } from "../api/client";
 import "./about.css";
 
-type Loaded = { doc: Description | null; error: string | null };
+/** A finished describe call, keyed by the noun/id it was for. */
+type Loaded = { key: string; doc: Description | null; error: string | null };
 
 /** The phone-width layout, where about.css docks the panel to the screen's bottom. */
 const DOCKED = "(max-width: 640px)";
@@ -32,7 +33,10 @@ export function AboutButton({
   stale?: boolean;
 }>) {
   const [open, setOpen] = useState(false);
-  const [loaded, setLoaded] = useState<Loaded | null>(null);
+  const [stored, setLoaded] = useState<Loaded | null>(null);
+  // Only this noun/id's answer is ever shown: a reused button (a new id) starts empty.
+  const key = `${noun}/${id}`;
+  const loaded = stored?.key === key ? stored : null;
   const [copied, setCopied] = useState(false);
   const panelId = useId();
   const wrap = useRef<HTMLSpanElement>(null);
@@ -61,14 +65,17 @@ export function AboutButton({
 
   useEffect(() => {
     if (!open) return;
-    setLoaded(null);
+    // Every open re-reads the description, but the last answer for this id stays on screen
+    // until the fresh one lands. Clearing it first would swap the panel's content for
+    // "Reading…" and back, remounting Copy and Close under a reader (or a test) mid-click.
     setCopied(false);
     const controller = new AbortController();
+    const forKey = `${noun}/${id}`;
     getDescription(noun, id, controller.signal)
-      .then((doc) => setLoaded({ doc, error: null }))
+      .then((doc) => setLoaded({ key: forKey, doc, error: null }))
       .catch((err: unknown) => {
         if (controller.signal.aborted) return;
-        setLoaded({ doc: null, error: err instanceof ApiError ? err.message : String(err) });
+        setLoaded({ key: forKey, doc: null, error: err instanceof ApiError ? err.message : String(err) });
       });
     panel.current?.focus();
     return () => controller.abort();
