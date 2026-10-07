@@ -4,6 +4,7 @@ import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 import type { WorkflowDef } from "../api/workflows";
 import { WorkflowList } from "./WorkflowList";
+import { mockFetch } from "../test/mockApi";
 
 const DOCS: WorkflowDef[] = [
   { id: "review-pr", name: "Review PR", enabled: true },
@@ -82,12 +83,32 @@ describe("WorkflowList (the Workflows tab's left pane)", () => {
     await user.tab(); // New workflow
     await user.tab(); // Review PR
     expect(screen.getByRole("link", { name: "Review PR" })).toHaveFocus();
+    await user.tab(); // its (i)
+    expect(screen.getByRole("button", { name: "About Review PR" })).toHaveFocus();
     await user.tab(); // its switch
     expect(screen.getByRole("switch", { name: "Review PR enabled" })).toHaveFocus();
     await user.tab();
     expect(screen.getByRole("link", { name: "Build image" })).toHaveFocus();
     await user.keyboard("{Enter}");
     expect(where).toBe("/workflows?id=build-image");
+  });
+
+  it("the row's (i) opens its description without opening the row (d19)", async () => {
+    const user = userEvent.setup();
+    const { fetchMock } = mockFetch({
+      "/api/workflows/build-image/describe": {
+        body: { id: "build-image", kind: "workflow", lines: ["1 build — code on spark"], entries: [] },
+      },
+    });
+    const { onOpen } = renderList(DOCS);
+    const before = where;
+    await user.click(screen.getByRole("button", { name: "About Build image" }));
+    const panel = await screen.findByRole("dialog", { name: "About Build image" });
+    expect(await within(panel).findByTestId("about-lines")).toHaveTextContent("1 build — code on spark");
+    expect(where).toBe(before);
+    expect(onOpen).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    vi.unstubAllGlobals();
   });
 
   it("the row switch shows enabled state and hands its workflow to onToggle", async () => {

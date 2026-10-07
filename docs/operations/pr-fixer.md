@@ -435,8 +435,8 @@ there), then enabling the rules for one repository.
 (`GET /rules/{id}/describe`, `GET /workflows/{id}/describe`, and the MCP tools
 `rules_describe` / `workflows_describe`) describe a stored definition from its
 config alone. No AI writes it, and the name and description fields are not
-used. The editor shows the same lines as "In words" under the rule's stages
-and under the workflow canvas. For the shipped bundle:
+used. In the editor, the (i) "About" button on each rule and workflow (list
+rows and title) shows the same lines. For the shipped bundle:
 
 ```console
 $ culture-rules rules describe pr-fixer-checks

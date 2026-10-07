@@ -2,7 +2,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { mockApi } from "./fixtures/api";
 import { mockWorkflowsApi } from "./fixtures/workflows";
-import { IMPORT_FILE_NAME, IMPORT_FILE_TEXT } from "../src/workflows/fixture";
+import { IMPORT_FILE_NAME, IMPORT_FILE_TEXT, REVIEW_PR_DESCRIBED } from "../src/workflows/fixture";
 
 /** Where the Workflows screenshot lands, for review against the 'Chosen — Workflows' board. */
 const SCREENSHOT = process.env.WORKFLOWS_SCREENSHOT ?? "test-results/workflows.png";
@@ -236,6 +236,7 @@ test.describe("Workflows tab", () => {
   });
 
   test("zoom (d19): buttons, keys and ctrl + wheel zoom; a plain wheel scrolls the page", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 600 }); // a page taller than the window
     await open(page);
     const zoom = page.getByRole("group", { name: "Zoom" });
     const level = page.getByTestId("zoom-level");
@@ -277,15 +278,51 @@ test.describe("Workflows tab", () => {
     await expect.poll(async () => parseInt((await level.textContent())!.replace(/\D/g, ""), 10)).toBeLessThan(parseInt(fitted!.replace(/\D/g, ""), 10));
   });
 
-  test("the workflow reads 'In words' under the canvas (d19)", async ({ page }) => {
+  test("(i) on the head and the list row: mouse and keyboard, the API's lines, focus return (d19)", async ({ page }) => {
     await open(page);
-    const words = page.getByRole("region", { name: "In words" });
-    await expect(words.getByRole("listitem")).toHaveText([
-      /1\s*fetch-diff\s*—?\s*code on spark$/,
-      /2\s*run-tests\s*—?\s*code on spark2/,
-      /3\s*review\s*—?\s*agent on thor/,
-      /4\s*decide\s*—?\s*logic on spark/,
-    ]);
+    const head = page.locator(".wf-head");
+    const about = head.getByRole("button", { name: "About Review PR" });
+    const box = (await about.boundingBox())!;
+    expect(Math.min(box.width, box.height)).toBeGreaterThanOrEqual(36); // 44px hit area via d4
+    await expect(about).toHaveAttribute("aria-expanded", "false");
+    await about.click();
+    const panel = head.getByRole("dialog", { name: "About Review PR" });
+    await expect(panel.getByTestId("about-lines")).toHaveText(REVIEW_PR_DESCRIBED.lines.join("\n"));
+    await expect(panel).toBeFocused();
+    expect(await panel.getByTestId("about-lines").evaluate((el) => getComputedStyle(el).whiteSpace)).toBe("pre");
+    const results = await new AxeBuilder({ page }).analyze();
+    const bad = results.violations.filter((v) => v.impact === "serious" || v.impact === "critical");
+    expect(bad.map((v) => `${v.id} — ${v.help}`)).toEqual([]);
+    await page.keyboard.press("Escape");
+    await expect(panel).toBeHidden();
+    await expect(about).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(panel).toBeVisible();
+    await page.keyboard.press("Escape");
+    await page.keyboard.press(" ");
+    await expect(panel).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(about).toBeFocused();
+    // The list row's (i) opens without opening the row (no navigation).
+    const url = page.url();
+    const list = page.getByRole("navigation", { name: "Workflows" });
+    await list.getByRole("button", { name: "About Review PR" }).click();
+    await expect(list.getByRole("dialog", { name: "About Review PR" }).getByTestId("about-lines")).toBeVisible();
+    expect(page.url()).toBe(url);
+    // A press elsewhere closes it.
+    await page.getByRole("heading", { level: 1, name: "Review PR" }).click();
+    await expect(list.getByRole("dialog", { name: "About Review PR" })).toBeHidden();
+  });
+
+  test("(i) docks to the bottom of the screen at phone width (d19)", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 800 });
+    await open(page);
+    await page.locator(".wf-head").getByRole("button", { name: "About Review PR" }).click();
+    const panel = page.locator(".wf-head").getByRole("dialog", { name: "About Review PR" });
+    await expect(panel.getByTestId("about-lines")).toBeVisible();
+    const b = (await panel.boundingBox())!;
+    expect(b.x).toBeGreaterThanOrEqual(0);
+    expect(b.x + b.width).toBeLessThanOrEqual(390);
   });
 
   test("prefers-reduced-motion disables the canvas transitions", async ({ page }) => {

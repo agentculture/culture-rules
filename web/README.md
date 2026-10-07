@@ -39,11 +39,13 @@ recorded on the PR with a screenshot.
   - the rule's last runs and recorded skips, newest first (`GET
     /rules/{id}/history`): a skipped rule reads `superseded by <rule>`
     (or "lost its group to", "waiting for") with an icon and a label;
-  - "In words" under the stages (d19): the rule as short labelled lines
-    (`When …`, `If …`, `and …`, `Run …`, `On …`, `Then …`, `On failure …`,
-    `Key …`), from `GET /rules/{id}/describe`. The API builds the lines from
-    the config alone (no AI), so the editor, the CLI and the MCP tools read
-    the same text. A failed call shows nothing.
+  - an (i) "About" button on every list row and beside the focused
+    rule's title (d19). It opens a non-modal panel anchored to the button
+    with the rule as short labelled lines (`When …`, `If …`, `and …`,
+    `Run …`, `On …`, `Then …`, `On failure …`, `Key …`), fetched from
+    `GET /rules/{id}/describe` each time it opens. The API builds the lines
+    from the config alone (no AI), so the panel shows exactly what
+    `culture-rules rules describe` prints. See "The (i) panel" below.
   Code: `src/routes/Rules.tsx`, `src/rules/`, `src/api/rules.ts`.
 - **Workflows** (`/workflows?id=&run=`) is the 'Chosen — Workflows' board:
   - New workflow (in the head next to Import, and the empty state's
@@ -66,9 +68,13 @@ recorded on the PR with a screenshot.
     like a document at its zoom, so Fit shrinks a wide graph to the canvas
     width and returns to 100% when the graph already fits
     (`src/workflows/zoom.ts`);
-  - "In words" under the canvas (d19): the stored workflow's steps,
-    numbered, with a loop's body nested (`GET /workflows/{id}/describe`).
-    While the draft has unsaved edits it is marked "the saved version";
+  - an (i) "About" button on every list row and beside the open
+    workflow's title (d19): the stored workflow's steps, numbered, a loop's
+    body indented (`GET /workflows/{id}/describe`, the same lines as
+    `culture-rules workflows describe`). While the draft has unsaved edits
+    the head's panel says it shows "the saved version". The button makes
+    the head's row full at 1280px beside the list, so Run may wrap under
+    it there;
   - a step panel to edit a step, its placement and its enable switch; add
     and delete steps; save with `PUT /workflows/{id}`;
   - Run (`POST /runs` through the rule that uses the workflow) and a run
@@ -170,6 +176,21 @@ Each tab adds its own optional slice, typed in `src/agent-state/store.ts`:
 `ready` means the view finished its first load **and** identity settled,
 even when the load failed. A failed load is listed in `errors` and
 rendered as an alert. It does not leave the page "loading".
+
+## The (i) panel
+
+`src/components/AboutButton.tsx` (d19) replaces an always-visible
+description: progressive disclosure keeps the boards as the design canvas
+draws them, and the (i) costs one small control per row. The button is
+36px with the 44px hit area of d4, named "About" plus the rule or workflow name, with
+`aria-expanded` and `aria-controls`. Enter or Space opens it, focus moves
+into the panel (`role="dialog"`, `aria-modal="false"`), and Escape closes
+it and returns focus to the button, as Close does. A press outside closes
+it. A click on a row's (i) never opens the row. The lines are a `<pre>`
+in the mono face, so indentation and the symbols `∈ ∉ ≠ × ≤` read exactly
+as the CLI prints them. Copy puts them on the clipboard. The panel has no
+motion, and at phone width (640px and under) it docks to the bottom of
+the screen. A failed call shows its error in the panel.
 
 ## Accessibility
 

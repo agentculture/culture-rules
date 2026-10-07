@@ -57,7 +57,7 @@ const level = () => screen.getByTestId("zoom-level");
 const scale = () =>
   document.querySelector<HTMLElement>(".wf-canvas .react-flow__viewport")?.style.transform ?? "";
 
-describe("Workflows: zoom and the plain description (d19)", () => {
+describe("Workflows: zoom and the (i) description (d19)", () => {
   beforeEach(() => {
     resetAgentState();
     vi.stubGlobal("ResizeObserver", MeasuringResizeObserver);
@@ -137,35 +137,36 @@ describe("Workflows: zoom and the plain description (d19)", () => {
     expect(parseFloat(canvas.style.height)).toBeLessThan(tall);
   });
 
-  it("shows the workflow 'In words' from GET /workflows/{id}/describe, nested by depth", async () => {
+  it("the head's (i) opens the workflow's description from GET /workflows/{id}/describe", async () => {
     renderWorkflows();
     await loaded();
-    const words = await screen.findByRole("region", { name: "In words" });
-    const lines = within(words).getAllByRole("listitem");
-    expect(lines.map((l) => l.textContent)).toEqual([
-      "1fetchcode on spark",
-      "2loopretry up to 3×:",
-      "2.1agentreviewer (agent)",
-    ]);
-    expect(lines[2].style.getPropertyValue("--describe-depth")).toBe("1");
-    expect(within(words).queryByText(/the saved version/)).toBeNull();
-  });
-
-  it("marks the description as the saved version while the draft has unsaved edits", async () => {
-    renderWorkflows();
-    await loaded();
-    await screen.findByRole("region", { name: "In words" });
-    await userEvent.click(screen.getByRole("switch", { name: "Review enabled" }));
-    expect(await screen.findByText(/the saved version/)).toBeInTheDocument();
-  });
-
-  it("shows no description when the describe call fails", async () => {
-    vi.unstubAllGlobals();
-    vi.stubGlobal("ResizeObserver", MeasuringResizeObserver);
-    vi.stubGlobal("DOMMatrixReadOnly", DOMMatrixStub);
-    mockFetch(routes({ "/api/workflows/review-pr/describe": { status: 500, body: {} } }));
-    renderWorkflows();
-    await loaded();
+    const about = within(document.querySelector(".wf-head") as HTMLElement).getByRole("button", {
+      name: "About Review PR",
+    });
+    await userEvent.click(about);
+    const panel = screen.getByRole("dialog", { name: "About Review PR" });
+    expect((await within(panel).findByTestId("about-lines")).textContent).toBe(DESCRIBED.lines.join("\n"));
+    expect(within(panel).queryByText("The saved version.")).toBeNull();
+    // the inline block is gone: the description lives behind the button
     expect(screen.queryByRole("region", { name: "In words" })).toBeNull();
+  });
+
+  it("with unsaved edits the head's panel says it is the saved version", async () => {
+    renderWorkflows();
+    await loaded();
+    await userEvent.click(screen.getByRole("switch", { name: "Review enabled" }));
+    const head = document.querySelector(".wf-head") as HTMLElement;
+    await userEvent.click(within(head).getByRole("button", { name: "About Review PR" }));
+    expect(await screen.findByText("The saved version.")).toBeInTheDocument();
+  });
+
+  it("the list row's (i) opens the same description without leaving the open workflow", async () => {
+    renderWorkflows();
+    await loaded();
+    const list = screen.getByRole("navigation", { name: "Workflows" });
+    await userEvent.click(within(list).getByRole("button", { name: "About Review PR" }));
+    const panel = within(list).getByRole("dialog", { name: "About Review PR" });
+    expect((await within(panel).findByTestId("about-lines")).textContent).toBe(DESCRIBED.lines.join("\n"));
+    expect(screen.getByRole("heading", { level: 1, name: "Review PR" })).toBeInTheDocument();
   });
 });
