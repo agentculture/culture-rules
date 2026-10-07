@@ -29,7 +29,11 @@ describe("canvas zoom (d19)", () => {
   });
 
   it("fits a wide graph to the width, never above 1 (fit is also the reset)", () => {
-    expect(fitZoom(1960, 1000, 20)).toBe(0.49);
+    expect(fitZoom(1960, 1000, 20)).toBe(0.48); // 0.4898 rounds down, never past the width
+    expect(1960 * fitZoom(1960, 1000, 20) + 40).toBeLessThanOrEqual(1000);
+    for (const width of [600, 777, 990, 1000, 1234]) {
+      expect(1960 * fitZoom(1960, width, 20) + 40).toBeLessThanOrEqual(width);
+    }
     expect(fitZoom(400, 1000, 20)).toBe(1);
     expect(fitZoom(100_000, 1000, 20)).toBe(MIN_ZOOM);
     expect(fitZoom(0, 1000, 20)).toBe(1);

@@ -393,7 +393,8 @@ def _step_entries(steps: Any, prefix: str, depth: int) -> list[dict[str, Any]]:
         label = f"{prefix}{i}"
         text = step_text(s)
         body = s.get("body") if isinstance(s.get("body"), list | tuple) else ()
-        if len(body) == 1:  # a one-step body reads inline
+        # a one-step body reads inline, but only a leaf: a nested loop keeps its own body
+        if len(body) == 1 and not _plain(body[0]).get("body"):
             out.append(_entry(label, f"{text}: {step_text(body[0])}", depth, str(s.get("id"))))
             continue
         out.append(_entry(label, text + (":" if body else ""), depth, str(s.get("id", "?"))))

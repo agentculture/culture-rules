@@ -32,7 +32,9 @@ export function stepZoom(z: number, direction: 1 | -1): number {
  */
 export function fitZoom(graphWidth: number, width: number, margin: number): number {
   if (graphWidth <= 0 || width <= 0) return 1;
-  return clampZoom(Math.min(1, (width - 2 * margin) / graphWidth));
+  // Round down (not to nearest) before clamping: a fit rounded up would overflow the width.
+  const exact = Math.min(1, (width - 2 * margin) / graphWidth);
+  return clampZoom(Math.floor(exact * 100 + 1e-9) / 100);
 }
 
 /** `125%` — the readout beside the zoom buttons. */

@@ -389,3 +389,17 @@ def test_garbage_never_raises():
         describe_workflow(junk)
         describe_rule(junk)
     assert render(describe_rule(None)) == ["When ?"]
+
+
+def test_a_single_loop_child_keeps_its_own_body():
+    inner = _step(
+        "for_each",
+        id="inner",
+        max_iterations=4,
+        body=[_step("code", id="work", config={"command": "make"})],
+    )
+    wf = {"steps": [_step("for_each", id="outer", max_iterations=2, body=[inner])]}
+    assert render(describe_workflow(wf)) == [
+        "1 outer — for each item (≤2):",
+        "  1.1 inner — for each item (≤4): code `make`",
+    ]
