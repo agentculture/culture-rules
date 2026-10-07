@@ -359,16 +359,19 @@ Workflow `pr-fixer`:
    - `gate`: the built-in `gate` on spark2. It reads the agent's `worktree`,
      `head_before` and `head_after`. A merge in the agent's commits is a
      `guard` verdict (`merge_commit`). On `pass` and `no_gate` the gate then
-     builds **one commit itself**: the agent tip's tree on the PR head, with
-     the tip's message, author and dates (`git commit-tree`). Only that commit
-     is diffed, reviewed, bundled and pushed (`commit_sha`; the agent's tip is
-     `agent_commit_sha`). The agent's own commits, and anything they added and
-     later removed, never leave spark2. A single plain agent commit rebuilds
-     to the same SHA. The gate also outputs the diff of the built commit
+     builds **one commit itself** (`git commit-tree`): the agent tip's tree on
+     the PR head and nothing else of the agent's. Author and committer are the
+     App bot (`commit_identity`, default the `rules-culture-dev[bot]`
+     identity), the message is written by the engine from trusted run state
+     (`pr-fixer: automated fix for <repo>#<n> (run <id>, try <k>)`), and both
+     dates are the PR head's, so a re-run builds the same SHA. Only that
+     commit is diffed, reviewed, bundled and pushed (`commit_sha`; the agent's
+     tip is `agent_commit_sha`). The agent's own commits, and anything they
+     added and later removed, never leave spark2. The gate also outputs the diff of the built commit
      (`diff`, `diff_chars`) and `diff_truncated`, which is true when the text
      does not show the whole change: over 30000 characters, a binary file, an
-     executable bit or other mode change, a symlink or a submodule pointer
-     (`diff_problems` names each).
+     executable bit or other mode change, a symlink, a submodule pointer, or
+     text that is not valid UTF-8 (`diff_problems` names each).
    - `review` (d20): an `ai` step on actor `codex-reviewer` (spark, sandbox
      `read-only`). It runs only when the gate verdict is `pass` or `no_gate`
      and the diff is the whole change (`config.when`); otherwise it is skipped. The
@@ -400,9 +403,11 @@ Workflow `pr-fixer`:
      incomplete diff is `request_changes` ("make a smaller, text-only fix")
      without running Codex. Each outcome is an immutable record in
      `fixer_reviews` (one per attempt: repo, PR, start, tip, verdict,
-     identities), and `fixer_review_current` points at the run's newest one;
-     the pointer only moves forward, so a late result for an older try never
-     becomes current.
+     identities; id `<run>:<verdict step key>:<attempt>`), and
+     `fixer_review_current` points at the run's newest one. The pointer only
+     moves forward, so a late result for an older try never becomes current;
+     two different results for the same try make it a permanent `conflict`
+     (`review_conflict`).
 4. `push`: a built-in `action` step, `github.push` as `github-app`, on spark2
    where the gate's bundle is. It runs with `gate_verdict` wired in, so only a
    `pass` pushes. The port refuses `rule_disabled` when the firing rule was
@@ -413,12 +418,43 @@ Workflow `pr-fixer`:
    reviewer whose actor and backend both differ from the implementer's:
    `review_missing`, `review_rejected`, `reviewer_is_implementer`. It reads
    the record again right before the final `git push` and refuses if
-   another record has become current (`review_changed`). A workflow edited to
-   drop the review steps therefore pushes nothing. The push takes
-   `commit_sha` and `expected_head_sha` from the gate.
+   another record has become current (`review_changed`). Then it
+   **consumes** the approval: a compare-and-set turns the pointer to
+   `consumed`, bound to the pushed commit. No later verdict can move a
+   consumed pointer (it is recorded and fails `review_consumed`), so no
+   revocation can land between that moment and the push. What remains is the
+   git network call itself, which cannot be part of a store transaction: a
+   push that fails after consumption pushed nothing, and its retry finds the
+   approval consumed for the same commit. The push takes `commit_sha` and
+   `expected_head_sha` from the gate.
+   Before all of that, the run's pinned workflow must be a **trusted** one
+   (`workflow_not_trusted`, below), so an edited workflow can run but never
+   push.
 5. `pick`: the built-in `github.threads_addressed`. It keeps the agent's
    `threads_addressed` entries whose `thread_id` is in the trusted list. Any
-   other id is dropped, never answered.
+   other id is dropped, never answered. Each reply names the pushed commit
+   (`push.head_after`), never the agent's own.
+
+### Trusted workflows (d20 round 2)
+
+`github.push` and the `review` step serve only runs whose pinned workflow
+definition hashes to a digest in `TRUSTED_WORKFLOW_DIGESTS`
+(`culture_rules/actors/trusted.py`). The digest is sha256 of the definition
+as the workflow model writes it, without `version` (every save bumps it), as
+compact sorted JSON. It is recomputed from the run's pinned definition, not
+read from the run. Any other edit, even a description, makes the workflow
+untrusted: it still runs and hands back, but pushes nothing.
+
+To change the workflow on purpose:
+
+1. Edit `docs/rules/pr-fixer/workflows/pr-fixer.json`.
+2. `tests/rules/test_trusted_workflow.py` fails and prints the new digest.
+   Add it to the set in the same PR. Keep the old digest while runs pinned
+   to it may still be in flight; drop it in a later release.
+3. Ship the wheel and upgrade every node.
+4. Import the workflow (`culture-rules workflows import ... --apply`).
+
+It is a set, so the split workflows planned for d21 can sit beside it.
 6. `replies`: a `for_each` over `pick`'s list. Each item gets one
    `github.review_reply` (`comment_id` is the integer REST id of the opening
    comment, `thread_id` the GraphQL id, `resolve: true`).
