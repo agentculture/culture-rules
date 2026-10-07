@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-10-06T04:46:38Z",
-  "updated": "2026-10-07T10:26:10Z",
+  "updated": "2026-10-07T10:31:31Z",
   "targets": [
     {
       "id": "c1",
@@ -1059,6 +1059,14 @@
       "text": "r14 recovery (fee5e09): the first deploy scans back 24 h and arms every SHA with stored check completions but no settle record (settled events fire for pre-t12 SHAs; harmless while the fixer rules ship disabled); a hook-server clock >120 s behind the node's can land a completion behind the watermark and miss recovery; an event-store write failure still needs a manual redelivery",
       "kind": "follow_up",
       "task_id": "t20",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r21",
+      "text": "MongoStore creates no indexes on runs: the executor's {status: running} scan and d17's {rule_id, status} active-runs query are collection scans; add (status) and (rule_id, status) indexes",
+      "kind": "follow_up",
+      "task_id": "t17",
       "resolved": false,
       "resolution": ""
     }
