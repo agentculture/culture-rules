@@ -91,6 +91,7 @@
     ],
     "op": "and"
   },
+  "counts_toward_budget": true,
   "description": "Fires on a PR comment by an author in vars.trusted_authors (never the App itself); a comment whose PR facts could not be read (pr_enriched false) never fires. Same-repo, non-draft PRs of repos in vars.fixer_repos only; vars.fixer_excluded_repos overrides it. Shares the pr-fixer workflow and the per-PR concurrency key and attempt budget with the other pr-fixer-* rules.",
   "enabled": false,
   "exclusive_group": null,
