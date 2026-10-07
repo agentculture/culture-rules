@@ -1042,13 +1042,16 @@ class Executor:
             if outcome is not None and outcome["code"] == HEAD_RETRY:
                 if retries > HEAD_LOOKUP_RETRIES:
                     outcome = _error("head_lookup_failed", outcome["message"])
+            # A retry backs off from when the lookup returned: a lookup that used its whole
+            # deadline must not leave a due timer behind and re-run within this tick.
+            later = self._clock() if guard else now
             if outcome is not None and outcome["code"] == HEAD_BLOCKED:
-                nst["deadline"] = _iso(now + timedelta(seconds=BLOCKED_RETRY_S))
-                _record(new, now, self.host, "wait_blocked", st["key"])
+                nst["deadline"] = _iso(later + timedelta(seconds=BLOCKED_RETRY_S))
+                _record(new, later, self.host, "wait_blocked", st["key"])
             elif outcome is not None and outcome["code"] == HEAD_RETRY:
-                nst["deadline"] = _iso(now + timedelta(seconds=BLOCKED_RETRY_S))
+                nst["deadline"] = _iso(later + timedelta(seconds=BLOCKED_RETRY_S))
                 nst["lookup_retries"] = retries
-                _record(new, now, self.host, "wait_retry", st["key"])
+                _record(new, later, self.host, "wait_retry", st["key"])
             elif outcome is None:
                 nst.update(status="succeeded", outputs={}, error=None)
                 _record(new, now, self.host, "wait_done", st["key"])

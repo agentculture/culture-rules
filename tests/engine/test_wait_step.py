@@ -502,3 +502,34 @@ def test_a_head_lookup_that_keeps_timing_out_fails_safe(store, clock):
     assert step_state(doc, "w")["error"]["code"] == "head_lookup_failed"
     assert doc["status"] == "failed"
     assert inner.calls == HEAD_LOOKUP_RETRIES + 1
+
+
+class SlowTimingOutHead(ScriptedHead):
+    """A head port whose every call uses up its whole deadline, then times out."""
+
+    def __init__(self, clock, answers):
+        super().__init__(*answers)
+        self.clock = clock
+
+    def invoke(self, input, key, deadline, *, context):
+        self.clock.now = deadline  # the lookup consumed its full deadline
+        return super().invoke(input, key, deadline, context=context)
+
+
+@pytest.mark.parametrize("answer", ["timeout", "blocked"])
+def test_a_slow_failed_lookup_backs_off_from_when_it_returned(store, clock, answer):
+    """Codex r17b finding 3: the retry is scheduled from the clock after the lookup, so a
+    lookup that used its whole deadline does not re-run at once in the same tick."""
+    from datetime import timedelta
+
+    from culture_rules.engine.runs import BLOCKED_RETRY_S, HEAD_LOOKUP_RETRIES
+
+    inner = SlowTimingOutHead(clock, [(answer, None)] * (HEAD_LOOKUP_RETRIES + 1))
+    ex, _ = _router_executor(store, clock, inner)
+    run = _sleeping_run(ex, guard_config(60))
+    clock.advance(61)
+    ex.run_until_idle()
+    assert inner.calls == 1  # one lookup per backoff, not all of them in one tick
+    st = step_state(ex.run(run["id"]), "w")
+    assert st["status"] == "sleeping"
+    assert st["deadline"] == (clock() + timedelta(seconds=BLOCKED_RETRY_S)).isoformat()
