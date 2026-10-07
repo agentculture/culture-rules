@@ -61,7 +61,7 @@ repos at provisioning). Operator also confirmed the
 - Integration branch `rules/pr-fixer` (main checkout). Task branches
   `rules/pr-fixer-<tN>`, worktrees `../.worktrees.culture-rules/pr-fixer-<tN>/`.
 - Implementer: Codex preferred (`codex exec -s workspace-write -c
-  'sandbox_workspace_write.writable_roots=["<repo>/.git","~/.cache"]'
+  'sandbox_workspace_write.writable_roots=["<repo>/.git","<uv cache dir>"]'
   -c sandbox_workspace_write.network_access=true "<brief>"` from the worktree);
   Opus/Sonnet subagents; Qwen only as fallback and only `qwen -m cortex-spark2`
   (spark must stay free; spark's own vLLM is down after the reboot anyway).
@@ -155,7 +155,7 @@ fixer token, r13 dedup vs must_after chaining.
 - spark2: back (reach it as `ssh spark2`; the bare IP has no known_hosts entry). Node
   active; bridge on :8093 answers 401.
 - spark2 setup (done, verified before the reboot): account `culture-fixer` (spark's
-  key authorized), uv, grant, Node 24, Qwen Code 0.24.7, gh 2.102 in its ~/.local;
+  key authorized), uv, grant, Node 24, Qwen Code 0.24.7, gh 2.102 under its home .local dir;
   qwen bridge user unit on 100.93.248.8:8093; grant store FIXER_QWEN_BRIDGE_TOKEN,
   FIXER_CORTEX_API_KEY, FIXER_GITHUB_TOKEN (fine-grained read-only), FIXER_SONAR_TOKEN;
   sudoers `/etc/sudoers.d/culture-fixer-gate` (`spark2 ALL=(culture-fixer) NOPASSWD:
