@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-10-06T04:46:38Z",
-  "updated": "2026-10-06T21:54:50Z",
+  "updated": "2026-10-07T00:41:58Z",
   "targets": [
     {
       "id": "c1",
@@ -995,6 +995,14 @@
       "text": "The fixer's read-only fine-grained GitHub token (FIXER_GITHUB_TOKEN, owner OriNachum) can still open a NEW issue on any public agentculture repo: GitHub allows that as a permissionless action (X-Accepted-GitHub-Permissions: allows_permissionless_access=true) regardless of the token's Issues setting. Probed 2026-10-07: comments, labels, refs, PRs and any private-repo write are 403. Accepted by the operator; follow-up: a dedicated machine user before broad rollout so a stray issue is attributable to the bot, not the operator.",
       "kind": "follow_up",
       "task_id": "t18",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r13",
+      "text": "t11 coalescing: a 'deduplicated' decision is still a final skip for the chain feed, so a rule that must_after a keyed rule settles predecessor_failed on that event even if the event later fires through coalescing. Edge case, untested.",
+      "kind": "follow_up",
+      "task_id": "t11",
       "resolved": false,
       "resolution": ""
     }
