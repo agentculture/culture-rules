@@ -30,8 +30,10 @@ nodes. A store error stops the page; the watermark stays before the failed event
 next tick retries it.
 
 The event also carries ``conclusion``: ``"success"`` when every counted (non-ignored) suite
-concluded ``success``, ``neutral`` or ``skipped`` (vacuously so with none counted),
-``"timeout"`` when settled by the timeout, else ``"failure"``. A ``"success"`` is the explicit
+concluded ``success``, ``neutral`` or ``skipped``, ``"timeout"`` when settled by the timeout,
+else ``"failure"``. No counted suite (every listed suite from an ignored app, or none listed
+yet) is never ``"success"``: the SHA keeps waiting for one to appear and, if none does,
+settles at the timeout with :data:`NO_CHECKS` (``"no_checks"``). A ``"success"`` is the explicit
 green signal that resets a rule's attempt budget for the PR (:mod:`culture_rules.node.firing`,
 "Concurrency keys").
 
@@ -94,6 +96,7 @@ __all__ = [
     "DEFAULT_MIN_S",
     "DEFAULT_TIMEOUT_S",
     "LOOKUP_WORKERS",
+    "NO_CHECKS",
     "RECOVERY_BATCH",
     "RECOVERY_COLLECTION",
     "RECOVERY_GRACE_S",
@@ -114,6 +117,9 @@ CHECK_TYPES = frozenset(("github.checks.suite_completed", "github.checks.workflo
 DEFAULT_IGNORED_APPS: tuple[str, ...] = ("claude",)
 DEFAULT_TIMEOUT_S = 900.0
 DEFAULT_MIN_S = 60.0
+NO_CHECKS = "no_checks"
+"""Conclusion of a SHA settled by the timeout with no counted suite: not green, and never a
+budget reset (only ``"success"`` is)."""
 RECOVERY_COLLECTION = "checks_settle_recovery"
 RECOVERY_ID = "recovery"
 RECOVERY_WINDOW_S = 86400.0
@@ -206,6 +212,10 @@ class ChecksSettler:
             for s in self._suites(repo, sha)
             if str(s.get("app_slug") or "").casefold() not in ignored
         ]
+        if not suites:
+            # Nothing counted (only ignored apps, or no suite listed yet) is not green: keep
+            # waiting for a suite to appear; the timeout settles it as ``no_checks``.
+            return False, NO_CHECKS
         done = all(s.get("status") == "completed" for s in suites)
         green = all(s.get("conclusion") in {"success", "neutral", "skipped"} for s in suites)
         return done, "success" if green else "failure"
@@ -251,11 +261,13 @@ class ChecksSettler:
                 done, conclusion = self._check_state(repo, sha)
             except GitHubError as exc:
                 log.warning("checks settle: suite listing failed (%s)", exc.code)
-                done = False  # the timeout fires regardless of what is listed
+                done, conclusion = False, "timeout"  # the timeout fires regardless
             if not done and not timed_out:
                 continue
             by = "all_completed" if done else "timeout"
-            if self._emit(repo, sha, rec, by, conclusion if done else "timeout") == "emitted":
+            if not done:
+                conclusion = NO_CHECKS if conclusion == NO_CHECKS else "timeout"
+            if self._emit(repo, sha, rec, by, conclusion) == "emitted":
                 emitted += 1
         return emitted
 

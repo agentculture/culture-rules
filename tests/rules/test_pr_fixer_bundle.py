@@ -394,6 +394,10 @@ def test_green_checks_do_not_start_a_fixer_run():
     assert fires("pr-fixer-checks", conclusion="timeout")
 
 
+def test_a_head_with_no_counted_checks_does_not_start_a_fixer_run():
+    assert not fires("pr-fixer-checks", conclusion="no_checks")
+
+
 def test_an_undefined_variable_fails_closed():
     for missing in ("fixer_repos", "fixer_excluded_repos"):
         values = {k: v for k, v in VARIABLES.items() if k != missing}

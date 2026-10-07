@@ -834,3 +834,32 @@ def test_node_wires_the_settler_to_its_own_machine():
     assert node.settler.tick() == 0
     assert settled(store) == []
     assert not store.get(SETTLE_COLLECTION, f"{REPO}@{SHA}").get("polls")
+
+
+def test_no_counted_suites_never_settles_green_and_times_out_as_no_checks():
+    """Review #17 finding 3: with every listed suite from an ignored app (or none listed
+    yet) nothing is green - the SHA keeps waiting and settles at the timeout with the
+    distinct conclusion ``no_checks``, which does not reset a rule's attempt budget."""
+    from culture_rules.node.firing import _resets_budgets
+
+    for suites in ([("claude", "completed")], []):
+        store, _, clock, settler = make(*suites)
+        store.put_variable("checks_settle_timeout_s", 60, updated_by="t")
+        assert settler.on_check(check_data()) == "pending"
+        clock.now = T0 + timedelta(seconds=30)
+        assert settler.tick() == 0 and settled(store) == []
+        clock.now = T0 + timedelta(seconds=61)
+        assert settler.tick() == 1
+        [event] = settled(store)
+        assert event["envelope"]["data"]["settled_by"] == "timeout"
+        assert event["envelope"]["data"]["conclusion"] == "no_checks"
+        assert _resets_budgets(event["envelope"]) is False
+
+
+def test_a_suite_appearing_before_the_timeout_still_settles_normally():
+    store, lister, clock, settler = make(("claude", "completed"))
+    assert settler.on_check(check_data()) == "pending"
+    lister.suites["github-actions"] = "completed"
+    clock.now = T0 + timedelta(seconds=20)
+    assert settler.on_check(check_data()) == "emitted"
+    assert settled(store)[0]["envelope"]["data"]["conclusion"] == "failure"

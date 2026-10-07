@@ -245,7 +245,7 @@ share one workflow (d13):
 
 | Rule | Trigger | Extra condition |
 |---|---|---|
-| `pr-fixer-checks` | `github.pr.checks_settled` | `conclusion != "success"` (a green head is left alone) |
+| `pr-fixer-checks` | `github.pr.checks_settled` | `conclusion` neither `"success"` nor `"no_checks"` (a green head, or one with no counted check, is left alone) |
 | `pr-fixer-comment` | `github.comment.created` | trusted author, not the App, `pr_enriched == true` |
 | `pr-fixer-review` | `github.review.submitted` | trusted author, not the App |
 | `pr-fixer-review-comment` | `github.review_comment.created` | trusted author, not the App |
