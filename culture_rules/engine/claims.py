@@ -564,7 +564,8 @@ def release_concurrency(store: StoreOps, doc_id: str, run_id: str) -> tuple[str,
     Always writes the budget document while ``run_id`` still holds the key, even with no
     pending event: a concurrent trigger transaction that read the run as active and is
     about to note a deduplicated event then write-conflicts with this one instead of
-    committing an event nobody would fire (MongoDB snapshot isolation, write skew).
+    committing an event nobody would fire (MongoDB snapshot isolation, write skew). Every
+    other consumer handling the run's end writes the same guard (:func:`guard_concurrency`).
     """
     taken: list[tuple[str, str]] = []
 
@@ -579,3 +580,26 @@ def release_concurrency(store: StoreOps, doc_id: str, run_id: str) -> tuple[str,
 
     _cas_budget(store, doc_id, change, "concurrency release")
     return taken[0] if taken else None
+
+
+def guard_concurrency(store: StoreOps, doc_id: str, run_id: str) -> None:
+    """The holding run ``run_id`` ended, and this consumer does not release the key: write
+    the budget document anyway (its revision only) while ``run_id`` still holds it.
+
+    The release is the job of the consumer owning the rule that recorded the pending event
+    (or, with none, the holder's rule), and which consumer that is depends on the pending
+    event - which a concurrent trigger transaction may be about to record. So *every*
+    consumer handling the run's end writes the budget, owner or not: a trigger transaction
+    that read the run as active then write-conflicts with each of them and re-runs (seeing
+    the run ended, it admits its event) unless it committed first - and then each consumer's
+    own completion transaction sees the pending event, the owner's included, which fires it
+    (risks r18, r19: a pending event recorded after the owner's consumer handled the end, or
+    when no consumer owns the holder because its rule was deleted, would be fired by none).
+    The pending event itself is left alone: firing it stays the owner's job.
+    """
+    _cas_budget(
+        store,
+        doc_id,
+        lambda current: {} if current.get("run_id") == run_id else None,
+        "concurrency guard",
+    )

@@ -486,3 +486,192 @@ def test_app_lister_caps_the_threads_stuck_on_slow_lookups():
         assert codes.count("lookup_busy") >= 5
     finally:
         secrets.release.set()
+
+
+# ---------------------------------------------------------------- recovery (risk r14)
+
+
+def stored_check(store, clock, id="completion", **data):
+    """A check completion as the webhook stores it, received at ``clock()``."""
+    from culture_rules.events.ingest import event_document
+
+    store.insert(
+        EVENTS_COLLECTION,
+        event_document(
+            {"id": id, "type": "github.checks.suite_completed", "data": check_data(**data)},
+            host="webhook",
+            received_at=clock(),
+        ),
+    )
+
+
+def past_grace(clock):
+    from culture_rules.node.checks_settle import RECOVERY_GRACE_S
+
+    clock.now += timedelta(seconds=RECOVERY_GRACE_S + 1)
+
+
+def test_recovery_arms_an_unarmed_completion_as_of_receipt_and_fires_once():
+    store, lister, clock, settler = make(("a", "completed"))
+    store.put_variable("checks_settle_min_s", 60, updated_by="t")
+    stored_check(store, clock)  # the webhook stored it; its arm failed (no record)
+    received = clock.now
+    clock.now += timedelta(seconds=30)
+    assert settler.tick() == 0  # inside the grace: an arm may still be in flight
+    assert store.get(SETTLE_COLLECTION, f"{REPO}@{SHA}") is None
+    past_grace(clock)
+    assert settler.tick() == 1
+    record = store.get(SETTLE_COLLECTION, f"{REPO}@{SHA}")
+    assert record["armed_at"] == received.isoformat()  # as if the webhook had armed it
+    [event] = settled(store)
+    assert event["envelope"]["data"]["settled_by"] == "all_completed"
+    assert event["envelope"]["data"]["number"] == 7
+    assert settler.tick() == 0
+    assert ChecksSettler(store.peer(), lister, clock=clock).tick() == 0
+    assert len(settled(store)) == 1
+
+
+def test_recovery_keeps_the_webhook_deadline_semantics_for_a_late_recovery():
+    store, lister, clock, settler = make(("a", "in_progress"))
+    stored_check(store, clock)
+    clock.now += timedelta(seconds=901)  # recovered only after the timeout would have hit
+    assert settler.tick() == 1
+    [event] = settled(store)
+    assert event["envelope"]["data"]["settled_by"] == "timeout"
+
+
+def test_recovery_never_rearms_a_sha_settled_by_completion_or_timeout():
+    for status in ("completed", "in_progress"):
+        store, lister, clock, settler = make(("a", status))
+        settler.on_check(check_data())
+        clock.now += timedelta(seconds=901)
+        settler.tick()
+        record = store.get(SETTLE_COLLECTION, f"{REPO}@{SHA}")
+        assert record["state"] == "emitted"
+        # a later completion of the same SHA (a re-run) is stored but never re-arms it
+        stored_check(store, clock, "rerun")
+        # even without the settled event, the terminal record is authoritative
+        store.delete(EVENTS_COLLECTION, settled_event_id(REPO, SHA))
+        calls = lister.calls
+        past_grace(clock)
+        assert settler.tick() == 0
+        assert store.get(SETTLE_COLLECTION, record["id"]) == record
+        assert lister.calls == calls
+        assert settled(store) == []
+
+
+def test_recovery_never_rearms_a_sha_whose_settled_event_exists():
+    store, lister, clock, settler = make(("a", "completed"))
+    settler.on_check(check_data())
+    assert len(settled(store)) == 1
+    store.delete(SETTLE_COLLECTION, f"{REPO}@{SHA}")  # only the settled event remains
+    stored_check(store, clock)
+    past_grace(clock)
+    assert settler.tick() == 0
+    assert store.get(SETTLE_COLLECTION, f"{REPO}@{SHA}") is None
+    assert len(settled(store)) == 1
+
+
+def test_recovery_scan_is_windowed_capped_per_tick_and_advances_a_shared_watermark(
+    monkeypatch,
+):
+    import culture_rules.node.checks_settle as module
+
+    monkeypatch.setattr(module, "RECOVERY_BATCH", 2)
+    store, lister, clock, settler = make(("a", "completed"))
+    clock.now -= timedelta(seconds=module.RECOVERY_WINDOW_S + 60)
+    stored_check(store, clock, "ancient", head_sha="old")  # outside the scan window
+    clock.now += timedelta(seconds=module.RECOVERY_WINDOW_S + 60)
+    for n in range(5):
+        stored_check(store, clock, f"check-{n}", head_sha=f"{n}" * 40)
+        clock.now += timedelta(microseconds=1)
+    calls = []
+    original = store.find_events
+
+    def spy(**kwargs):
+        result = original(**kwargs)
+        calls.append((kwargs, len(result)))
+        return result
+
+    monkeypatch.setattr(store, "find_events", spy)
+    past_grace(clock)
+    other = ChecksSettler(store.peer(), lister, clock=clock)
+    assert settler.tick() == 2
+    assert other.tick() == 2  # a second node continues from the shared watermark
+    assert settler.tick() == 1
+    assert other.tick() == 0
+    assert len(settled(store)) == 5
+    assert all(kw["limit"] == 2 and n <= 2 for kw, n in calls)
+    assert store.get(SETTLE_COLLECTION, f"{REPO}@old") is None
+    mark = store.get(module.RECOVERY_COLLECTION, module.RECOVERY_ID)
+    assert mark["event_id"] == "check-4"
+    assert settler.tick() == 0
+    assert calls[-1] == ({**calls[-1][0], "after": (mark["received_at"], "check-4")}, 0)
+
+
+def test_recovery_store_error_holds_the_watermark_and_the_next_tick_recovers(monkeypatch):
+    from culture_rules.store.port import StoreError
+
+    store, lister, clock, settler = make(("a", "completed"))
+    stored_check(store, clock, "first", head_sha="1" * 40)
+    clock.now += timedelta(microseconds=1)
+    stored_check(store, clock, "second", head_sha="2" * 40)
+    original = store.insert
+    failing = {"2" * 40}
+
+    def flaky(collection, document):
+        if collection == SETTLE_COLLECTION and document["head_sha"] in failing:
+            raise StoreError("temporary outage")
+        return original(collection, document)
+
+    monkeypatch.setattr(store, "insert", flaky)
+    past_grace(clock)
+    assert settler.tick() == 1  # the first recovers; the failed second stays unhandled
+    assert store.get(settler_mark(), "recovery")["event_id"] == "first"
+    failing.clear()
+    assert settler.tick() == 1
+    assert settler.tick() == 0
+    assert len(settled(store)) == 2
+
+
+def settler_mark():
+    from culture_rules.node.checks_settle import RECOVERY_COLLECTION
+
+    return RECOVERY_COLLECTION
+
+
+def test_recovery_failure_never_blocks_the_pending_polls(monkeypatch):
+    store, lister, clock, settler = make(("a", "in_progress"))
+    settler.on_check(check_data())
+
+    def broken(**_):
+        raise RuntimeError("driver error")
+
+    monkeypatch.setattr(store, "find_events", broken)
+    clock.now += timedelta(seconds=901)
+    assert settler.tick() == 1  # the timeout still fires
+
+
+def test_concurrent_nodes_recover_and_fire_a_sha_exactly_once():
+    import threading
+
+    store, lister, clock, _ = make(("a", "completed"))
+    for n in range(20):
+        stored_check(store, clock, f"c{n}", head_sha=f"{n:040d}")
+    past_grace(clock)
+    nodes = [ChecksSettler(store.peer(), lister, clock=clock) for _ in range(4)]
+    barrier = threading.Barrier(len(nodes))
+    totals = []
+
+    def run(node):
+        barrier.wait()
+        totals.append(sum(node.tick() for _ in range(3)))
+
+    threads = [threading.Thread(target=run, args=(node,)) for node in nodes]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert sum(totals) == 20
+    assert len(settled(store)) == 20
+    assert len({e["id"] for e in settled(store)}) == 20

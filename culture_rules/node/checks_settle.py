@@ -14,6 +14,21 @@ the shared variable ``ignored_check_apps``, and:
   suites once it is due and emits with ``settled_by: "timeout"`` if some are still running.
   The deadline lives in the store, so a node restart loses nothing.
 
+Recovery: the webhook stores the completion event *before* it arms the SHA, and a failed
+arm answers 503 - but GitHub does not redeliver failed deliveries on its own, so every
+:meth:`ChecksSettler.tick` also arms SHAs from stored completion events. It reads
+completions in ``(received_at, id)`` order after a watermark shared by every node (the
+``recovery`` document of :data:`RECOVERY_COLLECTION`, advanced by compare-and-set only past
+events it handled), at most :data:`RECOVERY_BATCH` per tick, never older than
+:data:`RECOVERY_WINDOW_S` and never newer than :data:`RECOVERY_GRACE_S` ago (the grace
+covers an arm still in flight and clock skew between the receiving server and the node). A
+SHA that has a settle record (pending, or settled by completion or timeout) or a settled
+event is left alone; a missing one is armed as of the event's ``received_at``, so the
+minimum window and the timeout run as if the webhook had armed it. Arming stays
+insert-once, and the poll claim and deterministic event id keep it once-per-SHA across
+nodes. A store error stops the page; the watermark stays before the failed event and the
+next tick retries it.
+
 The event also carries ``conclusion``: ``"success"`` when every counted (non-ignored) suite
 concluded ``success``, ``neutral`` or ``skipped`` (vacuously so with none counted),
 ``"timeout"`` when settled by the timeout, else ``"failure"``. A ``"success"`` is the explicit
@@ -61,6 +76,7 @@ from culture_rules.events.emit import derive_envelope
 from culture_rules.events.ingest import EVENTS_COLLECTION, event_document
 from culture_rules.node.actions.github import GitHubCommentPort
 from culture_rules.store.port import DuplicateKeyError, StoragePort
+from culture_rules.store.versioning import utc_timestamp
 
 __all__ = [
     "CHECK_TYPES",
@@ -68,6 +84,10 @@ __all__ = [
     "DEFAULT_MIN_S",
     "DEFAULT_TIMEOUT_S",
     "LOOKUP_WORKERS",
+    "RECOVERY_BATCH",
+    "RECOVERY_COLLECTION",
+    "RECOVERY_GRACE_S",
+    "RECOVERY_WINDOW_S",
     "SETTLED_TYPE",
     "SETTLE_COLLECTION",
     "AppSuiteLister",
@@ -83,6 +103,14 @@ CHECK_TYPES = frozenset(("github.checks.suite_completed", "github.checks.workflo
 DEFAULT_IGNORED_APPS: tuple[str, ...] = ("claude",)
 DEFAULT_TIMEOUT_S = 900.0
 DEFAULT_MIN_S = 60.0
+RECOVERY_COLLECTION = "checks_settle_recovery"
+RECOVERY_ID = "recovery"
+RECOVERY_WINDOW_S = 86400.0
+"""Completions received longer ago than this are never recovered (outages beyond it are lost)."""
+RECOVERY_GRACE_S = 120.0
+"""Completions younger than this are left to the webhook (an arm in flight, clock skew)."""
+RECOVERY_BATCH = 100
+"""The most stored completions one tick reads."""
 POLL_BASE_S = 15.0
 POLL_CAP_S = 120.0
 SETTLE_HOST = "checks-settle"
@@ -187,6 +215,7 @@ class ChecksSettler:
     def tick(self) -> int:
         """Settle pending SHAs: emit ``timeout`` past the deadline, or ``all_completed`` once
         the minimum window has passed and every counted suite is complete."""
+        self._recover(self._now())
         now = self._now()
         emitted = 0
         for rec in self._store.find(SETTLE_COLLECTION, {"state": "pending"}):
@@ -210,6 +239,69 @@ class ChecksSettler:
             if self._emit(repo, sha, rec, by, conclusion if done else "timeout") == "emitted":
                 emitted += 1
         return emitted
+
+    # ------------------------------------------------------------------ recovery
+
+    def _recover(self, now: datetime) -> int:
+        """Arm SHAs whose webhook arm failed, from one bounded page of stored completions
+        after the shared watermark; return how many were armed. Never raises: a failure is
+        logged and the unhandled events stay after the watermark for the next tick."""
+        try:
+            return self._recover_page(now)
+        except Exception as exc:  # noqa: BLE001 - recovery must not block the pending polls
+            log.warning(
+                "checks settle: recovery failed (%s); retried next tick", type(exc).__name__
+            )
+            return 0
+
+    def _recover_page(self, now: datetime) -> int:
+        mark = self._store.get(RECOVERY_COLLECTION, RECOVERY_ID)
+        seen = (mark.get("received_at"), mark.get("event_id")) if mark else (None, None)
+        floor = (utc_timestamp(now - timedelta(seconds=RECOVERY_WINDOW_S)), "")
+        after = floor
+        if all(isinstance(part, str) for part in seen) and seen > floor:
+            after = seen
+        events = self._store.find_events(
+            types=CHECK_TYPES,
+            after=after,
+            until=utc_timestamp(now - timedelta(seconds=RECOVERY_GRACE_S)),
+            limit=RECOVERY_BATCH,
+        )
+        armed, done = 0, after
+        try:
+            for event in events:
+                armed += self._recover_one(event, now)
+                done = (event["received_at"], event["id"])
+        finally:
+            if done != after:
+                # CAS on the mark as read: a racing node that moved it first keeps its
+                # value (it handled the same page), so the mark never moves backwards
+                self._store.update_if(
+                    RECOVERY_COLLECTION,
+                    RECOVERY_ID,
+                    {"received_at": seen[0], "event_id": seen[1]},
+                    {"received_at": done[0], "event_id": done[1]},
+                    upsert=True,
+                )
+        return armed
+
+    def _recover_one(self, event: Mapping[str, Any], now: datetime) -> int:
+        envelope = event.get("envelope")
+        data = envelope.get("data") if isinstance(envelope, Mapping) else None
+        if not isinstance(data, Mapping):
+            return 0
+        repo, sha = data.get("repository"), data.get("head_sha")
+        if not isinstance(repo, str) or not repo or not isinstance(sha, str) or not sha:
+            return 0
+        if self._store.get(SETTLE_COLLECTION, f"{repo}@{sha}".lower()) is not None:
+            return 0  # armed by the webhook (or settled by completion or timeout)
+        if self._store.get(EVENTS_COLLECTION, settled_event_id(repo, sha)) is not None:
+            return 0
+        received = _parse(event.get("received_at"))
+        at = now if received is None else min(received, now)
+        self._arm(repo, sha, data, at=at)
+        log.info("checks settle: recovered an unarmed SHA from a stored completion")
+        return 1
 
     # ------------------------------------------------------------------ persistence
 
@@ -238,11 +330,14 @@ class ChecksSettler:
         armed = _parse(rec.get("armed_at")) or self._now()
         return armed + timedelta(seconds=self.min_s())
 
-    def _arm(self, repo: str, sha: str, data: Mapping[str, Any]) -> Mapping[str, Any]:
+    def _arm(
+        self, repo: str, sha: str, data: Mapping[str, Any], *, at: datetime | None = None
+    ) -> Mapping[str, Any]:
         """Persist the SHA as pending (first deadline and arm time stand) and merge in any PR
-        facts this completion newly carries. Returns the stored record."""
+        facts this completion newly carries. Returns the stored record. ``at`` is the arm
+        time (recovery passes the completion's receipt); it defaults to now."""
         rid = f"{repo}@{sha}".lower()
-        now = self._now()
+        now = self._now() if at is None else at
         numbers = [n for n in data.get("pr_numbers") or () if isinstance(n, int)]
         doc = {
             "id": rid,

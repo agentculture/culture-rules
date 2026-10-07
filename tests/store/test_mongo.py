@@ -466,3 +466,42 @@ def test_variable_doc_without_counter_still_accepts_a_put(fresh):
     assert view["version"] == 3
     assert fresh.get_variable_version("legacy", 2)["value"] == 2
     assert fresh.get_variable("legacy")["value"] == 3
+
+
+def test_find_events_is_served_by_the_type_received_index(fresh):
+    from culture_rules.store.mongo import EVENTS_TYPE_RECEIVED_INDEX
+
+    for n in range(30):
+        kind = "a.done" if n % 3 == 0 else "noise"
+        fresh.insert(
+            "events",
+            {
+                "id": f"e{n:02d}",
+                "envelope": {"id": f"e{n:02d}", "type": kind},
+                "received_at": f"2026-10-07T12:00:{n:02d}.000000+00:00",
+            },
+        )
+    page = fresh.find_events(
+        types=("a.done",), after=("2026-10-07T12:00:03.000000+00:00", "e03"), until="~", limit=3
+    )
+    assert [e["id"] for e in page] == ["e06", "e09", "e12"]
+    names = [ix["name"] for ix in fresh.client[fresh.config.database]["events"].list_indexes()]
+    assert EVENTS_TYPE_RECEIVED_INDEX in names
+    query = {
+        "envelope.type": {"$in": ["a.done"]},
+        "received_at": {"$gte": "2026-10-07T12:00:03.000000+00:00", "$lte": "~"},
+        "$or": [
+            {"received_at": {"$gt": "2026-10-07T12:00:03.000000+00:00"}},
+            {"_id": {"$gt": "e03"}},
+        ],
+    }
+    plan = (
+        fresh.client[fresh.config.database]["events"]
+        .find(query)
+        .sort([("received_at", 1), ("_id", 1)])
+        .limit(3)
+        .explain()
+    )
+    stats = plan["executionStats"]
+    assert EVENTS_TYPE_RECEIVED_INDEX in str(plan["queryPlanner"]["winningPlan"])
+    assert stats["totalDocsExamined"] <= 4  # never the noise or the events before the cursor

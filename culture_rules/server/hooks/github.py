@@ -263,8 +263,11 @@ def handle(
     """Verify and record one GitHub delivery; return ``(status, json body)``.
 
     ``on_check`` (the once-per-SHA settler) is called with the event data of an accepted or
-    redelivered check completion, so a failed earlier attempt is retried; a failure answers
-    503 so GitHub may redeliver.
+    redelivered check completion, so a failed earlier attempt is retried. It runs only after
+    the sink stored the event, and a failure answers 503 - but GitHub does not redeliver a
+    failed delivery on its own, so the node's settle tick re-arms the SHA from the stored
+    completion (:mod:`culture_rules.node.checks_settle`, "Recovery"); a manual redelivery
+    still re-runs ``on_check``.
 
     ``pull`` is the read-only PR lookup that enriches a comment on a pull request with the PR
     facts (d14, :func:`_enrich_comment`); it runs only when the sink would store the delivery,
@@ -312,8 +315,9 @@ def handle(
         try:
             on_check(data)
         except Exception:  # noqa: BLE001 - arming failed after the sink stored the event
-            # 5xx so GitHub redelivers; the sink dedupes the delivery id and a duplicate
-            # re-runs on_check, so the SHA is armed on the retry rather than lost.
+            # The event is already stored, so the node's settle tick recovers the arm from
+            # it (GitHub never redelivers a 503 by itself); a manual redelivery is deduped
+            # by delivery id and re-runs on_check.
             _log.warning("check settle failed type=%s", etype)
             return 503, {"error": "settle failed, retry"}
     if outcome == DUPLICATE:

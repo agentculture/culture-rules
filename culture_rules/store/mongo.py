@@ -58,7 +58,7 @@ from __future__ import annotations
 import contextlib
 import importlib
 import time
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Collection, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any
@@ -69,6 +69,7 @@ from culture_rules.model.variable import (
 )
 from culture_rules.store.port import (
     CURSOR_COLLECTION,
+    EVENTS_COLLECTION,
     VARIABLES_COLLECTION,
     Change,
     ChangeOp,
@@ -80,6 +81,7 @@ from culture_rules.store.port import (
     UpdateResult,
     VersionSkewError,
     cursor_id,
+    events_query,
 )
 from culture_rules.store.retry import DEFAULT_ATTEMPTS, run_transaction
 from culture_rules.store.versioning import (
@@ -93,6 +95,8 @@ from culture_rules.store.versioning import (
 )
 
 ENV_URI = "CULTURE_RULES_MONGO_URI"
+EVENTS_TYPE_RECEIVED_INDEX = "events_type_received"
+"""The ``(envelope.type, received_at, _id)`` index serving :meth:`MongoStore.find_events`."""
 ENV_DB = "CULTURE_RULES_MONGO_DB"
 ENV_TLS_CA = "CULTURE_RULES_MONGO_TLS_CA_FILE"
 ENV_TLS_CERT_KEY = "CULTURE_RULES_MONGO_TLS_CERT_KEY_FILE"
@@ -235,6 +239,7 @@ class MongoStore:
         self._client = pymongo.MongoClient(config.uri, **{**options, **build_client_kwargs(config)})
         self._db = self._client[config.database]
         self._ensured: set[str] = set()
+        self._events_indexed = False
         if connect:
             try:
                 self.verify_least_privilege()
@@ -424,6 +429,32 @@ class MongoStore:
 
     def get(self, collection: str, id: str) -> Document | None:
         return self._get(None, collection, id)
+
+    def find_events(
+        self,
+        *,
+        types: Collection[str],
+        after: tuple[str, str],
+        until: str,
+        limit: int,
+    ) -> list[Document]:
+        wanted, ts, last = events_query(types, after, until, limit)
+        coll = self._collection(EVENTS_COLLECTION)
+        if not self._events_indexed:
+            # idempotent; the equality-then-range-then-sort shape lets the planner merge
+            # the per-type index ranges in (received_at, _id) order without a sort stage
+            coll.create_index(
+                [("envelope.type", 1), ("received_at", 1), ("_id", 1)],
+                name=EVENTS_TYPE_RECEIVED_INDEX,
+            )
+            self._events_indexed = True
+        query = {
+            "envelope.type": {"$in": wanted},
+            "received_at": {"$gte": ts, "$lte": until},
+            "$or": [{"received_at": {"$gt": ts}}, {"_id": {"$gt": last}}],
+        }
+        cursor = coll.find(query).sort([("received_at", 1), ("_id", 1)]).limit(limit)
+        return [_to_doc(raw) for raw in cursor]
 
     def find(
         self,

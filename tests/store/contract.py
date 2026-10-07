@@ -625,3 +625,50 @@ class StoragePortContract:
         assert values == {"trusted": ["a", "b"], "limit": 3}
         assert names == {"trusted", "limit"}
         assert variable_values(store, ["trusted"]) == {"trusted": ["a", "b"]}
+
+    # ------------------------------------------------------------ find_events
+
+    @staticmethod
+    def _event(store, id, type, received_at):
+        store.insert(
+            "events",
+            {"id": id, "envelope": {"id": id, "type": type}, "received_at": received_at},
+        )
+
+    def test_find_events_orders_by_received_at_then_id_and_pages_by_cursor(self, store):
+        t1, t2, t3 = (f"2026-10-07T12:00:0{n}.000000+00:00" for n in (1, 2, 3))
+        self._event(store, "z", "a.done", t1)
+        self._event(store, "b", "a.done", t2)
+        self._event(store, "a", "a.done", t2)  # same instant: the id breaks the tie
+        self._event(store, "other", "b.other", t2)  # another type never matches
+        self._event(store, "late", "c.done", t3)
+        types = ("a.done", "c.done")
+        page = store.find_events(types=types, after=(t1, ""), until=t3, limit=2)
+        assert [e["id"] for e in page] == ["z", "a"]
+        assert page[0]["envelope"]["type"] == "a.done"
+        last = (page[-1]["received_at"], page[-1]["id"])
+        page = store.find_events(types=types, after=last, until=t3, limit=2)
+        assert [e["id"] for e in page] == ["b", "late"]
+        after_all = store.find_events(types=types, after=(t3, "late"), until=t3, limit=2)
+        assert after_all == []
+        # ``until`` is inclusive and bounds the scan
+        assert [
+            e["id"] for e in store.find_events(types=types, after=("", ""), until=t2, limit=9)
+        ] == [
+            "z",
+            "a",
+            "b",
+        ]
+
+    def test_find_events_rejects_bad_arguments(self, store):
+        for kwargs in (
+            {"limit": 0},
+            {"limit": True},
+            {"types": "a.done"},
+            {"after": ("t",)},
+            {"until": None},
+        ):
+            args = {"types": ("a.done",), "after": ("", ""), "until": "z", "limit": 1}
+            args.update(kwargs)
+            with pytest.raises(ValueError):
+                store.find_events(**args)
