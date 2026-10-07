@@ -429,6 +429,47 @@ Known limits of this version:
 `qwen-fixer` actor, and the App private key on spark2's node (`push` runs
 there), then enabling the rules for one repository.
 
+### Reading it back in plain words (d19)
+
+`culture-rules rules describe <id>` and `culture-rules workflows describe <id>`
+(`GET /rules/{id}/describe`, `GET /workflows/{id}/describe`, and the MCP tools
+`rules_describe` / `workflows_describe`) describe a stored definition from its
+config alone. No AI writes it, and the name and description fields are not
+used. In the editor, the (i) "About" button on each rule and workflow (list
+rows and title) shows the same lines. For the shipped bundle:
+
+```console
+$ culture-rules rules describe pr-fixer-checks
+When github.pr.checks_settled
+If head_repo = base_repo
+and draft = false
+and repository ∈ vars.fixer_repos
+and not (repository ∈ vars.fixer_excluded_repos)
+and conclusion ≠ success
+and conclusion ≠ no_checks
+Run workflow pr-fixer (6 steps)
+On spark2
+Then github.comment as github-app
+On failure github.comment as github-app
+Key pr-fixer:{repository}#{number}, ≤3 attempts
+Disabled
+$ culture-rules workflows describe pr-fixer
+1 quiet — wait 300 s; stop if the PR head moves (head_unchanged, as github-app)
+2 threads — github.threads as github-app: unresolved threads by trusted authors
+3 fix — retry up to 3×, until verdict ∈ {pass, no_gate}:
+  3.1 agent — qwen-fixer (agent)
+  3.2 gate — test gate on spark2
+4 push — github.push as github-app on spark2 (only on a passing gate)
+5 pick — github.threads_addressed
+6 replies — for each item (≤200): github.review_reply as github-app and resolve
+```
+
+These two outputs are pinned as golden tests (`tests/model/test_describe.py`).
+`--json` adds the structured `entries` (`label`, `text`, `depth`, and `step`
+on a workflow entry). The vocabulary is in `culture_rules/model/describe.py`:
+one phrase per trigger kind, step kind, built-in, action kind and condition
+operator. An unknown kind reads as its raw name, so describing never fails.
+
 ## On spark2
 
 | Item | Value |

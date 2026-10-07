@@ -119,6 +119,18 @@ function handleGet(api: FakeApi, path: string, query: URLSearchParams): FakeResp
   if (path === "/actors") return json(200, { items: ACTORS });
   if (path === "/machines") return json(200, { items: MACHINES });
   if (path === "/workflows") return json(200, { items: WORKFLOWS });
+  const described = /^\/rules\/([^/]+)\/describe$/.exec(path);
+  if (described) {
+    // A stand-in for culture_rules/model/describe.py: the trigger and the action, in words.
+    const rule = api.rules.find((r) => r.id === decodeURIComponent(described[1]));
+    if (!rule) return error(404, "not_found", `rules/${described[1]} does not exist`);
+    const params = (rule.trigger.params ?? {}) as Record<string, unknown>;
+    const entries = [
+      { label: "When", text: String(params.type ?? rule.trigger.kind), depth: 0 },
+      { label: "Then", text: rule.action.kind, depth: 0 },
+    ];
+    return json(200, { id: rule.id, kind: "rule", lines: entries.map((e) => `${e.label} ${e.text}`), entries });
+  }
   if (path === "/runs") {
     const status = query.get("status");
     if (status === "waiting") return json(200, { items: api.waitingRuns });

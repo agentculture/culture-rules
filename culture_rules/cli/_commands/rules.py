@@ -8,7 +8,14 @@ from typing import Any
 
 from culture_rules.cli import _api
 from culture_rules.cli._build import register_noun
-from culture_rules.cli._nounlib import ID, definition_verbs, migration, seg, write
+from culture_rules.cli._nounlib import (
+    ID,
+    definition_verbs,
+    describe_verb,
+    migration,
+    seg,
+    write,
+)
 from culture_rules.cli.registry import Context, Param, Verb
 
 NOUN = "rules"
@@ -72,6 +79,7 @@ def _definition_verbs() -> list[Verb]:
 
 VERBS: list[Verb] = [
     *_definition_verbs(),
+    describe_verb(NOUN, "rule", "When, If, Run, Then ..."),
     Verb(
         NOUN,
         "run",

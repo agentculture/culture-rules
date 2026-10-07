@@ -1,4 +1,5 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Rules from "./Rules";
@@ -25,6 +26,32 @@ describe("Rules board (Chosen — Rules)", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+  });
+
+  it("the rule's (i), in the head and on its list row, opens GET /rules/{id}/describe (d19)", async () => {
+    vi.unstubAllGlobals();
+    const lines = ["When push", "If verdict = approve", "and not (repo ∈ vars.excluded)", "Then publish"];
+    mockFetch({
+      ...defaultRoutes(Date.parse("2026-10-03T12:00:00Z")),
+      [`/api/rules/${SELECTED_RULE_ID}/describe`]: {
+        body: { id: SELECTED_RULE_ID, kind: "rule", lines, entries: [] },
+      },
+    });
+    renderRules();
+    await screen.findByRole("heading", { level: 1, name: "Build and publish" });
+    const buttons = screen.getAllByRole("button", { name: "About Build and publish" });
+    expect(buttons).toHaveLength(2); // the list row and the rule's head
+    const list = screen.getByRole("navigation", { name: "Rules" });
+    const rowButton = within(list).getByRole("button", { name: "About Build and publish" });
+    await userEvent.click(rowButton);
+    const panel = within(list).getByRole("dialog", { name: "About Build and publish" });
+    expect((await within(panel).findByTestId("about-lines")).textContent).toBe(lines.join("\n"));
+    await userEvent.keyboard("{Escape}");
+    expect(rowButton).toHaveFocus();
+    const headButton = buttons.find((b) => !list.contains(b))!;
+    await userEvent.click(headButton);
+    expect(await screen.findAllByTestId("about-lines")).toHaveLength(1);
+    expect(screen.queryByRole("region", { name: "In words" })).toBeNull();
   });
 
   it("lists every rule with an enable switch, the first affordance a 'New rule' button", async () => {

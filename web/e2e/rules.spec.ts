@@ -45,6 +45,33 @@ test.describe("Rules tab", () => {
     await page.screenshot({ path: SCREENSHOT, fullPage: true });
   });
 
+  test("(i) on a list row and on the rule: the description, keyboard, focus return, no navigation (d19)", async ({ page }) => {
+    const api = createFakeApi();
+    await mockRulesApi(page, api);
+    await page.goto("/rules/build-and-publish");
+    await untilReady(page);
+    const other = api.rules.find((r) => r.id !== "build-and-publish")!;
+    const rowAbout = row(page, other.id).getByRole("button", { name: `About ${other.name}` });
+    await rowAbout.click();
+    const panel = row(page, other.id).getByRole("dialog", { name: `About ${other.name}` });
+    const params = (other.trigger.params ?? {}) as Record<string, unknown>;
+    await expect(panel.getByTestId("about-lines")).toHaveText(
+      `When ${String(params.type ?? other.trigger.kind)}\nThen ${other.action.kind}`,
+    );
+    await expect(page).toHaveURL(/\/rules\/build-and-publish$/); // the row did not open
+    await expect(panel).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(panel).toBeHidden();
+    await expect(rowAbout).toBeFocused();
+    const headAbout = page.locator(".rule-flow__head").getByRole("button", { name: "About Build and publish" });
+    await headAbout.focus();
+    await page.keyboard.press("Enter");
+    await expect(page.locator(".rule-flow__head").getByTestId("about-lines")).toContainText("When ");
+    await page.keyboard.press("Escape");
+    await expect(headAbout).toBeFocused();
+    expect(sent(api, "GET", "/rules/build-and-publish/describe")).toHaveLength(1);
+  });
+
   test("toggle, edit and delete-with-undo work and reach the API", async ({ page }) => {
     const api = await mockRulesApi(page);
     await page.goto("/rules/build-and-publish");

@@ -70,6 +70,8 @@ the CLI talks only to the HTTP API (CULTURE_RULES_API_URL, CULTURE_RULES_TOKEN).
 Disabling a rule (rules disable, or an update that sets enabled false) never stops
 its current runs: the write reports them as active_runs with a hint, and
 rules stop-runs <id> --apply cancels them (status cancelled, nothing more is pushed).
+rules describe <id> and workflows describe <id> print a definition in plain words,
+built only from its config (When/If/Run/Then lines; numbered steps), never by AI.
 
 Machine-readable output
 -----------------------

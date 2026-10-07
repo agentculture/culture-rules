@@ -33,7 +33,11 @@ async function smallHitAreas(page: Page, within?: string): Promise<string[]> {
     if (!(await control.isVisible())) continue;
     // Centred, so the whole 44x44 square is on screen (a control at the viewport's or a
     // scroller's edge — the canvas scrolls sideways beside the workflow list — would not be).
-    await control.evaluate((el) => el.scrollIntoView({ block: "center", inline: "center" }));
+    // `instant`: the page scrolls smoothly (tokens.css), and a smooth scroll still under way
+    // when the square is measured leaves a control near the page's bottom half off screen.
+    await control.evaluate((el) =>
+      el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" as ScrollBehavior }),
+    );
     const miss = await control.evaluate((el, reach) => {
       const box = el.getBoundingClientRect();
       if (box.width < 2 || box.height < 2) return null; // visually hidden (sr-only)

@@ -151,6 +151,8 @@ test.describe("Workflows tab: the workflow list", () => {
       await page.keyboard.press("Tab");
       await expect(wf.getByRole("link", { name })).toBeFocused();
       await page.keyboard.press("Tab");
+      await expect(wf.getByRole("button", { name: `About ${name}` })).toBeFocused();
+      await page.keyboard.press("Tab");
       await expect(wf.getByRole("switch", { name: `${name} enabled` })).toBeFocused();
     }
     await wf.getByRole("link", { name: "Nightly report" }).focus();

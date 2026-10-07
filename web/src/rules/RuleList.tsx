@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import type { RuleDoc } from "../api/rules";
 import { MachineDot, Switch, machineStyle } from "../culture-design/stages";
 import { badgesFor } from "./relations";
+import { AboutButton } from "../components/AboutButton";
 
 interface Props {
   rules: RuleDoc[];
@@ -70,6 +71,7 @@ export function RuleList({ rules, selectedId, slotOf, onToggle, pending, onNew, 
                 </span>
               ))}
             </div>
+            <AboutButton noun="rules" id={rule.id} name={rule.name} />
             <Switch
               label={`${rule.name} enabled`}
               checked={enabled}

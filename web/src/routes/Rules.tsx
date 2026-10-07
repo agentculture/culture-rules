@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { ApiError } from "../api/client";
 import { useLiveUpdates, type LiveChange } from "../api/live";
 import { getRuleHistory, type RuleDoc, type RuleHistoryItem } from "../api/rules";
+import { AboutButton } from "../components/AboutButton";
 import type { Condition } from "../api/types";
 import { setAgentState } from "../agent-state/store";
 import { machineColors } from "../culture-design/chart";
@@ -300,6 +301,7 @@ function FocusedRule({
     <>
       <div className="rule-flow__head">
         <h1 className="rule-title">{rule.name}</h1>
+        <AboutButton noun="rules" id={rule.id} name={rule.name} />
         <button
           type="button"
           className="placement-chip"

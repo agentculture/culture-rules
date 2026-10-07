@@ -23,6 +23,7 @@ import {
 } from "../api/workflows";
 import { setWorkflowsState } from "../workflows/agentState";
 import WorkflowCanvas, { type CanvasProps } from "../workflows/Canvas";
+import { AboutButton } from "../components/AboutButton";
 import IoControls from "../workflows/IoControls";
 import IoEditor from "../workflows/IoEditor";
 import RunForm, { RunOutputs } from "../workflows/RunForm";
@@ -260,6 +261,7 @@ function HeadTitle({ creating, empty }: Readonly<{ creating: boolean; empty: boo
 function WorkflowHead({
   name,
   current,
+  dirty,
   renaming,
   renameButton,
   onRename,
@@ -267,6 +269,7 @@ function WorkflowHead({
 }: Readonly<{
   name: string;
   current: WorkflowDef;
+  dirty: boolean;
   renaming: boolean;
   renameButton: RefObject<HTMLButtonElement>;
   onRename: () => void;
@@ -275,6 +278,7 @@ function WorkflowHead({
   return (
     <>
       <h1 className="wf-title">{name}</h1>
+      <AboutButton noun="workflows" id={current.id} name={name} stale={dirty} />
       <button
         ref={renameButton}
         type="button"
@@ -312,6 +316,7 @@ function BoardTitle({
   empty: boolean;
   current: WorkflowDef | null;
   workflow: WorkflowDef | null;
+  dirty: boolean;
   renaming: boolean;
   renameButton: RefObject<HTMLButtonElement>;
   onRename: () => void;
@@ -1091,6 +1096,7 @@ export function Workflows() {
             empty={empty}
             current={current}
             workflow={workflow}
+            dirty={draft?.dirty === true}
             renaming={renaming}
             renameButton={renameButton}
             onRename={() => (renaming ? closeRename() : setRenaming(true))}

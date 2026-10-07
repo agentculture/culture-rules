@@ -188,6 +188,28 @@ export interface StopRunsResult {
   cancelled: string[];
 }
 
+/** One line of a description: the DescribeEntry schema in api/openapi.json (d19). */
+export interface DescribeEntry {
+  /** `When`, `If`, `and`, `Then` … on a rule; `1`, `3.1` … on a workflow step. */
+  label: string;
+  text: string;
+  /** Nesting: a loop's body is one deeper. */
+  depth: number;
+  /** The step id (workflow entries only). */
+  step?: string;
+}
+
+/**
+ * `GET /rules/{id}/describe` and `GET /workflows/{id}/describe` — the
+ * Description schema: a plain description generated from the config only.
+ */
+export interface Description {
+  id: string;
+  kind: "rule" | "workflow";
+  lines: string[];
+  entries: DescribeEntry[];
+}
+
 export interface RunSummary {
   id: string;
   /**
