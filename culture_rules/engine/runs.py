@@ -103,8 +103,9 @@ Semantics
   are top-level only (a wait inside a loop body is refused at start).
 * **Rule action** - after the workflow succeeds, the rule's action runs as the terminal
   step :data:`ACTION_STEP` (kind ``"action"``), its params resolved against
-  ``workflow.outputs.*``, ``trigger.*`` and ``rules.<id>.outputs.*`` (whole-string
-  references or ``{{ ref }}`` templates). A rule without a workflow runs only its action.
+  ``workflow.outputs.*``, ``trigger.*``, ``rules.<id>.outputs.*`` and ``run.id`` (the run's
+  own id; whole-string references or ``{{ ref }}`` templates). A rule without a workflow
+  runs only its action.
   A whole string is a reference only when its path fits a namespace's shape; any other
   string (``rules.yaml``, ``workflow.md``, ``trigger.sh``) is a literal.
   ``{"$ref": path}`` always references and ``{"$literal": value}`` never does (see
@@ -112,6 +113,13 @@ Semantics
   The action's ``params.actor`` (a literal actor id, never resolved) is the invocation
   context's ``actor``; a port answering ``failed`` with error :data:`ACTOR_UNAVAILABLE`
   (that actor is unknown or disabled) fails the step at once with that code.
+* **On failure** (d16) - when the run would end ``failed`` (a failed top-level step, a failed
+  rule action, a mistyped workflow output) and the rule has an ``on_failure`` action, the
+  unfinished steps are cancelled and the step :data:`FAILURE_STEP` is added, routed exactly
+  like the rule action. Its params also resolve ``run.error.step`` / ``.code`` /
+  ``.message``. The state keeps the original error as ``failure``. Once that step is done,
+  whatever its outcome (its own retry policy only), the run ends ``failed`` with that error;
+  it is added at most once. Superseded, cancelled and successful runs never run it.
 * **Action steps** (d12, :mod:`culture_rules.model.action_step`) - a ``code`` step with
   ``config = {"builtin": "action", "action": {"kind", "params"}}`` dispatches exactly like
   the rule action: its invocation context is an ``"action"`` one (``config`` = the kind, name
@@ -192,6 +200,7 @@ log = logging.getLogger(__name__)
 __all__ = [
     "ACTION_STEP",
     "ACTOR_UNAVAILABLE",
+    "FAILURE_STEP",
     "BLOCKED_RETRY_S",
     "BLOCKED_TIMEOUT",
     "CONTROLS_COLLECTION",
@@ -227,6 +236,9 @@ WORKFLOWS_COLLECTION = "workflows"
 ACTORS_COLLECTION = "actors"
 
 ACTION_STEP = "@action"
+FAILURE_STEP = "@on_failure"
+"""Step key of a rule's ``on_failure`` action (d16), run once when the run fails."""
+TERMINAL_STEPS = (ACTION_STEP, FAILURE_STEP)
 ACTOR_UNAVAILABLE = "actor_unavailable"
 """Failure code (and the ``error`` an actor port returns) when the actor a rule action
 names in ``params.actor`` is unknown or disabled; the step fails without a retry."""
@@ -829,7 +841,7 @@ class Executor:
                 "invalid_workflow", "workflow failed validation", [e.to_dict() for e in errors]
             )
         for s in workflow.steps:
-            if s.id == ACTION_STEP or any(b.kind in LOOP_KINDS for b in s.body):
+            if s.id in TERMINAL_STEPS or any(b.kind in LOOP_KINDS for b in s.body):
                 raise RunError("unsupported_workflow", f"step {s.id!r}: reserved id or nested loop")
             if any(b.kind == "wait" for b in s.body):
                 raise RunError("unsupported_workflow", f"step {s.id!r}: wait inside a loop body")
@@ -1050,8 +1062,8 @@ class Executor:
         and resumed dispatches both read it, so recovery never leaves that machine."""
         step = plan.step(st)
         placement = step.placement if step is not None else None
-        if placement is None and st["key"] == ACTION_STEP:
-            placement = self._action_placement(_action_actor(plan.rule.action))
+        if placement is None and st["key"] in TERMINAL_STEPS:
+            placement = self._action_placement(_action_actor(_terminal_action(plan, st)))
         elif placement is None and (spec := _step_action(plan, st)) is not None:
             placement = self._action_placement(_params_actor(spec.get("params")))
         return placement
@@ -1250,11 +1262,11 @@ class Executor:
         return self._cas(doc, new)
 
     def _context(self, plan: _Plan, doc: Document, st: Mapping, attempt: int) -> InvocationContext:
-        if st["key"] == ACTION_STEP:
-            act = plan.rule.action
+        if st["key"] in TERMINAL_STEPS:
+            act = _terminal_action(plan, st)
             config = {"kind": act.kind, "name": act.name, "params": dict(act.params)}
             return InvocationContext(
-                doc["id"], ACTION_STEP, "action", self.host, attempt, _action_actor(act), config
+                doc["id"], st["key"], "action", self.host, attempt, _action_actor(act), config
             )
         spec = _step_action(plan, st)
         if spec is not None:  # routed exactly like the rule action (see the module docstring)
@@ -1270,8 +1282,8 @@ class Executor:
         )
 
     def _policy(self, plan: _Plan, st: Mapping) -> tuple[RetryPolicy, float | None, bool]:
-        if st["key"] == ACTION_STEP:
-            act: Action = plan.rule.action
+        if st["key"] in TERMINAL_STEPS:
+            act: Action = _terminal_action(plan, st)
             return _retry_of(act.retry), act.timeout_s, act.idempotent
         step = plan.step(st)
         # only a boolean true counts: a "false" string that slipped past validation fails
@@ -1439,13 +1451,20 @@ def _apply(
 
 def _actor_of(plan: _Plan, st: Mapping) -> str | None:
     """The actor a step (or the rule action) names, for messages."""
-    if st["key"] == ACTION_STEP:
-        return _action_actor(plan.rule.action)
+    if st["key"] in TERMINAL_STEPS:
+        return _action_actor(_terminal_action(plan, st))
     spec = _step_action(plan, st)
     if spec is not None:
         return _params_actor(spec.get("params"))
     step = plan.step(st)
     return step.placement.actor if step is not None and step.placement is not None else None
+
+
+def _terminal_action(plan: _Plan, st: Mapping) -> Action:
+    """The rule's action behind a terminal step: ``action``, or ``on_failure`` (d16)."""
+    if st["key"] == FAILURE_STEP and plan.rule.on_failure is not None:
+        return plan.rule.on_failure
+    return plan.rule.action
 
 
 def _action_actor(action: Action) -> str | None:
@@ -1461,7 +1480,7 @@ def _params_actor(params: Any) -> str | None:
 
 def _step_action(plan: _Plan, st: Mapping) -> Mapping[str, Any] | None:
     """The ``config.action`` of a built-in action step state, else None (d12)."""
-    if st["key"] == ACTION_STEP:
+    if st["key"] in TERMINAL_STEPS:
         return None
     step = plan.step(st)
     return action_spec(step) if step is not None else None
@@ -1502,15 +1521,15 @@ def _attempt_failed(
 
 
 def _policy_of(plan: _Plan, st: Mapping) -> RetryPolicy:
-    if st["key"] == ACTION_STEP:
-        return _retry_of(plan.rule.action.retry)
+    if st["key"] in TERMINAL_STEPS:
+        return _retry_of(_terminal_action(plan, st).retry)
     step = plan.step(st)
     return _retry_of(step.retry if step is not None else None)
 
 
 def _ready(plan: _Plan, doc: Mapping, st: Mapping) -> bool:
     """Whether a pending, dispatchable step's predecessors are all done."""
-    if st["key"] == ACTION_STEP:
+    if st["key"] in TERMINAL_STEPS:
         return True
     step = plan.step(st)
     if step is None or step.kind in LOOP_KINDS or step.kind == "wait" or not step.enabled:
@@ -1669,7 +1688,7 @@ def _implicit_loop_inputs(
 
 def _step_inputs(plan: _Plan, doc: Mapping, st: Mapping) -> dict[str, Any]:
     """``{"inputs": {...}}`` for a step about to run, or an error dict."""
-    if st["key"] == ACTION_STEP:
+    if st["key"] in TERMINAL_STEPS:
         return {"inputs": dict(st.get("inputs") or {})}
     step = plan.step(st)
     values: dict[str, Any] = {}
@@ -1862,24 +1881,63 @@ def _loop_done(new: dict, nst: dict, step: Step, results: list[dict]) -> Found:
 
 
 def _run_failure(plan: _Plan, doc: Mapping, now: datetime) -> Found:
-    failed = next((s for s in doc["steps"] if not s.get("loop") and s["status"] == "failed"), None)
+    hand_back = step_state(doc, FAILURE_STEP)
+    if hand_back is not None:  # on_failure already started: end the run once it is done
+        if hand_back["status"] not in STEP_DONE:
+            return None
+        new = copy.deepcopy(dict(doc))
+        new.update(status="failed", finished_at=_iso(now), error=hand_back.get("failure"))
+        return new, "run_failed", FAILURE_STEP
+    failed = next(
+        (
+            s
+            for s in doc["steps"]
+            if not s.get("loop") and s["status"] == "failed" and s["key"] != FAILURE_STEP
+        ),
+        None,
+    )
     if failed is None:
         return None
-    new = copy.deepcopy(dict(doc))
+    failure = {"step": failed["key"], **(failed.get("error") or {})}
+    return _fail_run(plan, copy.deepcopy(dict(doc)), failure, now)
+
+
+def _fail_run(plan: _Plan, new: dict, failure: dict, now: datetime) -> Found:
+    """End ``new`` failed with ``failure`` - or, when the rule has an ``on_failure`` action,
+    first cancel the unfinished steps and add its step (once; the run ends when it is done,
+    whatever its outcome, with ``failure`` as its error). ``new`` is a copy to mutate."""
+    if step_state(new, FAILURE_STEP) is not None:  # never a second handler (defensive)
+        return None
     for s in new["steps"]:
         if s["status"] not in STEP_DONE:
             s["status"] = "cancelled"
-    new.update(
-        status="failed",
-        finished_at=_iso(now),
-        error={"step": failed["key"], **(failed.get("error") or {})},
-    )
-    return new, "run_failed", failed["key"]
+    on_failure = plan.rule.on_failure
+    if on_failure is None:
+        new.update(status="failed", finished_at=_iso(now), error=failure)
+        return new, "run_failed", failure.get("step")
+    context = {
+        "workflow": {"outputs": _workflow_outputs(plan, new)},
+        "trigger": new.get("trigger") or {},
+        "rules": {k: {"outputs": v} for k, v in (new.get("upstream") or {}).items()},
+        "run": {
+            "id": new["id"],
+            "error": {
+                "step": failure.get("step"),
+                "code": failure.get("code"),
+                "message": failure.get("message"),
+            },
+        },
+    }
+    state = _new_state(FAILURE_STEP, FAILURE_STEP)
+    state["inputs"] = resolve_refs(dict(on_failure.params), context)
+    state["failure"] = failure  # the run's error once the hand-back is done
+    new["steps"].append(state)
+    return new, "on_failure_ready", FAILURE_STEP
 
 
 def _skip_disabled(plan: _Plan, doc: Mapping, now: datetime) -> Found:
     for st in doc["steps"]:
-        if st["status"] != "pending" or st.get("loop") or st["key"] == ACTION_STEP:
+        if st["status"] != "pending" or st.get("loop") or st["key"] in TERMINAL_STEPS:
             continue
         step = plan.top.get(st["def"])
         if step is not None and not step.enabled and _deps_done(plan, doc, step.id):
@@ -2006,7 +2064,9 @@ def _workflow_outputs(plan: _Plan, doc: Mapping) -> dict[str, Any]:
 
 
 def _finish(plan: _Plan, doc: Mapping, now: datetime) -> Found:
-    top = [s for s in doc["steps"] if not s.get("loop") and s["key"] != ACTION_STEP]
+    if step_state(doc, FAILURE_STEP) is not None:  # the run is failing: _run_failure ends it
+        return None
+    top = [s for s in doc["steps"] if not s.get("loop") and s["key"] not in TERMINAL_STEPS]
     if any(s["status"] not in STEP_OK for s in top):
         return None
     action = step_state(doc, ACTION_STEP)
@@ -2017,16 +2077,13 @@ def _finish(plan: _Plan, doc: Mapping, now: datetime) -> Found:
         for o in wf.outputs if wf else ():
             value = outputs.get(o.name)
             if value is not None and not type_ok(o.type, value):
-                new.update(
-                    status="failed",
-                    finished_at=_iso(now),
-                    error=_error("output_type_mismatch", f"workflow output {o.name!r}"),
-                )
-                return new, "run_failed", None
+                failure = _error("output_type_mismatch", f"workflow output {o.name!r}")
+                return _fail_run(plan, new, {"step": None, **failure}, now)
         context = {
             "workflow": {"outputs": outputs},
             "trigger": doc.get("trigger") or {},
             "rules": {k: {"outputs": v} for k, v in (doc.get("upstream") or {}).items()},
+            "run": {"id": doc["id"]},
         }
         state = _new_state(ACTION_STEP, ACTION_STEP)
         state["inputs"] = resolve_refs(dict(plan.rule.action.params), context)

@@ -61,6 +61,12 @@ class Rule(Model):
         "Workflow to run; null means Trigger -> Action", default=None
     )
     action: Action = doc("The terminal side effect (required)")
+    on_failure: Action | None = doc(
+        "Side effect run exactly once when the run ends failed (never on success, "
+        "supersession or cancellation); same shape and routing as action, and its params may "
+        "also read run.error.step, run.error.code and run.error.message. Null means none",
+        default=None,
+    )
     placement: Placement | None = doc(
         "Where the trigger and condition evaluate (machine, actor or requirement); "
         "null means any eligible engine node",

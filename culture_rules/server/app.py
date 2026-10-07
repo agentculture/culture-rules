@@ -271,6 +271,10 @@ class VariableWrite(BaseModel):
     description: str | None = Field(None, description="what the variable is for")
 
 
+class VariableItem(BaseModel):
+    item: Any = Field(description="a JSON scalar of the list's item type")
+
+
 class MigrateRequest(BaseModel):
     apply: bool = Field(False, description="false = dry-run: list only, change nothing")
 
@@ -874,6 +878,29 @@ def _register_variables(app: FastAPI, variables: Variables) -> None:
     def set_variable(name: str, body: VariableWrite, identity: Identity):
         """Append a new version of the variable (admin only); the version names the caller."""
         return variables.set(name, body.value, identity, body.description)
+
+    @app.post(
+        "/variables/{name}/items/add",
+        tags=["variables"],
+        operation_id="add_variable_item",
+        responses={404: ERRORS[404], 409: ERRORS[409], 422: ERRORS[422]},
+        response_model=dict[str, Any],
+    )
+    def add_variable_item(name: str, body: VariableItem, identity: Identity):
+        """Add an item to a list variable (admin) with a compare-and-set, so concurrent adds
+        all land; already present means no new version (``changed: false``)."""
+        return variables.add_item(name, body.item, identity)
+
+    @app.post(
+        "/variables/{name}/items/remove",
+        tags=["variables"],
+        operation_id="remove_variable_item",
+        responses={404: ERRORS[404], 409: ERRORS[409], 422: ERRORS[422]},
+        response_model=dict[str, Any],
+    )
+    def remove_variable_item(name: str, body: VariableItem, identity: Identity):
+        """Remove an item from a list variable (admin); absent means no new version."""
+        return variables.remove_item(name, body.item, identity)
 
     @app.get(
         "/variables/{name}/history",

@@ -234,6 +234,157 @@ culture-rules variables set fixer_protected_paths --apply --value \
 | as `culture-fixer`, through grant: `gh api repos/agentculture/culture-rules/pulls` | `200`; a `gh pr merge` or a push is refused |
 | `culture-rules actors list` | `qwen-fixer`, machine `spark2` |
 
+## 7. The fixer rules and workflow (t17)
+
+The fixer is committed data in `docs/rules/pr-fixer/`, in the import format
+(`rules/<id>.json`, `workflows/<id>.json`). JSON rather than YAML, so the import
+works on an API without the `yaml` extra. Four rules, one trigger type each,
+share one workflow (d13):
+
+| Rule | Trigger | Extra condition |
+|---|---|---|
+| `pr-fixer-checks` | `github.pr.checks_settled` | `conclusion != "success"` (a green head is left alone) |
+| `pr-fixer-comment` | `github.comment.created` | trusted author, not the App, `pr_enriched == true` |
+| `pr-fixer-review` | `github.review.submitted` | trusted author, not the App |
+| `pr-fixer-review-comment` | `github.review_comment.created` | trusted author, not the App |
+
+Every rule also requires `head_repo == base_repo` and `draft == false`.
+`fixer_repos` is an allow-list (d18): the repository must be in
+`vars.fixer_repos`. `vars.fixer_excluded_repos` overrides it: a repository in
+both lists never fires. A missing fact makes the
+comparison false, so an event without PR facts never fires. "Trusted author"
+is `data.author in vars.trusted_authors`, and "not the App" is
+`self_authored != true`. The conditions reference the variables and never copy
+a list.
+
+All four rules have the same settings:
+
+- they ship with `enabled: false`;
+- their `on_failure` action (d16) is a `github.comment` as `github-app`:
+  `PR fixer handed back (<code>): <message>` with the run link (the failing step is on
+  the run);
+- placement is machine `spark2`;
+- `concurrency_key` is `pr-fixer:{trigger.data.repository}#{trigger.data.number}`
+  and `max_attempts` is 3, both shared across the four rules;
+- they pass the same workflow inputs: `repo`, `number`, `head_sha`,
+  `head_branch`, `base_sha`, `clone_url`, `trusted_authors` (`{"$var":
+  "trusted_authors"}`) and an `instruction` written for their trigger type.
+
+Workflow `pr-fixer`:
+
+1. `quiet`: a 300-second `wait` with the `head_unchanged` guard (the App
+   actor reads the head). A push during the wait ends the run `superseded`.
+2. `threads`: the built-in `github.threads` (d15), as `github-app` on its
+   machine. It lists the PR's unresolved review threads through GraphQL, at
+   most 10 pages of 100, and keeps the threads whose opening comment's author
+   is in `trusted_authors`. Logins are compared case-insensitively, and a bot's
+   GraphQL login gets the REST `[bot]` suffix. It fails closed: a lookup error,
+   the page cap or bad input fails the step and the run, so the agent never
+   gets an unfiltered or partial list.
+3. `fix`: a `retry_until` with at most 3 tries. It stops when the verdict is
+   `pass` or `no_gate`, and carries the gate's `instruction` into the next try.
+   Each try runs two steps:
+   - `agent`: an `ai` step on actor `qwen-fixer` in mode `yolo`. Its `threads`
+     input (the bridge's `threads` field) holds only the trusted threads, each
+     `{thread_id, comment_id, path, line, author, body}`.
+   - `gate`: the built-in `gate` on spark2. It reads the agent's `worktree`,
+     `head_before` and `head_after`.
+4. `push`: a built-in `action` step, `github.push` as `github-app`, on spark2
+   where the gate's bundle is. It runs with `gate_verdict` wired in, so only a
+   `pass` pushes. The port refuses `rule_disabled` when the firing rule was
+   disabled mid-run.
+5. `pick`: the built-in `github.threads_addressed`. It keeps the agent's
+   `threads_addressed` entries whose `thread_id` is in the trusted list. Any
+   other id is dropped, never answered.
+6. `replies`: a `for_each` over `pick`'s list. Each item gets one
+   `github.review_reply` (`comment_id` is the integer REST id of the opening
+   comment, `thread_id` the GraphQL id, `resolve: true`).
+
+The rule's terminal action is a `github.comment` as `github-app`. It reports
+the verdict, the push and the agent's summary, and links the run as
+`https://rules.culture.dev/api/runs/{{ run.id }}`. `run.id` is the
+rule-action reference to the run's own id. The editor has no run page yet, so
+the link opens the run document. The run's agent, gate and push steps run on
+spark2, which puts the run on spark2's Statistics lane.
+
+A rule's optional `on_failure` (d16) has the shape, validation and routing of
+its `action`. The executor runs it exactly once when the run fails: a failed
+step, a failed terminal action, or a mistyped workflow output. It first
+cancels the unfinished steps. Its params can also read `run.error.step`,
+`run.error.code` and `run.error.message` (only `on_failure` may), as well as
+`run.id`, `trigger.*` and whatever workflow outputs exist. A superseded,
+cancelled or successful run never runs it. If `on_failure` itself fails, it
+gets its own retry policy and no more. The run then ends `failed` with the
+original error, and `on_failure` never fires twice. The editor does not show
+or edit the field yet. It is kept on save like any other field it does not
+type.
+
+Install order: variables first (an import that references an undefined
+variable is refused), then the workflow, then the rules.
+
+```bash
+bash docs/rules/pr-fixer/seed-variables.sh            # dry run
+bash docs/rules/pr-fixer/seed-variables.sh --apply    # admin; skips variables already set
+culture-rules workflows import docs/rules/pr-fixer --apply
+culture-rules rules import docs/rules/pr-fixer --apply
+```
+
+The seed values are:
+
+- `trusted_authors`: the operator and Qodo's bot;
+- `ignored_check_apps`: `["claude"]`;
+- `checks_settle_timeout_s`: 900;
+- `checks_settle_min_s`: 60;
+- `fixer_repos`: `["agentculture/pr-fixer-sandbox"]`, the scratch repository
+  for t20;
+- `fixer_excluded_repos`: `[]`. culture-rules is out because it is not on the
+  allow-list;
+- `fixer_protected_paths`: the list in section 5.
+
+Re-running the script leaves a variable that already exists alone. Pass
+`--force` to replace it.
+
+Widening the fixer means adding a repository to `fixer_repos`. Narrowing it
+means removing one, or adding it to `fixer_excluded_repos`:
+
+```bash
+culture-rules variables add fixer_repos agentculture/some-repo            # dry run
+culture-rules variables add fixer_repos agentculture/some-repo --apply    # admin
+culture-rules variables remove fixer_repos agentculture/some-repo --apply
+```
+
+`variables add` and `variables remove` edit one item atomically. The server
+does a compare-and-set on the version and retries, so two callers adding at
+the same moment both land. An item already present (for `add`) or absent (for
+`remove`) writes no new version. Every change is a new version naming the
+caller, as with `variables set`.
+
+An added item must be of a type the list already holds, judged per item, so
+mixed lists and lists holding `null` work. An empty list takes any scalar. A
+removed item may be any scalar. The CLI reads `ITEM` as text unless the list
+holds numbers, booleans or `null` and the text parses as one. `--json-item`
+takes the item as JSON instead, so `'"123"'` adds the string `123`.
+
+*Planned* (guildmaster#138): guildmaster adds each repository to
+`fixer_repos` when it provisions it. Whether a repository gets the fixer is
+chosen at provisioning time, like public or private.
+
+Known limits of this version:
+
+- **The agent can still read the PR.** Only trusted threads are handed to it
+  and answered, but the agent works in a checkout with a read-only token and
+  could read other threads itself.
+- **A superseded run posts nothing.** Every failed run posts the hand-back
+  comment, but a run ended by a push during the quiet period posts nothing.
+- **`no_gate` hands back.** On a repo without a `gate:` section, `push`
+  refuses `gate_not_passed`, so nothing is pushed and the run hands back.
+- **Only the last try's replies.** `threads_addressed` comes from the last
+  agent try only.
+
+*Planned* (t20/t21): importing the bundle on rules.culture.dev, the
+`qwen-fixer` actor, and the App private key on spark2's node (`push` runs
+there), then enabling the rules for one repository.
+
 ## On spark2
 
 | Item | Value |

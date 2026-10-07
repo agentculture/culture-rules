@@ -51,6 +51,18 @@
       "$ref": "#/$defs/Action",
       "description": "The terminal side effect (required)"
     },
+    "on_failure": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Action"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Side effect run exactly once when the run ends failed (never on success, supersession or cancellation); same shape and routing as action, and its params may also read run.error.step, run.error.code and run.error.message. Null means none",
+      "default": null
+    },
     "placement": {
       "anyOf": [
         {
