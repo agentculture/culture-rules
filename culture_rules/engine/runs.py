@@ -99,7 +99,14 @@ Semantics
   ``vars.x``). A moved head ends the run ``superseded`` (unfinished steps cancelled, nothing
   later runs). Fail-safe: a lookup that raises, returns nothing, is not configured, or an
   expected SHA that cannot be resolved FAILS the step (``head_lookup_failed`` /
-  ``guard_unresolved``) - the run never proceeds as if the head were unchanged. Wait steps
+  ``guard_unresolved``) - the run never proceeds as if the head were unchanged. The lookup
+  port gets a :data:`HEAD_LOOKUP_TIMEOUT_S` deadline (it runs inside the tick); a lookup
+  that ran out of time (``deadline_exceeded`` / ``lookup_busy``, retryable) re-arms the
+  wake like a ``blocked`` one, at most :data:`HEAD_LOOKUP_RETRIES` times, then fails. The guarded
+  lookup runs on the guard actor's machine; when that placement resolves nowhere, a fatal
+  error fails the step at once and an unavailable host (offline, drained) is waited for up
+  to :data:`PLACEMENT_ABANDON_AFTER` past the wake, then the step fails
+  ``placement_unavailable`` (any node may do it) - never asleep forever. Wait steps
   are top-level only (a wait inside a loop body is refused at start).
 * **Rule action** - after the workflow succeeds, the rule's action runs as the terminal
   step :data:`ACTION_STEP` (kind ``"action"``), its params resolved against
@@ -159,6 +166,7 @@ from culture_rules.engine.actorport import (
     ACCEPTED,
     BLOCKED,
     COMPLETED,
+    FAILED,
     ActorPort,
     InvocationContext,
     InvocationResult,
@@ -259,9 +267,27 @@ HEAD_BLOCKED = "head_blocked"
 """Internal outcome: the head lookup's actor was at a limit; the wake is retried later."""
 HEAD_LOOKUP_PORT = "action:github.pr_head"
 """Port key the default head lookup routes through (see :class:`Executor`)."""
+HEAD_LOOKUP_TIMEOUT_S = 10.0
+"""The invocation deadline of a guarded wake's head lookup. It runs inside the executor's
+tick, so the port honours it (secret resolve and HTTP calls) rather than block the tick."""
+HEAD_RETRY = "head_retry"
+"""Internal outcome: the head lookup timed out (``deadline_exceeded``/``lookup_busy``)."""
+HEAD_LOOKUP_RETRIES = 5
+"""How many timed-out head lookups a guarded wake re-arms for before it fails
+``head_lookup_failed`` (fail-safe: never proceeds as if the head were unchanged)."""
+_HEAD_RETRY_CODES = frozenset({"deadline_exceeded", "lookup_busy"})
 RUN_DONE = ("succeeded", "failed", "cancelled", SUPERSEDED)
 STEP_DONE = ("succeeded", "failed", "skipped", "cancelled")
 STEP_OK = ("succeeded", "skipped")
+
+PLACEMENT_UNAVAILABLE = "placement_unavailable"
+"""Failure code of work whose placed host stayed unavailable past
+:data:`PLACEMENT_ABANDON_AFTER`: a guarded wait whose lookup host is offline or drained, and
+a placed rule's firing intent whose evaluating host went offline before starting it."""
+PLACEMENT_ABANDON_AFTER = timedelta(minutes=10)
+"""How long a placed host may stay unavailable before work only it may do is failed by any
+node (``placement_unavailable``). Far above the heartbeat's offline threshold (30 s), so a
+slow or restarting host keeps its work; bounded, so a dead one never strands it."""
 
 #: Placement failures that waiting cannot fix: the step fails instead of staying pending.
 FATAL_PLACEMENT = frozenset(
@@ -283,6 +309,8 @@ ADHOC_RULE_PREFIX = "adhoc:"
 _MAX_TRANSITIONS_PER_TICK = 10_000
 _MAX_CAS_RETRIES = 50
 Clock = Callable[[], datetime]
+Fence = Callable[[StoreOps], None]
+"""Run inside a run's insert transaction before the insert (see :meth:`Executor.start`)."""
 HeadLookup = Callable[[str | None, str, int], str]
 """``lookup(actor_id, repo, number) -> head sha``; raises (or returns a non-string) on failure."""
 Ports = Mapping[str, ActorPort] | Callable[[InvocationContext], ActorPort | None]
@@ -300,6 +328,11 @@ class RunError(ValueError):
 
 class _HeadBlocked(Exception):
     """The head lookup's actor refused for now (a limit); try again later."""
+
+
+class _HeadRetry(Exception):
+    """The head lookup ran out of time (or lookup workers); try again, a bounded number of
+    times (:data:`HEAD_LOOKUP_RETRIES`)."""
 
 
 class _Conflict(Exception):
@@ -724,6 +757,7 @@ class Executor:
         run_id: str | None = None,
         variables: Mapping[str, Any] | None = None,
         concurrency_key: str | None = None,
+        fence: Fence | None = None,
     ) -> Document:
         """Start a run of the stored rule ``rule_id`` and its stored workflow, pinning both.
 
@@ -760,6 +794,7 @@ class Executor:
             concurrency_key=concurrency_key,
             stored=True,
             variables=variables,
+            fence=fence,
         )
 
     def start_workflow(
@@ -815,11 +850,15 @@ class Executor:
         stored: bool = False,
         variables: Mapping[str, Any] | None = None,
         concurrency_key: str | None = None,
+        fence: Fence | None = None,
     ) -> Document:
         """Validate, pin and persist a new run (audited). Refused while paused.
 
         ``stored=True`` marks ``rule`` as read back from the store: it is validated in stored
-        mode, so a rule saved before the save-time catalog checks still runs.
+        mode, so a rule saved before the save-time catalog checks still runs. ``fence`` runs
+        first inside the transaction that inserts the run, so its reads and writes commit
+        atomically with the insert (or it raises, and nothing is written) - a firing intent
+        uses it to move itself from ``pending`` to ``started``.
         """
         identity = require_identity(identity or self.identity)
         if is_paused(self._store):
@@ -865,6 +904,8 @@ class Executor:
         }
         _record(doc, now, self.host, "started", None)
         with self._store.transaction() as tx:
+            if fence is not None:
+                fence(tx)
             stored = tx.insert(RUNS_COLLECTION, doc)
             self._audit.write(
                 tx,
@@ -994,13 +1035,33 @@ class Executor:
                 continue
             step = plan.step(st)
             guard = (step.config.get("guard") if step else None) or None
-            if guard and (paused or not self._guard_eligible(plan, st, step, guard, now)):
+            if guard and paused:
                 continue
+            if guard:
+                where = self._guard_eligible(plan, st, step, guard, now)
+                if isinstance(where, PlacementError):
+                    answer = self._guard_unplaceable(doc, st, where, wake, now)
+                    if answer is None:
+                        continue
+                    return answer
+                if not where:
+                    continue
             outcome = self._check_guard(plan, doc, step, guard) if guard else None
             new, nst = _copy_with(doc, st["key"])
+            retries = int(st.get("lookup_retries") or 0) + 1
+            if outcome is not None and outcome["code"] == HEAD_RETRY:
+                if retries > HEAD_LOOKUP_RETRIES:
+                    outcome = _error("head_lookup_failed", outcome["message"])
+            # A retry backs off from when the lookup returned: a lookup that used its whole
+            # deadline must not leave a due timer behind and re-run within this tick.
+            later = self._clock() if guard else now
             if outcome is not None and outcome["code"] == HEAD_BLOCKED:
-                nst["deadline"] = _iso(now + timedelta(seconds=BLOCKED_RETRY_S))
-                _record(new, now, self.host, "wait_blocked", st["key"])
+                nst["deadline"] = _iso(later + timedelta(seconds=BLOCKED_RETRY_S))
+                _record(new, later, self.host, "wait_blocked", st["key"])
+            elif outcome is not None and outcome["code"] == HEAD_RETRY:
+                nst["deadline"] = _iso(later + timedelta(seconds=BLOCKED_RETRY_S))
+                nst["lookup_retries"] = retries
+                _record(new, later, self.host, "wait_retry", st["key"])
             elif outcome is None:
                 nst.update(status="succeeded", outputs={}, error=None)
                 _record(new, now, self.host, "wait_done", st["key"])
@@ -1019,9 +1080,11 @@ class Executor:
 
     def _guard_eligible(
         self, plan: _Plan, st: Mapping, step: Step | None, guard: Mapping, now: datetime
-    ) -> bool:
+    ) -> bool | PlacementError:
         """Whether this node may perform the guarded lookup: the step's placement, else the
-        guard actor's machine (where its App credentials live), resolved as dispatch does."""
+        guard actor's machine (where its App credentials live), resolved as dispatch does.
+        A placement that resolves nowhere is answered as its :class:`PlacementError` (to a
+        node that is not drained), see :meth:`_guard_unplaceable`."""
         if self._drained():
             return False
         placement = step.placement if step is not None else None
@@ -1033,7 +1096,33 @@ class Executor:
                 placement = Placement(actor=actor_id)
         if placement is None:
             return True
-        return self._target_of(placement, now) == self.host
+        target = self._target_of(placement, now)
+        return target if isinstance(target, PlacementError) else target == self.host
+
+    def _guard_unplaceable(
+        self, doc: Document, st: Mapping, error: PlacementError, wake: datetime, now: datetime
+    ) -> bool | None:
+        """A due guarded wake whose lookup host resolves nowhere (review #17 finding 1).
+
+        Waiting cannot fix a fatal placement: the step fails with its code. A temporarily
+        unavailable host (offline, drained) is waited for, its ``placement_error`` recorded
+        once, until :data:`PLACEMENT_ABANDON_AFTER` past the wake; then the step fails
+        ``placement_unavailable`` - never proceeds as if the head were unchanged, and never
+        sleeps forever holding the run's concurrency key. Any node may do it (CAS). None:
+        nothing to write now."""
+        key = st["key"]
+        if error.code in FATAL_PLACEMENT:
+            return self._fail_now(doc, key, _error(error.code, error.message), now)
+        if now - wake >= PLACEMENT_ABANDON_AFTER:
+            message = f"guard lookup host unavailable since the wake: {error.message}"
+            return self._fail_now(doc, key, _error(PLACEMENT_UNAVAILABLE, message), now)
+        recorded = _error(error.code, error.message)
+        if st.get("placement_error") == recorded:
+            return None
+        new, nst = _copy_with(doc, key)
+        nst["placement_error"] = recorded
+        _record(new, now, self.host, "placement_waiting", key)
+        return self._cas(doc, new)
 
     def _check_guard(
         self, plan: _Plan, doc: Mapping, step: Step | None, guard: Mapping[str, Any]
@@ -1051,6 +1140,8 @@ class Executor:
             current = self._lookup_head(doc, step, actor, repo, number)
         except _HeadBlocked as exc:
             return _error(HEAD_BLOCKED, str(exc))
+        except _HeadRetry as exc:
+            return _error(HEAD_RETRY, f"could not read the PR head in time: {exc}")
         except Exception as exc:  # noqa: BLE001 - any lookup failure is fail-safe
             log.warning("head lookup failed for %s#%s: %s", repo, number, type(exc).__name__)
             return _error("head_lookup_failed", f"could not read the PR head: {exc}")
@@ -1080,7 +1171,7 @@ class Executor:
             port = ports.get(HEAD_LOOKUP_PORT)
         if port is None:
             raise RuntimeError("no head lookup configured")
-        deadline = self._clock() + timedelta(seconds=30)
+        deadline = self._clock() + timedelta(seconds=HEAD_LOOKUP_TIMEOUT_S)
         res = port.invoke(
             {"repo": repo, "number": number},
             idempotency_key(doc["id"], ctx.step_id),
@@ -1089,6 +1180,8 @@ class Executor:
         )
         if res.outcome == BLOCKED:
             raise _HeadBlocked(res.error or "blocked")
+        if res.outcome == FAILED and res.retryable and res.error in _HEAD_RETRY_CODES:
+            raise _HeadRetry(res.error)
         if res.outcome != COMPLETED:
             raise RuntimeError(res.error or res.outcome)
         return res.output.get("head_sha")

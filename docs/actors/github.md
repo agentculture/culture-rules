@@ -223,8 +223,30 @@ Where the facts come from:
   It adds the facts only when all of them are valid.
   `head_sha` stays the settled SHA and `head_branch` the check's own.
 
+A settled event's `conclusion` counts only the suites of apps not in
+`ignored_check_apps`:
+
+| `conclusion` | When |
+|---|---|
+| `success` | every counted suite completed `success`, `neutral` or `skipped` |
+| `failure` | every counted suite completed, at least one otherwise |
+| `timeout` | the timeout passed with a counted suite still running |
+| `no_checks` | the timeout passed with no counted suite at all |
+
+No counted suite is never green. If every listed suite comes from an ignored
+app, or none is listed yet, the SHA keeps waiting for one to appear. If none
+does, it settles at the timeout as `no_checks`. Only `success` resets a
+rule's attempt budget, so `no_checks` never does.
+
 The receiver stores a check completion first and then arms its head SHA for
 the settle. If arming fails (a store error, say), the webhook answers `503`.
+
+After arming, the receiver may settle the SHA at once. Its GitHub reads, the
+suite listing and the PR read, share one 5-second budget per delivery,
+including resolving the App's private key. They run on the same two capped
+lookup workers as the comment lookup. If the listing runs out of time, or the
+PR read does, the receiver still answers quickly. The SHA stays armed, and the
+node's settle tick emits the settled event with the PR facts.
 GitHub does **not** redeliver a failed delivery on its own, so the node
 recovers it instead:
 

@@ -225,3 +225,126 @@ def test_pr_head_port_refuses_unlisted_repo_and_surfaces_errors(pem):
     assert fake.calls == []
     res = port.invoke({"repo": "acme/widgets", "number": 3}, "k", DEADLINE, context=ctx())
     assert res.outcome == "failed"
+
+
+class SlowSecrets:
+    """A ``grant get`` stand-in that blocks until released (a cold, slow resolve)."""
+
+    def __init__(self, pem):
+        import threading
+
+        self.pem = pem
+        self.release = threading.Event()
+        self.calls = 0
+
+    def __call__(self, ref):
+        self.calls += 1
+        self.release.wait(10)
+        return self.pem
+
+
+def test_pr_head_port_honours_the_deadline_through_a_cold_secret_resolve(pem):
+    """Review #17 finding 6: the head lookup runs inside the executor tick, so a slow
+    ``grant get`` must not hold it past the invocation deadline. It answers
+    ``deadline_exceeded`` (retryable) at the deadline; the resolve finishes in the
+    background and caches the App, so the next lookup is warm (one resolve in all)."""
+    import time
+
+    from culture_rules.node.actions.github import GitHubPrHeadPort
+
+    store = MemoryStore()
+    store.put("actors", actor_doc())
+    fake = HeadFake()
+    secrets = SlowSecrets(pem)
+    port = GitHubPrHeadPort(store, transport=fake, secrets=secrets)
+    try:
+        started = time.monotonic()
+        soon = datetime.now(UTC) + timedelta(seconds=0.2)
+        res = port.invoke({"repo": "acme/widgets", "number": 3}, "k", soon, context=ctx())
+        assert (res.outcome, res.error, res.retryable) == ("failed", "deadline_exceeded", True)
+        assert time.monotonic() - started < 2
+    finally:
+        secrets.release.set()
+    give_up = time.monotonic() + 5
+    while "gh-app" not in port._apps:  # the timed-out worker warms the per-actor App cache
+        assert time.monotonic() < give_up
+        time.sleep(0.01)
+    while True:
+        later = datetime.now(UTC) + timedelta(seconds=2)
+        res = port.invoke({"repo": "acme/widgets", "number": 3}, "k", later, context=ctx())
+        if res.outcome == "completed" or time.monotonic() > give_up:
+            break
+        assert res.error in ("deadline_exceeded", "lookup_busy")
+        time.sleep(0.02)
+    assert dict(res.output) == {"head_sha": "c" * 40}
+    assert secrets.calls == 1
+
+
+def test_pr_head_port_bounds_its_http_calls_by_the_deadline(pem):
+    from culture_rules.node.actions.github import GitHubPrHeadPort
+
+    store = MemoryStore()
+    store.put("actors", actor_doc())
+    fake = HeadFake()
+    port = GitHubPrHeadPort(store, transport=fake, secrets=lambda ref: pem)
+    warm = port.invoke({"repo": "acme/widgets", "number": 3}, "k", DEADLINE, context=ctx())
+    assert warm.outcome == "completed"
+    fake.calls.clear()
+    past = datetime.now(UTC) - timedelta(seconds=1)
+    res = port.invoke({"repo": "acme/widgets", "number": 3}, "k", past, context=ctx())
+    assert (res.outcome, res.error, res.retryable) == ("failed", "deadline_exceeded", True)
+    assert fake.calls == []  # no network call started past the deadline
+
+
+class HangingHeadFake(HeadFake):
+    """GitHub accepting the PR read but never answering: the transport times out after the
+    timeout it was given, as urllib does (``TimeoutError``, wrapped in ``URLError``)."""
+
+    def __init__(self, wrap=False):
+        super().__init__()
+        self.wrap = wrap
+        self.timeouts = []
+
+    def __call__(self, method, url, headers, body, timeout):
+        import time
+        from urllib.error import URLError
+
+        if "/pulls/" in url:
+            self.timeouts.append(timeout)
+            time.sleep(timeout)
+            exc = TimeoutError("timed out")
+            raise URLError(exc) if self.wrap else exc
+        return super().__call__(method, url, headers, body, timeout)
+
+
+@pytest.mark.parametrize("wrap", [False, True])
+def test_pr_head_port_turns_an_in_flight_http_timeout_into_deadline_exceeded(pem, wrap):
+    """Codex r17b finding 2: a read cut off in flight by the deadline-bound timeout is
+    ``deadline_exceeded`` (retryable, which the wait guard re-arms on), not a
+    ``network_error`` that fails the run at once."""
+    from culture_rules.node.actions.github import GitHubPrHeadPort
+
+    store = MemoryStore()
+    store.put("actors", actor_doc())
+    fake = HangingHeadFake(wrap=wrap)
+    port = GitHubPrHeadPort(store, transport=fake, secrets=lambda ref: pem)
+    soon = datetime.now(UTC) + timedelta(seconds=0.3)
+    res = port.invoke({"repo": "acme/widgets", "number": 3}, "k", soon, context=ctx())
+    assert (res.outcome, res.error, res.retryable) == ("failed", "deadline_exceeded", True)
+    assert fake.timeouts and fake.timeouts[0] <= 0.3
+
+
+def test_a_transport_failure_unrelated_to_the_deadline_stays_a_network_error(pem):
+    from culture_rules.node.actions.github import GitHubPrHeadPort
+
+    class Refused(HeadFake):
+        def __call__(self, method, url, headers, body, timeout):
+            if "/pulls/" in url:
+                raise ConnectionRefusedError("no")
+            return super().__call__(method, url, headers, body, timeout)
+
+    store = MemoryStore()
+    store.put("actors", actor_doc())
+    port = GitHubPrHeadPort(store, transport=Refused(), secrets=lambda ref: pem)
+    res = port.invoke({"repo": "acme/widgets", "number": 3}, "k", DEADLINE, context=ctx())
+    assert (res.outcome, res.error) == ("failed", "network_error")

@@ -457,9 +457,14 @@ def reserve_concurrency(
     """Atomically reserve a key and consume one attempt, or return a skip reason.
 
     The reservation commits with the firing intent, before starting the run. A
-    crashed node's pending intent therefore retains the key until another node
-    starts it. Read the actual run's terminal status on admission: cancellation,
-    supersession and completion need no fallible secondary completion callback.
+    crashed node's pending intent therefore retains the key until it is started - by
+    any node for an unplaced rule, only by its evaluating host for a placed one - or
+    marked failed (which frees it: see below). A placed intent whose host stays offline
+    past :data:`~culture_rules.engine.runs.PLACEMENT_ABANDON_AFTER` is failed
+    ``placement_unavailable`` by any node (:mod:`culture_rules.node.firing`, "Stranded
+    placed intents"), so a dead host never holds the key forever. Read the actual run's
+    terminal status on admission: cancellation, supersession and completion need no
+    fallible secondary completion callback.
     CAS losers re-read *all* admission facts, never just increment the counter.
 
     A successful reservation clears the key's pending deduplicated event: its holder ended

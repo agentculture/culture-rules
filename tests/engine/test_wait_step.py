@@ -352,6 +352,11 @@ class ScriptedHead:
         kind, value = self.results.pop(0)
         if kind == "blocked":
             return InvocationResult.blocked("busy")
+        if kind == "timeout":
+            return InvocationResult.failed("deadline_exceeded", retryable=True)
+        if kind == "busy":
+            return InvocationResult.failed("lookup_busy", retryable=True)
+        self.deadlines = [*getattr(self, "deadlines", []), deadline]
         return InvocationResult.completed({"head_sha": value})
 
 
@@ -374,3 +379,157 @@ def test_lookup_goes_through_the_actors_limits_and_blocked_retries_later(store, 
     assert doc["error"] is None, doc["error"]
     assert doc["status"] == "succeeded"
     assert inner.calls == 2
+
+
+def _guard_on_thor(store, clock):
+    from culture_rules.model.actor import Actor
+    from culture_rules.node.actors import ACTORS_COLLECTION
+    from tests.engine.run_helpers import enrol_online, machine
+
+    enrol_online(store, clock, machine("spark"), machine("thor"))
+    store.put(
+        ACTORS_COLLECTION,
+        Actor(id="gh", name="gh", kind="service", machine="thor").to_dict(),
+    )
+
+
+def test_guard_actor_host_offline_fails_the_wait_after_the_bound(store, clock):
+    """Review #17 finding 1: a guarded wake whose actor's machine stays offline never
+    proceeds, but it is not stranded either - past PLACEMENT_ABANDON_AFTER (measured from the
+    wake) any node fails the step ``placement_unavailable`` and the run ends (releasing a
+    held concurrency key); before that it waits, the placement error recorded."""
+    from culture_rules.engine.runs import PLACEMENT_ABANDON_AFTER, PLACEMENT_UNAVAILABLE
+    from tests.engine.run_helpers import enrol_online, machine
+
+    _guard_on_thor(store, clock)
+    heads = Heads(SHA_A)
+    spark = make(store, clock, FakeActor(), heads, host="spark")
+    run = _sleeping_run(spark, guard_config(60))
+    clock.advance(61)
+    enrol_online(store, clock, machine("spark"))  # only spark beats: thor is offline
+    spark.run_until_idle()
+    st = step_state(spark.run(run["id"]), "w")
+    assert st["status"] == "sleeping"  # merely offline for now: wait for it
+    assert st["placement_error"]["code"] == "placement.machine_offline"
+    assert heads.calls == []
+
+    clock.advance(PLACEMENT_ABANDON_AFTER.total_seconds() - 5)
+    enrol_online(store, clock, machine("spark"))
+    spark.run_until_idle()
+    assert step_state(spark.run(run["id"]), "w")["status"] == "sleeping"
+
+    clock.advance(10)
+    enrol_online(store, clock, machine("spark"))
+    spark.run_until_idle()
+    doc = spark.run(run["id"])
+    assert step_state(doc, "w")["status"] == "failed"
+    assert step_state(doc, "w")["error"]["code"] == PLACEMENT_UNAVAILABLE
+    assert doc["status"] == "failed"
+    assert heads.calls == []  # never proceeded as if the head were unchanged
+
+
+def test_guard_actor_host_back_in_time_wakes_normally(store, clock):
+    from tests.engine.run_helpers import enrol_online, machine
+
+    _guard_on_thor(store, clock)
+    heads = Heads(SHA_A)
+    spark = make(store, clock, FakeActor(), Heads(SHA_A), host="spark")
+    thor = make(store, clock, FakeActor(), heads, host="thor")
+    run = _sleeping_run(spark, guard_config(60))
+    clock.advance(61)
+    enrol_online(store, clock, machine("spark"))
+    spark.run_until_idle()
+    clock.advance(120)  # thor is slow to come back, but inside the bound
+    enrol_online(store, clock, machine("spark"), machine("thor"))
+    spark.run_until_idle()
+    thor.run_until_idle()
+    assert heads.calls == [("gh", "o/r", 7)]
+    assert thor.run(run["id"])["status"] == "succeeded"
+
+
+def test_guard_actor_host_unenrolled_fails_the_wait_at_once(store, clock):
+    from culture_rules.machines.enrol import unenrol
+    from tests.engine.run_helpers import enrol_online, machine
+
+    _guard_on_thor(store, clock)
+    spark = make(store, clock, FakeActor(), Heads(SHA_A), host="spark")
+    run = _sleeping_run(spark, guard_config(60))
+    unenrol(store, "thor", apply=True)
+    clock.advance(61)
+    enrol_online(store, clock, machine("spark"))
+    spark.run_until_idle()
+    doc = spark.run(run["id"])
+    assert step_state(doc, "w")["error"]["code"] == "placement.machine_unknown"
+    assert doc["status"] == "failed"
+
+
+def test_a_timed_out_head_lookup_is_retried_later_not_failed(store, clock):
+    """Review #17 finding 6: the head port honours the invocation deadline, so a cold
+    secret resolve or slow GitHub answers ``deadline_exceeded`` (retryable) while the App
+    warms in the background; the wake re-arms instead of failing the run."""
+    from datetime import timedelta
+
+    from culture_rules.engine.runs import HEAD_LOOKUP_TIMEOUT_S
+
+    inner = ScriptedHead(("timeout", None), ("busy", None), ("ok", SHA_A))
+    ex, _ = _router_executor(store, clock, inner)
+    run = _sleeping_run(ex, guard_config(60))
+    clock.advance(61)
+    ex.run_until_idle()
+    st = step_state(ex.run(run["id"]), "w")
+    assert st["status"] == "sleeping" and st["lookup_retries"] == 1
+    for _ in range(2):
+        clock.advance(10)
+        ex.run_until_idle()
+    doc = ex.run(run["id"])
+    assert doc["status"] == "succeeded", doc
+    assert inner.calls == 3
+    # the lookup's deadline is the short head-lookup bound, not a step timeout
+    assert inner.deadlines[0] == clock() + timedelta(seconds=HEAD_LOOKUP_TIMEOUT_S)
+
+
+def test_a_head_lookup_that_keeps_timing_out_fails_safe(store, clock):
+    from culture_rules.engine.runs import HEAD_LOOKUP_RETRIES
+
+    inner = ScriptedHead(*[("timeout", None)] * (HEAD_LOOKUP_RETRIES + 1))
+    ex, _ = _router_executor(store, clock, inner)
+    run = _sleeping_run(ex, guard_config(60))
+    clock.advance(61)
+    for _ in range(HEAD_LOOKUP_RETRIES + 1):
+        ex.run_until_idle()
+        clock.advance(10)
+    doc = ex.run(run["id"])
+    assert step_state(doc, "w")["error"]["code"] == "head_lookup_failed"
+    assert doc["status"] == "failed"
+    assert inner.calls == HEAD_LOOKUP_RETRIES + 1
+
+
+class SlowTimingOutHead(ScriptedHead):
+    """A head port whose every call uses up its whole deadline, then times out."""
+
+    def __init__(self, clock, answers):
+        super().__init__(*answers)
+        self.clock = clock
+
+    def invoke(self, input, key, deadline, *, context):
+        self.clock.now = deadline  # the lookup consumed its full deadline
+        return super().invoke(input, key, deadline, context=context)
+
+
+@pytest.mark.parametrize("answer", ["timeout", "blocked"])
+def test_a_slow_failed_lookup_backs_off_from_when_it_returned(store, clock, answer):
+    """Codex r17b finding 3: the retry is scheduled from the clock after the lookup, so a
+    lookup that used its whole deadline does not re-run at once in the same tick."""
+    from datetime import timedelta
+
+    from culture_rules.engine.runs import BLOCKED_RETRY_S, HEAD_LOOKUP_RETRIES
+
+    inner = SlowTimingOutHead(clock, [(answer, None)] * (HEAD_LOOKUP_RETRIES + 1))
+    ex, _ = _router_executor(store, clock, inner)
+    run = _sleeping_run(ex, guard_config(60))
+    clock.advance(61)
+    ex.run_until_idle()
+    assert inner.calls == 1  # one lookup per backoff, not all of them in one tick
+    st = step_state(ex.run(run["id"]), "w")
+    assert st["status"] == "sleeping"
+    assert st["deadline"] == (clock() + timedelta(seconds=BLOCKED_RETRY_S)).isoformat()
