@@ -1,6 +1,41 @@
 {
   "components": {
     "schemas": {
+      "ActiveRun": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "ActiveRun",
+        "type": "object"
+      },
       "Ask": {
         "additionalProperties": true,
         "description": "A human ask (``asks`` collection, culture_rules/actors/human.py).",
@@ -916,6 +951,67 @@
           "run_id"
         ],
         "title": "RunningStep",
+        "type": "object"
+      },
+      "StopRunsRequest": {
+        "properties": {
+          "apply": {
+            "default": false,
+            "description": "false = dry-run: list the active runs, cancel nothing",
+            "title": "Apply",
+            "type": "boolean"
+          },
+          "reason": {
+            "default": "",
+            "description": "recorded on each cancelled run; default 'rule disabled: stopped by <you>'",
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "title": "StopRunsRequest",
+        "type": "object"
+      },
+      "StopRunsResult": {
+        "description": "d17: the active runs of a disabled rule, and which of them this call cancelled.",
+        "properties": {
+          "applied": {
+            "title": "Applied",
+            "type": "boolean"
+          },
+          "cancelled": {
+            "description": "ids this call cancelled (status cancelled); empty in a dry-run",
+            "items": {
+              "type": "string"
+            },
+            "title": "Cancelled",
+            "type": "array"
+          },
+          "rule_id": {
+            "title": "Rule Id",
+            "type": "string"
+          },
+          "runs": {
+            "description": "the active runs, oldest first (at most 50)",
+            "items": {
+              "$ref": "#/components/schemas/ActiveRun"
+            },
+            "title": "Runs",
+            "type": "array"
+          },
+          "total": {
+            "description": "how many runs were active",
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "rule_id",
+          "applied",
+          "runs",
+          "total",
+          "cancelled"
+        ],
+        "title": "StopRunsResult",
         "type": "object"
       },
       "TokenIssue": {
@@ -4579,6 +4675,7 @@
         ]
       },
       "put": {
+        "description": "Replace the rule. A save that switches an enabled rule off answers `active_runs` and `active_runs_total` too, as `POST /rules/{id}/disable` does (d17).",
         "operationId": "update_rule",
         "parameters": [
           {
@@ -4683,6 +4780,7 @@
     },
     "/rules/{id}/disable": {
       "post": {
+        "description": "Disable the rule. The answer is the stored rule plus `active_runs` (its non-terminal runs, oldest first, at most 50, each `{id, status, started_at}`) and `active_runs_total`. Disabling never stops those runs: offer `POST /rules/{id}/stop-runs` to cancel them (d17); left running, a push step still refuses with `rule_disabled`.",
         "operationId": "disable_rule",
         "parameters": [
           {
@@ -5174,6 +5272,114 @@
         "summary": "Restore",
         "tags": [
           "rules"
+        ]
+      }
+    },
+    "/rules/{rule_id}/stop-runs": {
+      "post": {
+        "description": "d17: cancel every active run of a **disabled** rule (409 ``rule_enabled`` while it is\nenabled). ``apply: false`` (the default) lists them only. Each run is cancelled through\n``POST /runs/{run_id}/cancel``'s path (status ``cancelled``, audited ``runs.cancel``),\nso it pushes nothing more and hands nothing back; runs on any node are included.\nIdempotent: once none are active it cancels nothing.",
+        "operationId": "stop_rule_runs",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "rule_id",
+            "required": true,
+            "schema": {
+              "title": "Rule Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/StopRunsRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StopRunsResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Wrong state / already exists"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Validation failed (errors listed)"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Stop Rule Runs",
+        "tags": [
+          "runs"
         ]
       }
     },

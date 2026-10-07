@@ -393,6 +393,42 @@ there), then enabling the rules for one repository.
 | Bridge | qwen on 8093, tailnet only |
 | Actor | `qwen-fixer` (planned) |
 
+## Disabling the fixer mid-run (d17)
+
+Disabling the fixer rule stops it firing. It does **not** stop the runs
+already going: the disable answers them, and you choose. The examples call
+the rule `pr-fixer`; use the id it was imported with.
+
+```console
+$ culture-rules rules disable pr-fixer --apply --json
+{ "verb": "rules disable", "applied": true, "result": { "id": "pr-fixer", "enabled": false,
+  "active_runs": [{ "id": "run-…", "status": "running", "started_at": "…" }],
+  "active_runs_total": 1, … },
+  "hint": "1 current run(s) of pr-fixer are still active; disabling does not stop them. Stop them with: culture-rules rules stop-runs pr-fixer --apply" }
+```
+
+`active_runs` lists at most 50 runs, oldest first; `active_runs_total` counts
+them all. A `rules update` that sets `enabled: false` answers the same. In the
+editor, switching the rule off shows a notice, **"Stop N current runs?"**,
+with **Approve** and **Keep running**.
+
+- **Approve** (`culture-rules rules stop-runs pr-fixer --apply`, or
+  `POST /rules/pr-fixer/stop-runs` with `{"apply": true}`, editor role):
+  - each active run is cancelled through the normal run cancel, with status
+    `cancelled` and the reason `rule disabled: stopped by <you>`, audited as
+    `runs.cancel`;
+  - the runs are read from the store, so a run another node is executing
+    is cancelled too. That node's late result for it is ignored;
+  - a cancelled run pushes nothing, comments nothing and hands nothing back:
+    a cancel is not a failure;
+  - without `--apply` it only lists the runs it would cancel;
+  - a second call cancels nothing;
+  - it is refused while the rule is enabled (`409 rule_enabled`, CLI exit 1).
+    Stopping is offered only for a rule that is off.
+- **Keep running** (or do nothing): the runs go on. The push step reads the
+  live rule, so it still refuses with `rule_disabled`, and nothing reaches
+  the PR branch.
+
 ## Which repos carry a gate section (t19)
 
 A repo without `gate:` gets comments only; the fixer never pushes there.

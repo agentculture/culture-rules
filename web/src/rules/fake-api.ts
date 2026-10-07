@@ -1,4 +1,4 @@
-import type { Rule, RunSummary } from "../api/types";
+import type { ActiveRun, Rule, RunSummary } from "../api/types";
 import type { Variable } from "../api/variables";
 import {
   ACTORS,
@@ -46,6 +46,8 @@ export interface FakeApi {
   variableVersions: Variable[];
   asks: FakeAsk[];
   waitingRuns: RunSummary[];
+  /** Each rule's active runs: a disable reports them, `stop-runs` cancels them (d17). */
+  activeRuns: Record<string, ActiveRun[]>;
   calls: { method: string; path: string; body?: unknown }[];
   /** Make the next request to `method path` fail with this status. */
   failNext: Record<string, { status: number; code: string; message: string }>;
@@ -65,6 +67,7 @@ export function createFakeApi(now = Date.now()): FakeApi {
     variableVersions: structuredClone([...VARIABLE_VERSIONS, VARIABLES[1]]),
     asks: [],
     waitingRuns: [],
+    activeRuns: {},
     calls: [],
     failNext: {},
     now,
@@ -93,6 +96,16 @@ export function withPendingAsk(api: FakeApi, ruleId = "build-and-publish"): Fake
       status: "open",
     },
   ];
+  return api;
+}
+
+/** `n` runs of `ruleId` still going, so disabling it asks 'Stop N current runs?'. */
+export function withActiveRuns(api: FakeApi, ruleId: string, n: number): FakeApi {
+  api.activeRuns[ruleId] = Array.from({ length: n }, (_, i) => ({
+    id: `run-active-${i + 1}`,
+    status: "running",
+    started_at: new Date(api.now - (i + 1) * 60_000).toISOString(),
+  }));
   return api;
 }
 
@@ -177,7 +190,7 @@ function ruleHistory(api: FakeApi, id: string, query: URLSearchParams): FakeResp
   return json(200, { items });
 }
 
-/** `/rules/{id}[/enable|/disable|/restore]` writes; null when the method doesn't apply. */
+/** `/rules/{id}[/enable|/disable|/restore|/stop-runs]` writes; null when the method doesn't apply. */
 function handleRuleWrite(
   api: FakeApi,
   method: string,
@@ -195,7 +208,22 @@ function handleRuleWrite(
   if (!found) return error(404, "not_found", `rule ${id} does not exist`);
   if (method === "POST" && (verb === "enable" || verb === "disable")) {
     found.enabled = verb === "enable";
-    return json(200, found);
+    if (verb === "enable") return json(200, found);
+    const active = api.activeRuns[id] ?? [];
+    return json(200, { ...found, active_runs: active.slice(0, 50), active_runs_total: active.length });
+  }
+  if (method === "POST" && verb === "stop-runs") {
+    if (found.enabled !== false) return error(409, "rule_enabled", `rule ${id} is enabled`);
+    const active = api.activeRuns[id] ?? [];
+    const apply = (body as { apply?: boolean } | undefined)?.apply === true;
+    if (apply) api.activeRuns[id] = [];
+    return json(200, {
+      rule_id: id,
+      applied: apply,
+      runs: active.slice(0, 50),
+      total: active.length,
+      cancelled: apply ? active.map((r) => r.id) : [],
+    });
   }
   if (method === "PUT") {
     Object.assign(found, body as Rule, { id });
@@ -242,7 +270,7 @@ export function handle(
   }
   const variable = /^\/variables\/([^/]+)$/.exec(path);
   if (method === "PUT" && variable) return variableWrite(api, decodeURIComponent(variable[1]), body);
-  const rule = /^\/rules\/([^/]+)(?:\/(enable|disable|restore))?$/.exec(path);
+  const rule = /^\/rules\/([^/]+)(?:\/(enable|disable|restore|stop-runs))?$/.exec(path);
   if (rule) {
     const done = handleRuleWrite(api, method, rule[1], rule[2], body);
     if (done) return done;

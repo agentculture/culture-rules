@@ -168,6 +168,12 @@ $ culture-rules rules enable greet-on-event --apply
 { "verb": "rules enable", "applied": true, ... "result": { "id": "greet-on-event", ... } }
 ```
 
+Disabling never stops runs already going. When the rule has any, the
+disable answers them as `active_runs` (with `active_runs_total`) and adds a
+hint. `culture-rules rules stop-runs <id> --apply` cancels them; it is
+refused while the rule is enabled. See `docs/operations/pr-fixer.md`,
+"Disabling the fixer mid-run".
+
 Before trusting a rule, replay it against recorded events. This reports
 what would fire and executes nothing (note `actions_executed: 0`); the
 event is recorded in step 7:
