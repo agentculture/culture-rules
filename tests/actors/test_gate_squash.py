@@ -147,3 +147,24 @@ def test_nothing_agent_written_reaches_the_built_commits_metadata(
     assert git(check, "log", "-1", "--format=%cd", "--date=raw", built) == git(
         repo.wt, "log", "-1", "--format=%cd", "--date=raw", repo.start
     )
+
+
+# --------------------------------------------------------------------------- round 3, #5
+
+
+def test_r3_5_the_gate_tests_exactly_the_commit_it_publishes(store, tmp_path, clock):  # noqa: F811
+    from tests.actors.test_gate import PY
+
+    show = [
+        PY,
+        "-c",
+        "import subprocess; print('HEAD=' + subprocess.check_output("
+        "['git', 'log', '-1', '--format=%H %an'], text=True).strip())",
+    ]
+    repo = Repo(tmp_path, gate_yaml([show]))
+    tip = repo.commit("fix", {"src/app.py": "x = 3\n"})
+    out = judge(store, LocalRunner(), repo, tmp_path, clock)
+    assert out["verdict"] == PASS
+    assert out["commit_sha"] != tip
+    # the tests saw the published commit (its SHA and its engine-written author), not the tip
+    assert f"HEAD={out['commit_sha']} rules-culture-dev[bot]" in out["output_tail"]

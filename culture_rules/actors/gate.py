@@ -1082,7 +1082,10 @@ class GatePort:
             spec = self._spec(job, shas["base_sha"])
             if spec is None:
                 verdict["verdict"] = NO_GATE
-                verdict.update(self._built(job, shas, diff_cap, context))
+                built = self._build(job, shas, context)
+                verdict.update(
+                    commit_sha=built, **self._diff(job, shas["start_sha"], built, diff_cap)
+                )
                 return verdict
             verdict["gate"] = spec.to_dict()
             violations = self._guard(job, shas, config)
@@ -1093,26 +1096,38 @@ class GatePort:
                     violations=[v.to_dict() for v in violations],
                 )
             else:
+                # round 3 (#5): build the published commit FIRST, then test, diff, review and
+                # bundle exactly that commit - never the agent's tip
+                built = self._build(job, shas, context)
+                verdict["commit_sha"] = built
+                self._repack(job, built)
                 self._judge(job, spec, verdict, tail_bytes)
                 if verdict["verdict"] == PASS:
-                    verdict.update(self._built(job, shas, diff_cap, context))
-                    verdict["bundle"] = self._bundle(job, verdict["commit_sha"], context)
+                    verdict.update(self._diff(job, shas["start_sha"], built, diff_cap))
+                    verdict["bundle"] = self._bundle(job, built, context)
             verdict["instruction"] = _instruction(verdict)
             return verdict
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
-    def _built(
-        self, job: _Job, shas: Mapping[str, str], cap: int, context: InvocationContext
-    ) -> dict[str, Any]:
-        """The gate-built commit (see :meth:`_build_commit`) as ``commit_sha``, and its diff."""
+    def _build(self, job: _Job, shas: Mapping[str, str], context: InvocationContext) -> str:
+        """The gate-built commit (see :meth:`_build_commit`)."""
         identity = (context.config or {}).get("commit_identity", FIXER_COMMIT_IDENTITY)
         parsed = _identity(identity)
         if parsed is None:
             raise _Refusal("bad_config", "commit_identity must look like 'Name <email>'")
         message = self._message(context)
-        built = self._build_commit(job, shas["start_sha"], shas["commit_sha"], parsed, message)
-        return {"commit_sha": built, **self._diff(job, shas["start_sha"], built, cap)}
+        return self._build_commit(job, shas["start_sha"], shas["commit_sha"], parsed, message)
+
+    @staticmethod
+    def _repack(job: _Job, sha: str) -> None:
+        """Replace the checkout's pack with one holding ``sha`` and its history, so the
+        fresh checkout (and so every test) sees the built commit itself."""
+        revs = os.path.join(job.tmp, "built-revs")
+        Path(revs).write_text(f"{sha}\n")
+        with open(revs, "rb") as stdin:
+            pack = job.git("pack-objects", "--revs", "--stdout", "-q", stdin=stdin)
+        Path(os.path.join(job.tmp, "in.pack")).write_bytes(pack)
 
     def _message(self, context: InvocationContext) -> str:
         """An engine-written message from trusted run state only (never agent text)."""
