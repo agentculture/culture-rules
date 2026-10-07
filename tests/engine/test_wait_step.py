@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from culture_rules.engine.runs import RUNS_COLLECTION, Executor, step_state
+from culture_rules.engine.runs import RUNS_COLLECTION, Containment, Executor, step_state
 from culture_rules.store.memory import MemoryStore
 from tests.engine.run_helpers import (
     Clock,
@@ -580,3 +580,32 @@ def test_a_guarded_wake_blocked_past_its_queue_bound_fails_queue_timeout(store, 
     assert st["error"]["code"] == QUEUE_TIMEOUT
     assert doc["status"] == "failed"
     assert [h["event"] for h in doc["history"]].count("wait_blocked") == 1
+
+
+def test_a_blocked_guarded_wake_expires_at_its_bound_even_while_its_node_is_drained(store, clock):
+    """Codex r2 on f6d31f3: the lookup's queue bound is checked in housekeeping, not only
+    when another lookup answers blocked. Blocked once, node drained past the bound: the
+    wait fails ``queue_timeout`` without another lookup, and an undrained node never lets
+    a later successful lookup carry the run on past the expired bound."""
+    from culture_rules.engine.runs import DEFAULT_TIMEOUT_S, QUEUE_TIMEOUT, queue_limit_s
+
+    inner = ScriptedHead(("blocked", None), ("ok", SHA_A))
+    ex, _ = _router_executor(store, clock, inner)
+    run = _sleeping_run(ex, guard_config(60))
+    clock.advance(61)
+    ex.run_until_idle()
+    assert inner.calls == 1
+    assert step_state(ex.run(run["id"]), "w")["status"] == "sleeping"
+    Containment(store).drain("spark", "ops")
+    clock.advance(queue_limit_s(DEFAULT_TIMEOUT_S) + 1)  # 7201 s
+    ex.run_until_idle()
+    doc = ex.run(run["id"])
+    st = step_state(doc, "w")
+    assert st["status"] == "failed", st
+    assert st["error"]["code"] == QUEUE_TIMEOUT
+    assert "7200" in st["error"]["message"]  # names the bound
+    assert inner.calls == 1  # no further lookup
+    Containment(store).undrain("spark", "ops")
+    ex.run_until_idle()
+    assert inner.calls == 1
+    assert ex.run(run["id"])["status"] == "failed"

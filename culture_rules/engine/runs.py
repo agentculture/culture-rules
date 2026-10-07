@@ -75,9 +75,11 @@ Semantics
   wake whose lookup is ``blocked`` re-arms with the same backoff and records
   ``wait_blocked`` once (``lookup_blocked`` counts the repeats); past the same bound from
   ``lookup_blocked_since`` (the wait step's ``timeout_s``, default
-  :data:`DEFAULT_TIMEOUT_S`) it fails ``queue_timeout``. The bound also holds while a
-  re-poll left the step ``pending`` (a drained or unavailable node), but never once it is
-  ``dispatching``: that work may have started, and its resumed dispatch settles it.
+  :data:`DEFAULT_TIMEOUT_S`) it fails ``queue_timeout``, checked in housekeeping on any
+  node (drained included) before another lookup, so an expired wait never looks again.
+  The bound also holds while a re-poll left the step ``pending`` (a drained or
+  unavailable node), but never once it is ``dispatching``: that work may have started,
+  and its resumed dispatch settles it.
 * **Exactly-once dispatch** - a step is invoked only under its claim
   (:mod:`culture_rules.engine.claims`). While ``invoke`` blocks, a
   :class:`~culture_rules.engine.leasekeeper.LeaseKeeper` renews the claim's lease every
@@ -1119,14 +1121,14 @@ class Executor:
                 # the first refusal only (the counter tracks repeats; history stays bounded)
                 blocked = int(st.get("lookup_blocked") or 0) + 1
                 since = _parse(st.get("lookup_blocked_since")) or later
-                limit = timedelta(seconds=queue_limit_s(_timeout_of(plan, st)))
-                if later >= since + limit:  # the same queue bound as a blocked step's
-                    nst.update(status="failed", error=_error(QUEUE_TIMEOUT, outcome["message"]))
-                    _record(new, later, self.host, "failed", st["key"])
+                nst["lookup_blocked_since"] = _iso(since)
+                expired = _lookup_queue_expired(plan, nst, later)
+                if expired is not None:  # the lookup itself ran past the bound
+                    nst.update(status="failed", error=expired)
+                    _record(new, later, self.host, QUEUE_TIMEOUT, st["key"])
                     return self._cas(doc, new)
                 nst["deadline"] = _iso(later + timedelta(seconds=_blocked_delay(blocked)))
                 nst["lookup_blocked"] = blocked
-                nst["lookup_blocked_since"] = _iso(since)
                 if blocked == 1:
                     _record(new, later, self.host, "wait_blocked", st["key"])
                 else:
@@ -1134,6 +1136,8 @@ class Executor:
             elif outcome is not None and outcome["code"] == HEAD_RETRY:
                 nst["deadline"] = _iso(later + timedelta(seconds=BLOCKED_RETRY_S))
                 nst["lookup_retries"] = retries
+                # the lookup was admitted: a later refusal starts a new queue spell
+                nst.update(lookup_blocked=0, lookup_blocked_since=None)
                 _record(new, later, self.host, "wait_retry", st["key"])
             elif outcome is None:
                 nst.update(status="succeeded", outputs={}, error=None)
@@ -1711,6 +1715,24 @@ def _queue_poll(plan: _Plan, st: dict, result: InvocationResult, now: datetime) 
     )
 
 
+def _lookup_queue_expired(plan: _Plan, st: Mapping, now: datetime) -> dict | None:
+    """The ``queue_timeout`` error of a guarded wait whose head lookup has been refused
+    (``blocked``) since ``lookup_blocked_since`` for longer than the queue bound, else None.
+    Checked in housekeeping (any node, drained or not, before any lookup) and after a
+    refused lookup."""
+    since = _parse(st.get("lookup_blocked_since"))
+    if since is None:
+        return None
+    limit = queue_limit_s(_timeout_of(plan, st))
+    if now < since + timedelta(seconds=limit):
+        return None
+    return _error(
+        QUEUE_TIMEOUT,
+        f"the head lookup's actor refused (blocked) from {_iso(since)} past the queue bound "
+        f"of {limit:g} s ({st.get('lookup_blocked')} refusals)",
+    )
+
+
 def _timeout_of(plan: _Plan, st: Mapping) -> float:
     """The step's (or the terminal action's) working budget in seconds."""
     if st["key"] in TERMINAL_STEPS:
@@ -2023,6 +2045,11 @@ def _due_timers(plan: _Plan, doc: Mapping, now: datetime) -> Found:
     for st in doc["steps"]:
         status = st["status"]
         deadline = _parse(st.get("deadline"))
+        if status == SLEEPING and (expired := _lookup_queue_expired(plan, st, now)):
+            # a guarded wake queued on its lookup's actor: bounded whatever its node does
+            new, nst = _copy_with(doc, st["key"])
+            nst.update(status="failed", error=expired)
+            return new, QUEUE_TIMEOUT, st["key"]
         if status == "waiting" and deadline is not None and now >= deadline:
             new, nst = _copy_with(doc, st["key"])
             # Re-invoking timed-out work reuses its key; dispatch refuses (unsafe_retry)
