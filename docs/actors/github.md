@@ -245,6 +245,18 @@ recovers it instead:
 - A store error stops the scan before the failed completion, and the next
   tick retries it.
 
+Recovery only arms a SHA, which needs no credentials, so every node does it.
+Polling the suites and emitting the settled event are restricted:
+
+- A node claims a pending SHA's poll only if it can serve the repository's
+  App actor. The actor must be placed on that node's machine, and its private
+  key must resolve on that node.
+- An actor with no `machine` is served by any node whose private key
+  resolves. Set no machine only when you put the key on every node you want
+  to share the settle.
+- A node without the key never claims a poll, so it cannot time a SHA out
+  without the PR facts. It retries a failed key resolve once a minute.
+
 What recovery cannot cover:
 
 - If storing the completion itself fails, nothing is recorded. Redeliver it

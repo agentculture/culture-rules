@@ -675,3 +675,162 @@ def test_concurrent_nodes_recover_and_fire_a_sha_exactly_once():
     assert sum(totals) == 20
     assert len(settled(store)) == 20
     assert len({e["id"] for e in settled(store)}) == 20
+
+
+# ---------------------------------------------------------------------- placement (wave-3 P1)
+
+
+def _placed_store(machine):
+    store = MemoryStore()
+    store.put_variable("checks_settle_min_s", 0, updated_by="t")
+    store.put_variable("checks_settle_timeout_s", 60, updated_by="t")
+    store.insert(
+        "actors",
+        {
+            "id": "github-app",
+            "kind": "app",
+            "machine": machine,
+            "params": {
+                "surface": "github",
+                "connection": {
+                    "app_id": "1",
+                    "installation_id": "2",
+                    "private_key": "grant:K",
+                    "repos": [REPO],
+                },
+            },
+        },
+    )
+    return store
+
+
+def _github(suite_status):
+    import json
+
+    pr = {
+        "number": 7,
+        "head": {"sha": "b" * 40, "ref": "feat", "repo": {"full_name": REPO}},
+        "base": {"sha": "c" * 40, "ref": "main", "repo": {"full_name": REPO}},
+        "draft": False,
+        "user": {"login": "alice"},
+    }
+    calls = []
+
+    def transport(method, url, headers, body, timeout):
+        calls.append(url)
+        if url.endswith("/access_tokens"):
+            expires = (datetime.now(UTC) + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+            return 201, json.dumps({"token": "t", "expires_at": expires}).encode()
+        if "/check-suites" in url:
+            suite = {"app": {"slug": "github-actions"}, "status": suite_status[0]}
+            suite["conclusion"] = "success" if suite_status[0] == "completed" else None
+            return 200, json.dumps({"check_suites": [suite]}).encode()
+        return 200, json.dumps(pr).encode()
+
+    return transport, calls
+
+
+class NoSecret:
+    """A node without the App key: every resolve fails (and is counted)."""
+
+    def __init__(self):
+        self.calls = 0
+
+    def __call__(self, ref):
+        from culture_rules.actors.secrets import SecretError
+
+        self.calls += 1
+        raise SecretError(f"cannot resolve secret reference {ref}")
+
+
+def _node_settler(store, host, secrets, transport, clock, **kw):
+    from culture_rules.node.checks_settle import AppSuiteLister
+
+    lister = AppSuiteLister(store, host=host, transport=transport, secrets=secrets, **kw)
+    return ChecksSettler(
+        store, lister.list_suites, pull=lister.get_pull, serves=lister.serves, clock=clock
+    )
+
+
+def _arm_pending(store, clock):
+    """The webhook armed the SHA while a suite still ran (the server lists via its own key)."""
+    webhook = ChecksSettler(store, Suites(("github-actions", "in_progress")), clock=clock)
+    assert webhook.on_check(check_data()) == "pending"
+
+
+def test_settle_polls_only_on_the_app_actors_machine_with_enrichment():
+    import pytest
+
+    pytest.importorskip("cryptography")
+    store, clock, status = _placed_store("spark"), Clock(), ["in_progress"]
+    transport, calls = _github(status)
+    _arm_pending(store, clock)
+    # thor has no key; spark2 has the key but the actor is placed on spark
+    thor = _node_settler(store.peer(), "thor", NoSecret(), transport, clock)
+    pem = _pem()
+    spark2 = _node_settler(store.peer(), "spark2", lambda ref: pem, transport, clock)
+    spark = _node_settler(store.peer(), "spark", lambda ref: pem, transport, clock)
+    status[0] = "completed"
+    clock.now = T0 + timedelta(seconds=61)  # past the deadline: a claim here would time out
+    for _ in range(5):
+        assert thor.tick() == 0
+        assert spark2.tick() == 0
+    rec = store.get(SETTLE_COLLECTION, f"{REPO}@{SHA}")
+    assert rec["state"] == "pending" and not rec.get("polls") and calls == []
+    assert settled(store) == []
+    assert spark.tick() == 1
+    [event] = settled(store)
+    data = event["envelope"]["data"]
+    assert data["settled_by"] == "all_completed" and data["conclusion"] == "success"
+    assert data["head_repo"] == data["base_repo"] == REPO and data["base_sha"] == "c" * 40
+
+
+def test_settle_fails_closed_on_the_placed_machine_without_the_key():
+    store, clock = _placed_store("spark"), Clock()
+    transport, calls = _github(["in_progress"])
+    _arm_pending(store, clock)
+    spark = _node_settler(store.peer(), "spark", NoSecret(), transport, clock)
+    clock.now = T0 + timedelta(seconds=61)
+    assert spark.tick() == 0
+    assert settled(store) == [] and calls == []
+    assert not store.get(SETTLE_COLLECTION, f"{REPO}@{SHA}").get("polls")
+
+
+def test_unplaced_app_actor_settles_on_any_node_that_resolves_its_key():
+    import pytest
+
+    pytest.importorskip("cryptography")
+    store, clock, status = _placed_store(None), Clock(), ["completed"]
+    transport, _ = _github(status)
+    _arm_pending(store, clock)
+    thor = _node_settler(store.peer(), "thor", NoSecret(), transport, clock)
+    pem = _pem()
+    spark2 = _node_settler(store.peer(), "spark2", lambda ref: pem, transport, clock)
+    clock.now = T0 + timedelta(seconds=61)
+    assert thor.tick() == 0 and settled(store) == []
+    assert spark2.tick() == 1
+    assert settled(store)[0]["envelope"]["data"]["head_repo"] == REPO
+
+
+def test_a_node_without_the_key_does_not_retry_the_resolve_every_cycle():
+    store, clock = _placed_store(None), Clock()
+    transport, _ = _github(["in_progress"])
+    _arm_pending(store, clock)
+    secrets = NoSecret()
+    thor = _node_settler(store.peer(), "thor", secrets, transport, clock, unresolved_retry_s=3600)
+    clock.now = T0 + timedelta(seconds=61)
+    for _ in range(10):
+        thor.tick()
+    assert secrets.calls == 1
+
+
+def test_node_wires_the_settler_to_its_own_machine():
+    from culture_rules.node.daemon import Node
+
+    store, clock = _placed_store(None), Clock()
+    _arm_pending(store, clock)
+    node = Node(store, "thor", clock=clock, resolve_secret=NoSecret())
+    clock.now = T0 + timedelta(seconds=61)
+    assert node.settler.tick() == 0
+    assert settled(store) == []
+    assert not store.get(SETTLE_COLLECTION, f"{REPO}@{SHA}").get("polls")

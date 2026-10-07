@@ -51,6 +51,15 @@ Deduplication is durable: the event id is a hash of ``repo@sha``, so the unique 
 ``events`` collection makes two nodes, a redelivered webhook or the timeout racing the last
 completion emit exactly once. The settle record (``checks_settle`` collection) only carries the
 deadline and the outcome; the event insert is the authority.
+
+Placement: with a ``serves`` seam (the node passes :meth:`AppSuiteLister.serves`) a node
+claims, polls and emits a pending SHA only when it can serve the repository's GitHub App
+actor: the actor is placed on this node's machine (its ``machine``) - or has no ``machine``,
+in which case any node may serve it - *and* this node resolves the App's private key. It
+fails closed: a node without the key never claims a poll, so it cannot time a SHA out
+without the PR facts, and the credentialed node emits the settled event. Recovery arming
+needs no credentials and stays on every node. A failed key resolve is retried after
+:data:`UNRESOLVED_RETRY_S` (a node without the key does not run ``grant get`` every cycle).
 """
 
 from __future__ import annotations
@@ -58,6 +67,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import threading
+import time
 from collections.abc import Callable, Mapping
 from concurrent.futures import Future
 from concurrent.futures import TimeoutError as FutureTimeout
@@ -90,6 +100,7 @@ __all__ = [
     "RECOVERY_WINDOW_S",
     "SETTLED_TYPE",
     "SETTLE_COLLECTION",
+    "UNRESOLVED_RETRY_S",
     "AppSuiteLister",
     "ChecksSettler",
     "settled_event_id",
@@ -111,6 +122,8 @@ RECOVERY_GRACE_S = 120.0
 """Completions younger than this are left to the webhook (an arm in flight, clock skew)."""
 RECOVERY_BATCH = 100
 """The most stored completions one tick reads."""
+UNRESOLVED_RETRY_S = 60.0
+"""How long a node waits before retrying a failed App key resolve (the settle ``serves``)."""
 POLL_BASE_S = 15.0
 POLL_CAP_S = 120.0
 SETTLE_HOST = "checks-settle"
@@ -120,6 +133,8 @@ SuiteLister = Callable[[str, str], list[dict[str, Any]]]
 """``(repo, sha) -> [{app_slug, status, conclusion}]``; may raise :class:`GitHubError`."""
 PullLookup = Callable[[str, int], Mapping[str, Any]]
 """``(repo, number) -> the pull request document`` (optional enrichment)."""
+Serves = Callable[[str], bool]
+"""``repo -> whether this node can serve the repo's App actor`` (placement and key)."""
 
 
 def settled_event_id(repo: str, sha: str) -> str:
@@ -153,11 +168,13 @@ class ChecksSettler:
         suites: SuiteLister,
         *,
         pull: PullLookup | None = None,
+        serves: Serves | None = None,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         self._store = store
         self._suites = suites
         self._pull = pull
+        self._serves = serves
         self._clock = clock or (lambda: datetime.now(UTC))
 
     # ------------------------------------------------------------------ variables
@@ -225,9 +242,11 @@ class ChecksSettler:
             timed_out = now >= deadline
             if not timed_out and now < self._window_end(rec):
                 continue
+            repo, sha = rec["repository"], rec["head_sha"]
+            if not self._serves_here(repo):
+                continue  # the App actor is placed elsewhere, or its key is not here
             if not self._claim_poll(rec, now, deadline):
                 continue  # not due yet, or another node holds this interval's poll
-            repo, sha = rec["repository"], rec["head_sha"]
             try:
                 done, conclusion = self._check_state(repo, sha)
             except GitHubError as exc:
@@ -239,6 +258,16 @@ class ChecksSettler:
             if self._emit(repo, sha, rec, by, conclusion if done else "timeout") == "emitted":
                 emitted += 1
         return emitted
+
+    def _serves_here(self, repo: Any) -> bool:
+        if self._serves is None:
+            return True
+        if not isinstance(repo, str):
+            return False
+        try:
+            return bool(self._serves(repo))
+        except Exception:  # noqa: BLE001 - fail closed: never claim what cannot be served
+            return False
 
     # ------------------------------------------------------------------ recovery
 
@@ -428,8 +457,13 @@ once; it caps the threads a stuck secret resolve or slow GitHub can hold."""
 
 
 class AppSuiteLister(GitHubCommentPort):
-    """The production ``suites`` / ``pull`` seams: reads through the GitHub app actor whose
-    ``connection.repos`` allowlist holds the repository (first match, enabled actors only)."""
+    """The production ``suites`` / ``pull`` / ``serves`` seams: reads through the GitHub app
+    actor whose ``connection.repos`` allowlist holds the repository (first match, enabled
+    actors only).
+
+    With a ``host`` (a node) only actors placed on that machine or unplaced are used, and a
+    failed key resolve is not retried for ``unresolved_retry_s`` (0 retries every call - the
+    API server's webhook path, which has no ``host``)."""
 
     def __init__(
         self,
@@ -438,14 +472,46 @@ class AppSuiteLister(GitHubCommentPort):
         transport: Transport | None = None,
         secrets: Callable[[str], str] | None = None,
         api_base: str = DEFAULT_API_BASE,
+        host: str | None = None,
+        unresolved_retry_s: float = 0.0,
     ) -> None:
         super().__init__(
             store, transport=transport, secrets=secrets or resolve_secret, api_base=api_base
         )
         self._lookup_slots = threading.BoundedSemaphore(LOOKUP_WORKERS)
+        self._host = host
+        self._retry_s = unresolved_retry_s
+        self._unresolved: dict[tuple[str, Any], float] = {}
+
+    def _app(self, actor_id: str, conn: Mapping[str, Any], allowed: set[str]) -> GitHubApp | None:
+        key = (actor_id, conn.get("private_key"))
+        until = self._unresolved.get(key)
+        if until is not None and time.monotonic() < until:
+            return None  # resolved and failed recently: fail closed without another grant get
+        app = super()._app(actor_id, conn, allowed)
+        if app is None and self._retry_s > 0:
+            self._unresolved[key] = time.monotonic() + self._retry_s
+        elif app is not None:
+            self._unresolved.pop(key, None)
+        return app
+
+    def _placed_elsewhere(self, doc: Mapping[str, Any]) -> bool:
+        machine = doc.get("machine")
+        return bool(self._host and machine and machine != self._host)
+
+    def serves(self, repo: str) -> bool:
+        """Whether this node can read ``repo`` through its App actor: one covers it, is
+        placed here (or unplaced), and its private key resolves on this host."""
+        try:
+            self._app_for(repo)
+        except GitHubError:
+            return False
+        return True
 
     def _app_for(self, repo: str) -> GitHubApp:
         for doc in self._store.find("actors"):
+            if self._placed_elsewhere(doc):
+                continue
             conn = self._connection(doc.get("id"))
             if conn is None or not conn.get("app_id") or not conn.get("installation_id"):
                 continue
