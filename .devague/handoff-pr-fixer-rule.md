@@ -96,7 +96,7 @@ last full suite 2669 passed, 1 skipped.
 | r19 (+r18) fix | Opus `d8016a6` on `rules/pr-fixer-r19` (non-owner completion guard write); Codex review at 13:16 |
 | t17 d18 allow-list + `variables add/remove` | DONE `5ef0ec1` on rules/pr-fixer-t17 (suite 2931); Codex review at 13:16 (cron 1de3f115) |
 | t17c (d17) | Opus `5653634` on `rules/pr-fixer-t17c`; Codex review at 13:16 |
-| t20 sandbox repo | agentculture/pr-fixer-sandbox CREATED (public, guild create finished by hand after a black genesis-gate failure; configure-repo applied, SONAR_TOKEN set). Ledger registration committed-to-be in guildmaster worktree `../.worktrees.guildmaster/register-pr-fixer-sandbox` (branch ledger/register-pr-fixer-sandbox, docs/skill-sources.md only) — needs operator OK for the guildmaster PR. Operator: install the App + SonarCloud on it |
+| t20 sandbox repo | agentculture/pr-fixer-sandbox CREATED (public, guild create finished by hand after a black genesis-gate failure; configure-repo applied, SONAR_TOKEN set). Ledger registration committed-to-be in guildmaster worktree `../.worktrees.guildmaster/register-pr-fixer-sandbox` (branch ledger/register-pr-fixer-sandbox, docs/skill-sources.md only) — guildmaster PR #139 opened (operator OK). App + SonarCloud installed by operator |
 | wave-3 review | interrupted by the Codex limit; re-run at 13:16 (cron b2c896e0) in detached worktree `wave-3-review` |
 | t20-t24 | Not started |
 
@@ -136,7 +136,12 @@ fixer token, r13 dedup vs must_after chaining.
      e.g. docs/rules/pr-fixer/ plus a seed script; AC tests by replay.
    - Also update the design canvas (claude.ai artifact Jgm3JPnAhKWpeiCxFXvNBi, row
      "Chosen") with the Variables tab (owed from t14).
-5. t20 e2e on culture-rules: ASK THE OPERATOR before deploying to nodes. Upgrade all
+5. t20: OPERATOR APPROVED (2026-10-07 ~12:45) the plan: release PR (cicd, version bump) ->
+   operator merges -> upgrade spark/thor/orin/spark2 + API -> spark2 node secrets
+   RULES_QWEN_FIXER_TOKEN + RULES_GITHUB_APP_PRIVATE_KEY and GATE_RUN_AS -> register
+   qwen-fixer -> seed variables, import workflow, import rules -> enable the four rules
+   (allow-list = pr-fixer-sandbox only) -> sandbox PRs (seeded, draft, fork). App and
+   SonarCloud are installed on pr-fixer-sandbox (operator). Previously: Upgrade all
    nodes (d7 needs it); on spark2 node add `--secret RULES_QWEN_FIXER_TOKEN` and
    `CULTURE_RULES_GATE_RUN_AS=sudo -n -u culture-fixer -- /usr/bin/env
    PATH=/home/culture-fixer/.local/bin:/usr/local/bin:/usr/bin:/bin`; register actor
