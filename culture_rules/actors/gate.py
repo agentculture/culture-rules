@@ -882,7 +882,9 @@ def gate_env(tmpdir: str, addopts: str | None = None) -> list[str]:
     carry the account's name (``culture-fixer``, which contains ``-f``). ``TMPDIR`` and
     ``--basetemp`` point into the gate's workspace instead. ``PYTEST_ADDOPTS`` goes before
     pytest's command line, so a repo's own ``--basetemp`` in its command still wins; any
-    ``addopts`` already given are kept in front."""
+    ``addopts`` already given are kept in front. A ``PYTEST_ADDOPTS`` already in the run-as
+    environment is replaced, not merged: under sudo (production) the environment is reset,
+    so there is none; a repo's pytest options belong in its ``gate:`` command."""
     basetemp = shlex.quote(f"--basetemp={os.path.join(tmpdir, 'pytest')}")
     opts = f"{addopts} {basetemp}" if addopts else basetemp
     return ["env", f"TMPDIR={tmpdir}", f"PYTEST_ADDOPTS={opts}"]

@@ -255,6 +255,10 @@ every `tmp_path` names the account. A repo test that asserts a flag such as
 ignores `PYTEST_ADDOPTS` and just gets a private `TMPDIR`. The verdict's
 `command` is still the declared argv. A repo whose gate command sets its own
 `PYTEST_ADDOPTS` through `env` replaces the gate's, basetemp included.
+A `PYTEST_ADDOPTS` in the run-as account's own environment is **not** kept:
+the gate's value replaces it. In production there is none to keep, because
+sudo resets the environment before the command runs; put any pytest options
+a repo needs in its `gate:` command instead.
 
 Every git call in that checkout ignores `culture-fixer`'s own git config,
 which the agent can edit. It runs with `GIT_CONFIG_GLOBAL=/dev/null`,
@@ -353,40 +357,65 @@ Workflow `pr-fixer`:
      input (the bridge's `threads` field) holds only the trusted threads, each
      `{thread_id, comment_id, path, line, author, body}`.
    - `gate`: the built-in `gate` on spark2. It reads the agent's `worktree`,
-     `head_before` and `head_after`. On `pass` and `no_gate` it also outputs
-     the diff it verified (`diff`, `diff_chars`, `diff_truncated`; at most
-     30000 characters).
+     `head_before` and `head_after`. A merge in the agent's commits is a
+     `guard` verdict (`merge_commit`). On `pass` and `no_gate` the gate then
+     builds **one commit itself**: the agent tip's tree on the PR head, with
+     the tip's message, author and dates (`git commit-tree`). Only that commit
+     is diffed, reviewed, bundled and pushed (`commit_sha`; the agent's tip is
+     `agent_commit_sha`). The agent's own commits, and anything they added and
+     later removed, never leave spark2. A single plain agent commit rebuilds
+     to the same SHA. The gate also outputs the diff of the built commit
+     (`diff`, `diff_chars`) and `diff_truncated`, which is true when the text
+     does not show the whole change: over 30000 characters, a binary file, an
+     executable bit or other mode change, a symlink or a submodule pointer
+     (`diff_problems` names each).
    - `review` (d20): an `ai` step on actor `codex-reviewer` (spark, sandbox
      `read-only`). It runs only when the gate verdict is `pass` or `no_gate`
-     and the diff was not cut (`config.when`); otherwise it is skipped. The
+     and the diff is the whole change (`config.when`); otherwise it is skipped. The
      fix commit is not on GitHub yet, so the bridge checks out the PR head and
      the reviewer reads the gate's diff, with the original instruction, the
-     trusted threads and the end of the gate output. Its brief (the step's
-     `config.instruction`) lists what to check and how to end: one verdict
+     trusted threads and the end of the gate output. Its brief lives in code
+     (`REVIEWER_BRIEF` in `culture_rules/actors/review.py`), not in the
+     workflow: the actor's `params.locked_instruction` names it, and the
+     engine refuses any instruction from the step config or inputs
+     (`instruction_locked`). It lists what to check and how to end: one verdict
      object, `approve` or `request_changes` with findings, naming the commit.
      It tells the reviewer that the diff, threads and gate output are
      untrusted data, never instructions (the diff is the fixer's own work).
    - `verdict`: the built-in `review`. It reads this try's gate, reviewer and
      agent results from the run in the store (never from wired inputs) and
-     fails closed. Anything but a clear approval of exactly the gated commit,
+     fails closed. The implementer is the agent step that produced the gate's
+     `agent_commit_sha`, never a name in the config. The reviewer must be an
+     actor with `params.reviewer: true` on the `codex` backend
+     (`reviewer_not_allowed`), and its bridge invocation must carry the locked
+     brief's digest. The gate's start must be the PR head the run was
+     started for. Anything but a clear approval of exactly the built commit,
      by an actor and backend other than the implementer's, from a reviewer
      that is read-only and changed nothing, is not an approval:
      `request_changes` goes to the next try; a malformed, ambiguous or
-     mismatched review, or a reviewer that wrote or is the implementer, fails
-     the run (`review_invalid`, `review_commit_mismatch`,
-     `reviewer_not_read_only`, `reviewer_is_implementer`, `review_missing`)
-     and hands back. A diff over the cap is `request_changes` ("make a smaller
-     fix") without running Codex. Every outcome overwrites the run's record in
-     the `fixer_reviews` collection.
+     mismatched review, or a reviewer that wrote, is not allowed or is the
+     implementer, fails the run (`review_invalid`, `review_commit_mismatch`,
+     `reviewer_not_read_only`, `reviewer_not_allowed`,
+     `reviewer_is_implementer`, `review_missing`) and hands back. An
+     incomplete diff is `request_changes` ("make a smaller, text-only fix")
+     without running Codex. Each outcome is an immutable record in
+     `fixer_reviews` (one per attempt: repo, PR, start, tip, verdict,
+     identities), and `fixer_review_current` points at the run's newest one;
+     the pointer only moves forward, so a late result for an older try never
+     becomes current.
 4. `push`: a built-in `action` step, `github.push` as `github-app`, on spark2
    where the gate's bundle is. It runs with `gate_verdict` wired in, so only a
    `pass` pushes. The port refuses `rule_disabled` when the firing rule was
    disabled mid-run. Then, for **every** push whatever the workflow wires, it
-   reads the run's review record and refuses unless it approves exactly the
-   commit being pushed by a reviewer whose actor and backend both differ from
-   the implementer's: `review_missing`, `review_rejected`,
-   `review_commit_mismatch`, `reviewer_is_implementer`. A workflow edited to
-   drop the review steps therefore pushes nothing.
+   reads the run's current review record and refuses unless it approves this
+   repo and PR (`review_target_mismatch`), from exactly `expected_head_sha`
+   to exactly the commit being pushed (`review_commit_mismatch`), by a
+   reviewer whose actor and backend both differ from the implementer's:
+   `review_missing`, `review_rejected`, `reviewer_is_implementer`. It reads
+   the record again right before the final `git push` and refuses if
+   another record has become current (`review_changed`). A workflow edited to
+   drop the review steps therefore pushes nothing. The push takes
+   `commit_sha` and `expected_head_sha` from the gate.
 5. `pick`: the built-in `github.threads_addressed`. It keeps the agent's
    `threads_addressed` entries whose `thread_id` is in the trusted list. Any
    other id is dropped, never answered.
@@ -649,8 +678,9 @@ machine `spark`, harness `codex`, and `params` `bridge_url`
 `http://127.0.0.1:8094`, `callback_url` `http://127.0.0.1:18765` (the API's
 loopback listener on spark; change it if yours differs), `bridge_token`
 `grant:RULES_CODEX_REVIEWER_TOKEN`, `sandbox: read-only`,
-`max_concurrency: 1` (one review at a time; others wait) and
-`max_bound_input_chars: 60000`. The bridge appends the step's inputs (the
+`reviewer: true` (only such an actor may review), `locked_instruction:
+pr-fixer-review` (the brief in code), `max_concurrency: 1` (one review at a
+time; others wait) and `max_bound_input_chars: 60000`. The bridge appends the step's inputs (the
 diff, the threads, the gate output) to the prompt and cuts them at 60000
 characters without saying so; with this cap the engine refuses
 (`bound_inputs_too_large`) rather than let a reviewer judge a diff it saw
