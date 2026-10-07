@@ -14,9 +14,9 @@
 Operator installed `/etc/sudoers.d/culture-fixer-gate`:
 `spark2 ALL=(culture-fixer) NOPASSWD: /usr/bin/env` (visudo-checked, mode 0440).
 Probed through the gate's exact prefix
-`sudo -n -u culture-fixer -- /usr/bin/env PATH=/home/culture-fixer/.local/bin:/usr/local/bin:/usr/bin:/bin`:
+`sudo -n -u culture-fixer -- /usr/bin/env PATH=~culture-fixer/.local/bin:/usr/local/bin:/usr/bin:/bin`:
 
 - whoami: `culture-fixer`; stdin passes through sudo intact (the gate feeds the pack this way)
 - `mktemp -d -t culture-rules-gate-XXXXXXXXXX` -> owned by `culture-fixer`, mode 700; removed by `rm -rf` as that user
 - git 2.43.0 and uv 0.12.23 resolve on that PATH
-- the node user (spark2) still cannot read `/home/culture-fixer` (permission denied)
+- the node user (spark2) still cannot read `~culture-fixer` (permission denied)

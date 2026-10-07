@@ -61,7 +61,7 @@ repos at provisioning). Operator also confirmed the
 - Integration branch `rules/pr-fixer` (main checkout). Task branches
   `rules/pr-fixer-<tN>`, worktrees `../.worktrees.culture-rules/pr-fixer-<tN>/`.
 - Implementer: Codex preferred (`codex exec -s workspace-write -c
-  'sandbox_workspace_write.writable_roots=["/home/spark/git/culture-rules/.git","/home/spark/.cache"]'
+  'sandbox_workspace_write.writable_roots=["<repo>/.git","~/.cache"]'
   -c sandbox_workspace_write.network_access=true "<brief>"` from the worktree);
   Opus/Sonnet subagents; Qwen only as fallback and only `qwen -m cortex-spark2`
   (spark must stay free; spark's own vLLM is down after the reboot anyway).
@@ -143,7 +143,7 @@ fixer token, r13 dedup vs must_after chaining.
    SonarCloud are installed on pr-fixer-sandbox (operator). Previously: Upgrade all
    nodes (d7 needs it); on spark2 node add `--secret RULES_QWEN_FIXER_TOKEN` and
    `CULTURE_RULES_GATE_RUN_AS=sudo -n -u culture-fixer -- /usr/bin/env
-   PATH=/home/culture-fixer/.local/bin:/usr/local/bin:/usr/bin:/bin`; register actor
+   PATH=~culture-fixer/.local/bin:/usr/local/bin:/usr/bin:/bin`; register actor
    `qwen-fixer` (docs/operations/pr-fixer.md section 4).
 6. t21 live, t22 dogfood, t23 /validate-delivery, t24 /summarize-delivery, final PR
    via the cicd skill with the version bump.
