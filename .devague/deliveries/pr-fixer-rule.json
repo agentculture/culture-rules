@@ -2,7 +2,7 @@
   "plan_slug": "pr-fixer-rule",
   "schema_version": 2,
   "created": "2026-10-06T08:44:59Z",
-  "updated": "2026-10-07T05:12:29Z",
+  "updated": "2026-10-07T07:34:31Z",
   "deviations": [
     {
       "id": "d1",
@@ -237,6 +237,34 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 16
+    },
+    {
+      "id": "d17",
+      "what": "disabling a rule that has active runs raises a 'Stop N current runs?' notification (editor prompt on disable; API/CLI/MCP report the active runs and offer an explicit stop); approving cancels those runs (cancelled: no push, no on_failure hand-back); not approving leaves them running, where the push step still refuses rule_disabled",
+      "task_ref": "t17",
+      "reason": "operator decision 2026-10-07: a rule disabled mid-run should offer to stop its current runs rather than only failing at push and posting a hand-back comment",
+      "affects": [
+        "h30"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 17
+    },
+    {
+      "id": "d18",
+      "what": "replace the deny-list rollout with an allow-list: new shared variable fixer_repos; every fixer rule fires only when trigger.data.repository is in vars.fixer_repos (fixer_excluded_repos stays as an override); widening the fixer = adding a repo to fixer_repos; guildmaster gets an issue to add a repo to fixer_repos at provisioning, chosen like public/private",
+      "task_ref": "t17",
+      "reason": "operator decision 2026-10-07: a deny-list fixes every new repo by default and makes 'only the scratch repo' (t20) a list of every other repo",
+      "affects": [
+        "t20",
+        "t21",
+        "t22"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 18
     }
   ],
   "evidence": [],

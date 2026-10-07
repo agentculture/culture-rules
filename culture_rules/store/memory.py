@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import copy
 import threading
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Collection, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
@@ -27,6 +27,7 @@ from culture_rules.model.variable import (
 )
 from culture_rules.store.port import (
     CURSOR_COLLECTION,
+    EVENTS_COLLECTION,
     VARIABLES_COLLECTION,
     Change,
     ChangeOp,
@@ -36,6 +37,7 @@ from culture_rules.store.port import (
     UpdateResult,
     VariableVersionConflict,
     cursor_id,
+    events_query,
 )
 from culture_rules.store.versioning import (
     SchemaVersion,
@@ -214,6 +216,32 @@ class MemoryStore:
 
     def get(self, collection: str, id: str) -> Document | None:
         return self._get(None, collection, id)
+
+    def find_events(
+        self,
+        *,
+        types: Collection[str],
+        after: tuple[str, str],
+        until: str,
+        limit: int,
+    ) -> list[Document]:
+        wanted, ts, last = events_query(types, after, until, limit)
+        with self._backend.lock:
+            self._guard(None)
+            found = []
+            for doc in self._backend.data.get(EVENTS_COLLECTION, {}).values():
+                received = doc.get("received_at")
+                envelope = doc.get("envelope")
+                if (
+                    isinstance(received, str)
+                    and (received, doc["id"]) > (ts, last)
+                    and received <= until
+                    and isinstance(envelope, Mapping)
+                    and envelope.get("type") in wanted
+                ):
+                    found.append(doc)
+            found.sort(key=lambda d: (d["received_at"], d["id"]))
+            return [copy.deepcopy(d) for d in found[:limit]]
 
     def find(
         self,

@@ -223,6 +223,35 @@ Where the facts come from:
   It adds the facts only when all of them are valid.
   `head_sha` stays the settled SHA and `head_branch` the check's own.
 
+The receiver stores a check completion first and then arms its head SHA for
+the settle. If arming fails (a store error, say), the webhook answers `503`.
+GitHub does **not** redeliver a failed delivery on its own, so the node
+recovers it instead:
+
+- Every settle tick reads the stored `github.checks.suite_completed` and
+  `github.checks.workflow_completed` events, oldest first by receipt time.
+  It starts after a watermark that all nodes share (collection
+  `checks_settle_recovery`).
+- The scan is bounded. A tick reads at most 100 completions. It skips
+  completions younger than 2 minutes, which covers an arm still in flight and
+  clock skew between hosts. It never goes back more than 24 hours.
+- A SHA that already has a settle record is left alone, whether that record
+  is pending or settled by completion or by timeout. So is a SHA with a
+  settled event.
+- A SHA with neither is armed as of the completion's receipt time. The
+  minimum window and the timeout run as if the webhook had armed it.
+- The once-per-SHA insert, the poll claim and the deterministic event id keep
+  concurrent nodes to one settled event.
+- A store error stops the scan before the failed completion, and the next
+  tick retries it.
+
+What recovery cannot cover:
+
+- If storing the completion itself fails, nothing is recorded. Redeliver it
+  by hand from the App's **Recent Deliveries**.
+- A completion more than 24 hours old when the nodes reach it is never
+  armed.
+
 A `ping` answers `200 {"pong": true}`. A redelivery is deduplicated by
 `X-GitHub-Delivery`. It is never looked up again, so it cannot change what
 was stored.

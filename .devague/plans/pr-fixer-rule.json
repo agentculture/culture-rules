@@ -5,7 +5,7 @@
   "schema_version": 5,
   "status": "exported",
   "created": "2026-10-06T04:46:38Z",
-  "updated": "2026-10-07T06:20:01Z",
+  "updated": "2026-10-07T10:26:10Z",
   "targets": [
     {
       "id": "c1",
@@ -1011,8 +1011,8 @@
       "text": "t12 answers 503 when arming a settle record fails, relying on GitHub to redeliver; GitHub does NOT redeliver failed webhook deliveries automatically, so that SHA's settle can be lost. Fix: have the node's settle tick also arm records from stored check-completion events that have none (recover from the events collection), instead of relying on redelivery. Found by the d14 agent.",
       "kind": "follow_up",
       "task_id": "t12",
-      "resolved": false,
-      "resolution": ""
+      "resolved": true,
+      "resolution": "fixed and merged into rules/pr-fixer (fee5e09), Codex-reviewed clean"
     },
     {
       "id": "r15",
@@ -1027,8 +1027,8 @@
       "text": "github.push runs on spark2, so spark2's node needs the App private key (RULES_GITHUB_APP_PRIVATE_KEY) in the spark2 user's grant store, next to the fixer account",
       "kind": "unknown_nonblocking",
       "task_id": "t20",
-      "resolved": false,
-      "resolution": ""
+      "resolved": true,
+      "resolution": "operator: acceptable \u2014 the App private key sits in the spark2 node account's grant store on the fixer machine (separate OS user from culture-fixer)"
     },
     {
       "id": "r17",
@@ -1043,14 +1043,22 @@
       "text": "t11 _fire_coalesced: when the holding rule was deleted and nothing is pending at release time, no owner consumer writes the release guard; a deduplicated event recorded in that exact window could be left pending with nothing to fire it",
       "kind": "unknown_nonblocking",
       "task_id": "t11",
-      "resolved": false,
-      "resolution": ""
+      "resolved": true,
+      "resolution": "fixed and merged into rules/pr-fixer (d8016a6), Codex-reviewed clean"
     },
     {
       "id": "r19",
       "text": "t11 (Codex round 3, unfixed after the 3-round cap): on MongoDB, when a placed and a shared rule share a concurrency key, the non-owner consumer's completion skips the budget write, so a concurrent trigger transaction can commit a pending event with no write conflict and neither consumer fires it. Not reachable with the shipped fixer (all four rules placed on spark2, one consumer). Fix: always write the budget guard during completion, owner or not",
       "kind": "follow_up",
       "task_id": "t11",
+      "resolved": true,
+      "resolution": "fixed and merged into rules/pr-fixer (d8016a6), Codex-reviewed clean"
+    },
+    {
+      "id": "r20",
+      "text": "r14 recovery (fee5e09): the first deploy scans back 24 h and arms every SHA with stored check completions but no settle record (settled events fire for pre-t12 SHAs; harmless while the fixer rules ship disabled); a hook-server clock >120 s behind the node's can land a completion behind the watermark and miss recovery; an event-store write failure still needs a manual redelivery",
+      "kind": "follow_up",
+      "task_id": "t20",
       "resolved": false,
       "resolution": ""
     }

@@ -155,8 +155,11 @@ prefix (``pr-fixer:``). :mod:`culture_rules.engine.claims` keeps one
   recording rule releases the key and re-decides that newest event once, through that rule
   - so a human push arriving while a run sleeps in its quiet-period wait is handled after
   the stale run supersedes itself, never dropped. (Coalescing, not preemption: a newer
-  event never cancels the run holding the key.) The release always writes the budget, so
-  a concurrent trigger transaction noting a deduplicated event conflicts with it;
+  event never cancels the run holding the key.) Every chain consumer handling the end
+  writes the budget while the run still holds it, owner or not - the release, or a guard
+  that leaves the pending event to its owner - so a concurrent trigger transaction noting a
+  deduplicated event conflicts with each of them and re-runs (admitting its event) unless
+  it committed first, and then every consumer, the owner's included, sees its event;
 * **an attempt budget.** Every admitted run counts, whatever its outcome - a fixer whose
   own push produces new failing checks must not loop. After ``max_attempts`` admissions
   further firings are recorded as ``attempt_budget_exhausted``. Rules sharing a key share
@@ -204,6 +207,7 @@ from culture_rules.engine.claims import (
     RULE_ATTEMPT_BUDGETS,
     budget_id,
     firing_key,
+    guard_concurrency,
     note_deduplicated,
     release_concurrency,
     reserve_concurrency,
@@ -535,7 +539,8 @@ class RuleFiring:
     ) -> None:
         """The run ``holding`` a concurrency key ended (or never started): release the key
         and fire the newest event deduplicated meanwhile, once (module doc, "Concurrency
-        keys"). Only the consumer that owns the rule does it."""
+        keys"). Only the consumer that owns the rule does it; every other one writes the
+        budget too (:func:`~culture_rules.engine.claims.guard_concurrency`)."""
         by_id = {r.id: r for r in rules}
         for budget in tx.find(RULE_ATTEMPT_BUDGETS, {"run_id": holding}):
             # The pending event is fired through the rule that recorded it (keys are shared
@@ -545,6 +550,11 @@ class RuleFiring:
                 budget.get("rule_id") or ""
             )
             if owner is None or not self._ours(tx, [owner], event_id, placed=placed):
+                # Not ours to release (or nobody's: the rules are gone). Still write the
+                # budget, so a trigger transaction about to record a pending event behind
+                # this run conflicts with this one too - else it could commit one that the
+                # owner's consumer, done with this run already, never fires (r18, r19).
+                guard_concurrency(tx, budget["id"], holding)
                 continue
             pending = release_concurrency(tx, budget["id"], holding)
             if pending is None:
