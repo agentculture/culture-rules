@@ -18,6 +18,21 @@ Lifted from the proven multi-host harness design (t39) into production code:
   per event even when two hosts race or one dies between the fire and the start. A placed
   rule's run starts on the host that evaluated it; an unplaced rule's on any host.
 
+Stranded placed intents
+=======================
+Only its evaluating host starts a placed rule's intent. If that host dies between the fire
+and the start and stays offline (no heartbeat - or, never having beaten, no firing - for
+:data:`~culture_rules.engine.runs.PLACEMENT_ABANDON_AFTER`, 10 minutes), any node marks the
+intent ``failed`` with ``placement_unavailable`` (``abandoned_by``/``abandoned_at`` noted).
+A failed intent is a run that never started: it frees the concurrency key it reserved, its
+key's pending deduplicated event fires through the chain feed's ``rule_fires`` source, and
+its must-after dependants settle. A host that comes back after that finds the intent failed
+and does not start it late; a host that still beats, however slow, keeps its intent. (A
+host that started the run but died before marking the intent: the run exists, so the
+intent is marked ``started`` instead. If the host starts the run in the instant the intent
+is abandoned, the run exists and holds the key, and the pending event is re-deduplicated
+behind it - nothing is lost.)
+
 Drained or offline host (the t39 gap, fixed here)
 =================================================
 When a placed rule *would* resolve to this host but this host is currently drained or
@@ -238,6 +253,8 @@ from culture_rules.engine.matching import (
 from culture_rules.engine.placement import MachineState, Resolved, resolve_rule_placement
 from culture_rules.engine.runs import (
     FATAL_PLACEMENT,
+    PLACEMENT_ABANDON_AFTER,
+    PLACEMENT_UNAVAILABLE,
     RUN_DONE,
     RUNS_COLLECTION,
     Executor,
@@ -249,7 +266,7 @@ from culture_rules.engine.variables import variable_values
 from culture_rules.events.ingest import EVENTS_COLLECTION
 from culture_rules.events.triggers import FIRES_COLLECTION, EventTriggers
 from culture_rules.machines.enrol import enrolled_machines
-from culture_rules.machines.heartbeat import online_machines
+from culture_rules.machines.heartbeat import HEARTBEAT_COLLECTION, online_machines
 from culture_rules.model.actor import Actor
 from culture_rules.model.rule import Rule
 from culture_rules.model.variable_refs import rule_variable_refs
@@ -699,6 +716,7 @@ class RuleFiring:
                         "run_id": run_id,
                         "host": self.host,
                         "placed": placed,
+                        "fired_at": utc_timestamp(now),
                         "status": "pending",
                         "trigger": dict(envelope),
                         "upstream": {k: dict(v) for k, v in decision.upstream.items()},
@@ -735,7 +753,8 @@ class RuleFiring:
         started: list[str] = []
         for intent in self.store.find(RULE_FIRES, {"status": "pending"}):
             if intent.get("placed") and intent.get("host") != self.host:
-                continue  # a placed rule's run starts where it was evaluated
+                self._abandon_if_host_gone(intent)  # else it starts where it was evaluated
+                continue
             with log_context(run_id=intent["run_id"], host=self.host):
                 if self._unresolved(intent):
                     continue
@@ -768,6 +787,46 @@ class RuleFiring:
                     RULE_FIRES, intent["id"], {"status": "pending"}, {"status": "started"}
                 )
         return started
+
+    def _abandon_if_host_gone(self, intent: Mapping[str, Any]) -> None:
+        """Fail another host's pending placed intent once that host has been offline for
+        :data:`~culture_rules.engine.runs.PLACEMENT_ABANDON_AFTER` (module doc, "Stranded
+        placed intents"); a host that still beats, however slow, keeps it."""
+        now = self._clock()
+        host = intent.get("host") or ""
+        beat = self.store.get(HEARTBEAT_COLLECTION, host)
+        if beat is not None:
+            last = _moment(beat.get("ts"))
+            if last is None or now - last < PLACEMENT_ABANDON_AFTER:
+                return  # beating (or an unreadable beat: no proof of death)
+        else:
+            fired = _moment(intent.get("fired_at"))
+            if fired is not None and now - fired < PLACEMENT_ABANDON_AFTER:
+                return  # never beat: count from the firing instead
+        if self.store.get(RUNS_COLLECTION, intent["run_id"]) is not None:
+            # The host started the run, then died before marking the intent: it is live.
+            self.store.update_if(
+                RULE_FIRES, intent["id"], {"status": "pending"}, {"status": "started"}
+            )
+            return
+        outcome = self.store.update_if(
+            RULE_FIRES,
+            intent["id"],
+            {"status": "pending"},
+            {
+                "status": "failed",
+                "error": PLACEMENT_UNAVAILABLE,
+                "abandoned_by": self.host,
+                "abandoned_at": utc_timestamp(now),
+            },
+        )
+        if outcome.won:
+            log.warning(
+                "rule %s on event %s abandoned: host %s offline past %s",
+                *_ids(intent),
+                host,
+                PLACEMENT_ABANDON_AFTER,
+            )
 
     def _unresolved(self, intent: Mapping[str, Any]) -> bool:
         """Refuse (mark failed) an intent for a variable-referencing rule that carries no
@@ -978,6 +1037,14 @@ def _count_fire(tx: StoreOps, rule: Rule, now: datetime) -> None:
     recent = _recent_fires(tx.get(RULE_RATES, rule.id), now)
     fires = [*recent, utc_timestamp(now)][-cap:]
     tx.put(RULE_RATES, {"id": rule.id, "rule_id": rule.id, "fires": fires})
+
+
+def _moment(text: Any) -> datetime | None:
+    """An aware datetime from a stored ISO timestamp, else None."""
+    try:
+        return _aware(datetime.fromisoformat(str(text)))
+    except ValueError:
+        return None
 
 
 def _ids(intent: Mapping[str, Any]) -> tuple[str, str]:

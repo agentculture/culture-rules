@@ -267,7 +267,10 @@ All four rules have the same settings:
   the run);
 - placement is machine `spark2`;
 - `concurrency_key` is `pr-fixer:{trigger.data.repository}#{trigger.data.number}`
-  and `max_attempts` is 3, both shared across the four rules;
+  and `max_attempts` is 3, both shared across the four rules. If spark2 fires
+  a rule and dies before starting the run, the firing holds the PR's key until
+  spark2 has been offline for 10 minutes; then any node fails it
+  `placement_unavailable`, which frees the key;
 - they pass the same workflow inputs: `repo`, `number`, `head_sha`,
   `head_branch`, `base_sha`, `clone_url`, `trusted_authors` (`{"$var":
   "trusted_authors"}`) and an `instruction` written for their trigger type.

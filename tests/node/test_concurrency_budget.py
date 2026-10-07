@@ -906,3 +906,71 @@ def test_failed_start_holder_displaced_by_admission_settles_the_pending_event():
         firing._evaluate(tx, {"envelope": event(3)}, placed=False)
     a2 = c.base.get(RULE_DECISIONS, decision_key("A", "evt_2"))
     assert a2.get("coalesced") is True
+
+
+# ------------------- review #17 findings 2 + 4: a placed intent stranded on a dead host
+
+
+def stranded_cluster():
+    """Rule P placed on thor and unplaced rule S share a key. thor commits P's firing
+    intent (and the key) for evt_1, then dies before starting it; S's evt_2 is then
+    deduplicated behind it (the key's pending event)."""
+    from culture_rules.engine.claims import RULE_ATTEMPT_BUDGETS, budget_id
+    from culture_rules.model.placement import Placement
+
+    c = Cluster("spark", "thor")
+    c.start()
+    placed = Rule.from_dict(keyed("P", SETTLED))
+    placed = Rule.from_dict({**placed.to_dict(), "placement": Placement(machine="thor").to_dict()})
+    c.base.put("rules", placed.to_dict())
+    c.base.put("rules", keyed("S", COMMENT))
+    c.actor.on(ACTION_STEP, ("accept",))
+    with c.base.transaction() as tx:  # thor evaluates, then crashes before start_fired
+        c.nodes["thor"].firing._evaluate(tx, {"envelope": settled(1)}, placed=True)
+    assert c.base.find("rule_fires")[0]["status"] == "pending"
+    c.clock.advance(1)
+    c.publish({**event(2), "type": COMMENT})
+    c.cycle("spark")
+    assert c.run("S", "evt_2") is None
+    assert c.base.get(RULE_DECISIONS, decision_key("S", "evt_2"))["reason"] == "deduplicated"
+    budget = c.base.get(RULE_ATTEMPT_BUDGETS, budget_id("pr-fixer:org/repo#42"))
+    assert budget["pending_event_id"] == "evt_2"
+    return c
+
+
+def test_dead_hosts_placed_intent_is_failed_and_frees_the_key_and_pending_event():
+    from culture_rules.engine.runs import PLACEMENT_ABANDON_AFTER, PLACEMENT_UNAVAILABLE
+
+    c = stranded_cluster()
+    c.clock.advance(PLACEMENT_ABANDON_AFTER.total_seconds() - 30)
+    c.cycle("spark")  # thor offline, but not yet past the bound: its intent is kept
+    intent = c.base.find("rule_fires", {"rule_id": "P"})[0]
+    assert intent["status"] == "pending"
+    assert c.run("S", "evt_2") is None
+
+    c.clock.advance(60)
+    c.cycle("spark")
+    c.cycle("spark")
+    intent = c.base.find("rule_fires", {"rule_id": "P"})[0]
+    assert intent["status"] == "failed"
+    assert intent["error"] == PLACEMENT_UNAVAILABLE
+    assert c.run("P", "evt_1") is None
+    assert c.run("S", "evt_2") is not None  # the coalesced event fired, the key moved on
+
+    c.cycle("thor")  # thor comes back: the abandoned intent is not started late
+    assert c.run("P", "evt_1") is None
+
+
+def test_slow_but_beating_host_keeps_its_placed_intent():
+    from culture_rules.engine.runs import PLACEMENT_ABANDON_AFTER
+    from tests.engine.run_helpers import enrol_online, machine
+
+    c = stranded_cluster()
+    c.clock.advance(PLACEMENT_ABANDON_AFTER.total_seconds() + 60)
+    enrol_online(c.base, c.clock, machine("thor"))  # thor beats, it just has not started it
+    c.cycle("spark")
+    c.cycle("spark")
+    assert c.base.find("rule_fires", {"rule_id": "P"})[0]["status"] == "pending"
+    assert c.run("S", "evt_2") is None
+    c.cycle("thor")
+    assert c.run("P", "evt_1") is not None
