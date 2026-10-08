@@ -659,7 +659,8 @@ def test_budget_id_is_the_key_alone_and_a_reset_applies_once_per_event():
 
     assert budget_id("pr#1") != budget_id("pr#2")
     assert budget_id('a","b') != budget_id("a")
-    assert budget_id("x") == budget_id("x")
+    first, second = budget_id("x"), budget_id("x")
+    assert first == second  # deterministic
     store = MemoryStore()
     assert reserve_concurrency(store, "A", "pr#1", "run1", "i1", 3) is None
     assert reserve_concurrency(store, "B", "pr#1", "run2", "i2", 3) == "deduplicated"
