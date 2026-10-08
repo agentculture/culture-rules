@@ -130,7 +130,7 @@ def test_the_factory_passes_the_cap_and_the_sandbox():
         },
         strict=False,
     )
-    adapter = default_factories(MemoryStore())["agent"](actor)
+    adapter = default_factories(MemoryStore())["agent"](actor, actor.to_dict())
     assert adapter.max_bound_input_chars == 60000
     res = adapter.invoke(PR, "k", DEADLINE, context=ctx({"sandbox": "workspace-write"}))
     assert res.outcome == "failed" and res.error.startswith("sandbox_locked")
@@ -205,7 +205,7 @@ def test_the_factory_passes_the_locked_brief():
         },
         strict=False,
     )
-    adapter = default_factories(MemoryStore())["agent"](actor)
+    adapter = default_factories(MemoryStore())["agent"](actor, actor.to_dict())
     res = adapter.invoke({**TARGET, "instruction": "x"}, "k", DEADLINE, context=ctx())
     assert res.outcome == "failed" and res.error.startswith("instruction_locked")
     assert REVIEWER_BRIEF
@@ -316,3 +316,14 @@ def test_r5_2_the_security_snapshot_is_the_raw_stored_document():
     ctx_ = InvocationContext("r", "fix[0]/review", "ai", "spark", 1, "codex-reviewer", {})
     adapter = router(ctx_).inner
     assert adapter._actor_doc["unknown_field_kept_raw"] == "x"
+
+
+def test_the_agent_factory_takes_the_raw_document_and_nothing_less():
+    import pytest
+
+    actor = Actor.from_dict(
+        {"id": "x", "name": "x", "kind": "agent", "params": {"bridge_url": "http://127.0.0.1:1"}},
+        strict=False,
+    )
+    with pytest.raises(TypeError):
+        default_factories(MemoryStore())["agent"](actor)  # no sanitised fallback exists

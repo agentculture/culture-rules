@@ -433,7 +433,12 @@ Workflow `pr-fixer`:
    node's own poll, emits a fresh `github.pr.checks_settled` carrying the
    PR's current base, and `pr-fixer-checks` starts a new run that gates and
    reviews against it. At most three re-arms per head (`REARM_LIMIT`), within
-   the rules' per-PR attempt budget. Only `pr-fixer-checks` re-fires this
+   the rules' per-PR attempt budget. Each re-arm is bound to the refusal's
+   review record, so replaying the same refused push re-arms nothing; a head
+   that never settled is armed with the PR number and branch the push named,
+   so its event fetches the PR's current facts. A delayed emitter of an older
+   generation can no longer mark a newer one settled (its compare-and-set
+   includes the generation). Only `pr-fixer-checks` re-fires this
    way, and only while the head's checks are red; a run started by a comment
    on a green head needs a new comment. No later verdict can move a
    consumed pointer (it is recorded and fails `review_consumed`), so no

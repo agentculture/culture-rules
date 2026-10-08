@@ -492,7 +492,7 @@ class GitHubPushPort(GitHubCommentPort):
         # The head's settle is re-armed (round 5), so a fresh run gates the new base.
         reviewed = self._store.get(REVIEWS_COLLECTION, job.review_record or "") or {}
         if not isinstance(base.get("sha"), str) or base.get("sha") != reviewed.get("base_sha"):
-            self._rearm(repo, expected)
+            self._rearm(repo, expected, job.review_record, int(input["number"]), branch)
             raise _Refused("base_changed")
         url = f"{self._git_base}/{repo}.git"
         token = app.push_token(repo)  # held by this call alone; never cached or logged
@@ -522,13 +522,22 @@ class GitHubPushPort(GitHubCommentPort):
         log.info("github.push: %s %s fast-forwarded", repo, branch)
         return InvocationResult.completed({**out, "pushed": True})
 
-    def _rearm(self, repo: str, head_sha: str) -> None:
+    def _rearm(self, repo: str, head_sha: str, cause: str | None, number: int, branch: str) -> None:
         """After ``base_changed``, settle the unchanged head again so a fresh run gates and
-        reviews it against the new base (round 5); best effort, never blocks the refusal."""
+        reviews it against the new base (round 5); best effort, never blocks the refusal.
+        ``cause`` (the judged review record) makes a replay of this refusal a no-op."""
         from culture_rules.node.checks_settle import rearm_settle  # noqa: PLC0415
 
         try:
-            outcome = rearm_settle(self._store, repo, head_sha, reason="base_changed")
+            outcome = rearm_settle(
+                self._store,
+                repo,
+                head_sha,
+                reason="base_changed",
+                cause=cause,
+                number=number,
+                head_branch=branch,
+            )
             log.info("github.push: base_changed; head settle %s", outcome)
         except Exception as exc:  # noqa: BLE001 - the push is refused either way
             log.warning("github.push: base_changed re-arm failed (%s)", type(exc).__name__)

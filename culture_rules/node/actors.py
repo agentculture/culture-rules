@@ -72,7 +72,9 @@ def default_factories(store: Any, *, emitter: Any = None) -> dict[str, AdapterFa
     from culture_rules.actors.agent import BridgeAgentActor, ColleagueActor
     from culture_rules.actors.code import CodeRunner
 
-    def agent(actor: Actor, doc: Mapping[str, Any] | None = None) -> ActorPort:
+    def agent(actor: Actor, doc: Mapping[str, Any]) -> ActorPort:
+        """``doc`` is the raw stored document (required): the bridge adapter's security
+        snapshot, never a sanitised model dump that may have dropped fields."""
         params = actor.params
         if params.get("bridge_url"):
             return BridgeAgentActor(
@@ -89,7 +91,7 @@ def default_factories(store: Any, *, emitter: Any = None) -> dict[str, AdapterFa
                 actor_id=actor.id,
                 max_bound_input_chars=params.get("max_bound_input_chars"),
                 # the raw stored document (round 5): the model drops fields like deleted_at
-                actor_doc=doc if doc is not None else actor.to_dict(),
+                actor_doc=doc,
             )
         return ColleagueActor(
             repo=params.get("repo") or actor.repo, engine=params.get("engine"), model=actor.model

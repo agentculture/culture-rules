@@ -1024,3 +1024,73 @@ def test_rearming_a_head_never_settled_arms_it():
     store, _, clock, settler = make(("a", "completed"))
     assert rearm_settle(store, REPO, SHA, reason="base_changed", now=clock()) == "armed"
     assert settler.tick() == 1 and len(settled(store)) == 1
+
+
+# --------------------------------------------------------------------------- d20 confirmation
+
+
+def test_c1_a_delayed_old_generation_emitter_cannot_cancel_a_re_armed_one():
+    from culture_rules.node.checks_settle import rearm_settle
+
+    store, _, clock, settler = make(("a", "completed"))
+    held = settler._arm(REPO, SHA, check_data())  # emitter B reads gen 0 ... and stalls
+    assert settler.on_check(check_data()) == "emitted"  # emitter A finishes gen 0
+    assert rearm_settle(store, REPO, SHA, reason="base_changed", cause="r1", now=clock()) == (
+        "rearmed"
+    )
+    # B resumes with its gen-0 snapshot: duplicate insert, and it must not touch gen 1
+    assert settler._emit(REPO, SHA, held, "all_completed", "failure") == "duplicate"
+    rec = store.get(SETTLE_COLLECTION, f"{REPO}@{SHA}".lower())
+    assert rec["state"] == "pending" and rec["generation"] == 1
+    assert settler._claim_poll(held, clock(), clock() + timedelta(hours=1)) is False
+    assert settler.tick() == 1  # generation 1 still settles
+
+
+def test_c2_replaying_one_refused_push_never_re_arms_twice():
+    from culture_rules.node.checks_settle import rearm_settle
+
+    store, _, clock, settler = make(("a", "completed"))
+    settler.on_check(check_data())
+    assert rearm_settle(store, REPO, SHA, reason="base_changed", cause="rev-1", now=clock()) == (
+        "rearmed"
+    )
+    assert settler.tick() == 1  # generation 1 settles
+    # the same refused push replayed (same review record): a no-op, not generation 2
+    assert rearm_settle(store, REPO, SHA, reason="base_changed", cause="rev-1", now=clock()) == (
+        "replayed"
+    )
+    assert settler.tick() == 0 and len(settled(store)) == 2
+    # a new refusal (another review) still re-arms
+    assert rearm_settle(store, REPO, SHA, reason="base_changed", cause="rev-2", now=clock()) == (
+        "rearmed"
+    )
+
+
+def test_c3_arming_an_unseen_head_keeps_the_pr_so_the_event_can_start_a_run():
+    from culture_rules.node.checks_settle import rearm_settle
+
+    pr = {
+        "head": {"sha": SHA, "ref": "feat", "repo": {"full_name": REPO}},
+        "base": {"sha": "c" * 40, "ref": "main", "repo": {"full_name": REPO}},
+        "draft": False,
+        "user": {"login": "alice"},
+    }
+    store, _, clock, settler = make(("a", "completed"), pull=lambda r, n: pr)
+    assert (
+        rearm_settle(
+            store,
+            REPO,
+            SHA,
+            reason="base_changed",
+            cause="rev-1",
+            number=7,
+            head_branch="feat",
+            now=clock(),
+        )
+        == "armed"
+    )
+    assert settler.tick() == 1
+    (event,) = settled(store)
+    data = event["envelope"]["data"]
+    assert data["number"] == 7 and data["pr_numbers"] == [7] and data["head_branch"] == "feat"
+    assert data["base_sha"] == "c" * 40  # current PR facts fetched with that number

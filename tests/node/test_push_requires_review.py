@@ -381,3 +381,36 @@ def test_r5_1_a_base_change_re_arms_the_heads_settle_for_a_fresh_run(pem, world)
     events = [d for d in store.find(EVENTS_COLLECTION) if d["envelope"]["type"] == SETTLED_TYPE]
     assert len(events) == 2 and len({e["id"] for e in events}) == 2
     assert events[-1]["envelope"]["data"]["base_sha"] == new_base
+
+
+# --------------------------------------------------------------------------- confirmation pass
+
+
+def _refuse_base_changed(pem, world, store):  # noqa: F811
+    fake = FakeGitHub(world, base_sha="f" * 40)
+    return push_port(pem, world, fake, store=store, review=False).invoke(
+        push_params(world), "k", DEADLINE, context=ctx()
+    )
+
+
+def test_c2_replaying_the_refused_push_re_arms_once(pem, world):  # noqa: F811
+    from culture_rules.node.checks_settle import SETTLE_COLLECTION
+
+    store = make_store()
+    approve(store, world.b, start_sha=world.a)
+    assert _refuse_base_changed(pem, world, store).error == "base_changed"
+    rid = f"acme/widgets@{world.a}".lower()
+    store.update_if(SETTLE_COLLECTION, rid, {"state": "pending"}, {"state": "emitted"})
+    assert _refuse_base_changed(pem, world, store).error == "base_changed"  # a replay
+    rec = store.get(SETTLE_COLLECTION, rid)
+    assert rec["state"] == "emitted" and rec["generation"] == 0  # not re-armed again
+
+
+def test_c3_a_refusal_on_an_unseen_head_keeps_its_pr_number_and_branch(pem, world):  # noqa: F811
+    from culture_rules.node.checks_settle import SETTLE_COLLECTION
+
+    store = make_store()
+    approve(store, world.b, start_sha=world.a)
+    _refuse_base_changed(pem, world, store)
+    rec = store.get(SETTLE_COLLECTION, f"acme/widgets@{world.a}".lower())
+    assert rec["pr_numbers"] == [3] and rec["number"] == 3 and rec["head_branch"] == "fix"
