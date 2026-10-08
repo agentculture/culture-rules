@@ -194,8 +194,9 @@ def test_wait_inside_loop_body_is_refused(store, clock):
     body = step("w", "wait", config={"seconds": 5})
     loop = step("loop", "retry_until", body=(body,), max_iterations=2, config={"until": {}})
     ex = make(store, clock, FakeActor())
+    r, wf = rule(), workflow((loop,))
     with pytest.raises(RunError):
-        ex.start(rule(), workflow((loop,)))
+        ex.start(r, wf)
 
 
 # ------------------------------------------------------------ Codex round 1

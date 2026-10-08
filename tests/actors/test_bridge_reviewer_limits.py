@@ -330,5 +330,6 @@ def test_the_agent_factory_takes_the_raw_document_and_nothing_less():
         {"id": "x", "name": "x", "kind": "agent", "params": {"bridge_url": "http://127.0.0.1:1"}},
         strict=False,
     )
+    factory = default_factories(MemoryStore())["agent"]
     with pytest.raises(TypeError):
-        default_factories(MemoryStore())["agent"](actor)  # no sanitised fallback exists
+        factory(actor)  # no sanitised fallback exists

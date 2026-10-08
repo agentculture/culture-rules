@@ -359,8 +359,9 @@ def test_start_refuses_a_non_boolean_idempotent_on_the_action_spec(store, clock,
     put_app(store)
     wf = replies_workflow()
     wf.steps[0].body[0].config["action"]["idempotent"] = flag
+    executor, r = Ports(store, clock).executor(), replies_rule()
     with pytest.raises(RunError) as exc:
-        Ports(store, clock).executor().start(replies_rule(), wf)
+        executor.start(r, wf)
     paths = {(e["path"], e["code"]) for e in exc.value.details}
     assert ("steps[0].body[0].config.action.idempotent", "type") in paths
 

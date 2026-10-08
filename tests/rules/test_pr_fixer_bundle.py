@@ -234,8 +234,9 @@ def test_import_with_apply_validates_and_writes_the_definitions():
 
 def test_import_before_the_variables_are_seeded_is_refused():
     mem = MemoryStore()
+    defs, files = Definitions(mem), _files()
     with pytest.raises(Invalid) as err:
-        Definitions(mem).import_files(_files(), "admin@test", apply=True)
+        defs.import_files(files, "admin@test", apply=True)
     codes = {e["code"] for e in err.value.errors}
     assert "variable_undefined" in codes
     assert mem.find("rules") == []

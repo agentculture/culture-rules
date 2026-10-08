@@ -111,8 +111,9 @@ def test_two_interleaved_adds_both_land():
 def test_bad_items_and_non_lists_are_refused(setup, item, code):
     s = MemoryStore()
     s.put_variable(REPOS, setup, updated_by="seed")
+    variables = Variables(s)
     with pytest.raises(Invalid) as err:
-        Variables(s).add_item(REPOS, item, "admin")
+        variables.add_item(REPOS, item, "admin")
     assert err.value.errors[0]["code"] == code
     assert s.get_variable(REPOS)["version"] == 1
 
@@ -127,8 +128,9 @@ def test_an_empty_list_takes_any_scalar_and_a_number_list_takes_numbers():
 
 
 def test_a_missing_variable_is_not_found():
+    variables = Variables(MemoryStore())
     with pytest.raises(NotFound):
-        Variables(MemoryStore()).add_item(REPOS, "x/a", "admin")
+        variables.add_item(REPOS, "x/a", "admin")
 
 
 # ------------------------------------------------------------------ HTTP

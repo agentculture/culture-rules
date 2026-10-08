@@ -1,6 +1,7 @@
 """Durable per-rule, per-PR concurrency and consecutive attempt limits."""
 
 from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from threading import Barrier
 
 import pytest
@@ -202,8 +203,9 @@ def test_key_template_preserves_literals_and_rejects_missing_values():
 
     assert resolve_concurrency_key(KEY, event(1)) == "org/repo#42"
     assert resolve_concurrency_key("fixed-key", event(1)) == "fixed-key"
+    evt = event(1)
     with pytest.raises(ValueError, match="missing concurrency key"):
-        resolve_concurrency_key("{trigger.data.missing}", event(1))
+        resolve_concurrency_key("{trigger.data.missing}", evt)
 
 
 @pytest.mark.parametrize("existing", [False, True])
@@ -513,11 +515,12 @@ def test_budget_cas_retries_are_bounded(operation):
             return SimpleNamespace(won=False)
 
     store = Contended()
+    if operation == "reset":
+        call = partial(reset_attempt_budget, store, "key", "evt")
+    else:
+        call = partial(reserve_concurrency, store, "a", "key", "run", "intent", 2)
     with pytest.raises(TransientStoreError):
-        if operation == "reset":
-            reset_attempt_budget(store, "key", "evt")
-        else:
-            reserve_concurrency(store, "a", "key", "run", "intent", 2)
+        call()
     assert store.calls == DEFAULT_ATTEMPTS
 
 

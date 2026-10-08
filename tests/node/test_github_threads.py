@@ -111,16 +111,18 @@ def test_lists_unresolved_threads_with_the_opening_comment(pem):
 
 def test_too_many_pages_raises(pem):
     api = FakeThreadsApi([[thread(f"T{i}", i, "a")] for i in range(30)])
+    client = app(pem, api)
     with pytest.raises(GitHubError) as err:
-        app(pem, api).list_review_threads(REPO, 7, max_pages=3)
+        client.list_review_threads(REPO, 7, max_pages=3)
     assert err.value.code == "too_many_pages"
     assert len(api.queries) == 3
 
 
 def test_a_repo_outside_the_allowlist_is_refused_before_any_call(pem):
     api = FakeThreadsApi([[]])
+    client = app(pem, api)
     with pytest.raises(GitHubError):
-        app(pem, api).list_review_threads("other/repo", 7)
+        client.list_review_threads("other/repo", 7)
     assert api.queries == []
 
 

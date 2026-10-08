@@ -113,5 +113,6 @@ def test_a_missing_identity_is_not_reported_as_a_bad_value():
     from culture_rules.server.service import Variables
     from culture_rules.store.memory import MemoryStore
 
+    variables = Variables(MemoryStore())
     with pytest.raises(AuditError):
-        Variables(MemoryStore()).set("limit", 3, "")
+        variables.set("limit", 3, "")

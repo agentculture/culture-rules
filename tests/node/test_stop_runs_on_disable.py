@@ -120,8 +120,9 @@ def test_not_approving_leaves_the_run_going_and_the_push_still_refuses(pem, worl
 
 def test_stop_is_refused_while_the_rule_is_enabled(pem, world):
     f = Fixer(pem, world)
+    containment = Containment(f.store, clock=f.clock)
     with pytest.raises(RunError) as err:
-        Containment(f.store, clock=f.clock).stop_rule_runs("fixer", "ori", apply=True)
+        containment.stop_rule_runs("fixer", "ori", apply=True)
     assert err.value.code == "rule_enabled"
     assert f.ex.run(f.run_id)["status"] == "running"
 

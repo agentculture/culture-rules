@@ -143,8 +143,9 @@ def test_saving_a_rule_that_references_an_undefined_variable_is_refused():
     store = MemoryStore()
     defs = Definitions(store)
     cond = {"op": "in", "value": {"field": "data.author"}, "items": {"var": "missing"}}
+    body = _body(cond)
     with pytest.raises(Invalid) as exc:
-        defs.create("rules", _body(cond), "alice")
+        defs.create("rules", body, "alice")
     (err,) = exc.value.errors
     assert err["code"] == "variable_undefined"
     assert "missing" in err["message"]
@@ -188,8 +189,9 @@ def test_an_online_node_without_variable_support_blocks_a_variable_rule_save():
     store, defs = _defs_with_trusted()
     _beat(store, "spark", NOW, capabilities=[VARIABLES_CAPABILITY])
     _beat(store, "orin", NOW)  # a 0.12.0 heartbeat: no capabilities field at all
+    body = _body(NOT_IN_X)
     with pytest.raises(Invalid) as exc:
-        defs.create("rules", _body(NOT_IN_X), "alice")
+        defs.create("rules", body, "alice")
     (err,) = exc.value.errors
     assert err["code"] == "variables_unsupported_nodes"
     assert "orin" in err["message"]
@@ -210,8 +212,9 @@ def test_an_old_node_blocks_update_and_import_of_a_variable_rule_too():
     store, defs = _defs_with_trusted()
     defs.create("rules", _body(NOT_IN_X), "alice")
     _beat(store, "orin", NOW, capabilities=[])
+    body = _body(IN_X)
     with pytest.raises(Invalid) as exc:
-        defs.update("rules", "guarded", _body(IN_X), "alice")
+        defs.update("rules", "guarded", body, "alice")
     assert [e["code"] for e in exc.value.errors] == ["variables_unsupported_nodes"]
     assert store.get("rules", "guarded")["condition"] == NOT_IN_X  # unchanged
     files = {"rules/other.json": json.dumps(rule("other", condition=IN_X).to_dict())}

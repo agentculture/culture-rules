@@ -517,8 +517,9 @@ def test_unreachable_bridge(store, clock):
     res, _ = invoke_once(store, clock, refused, key="a")
     assert res.outcome == "failed"
     assert res.retryable
+    maybe = BridgeUnreachable("reset", definite=False)
     with pytest.raises(BridgeUnreachable):  # maybe received: no ack, outcome unknown
-        invoke_once(store, clock, BridgeUnreachable("reset", definite=False), key="b")
+        invoke_once(store, clock, maybe, key="b")
 
 
 def test_result_mapping():
