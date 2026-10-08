@@ -128,6 +128,30 @@ describe("Variables tab", () => {
 const NASTY = [" alice ", "a\nb", 1, null, "", true] as const;
 
 describe("lossless editing", () => {
+  // characterization (the Sonar S3776 split of valueOfRows): each row outcome, pinned
+  it("drops a blank new row, re-types edited rows by their stored item, keeps the rest as text", () => {
+    expect(valueOfRows([1], [...rowsOf([1]), { id: 99, text: "" }])).toEqual({ value: [1], invalid: [] });
+    const withNull = rowsOf([1, null]);
+    withNull[1] = { ...withNull[1], text: "5" };
+    // [1, null] is not uniform (null is not a number): an edited null is text
+    expect(valueOfRows([1, null], withNull)).toEqual({ value: [1, "5"], invalid: [] });
+    const flag = rowsOf([true]);
+    flag[0] = { ...flag[0], text: "false" };
+    expect(valueOfRows([true], flag)).toEqual({ value: [false], invalid: [] });
+    const word = rowsOf(["a"]);
+    word[0] = { ...word[0], text: "true" };
+    expect(valueOfRows(["a"], word)).toEqual({ value: ["true"], invalid: [] });
+    const nothing = rowsOf([null, ""]);
+    nothing[0] = { ...nothing[0], text: "x" };
+    expect(valueOfRows([null, ""], [...nothing, { id: 98, text: "7" }])).toEqual({
+      value: ["x", "", "7"],
+      invalid: [],
+    });
+    expect(valueOfRows([], [{ id: 97, text: "false" }])).toEqual({ value: ["false"], invalid: [] });
+    const bad = [...rowsOf([2]), { id: 96, text: "x" }, { id: 95, text: "" }, { id: 94, text: "4" }];
+    expect(valueOfRows([2], bad)).toEqual({ value: [2, 4], invalid: [1] });
+  });
+
   it("a list saved without edits is unchanged, whatever its items", () => {
     const list = [...NASTY];
     expect(valueOfRows(list, rowsOf(list)).value).toEqual(list);

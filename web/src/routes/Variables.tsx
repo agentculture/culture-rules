@@ -57,23 +57,25 @@ export function valueOfRows(current: Scalar[], rows: Row[]): { value: Scalar[]; 
   const value: Scalar[] = [];
   const invalid: number[] = [];
   rows.forEach((row, i) => {
-    if (row.orig !== undefined && row.text === itemText(row.orig)) {
-      value.push(row.orig);
-    } else if (row.orig === undefined && row.text === "") {
-      // a blank new row is not an item
-    } else if (typeof (row.orig ?? (uniform ? sample : undefined)) === "number") {
-      if (NUMBER.test(row.text.trim())) value.push(Number(row.text));
-      else invalid.push(i);
-    } else if (row.text === "true" || row.text === "false") {
-      if (typeof (row.orig ?? (uniform ? sample : undefined)) === "boolean") value.push(row.text === "true");
-      else value.push(row.text);
-    } else if (row.orig === undefined && uniform && typeof sample === "boolean") {
-      invalid.push(i); // a new row in a boolean list must be true or false
-    } else {
-      value.push(row.text);
-    }
+    const outcome = rowOutcome(row, uniform, sample);
+    if (outcome === "invalid") invalid.push(i);
+    else if (outcome !== "blank") value.push(outcome.value);
   });
   return { value, invalid };
+}
+
+/** What one row saves (see {@link valueOfRows}): an item, nothing (`blank`), or `invalid`. */
+function rowOutcome(row: Row, uniform: boolean, sample: Scalar | undefined): { value: Scalar } | "blank" | "invalid" {
+  if (row.orig !== undefined && row.text === itemText(row.orig)) return { value: row.orig };
+  if (row.orig === undefined && row.text === "") return "blank"; // a blank new row is not an item
+  const typed = typeof (row.orig ?? (uniform ? sample : undefined));
+  if (typed === "number") return NUMBER.test(row.text.trim()) ? { value: Number(row.text) } : "invalid";
+  if (row.text === "true" || row.text === "false") {
+    return { value: typed === "boolean" ? row.text === "true" : row.text };
+  }
+  // a new row in a boolean list must be true or false
+  if (row.orig === undefined && uniform && typeof sample === "boolean") return "invalid";
+  return { value: row.text };
 }
 
 /** A scalar variable's value from its text (an untouched text keeps the stored value). */
