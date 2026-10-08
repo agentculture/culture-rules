@@ -488,7 +488,9 @@ set of digests, in `culture_rules/actors/trusted.py`):
   requires that recorded digest to be trusted, and checks the current actor
   too, so swapping the actor for the dispatch and restoring it before the
   verdict does not help. The review record keeps the digest it checked
-  (`trusted_actors`).
+  (`trusted_actors`). The snapshot is the raw stored document, and the
+  router never builds an adapter or action port for a soft-deleted actor
+  (`deleted_at` set).
 - `github-app`: id, kind, machine, `params.surface`, `commit_author`,
   `permissions`, and `connection` `app_id`, `installation_id` and
   `private_key` (the reference). `github.push` reads the actor **once**,

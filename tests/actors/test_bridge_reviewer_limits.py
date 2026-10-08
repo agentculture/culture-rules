@@ -269,3 +269,50 @@ def test_a_pinned_actor_refuses_before_dispatch_when_untrusted():
         assert (res.outcome, res.retryable) == ("failed", False)
         assert res.error.startswith("actor_not_trusted"), res.error
         assert actor._transport.requests == []
+
+
+# --------------------------------------------------------------------------- round 5, #2
+
+
+def _router_with(doc):
+    from culture_rules.node.actors import ActorRouter
+
+    store = MemoryStore()
+    store.put("actors", doc)
+    return store, ActorRouter(store, factories=default_factories(store))
+
+
+def test_r5_2_the_production_router_never_builds_a_tombstoned_reviewer():
+    from tests.rules.test_pr_fixer_bundle import reviewer_actor
+
+    _store, router = _router_with({**reviewer_actor(), "deleted_at": "2026-10-08T00:00:00Z"})
+    ctx_ = InvocationContext("r", "fix[0]/review", "ai", "spark", 1, "codex-reviewer", {})
+    assert router(ctx_) is None  # no adapter: nothing can be dispatched
+
+
+def test_r5_2_a_tombstoned_app_actor_gets_no_action_port():
+    from tests.node.test_github_pr_actions import actor_doc
+
+    _store, router = _router_with({**actor_doc(), "deleted_at": "2026-10-08T00:00:00Z"})
+    ctx_ = InvocationContext(
+        "r",
+        "push",
+        "action",
+        "spark2",
+        1,
+        "gh-app",
+        {"kind": "github.push", "params": {"actor": "gh-app"}},
+    )
+    port = router(ctx_)
+    res = port.invoke({}, "k", DEADLINE, context=ctx_)
+    assert res.outcome == "failed" and res.error == "actor_unavailable"
+
+
+def test_r5_2_the_security_snapshot_is_the_raw_stored_document():
+    from tests.rules.test_pr_fixer_bundle import reviewer_actor
+
+    raw = {**reviewer_actor(), "unknown_field_kept_raw": "x"}
+    _store, router = _router_with(raw)
+    ctx_ = InvocationContext("r", "fix[0]/review", "ai", "spark", 1, "codex-reviewer", {})
+    adapter = router(ctx_).inner
+    assert adapter._actor_doc["unknown_field_kept_raw"] == "x"
