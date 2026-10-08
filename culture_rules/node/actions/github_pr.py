@@ -24,7 +24,10 @@ repo allowlist and its per-actor App cache. There is deliberately no merge port.
        read from a param, must approve exactly ``commit_sha``, by a reviewer whose actor and
        backend both differ from the implementer's - else ``review_missing``,
        ``review_rejected``, ``review_commit_mismatch`` or ``reviewer_is_implementer``. This
-       holds for every push, so a workflow that skips the review step pushes nothing;
+       holds for every push, so a workflow that skips the review step pushes nothing.
+       The approving record is re-read right before the final ``git push`` (step 8); a
+       different current record refuses ``review_changed``. The PR's base (read in step 5)
+       must still be the base the review recorded, else ``base_changed``;
     4. ``commit_sha`` is fetched into a fresh, node-owned bare repo (so nothing in the agent's
        repo config, hooks or credential helpers ever sees the token) and must descend from
        ``expected_head_sha``: a non-fast-forward update is refused before any network call.
@@ -66,7 +69,8 @@ repo allowlist and its per-actor App cache. There is deliberately no merge port.
 ``github.threads_addressed`` (a built-in code step, d15)
     Pure: of the agent's ``addressed`` entries (``{thread_id, commit, reply}``), keeps each
     whose ``thread_id`` is in ``threads`` (once) and outputs ``replies``: ``{thread_id,
-    comment_id, commit, reply}``. An id that is not in the list is ``dropped``, never
+    comment_id, commit, reply}``. With a ``commit`` input (the pushed SHA), every reply names
+    that commit instead of the agent's. An id that is not in the list is ``dropped``, never
     answered.
 
 git always runs as an argv list with ``shell=False``; its stderr is discarded, never logged.
@@ -88,7 +92,12 @@ from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any
 
-from culture_rules.actors.review import review_refusal
+from culture_rules.actors.review import (
+    REVIEWS_COLLECTION,
+    approved_review,
+    consume_approval,
+)
+from culture_rules.actors.trusted import doc_refusal, workflow_refusal
 from culture_rules.apps.github import DEFAULT_API_BASE, GitHubApp, GitHubError, Transport
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
 from culture_rules.engine.runs import (
@@ -265,6 +274,7 @@ class _PushJob:
         self.repo = os.path.join(tmp, "push.git")
         self.deadline = deadline
         self.clock = clock
+        self.review_record: str | None = None
 
     def require(self, margin: float = 0.0) -> float:
         """Seconds left before the deadline; ``deadline_exceeded`` if not more than ``margin``.
@@ -371,7 +381,10 @@ class GitHubPushPort(GitHubCommentPort):
         if "gate_verdict" in input and input["gate_verdict"] != "pass":
             return InvocationResult.failed("gate_not_passed", retryable=False)
         actor_id = context.actor or input.get("actor")
-        conn = self._connection(actor_id)
+        # round 4 (#1): ONE snapshot of the actor; its digest is checked and its connection
+        # and commit author are what every git and API call below uses
+        snapshot = self._store.get(ACTORS_COLLECTION, actor_id) if actor_id else None
+        conn = self._connection_of(snapshot)
         if conn is None:
             self._apps.pop(str(actor_id), None)
             return InvocationResult.failed("actor_not_found", retryable=False)
@@ -387,9 +400,19 @@ class GitHubPushPort(GitHubCommentPort):
         refusal = source_rule_refusal(self._store, context.run_id)
         if refusal:
             return InvocationResult.failed(refusal, retryable=False)
+        # d20 round 2: only a run of a workflow pinned as trusted in code may push
+        refusal = workflow_refusal(self._store.get(RUNS_COLLECTION, context.run_id))
+        if refusal:
+            log.info("github.push refused: %s", refusal)
+            return InvocationResult.failed(refusal, retryable=False)
         # d20: the run's reviewer must have approved exactly this commit (read from the
         # store, never a param), whatever the workflow wires
-        refusal = review_refusal(self._store, context.run_id, str(input["commit_sha"]))
+        refusal, review_record = self._review(input, context)
+        if refusal:
+            log.info("github.push refused: %s", refusal)
+            return InvocationResult.failed(refusal, retryable=False)
+        # round 3 (#1): the App actor's security fields must match a digest pinned in code
+        refusal, _digest = doc_refusal(actor_id, snapshot)
         if refusal:
             log.info("github.push refused: %s", refusal)
             return InvocationResult.failed(refusal, retryable=False)
@@ -397,8 +420,9 @@ class GitHubPushPort(GitHubCommentPort):
             return InvocationResult.failed("deadline_exceeded", retryable=True)
         tmp = tempfile.mkdtemp(prefix="culture-rules-push-")
         job = _PushJob(self._git, tmp, deadline, self._clock)
+        job.review_record = review_record
         try:
-            return self._push(str(actor_id), conn, allowed, input, context, job)
+            return self._push(str(actor_id), conn, allowed, input, context, job, snapshot)
         except _Refused as exc:
             log.info("github.push refused: %s", exc.code)
             return InvocationResult.failed(exc.code, retryable=exc.retryable)
@@ -415,6 +439,7 @@ class GitHubPushPort(GitHubCommentPort):
         input: Mapping[str, Any],
         context: InvocationContext,
         job: _PushJob,
+        snapshot: Mapping[str, Any] | None,
     ) -> InvocationResult:
         repo, branch = str(input["repo"]), str(input["head_branch"])
         expected = str(input["expected_head_sha"])
@@ -427,7 +452,7 @@ class GitHubPushPort(GitHubCommentPort):
         job.import_commit(str(input["source"]), sha)
         if not job.descends(expected, sha):
             raise _Refused("not_fast_forward")  # before any network call
-        self._check_authors(actor_id, job, expected, sha)
+        self._check_authors(snapshot, job, expected, sha)
         app = self._app(actor_id, conn, allowed)
         if app is None:
             raise _Refused("secret_unavailable")
@@ -462,6 +487,13 @@ class GitHubPushPort(GitHubCommentPort):
             return InvocationResult.completed({**out, "pushed": False, "already": True})
         if head.get("sha") != expected:
             raise _Refused("head_moved")
+        # round 4 (#2): the gate policy came from the base the review recorded; a base that
+        # moved or was retargeted since then means it is not the policy this commit passed.
+        # The head's settle is re-armed (round 5), so a fresh run gates the new base.
+        reviewed = self._store.get(REVIEWS_COLLECTION, job.review_record or "") or {}
+        if not isinstance(base.get("sha"), str) or base.get("sha") != reviewed.get("base_sha"):
+            self._rearm(repo, expected, job.review_record, int(input["number"]), branch)
+            raise _Refused("base_changed")
         url = f"{self._git_base}/{repo}.git"
         token = app.push_token(repo)  # held by this call alone; never cached or logged
         remote = job.remote_head(url, branch, token)
@@ -472,15 +504,61 @@ class GitHubPushPort(GitHubCommentPort):
         refusal = source_rule_refusal(self._store, context.run_id)
         if refusal:
             raise _Refused(refusal)
+        # d20 (Codex review #6): the approval is re-read right before the push; a newer
+        # review result, or any other current record, stops it
+        refusal, record = self._review(input, context)
+        if refusal:
+            raise _Refused(refusal)
+        if record != job.review_record:
+            raise _Refused("review_changed")
+        # round 2 (#4): consume the approval - a compare-and-set no later verdict can undo
+        refusal = consume_approval(
+            self._store, context.run_id, record, sha, by=f"{context.step_id}#{context.attempt}"
+        )
+        if refusal:
+            raise _Refused(refusal)
         job.require(PUSH_MARGIN_S)  # never start the push this close to the deadline
         job.push(url, sha, branch, token)
         log.info("github.push: %s %s fast-forwarded", repo, branch)
         return InvocationResult.completed({**out, "pushed": True})
 
-    def _check_authors(self, actor_id: str, job: _PushJob, base: str, sha: str) -> None:
-        """``foreign_author`` unless every new commit is by the actor's ``commit_author``."""
-        doc = self._store.get(ACTORS_COLLECTION, actor_id) or {}
-        want = (doc.get("params") or {}).get("commit_author")
+    def _rearm(self, repo: str, head_sha: str, cause: str | None, number: int, branch: str) -> None:
+        """After ``base_changed``, settle the unchanged head again so a fresh run gates and
+        reviews it against the new base (round 5); best effort, never blocks the refusal.
+        ``cause`` (the judged review record) makes a replay of this refusal a no-op."""
+        from culture_rules.node.checks_settle import rearm_settle  # noqa: PLC0415
+
+        try:
+            outcome = rearm_settle(
+                self._store,
+                repo,
+                head_sha,
+                reason="base_changed",
+                cause=cause,
+                number=number,
+                head_branch=branch,
+            )
+            log.info("github.push: base_changed; head settle %s", outcome)
+        except Exception as exc:  # noqa: BLE001 - the push is refused either way
+            log.warning("github.push: base_changed re-arm failed (%s)", type(exc).__name__)
+
+    def _review(
+        self, input: Mapping[str, Any], context: InvocationContext
+    ) -> tuple[str | None, str | None]:
+        """This run's current review record, judged for exactly this push (d20)."""
+        return approved_review(
+            self._store,
+            context.run_id,
+            str(input["commit_sha"]),
+            repo=input.get("repo"),
+            number=input.get("number"),
+            start_sha=input.get("expected_head_sha"),
+        )
+
+    @staticmethod
+    def _check_authors(doc: Mapping[str, Any] | None, job: _PushJob, base: str, sha: str) -> None:
+        """``foreign_author`` unless every new commit is by the snapshot's ``commit_author``."""
+        want = ((doc or {}).get("params") or {}).get("commit_author")
         if not want:
             return  # off unless configured
         want = str(want).strip().lower()
@@ -664,6 +742,11 @@ class AddressedThreadsPort:
             and isinstance(t.get("thread_id"), str)
             and isinstance(t.get("comment_id"), int)
         }
+        pushed_commit = input.get("commit")
+        if pushed_commit is not None and not (
+            isinstance(pushed_commit, str) and _SHA_RE.match(pushed_commit)
+        ):
+            return InvocationResult.failed("bad_input", retryable=False)
         replies: list[dict[str, Any]] = []
         seen: set[str] = set()
         for entry in addressed:
@@ -676,7 +759,9 @@ class AddressedThreadsPort:
                 {
                     "thread_id": tid,
                     "comment_id": listed[tid],
-                    "commit": entry.get("commit"),
+                    # the pushed (gate-built) commit when given: the agent's own
+                    # commits never reach GitHub, so its SHAs would name nothing
+                    "commit": pushed_commit or entry.get("commit"),
                     "reply": reply if isinstance(reply, str) else "",
                 }
             )

@@ -107,6 +107,7 @@ __all__ = [
     "WEBHOOK_SETTLE_BUDGET_S",
     "AppSuiteLister",
     "ChecksSettler",
+    "rearm_settle",
     "settled_event_id",
     "webhook_on_check",
 ]
@@ -149,10 +150,128 @@ class _PullDeferred(Exception):
     """The bounded webhook path's PR read ran out of time: emit from the tick instead."""
 
 
-def settled_event_id(repo: str, sha: str) -> str:
-    """The deterministic events id of the one settled event of ``repo@sha``."""
-    digest = hashlib.sha256(f"{repo}@{sha}".lower().encode()).hexdigest()[:24]
+REARM_LIMIT = 3
+"""The most times one head SHA's settle can be re-armed (:func:`rearm_settle`); the rules'
+per-PR attempt budget bounds the runs as well."""
+
+
+def settled_event_id(repo: str, sha: str, generation: int = 0) -> str:
+    """The deterministic events id of ``repo@sha``'s settled event in ``generation`` (0 is
+    the first settle; a re-arm after ``base_changed`` starts the next one)."""
+    key = f"{repo}@{sha}".lower() + (f"#{generation}" if generation else "")
+    digest = hashlib.sha256(key.encode()).hexdigest()[:24]
     return f"settled_{digest}"
+
+
+def _generation(rec: Mapping[str, Any] | None) -> int:
+    gen = (rec or {}).get("generation")
+    return gen if isinstance(gen, int) and not isinstance(gen, bool) and gen >= 0 else 0
+
+
+def rearm_settle(
+    store: StoragePort,
+    repo: str,
+    sha: str,
+    *,
+    reason: str,
+    cause: str | None = None,
+    number: int | None = None,
+    head_branch: str | None = None,
+    now: datetime | None = None,
+) -> str:
+    """Settle ``repo@sha`` again (round 5): after ``github.push`` refused ``base_changed``
+    the reviewed run is over, but the head is unchanged, so no new head means no new
+    settle. This moves an emitted settle to ``pending`` in the next generation (a fresh
+    minimum window and deadline); the next completion or the node's poll then emits a new
+    ``checks_settled`` event carrying the PR's current facts (its new base), so the gate
+    and the review run again against it. Bounded by :data:`REARM_LIMIT` (and the rules'
+    attempt budget).
+
+    ``cause`` is the refusal's durable identity (the review record the push judged); it is
+    recorded with the generation transition in one compare-and-set, so replaying the same
+    refused push after the re-armed generation settled is a no-op (``replayed``).
+    ``number`` and ``head_branch`` (the PR the push named) are kept on a record the head
+    never had, so the emitted event names the PR and fetches its current facts. Returns
+    ``rearmed``, ``armed`` (no settle record yet), ``pending`` (already waiting),
+    ``replayed`` or ``limit``."""
+    when = now or datetime.now(UTC)
+    rid = f"{repo}@{sha}".lower()
+    timeout = _var(store, "checks_settle_timeout_s")
+    if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0:
+        timeout = DEFAULT_TIMEOUT_S
+    numbers = [number] if isinstance(number, int) and not isinstance(number, bool) else []
+    fresh = {
+        "state": "pending",
+        "armed_at": _iso(when),
+        "deadline": _iso(when + timedelta(seconds=float(timeout))),
+        "next_poll_at": None,
+        "polls": 0,
+        "rearmed_for": reason,
+    }
+    for _ in range(10):
+        rec = store.get(SETTLE_COLLECTION, rid)
+        causes = list((rec or {}).get("rearm_causes") or [])
+        if cause is not None and cause in causes:
+            return "replayed"  # this refusal already re-armed the head once
+        recorded = causes + ([cause] if cause is not None else [])
+        if rec is None:
+            doc = {
+                "id": rid,
+                "repository": repo,
+                "head_sha": sha,
+                "head_branch": head_branch,
+                "pr_numbers": numbers,
+                "number": numbers[0] if numbers else None,
+                "generation": 0,
+                "rearm_causes": recorded,
+                **fresh,
+            }
+            try:
+                store.insert(SETTLE_COLLECTION, doc)
+                return "armed"
+            except DuplicateKeyError:
+                continue
+        if rec.get("state") == "pending":
+            # coalesce into the settle that is still waiting: record the cause (so a replay
+            # after it settles is a no-op) and fill a PR number or branch it lacks, by
+            # compare-and-set on state, generation, causes and PR facts; a lost race (it
+            # settled meanwhile) is retried and takes the re-arm path instead
+            fill: dict[str, Any] = {}
+            if cause is not None:
+                fill["rearm_causes"] = recorded
+            if numbers and not rec.get("pr_numbers"):
+                fill.update(pr_numbers=numbers, number=numbers[0])
+            if head_branch and not rec.get("head_branch"):
+                fill["head_branch"] = head_branch
+            if not fill:
+                return "pending"
+            guard = {
+                "state": "pending",
+                "generation": rec.get("generation"),
+                "rearm_causes": rec.get("rearm_causes"),
+                "pr_numbers": rec.get("pr_numbers"),
+                "head_branch": rec.get("head_branch"),
+            }
+            if store.update_if(SETTLE_COLLECTION, rid, guard, fill).won:
+                return "pending"
+            continue
+        gen = _generation(rec)
+        if gen >= REARM_LIMIT:
+            log.warning("checks settle: %s re-armed %d times; not again", rid, gen)
+            return "limit"
+        changes = {**fresh, "generation": gen + 1, "rearm_causes": recorded}
+        if numbers and not rec.get("pr_numbers"):  # a head first seen by this refusal
+            changes.update(pr_numbers=numbers, number=numbers[0])
+        if head_branch and not rec.get("head_branch"):
+            changes["head_branch"] = head_branch
+        expected = {
+            "state": rec.get("state"),
+            "generation": rec.get("generation"),
+            "rearm_causes": rec.get("rearm_causes"),
+        }
+        if store.update_if(SETTLE_COLLECTION, rid, expected, changes).won:
+            return "rearmed"
+    return "pending"
 
 
 def _var(store: StoragePort, name: str) -> Any:
@@ -237,7 +356,8 @@ class ChecksSettler:
         repo, sha = data.get("repository"), data.get("head_sha")
         if not isinstance(repo, str) or not repo or not isinstance(sha, str) or not sha:
             return "ignored"
-        if self._store.get(EVENTS_COLLECTION, settled_event_id(repo, sha)) is not None:
+        gen = _generation(self._store.get(SETTLE_COLLECTION, f"{repo}@{sha}".lower()))
+        if self._store.get(EVENTS_COLLECTION, settled_event_id(repo, sha, gen)) is not None:
             return "duplicate"
         rec = self._arm(repo, sha, data)  # before the lookup: a failure must not lose the SHA
         try:
@@ -372,7 +492,12 @@ class ChecksSettler:
         res = self._store.update_if(
             SETTLE_COLLECTION,
             rec["id"],
-            {"next_poll_at": rec.get("next_poll_at"), "state": "pending"},
+            # the generation too (missing = legacy 0): a stale snapshot claims nothing
+            {
+                "next_poll_at": rec.get("next_poll_at"),
+                "state": "pending",
+                "generation": rec.get("generation"),
+            },
             {"next_poll_at": _iso(nxt), "polls": n + 1},
         )
         return res.won
@@ -464,7 +589,7 @@ class ChecksSettler:
             type=SETTLED_TYPE,
             source=SOURCE,
             data=payload,
-            id=settled_event_id(repo, sha),
+            id=settled_event_id(repo, sha, _generation(src)),
         )
         try:
             self._store.insert(EVENTS_COLLECTION, event_document(envelope, host=SETTLE_HOST))
@@ -474,7 +599,9 @@ class ChecksSettler:
         self._store.update_if(
             SETTLE_COLLECTION,
             f"{repo}@{sha}".lower(),
-            {"state": "pending"},
+            # only the generation this emit belongs to: a delayed emitter of an older one
+            # (its insert a duplicate) must never mark a re-armed generation emitted
+            {"state": "pending", "generation": src.get("generation")},
             {"state": "emitted", "settled_by": settled_by},
         )
         return outcome

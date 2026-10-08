@@ -65,6 +65,7 @@ def test_kill_lands_mid_action_even_when_the_victim_never_wins_an_action_race():
         # that survivor resumes its drive with the rest of the burst already started as runs:
         # if it kept driving it would take them all before thor's next (lagging) drive.
         killer: dict[str, object] = {}
+        arming = threading.Lock()  # two survivors may race to arm; only one kill thread
         invoke = cluster.ledger.invoke
 
         def kill() -> None:
@@ -75,14 +76,19 @@ def test_kill_lands_mid_action_even_when_the_victim_never_wins_an_action_race():
 
         def arming_invoke(input, idempotency_key, deadline, *, context):
             result = invoke(input, idempotency_key, deadline, context=context)
-            if context.host != "thor" and "thread" not in killer:
-                killer["thread"] = threading.Thread(target=kill, daemon=True)
-                killer["thread"].start()
-                cluster.wait_until(lambda: cluster.holding(context.host), 5, "the kill to arm")
-                killer["armed_at"] = time.time()
-                cluster.wait_until(
-                    lambda: _active_burst_runs(cluster) >= BURST // 2, 10, "the burst to start"
-                )
+            if context.host == "thor":
+                return result
+            with arming:
+                if "thread" in killer:
+                    return result
+                thread = threading.Thread(target=kill, daemon=True)
+                thread.start()  # started before it is published, so join() never sees it unstarted
+                killer["thread"] = thread
+            cluster.wait_until(lambda: cluster.holding(context.host), 5, "the kill to arm")
+            killer["armed_at"] = time.time()
+            cluster.wait_until(
+                lambda: _active_burst_runs(cluster) >= BURST // 2, 10, "the burst to start"
+            )
             return result
 
         cluster.ledger.invoke = arming_invoke

@@ -4,6 +4,38 @@ This is the working state for resuming after context compaction. The main agent
 rewrote it on 2026-10-07 at about 19:40 IDT. The authoritative records are the devague
 frame, plan and delivery store. This file points at them and adds what they don't hold.
 
+## Night of 2026-10-07/08 (read this first)
+
+- **Deployed:** the queue fix (5183b4c, wheel built at 35d8bea) on spark (API + node), thor, orin and spark2. The work timer starts on accept; the queue has its own bound (`queue_timeout`, 2 x timeout_s); blocked polls back off up to 60 s; history stays bounded; runs left by the old engine are adopted. Rollout lapse l5: always `culture-rules runs pause` before an engine upgrade.
+- **d20 (agent review before push), built and not deployed:** branch `rules/pr-fixer-review` (worktree `pr-fixer-review`), head cff6494. Five Codex rounds; round 4 found no agent-output-only path to publish anything but the approved commit. The round-5 review was cut off by Codex's usage limit and re-runs at 04:26. Key mechanisms:
+  - the gate builds one commit (the agent's tree on the PR head, engine-written metadata) and tests, reviews and pushes exactly that;
+  - non-text changes are refused;
+  - the reviewer brief is locked in code;
+  - the reviewer and implementer come from trusted state;
+  - the workflow digests and the actor digests (`TRUSTED_WORKFLOW_DIGESTS`, `TRUSTED_ACTOR_DIGESTS`; the github-app digest excludes `repos`) are pinned in code;
+  - review records are immutable per attempt, with a forward-only pointer; the approval is consumed just before `git push`;
+  - `base_mismatch` and `base_changed`.
+  - The gate's TMPDIR/basetemp fix (42ed30e) is on this branch.
+- **d21 (split into rules and workflows chained by events):** phase 1 (engine) is on `rules/pr-fixer-split` (eaa047b, 2eb0704, aeb2f68). It covers run-lifecycle events through an immutable completion outbox, the hop limit, `counts_toward_budget`, and forged-event quarantine. Codex round 2 re-runs at 04:26. Phase 2 (the split itself) has not started.
+- **Live defects found on t22:**
+  - comment triggers fire on any trusted comment (Qodo billing notice, operator status note); proposal: require `/fix` or an @mention;
+  - the engine never cancels a bridge job when a step times out (an orphan held the Qwen seat about 30 min);
+  - the agent rebased onto a moved head by itself (the push refused with `head_moved`);
+  - a big Sonar batch needs more than the 1-hour budget;
+  - the live github-app actor has no `commit_author`.
+- **Waiting on the operator:**
+  1. the reviewer's Codex login (a dedicated `culture-reviewer`, or the operator's);
+  2. OK to deploy d20 (pause the engine, upgrade every node, import the actor and workflow);
+  3. `commit_author` on github-app;
+  4. disable the four rules overnight? (The operator chose to keep them running.)
+  5. the comment-trigger rule;
+  6. branch protection on main (0 approvals and no required checks on all three repos);
+  7. fix #17's Sonar issues by hand?
+  8. GitGuardian (d22);
+  9. guildmaster#139;
+  10. lapses l2-l6.
+- **Numbering:** devague recorded the review step as d20 and the split as d21; GitGuardian becomes d22 when confirmed.
+
 ## Original request (operator, verbatim intent)
 
 > "Set up a rule that when we have a new PR, an agent gets it and starts fixing the

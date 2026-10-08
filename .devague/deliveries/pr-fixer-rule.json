@@ -2,7 +2,7 @@
   "plan_slug": "pr-fixer-rule",
   "schema_version": 2,
   "created": "2026-10-06T08:44:59Z",
-  "updated": "2026-10-07T17:45:43Z",
+  "updated": "2026-10-08T09:37:25Z",
   "deviations": [
     {
       "id": "d1",
@@ -293,9 +293,1545 @@
       "status": "approved",
       "classification": "needs-follow-up",
       "seq": 20
+    },
+    {
+      "id": "d21",
+      "what": "split the PR fixer into rules + workflows chained by events (d22): the engine emits rules.run.succeeded / rules.run.failed events on run completion (rule, workflow, concurrency key, exported outputs, causation/correlation lineage) that triggers can match; derived events carry a hop count and firing past a cap fails closed; only fix runs count against the per-key attempt budget; the review record is keyed by repo+commit (written only by the review builtin) and github.push checks the exact commit; one hand-back comment per chain; editor trigger picker + describe support. Shape: pr-fixer-{checks,comment,review,review-comment} -> workflow pr-fix (quiet, threads, agent, gate); pr-fixer-review (on pr-fix succeeded) -> review-commit; pr-fixer-refix (review = request_changes) -> pr-fix with findings; pr-fixer-publish (review = approve) -> publish-fix (push, pick, replies). Disabling pr-fixer-publish gives review-only mode. Built on top of d20, after d20's review.",
+      "task_ref": "t9",
+      "reason": "operator: the workflow needs splitting; chose rules+workflows (the product model's composition) over a new sub-workflow step kind, and asked to make the engine work for it, events and all",
+      "affects": [
+        "t10",
+        "t13",
+        "t20"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "needs-follow-up",
+      "seq": 21
+    },
+    {
+      "id": "d22",
+      "what": "manual fallback after the fixer's 3 cycles: when the PR fixer hands back after 3 attempts on the same problem (e.g. #17's d19 Sonar batch), the main agent fixes it by hand and posts a PR comment explaining why the fixer could not (budget/limit), so the hand-back is never silently overridden",
+      "task_ref": "t22",
+      "reason": "operator: '4. after 3 cycles, yes, with noting a comment why' (re #17 Sonar issues the fixer timed out on twice)",
+      "affects": [],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 22
     }
   ],
-  "evidence": [],
-  "deltas": [],
+  "evidence": [
+    {
+      "id": "e1",
+      "obligation_ref": "o1",
+      "test_ref": "tests/rules/test_pr_fixer_bundle.py::test_a_settled_failing_pr_is_fixed_pushed_replied_and_commented, tests/rules/test_pr_fixer_bundle.py::test_each_rule_fires_on_its_own_event, tests/node/test_github_pr_actions.py::test_no_merge_action_kind_exists",
+      "behavior_text": "a settled-failure event runs quiet->threads->agent->gate(pass)->push of the gate-built commit->one resolving reply to the trusted thread->run-link comment; run succeeded; each of the four pr-fixer-* rules starts a run on its own event type; ACTION_KINDS has github.push and github.review_reply and no kind containing 'merge'",
+      "contract_text": "A new PR in any AgentCulture repo is picked up by a fixer agent that drives it to green: SonarCloud gate, failing checks and unresolved review threads fixed on the PR branch, never merged",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "3 tests ran green: pytest (171 passed, junit) and vitest (425 passed) at f388a02",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-08T09:24:07",
+        "commit": "f388a02"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 23
+    },
+    {
+      "id": "e2",
+      "obligation_ref": "o1",
+      "test_ref": "live run history on rules.culture.dev (.devague/evidence-log-pr-fixer.md)",
+      "behavior_text": "run-4144cb0428806afe37cc95ed1ace2eb3 (pr-fixer-sandbox#1): agent fixed seeded bug, gate pass, App pushed 0e1b4bf, tests/lint green on new head | run-47bd8394c94ef496f203d40e2daef289 (culture-rules#17): attempt 2 gate pass, App pushed cedd5ab - first full pass on a real PR | run-0f45b49415bb (culture-rules-tester#4): first full pass with the d20 review step, App pushed 0e9d3f3",
+      "contract_text": "A new PR in any AgentCulture repo is picked up by a fixer agent that drives it to green: SonarCloud gate, failing checks and unresolved review threads fixed on the PR branch, never merged",
+      "evidence_type": "observation",
+      "strength": "fidelity",
+      "strength_basis": "observed on the live fleet from run history and GitHub, never from the agent's report",
+      "outcome": "pass",
+      "run": null,
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 24
+    },
+    {
+      "id": "e3",
+      "obligation_ref": "o2",
+      "test_ref": "tests/server/test_hooks_github.py::test_pull_request_data_enrichment, tests/server/test_hooks_github.py::test_check_suite_data_enrichment, tests/server/test_hooks_github.py::test_workflow_run_data_enrichment, tests/server/test_hooks_github.py::test_pr_comment_is_enriched_from_the_app_lookup",
+      "behavior_text": "opened/closed/reopened/synchronize/ready_for_review events all carry head_sha, head_branch, head_repo, base_repo, bool draft and pr_author (the PR author, alice); check_suite completed -> github.checks.suite_completed with head_sha, head_branch, pr_numbers, app_slug, conclusion; workflow_run completed -> github.checks.workflow_completed with head_sha, head_branch, pr_numbers, workflow_name, conclusion; (d14) a PR issue_comment is enriched via App lookup with head/base sha/branch/repo, draft, pr_author, while author stays the commenter",
+      "contract_text": "The GitHub webhook maps pull_request synchronize/ready_for_review and check_suite/workflow_run completed to typed events, and event data carries head SHA, head branch, head repo (for the fork skip), base, draft and PR author (not just sender)",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "4 tests ran green: pytest (171 passed, junit) and vitest (425 passed) at f388a02",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-08T09:24:07",
+        "commit": "f388a02"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 25
+    },
+    {
+      "id": "e4",
+      "obligation_ref": "o2",
+      "test_ref": "live run history on rules.culture.dev (.devague/evidence-log-pr-fixer.md)",
+      "behavior_text": "t21 probe 4: github.pr.opened, github.comment.created and github.pr.checks_settled events stored from real webhooks on culture-rules-tester#5 | run-4144cb0428806afe37cc95ed1ace2eb3: checks_settled carried head_repo == base_repo, draft false, base_sha",
+      "contract_text": "The GitHub webhook maps pull_request synchronize/ready_for_review and check_suite/workflow_run completed to typed events, and event data carries head SHA, head branch, head repo (for the fork skip), base, draft and PR author (not just sender)",
+      "evidence_type": "observation",
+      "strength": "fidelity",
+      "strength_basis": "observed on the live fleet from run history and GitHub, never from the agent's report",
+      "outcome": "pass",
+      "run": null,
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 26
+    },
+    {
+      "id": "e5",
+      "obligation_ref": "o3",
+      "test_ref": "tests/actors/test_bridge_agent.py::test_request_carries_repo_head_branch_and_head_sha_from_step_inputs, tests/actors/test_bridge_agent.py::test_accepted_frees_the_worker_and_a_completed_callback_finishes_the_step, tests/actors/test_bridge_agent.py::test_node_restart_between_accepted_and_completed_still_finishes, tests/server/test_bridge_callbacks_api.py::test_a_completed_callback_is_recorded_for_the_node, tests/server/test_bridge_callbacks_api.py::test_a_completed_callback_is_recorded_for_the_node, tests/server/test_bridge_callbacks_api.py::test_a_service_token_is_not_a_callback_token, tests/actors/test_bridge_agent.py::test_node_restart_between_accepted_and_completed_still_finishes, tests/actors/test_bridge_agent.py::test_the_node_cycle_delivers_a_recorded_bridge_result_and_frees_the_slot",
+      "behavior_text": "the POST /v1/invocations body carries repo, head_branch, head_sha and instruction from step inputs, with async True and a per-invocation callback token (only its hash stored); the step is 'waiting' after accept (run_until_idle returns); a recorded completed callback plus redeliver_bridge finishes the run once with the bridge outputs; a fresh executor after a node death delivers the recorded callback and the run succeeds without re-dispatching; (d1) the API route POST /bridge-invocations/{id}/events records a completed callback for the node to deliver; a completed callback with the attempt token returns 200 recorded, marks the invocation completed+pending_delivery, a repeat is 'duplicate'; an admin service token on the callback route is 401 and the invocation stays accepted; a callback recorded while the node is down is redelivered by a fresh executor; the run succeeds and nothing is re-d",
+      "contract_text": "An async agent dispatch that targets an arbitrary repo+PR branch in an isolated worktree and reports completion back to the executor (not a sync step holding a worker)",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "8 tests ran green: pytest (171 passed, junit) and vitest (425 passed) at f388a02",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-08T09:24:07",
+        "commit": "f388a02"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 27
+    },
+    {
+      "id": "e6",
+      "obligation_ref": "o3",
+      "test_ref": "live run history on rules.culture.dev (.devague/evidence-log-pr-fixer.md)",
+      "behavior_text": "run-4144cb0428806afe37cc95ed1ace2eb3 and run-0f45b49415bb: qwen bridge on spark2 ran the agent asynchronously and its completion advanced the run | run-f4e47b1b927291f8a9b656fc1ca2ec81, run-d63748f3: bridge 3600 s timeouts were reported back as step failures with hand-back | Every live agent completion (t20 run-4144cb04 commit 0e1b4bf; t22 run-47bd8394 cedd5ab; d20 proof run-0f45b494) came from the spark2 qwen bridge back through the API LAN listener (100.127.105.72:8791 per handoff)",
+      "contract_text": "An async agent dispatch that targets an arbitrary repo+PR branch in an isolated worktree and reports completion back to the executor (not a sync step holding a worker)",
+      "evidence_type": "observation",
+      "strength": "fidelity",
+      "strength_basis": "observed on the live fleet from run history and GitHub, never from the agent's report",
+      "outcome": "pass",
+      "run": null,
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 28
+    },
+    {
+      "id": "e7",
+      "obligation_ref": "o3",
+      "test_ref": "gap review of the delivered code and live runs",
+      "behavior_text": "the engine never cancels a bridge job when a step times out; live, an orphaned session held the Qwen seat about 30 min (run-d63748f3)",
+      "contract_text": "An async agent dispatch that targets an arbitrary repo+PR branch in an isolated worktree and reports completion back to the executor (not a sync step holding a worker)",
+      "evidence_type": "observation",
+      "strength": "fidelity",
+      "strength_basis": "the shipped behaviour does not meet this part of the claim",
+      "outcome": "fail",
+      "run": null,
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 29
+    },
+    {
+      "id": "e8",
+      "obligation_ref": "o4",
+      "test_ref": "tests/actors/test_gate.py::test_fail_instruction_becomes_the_agents_next_instruction, tests/rules/test_pr_fixer_bundle.py::test_a_settled_failing_pr_is_fixed_pushed_replied_and_commented, tests/node/test_github_pr_actions.py::test_push_from_a_bundle, tests/rules/test_pr_fixer_bundle.py::test_a_failing_gate_never_reaches_push, tests/rules/test_pr_fixer_review.py::test_an_approved_fix_is_pushed_after_an_independent_read_only_review, tests/rules/test_pr_fixer_review.py::test_requested_changes_become_the_next_attempts_instruction, tests/rules/test_pr_fixer_review.py::test_three_requests_for_changes_hand_back_with_the_findings_and_push_nothing, tests/node/test_push_requires_review.py::test_a_made_up_review_param_is_not_a_review",
+      "behavior_text": "a failing gate's instruction (with the output tail) becomes the second agent call's instruction; the second attempt passes and reaches the push port; github.push gets the gate's bundle and gate-built commit_sha with gate_verdict pass; one App push, on spark2; github.push publishes the commit from the gate's bundle (not from the agent's repo); when the diff guard refuses every attempt the fix loop ends loop_max_exceeded, push and replies are never called and the hand-back is posted; e2e: reviewer gets head, gate-built commit, verified diff, trusted threads, the locked brief, read-only sandbox; approve of that commit -> exactly that commit pushed; record names codex reviewer vs qwen implementer; request_changes findings become the next agent instruction; only the approved attempt is pushed; 3 request_changes -> loop_max_exceeded, hand-back carries the finding, nothing pushed or replied; a ",
+      "contract_text": "The agent never pushes. It commits in its worktree; the engine runs the repo's tests on that commit and either pushes it to the PR head branch as the GitHub App, or hands the failure back to the agent for another attempt",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "8 tests ran green: pytest (171 passed, junit) and vitest (425 passed) at f388a02",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-08T09:24:07",
+        "commit": "f388a02"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 30
+    },
+    {
+      "id": "e9",
+      "obligation_ref": "o4",
+      "test_ref": "live run history on rules.culture.dev (.devague/evidence-log-pr-fixer.md)",
+      "behavior_text": "run-47bd8394c94ef496f203d40e2daef289: attempt 1 guard (pytest.skip + nosec) went back to the agent; attempt 2 passed and the App pushed cedd5ab | run-0f45b49415bb: 'the agent commit never left spark2'; App pushed the gate-built 0e9d3f3 | run-d6e5dabdf5ec61e8a47a912091a37e0f / run-b2a00c810276679164166f0ff71dc08c: gate failures handed back, nothing pushed | d20 proof run-0f45b494 (culture-rules-tester#4): gate built 0e9d3f3, codex-reviewer approved exactly 0e9d3f3, App pushed 74f97a3->0e9d3f3 as rules-culture-dev[bot] | t21 probe 3 run-237e3abd: approved review still refused at push (rule_disabled) | #17 run-3cec964e: first cycle with review, timed out",
+      "contract_text": "The agent never pushes. It commits in its worktree; the engine runs the repo's tests on that commit and either pushes it to the PR head branch as the GitHub App, or hands the failure back to the agent for another attempt",
+      "evidence_type": "observation",
+      "strength": "fidelity",
+      "strength_basis": "observed on the live fleet from run history and GitHub, never from the agent's report",
+      "outcome": "pass",
+      "run": null,
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 31
+    },
+    {
+      "id": "e10",
+      "obligation_ref": "o5",
+      "test_ref": "tests/node/test_concurrency_budget.py::test_rules_sharing_a_key_share_one_active_run, tests/node/test_concurrency_budget.py::test_budget_is_consumed_across_rules_sharing_the_key, tests/node/test_concurrency_budget.py::test_app_push_cycles_stop_at_max_attempts, tests/node/test_concurrency_budget.py::test_self_push_does_not_reset_budget, tests/engine/test_deliver_attempt.py::test_a_result_for_an_older_attempt_is_refused, tests/engine/test_deliver_attempt.py::test_a_result_for_the_current_attempt_is_delivered, tests/actors/test_bridge_agent.py::test_attempt_2_dispatched_between_the_check_and_the_delivery_is_not_finished, tests/node/test_completions.py::test_a_refused_older_attempt_result_leaves_the_newer_attempts_slot_held",
+      "behavior_text": "(d13) while rule A holds pr key, rule B's event on the same PR is 'deduplicated'; a different PR fires independently; two rules sharing the key consume one budget (count 2); further events are attempt_budget_exhausted; another PR has its own budget; App push -> settled red -> new run loops stop at max_attempts (2 runs, then attempt_budget_exhausted); a self_authored push event neither fires nor resets an exhausted budget; deliver(attempt=1) after attempt 2 started returns False and the step stays attempt 2 waiting; deliver(attempt=2) is accepted and becomes the step outputs; the exact race (attempt 2 dispatched between the superseded check and delivery) delivers 0 and attempt 2 stays waiting; a refused old-attempt result does not release the newer attempt's actor slot",
+      "contract_text": "At most one fixer run per PR at a time, and a per-PR attempt budget stops fix/test/push cycles; because the App pushes, its own synchronize events are skipped by the existing self_authored check",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "8 tests ran green: pytest (171 passed, junit) and vitest (425 passed) at f388a02",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-08T09:24:07",
+        "commit": "f388a02"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 32
+    },
+    {
+      "id": "e11",
+      "obligation_ref": "o5",
+      "test_ref": "live run history on rules.culture.dev (.devague/evidence-log-pr-fixer.md)",
+      "behavior_text": "run-d6e5dabdf5ec61e8a47a912091a37e0f: coalesced behind the holding run on the same PR (one active run per PR) | run-8f4b61837dba / run-96a1e3a45721cce64db1a7605ca83f1b: queueing on the actor's concurrency cap (actor seat, not the per-PR key)",
+      "contract_text": "At most one fixer run per PR at a time, and a per-PR attempt budget stops fix/test/push cycles; because the App pushes, its own synchronize events are skipped by the existing self_authored check",
+      "evidence_type": "observation",
+      "strength": "fidelity",
+      "strength_basis": "observed on the live fleet from run history and GitHub, never from the agent's report",
+      "outcome": "pass",
+      "run": null,
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 33
+    },
+    {
+      "id": "e12",
+      "obligation_ref": "o6",
+      "test_ref": "tests/node/test_github_threads.py::test_only_listed_threads_the_agent_addressed_are_answered, tests/node/test_github_pr_actions.py::test_review_reply_posts_as_the_app_without_resolving, tests/deploy/test_pr_fixer_install.py::test_every_token_and_the_model_key_are_injected_by_grant",
+      "behavior_text": "only threads that are both listed (trusted) and addressed by the agent become replies; duplicates, made-up and untrusted ids are dropped; github.review_reply posts the reply to /pulls/{n}/comments/{id}/replies with the App installation token; the spark2 qwen bridge unit injects GH_TOKEN=FIXER_GITHUB_TOKEN and SONAR_TOKEN=FIXER_SONAR_TOKEN via grant (never written to config)",
+      "contract_text": "The fix loop reuses the agent-side read tooling \u2014 devex pr read/await and the sonarclaude skill \u2014 in the PR worktree, with read-only access; the agent holds no GitHub write credential, and replies to and resolution of review threads are done by the engine as the App, from the agent's result",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "3 tests ran green: pytest (171 passed, junit) and vitest (425 passed) at f388a02",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-08T09:24:07",
+        "commit": "f388a02"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 34
+    },
+    {
+      "id": "e13",
+      "obligation_ref": "o6",
+      "test_ref": "live run history on rules.culture.dev (.devague/evidence-log-pr-fixer.md)",
+      "behavior_text": "run-47bd8394c94ef496f203d40e2daef289: the agent read and fixed the 4 Sonar new-code issues on #17 (Sonar read agent-side) | run-0f45b49415bb: 'the agent commit never left spark2'; the App pushed and commented",
+      "contract_text": "The fix loop reuses the agent-side read tooling \u2014 devex pr read/await and the sonarclaude skill \u2014 in the PR worktree, with read-only access; the agent holds no GitHub write credential, and replies to and resolution of review threads are done by the engine as the App, from the agent's result",
+      "evidence_type": "observation",
+      "strength": "fidelity",
+      "strength_basis": "observed on the live fleet from run history and GitHub, never from the agent's report",
+      "outcome": "pass",
+      "run": null,
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 35
+    },
+    {
+      "id": "e14",
+      "obligation_ref": "o6",
+      "test_ref": "gap review of the delivered code and live runs",
+      "behavior_text": "the read-only scope of the agent's GitHub token is an ops setting, not enforced or tested in code",
+      "contract_text": "The fix loop reuses the agent-side read tooling \u2014 devex pr read/await and the sonarclaude skill \u2014 in the PR worktree, with read-only access; the agent holds no GitHub write credential, and replies to and resolution of review threads are done by the engine as the App, from the agent's result",
+      "evidence_type": "observation",
+      "strength": "fidelity",
+      "strength_basis": "the shipped behaviour does not meet this part of the claim",
+      "outcome": "fail",
+      "run": null,
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 36
+    },
+    {
+      "id": "e15",
+      "obligation_ref": "o7",
+      "test_ref": "tests/node/test_github_pr_actions.py::test_no_merge_action_kind_exists, tests/node/test_github_pr_actions.py::test_push_never_forces_and_keeps_the_token_out_of_argv, tests/node/test_github_pr_actions.py::test_non_fast_forward_is_refused_before_any_network_call, tests/node/test_checks_settle.py::test_exactly_one_event_after_last_of_three_suites_completes",
+      "behavior_text": "no registered action kind contains 'merge'; no git argv has --force/-f/--force-with-lease/--mirror or a '+' refspec; exactly one push of <commit>:refs/heads/<branch>; a commit that does not descend from the PR head fails not_fast_forward before any API or git network call; the ported readiness logic emits exactly one settled event once every suite on the SHA completed",
+      "contract_text": "The fixer never merges and never force-pushes; merging stays a human gate. It replaces culture-nodes' pr-upkeep lane (taken down), porting its Sonar/Qodo/failed-check readiness logic",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "4 tests ran green: pytest (171 passed, junit) and vitest (425 passed) at f388a02",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-08T09:24:07",
+        "commit": "f388a02"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 37
+    },
+    {
+      "id": "e16",
+      "obligation_ref": "o7",
+      "test_ref": "live run history on rules.culture.dev (.devague/evidence-log-pr-fixer.md)",
+      "behavior_text": "All live pushes (0e1b4bf, cedd5ab, 0e9d3f3) were fast-forward App pushes; no merges",
+      "contract_text": "The fixer never merges and never force-pushes; merging stays a human gate. It replaces culture-nodes' pr-upkeep lane (taken down), porting its Sonar/Qodo/failed-check readiness logic",
+      "evidence_type": "observation",
+      "strength": "fidelity",
+      "strength_basis": "observed on the live fleet from run history and GitHub, never from the agent's report",
+      "outcome": "pass",
+      "run": null,
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 38
+    },
+    {
+      "id": "e17",
+      "obligation_ref": "o8",
+      "test_ref": "tests/node/test_github_pr_actions.py::test_push_token_is_minted_for_exactly_one_repo_with_contents_write_only, tests/apps/test_github.py::test_push_token_is_fresh_single_repo_contents_write, tests/node/test_github_pr_actions.py::test_push_token_is_minted_for_exactly_one_repo_with_contents_write_only",
+      "behavior_text": "the push mints an installation token with repositories=[the one repo] and permissions={contents: write} only; every push_token call mints a fresh token with body {repositories:[repo], permissions:{contents:write}}, never cached; a github.push invocation mints exactly one token request for the single PR repo with contents:write only",
+      "contract_text": "The rules-culture-dev App gains Contents: read & write, Checks: read and Actions: read (workflow_run webhooks and failing job logs need it); it does not get Workflows permission; the org installation re-approves the new permissions (operator hand-turn)",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "3 tests ran green: pytest (171 passed, junit) and vitest (425 passed) at f388a02",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-08T09:24:07",
+        "commit": "f388a02"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 39
+    },
+    {
+      "id": "e18",
+      "obligation_ref": "o8",
+      "test_ref": "live run history on rules.culture.dev (.devague/evidence-log-pr-fixer.md)",
+      "behavior_text": "t16 PR #14 probe (installation 167755039): contents write, checks read, actions write, issues write, pull_requests write; events include check_suite, workflow_run, pull_request_review_comment; push of cbb0d1f as rules-culture-dev[bot]; the token was refused for agentculture/cultureagent | t16: installation 167755039 permissions = contents write, checks read, actions WRITE, issues write, pull_requests write; push_token pushed cbb0d1f to PR #14 and the same token was refused (git rc 128) on agentculture/cultureagent",
+      "contract_text": "The rules-culture-dev App gains Contents: read & write, Checks: read and Actions: read (workflow_run webhooks and failing job logs need it); it does not get Workflows permission; the org installation re-approves the new permissions (operator hand-turn)",
+      "evidence_type": "observation",
+      "strength": "fidelity",
+      "strength_basis": "observed on the live fleet from run history and GitHub, never from the agent's report",
+      "outcome": "pass",
+      "run": null,
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 40
+    },
+    {
+      "id": "e19",
+      "obligation_ref": "o9",
+      "test_ref": "tests/actors/test_gate.py::test_passing_gate_runs_setup_then_test_and_bundles_the_commit, tests/actors/test_gate.py::test_failing_test_run_returns_fail_with_the_output_tail, tests/actors/test_gate.py::test_fail_instruction_becomes_the_agents_next_instruction, tests/rules/test_pr_fixer_bundle.py::test_a_failing_gate_never_reaches_push, tests/engine/test_runs.py::test_retry_until_carry_feeds_the_previous_result_into_the_next_iteration, tests/actors/test_gate.py::test_fail_instruction_becomes_the_agents_next_instruction, tests/node/test_github_pr_actions.py::test_push_refuses_unless_the_wired_gate_verdict_is_pass, tests/actors/test_gate.py::test_default_ports_route_actorless_code_steps_to_builtins",
+      "behavior_text": "the gate runs setup then test, verdict pass, and bundles a gate-built commit with the agent tip's tree; a failing test command gives verdict fail with a bounded output tail and exit code embedded in the next instruction; no bundle; the fail instruction is the next agent call's instruction and a passing retry ends the loop with verdict pass; attempts exhausted -> loop_max_exceeded, no push, no replies, hand-back comment posted; with carry {task: hint}, iteration 2's work step receives the hint from iteration 1's check ('do it' then 'try harder'); a failing gate's instruction (with the output tail) is the agent's next instruction; the second attempt passes; for fail/guard/no_gate/None/'' the push fails gate_not_passed, non-retryable, with zero HTTP calls and zero git verbs; default_ports maps 'code' to BuiltinCodePort; an invocation without a builtin fails no_builtin non-retryable",
+      "contract_text": "A test-gate step between the agent and the push: it runs the repo's test command on the agent's commit in the worktree; pass leads to an App push, fail returns the failing output to the agent, up to a per-PR attempt budget, after which the PR gets a comment and no push",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "8 tests ran green: pytest (171 passed, junit) and vitest (425 passed) at f388a02",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-08T09:24:07",
+        "commit": "f388a02"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 41
+    },
+    {
+      "id": "e20",
+      "obligation_ref": "o9",
+      "test_ref": "live run history on rules.culture.dev (.devague/evidence-log-pr-fixer.md)",
+      "behavior_text": "run-4144cb0428806afe37cc95ed1ace2eb3: gate read the culture.yaml gate section at the base commit and passed -> push | run-47bd8394c94ef496f203d40e2daef289: attempt 1 guard handed back, attempt 2 pass -> push cedd5ab | run-d6e5dabdf5ec61e8a47a912091a37e0f, run-b2a00c810276679164166f0ff71dc08c: gate failures (source_unavailable, extra_missing) -> hand-back comment, no push | t22 run-47bd8394: attempt 1 got verdict guard (pytest.skip + nosec); the guard instruction went to attempt 2 which passed and the App pushed cedd5ab (carry live) | t20 run-4144cb04: gate verdict pass -> App pushed 0e1b4bf",
+      "contract_text": "A test-gate step between the agent and the push: it runs the repo's test command on the agent's commit in the worktree; pass leads to an App push, fail returns the failing output to the agent, up to a per-PR attempt budget, after which the PR gets a comment and no push",
+      "evidence_type": "observation",
+      "strength": "fidelity",
+      "strength_basis": "observed on the live fleet from run history and GitHub, never from the agent's report",
+      "outcome": "pass",
+      "run": null,
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 42
+    },
+    {
+      "id": "e21",
+      "obligation_ref": "o10",
+      "test_ref": "tests/node/test_github_pr_actions.py::test_push_fast_forwards_the_pr_head_branch, tests/node/test_github_pr_actions.py::test_stale_expected_head_sha_fails_and_pushes_nothing, tests/node/test_github_pr_actions.py::test_remote_moved_after_the_pr_read_is_refused_by_ls_remote, tests/node/test_github_pr_actions.py::test_target_must_be_the_prs_own_head_branch",
+      "behavior_text": "push completes with pushed true, head_before A -> head_after B, the remote head is B, and no token appears in the logs; expected_head_sha different from the PR head -> head_moved, not retryable, no push and no push token minted; a branch moved between the API read and the push is caught by ls-remote -> head_moved, no push; a head_branch other than the PR's head ref fails not_pr_head_branch with no push",
+      "contract_text": "A github.push action kind (as the App, non-force, to the PR head branch only, refusing when the remote head moved since the agent started)",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "4 tests ran green: pytest (171 passed, junit) and vitest (425 passed) at f388a02",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-08T09:24:07",
+        "commit": "f388a02"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 43
+    },
+    {
+      "id": "e22",
+      "obligation_ref": "o10",
+      "test_ref": "live run history on rules.culture.dev (.devague/evidence-log-pr-fixer.md)",
+      "behavior_text": "run-0e5cd8d6786bd (lobes-cli#302): github.push refused head_moved (expected 129781d, PR at feff2f5); nothing pushed | run-4144cb0428806afe37cc95ed1ace2eb3, run-0f45b49415bb: App pushes, one parent, authored by rules-culture-dev[bot]",
+      "contract_text": "A github.push action kind (as the App, non-force, to the PR head branch only, refusing when the remote head moved since the agent started)",
+      "evidence_type": "observation",
+      "strength": "fidelity",
+      "strength_basis": "observed on the live fleet from run history and GitHub, never from the agent's report",
+      "outcome": "pass",
+      "run": null,
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 44
+    },
+    {
+      "id": "e23",
+      "obligation_ref": "o11",
+      "test_ref": "tests/rules/test_pr_fixer_bundle.py::test_excluded_repos_drafts_and_forks_never_fire, tests/node/test_github_pr_actions.py::test_fork_pr_is_refused",
+      "behavior_text": "for all four rules, an excluded repo, a draft or a fork head_repo never fires; github.push on a PR whose head repo is a fork fails not_same_repo_pr and never pushes",
+      "contract_text": "Fork PRs and PRs from non-members are skipped (condition on head repo == base repo); fixing them is a later decision",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "2 tests ran green: pytest (171 passed, junit) and vitest (425 passed) at f388a02",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-08T09:24:07",
+        "commit": "f388a02"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 45
+    },
+    {
+      "id": "e24",
+      "obligation_ref": "o11",
+      "test_ref": "live run history on rules.culture.dev (.devague/evidence-log-pr-fixer.md)",
+      "behavior_text": "Fork PR #3 on pr-fixer-sandbox (from OriNachum/pr-fixer-sandbox) got zero fixer runs",
+      "contract_text": "Fork PRs and PRs from non-members are skipped (condition on head repo == base repo); fixing them is a later decision",
+      "evidence_type": "observation",
+      "strength": "fidelity",
+      "strength_basis": "observed on the live fleet from run history and GitHub, never from the agent's report",
+      "outcome": "pass",
+      "run": null,
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 46
+    },
+    {
+      "id": "e25",
+      "obligation_ref": "o12",
+      "test_ref": "tests/rules/test_pr_fixer_bundle.py::test_the_workflow_steps_and_placements, tests/deploy/test_pr_fixer_install.py::test_only_the_qwen_bridge_is_planned_on_the_fixer_machine, tests/deploy/test_pr_fixer_install.py::test_the_qwen_bridge_pins_a_handshake_approved_qwen_and_cortex, tests/rules/test_pr_fixer_bundle.py::test_a_settled_failing_pr_is_fixed_pushed_replied_and_commented, tests/deploy/test_pr_fixer_install.py::test_only_the_qwen_bridge_is_planned_on_the_fixer_machine, tests/deploy/test_pr_fixer_install.py::test_the_qwen_bridge_binds_the_tailnet_host_and_authors_as_the_app_bot, tests/rules/test_pr_fixer_bundle.py::test_the_workflow_steps_and_placements",
+      "behavior_text": "the shipped pr-fixer workflow's agent step is placed on actor qwen-fixer (mode yolo), the gate on machine spark2, push on spark2, and the d20 review step on actor codex-reviewer with sandbox read-only; the spark2 fixer install plan never mentions codex (d8); the planned qwen bridge config has default_model cortex and pins qwen agent version 0.24.7; end to end: the fix[0]/agent step and the gate ran on host spark2; the fixer-machine install plan never mentions codex; the qwen bridge config binds the tailnet host:8093, commit_author is the App bot, agentculture-only allowlist, max_concurrent 1; the shipped workflow's agent step is placed on actor qwen-fixer (gate and push on spark2)",
+      "contract_text": "Fixer harness: Qwen Code (via the lifted qwen ACP bridge) pointed at the cortex model on spark2, or Codex via the codex bridge; the fixer runs on spark2",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "7 tests ran green: pytest (171 passed, junit) and vitest (425 passed) at f388a02",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-08T09:24:07",
+        "commit": "f388a02"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 47
+    },
+    {
+      "id": "e26",
+      "obligation_ref": "o12",
+      "test_ref": "live run history on rules.culture.dev (.devague/evidence-log-pr-fixer.md)",
+      "behavior_text": "t20 run-4144cb0428806afe37cc95ed1ace2eb3: Qwen agent on spark2 produced 0e1b4bf, gate passed, App pushed | t22 run-47bd8394c94ef496f203d40e2daef289 attempt 2: Qwen on spark2 produced cedd5ab, pushed to culture-rules#17 | t20/t22: every fixer agent ran via qwen-fixer on spark2 (e.g. run-4144cb04, run-47bd8394); Codex runs only on spark (codex bridge 127.0.0.1:8094 at the d20 deploy)",
+      "contract_text": "Fixer harness: Qwen Code (via the lifted qwen ACP bridge) pointed at the cortex model on spark2, or Codex via the codex bridge; the fixer runs on spark2",
+      "evidence_type": "observation",
+      "strength": "fidelity",
+      "strength_basis": "observed on the live fleet from run history and GitHub, never from the agent's report",
+      "outcome": "pass",
+      "run": null,
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 48
+    },
+    {
+      "id": "e27",
+      "obligation_ref": "o13",
+      "test_ref": "tests/rules/test_pr_fixer_bundle.py::test_a_settled_failing_pr_is_fixed_pushed_replied_and_commented, tests/rules/test_pr_fixer_bundle.py::test_a_non_trusted_author_does_not_fire_a_trusted_one_does, tests/rules/test_pr_fixer_bundle.py::test_excluded_repos_drafts_and_forks_never_fire, tests/node/test_github_threads.py::test_only_trusted_authors_threads_are_kept, tests/engine/test_action_step.py::test_two_action_steps_run_in_order_with_params_from_earlier_outputs, tests/engine/test_action_step.py::test_for_each_posts_one_reply_per_item_with_distinct_keys, tests/node/test_action_step_github.py::test_push_step_of_a_disabled_source_rule_is_refused, tests/rules/test_pr_fixer_bundle.py::test_a_settled_failing_pr_is_fixed_pushed_replied_and_commented, tests/engine/test_on_failure.py::test_a_failed_step_runs_on_failure_once_with_the_error_and_the_run_id, tests/engine/test_on_failure.py::test_a_superseded_run_never_runs_on_failure, tests/engine/test_on_failure.py::test_a_cancelled_run_never_runs_on_failure, tests/rules/test_pr_fixer_bundle.py::test_a_thread_lookup_error_fails_the_run_before_the_agent",
+      "behavior_text": "a settled failing PR runs quiet->threads->agent (once, on spark2)->gate pass->App push of the gate-built commit->one reply resolving the trusted thread (untrusted/made-up thread dropped)->success comment linking the run; for each comment rule, a comment by 'mallory' does not fire and one by the trusted author does; for every fixer rule an excluded repo, a draft PR or a fork head repo never fires; the github.threads builtin keeps only threads whose opening author is in trusted_authors; push then comment action steps run in order, routed with kind 'action' and the literal actor, params resolved from earlier outputs; the rule's terminal action still runs last; a for_each of review_reply action steps posts one reply per thread with distinct idempotency keys, all counted through the actor's limits; a push action step whose source rule is disabled fails rule_disabled with no git push and no co",
+      "contract_text": "A same-repo PR in any agentculture repo gets a fixer run on spark2 without anyone asking: the agent fixes Sonar issues, failing checks, and review comments from the operator, Qodo and a pre-approved list of users and apps (comments from anyone else are ignored) in a worktree; the engine's tests gate each commit, the App pushes passing commits, and the operator only reviews and merges",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "12 tests ran green: pytest (171 passed, junit) and vitest (425 passed) at f388a02",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-08T09:24:07",
+        "commit": "f388a02"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 49
+    },
+    {
+      "id": "e28",
+      "obligation_ref": "o13",
+      "test_ref": "live run history on rules.culture.dev (.devague/evidence-log-pr-fixer.md)",
+      "behavior_text": "t20 run-4144cb0428806afe37cc95ed1ace2eb3 on agentculture/pr-fixer-sandbox#1: full pass, App pushed 0e1b4bf as rules-culture-dev[bot] with run-link comment; tests and lint green on new head | t22 run-47bd8394c94ef496f203d40e2daef289: first full pass on a real PR (culture-rules#17, cedd5ab) | run-0f45b49415bb on culture-rules-tester#4: full pass with the d20 review step | t20 run-4144cb04 and d20 proof run-0f45b494: the push action step pushed as rules-culture-dev[bot] and the terminal comment linked the run | t21 probe 3 run-237e3abd: push step refused rule_disabled | t20 run-d6e5dabd, run-b2a00c81, run-f4e47b1b: hand-back comments posted, nothing pushed | t22 run-96a1e3a4 (lobes-cli#302), run-8f4b6183, run-62a05067 (#17): hand-backs posted | t20 run-65c792ba / run-ef30c89b superseded: no hand-back",
+      "contract_text": "A same-repo PR in any agentculture repo gets a fixer run on spark2 without anyone asking: the agent fixes Sonar issues, failing checks, and review comments from the operator, Qodo and a pre-approved list of users and apps (comments from anyone else are ignored) in a worktree; the engine's tests gate each commit, the App pushes passing commits, and the operator only reviews and merges",
+      "evidence_type": "observation",
+      "strength": "fidelity",
+      "strength_basis": "observed on the live fleet from run history and GitHub, never from the agent's report",
+      "outcome": "pass",
+      "run": null,
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 50
+    },
+    {
+      "id": "e29",
+      "obligation_ref": "o13",
+      "test_ref": "gap review of the delivered code and live runs",
+      "behavior_text": "any comment by a trusted author starts a run, including ones that request nothing (Qodo billing notice, operator status note, a closing comment on a closed PR: run-96a1e3a4, run-3d55dbdc, run-40aaffffe557)",
+      "contract_text": "A same-repo PR in any agentculture repo gets a fixer run on spark2 without anyone asking: the agent fixes Sonar issues, failing checks, and review comments from the operator, Qodo and a pre-approved list of users and apps (comments from anyone else are ignored) in a worktree; the engine's tests gate each commit, the App pushes passing commits, and the operator only reviews and merges",
+      "evidence_type": "observation",
+      "strength": "fidelity",
+      "strength_basis": "the shipped behaviour does not meet this part of the claim",
+      "outcome": "fail",
+      "run": null,
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 51
+    },
+    {
+      "id": "e30",
+      "obligation_ref": "o14",
+      "test_ref": "tests/rules/test_pr_fixer_bundle.py::test_excluded_repos_drafts_and_forks_never_fire, tests/node/test_concurrency_budget.py::test_app_push_cycles_stop_at_max_attempts",
+      "behavior_text": "draft and fork PR events never start a run for any of the four fixer rules; App push -> red settle -> new run cycles stop at max_attempts (bounds commits)",
+      "contract_text": "On a test PR seeded with one Sonar issue and one failing test, within 30 minutes the App pushes at most 3 commits, CI is green, the Sonar gate passes, and the PR has 0 unresolved threads; a fork PR and a draft PR get 0 fixer runs",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "2 tests ran green: pytest (171 passed, junit) and vitest (425 passed) at f388a02",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-08T09:24:07",
+        "commit": "f388a02"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 52
+    },
+    {
+      "id": "e31",
+      "obligation_ref": "o14",
+      "test_ref": "live run history on rules.culture.dev (.devague/evidence-log-pr-fixer.md)",
+      "behavior_text": "t20 pr-fixer-sandbox#1 (seeded floor-division failing test + unused local): run-4144cb04 pushed one commit 0e1b4bf, tests 119 passed and lint green on new head | t20: draft PR #2 and fork PR #3 got zero fixer runs",
+      "contract_text": "On a test PR seeded with one Sonar issue and one failing test, within 30 minutes the App pushes at most 3 commits, CI is green, the Sonar gate passes, and the PR has 0 unresolved threads; a fork PR and a draft PR get 0 fixer runs",
+      "evidence_type": "observation",
+      "strength": "fidelity",
+      "strength_basis": "observed on the live fleet from run history and GitHub, never from the agent's report",
+      "outcome": "pass",
+      "run": null,
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 53
+    },
+    {
+      "id": "e32",
+      "obligation_ref": "o14",
+      "test_ref": "gap review of the delivered code and live runs",
+      "behavior_text": "not shown as stated: the t20 seed had no Sonar issue, the 30-minute window and zero unresolved threads were never recorded, and #17's Sonar gate went green only by hand (d22); drafts/forks got 0 runs (holds)",
+      "contract_text": "On a test PR seeded with one Sonar issue and one failing test, within 30 minutes the App pushes at most 3 commits, CI is green, the Sonar gate passes, and the PR has 0 unresolved threads; a fork PR and a draft PR get 0 fixer runs",
+      "evidence_type": "observation",
+      "strength": "fidelity",
+      "strength_basis": "the shipped behaviour does not meet this part of the claim",
+      "outcome": "fail",
+      "run": null,
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 54
+    },
+    {
+      "id": "e33",
+      "obligation_ref": "o15",
+      "test_ref": "tests/node/test_checks_settle.py::test_exactly_one_event_after_last_of_three_suites_completes, tests/rules/test_pr_fixer_bundle.py::test_each_rule_fires_on_its_own_event, tests/rules/test_pr_fixer_bundle.py::test_green_checks_do_not_start_a_fixer_run, tests/rules/test_pr_fixer_bundle.py::test_a_head_with_no_counted_checks_does_not_start_a_fixer_run, tests/rules/test_pr_fixer_bundle.py::test_the_bundle_is_four_disabled_rules_sharing_one_workflow, tests/node/test_concurrency_budget.py::test_rules_sharing_a_key_share_one_active_run, tests/node/test_concurrency_budget.py::test_budget_is_consumed_across_rules_sharing_the_key, tests/rules/test_pr_fixer_bundle.py::test_each_rule_fires_on_its_own_event",
+      "behavior_text": "three suites completing one by one yield 'pending' until the last, then exactly one github.pr.checks_settled event (settled_by all_completed) with head_sha/repo/number; redelivery is a duplicate; pr-fixer-checks fires on github.pr.checks_settled (and each other rule on its own type); a settled 'success' does not fire pr-fixer-checks; a 'timeout' does; a settle with conclusion no_checks does not fire pr-fixer-checks; the bundle is exactly the four typed event rules, all on workflow pr-fixer with key pr-fixer:{repository}#{number}, max_attempts 3, placement spark2; rule B on the same PR is deduplicated (decision names A's run) while A's run is active; another PR is independent; two rules with max 2 share one budget doc: after 2 runs both are refused attempt_budget_exhausted; another PR has its own budget; each of the four rules fires on its own event type",
+      "contract_text": "The fixer fires on check_suite / workflow_run completed for a PR's head commit, with pull_request opened as the fallback for repos without CI; the agent never idles waiting for Sonar or CI",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "8 tests ran green: pytest (171 passed, junit) and vitest (425 passed) at f388a02",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-08T09:24:07",
+        "commit": "f388a02"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 55
+    },
+    {
+      "id": "e34",
+      "obligation_ref": "o15",
+      "test_ref": "live run history on rules.culture.dev (.devague/evidence-log-pr-fixer.md)",
+      "behavior_text": "t20 run-4144cb04 and t22 run-47bd8394 were triggered by pr-fixer-checks on a settled 'failure' | t20: run-d6e5dabd (pr-fixer-checks) was coalesced behind run-65c792ba (pr-fixer-comment) on the same PR | t22: lobes-cli#302 runs from pr-fixer-comment and pr-fixer-checks shared one key/budget",
+      "contract_text": "The fixer fires on check_suite / workflow_run completed for a PR's head commit, with pull_request opened as the fallback for repos without CI; the agent never idles waiting for Sonar or CI",
+      "evidence_type": "observation",
+      "strength": "fidelity",
+      "strength_basis": "observed on the live fleet from run history and GitHub, never from the agent's report",
+      "outcome": "pass",
+      "run": null,
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 56
+    },
+    {
+      "id": "e35",
+      "obligation_ref": "o15",
+      "test_ref": "gap review of the delivered code and live runs",
+      "behavior_text": "the pull_request opened fallback for repos without CI was not shipped: a head with no checks settles no_checks and starts no run",
+      "contract_text": "The fixer fires on check_suite / workflow_run completed for a PR's head commit, with pull_request opened as the fallback for repos without CI; the agent never idles waiting for Sonar or CI",
+      "evidence_type": "observation",
+      "strength": "fidelity",
+      "strength_basis": "the shipped behaviour does not meet this part of the claim",
+      "outcome": "fail",
+      "run": null,
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 57
+    },
+    {
+      "id": "e36",
+      "obligation_ref": "o16",
+      "test_ref": "tests/rules/test_pr_fixer_bundle.py::test_conditions_reference_the_variables_never_a_copied_list, tests/rules/test_pr_fixer_bundle.py::test_editing_trusted_authors_changes_what_fires_without_editing_the_rule, tests/rules/test_pr_fixer_bundle.py::test_a_settled_failing_pr_is_fixed_pushed_replied_and_commented, web/src/rules/RulesEditor.test.tsx::an author check picks vars.trusted_authors and saves a var operand, not a copied list",
+      "behavior_text": "every shipped rule's condition uses items {var: fixer_repos}/{var: fixer_excluded_repos} with no literal lists, workflow input trusted_authors is {$var: trusted_authors}, and comment rules carry items {var: trusted_authors}; with trusted_authors not listing the author the comment rule doesn't fire; after put_variable adds the author it fires, rule unchanged; the agent input's threads are exactly [PRRT_1] (the trusted one); untrusted thread text never reaches the agent; vitest: the condition editor's items picker offers vars.trusted_authors (not non-list vars) and saves items {var: trusted_authors}",
+      "contract_text": "The comment-author allowlist has two parts. It is defined once as the shared variable trusted_authors in the Variables tab (operator, Qodo's bot, pre-approved users and apps). The fixer rule's condition carries a field that references it: an 'in' predicate over the event author whose items field is set to vars.trusted_authors, picked in the condition editor. The rule's workflow inputs reference the same variable. A comment or review from a listed author fires a run, and only threads from listed authors are handed to the agent",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "4 tests ran green: pytest (171 passed, junit) and vitest (425 passed) at f388a02",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-08T09:24:07",
+        "commit": "f388a02"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 58
+    },
+    {
+      "id": "e37",
+      "obligation_ref": "o16",
+      "test_ref": "live run history on rules.culture.dev (.devague/evidence-log-pr-fixer.md)",
+      "behavior_text": "t20 run-65c792ba / t22 run-96a1e3a4: a comment by qodo-code-review[bot] (trusted) started runs | run-0f45b49415bb (culture-rules-tester#4): Qodo notice from a trusted author fired pr-fixer-comment",
+      "contract_text": "The comment-author allowlist has two parts. It is defined once as the shared variable trusted_authors in the Variables tab (operator, Qodo's bot, pre-approved users and apps). The fixer rule's condition carries a field that references it: an 'in' predicate over the event author whose items field is set to vars.trusted_authors, picked in the condition editor. The rule's workflow inputs reference the same variable. A comment or review from a listed author fires a run, and only threads from listed authors are handed to the agent",
+      "evidence_type": "observation",
+      "strength": "fidelity",
+      "strength_basis": "observed on the live fleet from run history and GitHub, never from the agent's report",
+      "outcome": "pass",
+      "run": null,
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 59
+    },
+    {
+      "id": "e38",
+      "obligation_ref": "o17",
+      "test_ref": "tests/store/test_memory.py::TestVariableMemoryContract::test_put_appends_version_2, tests/server/test_variables_api.py::test_admin_write_creates_a_version_naming_the_principal, tests/node/test_shared_variables.py::test_changing_a_variable_changes_the_next_outcome_of_every_referencing_rule, tests/model/test_describe.py::test_golden_pr_fixer_workflow, tests/model/test_describe.py::test_prose_fields_are_never_used, tests/cli/test_describe_verbs.py::test_describe_is_a_read_only_viewer_verb_and_an_mcp_tool, web/src/routes/Variables.test.tsx::shows the selected variable's value, version history and the rules that reference it, web/src/routes/WorkflowsZoomDescribe.test.tsx::zoom out / zoom in / fit buttons are labelled, change the zoom and stop at the bounds",
+      "behavior_text": "a second put of a variable appends version 2 (versioned store); PUT /variables/trusted_authors by admin returns version 1 updated_by admin, a second PUT version 2 with the new value; changing a variable flips the next outcome of both an 'in vars.trusted' rule and its negation without editing either rule; describe_workflow of the shipped pr-fixer workflow renders exactly the golden lines; name/description prose fields never appear in the description; rules/workflows describe are viewer, non-mutating verbs and MCP tools returning the golden lines; vitest: the Variables tab shows value, version history and referencing rules; (vitest) zoom buttons change the canvas zoom and stop at the bounds; the (i) opens GET /workflows/{id}/describe",
+      "contract_text": "Shared variables are a new first-class, versioned object with their own fifth editor tab, Variables: named values (e.g. trusted_authors) defined once and referenced by any rule's condition and workflow inputs via vars.<name>; the fixer rule's allowlist is the first one",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "8 tests ran green: pytest (171 passed, junit) and vitest (425 passed) at f388a02",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-08T09:24:07",
+        "commit": "f388a02"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 60
+    },
+    {
+      "id": "e39",
+      "obligation_ref": "o17",
+      "test_ref": "live run history on rules.culture.dev (.devague/evidence-log-pr-fixer.md)",
+      "behavior_text": "t20 deploy: variables seeded (trusted_authors, fixer_repos, ...) and used by the live rules; t21 probe 4 used fixer_excluded_repos",
+      "contract_text": "Shared variables are a new first-class, versioned object with their own fifth editor tab, Variables: named values (e.g. trusted_authors) defined once and referenced by any rule's condition and workflow inputs via vars.<name>; the fixer rule's allowlist is the first one",
+      "evidence_type": "observation",
+      "strength": "fidelity",
+      "strength_basis": "observed on the live fleet from run history and GitHub, never from the agent's report",
+      "outcome": "pass",
+      "run": null,
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 61
+    },
+    {
+      "id": "e40",
+      "obligation_ref": "o18",
+      "test_ref": "tests/node/test_shared_variables.py::test_workflow_inputs_mapped_with_var_receive_the_value_current_at_firing_time, tests/model/test_variable_references.py::test_workflow_ref_inputs_accept_a_var_mapping, tests/cli/test_variables_verbs.py::test_set_apply_commits_and_history_refs_work, tests/test_surface_parity.py::test_every_registry_verb_maps_to_openapi_paths",
+      "behavior_text": "a rule's WorkflowRef input {$var: trusted} gives the run the variable's value at firing, pinned on the intent; a later change affects only later runs; WorkflowRef.inputs accepts a {$var: name} mapping; CLI variables set --apply commits, and history/refs verbs return the versions and referencing rules; every registry verb (variables included) is on the CLI and maps to openapi paths (sibling tests check the MCP tool list)",
+      "contract_text": "The engine resolves vars.<name> from the shared variable store when it evaluates a condition and maps workflow inputs; WorkflowRef.inputs accepts a {\"$var\": name} reference; the API, CLI noun group (variables), MCP tools, openapi.json and explain catalog gain the variable verbs",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "4 tests ran green: pytest (171 passed, junit) and vitest (425 passed) at f388a02",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-08T09:24:07",
+        "commit": "f388a02"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 62
+    },
+    {
+      "id": "e41",
+      "obligation_ref": "o19",
+      "test_ref": "tests/test_docs_t40.py::test_prompt_files_describe_the_five_tab_design, tests/test_docs_t40.py::test_readme_five_tabs_mcp_and_no_stale_wording, web/src/App.test.tsx::has exactly five top-level tabs, in order",
+      "behavior_text": "each prompt file contains 'Rules | Workflows | Actors | Variables | Statistics' and no stale wording; README names the five tabs and MCP without stale four-tab wording; vitest: the Primary nav links are exactly Rules, Workflows, Actors, Variables, Statistics",
+      "contract_text": "The 'exactly four primary tabs' constraint becomes five (Rules | Workflows | Actors | Variables | Statistics): CLAUDE.md, QWEN.md, AGENTS.override.md, AGENTS.colleague.md, the spec and the App.test tab-order test change together, and the design canvas gains the Variables tab",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "3 tests ran green: pytest (171 passed, junit) and vitest (425 passed) at f388a02",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-08T09:24:07",
+        "commit": "f388a02"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 63
+    },
+    {
+      "id": "e42",
+      "obligation_ref": "o20",
+      "test_ref": "tests/node/test_checks_settle.py::test_exactly_one_event_after_last_of_three_suites_completes, tests/node/test_checks_settle.py::test_queued_suite_of_ignored_app_does_not_hold_back_event, tests/node/test_checks_settle.py::test_ignored_apps_variable_overrides_default, tests/node/test_checks_settle.py::test_timeout_emits_one_event_settled_by_timeout, tests/server/test_hooks_github.py::test_pr_comment_is_enriched_from_the_app_lookup, tests/server/test_hooks_github.py::test_pr_review_and_review_comment_events_carry_base_sha_and_base_branch, tests/node/test_checks_settle.py::test_settled_event_carries_base_sha_and_the_full_pr_fact_set, tests/rules/test_pr_fixer_bundle.py::test_a_replayed_comment_fires_only_for_a_trusted_author",
+      "behavior_text": "partial completions return pending with no event; the last completion emits exactly one; redelivery/tick duplicates nothing; a queued 'claude' suite does not hold back the settled event; setting ignored_check_apps changes which apps are ignored, case-insensitively; with checks_settle_timeout_s 60 an incomplete SHA emits one event settled_by/conclusion timeout after 61 s, and a later completion is a duplicate; an issue_comment on a PR triggers one App lookup and stores pr_enriched, head_sha/branch/repo, base_repo/branch/sha, draft, pr_author, with author = the commenter; synchronize, review.submitted and review_comment.created events all carry base_sha, base_branch and the full PR field set; the settled event carries base_sha, base_branch, pr_author and its own head_sha/branch; a signed issue_comment replayed through the webhook fires pr-fixer-comment only for a trusted author, with pr_en",
+      "contract_text": "The fixer fires once per PR head SHA, when every check suite on that SHA has completed except those from apps in a shared ignored_check_apps variable (seeded with the 'claude' app, whose suite stays queued), or after a settle timeout; individual suite completions before that do not start a run",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "8 tests ran green: pytest (171 passed, junit) and vitest (425 passed) at f388a02",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-08T09:24:07",
+        "commit": "f388a02"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 64
+    },
+    {
+      "id": "e43",
+      "obligation_ref": "o20",
+      "test_ref": "live run history on rules.culture.dev (.devague/evidence-log-pr-fixer.md)",
+      "behavior_text": "t20 run-4144cb04: github.pr.checks_settled 'failure' at aca0f2a with PR facts | t21 probe 4: github.pr.checks_settled at 08:54:00Z settled by timeout (settled_6b672602) | t20 run-4144cb04: settled event carried head_repo==base_repo, draft false, base_sha; the gate read culture.yaml at the base commit | d20 proof run-0f45b494 and t22 lobes-cli#302: pr-fixer-comment runs fired from enriched PR comments",
+      "contract_text": "The fixer fires once per PR head SHA, when every check suite on that SHA has completed except those from apps in a shared ignored_check_apps variable (seeded with the 'claude' app, whose suite stays queued), or after a settle timeout; individual suite completions before that do not start a run",
+      "evidence_type": "observation",
+      "strength": "fidelity",
+      "strength_basis": "observed on the live fleet from run history and GitHub, never from the agent's report",
+      "outcome": "pass",
+      "run": null,
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 65
+    },
+    {
+      "id": "e44",
+      "obligation_ref": "o21",
+      "test_ref": "tests/server/test_hooks_github.py::test_self_authored_tagged, tests/server/test_hooks_github.py::test_check_suite_self_authored_is_false_for_bot, tests/server/test_hooks_github.py::test_workflow_run_self_authored_is_false_for_bot, tests/node/test_concurrency_budget.py::test_app_push_cycles_stop_at_max_attempts, tests/events/test_hook_sink.py::test_exempt_check_types_get_self_authored_false, tests/events/test_hook_sink.py::test_jira_matching_author_gets_self_authored_true, tests/events/test_hook_sink.py::test_discord_matching_author_gets_self_authored_true, tests/server/test_hooks_github.py::test_check_suite_self_authored_is_false_for_bot",
+      "behavior_text": "bot-authored pull_request opened and synchronize are both tagged self_authored true; a check_suite completed with sender culture[bot] is tagged self_authored false; a workflow_run completed with sender culture[bot] is tagged self_authored false; App push -> red settle -> new run cycles admit only max_attempts runs, then attempt_budget_exhausted; suite_completed and workflow_completed authored by the self identity store self_authored False explicitly; a Jira event by the self identity is tagged self_authored True; a Discord event by the self identity is tagged self_authored True; a signed check_suite completed webhook sent by culture[bot] is stored with self_authored False (while test_self_authored_tagged shows bot opened/synchronize are True)",
+      "contract_text": "The self_authored skip applies to pull_request synchronize only; check_suite/workflow_run completions on an App-pushed SHA still fire the fixer (bounded by the attempt budget), so the agent sees whether its fix went green",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "8 tests ran green: pytest (171 passed, junit) and vitest (425 passed) at f388a02",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-08T09:24:07",
+        "commit": "f388a02"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 66
+    },
+    {
+      "id": "e45",
+      "obligation_ref": "o21",
+      "test_ref": "live run history on rules.culture.dev (.devague/evidence-log-pr-fixer.md)",
+      "behavior_text": "t20: after the App pushed 0e1b4bf, the settled 'failure' at 0e1b4bf started run-ef30c89b (checks on an App-pushed SHA still fire) | t20: after the App pushed 0e1b4bf (run-4144cb04), run-ef30c89b fired from pr-fixer-checks settled at that App-pushed SHA, i.e. check completion on an App commit still fires",
+      "contract_text": "The self_authored skip applies to pull_request synchronize only; check_suite/workflow_run completions on an App-pushed SHA still fire the fixer (bounded by the attempt budget), so the agent sees whether its fix went green",
+      "evidence_type": "observation",
+      "strength": "fidelity",
+      "strength_basis": "observed on the live fleet from run history and GitHub, never from the agent's report",
+      "outcome": "pass",
+      "run": null,
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 67
+    },
+    {
+      "id": "e46",
+      "obligation_ref": "o22",
+      "test_ref": "tests/apps/test_github.py::test_push_token_is_fresh_single_repo_contents_write, tests/apps/test_github.py::test_push_token_scope_mismatch_is_refused, tests/node/test_github_pr_actions.py::test_push_token_is_minted_for_exactly_one_repo_with_contents_write_only, tests/node/test_github_pr_actions.py::test_push_never_forces_and_keeps_the_token_out_of_argv",
+      "behavior_text": "push_token is minted on every call (never cached) with body {repositories:[widgets], permissions:{contents:write}}, signed with the App JWT; a minted token whose returned repositories exceed the one repo is refused; the github.push port mints exactly one token for the PR's repo with contents:write only; no git argv carries the token or any force flag; only ls-remote and push get the credential, via GIT_CONFIG_* env",
+      "contract_text": "The App installation token used for a push is minted per push, scoped to the single PR repository with contents:write only, held by the push step alone, and never placed in the agent's or the test gate's environment or worktree",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "4 tests ran green: pytest (171 passed, junit) and vitest (425 passed) at f388a02",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-08T09:24:07",
+        "commit": "f388a02"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 68
+    },
+    {
+      "id": "e47",
+      "obligation_ref": "o22",
+      "test_ref": "live run history on rules.culture.dev (.devague/evidence-log-pr-fixer.md)",
+      "behavior_text": "t16 probe (PR #14): GitHubApp.push_token minted a single-repo token, pushed cbb0d1f non-force; the same token was refused (rc 128) for agentculture/cultureagent",
+      "contract_text": "The App installation token used for a push is minted per push, scoped to the single PR repository with contents:write only, held by the push step alone, and never placed in the agent's or the test gate's environment or worktree",
+      "evidence_type": "observation",
+      "strength": "fidelity",
+      "strength_basis": "observed on the live fleet from run history and GitHub, never from the agent's report",
+      "outcome": "pass",
+      "run": null,
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 69
+    },
+    {
+      "id": "e48",
+      "obligation_ref": "o22",
+      "test_ref": "gap review of the delivered code and live runs",
+      "behavior_text": "no test asserts the push token never reaches the agent's or gate's environment; tests show only that it stays out of git argv",
+      "contract_text": "The App installation token used for a push is minted per push, scoped to the single PR repository with contents:write only, held by the push step alone, and never placed in the agent's or the test gate's environment or worktree",
+      "evidence_type": "observation",
+      "strength": "fidelity",
+      "strength_basis": "the shipped behaviour does not meet this part of the claim",
+      "outcome": "fail",
+      "run": null,
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 70
+    },
+    {
+      "id": "e49",
+      "obligation_ref": "o23",
+      "test_ref": "tests/actors/test_gate.py::test_run_as_refuses_shell_joining_prefixes_and_defaults_to_refusing, tests/actors/test_gate.py::test_run_as_prefix_wraps_the_argv, tests/actors/test_gate.py::test_unconfigured_runner_refuses_and_runs_nothing, tests/deploy/test_pr_fixer_install.py::test_every_token_and_the_model_key_are_injected_by_grant",
+      "behavior_text": "RunAs refuses ssh/sh -c/su/empty prefixes; with no CULTURE_RULES_GATE_RUN_AS the gate has no runner; 'sudo -n -u culture-fixer --' parses; the gate wraps each argv as 'sudo -n -u culture-fixer -- env -C <cwd> -- <argv>'; an unconfigured gate runner fails gate_runner_unconfigured and spawns nothing; the fixer install injects QWEN bridge token, cortex key, GH_TOKEN and SONAR_TOKEN by grant into the culture-fixer bridge unit",
+      "contract_text": "The agent and the test gate run PR code as a dedicated unprivileged Unix user on the fixer machine, with no grant secrets, App key, Sonar token or operator credentials in their environment or home",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "4 tests ran green: pytest (171 passed, junit) and vitest (425 passed) at f388a02",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-08T09:24:07",
+        "commit": "f388a02"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 71
+    },
+    {
+      "id": "e50",
+      "obligation_ref": "o23",
+      "test_ref": "live run history on rules.culture.dev (.devague/evidence-log-pr-fixer.md)",
+      "behavior_text": "spark2 run-as probe 2026-10-07: sudo -n -u culture-fixer gives whoami culture-fixer, 700 temp dirs, and the node user cannot read ~culture-fixer | t20: NoNewPrivileges=true blocked sudo (run-d6e5dabd source_unavailable); fixed via --gate-run-as (a21e07d); run-4144cb04 then passed as culture-fixer",
+      "contract_text": "The agent and the test gate run PR code as a dedicated unprivileged Unix user on the fixer machine, with no grant secrets, App key, Sonar token or operator credentials in their environment or home",
+      "evidence_type": "observation",
+      "strength": "fidelity",
+      "strength_basis": "observed on the live fleet from run history and GitHub, never from the agent's report",
+      "outcome": "pass",
+      "run": null,
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 72
+    },
+    {
+      "id": "e51",
+      "obligation_ref": "o23",
+      "test_ref": "gap review of the delivered code and live runs",
+      "behavior_text": "culture-fixer's qwen bridge holds a read-only GH_TOKEN and SONAR_TOKEN by grant, and the App key sits in spark2's node grant store (r16); no test asserts the gate environment carries no secrets",
+      "contract_text": "The agent and the test gate run PR code as a dedicated unprivileged Unix user on the fixer machine, with no grant secrets, App key, Sonar token or operator credentials in their environment or home",
+      "evidence_type": "observation",
+      "strength": "fidelity",
+      "strength_basis": "the shipped behaviour does not meet this part of the claim",
+      "outcome": "fail",
+      "run": null,
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 73
+    },
+    {
+      "id": "e52",
+      "obligation_ref": "o24",
+      "test_ref": "tests/actors/test_gate.py::test_weakening_commits_are_guarded, tests/actors/test_gate.py::test_workflow_edits_are_caught_even_when_the_variable_omits_them, tests/actors/test_gate.py::test_unset_protected_paths_fail_closed, tests/actors/test_gate.py::test_guard_verdict_pushes_nothing_end_to_end",
+      "behavior_text": "parametrized: workflow/sonar/lint edits, deleted/skipped tests, NOSONAR/noqa/type-ignore markers each yield verdict guard with the matching rule and run no gate command; .github/workflows edit is guarded as protected_path even when fixer_protected_paths is []; with the fixer_protected_paths variable unset the gate returns guard/protected_paths_unset; fixer workflow whose agent deletes a test: every attempt guarded (test_removed), loop_max_exceeded, zero git/http push calls",
+      "contract_text": "A diff guard in the gate rejects (and hands back) any fixer commit that touches protected paths or weakens checks: .github/workflows/**, sonar-project.properties, coverage or lint config, deleted or skipped tests, and new NOSONAR / noqa / type-ignore markers; the protected list is a shared variable",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "4 tests ran green: pytest (171 passed, junit) and vitest (425 passed) at f388a02",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-08T09:24:07",
+        "commit": "f388a02"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 74
+    },
+    {
+      "id": "e53",
+      "obligation_ref": "o24",
+      "test_ref": "live run history on rules.culture.dev (.devague/evidence-log-pr-fixer.md)",
+      "behavior_text": "run-47bd8394c94ef496f203d40e2daef289 (culture-rules#17) attempt 1: gate verdict guard on an added pytest.skip and # nosec B310; nothing pushed, guard instruction fed attempt 2 which passed",
+      "contract_text": "A diff guard in the gate rejects (and hands back) any fixer commit that touches protected paths or weakens checks: .github/workflows/**, sonar-project.properties, coverage or lint config, deleted or skipped tests, and new NOSONAR / noqa / type-ignore markers; the protected list is a shared variable",
+      "evidence_type": "observation",
+      "strength": "fidelity",
+      "strength_basis": "observed on the live fleet from run history and GitHub, never from the agent's report",
+      "outcome": "pass",
+      "run": null,
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 75
+    },
+    {
+      "id": "e54",
+      "obligation_ref": "o25",
+      "test_ref": "tests/node/test_github_pr_actions.py::test_review_reply_posts_as_the_app_without_resolving, tests/node/test_github_pr_actions.py::test_review_reply_resolves_the_given_thread_after_verifying_it, tests/node/test_push_requires_review.py::test_replies_name_the_given_pushed_commit_and_refuse_a_malformed_one, tests/rules/test_pr_fixer_bundle.py::test_a_settled_failing_pr_is_fixed_pushed_replied_and_commented, tests/node/test_github_threads.py::test_only_trusted_authors_threads_are_kept, tests/node/test_github_threads.py::test_a_lookup_error_fails_the_step_closed, tests/node/test_github_threads.py::test_only_listed_threads_the_agent_addressed_are_answered, tests/rules/test_pr_fixer_bundle.py::test_a_settled_failing_pr_is_fixed_pushed_replied_and_commented",
+      "behavior_text": "posts to /pulls/3/comments/77/replies with the App installation token, resolved False, no graphql call; verifies thread repo/PR/comment via graphql, then calls resolveReviewThread with the App token; threads_addressed overrides the agent's per-thread commit with the pushed 40-hex commit; a non-SHA commit fails bad_input; end to end: exactly one reply, to the trusted thread by REST comment id 101, resolve True, body 'Done (addressed in ...'; made-up/untrusted threads dropped; with trusted_authors [alice] only PRRT_1 is output (case-folded login), untrusted count 1; a GitHub 502/too_many_pages fails the step with that code and no output; threads_addressed keeps only listed threads once, dropping made-up ids and untrusted REST ids (dropped 4); e2e: the agent input carries only PRRT_1, the untrusted thread text never reaches it, one reply by REST id 101 resolving it, pick dropped 2",
+      "contract_text": "A github.review_reply action kind posts a reply to a review thread and optionally resolves it, as the App; the fixer's result lists, per thread, the commit that addressed it",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "8 tests ran green: pytest (171 passed, junit) and vitest (425 passed) at f388a02",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-08T09:24:07",
+        "commit": "f388a02"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 76
+    },
+    {
+      "id": "e55",
+      "obligation_ref": "o25",
+      "test_ref": "live run history on rules.culture.dev (.devague/evidence-log-pr-fixer.md)",
+      "behavior_text": "The threads step ran on spark (App machine) in every live fixer run (t20, t22, t21)",
+      "contract_text": "A github.review_reply action kind posts a reply to a review thread and optionally resolves it, as the App; the fixer's result lists, per thread, the commit that addressed it",
+      "evidence_type": "observation",
+      "strength": "fidelity",
+      "strength_basis": "observed on the live fleet from run history and GitHub, never from the agent's report",
+      "outcome": "pass",
+      "run": null,
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 77
+    },
+    {
+      "id": "e56",
+      "obligation_ref": "o26",
+      "test_ref": "tests/rules/test_pr_fixer_bundle.py::test_excluded_repos_drafts_and_forks_never_fire, tests/server/test_hooks_github.py::test_event_mapping_and_data, tests/server/test_hooks_github.py::test_pull_request_data_enrichment",
+      "behavior_text": "every one of the 4 fixer rules does not fire for draft:true (also forks and excluded repos); pull_request ready_for_review maps to github.pr.ready with draft False among the typed mappings; opened/closed/reopened/synchronize/ready_for_review events all carry head_sha, head_branch, head_repo, base_repo, bool draft, pr_author",
+      "contract_text": "Draft PRs get no fixer run; marking a PR ready for review (pull_request ready_for_review) makes it eligible",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "3 tests ran green: pytest (171 passed, junit) and vitest (425 passed) at f388a02",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-08T09:24:07",
+        "commit": "f388a02"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 78
+    },
+    {
+      "id": "e57",
+      "obligation_ref": "o26",
+      "test_ref": "live run history on rules.culture.dev (.devague/evidence-log-pr-fixer.md)",
+      "behavior_text": "t20: draft PR #2 on agentculture/pr-fixer-sandbox got zero fixer runs (its checks were red)",
+      "contract_text": "Draft PRs get no fixer run; marking a PR ready for review (pull_request ready_for_review) makes it eligible",
+      "evidence_type": "observation",
+      "strength": "fidelity",
+      "strength_basis": "observed on the live fleet from run history and GitHub, never from the agent's report",
+      "outcome": "pass",
+      "run": null,
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 79
+    },
+    {
+      "id": "e58",
+      "obligation_ref": "o26",
+      "test_ref": "gap review of the delivered code and live runs",
+      "behavior_text": "no fixer rule fires on github.pr.ready; a draft becomes eligible only on the next settled checks or trusted comment; draft->ready->run is untested",
+      "contract_text": "Draft PRs get no fixer run; marking a PR ready for review (pull_request ready_for_review) makes it eligible",
+      "evidence_type": "observation",
+      "strength": "fidelity",
+      "strength_basis": "the shipped behaviour does not meet this part of the claim",
+      "outcome": "fail",
+      "run": null,
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 80
+    },
+    {
+      "id": "e59",
+      "obligation_ref": "o27",
+      "test_ref": "tests/node/test_shared_variables.py::test_a_node_without_the_capability_fires_nothing_and_records_an_error, tests/node/test_shared_variables.py::test_an_undefined_variable_at_evaluation_fails_closed_too, tests/node/test_shared_variables.py::test_an_intent_fired_without_variable_support_is_not_started, tests/model/test_variable_references.py::test_an_old_node_blocks_update_and_import_of_a_variable_rule_too, tests/model/test_variable_references.py::test_an_online_node_without_variable_support_blocks_a_variable_rule_save, tests/model/test_variable_references.py::test_an_old_node_blocks_update_and_import_of_a_variable_rule_too, tests/model/test_variable_references.py::test_an_old_node_blocks_enabling_a_disabled_variable_rule_but_never_disabling, tests/server/test_api.py::test_restore_refuses_an_enabled_variable_rule_while_an_old_node_is_online",
+      "behavior_text": "node heartbeat without variables capability: var rule does not fire, rule_decisions record reason variables_unsupported fire False; variable-free rule still fires; undefined variable at evaluation: no fire, decision reason variable_undefined naming it; an intent for a var rule without a variable snapshot (old binary) is refused by a current node; d7: an online node lacking the capability makes update/import of a var rule fail variables_unsupported_nodes naming the node; stored rule unchanged; create is refused with variables_unsupported_nodes naming orin (no capabilities) and succeeds once orin advertises variables; update and import --apply of a variable rule are refused while an old node is online; stored condition unchanged; enabling is refused with an old node online, disabling always succeeds; POST /rules/{id}/restore of an enabled variable rule returns 422 variables_unsupported_nod",
+      "contract_text": "A rule whose condition or inputs reference a shared variable is evaluated only by nodes that advertise variable support; on any other node it fails closed (no fire, recorded as an error), never evaluating the reference as missing",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "8 tests ran green: pytest (171 passed, junit) and vitest (425 passed) at f388a02",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-08T09:24:07",
+        "commit": "f388a02"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 81
+    },
+    {
+      "id": "e60",
+      "obligation_ref": "o28",
+      "test_ref": "tests/server/test_variables_api.py::test_editor_gets_403_on_put_and_nothing_is_written, tests/server/test_variables_api.py::test_admin_write_creates_a_version_naming_the_principal, tests/store/test_memory.py::TestVariableMemoryContract::test_put_creates_version_1, tests/server/test_variables_api.py::test_refs_lists_every_rule_referencing_the_variable",
+      "behavior_text": "PUT /variables/x as editor or viewer is 403 and nothing is stored; admin PUTs produce version 1 then 2 with updated_by admin; store put_variable returns version 1 with updated_by and a valid ISO updated_at; GET /variables/{name}/refs lists rules referencing it by condition or $var input, excluding deleted ones",
+      "contract_text": "Writing a shared variable requires the admin role, every write creates a new version with author and time, and the Variables tab shows which rules reference each variable",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "4 tests ran green: pytest (171 passed, junit) and vitest (425 passed) at f388a02",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-08T09:24:07",
+        "commit": "f388a02"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 82
+    },
+    {
+      "id": "e61",
+      "obligation_ref": "o29",
+      "test_ref": "tests/rules/test_pr_fixer_bundle.py::test_adding_the_repo_to_fixer_excluded_repos_stops_the_next_event, tests/rules/test_pr_fixer_bundle.py::test_a_repo_not_in_fixer_repos_never_fires, tests/rules/test_pr_fixer_bundle.py::test_disabling_the_rule_mid_run_leaves_no_app_push, tests/node/test_stop_runs_on_disable.py::test_approving_the_stop_cancels_the_run_and_nothing_is_pushed, tests/node/test_stop_runs_on_disable.py::test_approving_the_stop_cancels_the_run_and_nothing_is_pushed, tests/node/test_stop_runs_on_disable.py::test_not_approving_leaves_the_run_going_and_the_push_still_refuses, tests/server/test_stop_runs_api.py::test_disable_reports_the_active_runs, tests/cli/test_stop_runs_verb.py::test_stop_runs_is_an_mcp_tool_with_the_same_contract, tests/rules/test_pr_fixer_bundle.py::test_a_repo_not_in_fixer_repos_never_fires, tests/rules/test_pr_fixer_bundle.py::test_widening_is_adding_the_repo_to_fixer_repos, tests/rules/test_pr_fixer_bundle.py::test_adding_the_repo_to_fixer_excluded_repos_stops_the_next_event, tests/rules/test_pr_fixer_bundle.py::test_conditions_reference_the_variables_never_a_copied_list, web/src/rules/StopRuns.test.tsx::asks 'Stop N current runs?' without taking focus, and Approve stops them",
+      "behavior_text": "after adding the repo to fixer_excluded_repos the next checks event starts no run; d18: every rule ignores a repo absent from fixer_repos and fires for an allow-listed one; rule disabled during the agent: push fails rule_disabled, zero git/http calls, no replies, one hand-back comment linking the run, spark2 in run hosts; d17: stop_rule_runs on a disabled rule cancels the active run; late agent result ignored; push/comment steps cancelled; nothing pushed or commented; stop_rule_runs(apply) cancels the run; the agent's late result is ignored, push/comment cancelled, nothing pushed, no comment; without stopping, the run continues and fails at push with rule_disabled; nothing pushed; disabling via the API returns the rule's active runs; stop-runs is an MCP tool with the CLI's contract; for all four rules, a repo outside fixer_repos fires nothing while the listed repo fires; adding o/other t",
+      "contract_text": "Containment: a repo listed in a shared fixer_excluded_repos variable gets no fixer runs; disabling the fixer rule stops new runs and lets in-flight runs finish without pushing; every fixer run appears on the fixer machine's Statistics lane and its PR comment links the run",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "13 tests ran green: pytest (171 passed, junit) and vitest (425 passed) at f388a02",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-08T09:24:07",
+        "commit": "f388a02"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 83
+    },
+    {
+      "id": "e62",
+      "obligation_ref": "o29",
+      "test_ref": "live run history on rules.culture.dev (.devague/evidence-log-pr-fixer.md)",
+      "behavior_text": "t21 probe 4 (culture-rules-tester#5): repo in fixer_excluded_repos; pr.opened, Qodo comment and checks_settled events stored, no run for any | t21 probe 3 run-237e3abd7b19: pr-fixer-comment disabled mid-run; gate pass + codex approve, github.push refused rule_disabled, hand-back posted, PR head unchanged | run-4144cb0428806afe37cc95ed1ace2eb3 and run-0f45b49415bb: run-link comment posted on the PR | t21 probe 3 run-237e3abd (culture-rules-tester#5): pr-fixer-comment disabled mid-run; gate passed, reviewer approved, github.push refused rule_disabled, hand-back posted, head unchanged (the not-approved branch) | t20: allow-list ['agentculture/pr-fixer-sandbox']; fixer runs only on that repo | t21 probe 4 (culture-rules-tester#5): repo added to fixer_excluded_repos; pr.opened, comment and checks_settled events stored, no run",
+      "contract_text": "Containment: a repo listed in a shared fixer_excluded_repos variable gets no fixer runs; disabling the fixer rule stops new runs and lets in-flight runs finish without pushing; every fixer run appears on the fixer machine's Statistics lane and its PR comment links the run",
+      "evidence_type": "observation",
+      "strength": "fidelity",
+      "strength_basis": "observed on the live fleet from run history and GitHub, never from the agent's report",
+      "outcome": "pass",
+      "run": null,
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 84
+    },
+    {
+      "id": "e63",
+      "obligation_ref": "o30",
+      "test_ref": "tests/node/test_github_pr_actions.py::test_push_never_forces_and_keeps_the_token_out_of_argv, tests/node/test_github_pr_actions.py::test_non_fast_forward_is_refused_before_any_network_call, tests/node/test_github_pr_actions.py::test_push_fast_forwards_the_pr_head_branch, tests/actors/test_gate.py::test_rewritten_history_is_guarded",
+      "behavior_text": "git argv never has --force/-f/--force-with-lease/--mirror/+refspec; exactly one push of <sha>:refs/heads/fix; a commit not descending from the PR head fails not_fast_forward with no network call and no push; push moves the remote head from A to B and reports head_before/head_after; an agent that resets and rewrites history gets gate verdict guard/history_rewritten",
+      "contract_text": "Fixer commits are ordinary fast-forward commits authored by the App, so any of them is undone with git revert; the fixer never rewrites history",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "4 tests ran green: pytest (171 passed, junit) and vitest (425 passed) at f388a02",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-08T09:24:07",
+        "commit": "f388a02"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 85
+    },
+    {
+      "id": "e64",
+      "obligation_ref": "o30",
+      "test_ref": "live run history on rules.culture.dev (.devague/evidence-log-pr-fixer.md)",
+      "behavior_text": "t16 PR #14: pushed cbb0d1f non-force; GitHub shows author, committer and login rules-culture-dev[bot] | run-0f45b49415bb: App pushed 74f97a3->0e9d3f3 authored and committed by rules-culture-dev[bot], one parent",
+      "contract_text": "Fixer commits are ordinary fast-forward commits authored by the App, so any of them is undone with git revert; the fixer never rewrites history",
+      "evidence_type": "observation",
+      "strength": "fidelity",
+      "strength_basis": "observed on the live fleet from run history and GitHub, never from the agent's report",
+      "outcome": "pass",
+      "run": null,
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 86
+    },
+    {
+      "id": "e65",
+      "obligation_ref": "o31",
+      "test_ref": "tests/rules/test_pr_fixer_bundle.py::test_the_workflow_steps_and_placements, tests/rules/test_pr_fixer_bundle.py::test_a_superseded_run_posts_nothing",
+      "behavior_text": "pr-fixer workflow steps are exactly quiet, threads, fix, push, pick, replies; quiet carries guard head_unchanged; head moved during the quiet period: run superseded, no agent, push or comment",
+      "contract_text": "The quiet period before a fixer run is a workflow wait step placed after the PR's pipelines have run; there is no no-fixer label for now",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "2 tests ran green: pytest (171 passed, junit) and vitest (425 passed) at f388a02",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-08T09:24:07",
+        "commit": "f388a02"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 87
+    },
+    {
+      "id": "e66",
+      "obligation_ref": "o31",
+      "test_ref": "live run history on rules.culture.dev (.devague/evidence-log-pr-fixer.md)",
+      "behavior_text": "run-65c792ba3e7ef7d5ede86a48693c0f3e and run-ef30c89bceb105c88e5a5d383999e51e: superseded in the quiet period after a human push; agent never ran",
+      "contract_text": "The quiet period before a fixer run is a workflow wait step placed after the PR's pipelines have run; there is no no-fixer label for now",
+      "evidence_type": "observation",
+      "strength": "fidelity",
+      "strength_basis": "observed on the live fleet from run history and GitHub, never from the agent's report",
+      "outcome": "pass",
+      "run": null,
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 88
+    },
+    {
+      "id": "e67",
+      "obligation_ref": "o32",
+      "test_ref": "tests/actors/test_gate.py::test_this_repos_culture_yaml_declares_a_valid_gate, tests/actors/test_gate.py::test_parse_gate_reads_the_template_shape, tests/actors/test_gate.py::test_pr_editing_its_own_gate_is_judged_by_the_base_gate",
+      "behavior_text": "culture-rules' own culture.yaml parses to a gate with a non-empty test list; parse_gate reads setup [[uv,sync]] / test [[uv,run,pytest,-n,auto]] and returns None without a gate section; a PR that rewrites culture.yaml's gate is still judged by the base commit's gate",
+      "contract_text": "Each repo declares its fixer test command in its culture.yaml, following the culture-agent-template / culture-rules standard",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "3 tests ran green: pytest (171 passed, junit) and vitest (425 passed) at f388a02",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-08T09:24:07",
+        "commit": "f388a02"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 89
+    },
+    {
+      "id": "e68",
+      "obligation_ref": "o32",
+      "test_ref": "live run history on rules.culture.dev (.devague/evidence-log-pr-fixer.md)",
+      "behavior_text": "run-4144cb0428806afe37cc95ed1ace2eb3: gate read the culture.yaml gate section at the base commit and returned pass | run-0e5cd8d6786bd lobes-cli#302: gate ran lobes-cli's declared tests",
+      "contract_text": "Each repo declares its fixer test command in its culture.yaml, following the culture-agent-template / culture-rules standard",
+      "evidence_type": "observation",
+      "strength": "fidelity",
+      "strength_basis": "observed on the live fleet from run history and GitHub, never from the agent's report",
+      "outcome": "pass",
+      "run": null,
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 90
+    },
+    {
+      "id": "e69",
+      "obligation_ref": "o33",
+      "test_ref": "tests/engine/test_wait_step.py::test_wait_parks_without_dispatch_and_resumes_after_seconds, tests/engine/test_wait_step.py::test_restart_mid_wait_resumes_once, tests/engine/test_wait_step.py::test_guard_moved_head_ends_superseded_and_runs_nothing_later, tests/rules/test_pr_fixer_bundle.py::test_a_superseded_run_posts_nothing",
+      "behavior_text": "run sleeps 60s with zero actor calls, then completes and runs the next step once; node dies mid-wait; other nodes resume it and wait_done is recorded exactly once; guard sees a moved head: run superseded, no actor calls, next step cancelled, later ticks change nothing; fixer workflow: moved head in quiet period -> superseded, no agent/push/comment",
+      "contract_text": "Workflows gain a wait step kind: it pauses the run for a duration (the quiet period) without holding a worker, persists across node restarts, and on resume checks a guard; if the PR head moved during the wait (someone pushed) the run ends without dispatching the agent, and the next checks-completed event starts a fresh one",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "4 tests ran green: pytest (171 passed, junit) and vitest (425 passed) at f388a02",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-08T09:24:07",
+        "commit": "f388a02"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 91
+    },
+    {
+      "id": "e70",
+      "obligation_ref": "o33",
+      "test_ref": "live run history on rules.culture.dev (.devague/evidence-log-pr-fixer.md)",
+      "behavior_text": "run-65c792ba3e7ef7d5ede86a48693c0f3e: superseded in the quiet period (head 30d73fe->c5f1b58); the coalesced checks run-d6e5dabd then ran fresh | run-ef30c89bceb105c88e5a5d383999e51e: superseded on a human push (3d80d8a); next settle started run-f4e47b1b",
+      "contract_text": "Workflows gain a wait step kind: it pauses the run for a duration (the quiet period) without holding a worker, persists across node restarts, and on resume checks a guard; if the PR head moved during the wait (someone pushed) the run ends without dispatching the agent, and the next checks-completed event starts a fresh one",
+      "evidence_type": "observation",
+      "strength": "fidelity",
+      "strength_basis": "observed on the live fleet from run history and GitHub, never from the agent's report",
+      "outcome": "pass",
+      "run": null,
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 92
+    },
+    {
+      "id": "e71",
+      "obligation_ref": "o34",
+      "test_ref": "tests/actors/test_gate.py::test_no_gate_section_gives_no_gate_and_runs_nothing, tests/actors/test_gate.py::test_no_gate_section_when_the_base_has_no_culture_yaml, tests/actors/test_gate.py::test_no_gate_verdict_pushes_nothing_end_to_end, tests/engine/test_on_failure.py::test_a_failed_step_runs_on_failure_once_with_the_error_and_the_run_id",
+      "behavior_text": "culture.yaml without gate: verdict no_gate, no bundle, no command run; no culture.yaml at the base: verdict no_gate; fixer workflow on a no_gate repo: agent called once, push action fails gate_not_passed, zero git/http push calls; d16: a failed run runs on_failure once with the error and run id (the hand-back comment mechanism)",
+      "contract_text": "culture.yaml gains a top-level gate section with setup and test commands as argv lists (e.g. setup: [[uv, sync]], test: [[uv, run, pytest, -n, auto]]); culture-agent-template ships it so new repos inherit it, existing repos add it, and a repo without a gate section gets a comment from the fixer and never a push",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "4 tests ran green: pytest (171 passed, junit) and vitest (425 passed) at f388a02",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-08T09:24:07",
+        "commit": "f388a02"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 93
+    },
+    {
+      "id": "e72",
+      "obligation_ref": "o34",
+      "test_ref": "gap review of the delivered code and live runs",
+      "behavior_text": "only a few repos declare a gate section (culture-rules, culture-rules-tester, lobes-cli; template PR open); the no_gate hand-back has no end-to-end test",
+      "contract_text": "culture.yaml gains a top-level gate section with setup and test commands as argv lists (e.g. setup: [[uv, sync]], test: [[uv, run, pytest, -n, auto]]); culture-agent-template ships it so new repos inherit it, existing repos add it, and a repo without a gate section gets a comment from the fixer and never a push",
+      "evidence_type": "observation",
+      "strength": "fidelity",
+      "strength_basis": "the shipped behaviour does not meet this part of the claim",
+      "outcome": "fail",
+      "run": null,
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 94
+    },
+    {
+      "id": "e73",
+      "obligation_ref": "o35",
+      "test_ref": "tests/actors/test_gate.py::test_gate_runs_exactly_the_declared_argv_and_never_a_shell, tests/actors/test_gate.py::test_no_gate_section_gives_no_gate_and_runs_nothing, tests/actors/test_gate.py::test_parse_gate_reads_the_template_shape",
+      "behavior_text": "declared argv with $(touch ..), ';', '|' runs via Popen shell=False and the marker file is never created; with no gate section nothing is run (no fallback command); the template's standard values parse as config: setup uv sync, test uv run pytest -n auto",
+      "contract_text": "The test command is configuration, not code: culture-rules holds no default, inferred or language-specific test command; the gate runs only the setup/test argv declared in the repo's culture.yaml gate section, and the standard values (uv sync, uv run pytest -n auto) live in culture-agent-template's culture.yaml as configuration",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "3 tests ran green: pytest (171 passed, junit) and vitest (425 passed) at f388a02",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-08T09:24:07",
+        "commit": "f388a02"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 95
+    },
+    {
+      "id": "e74",
+      "obligation_ref": "o35",
+      "test_ref": "live run history on rules.culture.dev (.devague/evidence-log-pr-fixer.md)",
+      "behavior_text": "run-4144cb0428806afe37cc95ed1ace2eb3: gate ran the sandbox's declared culture.yaml commands at the base commit and passed",
+      "contract_text": "The test command is configuration, not code: culture-rules holds no default, inferred or language-specific test command; the gate runs only the setup/test argv declared in the repo's culture.yaml gate section, and the standard values (uv sync, uv run pytest -n auto) live in culture-agent-template's culture.yaml as configuration",
+      "evidence_type": "observation",
+      "strength": "fidelity",
+      "strength_basis": "observed on the live fleet from run history and GitHub, never from the agent's report",
+      "outcome": "pass",
+      "run": null,
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 96
+    },
+    {
+      "id": "e75",
+      "obligation_ref": "o36",
+      "test_ref": "tests/rules/test_pr_fixer_bundle.py::test_a_settled_failing_pr_is_fixed_pushed_replied_and_commented",
+      "behavior_text": "the terminal github.comment body contains https://rules.culture.dev/api/runs/<id>, the verdict and summary, on the PR (repo o/r #7)",
+      "contract_text": "The author side of a fixer push is rules.culture.dev, as used today: the App's own PR comment announces each push; no separate mesh message to the PR's author agent",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "1 tests ran green: pytest (171 passed, junit) and vitest (425 passed) at f388a02",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-08T09:24:07",
+        "commit": "f388a02"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 97
+    },
+    {
+      "id": "e76",
+      "obligation_ref": "o36",
+      "test_ref": "live run history on rules.culture.dev (.devague/evidence-log-pr-fixer.md)",
+      "behavior_text": "run-4144cb0428806afe37cc95ed1ace2eb3: App pushed 0e1b4bf and posted the run-link comment | run-0f45b49415bb (culture-rules-tester#4): push 74f97a3->0e9d3f3 plus run-link comment",
+      "contract_text": "The author side of a fixer push is rules.culture.dev, as used today: the App's own PR comment announces each push; no separate mesh message to the PR's author agent",
+      "evidence_type": "observation",
+      "strength": "fidelity",
+      "strength_basis": "observed on the live fleet from run history and GitHub, never from the agent's report",
+      "outcome": "pass",
+      "run": null,
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 98
+    },
+    {
+      "id": "e77",
+      "obligation_ref": "o1",
+      "test_ref": "rules/pr-fixer-split (c918008), not merged",
+      "behavior_text": "d21 (split into rules and workflows chained by run events) is not delivered: phase 1 is on an unmerged branch, phase 2 not started",
+      "contract_text": "A new PR in any AgentCulture repo is picked up by a fixer agent that drives it to green: SonarCloud gate, failing checks and unresolved review threads fixed on the PR branch, never merged",
+      "evidence_type": "observation",
+      "strength": "coverage",
+      "strength_basis": "not on HEAD",
+      "outcome": "fail",
+      "run": null,
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 99
+    }
+  ],
+  "deltas": [
+    {
+      "id": "b1",
+      "kind": "amended",
+      "behavior_text": "self_authored is exempt only for check-completion events; every other self-authored event still skips",
+      "caused_by": [
+        "d2"
+      ],
+      "evidence_refs": [
+        "e44"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b2",
+      "kind": "amended",
+      "behavior_text": "the gate builds one commit from the agent's tree; a Codex reviewer (read-only, trusted digest) must approve exactly that commit and the App pushes it; base_changed/base_mismatch and consumed approvals",
+      "caused_by": [
+        "d20"
+      ],
+      "evidence_refs": [
+        "e8"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b3",
+      "kind": "amended",
+      "behavior_text": "github.push additionally refuses without a trusted review record for the exact commit, on base_changed, and on an untrusted workflow or App actor",
+      "caused_by": [
+        "d20"
+      ],
+      "evidence_refs": [
+        "e21"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b4",
+      "kind": "amended",
+      "behavior_text": "the fixer runs only on repos in the fixer_repos allow-list (with fixer_excluded_repos as an override), not org-wide",
+      "caused_by": [
+        "d18"
+      ],
+      "evidence_refs": [
+        "e61"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b5",
+      "kind": "added",
+      "behavior_text": "disabling a rule with active runs offers to stop them; approving stops them",
+      "caused_by": [
+        "d17"
+      ],
+      "evidence_refs": [
+        "e61"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b6",
+      "kind": "amended",
+      "behavior_text": "Codex is not a fixer; spark2 runs only the Qwen fixer, and Codex reviews on spark",
+      "caused_by": [
+        "d8"
+      ],
+      "evidence_refs": [
+        "e25"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b7",
+      "kind": "amended",
+      "behavior_text": "the App keeps Actions: Read and write",
+      "caused_by": [
+        "d5"
+      ],
+      "evidence_refs": [
+        "e17"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b8",
+      "kind": "added",
+      "behavior_text": "a bridge callback route on the API server with node redelivery",
+      "caused_by": [
+        "d1"
+      ],
+      "evidence_refs": [
+        "e5"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b9",
+      "kind": "added",
+      "behavior_text": "four fixer rules (checks settled, PR comment, review submitted, review comment) share one workflow and concurrency key",
+      "caused_by": [
+        "d13"
+      ],
+      "evidence_refs": [
+        "e33"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b10",
+      "kind": "added",
+      "behavior_text": "a hand-back comment (rule on_failure) on every failed fixer run",
+      "caused_by": [
+        "d16"
+      ],
+      "evidence_refs": [
+        "e27"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b11",
+      "kind": "added",
+      "behavior_text": "only trusted, unresolved review threads reach the agent; replies are posted and resolved by the App",
+      "caused_by": [
+        "d15"
+      ],
+      "evidence_refs": [
+        "e54"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b12",
+      "kind": "added",
+      "behavior_text": "deterministic plain-text describe of rules/workflows, the (i) panel and canvas zoom in the editor",
+      "caused_by": [
+        "d19"
+      ],
+      "evidence_refs": [
+        "e38"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    }
+  ],
   "supersessions": []
 }

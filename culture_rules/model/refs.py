@@ -93,7 +93,10 @@ _TEMPLATE = re.compile(
     r"\{\{\s*((?:workflow|trigger|rules)(?:\.[^.\s{}]+)+"
     r"|run\.id|run\.error\.(?:step|code|message))\s*\}\}"
 )
-_RUN_ERROR = re.compile(r"(?:^run\.error(?:\.|$)|\{\{\s*run\.error\b)")
+# a run.error reference: the bare path (anchored) or inside a template (anywhere); two
+# patterns so neither alternation mixes an anchored and an unanchored branch
+_RUN_ERROR_PATH = re.compile(r"^run\.error(?:\.|$)")
+_RUN_ERROR_TEMPLATE = re.compile(r"\{\{\s*run\.error\b")
 _INPUT_PATH = re.compile(r"^inputs(?:\.[^.\s{}]+)+$")
 _STEP_TEMPLATE = re.compile(r"\{\{\s*((?:workflow|trigger|rules|inputs)(?:\.[^.\s{}]+)+)\s*\}\}")
 
@@ -175,7 +178,8 @@ def run_error_refs(value: Any, path: str, join: Any) -> Iterator[str]:
     """Paths of every ``run.error...`` reference inside ``value`` (whole string, template or
     ``$ref``): only a rule's ``on_failure`` may hold one."""
     for where, text in scanned_strings(value, path, join):
-        if _RUN_ERROR.search(text.strip()):
+        stripped = text.strip()
+        if _RUN_ERROR_PATH.search(stripped) or _RUN_ERROR_TEMPLATE.search(stripped):
             yield where
 
 

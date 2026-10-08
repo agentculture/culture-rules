@@ -84,7 +84,9 @@ def test_models_and_dicts_describe_the_same():
 def test_deterministic_and_pure():
     wf = _load("workflows/pr-fixer.json")
     before = json.dumps(wf, sort_keys=True)
-    assert describe_workflow(wf) == describe_workflow(wf)
+    first = describe_workflow(wf)
+    second = describe_workflow(wf)
+    assert first == second
     assert json.dumps(wf, sort_keys=True) == before
 
 

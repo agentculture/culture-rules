@@ -140,7 +140,16 @@ export function AboutButton({
   };
 
   return (
-    <span className="about" ref={wrap} onClick={(e) => e.stopPropagation()}>
+    <span
+      className="about"
+      ref={wrap}
+      onClick={(e) => e.stopPropagation()}
+      // the wrapper only keeps the (i)'s own activation from reaching a row that opens on
+      // click or Enter; Escape still bubbles to the document listener that closes the panel
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") e.stopPropagation();
+      }}
+    >
       <button
         ref={button}
         type="button"

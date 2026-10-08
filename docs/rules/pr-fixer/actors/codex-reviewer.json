@@ -13,8 +13,10 @@
     "bridge_token": "grant:RULES_CODEX_REVIEWER_TOKEN",
     "bridge_url": "http://127.0.0.1:8094",
     "callback_url": "http://127.0.0.1:18765",
+    "locked_instruction": "pr-fixer-review",
     "max_bound_input_chars": 60000,
     "max_concurrency": 1,
+    "reviewer": true,
     "sandbox": "read-only"
   },
   "repo": null,

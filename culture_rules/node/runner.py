@@ -291,7 +291,7 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
         "action:machine.command": MachineCommandPort(store),
         "code": BuiltinCodePort(
             {
-                "gate": GatePort.from_env(store),
+                "gate": GatePort.from_env(store, pr_lookup=head),
                 REVIEW_BUILTIN: ReviewVerdictPort(store),
                 THREADS_BUILTIN: threads,
                 ADDRESSED_BUILTIN: AddressedThreadsPort(),

@@ -39,6 +39,7 @@ INSTALL_TOKEN = "ghs" + "_" + "FAKEINSTALLATIONTOKEN0123456789abcdefABCD"
 PUSH_TOKEN = "ghs" + "_" + "FAKEPUSHTOKEN0123456789abcdefABCDEFGHIJ"
 DEADLINE = datetime(2030, 1, 1, tzinfo=UTC)
 REPO = "acme/widgets"
+PR_BASE_SHA = "e" * 40  # the PR's base as the fake App reports it; reviews record the same
 
 
 @pytest.fixture(scope="module")
@@ -172,7 +173,11 @@ class FakeGitHub:
                     "sha": self.pull.get("head_sha", head_sha),
                     "repo": {"full_name": self.pull.get("head_repo", REPO)},
                 },
-                "base": {"ref": "main", "repo": {"full_name": REPO}},
+                "base": {
+                    "ref": "main",
+                    "sha": self.pull.get("base_sha", PR_BASE_SHA),
+                    "repo": {"full_name": REPO},
+                },
             }
             return 200, json.dumps(doc).encode()
         if path.endswith("/replies"):
@@ -209,6 +214,23 @@ class RecordingGit:
         return out
 
 
+#: The App actor shapes these push-mechanics tests use; each is trusted for them (d20 round
+#: 3). Production trusts only the digests pinned in culture_rules/actors/trusted.py.
+TEST_APP_AUTHORS = (None, "t", "T@Example.invalid", "rules-culture-dev[bot]")
+
+
+@pytest.fixture(autouse=True)
+def trusted_test_app(monkeypatch):
+    from culture_rules.actors import trusted
+
+    shapes = [actor_doc(**({"commit_author": a} if a else {})) for a in TEST_APP_AUTHORS]
+    monkeypatch.setattr(
+        trusted,
+        "TRUSTED_ACTOR_DIGESTS",
+        {**trusted.TRUSTED_ACTOR_DIGESTS, "gh-app": frozenset(map(trusted.actor_digest, shapes))},
+    )
+
+
 def actor_doc(**params):
     doc = {
         "id": "gh-app",
@@ -230,11 +252,29 @@ def actor_doc(**params):
     return doc
 
 
+def trusted_workflow() -> dict:
+    """The shipped pr-fixer workflow: the only kind of run github.push serves (d20)."""
+    import json
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    return json.loads((root / "docs/rules/pr-fixer/workflows/pr-fixer.json").read_text())
+
+
 def make_store(rule_enabled=True, **actor_params):
     store = MemoryStore()
     store.put("actors", actor_doc(**actor_params))
     store.put("rules", {"id": "fixer", "name": "fixer", "enabled": rule_enabled})
-    store.put("runs", {"id": "run-1", "kind": "run", "rule_id": "fixer", "workflow_id": None})
+    store.put(
+        "runs",
+        {
+            "id": "run-1",
+            "kind": "run",
+            "rule_id": "fixer",
+            "workflow_id": "pr-fixer",
+            "workflow": {"definition": trusted_workflow()},  # the shipped, trusted one
+        },
+    )
     return store
 
 
@@ -242,15 +282,17 @@ def ctx(run_id="run-1"):
     return InvocationContext(run_id=run_id, step_id="push", kind="action", host="h", actor="gh-app")
 
 
-def approve_review(store, sha, run_id="run-1"):
-    """The run's reviewer approved ``sha`` (d20): every push needs this record."""
-    from culture_rules.actors.review import REVIEWS_COLLECTION
+def approve_review(store, sha, run_id="run-1", *, start, repo=REPO, number=3):
+    """The run's reviewer approved ``start..sha`` on ``repo#number`` (d20): every push
+    needs this record as the run's current review."""
+    from culture_rules.actors.review import record_review
 
-    store.put(
-        REVIEWS_COLLECTION,
-        {
-            "id": run_id,
-            "run_id": run_id,
+    record_review(
+        store,
+        run_id,
+        iteration=0,
+        attempt=1,
+        fields={
             "commit_sha": sha,
             "reviewed_commit": sha,
             "verdict": "approve",
@@ -258,16 +300,22 @@ def approve_review(store, sha, run_id="run-1"):
             "reviewer_backend": "codex",
             "implementer_actor": "qwen-fixer",
             "implementer_backend": "qwen",
+            "repo": repo,
+            "number": number,
+            "start_sha": start,
+            "base_sha": PR_BASE_SHA,
         },
     )
 
 
-def push_port(pem, world, fake, store=None, gitrec=None, clock=None, review=True):
+def push_port(
+    pem, world, fake, store=None, gitrec=None, clock=None, review=True, review_start=None
+):
     """The push port. ``review``: ``True`` (default) records an approval of ``world.b`` for
     run-1, a SHA approves that commit instead, ``False`` records nothing."""
     store = store if store is not None else make_store()
-    if review and store.get("fixer_reviews", "run-1") is None:
-        approve_review(store, world.b if review is True else review)
+    if review and store.get("fixer_review_current", "run-1") is None:
+        approve_review(store, world.b if review is True else review, start=review_start or world.a)
     return GitHubPushPort(
         store,
         transport=fake,
@@ -387,7 +435,7 @@ def test_push_never_forces_and_keeps_the_token_out_of_argv(pem, world):
 
 def test_stale_expected_head_sha_fails_and_pushes_nothing(pem, world):
     fake, rec = FakeGitHub(world), RecordingGit()
-    port = push_port(pem, world, fake, gitrec=rec)
+    port = push_port(pem, world, fake, gitrec=rec, review_start=world.a0)
     res = port.invoke(push_params(world, expected_head_sha=world.a0), "k", DEADLINE, context=ctx())
     assert res.outcome == "failed" and res.error == "head_moved" and not res.retryable
     assert world.remote_head() == world.a
@@ -421,7 +469,7 @@ def test_non_fast_forward_is_refused_before_any_network_call(pem, world):
 
 def test_unknown_expected_sha_is_not_fast_forward(pem, world):
     fake = FakeGitHub(world)
-    res = push_port(pem, world, fake).invoke(
+    res = push_port(pem, world, fake, review_start="1" * 40).invoke(
         push_params(world, expected_head_sha="1" * 40), "k", DEADLINE, context=ctx()
     )
     assert res.error == "not_fast_forward" and fake.calls == []

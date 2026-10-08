@@ -198,10 +198,15 @@ describe("Workflows: zoom and the (i) description (d19)", () => {
   it("with unsaved edits the head's panel says it is the saved version", async () => {
     renderWorkflows();
     await loaded();
-    await userEvent.click(screen.getByRole("switch", { name: "Review enabled" }));
+    const toggle = screen.getByRole("switch", { name: "Review enabled" });
+    const before = toggle.getAttribute("aria-checked");
+    await userEvent.click(toggle);
+    // the draft is dirty only once the toggle's state has landed; under a loaded parallel run
+    // opening the panel first raced it
+    await waitFor(() => expect(toggle.getAttribute("aria-checked")).not.toBe(before));
     const head = document.querySelector(".wf-head") as HTMLElement;
     await userEvent.click(within(head).getByRole("button", { name: "About Review PR" }));
-    expect(await screen.findByText("The saved version.")).toBeInTheDocument();
+    expect(await screen.findByText("The saved version.", undefined, { timeout: 5000 })).toBeInTheDocument();
   });
 
   it("the list row's (i) opens the same description without leaving the open workflow", async () => {
