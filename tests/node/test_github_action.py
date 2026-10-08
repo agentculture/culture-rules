@@ -589,3 +589,64 @@ def test_the_reporter_acts_only_for_the_app_actors_on_its_host(pem):
     unplaced, _ = setup(pem, Fake())
     assert unplaced._serves("gh-app", "anywhere") is True
     assert unplaced.status_tick("spark") == 0  # no runs: nothing to post
+
+
+def test_a_status_final_is_stored_before_any_credential_is_resolved(pem):
+    # Codex round 2: an unavailable or slow key must never fail or block the chain end
+    from tests.node.status_fixtures import fix_run
+
+    store = MemoryStore()
+    doc = actor_doc(repos=["o/r"])
+    store.put("actors", {**doc, "id": "github-app"})
+    run = fix_run(status="failed")
+    store.put("runs", run)
+    resolved = []
+
+    def secrets(ref):
+        resolved.append(ref)
+        raise RuntimeError("grant is down")
+
+    port = GitHubCommentPort(store, transport=Fake(), secrets=secrets)
+    c = InvocationContext(
+        run_id=run["id"], step_id="s", kind="action", host="h", actor="github-app"
+    )
+    given = {
+        "actor": "github-app",
+        "repo": "o/r",
+        "number": 7,
+        "body": "handed back",
+        "status": True,
+    }
+    res = port.invoke(given, "k", DEADLINE, context=c)
+    assert res.outcome == "completed"
+    assert dict(res.output) == {"status": True, "pending": True}
+    assert resolved == []
+
+
+def test_a_slow_key_resolve_never_holds_the_status_stage_past_its_budget(pem):
+    # Codex round 2: the board resolves the App through _app_within, bounded
+    import threading
+    import time
+
+    from culture_rules.node.status_board import StatusBoard
+    from tests.node.status_fixtures import fix_run
+
+    store = MemoryStore()
+    store.put("actors", {**actor_doc(repos=["o/r"]), "id": "github-app"})
+    store.put("runs", fix_run())
+    release = threading.Event()
+
+    def slow(ref):
+        release.wait(5)
+        return pem
+
+    port = GitHubCommentPort(store, transport=Fake(), secrets=slow)
+    port._board = StatusBoard(store, max_seconds=0.3, known=lambda: ())
+    started = time.monotonic()
+    port.status_tick("spark")
+    took = time.monotonic() - started
+    release.set()
+    assert took < 2.0
+    (doc,) = store.find("fixer_status_comments")
+    assert doc["last_error"] == "deadline_exceeded"
+    assert doc["state"] == "none"  # nothing was sent: posted on a later tick

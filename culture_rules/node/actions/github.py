@@ -228,11 +228,11 @@ class GitHubCommentPort:
         once, status = input.get("once_key"), input.get("status", False)
         if not _options_ok(once, status):
             return InvocationResult.failed(BAD_INPUT, retryable=False)
+        if status:  # d26: stored first, no credential and no network (module doc)
+            return self._post_status(str(actor_id), conn, allowed, (repo, number, body), context)
         app = self._app(str(actor_id), conn, allowed)
         if app is None:
             return InvocationResult.failed(SECRET_UNAVAILABLE, retryable=False)
-        if status:
-            return self._post_status(app, repo, number, body, context)
         if once is None:
             return self._post(app, repo, number, body)
         return self._post_once(app, repo, number, body, once)
@@ -248,15 +248,19 @@ class GitHubCommentPort:
             self._board = StatusBoard(self._store, clock=self._clock)
         return self._board
 
-    def _status_app(self, actor_id: str, repo: str) -> GitHubApp:
-        """The App ``actor_id`` serving ``repo`` (raises :class:`GitHubError` otherwise)."""
+    def _status_app(self, actor_id: str, repo: str, deadline: datetime) -> GitHubApp:
+        """The App ``actor_id`` serving ``repo``, resolved within ``deadline``
+        (:meth:`_app_within`: a cold ``grant get`` never holds the status stage past its
+        budget); raises :class:`GitHubError` otherwise."""
         conn = self._connection(actor_id)
         if conn is None:
             raise GitHubError(ACTOR_NOT_FOUND)
         allowed, refusal = repo_refusal(conn, repo)
         if refusal:
             raise GitHubError(refusal)
-        app = self._app(actor_id, conn, allowed)
+        now = self._clock() if self._clock is not None else datetime.now(UTC)
+        real = datetime.now(UTC) + (deadline - now)  # the board's clock may be injected
+        app = self._app_within(actor_id, conn, allowed, real)
         if app is None:
             raise GitHubError(SECRET_UNAVAILABLE)
         return app
@@ -276,17 +280,27 @@ class GitHubCommentPort:
         return self.status_board.tick(self._status_app, lambda actor: self._serves(actor, host))
 
     def _post_status(
-        self, app: GitHubApp, repo: str, number: int, body: str, context: InvocationContext
+        self,
+        actor_id: str,
+        conn: Mapping[str, Any],
+        allowed: set[str],
+        comment: tuple[str, int, str],
+        context: InvocationContext,
     ) -> InvocationResult:
-        """``status: true`` (module doc): the chain's pending final, or a plain inert
-        comment with the run link outside a status chain."""
+        """``status: true`` (module doc): the chain's pending final, stored before any
+        credential is resolved; outside a status chain, a plain inert comment with the run
+        link (only that path resolves the App)."""
         from culture_rules.actors.secrets import known_values  # noqa: PLC0415
         from culture_rules.node.fixer_status import plain_final  # noqa: PLC0415
 
+        repo, number, body = comment
         run = self._store.get("runs", context.run_id) if context.run_id else None
         out = self.status_board.finish(run, body, where=(repo, number))
         if out is not None:
             return InvocationResult.completed(out)
+        app = self._app(actor_id, conn, allowed)
+        if app is None:
+            return InvocationResult.failed(SECRET_UNAVAILABLE, retryable=False)
         return self._post(app, repo, number, plain_final(body, context.run_id, known_values()))
 
     @staticmethod
