@@ -60,8 +60,8 @@ _KNOWN_TOKENS = (
     re.compile(r"\bsk-[A-Za-z0-9]{20,}"),
     re.compile(r"-----BEGIN [A-Z ]{0,20}PRIVATE KEY-----"),
 )
-_WORD = re.compile(r"[A-Za-z0-9+/=_-]{32,}")
-_HEX = re.compile(r"[0-9a-fA-F]+")
+_WORD = re.compile(r"[A-Za-z0-9+=_-]{32,}")  # "/" splits: a URL path is not one word
+_HEX = re.compile(r"(?:[A-Za-z]{1,10}[-_])?[0-9a-fA-F]+")  # a digest, or an id like run-<hex>
 _MIN_ENTROPY = 3.5  # bits per character: random base64 is near 6, English words near 3
 
 _TAG = re.compile(r"<[^<>]{0,500}>")
@@ -82,7 +82,8 @@ def _entropy(word: str) -> float:
 
 def _random_word(word: str) -> bool:
     """A long run of token characters that looks random: letters and digits mixed, high
-    entropy, and not a hex digest (a commit SHA is not a secret)."""
+    entropy, and not a hex digest or a prefixed hex id (a commit SHA or a run id is not a
+    secret)."""
     if _HEX.fullmatch(word):
         return False
     has_digit = any(c.isdigit() for c in word)

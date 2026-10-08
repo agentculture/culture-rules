@@ -22,7 +22,11 @@ from culture_rules.apps.public_text import (
 GHP = "ghp" + "_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"
 GHS = "ghs" + "_" + "Z9y8X7w6V5u4T3s2R1q0P9o8N7m6L5k4J3i2"
 GHO = "gho" + "_" + "a" * 36
-PAT = "github" + "_pat_" + "11ABCDEFG0123456789_abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRS"
+PAT = (
+    "github"
+    + "_pat_"
+    + "11ABCDEFG0123456789_abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRS"
+)
 AWS = "AKIA" + "IOSFODNN7EXAMPLE"
 PEM = "-----BEGIN " + "RSA PRIVATE KEY-----"
 ENTROPIC = "q8Zr3Lp0Wv7Xs2Nk9Tb4Hy6Jm1Fd5Gc0Qe8Ra3Sw"
@@ -82,7 +86,7 @@ def test_links_and_bare_urls_are_dropped_but_their_text_is_kept():
 
 
 def test_html_images_and_code_are_neutralised():
-    note = clean_note('<img src=x onerror=alert(1)>![pic](https://x/y.png) `rm -rf` <b>bold</b>')
+    note = clean_note("<img src=x onerror=alert(1)>![pic](https://x/y.png) `rm -rf` <b>bold</b>")
     assert "<" not in note
     assert ">" not in note
     assert "`" not in note
@@ -172,3 +176,15 @@ def test_status_notes_are_read_from_progress_notes(progress, note):
 )
 def test_progress_without_a_status_note_gives_none(progress):
     assert status_note(progress) is None
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Run: https://rules.culture.dev/api/runs/run-854bf51979ee10900524f14f24f90632",
+        "bri_0123456789abcdef01234567 and run-0123456789abcdef0123456789abcdef",
+    ],
+)
+def test_engine_ids_and_run_links_are_not_secrets(text):
+    assert looks_secret(text) is False
+    assert clean_block(text) == text
