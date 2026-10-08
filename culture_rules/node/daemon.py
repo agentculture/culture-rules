@@ -327,7 +327,7 @@ class Node:
             )
             doc = self.beat()
             pinned = CycleReport(self.host)
-            for consumer in self.firing.consumers:
+            for consumer in self.firing.start_consumers:  # cursors before the first drain
                 self._stage(pinned, self._poll, consumer, pinned)  # retried next cycle
             self._stage(pinned, self._schedule, pinned)  # opens the window: no backfill
             self._stage(pinned, self._probe, pinned)

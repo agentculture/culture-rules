@@ -629,7 +629,10 @@ class Containment:
             doc["error"] = _error("cancelled", reason or f"cancelled by {identity}")
             _record(doc, now, self._audit.host, "cancelled", None)
             res = tx.update_if(RUNS_COLLECTION, run_id, {"rev": before["rev"]}, _mutable(doc))
-            if not res.won:  # pragma: no cover - transactions serialise this on every adapter
+            # MemoryStore runs transactions one at a time; MongoDB does not serialise their
+            # bodies but aborts the later writer with a write conflict (TransientStoreError)
+            # before this point. The guard covers an adapter that does neither.
+            if not res.won:  # pragma: no cover
                 raise RunError("conflict", f"run {run_id!r} changed concurrently")
             record_completion(tx, before, doc)
             self._audit.write(

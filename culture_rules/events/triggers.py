@@ -113,6 +113,10 @@ class EventTriggers:
     def _token(self) -> str:
         return init_cursor(self.store, self.consumer, EVENTS_COLLECTION)
 
+    def cursor(self) -> str:
+        """This consumer's resume token, initialised at the feed's head if it has none."""
+        return self._token()
+
     def _cursor_doc(self, token: str) -> Document:
         # Same shape StoragePort.save_cursor writes, so load_cursor reads it back.
         return {

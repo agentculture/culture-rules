@@ -713,6 +713,27 @@ class MongoStore:
                 result.append(self._variable_view(doc["name"], versions[-1]))
         return result
 
+    def ensure_index(
+        self,
+        collection: str,
+        keys: list[tuple[str, int]],
+        *,
+        name: str,
+        partial: Mapping[str, Any] | None = None,
+        ttl_seconds: int | None = None,
+    ) -> None:
+        """Create an index on ``collection`` once (idempotent): ``keys`` as ``(field,
+        direction)`` pairs (``id`` is the document id), ``partial`` a partial filter
+        expression, ``ttl_seconds`` a TTL on a single date field (``0``: expire at the
+        field's own time). Other adapters need no indexes and do not define this."""
+        options: dict[str, Any] = {"name": name}
+        if partial is not None:
+            options["partialFilterExpression"] = _translate_where(partial)
+        if ttl_seconds is not None:
+            options["expireAfterSeconds"] = ttl_seconds
+        fields = [("_id" if f == "id" else f, d) for f, d in keys]
+        self._collection(collection).create_index(fields, **options)
+
     def ensure_variables_collection(self) -> None:
         """Create the variables collection (with change-stream images) and a
         unique index on ``name``."""

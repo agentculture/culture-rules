@@ -37,7 +37,7 @@ from typing import Any
 
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
 from culture_rules.engine.reports import RunReporter
-from culture_rules.events.emit import Emitter
+from culture_rules.events.emit import Emitter, engine_app_source
 from culture_rules.events.ingest import EVENTS_COLLECTION, event_document
 from culture_rules.events.source import EventFabricError, EventSource
 from culture_rules.model.action_step import ACTION_BUILTIN
@@ -135,7 +135,7 @@ def open_emitter(store: Any, host: str) -> Emitter:
     """The node's emitter: events-cli when available, else recorded into the store."""
     from culture_rules.events.events_cli_adapter import EventsCliSink  # noqa: PLC0415
 
-    source = f"app://culture-rules/{host}"
+    source = engine_app_source(host)
     try:
         sink: Any = EventsCliSink(_events_cli_client())
     except Exception as exc:  # noqa: BLE001 - any events-cli/paho setup failure: fall back

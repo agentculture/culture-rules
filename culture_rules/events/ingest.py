@@ -35,7 +35,7 @@ import json
 import logging
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from culture_rules.events.emit import reserved_reason
@@ -58,6 +58,13 @@ QUARANTINE_COLLECTION = "event_quarantine"
 (:func:`~culture_rules.events.emit.reserved_reason`): one document per (refused envelope id,
 content), never evaluated by a trigger, kept so the refusal is visible."""
 
+QUARANTINE_MAX_PAYLOAD = 8192
+"""Largest quarantined envelope stored whole (bytes of its JSON); a larger one keeps a preview."""
+QUARANTINE_RETENTION = timedelta(days=30)
+"""How long a quarantine record is kept after it was last seen."""
+QUARANTINE_TTL_INDEX = "event_quarantine_ttl"
+_QUARANTINE_RETRIES = 20
+
 DEFAULT_BATCH = 100
 MAX_BATCH = 1000
 """Upper bound on one drain; there is no unbounded batch."""
@@ -76,33 +83,82 @@ def event_document(
 
 
 def quarantine(
-    store: StoragePort,
+    store: Any,
     envelope: Mapping[str, Any],
     reason: str,
     *,
     host: str,
     at: datetime | None = None,
 ) -> bool:
-    """Record a refused ``envelope`` in :data:`QUARANTINE_COLLECTION` (once per id and
-    content: the same refusal redelivered, or from every host, is one record); answer
-    whether it was new. It is never inserted into ``events``, so no trigger sees it."""
-    body = json.dumps(envelope, sort_keys=True, default=str).encode("utf-8")
-    doc_id = "q_" + hashlib.sha256(body).hexdigest()[:32]
-    log.warning("quarantined event %r: %s", envelope.get("id"), reason)
-    try:
-        store.insert(
-            QUARANTINE_COLLECTION,
-            {
-                "id": doc_id,
-                "envelope": copy.deepcopy(dict(envelope)),
-                "reason": reason,
-                "host": host,
-                "received_at": utc_timestamp(at),
-            },
-        )
-    except DuplicateKeyError:
-        return False
-    return True
+    """Record a refused ``envelope`` in :data:`QUARANTINE_COLLECTION`; answer whether the
+    record is new. It is never inserted into ``events``, so no trigger sees it.
+
+    Bounded: one record per (envelope id, reason) - a redelivery or a variant with other
+    fields bumps its ``count`` and ``last_seen`` instead of storing another payload; the
+    payload is kept whole only up to :data:`QUARANTINE_MAX_PAYLOAD` bytes of JSON (else a
+    ``preview`` of that size, its ``size`` and ``sha256``); ``expires_at`` (a date, renewed on
+    every repeat) is when the record may go, :data:`QUARANTINE_RETENTION` after it was last
+    seen - MongoDB's TTL index :data:`QUARANTINE_TTL_INDEX` removes it then. Only a new
+    record is logged, so a flood of repeats costs one log line."""
+    now = at or datetime.now(UTC)
+    key = json.dumps([envelope.get("id"), reason], default=str).encode("utf-8")
+    doc_id = "q_" + hashlib.sha256(key).hexdigest()[:32]
+    seen, expires = utc_timestamp(now), now + QUARANTINE_RETENTION
+    for _ in range(_QUARANTINE_RETRIES):
+        current = store.get(QUARANTINE_COLLECTION, doc_id)
+        if current is not None:
+            n = current.get("count", 1)
+            bumped = store.update_if(
+                QUARANTINE_COLLECTION,
+                doc_id,
+                {"count": n},
+                {"count": n + 1, "last_seen": seen, "expires_at": expires},
+            )
+            if bumped.won:
+                return False
+            continue
+        doc = {
+            "id": doc_id,
+            "envelope_id": envelope.get("id"),
+            "type": envelope.get("type"),
+            "source": envelope.get("source"),
+            "reason": reason,
+            "host": host,
+            "count": 1,
+            "received_at": seen,
+            "last_seen": seen,
+            "expires_at": expires,
+            **bounded_payload(envelope),
+        }
+        try:
+            store.insert(QUARANTINE_COLLECTION, doc)
+        except DuplicateKeyError:
+            continue  # another host recorded it first: count this one on it
+        log.warning("quarantined event %r: %s", envelope.get("id"), reason)
+        return True
+    return False  # contention: the refusal is still refused, only not counted
+
+
+def bounded_payload(envelope: Mapping[str, Any]) -> dict[str, Any]:
+    """The envelope whole when its JSON fits :data:`QUARANTINE_MAX_PAYLOAD`, else a preview
+    of that size with the full ``size`` and ``sha256``."""
+    body = json.dumps(envelope, sort_keys=True, default=str)
+    size = len(body.encode("utf-8"))
+    if size <= QUARANTINE_MAX_PAYLOAD:
+        return {"envelope": copy.deepcopy(dict(envelope)), "size": size}
+    return {
+        "truncated": True,
+        "size": size,
+        "sha256": hashlib.sha256(body.encode("utf-8")).hexdigest(),
+        "preview": body.encode("utf-8")[:QUARANTINE_MAX_PAYLOAD].decode("utf-8", "ignore"),
+    }
+
+
+def ensure_quarantine_ttl(store: Any) -> None:
+    """Create :data:`QUARANTINE_TTL_INDEX` where the store supports indexes (MongoDB)."""
+    ensure = getattr(store, "ensure_index", None)
+    if callable(ensure):
+        ensure(QUARANTINE_COLLECTION, [("expires_at", 1)], name=QUARANTINE_TTL_INDEX, ttl_seconds=0)
 
 
 @dataclass(frozen=True)
@@ -153,7 +209,8 @@ class EventIngest:
         self._clock = clock or (lambda: datetime.now(UTC))
         ensure = getattr(store, "ensure_collections", None)
         if callable(ensure):  # Mongo: create collections before first use
-            ensure(EVENTS_COLLECTION, CURSOR_COLLECTION)
+            ensure(EVENTS_COLLECTION, CURSOR_COLLECTION, QUARANTINE_COLLECTION)
+        ensure_quarantine_ttl(store)
 
     @property
     def consumer(self) -> str:

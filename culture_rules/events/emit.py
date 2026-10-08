@@ -54,8 +54,26 @@ def _now() -> str:
 
 INTERNAL_SOURCE_PREFIX = "culture-rules://"
 """Sources the engine writes straight into the store (run events, checks settle). The bus
-may not carry them (:func:`reserved_reason`), and a derived event from one must carry
-``hops`` (:func:`event_hops`)."""
+may not carry them (:func:`reserved_reason`)."""
+ENGINE_APP_SOURCE_PREFIX = "app://culture-rules/"
+"""The source of what a node publishes on the bus (``app://culture-rules/<host>``,
+:func:`engine_app_source`): it comes back through ingest, so it is not reserved."""
+ENGINE_SOURCE_PREFIXES = (INTERNAL_SOURCE_PREFIX, ENGINE_APP_SOURCE_PREFIX)
+"""Every source the engine itself produces. The engine always stamps ``hops`` on what it
+derives, so a derived event from one of them without ``hops`` is malformed
+(:func:`event_hops` fails closed)."""
+
+
+def engine_app_source(host: str) -> str:
+    """The source a node's emitter publishes under (one contract for producer and check)."""
+    return f"{ENGINE_APP_SOURCE_PREFIX}{host}"
+
+
+def is_engine_source(source: Any) -> bool:
+    """Whether ``source`` is one the engine produces (:data:`ENGINE_SOURCE_PREFIXES`)."""
+    return isinstance(source, str) and source.startswith(ENGINE_SOURCE_PREFIXES)
+
+
 RUN_EVENT_ID_PREFIX = "runevt_"
 RUN_EVENT_TYPE_PREFIX = "rules.run."
 
@@ -85,17 +103,16 @@ def event_hops(envelope: Mapping[str, Any]) -> int | None:
 
     * it is malformed (a string, a bool, a negative number);
     * the envelope carries an ``envelope`` field (ambiguous with a stored document);
-    * it is absent on a derived event (a ``causationId``) from an internal source
-      (:data:`INTERNAL_SOURCE_PREFIX`): the engine always stamps the hops it derives.
+    * it is absent on a derived event (a ``causationId``) from an engine source
+      (:data:`ENGINE_SOURCE_PREFIXES`): the engine always stamps the hops it derives.
 
     Absent on a root event, or on an event from an outside source (whose producers do not
     count hops), it is 0."""
     if "envelope" in envelope:
         return None
     if "hops" not in envelope:
-        source = envelope.get("source")
-        internal = isinstance(source, str) and source.startswith(INTERNAL_SOURCE_PREFIX)
-        return None if internal and envelope.get("causationId") else 0
+        derived = bool(envelope.get("causationId"))
+        return None if derived and is_engine_source(envelope.get("source")) else 0
     hops = envelope["hops"]
     if isinstance(hops, bool) or not isinstance(hops, int) or hops < 0:
         return None

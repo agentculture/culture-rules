@@ -1,7 +1,9 @@
 # Backup and restore drill
 
 culture-rules backs up config (`rules`, `workflows`, `actors`, `machines`) and
-run history (`runs`, `audit`) to an S3 bucket with server-side encryption.
+run history (`runs`, `audit`, `run_completions`) to an S3 bucket with
+server-side encryption. A backup chain written before `run_completions` was
+added has no token for it, so the schedule takes a new snapshot first.
 The library is `culture_rules/ops/backup.py`; its module docstring is the
 contract.
 

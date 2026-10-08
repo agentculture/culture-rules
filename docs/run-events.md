@@ -105,7 +105,13 @@ Three refusals guard these events:
   `runevt_*` ids, `rules.run.*` types, `culture-rules://` sources, and any
   envelope that carries an `envelope` field (ambiguous with a stored event
   document). A refused envelope is never stored or evaluated. It is kept in
-  `event_quarantine` with the reason, and counted on the ingest result.
+  `event_quarantine` with the reason and counted on the ingest result; a
+  webhook carrying such a type answers the outcome `quarantined`, unlike an
+  ordinary undeclared type (`ignored`). The quarantine is bounded: one record
+  per refused id and reason, whose `count` grows on repeats; the payload is
+  kept whole only up to 8 KiB (else a preview, its size and hash); a record
+  expires 30 days after it was last seen (a MongoDB TTL index on
+  `expires_at`); and only a new record is logged.
 - **`run_event_unverified`.** Before a rule fires on a `rules.run.*` event,
   the node compares the whole envelope, extra keys included, with the
   envelope in the run's completion record. The id must also be the one the
@@ -115,10 +121,15 @@ Three refusals guard these events:
 - **`hop_limit`.** Each derived event carries `hops`: an external event has
   0, and each derivation adds one. Matching refuses any firing on an event
   with more than `MAX_EVENT_HOPS` (8) hops, and also when the count is
-  malformed, missing on a derived event from an internal source, or the
+  malformed, missing on a derived event from an engine source, or the
   envelope carries an `envelope` field. The node logs the refusal as a
   warning and records it. Two rules that fire on each other's runs therefore
   stop after eight hops.
+
+The engine's sources are `culture-rules://…` (written straight into the
+store) and `app://culture-rules/<host>` (what a node publishes on the bus).
+The engine always stamps `hops` on what it derives, so a derived event from
+either one without `hops` is refused.
 
 Hop counts are only as good as their producers. An event from an outside
 source with no `hops` counts as 0, even when it names a cause, because
@@ -142,11 +153,26 @@ What this gives:
   is skipped; an identical stored event is accepted as delivered.
 - **Two nodes race.** Both write the same record; one transaction loses.
 - **A different event already holds the id.** It is quarantined as a
-  conflict, and the genuine event is stored under `<id>-genuine`.
+  conflict, and the next candidate id is tried (`<id>-genuine`,
+  `<id>-genuine-2`, …), each checked the same way. The record is marked
+  emitted only once the stored envelope equals the genuine one. With every
+  candidate taken, the conflicts are quarantined, an error is logged and the
+  record stays pending; other records are still delivered.
 - **A pause is in force.** Delivery is deferred until the pause lifts.
 - **Upgrade.** Only terminal transitions written by this engine have a
   record. Runs that finished earlier emit nothing, and nothing in between is
   lost, because delivery never reads change-feed history.
+- **First start.** A node pins its event-trigger cursors before it delivers
+  anything, at start and before every drain, so a completion pending before
+  the first node started still reaches its downstream rules.
+- **Backup and restore.** Completion records are backed up with run history.
+  A restored record keeps its delivery state: what was delivered stays
+  delivered (no downstream side effect is replayed), and what was pending is
+  delivered by the first node on the restored store.
+
+The pending query is an equality query on `emitted` that the store orders
+and limits itself (100 per poll). On MongoDB it uses a partial index over
+un-emitted records only, so an empty queue costs nothing.
 
 The change-feed consumers that remain (triggers and chains) now initialise
 their cursor once, by insert: two nodes starting together agree on one

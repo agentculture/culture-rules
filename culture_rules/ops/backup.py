@@ -4,8 +4,16 @@ What is backed up
 =================
 
 *Config* collections (``rules``, ``workflows``, ``actors``, ``machines``) and
-*run history* collections (``runs``, ``audit``) read through the
+*run history* collections (``runs``, ``audit``, ``run_completions``) read through the
 :class:`~culture_rules.store.port.StoragePort`. Both lists are configurable.
+
+Run completions (d21) are restored with their delivery state: a completion that was
+already ``emitted`` stays emitted, so a restore never replays a downstream rule's side
+effects, and one still pending is delivered by the first node on the restored store. The
+``events`` collection itself is not backed up. A backup chain written before
+``run_completions`` was listed has no feed token for it: the schedule then takes a new
+snapshot (:meth:`Backup.due`), and an increment on such a chain is refused with a request
+for one, so the new collection is never missed.
 
 Objects (all gzip-compressed JSON, written with server-side encryption)::
 
@@ -78,7 +86,7 @@ __all__ = [
 ]
 
 CONFIG_COLLECTIONS = ("rules", "workflows", "actors", "machines")
-RUN_COLLECTIONS = ("runs", "audit")
+RUN_COLLECTIONS = ("runs", "audit", "run_completions")
 SNAPSHOT_INTERVAL = timedelta(hours=24)
 INCREMENT_INTERVAL = timedelta(hours=1)
 _SSE_MODES = ("AES256", "aws:kms")
@@ -325,6 +333,12 @@ class Backup:
             raise BackupError("no snapshot exists yet; take a snapshot before an increment")
         base = records[-1]
         tokens = dict(self._load(base.key)["tokens"])
+        missing = [c for c in self.config.run_collections if c not in tokens]
+        if missing:
+            raise BackupError(
+                f"the newest backup has no token for {', '.join(missing)}: take a snapshot "
+                "to start a chain that includes it"
+            )
         changes: list[dict[str, Any]] = []
         counts: dict[str, int] = {}
         for c in self.config.run_collections:
@@ -360,6 +374,9 @@ class Backup:
         snaps = [r for r in records if r.kind == "snapshot"]
         if not snaps or now - snaps[-1].created_at >= SNAPSHOT_INTERVAL:
             return "snapshot"
+        tokens = self._load(records[-1].key).get("tokens") or {}
+        if any(c not in tokens for c in self.config.run_collections):
+            return "snapshot"  # an older chain without a newly listed collection
         if now - records[-1].created_at >= INCREMENT_INTERVAL:
             return "increment"
         return None

@@ -377,3 +377,54 @@ def test_cli_main_snapshot_and_restore(s3, clock, monkeypatch, capsys):
     assert mod.main(["restore", "--json"]) == 0
     assert dump(target) == dump(store)
     assert mod.main(["bogus"]) == 1
+
+
+# ------------------------------------------------------------------ d21 completion records
+
+
+def _completion(run_id, emitted):
+    return {
+        "id": run_id,
+        "run_id": run_id,
+        "status": "succeeded",
+        "envelope": {"id": f"runevt_{run_id}", "type": "rules.run.succeeded", "data": {}},
+        "emitted": emitted,
+        "event_id": f"runevt_{run_id}" if emitted else None,
+    }
+
+
+def test_run_completions_are_backed_up_and_restored_with_their_delivery_state(s3, clock):
+    from culture_rules.node.run_events import RunEventOutbox
+
+    store = MemoryStore()
+    seed(store)
+    store.put("run_completions", _completion("run1", True))
+    b = make_backup(s3, store, clock)
+    b.snapshot()
+    clock.advance(hours=1)
+    store.put("run_completions", _completion("run2", False))  # finished, not yet delivered
+    assert b.increment().counts["run_completions"] == 1
+    target = MemoryStore()
+    b.restore(target)
+    assert target.get("run_completions", "run1")["emitted"] is True
+    assert target.get("run_completions", "run2")["emitted"] is False
+    # policy: what was delivered stays delivered (no replayed side effects); what was
+    # pending is delivered by the first node on the restored store
+    delivered = RunEventOutbox(target, paused=lambda tx: False, defer=Exception).poll()
+    assert delivered == ["runevt_run2"]
+
+
+def test_an_older_chain_without_a_completions_token_asks_for_a_new_snapshot(s3, clock):
+    store = MemoryStore()
+    seed(store)
+    old = make_backup(s3, store, clock, run_collections=("runs", "audit"))
+    old.snapshot()
+    clock.advance(hours=1)
+    b = make_backup(s3, store, clock)
+    assert b.due(clock()) == "snapshot"
+    with pytest.raises(BackupError, match="snapshot"):
+        b.increment()
+    b.tick()  # takes the snapshot the new chain starts from
+    clock.advance(hours=1)
+    store.put("run_completions", _completion("run9", False))
+    assert b.increment().counts["run_completions"] == 1

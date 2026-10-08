@@ -433,6 +433,7 @@ class RuleFiring:
                 str(record.get("run_id")),
                 "paused: run event emitted on resume",
             ),
+            before=self._init_trigger_cursors,
         )
 
     def _chain(self, consumer: str, *, placed: bool) -> FeedConsumer:
@@ -464,6 +465,19 @@ class RuleFiring:
         """Every consumer a node polls each cycle, in order: the run-events emitter first,
         so a run that finished last cycle has its ``rules.run.*`` event evaluated in this one."""
         return (self.run_events, self.placed, self.shared, self.chain_placed, self.chain_shared)
+
+    def _init_trigger_cursors(self) -> None:
+        """Pin the event-trigger cursors that do not exist yet (before the outbox emits)."""
+        for consumer in (self.placed, self.shared):
+            consumer.cursor()
+
+    @property
+    def start_consumers(self) -> tuple[EventTriggers | FeedConsumer | RunEventOutbox, ...]:
+        """The order a node's start polls them in: every feed consumer first - so a new
+        consumer pins its cursor *before* anything is emitted - then the outbox. Draining the
+        outbox first would deliver a pending completion and then pin the trigger cursors
+        after it: no rule would ever see that event (d21 review)."""
+        return (self.placed, self.shared, self.chain_placed, self.chain_shared, self.run_events)
 
     # ------------------------------------------------------------------ polling
 

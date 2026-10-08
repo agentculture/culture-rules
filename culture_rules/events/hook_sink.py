@@ -11,8 +11,11 @@ optional ``params.self_identity`` are read from it.
 Outcomes, checked in this order:
 
 - ``disabled``  - the actor is disabled; nothing is written;
-- ``ignored``   - ``type`` is not in the actor's declared ``params.events`` (the allow-list),
-  or is reserved for the engine (``rules.run.*``, d21); nothing is written;
+- ``quarantined`` - ``type`` is reserved for the engine (``rules.run.*``, d21), whatever the
+  actor declares: no event is written; the refusal is recorded in ``event_quarantine``
+  (only the delivery's id, type and source - never the payload);
+- ``ignored``   - ``type`` is not in the actor's declared ``params.events`` (the allow-list);
+  nothing is written;
 - ``duplicate`` - an event for this surface + delivery id already exists (the deterministic
   event id hit the unique id); nothing new is written;
 - ``accepted``  - the envelope was inserted; the ``events`` change feed fires triggers on it.
@@ -43,7 +46,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from culture_rules.events.emit import derive_envelope, reserved_reason
-from culture_rules.events.ingest import EVENTS_COLLECTION, event_document
+from culture_rules.events.ingest import EVENTS_COLLECTION, event_document, quarantine
 from culture_rules.store.port import DuplicateKeyError, StoragePort
 
 __all__ = [
@@ -55,6 +58,7 @@ __all__ = [
     "HOOK_STATS_COLLECTION",
     "IGNORED",
     "OUTCOMES",
+    "QUARANTINED",
     "REFUSALS",
     "SELF_TAG_EXEMPT_TYPES",
     "TOO_LARGE",
@@ -71,7 +75,8 @@ HOOK_HOST = "webhook"
 """The ``host`` recorded on events written by the sink (they do not come from a host's ingest)."""
 
 ACCEPTED, DUPLICATE, IGNORED, DISABLED = "accepted", "duplicate", "ignored", "disabled"
-OUTCOMES = (ACCEPTED, DUPLICATE, IGNORED, DISABLED)
+QUARANTINED = "quarantined"
+OUTCOMES = (ACCEPTED, DUPLICATE, IGNORED, DISABLED, QUARANTINED)
 UNAUTHORIZED, BAD_REQUEST, TOO_LARGE = "unauthorized", "bad_request", "too_large"
 REFUSALS = (UNAUTHORIZED, BAD_REQUEST, TOO_LARGE)
 """Outcomes of deliveries refused before the sink (see :func:`record_outcome`)."""
@@ -147,7 +152,7 @@ def sink(
     delivery_id: str,
     author: str | None,
 ) -> str:
-    """Record one verified delivery; return ``accepted|duplicate|ignored|disabled``."""
+    """Record one verified delivery; return ``accepted|duplicate|ignored|disabled|quarantined``."""
     view = _actor_view(actor)
     actor_id = view.get("id")
     params = view.get("params") or {}
@@ -160,8 +165,18 @@ def sink(
         raise ValueError("type must be a non-empty string")
     if view.get("enabled", True) is False:
         return _finish(store, actor_id, type, DISABLED, surface)
-    if type not in (params.get("events") or ()) or reserved_reason({"type": type}):
-        # an app may never inject the engine's own run events, even if it declares them
+    reserved = reserved_reason({"type": type})
+    if reserved is not None:
+        # an app may never inject the engine's own run events, even if it declares them:
+        # the refusal is recorded (visible), unlike an ordinary undeclared type
+        refused = {
+            "id": event_id_for(surface, delivery_id),
+            "type": type,
+            "source": f"app://{actor_id}",
+        }
+        quarantine(store, refused, reserved, host=HOOK_HOST)
+        return _finish(store, actor_id, type, QUARANTINED, surface)
+    if type not in (params.get("events") or ()):
         return _finish(store, actor_id, type, IGNORED, surface)
 
     payload = dict(data or {})
