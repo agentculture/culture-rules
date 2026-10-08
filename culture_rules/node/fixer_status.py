@@ -38,7 +38,13 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from culture_rules.apps.public_text import WITHHELD, escape, inert_block, withheld
+from culture_rules.apps.public_text import (
+    WITHHELD,
+    escape,
+    inert_block,
+    known_secret_in,
+    withheld,
+)
 
 __all__ = [
     "EDIT_FLOOR_S",
@@ -488,17 +494,51 @@ class Final:
     run_id: str | None = None
 
 
-def _guard(sections: list[tuple[str, bool]], known: frozenset[str], root_id: str) -> str:
-    """The body, checked as a whole right before it is sent: an untrusted section that
-    holds a secret, alone or with the rest, is ``[withheld]``; a body that still does is
-    replaced by the bare headline (last line of defence)."""
-    parts = [WITHHELD if bad and withheld(text, known) else text for text, bad in sections]
-    body = "\n\n".join(parts)
-    if withheld(body, known):
-        body = "\n\n".join(WITHHELD if bad else text for text, bad in sections)
-    if withheld(body, known):
-        body = "\n\n".join((HEADLINE, MARKER.format(root_id)))
-    return body
+def _guard(
+    sections: list[tuple[str, bool]],
+    known: frozenset[str],
+    fallback: Callable[[], str],
+) -> str:
+    """The body, checked as a whole right before it is sent (module doc).
+
+    Untrusted sections get every check (heuristics and known secrets), alone and together;
+    one that fails is ``[withheld]``. Engine-validated facts (logins, SHAs, run ids,
+    verdicts) only get the known-secret check: a valid login that looks random is no
+    secret. A body whose engine facts still hold a known secret is replaced by
+    ``fallback()``, built from facts that cannot."""
+    parts = [(WITHHELD if bad and withheld(text, known) else text, bad) for text, bad in sections]
+    untrusted = "\n\n".join(text for text, bad in parts if bad)
+    if withheld(untrusted, known):
+        parts = [(WITHHELD if bad else text, bad) for text, bad in parts]
+    body = "\n\n".join(text for text, _ in parts)
+    return fallback() if known_secret_in(body, known) else body
+
+
+def _outcome(chain: Chain) -> str:
+    """The chain's end in one validated word, for a fallback final."""
+    last = chain.runs[-1]
+    status = last.get(_STATUS)
+    if status in ("cancelled", "superseded"):
+        return "stopped"
+    if status == _FAILED:
+        return "handed back"
+    if _push_step(last):
+        return "pushed"
+    if _review_step(last):
+        return "reviewed (review-only)"
+    return "finished"
+
+
+def _fallback(chain: Chain, final: Final | None, root_id: str) -> str:
+    """A body built only from engine values that hold no secret: for a final, it still
+    reads final (outcome and run link), never the working headline."""
+    if final is None:
+        return "\n\n".join((HEADLINE, MARKER.format(root_id)))
+    parts = [f"**PR fixer finished**: {_outcome(chain)}."]
+    link = run_link(final.run_id)
+    if link:
+        parts.append(f"Run: {link}")
+    return "\n\n".join((*parts, MARKER.format(root_id)))
 
 
 def render(chain: Chain, final: Final | None = None, known: Iterable[str] = ()) -> str:
@@ -529,7 +569,7 @@ def render(chain: Chain, final: Final | None = None, known: Iterable[str] = ()) 
     if link:
         sections.append((f"Chain started with run: {link}", False))
     sections.append((MARKER.format(root_id), False))
-    return _guard(sections, known, root_id)
+    return _guard(sections, known, lambda: _fallback(chain, final, root_id))
 
 
 def marker_of(root_id: str) -> str:
@@ -557,4 +597,4 @@ def plain_final(text: Any, run_id: Any, known: Iterable[str] = ()) -> str:
     link = run_link(run_id)
     if link:
         sections.append((f"Run: {link}", False))
-    return _guard(sections, known, "?")
+    return _guard(sections, known, lambda: "PR fixer finished.")

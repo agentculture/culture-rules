@@ -125,3 +125,29 @@ def test_a_known_hex_secret_in_angle_brackets_never_reaches_the_body():
     assert hex48 not in body
     assert hex48[:12] not in body
     assert body.startswith(WITHHELD)
+
+
+LOGIN = "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R"  # a valid login that looks random
+
+
+def comment_root(**over):
+    data = {"repository": "o/r", "number": 7, "head_sha": "0" * 40, "author": LOGIN, **over}
+    return fix_run(trigger={"id": "ev", "type": "github.comment.created", "data": data})
+
+
+def test_engine_facts_are_exempt_from_the_heuristic():
+    # Codex round 5: a random-looking but valid login must not withhold the body
+    body = render(chain_of(comment_root()), Final("PR fixer handed back (x): y", RUN))
+    assert f"Started by a comment by {LOGIN}" in body
+    assert plain(body).startswith("PR fixer handed back (x): y")
+
+
+def test_a_final_body_falls_back_to_a_final_built_from_engine_facts():
+    # a validated fact that is a known secret: the final still reads final, never "working"
+    run = comment_root(status="failed")
+    body = render(chain_of(run), Final("PR fixer handed back (x): y", RUN), known=[LOGIN])
+    assert LOGIN not in body
+    assert body.startswith("**PR fixer finished**")
+    assert HEADLINE not in body
+    assert f"https://rules.culture.dev/api/runs/{RUN}" in body
+    assert body.endswith(marker_of(RUN))
