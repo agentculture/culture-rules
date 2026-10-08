@@ -472,23 +472,12 @@ def reserve_concurrency(
     the newer firing supersedes it. The caller settles the displaced event's decision in
     the same transaction (:mod:`culture_rules.node.firing`, ``_coalesce_away``).
     """
-    from culture_rules.engine.runs import RUN_DONE, RUNS_COLLECTION
-
     doc_id = budget_id(key)
     for _ in range(DEFAULT_ATTEMPTS):
         current = store.get(RULE_ATTEMPT_BUDGETS, doc_id) or {}
-        count = current.get("count", 0)
-        active = current.get("run_id")
-        if active:
-            run = store.get(RUNS_COLLECTION, active)
-            if run is None:
-                intent = store.get("rule_fires", current["intent_id"])
-                if not intent or intent.get("status") != "failed":
-                    return "deduplicated"
-                # A failed start never produced a run.
-                count = max(0, count - 1)
-            elif run.get("status") not in RUN_DONE:
-                return "deduplicated"
+        count = _admitted_count(store, current)
+        if count is None:
+            return "deduplicated"
         if max_attempts is not None and count >= max_attempts:
             return "attempt_budget_exhausted"
         revision = current.get("revision")
@@ -512,6 +501,27 @@ def reserve_concurrency(
             return None
 
     raise TransientStoreError("concurrency reservation contention")
+
+
+def _admitted_count(store: StoreOps, current: Document) -> int | None:
+    """The attempts the budget ``current`` counts against its key, or None while the key's
+    holder is live (a run not yet done, or an intent not yet failed): deduplicated."""
+    from culture_rules.engine.runs import RUN_DONE, RUNS_COLLECTION
+
+    count = current.get("count", 0)
+    active = current.get("run_id")
+    if not active:
+        return count
+    run = store.get(RUNS_COLLECTION, active)
+    if run is None:
+        intent = store.get("rule_fires", current["intent_id"])
+        if not intent or intent.get("status") != "failed":
+            return None
+        # A failed start never produced a run.
+        return max(0, count - 1)
+    if run.get("status") not in RUN_DONE:
+        return None
+    return count
 
 
 def _cas_budget(
