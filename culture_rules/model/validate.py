@@ -631,7 +631,7 @@ def _check_wait_config(config: dict, path: str, errors: Errors) -> None:
             "head_unchanged guard requires a config.guard.ref pointing to an input or variable",
         )
         return
-    if not (ref.startswith("inputs.") or ref.startswith("vars.")):
+    if not ref.startswith(("inputs.", "vars.")):
         _err(
             errors,
             _join(path, "guard.ref"),

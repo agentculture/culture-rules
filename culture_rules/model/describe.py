@@ -49,13 +49,15 @@ BUILTIN_WORDS: dict[str, str] = {
     "review": "review verdict, recorded for github.push",
 }
 
+_TO_CHANNEL = (("channel", "to {}"),)
+
 #: Per action kind: which literal params are worth a word, as ``(param, template)``.
 #: A param holding a reference or a ``{{ }}`` template is resolved at run time, so it is
 #: left out rather than shown half-resolved.
 ACTION_WORDS: dict[str, tuple[tuple[str, str], ...]] = {
-    "message": (("channel", "to {}"),),
-    "mesh.message": (("channel", "to {}"),),
-    "discord.message": (("channel", "to {}"),),
+    "message": _TO_CHANNEL,
+    "mesh.message": _TO_CHANNEL,
+    "discord.message": _TO_CHANNEL,
     "github.comment": (),
     "github.push": (),
     "github.review_reply": (),
@@ -329,20 +331,24 @@ def _wait_text(config: Mapping[str, Any]) -> str:
     return text
 
 
-def _code_text(step: Mapping[str, Any], config: Mapping[str, Any], where: str) -> str:
+def _builtin_text(builtin: str, config: Mapping[str, Any], where: str) -> str:
+    actor = config.get("actor")
+    as_actor = f" as {actor}" if isinstance(actor, str) and actor else ""
+    words = BUILTIN_WORDS.get(builtin)
+    if words is None:
+        return _join(f"builtin {builtin}{as_actor}", where)
+    if "{as}" in words:  # the gloss follows the actor and placement
+        extra = [as_actor.strip(), "" if where == as_actor.strip() else where]
+        return words.replace("{as}", "".join(f" {x}" for x in extra if x))
+    return _join(words + as_actor, where)
+
+
+def _code_text(config: Mapping[str, Any], where: str) -> str:
     builtin = config.get("builtin")
     if builtin == "action":
         return action_text(config.get("action") or {}, where)
     if isinstance(builtin, str) and builtin:
-        actor = config.get("actor")
-        as_actor = f" as {actor}" if isinstance(actor, str) and actor else ""
-        words = BUILTIN_WORDS.get(builtin)
-        if words is None:
-            return _join(f"builtin {builtin}{as_actor}", where)
-        if "{as}" in words:  # the gloss follows the actor and placement
-            extra = [as_actor.strip(), "" if where == as_actor.strip() else where]
-            return words.replace("{as}", "".join(f" {x}" for x in extra if x))
-        return _join(words + as_actor, where)
+        return _builtin_text(builtin, config, where)
     command = config.get("command")
     return _join(f"code `{command}`" if isinstance(command, str) and command else "code", where)
 
@@ -368,7 +374,7 @@ def step_text(step: Any) -> str:
     if kind == "wait":
         text = _wait_text(config)
     elif kind == "code":
-        text = _code_text(s, config, where)
+        text = _code_text(config, where)
     elif kind == "ai":
         actor = _plain(s.get("placement")).get("actor")
         sandbox = config.get("sandbox")

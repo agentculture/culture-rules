@@ -1104,7 +1104,7 @@ class Executor:
             if guard and paused:
                 continue
             if guard:
-                where = self._guard_eligible(plan, st, step, guard, now)
+                where = self._guard_eligible(plan, step, guard, now)
                 if isinstance(where, PlacementError):
                     answer = self._guard_unplaceable(doc, st, where, wake, now)
                     if answer is None:
@@ -1161,7 +1161,7 @@ class Executor:
         return None
 
     def _guard_eligible(
-        self, plan: _Plan, st: Mapping, step: Step | None, guard: Mapping, now: datetime
+        self, plan: _Plan, step: Step | None, guard: Mapping, now: datetime
     ) -> bool | PlacementError:
         """Whether this node may perform the guarded lookup: the step's placement, else the
         guard actor's machine (where its App credentials live), resolved as dispatch does.
