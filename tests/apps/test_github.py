@@ -556,3 +556,64 @@ def test_a_response_body_larger_than_the_cap_is_refused():
     with pytest.raises(ValueError):
         _read_within(io.BytesIO(b"y" * 100), deadline_at=float("inf"), max_bytes=10)
     assert _read_within(io.BytesIO(b"ok"), deadline_at=float("inf"), max_bytes=10) == b"ok"
+
+
+@pytest.mark.parametrize("drip", ["headers", "chunks", "trailers"])
+def test_a_dripping_response_returns_within_the_hard_deadline(pem, drip):
+    # Codex round 4: http.client reads headers, chunk sizes and trailers line by line
+    # under the original socket timeout; a watchdog bounds the whole call
+    import socket
+    import threading
+    import time
+
+    from culture_rules.apps.github import urllib_transport
+
+    head = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nX-Pad: " + b"p" * 40 + b"\r\n\r\n"
+    body = b"2\r\n{}\r\n" * 20 + b"0\r\n"
+    trailers = b"X-Trailer: " + b"t" * 40 + b"\r\n\r\n"
+
+    def serve(listener):
+        conn, _ = listener.accept()
+        conn.recv(65536)
+        if drip == "headers":
+            parts = [bytes([b]) for b in head] + [body + b"\r\n"]
+        elif drip == "chunks":
+            parts = [head] + [bytes([b]) for b in body] + [b"\r\n"]
+        else:
+            parts = [head, body] + [bytes([b]) for b in trailers]
+        try:
+            for part in parts:
+                conn.sendall(part)
+                time.sleep(0.2)
+        except OSError:
+            pass
+        conn.close()
+
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(1)
+    threading.Thread(target=serve, args=(listener,), daemon=True).start()
+    url = f"http://127.0.0.1:{listener.getsockname()[1]}/"
+
+    token = {"token": FAKE_BEARER, "expires_at": "2099-01-01T00:00:00Z"}
+
+    def transport(method, u, headers, data, timeout):
+        if u.endswith("/access_tokens"):
+            return 201, json.dumps(token).encode()
+        return urllib_transport("GET", url, headers, None, timeout)
+
+    app = GitHubApp(
+        app_id="1",
+        installation_id="2",
+        private_key=pem,
+        repos=("acme/widgets",),
+        transport=transport,
+    )
+    started = time.monotonic()
+    with app.deadline(datetime.now(UTC) + timedelta(seconds=1.0)):
+        with pytest.raises(GitHubError) as exc:
+            app.get_pull("acme/widgets", 1)
+    took = time.monotonic() - started
+    listener.close()
+    assert exc.value.code == "deadline_exceeded"
+    assert took < 1.6

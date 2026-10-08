@@ -28,10 +28,13 @@ import base64
 import json
 import logging
 import re
+import threading
 import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Iterable, Iterator, Mapping
+from concurrent.futures import Future
+from concurrent.futures import TimeoutError as FutureTimeout
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import UTC, datetime, timedelta
@@ -209,6 +212,42 @@ def _read_within(stream: Any, deadline_at: float, max_bytes: int = MAX_RESPONSE_
         chunks.append(chunk)
 
 
+WATCHDOG_WORKERS = 8
+"""The most transport calls running at once per process under the watchdog; an abandoned
+call (past its deadline) keeps its worker until its socket timeout ends it."""
+_WATCH_SLOTS = threading.BoundedSemaphore(WATCHDOG_WORKERS)
+
+
+def _watched(call: Callable[[], tuple[int, bytes]], timeout: float) -> tuple[int, bytes]:
+    """Run one transport call on a daemon worker and wait at most ``timeout`` (d26): the
+    hard bound of the whole call - connect, headers, chunks and trailers, which http.client
+    reads line by line under the socket timeout alone. Past it the caller gets
+    ``deadline_exceeded`` (retryable) and the worker is abandoned; the transport's socket
+    timeout (the same remaining budget) ends it soon after. With every worker busy, the
+    call fails ``transport_busy`` (retryable) without starting."""
+    if not _WATCH_SLOTS.acquire(blocking=False):
+        raise GitHubError("transport_busy", "every transport worker is busy", retryable=True)
+    result: Future[tuple[int, bytes]] = Future()
+
+    def work() -> None:
+        try:
+            result.set_result(call())
+        except BaseException as exc:  # noqa: BLE001 - handed to the waiting caller
+            result.set_exception(exc)
+        finally:
+            _WATCH_SLOTS.release()
+
+    try:
+        threading.Thread(target=work, name="github-call", daemon=True).start()
+    except BaseException:
+        _WATCH_SLOTS.release()
+        raise
+    try:
+        return result.result(timeout=timeout)
+    except FutureTimeout:
+        raise GitHubError("deadline_exceeded", retryable=True) from None
+
+
 def _b64url(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
 
@@ -343,7 +382,12 @@ class GitHubApp:
             body = json.dumps(payload).encode()
             headers["Content-Type"] = "application/json"
         try:
-            status, raw = self._transport(method, self._api_base + path, headers, body, timeout)
+            status, raw = _watched(
+                lambda: self._transport(method, self._api_base + path, headers, body, timeout),
+                timeout,
+            )
+        except GitHubError:
+            raise
         except Exception as exc:  # noqa: BLE001 - network failure is retryable; text withheld
             if self._cut_by_deadline(exc, timeout):
                 raise GitHubError("deadline_exceeded", retryable=True) from None
