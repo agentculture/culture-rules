@@ -740,7 +740,8 @@ inert.
   (token exchanges and every page of a comment listing included, each
   charged before it is sent) within 10 seconds, after the drive stage. Each
   call, resolving the App's key included (through the port's bounded
-  resolver), has a hard 20 s deadline: a watchdog runs the request on a
+  resolver), has a hard 20 s deadline: a watchdog (opt-in, the status stage
+  only; every other GitHub call runs inline as before) runs the request on a
   worker thread (a small bounded pool) and gives up at the deadline, so
   dripping headers, chunks or trailers cannot outlast it (the abandoned
   worker ends at its socket timeout, the same remaining budget). The

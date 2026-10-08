@@ -610,10 +610,38 @@ def test_a_dripping_response_returns_within_the_hard_deadline(pem, drip):
         transport=transport,
     )
     started = time.monotonic()
-    with app.deadline(datetime.now(UTC) + timedelta(seconds=1.0)):
+    with app.deadline(datetime.now(UTC) + timedelta(seconds=1.0)), app.watchdog():
         with pytest.raises(GitHubError) as exc:
             app.get_pull("acme/widgets", 1)
     took = time.monotonic() - started
     listener.close()
     assert exc.value.code == "deadline_exceeded"
     assert took < 1.6
+
+
+def test_outside_the_status_stage_a_request_runs_inline(pem):
+    # the watchdog is opt-in: push, settle, threads, plain comments and the API's calls
+    # run their requests on the calling thread, exactly as before d26
+    import threading
+
+    from culture_rules.apps import github as gh
+
+    threads = []
+
+    def transport(method, url, headers, body, timeout):
+        threads.append(threading.current_thread())
+        return Fake()(method, url, headers, body, timeout)
+
+    app, _ = make(pem, transport)
+    taken = 0
+    while gh._WATCH_SLOTS.acquire(blocking=False):  # the watchdog pool exhausted
+        taken += 1
+    try:
+        assert app.post_comment("acme/widgets", 1, "x")["comment_id"] == 77
+        with app.watchdog(), pytest.raises(GitHubError) as exc:
+            app.post_comment("acme/widgets", 1, "y")
+    finally:
+        for _ in range(taken):
+            gh._WATCH_SLOTS.release()
+    assert threads == [threading.current_thread()] * 2  # token exchange and post: inline
+    assert exc.value.code == "transport_busy"  # only inside the status stage's context

@@ -752,12 +752,16 @@ class StatusBoard:
 
 @contextlib.contextmanager
 def _bounded(app: Any, until: datetime, budget: _Budget) -> Iterator[None]:
-    """Every request of the block within ``until`` and charged to ``budget`` (an App
-    without those hooks - a test double - is charged once)."""
+    """Every request of the block within ``until`` - under the App's watchdog, a hard bound -
+    and charged to ``budget`` (an App without those hooks - a test double - is charged
+    once)."""
     with contextlib.ExitStack() as stack:
         limit = getattr(app, "deadline", None)
         if callable(limit):
             stack.enter_context(limit(until))
+        watchdog = getattr(app, "watchdog", None)
+        if callable(watchdog):
+            stack.enter_context(watchdog())
         guard = getattr(app, "request_guard", None)
         if callable(guard):
             stack.enter_context(guard(budget.charge))

@@ -65,6 +65,9 @@ _DEADLINE: ContextVar[tuple[datetime, Callable[[], datetime]] | None] = ContextV
 )
 _GUARD: ContextVar[Callable[[], None] | None] = ContextVar("github_request_guard", default=None)
 """Called before every HTTP request in a :meth:`GitHubApp.request_guard` block (d26)."""
+_WATCH: ContextVar[bool] = ContextVar("github_watchdog", default=False)
+"""Whether requests run under the watchdog (:meth:`GitHubApp.watchdog`; the status stage
+only, d26)."""
 
 Transport = Callable[[str, str, dict[str, str], bytes | None, float], tuple[int, bytes]]
 
@@ -213,8 +216,8 @@ def _read_within(stream: Any, deadline_at: float, max_bytes: int = MAX_RESPONSE_
 
 
 WATCHDOG_WORKERS = 8
-"""The most transport calls running at once per process under the watchdog; an abandoned
-call (past its deadline) keeps its worker until its socket timeout ends it."""
+"""The most transport calls running at once per process under the (opt-in) watchdog; an
+abandoned call (past its deadline) keeps its worker until its socket timeout ends it."""
 _WATCH_SLOTS = threading.BoundedSemaphore(WATCHDOG_WORKERS)
 
 
@@ -339,6 +342,17 @@ class GitHubApp:
         finally:
             _GUARD.reset(reset)
 
+    @contextmanager
+    def watchdog(self) -> Iterator[None]:
+        """Run every request of the block under the watchdog (:func:`_watched`): a hard
+        bound of the whole call, connect to trailers. Opt-in (d26: the status stage only);
+        every other caller runs its requests inline, as before."""
+        reset = _WATCH.set(True)
+        try:
+            yield
+        finally:
+            _WATCH.reset(reset)
+
     @staticmethod
     def _timeout() -> float:
         bound = _DEADLINE.get()
@@ -382,10 +396,7 @@ class GitHubApp:
             body = json.dumps(payload).encode()
             headers["Content-Type"] = "application/json"
         try:
-            status, raw = _watched(
-                lambda: self._transport(method, self._api_base + path, headers, body, timeout),
-                timeout,
-            )
+            status, raw = self._send(method, self._api_base + path, headers, body, timeout)
         except GitHubError:
             raise
         except Exception as exc:  # noqa: BLE001 - network failure is retryable; text withheld
@@ -401,6 +412,14 @@ class GitHubApp:
         if isinstance(data, list) and method == "GET":
             return status, {"items": data}  # a list endpoint (list_issue_comments)
         return status, data if isinstance(data, dict) else {}
+
+    def _send(
+        self, method: str, url: str, headers: dict[str, str], body: bytes | None, timeout: float
+    ) -> tuple[int, bytes]:
+        """One transport call: inline, or under the watchdog inside :meth:`watchdog`."""
+        if not _WATCH.get():
+            return self._transport(method, url, headers, body, timeout)
+        return _watched(lambda: self._transport(method, url, headers, body, timeout), timeout)
 
     def installation_token(self) -> str:
         """The cached installation token, refreshed within 5 minutes of its expiry."""
