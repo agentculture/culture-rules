@@ -1,77 +1,118 @@
-"""Text from an agent or a bridge, made safe for a public GitHub comment (d26).
+"""Text from an agent or a bridge, made inert for a public GitHub comment (d26).
 
 The PR fixer's status comment (:mod:`culture_rules.node.fixer_status`) relays text the
 engine did not write: the agent's free status notes, its fix summary, a reviewer's findings
 inside a hand-back. Posted as the App, such text could ping people, smuggle links or
-images, break the comment's layout with HTML or an open code fence, or leak a credential
-the agent saw. Two cleaners, both pure and standard-library only:
+images, forge headings or sections, break the comment with HTML or a fence, or leak a
+credential. So untrusted text is never "cleaned" Markdown: it is **normalized, checked,
+then escaped** into plain characters (pure, standard-library only):
 
-:func:`clean_note` (strict, for one status note)
-    one line, capped at :data:`NOTE_CAP` characters; HTML tags, images, code spans and
-    fences removed; a markdown link keeps only its text and a bare URL becomes ``[link]``;
-    ``@name`` is neutralised with a zero-width space so it never pings; a note carrying
-    anything token-shaped (:func:`looks_secret`) is **dropped whole** (``None``).
+1. :func:`normalize` - Unicode NFKC; control and format characters (zero-width, bidi)
+   removed; every URL (``scheme://...``, ``//host...``, ``www.``) dropped; whitespace
+   collapsed (one line for a note).
+2. :func:`withheld` - the text is refused when it, or its *stripped view* (tags,
+   backslashes, backticks, emphasis and pipes removed, so ``ghp_<b></b>...`` reassembles),
+   looks like a credential (:func:`looks_secret`: known token formats, private key blocks,
+   long random strings), or when its compacted form holds a **known secret** of this
+   process (:func:`known_secret_in`: the value, any 12-character piece of it, or a piece
+   of its hex, base64 or urlsafe-base64 encoding). Callers pass the known values
+   (:func:`culture_rules.actors.secrets.known_values`).
+3. :func:`escape` - every Markdown metacharacter is backslash-escaped, ``<``, ``>`` and
+   ``&`` become entities (so ``<!--`` can never appear), ``@`` is followed by a zero-width
+   space (no mention pings), and leading spaces are dropped (no indented code). The result
+   renders as the same words, inert: no link, image, heading, list, table, fence or HTML.
 
-:func:`clean_block` (for multi-line text: a summary, a chain's final section)
-    keeps lines; the same markup rules, except that bare URLs may be kept (the engine's
-    own run link) and token-shaped text is replaced by :data:`REDACTED`; an unbalanced
-    code fence is closed; capped.
+:func:`clean_note` normalizes and checks one status note (``None`` when refused);
+:func:`inert_block` does all three for multi-line text (``[withheld]`` when refused).
+:func:`status_note` reads ``STATUS: <note>`` out of a bridge progress note. Engine facts
+and links never pass through here: the caller renders them from validated values.
 
-:func:`status_note` reads the agent's ``STATUS: <note>`` out of one bridge ``progress``
-note (the bridge describes a shell tool call by its title, e.g. ``tool_call: Shell: echo
-"STATUS: fixing the test"``); the result still goes through :func:`clean_note`.
+Residual risk, plainly: these checks stop accidents and the obvious leaks. An agent
+determined to exfiltrate through an encoding of its own choosing cannot be fully stopped by
+any filter; the known-secret check covers only the values the checking process holds. What
+the fixer's agent holds is its bridge token, scoped to its own bridge.
 """
 
 from __future__ import annotations
 
+import base64
 import math
 import re
+import unicodedata
 from collections import Counter
+from collections.abc import Iterable
 from typing import Any
 
 __all__ = [
-    "BLOCK_CAP",
     "NOTE_CAP",
-    "REDACTED",
     "STATUS_MARK",
-    "clean_block",
+    "WINDOW",
+    "WITHHELD",
     "clean_note",
+    "escape",
+    "inert_block",
+    "known_secret_in",
     "looks_secret",
+    "normalize",
     "status_note",
+    "withheld",
 ]
 
 NOTE_CAP = 200
 """The longest status note relayed, in characters (an ellipsis marks a cut)."""
-BLOCK_CAP = 2000
-"""The default cap of :func:`clean_block`."""
-REDACTED = "[redacted]"
-"""What a token-shaped run of text becomes in a block."""
+WITHHELD = "[withheld]"
+"""What a refused untrusted section becomes."""
 STATUS_MARK = "STATUS:"
 """The marker an agent writes before a status note (``echo "STATUS: <note>"``)."""
 ELLIPSIS = "…"
-LINK_WORD = "[link]"
+WINDOW = 12
+"""A known secret is matched by any piece of this many characters (of it or an encoding)."""
+_MIN_KNOWN = 8  # shorter values are too common to match on
 
 # Known credential formats (as scripts/scan-secrets.py, plus fine-grained PATs and STS keys).
 _KNOWN_TOKENS = (
-    re.compile(r"\bgh[pousr]_\w{30,}"),
-    re.compile(r"\bgithub_pat_\w{40,}"),
-    re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"),
-    re.compile(r"\bxox[baprs]-[\w-]{10,}"),
-    re.compile(r"\bsk-[A-Za-z0-9]{20,}"),
-    re.compile(r"-----BEGIN [A-Z ]{0,20}PRIVATE KEY-----"),
+    re.compile(r"gh[pousr]_\w{30,}"),
+    re.compile(r"github_pat_\w{40,}"),
+    re.compile(r"(?:AKIA|ASIA)[0-9A-Z]{16}"),
+    re.compile(r"xox[baprs]-[\w-]{10,}"),
+    re.compile(r"sk-[A-Za-z0-9]{20,}"),
+    re.compile(r"-{3,} ?BEGIN [A-Z ]{0,20}PRIVATE KEY"),
 )
-_WORD = re.compile(r"[A-Za-z0-9+=_-]{32,}")  # "/" splits: a URL path is not one word
+_WORD = re.compile(r"[A-Za-z0-9+=_-]{32,}")  # "/" splits: a path is not one word
 _HEX = re.compile(r"(?:[A-Za-z]{1,10}[-_])?[0-9a-fA-F]+")  # a digest, or an id like run-<hex>
 _MIN_ENTROPY = 3.5  # bits per character: random base64 is near 6, English words near 3
 
+_URL = re.compile(r"(?:\b[a-z][a-z0-9+.-]{0,20}:)?//\S*|\bwww\.\S*", re.IGNORECASE)
+_SPACES = re.compile(r"[ \f\v]+")
+_BLANKS = re.compile(r"\n{3,}")
 _TAG = re.compile(r"<[^<>]{0,500}>")
-_IMAGE = re.compile(r"!\[[^\]\n]{0,300}\]\([^)\n]{0,2000}\)")
-_LINK = re.compile(r"\[([^\]\n]{0,300})\]\([^)\n]{0,2000}\)")
-_URL = re.compile(r"\b(?:https?|ftp)://[^\s<>()\[\]]+", re.IGNORECASE)
-_WWW = re.compile(r"\bwww\.[^\s<>()\[\]]+", re.IGNORECASE)
-_MENTION = re.compile(r"(?<![\w.+-])@(?=[A-Za-z0-9])")
-_SPACES = re.compile(r"\s+")
-_FENCE = re.compile(r"^\s{0,3}(?:`{3,}|~{3,})", re.MULTILINE)
+_STRIP = re.compile(r"[\\`*~|]")
+_COMPACT = re.compile(r"[^a-z0-9+/_-]")
+_METACHARS = re.compile(r"([\\`*_{}\[\]()#+\-.!|~=:\"'$^])")
+
+
+# --------------------------------------------------------------------------- normalize
+
+
+def _visible(ch: str) -> bool:
+    """Keep printable characters and line breaks; drop control and format ones."""
+    return ch == "\n" or unicodedata.category(ch)[0] != "C"
+
+
+def normalize(text: Any, *, one_line: bool = False) -> str:
+    """NFKC, control/format characters and every URL removed, whitespace collapsed."""
+    if not isinstance(text, str):
+        return ""
+    text = unicodedata.normalize("NFKC", text).replace("\r\n", "\n").replace("\t", " ")
+    text = "".join(ch for ch in text if _visible(ch))
+    text = _URL.sub("", text)
+    if one_line:
+        text = text.replace("\n", " ")
+    lines = [_SPACES.sub(" ", line).strip() for line in text.split("\n")]
+    return _BLANKS.sub("\n\n", "\n".join(lines)).strip()
+
+
+# --------------------------------------------------------------------------- secrets
 
 
 def _entropy(word: str) -> float:
@@ -82,8 +123,7 @@ def _entropy(word: str) -> float:
 
 def _random_word(word: str) -> bool:
     """A long run of token characters that looks random: letters and digits mixed, high
-    entropy, and not a hex digest or a prefixed hex id (a commit SHA or a run id is not a
-    secret)."""
+    entropy, and not a hex digest or a prefixed hex id (a SHA or a run id is no secret)."""
     if _HEX.fullmatch(word):
         return False
     has_digit = any(c.isdigit() for c in word)
@@ -91,63 +131,123 @@ def _random_word(word: str) -> bool:
     return has_digit and has_alpha and _entropy(word) >= _MIN_ENTROPY
 
 
-def _secret_spans(text: str) -> list[tuple[int, int]]:
-    spans = [m.span() for pattern in _KNOWN_TOKENS for m in pattern.finditer(text)]
-    spans += [m.span() for m in _WORD.finditer(text) if _random_word(m.group())]
-    return sorted(spans)
+def _stripped(text: str) -> str:
+    """The view in which markup between a token's characters no longer splits it."""
+    return _STRIP.sub("", _TAG.sub("", text))
+
+
+def _heuristic(view: str) -> bool:
+    if any(p.search(view) for p in _KNOWN_TOKENS):
+        return True
+    return any(_random_word(m.group()) for m in _WORD.finditer(view))
 
 
 def looks_secret(text: Any) -> bool:
-    """Whether ``text`` holds anything shaped like a credential (module doc)."""
-    return isinstance(text, str) and bool(_secret_spans(text))
+    """Whether ``text`` (raw, normalized, or its stripped view) holds anything shaped like
+    a credential."""
+    if not isinstance(text, str):
+        return False
+    views = (text, normalize(text), _stripped(normalize(text)), _stripped(text))
+    return any(_heuristic(view) for view in views)
 
 
-def _redact(text: str) -> str:
-    out, last = [], 0
-    for start, end in _secret_spans(text):
-        if start < last:
-            continue
-        out += [text[last:start], REDACTED]
-        last = end
-    return "".join(out) + text[last:]
+def _compact(text: str) -> str:
+    return _COMPACT.sub("", text.lower())
+
+
+def _encodings(value: str) -> list[str]:
+    """The value and its hex, base64 and urlsafe-base64 forms (each from three byte
+    offsets, the unstable last characters dropped), compacted."""
+    raw = value.encode("utf-8")
+    out = [value, raw.hex()]
+    for i in range(3):
+        for enc in (base64.b64encode, base64.urlsafe_b64encode):
+            text = enc(raw[i:]).decode("ascii").rstrip("=")
+            out.append(text[:-3] if len(text) > WINDOW + 3 else text)
+    return [_compact(e) for e in out]
+
+
+_PIECES: dict[frozenset[str], tuple[frozenset[str], frozenset[str]]] = {}
+
+
+def _pieces(values: frozenset[str]) -> tuple[frozenset[str], frozenset[str]]:
+    """``(windows, whole)``: every 12-character piece of each known value's forms, and the
+    shorter forms matched whole. Cached per set of values (never logged)."""
+    cached = _PIECES.get(values)
+    if cached is not None:
+        return cached
+    windows: set[str] = set()
+    whole: set[str] = set()
+    for value in values:
+        for form in _encodings(value):
+            if len(form) >= WINDOW:
+                windows.update(form[i : i + WINDOW] for i in range(len(form) - WINDOW + 1))
+            elif len(form) >= _MIN_KNOWN:
+                whole.add(form)
+    if len(_PIECES) > 8:
+        _PIECES.clear()
+    _PIECES[values] = (frozenset(windows), frozenset(whole))
+    return _PIECES[values]
+
+
+def known_secret_in(text: Any, known: Iterable[str]) -> bool:
+    """Whether ``text``, compacted (lower-cased, everything but token characters dropped,
+    so spaces, markup and note boundaries cannot split a value), holds a known secret: a
+    12-character piece of a value or of its hex/base64 forms, or a short value whole."""
+    if not isinstance(text, str):
+        return False
+    values = frozenset(v for v in known if isinstance(v, str) and len(v) >= _MIN_KNOWN)
+    if not values:
+        return False
+    windows, whole = _pieces(values)
+    compact = _compact(_stripped(unicodedata.normalize("NFKC", text)))
+    if any(w in compact for w in whole):
+        return True
+    return any(compact[i : i + WINDOW] in windows for i in range(len(compact) - WINDOW + 1))
+
+
+def withheld(text: Any, known: Iterable[str] = ()) -> bool:
+    """Whether untrusted ``text`` must not be relayed (module doc, step 2)."""
+    return looks_secret(text) or known_secret_in(text, known)
+
+
+# --------------------------------------------------------------------------- escape
+
+
+def escape(text: str) -> str:
+    """Untrusted text as inert Markdown (module doc, step 3)."""
+    text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    text = _METACHARS.sub(r"\\\1", text)
+    text = text.replace("@", "@​")
+    return "\n".join(line.lstrip() for line in text.split("\n"))
 
 
 def _cap(text: str, cap: int) -> str:
     return text if len(text) <= cap else text[: cap - 1].rstrip() + ELLIPSIS
 
 
-def _markup(text: str, *, keep_urls: bool) -> str:
-    """HTML, images, links, code spans and mentions neutralised (lines kept)."""
-    text = _IMAGE.sub("", text)
-    text = _TAG.sub("", text)
-    text = text.replace("<", "&lt;").replace(">", "&gt;")
-    text = _LINK.sub(r"\1", text)
-    if not keep_urls:
-        text = _WWW.sub(LINK_WORD, _URL.sub(LINK_WORD, text))
-    return _MENTION.sub("@​", text)
-
-
-def clean_note(text: Any, cap: int = NOTE_CAP) -> str | None:
-    """One status note made safe (module doc), or ``None`` when nothing safe is left."""
-    if not isinstance(text, str) or looks_secret(text):
+def clean_note(text: Any, cap: int = NOTE_CAP, known: Iterable[str] = ()) -> str | None:
+    """One status note normalized to one line and capped, or ``None`` when empty or
+    refused (the raw text and the note are both checked). Stored like this; it is
+    :func:`escape` d when rendered."""
+    if not isinstance(text, str) or withheld(text, known):
         return None
-    text = text.replace("&lt;", "<").replace("&gt;", ">")  # idempotent on its own output
-    text = _markup(text, keep_urls=False).replace("`", "").replace("~~~", "")
-    text = _SPACES.sub(" ", text).strip()
-    if not text or looks_secret(text):
-        return None
-    return _cap(text, cap)
+    note = _cap(normalize(text, one_line=True), cap)
+    return note if note and not withheld(note, known) else None
 
 
-def clean_block(text: Any, cap: int = BLOCK_CAP, *, keep_urls: bool = True) -> str:
-    """Multi-line text made safe (module doc): ``""`` for anything that is not text."""
-    if not isinstance(text, str):
+def inert_block(text: Any, cap: int, known: Iterable[str] = ()) -> str:
+    """Multi-line untrusted text normalized, capped, checked and escaped; ``[withheld]``
+    when refused, ``""`` when empty."""
+    block = _cap(normalize(text), cap)
+    if not block:
         return ""
-    text = _markup(_redact(text), keep_urls=keep_urls).strip()
-    text = _cap(text, cap - 4)
-    if len(_FENCE.findall(text)) % 2:
-        text += "\n```"
-    return text
+    if withheld(text, known) or withheld(block, known):
+        return WITHHELD
+    return escape(block)
+
+
+# --------------------------------------------------------------------------- STATUS: notes
 
 
 def _quoted(rest: str, quote: str) -> str:

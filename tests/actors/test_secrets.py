@@ -217,3 +217,19 @@ def test_the_injected_variable_name_is_derived_from_the_grant_name():
 def test_an_empty_injected_value_falls_back_to_grant_get(monkeypatch):
     monkeypatch.setenv("CULTURE_RULES_SECRET_GH_TOKEN", "")
     assert resolve("grant:GH_TOKEN", _run=lambda argv, **kw: SimpleNamespace(stdout="v\n")) == "v"
+
+
+def test_resolved_and_injected_values_are_known(monkeypatch):
+    # d26: text relayed in public is refused when it carries one of these
+    from culture_rules.actors import secrets as s
+
+    monkeypatch.setattr(s, "_KNOWN", set())
+    monkeypatch.setenv("CULTURE_RULES_SECRET_SYNTH", "injected-synthetic-value-1")
+    s.resolve("grant:SYNTH_TWO", runner=lambda name: "resolved-synthetic-value-2")
+    s.remember("remembered-value-3")
+    s.remember("short")
+    known = s.known_values()
+    assert "injected-synthetic-value-1" in known
+    assert "resolved-synthetic-value-2" in known
+    assert "remembered-value-3" in known
+    assert "short" not in known
