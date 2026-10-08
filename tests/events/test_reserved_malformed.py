@@ -58,9 +58,7 @@ BAD_IDS = ["none", "list", "dict", "int", "bool", "empty"]
 
 @pytest.mark.parametrize("field", FIELDS)
 @pytest.mark.parametrize("value", BAD, ids=BAD_IDS)
-def test_every_checked_field_that_is_present_and_not_a_non_empty_string_is_refused(
-    field, value
-):
+def test_every_checked_field_that_is_present_and_not_a_non_empty_string_is_refused(field, value):
     env = {**envelope(1, type="task.requested"), field: value}
     assert reserved_reason(env)  # a reason, never an exception
 
