@@ -719,8 +719,11 @@ class AppSuiteLister(GitHubCommentPort):
                 app = self._app_for(repo)
                 with app.deadline(deadline):
                     result.set_result(read(app))
-            except BaseException as exc:  # noqa: BLE001 - handed to the waiting caller
+            except Exception as exc:  # handed to the waiting caller
                 result.set_exception(exc)
+            except BaseException as exc:  # e.g. SystemExit: hand it over, then end the thread
+                result.set_exception(exc)
+                raise
             finally:
                 self._lookup_slots.release()
 

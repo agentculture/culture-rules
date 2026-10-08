@@ -191,7 +191,8 @@ def test_explain_is_capped_and_absent_text_leaves_the_message_alone(store, clock
     doc = run(store, clock, a, _explained("why"))
     message = step_state(doc, "fix")["error"]["message"]
     assert message.startswith("until not met after 2 iterations; last: xxx")
-    assert len(message) < 2200 and message.endswith("…")
+    assert len(message) < 2200
+    assert message.endswith("…")
     b = FakeActor(default=lambda inp, ctx: {"ok": False})
     doc = run(MemoryStore(), clock, b, _explained("why"))
     assert step_state(doc, "fix")["error"]["message"] == "until not met after 2 iterations"

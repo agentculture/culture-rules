@@ -106,7 +106,8 @@ def test_a_failed_step_runs_on_failure_once_with_the_error_and_the_run_id(store,
     actor = FakeActor().on("s1", ("fail", "boom", False))
     _ex, doc = run(store, clock, actor, failing_rule(), one_step())
     assert doc["status"] == "failed"
-    assert doc["error"]["step"] == "s1" and doc["error"]["message"] == "boom"
+    assert doc["error"]["step"] == "s1"
+    assert doc["error"]["message"] == "boom"
     (inp,) = calls(actor, FAILURE_STEP)
     code = doc["error"]["code"]
     assert inp["body"] == f"handed back: s1 {code} boom {doc['id']}"
@@ -118,7 +119,8 @@ def test_a_failed_step_runs_on_failure_once_with_the_error_and_the_run_id(store,
 def test_a_failed_terminal_action_also_hands_back(store, clock):
     actor = FakeActor().on(ACTION_STEP, ("fail", "no comment", False))
     _ex, doc = run(store, clock, actor, failing_rule(), one_step())
-    assert doc["status"] == "failed" and doc["error"]["step"] == ACTION_STEP
+    assert doc["status"] == "failed"
+    assert doc["error"]["step"] == ACTION_STEP
     (inp,) = calls(actor, FAILURE_STEP)
     assert "no comment" in inp["body"]
 
@@ -128,7 +130,8 @@ def test_a_successful_run_never_runs_on_failure(store, clock):
     _ex, doc = run(store, clock, actor, failing_rule(), one_step())
     assert doc["status"] == "succeeded"
     assert len(calls(actor, ACTION_STEP)) == 1
-    assert calls(actor, FAILURE_STEP) == [] and step_state(doc, FAILURE_STEP) is None
+    assert calls(actor, FAILURE_STEP) == []
+    assert step_state(doc, FAILURE_STEP) is None
 
 
 def test_a_superseded_run_never_runs_on_failure(store, clock):
@@ -183,7 +186,8 @@ def test_a_failing_on_failure_ends_the_run_with_the_original_error(store, clock)
         ex.run_until_idle()
     doc = ex.run(doc["id"])
     assert doc["status"] == "failed"
-    assert doc["error"]["step"] == "s1" and doc["error"]["message"] == "boom"
+    assert doc["error"]["step"] == "s1"
+    assert doc["error"]["message"] == "boom"
     assert len(calls(actor, FAILURE_STEP)) == 2  # its own retry policy, then done
     assert step_state(doc, FAILURE_STEP)["status"] == "failed"
 
@@ -191,7 +195,8 @@ def test_a_failing_on_failure_ends_the_run_with_the_original_error(store, clock)
 def test_without_on_failure_a_failed_run_is_unchanged(store, clock):
     actor = FakeActor().on("s1", ("fail", "boom", False))
     _ex, doc = run(store, clock, actor, rule(), one_step())
-    assert doc["status"] == "failed" and doc["error"]["step"] == "s1"
+    assert doc["status"] == "failed"
+    assert doc["error"]["step"] == "s1"
     assert step_state(doc, FAILURE_STEP) is None
 
 
@@ -219,12 +224,14 @@ def test_a_mistyped_workflow_output_hands_back_exactly_once(store, clock):
     drive(ex, clock)
     doc = ex.run(doc["id"])
     assert doc["status"] == "failed"
-    assert doc["error"]["code"] == "output_type_mismatch" and doc["error"]["step"] is None
+    assert doc["error"]["code"] == "output_type_mismatch"
+    assert doc["error"]["step"] is None
     (h,) = handlers(doc)
     assert h["status"] == "succeeded"
     (inp,) = calls(actor, FAILURE_STEP)
     assert "output_type_mismatch" in inp["body"]
-    assert calls(actor, ACTION_STEP) == [] and step_state(doc, ACTION_STEP) is None
+    assert calls(actor, ACTION_STEP) == []
+    assert step_state(doc, ACTION_STEP) is None
 
 
 def test_a_failed_rule_action_hands_back_exactly_once(store, clock):
@@ -232,7 +239,8 @@ def test_a_failed_rule_action_hands_back_exactly_once(store, clock):
     ex, doc = run(store, clock, actor, failing_rule(), one_step())
     drive(ex, clock)
     doc = ex.run(doc["id"])
-    assert len(handlers(doc)) == 1 and len(calls(actor, FAILURE_STEP)) == 1
+    assert len(handlers(doc)) == 1
+    assert len(calls(actor, FAILURE_STEP)) == 1
     assert doc["error"]["step"] == ACTION_STEP
 
 
@@ -246,23 +254,29 @@ def test_a_failed_step_beside_accepted_work_hands_back_once_and_ignores_late_res
     assert ex.deliver(slow_key, InvocationResult.completed({})) is False  # stays cancelled
     drive(ex, clock)
     doc = ex.run(doc["id"])
-    assert doc["status"] == "failed" and doc["error"]["step"] == "bad"
-    assert len(handlers(doc)) == 1 and len(calls(actor, FAILURE_STEP)) == 1
+    assert doc["status"] == "failed"
+    assert doc["error"]["step"] == "bad"
+    assert len(handlers(doc)) == 1
+    assert len(calls(actor, FAILURE_STEP)) == 1
 
 
 def test_an_accepted_handler_completes_by_delivery_once(store, clock):
     actor = FakeActor().on("s1", ("fail", "boom", False)).on(FAILURE_STEP, ("accept",))
     ex, doc = run(store, clock, actor, failing_rule(), one_step())
     doc = ex.run(doc["id"])
-    assert doc["status"] == "running" and handlers(doc)[0]["status"] == "waiting"
+    assert doc["status"] == "running"
+    assert handlers(doc)[0]["status"] == "waiting"
     drive(ex, clock, rounds=2, step_s=1)  # nothing re-adds or finishes it meanwhile
-    assert len(handlers(ex.run(doc["id"]))) == 1 and ex.run(doc["id"])["status"] == "running"
+    assert len(handlers(ex.run(doc["id"]))) == 1
+    assert ex.run(doc["id"])["status"] == "running"
     key = actor.calls_for(FAILURE_STEP)[0][0]
     assert ex.deliver(key, InvocationResult.completed({})) is True
     ex.run_until_idle()
     doc = ex.run(doc["id"])
-    assert doc["status"] == "failed" and doc["error"]["message"] == "boom"
-    assert len(handlers(doc)) == 1 and len(calls(actor, FAILURE_STEP)) == 1
+    assert doc["status"] == "failed"
+    assert doc["error"]["message"] == "boom"
+    assert len(handlers(doc)) == 1
+    assert len(calls(actor, FAILURE_STEP)) == 1
 
 
 def test_a_handler_crash_resumes_on_another_node_with_one_side_effect(store, clock):
@@ -277,7 +291,8 @@ def test_a_handler_crash_resumes_on_another_node_with_one_side_effect(store, clo
     clock.advance(31)
     other.run_until_idle()
     doc = other.run(doc["id"])
-    assert doc["status"] == "failed" and doc["error"]["message"] == "boom"
+    assert doc["status"] == "failed"
+    assert doc["error"]["message"] == "boom"
     assert len(handlers(doc)) == 1
     assert actor.effects_for(FAILURE_STEP) == 1  # the same key, deduplicated
 
@@ -297,7 +312,8 @@ def test_a_handler_whose_lease_and_deadline_lapse_ends_the_run_without_a_second_
         clock.advance(20)
         e.run_until_idle()
     doc = other.run(doc["id"])
-    assert doc["status"] == "failed" and doc["error"]["step"] == "s1"
+    assert doc["status"] == "failed"
+    assert doc["error"]["step"] == "s1"
     (h,) = handlers(doc)
     assert h["status"] == "failed"
     assert len(calls(actor, FAILURE_STEP)) == 1

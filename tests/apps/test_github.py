@@ -232,7 +232,8 @@ def test_push_token_refuses_off_allowlist_without_network(pem):
     app, _ = make(pem, fake)
     with pytest.raises(GitHubError) as err:
         app.push_token("evil/repo")
-    assert err.value.code == "repo_not_allowed" and fake.calls == []
+    assert err.value.code == "repo_not_allowed"
+    assert fake.calls == []
 
 
 def test_push_token_scope_mismatch_is_refused(pem):
@@ -264,12 +265,15 @@ def test_deadline_bounds_http_timeouts_and_refuses_when_past(pem):
     app, now = make(pem, fake)
     with app.deadline(NOW + timedelta(seconds=4)):
         app.post_comment("acme/widgets", 1, "x")
-    assert seen and max(seen) <= 4
+    assert seen
+    assert max(seen) <= 4
     seen.clear()
     with app.deadline(NOW - timedelta(seconds=1)):
         with pytest.raises(GitHubError) as err:
             app.post_comment("acme/widgets", 1, "x")
-    assert err.value.code == "deadline_exceeded" and err.value.retryable and seen == []
+    assert err.value.code == "deadline_exceeded"
+    assert err.value.retryable
+    assert seen == []
     app.post_comment("acme/widgets", 1, "x")  # outside the block: the default bound again
     assert seen == [15]
 
@@ -292,7 +296,8 @@ def test_list_check_suites_paginates_and_trims(pem):
     fake = SuitesFake()
     app, _ = make(pem, fake)
     out = app.list_check_suites("acme/widgets", "ab12" * 10)
-    assert len(out) == 102 and out[0] == {
+    assert len(out) == 102
+    assert out[0] == {
         "app_slug": "app1-0",
         "status": "completed",
         "conclusion": "success",
@@ -324,16 +329,19 @@ def test_pr_facts_shape():
         "draft": True,
         "pr_author": "alice",
     }
-    assert pr_facts(pr) == facts and tuple(pr_facts(pr)) == PR_FACT_FIELDS
+    assert pr_facts(pr) == facts
+    assert tuple(pr_facts(pr)) == PR_FACT_FIELDS
     assert complete_pr_facts(pr) == facts
-    assert pr_facts(None) == {} and pr_facts(["x"]) == {}
+    assert pr_facts(None) == {}
+    assert pr_facts(["x"]) == {}
 
 
 def test_pr_facts_omit_missing_and_malformed_fields_never_null():
     from culture_rules.apps.github import complete_pr_facts, pr_facts
 
     assert pr_facts({}) == {}  # no null repos to compare equal, no default draft
-    assert complete_pr_facts({}) is None and complete_pr_facts(None) is None
+    assert complete_pr_facts({}) is None
+    assert complete_pr_facts(None) is None
     bad = {
         "draft": "false",
         "head": {"sha": "abc123", "ref": "", "repo": None},
@@ -350,6 +358,8 @@ def test_pr_facts_omit_missing_and_malformed_fields_never_null():
         "user": {"login": "alice"},
     }
     facts = pr_facts(fork)
-    assert "head_repo" not in facts and facts["base_repo"] == "o/r" and facts["draft"] is False
+    assert "head_repo" not in facts
+    assert facts["base_repo"] == "o/r"
+    assert facts["draft"] is False
     assert complete_pr_facts(fork) is None
     assert pr_facts({"draft": 0}) == {}  # a real bool only

@@ -1012,7 +1012,8 @@ def test_well_formed_lookup_result_matches_the_fixer_condition():
     b = comment_body()
     assert post_pull(s, b, hdrs(b, event="issue_comment"), Pulls())[0] == 202
     (data,) = data_of(s, "github.comment.created")
-    assert data["pr_enriched"] is True and _fixer_matches(data)
+    assert data["pr_enriched"] is True
+    assert _fixer_matches(data)
 
 
 def test_pr_event_with_malformed_facts_omits_them_and_never_matches():
@@ -1032,13 +1033,16 @@ def test_pr_event_with_malformed_facts_omits_them_and_never_matches():
         assert post(s, b, hdrs(b, delivery=delivery))[0] == 202
     by_delivery = {d["delivery_id"]: d for d in data_of(s, "github.pr.synchronize")}
     fork = by_delivery["d-fork"]
-    assert "head_repo" not in fork and fork["base_repo"] == "o/r"
-    assert fork["head_sha"] == HEAD_SHA and fork["draft"] is False
+    assert "head_repo" not in fork
+    assert fork["base_repo"] == "o/r"
+    assert fork["head_sha"] == HEAD_SHA
+    assert fork["draft"] is False
     none = by_delivery["d-none"]
     assert not {"head_repo", "base_repo", "head_sha", "base_sha"} & set(none)
     assert "draft" not in by_delivery["d-draft"]
     shas = by_delivery["d-shas"]
-    assert "head_sha" not in shas and "base_sha" not in shas
+    assert "head_sha" not in shas
+    assert "base_sha" not in shas
     for delivery in ("d-fork", "d-none", "d-draft"):
         assert not _fixer_matches(by_delivery[delivery]), delivery
     for data in by_delivery.values():

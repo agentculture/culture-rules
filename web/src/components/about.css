@@ -35,11 +35,17 @@
 }
 
 /* AboutButton.tsx measures the open panel and sets `left` / `max-width` so it stays in the
-   window (shifted left of its button near the right edge); these are the defaults. */
+   window (shifted left of its button near the right edge); these are the defaults. The
+   panel is a non-modal <dialog>: `right`, `height`, `margin` and `border` undo the user
+   agent's centring and frame. */
 .about__panel {
   position: absolute;
   top: calc(100% + 8px);
   left: 0;
+  right: auto;
+  height: auto;
+  margin: 0;
+  border: 0;
   z-index: 40;
   box-sizing: border-box;
   width: max-content;

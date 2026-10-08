@@ -116,6 +116,7 @@ def valid_mesh_nick(nick: str) -> bool:
 
 INSTRUCTION_KEYS = ("instruction", "prompt", "task", "text")
 """Input or config names an agent step's instruction is read from (first non-empty wins)."""
+_NO_INSTRUCTION = "no instruction in the step input"
 
 
 def _instruction(input: Mapping[str, Any]) -> str | None:
@@ -202,7 +203,7 @@ class ColleagueActor:
         instruction = _instruction(input)
         repo = cfg.get("repo") or self.repo
         if not instruction:
-            return InvocationResult.failed("no instruction in the step input", retryable=False)
+            return InvocationResult.failed(_NO_INSTRUCTION, retryable=False)
         if not repo:
             return InvocationResult.failed("no repo configured for the agent", retryable=False)
         argv = self.build_argv(
@@ -297,7 +298,7 @@ class MeshAgentActor:
             )
         instruction = _instruction(input)
         if not instruction:
-            return InvocationResult.failed("no instruction in the step input", retryable=False)
+            return InvocationResult.failed(_NO_INSTRUCTION, retryable=False)
         self._client.send(nick, instruction, corr)  # raises => no ack, same key on retry
         self._pending[corr] = idempotency_key
         return InvocationResult.accepted()
@@ -714,7 +715,7 @@ class BridgeAgentActor:
             return None, problem
         instruction = instruction or _instruction(input) or _instruction(config)
         if not instruction:
-            return None, "no instruction in the step input"
+            return None, _NO_INSTRUCTION
         out: dict[str, Any] = {k: v for k, v in input.items() if v is not None}
         for name in ADDRESS_FIELDS:
             value = input.get(name) or config.get(name)
@@ -746,7 +747,7 @@ class BridgeAgentActor:
         :data:`~culture_rules.actors.trusted.TRUSTED_ACTOR_DIGESTS` (the reviewer) must
         match before anything is dispatched, and the endpoint called must be the one in that
         snapshot; the digest is recorded on the invocation either way."""
-        from culture_rules.actors import trusted  # noqa: PLC0415 - small, standard-library
+        from culture_rules.actors import trusted  # noqa: PLC0415 - small and standard-library
 
         if self._actor_doc is None:
             if trusted.is_pinned(self.actor_id):
@@ -922,7 +923,7 @@ class BridgeAgentActor:
     def _response(self, doc_id: str, status: int, raw: bytes) -> InvocationResult:
         try:
             body = json.loads(raw.decode("utf-8")) if raw else {}
-        except (ValueError, UnicodeDecodeError):
+        except ValueError:  # UnicodeDecodeError and JSONDecodeError are ValueErrors
             body = {}
         body = body if isinstance(body, dict) else {}
         if status == 202:
@@ -1027,7 +1028,7 @@ class BridgeCallbackServer:
         token = authorization[7:] if authorization.startswith("Bearer ") else ""
         try:
             event = json.loads(raw.decode("utf-8")) if raw is not None else None
-        except (ValueError, UnicodeDecodeError):
+        except ValueError:  # UnicodeDecodeError and JSONDecodeError are ValueErrors
             event = None
         outcome = record_bridge_event(self._store, match.group(1), token, event, clock=self._clock)
         if outcome == RECORDED and self._executor is not None:

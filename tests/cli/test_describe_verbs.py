@@ -45,7 +45,8 @@ def test_describe_json_has_lines_and_entries(wire, seeded, capsys):  # noqa: F81
 
 def test_describe_unknown_id_is_a_user_error(wire, seeded, capsys):  # noqa: F811
     rc, out, err = run(capsys, "rules", "describe", "nope", "--json")
-    assert rc == 1 and out == ""
+    assert rc == 1
+    assert out == ""
     assert "nope" in json.loads(err)["message"]
 
 
@@ -56,7 +57,8 @@ def test_describe_is_a_read_only_viewer_verb_and_an_mcp_tool(wire, seeded):  # n
     assert {"rules_describe", "workflows_describe"} <= names
     for noun in ("rules", "workflows"):
         verb = REGISTRY.get(noun, "describe")
-        assert not verb.mutating and verb.role == "viewer"
+        assert not verb.mutating
+        assert verb.role == "viewer"
     client = _api.make_client()
     assert call_tool("rules_describe", {"id": "pr-fixer-checks"}, client)["lines"] == (
         PR_FIXER_CHECKS

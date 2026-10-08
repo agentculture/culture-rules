@@ -167,7 +167,8 @@ def test_two_action_steps_run_in_order_with_params_from_earlier_outputs(store, c
 
     doc = ex.run(run["id"])
     assert doc["status"] == "succeeded"
-    assert len(p.push.calls) == 1 and len(p.comment.calls) == 1
+    assert len(p.push.calls) == 1
+    assert len(p.comment.calls) == 1
     key, push_in, push_ctx, _ = p.push.calls[0]
     assert push_in == {
         "actor": "gh-app",
@@ -203,7 +204,8 @@ def test_action_steps_route_through_a_plain_port_mapping_too(store, clock):
     run = ex.start(pr_rule(), push_then_comment_workflow())
     ex.run_until_idle()
     assert ex.run(run["id"])["status"] == "succeeded"
-    assert len(p.push.calls) == 1 and len(p.comment.calls) == 1
+    assert len(p.push.calls) == 1
+    assert len(p.comment.calls) == 1
 
 
 def test_resolution_reuses_resolve_refs_with_the_inputs_namespace():
@@ -357,8 +359,9 @@ def test_start_refuses_a_non_boolean_idempotent_on_the_action_spec(store, clock,
     put_app(store)
     wf = replies_workflow()
     wf.steps[0].body[0].config["action"]["idempotent"] = flag
+    executor, r = Ports(store, clock).executor(), replies_rule()
     with pytest.raises(RunError) as exc:
-        Ports(store, clock).executor().start(replies_rule(), wf)
+        executor.start(r, wf)
     paths = {(e["path"], e["code"]) for e in exc.value.details}
     assert ("steps[0].body[0].config.action.idempotent", "type") in paths
 
@@ -443,8 +446,10 @@ def test_router_wraps_an_action_step_in_the_named_actors_limited_actor(store, cl
     ex.start(pr_rule(), push_then_comment_workflow())
     ex.run_until_idle()
     push = [pt for ctx, pt in seen if ctx.step_id == "push"]
-    assert push and isinstance(push[0], LimitedActor)
-    assert push[0].inner is p.push and push[0].actor == "gh-app"
+    assert push
+    assert isinstance(push[0], LimitedActor)
+    assert push[0].inner is p.push
+    assert push[0].actor == "gh-app"
     assert push[0].limits.max_concurrency == 1
 
 
@@ -462,7 +467,8 @@ def test_unknown_or_disabled_actor_fails_actor_unavailable(store, clock, make):
     assert doc["error"]["step"] == "push"
     assert doc["error"]["code"] == ACTOR_UNAVAILABLE
     assert "gh-app" in doc["error"]["message"]
-    assert p.push.calls == [] and p.comment.calls == []
+    assert p.push.calls == []
+    assert p.comment.calls == []
 
 
 def test_action_step_runs_on_the_machine_its_actor_lives_on(store, clock):
@@ -591,7 +597,8 @@ def test_retryable_port_failure_retries_with_the_same_key(store, clock):
     ex.run_until_idle()
     doc = ex.run(run["id"])
     assert doc["status"] == "succeeded"
-    assert len({c[0] for c in p.push.calls}) == 1 and len(p.push.calls) == 2
+    assert len({c[0] for c in p.push.calls}) == 1
+    assert len(p.push.calls) == 2
 
 
 def test_builtin_code_port_refuses_an_unrouted_action_step(clock):

@@ -54,7 +54,8 @@ def test_an_intermediate_secret_commit_is_never_bundled(store, tmp_path, clock):
     out = judge(store, LocalRunner(), repo, tmp_path, clock)
     assert out["verdict"] == PASS
     pushed = out["commit_sha"]
-    assert pushed != tip and out["agent_commit_sha"] == tip
+    assert pushed != tip
+    assert out["agent_commit_sha"] == tip
     check = bundle_repo(tmp_path, out["bundle"], pushed)
     # one commit on top of the PR head, with exactly the tip's tree
     assert git(check, "rev-parse", f"{pushed}^") == repo.start
@@ -82,7 +83,8 @@ def test_no_gate_reports_the_built_commit_too(store, tmp_path, clock):  # noqa: 
     tip = repo.commit("fix", {"src/app.py": "x = 3\n"})
     out = judge(store, LocalRunner(), repo, tmp_path, clock)
     assert out["verdict"] == NO_GATE
-    assert out["agent_commit_sha"] == tip and out["commit_sha"] != tip
+    assert out["agent_commit_sha"] == tip
+    assert out["commit_sha"] != tip
 
 
 def test_even_a_single_agent_commit_is_rebuilt_with_engine_metadata(
@@ -91,13 +93,15 @@ def test_even_a_single_agent_commit_is_rebuilt_with_engine_metadata(
     repo = Repo(tmp_path, gate_yaml([PASSING]))
     tip = repo.commit("fix", {"src/app.py": "x = 3\n"})
     out = judge(store, LocalRunner(), repo, tmp_path, clock)
-    assert out["agent_commit_sha"] == tip and out["commit_sha"] != tip
+    assert out["agent_commit_sha"] == tip
+    assert out["commit_sha"] != tip
 
 
 def test_no_agent_commit_pushes_nothing_new(store, tmp_path, clock):  # noqa: F811
     repo = Repo(tmp_path, gate_yaml([PASSING]))
     out = judge(store, LocalRunner(), repo, tmp_path, clock, commit=repo.start)
-    assert out["verdict"] == PASS and out["commit_sha"] == repo.start
+    assert out["verdict"] == PASS
+    assert out["commit_sha"] == repo.start
 
 
 def test_a_merge_in_the_range_is_guarded(store, tmp_path, clock):  # noqa: F811
@@ -107,7 +111,8 @@ def test_a_merge_in_the_range_is_guarded(store, tmp_path, clock):  # noqa: F811
     git(repo.wt, "checkout", "-q", "--detach", repo.start)
     git(repo.wt, "merge", "-q", "--no-ff", "-m", "merge side", side)
     out = judge(store, LocalRunner(), repo, tmp_path, clock)
-    assert out["verdict"] == GUARD and out["rule"] == "merge_commit"
+    assert out["verdict"] == GUARD
+    assert out["rule"] == "merge_commit"
     assert out["bundle"] is None
 
 

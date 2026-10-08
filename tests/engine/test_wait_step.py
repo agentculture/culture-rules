@@ -194,8 +194,9 @@ def test_wait_inside_loop_body_is_refused(store, clock):
     body = step("w", "wait", config={"seconds": 5})
     loop = step("loop", "retry_until", body=(body,), max_iterations=2, config={"until": {}})
     ex = make(store, clock, FakeActor())
+    r, wf = rule(), workflow((loop,))
     with pytest.raises(RunError):
-        ex.start(rule(), workflow((loop,)))
+        ex.start(r, wf)
 
 
 # ------------------------------------------------------------ Codex round 1
@@ -479,7 +480,8 @@ def test_a_timed_out_head_lookup_is_retried_later_not_failed(store, clock):
     clock.advance(61)
     ex.run_until_idle()
     st = step_state(ex.run(run["id"]), "w")
-    assert st["status"] == "sleeping" and st["lookup_retries"] == 1
+    assert st["status"] == "sleeping"
+    assert st["lookup_retries"] == 1
     for _ in range(2):
         clock.advance(10)
         ex.run_until_idle()

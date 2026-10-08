@@ -18,8 +18,11 @@ def run(capsys, *argv):
 
 def test_set_is_a_dry_run_without_apply(store, wire, capsys):  # noqa: F811
     code, out = run(capsys, "set", "trusted_authors", "--value", '["a"]')
-    assert code == 0 and out["dry_run"] is True and out["applied"] is False
-    assert out["would"]["method"] == "PUT" and out["would"]["path"] == "/variables/trusted_authors"
+    assert code == 0
+    assert out["dry_run"] is True
+    assert out["applied"] is False
+    assert out["would"]["method"] == "PUT"
+    assert out["would"]["path"] == "/variables/trusted_authors"
     assert out["would"]["body"]["value"] == ["a"]
     assert store.get_variable("trusted_authors") is None
     assert wire.mutating() == []
@@ -28,7 +31,8 @@ def test_set_is_a_dry_run_without_apply(store, wire, capsys):  # noqa: F811
 def test_set_apply_commits_and_history_refs_work(store, wire, capsys):  # noqa: F811
     assert run(capsys, "set", "trusted_authors", "--value", '["a"]', "--apply")[0] == 0
     code, out = run(capsys, "set", "trusted_authors", "--value", '["a","b"]', "--apply")
-    assert out["applied"] is True and out["result"]["version"] == 2
+    assert out["applied"] is True
+    assert out["result"]["version"] == 2
     assert out["result"]["updated_by"] == "alice"
     assert store.get_variable("trusted_authors")["value"] == ["a", "b"]
     _, hist = run(capsys, "history", "trusted_authors")
@@ -45,7 +49,8 @@ def test_set_apply_commits_and_history_refs_work(store, wire, capsys):  # noqa: 
 def test_dry_run_shows_the_current_version(store, wire, capsys):  # noqa: F811
     store.put_variable("limit", 1, updated_by="x")
     _, out = run(capsys, "set", "limit", "--value", "2")
-    assert out["current"]["value"] == 1 and out["would"]["body"]["value"] == 2
+    assert out["current"]["value"] == 1
+    assert out["would"]["body"]["value"] == 2
 
 
 def test_bad_value_is_a_user_error(store, wire, capsys):  # noqa: F811
@@ -55,7 +60,8 @@ def test_bad_value_is_a_user_error(store, wire, capsys):  # noqa: F811
 
 def test_null_value_is_writable_via_cli(store, wire, capsys):  # noqa: F811
     code, out = run(capsys, "set", "limit", "--value", "null", "--apply")
-    assert code == 0 and out["result"]["value"] is None
+    assert code == 0
+    assert out["result"]["value"] is None
     assert store.get_variable("limit")["value"] is None
 
 
@@ -64,7 +70,8 @@ def test_null_value_is_writable_via_mcp(store, wire):  # noqa: F811
 
     client = _api.make_client()
     out = call_tool("variables_set", {"name": "limit", "value": None, "apply": True}, client)
-    assert out["result"]["version"] == 1 and store.get_variable("limit")["value"] is None
+    assert out["result"]["version"] == 1
+    assert store.get_variable("limit")["value"] is None
     with pytest.raises(ToolError):
         call_tool("variables_set", {"name": "limit", "apply": True}, client)
 
@@ -74,8 +81,10 @@ def test_text_output_shows_version_value_and_author(store, wire, capsys):  # noq
     store.put_variable("limit", 2, updated_by="bob")
     assert main(["variables", "history", "limit"]) == 0
     out = capsys.readouterr().out
-    assert "limit v1 = 1" in out and "by ann" in out
-    assert "limit v2 = 2" in out and "by bob" in out
+    assert "limit v1 = 1" in out
+    assert "by ann" in out
+    assert "limit v2 = 2" in out
+    assert "by bob" in out
     assert main(["variables", "list"]) == 0
     assert "limit v2 = 2" in capsys.readouterr().out
     store.put("rules", {"id": "r9", "name": "r9", "condition": {"var": "limit"}})

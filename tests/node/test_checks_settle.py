@@ -75,7 +75,9 @@ def test_exactly_one_event_after_last_of_three_suites_completes():
     [event] = settled(store)
     data = event["envelope"]["data"]
     assert data["settled_by"] == "all_completed"
-    assert data["head_sha"] == SHA and data["repository"] == REPO and data["number"] == 7
+    assert data["head_sha"] == SHA
+    assert data["repository"] == REPO
+    assert data["number"] == 7
 
 
 def test_queued_suite_of_ignored_app_does_not_hold_back_event():
@@ -167,7 +169,8 @@ def test_pull_enrichment_is_best_effort():
     store, _, _, settler = make(("a", "completed"), pull=lambda r, n: pr)
     settler.on_check(check_data())
     data = settled(store)[0]["envelope"]["data"]
-    assert data["head_repo"] == data["base_repo"] == "acme/widgets" and data["draft"] is False
+    assert data["head_repo"] == data["base_repo"] == "acme/widgets"
+    assert data["draft"] is False
 
     def boom(r, n):
         raise GitHubError("http_404")
@@ -223,11 +226,13 @@ def test_later_completion_merges_pr_numbers_but_keeps_first_deadline():
     clock.now = T0 + timedelta(seconds=100)
     settler.on_check(check_data(head_branch="feat"))
     rec = store.get(SETTLE_COLLECTION, f"{REPO}@{SHA}")
-    assert rec["pr_numbers"] == [7] and rec["head_branch"] == "feat"
+    assert rec["pr_numbers"] == [7]
+    assert rec["head_branch"] == "feat"
     clock.now = T0 + timedelta(seconds=901)
     assert settler.tick() == 1
     data = settled(store)[0]["envelope"]["data"]
-    assert data["number"] == 7 and data["settled_by"] == "timeout"
+    assert data["number"] == 7
+    assert data["settled_by"] == "timeout"
 
 
 def test_min_window_holds_back_event_for_a_late_appearing_suite():
@@ -236,7 +241,8 @@ def test_min_window_holds_back_event_for_a_late_appearing_suite():
     assert settler.on_check(check_data()) == "pending"  # all listed complete, window open
     lister.suites["sonarqubecloud"] = "in_progress"  # appears within the window
     clock.now = T0 + timedelta(seconds=61)
-    assert settler.tick() == 0 and settled(store) == []
+    assert settler.tick() == 0
+    assert settled(store) == []
     lister.suites["sonarqubecloud"] = "completed"
     clock.now = T0 + timedelta(seconds=80)  # past the poll backoff
     assert settler.tick() == 1
@@ -345,11 +351,16 @@ def test_app_lister_get_pull_is_read_only_allowlisted_and_bounded():
     lister = AppSuiteLister(store, transport=transport, secrets=lambda ref: pem)
     assert lister.get_pull(REPO, 7, timeout_s=3)["base"]["sha"] == "c" * 40
     token, read = calls
-    assert token[0] == "POST" and token[1].endswith("/access_tokens") and token[2] <= 3
-    assert read[0] == "GET" and read[1].endswith(f"/repos/{REPO}/pulls/7") and read[2] <= 3
+    assert token[0] == "POST"
+    assert token[1].endswith("/access_tokens")
+    assert token[2] <= 3
+    assert read[0] == "GET"
+    assert read[1].endswith(f"/repos/{REPO}/pulls/7")
+    assert read[2] <= 3
     with pytest.raises(GitHubError) as err:
         lister.get_pull("other/repo", 7, timeout_s=3)
-    assert err.value.code == "repo_not_allowed" and len(calls) == 2
+    assert err.value.code == "repo_not_allowed"
+    assert len(calls) == 2
 
 
 def test_malformed_pull_result_adds_no_pr_facts():
@@ -366,7 +377,8 @@ def test_malformed_pull_result_adds_no_pr_facts():
         data = settled(store)[0]["envelope"]["data"]
         for key in ("head_repo", "base_repo", "base_branch", "base_sha", "draft", "pr_author"):
             assert key not in data, (pr, key)
-        assert data["head_sha"] == SHA and data["head_branch"] == "feat"
+        assert data["head_sha"] == SHA
+        assert data["head_branch"] == "feat"
 
 
 def _pem():
@@ -443,7 +455,8 @@ def test_app_lister_bound_covers_cold_secret_resolution_and_warms_the_cache():
     started = time.monotonic()
     with pytest.raises(GitHubError) as err:
         lister.get_pull(REPO, 7, timeout_s=0.2)
-    assert err.value.code == "deadline_exceeded" and err.value.retryable
+    assert err.value.code == "deadline_exceeded"
+    assert err.value.retryable
     assert time.monotonic() - started < 2  # not held for the secret resolve
     secrets.release.set()  # the resolve finishes in the background and caches the App
     deadline = time.monotonic() + 5
@@ -455,7 +468,8 @@ def test_app_lister_bound_covers_cold_secret_resolution_and_warms_the_cache():
             pr = lister.get_pull(REPO, 7, timeout_s=1)
             break
         except GitHubError as exc:
-            assert exc.code == "lookup_busy" and time.monotonic() < deadline
+            assert exc.code == "lookup_busy"
+            assert time.monotonic() < deadline
             time.sleep(0.01)
     assert pr["base"]["sha"] == "c" * 40
     assert secrets.calls == 1  # steady state reuses the warmed App, no second resolve
@@ -776,13 +790,17 @@ def test_settle_polls_only_on_the_app_actors_machine_with_enrichment():
         assert thor.tick() == 0
         assert spark2.tick() == 0
     rec = store.get(SETTLE_COLLECTION, f"{REPO}@{SHA}")
-    assert rec["state"] == "pending" and not rec.get("polls") and calls == []
+    assert rec["state"] == "pending"
+    assert not rec.get("polls")
+    assert calls == []
     assert settled(store) == []
     assert spark.tick() == 1
     [event] = settled(store)
     data = event["envelope"]["data"]
-    assert data["settled_by"] == "all_completed" and data["conclusion"] == "success"
-    assert data["head_repo"] == data["base_repo"] == REPO and data["base_sha"] == "c" * 40
+    assert data["settled_by"] == "all_completed"
+    assert data["conclusion"] == "success"
+    assert data["head_repo"] == data["base_repo"] == REPO
+    assert data["base_sha"] == "c" * 40
 
 
 def test_settle_fails_closed_on_the_placed_machine_without_the_key():
@@ -792,7 +810,8 @@ def test_settle_fails_closed_on_the_placed_machine_without_the_key():
     spark = _node_settler(store.peer(), "spark", NoSecret(), transport, clock)
     clock.now = T0 + timedelta(seconds=61)
     assert spark.tick() == 0
-    assert settled(store) == [] and calls == []
+    assert settled(store) == []
+    assert calls == []
     assert not store.get(SETTLE_COLLECTION, f"{REPO}@{SHA}").get("polls")
 
 
@@ -807,7 +826,8 @@ def test_unplaced_app_actor_settles_on_any_node_that_resolves_its_key():
     pem = _pem()
     spark2 = _node_settler(store.peer(), "spark2", lambda ref: pem, transport, clock)
     clock.now = T0 + timedelta(seconds=61)
-    assert thor.tick() == 0 and settled(store) == []
+    assert thor.tick() == 0
+    assert settled(store) == []
     assert spark2.tick() == 1
     assert settled(store)[0]["envelope"]["data"]["head_repo"] == REPO
 
@@ -847,7 +867,8 @@ def test_no_counted_suites_never_settles_green_and_times_out_as_no_checks():
         store.put_variable("checks_settle_timeout_s", 60, updated_by="t")
         assert settler.on_check(check_data()) == "pending"
         clock.now = T0 + timedelta(seconds=30)
-        assert settler.tick() == 0 and settled(store) == []
+        assert settler.tick() == 0
+        assert settled(store) == []
         clock.now = T0 + timedelta(seconds=61)
         assert settler.tick() == 1
         [event] = settled(store)
@@ -891,7 +912,8 @@ def test_app_lister_list_suites_is_bounded_like_get_pull():
         started = time.monotonic()
         with pytest.raises(GitHubError) as err:
             lister.list_suites(REPO, SHA, timeout_s=0.2)
-        assert err.value.code == "deadline_exceeded" and err.value.retryable
+        assert err.value.code == "deadline_exceeded"
+        assert err.value.retryable
         assert time.monotonic() - started < 2
         with pytest.raises(GitHubError) as err:
             lister.list_suites(REPO, SHA, timeout_s=0)  # no budget left: no worker started
@@ -933,7 +955,8 @@ def test_webhook_settle_defers_to_the_tick_when_the_pr_lookup_times_out():
 
     class Lister:
         def list_suites(self, repo, sha, *, timeout_s=None):
-            assert timeout_s is not None and timeout_s > 0
+            assert timeout_s is not None
+            assert timeout_s > 0
             return [{"app_slug": "ci", "status": "completed", "conclusion": "failure"}]
 
         def get_pull(self, repo, number, *, timeout_s=None):
@@ -1023,7 +1046,8 @@ def test_rearming_a_head_never_settled_arms_it():
 
     store, _, clock, settler = make(("a", "completed"))
     assert rearm_settle(store, REPO, SHA, reason="base_changed", now=clock()) == "armed"
-    assert settler.tick() == 1 and len(settled(store)) == 1
+    assert settler.tick() == 1
+    assert len(settled(store)) == 1
 
 
 # --------------------------------------------------------------------------- d20 confirmation
@@ -1041,7 +1065,8 @@ def test_c1_a_delayed_old_generation_emitter_cannot_cancel_a_re_armed_one():
     # B resumes with its gen-0 snapshot: duplicate insert, and it must not touch gen 1
     assert settler._emit(REPO, SHA, held, "all_completed", "failure") == "duplicate"
     rec = store.get(SETTLE_COLLECTION, f"{REPO}@{SHA}".lower())
-    assert rec["state"] == "pending" and rec["generation"] == 1
+    assert rec["state"] == "pending"
+    assert rec["generation"] == 1
     assert settler._claim_poll(held, clock(), clock() + timedelta(hours=1)) is False
     assert settler.tick() == 1  # generation 1 still settles
 
@@ -1059,7 +1084,8 @@ def test_c2_replaying_one_refused_push_never_re_arms_twice():
     assert rearm_settle(store, REPO, SHA, reason="base_changed", cause="rev-1", now=clock()) == (
         "replayed"
     )
-    assert settler.tick() == 0 and len(settled(store)) == 2
+    assert settler.tick() == 0
+    assert len(settled(store)) == 2
     # a new refusal (another review) still re-arms
     assert rearm_settle(store, REPO, SHA, reason="base_changed", cause="rev-2", now=clock()) == (
         "rearmed"
@@ -1092,7 +1118,9 @@ def test_c3_arming_an_unseen_head_keeps_the_pr_so_the_event_can_start_a_run():
     assert settler.tick() == 1
     (event,) = settled(store)
     data = event["envelope"]["data"]
-    assert data["number"] == 7 and data["pr_numbers"] == [7] and data["head_branch"] == "feat"
+    assert data["number"] == 7
+    assert data["pr_numbers"] == [7]
+    assert data["head_branch"] == "feat"
     assert data["base_sha"] == "c" * 40  # current PR facts fetched with that number
 
 
@@ -1143,7 +1171,8 @@ def test_f2_a_pending_settle_without_pr_numbers_gains_them_from_the_refusal():
     lister.suites["a"] = "completed"
     assert settler.tick() == 1
     data = settled(store)[0]["envelope"]["data"]
-    assert data["number"] == 7 and data["head_branch"] == "feat"
+    assert data["number"] == 7
+    assert data["head_branch"] == "feat"
     assert data["base_sha"] == "c" * 40
 
 
@@ -1176,5 +1205,8 @@ def test_f2_a_pending_fill_never_reopens_a_settle_that_finished_meanwhile():
     rec = store.get(SETTLE_COLLECTION, rid)
     # the lost race was retried: the emitted settle is re-armed with the cause, not reopened
     # silently by the fill
-    assert outcome == "rearmed" and rec["state"] == "pending" and rec["generation"] == 1
-    assert rec["rearm_causes"] == ["rev-1"] and rec["number"] == 7
+    assert outcome == "rearmed"
+    assert rec["state"] == "pending"
+    assert rec["generation"] == 1
+    assert rec["rearm_causes"] == ["rev-1"]
+    assert rec["number"] == 7

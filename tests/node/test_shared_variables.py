@@ -223,8 +223,9 @@ def _var_input_cluster() -> Cluster:
 
 def test_a_direct_run_with_an_undefined_var_input_is_refused():
     c = _var_input_cluster()
+    executor, trigger = c.nodes["spark"].executor, envelope(1)
     with pytest.raises(RunError) as exc:
-        c.nodes["spark"].executor.start_from_store("r", trigger=envelope(1), run_id="run-x")
+        executor.start_from_store("r", trigger=trigger, run_id="run-x")
     assert exc.value.code == "variable_undefined"
     assert "trusted" in str(exc.value)
     assert c.base.get(RUNS_COLLECTION, "run-x") is None

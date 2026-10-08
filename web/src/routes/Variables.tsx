@@ -356,7 +356,7 @@ export function Variables() {
           <Detail
             variable={selected}
             admin={admin}
-            details={fetched && fetched.name === selected.name ? fetched : null}
+            details={fetched?.name === selected.name ? fetched : null}
             onSaved={saved}
           />
         ) : null}
