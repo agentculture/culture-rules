@@ -663,6 +663,29 @@ def _check_step(obj: Step, path: str, errors: Errors) -> None:
             _check_wait_config(obj.config, _join(path, "config"), errors)
         elif is_action_step(obj.kind, obj.config):
             _check_action_step(obj, _join(path, "config.action"), errors)
+    _check_when_explain(obj, _join(path, "config"), errors)
+
+
+def _check_when_explain(obj: Step, path: str, errors: Errors) -> None:
+    """``config.when`` (d20): a condition tree over the step's inputs, on a step the executor
+    dispatches (not a loop or wait step). ``config.explain``: a result field name, on a
+    ``retry_until`` loop only."""
+    config = obj.config if isinstance(obj.config, dict) else {}
+    if "when" in config:
+        where = _join(path, "when")
+        if obj.kind in LOOP_KINDS or obj.kind == "wait":
+            _err(errors, where, "not_allowed", f"a {obj.kind} step takes no when")
+        else:
+            try:
+                condition_tree.validate(config["when"])
+            except condition_tree.ConditionError as exc:
+                _err(errors, where, "when_invalid", f"when must be a condition tree: {exc}")
+    if "explain" in config:
+        where = _join(path, "explain")
+        if obj.kind != "retry_until":
+            _err(errors, where, "not_allowed", "only a retry_until loop takes explain")
+        elif not isinstance(config["explain"], str) or not config["explain"].strip():
+            _err(errors, where, "explain_invalid", "explain must name a result field")
 
 
 def _check_action_step(obj: Step, path: str, errors: Errors) -> None:

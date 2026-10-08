@@ -209,7 +209,7 @@ def test_pr_head_port_reads_the_head_sha(pem):
     port = GitHubPrHeadPort(store, transport=fake, secrets=lambda ref: pem)
     res = port.invoke({"repo": "acme/widgets", "number": 3}, "k", DEADLINE, context=ctx())
     assert res.outcome == "completed"
-    assert dict(res.output) == {"head_sha": "c" * 40}
+    assert dict(res.output) == {"head_sha": "c" * 40, "base_sha": None}
     assert fake.calls[-1].endswith("/repos/acme/widgets/pulls/3")
 
 
@@ -276,7 +276,7 @@ def test_pr_head_port_honours_the_deadline_through_a_cold_secret_resolve(pem):
             break
         assert res.error in ("deadline_exceeded", "lookup_busy")
         time.sleep(0.02)
-    assert dict(res.output) == {"head_sha": "c" * 40}
+    assert dict(res.output) == {"head_sha": "c" * 40, "base_sha": None}
     assert secrets.calls == 1
 
 

@@ -36,6 +36,7 @@ from culture_rules.actors.gate import (
     GatePort,
     RunAs,
     diff_guard,
+    gate_env,
     gate_from_mapping,
     parse_gate,
     path_matches,
@@ -137,12 +138,19 @@ class LocalRunner:
             stderr=stderr,
         )
 
+    @staticmethod
+    def _declared(argv: list[str]) -> list[str] | None:
+        """A gate command without the gate's ``env TMPDIR=... PYTEST_ADDOPTS=...`` words."""
+        if argv[:2] and argv[0] == "env" and argv[1].startswith("TMPDIR="):
+            return argv[3:]
+        return None
+
     def gate_calls(self) -> list[list[str]]:
-        """The gate's own commands (not git, mktemp or the checkout's removal)."""
-        return [c for c in self.calls if c[0] not in ("git", "env", "mktemp", "rm")]
+        """The gate's own commands (not git, mktemp, mkdir or the checkout's removal)."""
+        return [d for d in map(self._declared, self.calls) if d is not None]
 
     def gate_cwds(self) -> list[str]:
-        return [d for c, d in zip(self.calls, self.cwds) if c in self.gate_calls()]
+        return [d for c, d in zip(self.calls, self.cwds) if self._declared(c) is not None]
 
 
 @pytest.fixture
@@ -194,8 +202,10 @@ def test_passing_gate_runs_setup_then_test_and_bundles_the_commit(store, tmp_pat
     assert bundle.is_file() and bundle.parent == tmp_path / "bundles"
     check = tmp_path / "check.git"
     git(tmp_path, "init", "-q", "--bare", str(check))
-    git(check, "fetch", "-q", str(bundle), f"{head}:refs/x")
-    assert git(check, "rev-parse", "refs/x") == head
+    built = out["commit_sha"]  # the gate-built commit: the agent tip's tree, nothing else
+    git(check, "fetch", "-q", str(bundle), f"{built}:refs/x")
+    assert git(check, "rev-parse", "refs/x^{tree}") == git(repo.wt, "rev-parse", f"{head}^{{tree}}")
+    assert out["agent_commit_sha"] == head
 
 
 def test_deleting_a_failing_test_is_guarded_by_name(store, tmp_path, clock):
@@ -298,8 +308,10 @@ def test_gate_runs_in_a_fresh_checkout_that_is_removed_afterwards(store, tmp_pat
     runner = LocalRunner()
     assert judge(store, runner, repo, tmp_path, clock)["verdict"] == PASS
     (cwd,) = runner.gate_cwds()
-    assert cwd != str(repo.wt) and os.path.basename(cwd).startswith("culture-rules-gate-")
-    assert not os.path.exists(cwd)
+    workspace = os.path.dirname(cwd)
+    assert cwd != str(repo.wt) and os.path.basename(cwd) == "checkout"
+    assert os.path.basename(workspace).startswith("culture_rules_gate.")
+    assert not os.path.exists(workspace)
 
 
 def test_checkout_is_removed_after_a_failure_too(store, tmp_path, clock):
@@ -307,7 +319,7 @@ def test_checkout_is_removed_after_a_failure_too(store, tmp_path, clock):
     repo.commit("fix", {"src/app.py": "x = 3\n"})
     runner = LocalRunner()
     assert judge(store, runner, repo, tmp_path, clock)["verdict"] == FAIL
-    assert not os.path.exists(runner.gate_cwds()[0])
+    assert not os.path.exists(os.path.dirname(runner.gate_cwds()[0]))
 
 
 def test_skip_worktree_edits_in_the_agent_worktree_do_not_change_the_result(store, tmp_path, clock):
@@ -461,8 +473,9 @@ def test_gate_runs_exactly_the_declared_argv_and_never_a_shell(store, tmp_path, 
     gate_runs = [argv for argv, _ in spawned if declared[2] in argv]
     assert len(gate_runs) == 1
     prefix, checkout, rest = gate_runs[0][:3], gate_runs[0][3], gate_runs[0][4:]
-    assert prefix == ["env", "env", "-C"] and rest == ["--", *declared]
-    assert checkout != str(repo.wt) and "culture-rules-gate-" in checkout
+    tmp = os.path.join(os.path.dirname(checkout), "tmp")
+    assert prefix == ["env", "env", "-C"] and rest == ["--", *gate_env(tmp), *declared]
+    assert checkout != str(repo.wt) and "culture_rules_gate." in checkout
     assert not marker.exists()
     assert f"$(touch {marker})" in out["output_tail"]
 

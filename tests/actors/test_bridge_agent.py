@@ -610,14 +610,14 @@ def test_factory_builds_a_bridge_actor_from_params(store):
         },
         strict=False,
     )
-    adapter = factories["agent"](bridge)
+    adapter = factories["agent"](bridge, bridge.to_dict())
     assert isinstance(adapter, BridgeAgentActor) and isinstance(adapter, ActorPort)
     assert adapter.bridge_url == "http://127.0.0.1:8765"
     assert adapter.callback_url == "http://127.0.0.1:8766"
     assert adapter.actor_id == "qwen-fixer"
     assert adapter.supports_idempotency_key is False
     plain = Actor.from_dict({"id": "c", "name": "c", "kind": "agent"}, strict=False)
-    assert isinstance(factories["agent"](plain), ColleagueActor)
+    assert isinstance(factories["agent"](plain, plain.to_dict()), ColleagueActor)
 
 
 def test_imports_with_no_extras_installed():

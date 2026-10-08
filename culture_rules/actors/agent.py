@@ -75,6 +75,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib import import_module
 from typing import Any, Protocol, runtime_checkable
 
+from culture_rules.actors.review import LOCKED_INSTRUCTIONS, instruction_digest
 from culture_rules.engine.actorport import COMPLETED, InvocationContext, InvocationResult
 from culture_rules.store.port import DuplicateKeyError
 
@@ -92,6 +93,7 @@ __all__ = [
     "MeshAgentActor",
     "MeshReply",
     "load_agentirc_client",
+    "bound_input_chars",
     "build_invocation_request",
     "parse_task_result",
     "record_bridge_event",
@@ -112,8 +114,12 @@ def valid_mesh_nick(nick: str) -> bool:
     return bool(_NICK_RE.match(nick or ""))
 
 
+INSTRUCTION_KEYS = ("instruction", "prompt", "task", "text")
+"""Input or config names an agent step's instruction is read from (first non-empty wins)."""
+
+
 def _instruction(input: Mapping[str, Any]) -> str | None:
-    for name in ("instruction", "prompt", "task", "text"):
+    for name in INSTRUCTION_KEYS:
         value = input.get(name)
         if isinstance(value, str) and value.strip():
             return value
@@ -339,6 +345,12 @@ ADDRESS_FIELDS = ("repo", "head_branch", "head_sha")
 PASSTHROUGH_CONFIG = ("model", "sandbox", "mode")
 """Step-config keys forwarded into the bridge input (the actor supplies defaults); the qwen
 bridge requires ``mode``."""
+READ_ONLY_SANDBOX = "read-only"
+"""An actor whose ``sandbox`` default is this one cannot be widened by a step or an input
+(``sandbox_locked``): the PR fixer's reviewer must never be able to write or commit."""
+BRIDGE_CORE_INPUTS = frozenset({"instruction", "repo", "head_branch", "head_sha", "model", "async"})
+"""Input keys a bridge reads itself; every other key is appended to the agent's prompt as
+JSON, which the bridge cuts at its ``max_bound_input_chars`` (60000 by default)."""
 RESULT_FIELDS = (
     "schema",
     "invocation_id",
@@ -368,6 +380,20 @@ NON_TERMINAL_KINDS = ("accepted", "heartbeat", "progress", "artifact", "signal")
 NON_RETRYABLE_CLASSES = frozenset({"actor_rejected_input", "credential", "provision"})
 """Error classes where retrying cannot help (bad input, missing credential, no checkout)."""
 _SHA_RE = re.compile(r"^[0-9a-fA-F]{7,64}$")
+
+
+def bound_input_chars(payload: Mapping[str, Any]) -> int:
+    """How many characters of ``payload`` a bridge appends to the prompt as bound inputs,
+    measured the way it serialises them (``json.dumps(..., indent=2, ensure_ascii=False)``
+    over the keys that are neither core inputs nor backend options)."""
+    extras = {
+        k: v
+        for k, v in payload.items()
+        if k not in BRIDGE_CORE_INPUTS and k not in PASSTHROUGH_CONFIG
+    }
+    if not extras:
+        return 0
+    return len(json.dumps(extras, indent=2, ensure_ascii=False, default=str))
 
 
 def build_invocation_request(
@@ -633,8 +659,12 @@ class BridgeAgentActor:
         transport: Transport | None = None,
         clock: Callable[[], datetime] | None = None,
         request_timeout: float = 30.0,
+        max_bound_input_chars: Any = None,
+        actor_doc: Mapping[str, Any] | None = None,
     ) -> None:
         self._store = store
+        self._actor_doc = dict(actor_doc) if isinstance(actor_doc, Mapping) else None
+        self.max_bound_input_chars = max_bound_input_chars
         self.bridge_url = bridge_url.rstrip("/")
         self.callback_url = (callback_url or "").rstrip("/")
         self._token_ref = token
@@ -656,11 +686,33 @@ class BridgeAgentActor:
 
     # ---------------------------------------------------------------- input
 
+    def _locked_instruction(
+        self, input: Mapping[str, Any], config: Mapping[str, Any]
+    ) -> tuple[str | None, str | None]:
+        """``(brief, None)`` for an actor with ``locked_instruction`` (any instruction from
+        the step's inputs or config is refused), ``(None, None)`` otherwise."""
+        name = self._defaults.get("locked_instruction")
+        if name is None:
+            return None, None
+        brief = LOCKED_INSTRUCTIONS.get(name) if isinstance(name, str) else None
+        if brief is None:
+            return None, f"instruction_locked: no locked brief named {name!r}"
+        for where, source in (("an input", input), ("the step config", config)):
+            for key in INSTRUCTION_KEYS:
+                if source.get(key) is not None:
+                    return None, (
+                        f"instruction_locked: the actor's brief is fixed; {where} sets {key!r}"
+                    )
+        return brief, None
+
     def bridge_input(
         self, input: Mapping[str, Any], config: Mapping[str, Any]
     ) -> tuple[dict[str, Any] | None, str | None]:
         """The bridge's ``input`` object, or ``(None, problem)``."""
-        instruction = _instruction(input) or _instruction(config)
+        instruction, problem = self._locked_instruction(input, config)
+        if problem:
+            return None, problem
+        instruction = instruction or _instruction(input) or _instruction(config)
         if not instruction:
             return None, "no instruction in the step input"
         out: dict[str, Any] = {k: v for k, v in input.items() if v is not None}
@@ -671,12 +723,60 @@ class BridgeAgentActor:
             out[name] = value.strip()
         if not _SHA_RE.match(out["head_sha"]):
             return None, f"head_sha {out['head_sha']!r} is not a commit SHA"
+        locked = self._defaults.get("sandbox") == READ_ONLY_SANDBOX
+        if locked:
+            for where, source in (("an input", input), ("the step config", config)):
+                if "sandbox" in source and source["sandbox"] != READ_ONLY_SANDBOX:
+                    return None, (
+                        f"sandbox_locked: the actor is {READ_ONLY_SANDBOX}; "
+                        f"{where} asks for sandbox {source['sandbox']!r}"
+                    )
         for name in PASSTHROUGH_CONFIG:
             value = config.get(name, self._defaults.get(name))
             if value is not None:
                 out.setdefault(name, value)
+        if locked:
+            out["sandbox"] = READ_ONLY_SANDBOX
         out["instruction"] = instruction
         return out, None
+
+    def _trust(self) -> tuple[str | None, str | None]:
+        """``(digest, problem)`` for the actor configuration this adapter was built from
+        and is about to call (Codex round-4 review #1). An actor pinned in
+        :data:`~culture_rules.actors.trusted.TRUSTED_ACTOR_DIGESTS` (the reviewer) must
+        match before anything is dispatched, and the endpoint called must be the one in that
+        snapshot; the digest is recorded on the invocation either way."""
+        from culture_rules.actors import trusted  # noqa: PLC0415 - small, standard-library
+
+        if self._actor_doc is None:
+            if trusted.is_pinned(self.actor_id):
+                return None, "actor_not_trusted: no actor snapshot to check before dispatch"
+            return None, None
+        digest = trusted.actor_digest(self._actor_doc)
+        if not trusted.is_pinned(self.actor_id):
+            return digest, None
+        refusal, digest = trusted.doc_refusal(self.actor_id, self._actor_doc)
+        params = self._actor_doc.get("params") or {}
+        if not refusal and str(params.get("bridge_url") or "").rstrip("/") != self.bridge_url:
+            refusal = "actor_not_trusted"
+        if refusal:
+            return digest, f"{refusal}: {self.actor_id} does not match a trusted digest"
+        return digest, None
+
+    def _bound_inputs_problem(self, payload: Mapping[str, Any]) -> str | None:
+        """Refuse what the bridge would cut silently (only when the actor sets a cap)."""
+        cap = self.max_bound_input_chars
+        if cap is None:
+            return None
+        if not isinstance(cap, int) or isinstance(cap, bool) or cap < 1:
+            return f"bound_inputs_cap_invalid: max_bound_input_chars {cap!r}"
+        size = bound_input_chars(payload)
+        if size > cap:
+            return (
+                f"bound_inputs_too_large: {size} characters of bound inputs; the bridge "
+                f"would cut them at {cap}"
+            )
+        return None
 
     # ---------------------------------------------------------------- invoke
 
@@ -689,6 +789,10 @@ class BridgeAgentActor:
         context: InvocationContext,
     ) -> InvocationResult:
         payload, problem = self.bridge_input(input, context.config or {})
+        if not problem:
+            problem = self._bound_inputs_problem(payload or {})
+        digest, trust_problem = self._trust()
+        problem = problem or trust_problem
         if problem:
             return InvocationResult.failed(problem, retryable=False)
         if not self.callback_url:
@@ -702,7 +806,8 @@ class BridgeAgentActor:
         doc_id = bridge_invocation_id(idempotency_key, context.attempt)
         self._expire_previous(idempotency_key, context.attempt)
         callback_token = secrets.token_urlsafe(32)
-        doc = self._claim(doc_id, idempotency_key, context, callback_token)
+        instruction = instruction_digest(str((payload or {}).get("instruction") or ""))
+        doc = self._claim(doc_id, idempotency_key, context, callback_token, instruction, digest)
         if doc["status"] == _ACCEPTED:
             return InvocationResult.accepted()
         if doc["status"] in (_COMPLETED, _FAILED):  # the callback beat this re-invoke
@@ -746,7 +851,13 @@ class BridgeAgentActor:
         return secret_refs.resolve_or_literal(self._token_ref)
 
     def _claim(
-        self, doc_id: str, key: str, context: InvocationContext, callback_token: str
+        self,
+        doc_id: str,
+        key: str,
+        context: InvocationContext,
+        callback_token: str,
+        instruction_sha256: str,
+        actor_digest: str | None = None,
     ) -> Mapping[str, Any]:
         """Insert this attempt's invocation (before posting, so an early callback finds it),
         or add a fresh callback token to one left ``dispatching``/``rejected``."""
@@ -761,6 +872,8 @@ class BridgeAgentActor:
             "actor": self.actor_id or context.actor,
             "bridge_url": self.bridge_url,
             "status": _DISPATCHING,
+            "instruction_sha256": instruction_sha256,
+            "actor_digest": actor_digest,
             "token_hashes": [_token_hash(callback_token)],
             "invocation_id": None,
             "last_sequence": 0,
@@ -779,7 +892,12 @@ class BridgeAgentActor:
             BRIDGE_INVOCATIONS,
             doc_id,
             {"status": existing["status"]},
-            {"status": _DISPATCHING, "token_hashes": hashes},
+            {
+                "status": _DISPATCHING,
+                "token_hashes": hashes,
+                "instruction_sha256": instruction_sha256,
+                "actor_digest": actor_digest,
+            },
         )
         return res.document if res.won else self._store.get(BRIDGE_INVOCATIONS, doc_id)
 

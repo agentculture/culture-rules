@@ -46,6 +46,7 @@ BUILTIN_WORDS: dict[str, str] = {
     "gate": "test gate",
     "github.threads": "github.threads{as}: unresolved threads by trusted authors",
     "github.threads_addressed": "github.threads_addressed",
+    "review": "review verdict, recorded for github.push",
 }
 
 #: Per action kind: which literal params are worth a word, as ``(param, template)``.
@@ -215,8 +216,9 @@ def action_text(action: Any, where: str = "") -> str:
         if value not in (None, "") and not _dynamic(value):
             words.append(template.format(value))
     words.append(where)
-    if kind == "github.push" and params.get("gate_verdict"):
-        words.append("(only on a passing gate)")
+    if kind == "github.push":  # the push port always requires an approving review (d20)
+        gate = "a passing gate and " if params.get("gate_verdict") else ""
+        words.append(f"(only on {gate}an approving review)")
     if kind == "github.review_reply" and params.get("resolve") is True:
         words.append("and resolve")
     return _join(*words)
@@ -369,7 +371,9 @@ def step_text(step: Any) -> str:
         text = _code_text(s, config, where)
     elif kind == "ai":
         actor = _plain(s.get("placement")).get("actor")
-        text = f"{actor} (agent)" if actor else _join("agent", where)
+        sandbox = config.get("sandbox")
+        detail = f"agent, {sandbox}" if isinstance(sandbox, str) and sandbox else "agent"
+        text = f"{actor} ({detail})" if actor else _join(detail, where)
     elif kind == "actor_task":
         actor = _plain(s.get("placement")).get("actor") or config.get("actor")
         text = f"task for {actor}" if actor else _join("task", where)
@@ -377,6 +381,8 @@ def step_text(step: Any) -> str:
         text = _loop_text(s, config)
     else:  # logic and anything unknown read as their kind
         text = _join(str(kind or "step"), where)
+    if "when" in config:  # d20: the step runs only when this holds (skipped otherwise)
+        text += f", when {condition_text(config['when'])}"
     extras = []
     retry = s.get("retry")
     if isinstance(retry, Mapping) and (retry.get("max_attempts") or 1) > 1:

@@ -1,5 +1,5 @@
 {
-  "description": "Quiet period -> trusted review threads -> (bridge agent -> test gate) up to 3 times -> github.push as the App -> one github.review_reply per trusted thread the agent addressed. Trigger-agnostic: the four pr-fixer-* rules map their event into these inputs.",
+  "description": "Quiet period -> trusted review threads -> (bridge agent -> test gate -> independent read-only reviewer) up to 3 times -> github.push as the App, only for a commit the reviewer approved -> one github.review_reply per trusted thread the agent addressed. Trigger-agnostic: the four pr-fixer-* rules map their event into these inputs.",
   "edges": [
     {
       "source": "quiet",
@@ -98,14 +98,14 @@
       "target_port": "head_branch"
     },
     {
-      "source": "agent",
-      "source_port": "head_before",
+      "source": "gate",
+      "source_port": "start_sha",
       "target": "push",
       "target_port": "expected_head_sha"
     },
     {
-      "source": "agent",
-      "source_port": "head_after",
+      "source": "gate",
+      "source_port": "commit_sha",
       "target": "push",
       "target_port": "commit_sha"
     },
@@ -156,6 +156,60 @@
       "source_port": "number",
       "target": "replies",
       "target_port": "number"
+    },
+    {
+      "source": "gate",
+      "source_port": "start_sha",
+      "target": "review",
+      "target_port": "head_sha"
+    },
+    {
+      "source": "gate",
+      "source_port": "commit_sha",
+      "target": "review",
+      "target_port": "commit_sha"
+    },
+    {
+      "source": "gate",
+      "source_port": "diff",
+      "target": "review",
+      "target_port": "diff"
+    },
+    {
+      "source": "gate",
+      "source_port": "diff_truncated",
+      "target": "review",
+      "target_port": "diff_truncated"
+    },
+    {
+      "source": "gate",
+      "source_port": "verdict",
+      "target": "review",
+      "target_port": "gate_verdict"
+    },
+    {
+      "source": "gate",
+      "source_port": "output_tail",
+      "target": "review",
+      "target_port": "gate_output"
+    },
+    {
+      "source": "inputs",
+      "source_port": "instruction",
+      "target": "review",
+      "target_port": "pr_intent"
+    },
+    {
+      "source": "inputs",
+      "source_port": "instruction",
+      "target": "verdict",
+      "target_port": "task"
+    },
+    {
+      "source": "push",
+      "source_port": "head_after",
+      "target": "pick",
+      "target_port": "commit"
     }
   ],
   "enabled": true,
@@ -215,6 +269,11 @@
     {
       "name": "verdict",
       "source": "steps.fix.outputs.verdict",
+      "type": "string"
+    },
+    {
+      "name": "review",
+      "source": "steps.fix.outputs.review",
       "type": "string"
     },
     {
@@ -405,6 +464,12 @@
               "name": "status",
               "required": false,
               "type": "string"
+            },
+            {
+              "description": "the bridge's backend (implementer)",
+              "name": "backend",
+              "required": false,
+              "type": "string"
             }
           ],
           "placement": {
@@ -420,7 +485,7 @@
           "config": {
             "builtin": "gate"
           },
-          "description": "Reads gate: from culture.yaml at base_sha, guards start_sha..commit_sha and runs the declared tests in a fresh checkout as culture-fixer; on pass writes the bundle.",
+          "description": "Reads gate: from culture.yaml at base_sha, guards start_sha..commit_sha and runs the declared tests in a fresh checkout as culture-fixer; on pass writes the bundle. On pass and no_gate it also reports the verified diff for the reviewer.",
           "enabled": true,
           "id": "gate",
           "inputs": [
@@ -470,6 +535,54 @@
               "name": "bundle",
               "required": false,
               "type": "string"
+            },
+            {
+              "description": "the gate-built commit: the agent tip's tree on start_sha (what is reviewed and pushed)",
+              "name": "commit_sha",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "start_sha",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "output_tail",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "description": "start_sha..commit_sha, from the verified pack",
+              "name": "diff",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "diff_chars",
+              "required": false,
+              "type": "integer"
+            },
+            {
+              "description": "the diff text does not show the whole change: never reviewed",
+              "name": "diff_truncated",
+              "required": false,
+              "type": "boolean"
+            },
+            {
+              "description": "the agent's own tip (never pushed)",
+              "name": "agent_commit_sha",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "description": "why the diff text is not the whole change (size, binary, modes, symlinks, submodules)",
+              "name": "diff_problems",
+              "required": false,
+              "type": "array"
             }
           ],
           "placement": {
@@ -479,26 +592,249 @@
           },
           "retry": null,
           "timeout_s": 1800.0
+        },
+        {
+          "body": [],
+          "config": {
+            "sandbox": "read-only",
+            "when": {
+              "args": [
+                {
+                  "items": {
+                    "literal": [
+                      "pass",
+                      "no_gate"
+                    ]
+                  },
+                  "op": "in",
+                  "value": {
+                    "field": "gate_verdict"
+                  }
+                },
+                {
+                  "cmp": "==",
+                  "left": {
+                    "field": "diff_truncated"
+                  },
+                  "op": "compare",
+                  "right": {
+                    "literal": false
+                  }
+                }
+              ],
+              "op": "and"
+            }
+          },
+          "description": "d20: an independent reviewer (Codex through the codex bridge on spark, sandbox read-only) reviews the gated commit's diff and ends with a verdict object. Its brief is locked in the codex-reviewer actor (trusted code), never this workflow. Runs only after a passing gate (or no gate) whose diff is complete text; never commits or pushes.",
+          "enabled": true,
+          "id": "review",
+          "inputs": [
+            {
+              "description": "clone URL (the bridge checks out the PR head)",
+              "name": "repo",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "head_branch",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "the PR head the fix starts from (gate start_sha)",
+              "name": "head_sha",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "the commit under review",
+              "name": "commit_sha",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "diff",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "diff_truncated",
+              "required": false,
+              "type": "boolean"
+            },
+            {
+              "description": "",
+              "name": "gate_verdict",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "gate_output",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "description": "the fixer's original task",
+              "name": "pr_intent",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "description": "the trusted, unresolved threads",
+              "name": "threads",
+              "required": false,
+              "type": "array"
+            }
+          ],
+          "kind": "ai",
+          "max_iterations": null,
+          "name": "Review the fix (independent agent, read-only)",
+          "outputs": [
+            {
+              "description": "the verdict object, as a JSON string",
+              "name": "summary",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "status",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "backend",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "head_before",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "head_after",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "commits",
+              "required": false,
+              "type": "array"
+            },
+            {
+              "description": "",
+              "name": "dirty",
+              "required": false,
+              "type": "boolean"
+            }
+          ],
+          "placement": {
+            "actor": "codex-reviewer",
+            "machine": null,
+            "requirement": null
+          },
+          "retry": null,
+          "timeout_s": 1800.0
+        },
+        {
+          "body": [],
+          "config": {
+            "builtin": "review"
+          },
+          "description": "Reads the gate, reviewer and implementer results of this attempt from the run (never from wired inputs), checks the reviewer was read-only, saw this commit's diff and is not the implementer, parses its verdict fail-closed and records it for github.push. request_changes turns the findings into the next attempt's instruction.",
+          "enabled": true,
+          "id": "verdict",
+          "inputs": [
+            {
+              "description": "the original instruction, for the next attempt",
+              "name": "task",
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "kind": "code",
+          "max_iterations": null,
+          "name": "Review verdict",
+          "outputs": [
+            {
+              "description": "the gate's verdict",
+              "name": "verdict",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "approve, request_changes or not_run",
+              "name": "review",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "findings",
+              "required": false,
+              "type": "array"
+            },
+            {
+              "description": "",
+              "name": "reviewed_commit",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "instruction",
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "placement": null,
+          "retry": null,
+          "timeout_s": 60.0
         }
       ],
       "config": {
         "carry": {
           "instruction": "instruction"
         },
+        "explain": "instruction",
         "until": {
-          "items": {
-            "literal": [
-              "pass",
-              "no_gate"
-            ]
-          },
-          "op": "in",
-          "value": {
-            "field": "verdict"
-          }
+          "args": [
+            {
+              "items": {
+                "literal": [
+                  "pass",
+                  "no_gate"
+                ]
+              },
+              "op": "in",
+              "value": {
+                "field": "verdict"
+              }
+            },
+            {
+              "cmp": "==",
+              "left": {
+                "field": "review"
+              },
+              "op": "compare",
+              "right": {
+                "literal": "approve"
+              }
+            }
+          ],
+          "op": "and"
         }
       },
-      "description": "Each try hands the gate's failure text to the next agent run as its instruction. Ends on verdict pass or no_gate; fail or guard three times fails the run.",
+      "description": "Each try hands the gate's failure text, or the reviewer's findings, to the next agent run as its instruction. Ends when the verdict is pass or no_gate and the reviewer approves; three tries without that fail the run with the last reason.",
       "enabled": true,
       "id": "fix",
       "inputs": [
@@ -547,12 +883,18 @@
       ],
       "kind": "retry_until",
       "max_iterations": 3,
-      "name": "Agent, then gate (up to 3 tries)",
+      "name": "Agent, gate, review (up to 3 tries)",
       "outputs": [
         {
           "description": "",
           "name": "verdict",
           "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "review",
+          "required": false,
           "type": "string"
         }
       ],
@@ -578,7 +920,7 @@
         },
         "builtin": "action"
       },
-      "description": "github.push fast-forwards the PR head branch to the gated commit from the gate's bundle, only on verdict pass and only while the firing rule is enabled. Runs on spark2, where the bundle is.",
+      "description": "github.push fast-forwards the PR head branch to the gated commit from the gate's bundle, only on verdict pass, only while the firing rule is enabled, and only when this run's review record approves exactly that commit by a reviewer other than the implementer (checked in code from the store, whatever is wired). Runs on spark2, where the bundle is.",
       "enabled": true,
       "id": "push",
       "inputs": [
@@ -676,6 +1018,12 @@
           "name": "pushed",
           "required": true,
           "type": "boolean"
+        },
+        {
+          "description": "the pushed commit the replies name",
+          "name": "commit",
+          "required": false,
+          "type": "string"
         }
       ],
       "kind": "code",

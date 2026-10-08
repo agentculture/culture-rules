@@ -21,6 +21,13 @@ Verdicts
     the base branch's ``culture.yaml`` has no ``gate`` section (or there is no
     ``culture.yaml``). Nothing runs. There is **no built-in default command**.
 
+On ``pass`` and ``no_gate`` the gate also reports the change it verified, for the reviewer
+agent (d20), which cannot fetch a commit that is not pushed yet: ``diff`` (``git diff
+start_sha commit_sha`` in the node-owned scratch repo below, with no external diff driver,
+textconv or attributes), ``diff_chars`` (its full length) and ``diff_truncated`` (the diff
+was cut at ``config.diff_max_chars``, default :data:`DEFAULT_DIFF_MAX_CHARS`; the fixer's
+review step then never approves).
+
 Anything that is not a judgement of the commits (bad input, no runner configured, the
 worktree cannot be read, a malformed ``gate`` section, the deadline) fails the step
 instead, with a ``code: detail`` error, so a broken environment never reads as a verdict.
@@ -76,7 +83,9 @@ join argv into a shell command line. Trade-off: the node user can run anything a
 user (that is the grant; the fixer user is the less privileged of the two, and the reverse
 is impossible), and on a timeout the node can signal only ``sudo`` itself (it relays
 ``SIGTERM`` to the command); processes that ignore it are not the node's to kill. Commands
-get the environment the prefix gives them (``sudo`` resets it), not the node's.
+get the environment the prefix gives them (``sudo`` resets it), not the node's, plus
+:func:`gate_env` in front of each setup and test argv: ``TMPDIR`` and pytest's
+``--basetemp`` inside the gate's workspace, so no temp path names the run-as account.
 
 A ``sudo`` prefix cannot work in a process with the kernel's ``no_new_privs`` flag set
 (systemd ``NoNewPrivileges=true``): sudo refuses before it runs anything. :meth:`GatePort.from_env`
@@ -190,6 +199,7 @@ __all__ = [
     "Violation",
     "diff_guard",
     "no_new_privs",
+    "gate_env",
     "gate_from_mapping",
     "parse_gate",
     "path_matches",
@@ -209,6 +219,26 @@ DEFAULT_BUNDLE_DIR = "~/.local/state/culture-rules/gate-bundles"
 BUNDLE_TTL_S = 7 * 24 * 3600.0
 DEFAULT_TAIL_BYTES = 8000
 _MAX_TAIL_BYTES = 100_000
+FIXER_COMMIT_IDENTITY = (
+    "rules-culture-dev[bot] <337624453+rules-culture-dev[bot]@users.noreply.github.com>"
+)
+"""Author and committer of every gate-built commit (the GitHub App's bot identity, the
+``commit_author`` github.push checks); ``config.commit_identity`` overrides it."""
+_IDENTITY_RE = re.compile(r"^(?P<name>[^<>\n]+?) <(?P<email>[^<>\s]+@[^<>\s]+)>$")
+_REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+_TRY_RE = re.compile(r"\[(\d+)\]/[^/]+$")
+
+
+def _identity(value: Any) -> tuple[str, str] | None:
+    m = _IDENTITY_RE.match(value) if isinstance(value, str) else None
+    return (m.group("name"), m.group("email")) if m else None
+
+
+DEFAULT_DIFF_MAX_CHARS = 30_000
+"""Characters of ``start_sha..commit_sha`` diff handed to the reviewer (d20); a longer diff
+is cut and flagged ``diff_truncated``. Leaves room in a bridge's 60000-character budget for
+the threads and the gate output."""
+_MAX_DIFF_CHARS = 200_000
 CULTURE_YAML = "culture.yaml"
 
 #: Runner return codes outside any process's own range.
@@ -221,7 +251,9 @@ _SHA_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 _SHELL_JOINING = frozenset({"ssh", "su", "sh", "bash", "dash", "zsh", "ksh", "fish", "csh"})
 _LOCAL_REF = "refs/culture-rules/gate"
 _CLEANUP_S = 60.0
-_CHECKOUT_PREFIX = "culture-rules-gate-"
+#: The gate's workspace: no dash, so no run-as account name or ``-x`` flag look-alike can
+#: reach a repo's temp paths through it (lobes-cli#302).
+_CHECKOUT_PREFIX = "culture_rules_gate."
 _STDERR_TAIL_BYTES = 500
 _CONTROL_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
 _PROC_STATUS = "/proc/self/status"
@@ -751,15 +783,25 @@ class _Job:
             raise _Refusal("deadline_exceeded", retryable=True)
         return left
 
-    def git(self, *args: str, stdin: IO[bytes] | None = None, in_repo: bool = True) -> bytes:
+    def git(
+        self,
+        *args: str,
+        stdin: IO[bytes] | None = None,
+        in_repo: bool = True,
+        env: Mapping[str, str] | None = None,
+    ) -> bytes:
         """Run git on the scratch repo; returns stdout, raising on a non-zero exit."""
-        rc, out = self.git_rc(*args, stdin=stdin, in_repo=in_repo)
+        rc, out = self.git_rc(*args, stdin=stdin, in_repo=in_repo, env=env)
         if rc != 0:
             raise _Refusal("git_failed", f"git {args[0]} exited {rc}")
         return out
 
     def git_rc(
-        self, *args: str, stdin: IO[bytes] | None = None, in_repo: bool = True
+        self,
+        *args: str,
+        stdin: IO[bytes] | None = None,
+        in_repo: bool = True,
+        env: Mapping[str, str] | None = None,
     ) -> tuple[int, bytes]:
         argv = ["git", "-c", "core.hooksPath=/dev/null", "-c", "core.quotePath=false"]
         if in_repo:
@@ -770,7 +812,7 @@ class _Job:
                 timeout=self.left(),
                 stdout=out,
                 stdin=stdin,
-                env=_git_env(self.tmp),
+                env={**_git_env(self.tmp), **(env or {})},
             )
             out.seek(0)
             data = out.read()
@@ -827,7 +869,7 @@ class _Job:
             return rc, out.read().decode("utf-8", errors="replace")
 
     def remove_checkout(self, path: str) -> None:
-        """``rm -rf`` the fixer-owned checkout, with its own timeout (even past the deadline)."""
+        """``rm -rf`` the fixer-owned workspace, with its own timeout (even past the deadline)."""
         with tempfile.TemporaryFile(dir=self.tmp) as out:
             self._run_as(["rm", "-rf", "--", path], cwd="/", timeout=_CLEANUP_S, stdout=out)
 
@@ -845,6 +887,22 @@ def _hard_git(*args: str) -> list[str]:
         "core.quotePath=false",
         *args,
     ]
+
+
+def gate_env(tmpdir: str, addopts: str | None = None) -> list[str]:
+    """The ``env`` words in front of every setup and test command (lobes-cli#302).
+
+    sudo resets the environment, so the run-as account's temp space is its own, and
+    pytest's default basetemp is ``<tmp>/pytest-of-<user>``: every ``tmp_path`` would
+    carry the account's name (``culture-fixer``, which contains ``-f``). ``TMPDIR`` and
+    ``--basetemp`` point into the gate's workspace instead. ``PYTEST_ADDOPTS`` goes before
+    pytest's command line, so a repo's own ``--basetemp`` in its command still wins; any
+    ``addopts`` already given are kept in front. A ``PYTEST_ADDOPTS`` already in the run-as
+    environment is replaced, not merged: under sudo (production) the environment is reset,
+    so there is none; a repo's pytest options belong in its ``gate:`` command."""
+    basetemp = shlex.quote(f"--basetemp={os.path.join(tmpdir, 'pytest')}")
+    opts = f"{addopts} {basetemp}" if addopts else basetemp
+    return ["env", f"TMPDIR={tmpdir}", f"PYTEST_ADDOPTS={opts}"]
 
 
 def _sha_input(input: Mapping[str, Any], name: str) -> str:
@@ -878,6 +936,37 @@ def _instruction(verdict: dict[str, Any]) -> str | None:
     return None
 
 
+_PLAIN_MODES = frozenset({"000000", "100644"})
+_MODE_WORDS = {"120000": "symlink", "160000": "submodule"}
+
+
+def _non_text_changes(job: _Job, start: str, commit: str) -> list[str]:
+    """Changes the text diff cannot show in full (Codex review #5): binary content, any
+    file mode other than a plain 100644 (an executable bit, a symlink, a submodule
+    pointer) or a mode change. Each is one ``"<path>: <why>"`` line; any of them makes the
+    review material incomplete (``diff_truncated``), fail closed."""
+    base = ("diff", "--no-ext-diff", "--no-textconv", "--no-renames", "-z")
+    problems: list[str] = []
+    numstat = job.git(*base, "--numstat", start, commit, "--").decode("utf-8", "replace")
+    for entry in numstat.split("\x00"):
+        added, _, rest = entry.partition("\t")
+        deleted, _, path = rest.partition("\t")
+        if path and added == "-" and deleted == "-":
+            problems.append(f"{path}: binary change")
+    raw = job.git(*base, "--raw", "--no-abbrev", start, commit, "--").decode("utf-8", "replace")
+    fields = raw.split("\x00")
+    for meta, path in zip(fields[0::2], fields[1::2]):
+        parts = meta.lstrip(":").split()
+        if len(parts) < 2 or not path:
+            continue
+        old, new = parts[0], parts[1]
+        if old in _PLAIN_MODES and new in _PLAIN_MODES:
+            continue
+        word = _MODE_WORDS.get(new) or _MODE_WORDS.get(old) or "mode"
+        problems.append(f"{path}: {word} change (mode {old} -> {new})")
+    return problems
+
+
 class GatePort:
     """ActorPort for the built-in ``gate`` code step (see the module docstring)."""
 
@@ -893,8 +982,10 @@ class GatePort:
         bundle_dir: str | Path | None = None,
         clock: Callable[[], datetime] | None = None,
         blocked_reason: str = "",
+        pr_lookup: Any = None,
     ) -> None:
         self._store = store
+        self._pr_lookup = pr_lookup
         self._run_as = run_as
         self._blocked = blocked_reason
         self._why = unconfigured_reason or f"{RUN_AS_ENV} is not set"
@@ -911,6 +1002,7 @@ class GatePort:
         environ: Mapping[str, str] | None = None,
         *,
         no_new_privs: Callable[[], bool | None] = no_new_privs,
+        pr_lookup: Any = None,
     ) -> GatePort:
         """The production port; a sudo prefix under ``no_new_privs`` is logged and blocked."""
         environ = os.environ if environ is None else environ
@@ -928,6 +1020,7 @@ class GatePort:
             unconfigured_reason=why,
             bundle_dir=environ.get(BUNDLE_DIR_ENV) or None,
             blocked_reason=blocked,
+            pr_lookup=pr_lookup,
         )
 
     def invoke(
@@ -956,10 +1049,19 @@ class GatePort:
         tail_bytes = config.get("tail_bytes", DEFAULT_TAIL_BYTES)
         if not isinstance(tail_bytes, int) or not 0 < tail_bytes <= _MAX_TAIL_BYTES:
             raise _Refusal("bad_config", f"tail_bytes must be 1..{_MAX_TAIL_BYTES}")
+        diff_cap = config.get("diff_max_chars", DEFAULT_DIFF_MAX_CHARS)
+        if (
+            not isinstance(diff_cap, int)
+            or isinstance(diff_cap, bool)
+            or not 0 < diff_cap <= _MAX_DIFF_CHARS
+        ):
+            raise _Refusal("bad_config", f"diff_max_chars must be 1..{_MAX_DIFF_CHARS}")
         if self._run_as is None:
             raise _Refusal("gate_runner_unconfigured", self._why)
         if self._blocked:
             raise _Refusal("run_as_blocked", self._blocked)
+        if self._pr_lookup is not None:
+            self._check_base(shas["base_sha"], config, deadline, context)
         verdict: dict[str, Any] = {
             "verdict": None,
             "rule": None,
@@ -972,7 +1074,12 @@ class GatePort:
             "instruction": None,
             "gate": None,
             "bundle": None,
+            "diff": None,
+            "diff_chars": None,
+            "diff_truncated": None,
+            "diff_problems": None,
             **shas,
+            "agent_commit_sha": shas["commit_sha"],
         }
         tmp = tempfile.mkdtemp(prefix="culture-rules-gate-")
         try:
@@ -981,6 +1088,10 @@ class GatePort:
             spec = self._spec(job, shas["base_sha"])
             if spec is None:
                 verdict["verdict"] = NO_GATE
+                built = self._build(job, shas, context)
+                verdict.update(
+                    commit_sha=built, **self._diff(job, shas["start_sha"], built, diff_cap)
+                )
                 return verdict
             verdict["gate"] = spec.to_dict()
             violations = self._guard(job, shas, config)
@@ -991,13 +1102,157 @@ class GatePort:
                     violations=[v.to_dict() for v in violations],
                 )
             else:
+                # round 3 (#5): build the published commit FIRST, then test, diff, review and
+                # bundle exactly that commit - never the agent's tip
+                built = self._build(job, shas, context)
+                verdict["commit_sha"] = built
+                self._repack(job, built)
                 self._judge(job, spec, verdict, tail_bytes)
                 if verdict["verdict"] == PASS:
-                    verdict["bundle"] = self._bundle(job, shas["commit_sha"], context)
+                    verdict.update(self._diff(job, shas["start_sha"], built, diff_cap))
+                    verdict["bundle"] = self._bundle(job, built, context)
             verdict["instruction"] = _instruction(verdict)
             return verdict
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
+
+    def _check_base(
+        self,
+        base_sha: str,
+        config: Mapping[str, Any],
+        deadline: datetime,
+        context: InvocationContext,
+    ) -> None:
+        """Round 3 (#2): ``base_sha`` selects the gate policy (``culture.yaml`` at that
+        commit), and it comes from rule inputs; so it must be the PR's base as the App
+        reads it now (``config.app_actor``, default ``github-app``), else ``base_mismatch``.
+        A lookup that cannot be made is ``base_unverified`` (fail closed)."""
+        run = self._store.get("runs", context.run_id) if context.run_id else None
+        inputs = (run or {}).get("inputs") or {}
+        repo, number = inputs.get("repo"), inputs.get("number")
+        if not isinstance(repo, str) or not isinstance(number, int):
+            raise _Refusal("base_unverified", "the run has no repo and PR number to check")
+        actor = config.get("app_actor", "github-app")
+        ctx = InvocationContext(
+            context.run_id,
+            context.step_id,
+            "action",
+            context.host,
+            context.attempt,
+            actor,
+            {"kind": "github.pr_head"},
+        )
+        res = self._pr_lookup.invoke(
+            {"repo": repo, "number": number}, f"gate-base:{context.run_id}", deadline, context=ctx
+        )
+        if res.outcome != "completed":
+            raise _Refusal("base_unverified", str(res.error), retryable=res.retryable)
+        actual = (res.output or {}).get("base_sha")
+        if not isinstance(actual, str) or not actual:
+            raise _Refusal("base_unverified", "the App reported no base for the PR")
+        if actual != base_sha:
+            raise _Refusal(
+                "base_mismatch",
+                f"base_sha {base_sha[:12]} is not the PR's base ({str(actual)[:12]})",
+            )
+
+    def _build(self, job: _Job, shas: Mapping[str, str], context: InvocationContext) -> str:
+        """The gate-built commit (see :meth:`_build_commit`)."""
+        identity = (context.config or {}).get("commit_identity", FIXER_COMMIT_IDENTITY)
+        parsed = _identity(identity)
+        if parsed is None:
+            raise _Refusal("bad_config", "commit_identity must look like 'Name <email>'")
+        message = self._message(context)
+        return self._build_commit(job, shas["start_sha"], shas["commit_sha"], parsed, message)
+
+    @staticmethod
+    def _repack(job: _Job, sha: str) -> None:
+        """Replace the checkout's pack with one holding ``sha`` and its history, so the
+        fresh checkout (and so every test) sees the built commit itself."""
+        revs = os.path.join(job.tmp, "built-revs")
+        Path(revs).write_text(f"{sha}\n")
+        with open(revs, "rb") as stdin:
+            pack = job.git("pack-objects", "--revs", "--stdout", "-q", stdin=stdin)
+        Path(os.path.join(job.tmp, "in.pack")).write_bytes(pack)
+
+    def _message(self, context: InvocationContext) -> str:
+        """An engine-written message from trusted run state only (never agent text)."""
+        run = self._store.get("runs", context.run_id) if context.run_id else None
+        inputs = (run or {}).get("inputs") or {}
+        repo, number = inputs.get("repo"), inputs.get("number")
+        target = (
+            f" for {repo}#{number}"
+            if isinstance(repo, str) and _REPO_RE.match(repo) and isinstance(number, int)
+            else ""
+        )
+        try_no = _TRY_RE.search(context.step_id or "")
+        attempt = f", try {int(try_no.group(1)) + 1}" if try_no else ""
+        return f"pr-fixer: automated fix{target} (run {context.run_id}{attempt})"
+
+    @staticmethod
+    def _build_commit(
+        job: _Job, start: str, tip: str, identity: tuple[str, str], message: str
+    ) -> str:
+        """ONE commit made by the gate: the agent tip's **tree** on ``start`` and nothing
+        else of the agent's. Author and committer are ``identity``, the message is
+        ``message`` (engine-written), both dates are the PR head's committer date, so a
+        re-run builds the same SHA and no agent-written byte (message, names, emails, dates)
+        reaches the pushed commit. The agent's own commits never leave this machine. No
+        agent commit (``tip == start``) pushes nothing new. Merges and odd ancestry are
+        refused."""
+        if tip == start:
+            return start
+        if job.git_rc("merge-base", "--is-ancestor", start, tip)[0] != 0:
+            raise _Refusal("history_rewritten", "commit_sha does not descend from start_sha")
+        if job.git("rev-list", "--min-parents=2", f"{start}..{tip}", "--").strip():
+            raise _Refusal("merge_commit", "start_sha..commit_sha holds a merge")
+        date = job.git("log", "-1", "--date=raw", "--format=%cd", start, "--").decode().strip()
+        name, email = identity
+        env = {
+            "GIT_AUTHOR_NAME": name,
+            "GIT_AUTHOR_EMAIL": email,
+            "GIT_AUTHOR_DATE": date,
+            "GIT_COMMITTER_NAME": name,
+            "GIT_COMMITTER_EMAIL": email,
+            "GIT_COMMITTER_DATE": date,
+        }
+        tree = job.git("rev-parse", "--verify", f"{tip}^{{tree}}").decode().strip()
+        msg = os.path.join(job.tmp, "message")
+        Path(msg).write_bytes(message.encode("utf-8") + b"\n")
+        with open(msg, "rb") as stdin:
+            built = job.git("commit-tree", tree, "-p", start, "-F", "-", stdin=stdin, env=env)
+        return built.decode().strip()
+
+    @staticmethod
+    def _diff(job: _Job, start: str, commit: str, cap: int) -> dict[str, Any]:
+        """``start..commit`` as text, read in the node-verified scratch repo (no external
+        diff, no textconv, no attributes), cut at ``cap`` characters (d20)."""
+        raw = job.git(
+            "diff",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--no-color",
+            "-M",
+            start,
+            commit,
+            "--",
+        )
+        problems = _non_text_changes(job, start, commit)
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError:  # replacement would hide bytes: never "complete"
+            text = raw.decode("utf-8", errors="replace")
+            problems.append("the diff is not valid UTF-8 text (bytes the reviewer cannot read)")
+        if len(text) > cap:
+            problems.insert(
+                0, f"the diff is {len(text)} characters, over the {cap} the reviewer reads"
+            )
+        return {
+            "diff": text[:cap],
+            "diff_chars": len(text),
+            "diff_truncated": bool(problems),
+            "diff_problems": problems,
+        }
 
     def _import(self, job: _Job, shas: Mapping[str, str]) -> None:
         """Stream the three commits' history out of the worktree into the scratch repo."""
@@ -1095,6 +1350,8 @@ class GatePort:
             return [Violation("history_rewritten", "", "commit_sha does not descend from start")]
         if rc != 0:
             raise _Refusal("git_failed", f"merge-base exited {rc}")
+        if job.git("rev-list", "--min-parents=2", f"{start}..{commit}", "--").strip():
+            return [Violation("merge_commit", "", "start_sha..commit_sha holds a merge")]
         patterns = self._patterns(config)
         if patterns is None:
             name = config.get("protected_paths_variable", PROTECTED_PATHS_VARIABLE)
@@ -1111,12 +1368,11 @@ class GatePort:
             patches[path] = patch.decode("utf-8", errors="replace")
         return diff_guard(names, patches, patterns)
 
-    def _checkout(self, job: _Job, sha: str) -> str:
-        """A fresh checkout of ``sha``, as the fixer user, from the node-verified pack.
+    def _workspace(self, job: _Job) -> str:
+        """The fixer's own fresh ``mktemp -d`` workspace; the caller removes it.
 
-        The pack reaches the fixer's ``git index-pack`` on stdin (a descriptor the node
-        opened), so the fixer never reads a node path. The directory is the fixer's own
-        ``mktemp -d``; the caller removes it."""
+        It holds the checkout (``checkout/``) and the gate commands' temp space
+        (``tmp/``), side by side so a repo's temp files never land in its tree."""
         rc, out = job.fixer_text(["mktemp", "-d", "-t", f"{_CHECKOUT_PREFIX}XXXXXXXXXX"], cwd="/")
         path = out.strip()
         if (
@@ -1129,7 +1385,20 @@ class GatePort:
             raise _Refusal("checkout_failed", "mktemp -d did not return a fresh directory")
         return path
 
+    @staticmethod
+    def _make_dirs(job: _Job, workspace: str) -> tuple[str, str]:
+        checkout, tmp = os.path.join(workspace, "checkout"), os.path.join(workspace, "tmp")
+        rc, out = job.fixer_text(["mkdir", "-m", "700", "--", checkout, tmp], cwd=workspace)
+        if rc != 0:
+            raise _Refusal("checkout_failed", f"mkdir failed: {out.strip()[:300]}")
+        return checkout, tmp
+
     def _fill_checkout(self, job: _Job, path: str, sha: str) -> None:
+        """Check ``sha`` out in ``path``, as the fixer user, from the node-verified pack.
+
+        The pack reaches the fixer's ``git index-pack`` on stdin (a descriptor the node
+        opened), so the fixer never reads a node path."""
+
         def step(argv: list[str], what: str, stdin: IO[bytes] | None = None) -> str:
             rc, out = job.fixer_text(argv, cwd=path, stdin=stdin)
             if rc != 0:
@@ -1152,20 +1421,28 @@ class GatePort:
 
     def _judge(self, job: _Job, spec: GateSpec, verdict: dict[str, Any], tail_bytes: int) -> None:
         """Run the gate in a fresh checkout of the commit, never in the agent's worktree."""
-        path = self._checkout(job, verdict["commit_sha"])
+        workspace = self._workspace(job)
         try:
-            self._fill_checkout(job, path, verdict["commit_sha"])
-            self._run(job, spec, verdict, tail_bytes, path)
+            checkout, tmp = self._make_dirs(job, workspace)
+            self._fill_checkout(job, checkout, verdict["commit_sha"])
+            self._run(job, spec, verdict, tail_bytes, checkout, tmp)
         finally:
-            job.remove_checkout(path)
+            job.remove_checkout(workspace)
 
     def _run(
-        self, job: _Job, spec: GateSpec, verdict: dict[str, Any], tail_bytes: int, cwd: str
+        self,
+        job: _Job,
+        spec: GateSpec,
+        verdict: dict[str, Any],
+        tail_bytes: int,
+        cwd: str,
+        tmp: str,
     ) -> None:
+        env = gate_env(tmp)
         for phase, commands in (("setup", spec.setup), ("test", spec.test)):
             for argv in commands:
                 with tempfile.TemporaryFile(dir=job.tmp) as out:
-                    rc = job.fixer(argv, out, cwd=cwd)
+                    rc = job.fixer([*env, *argv], out, cwd=cwd)
                     tail = _tail(out, tail_bytes)
                 verdict["output_tail"] = tail
                 if rc == TIMED_OUT:

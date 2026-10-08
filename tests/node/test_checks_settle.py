@@ -975,3 +975,206 @@ def test_api_server_wires_the_bounded_webhook_settle(monkeypatch):
     monkeypatch.setattr(cs, "webhook_on_check", fake)
     server_app._register_hooks(FastAPI(), MemoryStore())
     assert isinstance(seen["lister"], cs.AppSuiteLister)
+
+
+# --------------------------------------------------------------------------- d20 round 5
+
+
+def test_rearm_settles_the_same_head_again_in_a_new_generation_then_dedupes():
+    from culture_rules.node.checks_settle import rearm_settle
+
+    store, _, clock, settler = make(("a", "completed"))
+    assert settler.on_check(check_data()) == "emitted"
+    assert settler.on_check(check_data()) == "duplicate"
+    assert rearm_settle(store, REPO, SHA, reason="base_changed", now=clock()) == "rearmed"
+    assert rearm_settle(store, REPO, SHA, reason="base_changed", now=clock()) == "pending"
+    assert settler.on_check(check_data()) == "emitted"  # generation 1
+    assert settler.on_check(check_data()) == "duplicate"
+    ids = {e["id"] for e in settled(store)}
+    assert ids == {settled_event_id(REPO, SHA), settled_event_id(REPO, SHA, 1)}
+    assert settled_event_id(REPO, SHA, 0) == settled_event_id(REPO, SHA)  # unchanged ids
+
+
+def test_a_re_armed_head_also_settles_from_the_nodes_poll():
+    from culture_rules.node.checks_settle import rearm_settle
+
+    store, _, clock, settler = make(("a", "completed"))
+    settler.on_check(check_data())
+    rearm_settle(store, REPO, SHA, reason="base_changed", now=clock())
+    assert settler.tick() == 1  # no new check completion needed
+    assert len(settled(store)) == 2
+
+
+def test_rearming_is_bounded():
+    from culture_rules.node.checks_settle import REARM_LIMIT, rearm_settle
+
+    store, _, clock, settler = make(("a", "completed"))
+    settler.on_check(check_data())
+    for _ in range(REARM_LIMIT):
+        assert rearm_settle(store, REPO, SHA, reason="base_changed", now=clock()) == "rearmed"
+        assert settler.on_check(check_data()) == "emitted"
+    assert rearm_settle(store, REPO, SHA, reason="base_changed", now=clock()) == "limit"
+    assert settler.on_check(check_data()) == "duplicate"
+    assert len(settled(store)) == REARM_LIMIT + 1
+
+
+def test_rearming_a_head_never_settled_arms_it():
+    from culture_rules.node.checks_settle import rearm_settle
+
+    store, _, clock, settler = make(("a", "completed"))
+    assert rearm_settle(store, REPO, SHA, reason="base_changed", now=clock()) == "armed"
+    assert settler.tick() == 1 and len(settled(store)) == 1
+
+
+# --------------------------------------------------------------------------- d20 confirmation
+
+
+def test_c1_a_delayed_old_generation_emitter_cannot_cancel_a_re_armed_one():
+    from culture_rules.node.checks_settle import rearm_settle
+
+    store, _, clock, settler = make(("a", "completed"))
+    held = settler._arm(REPO, SHA, check_data())  # emitter B reads gen 0 ... and stalls
+    assert settler.on_check(check_data()) == "emitted"  # emitter A finishes gen 0
+    assert rearm_settle(store, REPO, SHA, reason="base_changed", cause="r1", now=clock()) == (
+        "rearmed"
+    )
+    # B resumes with its gen-0 snapshot: duplicate insert, and it must not touch gen 1
+    assert settler._emit(REPO, SHA, held, "all_completed", "failure") == "duplicate"
+    rec = store.get(SETTLE_COLLECTION, f"{REPO}@{SHA}".lower())
+    assert rec["state"] == "pending" and rec["generation"] == 1
+    assert settler._claim_poll(held, clock(), clock() + timedelta(hours=1)) is False
+    assert settler.tick() == 1  # generation 1 still settles
+
+
+def test_c2_replaying_one_refused_push_never_re_arms_twice():
+    from culture_rules.node.checks_settle import rearm_settle
+
+    store, _, clock, settler = make(("a", "completed"))
+    settler.on_check(check_data())
+    assert rearm_settle(store, REPO, SHA, reason="base_changed", cause="rev-1", now=clock()) == (
+        "rearmed"
+    )
+    assert settler.tick() == 1  # generation 1 settles
+    # the same refused push replayed (same review record): a no-op, not generation 2
+    assert rearm_settle(store, REPO, SHA, reason="base_changed", cause="rev-1", now=clock()) == (
+        "replayed"
+    )
+    assert settler.tick() == 0 and len(settled(store)) == 2
+    # a new refusal (another review) still re-arms
+    assert rearm_settle(store, REPO, SHA, reason="base_changed", cause="rev-2", now=clock()) == (
+        "rearmed"
+    )
+
+
+def test_c3_arming_an_unseen_head_keeps_the_pr_so_the_event_can_start_a_run():
+    from culture_rules.node.checks_settle import rearm_settle
+
+    pr = {
+        "head": {"sha": SHA, "ref": "feat", "repo": {"full_name": REPO}},
+        "base": {"sha": "c" * 40, "ref": "main", "repo": {"full_name": REPO}},
+        "draft": False,
+        "user": {"login": "alice"},
+    }
+    store, _, clock, settler = make(("a", "completed"), pull=lambda r, n: pr)
+    assert (
+        rearm_settle(
+            store,
+            REPO,
+            SHA,
+            reason="base_changed",
+            cause="rev-1",
+            number=7,
+            head_branch="feat",
+            now=clock(),
+        )
+        == "armed"
+    )
+    assert settler.tick() == 1
+    (event,) = settled(store)
+    data = event["envelope"]["data"]
+    assert data["number"] == 7 and data["pr_numbers"] == [7] and data["head_branch"] == "feat"
+    assert data["base_sha"] == "c" * 40  # current PR facts fetched with that number
+
+
+# --------------------------------------------------------------------------- d20 final check
+
+
+def test_f1_a_refusal_coalesced_into_a_pending_settle_is_recorded():
+    from culture_rules.node.checks_settle import rearm_settle
+
+    store, _, clock, settler = make(("a", "in_progress"))
+    settler.on_check(check_data())  # pending: checks still running
+    assert rearm_settle(store, REPO, SHA, reason="base_changed", cause="rev-B", now=clock()) == (
+        "pending"
+    )
+    settler._suites.suites["a"] = "completed"
+    assert settler.on_check(check_data()) == "emitted"
+    # replaying B after the settle it was folded into: a no-op
+    assert rearm_settle(store, REPO, SHA, reason="base_changed", cause="rev-B", now=clock()) == (
+        "replayed"
+    )
+    assert len(settled(store)) == 1
+
+
+def test_f2_a_pending_settle_without_pr_numbers_gains_them_from_the_refusal():
+    from culture_rules.node.checks_settle import rearm_settle
+
+    pr = {
+        "head": {"sha": SHA, "ref": "feat", "repo": {"full_name": REPO}},
+        "base": {"sha": "c" * 40, "ref": "main", "repo": {"full_name": REPO}},
+        "draft": False,
+        "user": {"login": "alice"},
+    }
+    store, lister, clock, settler = make(("a", "in_progress"), pull=lambda r, n: pr)
+    settler.on_check({"repository": REPO, "head_sha": SHA})  # no PR numbers, no branch
+    assert (
+        rearm_settle(
+            store,
+            REPO,
+            SHA,
+            reason="base_changed",
+            cause="rev-1",
+            number=7,
+            head_branch="feat",
+            now=clock(),
+        )
+        == "pending"
+    )
+    lister.suites["a"] = "completed"
+    assert settler.tick() == 1
+    data = settled(store)[0]["envelope"]["data"]
+    assert data["number"] == 7 and data["head_branch"] == "feat"
+    assert data["base_sha"] == "c" * 40
+
+
+def test_f2_a_pending_fill_never_reopens_a_settle_that_finished_meanwhile():
+    from culture_rules.node import checks_settle
+    from culture_rules.node.checks_settle import rearm_settle
+
+    store, _, clock, settler = make(("a", "in_progress"))
+    settler.on_check({"repository": REPO, "head_sha": SHA})
+    rid = f"{REPO}@{SHA}".lower()
+    real = store.update_if
+
+    def settle_first(collection, id, expected, changes, **kw):
+        if collection == checks_settle.SETTLE_COLLECTION and "rearm_causes" in changes:
+            real(collection, id, {"state": "pending"}, {"state": "emitted"})  # a racing emit
+        return real(collection, id, expected, changes, **kw)
+
+    store.update_if = settle_first
+    outcome = rearm_settle(
+        store,
+        REPO,
+        SHA,
+        reason="base_changed",
+        cause="rev-1",
+        number=7,
+        head_branch="feat",
+        now=clock(),
+    )
+    store.update_if = real
+    rec = store.get(SETTLE_COLLECTION, rid)
+    # the lost race was retried: the emitted settle is re-armed with the cause, not reopened
+    # silently by the fill
+    assert outcome == "rearmed" and rec["state"] == "pending" and rec["generation"] == 1
+    assert rec["rearm_causes"] == ["rev-1"] and rec["number"] == 7

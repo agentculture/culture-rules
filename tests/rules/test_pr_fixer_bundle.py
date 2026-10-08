@@ -21,7 +21,9 @@ from pathlib import Path
 
 import pytest
 
+from culture_rules.actors.agent import BridgeAgentActor, record_bridge_event
 from culture_rules.actors.gate import GatePort
+from culture_rules.actors.review import ReviewVerdictPort
 from culture_rules.apps.github import GitHubError
 from culture_rules.cli import main
 from culture_rules.engine.actorport import InvocationResult
@@ -148,14 +150,36 @@ def test_the_workflow_steps_and_placements():
     assert top["quiet"].config["guard"]["value"] == "head_unchanged"
     fix = top["fix"]
     assert fix.kind == "retry_until" and fix.max_iterations == 3
-    assert fix.config["until"]["items"] == {"literal": ["pass", "no_gate"]}
-    agent, gate = fix.body
+    gate_ok, approved = fix.config["until"]["args"]
+    assert fix.config["until"]["op"] == "and"
+    assert gate_ok["items"] == {"literal": ["pass", "no_gate"]}
+    assert gate_ok["value"] == {"field": "verdict"}
+    assert approved == {
+        "op": "compare",
+        "cmp": "==",
+        "left": {"field": "review"},
+        "right": {"literal": "approve"},
+    }
+    assert fix.config["carry"] == {"instruction": "instruction"}
+    assert fix.config["explain"] == "instruction"
+    agent, gate, review, verdict = fix.body
     assert agent.placement.actor == "qwen-fixer" and agent.config["mode"] == "yolo"
     assert gate.config == {"builtin": "gate"} and gate.placement.machine == "spark2"
+    # d20: an independent, read-only reviewer, only after a passing gate whose diff fit
+    assert review.kind == "ai" and review.placement.actor == "codex-reviewer"
+    assert review.config["sandbox"] == "read-only"
+    assert review.config["when"]["args"][0]["items"] == {"literal": ["pass", "no_gate"]}
+    assert review.config["when"]["args"][1]["right"] == {"literal": False}
+    assert "instruction" not in {p.name for p in review.inputs}  # the brief is the config's
+    assert not {"prompt", "task", "text"} & {p.name for p in review.inputs}
+    assert verdict.config == {"builtin": "review"} and verdict.placement is None
+    assert [p.name for p in verdict.inputs] == ["task"]  # nothing safety-relevant is wired
     push = top["push"]
     assert push.config["action"]["kind"] == "github.push"
     assert push.config["action"]["params"]["gate_verdict"] == "inputs.verdict"
     assert push.placement.machine == "spark2"
+    # the review is enforced by the push port from the store, never a wired param
+    assert not [k for k in push.config["action"]["params"] if "review" in k]
     (reply,) = top["replies"].body
     assert reply.config["action"]["kind"] == "github.review_reply"
     assert reply.config["action"]["params"]["comment_id"] == "inputs.item.comment_id"
@@ -177,9 +201,18 @@ def test_import_with_apply_validates_and_writes_the_definitions():
     seed(mem)
     defs = Definitions(mem)
     files = _files()
+    actors = {k: v for k, v in files.items() if k.startswith("actors/")}
     workflows = {k: v for k, v in files.items() if k.startswith("workflows/")}
     rules = {k: v for k, v in files.items() if k.startswith("rules/")}
-    # As the CLI does it: `workflows import`, then `rules import` (a rule needs its workflow).
+    assert sorted(actors) == ["actors/codex-reviewer.json"]  # d20: the reviewer ships too
+    # As the CLI does it: `actors import`, `workflows import`, then `rules import`.
+    assert defs.import_files(actors, "admin@test", apply=True)["applied"] is True
+    reviewer = mem.get("actors", "codex-reviewer")
+    assert reviewer["machine"] == "spark" and reviewer["harness"] == "codex"
+    assert reviewer["params"]["sandbox"] == "read-only"
+    assert reviewer["params"]["max_concurrency"] == 1
+    assert reviewer["params"]["max_bound_input_chars"] == 60000
+    assert reviewer["params"]["bridge_token"].startswith("grant:")
     assert defs.import_files(workflows, "admin@test", apply=True)["applied"] is True
     plan = defs.import_files(rules, "admin@test", apply=True)
     assert plan["applied"] is True and plan["errors"] == []
@@ -505,10 +538,101 @@ AGENT_ACTOR = {
     "id": "qwen-fixer",
     "name": "PR fixer",
     "kind": "agent",
+    "harness": "qwen",
     "machine": "spark2",
     "params": {"bridge_url": "http://127.0.0.1:8093", "callback_url": "http://127.0.0.1:1"},
     "schema_version": "1.0",
 }
+
+
+def reviewer_actor() -> dict:
+    """The shipped codex-reviewer actor (docs/rules/pr-fixer/actors)."""
+    (actor,) = bundle().actors
+    return actor.to_dict()
+
+
+def verdict_text(commit: str, verdict: str = "approve", findings=None) -> str:
+    """What a reviewer's bridge result carries in ``summary``: the verdict as JSON text."""
+    return json.dumps({"verdict": verdict, "findings": findings or [], "reviewed_commit": commit})
+
+
+class ReviewerBridge:
+    """A codex bridge behind the real :class:`BridgeAgentActor`: a transport double.
+
+    Each ``POST /v1/invocations`` is answered 202, and the scripted terminal event is
+    recorded at once through :func:`record_bridge_event` with the per-invocation callback
+    token, exactly as the bridge would call back; the node cycle then delivers it.
+    ``script`` holds one entry per review: a callable ``(commit) -> summary`` or a dict of
+    bridge-result overrides (``summary`` may be such a callable; ``fail`` sends a failed
+    event). ``inputs`` are the bridge ``input`` objects it received."""
+
+    def __init__(self, base, script=None) -> None:
+        self.store = base
+        self.script = list(script or [])
+        self.inputs: list[dict] = []
+        self.urls: list[str] = []
+        self.seq = 0
+        self.on_request = None  # called as each review request arrives
+
+    def __call__(self, method, url, body, headers, timeout):
+        self.urls.append(url)
+        if self.on_request is not None:
+            self.on_request()
+        doc = json.loads(body)
+        given = doc["input"]
+        self.inputs.append(given)
+        commit = given.get("commit_sha")
+        entry = self.script.pop(0) if self.script else verdict_text
+        over = entry if isinstance(entry, dict) else {"summary": entry}
+        result = {
+            "schema": "cultureagent.bridge.result/v1",
+            "backend": "codex",
+            "status": "no_changes",
+            "head_before": given.get("head_sha"),
+            "head_after": given.get("head_sha"),
+            "commits": [],
+            "dirty": False,
+            "threads_addressed": [],
+            "summary": verdict_text,
+            **over,
+        }
+        if callable(result["summary"]):
+            result["summary"] = result["summary"](commit)
+        self.seq += 1
+        if result.get("fail"):
+            event = {
+                "kind": "failed",
+                "sequence": self.seq,
+                "payload": {"class": "timeout", "message": result["fail"]},
+            }
+        else:
+            event = {"kind": "completed", "sequence": self.seq, "payload": {"result": result}}
+        inv = doc["callback"]["url"].rsplit("/", 2)[-2]
+        assert record_bridge_event(self.store, inv, doc["callback"]["token"], event) == "recorded"
+        return 202, json.dumps({"invocation_id": f"inv-{self.seq}"}).encode()
+
+
+def reviewer_adapter(base, actor, transport, clock) -> BridgeAgentActor:
+    """The codex-reviewer adapter as the node factory builds it, with a fake transport."""
+    params = actor.params
+    return BridgeAgentActor(
+        base,
+        bridge_url=params["bridge_url"],
+        callback_url=params["callback_url"],
+        token="t",  # a fake bridge needs no real bearer
+        resolve_secret=lambda ref: ref,
+        defaults={
+            "model": params.get("model") or actor.model,
+            "sandbox": params.get("sandbox"),
+            "mode": params.get("mode"),
+            "locked_instruction": params.get("locked_instruction"),
+        },
+        actor_id=actor.id,
+        transport=transport,
+        clock=clock,
+        max_bound_input_chars=params.get("max_bound_input_chars"),
+        actor_doc=actor.to_dict(),
+    )
 
 
 class BridgeAgent(FakeActor):
@@ -530,6 +654,7 @@ class BridgeAgent(FakeActor):
                 "complete",
                 {
                     "schema": "cultureagent.bridge.result/v1",
+                    "backend": "qwen",
                     "status": "completed",
                     "summary": "made x 3",
                     "head_before": self.repo.start,
@@ -569,21 +694,51 @@ class PushRecorder(FakeActor):
 class World:
     """Two nodes on one store: spark (the App actor) and spark2 (the fixer machine)."""
 
-    def __init__(self, tmp_path: Path, *, push=None, on_invoke=None) -> None:
+    def __init__(
+        self,
+        tmp_path: Path,
+        *,
+        push=None,
+        on_invoke=None,
+        reviews=None,
+        workflow=None,
+        reviewer_fake=None,
+        qwen_reviews=False,
+        extra_actors=None,
+    ) -> None:
+        """``extra_actors``: ``{actor doc: adapter}`` for workflow-edit scenarios."""
         self.repo = Repo(tmp_path, gate_yaml([PASSING]))
         self.c = Cluster("spark", "spark2")
         base = self.c.base
         enrol_online(base, self.c.clock, machine("spark"), machine("spark2"))
         base.put("actors", copy.deepcopy(APP_ACTOR))
         base.put("actors", copy.deepcopy(AGENT_ACTOR))
+        base.put("actors", reviewer_actor())
         for doc in rule_docs().values():
             base.put("rules", doc)
-        base.put("workflows", workflow_doc())
+        base.put("workflows", workflow if workflow is not None else workflow_doc())
         seed(base)
         self.agent = BridgeAgent(self.repo, on_invoke=on_invoke)
+        self.reviewer = ReviewerBridge(base, reviews)
+        self.reviewer_fake = reviewer_fake  # a FakeActor standing in for the bridge path
         self.runner = LocalRunner()
+
+        def head(inp, ctx):
+            self.heads.append((ctx.host, inp["repo"], inp["number"]))
+            return {"head_sha": self.moved_head or self.repo.start, "base_sha": self.repo.base}
+
+        def gate_lookup(inp, ctx):  # the App's view of the PR, as the gate reads it
+            self.gate_lookups.append((ctx.actor, inp["repo"], inp["number"]))
+            return {"head_sha": self.moved_head or self.repo.start, "base_sha": self.repo.base}
+
+        self.head_port = FakeActor(default=head)
+        self.gate_lookups: list[tuple] = []
         gate = GatePort(
-            base, run_as=self.runner, bundle_dir=tmp_path / "bundles", clock=self.c.clock
+            base,
+            run_as=self.runner,
+            bundle_dir=tmp_path / "bundles",
+            clock=self.c.clock,
+            pr_lookup=FakeActor(default=gate_lookup),
         )
         self.push = push(base) if push is not None else PushRecorder()
         self.reply = FakeActor(default=lambda inp, ctx: {"comment_id": 1, "resolved": True})
@@ -613,31 +768,63 @@ class World:
         threads = GitHubThreadsPort(base)
         threads._app = lambda actor_id, conn, allowed: self.app  # the App seam
 
-        def head(inp, ctx):
-            self.heads.append((ctx.host, inp["repo"], inp["number"]))
-            return {"head_sha": self.moved_head or self.repo.start}
-
         ports = {
-            "action:github.pr_head": FakeActor(default=head),
+            "action:github.pr_head": self.head_port,
             "action:github.push": self.push,
             "action:github.review_reply": self.reply,
             "action:github.comment": self.comment,
             "code": BuiltinCodePort(
                 {
                     "gate": gate,
+                    "review": ReviewVerdictPort(base, clock=self.c.clock),
                     "github.threads": threads,
                     "github.threads_addressed": AddressedThreadsPort(),
                 }
             ),
         }
+
+        base_ = base
+        world = self
+
+        class ReviewRouter:
+            """``qwen_reviews``: a Qwen actor's review steps go through the real bridge
+            adapter too (to prove a non-reviewer actor cannot review)."""
+
+            supports_idempotency_key = False
+
+            def __init__(self, actor) -> None:
+                self.bridge = reviewer_adapter(base_, actor, world.reviewer, world.c.clock)
+
+            def invoke(self, input, key, deadline, *, context):
+                if context.step_id.endswith("/review"):
+                    return self.bridge.invoke(input, key, deadline, context=context)
+                return world.agent.invoke(input, key, deadline, context=context)
+
+        extra = {doc["id"]: adapter for doc, adapter in (extra_actors or [])}
+        for doc, _adapter in extra_actors or []:
+            base.put("actors", copy.deepcopy(doc))
+
+        def agent_for(actor):
+            if actor.id in extra:
+                return extra[actor.id]
+            if actor.id != "codex-reviewer" and qwen_reviews:
+                return ReviewRouter(actor)
+            if actor.id != "codex-reviewer":
+                return self.agent
+            if self.reviewer_fake is not None:
+                return self.reviewer_fake
+            return reviewer_adapter(base, actor, self.reviewer, self.c.clock)
+
         for host in ("spark", "spark2"):
-            self.c.nodes[host] = self.c.node(
-                host, actors=ports, adapters={"agent": lambda actor: self.agent}
-            )
+            self.c.nodes[host] = self.c.node(host, actors=ports, adapters={"agent": agent_for})
         self.c.start()
 
-    def fire(self) -> dict:
-        data = pr_facts(head_sha=self.repo.start, base_sha=self.repo.base, conclusion="failure")
+    def fire(self, base_sha: str | None = None) -> dict:
+        """Settle red checks on the PR; ``base_sha`` overrides the base the run is given
+        (the PR's real base, which the App reports, stays ``repo.base``)."""
+        data = pr_facts(
+            head_sha=self.repo.start, base_sha=base_sha or self.repo.base, conclusion="failure"
+        )
         self.c.publish(envelope(1, type="github.pr.checks_settled", data=data))
         self.cycle()
         self.c.clock.advance(301)  # past the quiet period
@@ -690,7 +877,7 @@ def test_a_settled_failing_pr_is_fixed_pushed_replied_and_commented(tmp_path):
     assert push_call[1]["gate_verdict"] == "pass"
     assert push_call[1]["source"] == gate["outputs"]["bundle"]
     assert push_call[1]["expected_head_sha"] == w.repo.start
-    assert push_call[1]["commit_sha"] == step_state(doc, "fix[0]/agent")["outputs"]["head_after"]
+    assert push_call[1]["commit_sha"] == gate["outputs"]["commit_sha"]  # the gate-built one
     assert step_state(doc, "push")["host"] == "spark2"
     assert step_state(doc, "fix[0]/agent")["host"] == "spark2"
     # one reply per addressed thread, by REST comment id, resolving it

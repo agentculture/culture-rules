@@ -26,8 +26,10 @@ actor's ``params`` name a ``bridge_url``, an async cultureagent bridge session
 (:class:`~culture_rules.actors.agent.BridgeAgentActor`; ``params``: ``bridge_url``,
 ``callback_url`` the API base URL the bridge posts its callbacks to (``POST
 /bridge-invocations/{id}/events``; an ``{id}`` placeholder in it is filled instead),
-``bridge_token`` a ``grant:`` reference for the bridge's bearer token, and
-``model``/``sandbox``/``mode`` defaults),
+``bridge_token`` a ``grant:`` reference for the bridge's bearer token,
+``model``/``sandbox``/``mode`` defaults - a ``read-only`` sandbox cannot be widened by a
+step - and an optional ``max_bound_input_chars`` that refuses bound inputs the bridge would
+cut),
 ``runner`` ->
 registered commands only (:class:`~culture_rules.actors.code.CodeRunner`, inline scripts
 refused), ``human`` -> asks (:class:`~culture_rules.actors.human.HumanAdapter`, only when
@@ -40,6 +42,7 @@ Standard-library only.
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from typing import Any
@@ -69,7 +72,9 @@ def default_factories(store: Any, *, emitter: Any = None) -> dict[str, AdapterFa
     from culture_rules.actors.agent import BridgeAgentActor, ColleagueActor
     from culture_rules.actors.code import CodeRunner
 
-    def agent(actor: Actor) -> ActorPort:
+    def agent(actor: Actor, doc: Mapping[str, Any]) -> ActorPort:
+        """``doc`` is the raw stored document (required): the bridge adapter's security
+        snapshot, never a sanitised model dump that may have dropped fields."""
         params = actor.params
         if params.get("bridge_url"):
             return BridgeAgentActor(
@@ -81,8 +86,12 @@ def default_factories(store: Any, *, emitter: Any = None) -> dict[str, AdapterFa
                     "model": params.get("model") or actor.model,
                     "sandbox": params.get("sandbox"),
                     "mode": params.get("mode"),
+                    "locked_instruction": params.get("locked_instruction"),
                 },
                 actor_id=actor.id,
+                max_bound_input_chars=params.get("max_bound_input_chars"),
+                # the raw stored document (round 5): the model drops fields like deleted_at
+                actor_doc=doc,
             )
         return ColleagueActor(
             repo=params.get("repo") or actor.repo, engine=params.get("engine"), model=actor.model
@@ -139,6 +148,8 @@ class ActorRouter:
     def _action_port(self, ctx: InvocationContext, actor_id: Any) -> ActorPort | None:
         """The named actor's limited action port, or an ``actor_unavailable`` port."""
         doc = self._store.get(ACTORS_COLLECTION, actor_id) if isinstance(actor_id, str) else None
+        if _tombstoned(doc):  # judged on the raw document: the model drops deleted_at
+            return _Unavailable()
         actor = Actor.from_dict(doc, strict=False) if doc is not None else None
         if actor is None or not actor.enabled:
             return _Unavailable()
@@ -160,7 +171,7 @@ class ActorRouter:
     def limited(self, actor_id: str) -> LimitedActor | None:
         """The cached LimitedActor for a stored, enabled actor with a known kind, else None."""
         doc = self._store.get(ACTORS_COLLECTION, actor_id)
-        if doc is None:
+        if doc is None or _tombstoned(doc):  # before conversion and before the cache
             return None
         actor = Actor.from_dict(doc, strict=False)
         factory = self._factories.get(actor.kind)
@@ -172,7 +183,11 @@ class ActorRouter:
             return cached[1]
         config = ActorConfig(key=actor.id, kind=actor.kind, extras=dict(actor.params))
         limited = LimitedActor(
-            factory(actor), actor.id, limits_from_config(config), self._store, clock=self._clock
+            _build(factory, actor, doc),
+            actor.id,
+            limits_from_config(config),
+            self._store,
+            clock=self._clock,
         )
         self._cache[actor_id] = (revision, limited)
         return limited
@@ -186,6 +201,23 @@ class ActorRouter:
             return False
         limited.release(key, tokens=tokens_of(result), completed=result.outcome == COMPLETED)
         return True
+
+
+def _tombstoned(doc: Any) -> bool:
+    """A soft-deleted actor document (``deleted_at`` set): never routed to."""
+    return isinstance(doc, Mapping) and bool(doc.get("deleted_at"))
+
+
+def _build(factory: Any, actor: Actor, doc: Mapping[str, Any]) -> ActorPort:
+    """``factory(actor, doc)`` for a factory that takes the raw stored document (the
+    security snapshot, round 5), else ``factory(actor)``."""
+    try:
+        params = inspect.signature(factory).parameters
+    except (TypeError, ValueError):
+        return factory(actor)
+    if len(params) >= 2:
+        return factory(actor, dict(doc))
+    return factory(actor)
 
 
 class _Unavailable:

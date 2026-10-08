@@ -28,10 +28,14 @@ def _load(rel: str) -> dict:
 PR_FIXER_WORKFLOW = [
     "1 quiet — wait 300 s; stop if the PR head moves (head_unchanged, as github-app)",
     "2 threads — github.threads as github-app: unresolved threads by trusted authors",
-    "3 fix — retry up to 3×, until verdict ∈ {pass, no_gate}:",
+    "3 fix — retry up to 3×, until verdict ∈ {pass, no_gate} and review = approve:",
     "  3.1 agent — qwen-fixer (agent)",
     "  3.2 gate — test gate on spark2",
-    "4 push — github.push as github-app on spark2 (only on a passing gate)",
+    "  3.3 review — codex-reviewer (agent, read-only), when gate_verdict ∈ {pass, no_gate}"
+    " and diff_truncated = false",
+    "  3.4 verdict — review verdict, recorded for github.push",
+    "4 push — github.push as github-app on spark2 (only on a passing gate and an approving"
+    " review)",
     "5 pick — github.threads_addressed",
     "6 replies — for each item (≤200): github.review_reply as github-app and resolve",
 ]
@@ -88,7 +92,7 @@ def test_entries_shape():
     entries = describe_workflow(_load("workflows/pr-fixer.json"))
     assert entries[2] == {
         "label": "3",
-        "text": "retry up to 3×, until verdict ∈ {pass, no_gate}:",
+        "text": "retry up to 3×, until verdict ∈ {pass, no_gate} and review = approve:",
         "depth": 0,
         "step": "fix",
     }
@@ -131,6 +135,36 @@ def _step(kind: str, **kw) -> dict:
             "github.threads on orin: unresolved threads by trusted authors",
         ),
         (_step("code", config={"builtin": "mystery"}), "builtin mystery"),
+        (_step("code", config={"builtin": "review"}), "review verdict, recorded for github.push"),
+        (
+            _step("ai", placement={"actor": "rev"}, config={"sandbox": "read-only"}),
+            "rev (agent, read-only)",
+        ),
+        (
+            _step(
+                "ai",
+                placement={"actor": "rev"},
+                config={
+                    "when": {
+                        "op": "compare",
+                        "cmp": "==",
+                        "left": {"field": "ok"},
+                        "right": {"literal": True},
+                    }
+                },
+            ),
+            "rev (agent), when ok = true",
+        ),
+        (
+            _step(
+                "code",
+                config={
+                    "builtin": "action",
+                    "action": {"kind": "github.push", "params": {"actor": "app"}},
+                },
+            ),
+            "github.push as app (only on an approving review)",
+        ),
         (_step("code", config={"builtin": "action"}), "?"),
         (
             _step(
@@ -208,7 +242,10 @@ def test_loop_with_several_body_steps_nests_and_one_step_inlines():
             {"kind": "machine.command", "params": {"actor": "thor", "command": "reboot"}},
             "machine.command as thor `reboot`",
         ),
-        ({"kind": "github.push", "params": {"actor": "{{ x }}"}}, "github.push"),
+        (
+            {"kind": "github.push", "params": {"actor": "{{ x }}"}},
+            "github.push (only on an approving review)",
+        ),
         ({"kind": "future.kind", "params": {"actor": "a"}}, "future.kind as a"),
     ],
 )
