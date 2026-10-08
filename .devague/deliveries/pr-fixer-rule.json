@@ -2,7 +2,7 @@
   "plan_slug": "pr-fixer-rule",
   "schema_version": 2,
   "created": "2026-10-06T08:44:59Z",
-  "updated": "2026-10-08T09:25:23Z",
+  "updated": "2026-10-08T09:37:25Z",
   "deviations": [
     {
       "id": "d1",
@@ -337,7 +337,7 @@
         "commit": "f388a02"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 23
     },
@@ -353,7 +353,7 @@
       "outcome": "pass",
       "run": null,
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 24
     },
@@ -372,7 +372,7 @@
         "commit": "f388a02"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 25
     },
@@ -388,7 +388,7 @@
       "outcome": "pass",
       "run": null,
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 26
     },
@@ -407,7 +407,7 @@
         "commit": "f388a02"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 27
     },
@@ -423,7 +423,7 @@
       "outcome": "pass",
       "run": null,
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 28
     },
@@ -439,7 +439,7 @@
       "outcome": "fail",
       "run": null,
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 29
     },
@@ -458,7 +458,7 @@
         "commit": "f388a02"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 30
     },
@@ -474,7 +474,7 @@
       "outcome": "pass",
       "run": null,
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 31
     },
@@ -493,7 +493,7 @@
         "commit": "f388a02"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 32
     },
@@ -509,7 +509,7 @@
       "outcome": "pass",
       "run": null,
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 33
     },
@@ -528,7 +528,7 @@
         "commit": "f388a02"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 34
     },
@@ -544,7 +544,7 @@
       "outcome": "pass",
       "run": null,
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 35
     },
@@ -560,7 +560,7 @@
       "outcome": "fail",
       "run": null,
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 36
     },
@@ -579,7 +579,7 @@
         "commit": "f388a02"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 37
     },
@@ -595,7 +595,7 @@
       "outcome": "pass",
       "run": null,
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 38
     },
@@ -614,7 +614,7 @@
         "commit": "f388a02"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 39
     },
@@ -630,7 +630,7 @@
       "outcome": "pass",
       "run": null,
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 40
     },
@@ -649,7 +649,7 @@
         "commit": "f388a02"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 41
     },
@@ -665,7 +665,7 @@
       "outcome": "pass",
       "run": null,
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 42
     },
@@ -684,7 +684,7 @@
         "commit": "f388a02"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 43
     },
@@ -700,7 +700,7 @@
       "outcome": "pass",
       "run": null,
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 44
     },
@@ -719,7 +719,7 @@
         "commit": "f388a02"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 45
     },
@@ -735,7 +735,7 @@
       "outcome": "pass",
       "run": null,
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 46
     },
@@ -754,7 +754,7 @@
         "commit": "f388a02"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 47
     },
@@ -770,7 +770,7 @@
       "outcome": "pass",
       "run": null,
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 48
     },
@@ -789,7 +789,7 @@
         "commit": "f388a02"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 49
     },
@@ -805,7 +805,7 @@
       "outcome": "pass",
       "run": null,
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 50
     },
@@ -821,7 +821,7 @@
       "outcome": "fail",
       "run": null,
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 51
     },
@@ -840,7 +840,7 @@
         "commit": "f388a02"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 52
     },
@@ -856,7 +856,7 @@
       "outcome": "pass",
       "run": null,
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 53
     },
@@ -872,7 +872,7 @@
       "outcome": "fail",
       "run": null,
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 54
     },
@@ -891,7 +891,7 @@
         "commit": "f388a02"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 55
     },
@@ -907,7 +907,7 @@
       "outcome": "pass",
       "run": null,
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 56
     },
@@ -923,7 +923,7 @@
       "outcome": "fail",
       "run": null,
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 57
     },
@@ -942,7 +942,7 @@
         "commit": "f388a02"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 58
     },
@@ -958,7 +958,7 @@
       "outcome": "pass",
       "run": null,
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 59
     },
@@ -977,7 +977,7 @@
         "commit": "f388a02"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 60
     },
@@ -993,7 +993,7 @@
       "outcome": "pass",
       "run": null,
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 61
     },
@@ -1012,7 +1012,7 @@
         "commit": "f388a02"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 62
     },
@@ -1031,7 +1031,7 @@
         "commit": "f388a02"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 63
     },
@@ -1050,7 +1050,7 @@
         "commit": "f388a02"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 64
     },
@@ -1066,7 +1066,7 @@
       "outcome": "pass",
       "run": null,
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 65
     },
@@ -1085,7 +1085,7 @@
         "commit": "f388a02"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 66
     },
@@ -1101,7 +1101,7 @@
       "outcome": "pass",
       "run": null,
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 67
     },
@@ -1120,7 +1120,7 @@
         "commit": "f388a02"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 68
     },
@@ -1136,7 +1136,7 @@
       "outcome": "pass",
       "run": null,
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 69
     },
@@ -1152,7 +1152,7 @@
       "outcome": "fail",
       "run": null,
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 70
     },
@@ -1171,7 +1171,7 @@
         "commit": "f388a02"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 71
     },
@@ -1187,7 +1187,7 @@
       "outcome": "pass",
       "run": null,
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 72
     },
@@ -1203,7 +1203,7 @@
       "outcome": "fail",
       "run": null,
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 73
     },
@@ -1222,7 +1222,7 @@
         "commit": "f388a02"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 74
     },
@@ -1238,7 +1238,7 @@
       "outcome": "pass",
       "run": null,
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 75
     },
@@ -1257,7 +1257,7 @@
         "commit": "f388a02"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 76
     },
@@ -1273,7 +1273,7 @@
       "outcome": "pass",
       "run": null,
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 77
     },
@@ -1292,7 +1292,7 @@
         "commit": "f388a02"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 78
     },
@@ -1308,7 +1308,7 @@
       "outcome": "pass",
       "run": null,
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 79
     },
@@ -1324,7 +1324,7 @@
       "outcome": "fail",
       "run": null,
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 80
     },
@@ -1343,7 +1343,7 @@
         "commit": "f388a02"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 81
     },
@@ -1362,7 +1362,7 @@
         "commit": "f388a02"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 82
     },
@@ -1381,7 +1381,7 @@
         "commit": "f388a02"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 83
     },
@@ -1397,7 +1397,7 @@
       "outcome": "pass",
       "run": null,
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 84
     },
@@ -1416,7 +1416,7 @@
         "commit": "f388a02"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 85
     },
@@ -1432,7 +1432,7 @@
       "outcome": "pass",
       "run": null,
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 86
     },
@@ -1451,7 +1451,7 @@
         "commit": "f388a02"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 87
     },
@@ -1467,7 +1467,7 @@
       "outcome": "pass",
       "run": null,
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 88
     },
@@ -1486,7 +1486,7 @@
         "commit": "f388a02"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 89
     },
@@ -1502,7 +1502,7 @@
       "outcome": "pass",
       "run": null,
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 90
     },
@@ -1521,7 +1521,7 @@
         "commit": "f388a02"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 91
     },
@@ -1537,7 +1537,7 @@
       "outcome": "pass",
       "run": null,
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 92
     },
@@ -1556,7 +1556,7 @@
         "commit": "f388a02"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 93
     },
@@ -1572,7 +1572,7 @@
       "outcome": "fail",
       "run": null,
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 94
     },
@@ -1591,7 +1591,7 @@
         "commit": "f388a02"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 95
     },
@@ -1607,7 +1607,7 @@
       "outcome": "pass",
       "run": null,
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 96
     },
@@ -1626,7 +1626,7 @@
         "commit": "f388a02"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 97
     },
@@ -1642,7 +1642,7 @@
       "outcome": "pass",
       "run": null,
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 98
     },
@@ -1658,7 +1658,7 @@
       "outcome": "fail",
       "run": null,
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 99
     }
@@ -1675,7 +1675,7 @@
         "e44"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false
     },
     {
@@ -1689,7 +1689,7 @@
         "e8"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false
     },
     {
@@ -1703,7 +1703,7 @@
         "e21"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false
     },
     {
@@ -1717,7 +1717,7 @@
         "e61"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false
     },
     {
@@ -1731,7 +1731,7 @@
         "e61"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false
     },
     {
@@ -1745,7 +1745,7 @@
         "e25"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false
     },
     {
@@ -1759,7 +1759,7 @@
         "e17"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false
     },
     {
@@ -1773,7 +1773,7 @@
         "e5"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false
     },
     {
@@ -1787,7 +1787,7 @@
         "e33"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false
     },
     {
@@ -1801,7 +1801,7 @@
         "e27"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false
     },
     {
@@ -1815,7 +1815,7 @@
         "e54"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false
     },
     {
@@ -1829,7 +1829,7 @@
         "e38"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false
     }
   ],
