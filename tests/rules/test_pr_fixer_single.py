@@ -1,11 +1,15 @@
-"""t17: the PR fixer as committed data (docs/rules/pr-fixer), imported, fired and run.
+"""t17/d20: the single-workflow PR fixer (0.13.0), fired and run end to end.
 
-Four rules (one trigger type each, d13) share the ``pr-fixer`` workflow: quiet period ->
-retry_until(agent -> gate) -> github.push -> one github.review_reply per addressed thread,
-then the rule's github.comment with the run link. The rules ship disabled; the tests enable
-copies. Events are replayed through the node's own ingest -> firing path (``Cluster``), and
-the workflow runs end to end on two nodes (spark: the App actor; spark2: the fixer machine)
-with a fake bridge agent, the real test gate and a recording or the real push port.
+d21 split the shipped fixer into chained rules and workflows (docs/rules/pr-fixer); the
+single ``pr-fixer`` workflow stays trusted while runs pinned to it may still push, so its
+guarantees stay tested here against a copy of its data (tests/rules/fixtures/
+pr-fixer-single). Four rules (one trigger type each, d13) share the ``pr-fixer`` workflow:
+quiet period -> retry_until(agent -> gate -> review -> verdict) -> github.push -> one
+github.review_reply per addressed thread, then the rule's github.comment with the run link.
+The rules ship disabled; the tests enable copies. Events are replayed through the node's
+own ingest -> firing path (``Cluster``), and the workflow runs end to end on two nodes
+(spark: the App actor; spark2: the fixer machine) with a fake bridge agent, the real test
+gate and a recording or the real push port.
 """
 
 from __future__ import annotations
@@ -15,8 +19,6 @@ import copy
 import hashlib
 import hmac
 import json
-import os
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -25,7 +27,6 @@ from culture_rules.actors.agent import BridgeAgentActor, record_bridge_event
 from culture_rules.actors.gate import GatePort
 from culture_rules.actors.review import ReviewVerdictPort
 from culture_rules.apps.github import GitHubError
-from culture_rules.cli import main
 from culture_rules.engine.actorport import InvocationResult
 from culture_rules.engine.runs import ACTION_STEP, FAILURE_STEP, RUNS_COLLECTION, step_state
 from culture_rules.io.exchange import bundle_files, read_bundle
@@ -33,18 +34,16 @@ from culture_rules.model.variable_refs import rule_variable_refs
 from culture_rules.node.actions.github_pr import AddressedThreadsPort, GitHubThreadsPort
 from culture_rules.node.runner import BuiltinCodePort
 from culture_rules.server.hooks import github as gh_hook
-from culture_rules.server.service import Definitions, Invalid, Variables
+from culture_rules.server.service import Variables
 from culture_rules.server.status import run_hosts
-from culture_rules.store.memory import MemoryStore
 from tests.actors.test_gate import PASSING, LocalRunner, PushSpy, Repo, gate_yaml, git
-from tests.cli.test_nouns_api import store, wire  # noqa: F401
 from tests.engine.run_helpers import FakeActor, enrol_online, machine
 from tests.events.fakes import envelope
 from tests.node.test_node import Cluster
 
 ROOT = Path(__file__).resolve().parents[2]
-BUNDLE = ROOT / "docs" / "rules" / "pr-fixer"
-SEED = BUNDLE / "seed-variables.sh"
+BUNDLE = ROOT / "tests" / "rules" / "fixtures" / "pr-fixer-single"
+SHIPPED = ROOT / "docs" / "rules" / "pr-fixer"
 RULE_IDS = {
     "pr-fixer-checks": "github.pr.checks_settled",
     "pr-fixer-comment": "github.comment.created",
@@ -184,101 +183,6 @@ def test_the_workflow_steps_and_placements():
     assert reply.config["action"]["kind"] == "github.review_reply"
     assert reply.config["action"]["params"]["comment_id"] == "inputs.item.comment_id"
     assert reply.config["action"]["params"]["thread_id"] == "inputs.item.thread_id"
-
-
-# --------------------------------------------------------------------------- import
-
-
-def _files() -> dict[str, str]:
-    return {
-        p.relative_to(BUNDLE).as_posix(): p.read_text(encoding="utf-8")
-        for p in sorted(BUNDLE.rglob("*.json"))
-    }
-
-
-def test_import_with_apply_validates_and_writes_the_definitions():
-    mem = MemoryStore()
-    seed(mem)
-    defs = Definitions(mem)
-    files = _files()
-    actors = {k: v for k, v in files.items() if k.startswith("actors/")}
-    workflows = {k: v for k, v in files.items() if k.startswith("workflows/")}
-    rules = {k: v for k, v in files.items() if k.startswith("rules/")}
-    assert sorted(actors) == ["actors/codex-reviewer.json"]  # d20: the reviewer ships too
-    # As the CLI does it: `actors import`, `workflows import`, then `rules import`.
-    assert defs.import_files(actors, "admin@test", apply=True)["applied"] is True
-    reviewer = mem.get("actors", "codex-reviewer")
-    assert reviewer["machine"] == "spark" and reviewer["harness"] == "codex"
-    assert reviewer["params"]["sandbox"] == "read-only"
-    assert reviewer["params"]["max_concurrency"] == 1
-    assert reviewer["params"]["max_bound_input_chars"] == 60000
-    assert reviewer["params"]["bridge_token"].startswith("grant:")
-    assert defs.import_files(workflows, "admin@test", apply=True)["applied"] is True
-    plan = defs.import_files(rules, "admin@test", apply=True)
-    assert plan["applied"] is True and plan["errors"] == []
-    assert sorted(c["id"] for c in plan["changes"]) == sorted(RULE_IDS)
-    assert all(mem.get("rules", rid)["enabled"] is False for rid in RULE_IDS)
-    # Re-importing the same files changes nothing.
-    again = defs.import_files(files, "admin@test", apply=False)
-    assert {c["action"] for c in again["changes"]} == {"unchanged"}
-
-
-def test_import_before_the_variables_are_seeded_is_refused():
-    mem = MemoryStore()
-    with pytest.raises(Invalid) as err:
-        Definitions(mem).import_files(_files(), "admin@test", apply=True)
-    codes = {e["code"] for e in err.value.errors}
-    assert "variable_undefined" in codes
-    assert mem.find("rules") == []
-
-
-# --------------------------------------------------------------------------- the seed script
-
-
-def seed_calls(tmp_path, *args, existing=("trusted_authors",)) -> list[list[str]]:
-    """The ``variables set`` argv the seed script runs, against a stub CLI."""
-    log = tmp_path / "calls.jsonl"
-    log.write_text("")
-    stub = tmp_path / "culture-rules"
-    items = json.dumps({"items": [{"name": n} for n in existing]})
-    stub.write_text(
-        "#!/usr/bin/env python3\n"
-        "import json, sys\n"
-        f"open({str(log)!r}, 'a').write(json.dumps(sys.argv[1:]) + '\\n')\n"
-        "if sys.argv[1:3] == ['variables', 'list']:\n"
-        f"    print({items!r})\n"
-    )
-    stub.chmod(0o755)
-    env = {**os.environ, "CULTURE_RULES": str(stub)}
-    subprocess.run(["bash", str(SEED), *args], env=env, check=True, capture_output=True)
-    calls = [json.loads(line) for line in log.read_text().splitlines()]
-    return [c for c in calls if c[:2] == ["variables", "set"]]
-
-
-def test_seed_script_is_a_dry_run_and_never_overwrites_without_force(tmp_path):
-    dry = seed_calls(tmp_path)
-    names = [c[2] for c in dry]
-    assert "trusted_authors" not in names  # already set: kept unless --force
-    assert set(names) == set(VARIABLES) - {"trusted_authors"}
-    assert all("--apply" not in c for c in dry)
-    forced = seed_calls(tmp_path, "--apply", "--force")
-    assert {c[2] for c in forced} == set(VARIABLES)
-    assert all("--apply" in c for c in forced)
-
-
-def test_seed_script_calls_work_through_the_real_cli(tmp_path, store, wire, capsys):  # noqa: F811
-    for argv in seed_calls(tmp_path, "--apply", existing=()):
-        assert main([*argv, "--json"]) == 0, capsys.readouterr()
-    capsys.readouterr()
-    values = {name: store.get_variable(name)["value"] for name in VARIABLES}
-    assert values["checks_settle_timeout_s"] == 900
-    assert values["checks_settle_min_s"] == 60
-    assert values["ignored_check_apps"] == ["claude"]
-    assert values["fixer_repos"] == ["agentculture/culture-rules-tester"]
-    assert values["fixer_excluded_repos"] == []
-    assert ".github/workflows/**" in values["fixer_protected_paths"]
-    assert "qodo-code-review[bot]" in values["trusted_authors"]
-    assert store.get_variable("trusted_authors")["description"]
 
 
 # --------------------------------------------------------------------------- firing
@@ -547,7 +451,9 @@ AGENT_ACTOR = {
 
 def reviewer_actor() -> dict:
     """The shipped codex-reviewer actor (docs/rules/pr-fixer/actors)."""
-    (actor,) = bundle().actors
+    read = read_bundle(SHIPPED)
+    assert read.errors == [], [e.to_dict() for e in read.errors]
+    (actor,) = read.bundle.actors
     return actor.to_dict()
 
 

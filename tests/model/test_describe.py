@@ -25,45 +25,81 @@ def _load(rel: str) -> dict:
     return json.loads((BUNDLE / rel).read_text())
 
 
-PR_FIXER_WORKFLOW = [
+PR_FIX_WORKFLOW = [
     "1 quiet — wait 300 s; stop if the PR head moves (head_unchanged, as github-app)",
     "2 threads — github.threads as github-app: unresolved threads by trusted authors",
-    "3 fix — retry up to 3×, until verdict ∈ {pass, no_gate} and review = approve:",
-    "  3.1 agent — qwen-fixer (agent)",
-    "  3.2 gate — test gate on spark2",
-    "  3.3 review — codex-reviewer (agent, read-only), when gate_verdict ∈ {pass, no_gate}"
+    "3 sonar — sonar.gate_issues: the issues behind the PR's failing SonarCloud gate",
+    "4 fix — retry up to 3×, until verdict ∈ {pass, no_gate}:",
+    "  4.1 agent — qwen-fixer (agent, must commit)",
+    "  4.2 gate — test gate on spark2",
+]
+
+REVIEW_COMMIT_WORKFLOW = [
+    "1 review — codex-reviewer (agent, read-only), when gate_verdict ∈ {pass, no_gate}"
     " and diff_truncated = false",
-    "  3.4 verdict — review verdict, recorded for github.push",
-    "4 push — github.push as github-app on spark2 (only on a passing gate and an approving"
-    " review)",
-    "5 pick — github.threads_addressed",
-    "6 replies — for each item (≤200): github.review_reply as github-app and resolve",
+    "2 verdict — review verdict, recorded for its commit (github.push checks it)",
+]
+
+PUBLISH_FIX_WORKFLOW = [
+    "1 push — github.push as github-app on spark2 (only on a passing gate and an approving"
+    " review of exactly that commit)",
+    "2 threads — github.threads as github-app: unresolved threads by trusted authors",
+    "3 pick — github.threads_addressed",
+    "4 replies — for each item (≤200): github.review_reply as github-app and resolve",
 ]
 
 PR_FIXER_CHECKS = [
     "When github.pr.checks_settled",
     "If head_repo = base_repo",
     "and draft = false",
+    "and state = open",
     "and repository ∈ vars.fixer_repos",
     "and not (repository ∈ vars.fixer_excluded_repos)",
     "and conclusion ≠ success",
     "and conclusion ≠ no_checks",
-    "Run workflow pr-fixer (6 steps)",
+    "Run workflow pr-fix (4 steps)",
     "On spark2",
-    "Then github.comment as github-app",
-    "On failure github.comment as github-app",
+    "Then github.comment as github-app (only where its chain ends)",
+    "On failure github.comment as github-app (only where its chain ends)",
     "Key pr-fixer:{repository}#{number}, ≤3 attempts",
     "Disabled",
 ]
 
+PR_FIXER_PUBLISH = [
+    "When rules.run.succeeded",
+    "If workflow_id = review-commit",
+    "and review = approve",
+    "and verdict = pass",
+    "and repository ∈ vars.fixer_repos",
+    "and not (repository ∈ vars.fixer_excluded_repos)",
+    "Run workflow publish-fix (4 steps)",
+    "On spark2",
+    "Then github.comment as github-app (only where its chain ends)",
+    "On failure github.comment as github-app (only where its chain ends)",
+    "Key pr-fixer:{repository}#{number}, outside the attempt budget",
+    "Disabled",
+]
 
-def test_golden_pr_fixer_workflow():
-    assert render(describe_workflow(_load("workflows/pr-fixer.json"))) == PR_FIXER_WORKFLOW
+
+@pytest.mark.parametrize(
+    "name, golden",
+    [
+        ("pr-fix", PR_FIX_WORKFLOW),
+        ("review-commit", REVIEW_COMMIT_WORKFLOW),
+        ("publish-fix", PUBLISH_FIX_WORKFLOW),
+    ],
+)
+def test_golden_pr_fixer_workflows(name, golden):
+    assert render(describe_workflow(_load(f"workflows/{name}.json"))) == golden
 
 
-def test_golden_pr_fixer_checks_rule():
-    wf = _load("workflows/pr-fixer.json")
-    assert render(describe_rule(_load("rules/pr-fixer-checks.json"), wf)) == PR_FIXER_CHECKS
+def test_golden_pr_fixer_rules():
+    fix = _load("workflows/pr-fix.json")
+    publish = _load("workflows/publish-fix.json")
+    assert render(describe_rule(_load("rules/pr-fixer-checks.json"), fix)) == PR_FIXER_CHECKS
+    assert render(describe_rule(_load("rules/pr-fixer-publish.json"), publish)) == (
+        PR_FIXER_PUBLISH
+    )
 
 
 @pytest.mark.parametrize("name", sorted(p.name for p in (BUNDLE / "rules").glob("*.json")))
@@ -71,18 +107,18 @@ def test_every_shipped_rule_describes_and_names_its_event(name):
     doc = _load(f"rules/{name}")
     lines = render(describe_rule(doc))
     assert lines[0] == f"When {doc['trigger']['params']['type']}"
-    assert "Run workflow pr-fixer" in lines
+    assert f"Run workflow {doc['workflow']['id']}" in lines
 
 
 def test_models_and_dicts_describe_the_same():
-    wf = _load("workflows/pr-fixer.json")
+    wf = _load("workflows/pr-fix.json")
     rule = _load("rules/pr-fixer-checks.json")
     assert describe_workflow(Workflow.from_dict(wf)) == describe_workflow(wf)
     assert describe_rule(Rule.from_dict(rule), Workflow.from_dict(wf)) == describe_rule(rule, wf)
 
 
 def test_deterministic_and_pure():
-    wf = _load("workflows/pr-fixer.json")
+    wf = _load("workflows/pr-fix.json")
     before = json.dumps(wf, sort_keys=True)
     first = describe_workflow(wf)
     second = describe_workflow(wf)
@@ -91,19 +127,19 @@ def test_deterministic_and_pure():
 
 
 def test_entries_shape():
-    entries = describe_workflow(_load("workflows/pr-fixer.json"))
-    assert entries[2] == {
-        "label": "3",
-        "text": "retry up to 3×, until verdict ∈ {pass, no_gate} and review = approve:",
+    entries = describe_workflow(_load("workflows/pr-fix.json"))
+    assert entries[3] == {
+        "label": "4",
+        "text": "retry up to 3×, until verdict ∈ {pass, no_gate}:",
         "depth": 0,
         "step": "fix",
     }
-    assert entries[3]["depth"] == 1 and entries[3]["label"] == "3.1"
+    assert entries[4]["depth"] == 1 and entries[4]["label"] == "4.1"
     assert all("step" not in e for e in describe_rule(_load("rules/pr-fixer-checks.json")))
 
 
 def test_prose_fields_are_never_used():
-    wf = _load("workflows/pr-fixer.json")
+    wf = _load("workflows/pr-fix.json")
     wf["name"] = wf["description"] = "SECRET PROSE"
     for s in wf["steps"]:
         s["name"] = s["description"] = "SECRET PROSE"
@@ -137,7 +173,10 @@ def _step(kind: str, **kw) -> dict:
             "github.threads on orin: unresolved threads by trusted authors",
         ),
         (_step("code", config={"builtin": "mystery"}), "builtin mystery"),
-        (_step("code", config={"builtin": "review"}), "review verdict, recorded for github.push"),
+        (
+            _step("code", config={"builtin": "review"}),
+            "review verdict, recorded for its commit (github.push checks it)",
+        ),
         (
             _step("ai", placement={"actor": "rev"}, config={"sandbox": "read-only"}),
             "rev (agent, read-only)",
@@ -165,7 +204,7 @@ def _step(kind: str, **kw) -> dict:
                     "action": {"kind": "github.push", "params": {"actor": "app"}},
                 },
             ),
-            "github.push as app (only on an approving review)",
+            "github.push as app (only on an approving review of exactly that commit)",
         ),
         (_step("code", config={"builtin": "action"}), "?"),
         (
@@ -246,7 +285,7 @@ def test_loop_with_several_body_steps_nests_and_one_step_inlines():
         ),
         (
             {"kind": "github.push", "params": {"actor": "{{ x }}"}},
-            "github.push (only on an approving review)",
+            "github.push (only on an approving review of exactly that commit)",
         ),
         ({"kind": "future.kind", "params": {"actor": "a"}}, "future.kind as a"),
     ],

@@ -15,13 +15,13 @@ from culture_rules.auth.resolve import LAN, AuthSettings  # noqa: E402
 from culture_rules.auth.tokens import ServiceTokens  # noqa: E402
 from culture_rules.server.app import create_app  # noqa: E402
 from culture_rules.store.memory import MemoryStore  # noqa: E402
-from tests.model.test_describe import PR_FIXER_CHECKS, PR_FIXER_WORKFLOW  # noqa: E402
+from tests.model.test_describe import PR_FIX_WORKFLOW, PR_FIXER_CHECKS  # noqa: E402
 
 BUNDLE = Path(__file__).resolve().parents[2] / "docs" / "rules" / "pr-fixer"
 
 
 def _seed(store: MemoryStore) -> None:
-    wf = json.loads((BUNDLE / "workflows" / "pr-fixer.json").read_text())
+    wf = json.loads((BUNDLE / "workflows" / "pr-fix.json").read_text())
     rule = json.loads((BUNDLE / "rules" / "pr-fixer-checks.json").read_text())
     store.put("workflows", wf)
     store.put("rules", rule)
@@ -39,14 +39,14 @@ def viewer():
 
 def test_workflow_describe_is_viewer_readable_and_matches_the_library(viewer):
     _, client = viewer
-    r = client.get("/workflows/pr-fixer/describe")
+    r = client.get("/workflows/pr-fix/describe")
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["id"] == "pr-fixer" and body["kind"] == "workflow"
-    assert body["lines"] == PR_FIXER_WORKFLOW
-    assert body["entries"][3] == {
-        "label": "3.1",
-        "text": "qwen-fixer (agent)",
+    assert body["id"] == "pr-fix" and body["kind"] == "workflow"
+    assert body["lines"] == PR_FIX_WORKFLOW
+    assert body["entries"][4] == {
+        "label": "4.1",
+        "text": "qwen-fixer (agent, must commit)",
         "depth": 1,
         "step": "agent",
     }
@@ -62,9 +62,9 @@ def test_rule_describe_reads_its_workflow(viewer):
 
 def test_rule_describe_with_a_deleted_workflow_says_not_found(viewer):
     store, client = viewer
-    store.put("workflows", {**store.get("workflows", "pr-fixer"), "deleted_at": "2026-10-07"})
+    store.put("workflows", {**store.get("workflows", "pr-fix"), "deleted_at": "2026-10-07"})
     lines = client.get("/rules/pr-fixer-checks/describe").json()["lines"]
-    assert "Run workflow pr-fixer (not found)" in lines
+    assert "Run workflow pr-fix (not found)" in lines
 
 
 @pytest.mark.parametrize("path", ["/rules/nope/describe", "/workflows/nope/describe"])
@@ -80,4 +80,4 @@ def test_rule_pinned_to_another_workflow_version_says_unavailable(viewer):
     rule = store.get("rules", "pr-fixer-checks")
     store.put("rules", {**rule, "workflow": {**rule["workflow"], "version": 7}})
     lines = client.get("/rules/pr-fixer-checks/describe").json()["lines"]
-    assert "Run workflow pr-fixer v7 (version unavailable)" in lines
+    assert "Run workflow pr-fix v7 (version unavailable)" in lines

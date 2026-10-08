@@ -46,7 +46,8 @@ BUILTIN_WORDS: dict[str, str] = {
     "gate": "test gate",
     "github.threads": "github.threads{as}: unresolved threads by trusted authors",
     "github.threads_addressed": "github.threads_addressed",
-    "review": "review verdict, recorded for github.push",
+    "review": "review verdict, recorded for its commit (github.push checks it)",
+    "sonar.gate_issues": "sonar.gate_issues: the issues behind the PR's failing SonarCloud gate",
 }
 
 #: Per action kind: which literal params are worth a word, as ``(param, template)``.
@@ -218,7 +219,7 @@ def action_text(action: Any, where: str = "") -> str:
     words.append(where)
     if kind == "github.push":  # the push port always requires an approving review (d20)
         gate = "a passing gate and " if params.get("gate_verdict") else ""
-        words.append(f"(only on {gate}an approving review)")
+        words.append(f"(only on {gate}an approving review of exactly that commit)")
     if kind == "github.review_reply" and params.get("resolve") is True:
         words.append("and resolve")
     if a.get("only_at_chain_end") is True:  # d21: one comment per chain
@@ -377,6 +378,8 @@ def step_text(step: Any) -> str:
         actor = _plain(s.get("placement")).get("actor")
         sandbox = config.get("sandbox")
         detail = f"agent, {sandbox}" if isinstance(sandbox, str) and sandbox else "agent"
+        if config.get("require_commit") is True:  # d21: no commit ends the attempt
+            detail += ", must commit"
         text = f"{actor} ({detail})" if actor else _join(detail, where)
     elif kind == "actor_task":
         actor = _plain(s.get("placement")).get("actor") or config.get("actor")

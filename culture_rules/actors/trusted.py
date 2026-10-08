@@ -1,4 +1,4 @@
-"""Workflows trusted to push (d20 round 2): a set of definition digests pinned in code.
+"""Workflows trusted to review and push (d20 round 2, d21): definition digests pinned in code.
 
 The PR fixer's safety rests on the exact shape of its workflow: the gate is the actor-less
 built-in, the agent is an ``ai`` step, the reviewer runs through the locked bridge path,
@@ -6,19 +6,22 @@ one verdict step per try. Editing the workflow (an actor-routed "gate" that supp
 diff, a decoy step standing in for the real writer, two verdict steps per try ...) could
 undo that in ways per-step checks keep chasing. So the class is closed here: ``github.push``
 and the built-in ``review`` step refuse any run whose **pinned** workflow definition does
-not hash to a digest in :data:`TRUSTED_WORKFLOW_DIGESTS` (``workflow_not_trusted``). An
-edited workflow still runs; it can never push.
+not hash to a digest in :data:`TRUSTED_WORKFLOWS` (``workflow_not_trusted``), and since the
+split into chained rules (d21) each digest has a **role**: ``pr-fixer`` (the single d20
+workflow), ``pr-fix`` (builds and gates the commit), ``review-commit`` (reviews it) or
+``publish-fix`` (pushes it). A run may only do what its role allows, and a push verifies the
+role of every run in its chain. An edited workflow still runs; it can never push.
 
 The digest (:func:`workflow_digest`) is sha256 over the definition the run pinned, put
 through the workflow model (so field order and defaults do not matter) without
 ``version`` (which every save bumps), as compact sorted JSON. It is recomputed from the
 run's pinned definition, never read from a stored digest.
 
-Rolling out a legitimate change: edit ``docs/rules/pr-fixer/workflows/pr-fixer.json``;
+Rolling out a legitimate change: edit the workflow in ``docs/rules/pr-fixer/workflows/``;
 ``tests/rules/test_trusted_workflow.py`` then fails and prints the new digest; add it to
-the set in the same PR (keep the old one while runs pinned to it may still push, remove it
-in a later release); ship the wheel, upgrade every node, then import the workflow. It is a
-set so the split workflows planned for d21 can be listed beside it. Standard-library only.
+its role's set in the same PR (keep the old one while runs pinned to it may still push,
+remove it in a later release); ship the wheel, upgrade every node, then import the
+workflow. Standard-library only.
 """
 
 from __future__ import annotations
@@ -29,22 +32,55 @@ from collections.abc import Mapping
 from typing import Any
 
 __all__ = [
+    "ROLE_FIX",
+    "ROLE_PUBLISH",
+    "ROLE_REVIEW",
+    "ROLE_SINGLE",
     "TRUSTED_ACTOR_DIGESTS",
-    "TRUSTED_WORKFLOW_DIGESTS",
+    "TRUSTED_WORKFLOWS",
     "actor_digest",
     "actor_refusal",
     "doc_refusal",
     "is_pinned",
+    "trusted_workflow_digests",
     "workflow_digest",
     "workflow_refusal",
+    "workflow_role",
 ]
 
-TRUSTED_WORKFLOW_DIGESTS: frozenset[str] = frozenset(
-    {
-        # pr-fixer, docs/rules/pr-fixer/workflows/pr-fixer.json (d20 round 2)
-        "sha256:01ece1cd69f995aeb0e931553546aa905bdfa20bc7fc530dfbaea8c75f4fc5d6",
-    }
-)
+ROLE_SINGLE = "pr-fixer"
+"""The d20 single workflow: fixes, gates, reviews and pushes in one run (its own review)."""
+ROLE_FIX = "pr-fix"
+"""d21: quiet period, threads, agent and gate; builds the commit, never reviews or pushes."""
+ROLE_REVIEW = "review-commit"
+"""d21: the independent review of a ``pr-fix`` run's gated commit; records the verdict."""
+ROLE_PUBLISH = "publish-fix"
+"""d21: pushes a commit a ``review-commit`` run approved, then answers the threads."""
+
+TRUSTED_WORKFLOWS: dict[str, frozenset[str]] = {
+    # docs/rules/pr-fixer/workflows/pr-fixer.json as shipped in 0.13.0 (d20 round 2); a copy
+    # lives in tests/rules/fixtures/pr-fixer-single/. Kept while runs pinned to it may still
+    # push; the split replaces it (d21) - drop it in a later release.
+    ROLE_SINGLE: frozenset(
+        {"sha256:01ece1cd69f995aeb0e931553546aa905bdfa20bc7fc530dfbaea8c75f4fc5d6"}
+    ),
+    # docs/rules/pr-fixer/workflows/pr-fix.json (d21)
+    ROLE_FIX: frozenset(
+        {"sha256:165571b8e1ce74d91845cfd810d20ed4552a19fb76c5871cb77d7fbf3c7cb626"}
+    ),
+    # docs/rules/pr-fixer/workflows/review-commit.json (d21)
+    ROLE_REVIEW: frozenset(
+        {"sha256:79064f76264a469fc83ef2ed7e2b2d9e2979fbf58f339428319ac3c2a7b158e6"}
+    ),
+    # docs/rules/pr-fixer/workflows/publish-fix.json (d21)
+    ROLE_PUBLISH: frozenset(
+        {"sha256:0fa92074e1cfa67c1388f0423fc379063fd82c5886bc619c5ef4ffcc83c23680"}
+    ),
+}
+"""Per role, the digests of the workflow definitions trusted in it (d21). A digest belongs
+to one role: the role says what a run of that workflow may do - record a review, build the
+commit a review approves, push an approved commit - and the push verifies the WHOLE chain
+by role (:mod:`culture_rules.actors.lineage`)."""
 
 
 def workflow_digest(definition: Any) -> str | None:
@@ -66,15 +102,34 @@ def workflow_digest(definition: Any) -> str | None:
     return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def workflow_refusal(run: Mapping[str, Any] | None) -> str | None:
-    """``workflow_not_trusted`` unless the run's pinned workflow is a trusted one."""
+def trusted_workflow_digests() -> frozenset[str]:
+    """Every trusted digest, whatever its role."""
+    return frozenset().union(*TRUSTED_WORKFLOWS.values())
+
+
+def workflow_role(run: Mapping[str, Any] | None) -> str | None:
+    """The role of the run's **pinned** workflow (recomputed from its definition, never a
+    stored digest), or ``None`` when it is not a trusted workflow."""
     pin = (run or {}).get("workflow") if isinstance(run, Mapping) else None
     definition = pin.get("definition") if isinstance(pin, Mapping) else None
     if not isinstance(definition, Mapping):
+        return None
+    digest = workflow_digest(definition)
+    if digest is None:
+        return None
+    roles = [role for role, digests in TRUSTED_WORKFLOWS.items() if digest in digests]
+    return roles[0] if len(roles) == 1 else None  # a digest in two roles is trusted in none
+
+
+def workflow_refusal(
+    run: Mapping[str, Any] | None, roles: tuple[str, ...] | None = None
+) -> str | None:
+    """``workflow_not_trusted`` unless the run's pinned workflow is a trusted one (in one of
+    ``roles``, when given)."""
+    role = workflow_role(run)
+    if role is None or (roles is not None and role not in roles):
         return "workflow_not_trusted"
-    return (
-        None if workflow_digest(definition) in TRUSTED_WORKFLOW_DIGESTS else "workflow_not_trusted"
-    )
+    return None
 
 
 # --------------------------------------------------------------------------- actors (round 3)

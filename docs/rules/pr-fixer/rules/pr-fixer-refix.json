@@ -1,0 +1,117 @@
+{
+  "action": {
+    "idempotent": false,
+    "kind": "github.comment",
+    "name": "Comment when the chain ends here",
+    "only_at_chain_end": true,
+    "params": {
+      "actor": "github-app",
+      "body": "PR fixer built and gated {{ workflow.outputs.commit_sha }} (gate {{ workflow.outputs.verdict }}) but nothing reviews it (pr-fixer-review-commit is disabled): not pushed.\n\n{{ workflow.outputs.summary }}\n\nRun: https://rules.culture.dev/api/runs/{{ run.id }}",
+      "number": "trigger.data.number",
+      "repo": "trigger.data.repository"
+    },
+    "retry": null,
+    "timeout_s": null
+  },
+  "concurrency_key": "pr-fixer:{trigger.data.repository}#{trigger.data.number}",
+  "condition": {
+    "args": [
+      {
+        "cmp": "==",
+        "left": {
+          "field": "data.workflow_id"
+        },
+        "op": "compare",
+        "right": {
+          "literal": "review-commit"
+        }
+      },
+      {
+        "cmp": "==",
+        "left": {
+          "field": "data.outputs.review"
+        },
+        "op": "compare",
+        "right": {
+          "literal": "request_changes"
+        }
+      },
+      {
+        "items": {
+          "var": "fixer_repos"
+        },
+        "op": "in",
+        "value": {
+          "field": "data.repository"
+        }
+      },
+      {
+        "arg": {
+          "items": {
+            "var": "fixer_excluded_repos"
+          },
+          "op": "in",
+          "value": {
+            "field": "data.repository"
+          }
+        },
+        "op": "not"
+      }
+    ],
+    "op": "and"
+  },
+  "counts_toward_budget": true,
+  "description": "d21: fires when the review of a fix requests changes and runs pr-fix again from the same PR head, with the findings as the instruction. A fix attempt: counts toward the PR's attempt budget (3), shared with the trigger rules.",
+  "enabled": false,
+  "exclusive_group": null,
+  "id": "pr-fixer-refix",
+  "max_attempts": 3,
+  "may_after": [],
+  "must_after": [],
+  "name": "PR fixer: fix again with the review's findings",
+  "on_failure": {
+    "idempotent": false,
+    "kind": "github.comment",
+    "name": "Hand back with the run link (once per chain)",
+    "only_at_chain_end": true,
+    "params": {
+      "actor": "github-app",
+      "body": "PR fixer handed back ({{ run.error.code }}): {{ run.error.message }}\n\nRun: https://rules.culture.dev/api/runs/{{ run.id }}",
+      "number": "trigger.data.number",
+      "repo": "trigger.data.repository"
+    },
+    "retry": null,
+    "timeout_s": null
+  },
+  "placement": {
+    "actor": null,
+    "machine": "spark2",
+    "requirement": null
+  },
+  "priority": 0,
+  "schema_version": "1.0",
+  "supersedes": [],
+  "trigger": {
+    "kind": "event",
+    "params": {
+      "type": "rules.run.succeeded"
+    }
+  },
+  "workflow": {
+    "id": "pr-fix",
+    "inputs": {
+      "base_sha": "trigger.data.outputs.base_sha",
+      "clone_url": "trigger.data.outputs.clone_url",
+      "head_branch": "trigger.data.outputs.head_branch",
+      "head_sha": "trigger.data.outputs.start_sha",
+      "instruction": "trigger.data.outputs.instruction",
+      "number": "trigger.data.number",
+      "repo": "trigger.data.repository",
+      "task": "trigger.data.outputs.task",
+      "trusted_authors": {
+        "$var": "trusted_authors"
+      }
+    },
+    "version": null
+  }
+}

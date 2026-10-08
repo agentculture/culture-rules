@@ -215,7 +215,7 @@ def test_the_factory_passes_the_locked_brief():
 
 
 def pinned(bridge, doc=None, **kw):
-    from tests.rules.test_pr_fixer_bundle import reviewer_actor
+    from tests.rules.test_pr_fixer_single import reviewer_actor
 
     doc = reviewer_actor() if doc is None else doc
     return BridgeAgentActor(
@@ -236,7 +236,7 @@ def pinned(bridge, doc=None, **kw):
 def test_a_pinned_actor_dispatches_only_from_a_trusted_snapshot_and_records_it():
     from culture_rules.actors.agent import BRIDGE_INVOCATIONS
     from culture_rules.actors.trusted import actor_digest
-    from tests.rules.test_pr_fixer_bundle import reviewer_actor
+    from tests.rules.test_pr_fixer_single import reviewer_actor
 
     bridge = FakeBridge()
     actor = pinned(bridge)
@@ -247,7 +247,7 @@ def test_a_pinned_actor_dispatches_only_from_a_trusted_snapshot_and_records_it()
 
 
 def test_a_pinned_actor_refuses_before_dispatch_when_untrusted():
-    from tests.rules.test_pr_fixer_bundle import reviewer_actor
+    from tests.rules.test_pr_fixer_single import reviewer_actor
 
     other = reviewer_actor()
     other["params"] = {**other["params"], "bridge_url": "http://127.0.0.1:9999"}
@@ -283,7 +283,7 @@ def _router_with(doc):
 
 
 def test_r5_2_the_production_router_never_builds_a_tombstoned_reviewer():
-    from tests.rules.test_pr_fixer_bundle import reviewer_actor
+    from tests.rules.test_pr_fixer_single import reviewer_actor
 
     _store, router = _router_with({**reviewer_actor(), "deleted_at": "2026-10-08T00:00:00Z"})
     ctx_ = InvocationContext("r", "fix[0]/review", "ai", "spark", 1, "codex-reviewer", {})
@@ -309,7 +309,7 @@ def test_r5_2_a_tombstoned_app_actor_gets_no_action_port():
 
 
 def test_r5_2_the_security_snapshot_is_the_raw_stored_document():
-    from tests.rules.test_pr_fixer_bundle import reviewer_actor
+    from tests.rules.test_pr_fixer_single import reviewer_actor
 
     raw = {**reviewer_actor(), "unknown_field_kept_raw": "x"}
     _store, router = _router_with(raw)

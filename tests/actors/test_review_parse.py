@@ -183,13 +183,15 @@ def record(**over) -> dict:
         "repo": "o/r",
         "number": 7,
         "start_sha": START,
+        "base_sha": BASE,
     }
     doc.update(over)
     return doc
 
 
 START = "c" * 40
-TARGET = {"repo": "o/r", "number": 7, "start_sha": START}
+BASE = "d" * 40
+TARGET = {"repo": "o/r", "number": 7, "start_sha": START, "base_sha": BASE}
 
 
 def put(store, doc, *, iteration=0, attempt=1) -> str:
@@ -209,9 +211,13 @@ def test_an_approving_review_of_this_commit_by_another_backend_lets_the_push_thr
 
 def test_no_review_record_is_review_missing():
     assert review_refusal(MemoryStore(), "run-1", SHA, **TARGET) == "review_missing"
+
+
+def test_an_approval_by_a_run_outside_the_pushs_chain_is_not_its_approval():
     store = MemoryStore()
     put(store, record(run_id="run-2"))
-    assert review_refusal(store, "run-1", SHA, **TARGET) == "review_missing"
+    assert review_refusal(store, "run-1", SHA, **TARGET) == "review_not_in_chain"
+    assert review_refusal(store, "run-2", SHA, **TARGET) is None
 
 
 @pytest.mark.parametrize("value", ["request_changes", "not_run", "review_invalid", None, ""])
@@ -220,9 +226,10 @@ def test_anything_but_approve_is_review_rejected(value):
 
 
 def test_an_approval_of_another_commit_is_a_mismatch():
-    assert refusal(commit_sha=OTHER, reviewed_commit=OTHER) == "review_commit_mismatch"
+    # d21: found by the exact commit: an approval of another commit is not this one's
+    assert refusal(commit_sha=OTHER, reviewed_commit=OTHER) == "review_missing"
     assert refusal(reviewed_commit=OTHER) == "review_commit_mismatch"
-    assert refusal(commit_sha=OTHER) == "review_commit_mismatch"
+    assert refusal(commit_sha=OTHER) == "review_missing"
 
 
 @pytest.mark.parametrize(
@@ -241,15 +248,20 @@ def test_the_reviewer_must_provably_differ_from_the_implementer(over):
     assert refusal(**over) == "reviewer_is_implementer"
 
 
-def test_a_record_for_another_run_never_counts():
+def test_a_record_for_another_run_or_target_never_counts():
+    from culture_rules.actors.review import CURRENT_COLLECTION, review_target
+
     store = MemoryStore()
     rid = put(store, record(run_id="run-2"))
-    # a run-1 pointer naming run-2's record (forged or corrupt) is no review
+    target = review_target("o/r", 7, BASE, START, SHA)
+    # a pointer naming run-2's record as run-1's (forged or corrupt) is no review
     store.put(
-        "fixer_review_current",
+        CURRENT_COLLECTION,
         {
-            "id": "run-1",
+            "id": target,
+            "target": target,
             "run_id": "run-1",
+            "runs": ["run-1"],
             "record": rid,
             "iteration": 9,
             "attempt": 9,
@@ -257,6 +269,14 @@ def test_a_record_for_another_run_never_counts():
         },
     )
     assert review_refusal(store, "run-1", SHA, **TARGET) == "review_missing"
+    # nor does a pointer of another target naming this record
+    other = MemoryStore()
+    rid = put(other, record(run_id="run-1", commit_sha=OTHER, reviewed_commit=OTHER))
+    other.put(
+        CURRENT_COLLECTION,
+        {"id": target, "target": target, "run_id": "run-1", "record": rid, "state": "current"},
+    )
+    assert review_refusal(other, "run-1", SHA, **TARGET) == "review_missing"
 
 
 # --------------------------------------------------------------------------- #6: records
@@ -287,12 +307,50 @@ def test_rewriting_a_record_with_another_result_is_a_terminal_conflict():
     assert review_refusal(store, "run-1", SHA, **TARGET) == "review_conflict"
 
 
-def test_the_record_keeps_the_shape_a_per_commit_key_will_need():
+def test_the_record_is_keyed_by_its_commit():
+    from culture_rules.actors.review import current_review, review_target
+
     store = MemoryStore()
     rid = put(store, record(), iteration=1, attempt=2)
     doc = store.get("fixer_reviews", rid)
-    for name in ("repo", "number", "start_sha", "commit_sha", "iteration", "attempt"):
+    for name in ("repo", "number", "base_sha", "start_sha", "commit_sha", "target"):
         assert doc[name] is not None, name
+    target = review_target("o/r", 7, BASE, START, SHA)
+    assert doc["target"] == target and current_review(store, target)[0] == rid
+    # each part of the target matters; the repo is case-insensitive
+    assert review_target("O/R", 7, BASE, START, SHA) == target
+    for other in (
+        review_target("o/x", 7, BASE, START, SHA),
+        review_target("o/r", 8, BASE, START, SHA),
+        review_target("o/r", 7, OTHER, START, SHA),
+        review_target("o/r", 7, BASE, OTHER, SHA),
+        review_target("o/r", 7, BASE, START, OTHER),
+    ):
+        assert other is not None and other != target
+    for bad in ((None, 7), ("o/r", None), ("o/r", True), ("o/r", 0), ("norepo", 7)):
+        assert review_target(*bad, BASE, START, SHA) is None
+    assert review_target("o/r", 7, "abc", START, SHA) is None
+
+
+def test_a_later_review_run_of_the_same_commit_becomes_current_an_older_one_never_again():
+    store = MemoryStore()
+    put(store, record(run_id="run-1"))
+    assert review_refusal(store, "run-1", SHA, **TARGET) is None
+    put(store, record(run_id="run-2", verdict="request_changes"))  # a later review run
+    assert review_refusal(store, "run-2", SHA, **TARGET) == "review_rejected"
+    assert review_refusal(store, "run-1", SHA, **TARGET) == "review_rejected"
+    put(store, record(run_id="run-1"), iteration=5, attempt=9)  # run-1 writes late
+    assert review_refusal(store, "run-1", SHA, **TARGET) == "review_rejected"
+
+
+def test_an_outcome_without_a_commit_is_recorded_without_a_pointer():
+    from culture_rules.actors.review import CURRENT_COLLECTION, run_reviews
+
+    store = MemoryStore()
+    rid = record_review(store, "run-1", iteration=0, attempt=1, fields={"verdict": "gate_missing"})
+    assert store.get("fixer_reviews", rid)["target"] is None
+    assert store.find(CURRENT_COLLECTION) == []
+    assert [d["id"] for d in run_reviews(store, "run-1")] == [rid]
 
 
 # --------------------------------------------------------------------------- the shipped brief
@@ -305,7 +363,7 @@ def _brief() -> str:
 
 
 def test_the_shipped_workflow_carries_no_brief_and_the_actor_locks_it():
-    from tests.rules.test_pr_fixer_bundle import reviewer_actor, workflow_doc
+    from tests.rules.test_pr_fixer_single import reviewer_actor, workflow_doc
 
     fix = next(s for s in workflow_doc()["steps"] if s["id"] == "fix")
     review = next(b for b in fix["body"] if b["id"] == "review")
@@ -372,16 +430,19 @@ def test_default_ports_serve_the_review_builtin():
     )
     res = code.invoke({}, "k", None, context=ctx)
     assert res.outcome == "failed" and res.error.startswith("run_not_found")
-    from culture_rules.actors.review import current_review
+    from culture_rules.actors.review import run_reviews
 
-    assert current_review(store, "run-x")[1]["verdict"] == "run_not_found"
+    assert [d["verdict"] for d in run_reviews(store, "run-x")] == ["run_not_found"]
 
 
 def test_the_review_step_outside_a_loop_is_a_config_error():
     from culture_rules.actors.review import ReviewVerdictPort
     from culture_rules.engine.actorport import InvocationContext
+    from tests.rules.test_pr_fixer_single import workflow_doc
 
-    port = ReviewVerdictPort(MemoryStore())
+    store = MemoryStore()
+    store.put("runs", {"id": "r", "workflow": {"definition": workflow_doc()}})
+    port = ReviewVerdictPort(store)
     res = port.invoke({}, "k", None, context=InvocationContext("r", "verdict", "code", "h"))
     assert res.outcome == "failed" and res.error.startswith("bad_config") and not res.retryable
 

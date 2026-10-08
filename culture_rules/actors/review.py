@@ -81,7 +81,8 @@ from datetime import UTC, datetime
 from typing import Any
 
 from culture_rules.actors import trusted as _trusted
-from culture_rules.actors.trusted import actor_refusal, workflow_refusal
+from culture_rules.actors.lineage import LineageError, final_gate, upstream
+from culture_rules.actors.trusted import actor_refusal
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
 
 __all__ = [
@@ -106,12 +107,14 @@ __all__ = [
 REVIEW_BUILTIN = "review"
 """``config.builtin`` of the code step that reads the reviewer's verdict."""
 REVIEWS_COLLECTION = "fixer_reviews"
-"""Immutable review records, one per verdict-step attempt: id ``<run>:<iteration>:<attempt>``,
-carrying repo, PR number, reviewed start and tip, the verdict and both identities."""
-CURRENT_COLLECTION = "fixer_review_current"
-"""One pointer per run (id = run id) to its current review record. It only ever moves
-forward in ``(iteration, attempt)`` order, by compare-and-set, so a late or replayed
-verdict for an older try can never make an obsolete approval current again."""
+"""Immutable review records, one per verdict-step attempt: id ``<run>:<step>:<attempt>``,
+carrying repo, PR number, reviewed base, start and tip (and their ``target``), the verdict,
+both identities and, in a chain, the reviewed ``fix_run``."""
+CURRENT_COLLECTION = "fixer_review_targets"
+"""One pointer per review target (d21: id = :func:`review_target` of repo, PR, base, start
+and tip) to its current review record. It only ever moves forward, by compare-and-set, so a
+late or replayed verdict for an older try can never make an obsolete approval current again.
+(The d20 per-run pointers of ``fixer_review_current`` are no longer read.)"""
 
 APPROVE, REQUEST_CHANGES, NOT_RUN = "approve", "request_changes", "not_run"
 VERDICTS = (APPROVE, REQUEST_CHANGES)
@@ -319,7 +322,7 @@ def _same_target(doc: Mapping[str, Any], repo: Any, number: Any) -> bool:
 
 
 CURRENT, CONFLICT, CONSUMED = "current", "conflict", "consumed"
-"""States of a run's review pointer: ``current`` names the newest record; ``conflict``
+"""States of a commit's review pointer: ``current`` names the newest record; ``conflict``
 (two different results for the same try) and ``consumed`` (a push used the approval) are
 terminal - no later verdict moves the pointer again."""
 
@@ -338,7 +341,9 @@ CONTENT_FIELDS = (
     "base_sha",
     "repo",
     "number",
+    "target",
     "gate_verdict",
+    "fix_run",
     "reviewer_actor",
     "reviewer_backend",
     "implementer_actor",
@@ -353,31 +358,86 @@ def _content(doc: Mapping[str, Any] | None) -> dict[str, Any]:
     return {k: (doc or {}).get(k) for k in CONTENT_FIELDS}
 
 
+def review_target(
+    repo: Any, number: Any, base_sha: Any, start_sha: Any, commit_sha: Any
+) -> str | None:
+    """The id of the review target ``(repo, PR, base, start, tip)`` (d21), or ``None`` when
+    any part is missing or malformed. A digest, so any part fits a document id; the repo is
+    compared case-insensitively, the SHAs must be full."""
+    if not isinstance(repo, str) or "/" not in repo or not repo.strip():
+        return None
+    if isinstance(number, bool):
+        return None
+    try:
+        n = int(number)
+    except (TypeError, ValueError):
+        return None
+    shas = (base_sha, start_sha, commit_sha)
+    if n <= 0 or not all(isinstance(x, str) and _SHA_RE.match(x) for x in shas):
+        return None
+    text = json.dumps([repo.strip().casefold(), n, *shas], separators=(",", ":"))
+    return "rt_" + hashlib.sha256(text.encode("utf-8")).hexdigest()[:40]
+
+
+def _target_of(fields: Mapping[str, Any]) -> str | None:
+    return review_target(
+        fields.get("repo"),
+        fields.get("number"),
+        fields.get("base_sha"),
+        fields.get("start_sha"),
+        fields.get("commit_sha"),
+    )
+
+
 def record_review(
     store: Any, run_id: str, *, iteration: int, attempt: int, fields: Mapping[str, Any]
 ) -> str:
-    """Write one immutable review record (id ``<run>:<verdict step key>:<attempt>``) and
-    move the run's pointer to it unless a newer ``(iteration, attempt)`` is current.
+    """Write one immutable review record (id ``<run>:<verdict step key>:<attempt>``) and,
+    when it names a whole target (repo, PR, base, start and tip: :func:`review_target`),
+    move that target's pointer to it unless a newer result for the target is current.
 
-    Fails closed: a second, different result for the same try (another verdict step, or a
-    rewrite of the same record) turns the pointer to ``conflict`` for good; once a push
-    consumed the approval, any later write raises ``review_consumed`` (the record itself
-    is kept). Returns the record id."""
+    The pointer is per **commit** (d21): a push in another run finds the approval by the
+    exact commit it pushes. It only moves forward - within one run in ``(iteration,
+    attempt)`` order, across runs to a run it has not seen before (review runs of one PR are
+    serialised by its concurrency key, so a run first seen later is the newer one); an older
+    run's late write is recorded and never made current. Fails closed: a second, different
+    result for the same try (another verdict step, or a rewrite of the same record) turns the
+    pointer to ``conflict`` for good; once a push consumed the approval, any later write
+    raises ``review_consumed`` (the record itself is kept). Returns the record id."""
     from culture_rules.store.port import DuplicateKeyError  # noqa: PLC0415
 
     step = str(fields.get("step") or f"[{iteration}]")
     record_id = f"{run_id}:{step}:{attempt}"
-    doc = {**fields, "id": record_id, "run_id": run_id, "iteration": iteration, "attempt": attempt}
+    target = _target_of(fields)
+    doc = {
+        **fields,
+        "id": record_id,
+        "run_id": run_id,
+        "iteration": iteration,
+        "attempt": attempt,
+        "target": target,
+    }
     clash = False
     try:
         store.insert(REVIEWS_COLLECTION, doc)
     except DuplicateKeyError:  # the first write stands; a different second one is a clash
-        clash = _content(store.get(REVIEWS_COLLECTION, record_id)) != _content(doc)
+        existing = store.get(REVIEWS_COLLECTION, record_id)
+        clash = _content(existing) != _content(doc)
+        target = target or (existing or {}).get("target")
+    if target is None:
+        return record_id  # no commit to point at (the gate or the run failed first)
     order = (iteration, attempt)
     for _ in range(16):  # compare-and-set; a lost race re-reads
-        cur = store.get(CURRENT_COLLECTION, run_id)
+        cur = store.get(CURRENT_COLLECTION, target)
         if cur is None:
-            first = {"id": run_id, "run_id": run_id, "iteration": iteration, "attempt": attempt}
+            first = {
+                "id": target,
+                "target": target,
+                "run_id": run_id,
+                "runs": [run_id],
+                "iteration": iteration,
+                "attempt": attempt,
+            }
             if clash:  # a clash is a conflict even before any pointer exists
                 first.update(record=None, state=CONFLICT, conflict=[record_id, record_id])
             else:
@@ -390,56 +450,74 @@ def record_review(
         state = cur.get("state")
         if state == CONSUMED:
             raise ReviewError(
-                "review_consumed", "a push already used this run's approval; recorded only"
+                "review_consumed", "a push already used this commit's approval; recorded only"
             )
         if state != CURRENT:
             return record_id  # conflict (or anything unknown) stays: fail closed
-        cur_order = (cur.get("iteration"), cur.get("attempt"))
-        same_try_other = cur_order == order and cur.get("record") != record_id
-        if (clash and cur_order <= order) or same_try_other:
-            changes = {
-                "record": None,
-                "state": CONFLICT,
-                "conflict": [cur.get("record"), record_id],
+        runs = list(cur.get("runs") or ())
+        if cur.get("run_id") != run_id:
+            if run_id in runs:
+                return record_id  # an older review run of this commit: stale, recorded only
+            changes: dict[str, Any] = {
+                "record": record_id,
+                "run_id": run_id,
+                "runs": [*runs, run_id],
+                "iteration": iteration,
+                "attempt": attempt,
             }
-        elif cur_order >= order:
-            return record_id  # stale, or this record is already current
         else:
-            changes = {"record": record_id, "iteration": iteration, "attempt": attempt}
-        expected = {k: cur.get(k) for k in ("record", "iteration", "attempt", "state")}
-        if store.update_if(CURRENT_COLLECTION, run_id, expected, changes).won:
+            cur_order = (cur.get("iteration"), cur.get("attempt"))
+            same_try_other = cur_order == order and cur.get("record") != record_id
+            if (clash and cur_order <= order) or same_try_other:
+                changes = {
+                    "record": None,
+                    "state": CONFLICT,
+                    "conflict": [cur.get("record"), record_id],
+                }
+            elif cur_order >= order:
+                return record_id  # stale, or this record is already current
+            else:
+                changes = {"record": record_id, "iteration": iteration, "attempt": attempt}
+        expected = {k: cur.get(k) for k in ("record", "run_id", "iteration", "attempt", "state")}
+        if store.update_if(CURRENT_COLLECTION, target, expected, changes).won:
             return record_id
     raise ReviewError("review_invalid", "could not record the review (sustained contention)")
 
 
 def current_review(
-    store: Any, run_id: Any
+    store: Any, target: Any
 ) -> tuple[str | None, Mapping[str, Any] | None, str | None]:
-    """``(record id, record, pointer state)`` for the run; ``(None, None, None)`` without a
-    pointer, ``(None, None, "conflict")`` after conflicting results."""
-    if not isinstance(run_id, str) or not run_id:
+    """``(record id, record, pointer state)`` for the review target; ``(None, None, None)``
+    without a pointer, ``(None, None, "conflict")`` after conflicting results."""
+    if not isinstance(target, str) or not target:
         return None, None, None
-    cur = store.get(CURRENT_COLLECTION, run_id)
-    if not cur or cur.get("run_id") != run_id:
+    cur = store.get(CURRENT_COLLECTION, target)
+    if not cur or cur.get("target") != target:
         return None, None, None
     state = cur.get("state")
     if state not in (CURRENT, CONSUMED) or not isinstance(cur.get("record"), str):
         return None, None, CONFLICT
     doc = store.get(REVIEWS_COLLECTION, cur["record"])
-    if not doc or doc.get("run_id") != run_id:
+    if not doc or doc.get("target") != target or doc.get("run_id") != cur.get("run_id"):
         return None, None, None
     return cur["record"], doc, state
 
 
+def run_reviews(store: Any, run_id: str) -> list[Mapping[str, Any]]:
+    """Every review record a run wrote, oldest try first (history and tests)."""
+    docs = store.find(REVIEWS_COLLECTION, {"run_id": run_id})
+    return sorted(docs, key=lambda d: (d.get("iteration") or 0, d.get("attempt") or 0))
+
+
 def consume_approval(
-    store: Any, run_id: str, record_id: str | None, commit_sha: str, *, by: str
+    store: Any, target: str | None, record_id: str | None, commit_sha: str, *, by: str
 ) -> str | None:
     """Mark ``record_id`` consumed by the push of ``commit_sha`` (compare-and-set from
-    ``current``), or say why not. After this no verdict can move the run's pointer, so the
-    approval cannot be revoked between this call and ``git push``. A retry of the same push
-    finds it already consumed for the same commit and goes on."""
+    ``current`` on the target's pointer), or say why not. After this no verdict can move the
+    pointer, so the approval cannot be revoked between this call and ``git push``. A retry
+    of the same push finds it already consumed for the same commit and goes on."""
     for _ in range(16):
-        cur = store.get(CURRENT_COLLECTION, run_id) if isinstance(run_id, str) else None
+        cur = store.get(CURRENT_COLLECTION, target) if isinstance(target, str) else None
         if not cur or not record_id or cur.get("record") != record_id:
             return "review_changed"
         state = cur.get("state")
@@ -449,7 +527,7 @@ def consume_approval(
             return "review_conflict"
         changes = {"state": CONSUMED, "consumed_commit": commit_sha, "consumed_by": by}
         if store.update_if(
-            CURRENT_COLLECTION, run_id, {"record": record_id, "state": CURRENT}, changes
+            CURRENT_COLLECTION, target, {"record": record_id, "state": CURRENT}, changes
         ).won:
             return None
     return "review_changed"
@@ -463,39 +541,53 @@ def review_refusal(
     repo: Any = None,
     number: Any = None,
     start_sha: Any = None,
+    base_sha: Any = None,
 ) -> str | None:
-    """Why ``github.push`` may not push ``start_sha..commit_sha`` to ``repo#number`` for run
-    ``run_id``, or ``None``.
+    """Why ``github.push`` may not push ``start_sha..commit_sha`` (base ``base_sha``) to
+    ``repo#number`` on the approval of review run ``run_id``, or ``None``.
 
-    Reads the run's review record (written only by the built-in ``review`` step), never a
-    param, so it holds whatever the workflow wires: ``review_missing``,
+    Reads the target's review record (written only by the built-in ``review`` step), never
+    a param, so it holds whatever the workflow wires: ``review_missing``,
     ``review_rejected``, ``review_target_mismatch`` (another repo or PR),
     ``review_commit_mismatch`` (another start or tip than the one reviewed),
-    ``reviewer_is_implementer``."""
+    ``reviewer_is_implementer``, ``review_not_in_chain`` (the current approval of this
+    commit is not the one run ``run_id`` recorded)."""
+    target = review_target(repo, number, base_sha, start_sha, commit_sha)
     return approved_review(
-        store, run_id, commit_sha, repo=repo, number=number, start_sha=start_sha
+        store,
+        target,
+        commit_sha,
+        repo=repo,
+        number=number,
+        start_sha=start_sha,
+        reviewer_run=run_id,
     )[0]
 
 
 def approved_review(
     store: Any,
-    run_id: str,
+    target: str | None,
     commit_sha: str,
     *,
     repo: Any = None,
     number: Any = None,
     start_sha: Any = None,
+    reviewer_run: Any = None,
 ) -> tuple[str | None, str | None]:
-    """``(refusal, record id)``: :func:`review_refusal`'s answer and the current record it
-    judged, so a caller can check right before acting that the same record still holds."""
-    record_id, doc, state = current_review(store, run_id)
+    """``(refusal, record id)``: :func:`review_refusal`'s answer for the review target and
+    the current record it judged, so a caller can check right before acting that the same
+    record still holds. The record must have been written by ``reviewer_run`` - the review
+    run of this push's verified chain (``review_not_in_chain``)."""
+    record_id, doc, state = current_review(store, target)
     if state == CONFLICT:
         return "review_conflict", None
     if state == CONSUMED:  # only a retry of the push that consumed it may go on
-        cur = store.get(CURRENT_COLLECTION, run_id) or {}
+        cur = store.get(CURRENT_COLLECTION, target) or {}
         if cur.get("consumed_commit") != commit_sha:
             return "review_consumed", record_id
     refusal = _refusal_of(doc, commit_sha, repo=repo, number=number, start_sha=start_sha)
+    if refusal is None and (not isinstance(reviewer_run, str) or doc.get("run_id") != reviewer_run):
+        refusal = "review_not_in_chain"
     return refusal, record_id
 
 
@@ -526,13 +618,22 @@ def _state(run: Mapping[str, Any], key: str) -> dict[str, Any] | None:
     return next((s for s in run.get("steps", ()) if s.get("key") == key), None)
 
 
+def _steps(run: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    definition = ((run.get("workflow") or {}).get("definition")) or {}
+    return [s for s in definition.get("steps") or () if isinstance(s, Mapping)]
+
+
 def _body_steps(run: Mapping[str, Any], parent: str) -> dict[str, Any]:
     """The pinned workflow's body steps of loop ``parent``, by id (raw dicts)."""
-    definition = ((run.get("workflow") or {}).get("definition")) or {}
-    for s in definition.get("steps") or ():
-        if isinstance(s, Mapping) and s.get("id") == parent:
+    for s in _steps(run):
+        if s.get("id") == parent:
             return {b.get("id"): b for b in s.get("body") or () if isinstance(b, Mapping)}
     return {}
+
+
+def _top_step(run: Mapping[str, Any], step_id: str) -> Mapping[str, Any]:
+    """The pinned workflow's top-level step ``step_id`` (raw dict; ``{}`` when absent)."""
+    return next((s for s in _steps(run) if s.get("id") == step_id), {})
 
 
 def _placed_actor(step: Mapping[str, Any] | None) -> str | None:
@@ -574,13 +675,17 @@ def _finding_line(f: Mapping[str, Any]) -> str:
     return f"- [{f['severity']}] {where} {f['detail']}".replace("  ", " ").rstrip()
 
 
+def findings_text(findings: list[dict[str, Any]]) -> str:
+    """One line per finding (``- [high] src/app.py:3 detail``)."""
+    return "\n".join(_finding_line(f) for f in findings)
+
+
 def _changes_instruction(commit: str, findings: list[dict[str, Any]], task: Any) -> str:
-    lines = "\n".join(_finding_line(f) for f in findings)
     text = (
         f"An independent reviewer requested changes to your previous attempt (commit "
         f"{commit[:12]}). That commit was not pushed and is discarded: start again from the "
         f"PR head, redo the fix and address every finding below. {_KEEP}\n\n"
-        f"Findings:\n{lines}"
+        f"Findings:\n{findings_text(findings)}"
     )
     if isinstance(task, str) and task.strip():
         text += f"\n\nThe original task:\n{task.strip()}"
@@ -607,22 +712,26 @@ class ReviewVerdictPort:
         *,
         context: InvocationContext,
     ) -> InvocationResult:
-        facts: dict[str, Any] = {}
+        facts: dict[str, Any] = {"_context": context}
         try:
             out = self._judge(input, context, facts)
         except ReviewError as exc:
+            known = {k: v for k, v in facts.items() if not k.startswith("_")}
             try:
-                self._record(context, {**facts, "verdict": exc.code, "error": str(exc)})
+                self._record(context, {**known, "verdict": exc.code, "error": str(exc)})
             except ReviewError:
-                pass  # consumed or contended: the run's pointer is already final
+                pass  # consumed or contended: the target's pointer is already final
             return InvocationResult.failed(str(exc), retryable=False)
+        final = out.pop("_final", None)
+        if final:  # recorded as a request for changes; the chain ends here, handing back
+            return InvocationResult.failed(final, retryable=False)
         return InvocationResult.completed(out)
 
     # ------------------------------------------------------------------ helpers
 
     def _record(self, context: InvocationContext, fields: Mapping[str, Any]) -> None:
-        """Record this attempt's outcome (immutable) and make it current unless a newer try
-        already is (see :func:`record_review`)."""
+        """Record this attempt's outcome (immutable) and make it current for its commit
+        unless a newer result already is (see :func:`record_review`)."""
         where = _LOOP_KEY_RE.match(context.step_id or "")
         record_review(
             self._store,
@@ -633,6 +742,7 @@ class ReviewVerdictPort:
                 "step": context.step_id,
                 "repo": None,
                 "number": None,
+                "base_sha": None,
                 "start_sha": None,
                 "commit_sha": None,
                 "reviewed_commit": None,
@@ -652,13 +762,13 @@ class ReviewVerdictPort:
         parent: str,
         i: int,
         body: Mapping[str, Any],
-        review_step: str,
+        review_step: str | None,
         g: Mapping[str, Any],
     ) -> tuple[Mapping[str, Any], Mapping[str, Any]]:
-        """The agent step that actually made the gated commit (Codex review #2): of this
-        try's ai steps other than the review, the one that succeeded with ``head_after`` ==
-        the gate's ``agent_commit_sha``. Never a name from the workflow config; none or more
-        than one is ``review_invalid``."""
+        """The agent step that actually made the gated commit (Codex review #2): of the
+        gate's try's ai steps other than the review, the one that succeeded with
+        ``head_after`` == the gate's ``agent_commit_sha``. Never a name from the workflow
+        config; none or more than one is ``review_invalid``."""
         tip = g.get("agent_commit_sha")
         found = []
         for sid, definition in body.items():
@@ -725,9 +835,6 @@ class ReviewVerdictPort:
     def _judge(
         self, input: Mapping[str, Any], context: InvocationContext, facts: dict[str, Any]
     ) -> dict[str, Any]:
-        where = _LOOP_KEY_RE.match(context.step_id or "")
-        if where is None:
-            raise ReviewError("bad_config", "the review step runs inside the fix loop")
         config = context.config or {}
         names = {
             role: config.get(f"{role}_step", default)
@@ -738,19 +845,147 @@ class ReviewVerdictPort:
         run = self._store.get(_RUNS, context.run_id)
         if not run:
             raise ReviewError("run_not_found", context.run_id)
-        if workflow_refusal(run):
-            raise ReviewError("workflow_not_trusted", "the run's workflow is not a trusted one")
+        role = _trusted.workflow_role(run)
+        if role == _trusted.ROLE_SINGLE:
+            return self._judge_single(run, input, context, names, facts)
+        if role == _trusted.ROLE_REVIEW:
+            return self._judge_chain(run, input, context, names, facts)
+        raise ReviewError("workflow_not_trusted", "the run's workflow is not a trusted one")
+
+    def _judge_single(
+        self,
+        run: Mapping[str, Any],
+        input: Mapping[str, Any],
+        context: InvocationContext,
+        names: Mapping[str, str],
+        facts: dict[str, Any],
+    ) -> dict[str, Any]:
+        """The d20 single workflow: the verdict step is the last of its fix loop's body and
+        judges this very try's gate and reviewer, in its own run."""
+        where = _LOOP_KEY_RE.match(context.step_id or "")
+        if where is None:
+            raise ReviewError("bad_config", "the review step runs inside the fix loop")
         parent, i = where.group("parent"), int(where.group("i"))
         run_inputs = run.get("inputs") or {}
         facts.update(repo=run_inputs.get("repo"), number=run_inputs.get("number"))
-
-        def state(role: str) -> dict[str, Any] | None:
-            return _state(run, f"{parent}[{i}]/{names[role]}")
-
-        gate = state("gate")
+        gate = _state(run, f"{parent}[{i}]/{names['gate']}")
         if not gate or gate.get("status") != "succeeded":
             raise ReviewError("gate_missing", "the gate step of this attempt did not succeed")
+        body = _body_steps(run, parent)
+        gate_def = body.get(names["gate"]) or {}
+        gate_placement = gate_def.get("placement") or {}
+        if (
+            gate_def.get("kind") != "code"
+            or (gate_def.get("config") or {}).get("builtin") != "gate"
+            or (isinstance(gate_placement, Mapping) and gate_placement.get("actor"))
+        ):
+            raise ReviewError(
+                "bad_config", "gate_step must be the built-in gate, review_step an ai step"
+            )
         g = gate.get("outputs") or {}
+        return self._verdict(
+            input,
+            facts,
+            g,
+            fix_run=run,
+            expected_start=run_inputs.get("head_sha"),
+            task=input.get("task"),
+            reviewer=lambda: (
+                run,
+                _state(run, f"{parent}[{i}]/{names['review']}"),
+                body.get(names["review"]) or {},
+            ),
+            implementer=lambda: self._implementer(run, parent, i, body, names["review"], g),
+            chain=False,
+        )
+
+    def _judge_chain(
+        self,
+        run: Mapping[str, Any],
+        input: Mapping[str, Any],
+        context: InvocationContext,
+        names: Mapping[str, str],
+        facts: dict[str, Any],
+    ) -> dict[str, Any]:
+        """d21: a ``review-commit`` run judges the commit of the ``pr-fix`` run whose
+        success started it, walked from the store by verified lineage, never wired in."""
+        if _LOOP_KEY_RE.match(context.step_id or ""):
+            raise ReviewError("bad_config", "the chain's review step is a top-level step")
+        try:
+            fix = upstream(self._store, run)
+            if _trusted.workflow_role(fix) != _trusted.ROLE_FIX:
+                raise LineageError(
+                    "workflow_not_trusted", "the reviewed run is not a trusted pr-fix run"
+                )
+            fg = final_gate(fix)
+        except LineageError as exc:
+            raise ReviewError(exc.code, exc.detail) from exc
+        fix_inputs = fix.get("inputs") or {}
+        facts.update(
+            repo=fix_inputs.get("repo"), number=fix_inputs.get("number"), fix_run=fix["id"]
+        )
+        g = fg.outputs
+        task = fix_inputs.get("task")
+        if not (isinstance(task, str) and task.strip()):
+            task = fix_inputs.get("instruction")
+        out = self._verdict(
+            input,
+            facts,
+            g,
+            fix_run=fix,
+            expected_start=fix_inputs.get("head_sha"),
+            task=task,
+            reviewer=lambda: (
+                run,
+                _state(run, names["review"]),
+                _top_step(run, names["review"]),
+            ),
+            implementer=lambda: self._implementer(fix, fg.parent, fg.iteration, fg.body, None, g),
+            chain=True,
+        )
+        out.update(
+            task=task,
+            commit_sha=facts.get("commit_sha"),
+            start_sha=facts.get("start_sha"),
+            base_sha=facts.get("base_sha"),
+            summary=findings_text(out.get("findings") or []),
+        )
+        if out["review"] == REQUEST_CHANGES:
+            final = self._budget_spent(run)
+            if final:
+                out["_final"] = (
+                    f"changes_requested: the reviewer requested changes and {final}; the "
+                    f"findings:\n{out['summary']}"
+                )
+        return out
+
+    def _budget_spent(self, run: Mapping[str, Any]) -> str | None:
+        """Whether no further fix attempt will be admitted on the run's key (its budget
+        shows ``count >= limit``): then a request for changes ends the chain."""
+        from culture_rules.engine.claims import RULE_ATTEMPT_BUDGETS, budget_id  # noqa: PLC0415
+
+        key = run.get("concurrency_key")
+        if not isinstance(key, str) or not key:
+            return None
+        doc = self._store.get(RULE_ATTEMPT_BUDGETS, budget_id(key)) or {}
+        limit, count = doc.get("limit"), doc.get("count")
+        if isinstance(limit, int) and isinstance(count, int) and count >= limit:
+            return f"the attempt budget is spent ({count} of {limit})"
+        return None
+
+    def _verdict(
+        self,
+        input: Mapping[str, Any],
+        facts: dict[str, Any],
+        g: Mapping[str, Any],
+        *,
+        fix_run: Mapping[str, Any],
+        expected_start: Any,
+        task: Any,
+        reviewer: Any,
+        implementer: Any,
+        chain: bool,
+    ) -> dict[str, Any]:
         gate_verdict = g.get("verdict")
         out: dict[str, Any] = {
             "verdict": gate_verdict,
@@ -761,7 +996,9 @@ class ReviewVerdictPort:
         }
         facts["gate_verdict"] = gate_verdict
         if gate_verdict not in _PASSING_GATE:
-            self._record(context, {**facts, "verdict": NOT_RUN})
+            if chain:  # a pr-fix run only succeeds on a passing gate
+                raise ReviewError("review_invalid", "the reviewed run's gate did not pass")
+            self._record_current(facts, NOT_RUN)
             return out
         commit, start = g.get("commit_sha"), g.get("start_sha")
         if not (isinstance(commit, str) and _SHA_RE.match(commit)):
@@ -769,15 +1006,14 @@ class ReviewVerdictPort:
         if not (isinstance(start, str) and _SHA_RE.match(start)):
             raise ReviewError("review_invalid", "the gate reported no start_sha")
         facts.update(commit_sha=commit, start_sha=start, base_sha=g.get("base_sha"))
-        if start != run_inputs.get("head_sha"):
+        if start != expected_start:
             raise ReviewError(
                 "review_invalid",
-                "the gate's start_sha is not the PR head this run was started for",
+                "the gate's start_sha is not the PR head the fix run was started for",
             )
-        task = input.get("task")
         if g.get("diff_truncated") is True:
             findings = _unreviewable(g)
-            self._record(context, {**facts, "verdict": REQUEST_CHANGES, "findings": findings})
+            self._record_current(facts, REQUEST_CHANGES, findings=findings)
             return {
                 **out,
                 "review": REQUEST_CHANGES,
@@ -786,8 +1022,9 @@ class ReviewVerdictPort:
             }
         if g.get("diff_truncated") is not False or not isinstance(g.get("diff"), str):
             raise ReviewError("review_invalid", "the gate did not report the diff it verified")
-        parsed = self._review(run, parent, i, names, state, g, facts)
-        self._record(context, {**facts, **parsed})
+        reviewer_run, review_state, review_def = reviewer()
+        parsed = self._review(reviewer_run, review_state, review_def, implementer, g, facts)
+        self._record_current(facts, parsed["verdict"], parsed=parsed)
         approved = parsed["verdict"] == APPROVE
         return {
             **out,
@@ -799,18 +1036,33 @@ class ReviewVerdictPort:
             ),
         }
 
+    def _record_current(
+        self,
+        facts: dict[str, Any],
+        verdict: str,
+        *,
+        findings: list[dict[str, Any]] | None = None,
+        parsed: Mapping[str, Any] | None = None,
+    ) -> None:
+        context = facts.get("_context")
+        fields = {k: v for k, v in facts.items() if not k.startswith("_")}
+        fields["verdict"] = verdict
+        if findings is not None:
+            fields["findings"] = findings
+        if parsed is not None:
+            fields.update(parsed)
+        self._record(context, fields)
+
     def _review(
         self,
-        run: Mapping[str, Any],
-        parent: str,
-        i: int,
-        names: Mapping[str, str],
-        state: Any,
+        reviewer_run: Mapping[str, Any],
+        review: Mapping[str, Any] | None,
+        review_def: Mapping[str, Any],
+        implementer: Any,
         g: Mapping[str, Any],
         facts: dict[str, Any],
     ) -> dict[str, Any]:
         commit, start = g["commit_sha"], g["start_sha"]
-        review = state("review")
         if not review or review.get("status") != "succeeded":
             raise ReviewError("review_missing", "the reviewer did not review this commit")
         given = review.get("inputs") or {}
@@ -823,25 +1075,16 @@ class ReviewVerdictPort:
             raise ReviewError(
                 "review_invalid", "the reviewer was not given the gate's commit and diff"
             )
-        body = _body_steps(run, parent)
-        review_def = body.get(names["review"]) or {}
-        gate_def = body.get(names["gate"]) or {}
-        gate_placement = gate_def.get("placement") or {}
-        if (
-            gate_def.get("kind") != "code"
-            or (gate_def.get("config") or {}).get("builtin") != "gate"
-            or (isinstance(gate_placement, Mapping) and gate_placement.get("actor"))
-            or review_def.get("kind") != "ai"
-        ):
+        if review_def.get("kind") != "ai":
             raise ReviewError(
                 "bad_config", "gate_step must be the built-in gate, review_step an ai step"
             )
         reviewer_id = _placed_actor(review_def)
-        impl_def, impl_state = self._implementer(run, parent, i, body, names["review"], g)
+        impl_def, impl_state = implementer()
         implementer_id = _placed_actor(impl_def)
         facts.update(reviewer_actor=reviewer_id, implementer_actor=implementer_id)
         reviewer = self._actor(reviewer_id, "reviewer")
-        implementer = self._actor(implementer_id, "implementer")
+        implementer_doc = self._actor(implementer_id, "implementer")
         step_sandbox = ((review_def or {}).get("config") or {}).get("sandbox")
         if (reviewer.get("params") or {}).get("sandbox") != READ_ONLY or step_sandbox not in (
             None,
@@ -859,7 +1102,7 @@ class ReviewVerdictPort:
                 f"{sorted(REVIEWER_BACKENDS)}",
             )
         implementer_backend = _backend(
-            (impl_state.get("outputs") or {}).get("backend"), implementer.get("harness")
+            (impl_state.get("outputs") or {}).get("backend"), implementer_doc.get("harness")
         )
         facts.update(reviewer_backend=reviewer_backend, implementer_backend=implementer_backend)
         if not _distinct(reviewer_id, implementer_id) or not _distinct(
@@ -870,7 +1113,7 @@ class ReviewVerdictPort:
                 f"reviewer {reviewer_id}/{reviewer_backend} vs implementer "
                 f"{implementer_id}/{implementer_backend}",
             )
-        self._locked_brief(run, review, reviewer_id)
+        self._locked_brief(reviewer_run, review, reviewer_id)
         status = r.get("status")
         changed = status in ("completed", "uncommitted")  # the bridge saw commits or edits
         wrote = changed or bool(r.get("commits")) or r.get("dirty") is not False

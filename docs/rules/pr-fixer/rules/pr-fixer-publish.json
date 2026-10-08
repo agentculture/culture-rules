@@ -1,0 +1,127 @@
+{
+  "action": {
+    "idempotent": false,
+    "kind": "github.comment",
+    "name": "Comment with the run link",
+    "only_at_chain_end": true,
+    "params": {
+      "actor": "github-app",
+      "body": "PR fixer: gate {{ workflow.outputs.verdict }}, reviewed and approved, pushed {{ workflow.outputs.pushed }}, head {{ workflow.outputs.head_after }}.\n\nRun: https://rules.culture.dev/api/runs/{{ run.id }}",
+      "number": "trigger.data.number",
+      "repo": "trigger.data.repository"
+    },
+    "retry": null,
+    "timeout_s": null
+  },
+  "concurrency_key": "pr-fixer:{trigger.data.repository}#{trigger.data.number}",
+  "condition": {
+    "args": [
+      {
+        "cmp": "==",
+        "left": {
+          "field": "data.workflow_id"
+        },
+        "op": "compare",
+        "right": {
+          "literal": "review-commit"
+        }
+      },
+      {
+        "cmp": "==",
+        "left": {
+          "field": "data.outputs.review"
+        },
+        "op": "compare",
+        "right": {
+          "literal": "approve"
+        }
+      },
+      {
+        "cmp": "==",
+        "left": {
+          "field": "data.outputs.verdict"
+        },
+        "op": "compare",
+        "right": {
+          "literal": "pass"
+        }
+      },
+      {
+        "items": {
+          "var": "fixer_repos"
+        },
+        "op": "in",
+        "value": {
+          "field": "data.repository"
+        }
+      },
+      {
+        "arg": {
+          "items": {
+            "var": "fixer_excluded_repos"
+          },
+          "op": "in",
+          "value": {
+            "field": "data.repository"
+          }
+        },
+        "op": "not"
+      }
+    ],
+    "op": "and"
+  },
+  "counts_toward_budget": false,
+  "description": "d21: fires when the review of a fix approves it and its gate passed, and pushes exactly that commit as the App, then answers the trusted threads the agent addressed. Disable it for review-only mode: the review then ends the chain and posts its verdict. Outside the attempt budget.",
+  "enabled": false,
+  "exclusive_group": null,
+  "id": "pr-fixer-publish",
+  "max_attempts": null,
+  "may_after": [],
+  "must_after": [],
+  "name": "PR fixer: publish the approved fix",
+  "on_failure": {
+    "idempotent": false,
+    "kind": "github.comment",
+    "name": "Hand back with the run link (once per chain)",
+    "only_at_chain_end": true,
+    "params": {
+      "actor": "github-app",
+      "body": "PR fixer handed back ({{ run.error.code }}): {{ run.error.message }}\n\nRun: https://rules.culture.dev/api/runs/{{ run.id }}",
+      "number": "trigger.data.number",
+      "repo": "trigger.data.repository"
+    },
+    "retry": null,
+    "timeout_s": null
+  },
+  "placement": {
+    "actor": null,
+    "machine": "spark2",
+    "requirement": null
+  },
+  "priority": 0,
+  "schema_version": "1.0",
+  "supersedes": [],
+  "trigger": {
+    "kind": "event",
+    "params": {
+      "type": "rules.run.succeeded"
+    }
+  },
+  "workflow": {
+    "id": "publish-fix",
+    "inputs": {
+      "addressed": "trigger.data.outputs.threads_addressed",
+      "commit_sha": "trigger.data.outputs.commit_sha",
+      "expected_head_sha": "trigger.data.outputs.start_sha",
+      "head_branch": "trigger.data.outputs.head_branch",
+      "number": "trigger.data.number",
+      "repo": "trigger.data.repository",
+      "source": "trigger.data.outputs.bundle",
+      "trusted_authors": {
+        "$var": "trusted_authors"
+      },
+      "verdict": "trigger.data.outputs.verdict"
+    },
+    "version": null
+  }
+}

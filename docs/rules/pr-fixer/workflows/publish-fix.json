@@ -1,0 +1,477 @@
+{
+  "description": "d21: github.push as the App of the commit a review-commit run approved, then one github.review_reply per trusted thread the agent addressed, naming the pushed commit.",
+  "edges": [
+    {
+      "source": "inputs",
+      "source_port": "repo",
+      "target": "push",
+      "target_port": "repo"
+    },
+    {
+      "source": "inputs",
+      "source_port": "number",
+      "target": "push",
+      "target_port": "number"
+    },
+    {
+      "source": "inputs",
+      "source_port": "head_branch",
+      "target": "push",
+      "target_port": "head_branch"
+    },
+    {
+      "source": "inputs",
+      "source_port": "expected_head_sha",
+      "target": "push",
+      "target_port": "expected_head_sha"
+    },
+    {
+      "source": "inputs",
+      "source_port": "commit_sha",
+      "target": "push",
+      "target_port": "commit_sha"
+    },
+    {
+      "source": "inputs",
+      "source_port": "source",
+      "target": "push",
+      "target_port": "source"
+    },
+    {
+      "source": "inputs",
+      "source_port": "verdict",
+      "target": "push",
+      "target_port": "verdict"
+    },
+    {
+      "source": "push",
+      "source_port": "pushed",
+      "target": "threads",
+      "target_port": "done"
+    },
+    {
+      "source": "inputs",
+      "source_port": "repo",
+      "target": "threads",
+      "target_port": "repo"
+    },
+    {
+      "source": "inputs",
+      "source_port": "number",
+      "target": "threads",
+      "target_port": "number"
+    },
+    {
+      "source": "inputs",
+      "source_port": "trusted_authors",
+      "target": "threads",
+      "target_port": "trusted_authors"
+    },
+    {
+      "source": "threads",
+      "source_port": "threads",
+      "target": "pick",
+      "target_port": "threads"
+    },
+    {
+      "source": "inputs",
+      "source_port": "addressed",
+      "target": "pick",
+      "target_port": "addressed"
+    },
+    {
+      "source": "push",
+      "source_port": "pushed",
+      "target": "pick",
+      "target_port": "pushed"
+    },
+    {
+      "source": "push",
+      "source_port": "head_after",
+      "target": "pick",
+      "target_port": "commit"
+    },
+    {
+      "source": "pick",
+      "source_port": "replies",
+      "target": "replies",
+      "target_port": "items"
+    },
+    {
+      "source": "inputs",
+      "source_port": "repo",
+      "target": "replies",
+      "target_port": "repo"
+    },
+    {
+      "source": "inputs",
+      "source_port": "number",
+      "target": "replies",
+      "target_port": "number"
+    }
+  ],
+  "enabled": true,
+  "id": "publish-fix",
+  "inputs": [
+    {
+      "description": "owner/name",
+      "name": "repo",
+      "required": false,
+      "type": "string"
+    },
+    {
+      "description": "",
+      "name": "number",
+      "required": false,
+      "type": "integer"
+    },
+    {
+      "description": "",
+      "name": "head_branch",
+      "required": false,
+      "type": "string"
+    },
+    {
+      "description": "",
+      "name": "commit_sha",
+      "required": false,
+      "type": "string"
+    },
+    {
+      "description": "",
+      "name": "expected_head_sha",
+      "required": false,
+      "type": "string"
+    },
+    {
+      "description": "the gate's bundle",
+      "name": "source",
+      "required": false,
+      "type": "string"
+    },
+    {
+      "description": "the gate's verdict",
+      "name": "verdict",
+      "required": false,
+      "type": "string"
+    },
+    {
+      "description": "the agent's threads_addressed",
+      "name": "addressed",
+      "required": false,
+      "type": "array"
+    },
+    {
+      "description": "",
+      "name": "trusted_authors",
+      "required": false,
+      "type": "array"
+    }
+  ],
+  "name": "Publish the approved fix",
+  "outputs": [
+    {
+      "name": "pushed",
+      "source": "steps.push.outputs.pushed",
+      "type": "boolean"
+    },
+    {
+      "name": "head_after",
+      "source": "steps.push.outputs.head_after",
+      "type": "string"
+    }
+  ],
+  "schema_version": "1.0",
+  "steps": [
+    {
+      "body": [],
+      "config": {
+        "action": {
+          "kind": "github.push",
+          "params": {
+            "actor": "github-app",
+            "commit_sha": "inputs.commit_sha",
+            "expected_head_sha": "inputs.expected_head_sha",
+            "gate_verdict": "inputs.verdict",
+            "head_branch": "inputs.head_branch",
+            "number": "inputs.number",
+            "repo": "inputs.repo",
+            "source": "inputs.source"
+          }
+        },
+        "builtin": "action"
+      },
+      "description": "github.push fast-forwards the PR head branch to the approved commit from the pr-fix run's bundle, only on a passing gate and only while every rule of the chain is enabled. It verifies the WHOLE chain from the store: this run was started by a trusted review-commit run's success, that one by a trusted pr-fix run's, the commit and its start, bundle and PR are what that fix run's last gate built, and that review run's record approves exactly this commit by a reviewer other than the implementer. Runs on spark2, where the bundle is.",
+      "enabled": true,
+      "id": "push",
+      "inputs": [
+        {
+          "description": "",
+          "name": "repo",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "number",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "description": "",
+          "name": "head_branch",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "expected_head_sha",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "commit_sha",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "source",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "verdict",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "kind": "code",
+      "max_iterations": null,
+      "name": "Push as the App",
+      "outputs": [
+        {
+          "description": "",
+          "name": "head_after",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "pushed",
+          "required": true,
+          "type": "boolean"
+        }
+      ],
+      "placement": {
+        "actor": null,
+        "machine": "spark2",
+        "requirement": null
+      },
+      "retry": null,
+      "timeout_s": 300.0
+    },
+    {
+      "body": [],
+      "config": {
+        "actor": "github-app",
+        "builtin": "github.threads"
+      },
+      "description": "Re-reads the PR's unresolved review threads as the App after the push and keeps those opened by a trusted author (a thread resolved meanwhile is not answered).",
+      "enabled": true,
+      "id": "threads",
+      "inputs": [
+        {
+          "description": "",
+          "name": "done",
+          "required": false,
+          "type": "any"
+        },
+        {
+          "description": "",
+          "name": "repo",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "number",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "description": "",
+          "name": "trusted_authors",
+          "required": true,
+          "type": "array"
+        }
+      ],
+      "kind": "code",
+      "max_iterations": null,
+      "name": "Trusted review threads",
+      "outputs": [
+        {
+          "description": "",
+          "name": "threads",
+          "required": true,
+          "type": "array"
+        },
+        {
+          "description": "",
+          "name": "untrusted",
+          "required": false,
+          "type": "integer"
+        }
+      ],
+      "placement": {
+        "actor": "github-app",
+        "machine": null,
+        "requirement": null
+      },
+      "retry": null,
+      "timeout_s": 60.0
+    },
+    {
+      "body": [],
+      "config": {
+        "builtin": "github.threads_addressed"
+      },
+      "description": "Keeps the agent's threads_addressed entries that are in the trusted list; any other id is dropped, never answered.",
+      "enabled": true,
+      "id": "pick",
+      "inputs": [
+        {
+          "description": "",
+          "name": "threads",
+          "required": true,
+          "type": "array"
+        },
+        {
+          "description": "",
+          "name": "addressed",
+          "required": false,
+          "type": "array"
+        },
+        {
+          "description": "",
+          "name": "pushed",
+          "required": true,
+          "type": "boolean"
+        },
+        {
+          "description": "the pushed commit the replies name",
+          "name": "commit",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "kind": "code",
+      "max_iterations": null,
+      "name": "Threads to answer",
+      "outputs": [
+        {
+          "description": "",
+          "name": "replies",
+          "required": true,
+          "type": "array"
+        },
+        {
+          "description": "",
+          "name": "dropped",
+          "required": false,
+          "type": "integer"
+        }
+      ],
+      "placement": null,
+      "retry": null,
+      "timeout_s": 30.0
+    },
+    {
+      "body": [
+        {
+          "body": [],
+          "config": {
+            "action": {
+              "kind": "github.review_reply",
+              "params": {
+                "actor": "github-app",
+                "body": "{{ inputs.item.reply }} (addressed in {{ inputs.item.commit }})",
+                "comment_id": "inputs.item.comment_id",
+                "number": "inputs.number",
+                "repo": "inputs.repo",
+                "resolve": true,
+                "thread_id": "inputs.item.thread_id"
+              }
+            },
+            "builtin": "action"
+          },
+          "description": "",
+          "enabled": true,
+          "id": "reply",
+          "inputs": [
+            {
+              "description": "",
+              "name": "item",
+              "required": true,
+              "type": "object"
+            },
+            {
+              "description": "",
+              "name": "repo",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "number",
+              "required": true,
+              "type": "integer"
+            }
+          ],
+          "kind": "code",
+          "max_iterations": null,
+          "name": "Reply and resolve",
+          "outputs": [],
+          "placement": null,
+          "retry": null,
+          "timeout_s": 120.0
+        }
+      ],
+      "config": {},
+      "description": "github.review_reply per trusted thread the agent addressed, after the push.",
+      "enabled": true,
+      "id": "replies",
+      "inputs": [
+        {
+          "description": "",
+          "name": "items",
+          "required": true,
+          "type": "array"
+        },
+        {
+          "description": "",
+          "name": "repo",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "number",
+          "required": true,
+          "type": "integer"
+        }
+      ],
+      "kind": "for_each",
+      "max_iterations": 200,
+      "name": "One reply per addressed thread",
+      "outputs": [],
+      "placement": null,
+      "retry": null,
+      "timeout_s": null
+    }
+  ],
+  "variables": [],
+  "version": 1
+}

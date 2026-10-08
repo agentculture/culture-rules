@@ -258,7 +258,8 @@ def trusted_workflow() -> dict:
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[2]
-    return json.loads((root / "docs/rules/pr-fixer/workflows/pr-fixer.json").read_text())
+    path = root / "tests/rules/fixtures/pr-fixer-single/workflows/pr-fixer.json"
+    return json.loads(path.read_text())
 
 
 def make_store(rule_enabled=True, **actor_params):
@@ -309,14 +310,24 @@ def approve_review(store, sha, run_id="run-1", *, start, repo=REPO, number=3):
 
 
 def push_port(
-    pem, world, fake, store=None, gitrec=None, clock=None, review=True, review_start=None
+    pem,
+    world,
+    fake,
+    store=None,
+    gitrec=None,
+    clock=None,
+    review=True,
+    review_start=None,
+    gate=True,
 ):
     """The push port. ``review``: ``True`` (default) records an approval of ``world.b`` for
-    run-1, a SHA approves that commit instead, ``False`` records nothing."""
+    run-1, a SHA approves that commit instead, ``False`` records nothing. ``gate``: the
+    run's last gate built exactly the pushed commit (:class:`GatedPushPort`); ``False`` for
+    a real run whose own gate state is in the store."""
     store = store if store is not None else make_store()
-    if review and store.get("fixer_review_current", "run-1") is None:
+    if review and not store.find("fixer_reviews", {"run_id": "run-1"}):
         approve_review(store, world.b if review is True else review, start=review_start or world.a)
-    return GitHubPushPort(
+    return (GatedPushPort if gate else GitHubPushPort)(
         store,
         transport=fake,
         secrets=lambda ref: pem,
@@ -324,6 +335,47 @@ def push_port(
         git_base=f"file://{world.base}",
         clock=clock,
     )
+
+
+def gated(store, params, run_id="run-1", verdict="pass"):
+    """The run's fix loop as the single pr-fixer workflow leaves it before its push: the
+    gate of its last try built and gated exactly the commit ``params`` push (d21: the push
+    verifies itself against that gate, read from the store)."""
+    run = store.get("runs", run_id)
+    if run is None or "workflow" not in run:
+        return
+    steps = [s for s in run.get("steps") or () if not s.get("key", "").startswith("fix")]
+    steps += [
+        {"key": "fix", "status": "succeeded", "iteration": 0},
+        {
+            "key": "fix[0]/gate",
+            "status": "succeeded",
+            "outputs": {
+                "verdict": verdict,
+                "commit_sha": params.get("commit_sha"),
+                "start_sha": params.get("expected_head_sha"),
+                "base_sha": PR_BASE_SHA,
+                "bundle": params.get("source"),
+            },
+        },
+    ]
+    inputs = {
+        **(run.get("inputs") or {}),
+        "repo": params.get("repo"),
+        "number": params.get("number"),
+        "head_branch": params.get("head_branch"),
+    }
+    store.put("runs", {**run, "steps": steps, "inputs": inputs})
+
+
+class GatedPushPort(GitHubPushPort):
+    """The push port as a pr-fixer run reaches it: its gate built exactly the commit pushed
+    (:func:`gated`). These tests are about the push mechanics; the chain checks behind it
+    are tested in tests/node/test_push_chain.py."""
+
+    def invoke(self, input, key, deadline, *, context):
+        gated(self._store, input, context.run_id)
+        return super().invoke(input, key, deadline, context=context)
 
 
 class StepClock:
@@ -590,7 +642,18 @@ def test_nothing_to_push_when_commit_is_expected(pem, world):
     res = push_port(pem, world, fake, review=world.a).invoke(
         push_params(world, commit_sha=world.a), "k", DEADLINE, context=ctx()
     )
-    assert res.outcome == "completed" and res.output["pushed"] is False and fake.calls == []
+    assert res.outcome == "completed" and res.output["pushed"] is False
+    # d21: only after reading the PR as the App - never a success for a PR that is not open
+    assert [c for c in fake.calls if "/pulls/" in c[1]]
+
+
+def test_nothing_to_push_on_a_closed_pr_is_not_a_success(pem, world):
+    fake = FakeGitHub(world, state="closed")
+    res = push_port(pem, world, fake, review=world.a).invoke(
+        push_params(world, commit_sha=world.a), "k", DEADLINE, context=ctx()
+    )
+    assert (res.outcome, res.error, res.retryable) == ("failed", "pr_not_open", False)
+    assert world.remote_head() == world.a
 
 
 def test_push_targets_commit_sha_even_after_the_agent_moves_on(pem, world):

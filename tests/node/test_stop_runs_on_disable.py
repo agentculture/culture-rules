@@ -20,10 +20,11 @@ from culture_rules.node.actors import ActorRouter
 from culture_rules.store.memory import MemoryStore
 from tests.engine.run_helpers import Clock, FakeActor, rule
 from tests.node import test_github_pr_actions as gh  # skips without cryptography / git
-from tests.node.test_action_step_github import fixer_workflow
+from tests.node.test_action_step_github import fixer_rule, fixer_workflow, gate_outputs
 from tests.node.test_github_pr_actions import FakeGitHub, RecordingGit, World, actor_doc, push_port
 
 pem = gh.pem  # the module-scoped RSA key fixture
+AGENT = "fix[0]/agent"  # the fixer loop's agent step, first try
 
 
 @pytest.fixture
@@ -42,8 +43,8 @@ class Fixer:
         self.store.put("rules", {"id": "fixer", "name": "fixer", "enabled": True})
         self.fake, self.rec = FakeGitHub(world), RecordingGit()
         self.comment = FakeActor()
-        worker = FakeActor(default=lambda inp, ctx: {"verdict": "pass"})
-        worker.on("agent", ("accept",))  # the agent works asynchronously
+        worker = FakeActor(default=lambda inp, ctx: gate_outputs(world, "pass"))
+        worker.on(AGENT, ("accept",))  # the agent works asynchronously
         ports = {
             "action:github.push": push_port(
                 pem, world, self.fake, store=self.store, gitrec=self.rec
@@ -54,10 +55,10 @@ class Fixer:
         }
         router = ActorRouter(self.store, ports=ports, clock=self.clock)
         self.ex = Executor(self.store, "spark", router, clock=self.clock)
-        self.run_id = self.ex.start(rule(id="fixer"), fixer_workflow(world))["id"]
+        self.run_id = self.ex.start(fixer_rule(), fixer_workflow(world))["id"]
         self.ex.run_until_idle()
         assert self.ex.run(self.run_id)["status"] == "running"
-        assert step_state(self.ex.run(self.run_id), "agent")["status"] == "waiting"
+        assert step_state(self.ex.run(self.run_id), AGENT)["status"] == "waiting"
 
     def disable(self) -> None:
         doc = self.store.get("rules", "fixer")
@@ -65,7 +66,7 @@ class Fixer:
 
     def agent_finishes(self) -> bool:
         done = InvocationResult.completed({"commit_sha": self.world.b})
-        changed = self.ex.deliver(idempotency_key(self.run_id, "agent"), done)
+        changed = self.ex.deliver(idempotency_key(self.run_id, AGENT), done)
         self.ex.run_until_idle()
         return changed
 

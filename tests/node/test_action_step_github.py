@@ -38,10 +38,27 @@ def world(tmp_path):
     return World(tmp_path)
 
 
+GATE_OUT = ("verdict", "commit_sha", "start_sha", "base_sha", "bundle")
+
+
 def fixer_workflow(world: World) -> Any:
-    """agent (commit) -> gate (verdict) -> push (action step) -> comment (action step)."""
+    """fix(agent -> gate) -> push (action step) -> comment (action step): the single fixer's
+    shape (push verifies the commit against the fix loop's last gate, d21)."""
     agent = step("agent", "ai", outputs=(port("commit_sha", "string"),))
-    gate = step("gate", "logic", outputs=(port("verdict", "string"),))
+    gate = step(
+        "gate",
+        "code",
+        config={"builtin": "gate"},
+        outputs=tuple(port(n, "string") for n in GATE_OUT),
+    )
+    fix = step(
+        "fix",
+        "retry_until",
+        body=(agent, gate),
+        max_iterations=1,
+        config={"until": {"op": "exists", "arg": {"field": "verdict"}}},
+        outputs=(port("verdict", "string"),),
+    )
     push = step(
         "push",
         "code",
@@ -82,13 +99,35 @@ def fixer_workflow(world: World) -> Any:
         },
     )
     return workflow(
-        (agent, gate, push, comment),
+        (fix, push, comment),
         (
             edge("agent", "commit_sha", "push", "commit_sha"),
             edge("gate", "verdict", "push", "verdict"),
             edge("push", "head_after", "comment", "head_after"),
         ),
+        inputs=(port("repo", "string"), port("number", "integer"), port("head_branch", "string")),
     )
+
+
+def gate_outputs(world: World, verdict: str) -> dict:
+    """What the fixer's gate reports for the agent's commit ``world.b`` on ``world.a``."""
+    return {
+        "verdict": verdict,
+        "commit_sha": world.b,
+        "start_sha": world.a,
+        "base_sha": gh.PR_BASE_SHA,
+        "bundle": str(world.agent),
+    }
+
+
+def fixer_rule():
+    """The fixer rule: its run names the PR it fixes (the push checks it against them)."""
+    pr = {
+        "repo": {"$literal": REPO},
+        "number": {"$literal": 3},
+        "head_branch": {"$literal": "fix"},
+    }
+    return rule(id="fixer", workflow_inputs=pr)
 
 
 def run_fixer(
@@ -100,26 +139,29 @@ def run_fixer(
     store.put("rules", {"id": "fixer", "name": "fixer", "enabled": rule_enabled})
     fake, rec = FakeGitHub(world), RecordingGit()
     comment = FakeActor(default=lambda inp, ctx: {})
+    gate_out = gate_outputs(world, verdict)
     worker = FakeActor(
         default=lambda inp, ctx: (
-            {"commit_sha": world.b} if ctx.step_id == "agent" else {"verdict": verdict}
+            {"commit_sha": world.b} if ctx.step_id.endswith("/agent") else gate_out
         )
     )
     ports = {
-        "action:github.push": push_port(pem, world, fake, store=store, gitrec=rec, review=False),
+        "action:github.push": push_port(
+            pem, world, fake, store=store, gitrec=rec, review=False, gate=False
+        ),
         "action:github.comment": comment,
         "action:noop": FakeActor(),
         "*": worker,
     }
     ex = Executor(store, "spark", ActorRouter(store, ports=ports, clock=clock), clock=clock)
     wf = fixer_workflow(world)
-    run = ex.start(rule(id="fixer"), wf)
+    run = ex.start(fixer_rule(), wf)
     if reviewed:  # d20: this hand-built workflow has no review step; record the approval
         gh.approve_review(store, world.b, run_id=run["id"], start=world.a)
-    digests = trusted.TRUSTED_WORKFLOW_DIGESTS | (
-        {trusted.workflow_digest(wf)} if trusted_wf else set()
-    )
-    with mock.patch.object(trusted, "TRUSTED_WORKFLOW_DIGESTS", digests):
+    roles = dict(trusted.TRUSTED_WORKFLOWS)
+    if trusted_wf:
+        roles[trusted.ROLE_SINGLE] = roles[trusted.ROLE_SINGLE] | {trusted.workflow_digest(wf)}
+    with mock.patch.object(trusted, "TRUSTED_WORKFLOWS", roles):
         ex.run_until_idle()
     return ex.run(run["id"]), fake, rec, comment
 
