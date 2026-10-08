@@ -133,13 +133,20 @@ def test_app_digests_cover_identity_key_and_author_but_not_the_repo_scope():
 
 
 LIVE_APP = Path(__file__).parent / "fixtures" / "github-app.live.json"
+AUTHORED_APP = Path(__file__).parent / "fixtures" / "github-app.with-author.json"
 
 
 def test_the_pinned_github_app_digest_is_the_live_actors():
     from culture_rules.actors.trusted import TRUSTED_ACTOR_DIGESTS, actor_digest
 
     live = json.loads(LIVE_APP.read_text())
-    assert TRUSTED_ACTOR_DIGESTS["github-app"] == frozenset({actor_digest(live)})
+    authored = json.loads(AUTHORED_APP.read_text())
+    assert authored["params"]["commit_author"] == "rules-culture-dev[bot]"
+    assert {k: v for k, v in authored["params"].items() if k != "commit_author"} == live["params"]
+    # both the live actor and its commit_author successor are trusted during the move
+    assert TRUSTED_ACTOR_DIGESTS["github-app"] == frozenset(
+        {actor_digest(live), actor_digest(authored)}
+    )
     # a new repo for the App (guildmaster at provisioning) keeps it trusted
     more = copy.deepcopy(live)
     more["params"]["connection"]["repos"].append("agentculture/brand-new-repo")

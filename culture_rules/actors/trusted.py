@@ -100,9 +100,15 @@ TRUSTED_ACTOR_DIGESTS: dict[str, frozenset[str]] = {
     ),
     # the live rules-culture-dev App actor as of 2026-10-07 (App 5183824, installation
     # 167755039, key grant:RULES_GITHUB_APP_PRIVATE_KEY, surface github, machine spark, NO
-    # commit_author); tests/rules/fixtures/github-app.live.json is that document
+    # commit_author); tests/rules/fixtures/github-app.live.json is that document. The second
+    # digest is the same actor with params.commit_author "rules-culture-dev[bot]"
+    # (tests/rules/fixtures/github-app.with-author.json), approved by the operator on
+    # 2026-10-08; both are trusted while the live actor moves over, then the first goes
     "github-app": frozenset(
-        {"sha256:0d358b11bfa3e6bac5bcb6ba1b57bb88419023e335f87d42ad87f096c9352a63"}
+        {
+            "sha256:0d358b11bfa3e6bac5bcb6ba1b57bb88419023e335f87d42ad87f096c9352a63",
+            "sha256:a44486a36bf12ff13dc8e6545e42b751d03b91480200e636e90c0731d4764468",
+        }
     ),
 }
 

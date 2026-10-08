@@ -535,13 +535,13 @@ Add the printed digest to `TRUSTED_ACTOR_DIGESTS["github-app"]` (and refresh
 the fixture), release, and upgrade every node before editing the live actor.
 The same command with `workflow FILE` prints a workflow digest.
 
-**`commit_author` is not set on the live App actor.** The digest therefore
-pins it as unset, and `github.push`'s author check (`foreign_author`) stays
-off, as it is today. The gate-built commit is always authored as
-`rules-culture-dev[bot]`, so the check would pass. *Proposed, not applied:*
-set `params.commit_author` to `rules-culture-dev[bot]` on the live actor,
-and in the same release replace the pinned digest with the one for that
-shape. The push would then also refuse any commit not authored by the bot.
+**`commit_author` (operator-approved 2026-10-08).** The live App actor gets
+`params.commit_author: rules-culture-dev[bot]`, so `github.push` also
+refuses any commit not authored by the bot (`foreign_author`). The release
+trusts both digests, the actor without the field and with it
+(`tests/rules/fixtures/github-app.live.json` and `github-app.with-author.json`),
+so the order is: ship the release, upgrade every node, then edit the live
+actor. Drop the first digest in a later release.
 
 ### Reading it back in plain words (d19)
 
