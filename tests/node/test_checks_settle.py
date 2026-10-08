@@ -1393,3 +1393,60 @@ def test_arm_contention_without_a_winner_returns_the_stored_record():
     assert calls == [rid] * 10
     assert rec["pr_numbers"] == []
     assert rec["head_branch"] is None
+
+
+# --------------------------------------------------------------------------- d25: failed apps
+
+
+class ConcludedSuites:
+    """``(slug, status, conclusion)`` suites."""
+
+    def __init__(self, *suites):
+        self.suites = [{"app_slug": s, "status": st, "conclusion": c} for s, st, c in suites]
+
+    def __call__(self, repo, sha):
+        return [dict(s) for s in self.suites]
+
+
+def _settle_with(*suites, timeout=False):
+    store = MemoryStore()
+    clock = Clock()
+    store.put_variable("checks_settle_min_s", 0, updated_by="t")
+    store.put_variable("checks_settle_timeout_s", 60, updated_by="t")
+    settler = ChecksSettler(store, ConcludedSuites(*suites), clock=clock)
+    settler.on_check(check_data())
+    if timeout:
+        clock.now = T0 + timedelta(seconds=61)
+        settler.tick()
+    [event] = settled(store)
+    return event["envelope"]["data"]
+
+
+def test_the_settled_event_names_the_apps_whose_suites_failed():
+    data = _settle_with(
+        ("github-actions", "completed", "failure"),
+        ("GitGuardian", "completed", "failure"),
+        ("sonarqubecloud", "completed", "success"),
+        ("github-actions", "completed", "failure"),
+        ("claude", "completed", "failure"),  # ignored: never counted
+    )
+    assert data["conclusion"] == "failure"
+    assert data["failed_apps"] == ["gitguardian", "github-actions"]
+
+
+def test_a_neutral_gitguardian_scan_is_not_a_failed_app():
+    data = _settle_with(
+        ("gitguardian", "completed", "neutral"), ("github-actions", "completed", "success")
+    )
+    assert data["conclusion"] == "success"
+    assert data["failed_apps"] == []
+
+
+def test_a_timeout_still_names_the_suites_that_failed():
+    data = _settle_with(
+        ("gitguardian", "completed", "failure"),
+        ("github-actions", "in_progress", None),
+        timeout=True,
+    )
+    assert data["settled_by"] == "timeout"
+    assert data["failed_apps"] == ["gitguardian"]

@@ -37,6 +37,11 @@ settles at the timeout with :data:`NO_CHECKS` (``"no_checks"``). A ``"success"``
 green signal that resets a rule's attempt budget for the PR (:mod:`culture_rules.node.firing`,
 "Concurrency keys").
 
+It also carries ``failed_apps`` (d25): the app slugs, lower-cased and sorted, of the
+counted suites that completed with conclusion ``failure`` (``[]`` when none did), so a rule
+can single out one app's failure - the PR fixer's ``pr-fixer-secrets`` fires on
+``"gitguardian" in failed_apps`` and ``pr-fixer-checks`` stays off it.
+
 With a ``pull`` seam the event also carries the PR facts of its first PR number
 (:func:`~culture_rules.apps.github.complete_pr_facts`: ``head_repo``, ``base_repo``,
 ``base_branch``, ``base_sha``, ``draft``, ``pr_author``; best-effort, all omitted on failure or
@@ -378,6 +383,19 @@ def _settle_verdict(done: bool, conclusion: str, timed_out: bool) -> tuple[str, 
     return by, conclusion
 
 
+def _failed_apps(suites: list[Mapping[str, Any]]) -> list[str]:
+    """The app slugs (lower-cased, sorted, once each) of the completed suites concluded
+    ``failure`` (d25: a rule reads ``"gitguardian" in failed_apps``)."""
+    return sorted(
+        {
+            str(s.get("app_slug") or "").casefold()
+            for s in suites
+            if s.get("status") == "completed" and s.get("conclusion") == "failure"
+        }
+        - {""}
+    )
+
+
 def _arm_changes(
     rec: Mapping[str, Any], data: Mapping[str, Any], numbers: list[int]
 ) -> dict[str, Any]:
@@ -436,7 +454,8 @@ class ChecksSettler:
 
     # ------------------------------------------------------------------ decisions
 
-    def _check_state(self, repo: str, sha: str) -> tuple[bool, str]:
+    def _check_state(self, repo: str, sha: str) -> tuple[bool, str, list[str]]:
+        """``(done, conclusion, failed_apps)`` of the head's counted suites."""
         ignored = self.ignored_apps()
         suites = [
             s
@@ -446,10 +465,10 @@ class ChecksSettler:
         if not suites:
             # Nothing counted (only ignored apps, or no suite listed yet) is not green: keep
             # waiting for a suite to appear; the timeout settles it as ``no_checks``.
-            return False, NO_CHECKS
+            return False, NO_CHECKS, []
         done = all(s.get("status") == "completed" for s in suites)
         green = all(s.get("conclusion") in {"success", "neutral", "skipped"} for s in suites)
-        return done, "success" if green else "failure"
+        return done, "success" if green else "failure", _failed_apps(suites)
 
     def on_check(self, data: Mapping[str, Any]) -> str:
         """Handle one check-completion event's data; return what happened:
@@ -463,13 +482,13 @@ class ChecksSettler:
             return "duplicate"
         rec = self._arm(repo, sha, data)  # before the lookup: a failure must not lose the SHA
         try:
-            done, conclusion = self._check_state(repo, sha)
+            done, conclusion, failed = self._check_state(repo, sha)
         except GitHubError as exc:
             log.warning("checks settle: suite listing failed (%s)", exc.code)
             return "error"
         if done and self._now() >= self._window_end(rec):
             try:
-                return self._emit(repo, sha, rec, "all_completed", conclusion)
+                return self._emit(repo, sha, rec, "all_completed", conclusion, failed)
             except _PullDeferred:
                 return "pending"  # the node's tick emits it, with the PR facts
         return "pending"
@@ -492,21 +511,22 @@ class ChecksSettler:
                 continue  # the App actor is placed elsewhere, or its key is not here
             if not self._claim_poll(rec, now, deadline):
                 continue  # not due yet, or another node holds this interval's poll
-            verdict = _settle_verdict(*self._polled_state(repo, sha), timed_out)
+            done, conclusion, failed = self._polled_state(repo, sha)
+            verdict = _settle_verdict(done, conclusion, timed_out)
             if verdict is None:
                 continue
-            if self._emit(repo, sha, rec, *verdict) == "emitted":
+            if self._emit(repo, sha, rec, *verdict, failed) == "emitted":
                 emitted += 1
         return emitted
 
-    def _polled_state(self, repo: str, sha: str) -> tuple[bool, str]:
+    def _polled_state(self, repo: str, sha: str) -> tuple[bool, str, list[str]]:
         """:meth:`_check_state` for the tick: a failed listing is not done (``timeout``), so
         the timeout fires regardless."""
         try:
             return self._check_state(repo, sha)
         except GitHubError as exc:
             log.warning("checks settle: suite listing failed (%s)", exc.code)
-            return False, "timeout"  # the timeout fires regardless
+            return False, "timeout", []  # the timeout fires regardless
 
     def _serves_here(self, repo: Any) -> bool:
         if self._serves is None:
@@ -667,7 +687,13 @@ class ChecksSettler:
         return facts
 
     def _emit(
-        self, repo: str, sha: str, src: Mapping[str, Any], settled_by: str, conclusion: str
+        self,
+        repo: str,
+        sha: str,
+        src: Mapping[str, Any],
+        settled_by: str,
+        conclusion: str,
+        failed_apps: list[str] | None = None,
     ) -> str:
         numbers = [n for n in src.get("pr_numbers") or () if isinstance(n, int)]
         payload: dict[str, Any] = {
@@ -678,6 +704,7 @@ class ChecksSettler:
             "number": numbers[0] if numbers else src.get("number"),
             "settled_by": settled_by,
             "conclusion": conclusion,
+            "failed_apps": list(failed_apps or ()),
         }
         for key, value in self._enrich(repo, numbers).items():
             if key != "head_branch" or not payload.get("head_branch"):
