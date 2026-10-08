@@ -1698,9 +1698,12 @@ def test_a_stale_clean_confirmation_never_deletes_a_newer_failures_candidate():
         return out
 
     a._suites = clean_then_b_refreshes
+    noted = []
+    real_note = a._note_late
+    a._note_late = lambda fresh: noted.append(real_note(fresh)) or noted[-1]
     assert a.on_check(completion()) == "pending"  # A's stale delete is refused
     [candidate] = store.find(LATE_COLLECTION)
-    assert candidate["version"] == 2
+    assert candidate["token"] != noted[0]["token"]  # B's refresh changed the token
     assert late_events(store) == []
     a._suites = listed  # a later healthy tick: GitGuardian still fails
     a.tick()
@@ -1716,4 +1719,44 @@ def test_a_clean_confirmation_of_an_unchanged_candidate_drops_it():
     store, settler, _ = _timed_out_with_gitguardian_pending()
     gitguardian_now(settler, "success")
     assert settler.on_check(completion()) == "duplicate"
+    assert store.find(LATE_COLLECTION) == []
+
+
+# ------------------------------------------------------------ d25 round 5: no ABA
+
+
+def test_a_dropped_and_re_noted_candidate_is_never_deleted_by_a_stale_confirmer():
+    from culture_rules.node.checks_settle import LATE_COLLECTION
+
+    store, a, _ = _timed_out_with_gitguardian_pending()
+    gitguardian_now(a)
+    listed = a._suites
+
+    def clean(repo, sha):
+        return [{**s, "conclusion": "success"} for s in listed(repo, sha)]
+
+    def down(repo, sha):
+        raise GitHubError("network_error", retryable=True)
+
+    b = ChecksSettler(store.peer(), clean, clock=a._clock)
+    c = ChecksSettler(store.peer(), down, clock=a._clock)
+    seen = {}
+
+    def a_reads_clean_while_b_drops_and_c_re_notes(repo, sha):
+        [old] = store.find(LATE_COLLECTION)
+        seen["t1"] = old["token"]
+        assert b._try_late(old) == "duplicate"  # B: a clean listing drops it
+        assert store.find(LATE_COLLECTION) == []
+        assert c.on_check(completion()) == "pending"  # C: a new failure, noted again
+        return clean(repo, sha)
+
+    a._suites = a_reads_clean_while_b_drops_and_c_re_notes
+    assert a.on_check(completion()) == "pending"  # A's drop at t1 is refused
+    [new] = store.find(LATE_COLLECTION)
+    assert new["token"] != seen["t1"]
+    assert late_events(store) == []
+    a._suites = listed  # a later healthy tick: GitGuardian still fails
+    a.tick()
+    a.tick()
+    assert len(late_events(store)) == 1
     assert store.find(LATE_COLLECTION) == []

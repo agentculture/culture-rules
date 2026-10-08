@@ -92,6 +92,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import secrets
 import threading
 import time
 from collections.abc import Callable, Mapping
@@ -560,7 +561,7 @@ class ChecksSettler:
             "app": app,
             "settled_id": emitted.get("id"),
             "noted_at": _iso(self._now()),
-            "version": 1,
+            "token": secrets.token_hex(16),
         }
         candidate = self._note_late(candidate)
         if not self._serves_here(repo):
@@ -568,9 +569,11 @@ class ChecksSettler:
         return self._try_late(candidate)
 
     def _note_late(self, fresh: dict[str, Any]) -> dict[str, Any]:
-        """Insert the candidate, or bump the stored one's ``version`` (and ``noted_at``) by
-        compare-and-set, so a confirmer that read an older version can no longer drop it.
-        Returns the candidate as now stored."""
+        """Insert the candidate, or give the stored one a new random ``token`` (and
+        ``noted_at``) by compare-and-set on the token read. Every insert and every refresh
+        draws a fresh token, so it never repeats over the candidate's life - dropped and
+        noted again included - and a confirmer that read an older token can no longer drop
+        it (no ABA). Returns the candidate as now stored."""
         for _ in range(10):
             try:
                 return dict(self._store.insert(LATE_COLLECTION, fresh))
@@ -578,23 +581,22 @@ class ChecksSettler:
                 pass
             current = self._store.get(LATE_COLLECTION, fresh["id"])
             if current is None:
-                continue  # dropped meanwhile: insert again
-            version = current.get("version")
-            bumped = {"version": (version if isinstance(version, int) else 0) + 1}
-            bumped["noted_at"] = fresh["noted_at"]
-            if self._store.update_if(
-                LATE_COLLECTION, fresh["id"], {"version": version}, bumped
-            ).won:
-                return {**current, **bumped}
+                fresh = {**fresh, "token": secrets.token_hex(16)}
+                continue  # dropped meanwhile: insert again, with a new token
+            refreshed = {"token": secrets.token_hex(16), "noted_at": fresh["noted_at"]}
+            expected = {"token": current.get("token")}
+            if self._store.update_if(LATE_COLLECTION, fresh["id"], expected, refreshed).won:
+                return {**current, **refreshed}
         return dict(self._store.get(LATE_COLLECTION, fresh["id"]) or fresh)
 
     def _drop_late(self, candidate: Mapping[str, Any]) -> bool:
-        """Delete the candidate iff it still has the ``version`` it was read with (one
-        transaction): a newer failure noted meanwhile keeps it."""
+        """Delete the candidate iff it still carries the ``token`` it was read with (one
+        transaction): a failure noted meanwhile - a refresh, or a drop and a new insert -
+        keeps it."""
 
         def drop(tx: Any) -> bool:
             current = tx.get(LATE_COLLECTION, candidate["id"])
-            if current is None or current.get("version") != candidate.get("version"):
+            if current is None or current.get("token") != candidate.get("token"):
                 return False
             tx.delete(LATE_COLLECTION, candidate["id"])
             return True
@@ -604,8 +606,8 @@ class ChecksSettler:
     def _try_late(self, candidate: Mapping[str, Any]) -> str:
         """Confirm a late candidate from the App's *current* listing - the app's suite for
         the head still concluded ``failure`` - and emit its event; no clock decides it. The
-        candidate (as read, by its ``version``) is dropped once decided; a failed listing,
-        or a newer version noted meanwhile, keeps it (``pending``)."""
+        candidate (as read, by its ``token``) is dropped once decided; a failed listing,
+        or a failure noted meanwhile (a new token), keeps it (``pending``)."""
         repo, sha, app = candidate["repository"], candidate["head_sha"], candidate["app"]
         try:
             failing = self._still_failing(repo, sha, app)
