@@ -43,6 +43,9 @@ yet ``emitted``, in one transaction per record:
   delivers it (no loss); two nodes racing write the same record and one transaction loses
   (no duplicate); a commit whose acknowledgement was lost is found ``emitted`` and skipped, and
   an identical event already stored is accepted as delivered;
+* a record whose every candidate id is held by a conflicting event is *parked*
+  (``blocked``, ``attempts``, ``retry_at`` with backoff): it leaves the main queue, so it can
+  never starve healthy records, and is retried from a small parked batch when due;
 * the outbox never consults change-feed history, so there is no head to pin and no upgrade
   window: a run finished by an older engine has no record and emits nothing; every terminal
   transition written by this engine has one and is delivered;
@@ -71,7 +74,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Mapping
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from culture_rules.engine.run_completions import (
@@ -88,6 +91,9 @@ from culture_rules.events.ingest import (
     QUARANTINE_COLLECTION,
     QUARANTINE_RETENTION,
     bounded_payload,
+    bounded_record,
+    bounded_value,
+    ensure_quarantine_ttl,
     event_document,
 )
 from culture_rules.store.port import StoragePort, StoreOps
@@ -126,8 +132,14 @@ OUTBOX_BATCH = 100
 """At most this many completion records are delivered per poll (the rest on the next)."""
 
 
-PENDING_INDEX = "run_completions_pending"
-"""The partial index (``emitted``, id) over un-emitted completion records only."""
+PENDING_INDEX = "run_completions_pending_v2"
+"""The partial index (``emitted``, ``blocked``, id) over un-emitted completion records only:
+it serves both the main queue (``blocked: false``) and the parked one."""
+PARKED_BATCH = 20
+"""Parked records looked at per poll (their ``retry_at`` decides which are retried)."""
+PARKED_RETRY_S = 60.0
+PARKED_RETRY_MAX_S = 3600.0
+"""A parked record is retried after 60 s, doubling per attempt, at most hourly."""
 
 
 def ensure_pending_index(store: Any) -> None:
@@ -136,7 +148,7 @@ def ensure_pending_index(store: Any) -> None:
     if callable(ensure):
         ensure(
             RUN_COMPLETIONS,
-            [("emitted", 1), ("id", 1)],
+            [("emitted", 1), ("blocked", 1), ("id", 1)],
             name=PENDING_INDEX,
             partial={"emitted": False},
         )
@@ -156,20 +168,28 @@ def candidate_ids(event_id: str) -> list[str]:
     ]
 
 
-def deliver(tx: StoreOps, record_id: str) -> str | None:
+def deliver(tx: StoreOps, record_id: str, *, now: datetime | None = None) -> str | None:
     """Deliver completion record ``record_id`` through ``tx``: store its event and mark it
     emitted. Answer the stored event id, or ``None`` when there was nothing to deliver.
 
     Every candidate id is checked: an id holding exactly the genuine envelope (under that id)
     is the delivered event; one holding anything else is quarantined as a conflict and the
-    next candidate is tried. The record is marked emitted only once the stored envelope
-    equals the genuine one; with every candidate taken, the conflicts are quarantined, an
-    error is logged and the record stays pending."""
+    next candidate is tried. A record that was delivered before (re-opened by a restore)
+    tries its own ``event_id`` first, so it comes back under the same id. The record is
+    marked emitted (with ``emitted_at``) only once the stored envelope equals the genuine
+    one. With every candidate taken, the conflicts are quarantined, an error is logged and
+    the record is **parked** - ``blocked``, with ``attempts`` and a backed-off ``retry_at``
+    - so it leaves the main queue and cannot starve healthy records."""
+    now = now or datetime.now(UTC)
     record = tx.get(RUN_COMPLETIONS, record_id)
     if record is None or record.get("emitted") is not False:
         return None
     genuine = dict(record["envelope"])
-    for event_id in candidate_ids(genuine["id"]):
+    own = record.get("event_id")
+    candidates = candidate_ids(genuine["id"])
+    if own:
+        candidates = [own, *(c for c in candidates if c != own)]
+    for event_id in candidates:
         envelope = {**genuine, "id": event_id}
         existing = tx.get(EVENTS_COLLECTION, event_id)
         if existing is None:
@@ -181,7 +201,12 @@ def deliver(tx: StoreOps, record_id: str) -> str | None:
             RUN_COMPLETIONS,
             record_id,
             {"emitted": False},
-            {"emitted": True, "event_id": event_id},
+            {
+                "emitted": True,
+                "event_id": event_id,
+                "emitted_at": utc_timestamp(now),
+                "blocked": False,
+            },
         )
         if not moved.won:
             # Another delivery changed the record first. On MongoDB that normally surfaces
@@ -190,8 +215,24 @@ def deliver(tx: StoreOps, record_id: str) -> str | None:
             raise DeliveryBlocked(f"completion {record_id} changed while delivering")
         return event_id
     # Every candidate is held by a conflicting event: they are quarantined (this transaction
-    # commits that), and the record stays pending - never marked with a wrong event.
-    log.error("run event of %s not delivered: every candidate id is taken", record_id)
+    # commits that) and the record is parked - never marked with a wrong event.
+    attempts = int(record.get("attempts") or 0) + 1
+    delay = min(PARKED_RETRY_MAX_S, PARKED_RETRY_S * 2 ** min(attempts - 1, 16))
+    tx.update_if(
+        RUN_COMPLETIONS,
+        record_id,
+        {"emitted": False},
+        {
+            "blocked": True,
+            "attempts": attempts,
+            "retry_at": utc_timestamp(now + timedelta(seconds=delay)),
+        },
+    )
+    log.error(
+        "run event of %s not delivered: every candidate id is taken (parked, attempt %d)",
+        record_id,
+        attempts,
+    )
     return None
 
 
@@ -209,19 +250,21 @@ def _quarantine_conflict(tx: StoreOps, existing: Mapping[str, Any], record_id: s
     now = datetime.now(UTC)
     tx.insert(
         QUARANTINE_COLLECTION,
-        {
-            "id": doc_id,
-            "envelope_id": existing.get("id"),
-            "type": envelope.get("type"),
-            "source": envelope.get("source"),
-            "reason": f"occupies a candidate event id of run {record_id}'s completion",
-            "host": RUN_EVENTS_HOST,
-            "count": 1,
-            "received_at": utc_timestamp(now),
-            "last_seen": utc_timestamp(now),
-            "expires_at": now + QUARANTINE_RETENTION,
-            **bounded_payload(envelope),
-        },
+        bounded_record(
+            {
+                "id": doc_id,
+                "envelope_id": bounded_value(existing.get("id")),
+                "type": bounded_value(envelope.get("type")),
+                "source": bounded_value(envelope.get("source")),
+                "reason": f"occupies a candidate event id of run {record_id}'s completion",
+                "host": RUN_EVENTS_HOST,
+                "count": 1,
+                "received_at": utc_timestamp(now),
+                "last_seen": utc_timestamp(now),
+                "expires_at": now + QUARANTINE_RETENTION,
+                **bounded_payload(envelope),
+            }
+        ),
     )
 
 
@@ -241,8 +284,10 @@ class RunEventOutbox:
         defer: Callable[[Mapping[str, Any]], Exception],
         batch: int = OUTBOX_BATCH,
         before: Callable[[], Any] | None = None,
+        clock: Callable[[], datetime] | None = None,
     ) -> None:
         self.store = store
+        self._clock = clock or (lambda: datetime.now(UTC))
         self._paused = paused
         self._defer = defer
         self._batch = batch
@@ -251,18 +296,39 @@ class RunEventOutbox:
         if callable(ensure):  # Mongo: collections must exist before a transaction uses them
             ensure(RUN_COMPLETIONS, EVENTS_COLLECTION, QUARANTINE_COLLECTION)
         ensure_pending_index(store)
+        ensure_quarantine_ttl(store)
 
     def pending(self) -> list[Mapping[str, Any]]:
-        """Un-emitted records, at most one batch: an equality query on ``emitted`` the store
+        """Un-emitted, unparked records, at most one batch: an equality query the store
         orders (by id) and limits itself - on MongoDB through the partial index
         :data:`PENDING_INDEX`, so an empty queue costs nothing however long the history."""
-        return self.store.find(RUN_COMPLETIONS, {"emitted": False}, limit=self._batch)
+        records = self.store.find(
+            RUN_COMPLETIONS, {"emitted": False, "blocked": False}, limit=self._batch
+        )
+        room = self._batch - len(records)
+        if room > 0:
+            # a record without the field (an older build, or restored from its backup) is
+            # unblocked: ``None`` matches a missing field on every adapter
+            records += self.store.find(
+                RUN_COMPLETIONS, {"emitted": False, "blocked": None}, limit=room
+            )
+        return records
+
+    def parked_due(self, now: datetime) -> list[Mapping[str, Any]]:
+        """Parked records whose ``retry_at`` has come, from at most :data:`PARKED_BATCH`."""
+        parked = self.store.find(
+            RUN_COMPLETIONS, {"emitted": False, "blocked": True}, limit=PARKED_BATCH
+        )
+        stamp = utc_timestamp(now)
+        return [r for r in parked if (r.get("retry_at") or "") <= stamp]
 
     def poll(self) -> list[str]:
-        """Deliver every pending record (one transaction each); answer the stored event ids.
-        A pause raises the deferral before anything is written."""
+        """Deliver the pending records and the parked ones that are due (one transaction
+        each); answer the stored event ids. A pause raises the deferral before anything is
+        written."""
+        now = self._clock()
         delivered: list[str] = []
-        pending = self.pending()
+        pending = [*self.pending(), *self.parked_due(now)]
         if pending and self._before is not None:
             # the event-trigger cursors must exist before an event is emitted, or a cursor
             # pinned later would start after it and no rule would see it
@@ -272,7 +338,7 @@ class RunEventOutbox:
                 with self.store.transaction() as tx:
                     if self._paused(tx):
                         raise self._defer(record)
-                    event_id = deliver(tx, record["id"])
+                    event_id = deliver(tx, record["id"], now=now)
             except DeliveryBlocked as blocked:
                 # rolled back; the record stays pending and the others still go out
                 log.error("run event of %s not delivered: %s", record["id"], blocked)

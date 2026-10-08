@@ -83,7 +83,12 @@ from culture_rules.engine.run_completions import RUN_COMPLETIONS
 from culture_rules.engine.runs import RUNS_COLLECTION, Executor
 from culture_rules.engine.variables import NODE_CAPABILITIES, VARIABLES_CAPABILITY
 from culture_rules.events.hook_sink import HOOK_STATS_COLLECTION
-from culture_rules.events.ingest import EVENTS_COLLECTION, QUARANTINE_COLLECTION, EventIngest
+from culture_rules.events.ingest import (
+    EVENTS_COLLECTION,
+    QUARANTINE_COLLECTION,
+    EventIngest,
+    ensure_quarantine_ttl,
+)
 from culture_rules.events.source import EventSource
 from culture_rules.events.triggers import FIRES_COLLECTION
 from culture_rules.machines.enrol import MACHINES_COLLECTION
@@ -240,6 +245,7 @@ class Node:
         ensure = getattr(store, "ensure_collections", None)
         if callable(ensure):
             ensure(*NODE_COLLECTIONS)
+        ensure_quarantine_ttl(store)  # every node can quarantine (outbox, ingest)
         options = options or NodeOptions()
         self._beat_options = heartbeat_options or HeartbeatOptions()
         self.router = ActorRouter(store, ports=actors, factories=adapters, clock=self._clock)

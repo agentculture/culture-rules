@@ -378,7 +378,7 @@ def test_a_crash_inside_delivery_rolls_back_event_and_mark_together(monkeypatch,
     cycles(c, 1)
     real = module.deliver
 
-    def crashing(tx, record_id):
+    def crashing(tx, record_id, **kw):
         if where == "before_insert":
             raise Crash(where)
         original = tx.update_if
@@ -390,7 +390,7 @@ def test_a_crash_inside_delivery_rolls_back_event_and_mark_together(monkeypatch,
 
         if where == "before_mark":
             tx.update_if = update_if
-        out = real(tx, record_id)
+        out = real(tx, record_id, **kw)
         if where == "after_insert":
             raise Crash(where)
         return out

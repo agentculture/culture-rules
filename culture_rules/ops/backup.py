@@ -7,10 +7,12 @@ What is backed up
 *run history* collections (``runs``, ``audit``, ``run_completions``) read through the
 :class:`~culture_rules.store.port.StoragePort`. Both lists are configurable.
 
-Run completions (d21) are restored with their delivery state: a completion that was
-already ``emitted`` stays emitted, so a restore never replays a downstream rule's side
-effects, and one still pending is delivered by the first node on the restored store. The
-``events`` collection itself is not backed up. A backup chain written before
+Run completions (d21): the ``events`` collection is not backed up, so a restore re-opens
+every completion emitted within a day before the restored point whose event is missing
+(:func:`~culture_rules.engine.run_completions.reopen_undelivered`), and the first node
+delivers it again under the same event id. A downstream run that already exists is found by
+its deterministic id (no second run); a firing that had not reached a run yet runs now.
+A backup chain written before
 ``run_completions`` was listed has no feed token for it: the schedule then takes a new
 snapshot (:meth:`Backup.due`), and an increment on such a chain is refused with a request
 for one, so the new collection is never missed.
@@ -70,6 +72,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, NoReturn
 
 from culture_rules.actors.secrets import SecretError, resolve_or_literal
+from culture_rules.engine.run_completions import reopen_undelivered
 from culture_rules.store.port import StoragePort
 
 __all__ = [
@@ -171,6 +174,8 @@ class RestoreReport:
     documents: int
     rto_seconds: float
     restored_to: datetime
+    reopened: int = 0
+    """Run completions re-opened for delivery (their event was not in the backup)."""
 
 
 @dataclass(frozen=True)
@@ -409,7 +414,14 @@ class Backup:
         snap = snaps[-1]
         documents = self._restore_snapshot(target, snap)
         chain, restored_to = self._apply_increments(target, snap, records)
-        return RestoreReport(snap.key, chain, documents, time.monotonic() - started, restored_to)
+        reopened = (
+            reopen_undelivered(target, restored_to=restored_to)
+            if "run_completions" in collections
+            else 0
+        )
+        return RestoreReport(
+            snap.key, chain, documents, time.monotonic() - started, restored_to, reopened
+        )
 
     def _restore_snapshot(self, target: StoragePort, snap: BackupRecord) -> int:
         """Put every document of ``snap`` into ``target``; the number of documents put."""

@@ -17,6 +17,11 @@ Record: ``id`` (= the run id, one record per run), ``run_id``, ``rule_id``, ``st
 ``envelope`` (the wire envelope, see :func:`build_run_event`), ``emitted``, ``event_id``,
 ``recorded_at``.
 
+Restore: completions are backed up with run history, the events themselves are not. A
+restore re-opens the recently emitted completions whose event is missing
+(:func:`reopen_undelivered`) and the outbox delivers them again under the same id; the
+deterministic run ids keep downstream work to exactly once relative to the backup.
+
 Upgrade cut-off: only terminal transitions written by this code produce a record, so runs that
 finished under an older engine emit nothing - and none is lost in between, since emission is
 driven by un-emitted records, not by change-feed history. Standard-library only.
@@ -26,6 +31,7 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Mapping
+from datetime import datetime, timedelta
 from typing import Any
 
 from culture_rules.engine.matching import exported_outputs
@@ -39,10 +45,11 @@ from culture_rules.events.emit import (
 )
 from culture_rules.model.rule import Rule
 from culture_rules.model.workflow import Workflow
-from culture_rules.store.port import StoreOps
+from culture_rules.store.port import EVENTS_COLLECTION, StoreOps
 from culture_rules.store.versioning import utc_timestamp
 
 __all__ = [
+    "REOPEN_WINDOW",
     "RUN_COMPLETIONS",
     "RUN_EVENT_PREFIX",
     "RUN_EVENT_SOURCE",
@@ -50,6 +57,7 @@ __all__ = [
     "SUBJECT_FIELDS",
     "build_run_event",
     "record_completion",
+    "reopen_undelivered",
     "run_event_id",
 ]
 
@@ -176,7 +184,41 @@ def record_completion(tx: StoreOps, before: Mapping[str, Any], after: Mapping[st
             "envelope": envelope,
             "emitted": False,
             "event_id": None,
+            "blocked": False,
             "recorded_at": utc_timestamp(None),
         },
     )
     return True
+
+
+REOPEN_WINDOW = timedelta(hours=24)
+"""How far before the restored point an emitted completion is re-opened by a restore:
+the daily snapshot interval. Older ones were consumed long before the backup."""
+
+
+def reopen_undelivered(store: Any, *, restored_to: datetime | None = None) -> int:
+    """After a restore: re-open every completion emitted within :data:`REOPEN_WINDOW` before
+    ``restored_to`` (or with no ``emitted_at``) whose event is not in the ``events``
+    collection, which is not backed up. The outbox then delivers it again under the **same**
+    ``event_id``, and the trigger consumers evaluate it with the restored rules:
+
+    * a downstream rule that had fired already has its run in the restored ``runs`` (the run
+      id is derived from rule and event id), so starting it again is a duplicate key and no
+      second run starts;
+    * one whose firing had not reached a run yet (or had not been evaluated) runs now.
+
+    Downstream work stays exactly once relative to the backup. Answer how many."""
+    cutoff = None if restored_to is None else utc_timestamp(restored_to - REOPEN_WINDOW)
+    reopened = 0
+    for record in store.find(RUN_COMPLETIONS, {"emitted": True}):
+        event_id = record.get("event_id")
+        if not event_id or store.get(EVENTS_COLLECTION, event_id) is not None:
+            continue
+        emitted_at = record.get("emitted_at")
+        if cutoff is not None and emitted_at and emitted_at < cutoff:
+            continue
+        moved = store.update_if(
+            RUN_COMPLETIONS, record["id"], {"emitted": True}, {"emitted": False, "blocked": False}
+        )
+        reopened += 1 if moved.won else 0
+    return reopened

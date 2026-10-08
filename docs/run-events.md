@@ -109,9 +109,11 @@ Three refusals guard these events:
   webhook carrying such a type answers the outcome `quarantined`, unlike an
   ordinary undeclared type (`ignored`). The quarantine is bounded: one record
   per refused id and reason, whose `count` grows on repeats; the payload is
-  kept whole only up to 8 KiB (else a preview, its size and hash); a record
-  expires 30 days after it was last seen (a MongoDB TTL index on
-  `expires_at`); and only a new record is logged.
+  kept whole only up to 8 KiB (else a preview, its size and hash); the id,
+  type and source are kept as is only up to 256 bytes (else the same preview
+  form); a record never exceeds 16 KiB; it expires 30 days after it was last
+  seen (a MongoDB TTL index on `expires_at`, installed by every node and the
+  API, the processes that can quarantine); and only a new record is logged.
 - **`run_event_unverified`.** Before a rule fires on a `rules.run.*` event,
   the node compares the whole envelope, extra keys included, with the
   envelope in the run's completion record. The id must also be the one the
@@ -157,7 +159,9 @@ What this gives:
   `<id>-genuine-2`, …), each checked the same way. The record is marked
   emitted only once the stored envelope equals the genuine one. With every
   candidate taken, the conflicts are quarantined, an error is logged and the
-  record stays pending; other records are still delivered.
+  record is *parked*: it leaves the main queue (so it can never starve
+  healthy records) and is retried from a small parked batch, after 60 s and
+  doubling up to hourly.
 - **A pause is in force.** Delivery is deferred until the pause lifts.
 - **Upgrade.** Only terminal transitions written by this engine have a
   record. Runs that finished earlier emit nothing, and nothing in between is
@@ -165,14 +169,22 @@ What this gives:
 - **First start.** A node pins its event-trigger cursors before it delivers
   anything, at start and before every drain, so a completion pending before
   the first node started still reaches its downstream rules.
-- **Backup and restore.** Completion records are backed up with run history.
-  A restored record keeps its delivery state: what was delivered stays
-  delivered (no downstream side effect is replayed), and what was pending is
-  delivered by the first node on the restored store.
+- **Backup and restore.** Completion records are backed up with run history;
+  the events are not. A restore therefore re-opens every completion emitted
+  within a day before the restored point whose event is missing, and the
+  first node delivers it again under the **same** event id. The trigger
+  consumers evaluate it with the restored rules. A downstream run that
+  already exists has the same deterministic id, so no second run starts; a
+  firing that had been decided but had not reached a run yet (or had not
+  been evaluated) runs now. Downstream work stays exactly once relative to
+  the backup. Per-consumer "consumed" marks would not give that: the mark
+  commits with the firing intent, which is not backed up, so a backup taken
+  between the two would restore a mark with no run.
 
-The pending query is an equality query on `emitted` that the store orders
-and limits itself (100 per poll). On MongoDB it uses a partial index over
-un-emitted records only, so an empty queue costs nothing.
+The pending query is an equality query on `emitted` and `blocked` that the
+store orders and limits itself (100 per poll). On MongoDB it uses a partial
+index over un-emitted records only, so an empty queue costs nothing. A record
+without the `blocked` field counts as unblocked.
 
 The change-feed consumers that remain (triggers and chains) now initialise
 their cursor once, by insert: two nodes starting together agree on one

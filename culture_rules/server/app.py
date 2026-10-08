@@ -44,6 +44,7 @@ from culture_rules.engine.runs import (
     drained_machines,
     is_paused,
 )
+from culture_rules.events.ingest import QUARANTINE_COLLECTION, ensure_quarantine_ttl
 from culture_rules.model import describe
 from culture_rules.ops.health import health_status
 from culture_rules.ops.nodename import node_name
@@ -92,7 +93,14 @@ IDENTITY_HEADER = DEV_IDENTITY_HEADER
 """Dev-only identity header; honoured only with ``AuthSettings(insecure_dev_identity=True)``."""
 _ALL_COLLECTIONS = tuple(
     dict.fromkeys(
-        (*DEFINITION_KINDS, "secrets", SERVICE_TOKENS, *RUN_COLLECTIONS, RULE_DECISIONS)
+        (
+            *DEFINITION_KINDS,
+            "secrets",
+            SERVICE_TOKENS,
+            *RUN_COLLECTIONS,
+            RULE_DECISIONS,
+            QUARANTINE_COLLECTION,
+        )
         + events.STREAMABLE
     )
 )
@@ -531,6 +539,7 @@ def create_app(
     ensure = getattr(store, "ensure_collections", None)
     if callable(ensure):
         ensure(*_ALL_COLLECTIONS)
+    ensure_quarantine_ttl(store)  # its webhooks quarantine reserved event types
     audit = AuditLog(host=host)
     defs = Definitions(store, audit)
     life = Lifecycle(store, audit, admins=admins)

@@ -235,8 +235,9 @@ def test_the_pending_and_ttl_indexes_exist_and_are_used_on_mongo(mongo_store):
     db = mongo_store._db
     pending = {i["name"]: i for i in db[RUN_COMPLETIONS].list_indexes()}[PENDING_INDEX]
     assert pending["partialFilterExpression"] == {"emitted": False}
-    plan = db[RUN_COMPLETIONS].find({"emitted": False}).sort("_id", 1).limit(100).explain()
-    assert PENDING_INDEX in str(plan["queryPlanner"]["winningPlan"])
+    for query in ({"emitted": False, "blocked": False}, {"emitted": False, "blocked": None}):
+        plan = db[RUN_COMPLETIONS].find(query).sort("_id", 1).limit(100).explain()
+        assert PENDING_INDEX in str(plan["queryPlanner"]["winningPlan"]), query
     ttl = {i["name"]: i for i in db[QUARANTINE_COLLECTION].list_indexes()}[QUARANTINE_TTL_INDEX]
     assert ttl["expireAfterSeconds"] == 0
     quarantine(mongo_store, {"id": "runevt_q", "type": "rules.run.failed"}, "reserved", host="h")

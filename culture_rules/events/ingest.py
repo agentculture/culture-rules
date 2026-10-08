@@ -60,6 +60,10 @@ content), never evaluated by a trigger, kept so the refusal is visible."""
 
 QUARANTINE_MAX_PAYLOAD = 8192
 """Largest quarantined envelope stored whole (bytes of its JSON); a larger one keeps a preview."""
+QUARANTINE_MAX_RECORD = 16384
+"""Largest quarantine record (bytes of its JSON), metadata included."""
+QUARANTINE_MAX_FIELD = 256
+"""Largest metadata field (envelope id, type, source ...) stored as is, in bytes."""
 QUARANTINE_RETENTION = timedelta(days=30)
 """How long a quarantine record is kept after it was last seen."""
 QUARANTINE_TTL_INDEX = "event_quarantine_ttl"
@@ -117,19 +121,21 @@ def quarantine(
             if bumped.won:
                 return False
             continue
-        doc = {
-            "id": doc_id,
-            "envelope_id": envelope.get("id"),
-            "type": envelope.get("type"),
-            "source": envelope.get("source"),
-            "reason": reason,
-            "host": host,
-            "count": 1,
-            "received_at": seen,
-            "last_seen": seen,
-            "expires_at": expires,
-            **bounded_payload(envelope),
-        }
+        doc = bounded_record(
+            {
+                "id": doc_id,
+                "envelope_id": bounded_value(envelope.get("id")),
+                "type": bounded_value(envelope.get("type")),
+                "source": bounded_value(envelope.get("source")),
+                "reason": bounded_value(reason),
+                "host": bounded_value(host),
+                "count": 1,
+                "received_at": seen,
+                "last_seen": seen,
+                "expires_at": expires,
+                **bounded_payload(envelope),
+            }
+        )
         try:
             store.insert(QUARANTINE_COLLECTION, doc)
         except DuplicateKeyError:
@@ -137,6 +143,36 @@ def quarantine(
         log.warning("quarantined event %r: %s", envelope.get("id"), reason)
         return True
     return False  # contention: the refusal is still refused, only not counted
+
+
+def bounded_value(value: Any) -> Any:
+    """A metadata field as stored in a quarantine record: a string up to
+    :data:`QUARANTINE_MAX_FIELD` bytes, a number, a bool or ``None`` as is; anything longer or
+    of another type as ``{"truncated", "size", "sha256", "preview"}`` (the preview at most
+    that many bytes of its text or JSON)."""
+    if value is None or isinstance(value, bool | int | float):
+        return value
+    text = value if isinstance(value, str) else json.dumps(value, sort_keys=True, default=str)
+    raw = text.encode("utf-8")
+    if isinstance(value, str) and len(raw) <= QUARANTINE_MAX_FIELD:
+        return value
+    return {
+        "truncated": len(raw) > QUARANTINE_MAX_FIELD,
+        "size": len(raw),
+        "sha256": hashlib.sha256(raw).hexdigest(),
+        "preview": raw[:QUARANTINE_MAX_FIELD].decode("utf-8", "ignore"),
+    }
+
+
+def bounded_record(doc: dict[str, Any]) -> dict[str, Any]:
+    """``doc`` within :data:`QUARANTINE_MAX_RECORD` bytes of JSON: when it is over (it cannot
+    be with bounded fields, but the limit is enforced, not assumed) the payload is dropped
+    and only its size and digest are kept."""
+    if len(json.dumps(doc, default=str).encode("utf-8")) <= QUARANTINE_MAX_RECORD:
+        return doc
+    slim = {k: v for k, v in doc.items() if k not in ("envelope", "preview")}
+    slim["truncated"] = True
+    return slim
 
 
 def bounded_payload(envelope: Mapping[str, Any]) -> dict[str, Any]:

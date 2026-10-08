@@ -3,7 +3,10 @@
 culture-rules backs up config (`rules`, `workflows`, `actors`, `machines`) and
 run history (`runs`, `audit`, `run_completions`) to an S3 bucket with
 server-side encryption. A backup chain written before `run_completions` was
-added has no token for it, so the schedule takes a new snapshot first.
+added has no token for it, so the schedule takes a new snapshot first. The
+`events` collection is not backed up: a restore re-opens the run completions
+emitted within a day before the restored point, and the first node delivers
+their events again under the same ids (see `docs/run-events.md`).
 The library is `culture_rules/ops/backup.py`; its module docstring is the
 contract.
 

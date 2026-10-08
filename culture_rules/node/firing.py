@@ -434,6 +434,7 @@ class RuleFiring:
                 "paused: run event emitted on resume",
             ),
             before=self._init_trigger_cursors,
+            clock=clock,
         )
 
     def _chain(self, consumer: str, *, placed: bool) -> FeedConsumer:

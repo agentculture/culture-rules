@@ -393,25 +393,31 @@ def _completion(run_id, emitted):
     }
 
 
-def test_run_completions_are_backed_up_and_restored_with_their_delivery_state(s3, clock):
+def test_run_completions_are_backed_up_and_recent_ones_are_redelivered_on_restore(s3, clock):
     from culture_rules.node.run_events import RunEventOutbox
 
     store = MemoryStore()
     seed(store)
-    store.put("run_completions", _completion("run1", True))
+    old = {**_completion("run0", True), "emitted_at": (T0 - timedelta(days=3)).isoformat()}
+    recent = {**_completion("run1", True), "emitted_at": T0.isoformat()}
+    store.put("run_completions", old)
+    store.put("run_completions", recent)
     b = make_backup(s3, store, clock)
     b.snapshot()
     clock.advance(hours=1)
     store.put("run_completions", _completion("run2", False))  # finished, not yet delivered
     assert b.increment().counts["run_completions"] == 1
     target = MemoryStore()
-    b.restore(target)
-    assert target.get("run_completions", "run1")["emitted"] is True
+    report = b.restore(target)
+    # the events are not backed up: what was emitted recently is re-opened (its event may
+    # not have been consumed yet), what was emitted days ago is left alone
+    assert report.reopened == 1
+    assert target.get("run_completions", "run0")["emitted"] is True
+    assert target.get("run_completions", "run1")["emitted"] is False
     assert target.get("run_completions", "run2")["emitted"] is False
-    # policy: what was delivered stays delivered (no replayed side effects); what was
-    # pending is delivered by the first node on the restored store
-    delivered = RunEventOutbox(target, paused=lambda tx: False, defer=Exception).poll()
-    assert delivered == ["runevt_run2"]
+    outbox = RunEventOutbox(target, paused=lambda tx: False, defer=Exception)
+    # re-delivered under the same event id as before the restore
+    assert sorted(outbox.poll()) == ["runevt_run1", "runevt_run2"]
 
 
 def test_an_older_chain_without_a_completions_token_asks_for_a_new_snapshot(s3, clock):
