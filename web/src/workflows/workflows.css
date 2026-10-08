@@ -352,6 +352,8 @@
 
 .wf-canvas {
   position: relative;
+  /* the zoom row's @container query measures the canvas (a phone moves it up) */
+  container-type: inline-size;
   overflow: hidden;
   border-radius: 28px;
   background-color: var(--surface);
@@ -454,6 +456,9 @@
   display: flex;
   align-items: center;
   gap: 4px;
+  min-inline-size: 0; /* a <fieldset>: no user-agent margin, frame or min-content width */
+  margin: 0;
+  border: 0;
   padding: 2px;
   border-radius: 26px;
   background: var(--surface);
@@ -502,11 +507,8 @@
 }
 
 /* A narrow canvas (a phone): the centred step + would sit under the zoom row, so the row
-   moves up above it (+ is 48px, 24px off the bottom; 12px between them). */
-.wf-canvas {
-  container-type: inline-size;
-}
-
+   moves up above it (+ is 48px, 24px off the bottom; 12px between them). The canvas is
+   the size container (see .wf-canvas). */
 @container (max-width: 640px) {
   .wf-zoom {
     bottom: 84px;

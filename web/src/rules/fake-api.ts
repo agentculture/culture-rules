@@ -125,8 +125,9 @@ function handleGet(api: FakeApi, path: string, query: URLSearchParams): FakeResp
     const rule = api.rules.find((r) => r.id === decodeURIComponent(described[1]));
     if (!rule) return error(404, "not_found", `rules/${described[1]} does not exist`);
     const params = (rule.trigger.params ?? {}) as Record<string, unknown>;
+    const type = typeof params.type === "string" ? params.type : rule.trigger.kind;
     const entries = [
-      { label: "When", text: String(params.type ?? rule.trigger.kind), depth: 0 },
+      { label: "When", text: type, depth: 0 },
       { label: "Then", text: rule.action.kind, depth: 0 },
     ];
     return json(200, { id: rule.id, kind: "rule", lines: entries.map((e) => `${e.label} ${e.text}`), entries });
@@ -172,7 +173,7 @@ function variableRead(api: FakeApi, name: string, part: string | undefined): Fak
 /** `PUT /variables/{name}`: appends a version (the fake caller is the fixture's admin). */
 function variableWrite(api: FakeApi, name: string, body: unknown): FakeResponse {
   const { value, description } = body as { value: Variable["value"]; description?: string };
-  const last = api.variableVersions.filter((v) => v.name === name).at(-1);
+  const last = api.variableVersions.findLast((v) => v.name === name);
   const next: Variable = {
     id: name,
     name,

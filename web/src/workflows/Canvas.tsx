@@ -118,7 +118,7 @@ function ZoomControls({
   onZoom,
 }: Readonly<{ zoom: number; onZoom: (to: "in" | "out" | "fit") => void }>) {
   return (
-    <div className="wf-zoom" role="group" aria-label="Zoom">
+    <fieldset className="wf-zoom" aria-label="Zoom">
       <button
         type="button"
         className="wf-zoom__button"
@@ -153,7 +153,7 @@ function ZoomControls({
       >
         Fit
       </button>
-    </div>
+    </fieldset>
   );
 }
 
