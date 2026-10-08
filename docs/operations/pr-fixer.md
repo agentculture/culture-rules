@@ -822,7 +822,7 @@ The order matters: nodes first, then the data.
    stays trusted). A review the old build recorded is read through a narrow
    legacy path: only for a run of that trusted workflow, only from its per-run
    pointer in `fixer_review_current`, judged and consumed exactly as d20 did.
-2. **Upgrade every node and the API** to the 0.14.0 wheel. It holds the new
+2. **Upgrade every node and the API** to the 0.14.0 (or later) wheel. It holds the new
    trusted digests, the chain holds, the cancel stage and the Sonar built-in.
    An old node that evaluates a stage rule cannot hold the key or verify the
    chain, so upgrade them all before any stage rule is enabled.
@@ -847,9 +847,10 @@ The order matters: nodes first, then the data.
 
 ### Rolling out the GitGuardian report (d25)
 
-d25 ships in 0.14.0 with the split, whose `pr-fix` never ran live without
-the hold, so only the held `pr-fix` digest is trusted. Rolling out 0.14.0
-does these steps inside "Rolling out the split".
+d25 ships in 0.15.0, right after the split (0.14.0), whose `pr-fix` never
+ran live without the hold, so only the held `pr-fix` digest is trusted.
+Rolling out 0.15.0 over 0.13.x does these steps inside "Rolling out the
+split".
 
 1. **Upgrade every node and the API** to the release. It emits
    `failed_apps`, trusts the held `pr-fix` digest and has the
