@@ -657,18 +657,31 @@ def _event_changes(
 
 def _status_notes(doc: Mapping[str, Any], payload: Mapping[str, Any], now: str) -> dict[str, Any]:
     """d26: the agent's ``STATUS: <note>`` out of a progress callback's ``note`` (a shell
-    tool call's title, e.g. ``tool_call: Shell: echo "STATUS: fixing it"``), cleaned for a
-    public comment (a note that looks like a secret is dropped) and appended to the
-    invocation's last :data:`~culture_rules.node.fixer_status.STATUS_NOTES_KEPT` notes; ``{}``
-    when it carries none."""
-    from culture_rules.apps.public_text import clean_note, status_note  # noqa: PLC0415
+    tool call's title, e.g. ``tool_call: Shell: echo "STATUS: fixing it"``), normalized and
+    checked (:func:`~culture_rules.apps.public_text.clean_note`, against this process's
+    known secrets too) and appended to the invocation's last
+    :data:`~culture_rules.node.fixer_status.STATUS_NOTES_KEPT` notes; ``{}`` when it carries
+    none. A refused note is counted (``status_notes_withheld``) and drops every kept note
+    too, as does a new note that, with the kept ones, carries a secret (one split across
+    notes)."""
+    from culture_rules.actors.secrets import known_values  # noqa: PLC0415
+    from culture_rules.apps.public_text import clean_note, status_note, withheld  # noqa: PLC0415
     from culture_rules.node.fixer_status import STATUS_NOTES_KEPT  # noqa: PLC0415
 
-    text = clean_note(status_note(payload.get("note")))
-    if text is None:
+    raw = status_note(payload.get("note"))
+    if raw is None:
         return {}
+    known = known_values()
+    text = clean_note(raw, known=known)
     kept = [n for n in doc.get("status_notes") or () if isinstance(n, Mapping)]
-    return {"status_notes": [*kept, {"at": now, "text": text}][-STATUS_NOTES_KEPT:]}
+    notes = [*kept, {"at": now, "text": text}][-STATUS_NOTES_KEPT:]
+    if text is None or withheld(" ".join(str(n.get("text")) for n in notes), known):
+        # a refused note may finish a secret the kept ones began: drop them all
+        return {
+            "status_notes": [],
+            "status_notes_withheld": (doc.get("status_notes_withheld") or 0) + 1,
+        }
+    return {"status_notes": notes}
 
 
 def _deliver_one(store: Any, executor: Any, doc: Mapping[str, Any]) -> bool:
@@ -989,11 +1002,12 @@ class BridgeAgentActor:
     def _bearer(self) -> str | None:
         if not self._token_ref:
             return None
-        if self._resolve is not None:
-            return self._resolve(self._token_ref)
         from culture_rules.actors import secrets as secret_refs
 
-        return secret_refs.resolve_or_literal(self._token_ref)
+        resolver = self._resolve or secret_refs.resolve_or_literal
+        bearer = resolver(self._token_ref)
+        secret_refs.remember(bearer)  # d26: never relayed in a public comment
+        return bearer
 
     def _claim(
         self,

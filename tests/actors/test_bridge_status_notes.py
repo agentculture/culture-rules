@@ -80,7 +80,7 @@ def test_a_status_note_in_a_progress_event_is_kept_cleaned(store, clock):
     event = progress(2, note)
     assert record_bridge_event(store, doc["id"], token_of(bridge), event, clock=clock) == RECORDED
     (kept,) = invocation(store)["status_notes"]
-    assert kept["text"] == "fixing the test, thanks @​OriNachum"
+    assert kept["text"] == "fixing the test, thanks @OriNachum"
     assert kept["at"] == "2026-10-03T12:00:00Z"
 
 
@@ -129,3 +129,39 @@ def test_a_status_chain_agent_is_told_how_to_write_notes(store, clock):
 def test_other_runs_get_their_instruction_unchanged(store, clock):
     bridge, _, _ = accepted(store, clock)
     assert bridge.requests[0]["body"]["input"]["instruction"] == "Fix the failing check"
+
+
+SECRET = "synthetic-" + "bridge-secret-value-77"
+
+
+def test_a_note_carrying_a_known_secret_is_refused(store, clock, monkeypatch):
+    from culture_rules.actors import secrets
+
+    monkeypatch.setattr(secrets, "_KNOWN", {SECRET})
+    bridge, doc, _ = accepted(store, clock)
+    event = progress(2, f'tool_call: Shell: echo "STATUS: {" ".join(SECRET)}"')
+    assert record_bridge_event(store, doc["id"], token_of(bridge), event) == RECORDED
+    assert notes(store) == []
+    assert invocation(store)["status_notes_withheld"] == 1
+
+
+def test_a_secret_split_across_notes_drops_every_kept_note(store, clock, monkeypatch):
+    from culture_rules.actors import secrets
+
+    monkeypatch.setattr(secrets, "_KNOWN", {SECRET})
+    bridge, doc, _ = accepted(store, clock)
+    token = token_of(bridge)
+    pieces = [SECRET[i : i + 8] for i in range(0, len(SECRET), 8)]  # each too short alone
+    for seq, piece in enumerate(pieces, start=2):
+        event = progress(seq, f'tool_call: Shell: echo "STATUS: {piece}"')
+        assert record_bridge_event(store, doc["id"], token, event) == RECORDED
+    assert notes(store) == []
+    assert invocation(store)["status_notes_withheld"] >= 1
+
+
+def test_the_bridge_token_is_known_once_used(store, clock, monkeypatch):
+    from culture_rules.actors import secrets
+
+    monkeypatch.setattr(secrets, "_KNOWN", set())
+    accepted(store, clock)  # make_actor's token "bridge-secret" is resolved to dispatch
+    assert "bridge-secret" in secrets.known_values()
