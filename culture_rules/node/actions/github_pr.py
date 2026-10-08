@@ -637,7 +637,8 @@ def _chain(store: Any, run: Mapping[str, Any] | None, input: Mapping[str, Any]) 
     started by a trusted ``pr-fix`` run succeeding (each step verified against the upstream
     run's completion record). The commit, its start, its bundle and the PR the push names
     must be exactly what that fix run's last gate built and gated (``chain_mismatch``), and
-    the gate must have passed (``gate_not_passed``). Raises :class:`LineageError`."""
+    that gate must have passed (``gate_not_passed``, read from the store whatever the push's
+    own ``gate_verdict`` param says). Raises :class:`LineageError`."""
     if not run:
         raise LineageError("run_not_found")
     role = trusted.workflow_role(run)
@@ -654,19 +655,20 @@ def _chain(store: Any, run: Mapping[str, Any] | None, input: Mapping[str, Any]) 
     else:
         raise LineageError("workflow_not_trusted")
     g = final_gate(fix).outputs
+    if g.get("verdict") != "pass":  # whatever the push params say (the gate wrote this)
+        raise LineageError("gate_not_passed")
     fix_inputs = fix.get("inputs") or {}
     same = (
         g.get("commit_sha") == input.get("commit_sha")
         and g.get("start_sha") == input.get("expected_head_sha")
-        and (g.get("bundle") is None or g.get("bundle") == input.get("source"))
+        and isinstance(g.get("bundle"), str)
+        and g.get("bundle") == input.get("source")
         and _same(fix_inputs.get("repo"), str(input.get("repo")))
         and fix_inputs.get("number") == input.get("number")
         and fix_inputs.get("head_branch") == input.get("head_branch")
     )
     if not same:
         raise LineageError("chain_mismatch", "the push is not the commit its chain gated")
-    if role == trusted.ROLE_PUBLISH and g.get("verdict") != "pass":
-        raise LineageError("gate_not_passed")
     target = review_target(
         input.get("repo"),
         input.get("number"),
