@@ -823,6 +823,23 @@ export default function ActionPicker({
         </fieldset>
       ))}
 
+      <label className="action-picker__check">
+        <input
+          type="checkbox"
+          aria-describedby={`${id}-chain-end-hint`}
+          checked={value.only_at_chain_end === true}
+          onChange={(e) => {
+            const next: Action = { ...value, only_at_chain_end: true };
+            if (!e.target.checked) delete next.only_at_chain_end;
+            onChange(next);
+          }}
+        />
+        <span>Only where its chain ends</span>
+      </label>
+      <p id={`${id}-chain-end-hint`} className="trigger-picker__words">
+        Skipped while another rule continues this run, so a chain of rules posts once.
+      </p>
+
       <label>
         <span id={`${id}-name`}>Action label</span>
         <input

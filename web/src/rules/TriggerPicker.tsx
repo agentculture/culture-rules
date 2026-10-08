@@ -236,6 +236,13 @@ function EventFields({ name, t, actors: apps, onChange }: Readonly<FieldsProps<E
           ))}
         </select>
       </label>
+      {surface === ENGINE_SURFACE.id ? (
+        <p className="trigger-picker__words" data-testid="run-event-hint">
+          Fires when any rule's run ends. Add a condition on the run's workflow
+          (data.workflow_id) or rule (data.rule_id), so this rule never fires on its own runs;
+          a chain on one concurrency key holds it between its stages.
+        </p>
+      ) : null}
     </>
   );
 }

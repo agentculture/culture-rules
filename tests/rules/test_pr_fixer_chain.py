@@ -473,3 +473,44 @@ def test_a_publish_run_started_by_hand_pushes_nothing(tmp_path, pem):
     assert doc["status"] == "failed"
     assert doc["error"]["message"] == "chain_unverified"
     assert w.remote_head() == w.repo.start
+
+
+# --------------------------------------------------------------------------- the chain's trust
+
+
+def test_an_edited_pr_fix_workflow_is_never_reviewed_into_a_push(tmp_path):
+    """An admin tweaks the stored pr-fix (here only its description): its runs still fix
+    and gate, but its commit is not one a trusted chain may review or publish."""
+    w = ChainWorld(tmp_path)
+    wf = w.c.base.get("workflows", "pr-fix")
+    w.c.base.put("workflows", {**wf, "description": "tweaked"})
+    w.fire()
+    (fix,) = w.run_of("pr-fix")
+    assert fix["status"] == "succeeded"
+    (review,) = w.run_of("review-commit")
+    assert review["status"] == "failed"
+    assert review["error"]["message"].startswith("workflow_not_trusted")
+    assert w.run_of("publish-fix") == [] and w.push.calls == []
+    (body,) = w.comments()
+    assert body.startswith("PR fixer handed back (actor_failed): workflow_not_trusted")
+
+
+def test_a_reviewer_that_wrote_to_its_checkout_is_not_an_approval(tmp_path):
+    w = ChainWorld(tmp_path, reviews=[{"status": "completed", "commits": [{"sha": "x"}]}])
+    w.fire()
+    (review,) = w.run_of("review-commit")
+    assert review["status"] == "failed"
+    assert review["error"]["message"].startswith("reviewer_not_read_only")
+    assert w.run_of("publish-fix") == [] and w.push.calls == []
+    assert len(w.comments()) == 1
+
+
+def test_an_edited_review_commit_workflow_records_nothing_a_push_accepts(tmp_path):
+    w = ChainWorld(tmp_path)
+    wf = w.c.base.get("workflows", "review-commit")
+    w.c.base.put("workflows", {**wf, "description": "tweaked"})
+    w.fire()
+    (review,) = w.run_of("review-commit")
+    assert review["status"] == "failed"
+    assert review["error"]["message"].startswith("workflow_not_trusted")
+    assert w.push.calls == []

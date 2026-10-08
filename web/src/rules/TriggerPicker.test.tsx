@@ -75,6 +75,14 @@ describe("run-finished triggers (d21)", () => {
     expect(screen.getByLabelText("Surface")).toHaveValue("@rules-engine");
     expect(screen.getByLabelText("Event")).toHaveValue("rules.run.failed");
   });
+
+  it("asks for a condition on the run's workflow, only for run events", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    expect(screen.queryByTestId("run-event-hint")).not.toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText("Surface"), "@rules-engine");
+    expect(screen.getByTestId("run-event-hint")).toHaveTextContent("data.workflow_id");
+  });
 });
 
 describe("schedule triggers", () => {
