@@ -263,21 +263,33 @@ def decline(
     decided, live = set(decided), set(live)
     for _ in range(DEFAULT_ATTEMPTS):
         current = tx.get(RULE_ATTEMPT_BUDGETS, doc_id)
-        hold = (current or {}).get("hold")
-        if not isinstance(hold, Mapping) or hold.get("run_id") != run_id:
+        changes = _decline_changes(current, run_id, decided, live)
+        if changes is None:
             return None
-        if current.get("run_id") != run_id:
-            return None  # a continuation took the key: its reservation ended the hold
-        rules = [r for r in hold.get("rules") or () if r not in decided and r in live]
-        if rules == list(hold.get("rules") or ()):
-            return None
-        changes: dict[str, Any] = {"revision": (current.get("revision") or 0) + 1}
-        if rules:
-            changes["hold"] = {**dict(hold), "rules": rules}
-        else:
-            changes.update(hold=None, hold_released=run_id)
         if tx.update_if(
             RULE_ATTEMPT_BUDGETS, doc_id, {"revision": current.get("revision")}, changes
         ).won:
-            return None if rules else doc_id
+            return doc_id if "hold_released" in changes else None
     raise TransientStoreError("chain hold release contention")
+
+
+def _decline_changes(
+    current: Mapping[str, Any] | None, run_id: str, decided: set[str], live: set[str]
+) -> dict[str, Any] | None:
+    """The budget write removing the decided and dead rules from ``run_id``'s hold - the
+    hold narrowed, or released when no rule is left - or None to leave it: no hold of that
+    run, a continuation already took the key, or nothing to remove."""
+    hold = (current or {}).get("hold")
+    if not isinstance(hold, Mapping) or hold.get("run_id") != run_id:
+        return None
+    if current.get("run_id") != run_id:
+        return None  # a continuation took the key: its reservation ended the hold
+    rules = [r for r in hold.get("rules") or () if r not in decided and r in live]
+    if rules == list(hold.get("rules") or ()):
+        return None
+    changes: dict[str, Any] = {"revision": (current.get("revision") or 0) + 1}
+    if rules:
+        changes["hold"] = {**dict(hold), "rules": rules}
+    else:
+        changes.update(hold=None, hold_released=run_id)
+    return changes
