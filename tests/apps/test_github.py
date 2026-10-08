@@ -488,3 +488,24 @@ def test_the_comments_of_a_pr_are_listed_with_their_app(pem):
     assert urls[0].endswith("/repos/acme/widgets/issues/7/comments?per_page=100&page=1")
     assert urls[1].endswith("page=2")
     assert app.app_id == "123"
+
+
+def test_a_request_guard_sees_every_request_and_can_stop_one(pem):
+    # d26: the status board counts each HTTP request (token exchange included)
+    fake = Fake()
+    app, _ = make(pem, fake)
+    seen = []
+
+    def guard():
+        seen.append(1)
+        if len(seen) > 2:
+            raise GitHubError("budget_exhausted", retryable=True)
+
+    with app.request_guard(guard):
+        app.post_comment("acme/widgets", 1, "a")  # token exchange + post
+        with pytest.raises(GitHubError) as exc:
+            app.post_comment("acme/widgets", 1, "b")
+    assert exc.value.code == "budget_exhausted"
+    assert len(fake.calls) == 2  # the third request was never sent
+    app.post_comment("acme/widgets", 1, "c")  # outside the block: unguarded
+    assert len(seen) == 3

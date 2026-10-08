@@ -59,6 +59,8 @@ _REPO_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9._-]+$")
 _DEADLINE: ContextVar[tuple[datetime, Callable[[], datetime]] | None] = ContextVar(
     "github_deadline", default=None
 )
+_GUARD: ContextVar[Callable[[], None] | None] = ContextVar("github_request_guard", default=None)
+"""Called before every HTTP request in a :meth:`GitHubApp.request_guard` block (d26)."""
 
 Transport = Callable[[str, str, dict[str, str], bytes | None, float], tuple[int, bytes]]
 
@@ -260,6 +262,18 @@ class GitHubApp:
         finally:
             _DEADLINE.reset(reset)
 
+    @contextmanager
+    def request_guard(self, guard: Callable[[], None]) -> Iterator[None]:
+        """Call ``guard()`` before every HTTP request in the block, token exchanges
+        included (d26: the status board counts each request against its budget; the guard
+        raises :class:`GitHubError` to stop before the request is sent). Held in a
+        ContextVar, like :meth:`deadline`."""
+        reset = _GUARD.set(guard)
+        try:
+            yield
+        finally:
+            _GUARD.reset(reset)
+
     @staticmethod
     def _timeout() -> float:
         bound = _DEADLINE.get()
@@ -288,6 +302,9 @@ class GitHubApp:
     def _request(
         self, method: str, path: str, bearer: str, payload: dict[str, Any] | None
     ) -> tuple[int, dict[str, Any]]:
+        guard = _GUARD.get()
+        if guard is not None:
+            guard()
         timeout = self._timeout()
         headers = {
             "Authorization": f"Bearer {bearer}",
