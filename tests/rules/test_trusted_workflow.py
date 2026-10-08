@@ -176,13 +176,15 @@ def test_an_unknown_or_changed_app_actor_is_not_trusted():
     assert actor_refusal(store, "nobody")[0] == "actor_not_trusted"
 
 
-def test_the_digest_helper_prints_what_the_checks_compute(tmp_path, capsys):
+def test_the_digest_helper_prints_what_the_checks_compute(capsys):
+    import io
     import json
 
     from culture_rules.actors.trusted import actor_digest, main
 
-    path = tmp_path / "a.json"
-    path.write_text(json.dumps(_reviewer()))
-    assert main(["actor", str(path)]) == 0
+    assert main(["actor"], stdin=io.StringIO(json.dumps(_reviewer()))) == 0
     assert capsys.readouterr().out.strip() == actor_digest(_reviewer())
     assert main(["nope"]) == 1
+    # a path argument is refused: the helper never opens a file it is told to
+    assert main(["actor", "/etc/passwd"], stdin=io.StringIO("{}")) == 1
+    assert main(["actor"], stdin=io.StringIO("not json")) == 1

@@ -528,12 +528,12 @@ ids and grant reference names only). To recompute it after a change:
 
 ```bash
 culture-rules actors show github-app --json > github-app.json   # the bare actor document
-python -m culture_rules.actors.trusted actor github-app.json
+python -m culture_rules.actors.trusted actor < github-app.json
 ```
 
 Add the printed digest to `TRUSTED_ACTOR_DIGESTS["github-app"]` (and refresh
 the fixture), release, and upgrade every node before editing the live actor.
-The same command with `workflow FILE` prints a workflow digest.
+The same command with `workflow < FILE` prints a workflow digest.
 
 **`commit_author` (operator-approved 2026-10-08).** The live App actor gets
 `params.commit_author: rules-culture-dev[bot]`, so `github.push` also

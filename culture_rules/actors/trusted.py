@@ -91,7 +91,7 @@ def workflow_refusal(run: Mapping[str, Any] | None) -> str | None:
 #: The ``github-app`` digest is the live actor's (fixture: tests/rules/fixtures/
 #: github-app.live.json). Compute a new one from the stored document (``culture-rules actors
 #: show github-app --json``, a bare actor object) with ``python -m
-#: culture_rules.actors.trusted actor <file.json>``. Its ``repos`` are deliberately not part
+#: culture_rules.actors.trusted actor < file.json``. Its ``repos`` are deliberately not part
 #: of the digest (see ``_APP_CONNECTION``).
 TRUSTED_ACTOR_DIGESTS: dict[str, frozenset[str]] = {
     # docs/rules/pr-fixer/actors/codex-reviewer.json (d20 round 3)
@@ -183,22 +183,35 @@ def is_pinned(actor_id: Any) -> bool:
     return isinstance(actor_id, str) and actor_id in TRUSTED_ACTOR_DIGESTS
 
 
-def main(argv: list[str] | None = None) -> int:
-    """``python -m culture_rules.actors.trusted actor|workflow FILE``: print the digest."""
+def main(argv: list[str] | None = None, stdin: Any = None) -> int:
+    """``python -m culture_rules.actors.trusted actor|workflow < FILE``: print the digest.
+
+    The document is read from standard input, never from a path argument, so the helper
+    opens no file it is told to (an operator pipes the exported document in)."""
     import sys  # noqa: PLC0415
 
     args = sys.argv[1:] if argv is None else argv
-    if len(args) != 2 or args[0] not in ("actor", "workflow"):
-        print("usage: python -m culture_rules.actors.trusted actor|workflow FILE", file=sys.stderr)
+    source = sys.stdin if stdin is None else stdin
+    if len(args) != 1 or args[0] not in ("actor", "workflow"):
+        print(
+            "usage: python -m culture_rules.actors.trusted actor|workflow < FILE", file=sys.stderr
+        )
         return 1
-    with open(args[1], encoding="utf-8") as fh:
-        doc = json.load(fh)
+    try:
+        doc = json.loads(source.read(_MAX_DOC_CHARS + 1)[: _MAX_DOC_CHARS + 1])
+    except ValueError:
+        print("stdin is not a JSON document", file=sys.stderr)
+        return 1
     digest = actor_digest(doc) if args[0] == "actor" else workflow_digest(doc)
     if digest is None:
         print(f"not a valid {args[0]} document", file=sys.stderr)
         return 1
     print(digest)
     return 0
+
+
+#: An exported actor or workflow is a few KB; anything larger is not one.
+_MAX_DOC_CHARS = 1_000_000
 
 
 if __name__ == "__main__":  # pragma: no cover
