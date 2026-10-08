@@ -1210,3 +1210,184 @@ def test_f2_a_pending_fill_never_reopens_a_settle_that_finished_meanwhile():
     assert rec["generation"] == 1
     assert rec["rearm_causes"] == ["rev-1"]
     assert rec["number"] == 7
+
+
+# --------------------------------------------------------------------------- characterization
+# (complexity refactor of rearm_settle / tick / _arm: pin the race and fallback paths)
+
+
+def test_rearm_insert_race_retries_and_coalesces_into_the_pending_settle():
+    from culture_rules.node.checks_settle import rearm_settle
+
+    store, _, clock, settler = make(("a", "in_progress"))
+    settler.on_check(check_data())  # another node armed it (pending)
+    rid = f"{REPO}@{SHA}".lower()
+    real_get = store.get
+    misses = []
+
+    def stale_get(collection, id):
+        if collection == SETTLE_COLLECTION and not misses:
+            misses.append(id)
+            return None  # read before the racing arm landed
+        return real_get(collection, id)
+
+    store.get = stale_get
+    outcome = rearm_settle(store, REPO, SHA, reason="base_changed", cause="c1", now=clock())
+    store.get = real_get
+    assert misses == [rid]
+    assert outcome == "pending"  # the duplicate insert retried, then coalesced
+    rec = store.get(SETTLE_COLLECTION, rid)
+    assert rec["rearm_causes"] == ["c1"]
+    assert rec.get("generation", 0) == 0
+
+
+def test_rearm_lost_cas_is_retried_then_wins():
+    from culture_rules.node.checks_settle import rearm_settle
+
+    store, _, clock, settler = make(("a", "completed"))
+    assert settler.on_check(check_data()) == "emitted"
+    real = store.update_if
+    lost = []
+
+    def lose_once(collection, id, expected, changes, **kw):
+        if collection == SETTLE_COLLECTION and "generation" in changes and not lost:
+            lost.append(dict(expected))
+            return type("R", (), {"won": False})()
+        return real(collection, id, expected, changes, **kw)
+
+    store.update_if = lose_once
+    outcome = rearm_settle(store, REPO, SHA, reason="base_changed", cause="c1", now=clock())
+    store.update_if = real
+    assert outcome == "rearmed"
+    assert lost == [{"state": "emitted", "generation": None, "rearm_causes": None}]
+    rec = store.get(SETTLE_COLLECTION, f"{REPO}@{SHA}".lower())
+    assert (rec["generation"], rec["rearm_causes"], rec["state"]) == (1, ["c1"], "pending")
+
+
+def test_rearm_contention_without_a_winner_answers_pending_after_ten_tries():
+    from culture_rules.node.checks_settle import rearm_settle
+
+    store, _, clock, settler = make(("a", "completed"))
+    settler.on_check(check_data())
+    calls = []
+
+    def always_lose(collection, id, expected, changes, **kw):
+        calls.append(collection)
+        return type("R", (), {"won": False})()
+
+    store.update_if = always_lose
+    assert rearm_settle(store, REPO, SHA, reason="base_changed", now=clock()) == "pending"
+    assert calls == [SETTLE_COLLECTION] * 10
+
+
+def test_rearm_timeout_variable_falls_back_unless_a_positive_number():
+    from culture_rules.node.checks_settle import DEFAULT_TIMEOUT_S, rearm_settle
+
+    rid = f"{REPO}@{SHA}".lower()
+    for value, expected in (
+        (30, 30.0),
+        (2.5, 2.5),
+        (True, DEFAULT_TIMEOUT_S),
+        (0, DEFAULT_TIMEOUT_S),
+        ("60", DEFAULT_TIMEOUT_S),
+        (-5, DEFAULT_TIMEOUT_S),
+    ):
+        store, _, clock, _ = make(("a", "completed"))
+        store.put_variable("checks_settle_timeout_s", value, updated_by="t")
+        assert rearm_settle(store, REPO, SHA, reason="base_changed", now=clock()) == "armed"
+        rec = store.get(SETTLE_COLLECTION, rid)
+        assert rec["deadline"] == (clock() + timedelta(seconds=expected)).isoformat(), value
+        assert rec["armed_at"] == clock().isoformat()
+        assert (rec["state"], rec["polls"], rec["rearmed_for"]) == ("pending", 0, "base_changed")
+
+
+def test_rearm_pending_without_new_facts_or_cause_answers_pending_and_writes_nothing():
+    from culture_rules.node.checks_settle import rearm_settle
+
+    store, _, clock, settler = make(("a", "in_progress"))
+    settler.on_check(check_data())
+    rid = f"{REPO}@{SHA}".lower()
+    before = store.get(SETTLE_COLLECTION, rid)
+    assert (
+        rearm_settle(store, REPO, SHA, reason="x", number=9, head_branch="other", now=clock())
+        == "pending"
+    )
+    assert store.get(SETTLE_COLLECTION, rid) == before  # it had numbers and a branch
+
+
+def test_tick_listing_failure_before_the_deadline_waits_and_at_it_times_out():
+    from culture_rules.node.checks_settle import DEFAULT_TIMEOUT_S
+
+    store, lister, clock, settler = make(("a", "in_progress"))
+    settler.on_check(check_data())
+    lister.fail = True
+    clock.now += timedelta(seconds=1)
+    assert settler.tick() == 0
+    assert settled(store) == []
+    clock.now += timedelta(seconds=DEFAULT_TIMEOUT_S)
+    assert settler.tick() == 1
+    data = settled(store)[0]["envelope"]["data"]
+    assert (data["settled_by"], data["conclusion"]) == ("timeout", "timeout")
+
+
+def test_tick_skips_a_record_without_a_parseable_deadline():
+    store, _, clock, settler = make(("a", "completed"))
+    store.insert(
+        SETTLE_COLLECTION,
+        {"id": "x@y", "state": "pending", "repository": "x", "head_sha": "y", "deadline": "nope"},
+    )
+    assert settler.tick() == 0
+    assert settled(store) == []
+
+
+def test_arm_merges_missing_pr_facts_only_into_a_pending_record():
+    store, _, clock, settler = make(("a", "in_progress"))
+    rid = f"{REPO}@{SHA}".lower()
+    settler._arm(REPO, SHA, {"repository": REPO, "head_sha": SHA})
+    rec = settler._arm(REPO, SHA, check_data(number=7))
+    assert (rec["pr_numbers"], rec["number"], rec["head_branch"]) == ([7], 7, "feat")
+    assert store.get(SETTLE_COLLECTION, rid)["pr_numbers"] == [7]
+    # a later completion never overwrites facts already there
+    rec = settler._arm(REPO, SHA, check_data(pr_numbers=[8], number=8, head_branch="b2"))
+    assert (rec["pr_numbers"], rec["number"], rec["head_branch"]) == ([7], 7, "feat")
+    # a settled record is returned as is, never filled
+    store.update_if(SETTLE_COLLECTION, rid, {}, {"state": "emitted", "head_branch": None})
+    rec = settler._arm(REPO, SHA, check_data())
+    assert rec["state"] == "emitted" and rec["head_branch"] is None
+
+
+def test_arm_lost_cas_is_retried_then_merges():
+    store, _, clock, settler = make(("a", "in_progress"))
+    rid = f"{REPO}@{SHA}".lower()
+    settler._arm(REPO, SHA, {"repository": REPO, "head_sha": SHA})
+    real = store.update_if
+    lost = []
+
+    def lose_once(collection, id, expected, changes, **kw):
+        if collection == SETTLE_COLLECTION and not lost:
+            lost.append(dict(changes))
+            return type("R", (), {"won": False})()
+        return real(collection, id, expected, changes, **kw)
+
+    store.update_if = lose_once
+    rec = settler._arm(REPO, SHA, check_data())
+    store.update_if = real
+    assert lost == [{"pr_numbers": [7], "head_branch": "feat"}]
+    assert (rec["pr_numbers"], rec["head_branch"]) == ([7], "feat")
+    assert store.get(SETTLE_COLLECTION, rid)["pr_numbers"] == [7]
+
+
+def test_arm_contention_without_a_winner_returns_the_stored_record():
+    store, _, clock, settler = make(("a", "in_progress"))
+    rid = f"{REPO}@{SHA}".lower()
+    settler._arm(REPO, SHA, {"repository": REPO, "head_sha": SHA})
+    calls = []
+
+    def always_lose(collection, id, expected, changes, **kw):
+        calls.append(id)
+        return type("R", (), {"won": False})()
+
+    store.update_if = always_lose
+    rec = settler._arm(REPO, SHA, check_data())
+    assert calls == [rid] * 10
+    assert rec["pr_numbers"] == [] and rec["head_branch"] is None
