@@ -314,20 +314,21 @@ def _commands(value: Any, name: str, *, required: bool) -> tuple[tuple[str, ...]
         raise GateConfigError(f"gate.{name} must be a list of argv lists")
     if required and not value:
         raise GateConfigError(f"gate.{name} must declare at least one command")
-    out = []
-    for i, argv in enumerate(value):
-        where = f"gate.{name}[{i}]"
-        if not isinstance(argv, list) or not argv:
-            raise GateConfigError(f"{where} must be a non-empty list of strings")
-        for j, arg in enumerate(argv):
-            if not isinstance(arg, str):
-                raise GateConfigError(f"{where}[{j}] must be a string (quote it), not {arg!r}")
-            if "\x00" in arg:
-                raise GateConfigError(f"{where}[{j}] contains a NUL byte")
-        if not argv[0] or "=" in argv[0]:
-            raise GateConfigError(f"{where}[0] must name a program (non-empty, no '=')")
-        out.append(tuple(argv))
-    return tuple(out)
+    return tuple(_argv(argv, f"gate.{name}[{i}]") for i, argv in enumerate(value))
+
+
+def _argv(argv: Any, where: str) -> tuple[str, ...]:
+    """One validated gate command (``where`` names it in errors)."""
+    if not isinstance(argv, list) or not argv:
+        raise GateConfigError(f"{where} must be a non-empty list of strings")
+    for j, arg in enumerate(argv):
+        if not isinstance(arg, str):
+            raise GateConfigError(f"{where}[{j}] must be a string (quote it), not {arg!r}")
+        if "\x00" in arg:
+            raise GateConfigError(f"{where}[{j}] contains a NUL byte")
+    if not argv[0] or "=" in argv[0]:
+        raise GateConfigError(f"{where}[0] must name a program (non-empty, no '=')")
+    return tuple(argv)
 
 
 def gate_from_mapping(value: Any) -> GateSpec:
@@ -641,8 +642,7 @@ def _hunk_lines(patch: str) -> Iterable[tuple[str, str]]:
         i += 1
         if m is None:
             continue
-        left = 1 if m.group(1) is None else int(m.group(1))
-        right = 1 if m.group(2) is None else int(m.group(2))
+        left, right = _hunk_counts(m)
         while (left > 0 or right > 0) and i < len(lines):
             body = lines[i]
             i += 1
@@ -655,6 +655,13 @@ def _hunk_lines(patch: str) -> Iterable[tuple[str, str]]:
             elif body.startswith(" "):
                 left, right = left - 1, right - 1
             # "\ No newline at end of file" counts as neither side
+
+
+def _hunk_counts(m: re.Match[str]) -> tuple[int, int]:
+    """A hunk header's removed and added line counts (an omitted count is 1)."""
+    left = 1 if m.group(1) is None else int(m.group(1))
+    right = 1 if m.group(2) is None else int(m.group(2))
+    return left, right
 
 
 def changed_paths(name_status: str) -> list[str]:
@@ -712,23 +719,46 @@ def diff_guard(
     ``name_status`` is ``git diff --name-status -z -M`` output; ``patches`` maps each path
     it names (see :func:`changed_paths`) to that path's own ``-U0 --no-renames`` patch."""
     protected = (*ALWAYS_PROTECTED, *patterns)
-    found: list[Violation] = []
     entries = _name_status(name_status)
-    for _status, paths in entries:
-        for path in paths:
-            hit = path_matches(path, protected)
-            if hit is not None:
-                found.append(Violation("protected_path", path, f"matches {hit!r}"))
-    for status, paths in entries:
-        if status == "D" and is_test_path(paths[0]):
-            found.append(Violation("test_deleted", paths[0], "test file deleted"))
-        elif status == "R" and is_test_path(paths[0]) and not is_test_path(paths[-1]):
-            found.append(Violation("test_deleted", paths[0], f"moved to {paths[-1]}"))
+    found = _protected_paths(entries, protected)
+    found += _deleted_tests(entries)
     lines = [
         (path, side, text)
         for path in changed_paths(name_status)
         for side, text in _hunk_lines(patches.get(path, ""))
     ]
+    found += _removed_tests(lines)
+    found += _added_markers(lines, _SKIP_MARKERS, "test_skipped")
+    found += _added_markers(lines, _SUPPRESSIONS, "suppression_marker")
+    return found
+
+
+def _protected_paths(
+    entries: list[tuple[str, list[str]]], protected: tuple[str, ...]
+) -> list[Violation]:
+    """Every changed path (both sides of a rename) matching a protected pattern."""
+    found: list[Violation] = []
+    for _status, paths in entries:
+        for path in paths:
+            hit = path_matches(path, protected)
+            if hit is not None:
+                found.append(Violation("protected_path", path, f"matches {hit!r}"))
+    return found
+
+
+def _deleted_tests(entries: list[tuple[str, list[str]]]) -> list[Violation]:
+    """Test files deleted, or renamed to a path that is not a test file."""
+    found: list[Violation] = []
+    for status, paths in entries:
+        if status == "D" and is_test_path(paths[0]):
+            found.append(Violation("test_deleted", paths[0], "test file deleted"))
+        elif status == "R" and is_test_path(paths[0]) and not is_test_path(paths[-1]):
+            found.append(Violation("test_deleted", paths[0], f"moved to {paths[-1]}"))
+    return found
+
+
+def _removed_tests(lines: list[tuple[str, str, str]]) -> list[Violation]:
+    """Test definitions removed from test files more often than they were added back."""
     removed: Counter[str] = Counter()
     added: Counter[str] = Counter()
     where: dict[str, str] = {}
@@ -739,12 +769,11 @@ def diff_guard(
             (added if side == "+" else removed)[name] += 1
             if side == "-":
                 where.setdefault(name, path)
-    for name in sorted(removed):
-        if removed[name] > added[name]:
-            found.append(Violation("test_removed", where[name], f"test {name!r} removed"))
-    found += _added_markers(lines, _SKIP_MARKERS, "test_skipped")
-    found += _added_markers(lines, _SUPPRESSIONS, "suppression_marker")
-    return found
+    return [
+        Violation("test_removed", where[name], f"test {name!r} removed")
+        for name in sorted(removed)
+        if removed[name] > added[name]
+    ]
 
 
 # --------------------------------------------------------------------------- the port
