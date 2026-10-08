@@ -16,6 +16,7 @@ import pytest
 from culture_rules.actors.review import current_review, review_target, run_reviews
 from culture_rules.engine.claims import RULE_ATTEMPT_BUDGETS, budget_id
 from culture_rules.engine.runs import ACTION_STEP, FAILURE_STEP, step_state
+from culture_rules.node.fixer_status import STATUS_NOTE_HINT
 from tests.rules.chain_world import KEY, ChainWorld
 from tests.rules.test_pr_fixer_single import REPO, verdict_text
 
@@ -133,7 +134,9 @@ def test_requested_changes_fix_again_with_the_findings_then_publish(tmp_path):
     assert "[high] src/app.py:1" in second
     assert "The original task:" in second
     assert "o/r#7" in second
-    assert fixes[1]["inputs"]["task"] == first  # the original task travels on
+    # the original task travels on (the agent also got the d26 status-notes hint)
+    assert first == fixes[1]["inputs"]["task"] + STATUS_NOTE_HINT
+    assert second.endswith(STATUS_NOTE_HINT)
     (push_call,) = w.push.calls
     assert push_call[1]["commit_sha"] == gate_of(fixes[1])["commit_sha"]
     assert budget(w)["count"] == 2

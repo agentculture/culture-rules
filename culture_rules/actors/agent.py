@@ -648,9 +648,27 @@ def _event_changes(
     changes = {"last_sequence": seq, "last_event_at": now}
     if kind == "heartbeat":
         changes["last_heartbeat_at"] = now
+    if kind == "progress":
+        changes.update(_status_notes(doc, payload, now))
     if kind == "accepted" and payload.get("invocation_id") and not doc.get("invocation_id"):
         changes["invocation_id"] = str(payload["invocation_id"])
     return {"status": doc["status"], "last_sequence": doc.get("last_sequence") or 0}, changes
+
+
+def _status_notes(doc: Mapping[str, Any], payload: Mapping[str, Any], now: str) -> dict[str, Any]:
+    """d26: the agent's ``STATUS: <note>`` out of a progress callback's ``note`` (a shell
+    tool call's title, e.g. ``tool_call: Shell: echo "STATUS: fixing it"``), cleaned for a
+    public comment (a note that looks like a secret is dropped) and appended to the
+    invocation's last :data:`~culture_rules.node.fixer_status.STATUS_NOTES_KEPT` notes; ``{}``
+    when it carries none."""
+    from culture_rules.apps.public_text import clean_note, status_note  # noqa: PLC0415
+    from culture_rules.node.fixer_status import STATUS_NOTES_KEPT  # noqa: PLC0415
+
+    text = clean_note(status_note(payload.get("note")))
+    if text is None:
+        return {}
+    kept = [n for n in doc.get("status_notes") or () if isinstance(n, Mapping)]
+    return {"status_notes": [*kept, {"at": now, "text": text}][-STATUS_NOTES_KEPT:]}
 
 
 def _deliver_one(store: Any, executor: Any, doc: Mapping[str, Any]) -> bool:
@@ -867,6 +885,7 @@ class BridgeAgentActor:
         payload, digest, problem = self._checked_input(input, context.config or {})
         if problem:
             return InvocationResult.failed(problem, retryable=False)
+        payload = self._with_status_hint(payload, context)
         required = bool((context.config or {}).get(REQUIRE_COMMIT, False))
         if not self.callback_url:
             return InvocationResult.failed("the bridge actor has no callback_url", retryable=False)
@@ -915,6 +934,25 @@ class BridgeAgentActor:
             self._settle(doc_id, _REJECTED, error=str(exc))
             return InvocationResult.failed(str(exc))
         return self._response(doc_id, status, raw, required)
+
+    def _with_status_hint(
+        self, payload: dict[str, Any] | None, context: InvocationContext
+    ) -> dict[str, Any]:
+        """d26: an agent whose run writes its chain's status comment is told how to post
+        status notes (:data:`~culture_rules.node.fixer_status.STATUS_NOTE_HINT`, appended to
+        its instruction). A locked brief is never changed."""
+        from culture_rules.node.fixer_status import (  # noqa: PLC0415
+            STATUS_NOTE_HINT,
+            run_status_actor,
+        )
+
+        payload = payload or {}
+        if self._defaults.get("locked_instruction") is not None or not context.run_id:
+            return payload
+        run = self._store.get("runs", context.run_id)
+        if run_status_actor(run) is None:
+            return payload
+        return {**payload, "instruction": f"{payload.get('instruction', '')}{STATUS_NOTE_HINT}"}
 
     def cancel(self, invocation_id: str) -> bool:
         """Ask the bridge to stop job ``invocation_id`` (``POST /v1/invocations/<id>/cancel``);
