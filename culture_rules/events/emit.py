@@ -23,6 +23,7 @@ Publishing goes through an :class:`EventSink`; the events-cli sink lives in
 from __future__ import annotations
 
 import copy
+import json
 import secrets
 import time
 from collections.abc import Mapping
@@ -149,9 +150,13 @@ def reserved_reason(envelope: Mapping[str, Any]) -> str | None:
     in which a field the reservation reads (:data:`CHECKED_FIELDS`) is present - even as
     ``null`` - but not a non-empty string as malformed; an absent field keeps today's
     handling. Every field is validated first, in one place, so no later membership test
-    ever sees a non-string. Never raises."""
+    ever sees a non-string; an envelope with any text a store cannot hold (not UTF-8
+    encodable: a lone surrogate, in any field or in ``data``) is refused too. Never
+    raises."""
     if "envelope" in envelope:
         return "an envelope field makes it ambiguous with a stored event document"
+    if not _utf8_encodable(envelope):
+        return "text that is not valid UTF-8 (a lone surrogate) cannot be stored"
     malformed = _malformed_field(envelope)
     if malformed is not None:
         return f"{malformed} must be a non-empty string"  # never raise on it, never store it
@@ -168,6 +173,18 @@ def reserved_reason(envelope: Mapping[str, Any]) -> str | None:
 CHECKED_FIELDS = ("id", "type", "kind", "source")
 """The envelope fields :func:`reserved_reason` reads; each must be a non-empty string when
 present."""
+
+
+def _utf8_encodable(envelope: Mapping[str, Any]) -> bool:
+    """Whether the whole envelope (keys, values, ``data`` included) is UTF-8 text a store
+    can hold: a lone surrogate (JSON ``"\\ud800"``) is not, and a store would refuse it."""
+    try:
+        json.dumps(envelope, ensure_ascii=False, default=str).encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    except (TypeError, ValueError, RecursionError):
+        return False  # not JSON-shaped either (a key that is not text, a cycle)
+    return True
 
 
 def _malformed_field(envelope: Mapping[str, Any]) -> str | None:

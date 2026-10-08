@@ -104,6 +104,9 @@ def quarantine(
     every repeat) is when the record may go, :data:`QUARANTINE_RETENTION` after it was last
     seen - MongoDB's TTL index :data:`QUARANTINE_TTL_INDEX` removes it then. Only a new
     record is logged, so a flood of repeats costs one log line."""
+    # the record must be storable whatever the refused envelope held: text that is not
+    # UTF-8 encodable (a lone surrogate) is kept escaped (backslashreplace)
+    envelope, reason, host = encodable(envelope), encodable(reason), encodable(host)
     now = at or datetime.now(UTC)
     key = json.dumps([envelope.get("id"), reason], default=str).encode("utf-8")
     doc_id = "q_" + hashlib.sha256(key).hexdigest()[:32]
@@ -143,6 +146,18 @@ def quarantine(
         log.warning("quarantined event %r: %s", envelope.get("id"), reason)
         return True
     return False  # contention: the refusal is still refused, only not counted
+
+
+def encodable(value: Any) -> Any:
+    """``value`` with every string (dict keys included, at any depth) made UTF-8 encodable:
+    a lone surrogate becomes its ``\\uXXXX`` escape. Other values are returned as is."""
+    if isinstance(value, str):
+        return value.encode("utf-8", "backslashreplace").decode("utf-8")
+    if isinstance(value, Mapping):
+        return {encodable(k): encodable(v) for k, v in value.items()}
+    if isinstance(value, list | tuple):
+        return [encodable(v) for v in value]
+    return value
 
 
 def bounded_value(value: Any) -> Any:

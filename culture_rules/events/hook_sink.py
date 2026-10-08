@@ -204,6 +204,11 @@ def sink(
         data=payload,
         id=event_id_for(surface, delivery_id),
     )
+    unstorable = reserved_reason(envelope)
+    if unstorable is not None:
+        # text a store cannot hold (a lone surrogate in the payload): recorded, not stored
+        quarantine(store, envelope, unstorable, host=HOOK_HOST)
+        return _finish(store, actor_id, type, QUARANTINED, surface)
     try:
         store.insert(EVENTS_COLLECTION, event_document(envelope, host=HOOK_HOST))
     except DuplicateKeyError:

@@ -7,6 +7,8 @@ saved, so every later batch failed on the same envelope. Such an envelope is qua
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from culture_rules.events.emit import reserved_reason
@@ -89,3 +91,73 @@ def test_an_absent_field_keeps_todays_handling():
         env = envelope(1)
         env.pop(field, None)
         assert reserved_reason(env) is None, field
+
+
+# --------------------------------------------------------------------------- Codex round 5
+
+
+SURROGATES = ["\ud800", "a\udfffb"]
+
+
+def _encodable(doc) -> bool:
+    try:
+        json.dumps(doc, ensure_ascii=False, default=str).encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
+def _with_surrogate(field: str, text: str) -> dict:
+    env = envelope(1, type="task.requested")
+    if field == "data":
+        env["data"] = {"comment": text, "nested": [{"k": text}]}
+    elif field == "data_key":
+        env["data"] = {text: 1}
+    else:
+        env[field] = text
+    return env
+
+
+SURROGATE_FIELDS = ("id", "type", "kind", "source", "data", "data_key")
+
+
+@pytest.mark.parametrize("field", SURROGATE_FIELDS)
+@pytest.mark.parametrize("text", SURROGATES, ids=["lone", "embedded"])
+def test_text_that_is_not_utf_8_encodable_is_refused(field, text):
+    assert reserved_reason(_with_surrogate(field, text))
+
+
+@pytest.mark.parametrize("field", SURROGATE_FIELDS)
+@pytest.mark.parametrize("text", SURROGATES, ids=["lone", "embedded"])
+def test_the_bus_quarantines_it_in_an_encodable_record_and_moves_on(field, text):
+    store = MemoryStore()
+    src = FakeEventSource([_with_surrogate(field, text), envelope(2)])
+    (result,) = EventIngest(store, src, host="h").ingest()
+    assert result.quarantined + result.rejected == 1
+    assert [e["id"] for e in store.find(EVENTS_COLLECTION)] == ["evt_2"]
+    assert all(_encodable(q) for q in store.find(QUARANTINE_COLLECTION))
+    (again,) = EventIngest(store, src, host="h").ingest()
+    assert again.received == 0
+
+
+def test_codexs_reproduction_a_list_type_and_a_lone_surrogate_source():
+    store = MemoryStore()
+    src = FakeEventSource([envelope(1, type=[], source="\ud800"), envelope(2)])
+    (result,) = EventIngest(store, src, host="h").ingest()
+    assert (result.inserted, result.quarantined) == (1, 1)
+    [record] = store.find(QUARANTINE_COLLECTION)
+    assert _encodable(record)
+    assert "\\ud800" in json.dumps(record, default=str)  # kept, escaped
+
+
+@pytest.mark.parametrize(
+    "data",
+    [{"comment": "\ud800"}, {"nested": [{"k": "a\udfffb"}]}, {"\ud800": 1}],
+    ids=["value", "nested", "key"],
+)
+def test_the_webhook_sink_quarantines_a_surrogate_in_its_payload(data):
+    store = MemoryStore()
+    actor = {"id": "a", "kind": "app", "params": {"surface": "github", "events": ["t.x"]}}
+    assert sink(store, actor, "t.x", data, "d1", "alice") == "quarantined"
+    assert store.find(EVENTS_COLLECTION) == []
+    assert all(_encodable(q) for q in store.find(QUARANTINE_COLLECTION))
