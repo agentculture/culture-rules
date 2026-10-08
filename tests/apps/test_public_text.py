@@ -231,3 +231,29 @@ def test_status_notes_are_read_from_progress_notes(progress, note):
 )
 def test_progress_without_a_status_note_gives_none(progress):
     assert status_note(progress) is None
+
+
+HEX48 = "0f1e2d3c4b5a6978" + "8796a5b4c3d2e1f0" + "00112233445566ff"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        f"<{HEX48}>",
+        f"see <{HEX48[:20]}> here",
+        f"&lt;{HEX48}&gt;",
+        f"<b>{HEX48[10:30]}</b>",
+        escape(f"<{HEX48}>"),  # what a rendered body carries
+    ],
+)
+def test_a_known_hex_secret_in_angle_brackets_is_refused(text):
+    # Codex round 2: the stripped view drops "<...>" whole and hex is no heuristic secret
+    assert known_secret_in(text, [HEX48]) is True
+    assert withheld(text, [HEX48]) is True
+    assert clean_note(text, known=[HEX48]) is None
+    assert inert_block(text, 500, [HEX48]) == WITHHELD
+
+
+def test_a_token_inside_angle_brackets_is_refused():
+    assert looks_secret(f"<{GHP}>") is True
+    assert looks_secret(escape(f"<{GHP}>")) is True

@@ -10,10 +10,11 @@ then escaped** into plain characters (pure, standard-library only):
 1. :func:`normalize` - Unicode NFKC; control and format characters (zero-width, bidi)
    removed; every URL (``scheme://...``, ``//host...``, ``www.``) dropped; whitespace
    collapsed (one line for a note).
-2. :func:`withheld` - the text is refused when it, or its *stripped view* (tags,
-   backslashes, backticks, emphasis and pipes removed, so ``ghp_<b></b>...`` reassembles),
-   looks like a credential (:func:`looks_secret`: known token formats, private key blocks,
-   long random strings), or when its compacted form holds a **known secret** of this
+2. :func:`withheld` - the text is refused when any of its views - raw, entity-decoded,
+   normalized, and the *stripped view* of each (tags, backslashes, backticks, emphasis and
+   pipes removed, so ``ghp_<b></b>...`` reassembles) - looks like a credential
+   (:func:`looks_secret`: known token formats, private key blocks, long random strings),
+   or when a compacted view holds a **known secret** of this
    process (:func:`known_secret_in`: the value, any 12-character piece of it, or a piece
    of its hex, base64 or urlsafe-base64 encoding). Callers pass the known values
    (:func:`culture_rules.actors.secrets.known_values`).
@@ -36,6 +37,7 @@ the fixer's agent holds is its bridge token, scoped to its own bridge.
 from __future__ import annotations
 
 import base64
+import html
 import math
 import re
 import unicodedata
@@ -142,13 +144,21 @@ def _heuristic(view: str) -> bool:
     return any(_random_word(m.group()) for m in _WORD.finditer(view))
 
 
+def _views(text: str) -> tuple[str, ...]:
+    """Every view a check runs on: raw, entity-decoded (an escaped body), normalized, and
+    the stripped view of each (markup removed, so it cannot split a token; the unstripped
+    views keep what sits inside angle brackets)."""
+    decoded = html.unescape(text)
+    plain = (text, decoded, normalize(text), normalize(decoded))
+    return (*plain, *(_stripped(v) for v in plain))
+
+
 def looks_secret(text: Any) -> bool:
-    """Whether ``text`` (raw, normalized, or its stripped view) holds anything shaped like
-    a credential."""
+    """Whether any view of ``text`` (:func:`_views`) holds anything shaped like a
+    credential."""
     if not isinstance(text, str):
         return False
-    views = (text, normalize(text), _stripped(normalize(text)), _stripped(text))
-    return any(_heuristic(view) for view in views)
+    return any(_heuristic(view) for view in _views(text))
 
 
 def _compact(text: str) -> str:
@@ -200,7 +210,11 @@ def known_secret_in(text: Any, known: Iterable[str]) -> bool:
     if not values:
         return False
     windows, whole = _pieces(values)
-    compact = _compact(_stripped(unicodedata.normalize("NFKC", text)))
+    views = {_compact(unicodedata.normalize("NFKC", v)) for v in _views(text)}
+    return any(_holds(compact, windows, whole) for compact in views)
+
+
+def _holds(compact: str, windows: frozenset[str], whole: frozenset[str]) -> bool:
     if any(w in compact for w in whole):
         return True
     return any(compact[i : i + WINDOW] in windows for i in range(len(compact) - WINDOW + 1))
