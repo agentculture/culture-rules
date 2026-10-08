@@ -76,6 +76,15 @@ def is_engine_source(source: Any) -> bool:
 
 RUN_EVENT_ID_PREFIX = "runevt_"
 RUN_EVENT_TYPE_PREFIX = "rules.run."
+CHECKS_SETTLED_TYPE = "github.pr.checks_settled"
+CHECKS_LATE_TYPE = "github.pr.checks_failed_late"
+SETTLE_TYPES = frozenset((CHECKS_SETTLED_TYPE, CHECKS_LATE_TYPE))
+"""The checks settler's event types (:mod:`culture_rules.node.checks_settle`): written only
+by the settler, from its internal source; reserved at external ingest (d25)."""
+SETTLED_ID_PREFIX = "settled_"
+LATE_ID_PREFIX = "late_"
+SETTLE_ID_PREFIXES = (SETTLED_ID_PREFIX, LATE_ID_PREFIX)
+"""The settler's deterministic event id prefixes; reserved so no copy can squat them (d25)."""
 
 
 def is_stored_document(doc: Mapping[str, Any]) -> bool:
@@ -122,10 +131,11 @@ def event_hops(envelope: Mapping[str, Any]) -> int | None:
 def reserved_reason(envelope: Mapping[str, Any]) -> str | None:
     """Why ``envelope`` may not enter the store from the bus or a webhook, or ``None``.
 
-    The run-event namespace (ids ``runevt_*``, types ``rules.run.*``) and the internal
-    sources are written only by the engine itself (deviation d21): a copy from outside could
-    otherwise squat a run's event id. An envelope carrying an ``envelope`` field is refused
-    as ambiguous with a stored document."""
+    The run-event namespace (ids ``runevt_*``, types ``rules.run.*``), the checks settler's
+    namespace (types :data:`SETTLE_TYPES`, ids ``settled_*`` / ``late_*``, d25) and the
+    internal sources are written only by the engine itself (deviation d21): a copy from
+    outside could otherwise fire a rule or squat a deterministic event id. An envelope
+    carrying an ``envelope`` field is refused as ambiguous with a stored document."""
     if "envelope" in envelope:
         return "an envelope field makes it ambiguous with a stored event document"
     eid, kind, source = envelope.get("id"), envelope.get("type"), envelope.get("source")
@@ -135,6 +145,15 @@ def reserved_reason(envelope: Mapping[str, Any]) -> str | None:
         return f"type {RUN_EVENT_TYPE_PREFIX}* is reserved for the engine's run events"
     if isinstance(source, str) and source.startswith(INTERNAL_SOURCE_PREFIX):
         return f"source {INTERNAL_SOURCE_PREFIX}* is reserved for the engine"
+    return _settle_reserved(eid, kind)
+
+
+def _settle_reserved(eid: Any, kind: Any) -> str | None:
+    """Why an id or type in the checks settler's namespace is refused (d25), or ``None``."""
+    if kind in SETTLE_TYPES:
+        return f"type {kind} is reserved for the engine's checks settle"
+    if isinstance(eid, str) and eid.startswith(SETTLE_ID_PREFIXES):
+        return "id prefixes settled_ and late_ are reserved for the engine's checks settle"
     return None
 
 

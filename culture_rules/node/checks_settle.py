@@ -98,7 +98,13 @@ from culture_rules.apps.github import (
     Transport,
     complete_pr_facts,
 )
-from culture_rules.events.emit import derive_envelope
+from culture_rules.events.emit import (
+    CHECKS_LATE_TYPE,
+    CHECKS_SETTLED_TYPE,
+    LATE_ID_PREFIX,
+    SETTLED_ID_PREFIX,
+    derive_envelope,
+)
 from culture_rules.events.ingest import EVENTS_COLLECTION, event_document
 from culture_rules.node.actions.github import GitHubCommentPort
 from culture_rules.store.port import DuplicateKeyError, StoragePort
@@ -131,8 +137,8 @@ __all__ = [
 log = logging.getLogger(__name__)
 
 SETTLE_COLLECTION = "checks_settle"
-SETTLED_TYPE = "github.pr.checks_settled"
-LATE_TYPE = "github.pr.checks_failed_late"
+SETTLED_TYPE = CHECKS_SETTLED_TYPE
+LATE_TYPE = CHECKS_LATE_TYPE
 """A counted app's suite failed after its SHA settled (d25; module doc, "Late failures")."""
 CHECK_TYPES = frozenset(("github.checks.suite_completed", "github.checks.workflow_completed"))
 DEFAULT_IGNORED_APPS: tuple[str, ...] = ("claude",)
@@ -178,13 +184,13 @@ def settled_event_id(repo: str, sha: str, generation: int = 0) -> str:
     the first settle; a re-arm after ``base_changed`` starts the next one)."""
     key = f"{repo}@{sha}".lower() + (f"#{generation}" if generation else "")
     digest = hashlib.sha256(key.encode()).hexdigest()[:24]
-    return f"settled_{digest}"
+    return f"{SETTLED_ID_PREFIX}{digest}"
 
 
 def late_event_id(repo: str, sha: str, app: str) -> str:
     """The deterministic events id of ``app``'s late failure on ``repo@sha`` (once ever)."""
     key = f"{repo}@{sha}#{app}".lower()
-    return "late_" + hashlib.sha256(key.encode()).hexdigest()[:24]
+    return LATE_ID_PREFIX + hashlib.sha256(key.encode()).hexdigest()[:24]
 
 
 def _generation(rec: Mapping[str, Any] | None) -> int:
