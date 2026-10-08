@@ -81,6 +81,7 @@ _KINDS = (
         number=ParamSpec("int", True),
         body=_RS,
         once_key=_S,  # d25: post at most once per (repo, PR, key), durably
+        status=ParamSpec("bool"),  # d26: write as the chain's status comment's final section
     ),
     _k(
         "github.push",

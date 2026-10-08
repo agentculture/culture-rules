@@ -205,3 +205,13 @@ def test_no_merge_kind_is_catalogued() -> None:
 def test_github_push_has_no_mutable_ref_param() -> None:
     assert "ref" not in ACTION_KINDS["github.push"].params
     assert ACTION_KINDS["github.push"].params["commit_sha"].required
+
+
+def test_a_comment_written_as_the_chains_status_comment() -> None:
+    # d26: status is a boolean, and it does not combine with once_key
+    params = {"actor": "gh", "repo": "o/r", "number": 3, "body": "x", "status": True}
+    assert _errs("github.comment", params) == set()
+    params["status"] = "yes"
+    assert ("action.params.status", "action_param_type") in _errs("github.comment", params)
+    params.update(status=True, once_key="k")
+    assert ("action.params.status", "action_param_conflict") in _errs("github.comment", params)
