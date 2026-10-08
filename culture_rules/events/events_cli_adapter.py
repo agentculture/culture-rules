@@ -340,7 +340,11 @@ def to_bus(envelope: Mapping[str, Any]) -> dict[str, Any]:
 def from_bus(envelope: Mapping[str, Any]) -> dict[str, Any]:
     """A drained ``envelope`` with its ``hops`` back as a field - only on an engine event
     (:func:`~culture_rules.events.emit.is_engine_source`; no outside producer counts hops).
-    The value moves as is, so a malformed one still fails closed in ``event_hops``."""
+    The value moves as is, so a malformed one still fails closed in ``event_hops``.
+
+    This trusts the bus no more than before: hops guards against rules looping on each other,
+    not against a hostile producer. A bus producer is not authenticated, and one claiming an
+    engine source could already get hops 0 by omitting ``causationId`` (a root event)."""
     env = dict(envelope)
     data = env.get("data")
     if not is_engine_source(env.get("source")) or not isinstance(data, Mapping):

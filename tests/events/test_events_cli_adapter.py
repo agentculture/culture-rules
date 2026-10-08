@@ -552,3 +552,13 @@ def test_a_derived_event_round_trips_through_the_real_events_cli_envelope():
     back = adapter.from_bus(wire)
     assert event_hops(back) == 1
     assert back["data"] == {"y": 2}
+
+
+def test_a_bus_hop_count_grants_nothing_a_root_event_did_not_already_get():
+    """Codex review (pushed back): a producer claiming an engine source and hops 0 in data
+    gets what an engine-sourced root event (no causationId) already gets - hops 0."""
+    from culture_rules.events.emit import event_hops
+
+    forged = {"id": "e1", "source": ENGINE, "causationId": "x", "data": {adapter.BUS_HOPS_KEY: 0}}
+    root = {"id": "e2", "source": ENGINE, "data": {}}
+    assert event_hops(adapter.from_bus(forged)) == event_hops(adapter.from_bus(root)) == 0
