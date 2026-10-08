@@ -232,7 +232,29 @@ def rearm_settle(
             except DuplicateKeyError:
                 continue
         if rec.get("state") == "pending":
-            return "pending"
+            # coalesce into the settle that is still waiting: record the cause (so a replay
+            # after it settles is a no-op) and fill a PR number or branch it lacks, by
+            # compare-and-set on state, generation, causes and PR facts; a lost race (it
+            # settled meanwhile) is retried and takes the re-arm path instead
+            fill: dict[str, Any] = {}
+            if cause is not None:
+                fill["rearm_causes"] = recorded
+            if numbers and not rec.get("pr_numbers"):
+                fill.update(pr_numbers=numbers, number=numbers[0])
+            if head_branch and not rec.get("head_branch"):
+                fill["head_branch"] = head_branch
+            if not fill:
+                return "pending"
+            guard = {
+                "state": "pending",
+                "generation": rec.get("generation"),
+                "rearm_causes": rec.get("rearm_causes"),
+                "pr_numbers": rec.get("pr_numbers"),
+                "head_branch": rec.get("head_branch"),
+            }
+            if store.update_if(SETTLE_COLLECTION, rid, guard, fill).won:
+                return "pending"
+            continue
         gen = _generation(rec)
         if gen >= REARM_LIMIT:
             log.warning("checks settle: %s re-armed %d times; not again", rid, gen)
