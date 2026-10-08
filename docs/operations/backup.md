@@ -6,7 +6,10 @@ server-side encryption. Run history also carries the run-event decision
 state: `run_event_consumption`, `rule_decisions`, `rule_fires` and
 `rule_attempt_budgets`, scanned in that order before `runs`, `audit` and
 `run_completions`. A backup chain written before these were added has no
-token for them, so the schedule takes a new snapshot first. The `events`
+token for them, so the schedule takes a new snapshot first. Last comes
+`github_comment_once` (d25): the claims that make a `github.comment` with a
+`once_key` post at most once, so a restored store never posts such a comment
+again. The `events`
 collection is not backed up; see [Restore limits](#restore-limits) for what a
 restore repairs and what it does not.
 The library is `culture_rules/ops/backup.py`; its module docstring is the

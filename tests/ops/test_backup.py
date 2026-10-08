@@ -462,4 +462,21 @@ def test_the_backup_carries_the_decision_state_in_a_consistent_order():
         "runs",
         "audit",
         "run_completions",
+        "github_comment_once",
     )
+
+
+def test_a_restore_keeps_the_comment_once_claims(s3, clock):
+    # d25: without them a restored store would post a GitGuardian findings comment again
+    from culture_rules.node.actions.github import ONCE_COLLECTION
+    from culture_rules.node.daemon import NODE_COLLECTIONS
+
+    assert ONCE_COLLECTION in NODE_COLLECTIONS
+    store = MemoryStore()
+    seed(store)
+    claim = {"id": "c" * 64, "repo": "o/r", "number": 7, "once_key": "k", "state": "posted"}
+    store.put(ONCE_COLLECTION, claim)
+    make_backup(s3, store, clock).snapshot()
+    target = MemoryStore()
+    make_backup(s3, store, clock).restore(target)
+    assert target.get(ONCE_COLLECTION, "c" * 64)["state"] == "posted"
