@@ -219,10 +219,12 @@ def _data(event: str, action: str, payload: Mapping[str, Any]) -> dict[str, Any]
     return data
 
 
-INTENT_MAX_CHARS = 10_000
-"""How much of a comment body :func:`comment_intent` reads."""
-_COMMAND_RE = re.compile(r"/([a-z][a-z0-9_-]{0,31})(?=\s|$)", re.IGNORECASE)
-_SLUG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,62}$")
+INTENT_WINDOW = 512
+"""How much of a comment, from its first token on, :func:`comment_intent` reads: far more
+than any token it accepts, so the character after a token is always the real one."""
+_COMMAND_RE = re.compile(r"/([a-z][a-z0-9_-]{0,31})", re.IGNORECASE | re.ASCII)
+_SLUG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,62}$", re.ASCII)
+_BOT = "[bot]"
 _BODY_PATHS = {
     "issue_comment": ("comment", "body"),
     "pull_request_review": ("review", "body"),
@@ -230,31 +232,67 @@ _BODY_PATHS = {
 }
 
 
+def _ascii_equal(text: str, word: str) -> bool:
+    """``text == word`` with ASCII letters compared case-insensitively and nothing else
+    folded (Unicode folding would read ``ſ`` as ``s`` or the Kelvin sign as ``k``)."""
+    return text.isascii() and text.lower() == word.lower()
+
+
+def _boundary(rest: str) -> bool:
+    """Whether a token ends where ``rest`` begins: at the end of the body, or before a
+    character that cannot continue it (not a Unicode letter or digit, ``_`` or ``-``, and
+    not a ``.`` followed by one - ``@app.example`` is a host)."""
+    if not rest:
+        return True
+    head = rest[0]
+    if head.isalnum() or head in "_-":
+        return False
+    return not (head == "." and len(rest) > 1 and (rest[1].isalnum() or rest[1] in "_-"))
+
+
 def comment_intent(body: Any, self_identity: Any) -> dict[str, str]:
     """What a comment asks of the App (d21): only its **first token** counts - the first
-    non-whitespace characters of the body. ``command`` is that token when it is a
-    ``/word`` (lowercased: ``/fix``); ``mention`` is ``@<slug>`` when that token mentions the
-    App (``self_identity`` without ``[bot]``, case-insensitive, ending at a token boundary:
-    ``@rules-culture-dev,`` counts, ``@rules-culture-devx`` does not). Nothing later in the
-    body ever counts, so there is no Markdown to parse: a quote, a code fence or a sentence
-    that starts the comment asks for nothing. Each fact is omitted when absent, so a rule
-    comparing it is false. Only the first :data:`INTENT_MAX_CHARS` characters are read."""
+    non-whitespace characters of the body. Start the comment with ``/fix`` or with the
+    App's mention.
+
+    * ``command`` - the token when it is ``/word`` (ASCII letters, digits, ``_``, ``-``,
+      lowercased: ``/fix``) followed by whitespace or the end of the body; ``/fix,
+      please`` is no command;
+    * ``mention`` - ``@<slug>`` when the token is the App's mention (``self_identity``
+      without ``[bot]``; an optional ``[bot]`` is part of the token), compared
+      ASCII-case-insensitively and ending at a token boundary (:func:`_boundary`):
+      ``@rules-culture-dev,`` counts, ``@rules-culture-devx`` and
+      ``@rules-culture-dev[bot]x`` do not.
+
+    Nothing later in the body ever counts, so there is no Markdown to parse. Leading
+    whitespace (Unicode included) is stripped from the whole body first, then
+    :data:`INTENT_WINDOW` characters are read, so a bound never ends a token. Each fact is
+    omitted when absent, so a rule comparing it is false."""
     if not isinstance(body, str):
         return {}
-    text = body[:INTENT_MAX_CHARS].lstrip()
+    text = body.lstrip()[:INTENT_WINDOW]
     out: dict[str, str] = {}
     command = _COMMAND_RE.match(text)
-    if command:
+    if command and _command_end(text[command.end() :]):
         out["command"] = "/" + command.group(1).lower()
     slug = self_identity.strip() if isinstance(self_identity, str) else ""
-    if slug.lower().endswith("[bot]"):
-        slug = slug[: -len("[bot]")]
-    if not _SLUG_RE.match(slug):
+    if slug.lower().endswith(_BOT):
+        slug = slug[: -len(_BOT)]
+    if not _SLUG_RE.match(slug) or not text.startswith("@"):
         return out
-    mention = re.compile("@" + re.escape(slug) + r"(?:\[bot\])?(?![\w-])(?!\.\w)", re.IGNORECASE)
-    if mention.match(text):
+    if not _ascii_equal(text[1 : 1 + len(slug)], slug):
+        return out
+    rest = text[1 + len(slug) :]
+    if _ascii_equal(rest[: len(_BOT)], _BOT):
+        rest = rest[len(_BOT) :]  # a present [bot] is consumed for good, then the boundary
+    if _boundary(rest):
         out["mention"] = "@" + slug.lower()
     return out
+
+
+def _command_end(rest: str) -> bool:
+    """A command ends at whitespace (Unicode included) or the end of the body."""
+    return not rest or rest[0].isspace()
 
 
 def _enrich_pr(data: dict[str, Any], payload: Mapping[str, Any]) -> None:

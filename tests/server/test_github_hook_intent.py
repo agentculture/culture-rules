@@ -129,7 +129,7 @@ def test_no_self_identity_reads_no_mention_and_bodies_are_bounded():
     assert comment_intent("@rules-culture-dev fix", None) == {}
     assert comment_intent("/" + "x" * 100, "a[bot]") == {}  # not a command word
     assert comment_intent(None, "a[bot]") == {}
-    assert intent("\n" * 100_000 + "/fix") == {}  # past the bound: nothing
+    assert intent("\n" * 100_000 + "/fix") == {"command": "/fix"}  # whitespace is free
     assert intent("/fix " + "y" * 100_000)["command"] == "/fix"
 
 
@@ -221,3 +221,58 @@ def test_a_review_and_a_review_comment_carry_their_intent_and_state():
     }
     data = _deliver(store, "pull_request", sync, "d-4")
     assert data["state"] == "open" and "command" not in data
+
+
+# ------------------------------------------------------------------- the matcher (Codex, 301ced2)
+
+
+def test_a_bound_never_manufactures_a_token_boundary():
+    assert intent(" " * 9_996 + "/fixed") == {"command": "/fixed"}
+    padded = " " * (10_000 - len("@rules-culture-dev")) + "@rules-culture-devx"
+    assert intent(padded) == {}
+    assert intent("\n" * 50_000 + "/fix please") == {"command": "/fix"}  # whitespace is free
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "@ruleſ-culture-dev fix",  # U+017F folds to "s" under Unicode case-insensitivity
+        "@rules-culture-deＶ fix",  # fullwidth
+        "/ﬁx",  # U+FB01 ligature
+        "/fiXK",  # Kelvin sign K
+    ],
+)
+def test_only_ascii_case_is_folded(body):
+    assert intent(body) == {}
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "@rules-culture-dev[bot]x",
+        "@rules-culture-dev[bot].example",
+        "@rules-culture-dev[bot]-staging",
+        "@rules-culture-devé",  # a Unicode letter is no boundary
+        "@rules-culture-dev_x",
+    ],
+)
+def test_a_present_bot_suffix_is_consumed_before_the_boundary(body):
+    assert "mention" not in intent(body)
+
+
+@pytest.mark.parametrize(
+    "body",
+    ["@rules-culture-dev[bot]", "@RULES-CULTURE-DEV[BOT], fix", "@rules-culture-dev[bot]: fix"],
+)
+def test_the_bot_suffix_form_still_counts(body):
+    assert intent(body) == {"mention": "@rules-culture-dev"}
+
+
+@pytest.mark.parametrize("body", ["/fix, please", "/fix: now", "/fix."])
+def test_a_command_needs_whitespace_or_the_end_after_it(body):
+    assert "command" not in intent(body)
+
+
+def test_unicode_whitespace_is_a_boundary():
+    assert intent("/fix please") == {"command": "/fix"}
+    assert intent("@rules-culture-dev fix") == {"mention": "@rules-culture-dev"}

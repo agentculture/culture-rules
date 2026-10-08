@@ -339,11 +339,14 @@ mid-sentence, a quote, a code block. The accepted forms are listed in
 "@rules-culture-dev"]`. The webhook receiver reads two facts from that first
 token:
 
-- `command`: the token when it is a `/word`, lowercased (`/fix`);
-- `mention`: `@rules-culture-dev` when the token is the App's mention. The
-  match is case-insensitive and needs a token boundary: `@rules-culture-dev,`
-  counts, `@rules-culture-devx` does not. The slug is the App actor's
-  `params.self_identity` without `[bot]`.
+- `command`: the token when it is a `/word` followed by whitespace or the end
+  of the comment, lowercased (`/fix`). `/fix, please` is no command: put a
+  space after it;
+- `mention`: `@rules-culture-dev` (or `@rules-culture-dev[bot]`) when the
+  token is the App's mention. The match folds ASCII case only and needs a
+  token boundary: `@rules-culture-dev,` counts; `@rules-culture-devx`,
+  `@rules-culture-dev[bot]x` and `@rules-culture-dev.example` do not. The slug
+  is the App actor's `params.self_identity` without `[bot]`.
 
 Narrow the variable to `["/fix"]` to ignore mentions. Qodo's billing notice,
 a status note and a closing comment (the three live cases) carry neither, so
