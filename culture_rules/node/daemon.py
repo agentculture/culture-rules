@@ -44,7 +44,10 @@ A :class:`Node` on host ``H`` does, every cycle (:meth:`Node.run_once`):
    and the actor's limit slot is freed (:mod:`culture_rules.node.completions`). Mesh
    replies are not polled: ``MeshAgentActor`` is not among the production adapters;
 6. **drive** - ticks the :class:`~culture_rules.engine.runs.Executor` until idle; actors
-   are reached through :class:`~culture_rules.node.actors.ActorRouter`;
+   are reached through :class:`~culture_rules.node.actors.ActorRouter`; then **cancel** -
+   asks each bridge this node can reach (an actor on this machine, or on none) to cancel
+   the jobs whose step attempt is over (:func:`~culture_rules.actors.agent.cancel_orphans`,
+   d21 phase 2), so an orphaned agent session never holds a bridge's seat;
 7. **report** - optional: posts finished runs this node started through
    :meth:`~culture_rules.engine.reports.RunReporter.observe`.
 
@@ -429,6 +432,7 @@ class Node:
             self._stage(report, self._start_fired, report)
             self._stage(report, self._redeliver, report)
             self._stage(report, self._drive, report)
+            self._stage(report, self._cancel_orphans, report)
             if self._reporter is not None and self._report_token is not None:
                 self._stage(report, self._report, report)
         return report
@@ -486,6 +490,24 @@ class Node:
 
     def _drive(self, report: CycleReport) -> None:
         report.transitions += self.executor.run_until_idle(self._max_ticks)
+
+    def _cancel_orphans(self, report: CycleReport) -> None:
+        """Cancel bridge jobs whose step attempt is over (d21 phase 2), for the actors
+        this node can reach (:func:`~culture_rules.actors.agent.cancel_orphans`)."""
+        del report
+        agent.cancel_orphans(self._store, self._bridge_adapter, clock=self._clock)
+
+    def _bridge_adapter(self, actor_id: Any) -> Any:
+        """The adapter of ``actor_id`` when this node may call its bridge: the actor lives
+        on this machine (its bridge token is in this node's secrets) or on none."""
+        doc = self._store.get(ACTORS_COLLECTION, actor_id) if isinstance(actor_id, str) else None
+        if not doc or doc.get("deleted_at"):
+            return None
+        machine = doc.get("machine")
+        if machine and machine != self.host:
+            return None
+        limited = self.router.limited(actor_id)
+        return getattr(limited, "inner", None)
 
     def _report(self, report: CycleReport) -> None:
         reporter = self._reporter

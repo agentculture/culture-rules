@@ -19,7 +19,10 @@ Production wiring done by :func:`run_node`:
   guard (:class:`~culture_rules.actors.gate.GatePort`, which runs commands only through
   ``CULTURE_RULES_GATE_RUN_AS`` and refuses while it is unset), ``github.threads`` and
   ``github.threads_addressed`` (d15, the fixer's trusted review threads and the agent's
-  replies to them, :mod:`culture_rules.node.actions.github_pr`), and ``action`` (d12), which
+  replies to them, :mod:`culture_rules.node.actions.github_pr`), ``review`` (d20, the
+  reviewer's verdict, :mod:`culture_rules.actors.review`), ``sonar.gate_issues`` (d21, the
+  issues behind a PR's failing SonarCloud gate, :mod:`culture_rules.node.actions.sonar`),
+  and ``action`` (d12), which
   never reaches this port: the executor routes a ``builtin: action`` step exactly like a
   rule's terminal action, to the ``action:<kind>`` port through the actor router
   (:mod:`culture_rules.model.action_step`).
@@ -269,6 +272,7 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
         DiscordMessageAction,
         MessageAction,
     )
+    from culture_rules.node.actions.sonar import SONAR_BUILTIN, SonarGateIssuesPort  # noqa: PLC0415
 
     message = MessageAction(store)
     has_github = importlib.util.find_spec("cryptography") is not None
@@ -295,6 +299,7 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
                 REVIEW_BUILTIN: ReviewVerdictPort(store),
                 THREADS_BUILTIN: threads,
                 ADDRESSED_BUILTIN: AddressedThreadsPort(),
+                SONAR_BUILTIN: SonarGateIssuesPort(),  # d21: the PR's failing gate's issues
             }
         ),
     }

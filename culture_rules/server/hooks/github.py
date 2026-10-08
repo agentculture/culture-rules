@@ -33,6 +33,7 @@ import hashlib
 import hmac
 import json
 import logging
+import re
 from collections.abc import Callable, Mapping
 from typing import Any
 
@@ -50,7 +51,15 @@ from culture_rules.events.hook_sink import (
 )
 from culture_rules.events.ingest import EVENTS_COLLECTION
 
-__all__ = ["MAX_BODY_BYTES", "PULL_LOOKUP_TIMEOUT_S", "SURFACE", "PullLookup", "handle", "router"]
+__all__ = [
+    "MAX_BODY_BYTES",
+    "PULL_LOOKUP_TIMEOUT_S",
+    "SURFACE",
+    "PullLookup",
+    "comment_intent",
+    "handle",
+    "router",
+]
 
 _log = logging.getLogger(__name__)
 
@@ -200,6 +209,47 @@ def _data(event: str, action: str, payload: Mapping[str, Any]) -> dict[str, Any]
     return data
 
 
+INTENT_MAX_CHARS = 10_000
+"""How much of a comment body :func:`comment_intent` reads (a bound on the regex work)."""
+_COMMAND_RE = re.compile(r"/([a-z][a-z0-9_-]{0,31})(?=\s|$)", re.IGNORECASE)
+_FENCE_RE = re.compile(r"```.*?(?:```|\Z)", re.DOTALL)
+_INLINE_CODE_RE = re.compile(r"`[^`\n]*`")
+_SLUG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,62}$")
+_BODY_PATHS = {
+    "issue_comment": ("comment", "body"),
+    "pull_request_review": ("review", "body"),
+    "pull_request_review_comment": ("comment", "body"),
+}
+
+
+def comment_intent(body: Any, self_identity: Any) -> dict[str, str]:
+    """What a comment asks of the App (d21): ``command`` - the body's first word when the
+    body starts with ``/`` (``/fix``), lowercased; ``mention`` - ``@<slug>`` when the body
+    mentions the App (``self_identity`` without ``[bot]``) outside quoted lines and code.
+    Each is omitted when absent, so a rule comparing it is false. Only the first
+    :data:`INTENT_MAX_CHARS` characters are read."""
+    if not isinstance(body, str):
+        return {}
+    text = body[:INTENT_MAX_CHARS]
+    out: dict[str, str] = {}
+    command = _COMMAND_RE.match(text.lstrip())
+    if command:
+        out["command"] = "/" + command.group(1).lower()
+    slug = self_identity.strip() if isinstance(self_identity, str) else ""
+    if slug.lower().endswith("[bot]"):
+        slug = slug[: -len("[bot]")]
+    if not _SLUG_RE.match(slug):
+        return out
+    visible = _INLINE_CODE_RE.sub(" ", _FENCE_RE.sub(" ", text))
+    lines = [ln for ln in visible.splitlines() if not ln.lstrip().startswith(">")]
+    mention = re.compile(
+        r"(?<![\w@.-])@" + re.escape(slug) + r"(?:\[bot\])?(?![\w-])", re.IGNORECASE
+    )
+    if mention.search("\n".join(lines)):
+        out["mention"] = "@" + slug.lower()
+    return out
+
+
 def _enrich_pr(data: dict[str, Any], payload: Mapping[str, Any]) -> None:
     """Add the PR facts (:data:`PR_FACT_FIELDS`) from the pull_request sub-payload; a missing
     or malformed fact is omitted (:func:`pr_facts`), never stored as null."""
@@ -244,7 +294,7 @@ def _enrich_comment(data: dict[str, Any], pull: PullLookup | None) -> None:
         except Exception as exc:  # noqa: BLE001 - enrichment must never fail the delivery
             _log.warning("github pr comment lookup failed (%s)", getattr(exc, "code", "error"))
             facts = None
-    for key in PR_FACT_FIELDS:
+    for key in (*PR_FACT_FIELDS, "state"):
         data.pop(key, None)
     data.update(facts or {})
     data["pr_enriched"] = facts is not None
@@ -304,6 +354,9 @@ def handle(
     if etype is None:
         return _IGNORED
     data = _data(event, action, payload)
+    if event in _BODY_PATHS:  # d21: what the comment asks of the App, read from its body
+        me = (actor.get("params") or {}).get("self_identity")
+        data.update(comment_intent(_dig(payload, *_BODY_PATHS[event]), me))
     if _is_pr_comment(event, payload) and _would_store(store, actor, etype, delivery):
         _enrich_comment(data, pull)
     outcome = sink(store, actor, etype, data, delivery, data["author"])
