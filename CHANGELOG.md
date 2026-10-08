@@ -42,6 +42,12 @@ release follows it with deviation d21: the PR fixer split into chained rules and
 - Describe vocabulary: the review verdict reads "recorded for its commit (github.push checks it)", the push "(only on ... an approving review of exactly that commit)", an agent with `require_commit` "must commit".
 - d21 on top of the 0.13.0 cognitive-complexity pass (Sonar S3776): d21's additions live in that pass's helpers, and the ten d21 functions over 15 (bridge orphan cancel, final-gate lookup, chain-hold decline, decision settle, completion re-open, envelope derive, hook sink, rule describe, trigger recovery and the restore re-drive) are split into named helpers, each check, error and write in its old order; characterization tests pin the branches that were uncovered.
 
+## [0.13.1] - 2026-10-08
+
+### Fixed
+
+- Variables editor: empty items (null or "") no longer make a list mixed, so an edited null in a number list saves a number (5, not "5"), an edited empty item in a boolean list must be true or false, and non-numeric text there is refused
+
 ## [0.13.0] - 2026-10-07
 
 ### Added

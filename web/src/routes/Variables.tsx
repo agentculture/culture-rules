@@ -47,13 +47,15 @@ export const rowsOf = (list: Scalar[]): Row[] =>
  * The list a set of rows would save, lossless by construction: a row whose text still equals
  * its stored item's text yields that stored item itself (type and exact string). Only an edited
  * row is re-typed: a number stays a number (`invalid` lists the rows whose text no longer is
- * one), a boolean takes true/false, anything else is the exact text. A new row is typed like
- * a uniform list: numeric or boolean (other text is then refused in `invalid`); otherwise it is
- * the exact text. A new blank row is dropped.
+ * one), a boolean takes true/false, anything else is the exact text. A new row, or an edited
+ * empty item (null or ""), is typed like a uniform list - empty items do not make a list mixed:
+ * numeric or boolean (other text is then refused in `invalid`); otherwise it is the exact text.
+ * A new blank row is dropped.
  */
 export function valueOfRows(current: Scalar[], rows: Row[]): { value: Scalar[]; invalid: number[] } {
-  const sample = current.find((v) => v !== null && v !== "");
-  const uniform = sample !== undefined && current.every((v) => typeof v === typeof sample);
+  const sample = current.find((v) => !isEmpty(v));
+  // empty items (null, "") are placeholders: they neither make a list mixed nor keep their type
+  const uniform = sample !== undefined && current.every((v) => isEmpty(v) || typeof v === typeof sample);
   const value: Scalar[] = [];
   const invalid: number[] = [];
   rows.forEach((row, i) => {
@@ -64,17 +66,24 @@ export function valueOfRows(current: Scalar[], rows: Row[]): { value: Scalar[]; 
   return { value, invalid };
 }
 
+const isEmpty = (v: Scalar): boolean => v === null || v === "";
+
+/** A stored item that carries a type of its own (an empty item takes the list's). */
+const typedItem = (orig: Scalar | undefined): Scalar | undefined =>
+  orig === undefined || isEmpty(orig) ? undefined : orig;
+
 /** What one row saves (see {@link valueOfRows}): an item, nothing (`blank`), or `invalid`. */
 function rowOutcome(row: Row, uniform: boolean, sample: Scalar | undefined): { value: Scalar } | "blank" | "invalid" {
   if (row.orig !== undefined && row.text === itemText(row.orig)) return { value: row.orig };
   if (row.orig === undefined && row.text === "") return "blank"; // a blank new row is not an item
-  const typed = typeof (row.orig ?? (uniform ? sample : undefined));
+  const stored = typedItem(row.orig);
+  const typed = typeof (stored ?? (uniform ? sample : undefined));
   if (typed === "number") return NUMBER.test(row.text.trim()) ? { value: Number(row.text) } : "invalid";
   if (row.text === "true" || row.text === "false") {
     return { value: typed === "boolean" ? row.text === "true" : row.text };
   }
-  // a new row in a boolean list must be true or false
-  if (row.orig === undefined && uniform && typeof sample === "boolean") return "invalid";
+  // a new row or an edited empty item in a boolean list must be true or false
+  if (stored === undefined && uniform && typeof sample === "boolean") return "invalid";
   return { value: row.text };
 }
 
