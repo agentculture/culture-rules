@@ -80,7 +80,7 @@ WRAPPERS = {
     "tags": lambda t: _split(t, "<b></b>"),
     "comment": lambda t: _split(t, "<!-- x -->", 5),
     "zero_width": lambda t: _split(t, ZWSP, 2),
-    "bidi": lambda t: _split(t, "‮", 4),
+    "bidi": lambda t: _split(t, "\u202e", 4),
     "backslashes": lambda t: _split(t, "\\"),
     "backticks": lambda t: f"`{t}`",
     "emphasis": lambda t: _split(t, "**", 6),
@@ -170,7 +170,7 @@ def test_escaping_keeps_the_words():
 
 
 def test_normalize_drops_urls_controls_and_collapses_space():
-    text = "see https://a.example/x and //b.example​‮  now\n\n\n\nnext"
+    text = "see https://a.example/x and //b.example​\u202e  now\n\n\n\nnext"
     assert normalize(text) == "see and now\n\nnext"
     assert normalize("a\nb", one_line=True) == "a b"
 
