@@ -49,9 +49,16 @@ settled (the settle timed out while it ran, or a re-run failed) is not in that e
 (:func:`late_event_id`): the settled event's data (its PR facts as of the settle) with
 ``failed_apps`` grown by the app, ``late_app``, ``conclusion: "failure"`` and
 ``settled_by: "late"``. ``pr-fixer-secrets-late`` reports a GitGuardian finding from it; no
-fixer rule fires on it. The recovery scan does the same for a stored completion of a settled
-SHA received after its settled event (a webhook that died before
-:meth:`ChecksSettler.on_check`); the fixed id keeps it once. Both settle types and their id
+fixer rule fires on it. Clocks never decide it: the failure becomes a candidate
+(:data:`LATE_COLLECTION`) that is emitted only once the App's *current* listing still shows
+the app's suite for the head concluded ``failure`` (so a failure re-run green is never
+late); a failed listing, or a node that cannot read the repo's checks, keeps the candidate
+for the next tick (on any node that can), and a candidate older than
+:data:`RECOVERY_WINDOW_S` is dropped. The recovery scan notes a candidate for a stored
+completion of a settled SHA that the webhook never handled (it died before
+:meth:`ChecksSettler.on_check`), when it was received no more than
+:data:`LATE_SKEW_MARGIN_S` (5 minutes) before the settled event - the webhook server's
+clock may lag the settler's. The fixed id keeps the late event once. Both settle types and their id
 prefixes are reserved at external ingest (:func:`~culture_rules.events.emit.reserved_reason`).
 
 With a ``pull`` seam the event also carries the PR facts of its first PR number
@@ -125,6 +132,8 @@ __all__ = [
     "RECOVERY_COLLECTION",
     "RECOVERY_GRACE_S",
     "RECOVERY_WINDOW_S",
+    "LATE_COLLECTION",
+    "LATE_SKEW_MARGIN_S",
     "LATE_TYPE",
     "SETTLED_TYPE",
     "SETTLE_COLLECTION",
@@ -157,6 +166,12 @@ RECOVERY_WINDOW_S = 86400.0
 """Completions received longer ago than this are never recovered (outages beyond it are lost)."""
 RECOVERY_GRACE_S = 120.0
 """Completions younger than this are left to the webhook (an arm in flight, clock skew)."""
+LATE_SKEW_MARGIN_S = 300.0
+"""How long before its settled event a stored completion is still a late candidate: the
+webhook server's clock may lag the settler's (d25). Only candidates; the App's current
+listing decides."""
+LATE_COLLECTION = "checks_settle_late"
+"""Late-failure candidates awaiting confirmation (one per head and app; d25)."""
 RECOVERY_BATCH = 100
 """The most stored completions one tick reads."""
 UNRESOLVED_RETRY_S = 60.0
@@ -525,16 +540,62 @@ class ChecksSettler:
     def _late(
         self, repo: str, sha: str, data: Mapping[str, Any], emitted: Mapping[str, Any]
     ) -> str:
-        """A completion for a settled SHA: ``late`` when it is a counted app's failure the
-        settled event does not name (one :data:`LATE_TYPE` event), else ``duplicate``."""
+        """A completion for a settled SHA. A counted app's failure the settled event does not
+        name becomes a late *candidate* (:data:`LATE_COLLECTION`), confirmed at once by
+        :meth:`_try_late`: ``late`` (emitted), ``pending`` (the confirmation failed; the
+        tick retries it) or ``duplicate`` (not late, no longer failing, or already
+        emitted)."""
         app = str(data.get("app_slug") or "").casefold()
         failed = data.get("status") == "completed" and data.get("conclusion") == "failure"
         if not app or not failed or app in self.ignored_apps():
             return "duplicate"
+        prior = (emitted.get("envelope") or {}).get("data") or {}
+        if app in [a for a in prior.get("failed_apps") or () if isinstance(a, str)]:
+            return "duplicate"
+        candidate = {
+            "id": late_event_id(repo, sha, app),
+            "repository": repo,
+            "head_sha": sha,
+            "app": app,
+            "settled_id": emitted.get("id"),
+            "noted_at": _iso(self._now()),
+        }
+        try:
+            self._store.insert(LATE_COLLECTION, candidate)
+        except DuplicateKeyError:
+            pass  # noted before: confirm it again here
+        if not self._serves_here(repo):
+            return "pending"  # a node that can read the repo's checks confirms it
+        return self._try_late(candidate)
+
+    def _try_late(self, candidate: Mapping[str, Any]) -> str:
+        """Confirm a late candidate from the App's *current* listing - the app's suite for
+        the head still concluded ``failure`` - and emit its event; no clock decides it. The
+        candidate is dropped once decided; a failed listing keeps it (``pending``)."""
+        repo, sha, app = candidate["repository"], candidate["head_sha"], candidate["app"]
+        try:
+            failing = self._still_failing(repo, sha, app)
+        except GitHubError as exc:
+            log.warning("checks settle: late confirmation failed (%s); retried", exc.code)
+            return "pending"
+        outcome = "duplicate"
+        emitted = self._store.get(EVENTS_COLLECTION, str(candidate.get("settled_id")))
+        if failing and emitted is not None:
+            outcome = self._emit_late(repo, sha, app, emitted)
+        self._store.delete(LATE_COLLECTION, candidate["id"])
+        return outcome
+
+    def _still_failing(self, repo: str, sha: str, app: str) -> bool:
+        return any(
+            str(s.get("app_slug") or "").casefold() == app
+            and s.get("status") == "completed"
+            and s.get("conclusion") == "failure"
+            for s in self._suites(repo, sha)
+        )
+
+    def _emit_late(self, repo: str, sha: str, app: str, emitted: Mapping[str, Any]) -> str:
         prior = dict((emitted.get("envelope") or {}).get("data") or {})
         named = [a for a in prior.get("failed_apps") or () if isinstance(a, str)]
-        if app in named:
-            return "duplicate"
         payload = {
             **prior,
             "conclusion": "failure",
@@ -552,10 +613,25 @@ class ChecksSettler:
             return "duplicate"
         return "late"
 
+    def _late_candidates(self) -> int:
+        """Retry the late candidates this node can serve; drop those past the recovery
+        window. Returns how many late events it emitted. A store error propagates, as for
+        the pending polls (the cycle records it and the next tick retries)."""
+        emitted = 0
+        floor = self._now() - timedelta(seconds=RECOVERY_WINDOW_S)
+        for doc in self._store.find(LATE_COLLECTION):
+            noted = _parse(doc.get("noted_at"))
+            if noted is None or noted < floor:
+                self._store.delete(LATE_COLLECTION, doc["id"])
+            elif self._serves_here(doc.get("repository")):
+                emitted += self._try_late(doc) == "late"
+        return emitted
+
     def tick(self) -> int:
         """Settle pending SHAs: emit ``timeout`` past the deadline, or ``all_completed`` once
         the minimum window has passed and every counted suite is complete."""
         self._recover(self._now())
+        self._late_candidates()
         now = self._now()
         emitted = 0
         for rec in self._store.find(SETTLE_COLLECTION, {"state": "pending"}):
@@ -665,12 +741,18 @@ class ChecksSettler:
     def _recover_late(
         self, repo: str, sha: str, event: Mapping[str, Any], rec: Mapping[str, Any]
     ) -> None:
-        """A stored completion of a settled SHA, received after its settled event, that the
-        webhook never turned into a late event (d25): :meth:`_late`, idempotent by its
-        fixed id."""
+        """A stored completion of a settled SHA that the webhook never turned into a late
+        candidate (d25). Clocks only bound the candidates: one received up to
+        :data:`LATE_SKEW_MARGIN_S` before the settled event (the webhook server's clock may
+        lag the settler's) is noted too; :meth:`_try_late` decides from the App's current
+        listing, so a failure re-run green before the settle is never late."""
         emitted = self._store.get(EVENTS_COLLECTION, settled_event_id(repo, sha, _generation(rec)))
-        if emitted is None or str(event.get("received_at")) <= str(emitted.get("received_at")):
-            return  # not settled yet, or received before the settle: not late
+        received = _parse(event.get("received_at"))
+        settled_at = _parse((emitted or {}).get("received_at"))
+        if received is None or settled_at is None:
+            return  # not settled yet
+        if received < settled_at - timedelta(seconds=LATE_SKEW_MARGIN_S):
+            return  # long before the settle: not late
         if self._late(repo, sha, event["envelope"]["data"], emitted) == "late":
             log.info("checks settle: recovered a late failure from a stored completion")
 

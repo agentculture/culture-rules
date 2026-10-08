@@ -107,6 +107,7 @@ from culture_rules.node.actions.github import ONCE_COLLECTION
 from culture_rules.node.actors import ACTORS_COLLECTION, ActorRouter, AdapterFactory
 from culture_rules.node.chain import CHAIN_NEEDS_REVIEW
 from culture_rules.node.checks_settle import (
+    LATE_COLLECTION,
     RECOVERY_COLLECTION,
     SETTLE_COLLECTION,
     UNRESOLVED_RETRY_S,
@@ -144,6 +145,7 @@ NODE_COLLECTIONS = (
     GATEWAY_STATE_COLLECTION,
     SETTLE_COLLECTION,
     RECOVERY_COLLECTION,
+    LATE_COLLECTION,
     ONCE_COLLECTION,
     RULE_ATTEMPT_BUDGETS,
     RUN_COMPLETIONS,

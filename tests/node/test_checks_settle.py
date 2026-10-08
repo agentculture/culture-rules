@@ -1485,8 +1485,16 @@ def completion(app="gitguardian", conclusion="failure", status="completed"):
     return check_data(app_slug=app, conclusion=conclusion, status=status)
 
 
+def gitguardian_now(settler, conclusion="failure", status="completed"):
+    """What the App lists for GitGuardian's suite of the head from now on."""
+    for suite in settler._suites.suites:
+        if suite["app_slug"] == "gitguardian":
+            suite.update(status=status, conclusion=conclusion)
+
+
 def test_a_gitguardian_failure_after_the_settle_emits_one_late_event():
     store, settler, data = _timed_out_with_gitguardian_pending()
+    gitguardian_now(settler)
     assert settler.on_check(completion()) == "late"
     assert settler.on_check(completion()) == "duplicate"  # redelivered: once
     [late] = late_events(store)
@@ -1534,6 +1542,7 @@ def test_no_late_event_for_an_app_the_settle_already_named():
 def test_recovery_turns_a_stored_late_completion_into_its_late_event():
     # the webhook stored GitGuardian's failure after the settle, then died before on_check
     store, settler, _ = _timed_out_with_gitguardian_pending()
+    gitguardian_now(settler)
     clock = settler._clock
     clock.now += timedelta(seconds=5)
     stored_check(
@@ -1562,4 +1571,105 @@ def test_recovery_ignores_a_failure_received_before_the_settle():
     assert settler.on_check(check_data()) == "emitted"
     past_grace(clock)
     settler.tick()
+    assert late_events(store) == []
+
+
+# ------------------------------------------------------------ d25 round 3: clock skew
+
+
+def _stored_gitguardian_failure(store, settler, seconds):
+    """GitGuardian's failure as the webhook stored it, ``seconds`` from the settler's now
+    (negative: the webhook server's clock is behind)."""
+    at = Clock()
+    at.now = settler._clock.now + timedelta(seconds=seconds)
+    stored_check(
+        store,
+        at,
+        f"gg{seconds}",
+        app_slug="gitguardian",
+        conclusion="failure",
+        status="completed",
+    )
+
+
+def test_a_late_completion_from_a_server_whose_clock_is_behind_is_still_recovered():
+    from culture_rules.node.checks_settle import LATE_SKEW_MARGIN_S
+
+    store, settler, _ = _timed_out_with_gitguardian_pending()
+    gitguardian_now(settler)
+    # stored 1 s after the settle by a server 2 s behind: its received_at reads 1 s before
+    _stored_gitguardian_failure(store, settler, -1)
+    past_grace(settler._clock)
+    settler.tick()
+    assert len(late_events(store)) == 1
+    assert LATE_SKEW_MARGIN_S == 300
+
+
+def test_a_failure_re_run_green_is_never_late_whatever_the_clocks_say():
+    store, settler, _ = _timed_out_with_gitguardian_pending()
+    gitguardian_now(settler, "success")  # the App lists it green now
+    _stored_gitguardian_failure(store, settler, -1)
+    _stored_gitguardian_failure(store, settler, 5)
+    past_grace(settler._clock)
+    settler.tick()
+    settler.tick()
+    assert late_events(store) == []
+    assert settler.on_check(completion()) == "duplicate"
+    assert late_events(store) == []
+
+
+def test_a_completion_far_before_the_settle_is_no_candidate():
+    store, settler, _ = _timed_out_with_gitguardian_pending()
+    gitguardian_now(settler)
+    _stored_gitguardian_failure(store, settler, -400)  # beyond the 5-minute margin
+    past_grace(settler._clock)
+    settler.tick()
+    assert late_events(store) == []
+
+
+def test_a_failed_confirmation_is_retried_by_the_next_tick_not_lost():
+    store, settler, _ = _timed_out_with_gitguardian_pending()
+    gitguardian_now(settler)
+    real = settler._suites
+
+    def down(repo, sha):
+        raise GitHubError("network_error", retryable=True)
+
+    settler._suites = down
+    assert settler.on_check(completion()) == "pending"
+    _stored_gitguardian_failure(store, settler, 1)
+    past_grace(settler._clock)
+    settler.tick()  # the watermark moves past the completion, the candidate stays
+    assert late_events(store) == []
+    settler._suites = real
+    settler.tick()
+    assert len(late_events(store)) == 1
+    settler.tick()
+    assert len(late_events(store)) == 1
+
+
+def test_a_node_that_cannot_serve_the_repo_leaves_the_candidate_to_one_that_can():
+    store, settler, _ = _timed_out_with_gitguardian_pending()
+    gitguardian_now(settler)
+    settler._serves = lambda repo: False
+    _stored_gitguardian_failure(store, settler, 1)
+    past_grace(settler._clock)
+    settler.tick()
+    assert late_events(store) == []
+    settler._serves = lambda repo: True
+    settler.tick()
+    assert len(late_events(store)) == 1
+
+
+def test_a_candidate_no_node_confirms_is_dropped_after_the_recovery_window():
+    from culture_rules.node.checks_settle import LATE_COLLECTION, RECOVERY_WINDOW_S
+
+    store, settler, _ = _timed_out_with_gitguardian_pending()
+    gitguardian_now(settler)
+    settler._serves = lambda repo: False
+    assert settler.on_check(completion()) == "pending"
+    assert len(store.find(LATE_COLLECTION)) == 1
+    settler._clock.now += timedelta(seconds=RECOVERY_WINDOW_S + 1)
+    settler.tick()
+    assert store.find(LATE_COLLECTION) == []
     assert late_events(store) == []

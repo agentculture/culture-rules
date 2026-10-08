@@ -528,8 +528,17 @@ How it fits together:
   by the app, `late_app`, `conclusion: failure` and `settled_by: late`. Its
   PR facts are those of the settle. That is on purpose: a secret pushed to a
   PR is leaked even if the PR has since been closed or its head has moved,
-  so reporting it is still right. The settle tick's recovery scan emits the
-  same event for a late completion the webhook stored but never handled. Both
+  so reporting it is still right. No clock decides that a failure is late:
+  it becomes a candidate (`checks_settle_late`), and the late event is
+  emitted only once the App's current listing still shows the app's suite
+  for that head concluded `failure`. So a failure that was re-run green is
+  never reported. A failed listing, or a node that cannot read the repo's
+  checks, keeps the candidate for the next tick on a node that can. A
+  candidate nobody confirms within the 24-hour recovery window is dropped.
+  The settle tick's recovery scan notes a candidate for a late completion the
+  webhook stored but never handled. It also looks at completions received up
+  to 5 minutes (`LATE_SKEW_MARGIN_S`) before the settled event, because the
+  webhook server's clock may lag the settler's. Both
   settle event types and their id prefixes (`settled_`, `late_`) are
   reserved: the bus and the webhooks quarantine a copy, so nothing outside
   the settler can fire the report or squat its id.
