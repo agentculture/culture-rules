@@ -144,6 +144,17 @@ def _finish(store: StoragePort, actor_id: str, type: str, outcome: str, surface:
     return outcome
 
 
+def _check_inputs(actor_id: Any, surface: Any, delivery_id: Any, type: Any) -> None:
+    """Refuse (``ValueError``) an actor without an id and ``params.surface``, then an empty
+    delivery id, then an empty type."""
+    if not isinstance(actor_id, str) or not actor_id or not isinstance(surface, str):
+        raise ValueError("actor must be an app actor with an id and params.surface")
+    if not isinstance(delivery_id, str) or not delivery_id:
+        raise ValueError("delivery_id must be a non-empty string")
+    if not isinstance(type, str) or not type:
+        raise ValueError("type must be a non-empty string")
+
+
 def sink(
     store: StoragePort,
     actor: Any,
@@ -157,12 +168,7 @@ def sink(
     actor_id = view.get("id")
     params = view.get("params") or {}
     surface = params.get("surface")
-    if not isinstance(actor_id, str) or not actor_id or not isinstance(surface, str):
-        raise ValueError("actor must be an app actor with an id and params.surface")
-    if not isinstance(delivery_id, str) or not delivery_id:
-        raise ValueError("delivery_id must be a non-empty string")
-    if not isinstance(type, str) or not type:
-        raise ValueError("type must be a non-empty string")
+    _check_inputs(actor_id, surface, delivery_id, type)
     if view.get("enabled", True) is False:
         return _finish(store, actor_id, type, DISABLED, surface)
     reserved = reserved_reason({"type": type})
