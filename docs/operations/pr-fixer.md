@@ -678,8 +678,9 @@ inert.
   last activity, and the **fix summary** of the latest fix that succeeded
   (the agent's own summary, which the chain-end texts no longer carry).
 - **The end never fails the run.** The chain-end action (the hand-back, the
-  push line, the review-only verdict) does not call GitHub: it stores its
-  text as the record's **pending final** and completes. The `status` stage
+  push line, the review-only verdict) does not call GitHub and resolves no
+  credential: it stores its text as the record's **pending final** and
+  completes. The `status` stage
   delivers it as the comment's final section, on top, with the run that
   ended the chain linked by the engine; if the chain has no comment yet, it
   posts the comment, complete. The record is `final` only once GitHub
@@ -694,7 +695,14 @@ inert.
   write that loses stops the work at hand; the next cycle re-reads.
 - **A lease** (`lease = {owner, until}`, 60 s, taken by compare-and-set)
   must be held to post, edit, recreate or resolve. So two nodes never both
-  post, and never both recreate a deleted comment.
+  post, and never both recreate a deleted comment. The lease is renewed by
+  compare-and-set right before every call, and every call (resolving the
+  App's key included, through the port's bounded resolver) is bounded by
+  20 s, well inside the lease.
+- **The comment always ends final.** If a call still lands after another
+  node delivered the final (a process paused past its lease), the node
+  re-reads the record after every non-final edit and writes the final again
+  (`repair`; another node does it if this one cannot take the lease).
 - **States.** `none` (no comment: post it), `posting` (set before the POST),
   `posted` (edit it), `unknown` (the POST's answer was lost), `unresolved`.
   A deleted comment (the edit answers 404) goes back to `none` and is posted
@@ -711,13 +719,18 @@ inert.
   minutes). `http_403`, `http_422`, and an App that cannot serve the repo
   give up after 3 tries (`outcome: gave_up`). A pending final gives up after
   24 hours.
-- **Budget.** One `status` stage makes at most 10 GitHub calls within 10
-  seconds, each call bounded by the time left, so it never holds up the
-  node's pushes for long.
-- **Housekeeping.** The node declares the indexes these queries use (open
-  and final records by date, a key's runs by date, a run's bridge
-  invocations). Open records are read for 2 days. Final records are dropped
-  30 days after they became final.
+- **Budget.** One `status` stage makes at most 10 HTTP requests (token
+  exchanges and every page of a comment listing included, each charged
+  before it is sent) within 10 seconds, so it never holds up the node's
+  pushes for long. Work the budget stops waits for the next cycle without
+  counting as a failure.
+- **Housekeeping.** The node declares the indexes these queries use
+  (records with pending work, final records by date, a key's runs by date, a
+  run's bridge invocations). A record is read while it has pending work
+  (`pending`: not final, or a final to repair), never by its age, so a
+  stored final is always delivered or given up. A record with no activity
+  for 7 days gives up. Final records are dropped 30 days after they became
+  final.
 
 A pushed fix after one re-fix reads (ids and SHAs made up; relayed text is
 backslash-escaped, so it renders as plain words):
@@ -801,7 +814,9 @@ a reviewer's findings) is never "cleaned" Markdown. It is:
    urlsafe-base64 encoding. Known values are everything the process
    resolved through `grant` (the App private key, bridge tokens), its
    `CULTURE_RULES_SECRET_*` environment, and the bridge bearer tokens it
-   used. Notes are checked one by one and together. A refused note is
+   used. Every check runs on the raw, entity-decoded and normalized text
+   and on the stripped view of each, so neither markup nor angle brackets
+   hide a value. Notes are checked one by one and together. A refused note is
    dropped; a refused summary or final section renders `[withheld]`;
 3. **escaped**: every Markdown metacharacter is backslash-escaped, `<`, `>`
    and `&` become entities (so `<!--` can never appear), `@` gets a

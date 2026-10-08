@@ -21,7 +21,9 @@ from culture_rules.node.fixer_status import (
 )
 from culture_rules.node.status_board import (
     BACKOFF_CAP,
+    CALL_DEADLINE_S,
     FINAL_HORIZON,
+    IDLE_HORIZON,
     LEASE,
     RETENTION,
     StatusBoard,
@@ -60,7 +62,7 @@ class World:
 
     def tick(self, board: StatusBoard | None = None) -> int:
         return (board or self.board).tick(
-            lambda actor, repo: self.issues, lambda actor: actor in self.served
+            lambda actor, repo, until: self.issues, lambda actor: actor in self.served
         )
 
     def finish(self, run: dict, text: str = HANDED_BACK) -> dict | None:
@@ -435,7 +437,7 @@ def test_the_board_declares_its_indexes():
     ensure_status_indexes(Indexed())
     assert ("runs", "runs_key_created") in calls
     assert ("bridge_invocations", "bridge_by_run") in calls
-    assert (STATUS_COLLECTION, "status_open") in calls
+    assert (STATUS_COLLECTION, "status_pending") in calls
 
 
 def test_a_known_secret_never_reaches_github(w):
@@ -449,3 +451,123 @@ def test_a_known_secret_never_reaches_github(w):
     assert secret not in body
     assert GHP not in body
     assert body.startswith("[withheld]")
+
+
+# --------------------------------------------------------------------------- Codex round 2
+
+
+def test_a_stale_edit_landing_after_the_final_is_repaired(w):
+    """A's lease expires during its PATCH; B delivers the final; A's late PATCH lands the
+    working body. A re-reads, finds the record final and writes the final again."""
+    started(w)
+    other = w.new_board("b")
+    set_steps(w.store, quiet="succeeded", secrets="succeeded", agent="succeeded")
+    w.later()
+
+    def b_finishes_meanwhile():
+        w.clock.advance(LEASE.total_seconds() + 1)  # A paused past its lease
+        set_run(w.store, status="failed")
+        w.board.finish(w.run(), HANDED_BACK, where=(REPO, 7))
+        w.tick(other)  # B takes the expired lease and delivers the final
+
+    w.issues.on_edit = b_finishes_meanwhile
+    w.tick()
+    bodies = [e[2] for e in w.issues.edits]
+    assert len(bodies) == 3  # B's final, A's late working edit, A's repair
+    assert not plain(bodies[1]).startswith(HANDED_BACK)
+    assert plain(w.issues.bodies[101]).startswith(HANDED_BACK)
+    doc = w.record()
+    assert doc["final"] is True
+    assert doc["repair"] is False
+    assert doc["pending"] is False
+
+
+def test_a_repair_another_board_holds_the_lease_for_is_left_flagged(w):
+    started(w)
+    w.later(60)
+    w.finish(w.run())
+    w.tick()
+    doc = w.record()
+    until = (w.clock.now + LEASE).strftime("%Y-%m-%dT%H:%M:%SZ")
+    w.store.put(
+        STATUS_COLLECTION,
+        {**doc, "repair": True, "pending": True, "lease": {"owner": "b", "until": until}},
+    )
+    w.later()
+    w.tick()
+    assert w.record()["repair"] is True  # b holds it
+    w.later(LEASE.total_seconds())
+    w.tick()
+    assert w.record()["repair"] is False
+    assert plain(w.issues.edits[-1][2]).startswith(HANDED_BACK)
+
+
+def test_every_call_renews_the_lease_and_is_bounded_well_inside_it(w):
+    seen = []
+
+    def check():
+        doc = w.record()
+        from culture_rules.node.fixer_status import parse_time
+
+        seen.append(parse_time(doc["lease"]["until"]) - w.clock.now)
+
+    started(w)
+    set_steps(w.store, quiet="succeeded", secrets="succeeded", agent="succeeded")
+    w.later(30)
+    w.issues.on_edit = check
+    w.tick()
+    assert seen == [LEASE]  # renewed right before the call
+    for until in w.issues.deadlines:
+        assert (until - w.clock.now).total_seconds() <= CALL_DEADLINE_S
+    assert CALL_DEADLINE_S <= LEASE.total_seconds() / 2
+
+
+def test_an_old_record_with_a_pending_final_is_still_delivered(w):
+    started(w)
+    w.clock.advance(3 * 24 * 3600)  # far past any age-based window
+    set_run(w.store, status="failed")
+    w.finish(w.run())
+    w.tick()
+    assert w.record()["outcome"] == "delivered"
+    assert w.record()["pending"] is False
+
+
+def test_a_record_idle_past_its_horizon_gives_up_and_leaves_the_pending_set(w):
+    started(w)
+    w.clock.advance(IDLE_HORIZON.total_seconds() + 1)
+    w.tick()
+    doc = w.record()
+    assert doc["outcome"] == "gave_up"
+    assert doc["pending"] is False
+    assert doc["final_at"] is not None  # retention covers it
+
+
+def test_every_http_request_counts_against_the_budget(w):
+    w.board = w.new_board("a", max_calls=2)
+    w.issues.lose_post = True
+    started(w)  # the post: one request
+    w.issues.pages = 3  # the listing needs three requests; one is left
+    w.after_retry()
+    w.tick()
+    assert w.issues.listed == 0  # stopped before the third request
+    doc = w.record()
+    assert doc["state"] == "unknown"
+    assert doc["failures"] == 1  # the waiting listing is no failure
+    w.board = w.new_board("a", max_calls=5)
+    w.after_retry()
+    w.tick()
+    assert w.record()["state"] == "posted"
+
+
+def test_a_recreate_after_a_404_respects_the_budget(w):
+    started(w)
+    w.board = w.new_board("a", max_calls=1)
+    w.issues.deleted.add(101)
+    set_steps(w.store, quiet="succeeded", secrets="succeeded", agent="succeeded")
+    w.later()
+    w.tick()  # the PATCH (404) used the one request: no post
+    assert len(w.issues.posts) == 1
+    assert w.record()["state"] == "none"
+    w.later()
+    w.tick()
+    assert len(w.issues.posts) == 2

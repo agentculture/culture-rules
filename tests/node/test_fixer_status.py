@@ -115,3 +115,13 @@ def test_outside_a_status_chain_the_text_is_inert_with_the_run_link():
     assert "@​x" in out
     assert "<b>" not in out
     assert out.endswith(f"Run: https://rules.culture.dev/api/runs/{RUN}")
+
+
+def test_a_known_hex_secret_in_angle_brackets_never_reaches_the_body():
+    # Codex round 2: the delivering node's guard checks the entity-decoded body too
+    hex48 = "0f1e2d3c4b5a6978" + "8796a5b4c3d2e1f0" + "00112233445566ff"
+    run = fix_run(status="succeeded", outputs={"summary": f"see <{hex48}>"})
+    body = render(chain_of(run), Final(f"handed back <{hex48}>", RUN), known=[hex48])
+    assert hex48 not in body
+    assert hex48[:12] not in body
+    assert body.startswith(WITHHELD)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -52,8 +53,31 @@ class Issues:
         self.deleted: set[int] = set()
         self.others: list[dict] = []  # comments by someone else
         self.next_id = 100
+        self.pages = 1  # HTTP requests one listing takes
+        self.guard = None
+        self.deadlines: list = []
+        self.on_edit = None  # called inside an edit, before it lands
+
+    @contextlib.contextmanager
+    def request_guard(self, guard):
+        self.guard = guard
+        try:
+            yield
+        finally:
+            self.guard = None
+
+    @contextlib.contextmanager
+    def deadline(self, until):
+        self.deadlines.append(until)
+        yield
+
+    def _request(self, n: int = 1) -> None:
+        for _ in range(n):
+            if self.guard is not None:
+                self.guard()
 
     def post_comment(self, repo, number, body):
+        self._request()
         if self.fail_post:
             raise self.fail_post.pop(0)
         self.next_id += 1
@@ -65,6 +89,10 @@ class Issues:
         return {"comment_id": self.next_id, "url": f"https://github.com/{repo}#c{self.next_id}"}
 
     def update_issue_comment(self, repo, comment_id, body):
+        self._request()
+        if self.on_edit is not None:
+            hook, self.on_edit = self.on_edit, None
+            hook()
         if comment_id in self.deleted:
             raise GitHubError("http_404")
         if self.fail_edit:
@@ -74,6 +102,7 @@ class Issues:
         return {"comment_id": comment_id, "url": "u"}
 
     def list_issue_comments(self, repo, number):
+        self._request(self.pages)
         self.listed += 1
         mine = [
             {"comment_id": n, "url": f"u{n}", "body": b, "app_id": self.app_id}
