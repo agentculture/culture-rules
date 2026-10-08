@@ -1760,3 +1760,48 @@ def test_a_dropped_and_re_noted_candidate_is_never_deleted_by_a_stale_confirmer(
     a.tick()
     assert len(late_events(store)) == 1
     assert store.find(LATE_COLLECTION) == []
+
+
+# ------------------------------------------------------------ d25 round 5b: atomic emit
+
+
+def _racing(store, a, *, a_sees, b_sees):
+    """A reads ``a_sees`` while, inside that read, node B decides the same candidate on
+    ``b_sees``. Returns A's outcome."""
+    from culture_rules.node.checks_settle import LATE_COLLECTION
+
+    listed = a._suites
+
+    def view(conclusion):
+        return lambda repo, sha: [{**s, "conclusion": conclusion} for s in listed(repo, sha)]
+
+    b = ChecksSettler(store.peer(), view(b_sees), clock=a._clock)
+
+    def a_reads(repo, sha):
+        out = view(a_sees)(repo, sha)
+        [candidate] = store.find(LATE_COLLECTION)
+        b._try_late(candidate)  # B decides first, on a newer listing
+        return out
+
+    a._suites = a_reads
+    return a.on_check(completion())
+
+
+def test_a_stale_failing_listing_never_emits_after_a_newer_clean_one_dropped_it():
+    from culture_rules.node.checks_settle import LATE_COLLECTION
+
+    store, a, _ = _timed_out_with_gitguardian_pending()
+    gitguardian_now(a)
+    assert _racing(store, a, a_sees="failure", b_sees="success") == "duplicate"
+    assert late_events(store) == []
+    assert store.find(LATE_COLLECTION) == []
+
+
+def test_a_stale_clean_listing_never_undoes_a_newer_failing_ones_emission():
+    from culture_rules.node.checks_settle import LATE_COLLECTION
+
+    store, a, _ = _timed_out_with_gitguardian_pending()
+    gitguardian_now(a)
+    assert _racing(store, a, a_sees="success", b_sees="failure") == "duplicate"
+    assert len(late_events(store)) == 1
+    assert store.find(LATE_COLLECTION) == []

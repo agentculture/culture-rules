@@ -614,13 +614,17 @@ class ChecksSettler:
         except GitHubError as exc:
             log.warning("checks settle: late confirmation failed (%s); retried", exc.code)
             return "pending"
-        outcome = "duplicate"
         emitted = self._store.get(EVENTS_COLLECTION, str(candidate.get("settled_id")))
         if failing and emitted is not None:
-            outcome = self._emit_late(repo, sha, app, emitted)  # once ever, by its fixed id
-        if not self._drop_late(candidate) and outcome != "late":
-            return "pending"  # a newer failure was noted meanwhile: confirm that one later
-        return outcome
+            outcome = self._confirm_late(candidate, self._late_event(repo, sha, app, emitted))
+        else:
+            outcome = "duplicate" if self._drop_late(candidate) else "stale"
+        if outcome != "stale":
+            return outcome
+        # decided meanwhile: a newer failure keeps it (confirmed later), or another node
+        # already dropped or emitted it
+        exists = self._store.get(LATE_COLLECTION, candidate["id"]) is not None
+        return "pending" if exists else "duplicate"
 
     def _still_failing(self, repo: str, sha: str, app: str) -> bool:
         return any(
@@ -630,7 +634,10 @@ class ChecksSettler:
             for s in self._suites(repo, sha)
         )
 
-    def _emit_late(self, repo: str, sha: str, app: str, emitted: Mapping[str, Any]) -> str:
+    def _late_event(
+        self, repo: str, sha: str, app: str, emitted: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        """The ``events`` document of ``app``'s late failure on ``repo@sha`` (fixed id)."""
         prior = dict((emitted.get("envelope") or {}).get("data") or {})
         named = [a for a in prior.get("failed_apps") or () if isinstance(a, str)]
         payload = {
@@ -643,12 +650,29 @@ class ChecksSettler:
         envelope = derive_envelope(
             None, type=LATE_TYPE, source=SOURCE, data=payload, id=late_event_id(repo, sha, app)
         )
-        doc = event_document(envelope, host=SETTLE_HOST, received_at=self._now())
+        return event_document(envelope, host=SETTLE_HOST, received_at=self._now())
+
+    def _confirm_late(self, candidate: Mapping[str, Any], event: Mapping[str, Any]) -> str:
+        """Emit and drop in ONE transaction, only while the candidate still carries the
+        ``token`` it was read with: ``late`` (inserted), ``duplicate`` (the event existed;
+        dropped all the same) or ``stale`` (the candidate changed or is gone: nothing
+        written), so a stale failing listing never emits after a newer decision."""
+
+        def confirm(tx: Any) -> str:
+            current = tx.get(LATE_COLLECTION, candidate["id"])
+            if current is None or current.get("token") != candidate.get("token"):
+                return "stale"
+            outcome = "duplicate"
+            if tx.get(EVENTS_COLLECTION, event["id"]) is None:
+                tx.insert(EVENTS_COLLECTION, event)
+                outcome = "late"
+            tx.delete(LATE_COLLECTION, candidate["id"])
+            return outcome
+
         try:
-            self._store.insert(EVENTS_COLLECTION, doc)
+            return run_transaction(self._store, confirm)
         except DuplicateKeyError:
-            return "duplicate"
-        return "late"
+            return "stale"  # emitted concurrently: the next confirmation drops it
 
     def _late_candidates(self) -> int:
         """Retry the late candidates this node can serve; drop those past the recovery
