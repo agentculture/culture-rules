@@ -73,7 +73,10 @@ PR_FACT_FIELDS = (
     "draft",
     "pr_author",
 )
-"""The PR facts every fixer-trigger event carries under the same names (d14)."""
+"""The PR facts every fixer-trigger event carries under the same names (d14). Each event also
+carries ``state`` (``open`` / ``closed``, d21) when the source reports a valid one; it is not
+part of the all-or-nothing set, so a missing state omits only itself and a rule requiring
+``state == "open"`` fails closed."""
 
 
 _FULL_SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
@@ -112,6 +115,7 @@ _FACT_VALID: dict[str, Callable[[Any], bool]] = {
     "base_sha": _is_full_sha,
     "draft": _is_bool,
     "pr_author": _is_text,
+    "state": lambda v: v in ("open", "closed"),
 }
 
 
@@ -136,6 +140,7 @@ def pr_facts(pr: Any) -> dict[str, Any]:
         "base_sha": _get(base, "sha"),
         "draft": pr.get("draft"),
         "pr_author": _get(pr, "user", "login"),
+        "state": pr.get("state"),
     }
     return {key: value for key, value in raw.items() if _FACT_VALID[key](value)}
 
@@ -144,7 +149,7 @@ def complete_pr_facts(pr: Any) -> dict[str, Any] | None:
     """:func:`pr_facts` when *every* fact is present and valid, else ``None``: the all-or-
     nothing form a lookup-based enrichment uses, so it is never half-applied."""
     facts = pr_facts(pr)
-    return facts if len(facts) == len(PR_FACT_FIELDS) else None
+    return facts if all(k in facts for k in PR_FACT_FIELDS) else None
 
 
 class GitHubError(Exception):

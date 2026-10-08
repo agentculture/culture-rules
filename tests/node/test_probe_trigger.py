@@ -94,7 +94,12 @@ class Mesh:
         return sorted(r["trigger"]["data"]["slot"] for r in self.runs(rule_id))
 
     def events(self) -> list[dict]:
-        return self.base.find(EVENTS_COLLECTION)
+        """The events the probes emitted (not the runs' own rules.run.* events, d21)."""
+        return [
+            e
+            for e in self.base.find(EVENTS_COLLECTION)
+            if not str(e["envelope"].get("type", "")).startswith("rules.run.")
+        ]
 
 
 def test_change_mode_fires_on_first_and_changed_outputs_only(tmp_path):

@@ -44,6 +44,7 @@ from culture_rules.store.port import (
     StoragePort,
     StoreOps,
     cursor_id,
+    init_cursor,
 )
 from culture_rules.store.versioning import utc_timestamp
 
@@ -64,7 +65,24 @@ def live_rules(docs: Iterable[Mapping[str, Any]]) -> list[Rule]:
     return rules
 
 
-__all__ = ["FeedConsumer", "Source", "live_rules"]
+__all__ = ["CHAIN_NEEDS_REVIEW", "FeedConsumer", "Source", "Unrecoverable", "live_rules"]
+
+CHAIN_NEEDS_REVIEW = "chain_needs_review"
+"""Chain continuations a consumer could not recover (d21): one record per (consumer,
+collection, key), naming the rule, the event and the dependants left undecided. The change
+is *not* marked handled, so touching the document again once the cause is fixed retries it;
+the retry that succeeds deletes the record in its own transaction. ``health_status`` counts
+the records left, i.e. the unresolved ones."""
+
+
+class Unrecoverable(Exception):
+    """A handler cannot continue the chain from this document (its trigger envelope is gone
+    and no durable reference holds it): roll back, record :data:`CHAIN_NEEDS_REVIEW`, move
+    the cursor on, and leave the change unhandled (no marker)."""
+
+    def __init__(self, record: dict[str, Any]) -> None:
+        super().__init__(f"chain continuation needs review: {record}")
+        self.record = record
 
 
 @dataclass(frozen=True)
@@ -123,6 +141,7 @@ class FeedConsumer:
             ensure(
                 FIRES_COLLECTION,
                 CURSOR_COLLECTION,
+                CHAIN_NEEDS_REVIEW,
                 *(s.collection for s in sources),
                 *handler_collections,
             )
@@ -132,11 +151,7 @@ class FeedConsumer:
         return f"{self.consumer}/{collection}/{key}"
 
     def _token(self, collection: str) -> str:
-        position = self.store.load_cursor(self.consumer, collection)
-        if position is None:
-            position = self.store.head(collection)
-            self.store.save_cursor(self.consumer, collection, position)
-        return position
+        return init_cursor(self.store, self.consumer, collection)
 
     def _fire(self, source: Source, doc: Mapping[str, Any], key: str, token: str) -> bool:
         marker_id = self.marker_id(source.collection, key)
@@ -163,8 +178,30 @@ class FeedConsumer:
                 except DuplicateKeyError:
                     raise _AlreadyHandled from None
                 source.handler(tx, doc, marker_id)
+                if tx.get(CHAIN_NEEDS_REVIEW, marker_id) is not None:
+                    # an earlier attempt could not continue; this one did: resolve it
+                    tx.delete(CHAIN_NEEDS_REVIEW, marker_id)
                 tx.put(CURSOR_COLLECTION, cursor)
         except _AlreadyHandled:
+            self.store.save_cursor(self.consumer, source.collection, token)
+            return False
+        except Unrecoverable as stuck:
+            # rolled back: no marker, so the change stays unhandled and can be retried by
+            # touching the document; the cursor moves on so the feed is not wedged
+            review = {
+                **stuck.record,
+                "id": marker_id,
+                "consumer": self.consumer,
+                "collection": source.collection,
+                "key": key,
+                "host": self.host,
+                "at": utc_timestamp(self._clock()),
+            }
+            try:
+                self.store.insert(CHAIN_NEEDS_REVIEW, review)
+            except DuplicateKeyError:
+                pass
+            log.exception("chain %s: %s needs review: %s", self.consumer, marker_id, stuck.record)
             self.store.save_cursor(self.consumer, source.collection, token)
             return False
         return True
@@ -185,6 +222,8 @@ class FeedConsumer:
         concurrency budget: its end must release the key and fire the event coalesced
         meanwhile even when its rule was deleted or lost its key since it fired, which
         drops the rule from :meth:`_dependencies` (:mod:`culture_rules.node.firing`)."""
+        if source.collection == RULE_ATTEMPT_BUDGETS:
+            return True  # a released chain hold: the key's own document (d21 phase 2)
         if source.collection == RUNS_COLLECTION:
             run_id = doc.get("id")
         elif source.collection == "rule_fires":

@@ -26,7 +26,8 @@ token finds the markers and skips. Handler side effects *outside* the store are
 not covered - they must go through the run executor's idempotency keys.
 
 Start position: the change feed has no "from the beginning" mode. The first
-poll of a new consumer pins the current head as its token (and saves it), so
+poll of a new consumer pins the current head as its token (inserted once, so two hosts
+initialising together agree on it: :func:`~culture_rules.store.port.init_cursor`), so
 events ingested before a trigger existed are never backfilled, and a failover
 host never starts later than the first host did.
 
@@ -50,6 +51,7 @@ from culture_rules.store.port import (
     StoragePort,
     StoreOps,
     cursor_id,
+    init_cursor,
 )
 from culture_rules.store.versioning import utc_timestamp
 
@@ -109,11 +111,11 @@ class EventTriggers:
         return f"{self.consumer}/{event_id}"
 
     def _token(self) -> str:
-        position = self.store.load_cursor(self.consumer, EVENTS_COLLECTION)
-        if position is None:
-            position = self.store.head(EVENTS_COLLECTION)
-            self.store.save_cursor(self.consumer, EVENTS_COLLECTION, position)
-        return position
+        return init_cursor(self.store, self.consumer, EVENTS_COLLECTION)
+
+    def cursor(self) -> str:
+        """This consumer's resume token, initialised at the feed's head if it has none."""
+        return self._token()
 
     def _cursor_doc(self, token: str) -> Document:
         # Same shape StoragePort.save_cursor writes, so load_cursor reads it back.

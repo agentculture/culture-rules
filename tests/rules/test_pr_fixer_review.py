@@ -12,11 +12,16 @@ import copy
 
 import pytest
 
-from culture_rules.actors.review import REVIEWER_BRIEF, current_review, review_refusal
+from culture_rules.actors.review import (
+    REVIEWER_BRIEF,
+    current_review,
+    review_refusal,
+    run_reviews,
+)
 from culture_rules.engine.actorport import InvocationResult
 from culture_rules.engine.runs import FAILURE_STEP, step_state
 from tests.actors.test_gate import PushSpy, git
-from tests.rules.test_pr_fixer_bundle import (
+from tests.rules.test_pr_fixer_single import (
     World,
     assert_handed_back,
     reviewer_actor,
@@ -31,11 +36,9 @@ def trust(monkeypatch):
     from culture_rules.actors import trusted
 
     def add(wf: dict) -> dict:
-        monkeypatch.setattr(
-            trusted,
-            "TRUSTED_WORKFLOW_DIGESTS",
-            trusted.TRUSTED_WORKFLOW_DIGESTS | {trusted.workflow_digest(wf)},
-        )
+        roles = dict(trusted.TRUSTED_WORKFLOWS)
+        roles[trusted.ROLE_SINGLE] = roles[trusted.ROLE_SINGLE] | {trusted.workflow_digest(wf)}
+        monkeypatch.setattr(trusted, "TRUSTED_WORKFLOWS", roles)
         return wf
 
     return add
@@ -68,13 +71,25 @@ def changes(commit: str) -> str:
 
 
 def record(w: World, doc: dict) -> dict:
-    """The run's current review record."""
-    return current_review(w.c.base, doc["id"])[1]
+    """The run's newest review record (the current one of its commit when it names one)."""
+    newest = run_reviews(w.c.base, doc["id"])[-1]
+    if newest.get("target"):
+        rid, current, _state = current_review(w.c.base, newest["target"])
+        return current if rid else newest
+    return newest
 
 
-def refusal(w: World, doc: dict, commit: str):
+def refusal(w: World, doc: dict, commit: str, base: str | None = None):
     """github.push's check for this run's PR, from its PR head, to ``commit``."""
-    return review_refusal(w.c.base, doc["id"], commit, repo="o/r", number=7, start_sha=w.repo.start)
+    return review_refusal(
+        w.c.base,
+        doc["id"],
+        commit,
+        repo="o/r",
+        number=7,
+        start_sha=w.repo.start,
+        base_sha=base or w.repo.base,
+    )
 
 
 def pushed_commit(doc: dict, i: int = 0) -> str:
@@ -630,8 +645,9 @@ def test_a_late_verdict_for_an_older_try_cannot_resurrect_an_approval(tmp_path):
     late = ReviewVerdictPort(w.c.base).invoke({}, "k", None, context=ctx)
     assert late.outcome == "completed"
     assert late.output["review"] == "approve"
-    # the newer try's rejection stays current: no push can use the stale approval
-    assert refusal(w, doc, first) == "review_rejected"
+    # d21: try 0's commit has its own record pointer; a second, different result for that
+    # same try is a permanent conflict - no push can use the stale approval
+    assert refusal(w, doc, first) == "review_conflict"
 
 
 # --------------------------------------------------------------------------- round 2, #7
@@ -887,7 +903,7 @@ def test_r5_1_a_re_armed_settle_starts_a_fresh_run_gated_on_the_new_base(tmp_pat
     from culture_rules.engine.runs import RUNS_COLLECTION
     from culture_rules.node.checks_settle import settled_event_id
     from tests.events.fakes import envelope
-    from tests.rules.test_pr_fixer_bundle import pr_facts
+    from tests.rules.test_pr_fixer_single import pr_facts
 
     w = World(tmp_path)
     first = w.fire()

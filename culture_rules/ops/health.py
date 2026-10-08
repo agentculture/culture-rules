@@ -6,7 +6,9 @@ due work in live runs - pending steps that are ready to dispatch, aged from when
 became ready, and retries past ``next_attempt_at`` - has been waiting; see
 :func:`culture_rules.engine.runs.due_steps`). ``hooks``
 counts webhook deliveries per surface, actor and outcome and ``gateways`` reports each Discord
-gateway's lease holder, connected flag and last event time. The overall ``status`` is ``ok``,
+gateway's lease holder, connected flag and last event time. ``chain_needs_review`` counts the
+chain continuations a node could not recover (d21,
+:data:`~culture_rules.node.chain.CHAIN_NEEDS_REVIEW`). The overall ``status`` is ``ok``,
 ``degraded`` (stale/missing heartbeat or lag above :data:`LAG_DEGRADED_S`) or ``down`` (store
 unreachable). It never raises. Standard-library only; the HTTP route lives in the server package.
 """
@@ -25,6 +27,7 @@ from culture_rules.machines.heartbeat import (
     HEARTBEAT_INTERVAL_S,
     offline_after,
 )
+from culture_rules.node.chain import CHAIN_NEEDS_REVIEW
 
 __all__ = ["LAG_DEGRADED_S", "gateways", "health_status", "hook_counts"]
 
@@ -102,6 +105,7 @@ def health_status(
         executor = _executor(store, now)
         hooks = hook_counts(store)
         gateway_list = gateways(store, now)
+        stuck = len(store.find(CHAIN_NEEDS_REVIEW))
         version = getattr(store, "node_schema_version", None)
         out["store"] = {
             "reachable": True,
@@ -113,6 +117,7 @@ def health_status(
         out["executor"] = {"lag_s": None, "due_steps": None}
         out["hooks"] = {}
         out["gateways"] = []
+        out["chain_needs_review"] = None
         out["status"] = "down"
         return out
     ts = _parse((beat or {}).get("ts"))
@@ -121,6 +126,7 @@ def health_status(
     out["executor"] = executor
     out["hooks"] = hooks
     out["gateways"] = gateway_list
+    out["chain_needs_review"] = stuck
     degraded = not out["heartbeat"]["online"] or executor["lag_s"] > LAG_DEGRADED_S
     out["status"] = "degraded" if degraded else "ok"
     return out

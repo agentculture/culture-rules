@@ -91,9 +91,10 @@ def test_a_review_that_did_not_approve_pushes_nothing(pem, world, verdict):  # n
 
 
 def test_an_approval_of_another_commit_pushes_nothing(pem, world):  # noqa: F811
+    # d21: approvals are found by the exact commit pushed; another commit's is no approval
     store = make_store()
     approve(store, world.a0)
-    assert_refused(*attempt(pem, world, store), world, "review_commit_mismatch")
+    assert_refused(*attempt(pem, world, store), world, "review_missing")
     store = make_store()
     approve(store, world.b, start_sha=world.a, reviewed_commit=world.a0)
     assert_refused(*attempt(pem, world, store), world, "review_commit_mismatch")
@@ -114,9 +115,10 @@ def test_a_reviewer_that_is_the_implementer_pushes_nothing(pem, world, over):  #
 
 
 def test_another_runs_approval_does_not_count(pem, world):  # noqa: F811
+    # d21: an approval of this very commit recorded by a run outside this push's chain
     store = make_store()
     approve(store, world.b, start_sha=world.a, id="run-2", run_id="run-2")
-    assert_refused(*attempt(pem, world, store), world, "review_missing")
+    assert_refused(*attempt(pem, world, store), world, "review_not_in_chain")
 
 
 def test_an_approval_of_this_commit_by_another_backend_pushes(pem, world):  # noqa: F811
@@ -141,12 +143,15 @@ def test_the_gate_verdict_is_still_checked_first(pem, world):  # noqa: F811
 @pytest.mark.parametrize(
     "over, code",
     [
-        ({"repo": "acme/other"}, "review_target_mismatch"),
-        ({"repo": None}, "review_target_mismatch"),
-        ({"number": 4}, "review_target_mismatch"),
-        ({"number": None}, "review_target_mismatch"),
-        ({"start_sha": "a0"}, "review_commit_mismatch"),  # reviewed from another start
-        ({"start_sha": None}, "review_commit_mismatch"),
+        # d21: the approval is keyed by (repo, PR, base, start, tip): one for another PR or
+        # range is simply not this push's approval
+        ({"repo": "acme/other"}, "review_missing"),
+        ({"repo": None}, "review_missing"),
+        ({"number": 4}, "review_missing"),
+        ({"number": None}, "review_missing"),
+        ({"start_sha": "a0"}, "review_missing"),  # reviewed from another start
+        ({"start_sha": None}, "review_missing"),
+        ({"base_sha": "f" * 40}, "review_missing"),  # reviewed under another base
     ],
 )
 def test_an_approval_for_another_pr_or_range_pushes_nothing(pem, world, over, code):  # noqa: F811
@@ -258,7 +263,7 @@ class RevokeAtPush(RecordingGit):
 
 
 def test_r2_4_no_revocation_can_land_once_the_approval_is_consumed(pem, world):  # noqa: F811
-    from culture_rules.actors.review import ReviewError, current_review
+    from culture_rules.actors.review import ReviewError, current_review, review_target
 
     store = make_store()
     approve(store, world.b, start_sha=world.a)
@@ -272,7 +277,8 @@ def test_r2_4_no_revocation_can_land_once_the_approval_is_consumed(pem, world): 
     # the newer verdict arrived after consumption: refused and recorded, never current
     assert isinstance(git_.outcome, ReviewError)
     assert git_.outcome.code == "review_consumed"
-    _rid, doc, state = current_review(store, "run-1")
+    target = review_target("acme/widgets", 3, PR_BASE_SHA, world.a, world.b)
+    _rid, doc, state = current_review(store, target)
     assert state == "consumed"
     assert doc["verdict"] == "approve"
     assert store.get("fixer_reviews", "run-1:fix[1]/verdict:1") is not None
@@ -312,16 +318,18 @@ def test_r4_2_a_base_that_moved_since_the_gate_pushes_nothing(pem, world, pr_bas
     assert (res.outcome, res.error, res.retryable) == ("failed", "base_changed", False)
     assert "push" not in rec.verbs()
     assert world.remote_head() == world.a
-    from culture_rules.actors.review import current_review
+    from culture_rules.actors.review import current_review, review_target
 
-    assert current_review(store, "run-1")[2] == "current"  # not consumed
+    target = review_target("acme/widgets", 3, PR_BASE_SHA, world.a, world.b)
+    assert current_review(store, target)[2] == "current"  # not consumed
 
 
 def test_r4_2_a_record_without_a_base_pushes_nothing(pem, world):  # noqa: F811
     store = make_store()
     approve(store, world.b, start_sha=world.a, base_sha=None)
     res = attempt(pem, world, store)[0]
-    assert (res.outcome, res.error) == ("failed", "base_changed")
+    # d21: a record without a base names no review target: it approves nothing
+    assert (res.outcome, res.error) == ("failed", "review_missing")
     assert world.remote_head() == world.a
 
 
@@ -431,3 +439,86 @@ def test_c3_a_refusal_on_an_unseen_head_keeps_its_pr_number_and_branch(pem, worl
     assert rec["pr_numbers"] == [3]
     assert rec["number"] == 3
     assert rec["head_branch"] == "fix"
+
+
+# --------------------------------------------------------------------------- upgrade (Codex #3)
+
+
+def old_release_approval(store, sha, start, *, verdict="approve", run_id="run-1", **over):
+    """What the 0.13.0 build wrote for a single-workflow run: a record without ``target``
+    and a per-run pointer in ``fixer_review_current``."""
+    rid = f"{run_id}:fix[0]/verdict:1"
+    store.put(
+        "fixer_reviews",
+        {
+            "id": rid,
+            "run_id": run_id,
+            "iteration": 0,
+            "attempt": 1,
+            "step": "fix[0]/verdict",
+            "commit_sha": sha,
+            "reviewed_commit": sha,
+            "start_sha": start,
+            "base_sha": PR_BASE_SHA,
+            "verdict": verdict,
+            "repo": "acme/widgets",
+            "number": 3,
+            "reviewer_actor": "codex-reviewer",
+            "reviewer_backend": "codex",
+            "implementer_actor": "qwen-fixer",
+            "implementer_backend": "qwen",
+            **over,
+        },
+    )
+    store.put(
+        "fixer_review_current",
+        {
+            "id": run_id,
+            "run_id": run_id,
+            "record": rid,
+            "iteration": 0,
+            "attempt": 1,
+            "state": "current",
+        },
+    )
+    return rid
+
+
+def test_an_in_flight_single_workflow_run_approved_by_the_old_release_still_pushes(
+    pem, world  # noqa: F811
+):
+    store = make_store()
+    old_release_approval(store, world.b, world.a)
+    res, _fake, _rec = attempt(pem, world, store)
+    assert res.outcome == "completed", res
+    assert res.output["pushed"] is True, res
+    assert world.remote_head() == world.b
+    assert store.get("fixer_review_current", "run-1")["state"] == "consumed"
+
+
+@pytest.mark.parametrize(
+    "over, code",
+    [
+        ({"verdict": "request_changes"}, "review_rejected"),
+        ({"reviewed_commit": "0" * 40}, "review_commit_mismatch"),
+        ({"reviewer_backend": "qwen"}, "reviewer_is_implementer"),
+        ({"number": 4}, "review_target_mismatch"),
+    ],
+)
+def test_the_old_release_approval_is_judged_exactly_as_d20_did(
+    pem, world, over, code  # noqa: F811
+):
+    store = make_store()
+    verdict = over.pop("verdict", "approve")
+    old_release_approval(store, world.b, world.a, verdict=verdict, **over)
+    assert_refused(*attempt(pem, world, store), world, code)
+
+
+def test_the_legacy_path_serves_only_single_workflow_runs(pem, world):  # noqa: F811
+    store = make_store()
+    old_release_approval(store, world.b, world.a)
+    run = store.get("runs", "run-1")
+    run["workflow"]["definition"] = {**run["workflow"]["definition"], "description": "x"}
+    store.put("runs", run)  # no longer a trusted single-workflow run
+    res, fake, rec = attempt(pem, world, store)
+    assert (res.outcome, res.error) == ("failed", "workflow_not_trusted")

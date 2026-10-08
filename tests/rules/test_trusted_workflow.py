@@ -13,19 +13,24 @@ import re
 from pathlib import Path
 
 from culture_rules.actors.trusted import (
-    TRUSTED_WORKFLOW_DIGESTS,
+    ROLE_SINGLE,
+    TRUSTED_WORKFLOWS,
+    trusted_workflow_digests,
     workflow_digest,
     workflow_refusal,
+    workflow_role,
 )
-from tests.rules.test_pr_fixer_bundle import workflow_doc
+from tests.rules.test_pr_fixer_single import workflow_doc
+
+TRUSTED_WORKFLOW_DIGESTS = trusted_workflow_digests()
 
 
-def test_the_shipped_pr_fixer_workflow_is_trusted():
+def test_the_single_pr_fixer_workflow_stays_trusted_in_its_role():
+    """The 0.13.0 single workflow (a copy in tests/rules/fixtures/pr-fixer-single) stays
+    trusted while runs pinned to it may still push (d21 rollout)."""
     digest = workflow_digest(workflow_doc())
-    assert digest in TRUSTED_WORKFLOW_DIGESTS, (
-        f"docs/rules/pr-fixer/workflows/pr-fixer.json now hashes to {digest}: if the change "
-        "is intended, add it to TRUSTED_WORKFLOW_DIGESTS in culture_rules/actors/trusted.py"
-    )
+    assert digest in TRUSTED_WORKFLOWS[ROLE_SINGLE]
+    assert workflow_role({"workflow": {"definition": workflow_doc()}}) == ROLE_SINGLE
 
 
 def test_the_set_holds_only_well_formed_digests():
@@ -64,7 +69,7 @@ def test_workflow_refusal_reads_the_pinned_definition():
 
 
 def _reviewer() -> dict:
-    from tests.rules.test_pr_fixer_bundle import reviewer_actor
+    from tests.rules.test_pr_fixer_single import reviewer_actor
 
     return reviewer_actor()
 

@@ -291,64 +291,233 @@ culture-rules variables set fixer_protected_paths --apply --value \
 | as `culture-fixer`, through grant: `gh api repos/agentculture/culture-rules/pulls` | `200`; a `gh pr merge` or a push is refused |
 | `culture-rules actors list` | `qwen-fixer`, machine `spark2` |
 
-## 7. The fixer rules and workflow (t17)
+## 7. The fixer rules and workflows (t17, d21)
 
 The fixer is committed data in `docs/rules/pr-fixer/`, in the import format
-(`rules/<id>.json`, `workflows/<id>.json`). JSON rather than YAML, so the import
-works on an API without the `yaml` extra. Four rules, one trigger type each,
-share one workflow (d13):
+(`rules/<id>.json`, `workflows/<id>.json`, `actors/<id>.json`). JSON rather
+than YAML, so the import works on an API without the `yaml` extra.
 
-| Rule | Trigger | Extra condition |
-|---|---|---|
-| `pr-fixer-checks` | `github.pr.checks_settled` | `conclusion` neither `"success"` nor `"no_checks"` (a green head, or one with no counted check, is left alone) |
-| `pr-fixer-comment` | `github.comment.created` | trusted author, not the App, `pr_enriched == true` |
-| `pr-fixer-review` | `github.review.submitted` | trusted author, not the App |
-| `pr-fixer-review-comment` | `github.review_comment.created` | trusted author, not the App |
+Since d21 the fixer is **three workflows chained by run events**
+([run events](../run-events.md)). Each stage is its own run, and each run
+fires the next through the `rules.run.succeeded` event it emits:
 
-Every rule also requires `head_repo == base_repo` and `draft == false`.
-`fixer_repos` is an allow-list (d18): the repository must be in
-`vars.fixer_repos`. `vars.fixer_excluded_repos` overrides it: a repository in
-both lists never fires. A missing fact makes the
-comparison false, so an event without PR facts never fires. "Trusted author"
-is `data.author in vars.trusted_authors`, and "not the App" is
-`self_authored != true`. The conditions reference the variables and never copy
-a list.
+| Rule | Fires on | Runs | Budget |
+|---|---|---|---|
+| `pr-fixer-checks` | `github.pr.checks_settled`, conclusion neither `success` nor `no_checks` | `pr-fix` | counts, 3 per PR |
+| `pr-fixer-comment` | `github.comment.created` by a trusted author that asks (below) | `pr-fix` | counts |
+| `pr-fixer-review` | `github.review.submitted` by a trusted author | `pr-fix` | counts |
+| `pr-fixer-review-comment` | `github.review_comment.created` by a trusted author that asks | `pr-fix` | counts |
+| `pr-fixer-review-commit` | `rules.run.succeeded` of `pr-fix`, gate `pass` or `no_gate` | `review-commit` | outside |
+| `pr-fixer-refix` | `rules.run.succeeded` of `review-commit`, review `request_changes` | `pr-fix` with the findings | counts |
+| `pr-fixer-publish` | `rules.run.succeeded` of `review-commit`, review `approve`, gate `pass` | `publish-fix` | outside |
 
-All four rules have the same settings:
+The d21 text calls the review stage `pr-fixer-review`. That id already names
+the review-submitted trigger rule, so the stage is `pr-fixer-review-commit`,
+after its workflow.
 
-- they ship with `enabled: false`;
-- their `on_failure` action (d16) is a `github.comment` as `github-app`:
-  `PR fixer handed back (<code>): <message>` with the run link (the failing step is on
-  the run);
-- placement is machine `spark2`;
-- `concurrency_key` is `pr-fixer:{trigger.data.repository}#{trigger.data.number}`
-  and `max_attempts` is 3, both shared across the four rules. If spark2 fires
-  a rule and dies before starting the run, the firing holds the PR's key until
-  spark2 has been offline for 10 minutes; then any node fails it
-  `placement_unavailable`, which frees the key;
-- they pass the same workflow inputs: `repo`, `number`, `head_sha`,
-  `head_branch`, `base_sha`, `clone_url`, `trusted_authors` (`{"$var":
-  "trusted_authors"}`) and an `instruction` written for their trigger type.
+### What every rule checks
 
-Workflow `pr-fixer`:
+The four trigger rules fire only for:
 
-1. `quiet`: a 300-second `wait` with the `head_unchanged` guard (the App
-   actor reads the head). A push during the wait ends the run `superseded`.
-   If the App actor's machine is offline or drained when the wait ends, the
-   run waits up to 10 minutes for it, then fails `placement_unavailable`
-   (an unenrolled machine fails it at once), which frees the PR's key.
-   The head read has 10 seconds, including a cold `grant get` of the App
-   key. A read that runs out of time is retried 5 seconds later, up to 5
-   times, then fails the run (`head_lookup_failed`).
-2. `threads`: the built-in `github.threads` (d15), as `github-app` on its
-   machine. It lists the PR's unresolved review threads through GraphQL, at
-   most 10 pages of 100, and keeps the threads whose opening comment's author
-   is in `trusted_authors`. Logins are compared case-insensitively, and a bot's
-   GraphQL login gets the REST `[bot]` suffix. It fails closed: a lookup error,
-   the page cap or bad input fails the step and the run, so the agent never
-   gets an unfiltered or partial list.
-3. `fix`: a `retry_until` with at most 3 tries. It stops when the verdict is
-   `pass` or `no_gate` **and** the reviewer approves, and carries the last
+- the PR's own repository: `head_repo == base_repo`, so no forks;
+- a PR that is not a draft (`draft == false`);
+- an open PR (`state == "open"`). A closed PR, or an event that does not say,
+  starts nothing;
+- a repository in `vars.fixer_repos` and not in `vars.fixer_excluded_repos`
+  (d18). A repository in both lists never fires.
+
+A missing fact makes the comparison false, so an event without PR facts
+never fires. The comment, review and review-comment rules also need a trusted
+author (`data.author in vars.trusted_authors`) and not the App itself
+(`self_authored != true`).
+
+**A comment must ask: start the comment with `/fix` or
+`@rules-culture-dev`.** Only the comment's first token counts, after any
+leading whitespace. Anything later in the body never starts a run: a mention
+mid-sentence, a quote, a code block. The accepted forms are listed in
+`vars.fixer_comment_triggers`; the seed default is `["/fix",
+"@rules-culture-dev"]`. The webhook receiver reads two facts from that first
+token:
+
+- `command`: the token when it is a `/word` followed by whitespace or the end
+  of the comment, lowercased (`/fix`). `/fix, please` is no command: put a
+  space after it;
+- `mention`: `@rules-culture-dev` (or `@rules-culture-dev[bot]`) when the
+  token is the App's mention. The match folds ASCII case only and needs a
+  token boundary: `@rules-culture-dev,` counts; `@rules-culture-devx`,
+  `@rules-culture-dev[bot]x` and `@rules-culture-dev.example` do not. The slug
+  is the App actor's `params.self_identity` without `[bot]`.
+
+Narrow the variable to `["/fix"]` to ignore mentions. Qodo's billing notice,
+a status note and a closing comment (the three live cases) carry neither, so
+they start nothing. A submitted review needs no command: a trusted reviewer's
+review starts a run, as before.
+
+The three stage rules check `data.workflow_id` (the upstream run's workflow)
+and the repository allow-list again. An operator who drops a repository from
+`fixer_repos` stops its chains at the next stage.
+
+### Settings every rule shares
+
+- They ship with `enabled: false`.
+- Placement is machine `spark2`.
+- The key is `pr-fixer:{trigger.data.repository}#{trigger.data.number}`. It
+  resolves on the run events too, because they carry the PR fields.
+- **The chain holds the key** between its stages
+  ([run events](../run-events.md), "A chain is one unit per key"). A new
+  checks settle or `/fix` comment that arrives during a chain waits and fires
+  once the chain ends. It never interleaves with it.
+- **Only fix runs count** toward the PR's attempt budget of 3: the four
+  trigger rules and `pr-fixer-refix`. The review and publish stages are
+  `counts_toward_budget: false`. A human push or green checks resets it.
+- **One comment per chain** (`only_at_chain_end: true` on every action and
+  `on_failure`). The stage that ends the chain posts it:
+  - a failed stage posts the hand-back,
+    `PR fixer handed back (<code>): <message>` with the run link;
+  - `publish-fix` posts the success comment with the pushed head;
+  - in review-only mode the review posts its verdict;
+  - a stage that something continues posts nothing (`chain_continues` on
+    its run).
+- All inputs of the three workflows are optional. A stage whose inputs are
+  missing still starts, fails inside and hands back, so a chain never ends
+  in silence.
+
+### Workflow `pr-fix`
+
+It builds and gates one commit. It never reviews or pushes it.
+
+1. `quiet`: a 300-second `wait` with the `head_unchanged` guard. It is the
+   same as the d20 workflow's: a push during the wait ends the run
+   `superseded`.
+2. `threads`: the built-in `github.threads` (d15). Only the PR's unresolved
+   threads opened by a trusted author reach the agent. Any error fails the
+   run.
+3. `sonar`: the built-in `sonar.gate_issues`
+   (`culture_rules/node/actions/sonar.py`). It reads the PR's SonarCloud
+   quality gate from SonarCloud's public API. For each **failing** condition
+   it lists the issues behind it:
+
+   | Failing condition | Issues listed |
+   |---|---|
+   | `new_reliability_rating` | bugs |
+   | `new_security_rating` | vulnerabilities |
+   | `new_maintainability_rating` | code smells |
+   | `new_security_hotspots_reviewed` | hotspots still to review |
+
+   The step lists at most 50, paged across every listed type. It reports the
+   `total` SonarCloud counts and how many it `omitted`; a capped list's note
+   says "the first N of TOTAL". Coverage and duplication have no issue list;
+   the step names them in its note. The project key is `{owner}_{name}`. A failed
+   lookup (no analysis, SonarCloud down) is `available: false` with a note.
+   It never fails the run: Sonar data is advice, not a guard.
+4. `fix`: a `retry_until` of up to 3 tries until the gate verdict is `pass`
+   or `no_gate`. The gate's failure text is the next try's instruction.
+   - `agent`: `qwen-fixer` in mode `yolo`. Its bound inputs are the trusted
+     `threads`, `sonar_issues` and `sonar_note`. The rule's instruction says
+     to fix exactly those Sonar issues and never the rest of the backlog.
+     `require_commit: true`: a turn that leaves no commit (bridge status
+     `no_changes` or `uncommitted`, or the head unmoved) fails the step at
+     once with `no_changes`. The attempt then ends with no gate and no
+     review, and hands back once.
+   - `gate`: the built-in gate on spark2, unchanged from d20. It builds
+     **one commit itself** and tests, diffs and bundles exactly that commit.
+
+The run exports what the next stages need: the gate's verdict, `commit_sha`,
+`start_sha`, `diff`, `diff_truncated`, `gate_output` and `bundle`. It also
+exports the trusted threads, the agent's `threads_addressed` and summary, the
+instruction and task, the clone URL and the head branch.
+
+### Workflow `review-commit`
+
+1. `review`: `codex-reviewer` (spark, sandbox `read-only`, locked brief).
+   It reads the pr-fix run's diff. It runs only for a passing gate (or no
+   gate) whose diff is the whole change.
+2. `verdict`: the built-in `review`. It **walks back to the `pr-fix` run**
+   whose success started this run (`culture_rules/actors/lineage.py`), never
+   through wired inputs:
+   - this run's id must be its rule's firing on that run's event;
+   - the event must equal the pr-fix run's immutable completion record;
+   - the pr-fix run must be a trusted `pr-fix` that succeeded.
+
+   Each failed check is `chain_unverified` or `workflow_not_trusted`. The
+   step then reads that run's last gate and its implementer from the store.
+   It checks the reviewer exactly as d20 does: read-only, another actor and
+   backend, the locked brief, the same commit and diff. A request for changes
+   becomes the re-fix's instruction: the findings, then "The original task".
+   If the PR's attempt budget is already spent, no re-fix would be admitted,
+   so the step fails `changes_requested` with the findings, and that one
+   hand-back ends the chain.
+
+**Review records are per commit.** Each outcome is an immutable record in
+`fixer_reviews`. One that names a whole target (repo, PR, base, start, tip)
+moves that target's pointer in `fixer_review_targets` forward. A later review
+run of the same commit replaces an earlier one's result; an older run's late
+write never does. The d20 per-run pointers (`fixer_review_current`) are no
+longer read.
+
+### Workflow `publish-fix`
+
+1. `push`: `github.push` as `github-app` on spark2, where the bundle is. On
+   top of every d20 check, the port **verifies the whole chain from the
+   store**:
+   - this run's workflow is a trusted `publish-fix`;
+   - it was started by a trusted `review-commit` run succeeding, itself
+     started by a trusted `pr-fix` run succeeding, each link checked against
+     the upstream run's completion record (`chain_unverified`,
+     `workflow_not_trusted`);
+   - the commit, its start, the bundle, the repository, the PR and the branch
+     are exactly what that pr-fix run's last gate built (`chain_mismatch`),
+     and the gate passed (`gate_not_passed`);
+   - the rule of every run of the chain is still enabled (`rule_disabled`).
+     For a re-fix the chain reaches back through every earlier review and fix
+     to the trigger rule that started it. Disabling any fixer rule mid-chain,
+     the initiating one included, stops the push;
+   - the commit's review record approves exactly this commit, by a reviewer
+     other than the implementer, and was **written by this chain's review
+     run** (`review_not_in_chain`);
+   - then come the d20 checks: base, head (`head_moved`), consumption by
+     compare-and-set, and the re-check right before `git push`.
+
+   A commit equal to the PR head has nothing to push. It is reported done
+   only after the PR read, so a closed PR is `pr_not_open`, never a success.
+2. `threads`: the PR's trusted unresolved threads, read again after the push.
+   A thread resolved meanwhile is not answered.
+3. `pick` and `replies`: one `github.review_reply` per trusted thread the
+   agent addressed, naming the pushed commit.
+
+### Review-only mode
+
+Disable `pr-fixer-publish`. The review then ends the chain. Its action posts
+`PR fixer review: <verdict> for <commit> (gate <verdict>); not pushed: nothing
+publishes it`, followed by the findings and the run link. Nothing is pushed.
+The same comment ends a chain whose gate was `no_gate`, because
+`pr-fixer-publish` needs a passing gate.
+
+### Bridge jobs are cancelled when their attempt ends
+
+A bridge job can outlive its step attempt: the step timed out, a newer
+attempt replaced it, or the run failed or was cancelled. Each node cycle, the
+node on the actor's machine (where its bridge token is) asks the bridge to
+stop such a job (`POST /v1/invocations/<id>/cancel`). It tries at most 5
+times. The invocation records `cancel_sent_at` and `cancel_reason`. An
+orphaned session no longer holds the fixer's only seat.
+
+### The d20 single workflow, in detail
+
+The 0.13.0 single workflow, `pr-fixer`, did the fix, the gate, the review and
+the push in one run. It is no longer shipped. Its data is kept as a test
+fixture (`tests/rules/fixtures/pr-fixer-single/`), and its digest stays
+trusted while runs pinned to it may still push. The mechanics below are its
+steps 3 and 4, kept as they were. The split's `gate`, `review`, `verdict` and
+`push` steps work the same way. The differences are the ones the sections
+above name:
+
+- the review is its own run, and its record is per commit;
+- the push verifies the chain;
+- a request for changes runs a new `pr-fix` instead of the next try.
+
+1. `fix` (its step 3): a `retry_until` with at most 3 tries. It stops when the
+   verdict is `pass` or `no_gate` **and** the reviewer approves, and carries the last
    step's `instruction` (the gate's failure text, or the reviewer's findings)
    into the next try. After three tries without that, the run fails
    `loop_max_exceeded` and the hand-back comment ends with the last reason
@@ -417,8 +586,8 @@ Workflow `pr-fixer`:
      moves forward, so a late result for an older try never becomes current;
      two different results for the same try make it a permanent `conflict`
      (`review_conflict`).
-4. `push`: a built-in `action` step, `github.push` as `github-app`, on spark2
-   where the gate's bundle is. It runs with `gate_verdict` wired in, so only a
+2. `push` (its step 4): a built-in `action` step, `github.push` as `github-app`, on
+   spark2 where the gate's bundle is. It runs with `gate_verdict` wired in, so only a
    `pass` pushes. The port refuses `rule_disabled` when the firing rule was
    disabled mid-run. Then, for **every** push whatever the workflow wires, it
    reads the run's current review record and refuses unless it approves this
@@ -459,31 +628,77 @@ Workflow `pr-fixer`:
    Before all of that, the run's pinned workflow must be a **trusted** one
    (`workflow_not_trusted`, below), so an edited workflow can run but never
    push.
-5. `pick`: the built-in `github.threads_addressed`. It keeps the agent's
-   `threads_addressed` entries whose `thread_id` is in the trusted list. Any
-   other id is dropped, never answered. Each reply names the pushed commit
-   (`push.head_after`), never the agent's own.
 
-### Trusted workflows (d20 round 2)
+### Trusted workflows (d20 round 2, d21 roles)
 
 `github.push` and the `review` step serve only runs whose pinned workflow
-definition hashes to a digest in `TRUSTED_WORKFLOW_DIGESTS`
-(`culture_rules/actors/trusted.py`). The digest is sha256 of the definition
-as the workflow model writes it, without `version` (every save bumps it), as
-compact sorted JSON. It is recomputed from the run's pinned definition, not
-read from the run. Any other edit, even a description, makes the workflow
-untrusted: it still runs and hands back, but pushes nothing.
+definition hashes to a digest pinned in code, **in a role**
+(`TRUSTED_WORKFLOWS`, `culture_rules/actors/trusted.py`):
 
-To change the workflow on purpose:
+| Role | Workflow | May |
+|---|---|---|
+| `pr-fixer` | the 0.13.0 single workflow (fixture copy) | review and push its own commit |
+| `pr-fix` | `workflows/pr-fix.json` | build and gate a commit (its runs are what a review judges) |
+| `review-commit` | `workflows/review-commit.json` | record a review of a `pr-fix` run's commit |
+| `publish-fix` | `workflows/publish-fix.json` | push a commit a `review-commit` run approved |
 
-1. Edit `docs/rules/pr-fixer/workflows/pr-fixer.json`.
-2. `tests/rules/test_trusted_workflow.py` fails and prints the new digest.
-   Add it to the set in the same PR. Keep the old digest while runs pinned
+A digest sits in one role, and a run may do only what its role allows. A push
+checks the role of every run of its chain. The digest is sha256 of the
+definition as the workflow model writes it, without `version` (every save
+bumps it), as compact sorted JSON. It is recomputed from each run's pinned
+definition, never read from the run. Any other edit, even a description,
+makes the workflow untrusted: it still runs and hands back, but pushes
+nothing.
+
+To change a workflow on purpose:
+
+1. Edit it in `docs/rules/pr-fixer/workflows/`.
+2. `tests/rules/test_pr_fixer_bundle.py` fails and prints the new digest.
+   Add it to its role in the same PR. Keep the old digest while runs pinned
    to it may still be in flight; drop it in a later release.
 3. Ship the wheel and upgrade every node.
 4. Import the workflow (`culture-rules workflows import ... --apply`).
 
-It is a set, so the split workflows planned for d21 can sit beside it.
+The shipped digests (0.14.0):
+
+| Role | Digest |
+|---|---|
+| `pr-fixer` | `sha256:01ece1cd…f4fc5d6` (kept for the transition) |
+| `pr-fix` | `sha256:165571b8…7cb626` |
+| `review-commit` | `sha256:79064f76…b158e6` |
+| `publish-fix` | `sha256:0fa92074…c23680` |
+
+### Rolling out the split (d21)
+
+The order matters: nodes first, then the data.
+
+1. **Pause the engine** (`culture-rules runs pause`, lapse l5) and let the
+   fixer runs in flight finish, or stop them (`rules stop-runs`). A d20 run
+   pinned to the single workflow can still push after the upgrade (its digest
+   stays trusted). A review the old build recorded is read through a narrow
+   legacy path: only for a run of that trusted workflow, only from its per-run
+   pointer in `fixer_review_current`, judged and consumed exactly as d20 did.
+2. **Upgrade every node and the API** to the 0.14.0 wheel. It holds the new
+   trusted digests, the chain holds, the cancel stage and the Sonar built-in.
+   An old node that evaluates a stage rule cannot hold the key or verify the
+   chain, so upgrade them all before any stage rule is enabled.
+3. **Seed the new variable**:
+   `bash docs/rules/pr-fixer/seed-variables.sh --apply`. Existing variables
+   are kept; this adds `fixer_comment_triggers`. Without it the comment rules'
+   import is refused.
+4. **Import**: actors, then workflows, then rules
+   (`culture-rules actors|workflows|rules import docs/rules/pr-fixer --apply`).
+   The four trigger rules keep their ids and now run `pr-fix`; the import sets
+   every rule back to `enabled: false`.
+5. **Disable the old single workflow**: the stored `pr-fixer` workflow is no
+   longer referenced by any rule. Disable it
+   (`culture-rules workflows disable pr-fixer --apply`), so no direct run
+   starts it.
+6. **Enable the seven rules** (`rules enable <id> --apply` each), the stage
+   rules first, then the trigger rules. For review-only mode, leave
+   `pr-fixer-publish` off.
+7. **Resume** (`culture-rules runs resume`).
+8. In a later release, drop the `pr-fixer` digest from `TRUSTED_WORKFLOWS`.
 
 ### Trusted actors (d20 round 3)
 
@@ -550,37 +765,55 @@ actor. Drop the first digest in a later release.
 `rules_describe` / `workflows_describe`) describe a stored definition from its
 config alone. No AI writes it, and the name and description fields are not
 used. In the editor, the (i) "About" button on each rule and workflow (list
-rows and title) shows the same lines. For the shipped bundle:
+rows and title) shows the same lines. For the shipped bundle (d21):
 
 ```console
 $ culture-rules rules describe pr-fixer-checks
 When github.pr.checks_settled
 If head_repo = base_repo
 and draft = false
+and state = open
 and repository ∈ vars.fixer_repos
 and not (repository ∈ vars.fixer_excluded_repos)
 and conclusion ≠ success
 and conclusion ≠ no_checks
-Run workflow pr-fixer (6 steps)
+Run workflow pr-fix (4 steps)
 On spark2
-Then github.comment as github-app
-On failure github.comment as github-app
+Then github.comment as github-app (only where its chain ends)
+On failure github.comment as github-app (only where its chain ends)
 Key pr-fixer:{repository}#{number}, ≤3 attempts
 Disabled
-$ culture-rules workflows describe pr-fixer
+$ culture-rules rules describe pr-fixer-publish
+When rules.run.succeeded
+If workflow_id = review-commit
+and review = approve
+and verdict = pass
+and repository ∈ vars.fixer_repos
+and not (repository ∈ vars.fixer_excluded_repos)
+Run workflow publish-fix (4 steps)
+On spark2
+Then github.comment as github-app (only where its chain ends)
+On failure github.comment as github-app (only where its chain ends)
+Key pr-fixer:{repository}#{number}, outside the attempt budget
+Disabled
+$ culture-rules workflows describe pr-fix
 1 quiet — wait 300 s; stop if the PR head moves (head_unchanged, as github-app)
 2 threads — github.threads as github-app: unresolved threads by trusted authors
-3 fix — retry up to 3×, until verdict ∈ {pass, no_gate} and review = approve:
-  3.1 agent — qwen-fixer (agent)
-  3.2 gate — test gate on spark2
-  3.3 review — codex-reviewer (agent, read-only), when gate_verdict ∈ {pass, no_gate} and diff_truncated = false
-  3.4 verdict — review verdict, recorded for github.push
-4 push — github.push as github-app on spark2 (only on a passing gate and an approving review)
-5 pick — github.threads_addressed
-6 replies — for each item (≤200): github.review_reply as github-app and resolve
+3 sonar — sonar.gate_issues: the issues behind the PR's failing SonarCloud gate
+4 fix — retry up to 3×, until verdict ∈ {pass, no_gate}:
+  4.1 agent — qwen-fixer (agent, must commit)
+  4.2 gate — test gate on spark2
+$ culture-rules workflows describe review-commit
+1 review — codex-reviewer (agent, read-only), when gate_verdict ∈ {pass, no_gate} and diff_truncated = false
+2 verdict — review verdict, recorded for its commit (github.push checks it)
+$ culture-rules workflows describe publish-fix
+1 push — github.push as github-app on spark2 (only on a passing gate and an approving review of exactly that commit)
+2 threads — github.threads as github-app: unresolved threads by trusted authors
+3 pick — github.threads_addressed
+4 replies — for each item (≤200): github.review_reply as github-app and resolve
 ```
 
-These two outputs are pinned as golden tests (`tests/model/test_describe.py`).
+These outputs are pinned as golden tests (`tests/model/test_describe.py`).
 `--json` adds the structured `entries` (`label`, `text`, `depth`, and `step`
 on a workflow entry). The vocabulary is in `culture_rules/model/describe.py`:
 one phrase per trigger kind, step kind, built-in, action kind and condition
@@ -789,6 +1022,12 @@ with **Approve** and **Keep running**.
 - **Keep running** (or do nothing): the runs go on. The push step reads the
   live rule, so it still refuses with `rule_disabled`, and nothing reaches
   the PR branch.
+
+Since d21 the push checks the rule of **every** run of its chain: the
+trigger rule that started the fix, `pr-fixer-review-commit` and
+`pr-fixer-publish`. Disabling any one of them mid-chain stops the push, and
+the chain hands back once (`rule_disabled`). Stopping runs is per rule: stop
+the runs of each rule you disabled.
 
 ## Which repos carry a gate section (t19)
 

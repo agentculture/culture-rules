@@ -44,7 +44,10 @@ A :class:`Node` on host ``H`` does, every cycle (:meth:`Node.run_once`):
    and the actor's limit slot is freed (:mod:`culture_rules.node.completions`). Mesh
    replies are not polled: ``MeshAgentActor`` is not among the production adapters;
 6. **drive** - ticks the :class:`~culture_rules.engine.runs.Executor` until idle; actors
-   are reached through :class:`~culture_rules.node.actors.ActorRouter`;
+   are reached through :class:`~culture_rules.node.actors.ActorRouter`; then **cancel** -
+   asks each bridge this node can reach (an actor on this machine, or on none) to cancel
+   the jobs whose step attempt is over (:func:`~culture_rules.actors.agent.cancel_orphans`,
+   d21 phase 2), so an orphaned agent session never holds a bridge's seat;
 7. **report** - optional: posts finished runs this node started through
    :meth:`~culture_rules.engine.reports.RunReporter.observe`.
 
@@ -79,10 +82,16 @@ from culture_rules.engine.claims import DEFAULT_LEASE, RULE_ATTEMPT_BUDGETS
 from culture_rules.engine.decisions import RULE_DECISIONS
 from culture_rules.engine.named_lease import LEASES_COLLECTION
 from culture_rules.engine.reports import RunReporter
+from culture_rules.engine.run_completions import RUN_COMPLETIONS, RUN_EVENT_CONSUMPTION
 from culture_rules.engine.runs import RUNS_COLLECTION, Executor
 from culture_rules.engine.variables import NODE_CAPABILITIES, VARIABLES_CAPABILITY
 from culture_rules.events.hook_sink import HOOK_STATS_COLLECTION
-from culture_rules.events.ingest import EVENTS_COLLECTION, EventIngest
+from culture_rules.events.ingest import (
+    EVENTS_COLLECTION,
+    QUARANTINE_COLLECTION,
+    EventIngest,
+    ensure_quarantine_ttl,
+)
 from culture_rules.events.source import EventSource
 from culture_rules.events.triggers import FIRES_COLLECTION
 from culture_rules.machines.enrol import MACHINES_COLLECTION
@@ -95,6 +104,7 @@ from culture_rules.machines.heartbeat import (
 from culture_rules.machines.probe import ProbeResult, probe_platform, read_load
 from culture_rules.node import completions
 from culture_rules.node.actors import ACTORS_COLLECTION, ActorRouter, AdapterFactory
+from culture_rules.node.chain import CHAIN_NEEDS_REVIEW
 from culture_rules.node.checks_settle import (
     RECOVERY_COLLECTION,
     SETTLE_COLLECTION,
@@ -134,6 +144,10 @@ NODE_COLLECTIONS = (
     SETTLE_COLLECTION,
     RECOVERY_COLLECTION,
     RULE_ATTEMPT_BUDGETS,
+    RUN_COMPLETIONS,
+    RUN_EVENT_CONSUMPTION,
+    QUARANTINE_COLLECTION,
+    CHAIN_NEEDS_REVIEW,
 )
 """Collections a node touches (created up front on MongoDB)."""
 
@@ -238,6 +252,7 @@ class Node:
         ensure = getattr(store, "ensure_collections", None)
         if callable(ensure):
             ensure(*NODE_COLLECTIONS)
+        ensure_quarantine_ttl(store)  # every node can quarantine (outbox, ingest)
         options = options or NodeOptions()
         self._beat_options = heartbeat_options or HeartbeatOptions()
         self.router = ActorRouter(store, ports=actors, factories=adapters, clock=self._clock)
@@ -325,7 +340,7 @@ class Node:
             )
             doc = self.beat()
             pinned = CycleReport(self.host)
-            for consumer in self.firing.consumers:
+            for consumer in self.firing.start_consumers:  # cursors before the first drain
                 self._stage(pinned, self._poll, consumer, pinned)  # retried next cycle
             self._stage(pinned, self._schedule, pinned)  # opens the window: no backfill
             self._stage(pinned, self._probe, pinned)
@@ -410,6 +425,7 @@ class Node:
             self._stage(report, self._schedule, report)
             self._stage(report, self._probe, report)
             self._stage(report, self._settle, report)
+            self._stage(report, self._expire_holds, report)
             if self._listen_gateways:
                 self._stage(report, self._discord_gateway, report)
             for consumer in self.firing.consumers:
@@ -417,6 +433,7 @@ class Node:
             self._stage(report, self._start_fired, report)
             self._stage(report, self._redeliver, report)
             self._stage(report, self._drive, report)
+            self._stage(report, self._cancel_orphans, report)
             if self._reporter is not None and self._report_token is not None:
                 self._stage(report, self._report, report)
         return report
@@ -452,6 +469,15 @@ class Node:
     def _settle(self, report: CycleReport) -> None:
         self.settler.tick()
 
+    def _expire_holds(self, report: CycleReport) -> None:
+        """Release chain holds past their TTL (d21): their pending events then fire through
+        the chain consumers (:func:`~culture_rules.engine.chain_hold.expire_holds`)."""
+        del report
+        from culture_rules.engine.chain_hold import expire_holds  # noqa: PLC0415
+
+        for doc_id in expire_holds(self._store, self._clock()):
+            log.warning("chain hold on %s expired before its continuation: released", doc_id)
+
     def _discord_gateway(self, report: CycleReport) -> None:
         report.listening += self.gateways.tick()
 
@@ -474,6 +500,24 @@ class Node:
 
     def _drive(self, report: CycleReport) -> None:
         report.transitions += self.executor.run_until_idle(self._max_ticks)
+
+    def _cancel_orphans(self, report: CycleReport) -> None:
+        """Cancel bridge jobs whose step attempt is over (d21 phase 2), for the actors
+        this node can reach (:func:`~culture_rules.actors.agent.cancel_orphans`)."""
+        del report
+        agent.cancel_orphans(self._store, self._bridge_adapter, clock=self._clock)
+
+    def _bridge_adapter(self, actor_id: Any) -> Any:
+        """The adapter of ``actor_id`` when this node may call its bridge: the actor lives
+        on this machine (its bridge token is in this node's secrets) or on none."""
+        doc = self._store.get(ACTORS_COLLECTION, actor_id) if isinstance(actor_id, str) else None
+        if not doc or doc.get("deleted_at"):
+            return None
+        machine = doc.get("machine")
+        if machine and machine != self.host:
+            return None
+        limited = self.router.limited(actor_id)
+        return getattr(limited, "inner", None)
 
     def _report(self, report: CycleReport) -> None:
         reporter = self._reporter

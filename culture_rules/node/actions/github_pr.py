@@ -19,29 +19,46 @@ repo allowlist and its per-actor App cache. There is deliberately no merge port.
     1. actor, allowlist and input shape (no secret read, no network);
     2. the run's source rule (or, for a direct workflow run, its workflow) is still live and
        enabled;
-    3. the run's review (d20, :func:`culture_rules.actors.review.review_refusal`): the
-       review record of this run, written only by the built-in ``review`` step and never
-       read from a param, must approve exactly ``commit_sha``, by a reviewer whose actor and
-       backend both differ from the implementer's - else ``review_missing``,
-       ``review_rejected``, ``review_commit_mismatch`` or ``reviewer_is_implementer``. This
-       holds for every push, so a workflow that skips the review step pushes nothing.
-       The approving record is re-read right before the final ``git push`` (step 8); a
-       different current record refuses ``review_changed``. The PR's base (read in step 5)
-       must still be the base the review recorded, else ``base_changed``;
-    4. ``commit_sha`` is fetched into a fresh, node-owned bare repo (so nothing in the agent's
+    3. the chain (d21, :func:`_chain`, from the store): the pushing run's pinned workflow is
+       trusted in a role that may push (``workflow_not_trusted``) - the single d20
+       ``pr-fixer`` workflow, which built, gated and reviewed the commit itself, or
+       ``publish-fix``, which must have been started by a trusted ``review-commit`` run
+       succeeding, itself started by a trusted ``pr-fix`` run succeeding, each link verified
+       against the upstream run's immutable completion record (``chain_unverified``,
+       :mod:`culture_rules.actors.lineage`). The commit, its start, its bundle, the repo, PR
+       and branch must be exactly what that fix run's last gate built and gated
+       (``chain_mismatch``), the gate must have passed (``gate_not_passed``), and the rule
+       of every run of the chain must still be enabled (``rule_disabled``) - for a re-fix
+       back through every earlier review and fix to the run an external event started;
+    4. the review (d20, :func:`culture_rules.actors.review.approved_review`): the review
+       record of the commit's target (repo, PR, base, start, tip), written only by the
+       built-in ``review`` step and never read from a param, must approve exactly
+       ``commit_sha``, by a reviewer whose actor and backend both differ from the
+       implementer's, and have been written by the chain's own review run - else
+       ``review_missing``, ``review_rejected``, ``review_commit_mismatch``,
+       ``reviewer_is_implementer`` or ``review_not_in_chain``. This holds for every push,
+       so a workflow that skips the review step pushes nothing. The approving record is
+       re-read right before the final ``git push`` (step 9); a different current record
+       refuses ``review_changed``. The PR's base (read in step 6) must still be the base
+       the review recorded, else ``base_changed``. The approval is then consumed by a
+       compare-and-set (``review_consumed`` for any other commit afterwards);
+    5. ``commit_sha`` is fetched into a fresh, node-owned bare repo (so nothing in the agent's
        repo config, hooks or credential helpers ever sees the token) and must descend from
        ``expected_head_sha``: a non-fast-forward update is refused before any network call.
        If the App actor sets ``params.commit_author`` (a git author name or email), every
        commit in ``expected_head_sha..commit_sha`` must carry it, else ``foreign_author``;
        unset, the check is off;
-    5. the PR (read as the App) must be open, its head and base repo both ``repo`` and its
-       head ref ``head_branch``; its head SHA must equal ``expected_head_sha``;
-    6. a fresh token is minted for this push alone: ``repositories=[repo]``,
+    6. the PR (read as the App) must be open, its head and base repo both ``repo`` and its
+       head ref ``head_branch``; its head SHA must equal ``expected_head_sha``
+       (``head_moved``). A commit equal to ``expected_head_sha`` has nothing to push, but is
+       reported done only after the same PR read (d21: never a success on a closed PR);
+    7. a fresh token is minted for this push alone: ``repositories=[repo]``,
        ``permissions={contents: write}``. It reaches git only through the child process's
        environment (an ``http.extraHeader``), never argv, a file or a log;
-    7. ``git ls-remote`` with that token must still report ``expected_head_sha``;
-    8. the rule is checked again, then one plain ``git push`` (no force, no ``+`` refspec,
-       hooks off) of ``<sha>:refs/heads/<head_branch>``. The server also refuses non-ff.
+    8. ``git ls-remote`` with that token must still report ``expected_head_sha``;
+    9. the rules of the chain are checked again, then one plain ``git push`` (no force, no
+       ``+`` refspec, hooks off) of ``<sha>:refs/heads/<head_branch>``. The server also
+       refuses non-ff.
 
     Every git and HTTP call is bounded by the time left before the invocation's deadline
     (past it the executor stops renewing the step's claim and another host may take over),
@@ -89,15 +106,28 @@ import subprocess  # argv lists only, shell=False (B404/B603 skipped in pyprojec
 import tempfile
 import time
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+from culture_rules.actors import trusted
+from culture_rules.actors.lineage import (
+    LineageError,
+    final_gate,
+    fix_ancestry,
+    rules_live,
+    upstream,
+)
 from culture_rules.actors.review import (
     REVIEWS_COLLECTION,
     approved_review,
     consume_approval,
+    current_review,
+    legacy_approval,
+    legacy_consume,
+    review_target,
 )
-from culture_rules.actors.trusted import doc_refusal, workflow_refusal
+from culture_rules.actors.trusted import doc_refusal
 from culture_rules.apps.github import DEFAULT_API_BASE, GitHubApp, GitHubError, Transport
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
 from culture_rules.engine.runs import (
@@ -241,6 +271,21 @@ def _pull_verdict(
     """Whether the PR read lets the push go on (None), finds it already done
     (:data:`_ALREADY`), or refuses it: ``pr_not_open``, ``not_same_repo_pr`` (a fork, or
     another base repo), ``not_pr_head_branch`` or ``head_moved`` - checked in that order."""
+    refusal = _open_pr_refusal(pull, repo, branch)
+    if refusal:
+        return refusal
+    head = pull.get("head") or {}
+    if head.get("sha") == sha:
+        return _ALREADY
+    if head.get("sha") != expected:
+        return "head_moved"
+    return None
+
+
+def _open_pr_refusal(pull: Mapping[str, Any], repo: str, branch: str) -> str | None:
+    """Why the PR read is not an open, same-repo PR with ``branch`` as its head ref:
+    ``pr_not_open``, ``not_same_repo_pr`` or ``not_pr_head_branch`` (in that order), or
+    None."""
     head, base = pull.get("head") or {}, pull.get("base") or {}
     if pull.get("state") != "open":
         return "pr_not_open"
@@ -250,10 +295,6 @@ def _pull_verdict(
         return "not_same_repo_pr"
     if head.get("ref") != branch:
         return "not_pr_head_branch"
-    if head.get("sha") == sha:
-        return _ALREADY
-    if head.get("sha") != expected:
-        return "head_moved"
     return None
 
 
@@ -302,6 +343,7 @@ class _PushJob:
         self.deadline = deadline
         self.clock = clock
         self.review_record: str | None = None
+        self.chain: _Chain | None = None
 
     def require(self, margin: float = 0.0) -> float:
         """Seconds left before the deadline; ``deadline_exceeded`` if not more than ``margin``.
@@ -421,7 +463,7 @@ class GitHubPushPort(GitHubCommentPort):
         bad = _push_input_error(input)
         if bad:
             return InvocationResult.failed(bad, retryable=False)
-        refusal, review_record = self._governance_refusal(input, context, actor_id, snapshot)
+        refusal, review_record, chain = self._governance_refusal(input, context, actor_id, snapshot)
         if refusal:
             return InvocationResult.failed(refusal, retryable=False)
         if self._clock() >= deadline:
@@ -429,6 +471,7 @@ class GitHubPushPort(GitHubCommentPort):
         tmp = tempfile.mkdtemp(prefix="culture-rules-push-")
         job = _PushJob(self._git, tmp, deadline, self._clock)
         job.review_record = review_record
+        job.chain = chain
         try:
             return self._push(str(actor_id), conn, allowed, input, context, job, snapshot)
         except _Refused as exc:
@@ -445,30 +488,34 @@ class GitHubPushPort(GitHubCommentPort):
         context: InvocationContext,
         actor_id: Any,
         snapshot: Mapping[str, Any] | None,
-    ) -> tuple[str | None, str | None]:
-        """``(refusal, review record)``: the push is refused unless its rule is live, the run
-        is of a trusted workflow, the run's review approved exactly this commit, and the App
-        actor matches a pinned digest - checked in that order (all but the first logged)."""
+    ) -> tuple[str | None, str | None, _Chain | None]:
+        """``(refusal, review record, chain)``: the push is refused unless its rule is live,
+        the run's chain is verified (:func:`_chain`), the chain's review approved exactly
+        this commit, and the App actor matches a pinned digest - checked in that order (all
+        but the first logged)."""
         refusal = source_rule_refusal(self._store, context.run_id)
         if refusal:
-            return refusal, None
-        # d20 round 2: only a run of a workflow pinned as trusted in code may push
-        refusal = workflow_refusal(self._store.get(RUNS_COLLECTION, context.run_id))
-        if refusal:
-            log.info(_PUSH_REFUSED, refusal)
-            return refusal, None
-        # d20: the run's reviewer must have approved exactly this commit (read from the
+            return refusal, None, None
+        # d20 round 2 / d21: only a run of a workflow pinned as trusted in code may push, and
+        # every run of its chain (the review that approved, the fix that built the commit)
+        # must be a trusted one in its role, verified from the store by run-event lineage
+        try:
+            chain = _chain(self._store, self._store.get(RUNS_COLLECTION, context.run_id), input)
+        except LineageError as exc:
+            log.info("github.push refused: %s (%s)", exc.code, exc.detail)
+            return exc.code, None, None
+        # d20: the chain's reviewer must have approved exactly this commit (read from the
         # store, never a param), whatever the workflow wires
-        refusal, review_record = self._review(input, context)
+        refusal, review_record = self._review(input, chain)
         if refusal:
             log.info(_PUSH_REFUSED, refusal)
-            return refusal, None
+            return refusal, None, None
         # round 3 (#1): the App actor's security fields must match a digest pinned in code
         refusal, _digest = doc_refusal(actor_id, snapshot)
         if refusal:
             log.info(_PUSH_REFUSED, refusal)
-            return refusal, None
-        return None, review_record
+            return refusal, None, None
+        return None, review_record, chain
 
     def _push(
         self,
@@ -487,6 +534,12 @@ class GitHubPushPort(GitHubCommentPort):
         sha = str(input["commit_sha"])
         out = {"repo": repo, "head_branch": branch, "head_before": expected, "head_after": sha}
         if sha == expected:
+            # nothing to push - but never report success for a PR that is not open (d21)
+            app = self._app(actor_id, conn, allowed)
+            if app is None:
+                raise _Refused("secret_unavailable")
+            with app.deadline(job.deadline, job.clock):
+                self._open_pr(app, repo, int(input["number"]), branch)
             return InvocationResult.completed({**out, "pushed": False})
         job.import_commit(str(input["source"]), sha)
         if not job.descends(expected, sha):
@@ -542,23 +595,30 @@ class GitHubPushPort(GitHubCommentPort):
     def _consume_or_refuse(
         self, input: Mapping[str, Any], context: InvocationContext, job: _PushJob, sha: str
     ) -> None:
-        """Right before the push: the rule is still live, the run's review is still the one
-        judged (re-read: a newer result, or any other current record, stops it), and its
-        approval is consumed by compare-and-set; else :class:`_Refused`."""
-        refusal = source_rule_refusal(self._store, context.run_id)
+        """Right before the push: the rule and every rule of the chain are still live, the
+        chain's review is still the one judged (re-read: a newer result, or any other current
+        record, stops it), and its approval is consumed by compare-and-set; else
+        :class:`_Refused`."""
+        refusal = source_rule_refusal(self._store, context.run_id) or rules_live(
+            self._store, job.chain.runs if job.chain else ()
+        )
         if refusal:
             raise _Refused(refusal)
         # d20 (Codex review #6): the approval is re-read right before the push; a newer
         # review result, or any other current record, stops it
-        refusal, record = self._review(input, context)
+        refusal, record = self._review(input, job.chain)
         if refusal:
             raise _Refused(refusal)
         if record != job.review_record:
             raise _Refused("review_changed")
         # round 2 (#4): consume the approval - a compare-and-set no later verdict can undo
-        refusal = consume_approval(
-            self._store, context.run_id, record, sha, by=f"{context.step_id}#{context.attempt}"
-        )
+        by = f"{context.run_id}/{context.step_id}#{context.attempt}"
+        target = job.chain.target if job.chain else None
+        reviewed = self._store.get(REVIEWS_COLLECTION, record or "") or {}
+        if job.chain and job.chain.single and record and not reviewed.get("target"):
+            refusal = legacy_consume(self._store, job.chain.reviewer_run, record, sha, by=by)
+        else:
+            refusal = consume_approval(self._store, target, record, sha, by=by)
         if refusal:
             raise _Refused(refusal)
 
@@ -583,17 +643,45 @@ class GitHubPushPort(GitHubCommentPort):
             log.warning("github.push: base_changed re-arm failed (%s)", type(exc).__name__)
 
     def _review(
-        self, input: Mapping[str, Any], context: InvocationContext
+        self, input: Mapping[str, Any], chain: _Chain | None
     ) -> tuple[str | None, str | None]:
-        """This run's current review record, judged for exactly this push (d20)."""
+        """The commit's current review record, judged for exactly this push (d20): written
+        by the review run of this push's verified chain (d21)."""
+        if chain is None:
+            return "review_missing", None
+        refusal = rules_live(self._store, chain.runs)
+        if refusal:
+            return refusal, None
+        if chain.single and current_review(self._store, chain.target) == (None, None, None):
+            # Codex #3: an in-flight single-workflow run the old release reviewed
+            legacy = legacy_approval(
+                self._store,
+                chain.reviewer_run,
+                str(input["commit_sha"]),
+                repo=input.get("repo"),
+                number=input.get("number"),
+                start_sha=input.get("expected_head_sha"),
+            )
+            if legacy is not None:
+                return legacy
         return approved_review(
             self._store,
-            context.run_id,
+            chain.target,
             str(input["commit_sha"]),
             repo=input.get("repo"),
             number=input.get("number"),
             start_sha=input.get("expected_head_sha"),
+            reviewer_run=chain.reviewer_run,
         )
+
+    @staticmethod
+    def _open_pr(app: GitHubApp, repo: str, number: int, branch: str) -> Mapping[str, Any]:
+        """The PR read as the App: open, same-repo, with ``branch`` as its head ref."""
+        pull = app.get_pull(repo, number)
+        refusal = _open_pr_refusal(pull, repo, branch)
+        if refusal:
+            raise _Refused(refusal)
+        return pull
 
     @staticmethod
     def _check_authors(doc: Mapping[str, Any] | None, job: _PushJob, base: str, sha: str) -> None:
@@ -605,6 +693,84 @@ class GitHubPushPort(GitHubCommentPort):
         authors = job.authors(base, sha)
         if not authors or any(want not in (n.lower(), e.lower()) for n, e in authors):
             raise _Refused("foreign_author")
+
+
+@dataclass(frozen=True)
+class _Chain:
+    """What a push stands on (d21): the run that built and gated the commit, the run whose
+    review approved it, the review target, and every run of the chain."""
+
+    fix_run: Mapping[str, Any]
+    reviewer_run: str
+    target: str | None
+    runs: tuple[Mapping[str, Any], ...]
+    single: bool = False
+    """A run of the d20 single workflow (its own reviewer): the only kind the legacy
+    approval path (:func:`~culture_rules.actors.review.legacy_approval`) may serve."""
+
+
+def _chain(store: Any, run: Mapping[str, Any] | None, input: Mapping[str, Any]) -> _Chain:
+    """The verified chain of the pushing ``run`` (:mod:`culture_rules.actors.lineage`).
+
+    A single d20 ``pr-fixer`` run built, gated and reviewed the commit itself. A d21
+    ``publish-fix`` run was started by a trusted ``review-commit`` run succeeding, itself
+    started by a trusted ``pr-fix`` run succeeding (each step verified against the upstream
+    run's completion record). The commit, its start, its bundle and the PR the push names
+    must be exactly what that fix run's last gate built and gated (``chain_mismatch``), and
+    that gate must have passed (``gate_not_passed``, read from the store whatever the push's
+    own ``gate_verdict`` param says). Raises :class:`LineageError`."""
+    if not run:
+        raise LineageError("run_not_found")
+    role = trusted.workflow_role(run)
+    if role == trusted.ROLE_SINGLE:
+        fix, reviewer, runs = run, run, (run,)
+    elif role == trusted.ROLE_PUBLISH:
+        reviewer = upstream(store, run)
+        if trusted.workflow_role(reviewer) != trusted.ROLE_REVIEW:
+            raise LineageError("workflow_not_trusted", "the approving run is not a review-commit")
+        fix = upstream(store, reviewer)
+        if trusted.workflow_role(fix) != trusted.ROLE_FIX:
+            raise LineageError("workflow_not_trusted", "the reviewed run is not a pr-fix")
+        # a re-fix: every earlier review and fix back to the chain's initiator (Codex #2)
+        earlier = fix_ancestry(
+            store,
+            fix,
+            role_of=trusted.workflow_role,
+            review_role=trusted.ROLE_REVIEW,
+            fix_role=trusted.ROLE_FIX,
+        )
+        runs = (run, reviewer, fix, *earlier)
+    else:
+        raise LineageError("workflow_not_trusted")
+    g = final_gate(fix).outputs
+    if g.get("verdict") != "pass":  # whatever the push params say (the gate wrote this)
+        raise LineageError("gate_not_passed")
+    fix_inputs = fix.get("inputs") or {}
+    same = (
+        g.get("commit_sha") == input.get("commit_sha")
+        and g.get("start_sha") == input.get("expected_head_sha")
+        and isinstance(g.get("bundle"), str)
+        and g.get("bundle") == input.get("source")
+        and _same(fix_inputs.get("repo"), str(input.get("repo")))
+        and fix_inputs.get("number") == input.get("number")
+        and fix_inputs.get("head_branch") == input.get("head_branch")
+    )
+    if not same:
+        raise LineageError("chain_mismatch", "the push is not the commit its chain gated")
+    target = review_target(
+        input.get("repo"),
+        input.get("number"),
+        g.get("base_sha"),
+        input.get("expected_head_sha"),
+        input.get("commit_sha"),
+    )
+    return _Chain(
+        fix_run=fix,
+        reviewer_run=str(reviewer["id"]),
+        target=target,
+        runs=runs,
+        single=role == trusted.ROLE_SINGLE,
+    )
 
 
 def _push_input_error(input: Mapping[str, Any]) -> str | None:

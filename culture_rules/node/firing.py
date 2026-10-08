@@ -184,7 +184,10 @@ prefix (``pr-fixer:``). :mod:`culture_rules.engine.claims` keeps one
   further firings are recorded as ``attempt_budget_exhausted``. Rules sharing a key share
   the count; the limit is the smallest ``max_attempts`` declared among the live rules whose
   template resolves to that key on the firing event (a rule without one is bounded by the
-  others; nothing is refused at save time). Only an explicit signal
+  others; nothing is refused at save time). A rule with ``counts_toward_budget`` false
+  (d21: a review firing on a fix's finished run is not a fix attempt) shares the key's one
+  active run and coalescing but is never counted, never refused by the budget, and its
+  ``max_attempts`` (refused at save time) is never the limit. Only an explicit signal
   resets the counter (an outstanding reservation is kept): a ``github.pr.synchronize``
   whose ``data.self_authored`` is explicitly false (the hook sink tags every event once the
   app actor names its ``self_identity``), or a ``github.pr.checks_settled`` with
@@ -193,6 +196,12 @@ prefix (``pr-fixer:``). :mod:`culture_rules.engine.claims` keeps one
   event, whatever the event's own type. A reset applies once per (key, event) whatever the
   order consumers reach it in (a marker per pair, see ``reset_attempt_budget``), so a
   lagging consumer never grants an attempt without a new signal;
+* **a chain is one unit per key** (d21 phase 2, :mod:`culture_rules.engine.chain_hold`).
+  A keyed run whose event a live rule would continue holds its key at its end: only
+  that continuation is admitted on it, it keeps the key's pending event for the chain's
+  end, and the holder's end writes only the guard. A continuation a consumer decided
+  without taking the key is removed from the hold (:func:`_evaluate`), and a released
+  hold is handled by the chain consumers' budgets source like a holder's end;
 * **fail closed per rule.** A key that does not resolve on a firing event (a missing or
   non-scalar value) records the final skip ``concurrency_key_unresolved``; other rules on
   the same event, and later events, are unaffected;
@@ -208,6 +217,23 @@ prefix (``pr-fixer:``). :mod:`culture_rules.engine.claims` keeps one
   pending keeps its dependants waiting: it fires once the holding run ends. A holding
   run's end is processed even after its rule was deleted or lost its key.
 
+Run events (d21)
+================
+A rule may also fire when another rule's run *finishes*: every terminal run emits one
+``rules.run.succeeded`` / ``.failed`` / ``.cancelled`` / ``.superseded`` event
+(:mod:`culture_rules.node.run_events`), delivered from the run's immutable completion record
+by the outbox every node polls first each cycle. It is evaluated like any other event - an
+``event`` trigger on that type plus a condition over ``trigger.data.*`` (``rule_id``,
+``outputs.<name>``, ``repository`` ...) - with two guards, both final skips recorded on the
+rule's history:
+
+* ``run_event_unverified`` - the event does not equal the envelope in its run's immutable
+  completion record (a copy written past ingest's reserved-namespace guard); checked in the
+  evaluating transaction, before the rate cap;
+* ``hop_limit`` - matching refuses every fire on an event more than
+  :data:`~culture_rules.events.emit.MAX_EVENT_HOPS` derivations from an external one (or with
+  a malformed hop count), so rules firing on each other's runs stop; logged as a warning.
+
 Standard-library only.
 """
 
@@ -221,6 +247,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from culture_rules.engine.chain_hold import decline as decline_hold
 from culture_rules.engine.chaining import LIVE, START_FAILED, sequence
 from culture_rules.engine.claims import (
     RULE_ATTEMPT_BUDGETS,
@@ -237,6 +264,7 @@ from culture_rules.engine.decisions import (
     FINAL_SKIP_REASONS,
     RATE_CAPPED,
     RULE_DECISIONS,
+    RUN_EVENT_UNVERIFIED,
     decision_key,
     settle_decision,
 )
@@ -246,6 +274,7 @@ from culture_rules.engine.matching import (
     CONCURRENCY_KEY_UNRESOLVED,
     DEDUPLICATED,
     FIRE,
+    HOP_LIMIT,
     VARIABLES_UNSUPPORTED,
     Decision,
     RuleOutcome,
@@ -255,6 +284,7 @@ from culture_rules.engine.matching import (
     trigger_matches,
 )
 from culture_rules.engine.placement import MachineState, Resolved, resolve_rule_placement
+from culture_rules.engine.run_completions import RUN_EVENT_CONSUMPTION, consumption_id
 from culture_rules.engine.runs import (
     FATAL_PLACEMENT,
     PLACEMENT_ABANDON_AFTER,
@@ -275,7 +305,8 @@ from culture_rules.model.actor import Actor
 from culture_rules.model.rule import Rule
 from culture_rules.model.variable_refs import rule_variable_refs
 from culture_rules.model.workflow import Workflow
-from culture_rules.node.chain import FeedConsumer, Source, live_rules
+from culture_rules.node.chain import FeedConsumer, Source, Unrecoverable, live_rules
+from culture_rules.node.run_events import RunEventOutbox, is_run_event, verify_run_event
 from culture_rules.ops.logs import log_context
 from culture_rules.store.port import (
     DuplicateKeyError,
@@ -389,7 +420,13 @@ class RuleFiring:
             lambda tx, ev: self._evaluate(tx, ev, placed=True),
             host=host,
             consumer=placed_consumer(host),
-            handler_collections=(RULE_FIRES, RULE_DECISIONS, RULE_RATES, RULE_ATTEMPT_BUDGETS),
+            handler_collections=(
+                RULE_FIRES,
+                RULE_DECISIONS,
+                RULE_RATES,
+                RULE_ATTEMPT_BUDGETS,
+                RUN_EVENT_CONSUMPTION,
+            ),
             clock=clock,
         )
         self.shared = EventTriggers(
@@ -397,11 +434,28 @@ class RuleFiring:
             lambda tx, ev: self._evaluate(tx, ev, placed=False),
             host=host,
             consumer=SHARED_CONSUMER,
-            handler_collections=(RULE_FIRES, RULE_DECISIONS, RULE_RATES, RULE_ATTEMPT_BUDGETS),
+            handler_collections=(
+                RULE_FIRES,
+                RULE_DECISIONS,
+                RULE_RATES,
+                RULE_ATTEMPT_BUDGETS,
+                RUN_EVENT_CONSUMPTION,
+            ),
             clock=clock,
         )
         self.chain_placed = self._chain(placed_chain(host), placed=True)
         self.chain_shared = self._chain(SHARED_CHAIN, placed=False)
+        self.run_events = RunEventOutbox(
+            store,
+            paused=is_paused,
+            defer=lambda record: Deferred(
+                str(record.get("rule_id") or "?"),
+                str(record.get("run_id")),
+                "paused: run event emitted on resume",
+            ),
+            before=self._init_trigger_cursors,
+            clock=clock,
+        )
 
     def _chain(self, consumer: str, *, placed: bool) -> FeedConsumer:
         def handle(kind: str) -> Callable[[StoreOps, Mapping[str, Any], str], None]:
@@ -413,6 +467,7 @@ class RuleFiring:
                 Source(RUNS_COLLECTION, _finished_run, handle("run")),
                 Source(RULE_DECISIONS, _settled_skip, handle("decision")),
                 Source(RULE_FIRES, _failed_intent, handle("intent")),
+                Source(RULE_ATTEMPT_BUDGETS, _released_hold, handle("hold")),
             ),
             host=self.host,
             consumer=consumer,
@@ -428,13 +483,27 @@ class RuleFiring:
         )
 
     @property
-    def consumers(self) -> tuple[EventTriggers | FeedConsumer, ...]:
-        """Every consumer a node polls each cycle, in order."""
-        return (self.placed, self.shared, self.chain_placed, self.chain_shared)
+    def consumers(self) -> tuple[EventTriggers | FeedConsumer | RunEventOutbox, ...]:
+        """Every consumer a node polls each cycle, in order: the run-events emitter first,
+        so a run that finished last cycle has its ``rules.run.*`` event evaluated in this one."""
+        return (self.run_events, self.placed, self.shared, self.chain_placed, self.chain_shared)
+
+    def _init_trigger_cursors(self) -> None:
+        """Pin the event-trigger cursors that do not exist yet (before the outbox emits)."""
+        for consumer in (self.placed, self.shared):
+            consumer.cursor()
+
+    @property
+    def start_consumers(self) -> tuple[EventTriggers | FeedConsumer | RunEventOutbox, ...]:
+        """The order a node's start polls them in: every feed consumer first - so a new
+        consumer pins its cursor *before* anything is emitted - then the outbox. Draining the
+        outbox first would deliver a pending completion and then pin the trigger cursors
+        after it: no rule would ever see that event (d21 review)."""
+        return (self.placed, self.shared, self.chain_placed, self.chain_shared, self.run_events)
 
     # ------------------------------------------------------------------ polling
 
-    def poll(self, consumer: EventTriggers | FeedConsumer) -> PollOutcome:
+    def poll(self, consumer: EventTriggers | FeedConsumer | RunEventOutbox) -> PollOutcome:
         """Poll one consumer; report committed evaluations, a deferral, and any error.
 
         A failure part-way (e.g. a transient conflict on one event) is returned on
@@ -509,6 +578,21 @@ class RuleFiring:
         consumer = placed_consumer(self.host) if placed else SHARED_CONSUMER
         marker_id = f"{consumer}/{event_id}"  # EventTriggers.fire_id
         self._pending[marker_id] = []  # a retried transaction re-evaluates from scratch
+        verified = False
+        if is_run_event(envelope):
+            # consumer progress, backed up with the intents decided here: a run event
+            # re-delivered after a restore is not re-decided by a consumer that decided it.
+            # Only a verified envelope is ever marked: an unverified one at the same id
+            # (a conflict) must not suppress the genuine event that replaces it.
+            mark = consumption_id(consumer, event_id)
+            if tx.get(RUN_EVENT_CONSUMPTION, mark) is not None:
+                return
+            verified = verify_run_event(tx, envelope) is None
+            if verified:
+                tx.insert(
+                    RUN_EVENT_CONSUMPTION,
+                    {"id": mark, "consumer": consumer, "event_id": event_id, "host": self.host},
+                )
         rules = self._live_rules(tx)
         ours = self._ours(tx, rules, event_id, placed=placed)
         if _resets_budgets(envelope):
@@ -518,17 +602,29 @@ class RuleFiring:
                 reset_attempt_budget(tx, key, event_id)
         if ours:
             self._decide(tx, envelope, rules, ours, marker_id, placed=placed, chained=False)
+        if verified:
+            # d21 phase 2: the rules this consumer decided on the event, and every rule no
+            # consumer will decide any more, leave the key's chain hold (module doc)
+            live = {r.id for r in rules if r.enabled}
+            decline_hold(tx, envelope, ours, live)
 
     def _settled(
         self, tx: StoreOps, kind: str, doc: Mapping[str, Any], marker_id: str, *, placed: bool
     ) -> None:
         """A predecessor settled for an event: re-evaluate its dependants that are ours."""
         self._pending[marker_id] = []
+        if kind == "hold":
+            self._release_hold(tx, doc, marker_id, placed=placed)
+            return
         predecessor, envelope = _settled_source(tx, kind, doc)
+        rules = self._live_rules(tx)
+        if kind == "decision" and not envelope.get("id") and predecessor:
+            envelope = self._recovered_trigger(tx, rules, predecessor, doc, placed=placed)
+            if not envelope:
+                return
         event_id = envelope.get("id")
         if not predecessor or not event_id:
             return
-        rules = self._live_rules(tx)
         if kind in ("run", "intent"):
             holding = doc.get("id") if kind == "run" else doc.get("run_id")
             if holding:
@@ -544,6 +640,47 @@ class RuleFiring:
             # so the re-evaluation happens once the pause lifts (module doc, "Pause").
             raise Deferred(", ".join(sorted(ours)), event_id, "paused: re-evaluated on resume")
         self._decide(tx, envelope, rules, ours, marker_id, placed=placed, chained=True)
+
+    def _release_hold(
+        self, tx: StoreOps, doc: Mapping[str, Any], marker_id: str, *, placed: bool
+    ) -> None:
+        """A chain hold ended without a continuation taking the key (d21 phase 2): release
+        the key and fire the event deduplicated meanwhile, as at the end of the holder's
+        run."""
+        holding = doc.get("run_id")
+        if holding and holding == doc.get("hold_released"):
+            pending = str(doc.get("pending_event_id") or holding)
+            rules = self._live_rules(tx)
+            self._fire_coalesced(tx, holding, pending, rules, marker_id, placed=placed)
+
+    def _recovered_trigger(
+        self,
+        tx: StoreOps,
+        rules: list[Rule],
+        predecessor: Any,
+        doc: Mapping[str, Any],
+        *,
+        placed: bool,
+    ) -> dict[str, Any]:
+        """The trigger of a settled skip whose event is gone, from a durable record
+        (:func:`_recover_trigger`), or ``{}``: then a consumer owning a dependant raises
+        :class:`~culture_rules.node.chain.Unrecoverable` (d21) - only that consumer records
+        it."""
+        envelope = _recover_trigger(tx, rules, predecessor, doc.get("event_id"))
+        if envelope:
+            return envelope
+        waiting = [r for r in rules if predecessor in (*r.must_after, *r.may_after)]
+        mine = self._ours(tx, waiting, str(doc.get("event_id")), placed=placed)
+        if mine:  # only the consumer that owns a dependant records it
+            raise Unrecoverable(
+                {
+                    "rule_id": predecessor,
+                    "event_id": doc.get("event_id"),
+                    "dependants": sorted(mine),
+                    "reason": "the trigger event is gone and no run or intent holds it",
+                }
+            )
+        return {}
 
     def _fire_coalesced(
         self,
@@ -574,7 +711,7 @@ class RuleFiring:
                 # owner's consumer, done with this run already, never fires (r18, r19).
                 guard_concurrency(tx, budget["id"], holding)
                 continue
-            pending = release_concurrency(tx, budget["id"], holding)
+            pending = release_concurrency(tx, budget["id"], holding, now=self._clock())
             if pending is None:
                 continue
             pending_event, pending_rule = pending
@@ -600,6 +737,7 @@ class RuleFiring:
         decision: Decision,
         run_id: str,
         intent_id: str,
+        now: datetime,
     ) -> tuple[Decision, str | None]:
         """Reserve ``rule``'s concurrency key for a firing ``decision``: the decision (a
         skip in its place when the key is held, the budget spent or the key unresolved)
@@ -617,8 +755,22 @@ class RuleFiring:
         # Read before reserving (same transaction): an admission clears the key's pending
         # event and a deduplication replaces it - either way it never fires (module doc).
         displaced = _pending(tx, key)
-        reason = reserve_concurrency(tx, rule.id, key, run_id, intent_id, limit)
-        if reason in (None, DEDUPLICATED):
+        counts = rule.counts_toward_budget is not False
+        outcome: dict[str, Any] = {}
+        reason = reserve_concurrency(
+            tx,
+            rule.id,
+            key,
+            run_id,
+            intent_id,
+            limit,
+            counts=counts,
+            event=envelope,
+            now=now,
+            outcome=outcome,
+        )
+        if reason == DEDUPLICATED or (reason is None and not outcome.get("continuation")):
+            # a chain's continuation keeps the pending event for the chain's end (d21)
             _coalesce_away(tx, displaced, rule.id, envelope["id"])
         if reason is None:
             return decision, key
@@ -675,6 +827,7 @@ class RuleFiring:
             variables_supported=self.variables,
             trigger_match=_trigger_matcher(envelope, rules),
         )
+        decisions = _verified(tx, decisions, envelope)
         decisions = self._rate_capped(tx, decisions, rules, ours, event_id, now)
         decisions = _admission_settled(tx, decisions, rules, ours, event_id)
         by_id = {r.id: r for r in rules}
@@ -689,7 +842,7 @@ class RuleFiring:
             key = None
             if decision.fire and by_id[decision.rule_id].concurrency_key is not None:
                 decision, key = self._admit(
-                    tx, by_id[decision.rule_id], rules, envelope, decision, run_id, intent_id
+                    tx, by_id[decision.rule_id], rules, envelope, decision, run_id, intent_id, now
                 )
             # A skip that matters ("superseded by A", ...) is part of the rule's history;
             # it commits (or rolls back) with this transaction, once per (rule, event). A
@@ -702,7 +855,12 @@ class RuleFiring:
                 at=utc_timestamp(now),
                 run_id=run_id,
                 always=chained,
+                trigger=envelope,
             )
+            if decision.reason == HOP_LIMIT:
+                log.warning(
+                    "rule %s on event %s refused: %s", decision.rule_id, event_id, decision.detail
+                )
             if decision.fire:
                 _count_fire(tx, by_id[decision.rule_id], now)
                 snapshot = {n: values[n] for n in sorted(refs[decision.rule_id])}
@@ -865,13 +1023,14 @@ def _settled_source(
 ) -> tuple[Any, Mapping[str, Any]]:
     """The settled predecessor rule's id and the event envelope it settled for, from a
     finished ``run``, a failed ``intent`` or a recorded skip ``decision`` (whose event is
-    read from the store)."""
+    read from the store; after a restore the event itself is gone - not backed up - so the
+    trigger snapshot the decision record carries stands in, never a guess: d21)."""
     if kind == "run":
         return (doc.get("rule") or {}).get("id"), doc.get("trigger") or {}
     if kind == "intent":
         return doc.get("rule_id"), doc.get("trigger") or {}
     stored = tx.get(EVENTS_COLLECTION, doc.get("event_id") or "")
-    return doc.get("rule_id"), (stored or {}).get("envelope") or {}
+    return doc.get("rule_id"), (stored or {}).get("envelope") or doc.get("trigger") or {}
 
 
 def _intent_doc(
@@ -901,6 +1060,27 @@ def _intent_doc(
         "trigger": dict(envelope),
         "upstream": {k: dict(v) for k, v in decision.upstream.items()},
     }
+
+
+def _verified(
+    tx: StoreOps, decisions: tuple[Decision, ...], envelope: Mapping[str, Any]
+) -> tuple[Decision, ...]:
+    """``decisions`` with every fire on a ``rules.run.*`` event that does not verify against
+    its run turned into the final skip ``run_event_unverified`` (module doc, "Run events")."""
+    if not is_run_event(envelope) or not any(d.fire for d in decisions):
+        return decisions
+    why = verify_run_event(tx, envelope)
+    if why is None:
+        return decisions
+    log.warning("run event %s refused: %s", envelope.get("id"), why)
+    return tuple(
+        (
+            Decision(rule_id=d.rule_id, fire=False, reason=RUN_EVENT_UNVERIFIED, detail=why)
+            if d.fire
+            else d
+        )
+        for d in decisions
+    )
 
 
 def _trigger_matcher(envelope: Mapping[str, Any], rules: list[Rule]) -> TriggerMatcher:
@@ -965,12 +1145,14 @@ def _reset_keys(rules: list[Rule], ours: set[str], envelope: Mapping[str, Any]) 
 
 def _shared_max_attempts(rules: list[Rule], envelope: Mapping[str, Any], key: str) -> int | None:
     """The attempt budget of ``key``: the smallest ``max_attempts`` declared by a live rule
-    whose template resolves to ``key`` on ``envelope`` (``None``: no rule sets one)."""
+    that counts toward the budget and whose template resolves to ``key`` on ``envelope``
+    (``None``: no rule sets one)."""
     limits = [
         r.max_attempts
         for r in rules
         if r.concurrency_key is not None
         and r.max_attempts is not None
+        and r.counts_toward_budget is not False
         and _resolved_key(r, envelope) == key
     ]
     return min(limits) if limits else None
@@ -1144,6 +1326,62 @@ def _finished_run(doc: Mapping[str, Any]) -> str | None:
     return doc["id"]
 
 
+RECOVERY_DEPTH = 32
+"""How many predecessor levels :func:`_recover_trigger` walks (a cycle-safe bound)."""
+
+
+def _recover_trigger(
+    tx: StoreOps, rules: list[Rule], rule_id: str, event_id: Any
+) -> dict[str, Any]:
+    """The trigger envelope of ``event_id`` from a durable record that holds it whole - a
+    firing intent or run of the rule, else of its must/may-run-after predecessors,
+    transitively (breadth-first, each rule once, at most :data:`RECOVERY_DEPTH` levels;
+    deterministic ids, and the envelope must carry ``event_id``) - or ``{}``: a
+    continuation is never built from a guess (d21)."""
+    if not isinstance(event_id, str) or not event_id:
+        return {}
+    by_id = {r.id: r for r in rules}
+    seen = {rule_id}
+    level = [rule_id]
+    for _ in range(RECOVERY_DEPTH + 1):
+        trigger = _held_trigger(tx, level, event_id)
+        if trigger:
+            return trigger
+        level = _unseen_predecessors(by_id, level, seen)
+        if not level:
+            break
+    return {}
+
+
+def _held_trigger(tx: StoreOps, rule_ids: list[str], event_id: str) -> dict[str, Any]:
+    """The envelope of ``event_id`` held whole by the run, else the firing intent, of each
+    rule in ``rule_ids`` (in order), or ``{}``."""
+    for rid in rule_ids:
+        for doc in (
+            tx.get(RUNS_COLLECTION, run_id_for(rid, event_id)),
+            tx.get(RULE_FIRES, firing_key(rid, event_id)),
+        ):
+            trigger = (doc or {}).get("trigger")
+            if isinstance(trigger, Mapping) and trigger.get("id") == event_id:
+                return dict(trigger)
+    return {}
+
+
+def _unseen_predecessors(
+    by_id: Mapping[str, Rule], rule_ids: list[str], seen: set[str]
+) -> list[str]:
+    """The must/may-run-after predecessors of ``rule_ids`` not in ``seen`` (added to it),
+    sorted: the walk's next level."""
+    upper: list[str] = []
+    for rid in rule_ids:
+        rule = by_id.get(rid)
+        for pid in (*rule.must_after, *rule.may_after) if rule else ():
+            if pid not in seen:
+                seen.add(pid)
+                upper.append(pid)
+    return sorted(upper)
+
+
 def _settled_skip(doc: Mapping[str, Any]) -> str | None:
     """A final skip decision (its id), else None: a waiting decision settled as a skip, or
     a recorded skip written final in one step (no ``superseded`` history - e.g. a
@@ -1162,6 +1400,15 @@ def _settled_skip(doc: Mapping[str, Any]) -> str | None:
     if not doc.get("superseded") and reason not in FINAL_SKIP_REASONS:
         return None
     return doc.get("id")
+
+
+def _released_hold(doc: Mapping[str, Any]) -> str | None:
+    """A concurrency budget whose chain hold was released with no continuation taking the
+    key (d21 phase 2, :mod:`culture_rules.engine.chain_hold`): its marker key, else None."""
+    released = doc.get("hold_released")
+    if not released or doc.get("run_id") != released:
+        return None
+    return f"{doc.get('id')}/hold/{released}"
 
 
 def _failed_intent(doc: Mapping[str, Any]) -> str | None:

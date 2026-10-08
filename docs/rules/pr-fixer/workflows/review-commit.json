@@ -1,0 +1,475 @@
+{
+  "description": "d21: an independent, read-only Codex review of the commit a pr-fix run built and gated, recorded for that exact commit. pr-fixer-publish fires on an approval, pr-fixer-refix on a request for changes.",
+  "edges": [
+    {
+      "source": "inputs",
+      "source_port": "clone_url",
+      "target": "review",
+      "target_port": "repo"
+    },
+    {
+      "source": "inputs",
+      "source_port": "head_branch",
+      "target": "review",
+      "target_port": "head_branch"
+    },
+    {
+      "source": "inputs",
+      "source_port": "head_sha",
+      "target": "review",
+      "target_port": "head_sha"
+    },
+    {
+      "source": "inputs",
+      "source_port": "commit_sha",
+      "target": "review",
+      "target_port": "commit_sha"
+    },
+    {
+      "source": "inputs",
+      "source_port": "diff",
+      "target": "review",
+      "target_port": "diff"
+    },
+    {
+      "source": "inputs",
+      "source_port": "diff_truncated",
+      "target": "review",
+      "target_port": "diff_truncated"
+    },
+    {
+      "source": "inputs",
+      "source_port": "gate_verdict",
+      "target": "review",
+      "target_port": "gate_verdict"
+    },
+    {
+      "source": "inputs",
+      "source_port": "gate_output",
+      "target": "review",
+      "target_port": "gate_output"
+    },
+    {
+      "source": "inputs",
+      "source_port": "pr_intent",
+      "target": "review",
+      "target_port": "pr_intent"
+    },
+    {
+      "source": "inputs",
+      "source_port": "threads",
+      "target": "review",
+      "target_port": "threads"
+    },
+    {
+      "source": "review",
+      "source_port": "status",
+      "target": "verdict",
+      "target_port": "after"
+    }
+  ],
+  "enabled": true,
+  "id": "review-commit",
+  "inputs": [
+    {
+      "description": "owner/name",
+      "name": "repo",
+      "required": false,
+      "type": "string"
+    },
+    {
+      "description": "",
+      "name": "number",
+      "required": false,
+      "type": "integer"
+    },
+    {
+      "description": "",
+      "name": "clone_url",
+      "required": false,
+      "type": "string"
+    },
+    {
+      "description": "",
+      "name": "head_branch",
+      "required": false,
+      "type": "string"
+    },
+    {
+      "description": "the PR head the fix started from",
+      "name": "head_sha",
+      "required": false,
+      "type": "string"
+    },
+    {
+      "description": "the gated commit under review",
+      "name": "commit_sha",
+      "required": false,
+      "type": "string"
+    },
+    {
+      "description": "",
+      "name": "diff",
+      "required": false,
+      "type": "string"
+    },
+    {
+      "description": "",
+      "name": "diff_truncated",
+      "required": false,
+      "type": "boolean"
+    },
+    {
+      "description": "",
+      "name": "gate_verdict",
+      "required": false,
+      "type": "string"
+    },
+    {
+      "description": "",
+      "name": "gate_output",
+      "required": false,
+      "type": "string"
+    },
+    {
+      "description": "the fixer's instruction",
+      "name": "pr_intent",
+      "required": false,
+      "type": "string"
+    },
+    {
+      "description": "",
+      "name": "threads",
+      "required": false,
+      "type": "array"
+    },
+    {
+      "description": "",
+      "name": "base_sha",
+      "required": false,
+      "type": "string"
+    },
+    {
+      "description": "carried on to publish-fix",
+      "name": "bundle",
+      "required": false,
+      "type": "string"
+    },
+    {
+      "description": "carried on to publish-fix",
+      "name": "threads_addressed",
+      "required": false,
+      "type": "array"
+    }
+  ],
+  "name": "Review the fix",
+  "outputs": [
+    {
+      "name": "review",
+      "source": "steps.verdict.outputs.review",
+      "type": "string"
+    },
+    {
+      "name": "findings",
+      "source": "steps.verdict.outputs.findings",
+      "type": "array"
+    },
+    {
+      "name": "summary",
+      "source": "steps.verdict.outputs.summary",
+      "type": "string"
+    },
+    {
+      "name": "instruction",
+      "source": "steps.verdict.outputs.instruction",
+      "type": "string"
+    },
+    {
+      "name": "task",
+      "source": "steps.verdict.outputs.task",
+      "type": "string"
+    },
+    {
+      "name": "verdict",
+      "source": "steps.verdict.outputs.verdict",
+      "type": "string"
+    },
+    {
+      "name": "commit_sha",
+      "source": "steps.verdict.outputs.commit_sha",
+      "type": "string"
+    },
+    {
+      "name": "start_sha",
+      "source": "steps.verdict.outputs.start_sha",
+      "type": "string"
+    },
+    {
+      "name": "base_sha",
+      "source": "steps.verdict.outputs.base_sha",
+      "type": "string"
+    },
+    {
+      "name": "bundle",
+      "source": "inputs.bundle",
+      "type": "string"
+    },
+    {
+      "name": "head_branch",
+      "source": "inputs.head_branch",
+      "type": "string"
+    },
+    {
+      "name": "clone_url",
+      "source": "inputs.clone_url",
+      "type": "string"
+    },
+    {
+      "name": "threads_addressed",
+      "source": "inputs.threads_addressed",
+      "type": "array"
+    }
+  ],
+  "schema_version": "1.0",
+  "steps": [
+    {
+      "body": [],
+      "config": {
+        "sandbox": "read-only",
+        "when": {
+          "args": [
+            {
+              "items": {
+                "literal": [
+                  "pass",
+                  "no_gate"
+                ]
+              },
+              "op": "in",
+              "value": {
+                "field": "gate_verdict"
+              }
+            },
+            {
+              "cmp": "==",
+              "left": {
+                "field": "diff_truncated"
+              },
+              "op": "compare",
+              "right": {
+                "literal": false
+              }
+            }
+          ],
+          "op": "and"
+        }
+      },
+      "description": "d20: an independent reviewer (Codex through the codex bridge on spark, sandbox read-only) reviews the pr-fix run's gated commit's diff and ends with a verdict object. Its brief is locked in the codex-reviewer actor (trusted code), never this workflow. Runs only for a passing gate (or no gate) whose diff is complete text; never commits or pushes.",
+      "enabled": true,
+      "id": "review",
+      "inputs": [
+        {
+          "description": "clone URL (the bridge checks out the PR head)",
+          "name": "repo",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "head_branch",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "the PR head the fix starts from (gate start_sha)",
+          "name": "head_sha",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "the commit under review",
+          "name": "commit_sha",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "diff",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "diff_truncated",
+          "required": false,
+          "type": "boolean"
+        },
+        {
+          "description": "",
+          "name": "gate_verdict",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "gate_output",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "the fixer's original task",
+          "name": "pr_intent",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "the trusted, unresolved threads",
+          "name": "threads",
+          "required": false,
+          "type": "array"
+        }
+      ],
+      "kind": "ai",
+      "max_iterations": null,
+      "name": "Review the fix (independent agent, read-only)",
+      "outputs": [
+        {
+          "description": "the verdict object, as a JSON string",
+          "name": "summary",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "status",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "backend",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "head_before",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "head_after",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "commits",
+          "required": false,
+          "type": "array"
+        },
+        {
+          "description": "",
+          "name": "dirty",
+          "required": false,
+          "type": "boolean"
+        }
+      ],
+      "placement": {
+        "actor": "codex-reviewer",
+        "machine": null,
+        "requirement": null
+      },
+      "retry": null,
+      "timeout_s": 1800.0
+    },
+    {
+      "body": [],
+      "config": {
+        "builtin": "review"
+      },
+      "description": "Walks to the pr-fix run whose success started this run (verified run-event lineage, from the store, never wired inputs), reads its last gate and implementer and this run's reviewer, checks the reviewer was read-only, saw exactly that commit's diff and is not the implementer, parses the verdict fail-closed and records it for that commit (repo, PR, base, start, tip), where github.push finds it. request_changes becomes the re-fix's instruction; with the attempt budget spent it fails the run (changes_requested).",
+      "enabled": true,
+      "id": "verdict",
+      "inputs": [
+        {
+          "description": "the review step (ordering only)",
+          "name": "after",
+          "required": false,
+          "type": "any"
+        }
+      ],
+      "kind": "code",
+      "max_iterations": null,
+      "name": "Review verdict",
+      "outputs": [
+        {
+          "description": "the gate's verdict",
+          "name": "verdict",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "approve, request_changes or not_run",
+          "name": "review",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "findings",
+          "required": false,
+          "type": "array"
+        },
+        {
+          "description": "",
+          "name": "reviewed_commit",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "the re-fix's instruction",
+          "name": "instruction",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "the original task",
+          "name": "task",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "commit_sha",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "start_sha",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "base_sha",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "one line per finding",
+          "name": "summary",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "placement": null,
+      "retry": null,
+      "timeout_s": 60.0
+    }
+  ],
+  "variables": [],
+  "version": 1
+}

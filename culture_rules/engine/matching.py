@@ -28,6 +28,12 @@ this precedence order:
 6. ``blocked_by_predecessor`` -- a ``must_after`` predecessor has not succeeded for
    this event (missing outcome, still running, failed, ...).
 
+Last, a would-be fire on an event past the hop cap is refused as ``hop_limit`` (deviation
+d21): the event's ``hops`` (:func:`~culture_rules.events.emit.event_hops`; 0 for an external
+event, one more per derivation, e.g. a run's ``rules.run.*`` event) exceeds
+:data:`~culture_rules.events.emit.MAX_EVENT_HOPS`, or is malformed (fail closed). So a loop of
+rules firing on each other's runs ends; the node records the skip on the rule's history.
+
 Matching itself never produces ``predecessor_failed``: the node's sequencing
 (:mod:`culture_rules.engine.chaining`) turns a ``blocked_by_predecessor`` whose predecessor can
 no longer succeed for this event into that final skip.
@@ -44,6 +50,7 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
+from culture_rules.events.emit import MAX_EVENT_HOPS, event_hops
 from culture_rules.model import condition as cond
 from culture_rules.model.rule import Rule, Trigger
 from culture_rules.model.variable_refs import rule_variable_refs
@@ -57,6 +64,7 @@ __all__ = [
     "DISABLED",
     "FIRE",
     "GROUP_LOST",
+    "HOP_LIMIT",
     "PAUSED",
     "PREDECESSOR_FAILED",
     "REASONS",
@@ -95,6 +103,9 @@ since the last reset (a human push or green checks)."""
 CONCURRENCY_KEY_UNRESOLVED = "concurrency_key_unresolved"
 """A firing skipped because the rule's concurrency key does not resolve on the event
 (a missing or non-scalar value): fail closed, never fire without the protection."""
+HOP_LIMIT = "hop_limit"
+"""A firing refused because its event is more than ``MAX_EVENT_HOPS`` derivations from an
+external one (or its hop count is malformed): an event chain never loops forever (d21)."""
 REASONS = (
     FIRE,
     PAUSED,
@@ -109,6 +120,7 @@ REASONS = (
     DEDUPLICATED,
     ATTEMPT_BUDGET_EXHAUSTED,
     CONCURRENCY_KEY_UNRESOLVED,
+    HOP_LIMIT,
 )
 
 #: Run status that satisfies ``must_after`` and makes exports visible.
@@ -160,6 +172,7 @@ class Decision:
             DEDUPLICATED: "concurrency key active: run already exists",
             ATTEMPT_BUDGET_EXHAUSTED: "attempt budget exhausted",
             CONCURRENCY_KEY_UNRESOLVED: f"concurrency key unresolved: {self.detail}",
+            HOP_LIMIT: f"hop limit: {self.detail}",
         }.get(self.reason, self.reason)
         if self.reason == CONDITION_FALSE and self.detail:
             text = f"{text} (condition error: {self.detail})"
@@ -462,4 +475,19 @@ def match(
         if rid not in out:
             out[rid] = _ordered(r, snapshot, facts, workflows)
 
+    too_deep = _hop_limit_detail(event)
+    if too_deep is not None:
+        for rid, d in out.items():
+            if d.fire:
+                out[rid] = Decision(rule_id=rid, fire=False, reason=HOP_LIMIT, detail=too_deep)
     return tuple(out[r.id] for r in candidates)
+
+
+def _hop_limit_detail(event: Mapping[str, Any]) -> str | None:
+    """Why ``event`` is past the hop cap (the ``hop_limit`` detail), or ``None``."""
+    hops = event_hops(event)
+    if hops is None:
+        return f"malformed hop count {event.get('hops')!r} (cap {MAX_EVENT_HOPS})"
+    if hops > MAX_EVENT_HOPS:
+        return f"event is {hops} hops from an external event (cap {MAX_EVENT_HOPS})"
+    return None

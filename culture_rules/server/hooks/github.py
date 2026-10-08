@@ -21,7 +21,17 @@ marked ``pr_enriched``; a failed lookup stores the comment without the PR fields
 ``pr_enriched: false`` (fail-closed for the fixer's condition); so does an answer missing any
 valid PR fact. On every type a missing or malformed fact is omitted rather than null, so it
 never compares equal (a deleted fork has no ``head_repo``). The lookup runs only when the
-sink would store the delivery, so a redelivery never re-reads the PR. The endpoint is public:
+sink would store the delivery, so a redelivery never re-reads the PR. Every PR-scoped event
+also carries the PR's ``state`` (``open``/``closed``, d21) when it is known.
+
+Comment intent (d21): an ``issue_comment``, ``pull_request_review`` or
+``pull_request_review_comment`` also carries ``command`` and ``mention``, read from the body's
+**first token** only (:func:`comment_intent`): ``/fix`` when the comment starts with it,
+``@<slug>`` when it starts with the App's mention (its ``params.self_identity`` without
+``[bot]``); each is omitted when absent. The fixer's comment rules match them against
+``vars.fixer_comment_triggers``: start the comment with ``/fix`` or ``@rules-culture-dev``.
+
+The endpoint is public:
 authentication is the signature alone, failures are a bare 401 that does not say whether the
 app, the header or the secret was wrong, and logs carry the outcome and event type only -
 never the payload, signature or secret.
@@ -33,6 +43,7 @@ import hashlib
 import hmac
 import json
 import logging
+import re
 from collections.abc import Callable, Mapping
 from typing import Any
 
@@ -50,7 +61,15 @@ from culture_rules.events.hook_sink import (
 )
 from culture_rules.events.ingest import EVENTS_COLLECTION
 
-__all__ = ["MAX_BODY_BYTES", "PULL_LOOKUP_TIMEOUT_S", "SURFACE", "PullLookup", "handle", "router"]
+__all__ = [
+    "MAX_BODY_BYTES",
+    "PULL_LOOKUP_TIMEOUT_S",
+    "SURFACE",
+    "PullLookup",
+    "comment_intent",
+    "handle",
+    "router",
+]
 
 _log = logging.getLogger(__name__)
 
@@ -203,6 +222,92 @@ def _pr_numbers(prs: Any) -> list[Any]:
     ]
 
 
+INTENT_WINDOW = 512
+"""How much of a comment, from its first token on, :func:`comment_intent` reads: far more
+than any token it accepts, so the character after a token is always the real one."""
+_COMMAND_RE = re.compile(r"/([a-z][a-z0-9_-]{0,31})", re.IGNORECASE | re.ASCII)
+_SLUG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,62}$", re.ASCII)
+_BOT = "[bot]"
+_BODY_PATHS = {
+    "issue_comment": ("comment", "body"),
+    "pull_request_review": ("review", "body"),
+    "pull_request_review_comment": ("comment", "body"),
+}
+
+
+def _ascii_equal(text: str, word: str) -> bool:
+    """``text == word`` with ASCII letters compared case-insensitively and nothing else
+    folded (Unicode folding would read ``ſ`` as ``s`` or the Kelvin sign as ``k``)."""
+    return text.isascii() and text.lower() == word.lower()
+
+
+def _boundary(rest: str) -> bool:
+    """Whether a token ends where ``rest`` begins: at the end of the body, or before a
+    character that cannot continue it (not a Unicode letter or digit, ``_`` or ``-``, and
+    not a ``.`` followed by one - ``@app.example`` is a host)."""
+    if not rest:
+        return True
+    head = rest[0]
+    if head.isalnum() or head in "_-":
+        return False
+    return not (head == "." and len(rest) > 1 and (rest[1].isalnum() or rest[1] in "_-"))
+
+
+def comment_intent(body: Any, self_identity: Any) -> dict[str, str]:
+    """What a comment asks of the App (d21): only its **first token** counts - the first
+    non-whitespace characters of the body. Start the comment with ``/fix`` or with the
+    App's mention.
+
+    * ``command`` - the token when it is ``/word`` (ASCII letters, digits, ``_``, ``-``,
+      lowercased: ``/fix``) followed by whitespace or the end of the body; ``/fix,
+      please`` is no command;
+    * ``mention`` - ``@<slug>`` when the token is the App's mention (``self_identity``
+      without ``[bot]``; an optional ``[bot]`` is part of the token), compared
+      ASCII-case-insensitively and ending at a token boundary (:func:`_boundary`):
+      ``@rules-culture-dev,`` counts, ``@rules-culture-devx`` and
+      ``@rules-culture-dev[bot]x`` do not.
+
+    Nothing later in the body ever counts, so there is no Markdown to parse. Leading
+    whitespace (Unicode included) is stripped from the whole body first, then
+    :data:`INTENT_WINDOW` characters are read, so a bound never ends a token. Each fact is
+    omitted when absent, so a rule comparing it is false."""
+    if not isinstance(body, str):
+        return {}
+    text = body.lstrip()[:INTENT_WINDOW]
+    out: dict[str, str] = {}
+    command = _COMMAND_RE.match(text)
+    if command and _command_end(text[command.end() :]):
+        out["command"] = "/" + command.group(1).lower()
+    slug = self_identity.strip() if isinstance(self_identity, str) else ""
+    if slug.lower().endswith(_BOT):
+        slug = slug[: -len(_BOT)]
+    if not _SLUG_RE.match(slug) or not text.startswith("@"):
+        return out
+    if not _ascii_equal(text[1 : 1 + len(slug)], slug):
+        return out
+    rest = text[1 + len(slug) :]
+    if _ascii_equal(rest[: len(_BOT)], _BOT):
+        rest = rest[len(_BOT) :]  # a present [bot] is consumed for good, then the boundary
+    if _boundary(rest):
+        out["mention"] = "@" + slug.lower()
+    return out
+
+
+def _command_end(rest: str) -> bool:
+    """A command ends at whitespace (Unicode included) or the end of the body."""
+    return not rest or rest[0].isspace()
+
+
+def _add_comment_intent(
+    data: dict[str, Any], event: str, payload: Mapping[str, Any], actor: Mapping[str, Any]
+) -> None:
+    """d21: what a comment asks of the App (:func:`comment_intent`), read from its body; a
+    delivery of any other event is left alone."""
+    if event in _BODY_PATHS:
+        me = (actor.get("params") or {}).get("self_identity")
+        data.update(comment_intent(_dig(payload, *_BODY_PATHS[event]), me))
+
+
 def _enrich_pr(data: dict[str, Any], payload: Mapping[str, Any]) -> None:
     """Add the PR facts (:data:`PR_FACT_FIELDS`) from the pull_request sub-payload; a missing
     or malformed fact is omitted (:func:`pr_facts`), never stored as null."""
@@ -247,7 +352,7 @@ def _enrich_comment(data: dict[str, Any], pull: PullLookup | None) -> None:
         except Exception as exc:  # noqa: BLE001 - enrichment must never fail the delivery
             _log.warning("github pr comment lookup failed (%s)", getattr(exc, "code", "error"))
             facts = None
-    for key in PR_FACT_FIELDS:
+    for key in (*PR_FACT_FIELDS, "state"):
         data.pop(key, None)
     data.update(facts or {})
     data["pr_enriched"] = facts is not None
@@ -321,6 +426,7 @@ def handle(
     if etype is None:
         return _IGNORED
     data = _data(event, action, payload)
+    _add_comment_intent(data, event, payload, actor)
     if _is_pr_comment(event, payload) and _would_store(store, actor, etype, delivery):
         _enrich_comment(data, pull)
     outcome = sink(store, actor, etype, data, delivery, data["author"])

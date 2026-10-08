@@ -60,6 +60,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import logging
 import re
 import secrets
 import ssl
@@ -93,14 +94,18 @@ __all__ = [
     "MeshAgentActor",
     "MeshReply",
     "load_agentirc_client",
+    "CANCEL_ATTEMPTS",
     "bound_input_chars",
     "build_invocation_request",
+    "cancel_orphans",
     "parse_task_result",
     "record_bridge_event",
     "redeliver_bridge",
     "result_from_terminal",
     "valid_mesh_nick",
 ]
+
+_log = logging.getLogger(__name__)
 
 _NICK_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.]*-[A-Za-z0-9][A-Za-z0-9_.-]*$")
 
@@ -341,6 +346,7 @@ PROTOCOL_VERSION = "1.0"
 RESULT_SCHEMA = "cultureagent.bridge.result/v1"
 INVOCATIONS_PATH = "/v1/invocations"
 IDEMPOTENCY_HEADER = "Idempotency-Key"
+_JSON_CONTENT_TYPE = "application/json"
 ADDRESS_FIELDS = ("repo", "head_branch", "head_sha")
 """Where the bridge checks out: taken from the step's inputs (or config), never the actor."""
 PASSTHROUGH_CONFIG = ("model", "sandbox", "mode")
@@ -406,6 +412,28 @@ def build_invocation_request(
         "input": {**input, "async": True},
         "callback": {"url": callback_url, "token": callback_token},
     }
+
+
+REQUIRE_COMMIT = "require_commit"
+"""Step-config flag (d21 phase 2): the agent must leave a commit. A turn that ends with none
+- status ``no_changes``/``uncommitted``, or ``head_after`` missing or equal to
+``head_before`` - fails the step at once (``no_changes``, never retried), so the attempt ends
+before any gate or review and hands back once. Recorded on the invocation at dispatch and
+applied when the terminal result is recorded."""
+
+
+def require_commit(result: InvocationResult) -> InvocationResult:
+    """``result``, or a non-retryable ``no_changes`` failure for a completed turn that left
+    no commit (:data:`REQUIRE_COMMIT`)."""
+    if result.outcome != COMPLETED:
+        return result
+    out = result.output
+    status, before, after = out.get("status"), out.get("head_before"), out.get("head_after")
+    if status in ("no_changes", "uncommitted") or not isinstance(after, str) or after == before:
+        return InvocationResult.failed(
+            f"no_changes: the agent made no commit (bridge status {status!r})", retryable=False
+        )
+    return result
 
 
 def result_from_terminal(kind: str, payload: Mapping[str, Any] | None) -> InvocationResult:
@@ -606,6 +634,8 @@ def _event_changes(
     """``(expected, changes)``: the compare-and-set recording one new callback event."""
     if kind in TERMINAL_KINDS:
         result = result_from_terminal(str(kind), payload)
+        if doc.get(REQUIRE_COMMIT) is True:
+            result = require_commit(result)
         changes = {
             "status": _COMPLETED if result.outcome == COMPLETED else _FAILED,
             "result": result.to_dict(),
@@ -837,6 +867,7 @@ class BridgeAgentActor:
         payload, digest, problem = self._checked_input(input, context.config or {})
         if problem:
             return InvocationResult.failed(problem, retryable=False)
+        required = bool((context.config or {}).get(REQUIRE_COMMIT, False))
         if not self.callback_url:
             return InvocationResult.failed("the bridge actor has no callback_url", retryable=False)
         try:
@@ -849,7 +880,9 @@ class BridgeAgentActor:
         self._expire_previous(idempotency_key, context.attempt)
         callback_token = secrets.token_urlsafe(32)
         instruction = instruction_digest(str((payload or {}).get("instruction") or ""))
-        doc = self._claim(doc_id, idempotency_key, context, callback_token, instruction, digest)
+        doc = self._claim(
+            doc_id, idempotency_key, context, callback_token, instruction, digest, required
+        )
         if doc["status"] == _ACCEPTED:
             return InvocationResult.accepted()
         if doc["status"] in (_COMPLETED, _FAILED):  # the callback beat this re-invoke
@@ -860,7 +893,7 @@ class BridgeAgentActor:
             callback_url=self.callback_for(doc_id),
             callback_token=callback_token,
         )
-        headers = {"Content-Type": "application/json", IDEMPOTENCY_HEADER: attempt_id}
+        headers = {"Content-Type": _JSON_CONTENT_TYPE, IDEMPOTENCY_HEADER: attempt_id}
         if auth:
             headers["Authorization"] = f"Bearer {auth}"
         data = json.dumps(body, default=str).encode("utf-8")
@@ -881,17 +914,37 @@ class BridgeAgentActor:
                 raise  # the request may have arrived: the outcome is unknown
             self._settle(doc_id, _REJECTED, error=str(exc))
             return InvocationResult.failed(str(exc))
-        return self._response(doc_id, status, raw)
+        return self._response(doc_id, status, raw, required)
+
+    def cancel(self, invocation_id: str) -> bool:
+        """Ask the bridge to stop job ``invocation_id`` (``POST /v1/invocations/<id>/cancel``);
+        True once it acknowledged (2xx), or does not know the job (404: nothing to stop)."""
+        try:
+            auth = self._bearer()
+        except Exception:  # noqa: BLE001 - no token here: not this node's to cancel
+            return False
+        headers = {"Content-Type": _JSON_CONTENT_TYPE}
+        if auth:
+            headers["Authorization"] = f"Bearer {auth}"
+        url = self.bridge_url + CANCEL_PATH.format(id=urllib.parse.quote(invocation_id, safe=""))
+        try:
+            status, _raw = self._transport("POST", url, b"{}", headers, self._request_timeout)
+        except OSError:  # BridgeUnreachable included: tried again next cycle
+            return False
+        return 200 <= status < 300 or status == 404
 
     def _checked_input(
         self, input: Mapping[str, Any], config: Mapping[str, Any]
     ) -> tuple[dict[str, Any] | None, str | None, str | None]:
         """``(payload, digest, problem)``: the bridge input, the actor's trust digest, and
-        the first refusal (the input, then its bound size, then trust; trust is always
-        checked, so the digest is known)."""
+        the first refusal (the input, then its bound size, then a non-bool
+        :data:`REQUIRE_COMMIT`, then trust; trust is always checked, so the digest is
+        known)."""
         payload, problem = self.bridge_input(input, config)
         if not problem:
             problem = self._bound_inputs_problem(payload or {})
+        if not problem and not isinstance(config.get(REQUIRE_COMMIT, False), bool):
+            problem = f"bad_config: {REQUIRE_COMMIT} must be true or false"
         digest, trust_problem = self._trust()
         return payload, digest, problem or trust_problem
 
@@ -912,6 +965,7 @@ class BridgeAgentActor:
         callback_token: str,
         instruction_sha256: str,
         actor_digest: str | None = None,
+        required: bool = False,
     ) -> Mapping[str, Any]:
         """Insert this attempt's invocation (before posting, so an early callback finds it),
         or add a fresh callback token to one left ``dispatching``/``rejected``."""
@@ -928,6 +982,7 @@ class BridgeAgentActor:
             "status": _DISPATCHING,
             "instruction_sha256": instruction_sha256,
             "actor_digest": actor_digest,
+            REQUIRE_COMMIT: required,
             "token_hashes": [_token_hash(callback_token)],
             "invocation_id": None,
             "last_sequence": 0,
@@ -951,6 +1006,7 @@ class BridgeAgentActor:
                 "token_hashes": hashes,
                 "instruction_sha256": instruction_sha256,
                 "actor_digest": actor_digest,
+                REQUIRE_COMMIT: required,
             },
         )
         return res.document if res.won else self._store.get(BRIDGE_INVOCATIONS, doc_id)
@@ -973,7 +1029,9 @@ class BridgeAgentActor:
             BRIDGE_INVOCATIONS, doc_id, {"status": _DISPATCHING}, {"status": status, **changes}
         ).won
 
-    def _response(self, doc_id: str, status: int, raw: bytes) -> InvocationResult:
+    def _response(
+        self, doc_id: str, status: int, raw: bytes, required: bool = False
+    ) -> InvocationResult:
         try:
             body = json.loads(raw.decode("utf-8")) if raw else {}
         except ValueError:  # UnicodeDecodeError and JSONDecodeError are ValueErrors
@@ -990,13 +1048,105 @@ class BridgeAgentActor:
             return InvocationResult.accepted()
         if status == 200:
             result = result_from_terminal("completed", body)
-            self._settle(doc_id, _COMPLETED, result=result.to_dict())
+            if required:
+                result = require_commit(result)
+            outcome = _COMPLETED if result.outcome == COMPLETED else _FAILED
+            self._settle(doc_id, outcome, result=result.to_dict())
             return result
         error = f"bridge answered {status}: {body.get('error') or 'no detail'}"
         self._settle(doc_id, _REJECTED, error=error)
         if status in (429, 503):  # at capacity or briefly unavailable: ask again later
             return InvocationResult.blocked(error)
         return InvocationResult.failed(error, retryable=status >= 500 or status in (408, 409))
+
+
+# -- cancelling orphans ---------------------------------------------------------------
+
+CANCEL_PATH = "/v1/invocations/{id}/cancel"
+"""The bridge's cancel route: a cooperative SIGTERM of the agent session; always 202."""
+CANCEL_ATTEMPTS = 5
+"""How many times :func:`cancel_orphans` asks a bridge to cancel one job before it gives up
+(logged): a bridge that is down when the attempt ends gets the next cycles' tries."""
+
+
+def _attempt_over(store: Any, doc: Mapping[str, Any]) -> str | None:
+    """Why the step attempt behind an accepted bridge job is over, or ``None`` while it is
+    the live attempt of a running run's step (``waiting`` or ``dispatching``)."""
+    from culture_rules.engine.runs import RUNS_COLLECTION, step_state  # noqa: PLC0415
+
+    if doc.get("status") == _EXPIRED:
+        return "superseded"  # a newer attempt (a timeout's retry) replaced it
+    run = store.get(RUNS_COLLECTION, doc.get("run_id") or "")
+    if run is None:
+        return "run_gone"
+    if run.get("status") != "running":
+        return f"run_{run.get('status')}"
+    st = step_state(run, str(doc.get("step_id")))
+    if st is None:
+        return "step_gone"
+    if st.get("attempt") != doc.get("attempt"):
+        return "superseded"
+    if st.get("status") not in ("waiting", "dispatching"):
+        return f"step_{st.get('status')}"
+    return None
+
+
+def cancel_orphans(
+    store: Any,
+    adapters: Callable[[Any], Any],
+    *,
+    clock: Callable[[], datetime] | None = None,
+) -> int:
+    """Ask each bridge to cancel every job it accepted whose step attempt is over (d21
+    phase 2): superseded by a newer attempt, its step failed, timed out or was cancelled, or
+    its run finished, failed or was cancelled. An orphaned agent session must not hold the
+    bridge's seat. ``adapters(actor_id)`` answers the bridge adapter that may call that
+    actor's bridge from this node (``None``: not this node's - its token lives elsewhere).
+    Each job is asked at most :data:`CANCEL_ATTEMPTS` times, until one is acknowledged
+    (``cancel_sent_at``). Answer how many were acknowledged."""
+    now = _iso((clock or _utcnow)())
+    sent = 0
+    for status in (_ACCEPTED, _EXPIRED):
+        for doc in store.find(BRIDGE_INVOCATIONS, {"status": status}):
+            sent += 1 if _cancel_one(store, doc, status, adapters, now) else 0
+    return sent
+
+
+def _cancel_one(
+    store: Any,
+    doc: Mapping[str, Any],
+    status: str,
+    adapters: Callable[[Any], Any],
+    now: str,
+) -> bool:
+    """Ask the bridge to cancel one orphaned job (:func:`cancel_orphans`) and record the
+    try; True iff the bridge acknowledged it. A job never accepted, already acknowledged,
+    out of tries, still the live attempt, or not this node's to call is left alone."""
+    tries = doc.get("cancel_attempts") or 0
+    if not doc.get("invocation_id") or doc.get("cancel_sent_at"):
+        return False  # never accepted (nothing runs at the bridge), or already done
+    if tries >= CANCEL_ATTEMPTS:
+        return False
+    reason = _attempt_over(store, doc)
+    if reason is None:
+        return False
+    cancel = getattr(adapters(doc.get("actor")), "cancel", None)
+    if not callable(cancel):
+        return False
+    ok = bool(cancel(str(doc["invocation_id"])))
+    changes: dict[str, Any] = {"cancel_attempts": tries + 1, "cancel_reason": reason}
+    if ok:
+        changes["cancel_sent_at"] = now
+    elif tries + 1 >= CANCEL_ATTEMPTS:
+        _log.warning(
+            "bridge job %s of %s not cancelled after %d tries (%s)",
+            doc["invocation_id"],
+            doc.get("actor"),
+            tries + 1,
+            reason,
+        )
+    store.update_if(BRIDGE_INVOCATIONS, doc["id"], {"status": status}, changes)
+    return ok
 
 
 # -- the callback endpoint ------------------------------------------------------------
@@ -1048,7 +1198,7 @@ class BridgeCallbackServer:
                 )
                 data = json.dumps(body).encode("utf-8")
                 self.send_response(code)
-                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Type", _JSON_CONTENT_TYPE)
                 self.send_header("Content-Length", str(len(data)))
                 self.end_headers()
                 self.wfile.write(data)

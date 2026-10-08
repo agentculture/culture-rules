@@ -104,4 +104,12 @@ class Rule(Model):
         "success) resets the counter. ``None`` means no budget.",
         default=None,
     )
+    counts_toward_budget: bool = doc(
+        "Whether this rule's runs count toward its concurrency key's attempt budget (and are "
+        "refused once it is spent). False: the rule still shares the key's one active run and "
+        "coalescing, but its admitted runs are not counted and the budget never refuses it - "
+        "for a follow-up rule in an event chain (a review on a fix's finished run) that is "
+        "not a fix attempt. Needs a concurrency_key; refused together with max_attempts.",
+        default=True,
+    )
     schema_version: str = doc("Document schema version (MAJOR.MINOR)", default=SCHEMA_VERSION)

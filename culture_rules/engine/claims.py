@@ -363,9 +363,15 @@ templates resolve to the same key share one active run and one budget; a rule th
 isolation uses a distinct template (a namespace prefix such as ``pr-fixer:``). Fields:
 ``key``; ``rule_id`` / ``run_id`` / ``intent_id`` of the rule and run holding the key;
 ``count`` (runs admitted since the last reset, by any rule sharing the key - every admitted
-run counts, whatever its outcome); ``pending_event_id`` / ``pending_rule_id`` (the newest
-firing deduplicated while the key was held, and the rule that recorded it: it is fired once,
-through that rule, when the holding run ends, so the latest event is never lost); and
+run of a rule that counts toward the budget counts, whatever its outcome); ``counted``
+(whether the holding run was counted: a rule with ``counts_toward_budget`` false shares the
+key's one active run but is neither counted nor refused, d21); ``pending_event_id`` /
+``pending_rule_id`` (the newest firing deduplicated while the key was held, and the rule
+that recorded it: it is fired once, through that rule, when the holding run ends, so the
+latest event is never lost);
+``limit`` (the ``max_attempts`` the holding reservation was admitted under); ``hold`` /
+``hold_released`` (a finished holder's key held for its chain's continuation, and the run
+whose hold was released: :mod:`culture_rules.engine.chain_hold`); and
 ``revision`` (the compare-and-set token every write bumps). The counter resets only on an
 explicit signal (:func:`reset_attempt_budget`, once per key and reset event): a human push
 or green checks.
@@ -453,8 +459,25 @@ def reserve_concurrency(
     run_id: str,
     intent_id: str,
     max_attempts: int | None,
+    *,
+    counts: bool = True,
+    event: Mapping[str, Any] | None = None,
+    now: datetime | None = None,
+    outcome: dict[str, Any] | None = None,
 ) -> str | None:
     """Atomically reserve a key and consume one attempt, or return a skip reason.
+
+    Chain holds (d21 phase 2, :mod:`culture_rules.engine.chain_hold`): while the key is held
+    for the continuation of its finished holder, only a firing on that run's ``rules.run.*``
+    ``event`` is admitted (``now`` judges the hold's age); any other firing is
+    ``deduplicated``. The continuation keeps the key's pending event (it fires at the chain's
+    end) and is reported as ``outcome["continuation"] = True``. Every reservation records the
+    key's ``limit`` (``max_attempts``) for the stages that read it.
+
+    ``counts`` false (a rule outside the budget, ``counts_toward_budget``): the key is
+    reserved exactly the same way - one active run, ``deduplicated`` while held - but the
+    attempt is neither checked against ``max_attempts`` nor counted; ``counted`` on the
+    budget records which, so a failed start gives back only an attempt that was taken.
 
     The reservation commits with the firing intent, before starting the run. A
     crashed node's pending intent therefore retains the key until it is started - by
@@ -475,53 +498,97 @@ def reserve_concurrency(
     doc_id = budget_id(key)
     for _ in range(DEFAULT_ATTEMPTS):
         current = store.get(RULE_ATTEMPT_BUDGETS, doc_id) or {}
-        count = _admitted_count(store, current)
-        if count is None:
+        admitted = _admitted_count(store, current, event, now)
+        if admitted is None:
             return "deduplicated"
-        if max_attempts is not None and count >= max_attempts:
+        count, continuation = admitted
+        if counts and max_attempts is not None and count >= max_attempts:
             return "attempt_budget_exhausted"
         revision = current.get("revision")
-        outcome = store.update_if(
+        fields = _reservation_fields(
+            {"rule_id": rule_id, "key": key},
+            {"run_id": run_id, "intent_id": intent_id, "limit": max_attempts},
+            count=count,
+            counts=counts,
+            continuation=continuation,
+            revision=revision,
+        )
+        result = store.update_if(
             RULE_ATTEMPT_BUDGETS,
             doc_id,
             {"revision": revision},
-            {
-                "rule_id": rule_id,
-                "key": key,
-                "count": count + 1,
-                "run_id": run_id,
-                "intent_id": intent_id,
-                "pending_event_id": None,
-                "pending_rule_id": None,
-                "revision": (revision or 0) + 1,
-            },
+            fields,
             upsert=not current,
         )
-        if outcome.won:
+        if result.won:
+            if outcome is not None:
+                outcome["continuation"] = continuation
             return None
 
     raise TransientStoreError("concurrency reservation contention")
 
 
-def _admitted_count(store: StoreOps, current: Document) -> int | None:
-    """The attempts the budget ``current`` counts against its key, or None while the key's
-    holder is live (a run not yet done, or an intent not yet failed): deduplicated."""
+def _reservation_fields(
+    owner: Mapping[str, Any],
+    holder: Mapping[str, Any],
+    *,
+    count: int,
+    counts: bool,
+    continuation: bool,
+    revision: Any,
+) -> dict[str, Any]:
+    """The budget fields a won reservation writes, in the stored key order: the rule and
+    key (``owner``), the attempt count (taken only when the rule ``counts``), the holding
+    run and intent and its ``limit`` (``holder``), a cleared hold, and the bumped revision.
+    A ``continuation`` keeps the pending event for the chain's end; any other reservation
+    clears it."""
+    fields: dict[str, Any] = {
+        **owner,
+        "count": count + 1 if counts else count,
+        "counted": counts,
+        **holder,
+        "hold": None,
+        "hold_released": None,
+        "revision": (revision or 0) + 1,
+    }
+    if not continuation:
+        fields.update(pending_event_id=None, pending_rule_id=None)
+    return fields
+
+
+def _admitted_count(
+    store: StoreOps, current: Document, event: Mapping[str, Any] | None, now: datetime | None
+) -> tuple[int, bool] | None:
+    """The attempts the budget ``current`` counts against its key and whether this firing
+    continues the key's finished holder, or None while the key's holder is live (a run not
+    yet done, or an intent not yet failed) or held for another firing's continuation:
+    deduplicated."""
+    from culture_rules.engine.chain_hold import hold_active, is_continuation
     from culture_rules.engine.runs import RUN_DONE, RUNS_COLLECTION
 
     count = current.get("count", 0)
     active = current.get("run_id")
     if not active:
-        return count
+        return count, False
     run = store.get(RUNS_COLLECTION, active)
     if run is None:
         intent = store.get("rule_fires", current["intent_id"])
         if not intent or intent.get("status") != "failed":
             return None
-        # A failed start never produced a run.
-        return max(0, count - 1)
+        # A failed start never produced a run: give back its attempt, if it took one.
+        if current.get("counted", True):
+            count = max(0, count - 1)
+        return count, False
     if run.get("status") not in RUN_DONE:
         return None
-    return count
+    if hold_active(current, now):
+        # held for the finished run's continuation: only that is admitted
+        if not is_continuation(current, event):
+            return None
+        return count, True
+    # a late continuation of an expired or released hold: it still succeeds the holder, so
+    # the pending event waits for the chain's end (Codex #1)
+    return count, is_continuation(current, event)
 
 
 def _cas_budget(
@@ -572,9 +639,15 @@ def note_deduplicated(store: StoreOps, rule_id: str, key: str, event_id: str) ->
     return None if doc is None else doc.get("run_id")
 
 
-def release_concurrency(store: StoreOps, doc_id: str, run_id: str) -> tuple[str, str] | None:
+def release_concurrency(
+    store: StoreOps, doc_id: str, run_id: str, *, now: datetime | None = None
+) -> tuple[str, str] | None:
     """The holding run ``run_id`` ended: clear and answer the key's pending event, if any,
     as ``(event_id, rule_id)`` - the rule that recorded it fires it.
+
+    A key still held for ``run_id``'s continuation (:mod:`culture_rules.engine.chain_hold`,
+    judged at ``now``) is not released: only the guard is written and the pending event
+    waits for the chain's end (the hold's release, or the continuation's own end).
 
     Always writes the budget document while ``run_id`` still holds the key, even with no
     pending event: a concurrent trigger transaction that read the run as active and is
@@ -582,12 +655,16 @@ def release_concurrency(store: StoreOps, doc_id: str, run_id: str) -> tuple[str,
     committing an event nobody would fire (MongoDB snapshot isolation, write skew). Every
     other consumer handling the run's end writes the same guard (:func:`guard_concurrency`).
     """
+    from culture_rules.engine.chain_hold import hold_active
+
     taken: list[tuple[str, str]] = []
 
     def change(current: Document) -> dict[str, Any] | None:
         taken.clear()
         if current.get("run_id") != run_id:
             return None  # another run already holds the key: it cleared the pending event
+        if hold_active(current, now):
+            return {}  # a continuation is to come: the guard only, the pending event waits
         event, rule = current.get("pending_event_id"), current.get("pending_rule_id")
         if event and rule:
             taken.append((event, rule))

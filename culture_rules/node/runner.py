@@ -19,7 +19,10 @@ Production wiring done by :func:`run_node`:
   guard (:class:`~culture_rules.actors.gate.GatePort`, which runs commands only through
   ``CULTURE_RULES_GATE_RUN_AS`` and refuses while it is unset), ``github.threads`` and
   ``github.threads_addressed`` (d15, the fixer's trusted review threads and the agent's
-  replies to them, :mod:`culture_rules.node.actions.github_pr`), and ``action`` (d12), which
+  replies to them, :mod:`culture_rules.node.actions.github_pr`), ``review`` (d20, the
+  reviewer's verdict, :mod:`culture_rules.actors.review`), ``sonar.gate_issues`` (d21, the
+  issues behind a PR's failing SonarCloud gate, :mod:`culture_rules.node.actions.sonar`),
+  and ``action`` (d12), which
   never reaches this port: the executor routes a ``builtin: action`` step exactly like a
   rule's terminal action, to the ``action:<kind>`` port through the actor router
   (:mod:`culture_rules.model.action_step`).
@@ -37,7 +40,7 @@ from typing import Any
 
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
 from culture_rules.engine.reports import RunReporter
-from culture_rules.events.emit import Emitter
+from culture_rules.events.emit import Emitter, engine_app_source
 from culture_rules.events.ingest import EVENTS_COLLECTION, event_document
 from culture_rules.events.source import EventFabricError, EventSource
 from culture_rules.model.action_step import ACTION_BUILTIN
@@ -135,7 +138,7 @@ def open_emitter(store: Any, host: str) -> Emitter:
     """The node's emitter: events-cli when available, else recorded into the store."""
     from culture_rules.events.events_cli_adapter import EventsCliSink  # noqa: PLC0415
 
-    source = f"app://culture-rules/{host}"
+    source = engine_app_source(host)
     try:
         sink: Any = EventsCliSink(_events_cli_client())
     except Exception as exc:  # noqa: BLE001 - any events-cli/paho setup failure: fall back
@@ -269,6 +272,7 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
         DiscordMessageAction,
         MessageAction,
     )
+    from culture_rules.node.actions.sonar import SONAR_BUILTIN, SonarGateIssuesPort  # noqa: PLC0415
 
     message = MessageAction(store)
     has_github = importlib.util.find_spec("cryptography") is not None
@@ -295,6 +299,7 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
                 REVIEW_BUILTIN: ReviewVerdictPort(store),
                 THREADS_BUILTIN: threads,
                 ADDRESSED_BUILTIN: AddressedThreadsPort(),
+                SONAR_BUILTIN: SonarGateIssuesPort(),  # d21: the PR's failing gate's issues
             }
         ),
     }

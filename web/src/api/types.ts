@@ -111,6 +111,11 @@ export interface Action {
   kind: ActionKind | (string & Record<never, never>);
   name?: string;
   params?: { actor?: string } & Record<string, unknown>;
+  /**
+   * Run only where the run's chain ends (d21): skipped when a live rule would continue
+   * the run on its concurrency key, so a chain of rules posts one comment.
+   */
+  only_at_chain_end?: boolean;
 }
 
 export interface Placement {

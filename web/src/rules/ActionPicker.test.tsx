@@ -364,3 +364,28 @@ describe("github.push and github.review_reply", () => {
     ).toBe("invalid_value");
   });
 });
+
+describe("only where its chain ends (d21)", () => {
+  it("toggles the flag and keeps it while params change", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    await user.selectOptions(screen.getByLabelText("What happens"), "github.comment");
+    const box = screen.getByRole("checkbox", { name: "Only where its chain ends" });
+    expect(box).not.toBeChecked();
+    await user.click(box);
+    expect(saved().only_at_chain_end).toBe(true);
+    await user.selectOptions(screen.getByLabelText("Actor"), "github-app");
+    expect(saved().only_at_chain_end).toBe(true);
+    await user.click(box);
+    expect(saved()).not.toHaveProperty("only_at_chain_end");
+  });
+
+  it("shows a stored flag checked", () => {
+    render(
+      <Harness
+        start={{ kind: "github.comment", params: { actor: "github-app" }, only_at_chain_end: true }}
+      />,
+    );
+    expect(screen.getByRole("checkbox", { name: "Only where its chain ends" })).toBeChecked();
+  });
+});

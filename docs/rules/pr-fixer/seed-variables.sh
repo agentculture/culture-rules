@@ -50,6 +50,8 @@ set_var fixer_repos '["agentculture/culture-rules-tester"]' \
   "Repositories (owner/name) the fixer runs on (the allow-list); widen with: variables add fixer_repos owner/repo"
 set_var fixer_excluded_repos '[]' \
   "Repositories (owner/name) the fixer never runs on, even when in fixer_repos (an override)"
+set_var fixer_comment_triggers '["/fix", "@rules-culture-dev"]' \
+  "What a PR comment or review comment must carry to start a fixer run: a /command at the start of its body, or an @mention of the App (narrow it to [\"/fix\"] to ignore mentions)"
 set_var fixer_protected_paths \
   '[".github/workflows/**", "sonar-project.properties", ".coveragerc", "setup.cfg", ".flake8", "pyproject.toml"]' \
   "Paths the gate's diff guard refuses (on top of the .github/workflows/** floor)"

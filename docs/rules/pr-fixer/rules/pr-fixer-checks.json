@@ -2,10 +2,11 @@
   "action": {
     "idempotent": false,
     "kind": "github.comment",
-    "name": "Comment with the run link",
+    "name": "Comment when the chain ends here",
+    "only_at_chain_end": true,
     "params": {
       "actor": "github-app",
-      "body": "PR fixer: gate verdict {{ workflow.outputs.verdict }}, review {{ workflow.outputs.review }}, pushed {{ workflow.outputs.pushed }}, head {{ workflow.outputs.head_after }}.\n\n{{ workflow.outputs.summary }}\n\nRun: https://rules.culture.dev/api/runs/{{ run.id }}",
+      "body": "PR fixer built and gated {{ workflow.outputs.commit_sha }} (gate {{ workflow.outputs.verdict }}) but nothing reviews it (pr-fixer-review-commit is disabled): not pushed.\n\n{{ workflow.outputs.summary }}\n\nRun: https://rules.culture.dev/api/runs/{{ run.id }}",
       "number": "trigger.data.number",
       "repo": "trigger.data.repository"
     },
@@ -33,6 +34,16 @@
         "op": "compare",
         "right": {
           "literal": false
+        }
+      },
+      {
+        "cmp": "==",
+        "left": {
+          "field": "data.state"
+        },
+        "op": "compare",
+        "right": {
+          "literal": "open"
         }
       },
       {
@@ -79,7 +90,8 @@
     ],
     "op": "and"
   },
-  "description": "Fires once per PR head SHA when its checks settle not green (a head with no counted check, conclusion no_checks, is left alone). Same-repo, non-draft PRs of repos in vars.fixer_repos only; vars.fixer_excluded_repos overrides it. Shares the pr-fixer workflow and the per-PR concurrency key and attempt budget with the other pr-fixer-* rules.",
+  "counts_toward_budget": true,
+  "description": "Fires once per PR head SHA when its checks settle not green (a head with no counted check, conclusion no_checks, is left alone). Same-repo, non-draft PRs of repos in vars.fixer_repos only; vars.fixer_excluded_repos overrides it. Starts a pr-fix chain; shares the pr-fix workflow and the per-PR concurrency key and attempt budget with the other pr-fixer-* rules. Only while the PR is open.",
   "enabled": false,
   "exclusive_group": null,
   "id": "pr-fixer-checks",
@@ -90,7 +102,8 @@
   "on_failure": {
     "idempotent": false,
     "kind": "github.comment",
-    "name": "Hand back with the run link",
+    "name": "Hand back with the run link (once per chain)",
+    "only_at_chain_end": true,
     "params": {
       "actor": "github-app",
       "body": "PR fixer handed back ({{ run.error.code }}): {{ run.error.message }}\n\nRun: https://rules.culture.dev/api/runs/{{ run.id }}",
@@ -115,13 +128,13 @@
     }
   },
   "workflow": {
-    "id": "pr-fixer",
+    "id": "pr-fix",
     "inputs": {
       "base_sha": "trigger.data.base_sha",
       "clone_url": "https://github.com/{{ trigger.data.repository }}.git",
       "head_branch": "trigger.data.head_branch",
       "head_sha": "trigger.data.head_sha",
-      "instruction": "Checks on PR {{ trigger.data.repository }}#{{ trigger.data.number }} settled ({{ trigger.data.conclusion }}) at {{ trigger.data.head_sha }}. Work on the PR head branch {{ trigger.data.head_branch }} only. Fix the failing checks and the SonarCloud issues on this PR, and address the review threads in the threads input (and no other thread). Never edit .github/workflows, never delete or skip tests and never add suppression markers. In threads_addressed, use each thread's thread_id exactly as the threads input gives it.",
+      "instruction": "Checks on PR {{ trigger.data.repository }}#{{ trigger.data.number }} settled ({{ trigger.data.conclusion }}) at {{ trigger.data.head_sha }}. Work on the PR head branch {{ trigger.data.head_branch }} only. Fix the failing checks and the SonarCloud issues behind the failing quality gate, and address the review threads in the threads input (and no other thread). Never edit .github/workflows, never delete or skip tests and never add suppression markers. In threads_addressed, use each thread's thread_id exactly as the threads input gives it. For SonarCloud, the sonar_issues input lists only the issues behind the failing quality-gate conditions and sonar_note says what the gate needs: fix exactly those, never the rest of the Sonar backlog.",
       "number": "trigger.data.number",
       "repo": "trigger.data.repository",
       "trusted_authors": {

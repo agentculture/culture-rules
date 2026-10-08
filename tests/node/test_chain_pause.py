@@ -133,8 +133,11 @@ def test_the_deferred_chain_reevaluation_is_reported_while_paused():
     ops.pause(OPS)
     ops.cancel(c.run("a", "evt_1")["id"], OPS)
     report = c.cycle()["spark"]
-    assert [d["rule"] for d in report.deferred] == ["b"]
+    chain = [d for d in report.deferred if "run event" not in d["reason"]]
+    assert [d["rule"] for d in chain] == ["b"]
     assert all("paused" in d["reason"] for d in report.deferred)
+    # a's cancelled run has its rules.run.cancelled event held back too (d21)
+    assert [d["rule"] for d in report.deferred if "run event" in d["reason"]] == ["a"]
 
 
 def test_an_event_arriving_while_paused_is_dropped_by_design():

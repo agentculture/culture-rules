@@ -145,6 +145,11 @@
       "description": "Attempt budget (>= 1): after ``max_attempts`` admitted runs for a concurrency key (by any rule sharing it; the smallest max_attempts among those rules applies), further firings are skipped until a non-self push (github.pr.synchronize with self_authored false) or green checks (github.pr.checks_settled with conclusion success) resets the counter. ``None`` means no budget.",
       "default": null
     },
+    "counts_toward_budget": {
+      "type": "boolean",
+      "description": "Whether this rule's runs count toward its concurrency key's attempt budget (and are refused once it is spent). False: the rule still shares the key's one active run and coalescing, but its admitted runs are not counted and the budget never refuses it - for a follow-up rule in an event chain (a review on a fix's finished run) that is not a fix attempt. Needs a concurrency_key; refused together with max_attempts.",
+      "default": true
+    },
     "schema_version": {
       "type": "string",
       "description": "Document schema version (MAJOR.MINOR)",
@@ -204,6 +209,11 @@
         "idempotent": {
           "type": "boolean",
           "description": "Safe to retry without an idempotency key",
+          "default": false
+        },
+        "only_at_chain_end": {
+          "type": "boolean",
+          "description": "Run only where the run's chain ends (d21): skipped (chain_continues) when a live rule would continue the run - fire on the rules.run.* event it is about to emit, on the same concurrency key. One comment per chain of fix, review and publish runs",
           "default": false
         }
       },

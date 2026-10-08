@@ -46,7 +46,8 @@ BUILTIN_WORDS: dict[str, str] = {
     "gate": "test gate",
     "github.threads": "github.threads{as}: unresolved threads by trusted authors",
     "github.threads_addressed": "github.threads_addressed",
-    "review": "review verdict, recorded for github.push",
+    "review": "review verdict, recorded for its commit (github.push checks it)",
+    "sonar.gate_issues": "sonar.gate_issues: the issues behind the PR's failing SonarCloud gate",
 }
 
 _TO_CHANNEL = (("channel", "to {}"),)
@@ -220,9 +221,11 @@ def action_text(action: Any, where: str = "") -> str:
     words.append(where)
     if kind == "github.push":  # the push port always requires an approving review (d20)
         gate = "a passing gate and " if params.get("gate_verdict") else ""
-        words.append(f"(only on {gate}an approving review)")
+        words.append(f"(only on {gate}an approving review of exactly that commit)")
     if kind == "github.review_reply" and params.get("resolve") is True:
         words.append("and resolve")
+    if a.get("only_at_chain_end") is True:  # d21: one comment per chain
+        words.append("(only where its chain ends)")
     return _join(*words)
 
 
@@ -304,9 +307,7 @@ def describe_rule(rule: Any, workflow: Any = None) -> list[dict[str, Any]]:
         out.append(_entry("Then", action_text(r["action"])))
     if r.get("on_failure"):
         out.append(_entry("On failure", action_text(r["on_failure"])))
-    key = [_key_text(str(r["concurrency_key"]))] if r.get("concurrency_key") else []
-    if r.get("max_attempts"):
-        key.append(f"≤{r['max_attempts']} attempts")
+    key = _key_words(r)
     if key:
         out.append(_entry("Key", ", ".join(key)))
     if r.get("exclusive_group"):
@@ -314,6 +315,17 @@ def describe_rule(rule: Any, workflow: Any = None) -> list[dict[str, Any]]:
     if r.get("enabled") is False:
         out.append(_entry("Disabled", ""))
     return out
+
+
+def _key_words(r: Mapping[str, Any]) -> list[str]:
+    """A rule's ``Key`` words: its concurrency key, attempt bound, and (d21) whether it is
+    outside the attempt budget; none without a key or bound."""
+    key = [_key_text(str(r["concurrency_key"]))] if r.get("concurrency_key") else []
+    if r.get("max_attempts"):
+        key.append(f"≤{r['max_attempts']} attempts")
+    if key and r.get("counts_toward_budget") is False:
+        key.append("outside the attempt budget")
+    return key
 
 
 # --------------------------------------------------------------------------- workflows
@@ -385,16 +397,23 @@ def _kind_text(s: Mapping[str, Any], kind: Any, config: Mapping[str, Any], where
     if kind == "code":
         return _code_text(config, where)
     if kind == "ai":
-        actor = _plain(s.get("placement")).get("actor")
-        sandbox = config.get("sandbox")
-        detail = f"agent, {sandbox}" if isinstance(sandbox, str) and sandbox else "agent"
-        return f"{actor} ({detail})" if actor else _join(detail, where)
+        return _ai_text(s, config, where)
     if kind == "actor_task":
         actor = _plain(s.get("placement")).get("actor") or config.get("actor")
         return f"task for {actor}" if actor else _join("task", where)
     if kind in ("for_each", "retry_until"):
         return _loop_text(s, config)
     return _join(str(kind or "step"), where)  # logic and anything unknown read as their kind
+
+
+def _ai_text(s: Mapping[str, Any], config: Mapping[str, Any], where: Any) -> str:
+    """An agent step's words: its actor (or placement), sandbox and commit requirement."""
+    actor = _plain(s.get("placement")).get("actor")
+    sandbox = config.get("sandbox")
+    detail = f"agent, {sandbox}" if isinstance(sandbox, str) and sandbox else "agent"
+    if config.get("require_commit") is True:  # d21: no commit ends the attempt
+        detail += ", must commit"
+    return f"{actor} ({detail})" if actor else _join(detail, where)
 
 
 def _step_extras(s: Mapping[str, Any]) -> list[str]:

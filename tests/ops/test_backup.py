@@ -377,3 +377,89 @@ def test_cli_main_snapshot_and_restore(s3, clock, monkeypatch, capsys):
     assert mod.main(["restore", "--json"]) == 0
     assert dump(target) == dump(store)
     assert mod.main(["bogus"]) == 1
+
+
+# ------------------------------------------------------------------ d21 completion records
+
+
+def _completion(run_id, emitted):
+    return {
+        "id": run_id,
+        "run_id": run_id,
+        "status": "succeeded",
+        "envelope": {"id": f"runevt_{run_id}", "type": "rules.run.succeeded", "data": {}},
+        "emitted": emitted,
+        "event_id": f"runevt_{run_id}" if emitted else None,
+    }
+
+
+def test_run_completions_are_backed_up_and_every_emitted_one_is_redelivered_on_restore(s3, clock):
+    from culture_rules.node.run_events import RunEventOutbox
+
+    store = MemoryStore()
+    seed(store)
+    old = {**_completion("run0", True), "emitted_at": (T0 - timedelta(days=3)).isoformat()}
+    recent = {**_completion("run1", True), "emitted_at": T0.isoformat()}
+    store.put("run_completions", old)
+    store.put("run_completions", recent)
+    b = make_backup(s3, store, clock)
+    b.snapshot()
+    clock.advance(hours=1)
+    store.put("run_completions", _completion("run2", False))  # finished, not yet delivered
+    assert b.increment().counts["run_completions"] == 1
+    target = MemoryStore()
+    report = b.restore(target)
+    # the events are not backed up: every emitted completion is re-opened, whatever its age
+    # (age is no proof its event was consumed); consumption marks decide who skips it
+    assert report.reopened == 2
+    assert target.get("run_completions", "run0")["emitted"] is False
+    assert target.get("run_completions", "run1")["emitted"] is False
+    assert target.get("run_completions", "run2")["emitted"] is False
+    outbox = RunEventOutbox(target, paused=lambda tx: False, defer=Exception)
+    # re-delivered under the same event ids as before the restore
+    assert sorted(outbox.poll()) == ["runevt_run0", "runevt_run1", "runevt_run2"]
+
+
+def test_an_older_chain_without_a_completions_token_asks_for_a_new_snapshot(s3, clock):
+    store = MemoryStore()
+    seed(store)
+    old = make_backup(s3, store, clock, run_collections=("runs", "audit"))
+    old.snapshot()
+    clock.advance(hours=1)
+    b = make_backup(s3, store, clock)
+    assert b.due(clock()) == "snapshot"
+    with pytest.raises(BackupError, match="snapshot"):
+        b.increment()
+    b.tick()  # takes the snapshot the new chain starts from
+    clock.advance(hours=1)
+    store.put("run_completions", _completion("run9", False))
+    assert b.increment().counts["run_completions"] == 1
+
+
+def test_a_completion_emitted_days_before_the_backup_is_still_reopened(s3, clock):
+    store = MemoryStore()
+    seed(store)
+    stale = {**_completion("run7", True), "emitted_at": (T0 - timedelta(days=3)).isoformat()}
+    store.put("run_completions", stale)  # its consumer was offline for three days
+    b = make_backup(s3, store, clock)
+    b.snapshot()
+    target = MemoryStore()
+    assert b.restore(target).reopened == 1
+    assert target.get("run_completions", "run7")["emitted"] is False
+
+
+def test_the_backup_carries_the_decision_state_in_a_consistent_order():
+    from culture_rules.ops.backup import RUN_COLLECTIONS
+
+    # consumption marks, then the intents and reservations committed with them, then the
+    # runs those intents start, then the completions: each later scan sees every write the
+    # earlier ones depend on (module doc)
+    assert RUN_COLLECTIONS == (
+        "run_event_consumption",
+        "rule_decisions",
+        "rule_fires",
+        "rule_attempt_budgets",
+        "runs",
+        "audit",
+        "run_completions",
+    )

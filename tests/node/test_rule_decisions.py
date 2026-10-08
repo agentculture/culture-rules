@@ -44,6 +44,8 @@ def test_the_recorded_reasons_and_collection():
         "deduplicated",
         "attempt_budget_exhausted",
         "concurrency_key_unresolved",
+        "hop_limit",
+        "run_event_unverified",
     }
     assert RULE_DECISIONS in NODE_COLLECTIONS
 

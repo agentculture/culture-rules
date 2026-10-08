@@ -252,6 +252,34 @@ class MemoryStore:
     ) -> list[Document]:
         return self._find(None, collection, where, limit)
 
+    def find_range(
+        self,
+        collection: str,
+        where: Mapping[str, Any] | None,
+        *,
+        field: str,
+        upto: Any = None,
+        after: Any = None,
+        limit: int,
+    ) -> list[Document]:
+        """Documents matching the equality filter ``where`` whose ``field`` is set, greater
+        than ``after`` and at most ``upto`` (either bound optional), ordered by (``field``,
+        id), at most ``limit``: the bounded "due" query and keyset pagination (``field`` may
+        be ``id``). ``limit`` is checked like :meth:`find`'s: 0 answers nothing."""
+        if not isinstance(limit, int) or isinstance(limit, bool) or limit < 0:
+            raise ValueError("limit must be a non-negative int")
+        if limit == 0:
+            return []
+        found = [
+            d
+            for d in self._find(None, collection, where, None)
+            if d.get(field) is not None
+            and (upto is None or d[field] <= upto)
+            and (after is None or d[field] > after)
+        ]
+        found.sort(key=lambda d: (d[field], d["id"]))
+        return found[:limit]
+
     def insert(self, collection: str, document: Mapping[str, Any]) -> Document:
         return self._insert(None, collection, document)
 

@@ -148,12 +148,41 @@ interface FieldsProps<T> {
   onChange: (trigger: Trigger) => void;
 }
 
+/**
+ * Events the engine itself emits, one per finished run (d21): a rule can fire
+ * when another rule's run ends. One type per terminal status, so a rule on
+ * "succeeded" or "failed" never sees a cancelled or superseded run.
+ */
+export const RUN_EVENTS = [
+  "rules.run.succeeded",
+  "rules.run.failed",
+  "rules.run.cancelled",
+  "rules.run.superseded",
+] as const;
+
+interface Surface {
+  id: string;
+  name: string;
+  events: readonly string[];
+}
+
+/** The built-in surface for run events; "@" keeps it apart from any actor id. */
+export const ENGINE_SURFACE: Surface = {
+  id: "@rules-engine",
+  name: "Rules engine (a run finished)",
+  events: RUN_EVENTS,
+};
+
 /** Event trigger: the app (surface) that declares the event, then the event itself. */
 function EventFields({ name, t, actors: apps, onChange }: Readonly<FieldsProps<EventTrigger> & { actors: Actor[] }>) {
   const eventType = t.params?.type ?? "";
-  const owner = apps.find((a) => eventsOf(a).includes(eventType));
+  const surfaces: Surface[] = [
+    ...apps.map((a) => ({ id: a.id, name: a.name, events: eventsOf(a) })),
+    ENGINE_SURFACE,
+  ];
+  const owner = surfaces.find((a) => a.events.includes(eventType));
   const [surface, setSurface] = useState(owner?.id ?? "");
-  const surfaceActor = apps.find((a) => a.id === surface);
+  const surfaceActor = surfaces.find((a) => a.id === surface);
   return (
     <>
       {apps.length === 0 ? (
@@ -172,7 +201,7 @@ function EventFields({ name, t, actors: apps, onChange }: Readonly<FieldsProps<E
           }}
         >
           <option value="">Choose an app…</option>
-          {apps.map((a) => (
+          {surfaces.map((a) => (
             <option key={a.id} value={a.id}>
               {a.name}
             </option>
@@ -195,18 +224,25 @@ function EventFields({ name, t, actors: apps, onChange }: Readonly<FieldsProps<E
           <option value="">Choose an event…</option>
           {eventType &&
           surfaceActor &&
-          !eventsOf(surfaceActor).includes(eventType) ? (
+          !surfaceActor.events.includes(eventType) ? (
             <option value={eventType}>
               {eventType} (no longer declared)
             </option>
           ) : null}
-          {(surfaceActor ? eventsOf(surfaceActor) : []).map((t) => (
+          {(surfaceActor ? surfaceActor.events : []).map((t) => (
             <option key={t} value={t}>
               {t}
             </option>
           ))}
         </select>
       </label>
+      {surface === ENGINE_SURFACE.id ? (
+        <p className="trigger-picker__words" data-testid="run-event-hint">
+          Fires when any rule's run ends. Add a condition on the run's workflow
+          (data.workflow_id) or rule (data.rule_id), so this rule never fires on its own runs;
+          a chain on one concurrency key holds it between its stages.
+        </p>
+      ) : null}
     </>
   );
 }

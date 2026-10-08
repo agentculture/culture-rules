@@ -176,6 +176,10 @@ Semantics
   new placements on it while its running steps finish; cancelling a run cancels every
   unfinished step and ignores late results.
 
+Every transition that finishes a run (``succeeded``, ``failed``, ``cancelled``,
+``superseded``) also inserts the run's immutable completion record in the same transaction
+(:mod:`culture_rules.engine.run_completions`, deviation d21).
+
 Collections written in transactions are listed in :data:`RUN_COLLECTIONS`; on MongoDB they
 are created up front (``ensure_collections``).
 """
@@ -205,6 +209,7 @@ from culture_rules.engine.audit import AUDIT_COLLECTION, AuditLog, mutating_verb
 from culture_rules.engine.claims import (
     CLAIMS_COLLECTION,
     DEFAULT_LEASE,
+    RULE_ATTEMPT_BUDGETS,
     ClaimResult,
     Claims,
     ReclaimGuard,
@@ -212,6 +217,7 @@ from culture_rules.engine.claims import (
 )
 from culture_rules.engine.leasekeeper import KeeperFactory, LeaseKeeper
 from culture_rules.engine.placement import MachineState, PlacementError, resolve_placement
+from culture_rules.engine.run_completions import RUN_COMPLETIONS, record_completion
 from culture_rules.engine.variables import variable_values
 from culture_rules.machines.enrol import enrolled_machines
 from culture_rules.machines.heartbeat import (
@@ -273,6 +279,8 @@ RUN_COLLECTIONS: tuple[str, ...] = (
     CONTROLS_COLLECTION,
     CLAIMS_COLLECTION,
     AUDIT_COLLECTION,
+    RUN_COMPLETIONS,
+    RULE_ATTEMPT_BUDGETS,  # a terminal transition may hold its key (chain_hold, d21)
 )
 RULES_COLLECTION = "rules"
 WORKFLOWS_COLLECTION = "workflows"
@@ -623,8 +631,12 @@ class Containment:
             doc["error"] = _error("cancelled", reason or f"cancelled by {identity}")
             _record(doc, now, self._audit.host, "cancelled", None)
             res = tx.update_if(RUNS_COLLECTION, run_id, {"rev": before["rev"]}, _mutable(doc))
-            if not res.won:  # pragma: no cover - transactions serialise this on every adapter
+            # MemoryStore runs transactions one at a time; MongoDB does not serialise their
+            # bodies but aborts the later writer with a write conflict (TransientStoreError)
+            # before this point. The guard covers an adapter that does neither.
+            if not res.won:  # pragma: no cover
                 raise RunError("conflict", f"run {run_id!r} changed concurrently")
+            record_completion(tx, before, doc, now)
             self._audit.write(
                 tx,
                 identity=identity,
@@ -1305,6 +1317,17 @@ class Executor:
         return res.output.get("head_sha")
 
     def _cas(self, before: Mapping[str, Any], after: Mapping[str, Any]) -> bool:
+        """Write ``after`` over ``before`` by compare-and-set on ``rev``. A transition that
+        finishes the run also inserts its completion record, in the same transaction
+        (:mod:`culture_rules.engine.run_completions`): both commit or neither does."""
+        if after.get("status") in RUN_DONE and before.get("status") not in RUN_DONE:
+            with self._store.transaction() as tx:
+                res = tx.update_if(
+                    RUNS_COLLECTION, before["id"], {"rev": before["rev"]}, _mutable(after)
+                )
+                if res.won:
+                    record_completion(tx, before, after, self._clock())
+            return res.won
         res = self._store.update_if(
             RUNS_COLLECTION, before["id"], {"rev": before["rev"]}, _mutable(after)
         )
@@ -1388,6 +1411,10 @@ class Executor:
         self, plan: _Plan, doc: Document, st: dict, now: datetime, *, resume: bool
     ) -> bool:
         key = st["key"]
+        if not resume and key in TERMINAL_STEPS and _terminal_action(plan, st).only_at_chain_end:
+            continuing = self._chain_continues(doc, st, now)
+            if continuing:
+                return self._skip_terminal(doc, key, continuing, now)
         if resume:
             inputs = self._resume_inputs(plan, st)
         else:
@@ -1417,6 +1444,32 @@ class Executor:
             result = _invoke(port, inputs, idem, deadline, ctx)
         self._settle(doc["id"], key, attempt, claim, result, port)
         return True
+
+    def _chain_continues(self, doc: Document, st: Mapping[str, Any], now: datetime) -> list[str]:
+        """The live rules that would continue this run's chain (d21): fire on the event the
+        run emits once this terminal step is done, on the run's concurrency key
+        (:func:`~culture_rules.engine.chain_hold.continuations`)."""
+        from culture_rules.engine.chain_hold import continuations  # noqa: PLC0415
+        from culture_rules.engine.run_completions import build_run_event  # noqa: PLC0415
+
+        ending = copy.deepcopy(dict(doc))
+        if st["key"] == FAILURE_STEP:
+            ending.update(status="failed", error=st.get("failure"))
+        else:
+            ending["status"] = "succeeded"
+        ending["finished_at"] = _iso(now)
+        envelope = build_run_event(ending)
+        if envelope is None:
+            return []
+        return continuations(self._store, envelope, doc.get("concurrency_key"))
+
+    def _skip_terminal(self, doc: Document, key: str, continuing: list[str], now: datetime) -> bool:
+        """Skip an ``only_at_chain_end`` terminal action: the chain goes on (d21)."""
+        new = copy.deepcopy(doc)
+        nst = step_state(new, key)
+        nst.update(status="skipped", outputs={"chain_continues": list(continuing)})
+        _record(new, now, self.host, "skipped:chain_continues", key)
+        return self._cas(doc, new)
 
     def _keep_alive(self, claim: ClaimResult, deadline: datetime) -> AbstractContextManager[Any]:
         """The keeper renewing ``claim`` while its actor runs, until ``deadline``."""
@@ -1605,10 +1658,11 @@ class Executor:
                     if not _still_dispatching(doc, st, attempt, self.host):
                         claims.release(claim)  # cancelled, delivered or moved on meanwhile
                         return
-                    new, nst = self._settled(doc, st, key, result, port)
+                    new, nst, now = self._settled(doc, st, key, result, port)
                     res = tx.update_if(RUNS_COLLECTION, run_id, {"rev": doc["rev"]}, _mutable(new))
                     if not res.won:
                         raise _Conflict
+                    record_completion(tx, doc, new, now)
                     if nst["status"] in STEP_DONE:
                         claims.complete(claim)
                     else:
@@ -1620,8 +1674,9 @@ class Executor:
 
     def _settled(
         self, doc: Mapping, st: Mapping, key: str, result: InvocationResult | None, port: Any
-    ) -> tuple[dict, dict]:
-        """``doc`` with the invocation's outcome applied to step ``key``, and that step."""
+    ) -> tuple[dict, dict, datetime]:
+        """``doc`` with the invocation's outcome applied to step ``key``, that step, and the
+        time it was applied at (a run it finishes records its completion at that time)."""
         plan = _Plan.of(doc)
         now = self._clock()
         new = copy.deepcopy(doc)
@@ -1631,7 +1686,7 @@ class Executor:
             _bump(new)  # still queued: counted on the step, not in history
         else:
             _record(new, now, self.host, nst["status"], key)
-        return new, nst
+        return new, nst, now
 
     # ------------------------------------------------------------------ events
 
@@ -2697,7 +2752,7 @@ def _finish(plan: _Plan, doc: Mapping, now: datetime) -> Found:
         new["outputs"] = outputs
         new["steps"].append(state)
         return new, "action_ready", ACTION_STEP
-    if action["status"] == "succeeded":
+    if action["status"] in STEP_OK:  # skipped: only_at_chain_end and the chain goes on
         new.update(status="succeeded", finished_at=_iso(now))
         return new, "run_succeeded", None
     return None

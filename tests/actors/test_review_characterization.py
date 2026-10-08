@@ -1,6 +1,8 @@
 """Characterization tests (Sonar S3776 refactor of review.py): pin record_review's race and
 fail-closed paths and the early refusals of the verdict step's ``_review`` exactly as they
-behave, so the split into helpers is provably behaviour-preserving."""
+behave, so the split into helpers is provably behaviour-preserving. Since d21 the pointer is
+per review target (repo, PR, base, start, tip), not per run, and the built-in gate check
+lives in the single workflow's judgement (:func:`_builtin_gate`)."""
 
 from __future__ import annotations
 
@@ -11,11 +13,15 @@ from culture_rules.actors.review import (
     REVIEWS_COLLECTION,
     ReviewError,
     ReviewVerdictPort,
+    _body_steps,
+    _builtin_gate,
     record_review,
+    review_target,
 )
 from culture_rules.store.memory import MemoryStore
 
-SHA, START = "a" * 40, "c" * 40
+SHA, START, BASE = "a" * 40, "c" * 40, "b" * 40
+TARGET = review_target("o/r", 7, BASE, START, SHA)
 
 
 class _Lost:
@@ -23,7 +29,15 @@ class _Lost:
 
 
 def _fields(**over):
-    fields = {"step": "fix[0]/verdict", "verdict": "approve", "commit_sha": SHA}
+    fields = {
+        "step": "fix[0]/verdict",
+        "verdict": "approve",
+        "repo": "o/r",
+        "number": 7,
+        "base_sha": BASE,
+        "start_sha": START,
+        "commit_sha": SHA,
+    }
     fields.update(over)
     return fields
 
@@ -46,8 +60,8 @@ def test_a_pointer_insert_race_retries_and_moves_the_pointer_forward():
     store.get = stale
     rid = record_review(store, "run-1", iteration=1, attempt=1, fields=_fields(step="s1"))
     store.get = real_get
-    assert misses == ["run-1"]
-    cur = store.get(CURRENT_COLLECTION, "run-1")
+    assert misses == [TARGET]
+    cur = store.get(CURRENT_COLLECTION, TARGET)
     assert (cur["record"], cur["state"], cur["iteration"], cur["attempt"]) == (rid, "current", 1, 1)
 
 
@@ -59,7 +73,7 @@ def test_a_clash_before_any_pointer_is_a_conflict_pointer():
         {**_fields(verdict="request_changes"), "id": rid, "run_id": "run-1"},
     )
     assert record_review(store, "run-1", iteration=0, attempt=1, fields=_fields()) == rid
-    cur = store.get(CURRENT_COLLECTION, "run-1")
+    cur = store.get(CURRENT_COLLECTION, TARGET)
     assert cur["state"] == "conflict"
     assert cur["record"] is None
     assert cur["conflict"] == [rid, rid]
@@ -70,7 +84,7 @@ def test_an_identical_rewrite_is_no_clash():
     store = MemoryStore()
     rid = record_review(store, "run-1", iteration=0, attempt=1, fields=_fields())
     assert record_review(store, "run-1", iteration=0, attempt=1, fields=_fields()) == rid
-    assert store.get(CURRENT_COLLECTION, "run-1")["state"] == "current"
+    assert store.get(CURRENT_COLLECTION, TARGET)["state"] == "current"
 
 
 def test_another_record_for_the_same_try_is_a_conflict():
@@ -79,7 +93,7 @@ def test_another_record_for_the_same_try_is_a_conflict():
     other = record_review(
         store, "run-1", iteration=0, attempt=1, fields=_fields(step="fix[0]/verdict2")
     )
-    cur = store.get(CURRENT_COLLECTION, "run-1")
+    cur = store.get(CURRENT_COLLECTION, TARGET)
     assert (cur["state"], cur["record"], cur["conflict"]) == ("conflict", None, [first, other])
 
 
@@ -93,27 +107,28 @@ def test_a_clash_on_an_older_try_leaves_a_newer_pointer_alone():
         )
         == old
     )
-    cur = store.get(CURRENT_COLLECTION, "run-1")
+    cur = store.get(CURRENT_COLLECTION, TARGET)
     assert (cur["state"], cur["record"]) == ("current", new)
 
 
 def test_a_consumed_pointer_refuses_and_an_unknown_state_is_kept():
     store = MemoryStore()
     record_review(store, "run-1", iteration=0, attempt=1, fields=_fields())
-    store.update_if(CURRENT_COLLECTION, "run-1", {}, {"state": "consumed"})
-    fields = _fields()
+    store.update_if(CURRENT_COLLECTION, TARGET, {}, {"state": "consumed"})
+    fields = _fields(step="s3")
     with pytest.raises(ReviewError) as exc:
         record_review(store, "run-1", iteration=3, attempt=1, fields=fields)
     assert exc.value.code == "review_consumed"
     assert str(exc.value) == (
-        "review_consumed: a push already used this run's approval; recorded only"
+        "review_consumed: a push already used this commit's approval; recorded only"
     )
-    assert store.get(REVIEWS_COLLECTION, "run-1:fix[0]/verdict:1") is not None  # kept
-    store.update_if(CURRENT_COLLECTION, "run-1", {}, {"state": "weird"})
-    before = store.get(CURRENT_COLLECTION, "run-1")
+    # the refused review's own record was written before the pointer refused it
+    assert store.get(REVIEWS_COLLECTION, "run-1:s3:1")["verdict"] == "approve"
+    store.update_if(CURRENT_COLLECTION, TARGET, {}, {"state": "weird"})
+    before = store.get(CURRENT_COLLECTION, TARGET)
     rid = record_review(store, "run-1", iteration=4, attempt=1, fields=_fields(step="s4"))
     assert rid == "run-1:s4:1"
-    assert store.get(CURRENT_COLLECTION, "run-1") == before
+    assert store.get(CURRENT_COLLECTION, TARGET) == before
 
 
 def test_a_lost_pointer_cas_rereads_then_wins():
@@ -135,6 +150,7 @@ def test_a_lost_pointer_cas_rereads_then_wins():
         (
             {
                 "record": "run-1:fix[0]/verdict:1",
+                "run_id": "run-1",
                 "iteration": 0,
                 "attempt": 1,
                 "state": "current",
@@ -142,7 +158,7 @@ def test_a_lost_pointer_cas_rereads_then_wins():
             {"record": rid, "iteration": 1, "attempt": 2},
         )
     ]
-    assert store.get(CURRENT_COLLECTION, "run-1")["record"] == rid
+    assert store.get(CURRENT_COLLECTION, TARGET)["record"] == rid
 
 
 def test_sustained_pointer_contention_raises_review_invalid():
@@ -167,6 +183,27 @@ def test_the_record_id_defaults_its_step_to_the_iteration():
     store = MemoryStore()
     rid = record_review(store, "run-1", iteration=4, attempt=2, fields={"verdict": "approve"})
     assert rid == "run-1:[4]:2"
+    assert store.find(CURRENT_COLLECTION) == []  # no whole target: recorded only
+
+
+def test_a_rewrite_without_a_target_keeps_the_stored_records_target():
+    store = MemoryStore()
+    rid = record_review(store, "run-1", iteration=0, attempt=1, fields=_fields())
+    partial = {k: v for k, v in _fields().items() if k != "base_sha"}
+    assert record_review(store, "run-1", iteration=0, attempt=1, fields=partial) == rid
+    cur = store.get(CURRENT_COLLECTION, TARGET)
+    assert (cur["state"], cur["conflict"]) == ("conflict", [rid, rid])
+
+
+def test_a_newer_review_run_takes_the_pointer_and_an_older_ones_late_write_is_stale():
+    store = MemoryStore()
+    record_review(store, "run-1", iteration=0, attempt=1, fields=_fields())
+    newer = record_review(store, "run-2", iteration=0, attempt=1, fields=_fields())
+    cur = store.get(CURRENT_COLLECTION, TARGET)
+    assert (cur["record"], cur["run_id"], cur["runs"]) == (newer, "run-2", ["run-1", "run-2"])
+    late = record_review(store, "run-1", iteration=5, attempt=1, fields=_fields(step="s5"))
+    assert late == "run-1:s5:1"
+    assert store.get(CURRENT_COLLECTION, TARGET) == cur
 
 
 # --------------------------------------------------------------------------- _review refusals
@@ -201,10 +238,22 @@ def _review_state(**over):
     return st
 
 
-def _code(store, run, review, g=G):
+def _call(store, run, review, g, facts):
     port = ReviewVerdictPort(store)
+    body = _body_steps(run, "loop")
+    port._review(
+        run,
+        review,
+        body.get(NAMES["review"]) or {},
+        lambda: port._implementer(run, "loop", 0, body, NAMES["review"], g),
+        g,
+        facts,
+    )
+
+
+def _code(store, run, review, g=G):
     with pytest.raises(ReviewError) as exc:
-        port._review(run, "loop", 0, NAMES, lambda role: review, g, {})
+        _call(store, run, review, g, {})
     return exc.value.code, exc.value.detail
 
 
@@ -234,27 +283,26 @@ def test_a_reviewer_not_given_the_gates_commit_and_diff_is_review_invalid(given)
 
 
 @pytest.mark.parametrize(
-    "gate_def, review_def",
+    "gate_def",
     [
-        ({"id": "gate", "kind": "ai", "config": {"builtin": "gate"}}, None),
-        ({"id": "gate", "kind": "code", "config": {"builtin": "lint"}}, None),
-        ({"id": "gate", "kind": "code"}, None),
-        (
-            {
-                "id": "gate",
-                "kind": "code",
-                "config": {"builtin": "gate"},
-                "placement": {"actor": "x"},
-            },
-            None,
-        ),
-        (None, {"id": "review", "kind": "code", "placement": {"actor": "rev"}}),
+        {"id": "gate", "kind": "ai", "config": {"builtin": "gate"}},
+        {"id": "gate", "kind": "code", "config": {"builtin": "lint"}},
+        {"id": "gate", "kind": "code"},
+        {
+            "id": "gate",
+            "kind": "code",
+            "config": {"builtin": "gate"},
+            "placement": {"actor": "x"},
+        },
     ],
 )
-def test_a_gate_that_is_not_the_builtin_or_a_review_that_is_not_ai_is_bad_config(
-    gate_def, review_def
-):
-    assert _code(MemoryStore(), _run(gate_def, review_def), _review_state()) == (
+def test_a_gate_that_is_not_the_builtin_is_not_the_builtin_gate(gate_def):
+    assert _builtin_gate(gate_def) is False
+
+
+def test_a_review_that_is_not_ai_is_bad_config():
+    review_def = {"id": "review", "kind": "code", "placement": {"actor": "rev"}}
+    assert _code(MemoryStore(), _run(review_def=review_def), _review_state()) == (
         "bad_config",
         "gate_step must be the built-in gate, review_step an ai step",
     )
@@ -268,10 +316,9 @@ def _actors(store, reviewer_params=None, reviewer_harness="codex"):
 
 
 def test_a_non_mapping_gate_placement_is_not_an_actor_placement():
-    store = MemoryStore()
-    _actors(store, {"sandbox": "workspace-write"})
     gate = {"id": "gate", "kind": "code", "config": {"builtin": "gate"}, "placement": "x"}
-    assert _code(store, _run(gate), _review_state())[0] == "reviewer_not_read_only"
+    assert _builtin_gate(gate) is True
+    assert _builtin_gate({"id": "gate", "kind": "code", "config": {"builtin": "gate"}}) is True
 
 
 @pytest.mark.parametrize(
@@ -322,8 +369,7 @@ def test_the_facts_gathered_before_a_refusal_are_kept():
     store = MemoryStore()
     _actors(store, {"reviewer": False})
     facts: dict = {}
-    port = ReviewVerdictPort(store)
-    run = _run()
+    run, review = _run(), _review_state()
     with pytest.raises(ReviewError):
-        port._review(run, "loop", 0, NAMES, lambda role: _review_state(), G, facts)
+        _call(store, run, review, G, facts)
     assert facts == {"reviewer_actor": "rev", "implementer_actor": "impl"}

@@ -29,7 +29,7 @@ PR approved  →  base = main  →  Review PR  →  Comment
 
 | Concept | What it is |
 |---------|------------|
-| **Rule** | A trigger, an optional condition, an optional workflow and a required action. A rule can follow another rule (*must run after* / *may run after*), supersede another, and consume the outputs its predecessor explicitly exports. It is placed on a machine, an actor or a capability requirement, which decides where its trigger and condition evaluate. |
+| **Rule** | A trigger, an optional condition, an optional workflow and a required action. A rule can follow another rule (*must run after* / *may run after*), supersede another, and consume the outputs its predecessor explicitly exports. A rule can also fire when another rule's run finishes ([run events](docs/run-events.md)). It is placed on a machine, an actor or a capability requirement, which decides where its trigger and condition evaluate. |
 | **Condition** | A typed JSON predicate over the trigger and context, evaluated deterministically (never `eval()`). It is edited graphically; a CEL-style text form is the advanced view. |
 | **Workflow** | Reusable *how*: typed inputs, internal variables, steps (logic, AI call, code run, actor task, loops), and explicit outputs. Each step has typed ports and its own placement, so one run can hop machines. A workflow doesn't know what triggered it. |
 | **Action** | The terminal side effect of a rule: post a comment, send a message, call a service, ask a human. |

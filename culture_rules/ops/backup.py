@@ -4,8 +4,29 @@ What is backed up
 =================
 
 *Config* collections (``rules``, ``workflows``, ``actors``, ``machines``) and
-*run history* collections (``runs``, ``audit``) read through the
+*run history* collections (``run_event_consumption``, ``rule_decisions``, ``rule_fires``,
+``rule_attempt_budgets``, ``runs``, ``audit``, ``run_completions``) read through the
 :class:`~culture_rules.store.port.StoragePort`. Both lists are configurable.
+
+Run events, decision state and reconciliation (d21)
+---------------------------------------------------
+A backup is consistent **per collection**, not one point in time across collections, and
+it leaves out ``events`` and every consumer's cursor and fire markers. Run history carries
+the decision state - consumption marks, decision records, firing intents, key reservations,
+runs and run completions, scanned in :data:`RUN_COLLECTIONS` order - and a restore then runs
+one reconciliation pass before any node starts
+(:func:`~culture_rules.ops.reconcile.reconcile_restored`), which repairs the known gaps:
+undelivered run events are re-opened under their assigned ids, orphan key reservations are
+dropped, and finished runs, final skip decisions and failed firing intents whose dependants
+were not decided yet are re-driven through the chain consumers (a decision written by an
+older build without its trigger snapshot is reported as ``needs_review`` instead).
+Anything else needs an operator's review (``docs/operations/backup.md``, "Restore
+limits").
+
+A backup chain written before
+``run_completions`` was listed has no feed token for it: the schedule then takes a new
+snapshot (:meth:`Backup.due`), and an increment on such a chain is refused with a request
+for one, so the new collection is never missed.
 
 Objects (all gzip-compressed JSON, written with server-side encryption)::
 
@@ -62,6 +83,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, NoReturn
 
 from culture_rules.actors.secrets import SecretError, resolve_or_literal
+from culture_rules.ops.reconcile import reconcile_restored
 from culture_rules.store.port import StoragePort
 
 __all__ = [
@@ -78,7 +100,16 @@ __all__ = [
 ]
 
 CONFIG_COLLECTIONS = ("rules", "workflows", "actors", "machines")
-RUN_COLLECTIONS = ("runs", "audit")
+RUN_COLLECTIONS = (
+    "run_event_consumption",
+    "rule_decisions",
+    "rule_fires",
+    "rule_attempt_budgets",
+    "runs",
+    "audit",
+    "run_completions",
+)
+"""Run history, in scan order (module doc, "Run events and decision state")."""
 SNAPSHOT_INTERVAL = timedelta(hours=24)
 INCREMENT_INTERVAL = timedelta(hours=1)
 _SSE_MODES = ("AES256", "aws:kms")
@@ -163,6 +194,14 @@ class RestoreReport:
     documents: int
     rto_seconds: float
     restored_to: datetime
+    reopened: int = 0
+    """Run completions re-opened for delivery (their event was not in the backup)."""
+    reservations_dropped: int = 0
+    """Orphan concurrency reservations the reconciliation dropped."""
+    chains_redriven: int = 0
+    """Chain sources (finished runs, final decisions, failed intents) re-driven."""
+    needs_review: int = 0
+    """Final decisions left for an operator: undecided dependants, no trigger snapshot."""
 
 
 @dataclass(frozen=True)
@@ -325,6 +364,12 @@ class Backup:
             raise BackupError("no snapshot exists yet; take a snapshot before an increment")
         base = records[-1]
         tokens = dict(self._load(base.key)["tokens"])
+        missing = [c for c in self.config.run_collections if c not in tokens]
+        if missing:
+            raise BackupError(
+                f"the newest backup has no token for {', '.join(missing)}: take a snapshot "
+                "to start a chain that includes it"
+            )
         changes: list[dict[str, Any]] = []
         counts: dict[str, int] = {}
         for c in self.config.run_collections:
@@ -360,6 +405,9 @@ class Backup:
         snaps = [r for r in records if r.kind == "snapshot"]
         if not snaps or now - snaps[-1].created_at >= SNAPSHOT_INTERVAL:
             return "snapshot"
+        tokens = self._load(records[-1].key).get("tokens") or {}
+        if any(c not in tokens for c in self.config.run_collections):
+            return "snapshot"  # an older chain without a newly listed collection
         if now - records[-1].created_at >= INCREMENT_INTERVAL:
             return "increment"
         return None
@@ -392,7 +440,18 @@ class Backup:
         snap = snaps[-1]
         documents = self._restore_snapshot(target, snap)
         chain, restored_to = self._apply_increments(target, snap, records)
-        return RestoreReport(snap.key, chain, documents, time.monotonic() - started, restored_to)
+        fixed = reconcile_restored(target) if "run_completions" in collections else None
+        return RestoreReport(
+            snap.key,
+            chain,
+            documents,
+            time.monotonic() - started,
+            restored_to,
+            fixed.reopened if fixed else 0,
+            fixed.reservations_dropped if fixed else 0,
+            fixed.chains_redriven if fixed else 0,
+            fixed.needs_review if fixed else 0,
+        )
 
     def _restore_snapshot(self, target: StoragePort, snap: BackupRecord) -> int:
         """Put every document of ``snap`` into ``target``; the number of documents put."""

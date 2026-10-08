@@ -706,6 +706,56 @@ class MongoStore:
                 result.append(self._variable_view(doc["name"], versions[-1]))
         return result
 
+    def find_range(
+        self,
+        collection: str,
+        where: Mapping[str, Any] | None,
+        *,
+        field: str,
+        upto: Any = None,
+        after: Any = None,
+        limit: int,
+    ) -> list[Document]:
+        """Documents matching ``where`` whose ``field`` is greater than ``after`` and at most
+        ``upto`` (either bound optional), ordered by (``field``, id) and limited on the
+        server (see :meth:`ensure_index`); ``field`` may be ``id``. ``limit`` is checked like
+        :meth:`find`'s: 0 answers nothing (MongoDB would read 0 as no limit)."""
+        if not isinstance(limit, int) or isinstance(limit, bool) or limit < 0:
+            raise ValueError("limit must be a non-negative int")
+        if limit == 0:
+            return []
+        key = "_id" if field == "id" else field
+        bounds: dict[str, Any] = {"$exists": True, "$ne": None}
+        if upto is not None:
+            bounds["$lte"] = upto
+        if after is not None:
+            bounds["$gt"] = after
+        query = {**_translate_where(where), key: bounds}
+        order = [(key, 1)] if key == "_id" else [(key, 1), ("_id", 1)]
+        cursor = self._collection(collection).find(query).sort(order).limit(limit)
+        return [_to_doc(raw) for raw in cursor]
+
+    def ensure_index(
+        self,
+        collection: str,
+        keys: list[tuple[str, int]],
+        *,
+        name: str,
+        partial: Mapping[str, Any] | None = None,
+        ttl_seconds: int | None = None,
+    ) -> None:
+        """Create an index on ``collection`` once (idempotent): ``keys`` as ``(field,
+        direction)`` pairs (``id`` is the document id), ``partial`` a partial filter
+        expression, ``ttl_seconds`` a TTL on a single date field (``0``: expire at the
+        field's own time). Other adapters need no indexes and do not define this."""
+        options: dict[str, Any] = {"name": name}
+        if partial is not None:
+            options["partialFilterExpression"] = _translate_where(partial)
+        if ttl_seconds is not None:
+            options["expireAfterSeconds"] = ttl_seconds
+        fields = [("_id" if f == "id" else f, d) for f, d in keys]
+        self._collection(collection).create_index(fields, **options)
+
     def ensure_variables_collection(self) -> None:
         """Create the variables collection (with change-stream images) and a
         unique index on ``name``."""
