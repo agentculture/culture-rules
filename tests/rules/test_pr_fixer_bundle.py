@@ -1,5 +1,6 @@
 """d21 phase 2: the shipped PR fixer data (docs/rules/pr-fixer) - three workflows, seven rules,
-plus d25's GitGuardian report (rule ``pr-fixer-secrets``, workflow ``report-secrets``).
+plus d25's GitGuardian report (rules ``pr-fixer-secrets`` and ``pr-fixer-secrets-late``,
+workflow ``report-secrets``).
 
 Four trigger rules (one trigger type each, d13) start a ``pr-fix`` chain on the PR's key;
 three stage rules continue it on ``rules.run.succeeded``: review-commit, refix, publish.
@@ -35,6 +36,7 @@ from tests.node.test_node import Cluster
 from tests.rules.chain_world import (
     BUNDLE,
     CHAIN_VARIABLES,
+    SECRETS_LATE_RULE,
     SECRETS_RULE,
     STAGE_RULES,
     TRIGGER_RULES,
@@ -60,7 +62,7 @@ AUTHOR_RULES = ("pr-fixer-comment", "pr-fixer-review", "pr-fixer-review-comment"
 # --------------------------------------------------------------------------- the data
 
 
-def test_the_bundle_is_eight_disabled_rules_and_four_workflows():
+def test_the_bundle_is_nine_disabled_rules_and_four_workflows():
     b = bundle()
     assert sorted(w.id for w in b.workflows) == [
         "pr-fix",
@@ -68,10 +70,11 @@ def test_the_bundle_is_eight_disabled_rules_and_four_workflows():
         "report-secrets",
         "review-commit",
     ]
-    assert sorted(r.id for r in b.rules) == sorted(TRIGGER_RULES + STAGE_RULES + (SECRETS_RULE,))
+    reports = (SECRETS_RULE, SECRETS_LATE_RULE)
+    assert sorted(r.id for r in b.rules) == sorted(TRIGGER_RULES + STAGE_RULES + reports)
     for r in b.rules:
         assert r.enabled is False
-    for r in (r for r in b.rules if r.id != SECRETS_RULE):
+    for r in (r for r in b.rules if r.id not in reports):
         assert r.concurrency_key == KEY
         assert r.placement is not None
         assert r.placement.machine == "spark2"

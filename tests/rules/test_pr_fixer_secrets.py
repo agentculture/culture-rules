@@ -15,9 +15,11 @@ import pytest
 
 from culture_rules.actors.trusted import TRUSTED_WORKFLOWS, workflow_digest
 from culture_rules.engine.runs import RUNS_COLLECTION
+from culture_rules.node.actions.github import GitHubCommentPort
+from culture_rules.node.checks_settle import LATE_TYPE
 from tests.apps.test_gitguardian import INCIDENT_URL, SAMPLE, SHA, gg_run
 from tests.events.fakes import envelope
-from tests.rules.chain_world import SECRETS_RULE, ChainWorld, bundle
+from tests.rules.chain_world import SECRETS_LATE_RULE, SECRETS_RULE, ChainWorld, bundle
 from tests.rules.test_pr_fixer_bundle import cluster
 from tests.rules.test_pr_fixer_single import REPO, TRUSTED, pr_facts
 
@@ -61,11 +63,10 @@ def test_the_rule_and_its_workflow():
         "head_sha": "trigger.data.head_sha",
     }
     assert rule.placement.machine == "spark2"
-    # its own key, one attempt per head SHA: the same head is commented once
+    # its own key, one run at a time per head SHA; the once_key makes the comment once
     assert rule.concurrency_key == (
         "pr-secrets:{trigger.data.repository}#{trigger.data.number}@{trigger.data.head_sha}"
     )
-    assert rule.max_attempts == 1
     assert rule.action.kind == "github.comment"
     assert rule.action.params["body"].startswith("{{ workflow.outputs.comment }}")
     assert rule.on_failure.kind == "github.comment"
@@ -135,13 +136,13 @@ def test_a_draft_pr_is_reported_too():
     assert fired(c, 1, SECRETS_RULE)
 
 
-def test_the_same_head_is_reported_once_and_a_new_head_again():
+def test_each_head_has_its_own_key():
     c = cluster()
     publish(c, 1, settled())
-    publish(c, 2, settled())  # a re-armed settle of the same head
-    publish(c, 3, settled(head_sha="c" * 40))
+    publish(c, 2, settled(head_sha="c" * 40))
     runs = c.base.find(RUNS_COLLECTION, {"rule_id": SECRETS_RULE})
-    assert sorted(r["trigger"]["id"] for r in runs) == ["evt_1", "evt_3"]
+    keys = {r["concurrency_key"] for r in runs}
+    assert keys == {f"pr-secrets:{REPO}#7@{'a' * 40}", f"pr-secrets:{REPO}#7@{'c' * 40}"}
 
 
 # --------------------------------------------------------------------------- end to end
@@ -201,3 +202,139 @@ def test_end_to_end_the_fix_runs_once_gitguardian_passes(tmp_path):
     (fix,) = w.runs("pr-fixer-checks")
     assert fix["status"] == "succeeded"
     assert w.qwen.inputs  # the agent ran
+
+
+# --------------------------------------------------------------------------- Codex review (d25)
+
+ONCE = (
+    "gitguardian:{{ trigger.data.repository }}#{{ trigger.data.number }}"
+    "@{{ trigger.data.head_sha }}"
+)
+
+
+def test_the_late_rule_mirrors_the_report_on_the_late_event():
+    by = {r.id: r for r in bundle().rules}
+    late, settle = by[SECRETS_LATE_RULE], by[SECRETS_RULE]
+    assert late.enabled is False
+    assert late.trigger.params == {"type": LATE_TYPE}
+    assert late.workflow == settle.workflow
+    assert late.condition == settle.condition
+    assert late.concurrency_key == settle.concurrency_key
+    assert late.placement == settle.placement
+    assert late.action == settle.action
+    assert late.on_failure == settle.on_failure
+
+
+def test_the_comment_is_durable_once_per_head_not_the_attempt_budget():
+    for rule in (r for r in bundle().rules if r.id in (SECRETS_RULE, SECRETS_LATE_RULE)):
+        assert rule.action.params["once_key"] == ONCE
+        assert rule.on_failure.params["once_key"].startswith("gitguardian-unreadable:")
+        assert rule.max_attempts is None  # a green settle resets budgets: not the dedupe
+
+
+def test_a_late_failure_fires_only_the_late_report():
+    c = cluster()
+    publish(c, 1, settled(settled_by="late", late_app=GG), kind=LATE_TYPE)
+    assert fired(c, 1, SECRETS_LATE_RULE)
+    assert not fired(c, 1, SECRETS_RULE)
+    assert not fired(c, 1, "pr-fixer-checks")
+
+
+class PostedApp:
+    def __init__(self):
+        self.posts = []
+
+    def post_comment(self, repo, number, body):
+        self.posts.append((repo, number, body))
+        return {"comment_id": len(self.posts), "url": f"https://x/{len(self.posts)}"}
+
+
+def once_world(tmp_path):
+    app = PostedApp()
+
+    class Port(GitHubCommentPort):
+        def _app(self, actor_id, conn, allowed):
+            return app
+
+    w = ChainWorld(tmp_path, comment_port=_LazyPort(Port))
+    w.comment.bind(w.c.base)
+    w.checks.runs = [gg_run()]
+    return w, app
+
+
+class _LazyPort:
+    """The real github.comment port, built on the world's store once it exists."""
+
+    supports_idempotency_key = False
+
+    def __init__(self, factory):
+        self.factory = factory
+        self.port = None
+
+    def bind(self, base):
+        self.port = self.factory(base)
+
+    def invoke(self, *args, **kwargs):
+        return self.port.invoke(*args, **kwargs)
+
+
+def _findings(app):
+    return [p for p in app.posts if p[2].startswith("**GitGuardian found")]
+
+
+def test_failure_then_green_then_failure_on_one_head_comments_once(tmp_path):
+    w, app = once_world(tmp_path)
+    head = {"head_sha": SHA}
+    for n, over in enumerate(
+        [
+            {"failed_apps": [GG]},
+            {"failed_apps": [], "conclusion": "success"},  # resets every budget
+            {"failed_apps": [GG]},
+        ],
+        start=1,
+    ):
+        w.c.publish(envelope(n, type=SETTLED, data=settled(**head, **over)))
+        w.run_chain(3)
+    assert len(w.runs(SECRETS_RULE)) == 2  # both failures ran the report...
+    assert len(_findings(app)) == 1  # ...and the head was commented once
+
+
+def test_a_late_failure_after_a_timed_out_settle_is_reported_once(tmp_path):
+    w, app = once_world(tmp_path)
+    w.c.publish(
+        envelope(1, type=SETTLED, data=settled(head_sha=SHA, failed_apps=[], conclusion="timeout"))
+    )
+    w.run_chain(1)
+    late = settled(head_sha=SHA, settled_by="late", late_app=GG)
+    w.c.publish(envelope(2, type=LATE_TYPE, data=late))
+    w.c.publish(envelope(3, type=SETTLED, data=settled(head_sha=SHA)))  # a re-armed settle
+    w.run_chain(3)
+    (run,) = w.runs(SECRETS_LATE_RULE)
+    assert run["status"] == "succeeded"
+    assert len(_findings(app)) == 1
+
+
+def test_a_fix_started_before_gitguardian_failed_is_held_before_its_agent(tmp_path):
+    # the settle fired while GitGuardian still ran; it failed during the quiet period
+    w = ChainWorld(tmp_path)
+    w.checks.runs = [gg_run(conclusion=None, status="in_progress")]
+    w.c.publish(
+        envelope(
+            1,
+            type=SETTLED,
+            data=settled(
+                head_sha=w.repo.start,
+                base_sha=w.repo.base,
+                failed_apps=["github-actions"],
+                conclusion="timeout",
+            ),
+        )
+    )
+    w.cycle(1)
+    (fix,) = w.runs("pr-fixer-checks")
+    w.checks.runs = [gg_run()]
+    w.run_chain(5)
+    (fix,) = w.runs("pr-fixer-checks")
+    assert fix["status"] == "failed"
+    assert fix["error"]["step"] == "secrets"
+    assert w.qwen.inputs == []

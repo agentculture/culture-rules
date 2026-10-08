@@ -227,6 +227,8 @@ def action_text(action: Any, where: str = "") -> str:
         words.append(f"(only on {gate}an approving review of exactly that commit)")
     if kind == "github.review_reply" and params.get("resolve") is True:
         words.append("and resolve")
+    if kind == "github.comment" and params.get("once_key"):  # d25: durable once per key
+        words.append("(once per once_key)")
     if a.get("only_at_chain_end") is True:  # d21: one comment per chain
         words.append("(only where its chain ends)")
     return _join(*words)

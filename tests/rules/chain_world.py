@@ -63,6 +63,8 @@ TRIGGER_RULES = (
 STAGE_RULES = ("pr-fixer-review-commit", "pr-fixer-refix", "pr-fixer-publish")
 SECRETS_RULE = "pr-fixer-secrets"
 """d25: comments GitGuardian's findings; outside the fix chain (its own key, no workflow role)."""
+SECRETS_LATE_RULE = "pr-fixer-secrets-late"
+"""d25: the same report for a GitGuardian failure that completes after the settle."""
 CHAIN_VARIABLES = {**VARIABLES, "fixer_comment_triggers": ["/fix", "@rules-culture-dev"]}
 KEY = f"pr-fixer:{REPO}#7"
 
@@ -233,6 +235,7 @@ class ChainWorld:
         real_push_pem: str | None = None,
         disabled: tuple[str, ...] = (),
         verdict_port: Any = None,
+        comment_port: Any = None,
     ) -> None:
         self.tmp = tmp_path
         self.repo = Repo(tmp_path, gate_yaml([PASSING]))
@@ -278,7 +281,7 @@ class ChainWorld:
         else:
             self.push = PushRecorder()
         self.reply = FakeActor(default=lambda inp, ctx: {"comment_id": 1, "resolved": True})
-        self.comment = FakeActor(default=lambda inp, ctx: {"comment_id": 2})
+        self.comment = comment_port or FakeActor(default=lambda inp, ctx: {"comment_id": 2})
         self.app = ThreadsApp(
             [
                 {

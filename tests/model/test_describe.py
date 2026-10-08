@@ -81,9 +81,9 @@ PR_FIXER_SECRETS = [
     "and gitguardian ∈ failed_apps",
     "Run workflow report-secrets (1 step)",
     "On spark2",
-    "Then github.comment as github-app",
-    "On failure github.comment as github-app",
-    "Key pr-secrets:{repository}#{number}@{head_sha}, ≤1 attempt",
+    "Then github.comment as github-app (once per once_key)",
+    "On failure github.comment as github-app (once per once_key)",
+    "Key pr-secrets:{repository}#{number}@{head_sha}",
     "Disabled",
 ]
 
@@ -127,6 +127,8 @@ def test_golden_pr_fixer_rules():
     assert render(describe_rule(_load("rules/pr-fixer-secrets.json"), secrets)) == (
         PR_FIXER_SECRETS
     )
+    late = render(describe_rule(_load("rules/pr-fixer-secrets-late.json"), secrets))
+    assert late == ["When github.pr.checks_failed_late", *PR_FIXER_SECRETS[1:]]
 
 
 @pytest.mark.parametrize("name", sorted(p.name for p in (BUNDLE / "rules").glob("*.json")))

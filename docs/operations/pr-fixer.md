@@ -310,9 +310,11 @@ fires the next through the `rules.run.succeeded` event it emits:
 | `pr-fixer-review-commit` | `rules.run.succeeded` of `pr-fix`, gate `pass` or `no_gate` | `review-commit` | outside |
 | `pr-fixer-refix` | `rules.run.succeeded` of `review-commit`, review `request_changes` | `pr-fix` with the findings | counts |
 | `pr-fixer-publish` | `rules.run.succeeded` of `review-commit`, review `approve`, gate `pass` | `publish-fix` | outside |
-| `pr-fixer-secrets` (d25) | `github.pr.checks_settled` with `gitguardian` in `failed_apps` | `report-secrets` | its own key, 1 per head SHA |
+| `pr-fixer-secrets` (d25) | `github.pr.checks_settled` with `gitguardian` in `failed_apps` | `report-secrets` | its own key; one comment per head SHA |
+| `pr-fixer-secrets-late` (d25) | `github.pr.checks_failed_late` with `gitguardian` in `failed_apps` | `report-secrets` | the same key and comment |
 
-`pr-fixer-secrets` is not part of the chain: it only comments (see
+`pr-fixer-secrets` and `pr-fixer-secrets-late` are not part of the chain: they only
+comment (see
 [GitGuardian findings](#gitguardian-findings-d25)).
 
 The d21 text calls the review stage `pr-fixer-review`. That id already names
@@ -519,6 +521,17 @@ How it fits together:
   `not (gitguardian ∈ failed_apps)`, so a head GitGuardian fails on starts no
   fix, whatever else failed. An event without `failed_apps` (one settled
   before the upgrade) is read as no GitGuardian failure.
+- **A late failure is reported too.** When GitGuardian's suite completes
+  `failure` after its head settled (the settle timed out while it ran, or a
+  re-run failed), the settler emits `github.pr.checks_failed_late` once per
+  (repo, head SHA, app): the settled event's data with `failed_apps` grown
+  by the app, `late_app`, `conclusion: failure` and `settled_by: late`. Its
+  PR facts are those of the settle. `pr-fixer-secrets-late` fires on it with
+  the same condition, workflow, key and once key as `pr-fixer-secrets`. No
+  fixer rule fires on it. A fix that the earlier settle started stops at the
+  `pr-fix` hold if GitGuardian has failed by the end of the quiet period. If
+  GitGuardian fails after the hold has passed, that fix run goes on: its
+  agent never receives the findings.
 - **The `pr-fix` hold stops every other fix run.** A `/fix` comment, a review
   or a re-fix runs `pr-fix`, whose `secrets` step (`gitguardian.hold`) fails
   `secrets_found` after the quiet period, before the threads, the agent and
@@ -534,17 +547,32 @@ How it fits together:
   the check as the App and parses the table
   (`culture_rules/apps/gitguardian.py`). The action posts its `comment` as
   the App, with the run link.
-- **Once per head SHA.** The rule has its own key,
-  `pr-secrets:{repository}#{number}@{head_sha}`, with `max_attempts: 1`, so a
-  head is commented once even when its settle is re-armed. It is outside the
-  fixer's per-PR key and budget, so a fix chain in flight never delays it.
+- **Once per head SHA.** The action's `once_key`
+  (`gitguardian:<repo>#<number>@<head_sha>`) makes `github.comment` claim the
+  key in the store (`github_comment_once`) before it posts. A key already
+  claimed completes as `skipped: posted_before` and posts nothing. The claim
+  survives every budget reset (a green settle resets the attempt budget,
+  so `max_attempts` cannot dedupe), re-armed settles, the late rule and other
+  nodes. A failed post releases the claim, so a later firing can post. The
+  `on_failure` comment has its own once key. Both rules share the key
+  `pr-secrets:{repository}#{number}@{head_sha}`, one run at a time per head,
+  outside the fixer's per-PR key and budget, so a fix chain in flight never
+  delays them.
 
 What the comment carries, per finding: the secret type, `file:line` (the
 line from the "View secret" anchor, when there is one), the short commit,
 the incident link and the GitGuardian status. Nothing else of the check text
-reaches it. Cells are cleaned of backticks, pipes, angle brackets and links.
-An incident link is kept only when it is `https` on a `gitguardian.com`
-host, and a commit only when it is hex. At most 50 findings are listed
+reaches it. Only a recognizable findings table is read: a header naming at
+least `Secret` and `Filename`, immediately followed by its `|---|` separator,
+then contiguous rows up to the first other line. Anything in a fenced or
+indented code block is ignored. Cells are cleaned of backticks, pipes, angle
+brackets and links. No URL from the check is echoed. The incident link is
+rebuilt from its digits as
+`https://dashboard.gitguardian.com/workspace/<n>/incidents/<n>[?occurrence=<n>]`
+only when the raw link is exactly that shape for the row's incident, else
+only the id is shown. The check link is rebuilt as
+`https://github.com/<owner>/<repo>/runs/<n>`. The "View secret" link only
+yields the line number, and a commit is kept only when it is hex. At most 50 findings are listed
 (`max_findings`, up to 200); a longer list ends with `… and N more`. N counts
 the table's rows, or the check title's count when that is larger. For the
 sample check (values made up):
@@ -780,8 +808,9 @@ The order matters: nodes first, then the data.
    longer referenced by any rule. Disable it
    (`culture-rules workflows disable pr-fixer --apply`), so no direct run
    starts it.
-6. **Enable the eight rules** (`rules enable <id> --apply` each), the stage
-   rules first, then `pr-fixer-secrets` (d25), then the trigger rules. For
+6. **Enable the nine rules** (`rules enable <id> --apply` each), the stage
+   rules first, then `pr-fixer-secrets` and `pr-fixer-secrets-late` (d25),
+   then the trigger rules. For
    review-only mode, leave `pr-fixer-publish` off.
 7. **Resume** (`culture-rules runs resume`).
 8. In a later release, drop the `pr-fixer` digest from `TRUSTED_WORKFLOWS`.
@@ -801,10 +830,12 @@ does these steps inside "Rolling out the split".
 3. **Import** the workflows, then the rules
    (`culture-rules workflows import docs/rules/pr-fixer --apply`, then
    `culture-rules rules import docs/rules/pr-fixer --apply`). That adds
-   `report-secrets` and `pr-fixer-secrets`, updates `pr-fix` (the hold) and
+   `report-secrets`, `pr-fixer-secrets` and `pr-fixer-secrets-late`, updates
+   `pr-fix` (the hold) and
    `pr-fixer-checks` (the GitGuardian clause), and sets every rule back to
    `enabled: false`.
-4. **Enable** `pr-fixer-secrets` and re-enable the rules that were on
+4. **Enable** `pr-fixer-secrets` and `pr-fixer-secrets-late`, and re-enable
+   the rules that were on
    (`culture-rules rules enable <id> --apply`).
 
 ### Trusted actors (d20 round 3)
@@ -913,9 +944,9 @@ and not (repository ∈ vars.fixer_excluded_repos)
 and gitguardian ∈ failed_apps
 Run workflow report-secrets (1 step)
 On spark2
-Then github.comment as github-app
-On failure github.comment as github-app
-Key pr-secrets:{repository}#{number}@{head_sha}, ≤1 attempt
+Then github.comment as github-app (once per once_key)
+On failure github.comment as github-app (once per once_key)
+Key pr-secrets:{repository}#{number}@{head_sha}
 Disabled
 $ culture-rules workflows describe pr-fix
 1 quiet — wait 300 s; stop if the PR head moves (head_unchanged, as github-app)
