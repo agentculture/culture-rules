@@ -96,6 +96,32 @@ class TransientStoreError(StoreError):
     :func:`culture_rules.store.retry.run_transaction`)."""
 
 
+_OUTAGE_NAMES = frozenset(
+    (
+        "ConnectionFailure",
+        "AutoReconnect",
+        "NetworkTimeout",
+        "ServerSelectionTimeoutError",
+        "NotPrimaryError",
+        "ExecutionTimeout",
+        "WTimeoutError",
+        "WaitQueueTimeoutError",
+    )
+)
+"""Driver errors (by class name, so the core imports no driver) that mean the store is
+unreachable or overloaded, never that a document's content is bad."""
+
+
+def is_store_outage(exc: BaseException) -> bool:
+    """Whether ``exc`` is a store failure rather than a refusal of a document's content: any
+    :class:`StoreError`, or a driver error naming an outage (:data:`_OUTAGE_NAMES`). A
+    caller that guards against bad content re-raises these, so an outage keeps its
+    semantics (nothing is skipped, the work is retried)."""
+    if isinstance(exc, StoreError):
+        return True
+    return any(cls.__name__ in _OUTAGE_NAMES for cls in type(exc).__mro__)
+
+
 class VersionSkewError(StoreError):
     """A write involves a document of a newer major schema version than this node supports."""
 

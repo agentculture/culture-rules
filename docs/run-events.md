@@ -116,6 +116,24 @@ Three refusals guard these events:
   record; it expires 30 days after it was last
   seen (a MongoDB TTL index on `expires_at`, installed by every node and the
   API, the processes that can quarantine); and only a new record is logged.
+- **Unstorable or malformed content.** The same refusal covers more than
+  run events:
+  - the checks settler's types and ids (d25), and schedule and probe events;
+  - a checked field (`id`, `type`, `kind`, `source`) that is present but not
+    a non-empty string;
+  - nesting deeper than 32 levels;
+  - an object key that is not a string, contains NUL or starts with `$`;
+  - text that is not UTF-8 (a lone surrogate);
+  - an int outside signed 64-bit.
+
+  These are checked iteratively, before anything copies the envelope. The
+  quarantine record of such a shape keeps only ASCII renderings of its id,
+  type, source and reason, and the hash and preview of a bounded repr. It
+  never keeps the envelope. Anything else the content makes raise while
+  validating, copying, storing or quarantining gets the same minimal
+  record, with the error's class in the reason, and the batch goes on. So
+  ingest and the webhook sink never raise on content. A store outage still
+  propagates: the cursor is not saved and the batch is drained again.
 - **`run_event_unverified`.** Before a rule fires on a `rules.run.*` event,
   the node compares the whole envelope, extra keys included, with the
   envelope in the run's completion record. The id must also be the one the

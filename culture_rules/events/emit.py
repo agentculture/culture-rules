@@ -23,7 +23,6 @@ Publishing goes through an :class:`EventSink`; the events-cli sink lives in
 from __future__ import annotations
 
 import copy
-import json
 import secrets
 import time
 from collections.abc import Mapping
@@ -155,8 +154,9 @@ def reserved_reason(envelope: Mapping[str, Any]) -> str | None:
     raises."""
     if "envelope" in envelope:
         return "an envelope field makes it ambiguous with a stored event document"
-    if not _utf8_encodable(envelope):
-        return "text that is not valid UTF-8 (a lone surrogate) cannot be stored"
+    shape = envelope_shape_problem(envelope)
+    if shape is not None:
+        return shape
     malformed = _malformed_field(envelope)
     if malformed is not None:
         return f"{malformed} must be a non-empty string"  # never raise on it, never store it
@@ -175,16 +175,70 @@ CHECKED_FIELDS = ("id", "type", "kind", "source")
 present."""
 
 
-def _utf8_encodable(envelope: Mapping[str, Any]) -> bool:
-    """Whether the whole envelope (keys, values, ``data`` included) is UTF-8 text a store
-    can hold: a lone surrogate (JSON ``"\\ud800"``) is not, and a store would refuse it."""
+MAX_ENVELOPE_DEPTH = 32
+"""The deepest nesting of objects and arrays an envelope may have (the envelope itself is
+level 1); deeper is refused before anything walks it recursively."""
+_INT64 = (-(2**63), 2**63 - 1)
+
+
+def _text_problem(text: str, what: str) -> str | None:
     try:
-        json.dumps(envelope, ensure_ascii=False, default=str).encode("utf-8")
+        text.encode("utf-8")
     except UnicodeEncodeError:
-        return False
-    except (TypeError, ValueError, RecursionError):
-        return False  # not JSON-shaped either (a key that is not text, a cycle)
-    return True
+        return f"{what} is not valid UTF-8 (a lone surrogate) and cannot be stored"
+    return None
+
+
+def _key_problem(key: Any) -> str | None:
+    """Why a document key cannot be stored: not text, a NUL (BSON keys are C strings), a
+    leading ``$`` (an operator name), or not UTF-8."""
+    if not isinstance(key, str):
+        return "an object key is not a string"
+    if "\x00" in key:
+        return "an object key contains NUL"
+    if key.startswith("$"):
+        return "an object key starts with $"
+    return _text_problem(key, "an object key")
+
+
+def _scalar_problem(value: Any) -> str | None:
+    if isinstance(value, str):
+        return _text_problem(value, "a string")
+    if isinstance(value, int) and not isinstance(value, bool):
+        if not _INT64[0] <= value <= _INT64[1]:
+            return "an integer is outside signed 64-bit"
+    return None
+
+
+def envelope_shape_problem(envelope: Any) -> str | None:
+    """Why ``envelope`` (any JSON-shaped value) cannot be stored as is, or ``None``: nested
+    deeper than :data:`MAX_ENVELOPE_DEPTH`, a key :func:`_key_problem` refuses, text that is
+    not UTF-8, an int outside signed 64-bit. Iterative - never recursion - so any depth is
+    safe to check; NaN and infinities are storable (BSON doubles)."""
+    stack: list[tuple[Any, int]] = [(envelope, 1)]
+    while stack:
+        value, depth = stack.pop()
+        if isinstance(value, Mapping | list | tuple) and depth > MAX_ENVELOPE_DEPTH:
+            return f"nested deeper than {MAX_ENVELOPE_DEPTH} levels"
+        problem, children = _children(value, depth + 1)
+        if problem is not None:
+            return problem
+        stack.extend(children)
+    return None
+
+
+def _children(value: Any, depth: int) -> tuple[str | None, list[tuple[Any, int]]]:
+    """``(problem, children at depth)`` of one value: a mapping's keys are checked, a
+    scalar is checked, a container's items are its children."""
+    if isinstance(value, Mapping):
+        for key in value:
+            problem = _key_problem(key)
+            if problem is not None:
+                return problem, []
+        return None, [(item, depth) for item in value.values()]
+    if isinstance(value, list | tuple):
+        return None, [(item, depth) for item in value]
+    return _scalar_problem(value), []
 
 
 def _malformed_field(envelope: Mapping[str, Any]) -> str | None:
