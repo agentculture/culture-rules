@@ -311,6 +311,8 @@ class GitHubApp:
             data = json.loads(raw.decode() or "{}")
         except ValueError:
             raise GitHubError("bad_response", retryable=True) from None
+        if isinstance(data, list) and method == "GET":
+            return status, {"items": data}  # a list endpoint (list_issue_comments)
         return status, data if isinstance(data, dict) else {}
 
     def installation_token(self) -> str:
@@ -358,6 +360,27 @@ class GitHubApp:
             raise GitHubError("bad_input", "comment_id must be a positive integer")
         data = self._call("PATCH", f"/repos/{repo}/issues/comments/{comment_id}", {"body": body})
         return {"comment_id": data.get("id"), "url": data.get("html_url")}
+
+    @property
+    def app_id(self) -> str:
+        """The App's id (comments it posted carry it as ``performed_via_github_app.id``)."""
+        return str(self._app_id)
+
+    def list_issue_comments(
+        self, repo: str, number: int, *, max_pages: int = 10
+    ) -> list[dict[str, Any]]:
+        """The comments on issue/PR ``number`` (REST ``GET /repos/{repo}/issues/{n}/comments``,
+        100 a page, at most ``max_pages``), oldest first, as ``{comment_id, url, body,
+        app_id}`` (``app_id`` is the posting App's id, ``None`` for a person; d26)."""
+        self._require_allowed(repo, "comment listing")
+        out: list[dict[str, Any]] = []
+        for page in range(1, max_pages + 1):
+            path = f"/repos/{repo}/issues/{int(number)}/comments?per_page=100&page={page}"
+            items = self._call("GET", path, None).get("items") or []
+            out += [_comment_fact(c) for c in items if isinstance(c, dict)]
+            if len(items) < 100:
+                break
+        return out
 
     def push_token(self, repo: str) -> str:
         """A fresh installation token for one push: ``repositories=[repo]``, contents:write only.
@@ -540,6 +563,18 @@ class GitHubApp:
         data = self.graphql(_RESOLVE_MUTATION, {"threadId": thread_id})
         thread = ((data.get("resolveReviewThread") or {}).get("thread")) or {}
         return bool(thread.get("isResolved"))
+
+
+def _comment_fact(comment: dict[str, Any]) -> dict[str, Any]:
+    via = comment.get("performed_via_github_app")
+    app = via.get("id") if isinstance(via, dict) else None
+    body = comment.get("body")
+    return {
+        "comment_id": comment.get("id"),
+        "url": comment.get("html_url"),
+        "body": body if isinstance(body, str) else "",
+        "app_id": str(app) if isinstance(app, int) and not isinstance(app, bool) else None,
+    }
 
 
 def _suite_fact(suite: dict[str, Any]) -> dict[str, Any]:

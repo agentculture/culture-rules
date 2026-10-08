@@ -455,3 +455,36 @@ def test_pr_facts_omit_missing_and_malformed_fields_never_null():
     assert facts["draft"] is False
     assert complete_pr_facts(fork) is None
     assert pr_facts({"draft": 0}) == {}  # a real bool only
+
+
+class Pages(Fake):
+    """Answers the comment listing with ``pages`` (lists of raw comments)."""
+
+    def __init__(self, pages):
+        super().__init__()
+        self.pages = list(pages)
+
+    def __call__(self, method, url, headers, body, timeout):
+        if url.endswith("/access_tokens"):
+            return super().__call__(method, url, headers, body, timeout)
+        self.calls.append((method, url, dict(headers), body))
+        return 200, json.dumps(self.pages.pop(0) if self.pages else []).encode()
+
+
+def test_the_comments_of_a_pr_are_listed_with_their_app(pem):
+    full = [{"id": n, "html_url": f"u{n}", "body": "b", "user": {}} for n in range(100)]
+    last = [
+        {"id": 500, "html_url": "u500", "body": "mine", "performed_via_github_app": {"id": 123}},
+        {"id": 501, "body": None, "performed_via_github_app": {"id": True}},
+    ]
+    fake = Pages([full, last])
+    app, _ = make(pem, fake)
+    out = app.list_issue_comments("acme/widgets", 7)
+    assert len(out) == 102
+    assert out[100] == {"comment_id": 500, "url": "u500", "body": "mine", "app_id": "123"}
+    assert out[101]["app_id"] is None
+    assert out[101]["body"] == ""
+    urls = [c[1] for c in fake.calls if "/comments" in c[1]]
+    assert urls[0].endswith("/repos/acme/widgets/issues/7/comments?per_page=100&page=1")
+    assert urls[1].endswith("page=2")
+    assert app.app_id == "123"
