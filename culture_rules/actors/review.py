@@ -448,71 +448,110 @@ def record_review(
         "attempt": attempt,
         "target": target,
     }
-    clash = False
-    try:
-        store.insert(REVIEWS_COLLECTION, doc)
-    except DuplicateKeyError:  # the first write stands; a different second one is a clash
-        existing = store.get(REVIEWS_COLLECTION, record_id)
-        clash = _content(existing) != _content(doc)
-        target = target or (existing or {}).get("target")
+    clash, target = _insert_record(store, doc)
     if target is None:
         return record_id  # no commit to point at (the gate or the run failed first)
     order = (iteration, attempt)
     for _ in range(16):  # compare-and-set; a lost race re-reads
         cur = store.get(CURRENT_COLLECTION, target)
         if cur is None:
-            first = {
-                "id": target,
-                "target": target,
-                "run_id": run_id,
-                "runs": [run_id],
-                "iteration": iteration,
-                "attempt": attempt,
-            }
-            if clash:  # a clash is a conflict even before any pointer exists
-                first.update(record=None, state=CONFLICT, conflict=[record_id, record_id])
-            else:
-                first.update(record=record_id, state=CURRENT)
+            first = _first_pointer(target, run_id, record_id, order, clash)
             try:
                 store.insert(CURRENT_COLLECTION, first)
                 return record_id
             except DuplicateKeyError:
                 continue
-        state = cur.get("state")
-        if state == CONSUMED:
-            raise ReviewError(
-                "review_consumed", "a push already used this commit's approval; recorded only"
-            )
-        if state != CURRENT:
-            return record_id  # conflict (or anything unknown) stays: fail closed
-        runs = list(cur.get("runs") or ())
-        if cur.get("run_id") != run_id:
-            if run_id in runs:
-                return record_id  # an older review run of this commit: stale, recorded only
-            changes: dict[str, Any] = {
-                "record": record_id,
-                "run_id": run_id,
-                "runs": [*runs, run_id],
-                "iteration": iteration,
-                "attempt": attempt,
-            }
-        else:
-            cur_order = (cur.get("iteration"), cur.get("attempt"))
-            same_try_other = cur_order == order and cur.get("record") != record_id
-            if (clash and cur_order <= order) or same_try_other:
-                changes = {
-                    "record": None,
-                    "state": CONFLICT,
-                    "conflict": [cur.get("record"), record_id],
-                }
-            elif cur_order >= order:
-                return record_id  # stale, or this record is already current
-            else:
-                changes = {"record": record_id, "iteration": iteration, "attempt": attempt}
+        changes = _pointer_changes(cur, run_id, record_id, order, clash)  # raises consumed
+        if changes is None:
+            return record_id
         expected = {k: cur.get(k) for k in ("record", "run_id", "iteration", "attempt", "state")}
         if store.update_if(CURRENT_COLLECTION, target, expected, changes).won:
             return record_id
     raise ReviewError("review_invalid", "could not record the review (sustained contention)")
+
+
+def _insert_record(store: Any, doc: Mapping[str, Any]) -> tuple[bool, str | None]:
+    """Insert the immutable review record ``doc``; answer ``(clash, target)``. The first
+    write stands: a different second one is a clash, and a rewrite without a target takes
+    the stored record's."""
+    from culture_rules.store.port import DuplicateKeyError  # noqa: PLC0415
+
+    try:
+        store.insert(REVIEWS_COLLECTION, doc)
+    except DuplicateKeyError:
+        existing = store.get(REVIEWS_COLLECTION, doc["id"])
+        return _content(existing) != _content(doc), doc["target"] or (existing or {}).get("target")
+    return False, doc["target"]
+
+
+def _first_pointer(
+    target: str, run_id: str, record_id: str, order: tuple[int, int], clash: bool
+) -> dict[str, Any]:
+    """The target's first review pointer: to ``record_id``, or a conflict when it clashed."""
+    iteration, attempt = order
+    first = {
+        "id": target,
+        "target": target,
+        "run_id": run_id,
+        "runs": [run_id],
+        "iteration": iteration,
+        "attempt": attempt,
+    }
+    if clash:  # a clash is a conflict even before any pointer exists
+        first.update(record=None, state=CONFLICT, conflict=[record_id, record_id])
+    else:
+        first.update(record=record_id, state=CURRENT)
+    return first
+
+
+def _pointer_changes(
+    cur: Mapping[str, Any], run_id: str, record_id: str, order: tuple[int, int], clash: bool
+) -> dict[str, Any] | None:
+    """How the target's pointer ``cur`` moves for run ``run_id``'s ``record_id`` at try
+    ``order``: to a run it has not seen (:func:`_new_run_changes`); within the current run,
+    to a conflict (a clash at or after the current try, or another record for the same
+    try), to this record (a newer try), or not at all (None: stale, already current, or a
+    pointer that is not ``current`` - fail closed). A consumed pointer raises
+    ``review_consumed``."""
+    state = cur.get("state")
+    if state == CONSUMED:
+        raise ReviewError(
+            "review_consumed", "a push already used this commit's approval; recorded only"
+        )
+    if state != CURRENT:
+        return None  # conflict (or anything unknown) stays: fail closed
+    if cur.get("run_id") != run_id:
+        return _new_run_changes(cur, run_id, record_id, order)
+    cur_order = (cur.get("iteration"), cur.get("attempt"))
+    same_try_other = cur_order == order and cur.get("record") != record_id
+    if (clash and cur_order <= order) or same_try_other:
+        return {
+            "record": None,
+            "state": CONFLICT,
+            "conflict": [cur.get("record"), record_id],
+        }
+    if cur_order >= order:
+        return None  # stale, or this record is already current
+    iteration, attempt = order
+    return {"record": record_id, "iteration": iteration, "attempt": attempt}
+
+
+def _new_run_changes(
+    cur: Mapping[str, Any], run_id: str, record_id: str, order: tuple[int, int]
+) -> dict[str, Any] | None:
+    """The pointer moves to a review run it has not seen before (the newer one); an older
+    review run of this commit is stale: None, recorded only."""
+    runs = list(cur.get("runs") or ())
+    if run_id in runs:
+        return None
+    iteration, attempt = order
+    return {
+        "record": record_id,
+        "run_id": run_id,
+        "runs": [*runs, run_id],
+        "iteration": iteration,
+        "attempt": attempt,
+    }
 
 
 def current_review(
@@ -693,6 +732,73 @@ def _refusal_of(
 
 
 # --------------------------------------------------------------------------- the step
+
+
+def _step_names(config: Mapping[str, Any]) -> dict[str, Any]:
+    """The verdict step's ``gate_step`` and ``review_step`` (defaults ``gate``/``review``)."""
+    names = {
+        role: config.get(f"{role}_step", default)
+        for role, default in (("gate", "gate"), ("review", "review"))
+    }
+    if not all(isinstance(n, str) and n for n in names.values()):
+        raise ReviewError("bad_config", "gate_step and review_step must name steps")
+    return names
+
+
+def _gate_shas(g: Mapping[str, Any]) -> tuple[str, str]:
+    """The gate's ``commit_sha`` and ``start_sha``, each a full SHA, else review_invalid."""
+    commit, start = g.get("commit_sha"), g.get("start_sha")
+    if not (isinstance(commit, str) and _SHA_RE.match(commit)):
+        raise ReviewError("review_invalid", "the gate reported no commit_sha")
+    if not (isinstance(start, str) and _SHA_RE.match(start)):
+        raise ReviewError("review_invalid", "the gate reported no start_sha")
+    return commit, start
+
+
+def _given_the_gates_diff(given: Mapping[str, Any], g: Mapping[str, Any]) -> bool:
+    """Whether the reviewer was given the gate's commit, start and full diff."""
+    return not (
+        given.get("commit_sha") != g["commit_sha"]
+        or given.get("head_sha") != g["start_sha"]
+        or given.get("diff") != g.get("diff")
+        or given.get("diff_truncated") is not False
+    )
+
+
+def _builtin_gate(gate_def: Mapping[str, Any]) -> bool:
+    """The gate step is the built-in ``gate`` code step (no actor placement)."""
+    gate_placement = gate_def.get("placement") or {}
+    return not (
+        gate_def.get("kind") != "code"
+        or (gate_def.get("config") or {}).get("builtin") != "gate"
+        or (isinstance(gate_placement, Mapping) and gate_placement.get("actor"))
+    )
+
+
+def _read_only_reviewer(reviewer: Mapping[str, Any], review_def: Mapping[str, Any]) -> bool:
+    """The reviewer actor is read-only and the review step asks for no other sandbox."""
+    step_sandbox = ((review_def or {}).get("config") or {}).get("sandbox")
+    return not (
+        (reviewer.get("params") or {}).get("sandbox") != READ_ONLY
+        or step_sandbox not in (None, READ_ONLY)
+    )
+
+
+def _allowed_reviewer(reviewer: Mapping[str, Any], backend: str | None) -> bool:
+    """The actor is flagged ``params.reviewer: true`` and runs on a reviewer backend."""
+    return not (
+        (reviewer.get("params") or {}).get("reviewer") is not True
+        or backend not in REVIEWER_BACKENDS
+    )
+
+
+def _changed_checkout(r: Mapping[str, Any], start: str) -> bool:
+    """The reviewer's session wrote (commits, edits, a dirty tree) or moved its head."""
+    status = r.get("status")
+    changed = status in ("completed", "uncommitted")  # the bridge saw commits or edits
+    wrote = changed or bool(r.get("commits")) or r.get("dirty") is not False
+    moved = r.get("head_before") != start or r.get("head_after") != start
+    return wrote or moved
 
 
 def _state(run: Mapping[str, Any], key: str) -> dict[str, Any] | None:
@@ -916,13 +1022,7 @@ class ReviewVerdictPort:
     def _judge(
         self, input: Mapping[str, Any], context: InvocationContext, facts: dict[str, Any]
     ) -> dict[str, Any]:
-        config = context.config or {}
-        names = {
-            role: config.get(f"{role}_step", default)
-            for role, default in (("gate", "gate"), ("review", "review"))
-        }
-        if not all(isinstance(n, str) and n for n in names.values()):
-            raise ReviewError("bad_config", "gate_step and review_step must name steps")
+        names = _step_names(context.config or {})
         run = self._store.get(_RUNS, context.run_id)
         if not run:
             raise ReviewError("run_not_found", context.run_id)
@@ -953,13 +1053,7 @@ class ReviewVerdictPort:
         if not gate or gate.get("status") != "succeeded":
             raise ReviewError("gate_missing", "the gate step of this attempt did not succeed")
         body = _body_steps(run, parent)
-        gate_def = body.get(names["gate"]) or {}
-        gate_placement = gate_def.get("placement") or {}
-        if (
-            gate_def.get("kind") != "code"
-            or (gate_def.get("config") or {}).get("builtin") != "gate"
-            or (isinstance(gate_placement, Mapping) and gate_placement.get("actor"))
-        ):
+        if not _builtin_gate(body.get(names["gate"]) or {}):
             raise ReviewError(
                 "bad_config", "gate_step must be the built-in gate, review_step an ai step"
             )
@@ -1081,11 +1175,7 @@ class ReviewVerdictPort:
                 raise ReviewError("review_invalid", "the reviewed run's gate did not pass")
             self._record_current(facts, NOT_RUN)
             return out
-        commit, start = g.get("commit_sha"), g.get("start_sha")
-        if not (isinstance(commit, str) and _SHA_RE.match(commit)):
-            raise ReviewError("review_invalid", "the gate reported no commit_sha")
-        if not (isinstance(start, str) and _SHA_RE.match(start)):
-            raise ReviewError("review_invalid", "the gate reported no start_sha")
+        commit, start = _gate_shas(g)
         facts.update(commit_sha=commit, start_sha=start, base_sha=g.get("base_sha"))
         if start != expected_start:
             raise ReviewError(
@@ -1093,14 +1183,7 @@ class ReviewVerdictPort:
                 "the gate's start_sha is not the PR head the fix run was started for",
             )
         if g.get("diff_truncated") is True:
-            findings = _unreviewable(g)
-            self._record_current(facts, REQUEST_CHANGES, findings=findings)
-            return {
-                **out,
-                "review": REQUEST_CHANGES,
-                "findings": findings,
-                "instruction": _changes_instruction(commit, findings, task),
-            }
+            return self._too_large(facts, out, g, commit, task)
         if g.get("diff_truncated") is not False or not isinstance(g.get("diff"), str):
             raise ReviewError("review_invalid", "the gate did not report the diff it verified")
         reviewer_run, review_state, review_def = reviewer()
@@ -1115,6 +1198,25 @@ class ReviewVerdictPort:
             "instruction": (
                 None if approved else _changes_instruction(commit, parsed["findings"], task)
             ),
+        }
+
+    def _too_large(
+        self,
+        facts: dict[str, Any],
+        out: dict[str, Any],
+        g: Mapping[str, Any],
+        commit: str,
+        task: Any,
+    ) -> dict[str, Any]:
+        """A diff too large (or not text) to review: never reviewed, recorded as a request
+        for a smaller, text-only fix."""
+        findings = _unreviewable(g)
+        self._record_current(facts, REQUEST_CHANGES, findings=findings)
+        return {
+            **out,
+            "review": REQUEST_CHANGES,
+            "findings": findings,
+            "instruction": _changes_instruction(commit, findings, task),
         }
 
     def _record_current(
@@ -1147,12 +1249,7 @@ class ReviewVerdictPort:
         if not review or review.get("status") != "succeeded":
             raise ReviewError("review_missing", "the reviewer did not review this commit")
         given = review.get("inputs") or {}
-        if (
-            given.get("commit_sha") != commit
-            or given.get("head_sha") != start
-            or given.get("diff") != g.get("diff")
-            or given.get("diff_truncated") is not False
-        ):
+        if not _given_the_gates_diff(given, g):
             raise ReviewError(
                 "review_invalid", "the reviewer was not given the gate's commit and diff"
             )
@@ -1166,17 +1263,11 @@ class ReviewVerdictPort:
         facts.update(reviewer_actor=reviewer_id, implementer_actor=implementer_id)
         reviewer = self._actor(reviewer_id, "reviewer")
         implementer_doc = self._actor(implementer_id, "implementer")
-        step_sandbox = ((review_def or {}).get("config") or {}).get("sandbox")
-        if (reviewer.get("params") or {}).get("sandbox") != READ_ONLY or step_sandbox not in (
-            None,
-            READ_ONLY,
-        ):
+        if not _read_only_reviewer(reviewer, review_def):
             raise ReviewError("reviewer_not_read_only", f"{reviewer_id} is not read-only")
         r = review.get("outputs") or {}
         reviewer_backend = _backend(r.get("backend"), reviewer.get("harness"))
-        if (reviewer.get("params") or {}).get("reviewer") is not True or (
-            reviewer_backend not in REVIEWER_BACKENDS
-        ):
+        if not _allowed_reviewer(reviewer, reviewer_backend):
             raise ReviewError(
                 "reviewer_not_allowed",
                 f"{reviewer_id} is not an actor flagged as a reviewer with backend in "
@@ -1195,11 +1286,20 @@ class ReviewVerdictPort:
                 f"{implementer_id}/{implementer_backend}",
             )
         self._locked_brief(reviewer_run, review, reviewer_id)
+        return self._session_verdict(r, commit, start, reviewer_id, facts)
+
+    def _session_verdict(
+        self,
+        r: Mapping[str, Any],
+        commit: str,
+        start: str,
+        reviewer_id: str | None,
+        facts: dict[str, Any],
+    ) -> dict[str, Any]:
+        """The reviewer's read-only session (``r``, its outputs) parsed into the verdict:
+        it changed nothing, ended ``no_changes``, and the reviewer actor is trusted."""
         status = r.get("status")
-        changed = status in ("completed", "uncommitted")  # the bridge saw commits or edits
-        wrote = changed or bool(r.get("commits")) or r.get("dirty") is not False
-        moved = r.get("head_before") != start or r.get("head_after") != start
-        if wrote or moved:
+        if _changed_checkout(r, start):
             raise ReviewError("reviewer_not_read_only", "the reviewer changed its checkout")
         if status != NO_CHANGES:
             raise ReviewError("review_invalid", f"the reviewer's session ended {status!r}")

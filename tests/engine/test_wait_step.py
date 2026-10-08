@@ -678,3 +678,64 @@ def test_a_legacy_mid_blocked_guarded_wake_within_its_bound_keeps_waiting(store,
     doc = ex.run(run["id"])
     assert doc["status"] == "succeeded", doc["error"]
     assert step_state(doc, "w")["lookup_blocked_since"] == first_refusal.isoformat()
+
+
+class _BlockedThenSlowBlockedHead(ScriptedHead):
+    """Refuses at once, then refuses again only after using ``slow_s`` of the clock."""
+
+    def __init__(self, clock, slow_s):
+        super().__init__(("blocked", None), ("blocked", None))
+        self.clock = clock
+        self.slow_s = slow_s
+
+    def invoke(self, input, key, deadline, *, context):
+        if self.calls == 1:
+            self.clock.advance(self.slow_s)
+        return super().invoke(input, key, deadline, context=context)
+
+
+def test_a_refused_lookup_that_itself_ran_past_the_queue_bound_fails_queue_timeout(store, clock):
+    """Characterization (complexity refactor): the queue bound is re-checked after a refused
+    lookup, at the time the lookup returned - a lookup that ran past it fails the wait
+    ``queue_timeout`` with no re-arm, recorded once at that time."""
+    from culture_rules.engine.runs import DEFAULT_TIMEOUT_S, QUEUE_TIMEOUT, queue_limit_s
+
+    bound = queue_limit_s(DEFAULT_TIMEOUT_S)
+    inner = _BlockedThenSlowBlockedHead(clock, bound + 1)
+    ex, _ = _router_executor(store, clock, inner)
+    run = _sleeping_run(ex, guard_config(60))
+    clock.advance(61)
+    ex.run_until_idle()  # refused once: re-armed, the spell dated now
+    first = clock()
+    st = step_state(ex.run(run["id"]), "w")
+    assert st["status"] == "sleeping"
+    assert st["lookup_blocked_since"] == first.isoformat()
+    clock.advance(10)
+    ex.run_until_idle()  # the second lookup returns refused past the bound
+    assert inner.calls == 2
+    doc = ex.run(run["id"])
+    st = step_state(doc, "w")
+    assert st["status"] == "failed", st
+    assert st["error"]["code"] == QUEUE_TIMEOUT
+    assert st["lookup_blocked_since"] == first.isoformat()
+    assert "(1 refusals)" in st["error"]["message"]
+    timeouts = [h for h in doc["history"] if h["event"] == QUEUE_TIMEOUT]
+    assert len(timeouts) == 1
+    assert timeouts[0]["step"] == "w"
+    assert timeouts[0]["at"] == clock().isoformat()
+    assert [h["event"] for h in doc["history"]].count("wait_blocked") == 1
+    assert doc["status"] == "failed"
+
+
+def test_a_malformed_deadline_raises_before_an_expired_lookup_queue_fails_the_wait(monkeypatch):
+    """Characterization (Codex review of the complexity refactor): ``_due_timers`` parses a
+    step's ``deadline`` before checking any timer, so a sleeping step whose lookup queue
+    expired but whose deadline is malformed raises, unwritten - it is not failed
+    ``queue_timeout``."""
+    from culture_rules.engine import runs
+
+    monkeypatch.setattr(runs, "_lookup_queue_expired", lambda plan, st, now: {"code": "x"})
+    doc = {"steps": [{"key": "w", "status": runs.SLEEPING, "deadline": "not-a-date"}]}
+    now = runs._parse("2026-10-08T00:00:00+00:00")
+    with pytest.raises(ValueError, match="not-a-date"):
+        runs._due_timers(None, doc, now)

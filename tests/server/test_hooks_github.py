@@ -1103,3 +1103,137 @@ def test_failed_arm_is_recovered_by_the_settle_tick_without_any_redelivery(monke
     assert ChecksSettler(s.peer(), lambda *_: ci, clock=lambda: now[0]).tick() == 0
     [settled] = [e for e in events(s) if e["envelope"]["type"] == SETTLED_TYPE]
     assert settled["envelope"]["data"]["head_sha"] == HEAD_SHA
+
+
+# ---------------------------------------------------------------- characterization
+# (the Sonar S3776 split of hooks.github._data / handle: every branch, pinned)
+
+
+def _stat(store, key):
+    from culture_rules.events.hook_sink import HOOK_STATS_COLLECTION
+
+    doc = store.get(HOOK_STATS_COLLECTION, key)
+    return doc and doc["count"]
+
+
+def test_a_delivery_without_an_id_is_a_bad_request():
+    store = make()
+    body = pr_body()
+    status, out = post(store, body, hdrs(body, delivery="  "))
+    assert (status, out) == (400, {"error": "missing delivery id"})
+    assert _stat(store, "gh-app:bad_request") == 1
+    assert events(store) == []
+
+
+def test_ping_and_unknown_events_store_nothing():
+    store = make()
+    body = b"{}"
+    assert post(store, body, hdrs(body, event="ping")) == (200, {"pong": True})
+    assert post(store, body, hdrs(body, event="deployment")) == gh._IGNORED
+    body = json.dumps({"action": "edited", "pull_request": {}}).encode()
+    assert post(store, body, hdrs(body)) == gh._IGNORED  # a known event, unmapped action
+    assert events(store) == []
+
+
+def test_an_unparseable_or_non_object_payload_is_a_bad_request():
+    store = make()
+    for body in (b"{not json", b"[1, 2]", b'"text"'):
+        assert post(store, body, hdrs(body)) == (400, {"error": "invalid payload"})
+    assert _stat(store, "gh-app:bad_request") == 3
+    assert events(store) == []
+
+
+def test_a_too_large_body_is_refused_before_anything():
+    store = make()
+    body = b"x" * (gh.MAX_BODY_BYTES + 1)
+    status, out = post(store, body, {})
+    assert status == 413
+    assert _stat(store, "github:too_large") == 1
+
+
+def _base(action="x", **extra):
+    return {"repository": {"full_name": "o/r"}, "sender": {"login": "s"}, "action": action, **extra}
+
+
+def test_data_common_fields_prefer_the_pull_request_over_the_issue():
+    data = gh._data(
+        "issues",
+        "opened",
+        _base(
+            issue={"number": 3, "title": "I", "html_url": "u"},
+        ),
+    )
+    assert data == {
+        "repository": "o/r",
+        "number": 3,
+        "title": "I",
+        "url": "u",
+        "author": "s",
+        "action": "opened",
+    }
+    both = gh._data("issues", "opened", _base(issue={"number": 3}, pull_request={"number": 4}))
+    assert both["number"] == 4
+
+
+def test_data_of_an_issue_comment_caps_or_nulls_the_body():
+    long = gh._data("issue_comment", "created", _base(comment={"body": "z" * 9000}))
+    assert long["comment"] == "z" * gh._COMMENT_MAX
+    assert gh._data("issue_comment", "created", _base(comment={"body": 5}))["comment"] is None
+    assert gh._data("issue_comment", "created", _base())["comment"] is None
+
+
+def test_data_of_a_review_comment_takes_its_author_only_when_readable():
+    def author(comment):
+        payload = _base(**({"comment": comment} if comment is not None else {}))
+        return gh._data("pull_request_review_comment", "created", payload)["author"]
+
+    assert author({"user": {"login": "bob"}}) == "bob"
+    assert author({"user": {"login": 7}}) == "s"
+    assert author({"user": "bob"}) == "s"
+    assert author({}) == "s"
+    assert author("text") == "s"
+    assert author(None) == "s"
+
+
+def test_data_of_a_review_keeps_its_state():
+    data = gh._data("pull_request_review", "submitted", _base(review={"state": "approved"}))
+    assert data["review_state"] == "approved"
+
+
+def test_data_of_check_runs_and_workflow_runs():
+    prs = [{"number": 7}, {"number": "8"}, "x", {"number": 9}]
+    suite = {
+        "head_sha": "h",
+        "head_branch": "b",
+        "pull_requests": prs,
+        "app": {"slug": "github-actions"},
+        "status": "completed",
+        "conclusion": "success",
+        "name": "ignored",
+    }
+    data = gh._data("check_suite", "completed", _base(check_suite=suite))
+    assert list(data)[6:] == [
+        "head_sha",
+        "head_branch",
+        "pr_numbers",
+        "app_slug",
+        "workflow_name",
+        "status",
+        "conclusion",
+    ]
+    assert [data[k] for k in list(data)[6:]] == [
+        "h",
+        "b",
+        [7, 9],
+        "github-actions",
+        None,
+        "completed",
+        "success",
+    ]
+    run = {**suite, "name": "CI", "pull_requests": "nope"}
+    data = gh._data("workflow_run", "completed", _base(workflow_run=run))
+    assert [data[k] for k in list(data)[6:]] == ["h", "b", [], None, "CI", "completed", "success"]
+    for event, key in (("check_suite", "check_suite"), ("workflow_run", "workflow_run")):
+        bare = gh._data(event, "completed", _base(**{key: "nope"}))
+        assert "head_sha" not in bare
+        assert len(bare) == 6

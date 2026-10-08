@@ -614,40 +614,13 @@ class RuleFiring:
         """A predecessor settled for an event: re-evaluate its dependants that are ours."""
         self._pending[marker_id] = []
         if kind == "hold":
-            # a chain hold ended without a continuation taking the key: release the key
-            # and fire the event deduplicated meanwhile, as at the end of the holder's run
-            holding = doc.get("run_id")
-            if holding and holding == doc.get("hold_released"):
-                pending = str(doc.get("pending_event_id") or holding)
-                rules = self._live_rules(tx)
-                self._fire_coalesced(tx, holding, pending, rules, marker_id, placed=placed)
+            self._release_hold(tx, doc, marker_id, placed=placed)
             return
-        if kind == "run":
-            predecessor = (doc.get("rule") or {}).get("id")
-            envelope = doc.get("trigger") or {}
-        elif kind == "intent":
-            predecessor, envelope = doc.get("rule_id"), doc.get("trigger") or {}
-        else:
-            predecessor = doc.get("rule_id")
-            stored = tx.get(EVENTS_COLLECTION, doc.get("event_id") or "")
-            # after a restore the event itself is gone (not backed up): continue from the
-            # trigger snapshot the decision record carries, never from a guess (d21)
-            envelope = (stored or {}).get("envelope") or doc.get("trigger") or {}
+        predecessor, envelope = _settled_source(tx, kind, doc)
         rules = self._live_rules(tx)
         if kind == "decision" and not envelope.get("id") and predecessor:
-            envelope = _recover_trigger(tx, rules, predecessor, doc.get("event_id"))
+            envelope = self._recovered_trigger(tx, rules, predecessor, doc, placed=placed)
             if not envelope:
-                waiting = [r for r in rules if predecessor in (*r.must_after, *r.may_after)]
-                mine = self._ours(tx, waiting, str(doc.get("event_id")), placed=placed)
-                if mine:  # only the consumer that owns a dependant records it
-                    raise Unrecoverable(
-                        {
-                            "rule_id": predecessor,
-                            "event_id": doc.get("event_id"),
-                            "dependants": sorted(mine),
-                            "reason": "the trigger event is gone and no run or intent holds it",
-                        }
-                    )
                 return
         event_id = envelope.get("id")
         if not predecessor or not event_id:
@@ -667,6 +640,47 @@ class RuleFiring:
             # so the re-evaluation happens once the pause lifts (module doc, "Pause").
             raise Deferred(", ".join(sorted(ours)), event_id, "paused: re-evaluated on resume")
         self._decide(tx, envelope, rules, ours, marker_id, placed=placed, chained=True)
+
+    def _release_hold(
+        self, tx: StoreOps, doc: Mapping[str, Any], marker_id: str, *, placed: bool
+    ) -> None:
+        """A chain hold ended without a continuation taking the key (d21 phase 2): release
+        the key and fire the event deduplicated meanwhile, as at the end of the holder's
+        run."""
+        holding = doc.get("run_id")
+        if holding and holding == doc.get("hold_released"):
+            pending = str(doc.get("pending_event_id") or holding)
+            rules = self._live_rules(tx)
+            self._fire_coalesced(tx, holding, pending, rules, marker_id, placed=placed)
+
+    def _recovered_trigger(
+        self,
+        tx: StoreOps,
+        rules: list[Rule],
+        predecessor: Any,
+        doc: Mapping[str, Any],
+        *,
+        placed: bool,
+    ) -> dict[str, Any]:
+        """The trigger of a settled skip whose event is gone, from a durable record
+        (:func:`_recover_trigger`), or ``{}``: then a consumer owning a dependant raises
+        :class:`~culture_rules.node.chain.Unrecoverable` (d21) - only that consumer records
+        it."""
+        envelope = _recover_trigger(tx, rules, predecessor, doc.get("event_id"))
+        if envelope:
+            return envelope
+        waiting = [r for r in rules if predecessor in (*r.must_after, *r.may_after)]
+        mine = self._ours(tx, waiting, str(doc.get("event_id")), placed=placed)
+        if mine:  # only the consumer that owns a dependant records it
+            raise Unrecoverable(
+                {
+                    "rule_id": predecessor,
+                    "event_id": doc.get("event_id"),
+                    "dependants": sorted(mine),
+                    "reason": "the trigger event is gone and no run or intent holds it",
+                }
+            )
+        return {}
 
     def _fire_coalesced(
         self,
@@ -852,20 +866,18 @@ class RuleFiring:
                 snapshot = {n: values[n] for n in sorted(refs[decision.rule_id])}
                 tx.insert(
                     RULE_FIRES,
-                    {
-                        **({"variables": snapshot} if snapshot else {}),
-                        **({"concurrency_key": key} if key is not None else {}),
-                        "id": intent_id,
-                        "rule_id": decision.rule_id,
-                        "event_id": event_id,
-                        "run_id": run_id,
-                        "host": self.host,
-                        "placed": placed,
-                        "fired_at": utc_timestamp(now),
-                        "status": "pending",
-                        "trigger": dict(envelope),
-                        "upstream": {k: dict(v) for k, v in decision.upstream.items()},
-                    },
+                    _intent_doc(
+                        intent_id,
+                        decision,
+                        event_id,
+                        run_id,
+                        self.host,
+                        placed,
+                        now,
+                        envelope,
+                        snapshot,
+                        key,
+                    ),
                 )
 
     def _rate_capped(
@@ -901,46 +913,49 @@ class RuleFiring:
                 self._abandon_if_host_gone(intent)  # else it starts where it was evaluated
                 continue
             with log_context(run_id=intent["run_id"], host=self.host):
-                if self._unresolved(intent):
-                    continue
-                try:
-                    self.executor.start_from_store(
-                        intent["rule_id"],
-                        trigger=intent["trigger"],
-                        upstream=intent.get("upstream") or None,
-                        run_id=intent["run_id"],
-                        variables=intent.get("variables"),
-                        concurrency_key=intent.get("concurrency_key"),
-                        fence=_claim_intent(intent),
-                    )
-                except _IntentGone as gone:
-                    log.info("rule %s on event %s not started: %s", *_ids(intent), gone)
-                    continue  # abandoned, started elsewhere, or its reservation is gone
-                except TransientStoreError:
-                    # A write conflict on the intent: someone else moved it (an abandonment
-                    # or another host's start) first. The next cycle re-reads it.
-                    log.info("rule %s on event %s: start conflicted, re-read", *_ids(intent))
-                    continue
-                except DuplicateKeyError:
-                    pass  # another host started it first
-                except RunError as exc:
-                    if exc.code == "paused":
-                        continue
-                    log.warning("rule %s did not start: %s", intent["rule_id"], exc.code)
-                    self.store.update_if(
-                        RULE_FIRES,
-                        intent["id"],
-                        {"status": "pending"},
-                        {"status": "failed", "error": exc.code},
-                    )
-                    continue
-                else:
-                    started.append(intent["run_id"])
-                    log.info("run started for rule %s on event %s", *_ids(intent))
-                self.store.update_if(
-                    RULE_FIRES, intent["id"], {"status": "pending"}, {"status": "started"}
-                )
+                self._start_intent(intent, started)
         return started
+
+    def _start_intent(self, intent: Mapping[str, Any], started: list[str]) -> None:
+        """Start this host's pending ``intent`` (appending its run id to ``started``), or
+        leave, fail or mark it as the outcome says."""
+        if self._unresolved(intent):
+            return
+        try:
+            self.executor.start_from_store(
+                intent["rule_id"],
+                trigger=intent["trigger"],
+                upstream=intent.get("upstream") or None,
+                run_id=intent["run_id"],
+                variables=intent.get("variables"),
+                concurrency_key=intent.get("concurrency_key"),
+                fence=_claim_intent(intent),
+            )
+        except _IntentGone as gone:
+            log.info("rule %s on event %s not started: %s", *_ids(intent), gone)
+            return  # abandoned, started elsewhere, or its reservation is gone
+        except TransientStoreError:
+            # A write conflict on the intent: someone else moved it (an abandonment
+            # or another host's start) first. The next cycle re-reads it.
+            log.info("rule %s on event %s: start conflicted, re-read", *_ids(intent))
+            return
+        except DuplicateKeyError:
+            pass  # another host started it first
+        except RunError as exc:
+            if exc.code == "paused":
+                return
+            log.warning("rule %s did not start: %s", intent["rule_id"], exc.code)
+            self.store.update_if(
+                RULE_FIRES,
+                intent["id"],
+                {"status": "pending"},
+                {"status": "failed", "error": exc.code},
+            )
+            return
+        else:
+            started.append(intent["run_id"])
+            log.info("run started for rule %s on event %s", *_ids(intent))
+        self.store.update_if(RULE_FIRES, intent["id"], {"status": "pending"}, {"status": "started"})
 
     def _abandon_if_host_gone(self, intent: Mapping[str, Any]) -> None:
         """Fail another host's pending placed intent once that host has been offline for
@@ -1001,6 +1016,50 @@ class RuleFiring:
             {"status": "failed", "error": VARIABLES_UNSUPPORTED},
         )
         return True
+
+
+def _settled_source(
+    tx: StoreOps, kind: str, doc: Mapping[str, Any]
+) -> tuple[Any, Mapping[str, Any]]:
+    """The settled predecessor rule's id and the event envelope it settled for, from a
+    finished ``run``, a failed ``intent`` or a recorded skip ``decision`` (whose event is
+    read from the store; after a restore the event itself is gone - not backed up - so the
+    trigger snapshot the decision record carries stands in, never a guess: d21)."""
+    if kind == "run":
+        return (doc.get("rule") or {}).get("id"), doc.get("trigger") or {}
+    if kind == "intent":
+        return doc.get("rule_id"), doc.get("trigger") or {}
+    stored = tx.get(EVENTS_COLLECTION, doc.get("event_id") or "")
+    return doc.get("rule_id"), (stored or {}).get("envelope") or doc.get("trigger") or {}
+
+
+def _intent_doc(
+    intent_id: str,
+    decision: Decision,
+    event_id: str,
+    run_id: str,
+    host: str,
+    placed: bool,
+    now: datetime,
+    envelope: Mapping[str, Any],
+    snapshot: Mapping[str, Any],
+    key: str | None,
+) -> dict[str, Any]:
+    """A pending firing intent (the variables snapshot and concurrency key when any)."""
+    return {
+        **({"variables": snapshot} if snapshot else {}),
+        **({"concurrency_key": key} if key is not None else {}),
+        "id": intent_id,
+        "rule_id": decision.rule_id,
+        "event_id": event_id,
+        "run_id": run_id,
+        "host": host,
+        "placed": placed,
+        "fired_at": utc_timestamp(now),
+        "status": "pending",
+        "trigger": dict(envelope),
+        "upstream": {k: dict(v) for k, v in decision.upstream.items()},
+    }
 
 
 def _verified(

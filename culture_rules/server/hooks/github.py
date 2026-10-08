@@ -164,59 +164,62 @@ def _data(event: str, action: str, payload: Mapping[str, Any]) -> dict[str, Any]
         data["merged"] = bool(_dig(subject, "merged"))
         _enrich_pr(data, payload)
     elif event == "issue_comment":
-        body = _dig(payload, "comment", "body")
-        data["comment"] = body[:_COMMENT_MAX] if isinstance(body, str) else None
+        data["comment"] = _comment_body(payload)
     elif event == "pull_request_review":
         data["review_state"] = _dig(payload, "review", "state")
         _enrich_pr(data, payload)
     elif event == "pull_request_review_comment":
-        comment = _dig(payload, "comment")
-        if isinstance(comment, Mapping):
-            comment_user = comment.get("user")
-            if isinstance(comment_user, Mapping):
-                login = comment_user.get("login")
-                if isinstance(login, str):
-                    data["author"] = login
+        _review_comment_author(data, payload)
         _enrich_pr(data, payload)
     elif event == "check_suite":
         cs = _dig(payload, "check_suite")
         if isinstance(cs, Mapping):
-            data["head_sha"] = cs.get("head_sha")
-            data["head_branch"] = cs.get("head_branch")
-            prs = cs.get("pull_requests")
-            data["pr_numbers"] = (
-                [
-                    pr["number"]
-                    for pr in prs
-                    if isinstance(pr, Mapping) and isinstance(pr.get("number"), int)
-                ]
-                if isinstance(prs, list)
-                else []
-            )
-            data["app_slug"] = _dig(cs, "app", "slug")
-            data["workflow_name"] = None
-            data["status"] = cs.get("status")
-            data["conclusion"] = cs.get("conclusion")
+            _check_facts(data, cs, app_slug=_dig(cs, "app", "slug"), workflow_name=None)
     elif event == "workflow_run":
         wr = _dig(payload, "workflow_run")
         if isinstance(wr, Mapping):
-            data["head_sha"] = wr.get("head_sha")
-            data["head_branch"] = wr.get("head_branch")
-            prs = wr.get("pull_requests")
-            data["pr_numbers"] = (
-                [
-                    pr["number"]
-                    for pr in prs
-                    if isinstance(pr, Mapping) and isinstance(pr.get("number"), int)
-                ]
-                if isinstance(prs, list)
-                else []
-            )
-            data["app_slug"] = None
-            data["workflow_name"] = wr.get("name")
-            data["status"] = wr.get("status")
-            data["conclusion"] = wr.get("conclusion")
+            _check_facts(data, wr, app_slug=None, workflow_name=wr.get("name"))
     return data
+
+
+def _comment_body(payload: Mapping[str, Any]) -> str | None:
+    """An issue comment's body, capped; None when it has no text body."""
+    body = _dig(payload, "comment", "body")
+    return body[:_COMMENT_MAX] if isinstance(body, str) else None
+
+
+def _review_comment_author(data: dict[str, Any], payload: Mapping[str, Any]) -> None:
+    """A review comment's own author (when readable) replaces the sender as ``author``."""
+    comment = _dig(payload, "comment")
+    if not isinstance(comment, Mapping):
+        return
+    comment_user = comment.get("user")
+    if isinstance(comment_user, Mapping):
+        login = comment_user.get("login")
+        if isinstance(login, str):
+            data["author"] = login
+
+
+def _check_facts(
+    data: dict[str, Any], run: Mapping[str, Any], *, app_slug: Any, workflow_name: Any
+) -> None:
+    """The completion facts of a check suite or workflow run, in the stored key order."""
+    data["head_sha"] = run.get("head_sha")
+    data["head_branch"] = run.get("head_branch")
+    data["pr_numbers"] = _pr_numbers(run.get("pull_requests"))
+    data["app_slug"] = app_slug
+    data["workflow_name"] = workflow_name
+    data["status"] = run.get("status")
+    data["conclusion"] = run.get("conclusion")
+
+
+def _pr_numbers(prs: Any) -> list[Any]:
+    """The int ``number`` of each pull request listed, in order (``[]`` for no list)."""
+    if not isinstance(prs, list):
+        return []
+    return [
+        pr["number"] for pr in prs if isinstance(pr, Mapping) and isinstance(pr.get("number"), int)
+    ]
 
 
 INTENT_WINDOW = 512
@@ -295,6 +298,16 @@ def _command_end(rest: str) -> bool:
     return not rest or rest[0].isspace()
 
 
+def _add_comment_intent(
+    data: dict[str, Any], event: str, payload: Mapping[str, Any], actor: Mapping[str, Any]
+) -> None:
+    """d21: what a comment asks of the App (:func:`comment_intent`), read from its body; a
+    delivery of any other event is left alone."""
+    if event in _BODY_PATHS:
+        me = (actor.get("params") or {}).get("self_identity")
+        data.update(comment_intent(_dig(payload, *_BODY_PATHS[event]), me))
+
+
 def _enrich_pr(data: dict[str, Any], payload: Mapping[str, Any]) -> None:
     """Add the PR facts (:data:`PR_FACT_FIELDS`) from the pull_request sub-payload; a missing
     or malformed fact is omitted (:func:`pr_facts`), never stored as null."""
@@ -345,6 +358,24 @@ def _enrich_comment(data: dict[str, Any], pull: PullLookup | None) -> None:
     data["pr_enriched"] = facts is not None
 
 
+def _arms_settle(on_check: Any, etype: str, outcome: str) -> bool:
+    """Whether a stored (or redelivered) check completion goes on to the settler."""
+    return (
+        on_check is not None
+        and etype in SELF_TAG_EXEMPT_TYPES
+        and outcome in ("accepted", DUPLICATE)
+    )
+
+
+def _json_object(body: bytes) -> dict[str, Any] | None:
+    """The delivery body as a JSON object, or None (not JSON, or not an object)."""
+    try:
+        payload = json.loads(body)
+    except ValueError:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
 def handle(
     store: Any,
     *,
@@ -386,12 +417,8 @@ def handle(
         return 200, {"pong": True}
     if event not in _EVENTS:
         return _IGNORED
-    try:
-        payload = json.loads(body)
-    except ValueError:
-        record_outcome(store, SURFACE, BAD_REQUEST, actor.get("id"))
-        return 400, {"error": "invalid payload"}
-    if not isinstance(payload, dict):
+    payload = _json_object(body)
+    if payload is None:
         record_outcome(store, SURFACE, BAD_REQUEST, actor.get("id"))
         return 400, {"error": "invalid payload"}
     action = payload.get("action")
@@ -399,17 +426,11 @@ def handle(
     if etype is None:
         return _IGNORED
     data = _data(event, action, payload)
-    if event in _BODY_PATHS:  # d21: what the comment asks of the App, read from its body
-        me = (actor.get("params") or {}).get("self_identity")
-        data.update(comment_intent(_dig(payload, *_BODY_PATHS[event]), me))
+    _add_comment_intent(data, event, payload, actor)
     if _is_pr_comment(event, payload) and _would_store(store, actor, etype, delivery):
         _enrich_comment(data, pull)
     outcome = sink(store, actor, etype, data, delivery, data["author"])
-    if (
-        on_check is not None
-        and etype in SELF_TAG_EXEMPT_TYPES
-        and outcome in ("accepted", DUPLICATE)
-    ):
+    if _arms_settle(on_check, etype, outcome):
         try:
             on_check(data)
         except Exception:  # noqa: BLE001 - arming failed after the sink stored the event

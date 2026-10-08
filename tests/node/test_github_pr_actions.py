@@ -1060,3 +1060,71 @@ def test_git_timeout_past_the_deadline_is_deadline_exceeded(pem, world):
     )
     assert res.error == "deadline_exceeded"
     assert res.retryable
+
+
+# ---------------------------------------------------------------- characterization
+# (the Sonar S3776 split of GitHubPushPort.invoke / _publish: the remaining outcomes)
+
+
+def test_an_app_without_installation_id_is_misconfigured_before_any_network(pem, world):
+    store = make_store(
+        connection={"app_id": "1", "private_key": "grant:GH_KEY", "repos": [REPO]},
+    )
+    fake, rec = FakeGitHub(world), RecordingGit()
+    res = push_port(pem, world, fake, store=store, gitrec=rec).invoke(
+        push_params(world), "k", DEADLINE, context=ctx()
+    )
+    assert (res.outcome, res.error, res.retryable) == ("failed", "actor_misconfigured", False)
+    assert fake.calls == []
+    assert rec.calls == []
+
+
+def test_an_unknown_actor_is_actor_not_found(pem, world):
+    fake = FakeGitHub(world)
+    port = push_port(pem, world, fake)
+    other = InvocationContext(run_id="run-1", step_id="push", kind="action", host="h", actor="x")
+    res = port.invoke(push_params(world, actor="x"), "k", DEADLINE, context=other)
+    assert (res.error, res.retryable) == ("actor_not_found", False)
+    assert fake.calls == []
+
+
+def test_a_github_error_mid_push_fails_with_its_code(pem, world):
+    class Broken(FakeGitHub):
+        def __call__(self, method, url, headers, body, timeout):
+            if url.endswith("/pulls/3"):
+                return 502, b"{}"
+            return super().__call__(method, url, headers, body, timeout)
+
+    rec = RecordingGit()
+    res = push_port(pem, world, Broken(world), gitrec=rec).invoke(
+        push_params(world), "k", DEADLINE, context=ctx()
+    )
+    assert res.outcome == "failed"
+    assert (res.error, res.retryable) == ("http_502", True)
+    assert "push" not in rec.verbs()
+    assert world.remote_head() == world.a
+
+
+def test_a_remote_already_at_the_commit_completes_without_pushing(pem, world):
+    git("push", "-q", str(world.remote), f"{world.b}:refs/heads/fix", cwd=world.agent)
+    fake, rec = FakeGitHub(world, head_sha=world.a), RecordingGit()  # the PR read lags
+    res = push_port(pem, world, fake, gitrec=rec).invoke(
+        push_params(world), "k", DEADLINE, context=ctx()
+    )
+    assert res.outcome == "completed", res.error
+    assert res.output["pushed"] is False
+    assert res.output["already"] is True
+    assert "push" not in rec.verbs()
+
+
+def test_a_refused_consume_stops_the_push(pem, world, monkeypatch):
+    from culture_rules.node.actions import github_pr
+
+    monkeypatch.setattr(github_pr, "consume_approval", lambda *a, **k: "review_consumed")
+    fake, rec = FakeGitHub(world), RecordingGit()
+    res = push_port(pem, world, fake, gitrec=rec).invoke(
+        push_params(world), "k", DEADLINE, context=ctx()
+    )
+    assert (res.outcome, res.error, res.retryable) == ("failed", "review_consumed", False)
+    assert "push" not in rec.verbs()
+    assert world.remote_head() == world.a

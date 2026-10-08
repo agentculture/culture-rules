@@ -868,3 +868,86 @@ def test_a_crash_between_deliver_and_release_frees_the_slot_next_cycle(event, mo
     c.cycle()  # a further redelivery changes nothing and counts nothing twice
     assert c.base.get("actor_usage", "qwen-fixer")["tokens"] == tokens
     assert c.base.get("actor_usage", "qwen-fixer")["inflight"] == []
+
+
+# ---- characterization (complexity refactor of record_bridge_event) -------------------------
+
+
+def test_an_accepted_event_records_the_bridge_invocation_id_once(store, clock):
+    _, _, doc, token = accepted_run(store, clock)
+    assert doc["invocation_id"] == "inv-1"  # from the 202 answer
+    kept = {"sequence": 2, "kind": "accepted", "payload": {"invocation_id": "other"}}
+    assert record_bridge_event(store, doc["id"], token, kept, clock=clock) == RECORDED
+    assert invocation(store)["invocation_id"] == "inv-1"
+    store.update_if(BRIDGE_INVOCATIONS, doc["id"], {}, {"invocation_id": None})
+    first = {"sequence": 3, "kind": "accepted", "payload": {"invocation_id": 41}}
+    assert record_bridge_event(store, doc["id"], token, first, clock=clock) == RECORDED
+    after = invocation(store)
+    assert after["invocation_id"] == "41"  # stringified
+    assert after["last_sequence"] == 3
+    assert after["last_event_at"] == "2026-10-03T12:00:00Z"
+    assert after.get("last_heartbeat_at") is None
+    empty = {"sequence": 4, "kind": "accepted", "payload": {"invocation_id": ""}}
+    assert record_bridge_event(store, doc["id"], token, empty, clock=clock) == RECORDED
+    assert invocation(store)["invocation_id"] == "41"
+
+
+def test_a_non_mapping_payload_or_event_is_handled(store, clock):
+    _, _, doc, token = accepted_run(store, clock)
+    assert record_bridge_event(store, doc["id"], token, ["not", "a", "mapping"]) == INVALID
+    assert record_bridge_event(store, 7, token, completed_event()) == UNKNOWN  # non-str id
+    bool_seq = {"sequence": True, "kind": "heartbeat"}
+    assert record_bridge_event(store, doc["id"], token, bool_seq) == INVALID
+    odd = {"sequence": 2, "kind": "progress", "payload": "text"}
+    assert record_bridge_event(store, doc["id"], token, odd, clock=clock) == RECORDED
+    assert invocation(store)["last_sequence"] == 2
+
+
+def test_a_terminal_event_records_the_result_and_the_highest_sequence(store, clock):
+    _, _, doc, token = accepted_run(store, clock)
+    hb = {"sequence": 9, "kind": "heartbeat", "payload": {}}
+    assert record_bridge_event(store, doc["id"], token, hb, clock=clock) == RECORDED
+    clock.advance(5)
+    assert record_bridge_event(store, doc["id"], token, completed_event(seq=4), clock=clock) == (
+        RECORDED
+    )
+    after = invocation(store)
+    assert after["status"] == "completed"
+    assert after["last_sequence"] == 9  # max(seq, the last one)
+    assert after["pending_delivery"] is True
+    assert after["finished_at"] == after["last_event_at"] == "2026-10-03T12:00:05Z"
+    assert after["result"]["outcome"] == "completed"
+    failed = {"sequence": 10, "kind": "failed", "payload": {"class": "timeout"}}
+    assert record_bridge_event(store, doc["id"], token, failed) == DUPLICATE
+    # an expired invocation answers EXPIRED before anything else about the event
+    store.update_if(BRIDGE_INVOCATIONS, doc["id"], {}, {"status": "expired"})
+    assert record_bridge_event(store, doc["id"], token, hb) == EXPIRED
+    assert record_bridge_event(store, doc["id"], token, {"kind": "nope", "sequence": 1}) == INVALID
+
+
+def test_a_lost_compare_and_set_rereads_and_records(store, clock):
+    _, _, doc, token = accepted_run(store, clock)
+    real = store.update_if
+    lost = []
+
+    def lose_once(collection, id, expected, changes, **kw):
+        if collection == BRIDGE_INVOCATIONS and not lost:
+            lost.append((dict(expected), dict(changes)))
+            return type("R", (), {"won": False})()
+        return real(collection, id, expected, changes, **kw)
+
+    store.update_if = lose_once
+    hb = {"sequence": 2, "kind": "heartbeat", "payload": {}}
+    assert record_bridge_event(store, doc["id"], token, hb, clock=clock) == RECORDED
+    store.update_if = real
+    assert lost == [
+        (
+            {"status": "accepted", "last_sequence": 0},
+            {
+                "last_sequence": 2,
+                "last_event_at": "2026-10-03T12:00:00Z",
+                "last_heartbeat_at": "2026-10-03T12:00:00Z",
+            },
+        )
+    ]
+    assert invocation(store)["last_sequence"] == 2

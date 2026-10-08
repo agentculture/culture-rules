@@ -543,23 +543,33 @@ def _check_rule(obj: Rule, path: str, errors: Errors) -> None:
     if obj.exclusive_group is not None:
         _nonempty(obj, ("exclusive_group",), path, errors)
     if isinstance(obj.condition, dict):
-        try:
-            condition_tree.validate(obj.condition)
-        except condition_tree.ConditionError as exc:
-            _err(errors, _join(path, "condition"), "condition_invalid", str(exc))
+        _check_rule_condition(obj.condition, path, errors)
     for field in ("action", "on_failure"):
-        act = getattr(obj, field)
-        if not isinstance(act, Action) or not isinstance(act.params, dict):
-            continue
-        params_path = _join(_join(path, field), "params")
-        has_workflow = obj.workflow is not None
-        for p, reason in ref_errors(act.params, params_path, _join, has_workflow=has_workflow):
-            _err(errors, p, "invalid_reference", reason)
-        if field == "action":
-            for p in run_error_refs(act.params, params_path, _join):
-                _err(errors, p, "invalid_reference", "run.error is set only for on_failure")
+        _check_action_refs(obj, field, path, errors)
     for rel in ("must_after", "may_after", "supersedes"):
         _check_relation(obj, rel, path, errors)
+
+
+def _check_rule_condition(condition: dict, path: str, errors: Errors) -> None:
+    try:
+        condition_tree.validate(condition)
+    except condition_tree.ConditionError as exc:
+        _err(errors, _join(path, "condition"), "condition_invalid", str(exc))
+
+
+def _check_action_refs(obj: Rule, field: str, path: str, errors: Errors) -> None:
+    """The references in a rule's ``action`` or ``on_failure`` params (``run.error`` only
+    for ``on_failure``)."""
+    act = getattr(obj, field)
+    if not isinstance(act, Action) or not isinstance(act.params, dict):
+        return
+    params_path = _join(_join(path, field), "params")
+    has_workflow = obj.workflow is not None
+    for p, reason in ref_errors(act.params, params_path, _join, has_workflow=has_workflow):
+        _err(errors, p, "invalid_reference", reason)
+    if field == "action":
+        for p in run_error_refs(act.params, params_path, _join):
+            _err(errors, p, "invalid_reference", "run.error is set only for on_failure")
 
 
 def _check_relation(obj: Rule, rel: str, path: str, errors: Errors) -> None:

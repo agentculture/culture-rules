@@ -349,3 +349,98 @@ def test_a_transport_failure_unrelated_to_the_deadline_stays_a_network_error(pem
     port = GitHubPrHeadPort(store, transport=Refused(), secrets=lambda ref: pem)
     res = port.invoke({"repo": "acme/widgets", "number": 3}, "k", DEADLINE, context=ctx())
     assert (res.outcome, res.error) == ("failed", "network_error")
+
+
+# ---------------------------------------------------------------- characterization
+# (the Sonar S3776 split of GitHubPrHeadPort.invoke: every outcome, pinned)
+
+
+def _head_port(pem, doc=None, fake=None, secrets=None):
+    from culture_rules.node.actions.github import GitHubPrHeadPort
+
+    store = MemoryStore()
+    if doc is not False:
+        store.put("actors", doc or actor_doc())
+    fake = fake or HeadFake()
+    port = GitHubPrHeadPort(store, transport=fake, secrets=secrets or (lambda ref: pem))
+    return port, fake
+
+
+def _ask(port, **inp):
+    return port.invoke({"repo": "acme/widgets", "number": 3, **inp}, "k", DEADLINE, context=ctx())
+
+
+def test_pr_head_port_without_the_actor_is_actor_not_found(pem):
+    port, fake = _head_port(pem, doc=False)
+    port._apps["gh-app"] = ((), object())
+    res = _ask(port)
+    assert (res.outcome, res.error, res.retryable) == ("failed", "actor_not_found", False)
+    assert "gh-app" not in port._apps
+    assert fake.calls == []
+
+
+@pytest.mark.parametrize("conn", [{"app_id": ""}, {"installation_id": None}])
+def test_pr_head_port_misconfigured_actor(pem, conn):
+    port, fake = _head_port(pem, doc=actor_doc(**conn))
+    res = _ask(port)
+    assert (res.error, res.retryable) == ("actor_misconfigured", False)
+    assert fake.calls == []
+
+
+@pytest.mark.parametrize("number", [None, "x", [3]])
+def test_pr_head_port_bad_number_is_bad_input(pem, number):
+    port, fake = _head_port(pem)
+    res = _ask(port, number=number)
+    assert (res.error, res.retryable) == ("bad_input", False)
+    assert fake.calls == []
+
+
+def test_pr_head_port_missing_number_is_bad_input(pem):
+    port, _ = _head_port(pem)
+    res = port.invoke({"repo": "acme/widgets"}, "k", DEADLINE, context=ctx())
+    assert (res.error, res.retryable) == ("bad_input", False)
+
+
+def test_pr_head_port_secret_failure_is_secret_unavailable(pem):
+    def boom(ref):
+        raise RuntimeError("no grant")
+
+    port, fake = _head_port(pem, secrets=boom)
+    res = _ask(port)
+    assert (res.error, res.retryable) == ("secret_unavailable", False)
+    assert fake.calls == []
+
+
+@pytest.mark.parametrize("sha", [None, "", 7])
+def test_pr_head_port_without_a_head_sha_is_a_retryable_bad_response(pem, sha):
+    port, _ = _head_port(pem, fake=HeadFake(sha=sha))
+    res = _ask(port)
+    assert (res.error, res.retryable) == ("bad_response", True)
+
+
+def test_pr_head_port_reports_a_string_base_sha_only(pem):
+    class BaseFake(HeadFake):
+        def __init__(self, base):
+            super().__init__()
+            self.base = base
+
+        def __call__(self, method, url, headers, body, timeout):
+            if "/pulls/" in url:
+                doc = {"head": {"sha": self.sha}, "base": {"sha": self.base}}
+                return 200, json.dumps(doc).encode()
+            return super().__call__(method, url, headers, body, timeout)
+
+    port, _ = _head_port(pem, fake=BaseFake("d" * 40))
+    assert dict(_ask(port).output) == {"head_sha": "c" * 40, "base_sha": "d" * 40}
+    port, _ = _head_port(pem, fake=BaseFake(5))
+    assert dict(_ask(port).output) == {"head_sha": "c" * 40, "base_sha": None}
+
+
+def test_pr_head_port_http_error_keeps_its_code_and_retryability(pem):
+    port, _ = _head_port(pem, fake=HeadFake(status=500))
+    res = _ask(port)
+    assert (res.error, res.retryable) == ("http_500", True)
+    port, _ = _head_port(pem, fake=HeadFake(status=404))
+    res = _ask(port)
+    assert res.outcome == "failed"
+    assert res.retryable is False

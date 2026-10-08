@@ -33,6 +33,18 @@ RESOLVE_WORKERS = 2
 once per port; it caps the threads a stuck ``grant get`` can hold."""
 
 
+def repo_refusal(conn: Mapping[str, Any], repo: Any) -> tuple[set[str], str | None]:
+    """The App connection's allowed repos (lower-cased), and why ``repo`` cannot be served
+    through it: ``repo_not_allowed`` (not a repo name, or off the allowlist) or
+    ``actor_misconfigured`` (no App or installation id); None when it can."""
+    allowed = {str(r).lower() for r in conn.get("repos") or ()}
+    if not GitHubApp.is_repo_name(repo) or repo.lower() not in allowed:
+        return allowed, "repo_not_allowed"
+    if not conn.get("app_id") or not conn.get("installation_id"):
+        return allowed, "actor_misconfigured"
+    return allowed, None
+
+
 class GitHubCommentPort:
     """ActorPort for the ``github.comment`` action kind."""
 
@@ -201,11 +213,9 @@ class GitHubPrHeadPort(GitHubCommentPort):
             self._apps.pop(str(actor_id), None)
             return InvocationResult.failed("actor_not_found", retryable=False)
         repo = input.get("repo")
-        allowed = {str(r).lower() for r in conn.get("repos") or ()}
-        if not GitHubApp.is_repo_name(repo) or repo.lower() not in allowed:
-            return InvocationResult.failed("repo_not_allowed", retryable=False)
-        if not conn.get("app_id") or not conn.get("installation_id"):
-            return InvocationResult.failed("actor_misconfigured", retryable=False)
+        allowed, refusal = repo_refusal(conn, repo)
+        if refusal:
+            return InvocationResult.failed(refusal, retryable=False)
         try:
             number = int(input["number"])
         except (KeyError, TypeError, ValueError):

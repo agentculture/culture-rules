@@ -4,37 +4,29 @@ This is the working state for resuming after context compaction. The main agent
 rewrote it on 2026-10-07 at about 19:40 IDT. The authoritative records are the devague
 frame, plan and delivery store. This file points at them and adds what they don't hold.
 
-## Night of 2026-10-07/08 (read this first)
+## Read this first: status at 2026-10-08 ~17:50 IDT (compaction point)
 
-- **Deployed:** the queue fix (5183b4c, wheel built at 35d8bea) on spark (API + node), thor, orin and spark2. The work timer starts on accept; the queue has its own bound (`queue_timeout`, 2 x timeout_s); blocked polls back off up to 60 s; history stays bounded; runs left by the old engine are adopted. Rollout lapse l5: always `culture-rules runs pause` before an engine upgrade.
-- **d20 (agent review before push), built and not deployed:** branch `rules/pr-fixer-review` (worktree `pr-fixer-review`), head cff6494. Five Codex rounds; round 4 found no agent-output-only path to publish anything but the approved commit. The round-5 review was cut off by Codex's usage limit and re-runs at 04:26. Key mechanisms:
-  - the gate builds one commit (the agent's tree on the PR head, engine-written metadata) and tests, reviews and pushes exactly that;
-  - non-text changes are refused;
-  - the reviewer brief is locked in code;
-  - the reviewer and implementer come from trusted state;
-  - the workflow digests and the actor digests (`TRUSTED_WORKFLOW_DIGESTS`, `TRUSTED_ACTOR_DIGESTS`; the github-app digest excludes `repos`) are pinned in code;
-  - review records are immutable per attempt, with a forward-only pointer; the approval is consumed just before `git push`;
-  - `base_mismatch` and `base_changed`.
-  - The gate's TMPDIR/basetemp fix (42ed30e) is on this branch.
-- **d21 (split into rules and workflows chained by events):** phase 1 (engine) is on `rules/pr-fixer-split` (eaa047b, 2eb0704, aeb2f68). It covers run-lifecycle events through an immutable completion outbox, the hop limit, `counts_toward_budget`, and forged-event quarantine. Codex round 2 re-runs at 04:26. Phase 2 (the split itself) has not started.
-- **Live defects found on t22:**
-  - comment triggers fire on any trusted comment (Qodo billing notice, operator status note); proposal: require `/fix` or an @mention;
-  - the engine never cancels a bridge job when a step times out (an orphan held the Qwen seat about 30 min);
-  - the agent rebased onto a moved head by itself (the push refused with `head_moved`);
-  - a big Sonar batch needs more than the 1-hour budget;
-  - the live github-app actor has no `commit_author`.
-- **Waiting on the operator:**
-  1. the reviewer's Codex login (a dedicated `culture-reviewer`, or the operator's);
-  2. OK to deploy d20 (pause the engine, upgrade every node, import the actor and workflow);
-  3. `commit_author` on github-app;
-  4. disable the four rules overnight? (The operator chose to keep them running.)
-  5. the comment-trigger rule;
-  6. branch protection on main (0 approvals and no required checks on all three repos);
-  7. fix #17's Sonar issues by hand?
-  8. GitGuardian (d22);
-  9. guildmaster#139;
-  10. lapses l2-l6.
-- **Numbering:** devague recorded the review step as d20 and the split as d21; GitGuardian becomes d22 when confirmed.
+- **#17 (culture-rules 0.13.0, gate 3)** is CLEAN at `6955315`: all CI green, SonarCloud gate OK, 41 open issues (38 python + 3 typescript S3776 cognitive complexity). The operator chose to **fix those 41 on #17 before merging** (worktree `../.worktrees.culture-rules/pr17-complexity`, branch `rules/pr17-complexity`, cut from `6955315`; list at the scratchpad `sonar17-41.tsv`, regenerate with the SonarCloud issues API for `pullRequest=17`). No subagent started yet. Then: Codex review, merge into `rules/pr-fixer`, push, CI + Sonar, operator merges.
+- **Deployed live (rules.culture.dev):** d20 (agent review before any push) from wheel `7bb9026`; queue fix. Codex reviewer bridge on spark (`127.0.0.1:8094`, runs as `spark` by operator choice, read-only sandbox verified confined). `github-app` actor has `commit_author: rules-culture-dev[bot]`. All four old fixer rules enabled; workflow `pr-fixer` (single) live. Proven: culture-rules-tester#4 run-0f45b494.
+- **d21 (split into chained rules; operator-approved FOLLOW-UP PR after #17):** branch `rules/pr-fixer-split` (worktree `pr-fixer-split`), head `0a4ac6f`, version 0.14.0, 3789 tests pass; already merged with `rules/pr-fixer@6955315` (`bc3482c`). Phase 1 (run events, hop cap, outbox, restore reconciliation) Codex-reviewed 7 rounds; phase 2 (pr-fix / review-commit / publish-fix, 7 rules, chain key hold, push verifies the whole chain, trigger fixes) Codex-reviewed 3 rounds + matcher fixes. Not deployed. After #17 merges: rebase/merge onto main, open the PR, deploy per `docs/operations/pr-fixer.md` "Rolling out the split" (pause, upgrade every node, seed `fixer_comment_triggers`, import actors→workflows→rules, disable workflow `pr-fixer`, enable stage rules then triggers, resume), prove on culture-rules-tester (chain + review-only mode).
+- **t23/t24 done:** 36 obligations, 77 evidence (67 pass, 10 fail), 12 deltas, all operator-approved; summary `docs/deliveries/2026-10-06-pr-fixer-rule.md`, linked from #17's description.
+
+### Waiting on the operator
+
+1. Merge #17 (after the 41-issue pass).
+2. t21 probe 5 (hold one node on the old build ~15 min) and probe 6 (a comment from an account outside `trusted_authors`). Probes 1–4 pass.
+3. Branch protection on `main` (0 approvals, no required checks on culture-rules, lobes-cli, culture-rules-tester) — offer to draft settings.
+4. GitGuardian = **d25** (pending): reading — never auto-fix a GitGuardian finding, post it as a review comment; settle stops blocking on empty queued suites.
+5. guildmaster#139 (ledger: culture-rules-tester as downstream consumer).
+6. Lapses `l1`–`l7` (proposed).
+
+### Then
+
+- the 41 complexity refactors on #17 (above);
+- d21 follow-up PR, deploy, prove;
+- r22 (published wheels lack web_dist; nodes run local wheels);
+- canvas design artifact Jgm3JPnAhKWpeiCxFXvNBi owes the Variables tab, (i) button, zoom;
+- optional: move the reviewer bridge to a dedicated `culture-reviewer` account.
 
 ## Original request (operator, verbatim intent)
 
@@ -54,30 +46,24 @@ The flow is:
 | What | Where |
 |---|---|
 | Spec | `docs/specs/2026-10-05-pr-fixer-rule.md` (frame `pr-fixer-rule`) |
-| Plan | `docs/plans/2026-10-06-pr-fixer-rule.md`: 24 tasks in 9 waves. `devague plan waves --json` gives every brief verbatim. |
-| Split (gate 2) | `docs/plans/2026-10-06-pr-fixer-rule-split.md` |
-| Deviations d1-d19 | `devague deviate --list` |
-| Risks | `devague plan show --plan pr-fixer-rule` |
-| Lapse l1 | Proposed; `devague lapse --list` |
-| Evidence log (for /validate-delivery) | `.devague/evidence-log-pr-fixer.md`. It holds the full t20 run table. |
-| Ops recipe | `docs/operations/pr-fixer.md`: spark2 setup, gate, rules, variables, stop-runs, describe |
-| Fixer data | `docs/rules/pr-fixer/` (rules JSON, workflow JSON, `seed-variables.sh`) |
+| Plan / split | `docs/plans/2026-10-06-pr-fixer-rule.md`, `docs/plans/2026-10-06-pr-fixer-rule-split.md` |
+| Delivery summary | `docs/deliveries/2026-10-06-pr-fixer-rule.md` |
+| Records | `devague deviate --list` (d1–d24), `devague lapse --list` (l1–l7), `devague oblige/evidence/delta --list` |
+| Evidence log | `.devague/evidence-log-pr-fixer.md` (every live run) |
+| Ops recipe | `docs/operations/pr-fixer.md` (sections 7–8: rules, trusted workflows/actors, reviewer on spark) |
+| Fixer data | `docs/rules/pr-fixer/` (actors, workflows, rules, `seed-variables.sh`) |
 
 ## Key operator decisions (do not re-litigate)
 
-- **Bridges:** in agentculture/cultureagent. The Vercel AI SDK was rejected.
-- **Pushing:** the GitHub App pushes, never the agent. The engine's test gate decides between push and hand-back.
-  - The gate comes from the `culture.yaml` `gate:` section on the PR's BASE commit.
-  - Its commands are configuration, never defaults in code.
-- **The fixer never merges and never force-pushes.**
-- **Fixer machine:** spark2, account `culture-fixer`. Only the Qwen bridge runs there; there is no Codex on spark2 (d8).
-- **Skipped PRs:** fork PRs and drafts are skipped. The quiet period is a workflow `wait` step.
-- **Trusted authors:** the shared variable `trusted_authors`, which is the operator plus `qodo-code-review[bot]`. Keep Qodo.
-- **Rules:** four rules share one workflow and one global per-PR concurrency key (d13). Every trigger carries the PR facts (d14).
-- **Repo selection:** an allow-list in `vars.fixer_repos` (d18), with `fixer_excluded_repos` as an override.
-- **Attempt budget:** max_attempts 3 per PR is the accepted loop bound for issues the fixer can't fix (r26). Only a human push or green checks reset it.
-- **App key:** it also lives in spark2's node grant store (r16 accepted).
-- **API listener:** the LAN listener binds spark's tailnet IP `100.127.105.72:8791` so bridge callbacks from spark2 reach it.
+- **Bridges** in agentculture/cultureagent (0.14.0); no Vercel AI SDK.
+- **The App pushes, never the agent;** the fixer never merges or force-pushes.
+- **Review before push (d20):** Codex (read-only, on spark, as the `spark` account) must approve exactly the gate-built commit; push verifies trusted workflow/actor digests (`culture_rules/actors/trusted.py`), consumes the approval, refuses `base_changed`/`head_moved`/`rule_disabled`. Changing a pinned workflow or actor needs a release (digest first, then nodes, then import).
+- **Fixer machine:** spark2, `culture-fixer`, Qwen only (d8).
+- **Repos:** allow-list `fixer_repos` (d18) = culture-rules, culture-rules-tester, lobes-cli; `fixer_excluded_repos` override; App `repos` list excluded from its digest (guildmaster adds repos).
+- **Attempts:** 3 per PR; after 3 failed cycles the main agent fixes by hand with a PR comment (d22).
+- **Comment intent (d24):** a comment starts a run only if it begins with `/fix` (then a space) or `@rules-culture-dev`; forms in `fixer_comment_triggers`; comment runs count toward the 3 attempts. Ships with d21.
+- **d21 split** approved as a follow-up PR; stage rule named `pr-fixer-review-commit`, optional workflow inputs (d23).
+- **Sonar on #17:** fix the 386 smells (done) and the 41 complexity issues (in progress) before merge.
 
 ## Deviations (all approved)
 
@@ -86,122 +72,40 @@ The flow is:
 | d1 | Bridge callbacks on an API route, plus node redelivery |
 | d2 | The self-tag exempts only check-completion event types |
 | d3 | `Executor.deliver(attempt=)` |
-| d4 | culture-rules is the live test repo |
+| d4 | culture-rules is the live test repo (in practice: culture-rules-tester; record not amended) |
 | d5 | The App keeps Actions: write |
 | d6 | The reviewer differs from the implementer |
-| d7 | Saving or enabling a rule that uses variables is refused while any online node lacks the `variables` capability |
+| d7 | Variable-using rules refused while any online node lacks the capability |
 | d8 | No Codex on spark2 |
 | d9 | Codex reviews |
 | d10 | `retry_until` carry, `github.push` `gate_verdict`, BuiltinCodePort |
-| d11 | Codex is the preferred implementer; Qwen is the fallback, on `cortex-spark2` only |
+| d11 | Codex preferred implementer; Qwen fallback on cortex-spark2 |
 | d12 | Built-in `action` code step |
 | d13 | Four rules with a global per-PR key |
 | d14 | PR facts and base_sha on every trigger |
-| d15 | `github.threads` and `github.threads_addressed` built-ins: only trusted threads go to the agent and get replies |
-| d16 | Rule `on_failure`: a hand-back comment with `run.error.*` |
-| d17 | Disabling a rule offers "Stop N current runs?", and approving cancels them |
-| d18 | Allow-list `fixer_repos`; guildmaster#138 tracks adding a repo at provisioning |
-| d19 | Deterministic config-derived descriptions (`rules describe` / `workflows describe`, API, MCP, editor), canvas zoom, and an (i) info button on every rule and workflow |
+| d15 | Trusted threads only (`github.threads`, `threads_addressed`) |
+| d16 | Rule `on_failure` hand-back comment |
+| d17 | "Stop N current runs?" on disable |
+| d18 | Allow-list `fixer_repos` |
+| d19 | Deterministic describe, canvas zoom, (i) button |
+| d20 | Agent (Codex) review before any push |
+| d21 | Split into rules + workflows chained by run events (follow-up PR) |
+| d22 | Manual fallback after 3 fixer cycles, with a PR comment |
+| d23 | `pr-fixer-review-commit` name; optional workflow inputs |
+| d24 | Comment intent: begins with `/fix` or `@rules-culture-dev`; counts toward 3 attempts |
 
-**Pending:** a possible d20. The operator said "gitguardian result should be reviewed and posted as a comment". My reading, NOT yet confirmed by the operator:
-
-- the fixer never auto-fixes GitGuardian findings; it posts a review comment instead;
-- the checks settle stops blocking on empty queued suites (0 check runs), for any app.
-
-Ask the operator to confirm before recording or building it.
+**Pending:** d25 GitGuardian (see above).
 
 ## Workforce rules in force
 
-- **Branches and worktrees:** the integration branch is `rules/pr-fixer`, in the main checkout. Task branches are `rules/pr-fixer-<x>`, with worktrees in `../.worktrees.culture-rules/`. Remove a worktree with `git worktree remove`, never `rm -rf`.
-- **Implementers:** Codex is preferred. Opus subagents implement when Codex is out or for follow-ups. Qwen is a fallback only, and only on `cortex-spark2`. Don't use cortex while live fixer runs need it.
-- **Reviewers:** the reviewer is never the implementer.
-  - Codex reviews Opus work with `codex review --base rules/pr-fixer`, run in the worktree, with output in the scratchpad `rev/` directory. Check for "usage limit".
-  - An Opus subagent reviews Codex work.
-- **Merging:** the main agent verifies every finding. At most 3 rounds. Run the full suite before and after `git merge --no-ff`. Expect 1 skip; more skips mean the venv lost optional deps.
-- **Ignore** Codex's "missing version bump" findings. 0.13.0 is the single bump, on #17.
-- **Never write an unquoted heredoc containing backticks.**
-- **Portability:** committed files must not contain absolute home paths (`/home/<user>/`). harness-smoke and `devex pr lint` refuse them. Use placeholders such as FIXER_HOME or `~user`. `docs/operations/pr-fixer.md` is waived for its per-account home-directory paths.
-- **Session-only crons:**
-  - the status loop at :07 and :37, prompt "Give the operator a status update…";
-  - recreate it after a restart (it was `067039de`).
-
-## Status now (2026-10-07, about 19:40 IDT)
-
-### PRs
-
-| PR | State |
-|---|---|
-| **culture-rules#17** (0.13.0, the delivery PR, gate 3) | OPEN, head `eb9087d`, which contains main's 0.12.1. CI is green except the SonarCloud quality gate (295 issues), which also fails the `test` job's scan step. **The fixer is working on it (t22 dogfood, pulled forward by the operator).** Do NOT push to `rules/pr-fixer` while a fixer run is active: a push supersedes the run or fails its push. |
-| culture-rules#18 | MERGED (0.12.1: `gate:` section on main) |
-| lobes-cli#300 | MERGED (`gate:` section) |
-| guildmaster#139 | OPEN, waiting for the operator's merge (ledger: provision culture-rules-tester, formerly pr-fixer-sandbox) |
-| guildmaster#138 | Issue: `guild create --pr-fixer` adds a repo to `fixer_repos` |
-
-### Local, unpushed
-
-- `rules/pr-fixer` is ahead by `a90037f`: the sandbox is renamed to culture-rules-tester in the seed script, docs and tests.
-- This handoff commit is also unpushed.
-- Push both after the fixer finishes on #17, together with d19.
-
-### Branch in flight
-
-- `rules/pr-fixer-describe-zoom` (d19), worktree `pr-fixer-describe-zoom`. An Opus subagent is working on it:
-  - it is fixing Codex round-1 P2s: nested loop bodies were dropped from descriptions, and the fit zoom rounded up;
-  - then it adds the (i) info button the operator asked for;
-  - then it goes to Codex round 2, then merges.
-
-### Live (rules.culture.dev)
-
-- **Nodes:** all four nodes and the API run a LOCAL 0.13.0 wheel built at `d068dc5`. Published wheels lack web_dist (r22).
-  - spark2 was installed with `install.sh --gate-run-as "sudo -n -u culture-fixer -- /usr/bin/env PATH=<fixer home>/.local/bin:/usr/local/bin:/usr/bin:/bin"` plus `--secret RULES_QWEN_FIXER_TOKEN --secret RULES_GITHUB_APP_PRIVATE_KEY`.
-  - That sets NoNewPrivileges=no and includes the yaml extra.
-- **Rules:** the four rules are imported and ENABLED. A re-import sets them back to the file's `enabled: false`, so re-enable all four after any import.
-- **`fixer_repos`:** `agentculture/culture-rules`, `agentculture/culture-rules-tester`, `agentculture/lobes-cli`. `fixer_excluded_repos` is `[]`. The github-app actor's `repos` also lists culture-rules-tester and lobes-cli.
-- **Actors:** `qwen-fixer` (machine spark2, bridge `100.93.248.8:8093`, cortex, yolo, max_concurrency 1) and `github-app`. The github-app actor declares the fixer events (checks, review_comment, synchronize, ready, checks_settled) and actions (comment, push, review_reply).
-- **CLI against production:** `grant run --inject CULTURE_RULES_TOKEN=RULES_CULTURE_RULES_SERVICE_TOKEN -- env CULTURE_RULES_API_URL=http://100.127.105.72:8791 culture-rules ...`
-- **Fixer run on #17:** `run-47bd8394…` (`pr-fixer-checks`, settled `timeout` at eb9087d) started at 16:08 UTC. It is attempt 1 of 3. Earlier `run-56186abd…` was superseded (it targeted the old head).
-- **Slow settles:** the `claude` suite is ignored, but the `gitguardian` suite stays queued with 0 check runs, so every settle waits for the 900 s timeout. See the pending d20.
-
-### t20 (done; evidence logged)
-
-On the sandbox (now `agentculture/culture-rules-tester`), PR #1:
-
-- **One full pass:** the checks settled red, the agent fixed both seeded issues, the gate passed, the App pushed 0e1b4bf, and the run-link comment was posted.
-- **Two runs superseded** during the quiet period.
-- **Three hand-backs:**
-  - the gate failed on NoNewPrivileges; fixed;
-  - the gate failed on the missing yaml extra; fixed;
-  - an agent timeout on a failure the fixer can't fix (test-publish).
-- **Draft #2 and fork #3:** zero runs.
-
-On the sandbox, test-publish should now pass, because the repo name matches the TestPyPI publisher `culture-rules-tester`. No run has confirmed it yet.
-
-## Next items
-
-1. **Watch the fixer on #17.** It gets at most 3 attempts.
-   - Record each run in the evidence log: gate verdict, push, comments, attempts.
-   - A gate on culture-rules runs the full suite as culture-fixer. The MongoDB tests should skip there, since the account has no Docker. Verify that.
-   - When the runs end, push `a90037f`, the handoff and the merged d19 to #17.
-2. **d19:** take the subagent's report, run the Codex review, then merge. Then push once the fixer is idle.
-3. **d20:** confirm the GitGuardian interpretation with the operator, then build it. The empty-queued-suite fix removes the 15-minute settle delay.
-4. **lobes-cli:** main has a pre-existing failing test, `tests/test_gateway_pool_saturation.py::test_the_engine_plumbing_is_gone_from_the_server_module`. The gate can't pass on lobes-cli PRs until it is fixed.
-5. **t21 live probes** (task t21), reading outcomes from run history and webhook deliveries:
-   1. settled checks with Sonar, GitGuardian and the claude suite;
-   2. a push during the wait step supersedes the run (seen in t20);
-   3. disable mid-run: no push, and the d17 prompt appears;
-   4. an excluded repo starts no run;
-   5. a node held on an old version fails closed. **Ask the operator before holding any node back.**
-   6. a comment from an untrusted account starts no run.
-6. **t22** (dogfood, in progress on #17), plus "at least two more real culture-rules PRs".
-7. **t23** /validate-delivery: obligations, evidence and deltas. Deltas to file:
-   - Qodo's billing comment starts a run;
-   - an unfixable failure burns up to 60 minutes per attempt (r26);
-   - uv.lock re-lock;
-   - the lapse l1 adjudication.
-8. **t24** /summarize-delivery, then the operator merges #17 (gate 3).
-9. **After merge:**
-   - fix publish so wheels carry web_dist (r22), then move the nodes to the PyPI 0.13.0;
-   - the canvas design artifact Jgm3JPnAhKWpeiCxFXvNBi ("Chosen" row) still owes the Variables tab, and now the (i) button and zoom.
+- **Branches/worktrees:** integration `rules/pr-fixer` (main checkout); task branches `rules/<x>` in `../.worktrees.culture-rules/`; remove with `git worktree remove`.
+- **Implementers:** Opus subagents (Codex preferred when not rate-limited). **Reviewer ≠ implementer:** Codex reviews Opus work.
+- **Codex invocation:** `codex exec -s read-only - < prompt.txt` (prompt from a FILE via stdin — inline prompts hung three times); neutral "code review request" wording (attack wording gets refused); tell it NOT to run Docker/Mongo tests (they hang under its sandbox). Check for "usage limit" (it resets ~5 h later; schedule a one-shot cron).
+- **Gates:** full suite before/after merges, `set -o pipefail` when piping test output (l6); expect 1 skip with all extras (`uv sync --all-extras` in new worktrees).
+- **Engine upgrades:** `culture-rules runs pause --apply` first, resume after (l5).
+- **Don't push to `rules/pr-fixer` while a fixer run on #17 is active.**
+- **Status loop:** session cron at :07/:37 ("Give the operator a status update…"); recreate after a restart.
+- **Portability:** no absolute home paths in committed files (steward 0.28 also rejects home-relative dotfile paths in docs other than the waived ops doc).
 
 ## Open risks worth carrying
 
@@ -224,7 +128,7 @@ On the sandbox, test-publish should now pass, because the repo name matches the 
 
 ## Machines
 
-- **spark:** API (LAN listener `100.127.105.72:8791`, Access listener `127.0.0.1:18765`) and node. One shared venv at `$XDG_DATA_HOME/culture-rules/venv` (the account's data dir). Mongo `culture-rules-mongod` in docker.
+- **spark:** codex bridge for the reviewer (the account's `cultureagent-bridges/venv` data dir, unit `cultureagent-codex-bridge`, token `RULES_CODEX_REVIEWER_TOKEN`); API (LAN listener `100.127.105.72:8791`, Access listener `127.0.0.1:18765`) and node. One shared venv at `$XDG_DATA_HOME/culture-rules/venv` (the account's data dir). Mongo `culture-rules-mongod` in docker.
 - **thor, orin:** nodes only, installed with `install.sh` (default extras include yaml).
 - **spark2:**
   - **access:** reach it as `ssh spark2`; the bare IP has no known_hosts entry. Tailnet IP `100.93.248.8`.

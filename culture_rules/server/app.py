@@ -679,6 +679,33 @@ _BRIDGE_EVENT_SCHEMA = {
 _BRIDGE_CALLBACK_ROUTE = "/bridge-invocations/{invocation_id}/events"
 
 
+async def _capped_body(request: Request, limit: int) -> bytes | None:
+    """The request body, or None once it is (declared or streamed) over ``limit`` bytes."""
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > limit:
+        return None
+    chunks, size = [], 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > limit:
+            return None
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def _bearer_of(header: str) -> str:
+    """The token of an ``Authorization: Bearer`` header, else ``""``."""
+    return header[len("Bearer ") :] if header.startswith("Bearer ") else ""
+
+
+def _json_or_none(body: bytes) -> Any:
+    """The UTF-8 JSON body, or None when it is not."""
+    try:
+        return json.loads(body.decode("utf-8"))
+    except ValueError:  # UnicodeDecodeError and JSONDecodeError are ValueErrors
+        return None
+
+
 def _register_bridge_callbacks(app: FastAPI, store: StoragePort) -> None:
     """``POST /bridge-invocations/{id}/events``: a bridge's callback, recorded in the store.
 
@@ -718,22 +745,12 @@ def _register_bridge_callbacks(app: FastAPI, store: StoragePort) -> None:
         },
     )
     async def bridge_callback(invocation_id: str, request: Request) -> JSONResponse:
-        limit = agent.BRIDGE_MAX_EVENT_BYTES
-        declared = request.headers.get("content-length", "")
-        if declared.isdigit() and int(declared) > limit:
+        body = await _capped_body(request, agent.BRIDGE_MAX_EVENT_BYTES)
+        if body is None:
             return JSONResponse({"status": "too_large"}, status_code=413)
-        chunks, size = [], 0
-        async for chunk in request.stream():
-            size += len(chunk)
-            if size > limit:
-                return JSONResponse({"status": "too_large"}, status_code=413)
-            chunks.append(chunk)
         header = request.headers.get("authorization", "")
-        token = header[len("Bearer ") :] if header.startswith("Bearer ") else ""
-        try:
-            event = json.loads(b"".join(chunks).decode("utf-8"))
-        except ValueError:  # UnicodeDecodeError and JSONDecodeError are ValueErrors
-            event = None
+        token = _bearer_of(header)
+        event = _json_or_none(body)
         outcome = await run_in_threadpool(
             agent.record_bridge_event, store, invocation_id, token, event
         )
@@ -977,6 +994,30 @@ def _register_variables(app: FastAPI, variables: Variables) -> None:
         return {"items": variables.refs(name)}
 
 
+def _described_workflow(store: StoragePort, ref: Any) -> Mapping[str, Any] | None:
+    """The workflow a rule's ``workflow`` reference names, for its description: None without
+    a reference, ``{}`` when it is missing or deleted."""
+    if not (isinstance(ref, Mapping) and ref.get("id")):
+        return None
+    found = store.get("workflows", str(ref["id"]))
+    return found if found and not found.get("deleted_at") else {}
+
+
+def _invalid_inputs(exc: RunError) -> JSONResponse:
+    """A 422 ``invalid_inputs`` naming each offending input port in ``errors[].path``."""
+    # name the offending input port in errors[].path
+    details = [
+        {
+            "path": f"inputs.{d['port']}",
+            "code": d.get("code", exc.code),
+            "message": exc.message,
+        }
+        for d in exc.details or ()
+        if isinstance(d, dict) and "port" in d
+    ]
+    return _envelope(422, exc.code, exc.message, details or exc.details)
+
+
 def _register_runs(
     app: FastAPI,
     store: StoragePort,
@@ -1037,11 +1078,7 @@ def _register_runs(
         ``On``, ``Then``, ``On failure``, ``Key`` ... The referenced workflow adds its step
         count, or ``not found`` when it is missing or deleted."""
         rule = defs.get("rules", id)
-        ref = rule.get("workflow")
-        workflow = None
-        if isinstance(ref, Mapping) and ref.get("id"):
-            found = store.get("workflows", str(ref["id"]))
-            workflow = found if found and not found.get("deleted_at") else {}
+        workflow = _described_workflow(store, rule.get("workflow"))
         return _description(id, "rule", describe.describe_rule(rule, workflow))
 
     @app.get(
@@ -1097,17 +1134,7 @@ def _register_runs(
         except RunError as exc:
             if exc.code != "invalid_inputs":
                 raise
-            # name the offending input port in errors[].path
-            details = [
-                {
-                    "path": f"inputs.{d['port']}",
-                    "code": d.get("code", exc.code),
-                    "message": exc.message,
-                }
-                for d in exc.details or ()
-                if isinstance(d, dict) and "port" in d
-            ]
-            return _envelope(422, exc.code, exc.message, details or exc.details)
+            return _invalid_inputs(exc)
 
     @app.post(
         "/runs/{run_id}/cancel",
