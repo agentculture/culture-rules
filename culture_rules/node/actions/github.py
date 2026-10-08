@@ -7,10 +7,18 @@ on the executing host at call time and kept only in memory. A repo outside the a
 fails the action before any secret is read or any network call is made.
 
 The GitHub REST API cannot deduplicate comments, so ``supports_idempotency_key`` is False.
+
+``once_key`` (optional, d25): a non-empty string that makes the comment durable once per
+(repo, PR, key), across runs, rules, budget resets and nodes. Before posting, the port
+claims ``sha256(repo#number#key)`` by insert in :data:`ONCE_COLLECTION`; a claim already
+there completes with the earlier comment and ``skipped: posted_before``, posting nothing. A
+failed post releases the claim, so a later firing may post. At most once: a node that dies
+between the claim and the post leaves the claim, and nothing is posted for that key.
 """
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import threading
 from collections.abc import Callable, Mapping
@@ -23,10 +31,14 @@ from culture_rules.actors.secrets import resolve as resolve_secret
 from culture_rules.apps.github import DEFAULT_API_BASE, GitHubApp, GitHubError, Transport
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
 from culture_rules.node.actors import ACTORS_COLLECTION
+from culture_rules.store.port import DuplicateKeyError
 
-__all__ = ["RESOLVE_WORKERS", "GitHubCommentPort", "GitHubPrHeadPort"]
+__all__ = ["ONCE_COLLECTION", "RESOLVE_WORKERS", "GitHubCommentPort", "GitHubPrHeadPort"]
 
 log = logging.getLogger(__name__)
+
+ONCE_COLLECTION = "github_comment_once"
+"""Claims of ``github.comment`` posts made with a ``once_key`` (one document per key)."""
 
 RESOLVE_WORKERS = 2
 """The most deadline-bounded App resolves (:meth:`GitHubCommentPort._app_within`) running at
@@ -173,14 +185,56 @@ class GitHubCommentPort:
             number, body = int(input["number"]), str(input["body"])
         except (KeyError, TypeError, ValueError):
             return InvocationResult.failed("bad_input", retryable=False)
+        once = input.get("once_key")
+        if once is not None and (not isinstance(once, str) or not once):
+            return InvocationResult.failed("bad_input", retryable=False)
         app = self._app(str(actor_id), conn, allowed)
         if app is None:
             return InvocationResult.failed("secret_unavailable", retryable=False)
+        if once is None:
+            return self._post(app, repo, number, body)
+        return self._post_once(app, repo, number, body, once)
+
+    @staticmethod
+    def _post(app: GitHubApp, repo: str, number: int, body: str) -> InvocationResult:
         try:
             out = app.post_comment(repo, number, body)
         except GitHubError as exc:
             return InvocationResult.failed(exc.code, retryable=exc.retryable)
         return InvocationResult.completed(out)
+
+    def _post_once(
+        self, app: GitHubApp, repo: str, number: int, body: str, once: str
+    ) -> InvocationResult:
+        """:meth:`_post` at most once per (repo, PR, ``once``) (module doc)."""
+        key = f"{repo.lower()}#{number}#{once}"
+        claim_id = hashlib.sha256(key.encode()).hexdigest()
+        try:
+            self._store.insert(
+                ONCE_COLLECTION,
+                {
+                    "id": claim_id,
+                    "repo": repo,
+                    "number": number,
+                    "once_key": once,
+                    "state": "claimed",
+                },
+            )
+        except DuplicateKeyError:
+            prior = self._store.get(ONCE_COLLECTION, claim_id) or {}
+            done = {k: prior.get(k) for k in ("comment_id", "url")}
+            return InvocationResult.completed({**done, "skipped": "posted_before"})
+        result = self._post(app, repo, number, body)
+        if result.outcome == "completed":
+            self._store.update_if(
+                ONCE_COLLECTION,
+                claim_id,
+                {"state": "claimed"},
+                {"state": "posted", **result.output},
+            )
+        else:
+            self._store.delete(ONCE_COLLECTION, claim_id)
+        return result
 
 
 class GitHubPrHeadPort(GitHubCommentPort):

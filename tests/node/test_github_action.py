@@ -444,3 +444,53 @@ def test_pr_head_port_http_error_keeps_its_code_and_retryability(pem):
     res = _ask(port)
     assert res.outcome == "failed"
     assert res.retryable is False
+
+
+# --------------------------------------------------------------------------- once_key (d25)
+
+
+def _comments(fake) -> int:
+    return sum(1 for url in fake.calls if url.endswith("/comments"))
+
+
+def test_a_once_key_posts_once_per_repo_and_pr_durably_across_ports(pem):
+    fake = Fake()
+    port, _ = setup(pem, fake)
+    once = {**params(), "once_key": "gitguardian@" + "a" * 40}
+    first = port.invoke(once, "k1", DEADLINE, context=ctx())
+    assert dict(first.output) == {"comment_id": 9, "url": "https://x/9"}
+    again = port.invoke(once, "k2", DEADLINE, context=ctx())
+    assert again.outcome == "completed"
+    assert dict(again.output) == {"comment_id": 9, "url": "https://x/9", "skipped": "posted_before"}
+    # another node, another process: the claim is in the store
+    other = GitHubCommentPort(port._store, transport=fake, secrets=lambda ref: pem)
+    assert other.invoke(once, "k3", DEADLINE, context=ctx()).output["skipped"] == "posted_before"
+    assert _comments(fake) == 1
+
+
+def test_a_once_key_is_scoped_to_its_pr_and_absent_keys_always_post(pem):
+    fake = Fake()
+    port, _ = setup(pem, fake)
+    port.invoke({**params(), "once_key": "x"}, "k", DEADLINE, context=ctx())
+    port.invoke({**params(), "number": 4, "once_key": "x"}, "k", DEADLINE, context=ctx())
+    port.invoke(params(), "k", DEADLINE, context=ctx())
+    port.invoke(params(), "k", DEADLINE, context=ctx())
+    assert _comments(fake) == 4
+
+
+def test_a_failed_post_releases_its_once_key(pem):
+    fake = Fake(status=502)
+    port, _ = setup(pem, fake)
+    once = {**params(), "once_key": "x"}
+    res = port.invoke(once, "k", DEADLINE, context=ctx())
+    assert res.outcome == "failed"
+    fake.status = 201
+    assert dict(port.invoke(once, "k", DEADLINE, context=ctx()).output)["comment_id"] == 9
+
+
+def test_a_once_key_that_is_not_a_non_empty_string_is_bad_input(pem):
+    fake = Fake()
+    port, _ = setup(pem, fake)
+    res = port.invoke({**params(), "once_key": ""}, "k", DEADLINE, context=ctx())
+    assert res.error == "bad_input"
+    assert _comments(fake) == 0

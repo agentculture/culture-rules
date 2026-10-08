@@ -80,6 +80,7 @@ _KINDS = (
         repo=_RS,
         number=ParamSpec("int", True),
         body=_RS,
+        once_key=_S,  # d25: post at most once per (repo, PR, key), durably
     ),
     _k(
         "github.push",
