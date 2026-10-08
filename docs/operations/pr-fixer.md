@@ -586,9 +586,25 @@ on a workflow entry). The vocabulary is in `culture_rules/model/describe.py`:
 one phrase per trigger kind, step kind, built-in, action kind and condition
 operator. An unknown kind reads as its raw name, so describing never fails.
 
-## 8. The reviewer on spark (d20; *planned*)
+## 8. The reviewer on spark (d20)
 
-Nothing in this section is deployed yet. It is the recipe for the second
+**Deployed 2026-10-08, with one difference from the recipe below: by operator
+decision the bridge runs as the `spark` account, using that account's Codex
+login, not a dedicated `culture-reviewer`.** The bridge's capability
+document reports `confinement: unix-user:spark: codex enforces --sandbox with
+a bubblewrap helper backed by unprivileged user namespaces, which this kernel
+permits`, and a read-only probe on spark could neither write a file nor
+reach the network. The bridge token is `RULES_CODEX_REVIEWER_TOKEN` in
+spark's own grant store, injected into the bridge as
+`CODEX_BRIDGE_AUTH_TOKEN` and into spark's node unit as
+`CULTURE_RULES_SECRET_RULES_CODEX_REVIEWER_TOKEN`. The bridge lives in its
+own venv (`~/.local/share/cultureagent-bridges/venv`, cultureagent 0.14.0)
+beside the operator's cultureagent 0.13.0 tool; its config sets `codex_bin`
+to the nvm-installed codex. It shares the operator's Codex quota: a
+rate-limited review hands the PR back and pushes nothing. Moving to a
+dedicated account later is the recipe below.
+
+It is the recipe for the second
 agent that reviews every fix the gate passes: **Codex** through the
 cultureagent codex bridge (`cultureagent-codex-bridge`, cultureagent 0.14.0)
 on **spark**, registered as the actor `codex-reviewer`. It must never be able
@@ -734,9 +750,9 @@ culture-rules actors import docs/rules/pr-fixer --apply
 
 | Item | Value |
 |---|---|
-| Account | `culture-reviewer` (planned; created by the operator) |
-| Bridge | codex on 8094, loopback only, sandbox `read-only` |
-| Actor | `codex-reviewer` (planned) |
+| Account | `spark` (operator decision 2026-10-08; `culture-reviewer` is the stricter option) |
+| Bridge | codex on 8094, loopback only, sandbox `read-only` (deployed) |
+| Actor | `codex-reviewer` (imported, trusted digest `sha256:dc26a418…`) |
 
 ## Disabling the fixer mid-run (d17)
 
