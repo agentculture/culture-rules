@@ -210,6 +210,11 @@
           "type": "boolean",
           "description": "Safe to retry without an idempotency key",
           "default": false
+        },
+        "only_at_chain_end": {
+          "type": "boolean",
+          "description": "Run only where the run's chain ends (d21): skipped (chain_continues) when a live rule would continue the run - fire on the rules.run.* event it is about to emit, on the same concurrency key. One comment per chain of fix, review and publish runs",
+          "default": false
         }
       },
       "required": [

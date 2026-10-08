@@ -221,6 +221,8 @@ def action_text(action: Any, where: str = "") -> str:
         words.append(f"(only on {gate}an approving review)")
     if kind == "github.review_reply" and params.get("resolve") is True:
         words.append("and resolve")
+    if a.get("only_at_chain_end") is True:  # d21: one comment per chain
+        words.append("(only where its chain ends)")
     return _join(*words)
 
 

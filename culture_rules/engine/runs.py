@@ -1375,6 +1375,10 @@ class Executor:
         self, plan: _Plan, doc: Document, st: dict, now: datetime, *, resume: bool
     ) -> bool:
         key = st["key"]
+        if not resume and key in TERMINAL_STEPS and _terminal_action(plan, st).only_at_chain_end:
+            continuing = self._chain_continues(doc, st, now)
+            if continuing:
+                return self._skip_terminal(doc, key, continuing, now)
         if resume:
             inputs = self._resume_inputs(plan, st)
         else:
@@ -1404,6 +1408,32 @@ class Executor:
             result = _invoke(port, inputs, idem, deadline, ctx)
         self._settle(doc["id"], key, attempt, claim, result, port)
         return True
+
+    def _chain_continues(self, doc: Document, st: Mapping[str, Any], now: datetime) -> list[str]:
+        """The live rules that would continue this run's chain (d21): fire on the event the
+        run emits once this terminal step is done, on the run's concurrency key
+        (:func:`~culture_rules.engine.chain_hold.continuations`)."""
+        from culture_rules.engine.chain_hold import continuations  # noqa: PLC0415
+        from culture_rules.engine.run_completions import build_run_event  # noqa: PLC0415
+
+        ending = copy.deepcopy(dict(doc))
+        if st["key"] == FAILURE_STEP:
+            ending.update(status="failed", error=st.get("failure"))
+        else:
+            ending["status"] = "succeeded"
+        ending["finished_at"] = _iso(now)
+        envelope = build_run_event(ending)
+        if envelope is None:
+            return []
+        return continuations(self._store, envelope, doc.get("concurrency_key"))
+
+    def _skip_terminal(self, doc: Document, key: str, continuing: list[str], now: datetime) -> bool:
+        """Skip an ``only_at_chain_end`` terminal action: the chain goes on (d21)."""
+        new = copy.deepcopy(doc)
+        nst = step_state(new, key)
+        nst.update(status="skipped", outputs={"chain_continues": list(continuing)})
+        _record(new, now, self.host, "skipped:chain_continues", key)
+        return self._cas(doc, new)
 
     def _keep_alive(self, claim: ClaimResult, deadline: datetime) -> AbstractContextManager[Any]:
         """The keeper renewing ``claim`` while its actor runs, until ``deadline``."""
@@ -2581,7 +2611,7 @@ def _finish(plan: _Plan, doc: Mapping, now: datetime) -> Found:
         new["outputs"] = outputs
         new["steps"].append(state)
         return new, "action_ready", ACTION_STEP
-    if action["status"] == "succeeded":
+    if action["status"] in STEP_OK:  # skipped: only_at_chain_end and the chain goes on
         new.update(status="succeeded", finished_at=_iso(now))
         return new, "run_succeeded", None
     return None
