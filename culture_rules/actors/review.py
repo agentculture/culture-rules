@@ -1030,7 +1030,7 @@ class ReviewVerdictPort:
         if role == _trusted.ROLE_SINGLE:
             return self._judge_single(run, input, context, names, facts)
         if role == _trusted.ROLE_REVIEW:
-            return self._judge_chain(run, input, context, names, facts)
+            return self._judge_chain(run, context, names, facts)
         raise ReviewError("workflow_not_trusted", "the run's workflow is not a trusted one")
 
     def _judge_single(
@@ -1059,10 +1059,8 @@ class ReviewVerdictPort:
             )
         g = gate.get("outputs") or {}
         return self._verdict(
-            input,
             facts,
             g,
-            fix_run=run,
             expected_start=run_inputs.get("head_sha"),
             task=input.get("task"),
             reviewer=lambda: (
@@ -1077,7 +1075,6 @@ class ReviewVerdictPort:
     def _judge_chain(
         self,
         run: Mapping[str, Any],
-        input: Mapping[str, Any],
         context: InvocationContext,
         names: Mapping[str, str],
         facts: dict[str, Any],
@@ -1104,10 +1101,8 @@ class ReviewVerdictPort:
         if not (isinstance(task, str) and task.strip()):
             task = fix_inputs.get("instruction")
         out = self._verdict(
-            input,
             facts,
             g,
-            fix_run=fix,
             expected_start=fix_inputs.get("head_sha"),
             task=task,
             reviewer=lambda: (
@@ -1150,11 +1145,9 @@ class ReviewVerdictPort:
 
     def _verdict(
         self,
-        input: Mapping[str, Any],
         facts: dict[str, Any],
         g: Mapping[str, Any],
         *,
-        fix_run: Mapping[str, Any],
         expected_start: Any,
         task: Any,
         reviewer: Any,

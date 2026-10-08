@@ -201,8 +201,9 @@ def test_the_client_refuses_a_malformed_answer():
         def __call__(self, method, url, headers, timeout):
             return 200, b"not json"
 
+    client = SonarCloud(transport=Bad())
     with pytest.raises(SonarError):
-        SonarCloud(transport=Bad()).quality_gate(KEY, 1)
+        client.quality_gate(KEY, 1)
 
 
 def test_the_core_library_holds_no_sonar_client():

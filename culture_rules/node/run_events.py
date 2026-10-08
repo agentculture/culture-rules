@@ -393,7 +393,7 @@ class RunEventOutbox:
                     event_id = deliver(tx, record["id"], now=now)
             except DeliveryBlocked as blocked:
                 # rolled back; the record stays pending and the others still go out
-                log.error("run event of %s not delivered: %s", record["id"], blocked)
+                log.exception("run event of %s not delivered: %s", record["id"], blocked)
                 continue
             if event_id is not None:
                 delivered.append(event_id)

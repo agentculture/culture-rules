@@ -201,7 +201,7 @@ class FeedConsumer:
                 self.store.insert(CHAIN_NEEDS_REVIEW, review)
             except DuplicateKeyError:
                 pass
-            log.error("chain %s: %s needs review: %s", self.consumer, marker_id, stuck.record)
+            log.exception("chain %s: %s needs review: %s", self.consumer, marker_id, stuck.record)
             self.store.save_cursor(self.consumer, source.collection, token)
             return False
         return True

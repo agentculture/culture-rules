@@ -106,8 +106,9 @@ def test_a_failure_after_the_record_rolls_back_the_terminal_transition_on_mongo(
         raise RuntimeError("died after writing the record, before commit")
 
     monkeypatch.setattr(runs, "record_completion", record_then_fail)
+    containment = Containment(mongo_store, clock=clock)
     with pytest.raises(RuntimeError):
-        Containment(mongo_store, clock=clock).cancel(run["id"], "alice")
+        containment.cancel(run["id"], "alice")
     assert ex.run(run["id"])["status"] == "running"
     assert mongo_store.get(RUN_COMPLETIONS, run["id"]) is None
 

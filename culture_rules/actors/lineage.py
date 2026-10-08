@@ -72,7 +72,8 @@ def step_state(run: Mapping[str, Any], key: str) -> dict[str, Any] | None:
 
 def upstream(store: Any, run: Mapping[str, Any]) -> Mapping[str, Any]:
     """The verified run whose ``rules.run.succeeded`` event started ``run`` (module doc)."""
-    from culture_rules.node.firing import run_id_for  # noqa: PLC0415 - node layer, lazily
+    # node layer, lazily
+    from culture_rules.node.firing import run_id_for  # noqa: PLC0415
     from culture_rules.node.run_events import verify_run_event  # noqa: PLC0415
 
     trigger = run.get("trigger")
