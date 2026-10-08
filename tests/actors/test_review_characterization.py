@@ -368,6 +368,7 @@ def test_the_facts_gathered_before_a_refusal_are_kept():
     store = MemoryStore()
     _actors(store, {"reviewer": False})
     facts: dict = {}
+    run, review = _run(), _review_state()
     with pytest.raises(ReviewError):
-        _call(store, _run(), _review_state(), G, facts)
+        _call(store, run, review, G, facts)
     assert facts == {"reviewer_actor": "rev", "implementer_actor": "impl"}

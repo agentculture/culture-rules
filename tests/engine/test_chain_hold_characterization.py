@@ -104,9 +104,13 @@ def test_a_lost_write_rereads_then_releases():
 
     store.update_if = lose_once
     assert decline(store, _event(), ["a", "b"], ["a", "b"]) == DOC
-    assert seen == [
-        ({"revision": None}, {"revision": 1, "hold": None, "hold_released": "run-1"}),
-    ] * 2
+    assert (
+        seen
+        == [
+            ({"revision": None}, {"revision": 1, "hold": None, "hold_released": "run-1"}),
+        ]
+        * 2
+    )
 
 
 def test_sustained_contention_raises():
@@ -118,7 +122,8 @@ def test_sustained_contention_raises():
         return _Lost()
 
     store.update_if = always_lose
+    event = _event()
     with pytest.raises(TransientStoreError, match="chain hold release contention"):
-        decline(store, _event(), ["a"], ["a", "b"])
+        decline(store, event, ["a"], ["a", "b"])
     assert len(calls) > 1
     assert set(calls) == {DOC}
