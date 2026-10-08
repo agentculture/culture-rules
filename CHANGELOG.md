@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.1] - 2026-10-08
+
+### Fixed
+
+- Variables editor: empty items (null or "") no longer make a list mixed, so an edited null in a number list saves a number (5, not "5"), an edited empty item in a boolean list must be true or false, and non-numeric text there is refused
+
 ## [0.13.0] - 2026-10-07
 
 ### Added
