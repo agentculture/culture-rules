@@ -86,6 +86,44 @@ def test_comment_uses_installation_token(pem):
     assert json.loads(comment[3]) == {"body": "hello"}
 
 
+def test_a_comment_is_edited_in_place(pem):
+    fake = Fake()
+    app, _ = make(pem, fake)
+    out = app.update_issue_comment("acme/widgets", 77, "edited")
+    assert out == {"comment_id": 77, "url": "https://x/c/77"}
+    _exch, edit = fake.calls
+    assert edit[0] == "PATCH"
+    assert edit[1] == "https://api.github.com/repos/acme/widgets/issues/comments/77"
+    assert edit[2]["Authorization"] == f"Bearer {FAKE_BEARER}"
+    assert json.loads(edit[3]) == {"body": "edited"}
+
+
+def test_editing_a_deleted_comment_is_a_404(pem):
+    app, _ = make(pem, Fake(comment_status=404))
+    with pytest.raises(GitHubError) as exc:
+        app.update_issue_comment("acme/widgets", 77, "edited")
+    assert exc.value.code == "http_404"
+
+
+@pytest.mark.parametrize("comment_id", [0, -1, True, "77"])
+def test_a_comment_edit_needs_a_comment_id(pem, comment_id):
+    fake = Fake()
+    app, _ = make(pem, fake)
+    with pytest.raises(GitHubError) as exc:
+        app.update_issue_comment("acme/widgets", comment_id, "x")
+    assert exc.value.code == "bad_input"
+    assert fake.calls == []
+
+
+def test_a_comment_edit_outside_the_allowlist_makes_no_call(pem):
+    fake = Fake()
+    app, _ = make(pem, fake)
+    with pytest.raises(GitHubError) as exc:
+        app.update_issue_comment("evil/repo", 77, "x")
+    assert exc.value.code == "repo_not_allowed"
+    assert fake.calls == []
+
+
 def test_jwt_is_rs256_with_claims(pem, key):
     fake = Fake()
     app, _ = make(pem, fake)

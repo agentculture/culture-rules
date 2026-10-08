@@ -349,6 +349,16 @@ class GitHubApp:
         data = self._call("POST", f"/repos/{repo}/issues/{int(number)}/comments", {"body": body})
         return {"comment_id": data.get("id"), "url": data.get("html_url")}
 
+    def update_issue_comment(self, repo: str, comment_id: int, body: str) -> dict[str, Any]:
+        """Edit comment ``comment_id`` on ``repo`` (REST ``PATCH
+        /repos/{repo}/issues/comments/{id}``, d26: the PR fixer's status comment, which the
+        App posted); returns ``{comment_id, url}``. A deleted comment answers ``http_404``."""
+        self._require_allowed(repo, "comment edit")
+        if not isinstance(comment_id, int) or isinstance(comment_id, bool) or comment_id < 1:
+            raise GitHubError("bad_input", "comment_id must be a positive integer")
+        data = self._call("PATCH", f"/repos/{repo}/issues/comments/{comment_id}", {"body": body})
+        return {"comment_id": data.get("id"), "url": data.get("html_url")}
+
     def push_token(self, repo: str) -> str:
         """A fresh installation token for one push: ``repositories=[repo]``, contents:write only.
 
