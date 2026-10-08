@@ -7,7 +7,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.14.0] - 2026-10-08
 
-0.13.0 is the delivery of plan pr-fixer-rule (#17, not merged when this was written); this
+0.13.0 is the delivery of plan pr-fixer-rule (#17); this
 release follows it with deviation d21: the PR fixer split into chained rules and workflows.
 
 ### Added
@@ -35,6 +35,8 @@ release follows it with deviation d21: the PR fixer split into chained rules and
   - a single-workflow run approved by the 0.13.0 build (per-run pointer, record without a target) is judged and consumed through a narrow legacy path, so in-flight runs survive the upgrade;
   - comment intent reads only the comment's first token, so no Markdown (fences, indented or inline code, quotes, lists) can smuggle in an ask;
   - `sonar.gate_issues` pages hotspots and issues up to the cap, reports `total` and `omitted` across every type, sets `truncated` from them, and its note names "the first N of TOTAL".
+
+- The event hop count crosses the events-cli bus inside `data` (`_culture_rules_hops`): events-cli 0.10.0's envelope has no `hops` field and refuses unknown ones, so every caused emission (human asks) failed to publish on a node with the `events` extra. The node's sink moves it in, its source moves it back on engine-sourced events.
 
 ### Changed
 
