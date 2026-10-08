@@ -39,7 +39,8 @@ def test_an_oversized_trigger_is_recovered_from_the_predecessors_run():
     c.start()
     cycles(c, 5)
     b = decision(c, "b")
-    assert b["reason"] == "predecessor_failed" and b.get("trigger_omitted") is True
+    assert b["reason"] == "predecessor_failed"
+    assert b.get("trigger_omitted") is True
     assert len(_runs(c, "c")) == 1  # c continued from the envelope a's run stored
     assert c.base.find("chain_needs_review") == []
 
@@ -113,7 +114,8 @@ def test_reconcile_recovers_a_snapshotless_decision_from_its_predecessors_run():
             trigger={"id": "evt_1", "data": {"big": BIG}},
         )
     c, report = _restore(src)
-    assert report.needs_review == 0 and report.chains_redriven >= 1
+    assert report.needs_review == 0
+    assert report.chains_redriven >= 1
     c.start()
     cycles(c, 5)
     assert len(_runs(c, "c")) == 1

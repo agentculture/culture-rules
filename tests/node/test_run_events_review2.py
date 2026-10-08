@@ -138,7 +138,8 @@ def test_quarantine_caps_the_payload():
     quarantine(store, big, "reserved", host="h")
     (rec,) = store.find(QUARANTINE_COLLECTION)
     assert "envelope" not in rec
-    assert rec["truncated"] is True and rec["size"] > QUARANTINE_MAX_PAYLOAD
+    assert rec["truncated"] is True
+    assert rec["size"] > QUARANTINE_MAX_PAYLOAD
     assert len(rec["preview"]) <= QUARANTINE_MAX_PAYLOAD
 
 

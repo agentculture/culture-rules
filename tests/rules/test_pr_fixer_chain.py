@@ -59,24 +59,29 @@ def test_a_red_pr_is_fixed_reviewed_and_published_by_three_chained_runs(tmp_path
     assert g["verdict"] == "pass"
     # the reviewer saw exactly the gate's commit and diff, with the locked brief
     (given,) = w.reviewer.inputs
-    assert given["commit_sha"] == g["commit_sha"] and given["diff"] == g["diff"]
+    assert given["commit_sha"] == g["commit_sha"]
+    assert given["diff"] == g["diff"]
     assert given["head_sha"] == w.repo.start
     verdict = step_state(review, "verdict")["outputs"]
-    assert verdict["review"] == "approve" and verdict["reviewed_commit"] == g["commit_sha"]
+    assert verdict["review"] == "approve"
+    assert verdict["reviewed_commit"] == g["commit_sha"]
     # exactly that commit is pushed, from the gate's bundle, on spark2
     (push_call,) = w.push.calls
     assert push_call[1]["commit_sha"] == g["commit_sha"]
     assert push_call[1]["expected_head_sha"] == w.repo.start
-    assert push_call[1]["source"] == g["bundle"] and push_call[1]["gate_verdict"] == "pass"
+    assert push_call[1]["source"] == g["bundle"]
+    assert push_call[1]["gate_verdict"] == "pass"
     assert step_state(publish, "push")["host"] == "spark2"
     # the trusted thread is answered, naming the pushed commit
     (reply,) = w.reply.calls
-    assert reply[1]["thread_id"] == "PRRT_1" and g["commit_sha"] in reply[1]["body"]
+    assert reply[1]["thread_id"] == "PRRT_1"
+    assert g["commit_sha"] in reply[1]["body"]
     # one comment for the whole chain, from the stage that ends it
     assert step_state(fix, ACTION_STEP)["status"] == "skipped"
     assert step_state(review, ACTION_STEP)["status"] == "skipped"
     (body,) = w.comments()
-    assert "pushed True" in body and publish["id"] in body
+    assert "pushed True" in body
+    assert publish["id"] in body
     # one fix attempt counted; the review and the publish are outside the budget
     assert budget(w)["count"] == 1
 
@@ -89,8 +94,10 @@ def test_the_review_record_is_keyed_by_the_commit_and_consumed_by_the_push(tmp_p
     g = gate_of(fix)
     target = review_target(REPO, 7, w.repo.base, w.repo.start, g["commit_sha"])
     rid, rec, state = current_review(w.c.base, target)
-    assert rec["run_id"] == review["id"] and rec["fix_run"] == fix["id"]
-    assert rec["verdict"] == "approve" and rec["base_sha"] == w.repo.base
+    assert rec["run_id"] == review["id"]
+    assert rec["fix_run"] == fix["id"]
+    assert rec["verdict"] == "approve"
+    assert rec["base_sha"] == w.repo.base
     assert (rec["reviewer_actor"], rec["reviewer_backend"]) == ("codex-reviewer", "codex")
     assert (rec["implementer_actor"], rec["implementer_backend"]) == ("qwen-fixer", "qwen")
     assert state == "current"  # a recorder push does not consume (the real port does)
@@ -104,7 +111,8 @@ def test_runs_chain_by_verified_lineage(tmp_path):
     (publish,) = w.run_of("publish-fix")
     assert review["trigger"]["data"]["run_id"] == fix["id"]
     assert publish["trigger"]["data"]["run_id"] == review["id"]
-    assert review["trigger"]["hops"] == 1 and publish["trigger"]["hops"] == 2
+    assert review["trigger"]["hops"] == 1
+    assert publish["trigger"]["hops"] == 2
     assert {r["concurrency_key"] for r in (fix, review, publish)} == {KEY}
 
 
@@ -117,11 +125,14 @@ def test_requested_changes_fix_again_with_the_findings_then_publish(tmp_path):
     fixes = w.run_of("pr-fix")
     reviews = w.run_of("review-commit")
     assert [r["rule_id"] for r in fixes] == ["pr-fixer-checks", "pr-fixer-refix"]
-    assert len(reviews) == 2 and len(w.run_of("publish-fix")) == 1
+    assert len(reviews) == 2
+    assert len(w.run_of("publish-fix")) == 1
     first, second = (q["instruction"] for q in w.qwen.inputs)
     assert "An independent reviewer requested changes" in second
-    assert FINDING["detail"] in second and "[high] src/app.py:1" in second
-    assert "The original task:" in second and "o/r#7" in second
+    assert FINDING["detail"] in second
+    assert "[high] src/app.py:1" in second
+    assert "The original task:" in second
+    assert "o/r#7" in second
     assert fixes[1]["inputs"]["task"] == first  # the original task travels on
     (push_call,) = w.push.calls
     assert push_call[1]["commit_sha"] == gate_of(fixes[1])["commit_sha"]
@@ -138,10 +149,12 @@ def test_three_requests_for_changes_hand_back_once_with_the_findings(tmp_path):
     last = reviews[-1]
     assert last["error"]["code"] == "actor_failed"
     assert last["error"]["message"].startswith("changes_requested: ")
-    assert w.run_of("publish-fix") == [] and w.push.calls == []
+    assert w.run_of("publish-fix") == []
+    assert w.push.calls == []
     (body,) = w.comments()  # one hand-back for the chain
     assert body.startswith("PR fixer handed back (actor_failed): changes_requested")
-    assert FINDING["detail"] in body and last["id"] in body
+    assert FINDING["detail"] in body
+    assert last["id"] in body
     # the failed review's record still says what the reviewer asked
     assert run_reviews(w.c.base, last["id"])[-1]["verdict"] == "request_changes"
 
@@ -155,11 +168,14 @@ def test_review_only_mode_posts_the_verdict_and_pushes_nothing(tmp_path):
     (fix,) = w.run_of("pr-fix")
     (review,) = w.run_of("review-commit")
     assert review["status"] == "succeeded"
-    assert w.run_of("publish-fix") == [] and w.push.calls == [] and w.reply.calls == []
+    assert w.run_of("publish-fix") == []
+    assert w.push.calls == []
+    assert w.reply.calls == []
     assert step_state(fix, ACTION_STEP)["status"] == "skipped"
     assert step_state(review, ACTION_STEP)["status"] == "succeeded"
     (body,) = w.comments()
-    assert body.startswith("PR fixer review: approve for ") and "review-only mode" in body
+    assert body.startswith("PR fixer review: approve for ")
+    assert "review-only mode" in body
     # the chain ended: the key is free again
     assert not budget(w).get("hold")
 
@@ -176,8 +192,10 @@ def test_an_approval_without_a_test_gate_ends_at_the_review_and_says_so(tmp_path
     (fix,) = w.run_of("pr-fix")
     assert gate_of(fix)["verdict"] == "no_gate"
     (review,) = w.run_of("review-commit")
-    assert review["status"] == "succeeded" and review["outputs"]["review"] == "approve"
-    assert w.run_of("publish-fix") == [] and w.push.calls == []
+    assert review["status"] == "succeeded"
+    assert review["outputs"]["review"] == "approve"
+    assert w.run_of("publish-fix") == []
+    assert w.push.calls == []
     (body,) = w.comments()
     assert "(gate no_gate); not pushed: nothing publishes it" in body
 
@@ -196,7 +214,8 @@ def test_a_stage_whose_inputs_are_missing_starts_and_hands_back(tmp_path):
     w = ChainWorld(tmp_path, verdict_port=NoCommit())
     w.fire()
     (publish,) = w.run_of("publish-fix")
-    assert publish["status"] == "failed" and w.push.calls == []
+    assert publish["status"] == "failed"
+    assert w.push.calls == []
     (body,) = w.comments()
     assert body.startswith("PR fixer handed back (")
 
@@ -212,10 +231,12 @@ def test_an_agent_that_makes_no_commit_ends_the_attempt_and_hands_back_once(tmp_
     assert "no_changes" in fix["error"]["message"]
     gate = step_state(fix, "fix[0]/gate")
     assert gate is None or (gate["attempt"] == 0 and gate["status"] != "succeeded")  # no gate
-    assert w.run_of("review-commit") == [] and w.reviewer.inputs == []  # no review
+    assert w.run_of("review-commit") == []
+    assert w.reviewer.inputs == []  # no review
     assert len(w.qwen.inputs) == 1  # no second try
     (body,) = w.comments()
-    assert body.startswith("PR fixer handed back (") and "no_changes" in body
+    assert body.startswith("PR fixer handed back (")
+    assert "no_changes" in body
     assert step_state(fix, FAILURE_STEP)["status"] == "succeeded"
 
 
@@ -428,7 +449,8 @@ def test_f2_a_pr_head_that_moved_after_the_review_pushes_nothing(tmp_path, pem):
     (review,) = w.run_of("review-commit")
     assert review["status"] == "succeeded"
     (publish,) = w.run_of("publish-fix")
-    assert publish["status"] == "failed" and publish["error"]["message"] == "head_moved"
+    assert publish["status"] == "failed"
+    assert publish["error"]["message"] == "head_moved"
     assert w.remote_head() == w.repo.start
     (fix,) = w.run_of("pr-fix")
     target = review_target(REPO, 7, w.repo.base, w.repo.start, gate_of(fix)["commit_sha"])
@@ -490,7 +512,8 @@ def test_an_edited_pr_fix_workflow_is_never_reviewed_into_a_push(tmp_path):
     (review,) = w.run_of("review-commit")
     assert review["status"] == "failed"
     assert review["error"]["message"].startswith("workflow_not_trusted")
-    assert w.run_of("publish-fix") == [] and w.push.calls == []
+    assert w.run_of("publish-fix") == []
+    assert w.push.calls == []
     (body,) = w.comments()
     assert body.startswith("PR fixer handed back (actor_failed): workflow_not_trusted")
 
@@ -501,7 +524,8 @@ def test_a_reviewer_that_wrote_to_its_checkout_is_not_an_approval(tmp_path):
     (review,) = w.run_of("review-commit")
     assert review["status"] == "failed"
     assert review["error"]["message"].startswith("reviewer_not_read_only")
-    assert w.run_of("publish-fix") == [] and w.push.calls == []
+    assert w.run_of("publish-fix") == []
+    assert w.push.calls == []
     assert len(w.comments()) == 1
 
 

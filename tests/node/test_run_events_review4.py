@@ -69,7 +69,8 @@ def test_a_reopened_record_whose_id_is_squatted_parks_and_never_takes_a_new_id()
         assert deliver(tx, record["id"]) is None
     record = completion(c)
     assert record["event_id"] == assigned  # never re-assigned
-    assert record["blocked"] is True and record["emitted"] is False
+    assert record["blocked"] is True
+    assert record["emitted"] is False
     cycles(c, 4)
     assert len(_runs(c, "review")) == 1  # no second downstream run under another id
 
@@ -113,7 +114,8 @@ def test_an_event_not_yet_consumed_at_the_backup_is_decided_by_the_rules_of_now(
     c.define(follow_rule("late", SUCCEEDED, rule_is("fix")))
     c.start()
     cycles(c, 4)
-    assert len(_runs(c, "review")) == 1 and len(_runs(c, "late")) == 1
+    assert len(_runs(c, "review")) == 1
+    assert len(_runs(c, "late")) == 1
 
 
 def test_a_keyed_intent_pending_at_the_backup_starts_once_after_the_restore():
@@ -214,4 +216,5 @@ def test_bounded_record_enforces_the_final_size_whatever_the_fields():
     doc = {"id": "q_1", "reason": "r" * 50_000, "host": "h" * 50_000, "count": 1}
     out = bounded_record(doc)
     assert len(json.dumps(out, default=str)) <= QUARANTINE_MAX_RECORD
-    assert out["id"] == "q_1" and out["count"] == 1
+    assert out["id"] == "q_1"
+    assert out["count"] == 1

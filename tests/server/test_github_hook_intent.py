@@ -146,7 +146,8 @@ def test_pr_facts_carry_the_state():
     assert "state" not in pr_facts({**pr, "state": "weird"})
     # a missing state never blocks the other facts: the fixer rule's state check fails closed
     without = {k: v for k, v in pr.items() if k != "state"}
-    assert complete_pr_facts(without) is not None and "state" not in complete_pr_facts(without)
+    assert complete_pr_facts(without) is not None
+    assert "state" not in complete_pr_facts(without)
 
 
 def _deliver(store, event, payload, delivery, pull=None):
@@ -188,7 +189,8 @@ def test_a_pr_comment_carries_its_intent_and_the_prs_state():
         "sender": {"login": "OriNachum"},
     }
     data = _deliver(store, "issue_comment", payload, "d-1", pull=lambda r, n: _pr("closed"))
-    assert data["command"] == "/fix" and "mention" not in data  # the first token only
+    assert data["command"] == "/fix"
+    assert "mention" not in data  # the first token only
     assert data["state"] == "closed"  # the PR as the App reads it
 
 
@@ -203,7 +205,8 @@ def test_a_review_and_a_review_comment_carry_their_intent_and_state():
         "sender": {"login": "OriNachum"},
     }
     data = _deliver(store, "pull_request_review", review, "d-2")
-    assert data["mention"] == "@rules-culture-dev" and data["state"] == "open"
+    assert data["mention"] == "@rules-culture-dev"
+    assert data["state"] == "open"
     comment = {
         "action": "created",
         "comment": {"body": "/fix", "user": {"login": "OriNachum"}},
@@ -212,7 +215,8 @@ def test_a_review_and_a_review_comment_carry_their_intent_and_state():
         "sender": {"login": "OriNachum"},
     }
     data = _deliver(store, "pull_request_review_comment", comment, "d-3")
-    assert data["command"] == "/fix" and data["state"] == "closed"
+    assert data["command"] == "/fix"
+    assert data["state"] == "closed"
     sync = {
         "action": "synchronize",
         "pull_request": _pr(),
@@ -220,7 +224,8 @@ def test_a_review_and_a_review_comment_carry_their_intent_and_state():
         "sender": {"login": "OriNachum"},
     }
     data = _deliver(store, "pull_request", sync, "d-4")
-    assert data["state"] == "open" and "command" not in data
+    assert data["state"] == "open"
+    assert "command" not in data
 
 
 # ------------------------------------------------------------------- the matcher (Codex, 301ced2)

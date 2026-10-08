@@ -39,7 +39,8 @@ def refused(store, run, params) -> str:
 def test_the_publish_runs_own_push_stands_on_its_chain(chain):
     w, fix, review, publish, params = chain
     got = _chain(w.c.base, publish, params)
-    assert got.fix_run["id"] == fix["id"] and got.reviewer_run == review["id"]
+    assert got.fix_run["id"] == fix["id"]
+    assert got.reviewer_run == review["id"]
     assert [r["id"] for r in got.runs] == [publish["id"], review["id"], fix["id"]]
     assert got.target is not None
 

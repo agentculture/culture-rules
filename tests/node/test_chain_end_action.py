@@ -113,7 +113,8 @@ def test_on_failure_is_skipped_only_when_a_rule_continues_the_failed_run():
     settle(c2)
     cycles(c2, 4)
     fix = c2.run("fix", "evt_1")
-    assert fix["status"] == "failed" and fix["error"]["message"] == "broken"
+    assert fix["status"] == "failed"
+    assert fix["error"]["message"] == "broken"
     assert step_state(fix, FAILURE_STEP)["status"] == "skipped"
     assert c2.run("review", run_event_id(fix["id"])) is not None
 

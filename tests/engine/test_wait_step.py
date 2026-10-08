@@ -158,7 +158,8 @@ def test_guard_moved_head_ends_superseded_and_runs_nothing_later(store, clock):
     assert store.get(RUNS_COLLECTION, run["id"])["status"] == "superseded"
     # d21: the superseding transition wrote its immutable completion record with it
     record = store.get("run_completions", run["id"])
-    assert record["status"] == "superseded" and record["emitted"] is False
+    assert record["status"] == "superseded"
+    assert record["emitted"] is False
     assert record["envelope"]["type"] == "rules.run.superseded"
 
 

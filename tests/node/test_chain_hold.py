@@ -108,7 +108,8 @@ def test_the_continuation_is_admitted_and_keeps_the_pending_event_for_the_chain_
     cycles(c, 2)
     fix = c.run("fix", "evt_1")
     review = c.run("review", run_event_id(fix["id"]))
-    assert review is not None and review["status"] == "running"
+    assert review is not None
+    assert review["status"] == "running"
     doc = budget(c)
     assert doc["run_id"] == review["id"]
     assert doc["pending_event_id"] == "evt_2"  # NOT coalesced away by the continuation
@@ -148,7 +149,8 @@ def test_a_continuation_disabled_before_its_event_is_evaluated_releases_the_key(
     fix = c.run("fix", "evt_1")
     assert fix["status"] == "succeeded"
     hold = budget(c)["hold"]
-    assert hold["run_id"] == fix["id"] and hold["rules"] == ["review"]
+    assert hold["run_id"] == fix["id"]
+    assert hold["rules"] == ["review"]
     # the operator disables the review rule before its event is decided
     doc = c.base.get("rules", "review")
     c.base.put("rules", {**doc, "enabled": False})
@@ -244,7 +246,8 @@ def test_reserve_refuses_any_other_event_while_the_hold_lasts():
         is None
     )
     doc = store.get(RULE_ATTEMPT_BUDGETS, budget_id("k"))
-    assert doc["run_id"] == "run-3" and not doc.get("hold")
+    assert doc["run_id"] == "run-3"
+    assert not doc.get("hold")
     assert doc["count"] == 1
 
 
@@ -311,7 +314,8 @@ def test_a_restore_drops_a_held_reservation_and_the_continuation_still_runs():
     c, report = _restore(src)
     assert report.reservations_dropped == 1
     doc = budget(c)
-    assert doc["run_id"] is None and doc["hold"] is None
+    assert doc["run_id"] is None
+    assert doc["hold"] is None
     c.start()
     cycles(c, 4)
     fix = c.run("fix", "evt_1")
@@ -390,7 +394,8 @@ def test_a_late_continuation_after_expiry_keeps_the_pending_event():
     )
     assert out["continuation"] is True
     doc = store.get(RULE_ATTEMPT_BUDGETS, budget_id("k"))
-    assert doc["run_id"] == "run-3" and doc["pending_event_id"] == "evt_2"
+    assert doc["run_id"] == "run-3"
+    assert doc["pending_event_id"] == "evt_2"
 
 
 def test_a_continuation_after_the_hold_was_released_keeps_the_pending_event():

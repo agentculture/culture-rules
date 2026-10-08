@@ -264,7 +264,8 @@ def test_a_rule_fires_on_a_finished_run_and_reads_its_exported_outputs():
     cycles(c, 4)
     fix_run = c.run("fix", "evt_1")
     run = c.run("review", run_event_id(fix_run["id"]))
-    assert run is not None and run["status"] == "succeeded"
+    assert run is not None
+    assert run["status"] == "succeeded"
     assert run["inputs"] == {"verdict": "approve", "number": 7}
     # the review's own finish emits a second-hop event naming the same PR
     second = c.base.get(EVENTS_COLLECTION, run_event_id(run["id"]))["envelope"]
@@ -305,11 +306,13 @@ def test_the_terminal_transition_writes_an_immutable_completion_record():
     cycles(c, 1)
     run = c.run("fix", "evt_1")
     record = completion(c)
-    assert record["status"] == "succeeded" and record["emitted"] is False
+    assert record["status"] == "succeeded"
+    assert record["emitted"] is False
     assert record["envelope"] == build_run_event(run)
     cycles(c, 1)
     record = completion(c)
-    assert record["emitted"] is True and record["event_id"] == run_event_id(run["id"])
+    assert record["emitted"] is True
+    assert record["event_id"] == run_event_id(run["id"])
     assert RunEventOutbox(c.base, paused=lambda tx: False, defer=Exception).pending() == []
 
 
@@ -399,7 +402,8 @@ def test_a_crash_inside_delivery_rolls_back_event_and_mark_together(monkeypatch,
     with pytest.raises(Crash):
         cycles(c, 1)
     assert run_events(c) == []  # the event insert rolled back with the crash
-    assert completion(c)["emitted"] is False and completion(c)["event_id"] is None
+    assert completion(c)["emitted"] is False
+    assert completion(c)["event_id"] is None
     monkeypatch.undo()
     cycles(c, 2)
     (env,) = run_events(c)
@@ -583,7 +587,8 @@ def test_a_conflicting_event_at_the_id_is_quarantined_and_the_genuine_one_still_
     genuine = c.base.get(EVENTS_COLLECTION, record["event_id"])["envelope"]
     assert genuine["data"]["outputs"] == {"verdict": "no"}
     (conflict,) = c.base.find("event_quarantine")
-    assert conflict["id"].startswith("conflict_") and conflict["envelope_id"] == squat["id"]
+    assert conflict["id"].startswith("conflict_")
+    assert conflict["envelope_id"] == squat["id"]
     assert c.base.find(RUNS_COLLECTION, {"rule_id": "publish"}) == []
     assert decision(c, "publish", squat["id"])["reason"] == "run_event_unverified"
 
@@ -667,7 +672,8 @@ def test_a_rule_outside_the_budget_is_not_counted_nor_refused_but_shares_the_key
     settle(c)
     cycles(c, 4)
     review = c.base.find(RUNS_COLLECTION, {"rule_id": "review"})
-    assert len(review) == 1 and review[0]["status"] == "succeeded"
+    assert len(review) == 1
+    assert review[0]["status"] == "succeeded"
     assert _budget(c)["count"] == 1  # only the fix counted
     # the budget is spent: another fix is refused, the review rule never would be
     settle(c, 2)
@@ -735,7 +741,8 @@ def test_an_uncounted_rule_waits_for_a_counted_reservation_whose_run_does_not_ex
     settle(c)
     cycles(c, 1)
     assert decision(c, "zz-exempt", "evt_1")["reason"] == "deduplicated"
-    assert _budget(c)["count"] == 1 and _budget(c)["counted"] is True
+    assert _budget(c)["count"] == 1
+    assert _budget(c)["counted"] is True
 
 
 def test_an_uncounted_run_blocks_a_counted_one_without_spending_the_budget():
@@ -744,7 +751,8 @@ def test_an_uncounted_run_blocks_a_counted_one_without_spending_the_budget():
     settle(c)
     cycles(c, 1)
     assert decision(c, "fix", "evt_1")["reason"] == "deduplicated"
-    assert _budget(c)["count"] == 0 and _budget(c)["counted"] is False
+    assert _budget(c)["count"] == 0
+    assert _budget(c)["counted"] is False
 
 
 def test_two_uncounted_rules_on_one_event_admit_one_run():

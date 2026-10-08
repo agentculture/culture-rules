@@ -65,7 +65,8 @@ def test_a_timed_out_attempt_is_cancelled_once(store, clock):
     assert sweep(store, clock, actor) == 1
     assert cancels(bridge) == ["http://127.0.0.1:8765/v1/invocations/inv-1/cancel"]
     req = next(r for r in bridge.requests if r["url"].endswith("/cancel"))
-    assert req["method"] == "POST" and req["headers"]["Authorization"] == "Bearer bridge-secret"
+    assert req["method"] == "POST"
+    assert req["headers"]["Authorization"] == "Bearer bridge-secret"
     assert sweep(store, clock, actor) == 0  # once
     assert len(cancels(bridge)) == 1
 
@@ -102,7 +103,8 @@ def test_a_cancelled_run_cancels_its_bridge_job(store, clock):
     Containment(store, clock=clock).cancel(run_id, "ops@test")
     assert sweep(store, clock, actor) == 1
     (doc,) = store.find(BRIDGE_INVOCATIONS)
-    assert doc["cancel_sent_at"] and doc["cancel_attempts"] == 1
+    assert doc["cancel_sent_at"]
+    assert doc["cancel_attempts"] == 1
 
 
 def test_a_failing_cancel_is_retried_a_bounded_number_of_times(store, clock):
@@ -116,7 +118,8 @@ def test_a_failing_cancel_is_retried_a_bounded_number_of_times(store, clock):
         sweep(store, clock, actor)
     assert len(cancels(bridge)) == CANCEL_ATTEMPTS
     (doc,) = store.find(BRIDGE_INVOCATIONS)
-    assert doc["cancel_attempts"] == CANCEL_ATTEMPTS and not doc.get("cancel_sent_at")
+    assert doc["cancel_attempts"] == CANCEL_ATTEMPTS
+    assert not doc.get("cancel_sent_at")
 
 
 def test_a_job_the_bridge_never_accepted_is_not_cancelled(store, clock):

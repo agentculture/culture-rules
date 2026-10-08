@@ -68,7 +68,8 @@ def test_no_commit_fails_the_step_at_once_without_a_retry(store, clock, result):
     fix = step_state(run, "fix")
     assert fix["status"] == "failed"
     assert fix["error"]["message"].startswith("no_changes: ")
-    assert fix["attempt"] == 1 and len(bridge.requests) == 1  # never asked again
+    assert fix["attempt"] == 1
+    assert len(bridge.requests) == 1  # never asked again
     assert run["status"] == "failed"
     assert invocation(store)["require_commit"] is True
 
@@ -100,7 +101,8 @@ def test_a_synchronous_answer_is_held_to_it_too(store, clock):
     ex = executor(store, clock, make_actor(store, clock, bridge))
     run_id = start(ex, config={"require_commit": True})
     fix = step_state(ex.run(run_id), "fix")
-    assert fix["status"] == "failed" and fix["error"]["message"].startswith("no_changes: ")
+    assert fix["status"] == "failed"
+    assert fix["error"]["message"].startswith("no_changes: ")
 
 
 def test_a_non_boolean_flag_is_not_a_requirement_but_is_refused(store, clock):
@@ -108,5 +110,6 @@ def test_a_non_boolean_flag_is_not_a_requirement_but_is_refused(store, clock):
     ex = executor(store, clock, make_actor(store, clock, bridge))
     run_id = start(ex, config={"require_commit": "yes"})
     fix = step_state(ex.run(run_id), "fix")
-    assert fix["status"] == "failed" and "require_commit" in fix["error"]["message"]
+    assert fix["status"] == "failed"
+    assert "require_commit" in fix["error"]["message"]
     assert bridge.requests == []

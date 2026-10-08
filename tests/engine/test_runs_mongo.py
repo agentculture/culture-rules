@@ -67,7 +67,8 @@ def test_completion_record_outbox_and_verification_on_mongo(mongo_store):
     ex.run_until_idle()
     Containment(mongo_store, clock=clock).cancel(run["id"], "alice")
     record = mongo_store.get(RUN_COMPLETIONS, run["id"])
-    assert record["status"] == "cancelled" and record["emitted"] is False
+    assert record["status"] == "cancelled"
+    assert record["emitted"] is False
     mongo_store.ensure_collections(EVENTS_COLLECTION, QUARANTINE_COLLECTION)
     outbox = RunEventOutbox(mongo_store, paused=lambda tx: False, defer=Exception)
     assert outbox.poll() == [record["envelope"]["id"]]
@@ -149,7 +150,8 @@ def test_overlapping_deliveries_store_one_event_on_mongo(mongo_store, monkeypatc
     won = [o for o in outcomes if isinstance(o, str)]
     assert len(won) == 1, outcomes
     record = mongo_store.get(RUN_COMPLETIONS, run["id"])
-    assert record["emitted"] is True and record["event_id"] == won[0]
+    assert record["emitted"] is True
+    assert record["event_id"] == won[0]
     assert len([e for e in mongo_store.find(EVENTS_COLLECTION) if e["id"] == won[0]]) == 1
     assert RunEventOutbox(mongo_store, paused=lambda tx: False, defer=Exception).poll() == []
 
@@ -207,7 +209,8 @@ def test_cancel_racing_completion_leaves_one_matching_record_on_mongo(
     # conflict, and a completion that ran into a cancel finds the run cancelled
     assert holder == (["succeeded"] if first == "complete" else ["cancelled"])
     if first == "complete":
-        assert errors and all(isinstance(e, TransientStoreError) for e in errors)
+        assert errors
+        assert all(isinstance(e, TransientStoreError) for e in errors)
     monkeypatch.undo()
     with contextlib.suppress(Exception):
         ex.run_until_idle()  # settle whatever the loser left (a run still running ticks on)
@@ -247,7 +250,8 @@ def test_the_pending_and_ttl_indexes_exist_and_are_used_on_mongo(mongo_store):
     (rec,) = mongo_store.find(QUARANTINE_COLLECTION)
     from datetime import datetime
 
-    assert isinstance(rec["expires_at"], datetime) and rec["count"] == 2
+    assert isinstance(rec["expires_at"], datetime)
+    assert rec["count"] == 2
 
 
 def test_parked_records_due_first_and_legacy_migration_on_mongo(mongo_store):

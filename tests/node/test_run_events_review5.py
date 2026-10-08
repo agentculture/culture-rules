@@ -189,7 +189,8 @@ def test_a_must_after_dependant_waiting_at_the_backup_fires_once_after_restore()
     src = cluster(a, b)
     settle(src)
     cycles(src, 1)  # a fired and finished; b waits; the chain has not handled a's end yet
-    assert _runs(src, "a")[0]["status"] == "succeeded" and _runs(src, "b") == []
+    assert _runs(src, "a")[0]["status"] == "succeeded"
+    assert _runs(src, "b") == []
     c, report = _restore(src)
     assert report.chains_redriven == 1
     c.start()
@@ -207,6 +208,7 @@ def test_the_marker_ids_cleared_on_delivery_are_the_trigger_consumers_ids():
     from culture_rules.events.triggers import EventTriggers
     from culture_rules.node.firing import SHARED_CONSUMER, placed_consumer
 
-    assert SHARED_CONSUMER == "triggers" and placed_consumer("spark") == "triggers@spark"
+    assert SHARED_CONSUMER == "triggers"
+    assert placed_consumer("spark") == "triggers@spark"
     t = EventTriggers(MemoryStore(), lambda tx, ev: None, host="spark", consumer="triggers")
     assert t.fire_id("runevt_x") == "triggers/runevt_x"

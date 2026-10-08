@@ -57,7 +57,8 @@ def test_a_backup_between_emit_and_consume_restores_to_exactly_one_downstream_ru
     cycles(src, 1)  # fix finishes
     outbox = src.nodes["spark"].firing.run_events
     outbox.poll()  # the event is stored and the record emitted ... no trigger has run yet
-    assert completion(src)["emitted"] is True and _reviews(src) == []
+    assert completion(src)["emitted"] is True
+    assert _reviews(src) == []
     c = _restore(src)  # ... and the backup is taken right here
     c.start()
     cycles(c, 4)
@@ -173,7 +174,9 @@ def test_oversized_id_type_and_source_are_bounded():
     assert len(json.dumps(rec, default=str)) <= QUARANTINE_MAX_RECORD
     for field in ("envelope_id", "type", "source"):
         value = rec[field]
-        assert isinstance(value, dict) and value["truncated"] is True and value["sha256"]
+        assert isinstance(value, dict)
+        assert value["truncated"] is True
+        assert value["sha256"]
     # a repeat of the same huge id still lands on the same record
     quarantine(store, {"id": huge, "type": "t"}, "reserved", host="h")
     assert store.find(QUARANTINE_COLLECTION)[0]["count"] == 2
@@ -207,7 +210,8 @@ def test_a_backup_after_the_intent_but_before_the_run_restores_to_exactly_one_ru
     node.firing.run_events.poll()
     for consumer in (node.firing.placed, node.firing.shared):
         node.firing.poll(consumer)  # the review's intent is committed ...
-    assert src.base.find("rule_fires", {"rule_id": "review"}) and _reviews(src) == []
+    assert src.base.find("rule_fires", {"rule_id": "review"})
+    assert _reviews(src) == []
     c = _restore(src)  # ... and the backup is taken before any node starts it
     c.start()
     cycles(c, 4)

@@ -104,21 +104,26 @@ def test_only_the_issues_behind_failing_conditions_are_handed_on():
     res = run(fake)
     assert res.outcome == "completed", res.error
     out = res.output
-    assert out["available"] is True and out["gate"] == "ERROR"
+    assert out["available"] is True
+    assert out["gate"] == "ERROR"
     assert [f["metric"] for f in out["failing"]] == [
         "new_reliability_rating",
         "new_security_rating",
         "new_coverage",
     ]
     assert [(i["kind"], i["key"]) for i in out["issues"]] == [("BUG", "1"), ("VULNERABILITY", "2")]
-    assert out["issues"][1]["path"] == "src/auth.py" and out["issues"][1]["line"] == 3
+    assert out["issues"][1]["path"] == "src/auth.py"
+    assert out["issues"][1]["line"] == 3
     (searched,) = [q for path, q, _h in fake.requests if path == "/api/issues/search"]
     assert set(searched["types"].split(",")) == {"BUG", "VULNERABILITY"}
-    assert searched["pullRequest"] == "17" and searched["componentKeys"] == KEY
+    assert searched["pullRequest"] == "17"
+    assert searched["componentKeys"] == KEY
     assert searched["resolved"] == "false"
     note = out["note"]
-    assert "new_coverage" in note and "2 issue" in note
-    assert "Fix exactly these" in note and "nothing else" in note
+    assert "new_coverage" in note
+    assert "2 issue" in note
+    assert "Fix exactly these" in note
+    assert "nothing else" in note
 
 
 def test_failing_hotspot_review_lists_the_hotspots_to_review():
@@ -144,8 +149,10 @@ def test_failing_hotspot_review_lists_the_hotspots_to_review():
 def test_a_passing_gate_hands_on_nothing():
     fake = FakeSonar(gate(cond("new_reliability_rating", status="OK"), status="OK"))
     out = run(fake).output
-    assert out["available"] is True and out["gate"] == "OK"
-    assert out["failing"] == [] and out["issues"] == []
+    assert out["available"] is True
+    assert out["gate"] == "OK"
+    assert out["failing"] == []
+    assert out["issues"] == []
     assert [p for p, _q, _h in fake.requests] == ["/api/qualitygates/project_status"]
     assert "passes" in out["note"]
 
@@ -156,7 +163,9 @@ def test_a_passing_gate_hands_on_nothing():
 )
 def test_a_failed_lookup_is_unavailable_never_a_failed_step(fail, why):
     out = run(FakeSonar(gate(), fail=fail)).output
-    assert out["available"] is False and out["issues"] == [] and out["failing"] == []
+    assert out["available"] is False
+    assert out["issues"] == []
+    assert out["failing"] == []
     assert why in out["note"]
 
 
@@ -164,7 +173,8 @@ def test_the_project_key_and_the_cap_come_from_the_config():
     many = [issue(str(n), "BUG", line=n) for n in range(80)]
     fake = FakeSonar(gate(cond("new_reliability_rating")), issues=many)
     out = run(fake, config={"project_key": "{owner}__{name}", "max_issues": 5}).output
-    assert len(out["issues"]) == 5 and out["truncated"] is True
+    assert len(out["issues"]) == 5
+    assert out["truncated"] is True
     assert fake.requests[0][1]["projectKey"] == "agentculture__culture-rules"
     assert "first 5" in out["note"]
 
@@ -172,7 +182,9 @@ def test_the_project_key_and_the_cap_come_from_the_config():
 def test_bad_input_fails_closed():
     for repo, number in (("nope", 1), ("o/r", 0), ("o/r", True), (None, 1)):
         res = run(FakeSonar(gate()), repo=repo, number=number)
-        assert res.outcome == "failed" and res.error == "bad_input" and not res.retryable
+        assert res.outcome == "failed"
+        assert res.error == "bad_input"
+        assert not res.retryable
 
 
 def test_a_token_rides_only_in_the_header_when_configured():
@@ -240,7 +252,9 @@ def test_hotspots_are_paged_and_their_total_reported():
     )
     out = run(fake, config={"max_issues": 150}).output
     assert len(out["issues"]) == 150
-    assert out["truncated"] is True and out["omitted"] == 100 and out["total"] == 250
+    assert out["truncated"] is True
+    assert out["omitted"] == 100
+    assert out["total"] == 250
     pages = [q for p, q, _h in fake.requests if p == "/api/hotspots/search"]
     assert len(pages) == 2  # 100 + 50: a cap above one page is reached by paging
     assert "first 150 of 250" in out["note"]
@@ -254,7 +268,9 @@ def test_totals_and_truncation_count_every_type():
     )
     out = run(fake, config={"max_issues": 40}).output
     assert len(out["issues"]) == 40
-    assert out["total"] == 60 and out["omitted"] == 20 and out["truncated"] is True
+    assert out["total"] == 60
+    assert out["omitted"] == 20
+    assert out["truncated"] is True
     assert "first 40 of 60" in out["note"]
 
 
@@ -270,4 +286,6 @@ def test_issues_beyond_one_page_are_paged_to_the_cap():
         gate(cond("new_reliability_rating")), issues=[issue(str(n), "BUG") for n in range(180)]
     )
     out = run(fake, config={"max_issues": 150}).output
-    assert len(out["issues"]) == 150 and out["total"] == 180 and out["omitted"] == 30
+    assert len(out["issues"]) == 150
+    assert out["total"] == 180
+    assert out["omitted"] == 30
