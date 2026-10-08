@@ -1344,25 +1344,42 @@ def _recover_trigger(
     seen = {rule_id}
     level = [rule_id]
     for _ in range(RECOVERY_DEPTH + 1):
-        for rid in level:
-            for doc in (
-                tx.get(RUNS_COLLECTION, run_id_for(rid, event_id)),
-                tx.get(RULE_FIRES, firing_key(rid, event_id)),
-            ):
-                trigger = (doc or {}).get("trigger")
-                if isinstance(trigger, Mapping) and trigger.get("id") == event_id:
-                    return dict(trigger)
-        upper: list[str] = []
-        for rid in level:
-            rule = by_id.get(rid)
-            for pid in (*rule.must_after, *rule.may_after) if rule else ():
-                if pid not in seen:
-                    seen.add(pid)
-                    upper.append(pid)
-        if not upper:
+        trigger = _held_trigger(tx, level, event_id)
+        if trigger:
+            return trigger
+        level = _unseen_predecessors(by_id, level, seen)
+        if not level:
             break
-        level = sorted(upper)
     return {}
+
+
+def _held_trigger(tx: StoreOps, rule_ids: list[str], event_id: str) -> dict[str, Any]:
+    """The envelope of ``event_id`` held whole by the run, else the firing intent, of each
+    rule in ``rule_ids`` (in order), or ``{}``."""
+    for rid in rule_ids:
+        for doc in (
+            tx.get(RUNS_COLLECTION, run_id_for(rid, event_id)),
+            tx.get(RULE_FIRES, firing_key(rid, event_id)),
+        ):
+            trigger = (doc or {}).get("trigger")
+            if isinstance(trigger, Mapping) and trigger.get("id") == event_id:
+                return dict(trigger)
+    return {}
+
+
+def _unseen_predecessors(
+    by_id: Mapping[str, Rule], rule_ids: list[str], seen: set[str]
+) -> list[str]:
+    """The must/may-run-after predecessors of ``rule_ids`` not in ``seen`` (added to it),
+    sorted: the walk's next level."""
+    upper: list[str] = []
+    for rid in rule_ids:
+        rule = by_id.get(rid)
+        for pid in (*rule.must_after, *rule.may_after) if rule else ():
+            if pid not in seen:
+                seen.add(pid)
+                upper.append(pid)
+    return sorted(upper)
 
 
 def _settled_skip(doc: Mapping[str, Any]) -> str | None:
