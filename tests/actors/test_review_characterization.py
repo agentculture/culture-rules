@@ -115,14 +115,15 @@ def test_a_consumed_pointer_refuses_and_an_unknown_state_is_kept():
     store = MemoryStore()
     record_review(store, "run-1", iteration=0, attempt=1, fields=_fields())
     store.update_if(CURRENT_COLLECTION, TARGET, {}, {"state": "consumed"})
-    fields = _fields()
+    fields = _fields(step="s3")
     with pytest.raises(ReviewError) as exc:
         record_review(store, "run-1", iteration=3, attempt=1, fields=fields)
     assert exc.value.code == "review_consumed"
     assert str(exc.value) == (
         "review_consumed: a push already used this commit's approval; recorded only"
     )
-    assert store.get(REVIEWS_COLLECTION, "run-1:fix[0]/verdict:1") is not None  # kept
+    # the refused review's own record was written before the pointer refused it
+    assert store.get(REVIEWS_COLLECTION, "run-1:s3:1")["verdict"] == "approve"
     store.update_if(CURRENT_COLLECTION, TARGET, {}, {"state": "weird"})
     before = store.get(CURRENT_COLLECTION, TARGET)
     rid = record_review(store, "run-1", iteration=4, attempt=1, fields=_fields(step="s4"))
