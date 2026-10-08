@@ -27,11 +27,17 @@ def _load(rel: str) -> dict:
 
 PR_FIX_WORKFLOW = [
     "1 quiet — wait 300 s; stop if the PR head moves (head_unchanged, as github-app)",
-    "2 threads — github.threads as github-app: unresolved threads by trusted authors",
-    "3 sonar — sonar.gate_issues: the issues behind the PR's failing SonarCloud gate",
-    "4 fix — retry up to 3×, until verdict ∈ {pass, no_gate}:",
-    "  4.1 agent — qwen-fixer (agent, must commit)",
-    "  4.2 gate — test gate on spark2",
+    "2 secrets — gitguardian.hold as github-app: stop while GitGuardian fails on the head",
+    "3 threads — github.threads as github-app: unresolved threads by trusted authors",
+    "4 sonar — sonar.gate_issues: the issues behind the PR's failing SonarCloud gate",
+    "5 fix — retry up to 3×, until verdict ∈ {pass, no_gate}:",
+    "  5.1 agent — qwen-fixer (agent, must commit)",
+    "  5.2 gate — test gate on spark2",
+]
+
+REPORT_SECRETS_WORKFLOW = [
+    "1 findings — gitguardian.findings as github-app: the head's GitGuardian findings, no secret"
+    " values",
 ]
 
 REVIEW_COMMIT_WORKFLOW = [
@@ -57,11 +63,27 @@ PR_FIXER_CHECKS = [
     "and not (repository ∈ vars.fixer_excluded_repos)",
     "and conclusion ≠ success",
     "and conclusion ≠ no_checks",
-    "Run workflow pr-fix (4 steps)",
+    "and not (gitguardian ∈ failed_apps)",
+    "Run workflow pr-fix (5 steps)",
     "On spark2",
     "Then github.comment as github-app (only where its chain ends)",
     "On failure github.comment as github-app (only where its chain ends)",
     "Key pr-fixer:{repository}#{number}, ≤3 attempts",
+    "Disabled",
+]
+
+PR_FIXER_SECRETS = [
+    "When github.pr.checks_settled",
+    "If head_repo = base_repo",
+    "and state = open",
+    "and repository ∈ vars.fixer_repos",
+    "and not (repository ∈ vars.fixer_excluded_repos)",
+    "and gitguardian ∈ failed_apps",
+    "Run workflow report-secrets (1 step)",
+    "On spark2",
+    "Then github.comment as github-app",
+    "On failure github.comment as github-app",
+    "Key pr-secrets:{repository}#{number}@{head_sha}, ≤1 attempt",
     "Disabled",
 ]
 
@@ -87,6 +109,7 @@ PR_FIXER_PUBLISH = [
         ("pr-fix", PR_FIX_WORKFLOW),
         ("review-commit", REVIEW_COMMIT_WORKFLOW),
         ("publish-fix", PUBLISH_FIX_WORKFLOW),
+        ("report-secrets", REPORT_SECRETS_WORKFLOW),
     ],
 )
 def test_golden_pr_fixer_workflows(name, golden):
@@ -99,6 +122,10 @@ def test_golden_pr_fixer_rules():
     assert render(describe_rule(_load("rules/pr-fixer-checks.json"), fix)) == PR_FIXER_CHECKS
     assert render(describe_rule(_load("rules/pr-fixer-publish.json"), publish)) == (
         PR_FIXER_PUBLISH
+    )
+    secrets = _load("workflows/report-secrets.json")
+    assert render(describe_rule(_load("rules/pr-fixer-secrets.json"), secrets)) == (
+        PR_FIXER_SECRETS
     )
 
 
@@ -128,14 +155,14 @@ def test_deterministic_and_pure():
 
 def test_entries_shape():
     entries = describe_workflow(_load("workflows/pr-fix.json"))
-    assert entries[3] == {
-        "label": "4",
+    assert entries[4] == {
+        "label": "5",
         "text": "retry up to 3×, until verdict ∈ {pass, no_gate}:",
         "depth": 0,
         "step": "fix",
     }
-    assert entries[4]["depth"] == 1
-    assert entries[4]["label"] == "4.1"
+    assert entries[5]["depth"] == 1
+    assert entries[5]["label"] == "5.1"
     assert all("step" not in e for e in describe_rule(_load("rules/pr-fixer-checks.json")))
 
 

@@ -1,9 +1,27 @@
 {
-  "description": "d21: quiet period -> trusted review threads and the failing SonarCloud conditions -> (bridge agent -> test gate) up to 3 times. Builds and gates one commit; never reviews or pushes it. pr-fixer-review-commit fires on its success and has it reviewed.",
+  "description": "d21: quiet period -> GitGuardian hold (d25: no fix while it fails on the head) -> trusted review threads and the failing SonarCloud conditions -> (bridge agent -> test gate) up to 3 times. Builds and gates one commit; never reviews or pushes it. pr-fixer-review-commit fires on its success and has it reviewed.",
   "edges": [
     {
       "source": "quiet",
       "source_port": "done",
+      "target": "secrets",
+      "target_port": "done"
+    },
+    {
+      "source": "inputs",
+      "source_port": "repo",
+      "target": "secrets",
+      "target_port": "repo"
+    },
+    {
+      "source": "inputs",
+      "source_port": "head_sha",
+      "target": "secrets",
+      "target_port": "head_sha"
+    },
+    {
+      "source": "secrets",
+      "source_port": "state",
       "target": "threads",
       "target_port": "done"
     },
@@ -26,8 +44,8 @@
       "target_port": "trusted_authors"
     },
     {
-      "source": "quiet",
-      "source_port": "done",
+      "source": "secrets",
+      "source_port": "state",
       "target": "sonar",
       "target_port": "done"
     },
@@ -276,6 +294,60 @@
       "placement": null,
       "retry": null,
       "timeout_s": null
+    },
+    {
+      "body": [],
+      "config": {
+        "actor": "github-app",
+        "builtin": "gitguardian.hold"
+      },
+      "description": "d25: reads the GitGuardian check of the PR head as the App and fails the run (secrets_found) while it fails: a leaked secret is revoked and rotated by a human, never edited by the agent. pr-fixer-secrets posts the findings. Fails closed on a lookup error.",
+      "enabled": true,
+      "id": "secrets",
+      "inputs": [
+        {
+          "description": "",
+          "name": "done",
+          "required": false,
+          "type": "any"
+        },
+        {
+          "description": "",
+          "name": "repo",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "head_sha",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "kind": "code",
+      "max_iterations": null,
+      "name": "Hold while GitGuardian fails",
+      "outputs": [
+        {
+          "description": "",
+          "name": "held",
+          "required": false,
+          "type": "boolean"
+        },
+        {
+          "description": "",
+          "name": "state",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "placement": {
+        "actor": "github-app",
+        "machine": null,
+        "requirement": null
+      },
+      "retry": null,
+      "timeout_s": 60.0
     },
     {
       "body": [],

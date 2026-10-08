@@ -1,4 +1,5 @@
-"""d21 phase 2: the shipped PR fixer data (docs/rules/pr-fixer) - three workflows, seven rules.
+"""d21 phase 2: the shipped PR fixer data (docs/rules/pr-fixer) - three workflows, seven rules,
+plus d25's GitGuardian report (rule ``pr-fixer-secrets``, workflow ``report-secrets``).
 
 Four trigger rules (one trigger type each, d13) start a ``pr-fix`` chain on the PR's key;
 three stage rules continue it on ``rules.run.succeeded``: review-commit, refix, publish.
@@ -34,6 +35,7 @@ from tests.node.test_node import Cluster
 from tests.rules.chain_world import (
     BUNDLE,
     CHAIN_VARIABLES,
+    SECRETS_RULE,
     STAGE_RULES,
     TRIGGER_RULES,
     bundle,
@@ -58,12 +60,18 @@ AUTHOR_RULES = ("pr-fixer-comment", "pr-fixer-review", "pr-fixer-review-comment"
 # --------------------------------------------------------------------------- the data
 
 
-def test_the_bundle_is_seven_disabled_rules_and_three_workflows():
+def test_the_bundle_is_eight_disabled_rules_and_four_workflows():
     b = bundle()
-    assert sorted(w.id for w in b.workflows) == ["pr-fix", "publish-fix", "review-commit"]
-    assert sorted(r.id for r in b.rules) == sorted(TRIGGER_RULES + STAGE_RULES)
+    assert sorted(w.id for w in b.workflows) == [
+        "pr-fix",
+        "publish-fix",
+        "report-secrets",
+        "review-commit",
+    ]
+    assert sorted(r.id for r in b.rules) == sorted(TRIGGER_RULES + STAGE_RULES + (SECRETS_RULE,))
     for r in b.rules:
         assert r.enabled is False
+    for r in (r for r in b.rules if r.id != SECRETS_RULE):
         assert r.concurrency_key == KEY
         assert r.placement is not None
         assert r.placement.machine == "spark2"
@@ -115,7 +123,8 @@ def test_each_shipped_workflow_is_trusted_in_its_role_only():
 def test_pr_fix_builds_and_gates_and_never_reviews_or_pushes():
     wf = workflow_docs()["pr-fix"]
     top = {s["id"]: s for s in wf["steps"]}
-    assert list(top) == ["quiet", "threads", "sonar", "fix"]
+    assert list(top) == ["quiet", "secrets", "threads", "sonar", "fix"]
+    assert top["secrets"]["config"] == {"builtin": "gitguardian.hold", "actor": "github-app"}
     assert top["sonar"]["config"] == {"builtin": "sonar.gate_issues"}
     fix = top["fix"]
     agent, gate = fix["body"]
@@ -183,6 +192,7 @@ def test_import_with_apply_validates_and_writes_the_definitions():
     assert sorted(d["id"] for d in mem.find("workflows")) == [
         "pr-fix",
         "publish-fix",
+        "report-secrets",
         "review-commit",
     ]
     assert all(d["enabled"] is False for d in mem.find("rules"))

@@ -45,8 +45,8 @@ def test_workflow_describe_is_viewer_readable_and_matches_the_library(viewer):
     assert body["id"] == "pr-fix"
     assert body["kind"] == "workflow"
     assert body["lines"] == PR_FIX_WORKFLOW
-    assert body["entries"][4] == {
-        "label": "4.1",
+    assert body["entries"][5] == {
+        "label": "5.1",
         "text": "qwen-fixer (agent, must commit)",
         "depth": 1,
         "step": "agent",

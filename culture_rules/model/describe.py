@@ -44,6 +44,9 @@ CMP_SYMBOLS: dict[str, str] = {"==": "=", "!=": "≠", "<": "<", "<=": "≤", ">
 #: replacement name. ``action`` is handled separately (it reads as its action kind).
 BUILTIN_WORDS: dict[str, str] = {
     "gate": "test gate",
+    "gitguardian.findings": "gitguardian.findings{as}: the head's GitGuardian findings, no secret"
+    " values",
+    "gitguardian.hold": "gitguardian.hold{as}: stop while GitGuardian fails on the head",
     "github.threads": "github.threads{as}: unresolved threads by trusted authors",
     "github.threads_addressed": "github.threads_addressed",
     "review": "review verdict, recorded for its commit (github.push checks it)",
@@ -322,7 +325,8 @@ def _key_words(r: Mapping[str, Any]) -> list[str]:
     outside the attempt budget; none without a key or bound."""
     key = [_key_text(str(r["concurrency_key"]))] if r.get("concurrency_key") else []
     if r.get("max_attempts"):
-        key.append(f"≤{r['max_attempts']} attempts")
+        n = r["max_attempts"]
+        key.append(f"≤{n} attempt" + ("" if n == 1 else "s"))
     if key and r.get("counts_toward_budget") is False:
         key.append("outside the attempt budget")
     return key
