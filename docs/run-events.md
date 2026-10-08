@@ -139,6 +139,14 @@ Three refusals guard these events:
   store outage, `OperationFailure` (a write conflict), `WriteConcernError`,
   or an unknown error. A valid event is never dropped to keep the bus
   moving. A duplicate envelope stays a counted duplicate.
+
+  Two limits, both by design (fail closed). On the bus, an envelope that
+  always raises an unknown error stalls ingest: each node cycle logs a
+  warning and records the exception, and an operator must step in. In the
+  webhook sink, a delivery that fails this way answers an error and stores
+  nothing. GitHub does not redeliver a failed delivery on its own, so it
+  stays missing until someone redelivers it (the App's advanced settings,
+  or the API's `POST /app/hook/deliveries/{id}/attempts`).
 - **`run_event_unverified`.** Before a rule fires on a `rules.run.*` event,
   the node compares the whole envelope, extra keys included, with the
   envelope in the run's completion record. The id must also be the one the

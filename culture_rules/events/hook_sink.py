@@ -195,7 +195,7 @@ def sink(
     except Exception as exc:
         # a known refusal of the payload's content is quarantined; anything else raises
         if not is_content_error(exc):
-            raise  # not a known content refusal: GitHub redelivers, nothing is dropped
+            raise  # not a known content refusal: the delivery fails; redeliver it by hand
         quarantine_failure(store, {**refused, "source": f"app://{actor_id}"}, exc, host=HOOK_HOST)
         return _finish(store, actor_id, type, QUARANTINED, surface)
 
