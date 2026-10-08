@@ -750,7 +750,7 @@ The shipped digests (0.14.0):
 | Role | Digest |
 |---|---|
 | `pr-fixer` | `sha256:01ece1cd…f4fc5d6` (kept for the transition) |
-| `pr-fix` | `sha256:04570dee…43b6a8` (d25, with the GitGuardian hold); `sha256:165571b8…7cb626` (d21, kept for the transition) |
+| `pr-fix` | `sha256:04570dee…43b6a8` (with the d25 GitGuardian hold) |
 | `review-commit` | `sha256:79064f76…b158e6` |
 | `publish-fix` | `sha256:0fa92074…c23680` |
 
@@ -780,17 +780,21 @@ The order matters: nodes first, then the data.
    longer referenced by any rule. Disable it
    (`culture-rules workflows disable pr-fixer --apply`), so no direct run
    starts it.
-6. **Enable the seven rules** (`rules enable <id> --apply` each), the stage
-   rules first, then the trigger rules. For review-only mode, leave
-   `pr-fixer-publish` off.
+6. **Enable the eight rules** (`rules enable <id> --apply` each), the stage
+   rules first, then `pr-fixer-secrets` (d25), then the trigger rules. For
+   review-only mode, leave `pr-fixer-publish` off.
 7. **Resume** (`culture-rules runs resume`).
 8. In a later release, drop the `pr-fixer` digest from `TRUSTED_WORKFLOWS`.
 
 ### Rolling out the GitGuardian report (d25)
 
+d25 ships in 0.14.0 with the split, whose `pr-fix` never ran live without
+the hold, so only the held `pr-fix` digest is trusted. Rolling out 0.14.0
+does these steps inside "Rolling out the split".
+
 1. **Upgrade every node and the API** to the release. It emits
-   `failed_apps`, holds the new `pr-fix` digest (the d21 one stays trusted
-   for runs in flight) and the `gitguardian.*` built-ins. A node without
+   `failed_apps`, trusts the held `pr-fix` digest and has the
+   `gitguardian.*` built-ins. A node without
    them fails `report-secrets` and the new `pr-fix` with `no_builtin`.
 2. **Check the App can read checks**: the GitHub App needs `Checks: read`
    (the settle already uses it).
@@ -802,7 +806,6 @@ The order matters: nodes first, then the data.
    `enabled: false`.
 4. **Enable** `pr-fixer-secrets` and re-enable the rules that were on
    (`culture-rules rules enable <id> --apply`).
-5. In a later release, drop the d21 `pr-fix` digest from `TRUSTED_WORKFLOWS`.
 
 ### Trusted actors (d20 round 3)
 

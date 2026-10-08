@@ -64,14 +64,10 @@ TRUSTED_WORKFLOWS: dict[str, frozenset[str]] = {
     ROLE_SINGLE: frozenset(
         {"sha256:01ece1cd69f995aeb0e931553546aa905bdfa20bc7fc530dfbaea8c75f4fc5d6"}
     ),
-    # docs/rules/pr-fixer/workflows/pr-fix.json: with the d25 GitGuardian hold (04570dee),
-    # and as d21 shipped it, without the hold (165571b8), kept while runs pinned to it may
-    # still be in flight - drop it in a later release.
+    # docs/rules/pr-fixer/workflows/pr-fix.json with the d25 GitGuardian hold (d21's version
+    # without the hold never ran live, so it is not trusted)
     ROLE_FIX: frozenset(
-        {
-            "sha256:04570dee963d1fbf6ae55680d1ecc16c702463c858663d4fc61b557d3243b6a8",
-            "sha256:165571b8e1ce74d91845cfd810d20ed4552a19fb76c5871cb77d7fbf3c7cb626",
-        }
+        {"sha256:04570dee963d1fbf6ae55680d1ecc16c702463c858663d4fc61b557d3243b6a8"}
     ),
     # docs/rules/pr-fixer/workflows/review-commit.json (d21)
     ROLE_REVIEW: frozenset(
