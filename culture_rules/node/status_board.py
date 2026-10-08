@@ -105,6 +105,7 @@ __all__ = [
     "RETENTION",
     "WRITERS_COLLECTION",
     "WRITER_LEASE",
+    "MAX_CLOCK_SKEW_S",
     "StatusBoard",
     "ensure_status_indexes",
 ]
@@ -116,9 +117,16 @@ CALL_DEADLINE_S = 20.0
 (a watchdog in :mod:`culture_rules.apps.github` enforces it)."""
 WRITERS_COLLECTION = "fixer_status_writers"
 """One document per App actor: the process that may write its status comments."""
-WRITER_LEASE = timedelta(seconds=60)
-"""How long a writer's lease lasts: longer than a call's hard deadline plus a margin, and
-renewed before every call, so a call never outlives the lease it started under."""
+MAX_CLOCK_SKEW_S = 30.0
+"""The clock skew between nodes the writer lease tolerates (nodes run NTP; see
+docs/operations/pr-fixer.md). Beyond it a moved writer's lease may be taken while the old
+writer's last call is still in flight."""
+WRITER_LEASE = timedelta(seconds=120)
+"""How long a writer's lease lasts: at least twice a call's hard deadline plus the skew
+bound. It is renewed before every call; a holder makes no call once its clock passes
+``until - MAX_CLOCK_SKEW_S - CALL_DEADLINE_S``, and another process takes it only after
+``until + MAX_CLOCK_SKEW_S`` by its own clock - so with skew within the bound a call never
+outlives the lease it started under, on any clock."""
 SERVED_CACHE = timedelta(seconds=10)
 """How long a node trusts its reading of which App actors are placed on it."""
 BACKOFF_BASE_S = 5.0
@@ -144,7 +152,12 @@ BUDGET_EXHAUSTED = "budget_exhausted"
 """The tick's request budget is spent: not a failure, the work waits for the next tick."""
 WRITER_LOST = "writer_lost"
 """This process no longer holds the actor's writer lease: it stops, nothing is counted."""
-_WAITS = frozenset({BUDGET_EXHAUSTED, WRITER_LOST})
+TRANSPORT_BUSY = "transport_busy"
+"""Every watchdog worker is busy: the request was not started."""
+_WAITS = frozenset({BUDGET_EXHAUSTED, WRITER_LOST, TRANSPORT_BUSY})
+"""Refusals before any request was sent that are no failure: the work waits a tick."""
+_UNSENT = _WAITS | frozenset({"repo_not_allowed", "bad_input"})
+"""Refusals before any request was sent (the App checks them before the network)."""
 
 _RUNS, _BRIDGE, _ACTORS, _ACTIVE = "runs", "bridge_invocations", "actors", "running"
 _ID, _REV, _STATE, _FINAL, _PENDING = "id", "rev", "state", "final", "pending"
@@ -381,7 +394,7 @@ class StatusBoard:
         ctx = _Ctx(apps, _Budget(self._max_calls, self._max_seconds, self._monotonic), host)
         done = 0
         with self._lock:
-            actors = [a for a in self.served_actors(host) if self._hold(a, host)]
+            actors = [a for a in self.served_actors(host) if self._hold(a, host) is not None]
             for run in self._store.find(_RUNS, {"status": _ACTIVE}):
                 self._start(actors, run)
             for actor in actors:
@@ -417,27 +430,37 @@ class StatusBoard:
     def _owner(self, host: str) -> str:
         return f"{host}:{os.getpid()}:{self._boot}"
 
-    def _hold(self, actor: str, host: str) -> bool:
-        """Take or renew this process's writer lease on ``actor`` by compare-and-set (a
-        lease another process holds and has not let expire is never taken)."""
+    def _hold(self, actor: str, host: str) -> datetime | None:
+        """Take or renew this process's writer lease on ``actor`` by compare-and-set; the
+        new ``until``, or None. Another process's lease is taken only once it is over
+        everywhere: ``until + MAX_CLOCK_SKEW_S`` by this clock."""
         now = self._clock()
         owner = self._owner(host)
-        lease = {"owner": owner, "until": iso(now + WRITER_LEASE)}
+        until = now + WRITER_LEASE
+        lease = {"owner": owner, "until": iso(until)}
         doc = self._store.get(WRITERS_COLLECTION, actor)
         if doc is None:
             try:
                 self._store.insert(WRITERS_COLLECTION, {_ID: actor, _REV: 0, **lease})
             except DuplicateKeyError:
-                return False
-            return True
+                return None
+            return until
         expires = parse_time(doc.get("until"))
-        if doc.get("owner") != owner and expires is not None and expires > now:
-            return False
+        skew = timedelta(seconds=MAX_CLOCK_SKEW_S)
+        if doc.get("owner") != owner and expires is not None and now <= expires + skew:
+            return None
         rev = doc.get(_REV, 0)
         res = self._store.update_if(
             WRITERS_COLLECTION, actor, {_REV: rev}, {**lease, _REV: rev + 1}
         )
-        return bool(res.won)
+        return until if res.won else None
+
+    def _may_call(self, actor: str, host: str) -> bool:
+        """Renew the lease, then start a call only with time for it on any clock: this
+        clock before ``until - MAX_CLOCK_SKEW_S - CALL_DEADLINE_S``."""
+        until = self._hold(actor, host)
+        margin = timedelta(seconds=MAX_CLOCK_SKEW_S + CALL_DEADLINE_S)
+        return until is not None and self._clock() <= until - margin
 
     def _due(self, actor: str) -> Iterator[dict[str, Any]]:
         """The actor's pending records whose ``retry_at`` has come, in (``retry_at``, id)
@@ -579,7 +602,7 @@ class StatusBoard:
 
         if ctx.budget.spent:
             return _Failure(BUDGET_EXHAUSTED, True, sent=False)
-        if not self._hold(str(doc.get(_ACTOR)), ctx.host):
+        if not self._may_call(str(doc.get(_ACTOR)), ctx.host):
             return _Failure(WRITER_LOST, True, sent=False)
         until = self._clock() + timedelta(seconds=min(CALL_DEADLINE_S, ctx.budget.left_s()))
         try:
@@ -590,7 +613,7 @@ class StatusBoard:
             with _bounded(app, until, ctx.budget):
                 return op(app)
         except GitHubError as exc:
-            return _Failure(exc.code, exc.retryable, sent=exc.code not in _WAITS)
+            return _Failure(exc.code, exc.retryable, sent=exc.code not in _UNSENT)
 
     def _acked(self, desired: _Desired) -> dict[str, Any]:
         """The changes of an acknowledged write: the body GitHub has now."""

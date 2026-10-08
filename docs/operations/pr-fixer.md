@@ -693,12 +693,25 @@ inert.
 
 - **A single writer.** One process writes an App actor's status comments:
   the holder of the actor's **writer lease** (`fixer_status_writers`, one
-  document per actor: `{owner: host:pid:boot-random, until}`, 60 s), taken
+  document per actor: `{owner: host:pid:boot-random, until}`, 120 s), taken
   or renewed by compare-and-set at the start of every cycle and again
   before every GitHub call. Only a node on the actor's **current** placed
-  machine tries (it reads the placement again every 10 s), and a lease
-  another process holds is never taken before it expires. So two node
-  processes on one machine never both write. The shipped `github-app` actor
+  machine tries (it reads the placement again every 10 s). So two node
+  processes on one machine never both write.
+- **Bounded clock skew.** Nodes must keep their clocks within 30 s of each
+  other (`MAX_CLOCK_SKEW_S`; run NTP, see the prerequisites in
+  `rules-culture-dev.md`). A holder starts no call once its own clock passes
+  `until - 30 s - 20 s` (the skew bound and a call's hard deadline); another
+  process takes the lease only after `until + 30 s` by its own clock. The
+  lease (120 s) is at least twice the call deadline plus the skew. So with
+  skew within the bound, a new writer (after the actor moves, or after the
+  old process dies) never writes while the old writer's last call is in
+  flight; it waits up to 150 s after the old writer's last renewal. **Beyond
+  the bound** (more than about 130 s of skew, the lease minus a call
+  deadline plus the bound), a new writer could take the lease while the old
+  writer's last call is still in flight, and that call could land after the
+  new writer's final. The record would then say `delivered` while GitHub
+  shows the older body, until a later chain on the PR writes again. The shipped `github-app` actor
   is placed on spark (`tests/rules/fixtures/github-app.live.json`,
   `machine: spark`), so spark is the writer. Records are selected by actor:
   moving the actor to another machine hands the writer over once the old

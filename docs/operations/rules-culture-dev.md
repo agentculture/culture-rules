@@ -47,6 +47,11 @@ connectors and the hostname survives any one host going down.
   manager with `grant`, so the plan text's sealing step is done with `grant`.
 - The operator's email as the first Access allow entry (placeholder
   `<operator-email>`; no real address is written into the tree).
+- **Synchronized clocks on every engine node** (NTP, e.g. `systemd-timesyncd`
+  or `chrony`; check with `timedatectl`). The PR fixer's status comment writer
+  lease (d26) tolerates at most 30 s of skew between nodes
+  (`MAX_CLOCK_SKEW_S`); see `docs/operations/pr-fixer.md`, "One writer,
+  desired state".
 
 ## Step 1: dry-run, then apply (once, from one host)
 

@@ -26,6 +26,7 @@ from culture_rules.node.status_board import (
     CALL_DEADLINE_S,
     FINAL_HORIZON,
     IDLE_HORIZON,
+    MAX_CLOCK_SKEW_S,
     RETENTION,
     StatusBoard,
     ensure_status_indexes,
@@ -644,7 +645,7 @@ def test_a_second_process_takes_over_only_after_the_lease_expired(w):
     agent_done(w)
     w.later()
     assert b.tick(lambda actor, repo, until: w.issues, "spark") == 0  # A holds it
-    w.clock.advance(WRITER_LEASE.total_seconds() + 1)  # A has died
+    w.clock.advance(WRITER_LEASE.total_seconds() + MAX_CLOCK_SKEW_S + 1)  # A has died
     assert b.tick(lambda actor, repo, until: w.issues, "spark") == 1
     assert "- **done** Agent (qwen-fixer)" in w.issues.edits[-1][2]
 
@@ -681,7 +682,7 @@ def test_a_moved_actor_is_served_by_its_new_machine(w):
     assert w.tick("spark") == 0  # the old node stops writing at once
     thor = w.new_board(process="thor")
     assert thor.tick(lambda actor, repo, until: w.issues, "thor") == 0  # old lease still on
-    w.clock.advance(WRITER_LEASE.total_seconds())
+    w.clock.advance(WRITER_LEASE.total_seconds() + MAX_CLOCK_SKEW_S)
     assert thor.tick(lambda actor, repo, until: w.issues, "thor") == 1
     assert w.shown().startswith(HANDED_BACK)
     assert w.record()["outcome"] == "delivered"
@@ -696,3 +697,76 @@ def test_the_new_machine_enforces_the_horizons_of_moved_records(w):
     thor = w.new_board(process="thor")
     thor.tick(lambda actor, repo, until: w.issues, "thor")
     assert w.record()["outcome"] == "gave_up"
+
+
+def test_a_post_refused_before_it_was_sent_is_retried_not_resolved(w):
+    # Codex round 5: transport_busy starts no request: never "posting", never unresolved
+    w.issues.fail_post = [GitHubError("transport_busy", retryable=True)]
+    started(w)
+    doc = w.record()
+    assert doc["state"] == "none"
+    assert w.issues.posts == []
+    w.after_retry()
+    w.tick()
+    assert len(w.issues.posts) == 1
+    assert w.record()["state"] == "posted"
+
+
+# --------------------------------------------------------------------------- Codex round 5: skew
+
+
+class Skewed:
+    """A node's clock ``offset`` seconds off the world's."""
+
+    def __init__(self, clock, offset: float) -> None:
+        self.clock, self.offset = clock, timedelta(seconds=offset)
+
+    def __call__(self):
+        return self.clock() + self.offset
+
+
+def test_the_writer_lease_covers_the_call_deadline_and_the_clock_skew():
+    from culture_rules.node.status_board import MAX_CLOCK_SKEW_S, WRITER_LEASE
+
+    assert WRITER_LEASE.total_seconds() >= 2 * (CALL_DEADLINE_S + MAX_CLOCK_SKEW_S)
+
+
+def test_an_expired_lease_is_taken_only_after_the_skew_bound(w):
+    from culture_rules.node.status_board import MAX_CLOCK_SKEW_S, WRITER_LEASE
+
+    started(w)  # process one holds the lease until T0 + WRITER_LEASE
+    b = w.new_board(process="two")
+    w.clock.advance(WRITER_LEASE.total_seconds() + 1)  # expired by our clock...
+    assert b.tick(lambda actor, repo, until: w.issues, "spark") == 0  # ...not past the skew
+    agent_done(w)
+    w.clock.advance(MAX_CLOCK_SKEW_S)
+    assert b.tick(lambda actor, repo, until: w.issues, "spark") == 1
+
+
+@pytest.mark.parametrize("ahead", [25, 61])
+def test_a_writer_on_a_host_ahead_never_overwrites_the_old_writers_call(w, ahead):
+    """Codex's scenario: the actor moves to a host whose clock is ahead. While the old
+    writer's last call is in flight (for its whole deadline), the new host takes no lease;
+    it takes over only once the old lease is over everywhere, and then writes last."""
+    started(w)
+    thor = StatusBoard(w.store, clock=Skewed(w.clock, ahead), known=lambda: ())
+    thor._boot = "thor"
+    agent_done(w)
+    w.later()
+    attempts = []
+
+    def moved_while_in_flight():
+        w.store.put("actors", {**APP_ACTOR, "machine": "thor"})
+        w.clock.advance(CALL_DEADLINE_S)  # the call takes its whole deadline
+        set_run(w.store, status="failed")
+        w.finish(w.run())
+        attempts.append(thor.tick(lambda actor, repo, until: w.issues, "thor"))
+
+    w.issues.on_edit = moved_while_in_flight
+    w.tick()
+    assert attempts == [0]  # the new host wrote nothing during the old call
+    for _ in range(40):
+        w.clock.advance(5)
+        thor.tick(lambda actor, repo, until: w.issues, "thor")
+    assert w.shown().startswith(HANDED_BACK)  # the newest body is the last one written
+    assert w.record()["outcome"] == "delivered"
