@@ -159,6 +159,28 @@ class FinalGate:
 
 def final_gate(run: Mapping[str, Any]) -> FinalGate:
     """The gate state ``run`` (a finished fix run) ended on, from the store (module doc)."""
+    loop, body, gate = _gate_loop(run)
+    placement = gate.get("placement")
+    if isinstance(placement, Mapping) and placement.get("actor"):
+        raise LineageError("bad_config", "the gate must be the actor-less built-in gate")
+    i = _final_iteration(run, loop)
+    gate_state = step_state(run, f"{loop['id']}[{i}]/{gate['id']}")
+    if not gate_state or gate_state.get("status") != "succeeded":
+        raise LineageError("gate_missing", "the fix run's last gate did not succeed")
+    return FinalGate(
+        parent=str(loop["id"]),
+        iteration=i,
+        gate_id=str(gate["id"]),
+        state=gate_state,
+        body={str(b.get("id")): b for b in body},
+    )
+
+
+def _gate_loop(
+    run: Mapping[str, Any],
+) -> tuple[Mapping[str, Any], list[Mapping[str, Any]], Mapping[str, Any]]:
+    """The pinned workflow's one ``retry_until`` loop holding a built-in gate: the loop, its
+    body and that gate, else ``bad_config`` (no such loop, or more than one loop or gate)."""
     loops = []
     for step in _definition(run).get("steps") or ():
         if not isinstance(step, Mapping) or step.get("kind") != "retry_until":
@@ -170,9 +192,11 @@ def final_gate(run: Mapping[str, Any]) -> FinalGate:
     if len(loops) != 1 or len(loops[0][2]) != 1:
         raise LineageError("bad_config", "the fix run has not exactly one gate in one loop")
     loop, body, (gate,) = loops[0]
-    placement = gate.get("placement")
-    if isinstance(placement, Mapping) and placement.get("actor"):
-        raise LineageError("bad_config", "the gate must be the actor-less built-in gate")
+    return loop, body, gate
+
+
+def _final_iteration(run: Mapping[str, Any], loop: Mapping[str, Any]) -> int:
+    """The iteration the fix loop succeeded on, else ``gate_missing``."""
     state = step_state(run, str(loop.get("id")))
     if (
         not state
@@ -180,17 +204,7 @@ def final_gate(run: Mapping[str, Any]) -> FinalGate:
         or not isinstance(state.get("iteration"), int)
     ):
         raise LineageError("gate_missing", "the fix run's loop did not succeed")
-    i = state["iteration"]
-    gate_state = step_state(run, f"{loop['id']}[{i}]/{gate['id']}")
-    if not gate_state or gate_state.get("status") != "succeeded":
-        raise LineageError("gate_missing", "the fix run's last gate did not succeed")
-    return FinalGate(
-        parent=str(loop["id"]),
-        iteration=i,
-        gate_id=str(gate["id"]),
-        state=gate_state,
-        body={str(b.get("id")): b for b in body},
-    )
+    return state["iteration"]
 
 
 def _live(doc: Mapping[str, Any] | None) -> bool:
