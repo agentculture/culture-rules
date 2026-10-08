@@ -1235,4 +1235,5 @@ def test_data_of_check_runs_and_workflow_runs():
     assert [data[k] for k in list(data)[6:]] == ["h", "b", [], None, "CI", "completed", "success"]
     for event, key in (("check_suite", "check_suite"), ("workflow_run", "workflow_run")):
         bare = gh._data(event, "completed", _base(**{key: "nope"}))
-        assert "head_sha" not in bare and len(bare) == 6
+        assert "head_sha" not in bare
+        assert len(bare) == 6

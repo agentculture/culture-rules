@@ -1353,7 +1353,8 @@ def test_arm_merges_missing_pr_facts_only_into_a_pending_record():
     # a settled record is returned as is, never filled
     store.update_if(SETTLE_COLLECTION, rid, {}, {"state": "emitted", "head_branch": None})
     rec = settler._arm(REPO, SHA, check_data())
-    assert rec["state"] == "emitted" and rec["head_branch"] is None
+    assert rec["state"] == "emitted"
+    assert rec["head_branch"] is None
 
 
 def test_arm_lost_cas_is_retried_then_merges():
@@ -1390,4 +1391,5 @@ def test_arm_contention_without_a_winner_returns_the_stored_record():
     store.update_if = always_lose
     rec = settler._arm(REPO, SHA, check_data())
     assert calls == [rid] * 10
-    assert rec["pr_numbers"] == [] and rec["head_branch"] is None
+    assert rec["pr_numbers"] == []
+    assert rec["head_branch"] is None

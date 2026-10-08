@@ -529,7 +529,8 @@ def test_put_variable_cas_expects_the_versions_as_read_and_bounds_contention(fre
     assert len(seen) == 50
     expected, changes, upsert = seen[0]
     assert upsert is False
-    assert expected["latest_version"] == 1 and [v["value"] for v in expected["versions"]] == [1]
+    assert expected["latest_version"] == 1
+    assert [v["value"] for v in expected["versions"]] == [1]
     assert [k for k in changes] == [
         "name",
         "value",

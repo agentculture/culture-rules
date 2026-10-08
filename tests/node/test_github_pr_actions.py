@@ -1013,7 +1013,8 @@ def test_an_app_without_installation_id_is_misconfigured_before_any_network(pem,
         push_params(world), "k", DEADLINE, context=ctx()
     )
     assert (res.outcome, res.error, res.retryable) == ("failed", "actor_misconfigured", False)
-    assert fake.calls == [] and rec.calls == []
+    assert fake.calls == []
+    assert rec.calls == []
 
 
 def test_an_unknown_actor_is_actor_not_found(pem, world):
@@ -1049,7 +1050,8 @@ def test_a_remote_already_at_the_commit_completes_without_pushing(pem, world):
         push_params(world), "k", DEADLINE, context=ctx()
     )
     assert res.outcome == "completed", res.error
-    assert res.output["pushed"] is False and res.output["already"] is True
+    assert res.output["pushed"] is False
+    assert res.output["already"] is True
     assert "push" not in rec.verbs()
 
 

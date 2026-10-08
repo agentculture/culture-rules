@@ -54,7 +54,9 @@ def test_a_started_intent_is_returned_and_marked_started():
     assert store.get(RULE_FIRES, "i1")["status"] == "started"
     ((rule_id, kw),) = ex.calls
     assert rule_id == "r1"
-    assert kw["run_id"] == "run-1" and kw["upstream"] is None and kw["variables"] == {}
+    assert kw["run_id"] == "run-1"
+    assert kw["upstream"] is None
+    assert kw["variables"] == {}
 
 
 def test_a_duplicate_start_is_marked_started_but_not_returned():

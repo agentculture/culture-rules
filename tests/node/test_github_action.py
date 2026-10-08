@@ -375,7 +375,8 @@ def test_pr_head_port_without_the_actor_is_actor_not_found(pem):
     port._apps["gh-app"] = ((), object())
     res = _ask(port)
     assert (res.outcome, res.error, res.retryable) == ("failed", "actor_not_found", False)
-    assert "gh-app" not in port._apps and fake.calls == []
+    assert "gh-app" not in port._apps
+    assert fake.calls == []
 
 
 @pytest.mark.parametrize("conn", [{"app_id": ""}, {"installation_id": None}])
@@ -441,4 +442,5 @@ def test_pr_head_port_http_error_keeps_its_code_and_retryability(pem):
     assert (res.error, res.retryable) == ("http_500", True)
     port, _ = _head_port(pem, fake=HeadFake(status=404))
     res = _ask(port)
-    assert res.outcome == "failed" and res.retryable is False
+    assert res.outcome == "failed"
+    assert res.retryable is False

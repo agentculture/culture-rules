@@ -278,5 +278,6 @@ def test_the_callback_route_schema_is_patched_once_and_cached(world):
     assert app.openapi() is first
     op = first["paths"]["/bridge-invocations/{invocation_id}/events"]["post"]
     assert op["security"] == []
-    assert "403" not in op["responses"] and "422" not in op["responses"]
+    assert "403" not in op["responses"]
+    assert "422" not in op["responses"]
     assert set(op["responses"]) == {"200", "400", "401", "404", "410", "413"}

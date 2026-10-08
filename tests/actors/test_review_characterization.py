@@ -101,8 +101,9 @@ def test_a_consumed_pointer_refuses_and_an_unknown_state_is_kept():
     store = MemoryStore()
     record_review(store, "run-1", iteration=0, attempt=1, fields=_fields())
     store.update_if(CURRENT_COLLECTION, "run-1", {}, {"state": "consumed"})
+    fields = _fields()
     with pytest.raises(ReviewError) as exc:
-        record_review(store, "run-1", iteration=3, attempt=1, fields=_fields())
+        record_review(store, "run-1", iteration=3, attempt=1, fields=fields)
     assert exc.value.code == "review_consumed"
     assert str(exc.value) == (
         "review_consumed: a push already used this run's approval; recorded only"
@@ -154,8 +155,9 @@ def test_sustained_pointer_contention_raises_review_invalid():
         return _Lost()
 
     store.update_if = always_lose
+    fields = _fields()
     with pytest.raises(ReviewError) as exc:
-        record_review(store, "run-1", iteration=1, attempt=1, fields=_fields())
+        record_review(store, "run-1", iteration=1, attempt=1, fields=fields)
     assert exc.value.code == "review_invalid"
     assert "sustained contention" in str(exc.value)
     assert calls == [CURRENT_COLLECTION] * 16
@@ -321,6 +323,7 @@ def test_the_facts_gathered_before_a_refusal_are_kept():
     _actors(store, {"reviewer": False})
     facts: dict = {}
     port = ReviewVerdictPort(store)
+    run = _run()
     with pytest.raises(ReviewError):
-        port._review(_run(), "loop", 0, NAMES, lambda role: _review_state(), G, facts)
+        port._review(run, "loop", 0, NAMES, lambda role: _review_state(), G, facts)
     assert facts == {"reviewer_actor": "rev", "implementer_actor": "impl"}

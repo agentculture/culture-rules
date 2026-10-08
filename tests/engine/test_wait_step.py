@@ -716,7 +716,8 @@ def test_a_refused_lookup_that_itself_ran_past_the_queue_bound_fails_queue_timeo
     assert "(1 refusals)" in st["error"]["message"]
     timeouts = [h for h in doc["history"] if h["event"] == QUEUE_TIMEOUT]
     assert len(timeouts) == 1
-    assert timeouts[0]["step"] == "w" and timeouts[0]["at"] == clock().isoformat()
+    assert timeouts[0]["step"] == "w"
+    assert timeouts[0]["at"] == clock().isoformat()
     assert [h["event"] for h in doc["history"]].count("wait_blocked") == 1
     assert doc["status"] == "failed"
 
@@ -730,5 +731,6 @@ def test_a_malformed_deadline_raises_before_an_expired_lookup_queue_fails_the_wa
 
     monkeypatch.setattr(runs, "_lookup_queue_expired", lambda plan, st, now: {"code": "x"})
     doc = {"steps": [{"key": "w", "status": runs.SLEEPING, "deadline": "not-a-date"}]}
+    now = runs._parse("2026-10-08T00:00:00+00:00")
     with pytest.raises(ValueError, match="not-a-date"):
-        runs._due_timers(None, doc, runs._parse("2026-10-08T00:00:00+00:00"))
+        runs._due_timers(None, doc, now)
