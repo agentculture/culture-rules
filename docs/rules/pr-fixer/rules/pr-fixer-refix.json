@@ -6,9 +6,10 @@
     "only_at_chain_end": true,
     "params": {
       "actor": "github-app",
-      "body": "PR fixer built and gated {{ workflow.outputs.commit_sha }} (gate {{ workflow.outputs.verdict }}) but nothing reviews it (pr-fixer-review-commit is disabled): not pushed.\n\n{{ workflow.outputs.summary }}\n\nRun: https://rules.culture.dev/api/runs/{{ run.id }}",
+      "body": "PR fixer built and gated {{ workflow.outputs.commit_sha }} (gate {{ workflow.outputs.verdict }}) but nothing reviews it (pr-fixer-review-commit is disabled): not pushed.\n\nRun: https://rules.culture.dev/api/runs/{{ run.id }}",
       "number": "trigger.data.number",
-      "repo": "trigger.data.repository"
+      "repo": "trigger.data.repository",
+      "status": true
     },
     "retry": null,
     "timeout_s": null
@@ -78,7 +79,8 @@
       "actor": "github-app",
       "body": "PR fixer handed back ({{ run.error.code }}): {{ run.error.message }}\n\nRun: https://rules.culture.dev/api/runs/{{ run.id }}",
       "number": "trigger.data.number",
-      "repo": "trigger.data.repository"
+      "repo": "trigger.data.repository",
+      "status": true
     },
     "retry": null,
     "timeout_s": null

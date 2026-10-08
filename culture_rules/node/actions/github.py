@@ -18,6 +18,15 @@ post's outcome is unknown), posting nothing. Only a post GitHub refused with a c
 failure (5xx, 408, a network error, the deadline, an unreadable answer) may follow a
 created comment, so the claim stays (state ``unknown``, with the error): at most once, never
 twice. A node that dies between the claim and the post leaves the claim too.
+
+``status`` (optional bool, d26): ``true`` writes the body as the **final section of the
+run's chain's status comment** (:mod:`culture_rules.node.fixer_status`) - the comment is
+edited, or posted when the chain has none - instead of posting another comment. It needs
+the run to be in a chain whose rules opt in (this action, or the rule's other one, with
+``status: true``) on the same repository and PR; otherwise it posts a plain comment. It
+cannot be combined with ``once_key``. The same port runs the node's status reporter
+(:meth:`GitHubCommentPort.status_tick`), so the reporter's edits and the final one share
+one lock.
 """
 
 from __future__ import annotations
@@ -26,6 +35,7 @@ import hashlib
 import logging
 import re
 import threading
+import time
 from collections.abc import Callable, Mapping
 from concurrent.futures import Future
 from concurrent.futures import TimeoutError as FutureTimeout
@@ -53,6 +63,13 @@ def _refused(code: str | None) -> bool:
     created. A 5xx, 408, network error, deadline or unreadable answer may follow a created
     comment, so it is not a refusal."""
     return isinstance(code, str) and _REFUSED.fullmatch(code) is not None
+
+
+def _options_ok(once: Any, status: Any) -> bool:
+    """``once_key`` is absent or a non-empty string, ``status`` a bool, and not both."""
+    if once is not None and (not isinstance(once, str) or not once):
+        return False
+    return isinstance(status, bool) and not (status and once is not None)
 
 
 RESOLVE_WORKERS = 2
@@ -84,6 +101,8 @@ class GitHubCommentPort:
         transport: Transport | None = None,
         secrets: Callable[[str], str] | None = None,
         api_base: str = DEFAULT_API_BASE,
+        clock: Callable[[], datetime] | None = None,
+        sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self._store = store
         self._transport = transport
@@ -91,6 +110,9 @@ class GitHubCommentPort:
         self._api_base = api_base
         self._apps: dict[str, tuple[tuple[Any, ...], GitHubApp]] = {}
         self._resolve_slots = threading.BoundedSemaphore(RESOLVE_WORKERS)
+        self._clock = clock
+        self._sleep = sleep
+        self._board: Any = None
 
     def _connection(self, actor_id: str | None) -> Mapping[str, Any] | None:
         if not actor_id:
@@ -200,15 +222,67 @@ class GitHubCommentPort:
             number, body = int(input["number"]), str(input["body"])
         except (KeyError, TypeError, ValueError):
             return InvocationResult.failed("bad_input", retryable=False)
-        once = input.get("once_key")
-        if once is not None and (not isinstance(once, str) or not once):
+        once, status = input.get("once_key"), input.get("status", False)
+        if not _options_ok(once, status):
             return InvocationResult.failed("bad_input", retryable=False)
         app = self._app(str(actor_id), conn, allowed)
         if app is None:
             return InvocationResult.failed("secret_unavailable", retryable=False)
+        if status:
+            return self._post_status(app, repo, number, body, context)
         if once is None:
             return self._post(app, repo, number, body)
         return self._post_once(app, repo, number, body, once)
+
+    # ------------------------------------------------------------------ d26: status comment
+
+    @property
+    def status_board(self) -> Any:
+        """The :class:`~culture_rules.node.fixer_status.StatusBoard` of this port (lazily)."""
+        if self._board is None:
+            from culture_rules.node.fixer_status import StatusBoard  # noqa: PLC0415
+
+            self._board = StatusBoard(self._store, clock=self._clock, sleep=self._sleep)
+        return self._board
+
+    def _status_app(self, actor_id: str, repo: str) -> GitHubApp:
+        """The App ``actor_id`` serving ``repo`` (raises :class:`GitHubError` otherwise)."""
+        conn = self._connection(actor_id)
+        if conn is None:
+            raise GitHubError("actor_not_found")
+        allowed, refusal = repo_refusal(conn, repo)
+        if refusal:
+            raise GitHubError(refusal)
+        app = self._app(actor_id, conn, allowed)
+        if app is None:
+            raise GitHubError("secret_unavailable")
+        return app
+
+    def _serves(self, actor_id: str, host: str) -> bool:
+        """Whether a node on ``host`` acts as App ``actor_id``: an enabled actor placed on
+        that machine, or on none (where its key resolves)."""
+        doc = self._store.get(ACTORS_COLLECTION, actor_id)
+        if not doc or doc.get("deleted_at") or doc.get("enabled") is False:
+            return False
+        machine = doc.get("machine")
+        return not machine or machine == host
+
+    def status_tick(self, host: str) -> int:
+        """The node's status reporter (:meth:`StatusBoard.tick`) for the App actors on
+        ``host``; returns how many status comments it posted or edited."""
+        return self.status_board.tick(self._status_app, lambda actor: self._serves(actor, host))
+
+    def _post_status(
+        self, app: GitHubApp, repo: str, number: int, body: str, context: InvocationContext
+    ) -> InvocationResult:
+        """``status: true`` (module doc): the body as the chain's final status section."""
+        run = self._store.get("runs", context.run_id) if context.run_id else None
+        out = self.status_board.finish(self._status_app, run, body, where=(repo, number))
+        if out is None:  # not a status chain on this PR: a plain comment, as before
+            return self._post(app, repo, number, body)
+        if "error" in out:
+            return InvocationResult.failed(out["error"], retryable=out["retryable"])
+        return InvocationResult.completed(out)
 
     @staticmethod
     def _post(app: GitHubApp, repo: str, number: int, body: str) -> InvocationResult:

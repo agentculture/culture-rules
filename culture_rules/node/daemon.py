@@ -48,7 +48,12 @@ A :class:`Node` on host ``H`` does, every cycle (:meth:`Node.run_once`):
    asks each bridge this node can reach (an actor on this machine, or on none) to cancel
    the jobs whose step attempt is over (:func:`~culture_rules.actors.agent.cancel_orphans`,
    d21 phase 2), so an orphaned agent session never holds a bridge's seat;
-7. **report** - optional: posts finished runs this node started through
+7. **status** - the PR fixer's live status comments (d26,
+   :mod:`culture_rules.node.fixer_status`): for the App actors on this machine (or on
+   none), posts a fix chain's status comment once its first run is past its hold and edits
+   it as its stages move; it runs through the ``github.comment`` port, which also writes a
+   chain's final section, so the two never interleave;
+8. **report** - optional: posts finished runs this node started through
    :meth:`~culture_rules.engine.reports.RunReporter.observe`.
 
 Each stage is isolated: an exception in one is logged, recorded on the cycle report and in
@@ -115,6 +120,7 @@ from culture_rules.node.checks_settle import (
     ChecksSettler,
 )
 from culture_rules.node.firing import RULE_FIRES, RuleFiring
+from culture_rules.node.fixer_status import STATUS_COLLECTION
 from culture_rules.node.probe_trigger import PROBE_STATE, CommandRunner, ProbeTrigger
 from culture_rules.node.schedule import Scheduler
 from culture_rules.ops.logs import log_context
@@ -147,6 +153,7 @@ NODE_COLLECTIONS = (
     RECOVERY_COLLECTION,
     LATE_COLLECTION,
     ONCE_COLLECTION,
+    STATUS_COLLECTION,
     RULE_ATTEMPT_BUDGETS,
     RUN_COMPLETIONS,
     RUN_EVENT_CONSUMPTION,
@@ -206,6 +213,7 @@ class CycleReport:
     redelivered: int = 0
     transitions: int = 0
     reported: int = 0
+    status_edits: int = 0
     errors: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -260,6 +268,8 @@ class Node:
         options = options or NodeOptions()
         self._beat_options = heartbeat_options or HeartbeatOptions()
         self.router = ActorRouter(store, ports=actors, factories=adapters, clock=self._clock)
+        comment_port = (actors or {}).get("action:github.comment")
+        self._status_tick = getattr(comment_port, "status_tick", None)
         self.executor = Executor(
             store,
             host,
@@ -438,6 +448,8 @@ class Node:
             self._stage(report, self._redeliver, report)
             self._stage(report, self._drive, report)
             self._stage(report, self._cancel_orphans, report)
+            if self._status_tick is not None:
+                self._stage(report, self._fixer_status, report)
             if self._reporter is not None and self._report_token is not None:
                 self._stage(report, self._report, report)
         return report
@@ -510,6 +522,10 @@ class Node:
         this node can reach (:func:`~culture_rules.actors.agent.cancel_orphans`)."""
         del report
         agent.cancel_orphans(self._store, self._bridge_adapter, clock=self._clock)
+
+    def _fixer_status(self, report: CycleReport) -> None:
+        """Post and edit the PR fixer's status comments (d26) for the App actors here."""
+        report.status_edits += self._status_tick(self.host)
 
     def _bridge_adapter(self, actor_id: Any) -> Any:
         """The adapter of ``actor_id`` when this node may call its bridge: the actor lives

@@ -542,3 +542,50 @@ def test_a_once_key_that_is_not_a_non_empty_string_is_bad_input(pem):
     res = port.invoke({**params(), "once_key": ""}, "k", DEADLINE, context=ctx())
     assert res.error == "bad_input"
     assert _comments(fake) == 0
+
+
+# --------------------------------------------------------------------------- d26: status
+
+
+@pytest.mark.parametrize("status", ["yes", 1, None])
+def test_status_must_be_a_boolean(pem, status):
+    fake = Fake()
+    port, _ = setup(pem, fake)
+    res = port.invoke({**params(), "status": status}, "k", DEADLINE, context=ctx())
+    assert res.error == "bad_input"
+    assert fake.calls == []
+
+
+def test_status_and_once_key_do_not_combine(pem):
+    fake = Fake()
+    port, _ = setup(pem, fake)
+    given = {**params(), "status": True, "once_key": "k1"}
+    res = port.invoke(given, "k", DEADLINE, context=ctx())
+    assert res.error == "bad_input"
+    assert fake.calls == []
+
+
+def test_status_outside_a_status_chain_posts_a_plain_comment(pem):
+    fake = Fake()
+    port, _ = setup(pem, fake)  # run "r" does not exist: no chain to write into
+    res = port.invoke({**params(), "status": True}, "k", DEADLINE, context=ctx())
+    assert res.outcome == "completed"
+    assert dict(res.output) == {"comment_id": 9, "url": "https://x/9"}
+    assert fake.calls[-1].endswith("/repos/acme/widgets/issues/3/comments")
+
+
+def test_status_false_is_an_ordinary_comment(pem):
+    fake = Fake()
+    port, _ = setup(pem, fake)
+    res = port.invoke({**params(), "status": False}, "k", DEADLINE, context=ctx())
+    assert res.outcome == "completed"
+
+
+def test_the_reporter_acts_only_for_the_app_actors_on_its_host(pem):
+    port, _ = setup(pem, Fake(), doc={**actor_doc(), "machine": "spark"})
+    assert port._serves("gh-app", "spark") is True
+    assert port._serves("gh-app", "spark2") is False
+    assert port._serves("missing", "spark") is False
+    unplaced, _ = setup(pem, Fake())
+    assert unplaced._serves("gh-app", "anywhere") is True
+    assert unplaced.status_tick("spark") == 0  # no runs: nothing to post
