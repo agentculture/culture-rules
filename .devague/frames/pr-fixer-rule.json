@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-05T20:43:33Z",
-  "updated": "2026-10-07T21:02:39Z",
+  "updated": "2026-10-08T09:25:23Z",
   "claims": [
     {
       "id": "c1",
@@ -1229,5 +1229,330 @@
       "status": "proposed"
     }
   ],
-  "obligations": []
+  "obligations": [
+    {
+      "id": "o1",
+      "claim_id": "c1",
+      "seam": "pr-fixer rules + workflow end to end",
+      "behavior": "A failing same-repo PR on the allow-list gets a fixer run that fixes, gates, pushes as the App, replies to trusted threads and comments; nothing ever merges",
+      "source_text": "A new PR in any AgentCulture repo is picked up by a fixer agent that drives it to green: SonarCloud gate, failing checks and unresolved review threads fixed on the PR branch, never merged",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o2",
+      "claim_id": "c2",
+      "seam": "GitHub webhook normalizer (/hooks/github)",
+      "behavior": "pull_request synchronize/ready_for_review and check_suite/workflow_run completed map to typed events whose data carries head_sha, head_branch, head_repo, base, draft and pr_author",
+      "source_text": "The GitHub webhook maps pull_request synchronize/ready_for_review and check_suite/workflow_run completed to typed events, and event data carries head SHA, head branch, head repo (for the fork skip), base, draft and PR author (not just sender)",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o3",
+      "claim_id": "c3",
+      "seam": "bridge agent actor + callback route",
+      "behavior": "A bridge agent step dispatches async for an arbitrary repo/head branch/head SHA, frees the worker on accept, and is completed by a callback that survives node restarts",
+      "source_text": "An async agent dispatch that targets an arbitrary repo+PR branch in an isolated worktree and reports completion back to the executor (not a sync step holding a worker)",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o4",
+      "claim_id": "c5",
+      "seam": "gate -> github.push (App) / hand-back loop",
+      "behavior": "The agent only commits locally; the engine gates the commit and either the App pushes it or the failure goes back to the agent as its next instruction",
+      "source_text": "The agent never pushes. It commits in its worktree; the engine runs the repo's tests on that commit and either pushes it to the PR head branch as the GitHub App, or hands the failure back to the agent for another attempt",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o5",
+      "claim_id": "c6",
+      "seam": "concurrency key + attempt budget (engine claims)",
+      "behavior": "One active fixer run per PR across all four rules, a per-PR attempt budget stops fix cycles, and the App's own synchronize does not reset the budget or fire",
+      "source_text": "At most one fixer run per PR at a time, and a per-PR attempt budget stops fix/test/push cycles; because the App pushes, its own synchronize events are skipped by the existing self_authored check",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o6",
+      "claim_id": "c7",
+      "seam": "agent environment on spark2 + engine-side replies",
+      "behavior": "The agent reads PR, check and Sonar state with read-only credentials and never writes to GitHub; thread replies and resolution are done by the engine as the App from the agent's threads_addressed",
+      "source_text": "The fix loop reuses the agent-side read tooling \u2014 devex pr read/await and the sonarclaude skill \u2014 in the PR worktree, with read-only access; the agent holds no GitHub write credential, and replies to and resolution of review threads are done by the engine as the App, from the agent's result",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o7",
+      "claim_id": "c8",
+      "seam": "action kinds + github.push git invocation",
+      "behavior": "No merge action exists and github.push never force-pushes (non-fast-forward refused); the checks-settled readiness logic replaces pr-upkeep",
+      "source_text": "The fixer never merges and never force-pushes; merging stays a human gate. It replaces culture-nodes' pr-upkeep lane (taken down), porting its Sonar/Qodo/failed-check readiness logic",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o8",
+      "claim_id": "c12",
+      "seam": "GitHub App permissions + push token minting",
+      "behavior": "The App has contents write, checks read and actions read (d5: kept read and write) and no Workflows permission; each push token is contents-write only",
+      "source_text": "The rules-culture-dev App gains Contents: read & write, Checks: read and Actions: read (workflow_run webhooks and failing job logs need it); it does not get Workflows permission; the org installation re-approves the new permissions (operator hand-turn)",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o9",
+      "claim_id": "c13",
+      "seam": "test gate builtin (code step) in the fix loop",
+      "behavior": "The gate runs the repo's declared setup/test on the agent's commit; pass -> push, fail -> output back to the agent, up to the attempt budget, then a hand-back comment and no push",
+      "source_text": "A test-gate step between the agent and the push: it runs the repo's test command on the agent's commit in the worktree; pass leads to an App push, fail returns the failing output to the agent, up to a per-PR attempt budget, after which the PR gets a comment and no push",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o10",
+      "claim_id": "c14",
+      "seam": "github.push action port",
+      "behavior": "github.push fast-forwards only the PR's own head branch as the App, never forces, and refuses when the remote head moved since the agent started",
+      "source_text": "A github.push action kind (as the App, non-force, to the PR head branch only, refusing when the remote head moved since the agent started)",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o11",
+      "claim_id": "c15",
+      "seam": "fixer rule conditions + github.push PR checks",
+      "behavior": "Fork PRs (head_repo != base_repo) get no fixer run, and github.push refuses a fork PR",
+      "source_text": "Fork PRs and PRs from non-members are skipped (condition on head repo == base repo); fixing them is a later decision",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o12",
+      "claim_id": "c16",
+      "seam": "fixer harness placement",
+      "behavior": "the fix step runs Qwen Code via the cultureagent qwen bridge (cortex) on spark2; no Codex fixer on spark2",
+      "source_text": "Fixer harness: Qwen Code (via the lifted qwen ACP bridge) pointed at the cortex model on spark2, or Codex via the codex bridge; the fixer runs on spark2",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o13",
+      "claim_id": "c19",
+      "seam": "end-to-end fixer flow",
+      "behavior": "a same-repo, non-draft PR on an allow-listed repo gets a fixer run without asking: trusted-author threads only reach the agent, the gate tests the commit, the App pushes, replies to threads, and comments with the run link",
+      "source_text": "A same-repo PR in any agentculture repo gets a fixer run on spark2 without anyone asking: the agent fixes Sonar issues, failing checks, and review comments from the operator, Qodo and a pre-approved list of users and apps (comments from anyone else are ignored) in a worktree; the engine's tests gate each commit, the App pushes passing commits, and the operator only reviews and merges",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o14",
+      "claim_id": "c21",
+      "seam": "success signal (live)",
+      "behavior": "on a seeded test PR the fixer reaches green within 30 min with <=3 App commits, Sonar gate passing and 0 unresolved threads; fork and draft PRs get 0 runs",
+      "source_text": "On a test PR seeded with one Sonar issue and one failing test, within 30 minutes the App pushes at most 3 commits, CI is green, the Sonar gate passes, and the PR has 0 unresolved threads; a fork PR and a draft PR get 0 fixer runs",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o15",
+      "claim_id": "c22",
+      "seam": "fire on settled checks",
+      "behavior": "the fixer fires on a PR head's settled check suites (not individual completions), with pull_request opened as the fallback for repos without CI; the agent never waits for CI",
+      "source_text": "The fixer fires on check_suite / workflow_run completed for a PR's head commit, with pull_request opened as the fallback for repos without CI; the agent never idles waiting for Sonar or CI",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o16",
+      "claim_id": "c23",
+      "seam": "trusted_authors allowlist",
+      "behavior": "trusted_authors is one shared variable; the comment rules' condition is an 'in' over the author with items vars.trusted_authors; workflow inputs map {$var: trusted_authors}; only trusted threads reach the agent",
+      "source_text": "The comment-author allowlist has two parts. It is defined once as the shared variable trusted_authors in the Variables tab (operator, Qodo's bot, pre-approved users and apps). The fixer rule's condition carries a field that references it: an 'in' predicate over the event author whose items field is set to vars.trusted_authors, picked in the condition editor. The rule's workflow inputs reference the same variable. A comment or review from a listed author fires a run, and only threads from listed authors are handed to the agent",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o17",
+      "claim_id": "c24",
+      "seam": "shared variables object",
+      "behavior": "shared variables are first-class, versioned named values with their own Variables editor tab, referenced via vars.<name>",
+      "source_text": "Shared variables are a new first-class, versioned object with their own fifth editor tab, Variables: named values (e.g. trusted_authors) defined once and referenced by any rule's condition and workflow inputs via vars.<name>; the fixer rule's allowlist is the first one",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o18",
+      "claim_id": "c25",
+      "seam": "vars resolution and surfaces",
+      "behavior": "the engine resolves vars.<name> in conditions and {$var} workflow inputs at firing time; API, CLI 'variables', MCP, openapi and explain catalog carry the verbs",
+      "source_text": "The engine resolves vars.<name> from the shared variable store when it evaluates a condition and maps workflow inputs; WorkflowRef.inputs accepts a {\"$var\": name} reference; the API, CLI noun group (variables), MCP tools, openapi.json and explain catalog gain the variable verbs",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o19",
+      "claim_id": "c26",
+      "seam": "five tabs",
+      "behavior": "the editor has exactly five tabs Rules|Workflows|Actors|Variables|Statistics and the four prompt files say so",
+      "source_text": "The 'exactly four primary tabs' constraint becomes five (Rules | Workflows | Actors | Variables | Statistics): CLAUDE.md, QWEN.md, AGENTS.override.md, AGENTS.colleague.md, the spec and the App.test tab-order test change together, and the design canvas gains the Variables tab",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o20",
+      "claim_id": "c27",
+      "seam": "checks settle",
+      "behavior": "one settled event per head SHA once all non-ignored suites complete (claude ignored by variable) or after a settle timeout; partial completions don't fire",
+      "source_text": "The fixer fires once per PR head SHA, when every check suite on that SHA has completed except those from apps in a shared ignored_check_apps variable (seeded with the 'claude' app, whose suite stays queued), or after a settle timeout; individual suite completions before that do not start a run",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o21",
+      "claim_id": "c28",
+      "seam": "self_authored scoping",
+      "behavior": "per d2: self_authored is set for every event type the App authors except check-completion types (suite_completed/workflow_completed), so checks on App-pushed SHAs still fire, bounded by the budget",
+      "source_text": "The self_authored skip applies to pull_request synchronize only; check_suite/workflow_run completions on an App-pushed SHA still fire the fixer (bounded by the attempt budget), so the agent sees whether its fix went green",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o22",
+      "claim_id": "c29",
+      "seam": "push token scope",
+      "behavior": "the push mints a fresh installation token per push, scoped to the one PR repo with contents:write only, used only in the push's git calls, never in argv or the agent/gate env",
+      "source_text": "The App installation token used for a push is minted per push, scoped to the single PR repository with contents:write only, held by the push step alone, and never placed in the agent's or the test gate's environment or worktree",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o23",
+      "claim_id": "c30",
+      "seam": "unprivileged run-as",
+      "behavior": "the agent and the test gate run PR code as the dedicated culture-fixer user with no grant secrets, App key, Sonar token or operator credentials in their env or home",
+      "source_text": "The agent and the test gate run PR code as a dedicated unprivileged Unix user on the fixer machine, with no grant secrets, App key, Sonar token or operator credentials in their environment or home",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o24",
+      "claim_id": "c31",
+      "seam": "gate diff guard",
+      "behavior": "a fixer commit touching protected paths, deleting/skipping tests or adding NOSONAR/noqa/type-ignore gets verdict guard and is handed back, never tested or pushed",
+      "source_text": "A diff guard in the gate rejects (and hands back) any fixer commit that touches protected paths or weakens checks: .github/workflows/**, sonar-project.properties, coverage or lint config, deleted or skipped tests, and new NOSONAR / noqa / type-ignore markers; the protected list is a shared variable",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o25",
+      "claim_id": "c32",
+      "seam": "github.review_reply action + threads_addressed",
+      "behavior": "github.review_reply posts a reply as the App and optionally resolves the verified thread; replies name the pushed commit per addressed thread",
+      "source_text": "A github.review_reply action kind posts a reply to a review thread and optionally resolves it, as the App; the fixer's result lists, per thread, the commit that addressed it",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o26",
+      "claim_id": "c33",
+      "seam": "draft condition + ready_for_review mapping",
+      "behavior": "draft PRs never fire a fixer rule; ready_for_review is mapped and makes the PR eligible",
+      "source_text": "Draft PRs get no fixer run; marking a PR ready for review (pull_request ready_for_review) makes it eligible",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o27",
+      "claim_id": "c34",
+      "seam": "variables capability fail-closed",
+      "behavior": "a variable-referencing rule is not evaluated on a node lacking the variables capability: no fire, recorded error; save path refuses while an old node is online (d7)",
+      "source_text": "A rule whose condition or inputs reference a shared variable is evaluated only by nodes that advertise variable support; on any other node it fails closed (no fire, recorded as an error), never evaluating the reference as missing",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o28",
+      "claim_id": "c35",
+      "seam": "variables API/store/editor",
+      "behavior": "only admins write variables; each write is a new version with author and time; Variables tab lists referencing rules",
+      "source_text": "Writing a shared variable requires the admin role, every write creates a new version with author and time, and the Variables tab shows which rules reference each variable",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o29",
+      "claim_id": "c36",
+      "seam": "containment: allow/deny lists, disable, stats lane, run link",
+      "behavior": "excluded repos get no runs; disabling stops new runs and in-flight runs never push; runs are on the fixer machine's Statistics lane and the PR comment links the run",
+      "source_text": "Containment: a repo listed in a shared fixer_excluded_repos variable gets no fixer runs; disabling the fixer rule stops new runs and lets in-flight runs finish without pushing; every fixer run appears on the fixer machine's Statistics lane and its PR comment links the run",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o30",
+      "claim_id": "c37",
+      "seam": "github.push fast-forward only",
+      "behavior": "fixer pushes are non-force fast-forwards of App-authored commits; history is never rewritten",
+      "source_text": "Fixer commits are ordinary fast-forward commits authored by the App, so any of them is undone with git revert; the fixer never rewrites history",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o31",
+      "claim_id": "c38",
+      "seam": "quiet wait step in the workflow",
+      "behavior": "the quiet period is a guarded wait step that runs first in the pr-fixer workflow (after checks settle); no no-fixer label exists",
+      "source_text": "The quiet period before a fixer run is a workflow wait step placed after the PR's pipelines have run; there is no no-fixer label for now",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o32",
+      "claim_id": "c39",
+      "seam": "repo culture.yaml gate section",
+      "behavior": "the gate reads the repo's own culture.yaml gate section (at the PR base commit, d14) as the test command",
+      "source_text": "Each repo declares its fixer test command in its culture.yaml, following the culture-agent-template / culture-rules standard",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o33",
+      "claim_id": "c40",
+      "seam": "wait step kind",
+      "behavior": "a wait step parks without a worker, survives restarts, and on resume checks a head guard; moved head ends the run superseded",
+      "source_text": "Workflows gain a wait step kind: it pauses the run for a duration (the quiet period) without holding a worker, persists across node restarts, and on resume checks a guard; if the PR head moved during the wait (someone pushed) the run ends without dispatching the agent, and the next checks-completed event starts a fresh one",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o34",
+      "claim_id": "c41",
+      "seam": "culture.yaml gate section / no_gate path",
+      "behavior": "a top-level gate section of setup/test argv lists is read; a repo without one gets a hand-back comment and never a push",
+      "source_text": "culture.yaml gains a top-level gate section with setup and test commands as argv lists (e.g. setup: [[uv, sync]], test: [[uv, run, pytest, -n, auto]]); culture-agent-template ships it so new repos inherit it, existing repos add it, and a repo without a gate section gets a comment from the fixer and never a push",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o35",
+      "claim_id": "c42",
+      "seam": "gate runs only declared argv",
+      "behavior": "the gate holds no default/inferred test command and runs exactly the declared argv without a shell",
+      "source_text": "The test command is configuration, not code: culture-rules holds no default, inferred or language-specific test command; the gate runs only the setup/test argv declared in the repo's culture.yaml gate section, and the standard values (uv sync, uv run pytest -n auto) live in culture-agent-template's culture.yaml as configuration",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o36",
+      "claim_id": "c43",
+      "seam": "run-link PR comment",
+      "behavior": "each push is announced by the App's own PR comment linking the run; no mesh message",
+      "source_text": "The author side of a fixer push is rules.culture.dev, as used today: the App's own PR comment announces each push; no separate mesh message to the PR's author agent",
+      "origin": "llm",
+      "status": "proposed"
+    }
+  ]
 }
