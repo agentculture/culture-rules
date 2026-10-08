@@ -317,6 +317,10 @@ the stage that ends a chain posts. `rules describe` adds
 `(only where its chain ends)` to the `Then` / `On failure` line, and the editor
 shows it as a checkbox on the action.
 
+A `github.comment` that also sets `status: true` (d26) writes its text as the
+final section of the chain's one live status comment instead of posting
+(`docs/operations/pr-fixer.md`, "The status comment").
+
 The decision is taken when the terminal step is dispatched. If the continuing
 rule is disabled between that moment and the evaluation of the run's event, the
 chain ends with no comment. The run's history still has it.

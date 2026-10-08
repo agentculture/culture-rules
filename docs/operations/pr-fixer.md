@@ -377,12 +377,15 @@ and the repository allow-list again. An operator who drops a repository from
   trigger rules and `pr-fixer-refix`. The review and publish stages are
   `counts_toward_budget: false`. A human push or green checks resets it.
 - **One comment per chain** (`only_at_chain_end: true` on every action and
-  `on_failure`). The stage that ends the chain posts it:
-  - a failed stage posts the hand-back,
+  `on_failure`), and since d26 it is the chain's **live status comment**
+  (`status: true`, see [The status comment](#the-status-comment-d26)). The
+  stage that ends the chain writes its final section:
+  - a failed stage writes the hand-back,
     `PR fixer handed back (<code>): <message>` with the run link;
-  - `publish-fix` posts the success comment with the pushed head;
-  - in review-only mode the review posts its verdict;
-  - a stage that something continues posts nothing (`chain_continues` on
+  - `publish-fix` writes the success line with the gate verdict and the
+    pushed head;
+  - in review-only mode the review writes its verdict and findings;
+  - a stage that something continues writes nothing (`chain_continues` on
     its run).
 - All inputs of the three workflows are optional. A stage whose inputs are
   missing still starts, fails inside and hands back, so a chain never ends
@@ -629,11 +632,154 @@ says so and lists nothing.
 `report-secrets` holds no trusted role: it never pushes or reviews, so
 nothing checks its digest.
 
+### The status comment (d26)
+
+**The fixer says that it works, on the PR, while it works.** Each fix chain
+keeps exactly one comment on the PR, posted by the App and edited live. The
+code is `culture_rules/node/fixer_status.py`; the text cleaners are
+`culture_rules/apps/public_text.py`.
+
+- **Opting in.** A chain writes a status comment when its rules' chain-end
+  `github.comment` (the action or `on_failure`) has `params.status: true`.
+  Every shipped fixer rule does; `pr-fixer-secrets` and
+  `pr-fixer-secrets-late` do not (the GitGuardian findings stay a separate
+  comment). `rules describe` reads `(as its chain's status comment)`.
+  `status` does not combine with `once_key`.
+- **The start.** The node on the App actor's machine (spark) looks at the
+  running runs every cycle. The first run of an opted-in chain that is past
+  its hold posts the comment: the `secrets` step (`gitguardian.hold`) has
+  succeeded, which also means the quiet period is over. A run superseded in
+  its quiet period, or stopped by the hold, never posts; its hand-back is the
+  chain's only comment, as before. The comment says what started the chain
+  (checks settled, a comment, a review or a review comment, with the author
+  and the head SHA), lists the stages and links the chain's first run.
+- **One per chain.** The comment is recorded in `fixer_status_comments`,
+  keyed by the chain's **root**: the run an external event started. A
+  review, a re-fix or a publish walks its verified `rules.run.succeeded`
+  links back to it (`culture_rules/actors/lineage.py`), so a re-fix reuses
+  the comment. The record is claimed by insert before the post: a chain
+  posts at most once. It is backed up with the run history. A new chain on
+  the same PR (a later settle or `/fix`) gets its own comment.
+- **Live edits.** The same node re-renders every open chain each cycle and
+  edits the comment (`PATCH /repos/{owner}/{repo}/issues/comments/{id}`) as
+  the stages move:
+
+  | Stage | Shows |
+  |---|---|
+  | Quiet period and GitGuardian hold | done once the hold passed |
+  | Agent (`qwen-fixer`) | working (try N of 3), done or failed |
+  | Test gate | the verdict (`pass`, `fail`, `guard`, `no_gate`) |
+  | Review (`codex-reviewer`) | working, then the verdict and the findings count |
+  | Push | the pushed head, nothing to push, or the failure code |
+
+  A re-fixed chain adds `Earlier: round 1: review request_changes (N
+  findings).` The comment also shows the agent's status notes (below), its
+  last activity, and the **fix summary** of the latest fix that succeeded
+  (the agent's own summary, which the chain-end texts no longer carry).
+- **Rate.** A stage change is edited in at once, but never sooner than 5 s
+  after the previous edit. A change of the notes alone is edited in at most
+  once a minute.
+- **The end.** The chain-end action writes its body (the hand-back, the
+  push line, the review-only verdict) as the comment's **final section**,
+  on top, and the stages show their final state. No other comment is
+  posted. If the chain has no status comment yet (it ended before the
+  node's cycle saw it), the action posts it, complete. A chain that ends
+  without a chain-end action (a run cancelled or superseded mid-chain, or
+  nothing continuing it for 15 minutes) is closed by the node with a short
+  final line. A final comment is never edited again.
+- **A deleted comment** (the edit answers 404) is posted again, and the
+  record follows the new comment.
+- **A failed post** is recorded (`state: unknown`) and not retried, so a
+  comment is never posted twice; the chain-end action then posts the final
+  comment.
+
+A pushed fix after one re-fix reads (ids and SHAs made up):
+
+```markdown
+PR fixer pushed the fix: gate pass, reviewed and approved, pushed True, head 8af19b226deb6f248a0c97edcf6046004775a33c.
+
+Run: https://rules.culture.dev/api/runs/<publish run id>
+
+**PR fixer status**
+
+Started by checks settled (failure) at `86499f6440d5`.
+
+- **done** Quiet period and GitGuardian hold
+- **done** Agent (qwen-fixer)
+- **verdict pass** Test gate
+- **approve (0 findings)** Review (codex-reviewer)
+- **pushed `8af19b226deb`** Push
+
+Earlier: round 1: review request_changes (1 finding).
+
+**Fix summary**
+
+made x 3
+
+Chain started with run: https://rules.culture.dev/api/runs/<first pr-fix run id>
+
+<!-- culture-rules:fixer-status <first pr-fix run id> -->
+```
+
+While the chain works, the first line reads `**PR fixer is working on this
+PR.** This comment is updated as it goes.`, and an **Agent notes** list
+follows the stages.
+
+#### The agent's status notes
+
+The agent may tell the PR what it is doing. A run whose rule writes a
+status comment gets this appended to its agent's instruction (never to a
+locked brief such as the reviewer's):
+
+```text
+Status notes (optional): to tell the people on this PR what you are doing, run the shell command `echo "STATUS: <one short sentence>"`. ...
+```
+
+The bridge reports each shell tool call in a `progress` callback whose note
+is the call's title (`tool_call: Shell: echo "STATUS: fixing the test"`).
+The engine (`record_bridge_event`) reads the text after `STATUS:`, cleans it
+and keeps the last 5 notes on the bridge invocation. Other progress notes
+(the agent's other tool calls) are never relayed. The agent never holds a
+GitHub token: the engine relays its notes as the App.
+
+**Known limit of the bridge as deployed (cultureagent 0.14.0, Qwen Code
+0.24.x).** Against an OpenAI-compatible streaming backend (cortex), Qwen
+Code first announces a tool call as a *preparing* `tool_call` without its
+arguments (title `Shell`), then sends the full title in a
+`tool_call_update`, which the bridge's qwen backend does not describe
+(`_PROGRESS_UPDATES` is `tool_call`, `current_mode_update`, `plan`). So the
+`STATUS:` text likely never reaches the engine until the bridge also
+describes a `tool_call_update` that carries a title. The engine side is
+ready either way; the change belongs to cultureagent.
+
+#### What is relayed, and how it is cleaned
+
+Everything from the agent or a bridge goes through
+`culture_rules/apps/public_text.py` before it reaches the comment:
+
+- **A note** (`clean_note`) is one line of at most 200 characters. HTML
+  tags, images, code spans and fences are removed. A markdown link keeps its
+  text, and a bare URL becomes `[link]`. `@name` gets a zero-width space, so
+  it never pings. A note that holds anything token-shaped is **dropped
+  whole** and never stored: GitHub tokens (`ghp_`, `gho_`, `ghs_`, `ghu_`,
+  `ghr_`, `github_pat_`), AWS keys (`AKIA`, `ASIA`), Slack and OpenAI-style
+  keys, private key blocks, and any long run of letters and digits that
+  looks random (a commit SHA or a run id does not).
+- **The fix summary** is cleaned the same way over several lines (at most
+  1200 characters), with token-shaped text replaced by `[redacted]` and bare
+  URLs dropped.
+- **The final section** (the chain-end action's rendered body, which can
+  quote the reviewer's findings) is cleaned the same way, but keeps bare
+  URLs (the run link). An unbalanced code fence is closed.
+- **Engine facts** (verdicts, codes, SHAs, run ids, the author's login, the
+  repository) are rendered only when they have their expected shape.
+
 ### Review-only mode
 
-Disable `pr-fixer-publish`. The review then ends the chain. Its action posts
+Disable `pr-fixer-publish`. The review then ends the chain. Its action writes
 `PR fixer review: <verdict> for <commit> (gate <verdict>); not pushed: nothing
-publishes it`, followed by the findings and the run link. Nothing is pushed.
+publishes it`, followed by the findings and the run link, into the chain's
+status comment. Nothing is pushed.
 The same comment ends a chain whose gate was `no_gate`, because
 `pr-fixer-publish` needs a passing gate.
 
@@ -869,6 +1015,28 @@ split".
    the rules that were on
    (`culture-rules rules enable <id> --apply`).
 
+### Rolling out the status comment (d26)
+
+d26 ships in 0.16.0. It changes no pinned workflow, so no digest changes;
+only the rules change (`status: true` and their texts).
+
+1. **Upgrade every node and the API** to the release. The API records the
+   agent's notes from the bridge callbacks; the node on spark (where the App
+   actor lives) posts and edits the status comments. A node of an older
+   release posts the chain-end text as a plain comment, as before.
+2. **Check the App can edit its comments.** Editing a comment needs the same
+   permission as posting one (`Issues: write` for an issue comment;
+   `Pull requests: write` covers comments on a PR). The App already posts
+   the chain-end comments, so nothing should change; a 403 on the first
+   edit shows in the node log (`status comment ... not edited: http_403`).
+3. **Import** the rules (`culture-rules rules import docs/rules/pr-fixer
+   --apply`). That sets every rule back to `enabled: false`; re-enable the
+   ones that were on (`culture-rules rules enable <id> --apply`).
+4. **Optional, for the agent's notes:** a cultureagent release whose qwen
+   backend describes a `tool_call_update` that carries a title (see
+   [The agent's status notes](#the-agents-status-notes)). Without it the
+   status comment works; it only shows no notes.
+
 ### Trusted actors (d20 round 3)
 
 Actor documents are outside the workflow digest, so their security-relevant
@@ -949,8 +1117,8 @@ and conclusion ≠ no_checks
 and not (gitguardian ∈ failed_apps)
 Run workflow pr-fix (5 steps)
 On spark2
-Then github.comment as github-app (only where its chain ends)
-On failure github.comment as github-app (only where its chain ends)
+Then github.comment as github-app (as its chain's status comment) (only where its chain ends)
+On failure github.comment as github-app (as its chain's status comment) (only where its chain ends)
 Key pr-fixer:{repository}#{number}, ≤3 attempts
 Disabled
 $ culture-rules rules describe pr-fixer-publish
@@ -962,8 +1130,8 @@ and repository ∈ vars.fixer_repos
 and not (repository ∈ vars.fixer_excluded_repos)
 Run workflow publish-fix (4 steps)
 On spark2
-Then github.comment as github-app (only where its chain ends)
-On failure github.comment as github-app (only where its chain ends)
+Then github.comment as github-app (as its chain's status comment) (only where its chain ends)
+On failure github.comment as github-app (as its chain's status comment) (only where its chain ends)
 Key pr-fixer:{repository}#{number}, outside the attempt budget
 Disabled
 $ culture-rules rules describe pr-fixer-secrets
