@@ -187,43 +187,72 @@ def _redrive_chains(store: Any, now: datetime) -> tuple[int, int]:
     redriven = review = 0
     stamp = utc_timestamp(now)
     for pid, deps in sorted(dependants.items()):
-        for run in store.find(RUNS_COLLECTION, {"rule_id": pid}):
-            if _finished_run(run) is None:
-                continue
-            event_id = run["trigger"]["id"]
-            if (
-                _undecided(store, deps, event_id)
-                and store.update_if(
-                    RUNS_COLLECTION, run["id"], {"rev": run.get("rev")}, {"redriven_at": stamp}
-                ).won
-            ):
-                redriven += 1
-                log.info("restore: re-driving the end of run %s", run["id"])
-        for record in store.find(RULE_DECISIONS, {"rule_id": pid}):
-            if _settled_skip(record) is None or not _undecided(store, deps, record["event_id"]):
-                continue
-            if not isinstance(record.get("trigger"), dict) and not _recover_trigger(
-                store, rules, pid, record["event_id"]
-            ):
-                review += 1
-                log.warning(
-                    "restore: decision %s (%s) has undecided dependants, no trigger snapshot "
-                    "and no run or intent holding it: left for an operator, not guessed",
-                    record["id"],
-                    record.get("reason"),
-                )
-                continue
-            if store.update_if(
-                RULE_DECISIONS, record["id"], {"reason": record["reason"]}, {"redriven_at": stamp}
-            ).won:
-                redriven += 1
-                log.info("restore: re-driving decision %s", record["id"])
-        for intent in store.find(RULE_FIRES, {"rule_id": pid, "status": "failed"}):
-            if _failed_intent(intent) is None or not _undecided(store, deps, intent["event_id"]):
-                continue
-            if store.update_if(
-                RULE_FIRES, intent["id"], {"status": "failed"}, {"redriven_at": stamp}
-            ).won:
-                redriven += 1
-                log.info("restore: re-driving failed intent %s", intent["id"])
+        redriven += _redrive_runs(store, pid, deps, stamp)
+        touched, held = _redrive_skips(store, rules, pid, deps, stamp)
+        redriven += touched
+        review += held
+        redriven += _redrive_intents(store, pid, deps, stamp)
     return redriven, review
+
+
+def _redrive_runs(store: Any, pid: str, deps: list[str], stamp: str) -> int:
+    """Touch rule ``pid``'s finished event-fired runs with an undecided dependant; answer
+    how many writes won."""
+    redriven = 0
+    for run in store.find(RUNS_COLLECTION, {"rule_id": pid}):
+        if _finished_run(run) is None:
+            continue
+        event_id = run["trigger"]["id"]
+        if (
+            _undecided(store, deps, event_id)
+            and store.update_if(
+                RUNS_COLLECTION, run["id"], {"rev": run.get("rev")}, {"redriven_at": stamp}
+            ).won
+        ):
+            redriven += 1
+            log.info("restore: re-driving the end of run %s", run["id"])
+    return redriven
+
+
+def _redrive_skips(
+    store: Any, rules: list[Any], pid: str, deps: list[str], stamp: str
+) -> tuple[int, int]:
+    """Touch rule ``pid``'s final skip decisions with an undecided dependant, unless no
+    trigger snapshot or durable record holds their event (left for review, never guessed);
+    answer (writes won, left for review)."""
+    redriven = review = 0
+    for record in store.find(RULE_DECISIONS, {"rule_id": pid}):
+        if _settled_skip(record) is None or not _undecided(store, deps, record["event_id"]):
+            continue
+        if not isinstance(record.get("trigger"), dict) and not _recover_trigger(
+            store, rules, pid, record["event_id"]
+        ):
+            review += 1
+            log.warning(
+                "restore: decision %s (%s) has undecided dependants, no trigger snapshot "
+                "and no run or intent holding it: left for an operator, not guessed",
+                record["id"],
+                record.get("reason"),
+            )
+            continue
+        if store.update_if(
+            RULE_DECISIONS, record["id"], {"reason": record["reason"]}, {"redriven_at": stamp}
+        ).won:
+            redriven += 1
+            log.info("restore: re-driving decision %s", record["id"])
+    return redriven, review
+
+
+def _redrive_intents(store: Any, pid: str, deps: list[str], stamp: str) -> int:
+    """Touch rule ``pid``'s failed firing intents with an undecided dependant; answer how
+    many writes won."""
+    redriven = 0
+    for intent in store.find(RULE_FIRES, {"rule_id": pid, "status": "failed"}):
+        if _failed_intent(intent) is None or not _undecided(store, deps, intent["event_id"]):
+            continue
+        if store.update_if(
+            RULE_FIRES, intent["id"], {"status": "failed"}, {"redriven_at": stamp}
+        ).won:
+            redriven += 1
+            log.info("restore: re-driving failed intent %s", intent["id"])
+    return redriven
