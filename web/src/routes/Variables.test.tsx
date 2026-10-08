@@ -133,8 +133,8 @@ describe("lossless editing", () => {
     expect(valueOfRows([1], [...rowsOf([1]), { id: 99, text: "" }])).toEqual({ value: [1], invalid: [] });
     const withNull = rowsOf([1, null]);
     withNull[1] = { ...withNull[1], text: "5" };
-    // [1, null] is not uniform (null is not a number): an edited null is text
-    expect(valueOfRows([1, null], withNull)).toEqual({ value: [1, "5"], invalid: [] });
+    // empty items (null, "") do not break a uniform list: an edited null in a number list is a number
+    expect(valueOfRows([1, null], withNull)).toEqual({ value: [1, 5], invalid: [] });
     const flag = rowsOf([true]);
     flag[0] = { ...flag[0], text: "false" };
     expect(valueOfRows([true], flag)).toEqual({ value: [false], invalid: [] });
@@ -150,6 +150,25 @@ describe("lossless editing", () => {
     expect(valueOfRows([], [{ id: 97, text: "false" }])).toEqual({ value: ["false"], invalid: [] });
     const bad = [...rowsOf([2]), { id: 96, text: "x" }, { id: 95, text: "" }, { id: 94, text: "4" }];
     expect(valueOfRows([2], bad)).toEqual({ value: [2, 4], invalid: [1] });
+  });
+
+  it("an edited empty item takes the list's type: a number, a boolean, or invalid", () => {
+    const nums = rowsOf([1, null, "", 2]);
+    nums[1] = { ...nums[1], text: "5" };
+    nums[2] = { ...nums[2], text: "6" };
+    expect(valueOfRows([1, null, "", 2], nums)).toEqual({ value: [1, 5, 6, 2], invalid: [] });
+    const notNum = rowsOf([1, null]);
+    notNum[1] = { ...notNum[1], text: "x" };
+    expect(valueOfRows([1, null], notNum)).toEqual({ value: [1], invalid: [1] });
+    const flags = rowsOf([true, null]);
+    flags[1] = { ...flags[1], text: "false" };
+    expect(valueOfRows([true, null], flags)).toEqual({ value: [true, false], invalid: [] });
+    const newRow = [...rowsOf([1, null]), { id: 93, text: "8" }];
+    expect(valueOfRows([1, null], newRow)).toEqual({ value: [1, null, 8], invalid: [] });
+    // a mixed list stays text
+    const mixed = rowsOf([1, "a", null]);
+    mixed[2] = { ...mixed[2], text: "5" };
+    expect(valueOfRows([1, "a", null], mixed)).toEqual({ value: [1, "a", "5"], invalid: [] });
   });
 
   it("a list saved without edits is unchanged, whatever its items", () => {
