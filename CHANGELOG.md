@@ -31,6 +31,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Replay previews evaluate shared variables like live matching.
 - Resumed action steps keep the placement derived from their actor.
+- SonarCloud code smells fixed on #17: composite test assertions split (S9073), one throwing call per `pytest.raises` (S5778), constants for duplicated literals (S1192), narrower or re-raised exception handlers (S5713, S5754), unused private parameters removed (S1172), a linear commit-identity regex (S8786), and the (i) About panel and canvas zoom group use native `<dialog>` / `<fieldset>` (S6819, S6848) with the same look and keyboard behaviour.
 
 ### Fixed
 
