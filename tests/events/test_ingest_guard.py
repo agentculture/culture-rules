@@ -148,3 +148,146 @@ def test_a_store_outage_still_propagates_and_the_cursor_stays():
         EventIngest(store, src, host="h").ingest()
     assert store.find(QUARANTINE_COLLECTION) == []
     assert store.load_cursor("ingest@h", f"source:{src.name}") is None
+
+
+# --------------------------------------------------------------------------- Codex round 6
+# Only KNOWN content errors are quarantined; anything else re-raises like an outage (the
+# batch is retried): stalling is recoverable, losing a valid event is not.
+
+
+class OperationFailure(Exception):  # pymongo.errors.OperationFailure, by name
+    def __init__(self, msg, code=None):
+        super().__init__(msg)
+        self.code = code
+
+
+class WriteConcernError(OperationFailure):
+    pass
+
+
+class InvalidDocument(Exception):  # bson.errors.InvalidDocument, by name
+    pass
+
+
+class InvalidStringData(Exception):
+    pass
+
+
+class DocumentTooLarge(InvalidDocument):
+    pass
+
+
+def _unicode_error():
+    return UnicodeEncodeError("utf-8", "\ud800", 0, 1, "surrogates not allowed")
+
+
+CONTENT_ERRORS = {
+    "InvalidDocument": lambda: InvalidDocument("key 'a\x00' must not contain NUL"),
+    "InvalidStringData": lambda: InvalidStringData("strings must be UTF-8"),
+    "DocumentTooLarge": lambda: DocumentTooLarge("BSON document too large"),
+    "OverflowError": lambda: OverflowError("MongoDB can only handle up to 8-byte ints"),
+    "RecursionError": lambda: RecursionError("maximum recursion depth exceeded"),
+    "UnicodeEncodeError": _unicode_error,
+}
+OTHER_ERRORS = {
+    "OperationFailure_112": lambda: OperationFailure("WriteConflict", code=112),
+    "WriteConcernError": lambda: WriteConcernError("waiting for replication timed out"),
+    "RuntimeError": lambda: RuntimeError("something unknown"),
+    "TransientStoreError": lambda: TransientStoreError("the replica set has no primary"),
+}
+
+
+class RaisingStore(MemoryStore):
+    """A store whose insert of event ``evt_1`` (bus) or of any event (webhook) raises."""
+
+    def __init__(self, make, only="evt_1"):
+        super().__init__()
+        self.make, self.only = make, only
+
+    def insert(self, collection, document):
+        if collection == EVENTS_COLLECTION and self.only in (None, document["id"]):
+            raise self.make()
+        return super().insert(collection, document)
+
+
+@pytest.mark.parametrize("name", sorted(CONTENT_ERRORS))
+def test_a_known_content_error_quarantines_and_the_batch_goes_on(name):
+    store = RaisingStore(CONTENT_ERRORS[name])
+    src = FakeEventSource([envelope(1), envelope(2)])
+    (result,) = EventIngest(store, src, host="h").ingest()
+    assert result.quarantined == 1
+    assert [e["id"] for e in store.find(EVENTS_COLLECTION)] == ["evt_2"]
+    [record] = store.find(QUARANTINE_COLLECTION)
+    assert name in record["reason"]
+    assert storable(record)
+    assert store.load_cursor("ingest@h", f"source:{src.name}") is not None
+
+
+@pytest.mark.parametrize("name", sorted(OTHER_ERRORS))
+def test_anything_else_re_raises_with_no_quarantine_and_no_cursor(name):
+    store = RaisingStore(OTHER_ERRORS[name])
+    src = FakeEventSource([envelope(1), envelope(2)])
+    with pytest.raises(Exception) as err:
+        EventIngest(store, src, host="h").ingest()
+    assert type(err.value).__name__ == OTHER_ERRORS[name]().__class__.__name__
+    assert store.find(QUARANTINE_COLLECTION) == []
+    assert store.load_cursor("ingest@h", f"source:{src.name}") is None
+
+
+def _hook(store):
+    actor = {"id": "a", "kind": "app", "params": {"surface": "github", "events": ["t.x"]}}
+    return sink(store, actor, "t.x", {"n": 1}, "d1", "alice")
+
+
+@pytest.mark.parametrize("name", sorted(CONTENT_ERRORS))
+def test_the_webhook_sink_quarantines_a_known_content_error(name):
+    store = RaisingStore(CONTENT_ERRORS[name], only=None)
+    assert _hook(store) == "quarantined"
+    assert len(store.find(QUARANTINE_COLLECTION)) == 1
+
+
+@pytest.mark.parametrize("name", sorted(OTHER_ERRORS))
+def test_the_webhook_sink_re_raises_anything_else(name):
+    store = RaisingStore(OTHER_ERRORS[name], only=None)
+    with pytest.raises(Exception) as err:
+        _hook(store)
+    assert type(err.value).__name__ == OTHER_ERRORS[name]().__class__.__name__
+    assert store.find(QUARANTINE_COLLECTION) == []
+
+
+def test_a_duplicate_event_is_counted_not_quarantined_nor_raised():
+    store = MemoryStore()
+    result = ingest(store, envelope(1), envelope(1))  # a redelivery
+    assert (result.inserted, result.duplicates, result.quarantined) == (1, 1, 0)
+    assert store.find(QUARANTINE_COLLECTION) == []
+
+
+def test_minimal_records_dedupe_on_the_full_id_not_its_preview():
+    store = MemoryStore()
+    long_a, long_b = "x" * 200 + "a" + "x" * 200, "x" * 200 + "b" + "x" * 200
+    for eid in (long_a, long_b):
+        assert quarantine(store, {"id": eid, "data": {"$k": 1}}, "same", host="h") is True
+    records = store.find(QUARANTINE_COLLECTION)
+    assert len(records) == 2
+
+
+class LosesTheFirstBump(MemoryStore):
+    """Another host bumps the record's count just before this host's first update_if."""
+
+    raced = False
+
+    def update_if(self, collection, id, expected, changes, *, upsert=False):
+        if collection == QUARANTINE_COLLECTION and not self.raced:
+            self.raced = True
+            current = self.get(collection, id)
+            super().update_if(collection, id, {}, {"count": current["count"] + 1})
+        return super().update_if(collection, id, expected, changes, upsert=upsert)
+
+
+def test_concurrent_minimal_quarantines_lose_no_count():
+    store = LosesTheFirstBump()
+    env = {"id": "e1", "data": {"$k": 1}}
+    quarantine(store, env, "r", host="h")
+    quarantine(store, env, "r", host="h")  # races the other host's bump, retries
+    [record] = store.find(QUARANTINE_COLLECTION)
+    assert record["count"] == 3

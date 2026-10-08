@@ -96,30 +96,25 @@ class TransientStoreError(StoreError):
     :func:`culture_rules.store.retry.run_transaction`)."""
 
 
-_OUTAGE_NAMES = frozenset(
-    (
-        "ConnectionFailure",
-        "AutoReconnect",
-        "NetworkTimeout",
-        "ServerSelectionTimeoutError",
-        "NotPrimaryError",
-        "ExecutionTimeout",
-        "WTimeoutError",
-        "WaitQueueTimeoutError",
-    )
-)
-"""Driver errors (by class name, so the core imports no driver) that mean the store is
-unreachable or overloaded, never that a document's content is bad."""
+_CONTENT_ERROR_NAMES = frozenset(("InvalidDocument", "InvalidStringData", "DocumentTooLarge"))
+"""Driver errors (by class name, so the core imports no driver) that mean the store refused
+a document's *content*: ``bson.errors.InvalidDocument`` / ``InvalidStringData`` and
+``pymongo.errors.DocumentTooLarge``."""
 
 
-def is_store_outage(exc: BaseException) -> bool:
-    """Whether ``exc`` is a store failure rather than a refusal of a document's content: any
-    :class:`StoreError`, or a driver error naming an outage (:data:`_OUTAGE_NAMES`). A
-    caller that guards against bad content re-raises these, so an outage keeps its
-    semantics (nothing is skipped, the work is retried)."""
+def is_content_error(exc: BaseException) -> bool:
+    """Whether ``exc`` is a *known* refusal of a document's content, which retrying cannot
+    fix: a driver content error (:data:`_CONTENT_ERROR_NAMES`), an int too large
+    (``OverflowError``), nesting too deep (``RecursionError``) or text that is not UTF-8
+    (``UnicodeError``). Anything else - a :class:`StoreError`, ``OperationFailure`` (a write
+    conflict), ``WriteConcernError``, an unknown error - is not: a caller that guards
+    against bad content re-raises it, so the work is retried rather than a valid document
+    being skipped. Stalling is recoverable; losing a document is not."""
     if isinstance(exc, StoreError):
+        return False
+    if isinstance(exc, OverflowError | RecursionError | UnicodeError):
         return True
-    return any(cls.__name__ in _OUTAGE_NAMES for cls in type(exc).__mro__)
+    return any(cls.__name__ in _CONTENT_ERROR_NAMES for cls in type(exc).__mro__)
 
 
 class VersionSkewError(StoreError):

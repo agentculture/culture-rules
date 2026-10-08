@@ -52,7 +52,7 @@ from culture_rules.events.ingest import (
     quarantine,
     quarantine_failure,
 )
-from culture_rules.store.port import DuplicateKeyError, StoragePort, is_store_outage
+from culture_rules.store.port import DuplicateKeyError, StoragePort, is_content_error
 
 __all__ = [
     "ACCEPTED",
@@ -193,9 +193,9 @@ def sink(
     try:
         return _record(store, view, type, data, delivery_id, author)
     except Exception as exc:
-        # never raise on the payload's content (a store outage still propagates)
-        if is_store_outage(exc):
-            raise
+        # a known refusal of the payload's content is quarantined; anything else raises
+        if not is_content_error(exc):
+            raise  # not a known content refusal: GitHub redelivers, nothing is dropped
         quarantine_failure(store, {**refused, "source": f"app://{actor_id}"}, exc, host=HOOK_HOST)
         return _finish(store, actor_id, type, QUARANTINED, surface)
 

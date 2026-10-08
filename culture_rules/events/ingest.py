@@ -24,8 +24,10 @@ signed 64-bit) is refused up front (:func:`~culture_rules.events.emit.reserved_r
 its quarantine record keeps only a bounded, ASCII summary. Anything else the content makes
 raise while validating, copying, storing or quarantining is caught per envelope and recorded
 as a minimal, always-storable quarantine record (:func:`quarantine_failure`), and the batch
-goes on. A store outage (:func:`~culture_rules.store.port.is_store_outage`) still
-propagates: the cursor is not saved and the batch is drained again.
+goes on - but only for a *known* content error
+(:func:`~culture_rules.store.port.is_content_error`). Anything else (a store outage, a write
+conflict, an unknown error) propagates: the cursor is not saved and the batch is drained
+again, so a valid event is never dropped.
 
 Nothing in culture-rules updates or deletes a stored event; a redelivered
 envelope with the same id - even with different content - never rewrites it.
@@ -56,7 +58,7 @@ from culture_rules.store.port import (
     Document,
     DuplicateKeyError,
     StoragePort,
-    is_store_outage,
+    is_content_error,
 )
 from culture_rules.store.versioning import utc_timestamp
 
@@ -177,6 +179,14 @@ def _ascii(value: Any, limit: int = QUARANTINE_MAX_FIELD) -> str:
     return ascii(text)[:limit]
 
 
+def _identity(value: Any) -> str:
+    """``value`` (an envelope's id, or the id itself) in full as ASCII, for hashing: a
+    string whole; anything else through the bounded repr."""
+    if isinstance(value, Mapping):
+        value = value.get("id")
+    return ascii(value) if isinstance(value, str) else _ascii(value, 4 * QUARANTINE_MAX_FIELD)
+
+
 def _field(envelope: Any, name: str) -> str | None:
     value = envelope.get(name) if isinstance(envelope, Mapping) else None
     return None if value is None else _ascii(value)
@@ -190,7 +200,9 @@ def _quarantine_minimal(
     envelope itself. One per (id, reason), a repeat bumps its count."""
     summary = _ascii(envelope, 4 * QUARANTINE_MAX_FIELD)
     envelope_id, why = _field(envelope, "id"), _ascii(reason)
-    doc_id = "q_" + hashlib.sha256(f"{envelope_id}|{why}".encode("ascii")).hexdigest()[:32]
+    # dedupe on the FULL id and reason (the renderings above are bounded for display only)
+    key = f"{_identity(envelope)}|{_identity(reason)}".encode("ascii")
+    doc_id = "q_" + hashlib.sha256(key).hexdigest()[:32]
     seen, expires = utc_timestamp(now), now + QUARANTINE_RETENTION
     doc = {
         "id": doc_id,
@@ -207,24 +219,30 @@ def _quarantine_minimal(
         "sha256": hashlib.sha256(summary.encode("ascii")).hexdigest(),
         "preview": summary[:QUARANTINE_MAX_FIELD],
     }
-    try:
-        store.insert(QUARANTINE_COLLECTION, doc)
-    except DuplicateKeyError:
-        current = store.get(QUARANTINE_COLLECTION, doc_id) or {}
-        n = current.get("count", 1)
-        changes = {"count": n + 1, "last_seen": seen, "expires_at": expires}
-        store.update_if(QUARANTINE_COLLECTION, doc_id, {"count": n}, changes)
-        return False
-    log.warning("quarantined event %s: %s", envelope_id, why)
-    return True
+    for _ in range(_QUARANTINE_RETRIES):
+        try:
+            store.insert(QUARANTINE_COLLECTION, doc)
+        except DuplicateKeyError:
+            current = store.get(QUARANTINE_COLLECTION, doc_id)
+            if current is None:
+                continue  # expired meanwhile: insert again
+            n = current.get("count", 1)
+            changes = {"count": n + 1, "last_seen": seen, "expires_at": expires}
+            if store.update_if(QUARANTINE_COLLECTION, doc_id, {"count": n}, changes).won:
+                return False
+            continue  # another host bumped it first: count this one on top
+        log.warning("quarantined event %s: %s", envelope_id, why)
+        return True
+    return False  # contention: the refusal is still refused, only not counted
 
 
 def quarantine_failure(
     store: Any, envelope: Any, exc: BaseException, *, host: str, at: datetime | None = None
 ) -> bool:
     """Record an envelope whose content made validating, copying, storing or quarantining
-    raise ``exc`` (not a store outage): the minimal record, its reason naming the error's
-    class. Never raises on the content; a store outage still propagates."""
+    raise ``exc``, a known content error
+    (:func:`~culture_rules.store.port.is_content_error`): the minimal record, its reason
+    naming the error's class."""
     reason = f"unstorable envelope content ({type(exc).__name__})"
     return _quarantine_minimal(store, envelope, reason, host=host, now=at or datetime.now(UTC))
 
@@ -407,13 +425,14 @@ class EventIngest:
         )
 
     def _guarded(self, envelope: Any) -> str:
-        """:meth:`_ingest_one`, never raising on the envelope's content: anything but a
-        store outage becomes a minimal quarantine record (module doc)."""
+        """:meth:`_ingest_one`: a known content error becomes a minimal quarantine record;
+        anything else re-raises, so the batch is retried and no valid event is dropped
+        (module doc)."""
         try:
             return self._ingest_one(envelope)
         except Exception as exc:
-            if is_store_outage(exc):
-                raise
+            if not is_content_error(exc):
+                raise  # not a known content refusal: retry the batch, never drop an event
             quarantine_failure(self.store, envelope, exc, host=self.host, at=self._clock())
             return "quarantined"
 

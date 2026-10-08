@@ -129,11 +129,16 @@ Three refusals guard these events:
   These are checked iteratively, before anything copies the envelope. The
   quarantine record of such a shape keeps only ASCII renderings of its id,
   type, source and reason, and the hash and preview of a bounded repr. It
-  never keeps the envelope. Anything else the content makes raise while
-  validating, copying, storing or quarantining gets the same minimal
-  record, with the error's class in the reason, and the batch goes on. So
-  ingest and the webhook sink never raise on content. A store outage still
-  propagates: the cursor is not saved and the batch is drained again.
+  never keeps the envelope. A store may also refuse an envelope's content
+  with a known content error: a driver `InvalidDocument`,
+  `InvalidStringData` or `DocumentTooLarge`, an `OverflowError`, a
+  `RecursionError` or a `UnicodeError`. That envelope gets the same minimal
+  record, with the error's class in the reason, and the batch goes on.
+  Records are deduplicated on the full id and reason. Anything else
+  propagates and the batch is drained again, with the cursor not saved: a
+  store outage, `OperationFailure` (a write conflict), `WriteConcernError`,
+  or an unknown error. A valid event is never dropped to keep the bus
+  moving. A duplicate envelope stays a counted duplicate.
 - **`run_event_unverified`.** Before a rule fires on a `rules.run.*` event,
   the node compares the whole envelope, extra keys included, with the
   envelope in the run's completion record. The id must also be the one the
