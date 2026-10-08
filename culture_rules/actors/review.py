@@ -377,39 +377,60 @@ def record_review(
     for _ in range(16):  # compare-and-set; a lost race re-reads
         cur = store.get(CURRENT_COLLECTION, run_id)
         if cur is None:
-            first = {"id": run_id, "run_id": run_id, "iteration": iteration, "attempt": attempt}
-            if clash:  # a clash is a conflict even before any pointer exists
-                first.update(record=None, state=CONFLICT, conflict=[record_id, record_id])
-            else:
-                first.update(record=record_id, state=CURRENT)
+            first = _first_pointer(run_id, record_id, order, clash)
             try:
                 store.insert(CURRENT_COLLECTION, first)
                 return record_id
             except DuplicateKeyError:
                 continue
-        state = cur.get("state")
-        if state == CONSUMED:
-            raise ReviewError(
-                "review_consumed", "a push already used this run's approval; recorded only"
-            )
-        if state != CURRENT:
-            return record_id  # conflict (or anything unknown) stays: fail closed
-        cur_order = (cur.get("iteration"), cur.get("attempt"))
-        same_try_other = cur_order == order and cur.get("record") != record_id
-        if (clash and cur_order <= order) or same_try_other:
-            changes = {
-                "record": None,
-                "state": CONFLICT,
-                "conflict": [cur.get("record"), record_id],
-            }
-        elif cur_order >= order:
-            return record_id  # stale, or this record is already current
-        else:
-            changes = {"record": record_id, "iteration": iteration, "attempt": attempt}
+        changes = _pointer_changes(cur, record_id, order, clash)  # raises review_consumed
+        if changes is None:
+            return record_id
         expected = {k: cur.get(k) for k in ("record", "iteration", "attempt", "state")}
         if store.update_if(CURRENT_COLLECTION, run_id, expected, changes).won:
             return record_id
     raise ReviewError("review_invalid", "could not record the review (sustained contention)")
+
+
+def _first_pointer(
+    run_id: str, record_id: str, order: tuple[int, int], clash: bool
+) -> dict[str, Any]:
+    """The run's first review pointer: to ``record_id``, or a conflict when it clashed."""
+    iteration, attempt = order
+    first = {"id": run_id, "run_id": run_id, "iteration": iteration, "attempt": attempt}
+    if clash:  # a clash is a conflict even before any pointer exists
+        first.update(record=None, state=CONFLICT, conflict=[record_id, record_id])
+    else:
+        first.update(record=record_id, state=CURRENT)
+    return first
+
+
+def _pointer_changes(
+    cur: Mapping[str, Any], record_id: str, order: tuple[int, int], clash: bool
+) -> dict[str, Any] | None:
+    """How the run's pointer ``cur`` moves for ``record_id`` at try ``order``: to a
+    conflict (a clash at or after the current try, or another record for the same try), to
+    this record (a newer try), or not at all (None: stale, already current, or a pointer
+    that is not ``current`` - fail closed). A consumed pointer raises ``review_consumed``."""
+    state = cur.get("state")
+    if state == CONSUMED:
+        raise ReviewError(
+            "review_consumed", "a push already used this run's approval; recorded only"
+        )
+    if state != CURRENT:
+        return None  # conflict (or anything unknown) stays: fail closed
+    cur_order = (cur.get("iteration"), cur.get("attempt"))
+    same_try_other = cur_order == order and cur.get("record") != record_id
+    if (clash and cur_order <= order) or same_try_other:
+        return {
+            "record": None,
+            "state": CONFLICT,
+            "conflict": [cur.get("record"), record_id],
+        }
+    if cur_order >= order:
+        return None  # stale, or this record is already current
+    iteration, attempt = order
+    return {"record": record_id, "iteration": iteration, "attempt": attempt}
 
 
 def current_review(
@@ -520,6 +541,75 @@ def _refusal_of(
 
 
 # --------------------------------------------------------------------------- the step
+
+
+def _step_names(config: Mapping[str, Any]) -> dict[str, Any]:
+    """The verdict step's ``gate_step`` and ``review_step`` (defaults ``gate``/``review``)."""
+    names = {
+        role: config.get(f"{role}_step", default)
+        for role, default in (("gate", "gate"), ("review", "review"))
+    }
+    if not all(isinstance(n, str) and n for n in names.values()):
+        raise ReviewError("bad_config", "gate_step and review_step must name steps")
+    return names
+
+
+def _gate_shas(g: Mapping[str, Any]) -> tuple[str, str]:
+    """The gate's ``commit_sha`` and ``start_sha``, each a full SHA, else review_invalid."""
+    commit, start = g.get("commit_sha"), g.get("start_sha")
+    if not (isinstance(commit, str) and _SHA_RE.match(commit)):
+        raise ReviewError("review_invalid", "the gate reported no commit_sha")
+    if not (isinstance(start, str) and _SHA_RE.match(start)):
+        raise ReviewError("review_invalid", "the gate reported no start_sha")
+    return commit, start
+
+
+def _given_the_gates_diff(given: Mapping[str, Any], g: Mapping[str, Any]) -> bool:
+    """Whether the reviewer was given the gate's commit, start and full diff."""
+    return not (
+        given.get("commit_sha") != g["commit_sha"]
+        or given.get("head_sha") != g["start_sha"]
+        or given.get("diff") != g.get("diff")
+        or given.get("diff_truncated") is not False
+    )
+
+
+def _builtin_gate_and_ai_review(gate_def: Mapping[str, Any], review_def: Mapping[str, Any]) -> bool:
+    """The gate step is the built-in ``gate`` code step (no actor placement) and the review
+    step an ``ai`` step."""
+    gate_placement = gate_def.get("placement") or {}
+    return not (
+        gate_def.get("kind") != "code"
+        or (gate_def.get("config") or {}).get("builtin") != "gate"
+        or (isinstance(gate_placement, Mapping) and gate_placement.get("actor"))
+        or review_def.get("kind") != "ai"
+    )
+
+
+def _read_only_reviewer(reviewer: Mapping[str, Any], review_def: Mapping[str, Any]) -> bool:
+    """The reviewer actor is read-only and the review step asks for no other sandbox."""
+    step_sandbox = ((review_def or {}).get("config") or {}).get("sandbox")
+    return not (
+        (reviewer.get("params") or {}).get("sandbox") != READ_ONLY
+        or step_sandbox not in (None, READ_ONLY)
+    )
+
+
+def _allowed_reviewer(reviewer: Mapping[str, Any], backend: str | None) -> bool:
+    """The actor is flagged ``params.reviewer: true`` and runs on a reviewer backend."""
+    return not (
+        (reviewer.get("params") or {}).get("reviewer") is not True
+        or backend not in REVIEWER_BACKENDS
+    )
+
+
+def _changed_checkout(r: Mapping[str, Any], start: str) -> bool:
+    """The reviewer's session wrote (commits, edits, a dirty tree) or moved its head."""
+    status = r.get("status")
+    changed = status in ("completed", "uncommitted")  # the bridge saw commits or edits
+    wrote = changed or bool(r.get("commits")) or r.get("dirty") is not False
+    moved = r.get("head_before") != start or r.get("head_after") != start
+    return wrote or moved
 
 
 def _state(run: Mapping[str, Any], key: str) -> dict[str, Any] | None:
@@ -728,18 +818,8 @@ class ReviewVerdictPort:
         where = _LOOP_KEY_RE.match(context.step_id or "")
         if where is None:
             raise ReviewError("bad_config", "the review step runs inside the fix loop")
-        config = context.config or {}
-        names = {
-            role: config.get(f"{role}_step", default)
-            for role, default in (("gate", "gate"), ("review", "review"))
-        }
-        if not all(isinstance(n, str) and n for n in names.values()):
-            raise ReviewError("bad_config", "gate_step and review_step must name steps")
-        run = self._store.get(_RUNS, context.run_id)
-        if not run:
-            raise ReviewError("run_not_found", context.run_id)
-        if workflow_refusal(run):
-            raise ReviewError("workflow_not_trusted", "the run's workflow is not a trusted one")
+        names = _step_names(context.config or {})
+        run = self._trusted_run(context.run_id)
         parent, i = where.group("parent"), int(where.group("i"))
         run_inputs = run.get("inputs") or {}
         facts.update(repo=run_inputs.get("repo"), number=run_inputs.get("number"))
@@ -763,11 +843,7 @@ class ReviewVerdictPort:
         if gate_verdict not in _PASSING_GATE:
             self._record(context, {**facts, "verdict": NOT_RUN})
             return out
-        commit, start = g.get("commit_sha"), g.get("start_sha")
-        if not (isinstance(commit, str) and _SHA_RE.match(commit)):
-            raise ReviewError("review_invalid", "the gate reported no commit_sha")
-        if not (isinstance(start, str) and _SHA_RE.match(start)):
-            raise ReviewError("review_invalid", "the gate reported no start_sha")
+        commit, start = _gate_shas(g)
         facts.update(commit_sha=commit, start_sha=start, base_sha=g.get("base_sha"))
         if start != run_inputs.get("head_sha"):
             raise ReviewError(
@@ -776,14 +852,7 @@ class ReviewVerdictPort:
             )
         task = input.get("task")
         if g.get("diff_truncated") is True:
-            findings = _unreviewable(g)
-            self._record(context, {**facts, "verdict": REQUEST_CHANGES, "findings": findings})
-            return {
-                **out,
-                "review": REQUEST_CHANGES,
-                "findings": findings,
-                "instruction": _changes_instruction(commit, findings, task),
-            }
+            return self._too_large(context, facts, out, g, commit, task)
         if g.get("diff_truncated") is not False or not isinstance(g.get("diff"), str):
             raise ReviewError("review_invalid", "the gate did not report the diff it verified")
         parsed = self._review(run, parent, i, names, state, g, facts)
@@ -799,6 +868,35 @@ class ReviewVerdictPort:
             ),
         }
 
+    def _trusted_run(self, run_id: str) -> Mapping[str, Any]:
+        """The verdict step's run, refused unless its workflow is a trusted one."""
+        run = self._store.get(_RUNS, run_id)
+        if not run:
+            raise ReviewError("run_not_found", run_id)
+        if workflow_refusal(run):
+            raise ReviewError("workflow_not_trusted", "the run's workflow is not a trusted one")
+        return run
+
+    def _too_large(
+        self,
+        context: InvocationContext,
+        facts: dict[str, Any],
+        out: dict[str, Any],
+        g: Mapping[str, Any],
+        commit: str,
+        task: Any,
+    ) -> dict[str, Any]:
+        """A diff too large (or not text) to review: never reviewed, recorded as a request
+        for a smaller, text-only fix."""
+        findings = _unreviewable(g)
+        self._record(context, {**facts, "verdict": REQUEST_CHANGES, "findings": findings})
+        return {
+            **out,
+            "review": REQUEST_CHANGES,
+            "findings": findings,
+            "instruction": _changes_instruction(commit, findings, task),
+        }
+
     def _review(
         self,
         run: Mapping[str, Any],
@@ -810,29 +908,18 @@ class ReviewVerdictPort:
         facts: dict[str, Any],
     ) -> dict[str, Any]:
         commit, start = g["commit_sha"], g["start_sha"]
-        review = state("review")
+        review = state("review")  # the review step's state in this try
         if not review or review.get("status") != "succeeded":
             raise ReviewError("review_missing", "the reviewer did not review this commit")
         given = review.get("inputs") or {}
-        if (
-            given.get("commit_sha") != commit
-            or given.get("head_sha") != start
-            or given.get("diff") != g.get("diff")
-            or given.get("diff_truncated") is not False
-        ):
+        if not _given_the_gates_diff(given, g):
             raise ReviewError(
                 "review_invalid", "the reviewer was not given the gate's commit and diff"
             )
         body = _body_steps(run, parent)
         review_def = body.get(names["review"]) or {}
         gate_def = body.get(names["gate"]) or {}
-        gate_placement = gate_def.get("placement") or {}
-        if (
-            gate_def.get("kind") != "code"
-            or (gate_def.get("config") or {}).get("builtin") != "gate"
-            or (isinstance(gate_placement, Mapping) and gate_placement.get("actor"))
-            or review_def.get("kind") != "ai"
-        ):
+        if not _builtin_gate_and_ai_review(gate_def, review_def):
             raise ReviewError(
                 "bad_config", "gate_step must be the built-in gate, review_step an ai step"
             )
@@ -842,17 +929,11 @@ class ReviewVerdictPort:
         facts.update(reviewer_actor=reviewer_id, implementer_actor=implementer_id)
         reviewer = self._actor(reviewer_id, "reviewer")
         implementer = self._actor(implementer_id, "implementer")
-        step_sandbox = ((review_def or {}).get("config") or {}).get("sandbox")
-        if (reviewer.get("params") or {}).get("sandbox") != READ_ONLY or step_sandbox not in (
-            None,
-            READ_ONLY,
-        ):
+        if not _read_only_reviewer(reviewer, review_def):
             raise ReviewError("reviewer_not_read_only", f"{reviewer_id} is not read-only")
         r = review.get("outputs") or {}
         reviewer_backend = _backend(r.get("backend"), reviewer.get("harness"))
-        if (reviewer.get("params") or {}).get("reviewer") is not True or (
-            reviewer_backend not in REVIEWER_BACKENDS
-        ):
+        if not _allowed_reviewer(reviewer, reviewer_backend):
             raise ReviewError(
                 "reviewer_not_allowed",
                 f"{reviewer_id} is not an actor flagged as a reviewer with backend in "
@@ -871,11 +952,20 @@ class ReviewVerdictPort:
                 f"{implementer_id}/{implementer_backend}",
             )
         self._locked_brief(run, review, reviewer_id)
+        return self._session_verdict(r, commit, start, reviewer_id, facts)
+
+    def _session_verdict(
+        self,
+        r: Mapping[str, Any],
+        commit: str,
+        start: str,
+        reviewer_id: str | None,
+        facts: dict[str, Any],
+    ) -> dict[str, Any]:
+        """The reviewer's read-only session (``r``, its outputs) parsed into the verdict:
+        it changed nothing, ended ``no_changes``, and the reviewer actor is trusted."""
         status = r.get("status")
-        changed = status in ("completed", "uncommitted")  # the bridge saw commits or edits
-        wrote = changed or bool(r.get("commits")) or r.get("dirty") is not False
-        moved = r.get("head_before") != start or r.get("head_after") != start
-        if wrote or moved:
+        if _changed_checkout(r, start):
             raise ReviewError("reviewer_not_read_only", "the reviewer changed its checkout")
         if status != NO_CHANGES:
             raise ReviewError("review_invalid", f"the reviewer's session ended {status!r}")
