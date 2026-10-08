@@ -284,3 +284,28 @@ def test_an_app_may_not_inject_the_engines_run_events_even_if_it_declares_them()
     a = actor(params={"surface": "github", "events": ["rules.run.succeeded"]})
     assert call(store, a, type="rules.run.succeeded") == "quarantined"
     assert store.find(EVENTS_COLLECTION) == []
+
+
+# ------------------------------------------------------- characterization (S3776 split)
+
+
+@pytest.mark.parametrize(
+    "a, type, delivery, message",
+    [
+        (actor(id=""), TYPE, "d1", "actor must be an app actor with an id and params.surface"),
+        (actor(id=None), TYPE, "d1", "actor must be an app actor with an id and params.surface"),
+        (actor(params={"surface": 1}), TYPE, "d1", "actor must be an app actor"),
+        (actor(), TYPE, None, "delivery_id must be a non-empty string"),
+        (actor(), "", "d1", "type must be a non-empty string"),
+        (actor(), None, "d1", "type must be a non-empty string"),
+        (actor(enabled=False), "", "", "delivery_id must be a non-empty string"),
+    ],
+)
+def test_each_invalid_input_raises_its_own_error_before_anything_is_written(
+    a, type, delivery, message
+):
+    store = MemoryStore()
+    with pytest.raises(ValueError, match=message):
+        sink(store, a, type, {}, delivery, "alice")
+    assert store.find(EVENTS_COLLECTION) == []
+    assert store.find(HOOK_STATS_COLLECTION) == []
