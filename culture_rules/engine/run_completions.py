@@ -243,19 +243,24 @@ def reopen_undelivered(store: Any, *, limit: int | None = None) -> int:
             break
         for record in page:
             last = record["id"]
-            event_id = record.get("event_id")
-            if not event_id or store.get(EVENTS_COLLECTION, event_id) is not None:
-                continue
-            moved = store.update_if(
-                RUN_COMPLETIONS,
-                record["id"],
-                {"emitted": True},
-                {"emitted": False, "blocked": False},
-            )
-            reopened += 1 if moved.won else 0
+            reopened += 1 if _reopen(store, record) else 0
             if limit is not None and reopened >= limit:
                 break
     return reopened
+
+
+def _reopen(store: Any, record: Mapping[str, Any]) -> bool:
+    """Re-open one emitted completion whose assigned event is not stored; True iff this
+    call moved it (a record without an event id, or whose event is present, is left)."""
+    event_id = record.get("event_id")
+    if not event_id or store.get(EVENTS_COLLECTION, event_id) is not None:
+        return False
+    return store.update_if(
+        RUN_COMPLETIONS,
+        record["id"],
+        {"emitted": True},
+        {"emitted": False, "blocked": False},
+    ).won
 
 
 def _page(store: Any, after: str | None) -> list[Mapping[str, Any]]:

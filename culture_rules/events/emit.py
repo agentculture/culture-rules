@@ -165,16 +165,7 @@ def derive_envelope(
     if cause is None:
         env["correlationId"] = env["id"]
     else:
-        wire = wire_envelope(cause)
-        cause_id = wire.get("id")
-        if not isinstance(cause_id, str) or not cause_id:
-            raise ValueError("the causing event has no id")
-        env["correlationId"] = wire.get("correlationId") or cause_id
-        env["causationId"] = cause_id
-        inherited_run = wire.get("runId")
-        if hops is None:
-            cause_hops = event_hops(wire)
-            hops = MAX_EVENT_HOPS + 1 if cause_hops is None else cause_hops + 1
+        inherited_run, hops = _inherit(env, cause, hops)
     if hops is not None:
         if isinstance(hops, bool) or not isinstance(hops, int) or hops < 0:
             raise ValueError("hops must be a non-negative int")
@@ -184,6 +175,24 @@ def derive_envelope(
         env["runId"] = run
     env["data"] = copy.deepcopy(dict(data or {}))
     return env
+
+
+def _inherit(
+    env: dict[str, Any], cause: Mapping[str, Any], hops: int | None
+) -> tuple[Any, int | None]:
+    """Stamp ``env``'s lineage from ``cause`` (correlation and causation ids); answer the
+    cause's run id and the hop count (``hops``, else the cause's plus one, or past
+    :data:`MAX_EVENT_HOPS` when the cause's is malformed)."""
+    wire = wire_envelope(cause)
+    cause_id = wire.get("id")
+    if not isinstance(cause_id, str) or not cause_id:
+        raise ValueError("the causing event has no id")
+    env["correlationId"] = wire.get("correlationId") or cause_id
+    env["causationId"] = cause_id
+    if hops is None:
+        cause_hops = event_hops(wire)
+        hops = MAX_EVENT_HOPS + 1 if cause_hops is None else cause_hops + 1
+    return wire.get("runId"), hops
 
 
 @runtime_checkable
