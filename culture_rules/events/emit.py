@@ -84,6 +84,12 @@ by the settler, from its internal source; reserved at external ingest (d25)."""
 SETTLED_ID_PREFIX = "settled_"
 LATE_ID_PREFIX = "late_"
 SETTLE_ID_PREFIXES = (SETTLED_ID_PREFIX, LATE_ID_PREFIX)
+TRIGGER_EVENT_KINDS = frozenset(("schedule", "probe"))
+"""Kinds and types of the events the scheduler and the probe stage write straight into the
+store (:mod:`culture_rules.node.schedule`, :mod:`culture_rules.node.probe_trigger`)."""
+TRIGGER_EVENT_SOURCES = ("culture-rules/schedule", "culture-rules/probe")
+TRIGGER_ID_PREFIXES = ("schedule/", "probe/")
+"""Their sources and deterministic id prefixes; all reserved at external ingest."""
 """The settler's deterministic event id prefixes; reserved so no copy can squat them (d25)."""
 
 
@@ -132,9 +138,11 @@ def reserved_reason(envelope: Mapping[str, Any]) -> str | None:
     """Why ``envelope`` may not enter the store from the bus or a webhook, or ``None``.
 
     The run-event namespace (ids ``runevt_*``, types ``rules.run.*``), the checks settler's
-    namespace (types :data:`SETTLE_TYPES`, ids ``settled_*`` / ``late_*``, d25) and the
-    internal sources are written only by the engine itself (deviation d21): a copy from
-    outside could otherwise fire a rule or squat a deterministic event id. An envelope
+    namespace (types :data:`SETTLE_TYPES`, ids ``settled_*`` / ``late_*``, d25), the
+    schedule and probe namespace (kind or type ``schedule`` / ``probe``, sources
+    :data:`TRIGGER_EVENT_SOURCES`, ids ``schedule/*`` / ``probe/*``) and the internal
+    sources are written only by the engine itself (deviation d21): a copy from outside
+    could otherwise fire a rule or squat a deterministic event id. An envelope
     carrying an ``envelope`` field is refused as ambiguous with a stored document, and one
     whose ``type`` is present but not a string as malformed. Never raises."""
     if "envelope" in envelope:
@@ -148,7 +156,7 @@ def reserved_reason(envelope: Mapping[str, Any]) -> str | None:
         return f"type {RUN_EVENT_TYPE_PREFIX}* is reserved for the engine's run events"
     if isinstance(source, str) and source.startswith(INTERNAL_SOURCE_PREFIX):
         return f"source {INTERNAL_SOURCE_PREFIX}* is reserved for the engine"
-    return _settle_reserved(eid, kind)
+    return _settle_reserved(eid, kind) or _trigger_reserved(envelope)
 
 
 def _settle_reserved(eid: Any, kind: Any) -> str | None:
@@ -157,6 +165,22 @@ def _settle_reserved(eid: Any, kind: Any) -> str | None:
         return f"type {kind} is reserved for the engine's checks settle"
     if isinstance(eid, str) and eid.startswith(SETTLE_ID_PREFIXES):
         return "id prefixes settled_ and late_ are reserved for the engine's checks settle"
+    return None
+
+
+def _trigger_reserved(envelope: Mapping[str, Any]) -> str | None:
+    """Why a schedule or probe event (kind, type, source or id) is refused, or ``None``:
+    only the engine writes them, so a copy could fire such a rule or squat a slot's id."""
+    kinds = {envelope.get("kind"), envelope.get("type")}
+    if any(isinstance(k, str) and k in TRIGGER_EVENT_KINDS for k in kinds):
+        return "kinds and types schedule and probe are reserved for the engine"
+    source, eid = envelope.get("source"), envelope.get("id")
+    if isinstance(source, str) and any(
+        source == s or source.startswith(s + "/") for s in TRIGGER_EVENT_SOURCES
+    ):
+        return "sources culture-rules/schedule and culture-rules/probe are reserved"
+    if isinstance(eid, str) and eid.startswith(TRIGGER_ID_PREFIXES):
+        return "id prefixes schedule/ and probe/ are reserved for the engine"
     return None
 
 
