@@ -1107,32 +1107,45 @@ def cancel_orphans(
     sent = 0
     for status in (_ACCEPTED, _EXPIRED):
         for doc in store.find(BRIDGE_INVOCATIONS, {"status": status}):
-            tries = doc.get("cancel_attempts") or 0
-            if not doc.get("invocation_id") or doc.get("cancel_sent_at"):
-                continue  # never accepted (nothing runs at the bridge), or already done
-            if tries >= CANCEL_ATTEMPTS:
-                continue
-            reason = _attempt_over(store, doc)
-            if reason is None:
-                continue
-            cancel = getattr(adapters(doc.get("actor")), "cancel", None)
-            if not callable(cancel):
-                continue
-            ok = bool(cancel(str(doc["invocation_id"])))
-            changes: dict[str, Any] = {"cancel_attempts": tries + 1, "cancel_reason": reason}
-            if ok:
-                changes["cancel_sent_at"] = now
-                sent += 1
-            elif tries + 1 >= CANCEL_ATTEMPTS:
-                _log.warning(
-                    "bridge job %s of %s not cancelled after %d tries (%s)",
-                    doc["invocation_id"],
-                    doc.get("actor"),
-                    tries + 1,
-                    reason,
-                )
-            store.update_if(BRIDGE_INVOCATIONS, doc["id"], {"status": status}, changes)
+            sent += 1 if _cancel_one(store, doc, status, adapters, now) else 0
     return sent
+
+
+def _cancel_one(
+    store: Any,
+    doc: Mapping[str, Any],
+    status: str,
+    adapters: Callable[[Any], Any],
+    now: str,
+) -> bool:
+    """Ask the bridge to cancel one orphaned job (:func:`cancel_orphans`) and record the
+    try; True iff the bridge acknowledged it. A job never accepted, already acknowledged,
+    out of tries, still the live attempt, or not this node's to call is left alone."""
+    tries = doc.get("cancel_attempts") or 0
+    if not doc.get("invocation_id") or doc.get("cancel_sent_at"):
+        return False  # never accepted (nothing runs at the bridge), or already done
+    if tries >= CANCEL_ATTEMPTS:
+        return False
+    reason = _attempt_over(store, doc)
+    if reason is None:
+        return False
+    cancel = getattr(adapters(doc.get("actor")), "cancel", None)
+    if not callable(cancel):
+        return False
+    ok = bool(cancel(str(doc["invocation_id"])))
+    changes: dict[str, Any] = {"cancel_attempts": tries + 1, "cancel_reason": reason}
+    if ok:
+        changes["cancel_sent_at"] = now
+    elif tries + 1 >= CANCEL_ATTEMPTS:
+        _log.warning(
+            "bridge job %s of %s not cancelled after %d tries (%s)",
+            doc["invocation_id"],
+            doc.get("actor"),
+            tries + 1,
+            reason,
+        )
+    store.update_if(BRIDGE_INVOCATIONS, doc["id"], {"status": status}, changes)
+    return ok
 
 
 # -- the callback endpoint ------------------------------------------------------------

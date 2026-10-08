@@ -307,11 +307,7 @@ def describe_rule(rule: Any, workflow: Any = None) -> list[dict[str, Any]]:
         out.append(_entry("Then", action_text(r["action"])))
     if r.get("on_failure"):
         out.append(_entry("On failure", action_text(r["on_failure"])))
-    key = [_key_text(str(r["concurrency_key"]))] if r.get("concurrency_key") else []
-    if r.get("max_attempts"):
-        key.append(f"≤{r['max_attempts']} attempts")
-    if key and r.get("counts_toward_budget") is False:
-        key.append("outside the attempt budget")
+    key = _key_words(r)
     if key:
         out.append(_entry("Key", ", ".join(key)))
     if r.get("exclusive_group"):
@@ -319,6 +315,17 @@ def describe_rule(rule: Any, workflow: Any = None) -> list[dict[str, Any]]:
     if r.get("enabled") is False:
         out.append(_entry("Disabled", ""))
     return out
+
+
+def _key_words(r: Mapping[str, Any]) -> list[str]:
+    """A rule's ``Key`` words: its concurrency key, attempt bound, and (d21) whether it is
+    outside the attempt budget; none without a key or bound."""
+    key = [_key_text(str(r["concurrency_key"]))] if r.get("concurrency_key") else []
+    if r.get("max_attempts"):
+        key.append(f"≤{r['max_attempts']} attempts")
+    if key and r.get("counts_toward_budget") is False:
+        key.append("outside the attempt budget")
+    return key
 
 
 # --------------------------------------------------------------------------- workflows
