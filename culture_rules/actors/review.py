@@ -1059,10 +1059,8 @@ class ReviewVerdictPort:
             )
         g = gate.get("outputs") or {}
         return self._verdict(
-            input,
             facts,
             g,
-            fix_run=run,
             expected_start=run_inputs.get("head_sha"),
             task=input.get("task"),
             reviewer=lambda: (
@@ -1104,10 +1102,8 @@ class ReviewVerdictPort:
         if not (isinstance(task, str) and task.strip()):
             task = fix_inputs.get("instruction")
         out = self._verdict(
-            input,
             facts,
             g,
-            fix_run=fix,
             expected_start=fix_inputs.get("head_sha"),
             task=task,
             reviewer=lambda: (
@@ -1150,11 +1146,9 @@ class ReviewVerdictPort:
 
     def _verdict(
         self,
-        input: Mapping[str, Any],
         facts: dict[str, Any],
         g: Mapping[str, Any],
         *,
-        fix_run: Mapping[str, Any],
         expected_start: Any,
         task: Any,
         reviewer: Any,

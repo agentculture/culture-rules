@@ -346,6 +346,7 @@ PROTOCOL_VERSION = "1.0"
 RESULT_SCHEMA = "cultureagent.bridge.result/v1"
 INVOCATIONS_PATH = "/v1/invocations"
 IDEMPOTENCY_HEADER = "Idempotency-Key"
+_JSON = "application/json"
 ADDRESS_FIELDS = ("repo", "head_branch", "head_sha")
 """Where the bridge checks out: taken from the step's inputs (or config), never the actor."""
 PASSTHROUGH_CONFIG = ("model", "sandbox", "mode")
@@ -892,7 +893,7 @@ class BridgeAgentActor:
             callback_url=self.callback_for(doc_id),
             callback_token=callback_token,
         )
-        headers = {"Content-Type": "application/json", IDEMPOTENCY_HEADER: attempt_id}
+        headers = {"Content-Type": _JSON, IDEMPOTENCY_HEADER: attempt_id}
         if auth:
             headers["Authorization"] = f"Bearer {auth}"
         data = json.dumps(body, default=str).encode("utf-8")
@@ -922,7 +923,7 @@ class BridgeAgentActor:
             auth = self._bearer()
         except Exception:  # noqa: BLE001 - no token here: not this node's to cancel
             return False
-        headers = {"Content-Type": "application/json"}
+        headers = {"Content-Type": _JSON}
         if auth:
             headers["Authorization"] = f"Bearer {auth}"
         url = self.bridge_url + CANCEL_PATH.format(id=urllib.parse.quote(invocation_id, safe=""))
@@ -1197,7 +1198,7 @@ class BridgeCallbackServer:
                 )
                 data = json.dumps(body).encode("utf-8")
                 self.send_response(code)
-                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Type", _JSON)
                 self.send_header("Content-Length", str(len(data)))
                 self.end_headers()
                 self.wfile.write(data)
