@@ -122,7 +122,7 @@ from culture_rules.node.firing import RULE_FIRES, RuleFiring
 from culture_rules.node.fixer_status import STATUS_COLLECTION
 from culture_rules.node.probe_trigger import PROBE_STATE, CommandRunner, ProbeTrigger
 from culture_rules.node.schedule import Scheduler
-from culture_rules.node.status_board import ensure_status_indexes
+from culture_rules.node.status_board import WRITERS_COLLECTION, ensure_status_indexes
 from culture_rules.ops.logs import log_context
 from culture_rules.store.port import Change, Document, StoragePort
 
@@ -154,6 +154,7 @@ NODE_COLLECTIONS = (
     LATE_COLLECTION,
     ONCE_COLLECTION,
     STATUS_COLLECTION,
+    WRITERS_COLLECTION,
     RULE_ATTEMPT_BUDGETS,
     RUN_COMPLETIONS,
     RUN_EVENT_CONSUMPTION,

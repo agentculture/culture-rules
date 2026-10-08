@@ -4,14 +4,20 @@
 owns the comment's record in :data:`~culture_rules.node.fixer_status.STATUS_COLLECTION` and
 every call to GitHub, from the node's ``status`` stage (:meth:`StatusBoard.tick`).
 
-**A single writer.** Only the node on the App actor's **placed machine** writes a chain's
-status comment. The record stores that machine when it is claimed, and a node reads only
-the records of its own machine; its status stage is single-threaded and works one record
-at a time. An App actor without a machine gets no live status comment: ``status: true``
-then falls back to a plain chain-end comment. Other writers (the API and the chain-end
-action through :meth:`StatusBoard.finish`) only change the record's *inputs*; every store
-write is a compare-and-set on the record's revision ``rev``, and a lost one stops the work
-at hand (the next tick re-reads).
+**A single writer.** One process writes an App actor's status comments: the holder of
+the actor's **writer lease** (:data:`WRITERS_COLLECTION`, one document per actor:
+``{owner: host:pid:boot-random, until}``), taken or renewed by compare-and-set at the start
+of every tick and again before every GitHub call. Only a node on the actor's **current**
+placed machine tries (:meth:`StatusBoard.served_actors`, read again every
+:data:`SERVED_CACHE`), and a lease another process holds is never taken before it expires.
+The lease (:data:`WRITER_LEASE`) outlasts a call's hard deadline (:data:`CALL_DEADLINE_S`,
+enforced by a watchdog) by a margin, so a call never outlives the lease it started under;
+moving the actor to another machine transfers the writer once the old lease expires.
+Records are selected by actor, so a move strands none. An App actor without a machine gets
+no live status comment: ``status: true`` then falls back to a plain chain-end comment.
+Other writers (the API and the chain-end action through :meth:`StatusBoard.finish`) only
+change the record's *inputs*; every store write is a compare-and-set on the record's
+revision ``rev``, and a lost one stops the work at hand (the next tick re-reads).
 
 **Desired state.** Each tick the writer renders the comment the store's inputs describe -
 the chain's runs, the agent's notes, the pending final text - and hashes it
@@ -46,16 +52,19 @@ HTTP requests - token exchanges and listing pages included, each charged before 
 call, resolving the App included, is bounded by :data:`CALL_DEADLINE_S` (connect, send and
 the whole read). Work the budget stops waits for the next tick without counting a failure.
 
-**Fair selection.** A tick reads its machine's pending records that are due
-(``retry_at`` up to now), ordered by ``retry_at``, page by page; a written or failed record
-moves to the back. :func:`ensure_status_indexes` declares the indexes; final records are
-dropped :data:`RETENTION` after they became final. Standard-library only.
+**Fair selection.** A tick reads each served actor's pending records that are due
+(``retry_at`` up to now), in (``retry_at``, id) order with a composite cursor, so records
+sharing a timestamp are never skipped; a written or failed record moves to the back (an
+unchanged one costs no request). :func:`ensure_status_indexes` declares the indexes; final
+records are dropped :data:`RETENTION` after they became final. Standard-library only.
 """
 
 from __future__ import annotations
 
 import contextlib
 import logging
+import os
+import secrets
 import threading
 import time
 from collections.abc import Callable, Iterable, Iterator, Mapping
@@ -94,6 +103,8 @@ __all__ = [
     "MAX_CALLS",
     "MAX_SECONDS",
     "RETENTION",
+    "WRITERS_COLLECTION",
+    "WRITER_LEASE",
     "StatusBoard",
     "ensure_status_indexes",
 ]
@@ -101,7 +112,15 @@ __all__ = [
 log = logging.getLogger(__name__)
 
 CALL_DEADLINE_S = 20.0
-"""The wall-clock bound of one GitHub call: resolving the App, connect, send, full read."""
+"""The hard wall-clock bound of one GitHub call: resolving the App, connect, send, full read
+(a watchdog in :mod:`culture_rules.apps.github` enforces it)."""
+WRITERS_COLLECTION = "fixer_status_writers"
+"""One document per App actor: the process that may write its status comments."""
+WRITER_LEASE = timedelta(seconds=60)
+"""How long a writer's lease lasts: longer than a call's hard deadline plus a margin, and
+renewed before every call, so a call never outlives the lease it started under."""
+SERVED_CACHE = timedelta(seconds=10)
+"""How long a node trusts its reading of which App actors are placed on it."""
 BACKOFF_BASE_S = 5.0
 BACKOFF_CAP = timedelta(minutes=15)
 """The longest wait between two tries after failures."""
@@ -123,6 +142,9 @@ QUERY_LIMIT = 200
 """Records read per page."""
 BUDGET_EXHAUSTED = "budget_exhausted"
 """The tick's request budget is spent: not a failure, the work waits for the next tick."""
+WRITER_LOST = "writer_lost"
+"""This process no longer holds the actor's writer lease: it stops, nothing is counted."""
+_WAITS = frozenset({BUDGET_EXHAUSTED, WRITER_LOST})
 
 _RUNS, _BRIDGE, _ACTORS, _ACTIVE = "runs", "bridge_invocations", "actors", "running"
 _ID, _REV, _STATE, _FINAL, _PENDING = "id", "rev", "state", "final", "pending"
@@ -145,7 +167,7 @@ def ensure_status_indexes(store: Any) -> None:
         return
     ensure(
         STATUS_COLLECTION,
-        [(_PENDING, 1), (_MACHINE, 1), (_RETRY_AT, 1), (_ID, 1)],
+        [(_PENDING, 1), (_ACTOR, 1), (_RETRY_AT, 1), (_ID, 1)],
         name="status_due",
     )
     ensure(STATUS_COLLECTION, [(_FINAL, 1), (_FINAL_AT, 1), (_ID, 1)], name="status_final")
@@ -195,10 +217,11 @@ class _Budget:
 
 @dataclass(frozen=True)
 class _Ctx:
-    """One tick's App lookup and request budget."""
+    """One tick's App lookup, request budget and host."""
 
     apps: Callable[[str, str, datetime], Any]
     budget: _Budget
+    host: str
 
 
 @dataclass(frozen=True)
@@ -234,6 +257,8 @@ class StatusBoard:
         self._lock = threading.RLock()
         self._roots: dict[str, str] = {}
         self._retained_at: datetime | None = None
+        self._boot = secrets.token_hex(6)
+        self._served: tuple[datetime, str, list[str]] | None = None
 
     def _known(self) -> frozenset[str]:
         if self._known_fn is not None:
@@ -348,44 +373,104 @@ class StatusBoard:
     # ------------------------------------------------------------------ the tick
 
     def tick(self, apps: Callable[[str, str, datetime], Any], host: str) -> int:
-        """The single writer's pass on ``host`` (module doc): claim the records of chains
-        whose first run is past its hold, then reconcile this machine's due records within
-        the tick's budget; return how many writes GitHub acknowledged. ``apps(actor_id,
-        repo, deadline)`` resolves the App within the deadline."""
-        ctx = _Ctx(apps, _Budget(self._max_calls, self._max_seconds, self._monotonic))
+        """The single writer's pass on ``host`` (module doc): for each App actor placed on
+        this machine whose writer lease this process holds, claim the records of chains
+        whose first run is past its hold, then reconcile the actor's due records within the
+        tick's budget; return how many writes GitHub acknowledged. ``apps(actor_id, repo,
+        deadline)`` resolves the App within the deadline."""
+        ctx = _Ctx(apps, _Budget(self._max_calls, self._max_seconds, self._monotonic), host)
         done = 0
         with self._lock:
+            actors = [a for a in self.served_actors(host) if self._hold(a, host)]
             for run in self._store.find(_RUNS, {"status": _ACTIVE}):
-                self._start(host, run)
-            for doc in self._due(host):
-                if ctx.budget.spent:
-                    break
-                done += self._reconcile(ctx, doc)
+                self._start(actors, run)
+            for actor in actors:
+                done += self._work(ctx, actor)
             self._retain()
         return done
 
-    def _due(self, host: str) -> Iterator[dict[str, Any]]:
-        """This machine's pending records whose ``retry_at`` has come, by ``retry_at``,
-        page by page (each is re-read when it is worked)."""
+    def _work(self, ctx: _Ctx, actor: str) -> int:
+        done = 0
+        for doc in self._due(actor):
+            if ctx.budget.spent:
+                break
+            done += self._reconcile(ctx, doc)
+        return done
+
+    def served_actors(self, host: str) -> list[str]:
+        """The App actors (surface ``github``) placed on ``host`` now; read again after
+        :data:`SERVED_CACHE`, so a moved actor is dropped within seconds."""
+        now = self._clock()
+        cached = self._served
+        if cached is not None and cached[1] == host and now - cached[0] < SERVED_CACHE:
+            return cached[2]
+        served = sorted(
+            str(doc[_ID])
+            for doc in self._store.find(_ACTORS, {_MACHINE: host})
+            if (doc.get("params") or {}).get("surface") == "github"
+            and not doc.get("deleted_at")
+            and doc.get("enabled") is not False
+        )
+        self._served = (now, host, served)
+        return served
+
+    def _owner(self, host: str) -> str:
+        return f"{host}:{os.getpid()}:{self._boot}"
+
+    def _hold(self, actor: str, host: str) -> bool:
+        """Take or renew this process's writer lease on ``actor`` by compare-and-set (a
+        lease another process holds and has not let expire is never taken)."""
+        now = self._clock()
+        owner = self._owner(host)
+        lease = {"owner": owner, "until": iso(now + WRITER_LEASE)}
+        doc = self._store.get(WRITERS_COLLECTION, actor)
+        if doc is None:
+            try:
+                self._store.insert(WRITERS_COLLECTION, {_ID: actor, _REV: 0, **lease})
+            except DuplicateKeyError:
+                return False
+            return True
+        expires = parse_time(doc.get("until"))
+        if doc.get("owner") != owner and expires is not None and expires > now:
+            return False
+        rev = doc.get(_REV, 0)
+        res = self._store.update_if(
+            WRITERS_COLLECTION, actor, {_REV: rev}, {**lease, _REV: rev + 1}
+        )
+        return bool(res.won)
+
+    def _due(self, actor: str) -> Iterator[dict[str, Any]]:
+        """The actor's pending records whose ``retry_at`` has come, in (``retry_at``, id)
+        order, paged with a composite cursor so records sharing a timestamp are never
+        skipped (each is re-read when it is worked)."""
+        where = {_PENDING: True, _ACTOR: actor}
         now = iso(self._clock())
-        cursor: str | None = None
+        at: str | None = None
+        last: str | None = None
         while True:
+            if at is not None:
+                ties = self._store.find_range(
+                    STATUS_COLLECTION,
+                    {**where, _RETRY_AT: at},
+                    field=_ID,
+                    after=last,
+                    limit=QUERY_LIMIT,
+                )
+                yield from ties
+                if len(ties) == QUERY_LIMIT:
+                    last = ties[-1][_ID]
+                    continue
             page = self._store.find_range(
-                STATUS_COLLECTION,
-                {_PENDING: True, _MACHINE: host},
-                field=_RETRY_AT,
-                upto=now,
-                after=cursor,
-                limit=QUERY_LIMIT,
+                STATUS_COLLECTION, where, field=_RETRY_AT, upto=now, after=at, limit=QUERY_LIMIT
             )
             yield from page
             if len(page) < QUERY_LIMIT:
                 return
-            cursor = page[-1][_RETRY_AT]
+            at, last = page[-1][_RETRY_AT], page[-1][_ID]
 
-    def _start(self, host: str, run: Mapping[str, Any]) -> None:
+    def _start(self, actors: list[str], run: Mapping[str, Any]) -> None:
         actor = run_status_actor(run)
-        if actor is None or self.machine_of(actor) != host or not past_hold(run):
+        if actor is None or actor not in actors or not past_hold(run):
             return
         root = self.root_of(run)
         if root is None or self._store.get(STATUS_COLLECTION, str(root.get(_ID))):
@@ -494,6 +579,8 @@ class StatusBoard:
 
         if ctx.budget.spent:
             return _Failure(BUDGET_EXHAUSTED, True, sent=False)
+        if not self._hold(str(doc.get(_ACTOR)), ctx.host):
+            return _Failure(WRITER_LOST, True, sent=False)
         until = self._clock() + timedelta(seconds=min(CALL_DEADLINE_S, ctx.budget.left_s()))
         try:
             app = ctx.apps(str(doc.get(_ACTOR)), str(doc.get(_REPO)), until)
@@ -503,7 +590,7 @@ class StatusBoard:
             with _bounded(app, until, ctx.budget):
                 return op(app)
         except GitHubError as exc:
-            return _Failure(exc.code, exc.retryable, sent=exc.code != BUDGET_EXHAUSTED)
+            return _Failure(exc.code, exc.retryable, sent=exc.code not in _WAITS)
 
     def _acked(self, desired: _Desired) -> dict[str, Any]:
         """The changes of an acknowledged write: the body GitHub has now."""
@@ -540,7 +627,7 @@ class StatusBoard:
     def _post_failed(self, doc: dict[str, Any], failure: _Failure) -> None:
         """Never sent, or refused (4xx): no comment exists, ``none``; ambiguous: the post
         may have landed, it stays ``posting`` and is resolved next tick."""
-        if failure.code == BUDGET_EXHAUSTED:
+        if failure.code in _WAITS:
             self._save(doc, {_STATE: NONE})
             return
         log.warning("status comment of chain %s not posted: %s", doc[_ID], failure.code)
@@ -552,7 +639,7 @@ class StatusBoard:
             return app.update_issue_comment(doc[_REPO], doc[_COMMENT_ID], desired.body)
 
         out = self._call(ctx, doc, edit)
-        if isinstance(out, _Failure) and out.code == BUDGET_EXHAUSTED:
+        if isinstance(out, _Failure) and out.code in _WAITS:
             return 0
         if isinstance(out, _Failure) and out.code == "http_404":
             log.info("status comment of chain %s was deleted: posting it again", doc[_ID])
@@ -589,7 +676,7 @@ class StatusBoard:
             return app.list_issue_comments(doc[_REPO], doc[_NUMBER]), app.app_id
 
         out = self._call(ctx, doc, listing)
-        if isinstance(out, _Failure) and out.code == BUDGET_EXHAUSTED:
+        if isinstance(out, _Failure) and out.code in _WAITS:
             return 0
         if isinstance(out, _Failure):
             self._fail(doc, out, {})

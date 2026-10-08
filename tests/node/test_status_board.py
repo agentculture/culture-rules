@@ -60,8 +60,11 @@ class World:
         self.issues = Issues()
         self.board = self.new_board()
 
-    def new_board(self, **kw) -> StatusBoard:
-        return StatusBoard(self.store, clock=self.clock, known=lambda: (), **kw)
+    def new_board(self, *, process: str = "one", **kw) -> StatusBoard:
+        """A board of process ``process`` (same process: the same writer identity)."""
+        board = StatusBoard(self.store, clock=self.clock, known=lambda: (), **kw)
+        board._boot = process
+        return board
 
     def tick(self, host: str = "spark") -> int:
         return self.board.tick(lambda actor, repo, until: self.issues, host)
@@ -589,6 +592,7 @@ def test_the_board_declares_its_indexes():
 def test_a_known_secret_never_reaches_github(w):
     secret = "synthetic-" + "node-secret-0042"
     w.board = StatusBoard(w.store, clock=w.clock, known=lambda: {secret})
+    w.board._boot = "one"
     run = fix_run(status="failed")
     w.store.put("runs", run)
     w.finish(run, f"handed back: {secret} and {GHP}")
@@ -597,3 +601,98 @@ def test_a_known_secret_never_reaches_github(w):
     assert secret not in body
     assert GHP not in body
     assert body.startswith("[withheld]")
+
+
+# --------------------------------------------------------------------------- Codex round 4
+
+
+def test_the_writer_lease_outlasts_a_calls_hard_deadline():
+    from culture_rules.node.status_board import WRITER_LEASE
+
+    assert WRITER_LEASE.total_seconds() >= 2 * CALL_DEADLINE_S
+
+
+def test_two_processes_on_one_machine_never_both_write(w):
+    """Process B ticks while A's edit is in flight, and the chain ends meanwhile: B holds
+    no writer lease and writes nothing; A sends the final next."""
+    started(w)
+    b = w.new_board(process="two")
+    agent_done(w)
+    w.later()
+    writes = []
+
+    def b_runs_meanwhile():
+        set_run(w.store, status="failed")
+        b.finish(w.run(), HANDED_BACK, where=(REPO, 7))
+        writes.append(b.tick(lambda actor, repo, until: w.issues, "spark"))
+
+    w.issues.on_edit = b_runs_meanwhile
+    w.tick()
+    assert writes == [0]
+    assert len(w.issues.edits) == 1  # A's edit only
+    w.later()
+    w.tick()
+    assert w.shown().startswith(HANDED_BACK)
+    assert w.record()["outcome"] == "delivered"
+
+
+def test_a_second_process_takes_over_only_after_the_lease_expired(w):
+    from culture_rules.node.status_board import WRITER_LEASE
+
+    started(w)
+    b = w.new_board(process="two")
+    agent_done(w)
+    w.later()
+    assert b.tick(lambda actor, repo, until: w.issues, "spark") == 0  # A holds it
+    w.clock.advance(WRITER_LEASE.total_seconds() + 1)  # A has died
+    assert b.tick(lambda actor, repo, until: w.issues, "spark") == 1
+    assert "- **done** Agent (qwen-fixer)" in w.issues.edits[-1][2]
+
+
+def test_records_sharing_one_timestamp_are_never_skipped(w):
+    for n in range(450):
+        w.store.put(
+            STATUS_COLLECTION,
+            {
+                "id": f"rec-{n:03}",
+                "actor": "github-app",
+                "pending": True,
+                "machine": "spark",
+                "retry_at": "2026-10-01T00:00:00Z",
+                "created_at": "2026-10-09T11:00:00Z",
+                "rev": 0,
+            },
+        )
+    w.tick()  # no run behind them: each is closed (gone) without a request
+    left = w.store.find(STATUS_COLLECTION, {"pending": True})
+    assert left == []
+
+
+def test_a_moved_actor_is_served_by_its_new_machine(w):
+    """The App moves from spark to thor and spark's node is retired: thor takes the
+    writer lease once spark's expires, delivers the pending final and keeps horizons."""
+    from culture_rules.node.status_board import WRITER_LEASE
+
+    started(w)
+    set_run(w.store, status="failed")
+    w.finish(w.run())
+    w.store.put("actors", {**APP_ACTOR, "machine": "thor"})
+    w.clock.advance(11)  # past the served-actors cache
+    assert w.tick("spark") == 0  # the old node stops writing at once
+    thor = w.new_board(process="thor")
+    assert thor.tick(lambda actor, repo, until: w.issues, "thor") == 0  # old lease still on
+    w.clock.advance(WRITER_LEASE.total_seconds())
+    assert thor.tick(lambda actor, repo, until: w.issues, "thor") == 1
+    assert w.shown().startswith(HANDED_BACK)
+    assert w.record()["outcome"] == "delivered"
+
+
+def test_the_new_machine_enforces_the_horizons_of_moved_records(w):
+    from culture_rules.node.status_board import WRITER_LEASE
+
+    started(w)
+    w.store.put("actors", {**APP_ACTOR, "machine": "thor"})
+    w.clock.advance(IDLE_HORIZON.total_seconds() + WRITER_LEASE.total_seconds())
+    thor = w.new_board(process="thor")
+    thor.tick(lambda actor, repo, until: w.issues, "thor")
+    assert w.record()["outcome"] == "gave_up"

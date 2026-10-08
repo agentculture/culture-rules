@@ -691,12 +691,18 @@ inert.
 
 #### One writer, desired state
 
-- **A single writer.** Only the node on the App actor's **placed machine**
-  writes status comments. The shipped `github-app` actor is placed on spark
-  (`tests/rules/fixtures/github-app.live.json`, `machine: spark`), so spark
-  is the writer. The record stores the machine when it is claimed, and a
-  node reads only its own machine's records. Its `status` stage is
-  single-threaded and works one record at a time. **An App actor without a
+- **A single writer.** One process writes an App actor's status comments:
+  the holder of the actor's **writer lease** (`fixer_status_writers`, one
+  document per actor: `{owner: host:pid:boot-random, until}`, 60 s), taken
+  or renewed by compare-and-set at the start of every cycle and again
+  before every GitHub call. Only a node on the actor's **current** placed
+  machine tries (it reads the placement again every 10 s), and a lease
+  another process holds is never taken before it expires. So two node
+  processes on one machine never both write. The shipped `github-app` actor
+  is placed on spark (`tests/rules/fixtures/github-app.live.json`,
+  `machine: spark`), so spark is the writer. Records are selected by actor:
+  moving the actor to another machine hands the writer over once the old
+  lease expires, and no record is stranded. **An App actor without a
   machine gets no live status comment:** `status: true` then posts a plain
   chain-end comment, as before d26.
 - **Desired state.** The store holds the inputs: the chain's runs, the
@@ -734,15 +740,20 @@ inert.
   (token exchanges and every page of a comment listing included, each
   charged before it is sent) within 10 seconds, after the drive stage. Each
   call, resolving the App's key included (through the port's bounded
-  resolver), has a 20 s deadline covering connect, send and the whole read:
-  the transport reads the response in chunks against that deadline (and a
-  size cap), so a trickling response cannot outlast it. Work the budget
+  resolver), has a hard 20 s deadline: a watchdog runs the request on a
+  worker thread (a small bounded pool) and gives up at the deadline, so
+  dripping headers, chunks or trailers cannot outlast it (the abandoned
+  worker ends at its socket timeout, the same remaining budget). The
+  transport also reads the body in chunks against the deadline, with a size
+  cap. Work the budget
   stops waits for the next cycle without counting as a failure.
-- **Fair selection.** A cycle reads its machine's pending records that are
-  due (`retry_at` up to now), ordered by `retry_at`, page by page; a written
-  or failed record moves to the back. The node declares the indexes these
-  queries use (a machine's due records, final records by date, a key's runs
-  by date, a run's bridge invocations).
+- **Fair selection.** A cycle reads each served actor's pending records
+  that are due (`retry_at` up to now) in (`retry_at`, id) order, paged with
+  a composite cursor, so records sharing a timestamp are never skipped; a
+  written or failed record moves to the back, and an unchanged one costs no
+  request. The node declares the indexes these queries use (an actor's due
+  records, final records by date, a key's runs by date, a run's bridge
+  invocations).
 
 A pushed fix after one re-fix reads (ids and SHAs made up; relayed text is
 backslash-escaped, so it renders as plain words):
