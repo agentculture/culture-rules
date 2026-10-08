@@ -65,23 +65,29 @@ def test_the_bundle_is_seven_disabled_rules_and_three_workflows():
     for r in b.rules:
         assert r.enabled is False
         assert r.concurrency_key == KEY
-        assert r.placement is not None and r.placement.machine == "spark2"
-        assert r.action.kind == "github.comment" and r.action.only_at_chain_end is True
-        assert r.on_failure.kind == "github.comment" and r.on_failure.only_at_chain_end
+        assert r.placement is not None
+        assert r.placement.machine == "spark2"
+        assert r.action.kind == "github.comment"
+        assert r.action.only_at_chain_end is True
+        assert r.on_failure.kind == "github.comment"
+        assert r.on_failure.only_at_chain_end
         assert r.on_failure.params["body"].startswith("PR fixer handed back (")
         assert "{{ run.id }}" in r.action.params["body"]
     by = {r.id: r for r in b.rules}
     for rid, kind in TYPES.items():
         assert by[rid].trigger.params == {"type": kind}
-        assert by[rid].workflow.id == "pr-fix" and by[rid].max_attempts == 3
+        assert by[rid].workflow.id == "pr-fix"
+        assert by[rid].max_attempts == 3
     assert by["pr-fixer-refix"].workflow.id == "pr-fix"
-    assert by["pr-fixer-refix"].max_attempts == 3 and by["pr-fixer-refix"].counts_toward_budget
+    assert by["pr-fixer-refix"].max_attempts == 3
+    assert by["pr-fixer-refix"].counts_toward_budget
     for rid, wid in (
         ("pr-fixer-review-commit", "review-commit"),
         ("pr-fixer-publish", "publish-fix"),
     ):
         assert by[rid].workflow.id == wid
-        assert by[rid].counts_toward_budget is False and by[rid].max_attempts is None
+        assert by[rid].counts_toward_budget is False
+        assert by[rid].max_attempts is None
     for rid in STAGE_RULES:
         assert by[rid].trigger.params == {"type": "rules.run.succeeded"}
 
@@ -115,7 +121,8 @@ def test_pr_fix_builds_and_gates_and_never_reviews_or_pushes():
     agent, gate = fix["body"]
     assert agent["config"] == {"mode": "yolo", "require_commit": True}
     assert agent["placement"]["actor"] == "qwen-fixer"
-    assert gate["config"] == {"builtin": "gate"} and gate["placement"]["machine"] == "spark2"
+    assert gate["config"] == {"builtin": "gate"}
+    assert gate["placement"]["machine"] == "spark2"
     text = json.dumps(wf)
     for absent in ("github.push", "codex-reviewer", '"builtin": "review"', "github.review_reply"):
         assert absent not in text
@@ -171,7 +178,8 @@ def test_import_with_apply_validates_and_writes_the_definitions():
     for prefix in ("actors/", "workflows/", "rules/"):
         part = {k: v for k, v in files.items() if k.startswith(prefix)}
         plan = defs.import_files(part, "admin@test", apply=True)
-        assert plan["applied"] is True and plan["errors"] == [], plan
+        assert plan["applied"] is True, plan
+        assert plan["errors"] == [], plan
     assert sorted(d["id"] for d in mem.find("workflows")) == [
         "pr-fix",
         "publish-fix",
@@ -185,8 +193,9 @@ def test_import_with_apply_validates_and_writes_the_definitions():
 def test_import_before_the_comment_triggers_are_seeded_is_refused():
     mem = MemoryStore()
     seed(mem, {k: v for k, v in CHAIN_VARIABLES.items() if k != "fixer_comment_triggers"})
+    defs, files = Definitions(mem), _files()
     with pytest.raises(Invalid) as err:
-        Definitions(mem).import_files(_files(), "admin@test", apply=True)
+        defs.import_files(files, "admin@test", apply=True)
     assert "variable_undefined" in {e["code"] for e in err.value.errors}
 
 

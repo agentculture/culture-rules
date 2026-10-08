@@ -331,7 +331,8 @@ def test_pr_head_port_turns_an_in_flight_http_timeout_into_deadline_exceeded(pem
     soon = datetime.now(UTC) + timedelta(seconds=0.3)
     res = port.invoke({"repo": "acme/widgets", "number": 3}, "k", soon, context=ctx())
     assert (res.outcome, res.error, res.retryable) == ("failed", "deadline_exceeded", True)
-    assert fake.timeouts and fake.timeouts[0] <= 0.3
+    assert fake.timeouts
+    assert fake.timeouts[0] <= 0.3
 
 
 def test_a_transport_failure_unrelated_to_the_deadline_stays_a_network_error(pem):

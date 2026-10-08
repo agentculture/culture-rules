@@ -59,7 +59,8 @@ def attempt(pem, world, store, **params):  # noqa: F811
 
 def assert_refused(res, fake, rec, world, code):  # noqa: F811
     assert (res.outcome, res.error, res.retryable) == ("failed", code, False)
-    assert fake.calls == [] and rec.verbs() == []  # no network, no git
+    assert fake.calls == []
+    assert rec.verbs() == []  # no network, no git
     assert world.remote_head() == world.a
 
 
@@ -124,7 +125,8 @@ def test_an_approval_of_this_commit_by_another_backend_pushes(pem, world):  # no
     store = make_store()
     approve(store, world.b, start_sha=world.a)
     res, _fake, _rec = attempt(pem, world, store, gate_verdict="pass")
-    assert res.outcome == "completed" and res.output["pushed"] is True
+    assert res.outcome == "completed"
+    assert res.output["pushed"] is True
     assert world.remote_head() == world.b
 
 
@@ -164,7 +166,8 @@ def test_the_reviewed_range_matching_the_push_pushes(pem, world):  # noqa: F811
     store = make_store()
     approve(store, world.b, start_sha=world.a, repo="ACME/Widgets")  # repo case-insensitive
     res, _fake, _rec = attempt(pem, world, store)
-    assert res.outcome == "completed" and res.output["pushed"] is True
+    assert res.outcome == "completed"
+    assert res.output["pushed"] is True
 
 
 # --------------------------------------------------------------------------- #6: re-check
@@ -189,7 +192,8 @@ def test_a_newer_rejection_landing_mid_push_stops_the_push(pem, world):  # noqa:
         ),
     )
     assert (res.outcome, res.error) == ("failed", "review_rejected")
-    assert "push" not in rec.verbs() and world.remote_head() == world.a
+    assert "push" not in rec.verbs()
+    assert world.remote_head() == world.a
 
 
 def test_another_current_approval_mid_push_is_review_changed(pem, world):  # noqa: F811
@@ -198,7 +202,8 @@ def test_another_current_approval_mid_push_is_review_changed(pem, world):  # noq
         pem, world, lambda store: approve(store, world.b, start_sha=world.a, iteration=1)
     )
     assert (res.outcome, res.error) == ("failed", "review_changed")
-    assert "push" not in rec.verbs() and world.remote_head() == world.a
+    assert "push" not in rec.verbs()
+    assert world.remote_head() == world.a
 
 
 def test_a_stale_record_written_mid_push_changes_nothing(pem, world):  # noqa: F811
@@ -210,7 +215,8 @@ def test_a_stale_record_written_mid_push_changes_nothing(pem, world):  # noqa: F
     )
     port = push_port(pem, world, fake, store=store, review=False)
     res = port.invoke(push_params(world), "k", DEADLINE, context=ctx())
-    assert res.outcome == "completed" and world.remote_head() == world.b
+    assert res.outcome == "completed"
+    assert world.remote_head() == world.b
 
 
 # --------------------------------------------------------------------------- round 2, #7
@@ -231,7 +237,8 @@ def test_replies_name_the_given_pushed_commit_and_refuse_a_malformed_one():
     bad = port.invoke(
         {"threads": threads, "addressed": addressed, "commit": "HEAD"}, "k", None, context=ctx_
     )
-    assert bad.outcome == "failed" and bad.error == "bad_input"
+    assert bad.outcome == "failed"
+    assert bad.error == "bad_input"
 
 
 # --------------------------------------------------------------------------- round 2, #4
@@ -265,12 +272,15 @@ def test_r2_4_no_revocation_can_land_once_the_approval_is_consumed(pem, world): 
     )
     port = push_port(pem, world, FakeGitHub(world), store=store, gitrec=git_, review=False)
     res = port.invoke(push_params(world), "k", DEADLINE, context=ctx())
-    assert res.outcome == "completed" and world.remote_head() == world.b
+    assert res.outcome == "completed"
+    assert world.remote_head() == world.b
     # the newer verdict arrived after consumption: refused and recorded, never current
-    assert isinstance(git_.outcome, ReviewError) and git_.outcome.code == "review_consumed"
+    assert isinstance(git_.outcome, ReviewError)
+    assert git_.outcome.code == "review_consumed"
     target = review_target("acme/widgets", 3, PR_BASE_SHA, world.a, world.b)
     _rid, doc, state = current_review(store, target)
-    assert state == "consumed" and doc["verdict"] == "approve"
+    assert state == "consumed"
+    assert doc["verdict"] == "approve"
     assert store.get("fixer_reviews", "run-1:fix[1]/verdict:1") is not None
 
 
@@ -306,7 +316,8 @@ def test_r4_2_a_base_that_moved_since_the_gate_pushes_nothing(pem, world, pr_bas
     port = push_port(pem, world, fake, store=store, gitrec=rec, review=False)
     res = port.invoke(push_params(world), "k", DEADLINE, context=ctx())
     assert (res.outcome, res.error, res.retryable) == ("failed", "base_changed", False)
-    assert "push" not in rec.verbs() and world.remote_head() == world.a
+    assert "push" not in rec.verbs()
+    assert world.remote_head() == world.a
     from culture_rules.actors.review import current_review, review_target
 
     target = review_target("acme/widgets", 3, PR_BASE_SHA, world.a, world.b)
@@ -347,7 +358,9 @@ def test_r4_1_push_trusts_and_uses_one_actor_snapshot(pem, world):  # noqa: F811
     store.get = get
     res, fake, rec = attempt(pem, world, store)
     assert (res.outcome, res.error) == ("failed", "actor_not_trusted")
-    assert fake.calls == [] and "push" not in rec.verbs() and world.remote_head() == world.a
+    assert fake.calls == []
+    assert "push" not in rec.verbs()
+    assert world.remote_head() == world.a
 
 
 # --------------------------------------------------------------------------- round 5, #1
@@ -387,7 +400,8 @@ def test_r5_1_a_base_change_re_arms_the_heads_settle_for_a_fresh_run(pem, world)
     # the next completion (or the re-armed settle's own poll) settles the head again
     assert settler.on_check(check) == "emitted" or settler.tick() == 1
     events = [d for d in store.find(EVENTS_COLLECTION) if d["envelope"]["type"] == SETTLED_TYPE]
-    assert len(events) == 2 and len({e["id"] for e in events}) == 2
+    assert len(events) == 2
+    assert len({e["id"] for e in events}) == 2
     assert events[-1]["envelope"]["data"]["base_sha"] == new_base
 
 
@@ -411,7 +425,8 @@ def test_c2_replaying_the_refused_push_re_arms_once(pem, world):  # noqa: F811
     store.update_if(SETTLE_COLLECTION, rid, {"state": "pending"}, {"state": "emitted"})
     assert _refuse_base_changed(pem, world, store).error == "base_changed"  # a replay
     rec = store.get(SETTLE_COLLECTION, rid)
-    assert rec["state"] == "emitted" and rec["generation"] == 0  # not re-armed again
+    assert rec["state"] == "emitted"
+    assert rec["generation"] == 0  # not re-armed again
 
 
 def test_c3_a_refusal_on_an_unseen_head_keeps_its_pr_number_and_branch(pem, world):  # noqa: F811
@@ -421,7 +436,9 @@ def test_c3_a_refusal_on_an_unseen_head_keeps_its_pr_number_and_branch(pem, worl
     approve(store, world.b, start_sha=world.a)
     _refuse_base_changed(pem, world, store)
     rec = store.get(SETTLE_COLLECTION, f"acme/widgets@{world.a}".lower())
-    assert rec["pr_numbers"] == [3] and rec["number"] == 3 and rec["head_branch"] == "fix"
+    assert rec["pr_numbers"] == [3]
+    assert rec["number"] == 3
+    assert rec["head_branch"] == "fix"
 
 
 # --------------------------------------------------------------------------- upgrade (Codex #3)
@@ -473,7 +490,8 @@ def test_an_in_flight_single_workflow_run_approved_by_the_old_release_still_push
     store = make_store()
     old_release_approval(store, world.b, world.a)
     res, _fake, _rec = attempt(pem, world, store)
-    assert res.outcome == "completed" and res.output["pushed"] is True, res
+    assert res.outcome == "completed", res
+    assert res.output["pushed"] is True, res
     assert world.remote_head() == world.b
     assert store.get("fixer_review_current", "run-1")["state"] == "consumed"
 

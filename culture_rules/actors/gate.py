@@ -224,14 +224,18 @@ FIXER_COMMIT_IDENTITY = (
 )
 """Author and committer of every gate-built commit (the GitHub App's bot identity, the
 ``commit_author`` github.push checks); ``config.commit_identity`` overrides it."""
-_IDENTITY_RE = re.compile(r"^(?P<name>[^<>\n]+?) <(?P<email>[^<>\s]+@[^<>\s]+)>$")
+_IDENTITY_RE = re.compile(r"^(?P<name>[^<>\n]+?) <(?P<email>[^<>\s]+)>$")
 _REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 _TRY_RE = re.compile(r"\[(\d+)\]/[^/]+$")
 
 
 def _identity(value: Any) -> tuple[str, str] | None:
     m = _IDENTITY_RE.match(value) if isinstance(value, str) else None
-    return (m.group("name"), m.group("email")) if m else None
+    # the email needs an "@" with text on both sides; checked here, not in the regex, so
+    # matching stays linear (no backtracking over every "@" candidate)
+    if m is None or "@" not in m.group("email")[1:-1]:
+        return None
+    return m.group("name"), m.group("email")
 
 
 DEFAULT_DIFF_MAX_CHARS = 30_000
@@ -254,6 +258,7 @@ _CLEANUP_S = 60.0
 #: The gate's workspace: no dash, so no run-as account name or ``-x`` flag look-alike can
 #: reach a repo's temp paths through it (lobes-cli#302).
 _CHECKOUT_PREFIX = "culture_rules_gate."
+_IN_PACK = "in.pack"  # the fetched PR pack, inside the job's tmp dir
 _STDERR_TAIL_BYTES = 500
 _CONTROL_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
 _PROC_STATUS = "/proc/self/status"
@@ -344,7 +349,7 @@ def parse_gate(text: str, where: str = CULTURE_YAML) -> GateSpec | None:
         import yaml  # lazy: optional extra
     except ImportError as exc:
         raise GateConfigError(
-            "extra_missing: PyYAML is required to read culture.yaml; install " "culture-rules[yaml]"
+            "extra_missing: PyYAML is required to read culture.yaml; install culture-rules[yaml]"
         ) from exc
     try:
         raw = yaml.safe_load(text)
@@ -1173,7 +1178,7 @@ class GatePort:
         Path(revs).write_text(f"{sha}\n")
         with open(revs, "rb") as stdin:
             pack = job.git("pack-objects", "--revs", "--stdout", "-q", stdin=stdin)
-        Path(os.path.join(job.tmp, "in.pack")).write_bytes(pack)
+        Path(os.path.join(job.tmp, _IN_PACK)).write_bytes(pack)
 
     def _message(self, context: InvocationContext) -> str:
         """An engine-written message from trusted run state only (never agent text)."""
@@ -1258,7 +1263,7 @@ class GatePort:
         """Stream the three commits' history out of the worktree into the scratch repo."""
         revs = os.path.join(job.tmp, "revs")
         Path(revs).write_text("".join(f"{s}\n" for s in dict.fromkeys(shas.values())))
-        pack = os.path.join(job.tmp, "in.pack")
+        pack = os.path.join(job.tmp, _IN_PACK)
         argv = ["git", "-c", "core.fsmonitor=false", "pack-objects", "--revs", "--stdout", "-q"]
         with (
             open(revs, "rb") as stdin,
@@ -1406,7 +1411,7 @@ class GatePort:
             return out
 
         step(_hard_git("init", "--quiet", "--template=", "."), "git init")
-        with open(os.path.join(job.tmp, "in.pack"), "rb") as pack:
+        with open(os.path.join(job.tmp, _IN_PACK), "rb") as pack:
             step(_hard_git("index-pack", "--stdin", "--strict"), "git index-pack", pack)
         step(
             _hard_git("-c", "advice.detachedHead=false", "checkout", "--quiet", "--detach", sha),

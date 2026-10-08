@@ -53,12 +53,16 @@ class TestClaimsOnMongoStore(ClaimsContract):
         store.put(RUNS_COLLECTION, {"id": "old", "status": "failed"})
         budget = store.find(RULE_ATTEMPT_BUDGETS)[0]
         assert budget["id"] == budget_id("pr")  # global: the key alone, no rule id
-        with pytest.raises(TransientStoreError):
+
+        def lose_the_race():
             with peer.transaction() as loser:
                 assert loser.get(RULE_ATTEMPT_BUDGETS, budget["id"])["count"] == 1
                 with store.transaction() as winner:
                     assert reserve_concurrency(winner, "a", "pr", "winner", "win-intent", 3) is None
                 reserve_concurrency(loser, "a", "pr", "loser", "lose-intent", 3)
+
+        with pytest.raises(TransientStoreError):
+            lose_the_race()
         with peer.transaction() as retry:
             assert (
                 reserve_concurrency(retry, "a", "pr", "loser", "lose-intent", 3) == "deduplicated"
@@ -84,7 +88,8 @@ class TestClaimsOnMongoStore(ClaimsContract):
         assert reserve_concurrency(store, "a", "pr", "run1", "intent1", None) is None
         store.put(RUNS_COLLECTION, {"id": "run1", "status": "running"})
         budget = store.find(RULE_ATTEMPT_BUDGETS)[0]
-        with pytest.raises(TransientStoreError):
+
+        def note_against_a_concurrent_release():
             with peer.transaction() as trigger:
                 assert reserve_concurrency(trigger, "a", "pr", "run2", "i2", None) == (
                     "deduplicated"
@@ -93,6 +98,9 @@ class TestClaimsOnMongoStore(ClaimsContract):
                 with store.transaction() as chain:
                     assert release_concurrency(chain, budget["id"], "run1") is None
                 note_deduplicated(trigger, "a", "pr", "evt_2")
+
+        with pytest.raises(TransientStoreError):
+            note_against_a_concurrent_release()
         with peer.transaction() as retry:
             assert reserve_concurrency(retry, "a", "pr", "run2", "i2", None) is None
         assert store.get(RULE_ATTEMPT_BUDGETS, budget["id"])["pending_event_id"] is None

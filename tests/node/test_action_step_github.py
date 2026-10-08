@@ -178,16 +178,21 @@ def test_push_step_pushes_after_a_passing_gate_and_feeds_the_comment(pem, world)
 def test_push_step_of_an_untrusted_workflow_is_refused(pem, world):
     doc, fake, rec, comment = run_fixer(pem, world, verdict="pass", trusted_wf=False)
     assert doc["status"] == "failed"
-    assert doc["error"]["step"] == "push" and doc["error"]["message"] == "workflow_not_trusted"
-    assert world.remote_head() == world.a and fake.calls == [] and rec.calls == []
+    assert doc["error"]["step"] == "push"
+    assert doc["error"]["message"] == "workflow_not_trusted"
+    assert world.remote_head() == world.a
+    assert fake.calls == []
+    assert rec.calls == []
 
 
 def test_push_step_without_an_approving_review_is_refused(pem, world):
     doc, fake, rec, comment = run_fixer(pem, world, verdict="pass", reviewed=False)
     assert doc["status"] == "failed"
-    assert doc["error"]["step"] == "push" and doc["error"]["message"] == "review_missing"
+    assert doc["error"]["step"] == "push"
+    assert doc["error"]["message"] == "review_missing"
     assert world.remote_head() == world.a
-    assert fake.calls == [] and rec.calls == []  # refused before any network or git
+    assert fake.calls == []
+    assert rec.calls == []  # refused before any network or git
     assert comment.calls == []
 
 
@@ -198,7 +203,8 @@ def test_push_step_with_a_failed_gate_is_refused_and_nothing_is_pushed(pem, worl
     assert doc["error"]["step"] == "push"
     assert doc["error"]["message"] == "gate_not_passed"
     assert world.remote_head() == world.a
-    assert fake.calls == [] and rec.calls == []  # refused before any network or git
+    assert fake.calls == []
+    assert rec.calls == []  # refused before any network or git
     assert comment.calls == []
 
 
@@ -207,5 +213,6 @@ def test_push_step_of_a_disabled_source_rule_is_refused(pem, world):
     assert doc["status"] == "failed"
     assert doc["error"]["message"] == "rule_disabled"
     assert world.remote_head() == world.a
-    assert "push" not in rec.verbs() and fake.calls == []
+    assert "push" not in rec.verbs()
+    assert fake.calls == []
     assert comment.calls == []

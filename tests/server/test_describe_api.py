@@ -42,7 +42,8 @@ def test_workflow_describe_is_viewer_readable_and_matches_the_library(viewer):
     r = client.get("/workflows/pr-fix/describe")
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["id"] == "pr-fix" and body["kind"] == "workflow"
+    assert body["id"] == "pr-fix"
+    assert body["kind"] == "workflow"
     assert body["lines"] == PR_FIX_WORKFLOW
     assert body["entries"][4] == {
         "label": "4.1",

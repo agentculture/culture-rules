@@ -160,6 +160,7 @@ DEFAULT_GIT_BASE = "https://github.com"
 _SHA_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 _REF_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
 _LOCAL_REF = "refs/culture-rules/push"
+_PUSH_REFUSED = "github.push refused: %s"
 
 _GIT_TIMEOUT_S = 120.0
 _TERM_GRACE_S = 2.0
@@ -443,12 +444,12 @@ class GitHubPushPort(GitHubCommentPort):
         # store, never a param), whatever the workflow wires
         refusal, review_record = self._review(input, chain)
         if refusal:
-            log.info("github.push refused: %s", refusal)
+            log.info(_PUSH_REFUSED, refusal)
             return InvocationResult.failed(refusal, retryable=False)
         # round 3 (#1): the App actor's security fields must match a digest pinned in code
         refusal, _digest = doc_refusal(actor_id, snapshot)
         if refusal:
-            log.info("github.push refused: %s", refusal)
+            log.info(_PUSH_REFUSED, refusal)
             return InvocationResult.failed(refusal, retryable=False)
         if self._clock() >= deadline:
             return InvocationResult.failed("deadline_exceeded", retryable=True)
@@ -459,7 +460,7 @@ class GitHubPushPort(GitHubCommentPort):
         try:
             return self._push(str(actor_id), conn, allowed, input, context, job, snapshot)
         except _Refused as exc:
-            log.info("github.push refused: %s", exc.code)
+            log.info(_PUSH_REFUSED, exc.code)
             return InvocationResult.failed(exc.code, retryable=exc.retryable)
         except GitHubError as exc:
             return InvocationResult.failed(exc.code, retryable=exc.retryable)

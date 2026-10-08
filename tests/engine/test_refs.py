@@ -165,7 +165,8 @@ def test_run_id_resolves_in_rule_action_params(ex):
         {"plain": "run.id", "ref": {"$ref": "run.id"}, "body": "see /runs/{{ run.id }} now"},
     )
     run_id = got["plain"]
-    assert isinstance(run_id, str) and run_id.startswith("run-")
+    assert isinstance(run_id, str)
+    assert run_id.startswith("run-")
     assert got["ref"] == run_id
     assert got["body"] == f"see /runs/{run_id} now"
     assert ex.run(run_id)["id"] == run_id  # it is this run's own id

@@ -70,7 +70,8 @@ def test_a_completed_callback_is_recorded_for_the_node(world):
     assert r.status_code == 200, r.text
     assert r.json() == {"status": "recorded"}
     doc = store.get(BRIDGE_INVOCATIONS, doc_id)
-    assert doc["status"] == "completed" and doc["pending_delivery"] is True
+    assert doc["status"] == "completed"
+    assert doc["pending_delivery"] is True
     again = post(client, doc_id, completed_event(seq=4), token)
     assert (again.status_code, again.json()) == (200, {"status": "duplicate"})
 

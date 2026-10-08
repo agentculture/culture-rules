@@ -392,16 +392,7 @@ class GitHubApp:
             )
             suites = data.get("check_suites")
             suites = suites if isinstance(suites, list) else []
-            for suite in suites:
-                if isinstance(suite, dict):
-                    app = suite.get("app") if isinstance(suite.get("app"), dict) else {}
-                    out.append(
-                        {
-                            "app_slug": app.get("slug"),
-                            "status": suite.get("status"),
-                            "conclusion": suite.get("conclusion"),
-                        }
-                    )
+            out.extend(_suite_fact(suite) for suite in suites if isinstance(suite, dict))
             if len(suites) < 100:
                 return out
         raise GitHubError("too_many_pages", "check suites")
@@ -460,7 +451,7 @@ class GitHubApp:
             if not info.get("hasNextPage"):
                 return None
             after = info.get("endCursor")
-        raise GitHubError("too_many_pages", "review threads")
+        raise GitHubError("too_many_pages", _THREADS_WHAT)
 
     def review_thread_matches(
         self, repo: str, number: int, thread_id: str, comment_id: int
@@ -491,7 +482,7 @@ class GitHubApp:
         REST ``[bot]`` suffix (so it compares with webhook ``author`` values), ``body``
         clipped to :data:`THREAD_BODY_MAX` characters. A thread whose opening comment cannot
         be read is left out."""
-        self._require_allowed(repo, "review threads")
+        self._require_allowed(repo, _THREADS_WHAT)
         owner, name = repo.split("/", 1)
         out: list[dict[str, Any]] = []
         after: str | None = None
@@ -508,7 +499,7 @@ class GitHubApp:
             if not info.get("hasNextPage"):
                 return out
             after = info.get("endCursor")
-        raise GitHubError("too_many_pages", "review threads")
+        raise GitHubError("too_many_pages", _THREADS_WHAT)
 
     def resolve_review_thread(self, thread_id: str) -> bool:
         """Resolve the review thread ``thread_id`` (GraphQL ``resolveReviewThread``)."""
@@ -517,7 +508,18 @@ class GitHubApp:
         return bool(thread.get("isResolved"))
 
 
+def _suite_fact(suite: dict[str, Any]) -> dict[str, Any]:
+    """The three fields of one check suite a settle decision needs."""
+    app = suite.get("app") if isinstance(suite.get("app"), dict) else {}
+    return {
+        "app_slug": app.get("slug"),
+        "status": suite.get("status"),
+        "conclusion": suite.get("conclusion"),
+    }
+
+
 _MAX_PAGES = 50
+_THREADS_WHAT = "review threads"
 THREAD_PAGES = 10
 """Page cap of :meth:`GitHubApp.list_review_threads` (100 threads a page)."""
 THREAD_BODY_MAX = 4000

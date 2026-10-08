@@ -194,7 +194,8 @@ def _race(c: Cluster, begin: Callable, *, recorder_placed: bool, delete_holder: 
     c.publish({**event(1, conclusion="failure"), "type": SETTLED})
     c.cycle()
     run = c.run("H", "evt_1")
-    assert run is not None and run["status"] not in ("succeeded", "failed")
+    assert run is not None
+    assert run["status"] not in ("succeeded", "failed")
     if delete_holder:
         c.base.put("rules", {**c.base.get("rules", "H"), "deleted_at": "2026-10-07T00:00:00Z"})
     firing = c.nodes[HOST].firing
@@ -260,21 +261,24 @@ def test_non_owner_guard_keeps_the_pending_event_for_its_owner():
     c.publish({**event(2), "type": COMMENT})
     c.cycle()
     (before,) = c.base.find(RULE_ATTEMPT_BUDGETS)
-    assert before["pending_event_id"] == "evt_2" and before["pending_rule_id"] == "R"
+    assert before["pending_event_id"] == "evt_2"
+    assert before["pending_rule_id"] == "R"
     c.clock.advance(1)
     c.base.update_if(RUNS_COLLECTION, run["id"], {}, {"status": "failed"})
     firing = c.nodes[HOST].firing
     firing.chain_placed.poll()  # not R's consumer: the guard only
     (guarded,) = c.base.find(RULE_ATTEMPT_BUDGETS)
     assert guarded["revision"] == before["revision"] + 1
-    assert guarded["pending_event_id"] == "evt_2" and guarded["run_id"] == run["id"]
+    assert guarded["pending_event_id"] == "evt_2"
+    assert guarded["run_id"] == run["id"]
     firing.chain_shared.poll()  # R's consumer releases and fires it
     for _ in range(3):
         c.cycle()
     assert c.run("R", "evt_2") is not None
     assert len(c.base.find(RULE_FIRES, {"rule_id": "R"})) == 1
     (after,) = c.base.find(RULE_ATTEMPT_BUDGETS)
-    assert after["count"] == 2 and after["pending_event_id"] is None
+    assert after["count"] == 2
+    assert after["pending_event_id"] is None
 
 
 def test_guard_writes_only_while_the_run_holds_the_key():

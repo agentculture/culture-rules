@@ -221,7 +221,8 @@ def test_a_polled_queue_step_is_not_reported_as_executor_lag(store, clock):
     # one engine makes it pending (unblocked); another node has not dispatched it yet
     other = Executor(store, "thor", {}, clock=clock)
     new = runs_mod._housekeep(runs_mod._Plan.of(doc), doc, clock(), other.host)
-    assert new is not None and step_state(new, "agent")["status"] == "pending"
+    assert new is not None
+    assert step_state(new, "agent")["status"] == "pending"
     found = due_steps(new, clock())
     assert found == [("agent", clock())]
 

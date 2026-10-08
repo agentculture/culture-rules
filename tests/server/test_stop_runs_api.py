@@ -35,20 +35,23 @@ def test_disable_reports_the_active_runs(client):
     r = client.post("/rules/r1/disable", headers=ALICE)
     assert r.status_code == 200
     body = r.json()
-    assert body["enabled"] is False and body["id"] == "r1"
+    assert body["enabled"] is False
+    assert body["id"] == "r1"
     assert body["active_runs_total"] == 2
     assert sorted(x["id"] for x in body["active_runs"]) == sorted(x["id"] for x in runs)
     assert all(x["status"] == "running" and x["started_at"] for x in body["active_runs"])
     # response-only: the stored rule carries neither field, and disabling stops nothing
     stored = client.get("/rules/r1").json()
-    assert "active_runs" not in stored and "active_runs_total" not in stored
+    assert "active_runs" not in stored
+    assert "active_runs_total" not in stored
     assert {client.get(f"/runs/{x['id']}").json()["status"] for x in runs} == {"running"}
 
 
 def test_disable_with_no_runs_reports_none_and_enable_reports_nothing(client):
     client.post("/rules", json=rule_body())
     body = client.post("/rules/r1/disable").json()
-    assert body["active_runs"] == [] and body["active_runs_total"] == 0
+    assert body["active_runs"] == []
+    assert body["active_runs_total"] == 0
     assert "active_runs" not in client.post("/rules/r1/enable").json()
 
 
@@ -56,7 +59,8 @@ def test_disable_lists_at_most_fifty_but_counts_all(client):
     client.post("/rules", json=rule_body())
     start(client, 53)
     body = client.post("/rules/r1/disable").json()
-    assert len(body["active_runs"]) == 50 and body["active_runs_total"] == 53
+    assert len(body["active_runs"]) == 50
+    assert body["active_runs_total"] == 53
 
 
 def test_a_put_that_switches_the_rule_off_reports_the_runs_too(client):
@@ -81,7 +85,8 @@ def test_stop_runs_is_refused_while_the_rule_is_enabled(client):
 
 def test_stop_runs_of_an_unknown_rule_is_404(client):
     r = client.post("/rules/nope/stop-runs", json={"apply": True})
-    assert r.status_code == 404 and r.json()["error"]["code"] == "rule_not_found"
+    assert r.status_code == 404
+    assert r.json()["error"]["code"] == "rule_not_found"
 
 
 def test_stop_runs_dry_run_lists_and_cancels_nothing(client):
@@ -89,7 +94,9 @@ def test_stop_runs_dry_run_lists_and_cancels_nothing(client):
     (run,) = start(client)
     client.post("/rules/r1/disable")
     out = client.post("/rules/r1/stop-runs").json()  # no body: a dry-run
-    assert out["applied"] is False and out["cancelled"] == [] and out["total"] == 1
+    assert out["applied"] is False
+    assert out["cancelled"] == []
+    assert out["total"] == 1
     assert [x["id"] for x in out["runs"]] == [run["id"]]
     assert client.get(f"/runs/{run['id']}").json()["status"] == "running"
 
@@ -104,7 +111,8 @@ def test_stop_runs_cancels_them_and_a_second_call_is_a_no_op(client):
     r = client.post("/rules/r1/stop-runs", json={"apply": True}, headers=ALICE)
     assert r.status_code == 200
     out = r.json()
-    assert out["applied"] is True and out["total"] == 2
+    assert out["applied"] is True
+    assert out["total"] == 2
     assert sorted(out["cancelled"]) == sorted(x["id"] for x in runs)
     for x in runs:
         doc = client.get(f"/runs/{x['id']}").json()
@@ -112,7 +120,9 @@ def test_stop_runs_cancels_them_and_a_second_call_is_a_no_op(client):
         assert doc["error"]["message"] == "rule disabled: stopped by alice"
     assert client.get(f"/runs/{keep['id']}").json()["status"] == "running"  # another rule's
     again = client.post("/rules/r1/stop-runs", json={"apply": True}).json()
-    assert again["cancelled"] == [] and again["total"] == 0 and again["runs"] == []
+    assert again["cancelled"] == []
+    assert again["total"] == 0
+    assert again["runs"] == []
     assert client.post("/rules/r1/disable").json()["active_runs_total"] == 0
 
 

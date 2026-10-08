@@ -19,6 +19,7 @@ from culture_rules.cli._nounlib import sections_overview, seg, write
 from culture_rules.cli.registry import Context, Param, Verb
 
 NOUN = "variables"
+_ROOT = "/variables"
 SUMMARY = "Variables are shared values (a JSON scalar or flat list) rules read."
 NAME = Param(
     "name", help="variable name (a-z, 0-9, _; starts with a letter)", required=True, positional=True
@@ -26,23 +27,23 @@ NAME = Param(
 
 
 def _overview(ctx: Context) -> dict[str, Any]:
-    return sections_overview(NOUN, SUMMARY, ctx, "/variables")
+    return sections_overview(NOUN, SUMMARY, ctx, _ROOT)
 
 
 def _list(ctx: Context) -> Any:
-    return _api.call(lambda: ctx.client.request("GET", "/variables"))
+    return _api.call(lambda: ctx.client.request("GET", _ROOT))
 
 
 def _get(ctx: Context, name: str) -> Any:
-    return _api.call(lambda: ctx.client.request("GET", f"/variables/{seg(name)}"))
+    return _api.call(lambda: ctx.client.request("GET", f"{_ROOT}/{seg(name)}"))
 
 
 def _history(ctx: Context, name: str) -> Any:
-    return _api.call(lambda: ctx.client.request("GET", f"/variables/{seg(name)}/history"))
+    return _api.call(lambda: ctx.client.request("GET", f"{_ROOT}/{seg(name)}/history"))
 
 
 def _refs(ctx: Context, name: str) -> Any:
-    return _api.call(lambda: ctx.client.request("GET", f"/variables/{seg(name)}/refs"))
+    return _api.call(lambda: ctx.client.request("GET", f"{_ROOT}/{seg(name)}/refs"))
 
 
 def _set(ctx: Context, name: str, value: Any, description: str | None = None) -> dict[str, Any]:
@@ -50,10 +51,10 @@ def _set(ctx: Context, name: str, value: Any, description: str | None = None) ->
     body: dict[str, Any] = {"value": value}
     if description is not None:
         body["description"] = description
-    path = f"/variables/{seg(name)}"
+    path = f"{_ROOT}/{seg(name)}"
     out = write(ctx, "variables set", "PUT", path, body)
     if not ctx.apply:  # the list route answers "no such variable" without a 404
-        items = _api.call(lambda: ctx.client.request("GET", "/variables")).get("items", [])
+        items = _api.call(lambda: ctx.client.request("GET", _ROOT)).get("items", [])
         out["current"] = next((v for v in items if v.get("name") == name), None)
     return out
 
@@ -120,7 +121,7 @@ def _edit(ctx: Context, op: str, name: str, item: str, json_item: bool) -> dict[
     current = _get(ctx, name)
     value = current.get("value")
     body = {"item": _coerce(item, value, op=op, json_item=json_item)}
-    path = f"/variables/{seg(name)}/items/{op}"
+    path = f"{_ROOT}/{seg(name)}/items/{op}"
     out = write(ctx, f"variables {op}", "POST", path, body)
     if not ctx.apply:
         present = _present(value, body["item"])
@@ -142,7 +143,7 @@ def _remove(ctx: Context, name: str, item: str, json_item: bool = False) -> dict
 ITEM = Param(
     "item",
     help=(
-        "the item, e.g. owner/repo: text, or a number/boolean/null when the list holds that " "type"
+        "the item, e.g. owner/repo: text, or a number/boolean/null when the list holds that type"
     ),
     required=True,
     positional=True,

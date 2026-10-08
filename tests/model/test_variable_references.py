@@ -49,9 +49,11 @@ def rule(id: str = "r", condition: dict | None = None, inputs: dict | None = Non
 
 def test_match_reads_variables_into_the_condition():
     (d,) = match(EVENT, [rule(condition=IN_X)], variables={"x": ["qodo"]})
-    assert d.fire and d.reason == FIRE
+    assert d.fire
+    assert d.reason == FIRE
     (d,) = match(EVENT, [rule(condition=IN_X)], variables={"x": ["someone"]})
-    assert not d.fire and d.reason == CONDITION_FALSE
+    assert not d.fire
+    assert d.reason == CONDITION_FALSE
 
 
 def test_without_variable_support_a_negated_reference_does_not_fire():
@@ -141,8 +143,9 @@ def test_saving_a_rule_that_references_an_undefined_variable_is_refused():
     store = MemoryStore()
     defs = Definitions(store)
     cond = {"op": "in", "value": {"field": "data.author"}, "items": {"var": "missing"}}
+    body = _body(cond)
     with pytest.raises(Invalid) as exc:
-        defs.create("rules", _body(cond), "alice")
+        defs.create("rules", body, "alice")
     (err,) = exc.value.errors
     assert err["code"] == "variable_undefined"
     assert "missing" in err["message"]
@@ -186,11 +189,13 @@ def test_an_online_node_without_variable_support_blocks_a_variable_rule_save():
     store, defs = _defs_with_trusted()
     _beat(store, "spark", NOW, capabilities=[VARIABLES_CAPABILITY])
     _beat(store, "orin", NOW)  # a 0.12.0 heartbeat: no capabilities field at all
+    body = _body(NOT_IN_X)
     with pytest.raises(Invalid) as exc:
-        defs.create("rules", _body(NOT_IN_X), "alice")
+        defs.create("rules", body, "alice")
     (err,) = exc.value.errors
     assert err["code"] == "variables_unsupported_nodes"
-    assert "orin" in err["message"] and "spark" not in err["message"]
+    assert "orin" in err["message"]
+    assert "spark" not in err["message"]
     assert store.find("rules") == []
 
     _beat(store, "orin", NOW, capabilities=[VARIABLES_CAPABILITY])  # upgraded
@@ -207,8 +212,9 @@ def test_an_old_node_blocks_update_and_import_of_a_variable_rule_too():
     store, defs = _defs_with_trusted()
     defs.create("rules", _body(NOT_IN_X), "alice")
     _beat(store, "orin", NOW, capabilities=[])
+    body = _body(IN_X)
     with pytest.raises(Invalid) as exc:
-        defs.update("rules", "guarded", _body(IN_X), "alice")
+        defs.update("rules", "guarded", body, "alice")
     assert [e["code"] for e in exc.value.errors] == ["variables_unsupported_nodes"]
     assert store.get("rules", "guarded")["condition"] == NOT_IN_X  # unchanged
     files = {"rules/other.json": json.dumps(rule("other", condition=IN_X).to_dict())}
@@ -283,7 +289,8 @@ def test_a_refused_superseder_refuses_what_it_supersedes():
         assert out[rid].by == ("a",)
         assert "a" in out[rid].message
     out = {d.rule_id: d for d in match(EVENT, [a, b, m, c], variables={})}
-    assert out["b"].reason == VARIABLE_UNDEFINED and not out["b"].fire
+    assert out["b"].reason == VARIABLE_UNDEFINED
+    assert not out["b"].fire
 
 
 def test_an_evaluable_superseder_is_unchanged():
@@ -297,7 +304,8 @@ def test_a_refused_group_member_that_could_win_blocks_the_winner():
     hi = replace(rule("hi", condition=IN_X), exclusive_group="g", priority=9)
     lo = _plain("lo", exclusive_group="g", priority=1)
     out = {d.rule_id: d for d in match(EVENT, [hi, lo], variables_supported=False)}
-    assert not out["lo"].fire and out["lo"].reason == VARIABLES_UNSUPPORTED
+    assert not out["lo"].fire
+    assert out["lo"].reason == VARIABLES_UNSUPPORTED
     assert out["lo"].by == ("hi",)
     # a refused member that would lose anyway does not block the winner
     weak = replace(hi, priority=0)
@@ -337,12 +345,14 @@ def test_restoring_an_enabled_variable_rule_is_refused_while_an_old_node_is_onli
     with pytest.raises(Invalid) as exc:
         defs.restore("rules", "guarded", "alice", life)
     (err,) = exc.value.errors
-    assert err["code"] == "variables_unsupported_nodes" and "orin" in err["message"]
+    assert err["code"] == "variables_unsupported_nodes"
+    assert "orin" in err["message"]
     assert store.get("rules", "guarded")["deleted_at"]  # still tombstoned: never went live
 
     _beat(store, "orin", NOW, capabilities=[VARIABLES_CAPABILITY])  # upgraded
     doc = defs.restore("rules", "guarded", "alice", life)
-    assert not doc.get("deleted_at") and doc["enabled"] is True
+    assert not doc.get("deleted_at")
+    assert doc["enabled"] is True
 
 
 def test_restoring_a_disabled_variable_rule_or_a_plain_rule_is_not_blocked():

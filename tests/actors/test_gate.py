@@ -194,12 +194,14 @@ def test_passing_gate_runs_setup_then_test_and_bundles_the_commit(store, tmp_pat
     runner = LocalRunner()
     out = judge(store, runner, repo, tmp_path, clock)
     assert out["verdict"] == PASS
-    assert out["instruction"] is None and out["rule"] is None
+    assert out["instruction"] is None
+    assert out["rule"] is None
     assert runner.gate_calls() == [setup, PASSING]
     assert "all good" in out["output_tail"]
     assert out["gate"] == {"setup": [setup], "test": [PASSING]}
     bundle = Path(out["bundle"])
-    assert bundle.is_file() and bundle.parent == tmp_path / "bundles"
+    assert bundle.is_file()
+    assert bundle.parent == tmp_path / "bundles"
     check = tmp_path / "check.git"
     git(tmp_path, "init", "-q", "--bare", str(check))
     built = out["commit_sha"]  # the gate-built commit: the agent tip's tree, nothing else
@@ -227,7 +229,8 @@ def test_deleting_a_test_file_is_guarded(store, tmp_path, clock):
     out = judge(store, LocalRunner(), repo, tmp_path, clock)
     assert out["verdict"] == GUARD
     rules = [v["rule"] for v in out["violations"]]
-    assert out["rule"] == "test_deleted" and "test_removed" in rules
+    assert out["rule"] == "test_deleted"
+    assert "test_removed" in rules
 
 
 @pytest.mark.parametrize(
@@ -309,7 +312,8 @@ def test_gate_runs_in_a_fresh_checkout_that_is_removed_afterwards(store, tmp_pat
     assert judge(store, runner, repo, tmp_path, clock)["verdict"] == PASS
     (cwd,) = runner.gate_cwds()
     workspace = os.path.dirname(cwd)
-    assert cwd != str(repo.wt) and os.path.basename(cwd) == "checkout"
+    assert cwd != str(repo.wt)
+    assert os.path.basename(cwd) == "checkout"
     assert os.path.basename(workspace).startswith("culture_rules_gate.")
     assert not os.path.exists(workspace)
 
@@ -391,7 +395,8 @@ def test_no_gate_section_gives_no_gate_and_runs_nothing(store, tmp_path, clock):
     runner = LocalRunner()
     out = judge(store, runner, repo, tmp_path, clock)
     assert out["verdict"] == NO_GATE
-    assert out["bundle"] is None and out["instruction"] is None
+    assert out["bundle"] is None
+    assert out["instruction"] is None
     assert runner.gate_calls() == []
 
 
@@ -408,7 +413,8 @@ def test_failing_test_run_returns_fail_with_the_output_tail(store, tmp_path, clo
     out = judge(store, LocalRunner(), repo, tmp_path, clock, tail_bytes=200)
     assert out["verdict"] == FAIL
     assert (out["phase"], out["command"], out["exit_code"]) == ("test", noisy, 3)
-    assert "line 4999" in out["output_tail"] and "line 0\n" not in out["output_tail"]
+    assert "line 4999" in out["output_tail"]
+    assert "line 0\n" not in out["output_tail"]
     assert len(out["output_tail"].encode()) <= 200
     assert out["output_tail"] in out["instruction"]
     assert "exited 3" in out["instruction"]
@@ -467,15 +473,18 @@ def test_gate_runs_exactly_the_declared_argv_and_never_a_shell(store, tmp_path, 
     result = port_.invoke(inputs, "k", T0 + timedelta(hours=1), context=ctx())
     out = result.output
     assert out["verdict"] == PASS, (result.error, out)
-    assert spawned and all(kw.get("shell") is False for _, kw in spawned), spawned
+    assert spawned, spawned
+    assert all(kw.get("shell") is False for _, kw in spawned), spawned
     shells = {"sh", "bash", "dash", "zsh"}
     assert not any(os.path.basename(argv[0]) in shells for argv, _ in spawned)
     gate_runs = [argv for argv, _ in spawned if declared[2] in argv]
     assert len(gate_runs) == 1
     prefix, checkout, rest = gate_runs[0][:3], gate_runs[0][3], gate_runs[0][4:]
     tmp = os.path.join(os.path.dirname(checkout), "tmp")
-    assert prefix == ["env", "env", "-C"] and rest == ["--", *gate_env(tmp), *declared]
-    assert checkout != str(repo.wt) and "culture_rules_gate." in checkout
+    assert prefix == ["env", "env", "-C"]
+    assert rest == ["--", *gate_env(tmp), *declared]
+    assert checkout != str(repo.wt)
+    assert "culture_rules_gate." in checkout
     assert not marker.exists()
     assert f"$(touch {marker})" in out["output_tail"]
 
@@ -485,9 +494,11 @@ def test_run_as_refuses_shell_joining_prefixes_and_defaults_to_refusing():
         with pytest.raises(ValueError):
             RunAs(prefix)
     run_as, why = run_as_from_env({})
-    assert run_as is None and "CULTURE_RULES_GATE_RUN_AS" in why
+    assert run_as is None
+    assert "CULTURE_RULES_GATE_RUN_AS" in why
     run_as, _ = run_as_from_env({"CULTURE_RULES_GATE_RUN_AS": "sudo -n -u culture-fixer --"})
-    assert run_as is not None and run_as.prefix == ("sudo", "-n", "-u", "culture-fixer", "--")
+    assert run_as is not None
+    assert run_as.prefix == ("sudo", "-n", "-u", "culture-fixer", "--")
 
 
 def test_unconfigured_runner_refuses_and_runs_nothing(store, tmp_path, clock, monkeypatch):
@@ -495,7 +506,8 @@ def test_unconfigured_runner_refuses_and_runs_nothing(store, tmp_path, clock, mo
     monkeypatch.setattr(gate_mod.subprocess, "Popen", lambda *a, **k: pytest.fail("spawned"))
     port_ = GatePort.from_env(store, environ={})
     result = port_.invoke(inputs, "k", T0 + timedelta(hours=1), context=ctx())
-    assert result.outcome == "failed" and not result.retryable
+    assert result.outcome == "failed"
+    assert not result.retryable
     assert result.error.startswith("gate_runner_unconfigured")
 
 
@@ -555,7 +567,8 @@ def test_sudo_under_no_new_privs_is_blocked_at_start_and_logged(store, tmp_path,
     assert any(r.levelname == "ERROR" and "--gate-run-as" in r.getMessage() for r in caplog.records)
     assert "NoNewPrivileges=false" in caplog.text
     result = port_.invoke(inputs, "k", T0 + timedelta(hours=1), context=ctx())
-    assert result.outcome == "failed" and not result.retryable
+    assert result.outcome == "failed"
+    assert not result.retryable
     assert result.error.startswith("run_as_blocked")
     assert "gate-sudo.conf" in result.error
 
@@ -599,10 +612,12 @@ def test_a_sudo_no_new_privs_refusal_is_run_as_blocked_with_sudos_words(store, t
     result = make_port(store, runner, tmp_path, clock).invoke(
         repo.inputs(), "k", T0 + timedelta(hours=1), context=ctx()
     )
-    assert result.outcome == "failed" and not result.retryable
+    assert result.outcome == "failed"
+    assert not result.retryable
     assert result.error.startswith('run_as_blocked: sudo: The "no new privileges" flag is set')
     assert "--gate-run-as" in result.error
-    assert calls[-1][-1] == "true" and calls[-1][-3:-1] == ["/", "--"]  # the probe, in /
+    assert calls[-1][-1] == "true"
+    assert calls[-1][-3:-1] == ["/", "--"]  # the probe, in /
 
 
 def test_any_other_run_as_failure_is_run_as_failed_with_the_stderr(store, tmp_path, clock):
@@ -611,7 +626,8 @@ def test_any_other_run_as_failure_is_run_as_failed_with_the_stderr(store, tmp_pa
     result = make_port(store, runner, tmp_path, clock).invoke(
         repo.inputs(), "k", T0 + timedelta(hours=1), context=ctx()
     )
-    assert result.outcome == "failed" and not result.retryable
+    assert result.outcome == "failed"
+    assert not result.retryable
     assert result.error.startswith("run_as_failed: ")
     assert result.error.endswith("(exit 1): sudo: a password is required")
 
@@ -622,7 +638,8 @@ def test_a_missing_commit_is_source_unavailable_with_gits_stderr(store, tmp_path
     result = make_port(store, LocalRunner(), tmp_path, clock).invoke(
         inputs, "k", T0 + timedelta(hours=1), context=ctx()
     )
-    assert result.outcome == "failed" and not result.retryable
+    assert result.outcome == "failed"
+    assert not result.retryable
     assert result.error.startswith("source_unavailable: the worktree could not supply")
     assert "git pack-objects exited 128: fatal:" in result.error
     assert "\n" not in result.error
@@ -645,7 +662,8 @@ def test_bad_inputs_are_refused(store, tmp_path, clock):
     port_ = make_port(store, LocalRunner(), tmp_path, clock)
     for over in ({"worktree": "relative"}, {"base_sha": "main"}, {"commit_sha": None}):
         result = port_.invoke({**repo.inputs(), **over}, "k", T0, context=ctx())
-        assert result.outcome == "failed" and result.error.startswith("bad_input")
+        assert result.outcome == "failed"
+        assert result.error.startswith("bad_input")
 
 
 def test_missing_worktree_is_a_refusal_not_a_verdict(store, tmp_path, clock):
@@ -663,8 +681,10 @@ def test_malformed_gate_section_is_refused_with_the_reason(store, tmp_path, cloc
     result = make_port(store, LocalRunner(), tmp_path, clock).invoke(
         repo.inputs(), "k", T0 + timedelta(hours=1), context=ctx()
     )
-    assert result.outcome == "failed" and not result.retryable
-    assert result.error.startswith("gate_invalid") and "quote it" in result.error
+    assert result.outcome == "failed"
+    assert not result.retryable
+    assert result.error.startswith("gate_invalid")
+    assert "quote it" in result.error
 
 
 def test_past_the_deadline_is_a_retryable_refusal(store, tmp_path, clock):
@@ -672,7 +692,8 @@ def test_past_the_deadline_is_a_retryable_refusal(store, tmp_path, clock):
     result = make_port(store, LocalRunner(), tmp_path, clock).invoke(
         repo.inputs(), "k", T0, context=ctx()
     )
-    assert result.outcome == "failed" and result.retryable
+    assert result.outcome == "failed"
+    assert result.retryable
     assert result.error.startswith("deadline_exceeded")
 
 
@@ -707,7 +728,8 @@ def test_parse_gate_reads_the_template_shape():
 def test_this_repos_culture_yaml_declares_a_valid_gate():
     root = Path(__file__).resolve().parents[2]
     spec = parse_gate((root / "culture.yaml").read_text())
-    assert spec is not None and spec.test
+    assert spec is not None
+    assert spec.test
 
 
 # ------------------------------------------------------------------------ pure guard
@@ -931,7 +953,8 @@ def test_guard_verdict_pushes_nothing_end_to_end(store, clock, tmp_path):
         step_state(doc, ACTION_STEP) is None
         or step_state(doc, ACTION_STEP)["status"] != "succeeded"
     )
-    assert push.git_calls == [] and push.http_calls == []
+    assert push.git_calls == []
+    assert push.http_calls == []
     assert runner.gate_calls() == []
 
 
@@ -943,8 +966,10 @@ def test_no_gate_verdict_pushes_nothing_end_to_end(store, clock, tmp_path):
     assert step_state(doc, "fix")["outputs"]["verdict"] == NO_GATE
     assert len(agent.calls) == 1  # no_gate ends the loop at once
     action = step_state(doc, ACTION_STEP)
-    assert action["status"] == "failed" and "gate_not_passed" in action["error"]["message"]
-    assert push.git_calls == [] and push.http_calls == []
+    assert action["status"] == "failed"
+    assert "gate_not_passed" in action["error"]["message"]
+    assert push.git_calls == []
+    assert push.http_calls == []
     assert runner.gate_calls() == []
 
 
@@ -969,7 +994,8 @@ def test_fail_instruction_becomes_the_agents_next_instruction(store, clock, tmp_
     calls = [c[1]["instruction"] for c in agent.calls]
     assert calls[0] == "fix the PR"
     assert calls[1] == first["instruction"]
-    assert "FAILED: x is" in calls[1] and first["output_tail"] in calls[1]
+    assert "FAILED: x is" in calls[1]
+    assert first["output_tail"] in calls[1]
     assert step_state(doc, "fix")["outputs"]["verdict"] == PASS
     # the gate passed, so the push port got past the verdict check (and failed only on the
     # missing App actor in this store)
@@ -982,7 +1008,9 @@ def test_default_ports_route_actorless_code_steps_to_builtins():
     code = ports["code"]
     assert isinstance(code, BuiltinCodePort)
     result = code.invoke({}, "k", T0, context=InvocationContext("r", "s", "code", "spark"))
-    assert result.outcome == "failed" and result.error.startswith("no_builtin")
+    assert result.outcome == "failed"
+    assert result.error.startswith("no_builtin")
     assert not result.retryable
     result = code.invoke({}, "k", T0, context=ctx())
-    assert isinstance(result, InvocationResult) and result.outcome == "failed"
+    assert isinstance(result, InvocationResult)
+    assert result.outcome == "failed"

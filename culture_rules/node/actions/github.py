@@ -99,8 +99,11 @@ class GitHubCommentPort:
         def work() -> None:
             try:
                 result.set_result(self._app(actor_id, conn, allowed))
-            except BaseException as exc:  # noqa: BLE001 - handed to the waiting caller
+            except Exception as exc:  # handed to the waiting caller
                 result.set_exception(exc)
+            except BaseException as exc:  # e.g. SystemExit: hand it over, then end the thread
+                result.set_exception(exc)
+                raise
             finally:
                 self._resolve_slots.release()
 

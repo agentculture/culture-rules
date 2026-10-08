@@ -732,7 +732,7 @@ def _register_bridge_callbacks(app: FastAPI, store: StoragePort) -> None:
         token = header[len("Bearer ") :] if header.startswith("Bearer ") else ""
         try:
             event = json.loads(b"".join(chunks).decode("utf-8"))
-        except (ValueError, UnicodeDecodeError):
+        except ValueError:  # UnicodeDecodeError and JSONDecodeError are ValueErrors
             event = None
         outcome = await run_in_threadpool(
             agent.record_bridge_event, store, invocation_id, token, event

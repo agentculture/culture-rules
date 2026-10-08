@@ -1,10 +1,31 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
 import { getDescription, type Description } from "../api/describe";
 import { ApiError } from "../api/client";
 import "./about.css";
 
 /** A finished describe call, keyed by the noun/id it was for. */
 type Loaded = { key: string; doc: Description | null; error: string | null };
+
+/** A click on one of the About buttons stays with it: it never opens the row around it. */
+function contained(e: { stopPropagation: () => void }) {
+  e.stopPropagation();
+}
+
+/**
+ * So do Enter and Space on the (i) or inside its panel (a row may open on Enter too).
+ * Escape still bubbles to the document listener that closes the panel.
+ */
+function containKeys(e: ReactKeyboardEvent) {
+  if (e.key === "Enter" || e.key === " ") e.stopPropagation();
+}
 
 /** The phone-width layout, where about.css docks the panel to the screen's bottom. */
 const DOCKED = "(max-width: 640px)";
@@ -18,7 +39,8 @@ const DOCKED = "(max-width: 640px)";
  *
  * Keyboard: Enter / Space on the button opens it and moves focus into the
  * panel; Escape (anywhere inside) closes it and returns focus to the button.
- * A pointer press outside closes it too. Clicks never reach the row it sits in.
+ * A pointer press outside closes it too. Its buttons' clicks and keys never reach the row
+ * it sits in.
  */
 export function AboutButton({
   noun,
@@ -33,7 +55,7 @@ export function AboutButton({
   stale?: boolean;
 }>) {
   const [open, setOpen] = useState(false);
-  const [stored, setLoaded] = useState<Loaded | null>(null);
+  const [stored, setStored] = useState<Loaded | null>(null);
   // Only this noun/id's answer is ever shown: a reused button (a new id) starts empty.
   const key = `${noun}/${id}`;
   const loaded = stored?.key === key ? stored : null;
@@ -41,7 +63,7 @@ export function AboutButton({
   const panelId = useId();
   const wrap = useRef<HTMLSpanElement>(null);
   const button = useRef<HTMLButtonElement>(null);
-  const panel = useRef<HTMLDivElement>(null);
+  const panel = useRef<HTMLDialogElement>(null);
 
   const close = useCallback(() => {
     setOpen(false);
@@ -72,10 +94,10 @@ export function AboutButton({
     const controller = new AbortController();
     const forKey = `${noun}/${id}`;
     getDescription(noun, id, controller.signal)
-      .then((doc) => setLoaded({ key: forKey, doc, error: null }))
+      .then((doc) => setStored({ key: forKey, doc, error: null }))
       .catch((err: unknown) => {
         if (controller.signal.aborted) return;
-        setLoaded({ key: forKey, doc: null, error: err instanceof ApiError ? err.message : String(err) });
+        setStored({ key: forKey, doc: null, error: err instanceof ApiError ? err.message : String(err) });
       });
     panel.current?.focus();
     return () => controller.abort();
@@ -140,16 +162,7 @@ export function AboutButton({
   };
 
   return (
-    <span
-      className="about"
-      ref={wrap}
-      onClick={(e) => e.stopPropagation()}
-      // the wrapper only keeps the (i)'s own activation from reaching a row that opens on
-      // click or Enter; Escape still bubbles to the document listener that closes the panel
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") e.stopPropagation();
-      }}
-    >
+    <span className="about" ref={wrap}>
       <button
         ref={button}
         type="button"
@@ -157,23 +170,28 @@ export function AboutButton({
         aria-label={`About ${name}`}
         aria-expanded={open}
         aria-controls={panelId}
-        onClick={() => setOpen((o) => !o)}
+        onClick={(e) => {
+          contained(e);
+          setOpen((o) => !o);
+        }}
+        onKeyDown={containKeys}
       >
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
           <circle cx="12" cy="12" r="9.5" />
           <path d="M12 11v6M12 7.5v.01" strokeWidth="2.4" />
         </svg>
       </button>
-      <div
+      <dialog
         id={panelId}
         ref={panel}
         className="about__panel"
-        role="dialog"
         aria-modal="false"
         aria-label={`About ${name}`}
         tabIndex={-1}
+        open={open}
         hidden={!open}
         draggable={false}
+        onKeyDown={containKeys}
         onDragStart={(e) => {
           e.preventDefault();
           e.stopPropagation();
@@ -188,19 +206,33 @@ export function AboutButton({
               {text}
             </pre>
             <div className="about__actions">
-              <button type="button" className="about__action" onClick={copy}>
+              <button
+                type="button"
+                className="about__action"
+                onClick={(e) => {
+                  contained(e);
+                  copy();
+                }}
+              >
                 Copy
               </button>
               <span className="about__copied" aria-live="polite">
                 {copied ? "Copied" : ""}
               </span>
-              <button type="button" className="about__action" onClick={close}>
+              <button
+                type="button"
+                className="about__action"
+                onClick={(e) => {
+                  contained(e);
+                  close();
+                }}
+              >
                 Close
               </button>
             </div>
           </>
         ) : null}
-      </div>
+      </dialog>
     </span>
   );
 }

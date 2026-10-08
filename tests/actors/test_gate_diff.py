@@ -32,10 +32,13 @@ def test_a_passing_gate_reports_the_verified_diff(store, tmp_path, clock):  # no
     assert out["verdict"] == PASS
     expected = git(repo.wt, "diff", repo.start, head)
     assert out["diff"].strip() == expected
-    assert "-x = 2" in out["diff"] and "+x = 3" in out["diff"] and "+y = 1" in out["diff"]
+    assert "-x = 2" in out["diff"]
+    assert "+x = 3" in out["diff"]
+    assert "+y = 1" in out["diff"]
     assert out["diff_truncated"] is False
     assert out["diff_chars"] == len(out["diff"])
-    assert out["agent_commit_sha"] == head and out["start_sha"] == repo.start
+    assert out["agent_commit_sha"] == head
+    assert out["start_sha"] == repo.start
 
 
 def test_no_gate_reports_the_diff_too(store, tmp_path, clock):  # noqa: F811
@@ -43,7 +46,8 @@ def test_no_gate_reports_the_diff_too(store, tmp_path, clock):  # noqa: F811
     repo.commit("fix", {"src/app.py": "x = 3\n"})
     out = judge(store, LocalRunner(), repo, tmp_path, clock)
     assert out["verdict"] == NO_GATE
-    assert "+x = 3" in out["diff"] and out["diff_truncated"] is False
+    assert "+x = 3" in out["diff"]
+    assert out["diff_truncated"] is False
 
 
 def test_a_diff_over_the_cap_is_cut_and_flagged(store, tmp_path, clock):  # noqa: F811
@@ -62,7 +66,8 @@ def test_fail_and_guard_carry_no_diff(store, tmp_path, clock):  # noqa: F811
     repo.commit("fix", {"src/app.py": "x = 3\n"})
     out = judge(store, LocalRunner(), repo, tmp_path, clock)
     assert out["verdict"] == FAIL
-    assert out["diff"] is None and out["diff_truncated"] is None
+    assert out["diff"] is None
+    assert out["diff_truncated"] is None
 
 
 def test_the_default_cap_leaves_room_in_the_bridges_60000_character_prompt_budget():
@@ -82,4 +87,5 @@ def test_a_bad_cap_is_a_config_refusal(store, tmp_path, clock):  # noqa: F811
         res = port_.invoke(
             repo.inputs(), "k", T0 + timedelta(hours=1), context=ctx(diff_max_chars=bad)
         )
-        assert res.outcome == "failed" and res.error.startswith("bad_config"), bad
+        assert res.outcome == "failed", bad
+        assert res.error.startswith("bad_config"), bad

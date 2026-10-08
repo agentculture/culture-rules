@@ -316,7 +316,8 @@ def test_the_record_is_keyed_by_its_commit():
     for name in ("repo", "number", "base_sha", "start_sha", "commit_sha", "target"):
         assert doc[name] is not None, name
     target = review_target("o/r", 7, BASE, START, SHA)
-    assert doc["target"] == target and current_review(store, target)[0] == rid
+    assert doc["target"] == target
+    assert current_review(store, target)[0] == rid
     # each part of the target matters; the repo is case-insensitive
     assert review_target("O/R", 7, BASE, START, SHA) == target
     for other in (
@@ -326,7 +327,8 @@ def test_the_record_is_keyed_by_its_commit():
         review_target("o/r", 7, BASE, OTHER, SHA),
         review_target("o/r", 7, BASE, START, OTHER),
     ):
-        assert other is not None and other != target
+        assert other is not None
+        assert other != target
     for bad in ((None, 7), ("o/r", None), ("o/r", True), ("o/r", 0), ("norepo", 7)):
         assert review_target(*bad, BASE, START, SHA) is None
     assert review_target("o/r", 7, "abc", START, SHA) is None
@@ -393,7 +395,8 @@ def test_the_briefs_own_example_final_line_parses_as_a_verdict():
     (line,) = [ln for ln in brief.splitlines() if ln.startswith('{"summary": "{\\"verdict')]
     message = "I reviewed the diff.\n" + line.replace("<commit_sha>", SHA)
     out = parse_review(_bridge_summary(message), SHA)
-    assert out["verdict"] == REQUEST_CHANGES and out["findings"][0]["severity"] == "high"
+    assert out["verdict"] == REQUEST_CHANGES
+    assert out["findings"][0]["severity"] == "high"
 
 
 def test_the_brief_names_every_check_the_reviewer_must_make():
@@ -429,7 +432,8 @@ def test_default_ports_serve_the_review_builtin():
         "run-x", "fix[0]/verdict", "code", "spark", config={"builtin": "review"}
     )
     res = code.invoke({}, "k", None, context=ctx)
-    assert res.outcome == "failed" and res.error.startswith("run_not_found")
+    assert res.outcome == "failed"
+    assert res.error.startswith("run_not_found")
     from culture_rules.actors.review import run_reviews
 
     assert [d["verdict"] for d in run_reviews(store, "run-x")] == ["run_not_found"]
@@ -444,7 +448,9 @@ def test_the_review_step_outside_a_loop_is_a_config_error():
     store.put("runs", {"id": "r", "workflow": {"definition": workflow_doc()}})
     port = ReviewVerdictPort(store)
     res = port.invoke({}, "k", None, context=InvocationContext("r", "verdict", "code", "h"))
-    assert res.outcome == "failed" and res.error.startswith("bad_config") and not res.retryable
+    assert res.outcome == "failed"
+    assert res.error.startswith("bad_config")
+    assert not res.retryable
 
 
 # --------------------------------------------------------------------------- round 2, #5

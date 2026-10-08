@@ -69,7 +69,8 @@ def test_an_input_named_sandbox_cannot_widen_it_either():
     res = reviewer(bridge).invoke(
         {**PR, "sandbox": "danger-full-access"}, "k", DEADLINE, context=ctx()
     )
-    assert res.outcome == "failed" and res.error.startswith("sandbox_locked")
+    assert res.outcome == "failed"
+    assert res.error.startswith("sandbox_locked")
     assert bridge.requests == []
 
 
@@ -133,7 +134,8 @@ def test_the_factory_passes_the_cap_and_the_sandbox():
     adapter = default_factories(MemoryStore())["agent"](actor, actor.to_dict())
     assert adapter.max_bound_input_chars == 60000
     res = adapter.invoke(PR, "k", DEADLINE, context=ctx({"sandbox": "workspace-write"}))
-    assert res.outcome == "failed" and res.error.startswith("sandbox_locked")
+    assert res.outcome == "failed"
+    assert res.error.startswith("sandbox_locked")
 
 
 # --------------------------------------------------------------------------- locked brief
@@ -183,7 +185,8 @@ def test_an_unknown_locked_brief_is_refused():
     bridge = FakeBridge()
     actor = reviewer(bridge, defaults={"sandbox": "read-only", "locked_instruction": "nope"})
     res = actor.invoke(TARGET, "k", DEADLINE, context=ctx())
-    assert res.outcome == "failed" and res.error.startswith("instruction_locked")
+    assert res.outcome == "failed"
+    assert res.error.startswith("instruction_locked")
     assert bridge.requests == []
 
 
@@ -207,7 +210,8 @@ def test_the_factory_passes_the_locked_brief():
     )
     adapter = default_factories(MemoryStore())["agent"](actor, actor.to_dict())
     res = adapter.invoke({**TARGET, "instruction": "x"}, "k", DEADLINE, context=ctx())
-    assert res.outcome == "failed" and res.error.startswith("instruction_locked")
+    assert res.outcome == "failed"
+    assert res.error.startswith("instruction_locked")
     assert REVIEWER_BRIEF
 
 
@@ -305,7 +309,8 @@ def test_r5_2_a_tombstoned_app_actor_gets_no_action_port():
     )
     port = router(ctx_)
     res = port.invoke({}, "k", DEADLINE, context=ctx_)
-    assert res.outcome == "failed" and res.error == "actor_unavailable"
+    assert res.outcome == "failed"
+    assert res.error == "actor_unavailable"
 
 
 def test_r5_2_the_security_snapshot_is_the_raw_stored_document():
@@ -325,5 +330,6 @@ def test_the_agent_factory_takes_the_raw_document_and_nothing_less():
         {"id": "x", "name": "x", "kind": "agent", "params": {"bridge_url": "http://127.0.0.1:1"}},
         strict=False,
     )
+    factory = default_factories(MemoryStore())["agent"]
     with pytest.raises(TypeError):
-        default_factories(MemoryStore())["agent"](actor)  # no sanitised fallback exists
+        factory(actor)  # no sanitised fallback exists

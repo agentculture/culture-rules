@@ -111,16 +111,18 @@ def test_lists_unresolved_threads_with_the_opening_comment(pem):
 
 def test_too_many_pages_raises(pem):
     api = FakeThreadsApi([[thread(f"T{i}", i, "a")] for i in range(30)])
+    client = app(pem, api)
     with pytest.raises(GitHubError) as err:
-        app(pem, api).list_review_threads(REPO, 7, max_pages=3)
+        client.list_review_threads(REPO, 7, max_pages=3)
     assert err.value.code == "too_many_pages"
     assert len(api.queries) == 3
 
 
 def test_a_repo_outside_the_allowlist_is_refused_before_any_call(pem):
     api = FakeThreadsApi([[]])
+    client = app(pem, api)
     with pytest.raises(GitHubError):
-        app(pem, api).list_review_threads("other/repo", 7)
+        client.list_review_threads("other/repo", 7)
     assert api.queries == []
 
 
@@ -218,7 +220,8 @@ def test_a_lookup_error_fails_the_step_closed(error):
     res = threads_port(FakeApp(error=error)).invoke(
         {"repo": REPO, "number": 7, "trusted_authors": ["alice"]}, "k", DEADLINE, context=ctx()
     )
-    assert res.outcome == "failed" and res.error == error.code
+    assert res.outcome == "failed"
+    assert res.error == error.code
     assert res.retryable is error.retryable
     assert not res.output
 
@@ -235,7 +238,8 @@ def test_a_lookup_error_fails_the_step_closed(error):
 def test_bad_input_and_allowlist_fail_without_a_lookup(inp, code):
     fake = FakeApp(LISTED)
     res = threads_port(fake).invoke(inp, "k", DEADLINE, context=ctx())
-    assert res.outcome == "failed" and res.error == code
+    assert res.outcome == "failed"
+    assert res.error == code
     assert fake.calls == []
 
 
@@ -287,7 +291,8 @@ def test_addressed_with_bad_input_fails():
     res = AddressedThreadsPort().invoke(
         {"threads": "x", "addressed": []}, "k", DEADLINE, context=ctx()
     )
-    assert res.outcome == "failed" and res.error == "bad_input"
+    assert res.outcome == "failed"
+    assert res.error == "bad_input"
 
 
 def test_default_ports_register_both_builtins():
