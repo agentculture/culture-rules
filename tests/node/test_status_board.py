@@ -889,3 +889,58 @@ def test_a_delivered_ending_is_not_applied_over_a_newer_final(w):
     w.tick()
     assert w.shown().startswith(NEWER)
     assert w.record()["outcome"] == "delivered"
+
+
+# --------------------------------------------------------------------------- final check
+
+
+def _newer_final_when(w: World, store: RaceOnce, when) -> None:
+    store.when = when
+    store.action = lambda: w.new_board(process="api").finish(w.run(), NEWER, where=(REPO, 7))
+
+
+def test_a_newer_final_stored_while_the_older_one_is_posted_is_delivered():
+    store = RaceOnce()
+    w = World(store)
+    run = fix_run(status="failed", steps=steps(quiet="succeeded", secrets="failed"))
+    w.store.put("runs", run)
+    w.finish(run, HANDED_BACK)  # no comment yet: final A is posted
+    _newer_final_when(w, store, lambda c: c.get("state") == "posting")
+    w.tick()
+    assert w.record()["pending"] is True  # A was posted, B is stored: not done
+    w.clock.advance(70)
+    w.tick()
+    assert w.shown().startswith(NEWER)
+    assert w.record()["outcome"] == "delivered"
+    assert len(w.issues.posts) == 1
+
+
+def test_a_newer_final_stored_during_a_404_recreate_is_delivered():
+    store = RaceOnce()
+    w = World(store)
+    started(w)
+    w.clock.advance(70)
+    w.finish(w.run(), HANDED_BACK)
+    w.issues.deleted.add(101)
+    _newer_final_when(w, store, lambda c: c.get("comment_id", 1) is None)
+    w.tick()  # 404, reset, post A
+    assert w.record()["pending"] is True
+    w.clock.advance(70)
+    w.tick()
+    assert w.shown(102).startswith(NEWER)
+    assert w.record()["outcome"] == "delivered"
+
+
+def test_a_newer_final_stored_while_the_older_one_is_edited_in_is_delivered():
+    store = RaceOnce()
+    w = World(store)
+    started(w)
+    w.clock.advance(70)
+    w.finish(w.run(), HANDED_BACK)
+    _newer_final_when(w, store, lambda c: "acked_rev" in c and "state" not in c)
+    w.tick()
+    assert w.record()["pending"] is True
+    w.clock.advance(70)
+    w.tick()
+    assert w.shown().startswith(NEWER)
+    assert w.record()["outcome"] == "delivered"

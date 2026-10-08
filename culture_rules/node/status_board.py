@@ -20,8 +20,9 @@ no live status comment: ``status: true`` then falls back to a plain chain-end co
 (state, comment, ``acked_rev``, ``retry_at``, failures, outcome, the final and pending
 flags it sets). Every write re-reads the record and re-applies only its own fields on the
 fresh document by compare-and-set, retrying a lost one, so no write is dropped; an
-input write leaves ``pending`` true, and a writer's ending decided on old inputs (a final
-delivered, a horizon) is not applied over newer ones.
+input write leaves ``pending`` true and stores ``inputs_rev``. Every send carries the
+inputs snapshot its body was rendered from, and an ending (a final delivered, a horizon)
+is applied only while the record's inputs are still that snapshot.
 
 **Desired state.** Each tick the writer renders the comment the store's inputs describe -
 the chain's runs, the agent's notes, the pending final text - and hashes it
@@ -170,7 +171,7 @@ _COMMENT_ID, _URL, _CREATED_AT, _FINAL_AT = "comment_id", "url", "created_at", "
 _FINAL_TEXT, _FINAL_RUN, _FINAL_ASKED = "final_text", "final_run", "final_requested_at"
 _FAILURES, _RETRY_AT, _OUTCOME = "failures", "retry_at", "outcome"
 _ACKED_REV, _ACKED_AT, _ACKED_STAGES = "acked_rev", "acked_at", "acked_stage_sig"
-_DESIRED_REV = "desired_rev"
+_DESIRED_REV, _INPUTS_REV = "desired_rev", "inputs_rev"
 NONE, POSTING, POSTED, UNRESOLVED = "none", "posting", "posted", "unresolved"
 _FINAL_TEXT_CAP = 20_000
 _INPUT_FIELDS = (_FINAL_TEXT, _FINAL_RUN, _FINAL_ASKED)
@@ -179,8 +180,10 @@ field is the writer's delivery state."""
 _CAS_TRIES = 8
 
 
-def _inputs(doc: Mapping[str, Any]) -> tuple[Any, ...]:
-    return tuple(doc.get(k) for k in _INPUT_FIELDS)
+def inputs_rev(doc: Mapping[str, Any]) -> str:
+    """A version of the record's inputs (a digest of them): the snapshot a desired body is
+    rendered from, and stored as ``inputs_rev`` by every input write."""
+    return digest(repr(tuple(doc.get(k) for k in _INPUT_FIELDS)))
 
 
 def ensure_status_indexes(store: Any) -> None:
@@ -257,6 +260,8 @@ class _Desired:
     rev: str
     stages: str
     final: bool
+    inputs: str
+    """The inputs snapshot (:func:`inputs_rev`) the body was rendered from."""
 
 
 class StatusBoard:
@@ -362,20 +367,21 @@ class StatusBoard:
         changes: Mapping[str, Any],
         *,
         ending: Mapping[str, Any] | None = None,
+        basis: str | None = None,
     ) -> dict[str, Any] | None:
         """A writer transition: re-read the record and re-apply only the writer's own
         fields (``changes``: delivery state) on the fresh document, by compare-and-set,
-        retrying a lost one - never dropping it. ``ending`` (final, outcome, pending: a
-        decision taken on ``doc``'s inputs) is applied only while the inputs are still
-        those ``doc`` had; after :meth:`finish` wrote new ones the record stays pending.
+        retrying a lost one - never dropping it. ``ending`` (final, outcome, pending) is a
+        decision taken on the inputs snapshot ``basis`` (:func:`inputs_rev` of what was
+        rendered or judged); it is applied only while the fresh record's inputs are that
+        snapshot, else the record stays pending and the next tick sends the new body.
         The fresh record, or None when it is gone or every try was lost."""
-        basis = _inputs(doc)
         for _ in range(_CAS_TRIES):
             fresh = self._store.get(STATUS_COLLECTION, doc[_ID])
             if fresh is None:
                 return None
             out = dict(changes)
-            if ending and _inputs(fresh) == basis:
+            if ending and basis is not None and inputs_rev(fresh) == basis:
                 out.update(ending)
             rev = fresh.get(_REV, 0)
             res = self._store.update_if(
@@ -401,6 +407,7 @@ class StatusBoard:
                 return fresh
             rev = fresh.get(_REV, 0)
             out = {**inputs, _PENDING: True, _REV: rev + 1}
+            out[_INPUTS_REV] = inputs_rev({**fresh, **inputs})
             res = self._store.update_if(STATUS_COLLECTION, doc_id, {_REV: rev}, out)
             if res.won and res.document is not None:
                 return dict(res.document)
@@ -564,13 +571,13 @@ class StatusBoard:
         expired = self._expired(doc)
         if expired:
             log.warning("status comment of chain %s: %s", doc[_ID], expired)
-            self._end(doc, "gave_up")
+            self._end(doc, "gave_up", basis=inputs_rev(doc))
             return 0
         if doc.get(_STATE) == POSTING:
             return self._resolve(ctx, doc)
         root = self._store.get(_RUNS, doc[_ID])
         if root is None:
-            self._end(doc, "gone", on_inputs=False)
+            self._end(doc, "gone")
             return 0
         chain = self.chain(root)
         doc = self._closing(doc, chain)
@@ -579,7 +586,7 @@ class StatusBoard:
         desired = self._desired(doc, chain)
         if doc.get(_ACKED_REV) == desired.rev:
             if desired.final:
-                self._end(doc, "delivered")
+                self._end(doc, "delivered", basis=desired.inputs)
             return 0
         if not self._write_due(doc, desired):
             return 0
@@ -624,7 +631,7 @@ class StatusBoard:
         final = Final(str(text), doc.get(_FINAL_RUN)) if text is not None else None
         body = render(chain, final, known=self._known())
         stages = digest("\n".join(stage_lines(chain)))
-        return _Desired(body, digest(body), stages, final is not None)
+        return _Desired(body, digest(body), stages, final is not None, inputs_rev(doc))
 
     def _write_due(self, doc: Mapping[str, Any], desired: _Desired) -> bool:
         """At most one write per :data:`EDIT_FLOOR_S`; a change of the notes alone waits
@@ -640,11 +647,11 @@ class StatusBoard:
         now = iso(self._clock())
         return {_FINAL: True, _FINAL_AT: now, _OUTCOME: outcome, _PENDING: False}
 
-    def _end(self, doc: Mapping[str, Any], outcome: str, *, on_inputs: bool = True) -> None:
-        """End the record. ``on_inputs``: the decision rests on ``doc``'s inputs (delivered,
-        a horizon), so it holds only while they are unchanged."""
-        if on_inputs:
-            self._apply(doc, {}, ending=self._ending(outcome))
+    def _end(self, doc: Mapping[str, Any], outcome: str, *, basis: str | None = None) -> None:
+        """End the record. With ``basis`` (the inputs snapshot the decision rests on: a
+        final delivered, a horizon) only while the inputs are still that snapshot."""
+        if basis is not None:
+            self._apply(doc, {}, ending=self._ending(outcome), basis=basis)
         else:
             self._apply(doc, self._ending(outcome))
 
@@ -706,7 +713,12 @@ class StatusBoard:
             self._post_failed(doc, out)
             return 0
         found = {_STATE: POSTED, _COMMENT_ID: out.get(_COMMENT_ID), _URL: out.get(_URL)}
-        self._apply(doc, {**found, **self._acked(desired)}, ending=self._acked_ending(desired))
+        self._apply(
+            doc,
+            {**found, **self._acked(desired)},
+            ending=self._acked_ending(desired),
+            basis=desired.inputs,
+        )
         return 1
 
     def _post_failed(self, doc: dict[str, Any], failure: _Failure) -> None:
@@ -734,7 +746,9 @@ class StatusBoard:
             log.warning("status comment of chain %s not edited: %s", doc[_ID], out.code)
             self._fail(doc, out, {_DESIRED_REV: desired.rev})
             return 0
-        self._apply(doc, self._acked(desired), ending=self._acked_ending(desired))
+        self._apply(
+            doc, self._acked(desired), ending=self._acked_ending(desired), basis=desired.inputs
+        )
         return 1
 
     def _fail(self, doc: Mapping[str, Any], failure: _Failure, changes: Mapping) -> None:

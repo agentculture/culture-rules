@@ -735,8 +735,11 @@ inert.
   re-applies only its own fields on the fresh document by compare-and-set,
   retrying a lost one, so a final stored while the writer is mid-call is
   never dropped and never turns an unsent post into `unresolved`. An input
-  write leaves the record pending; a writer's ending decided on older inputs
-  (a final delivered, a horizon) is not applied over newer ones.
+  write leaves the record pending and stores `inputs_rev`, a version of the
+  inputs. Every send carries the `inputs_rev` its body was rendered from, and
+  an ending (a final delivered, a horizon) is applied only while the
+  record's inputs are still that snapshot: a final stored while an older one
+  is being posted or edited is sent next, never marked delivered unsent.
 - **Posting at most once.** A post is recorded as `posting` before it is
   sent. An ambiguous answer leaves it `posting`; the next cycle lists the
   PR's comments, adopts the one this App posted
