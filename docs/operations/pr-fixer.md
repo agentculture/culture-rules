@@ -331,16 +331,19 @@ never fires. The comment, review and review-comment rules also need a trusted
 author (`data.author in vars.trusted_authors`) and not the App itself
 (`self_authored != true`).
 
-**A comment must ask.** A PR comment or a review comment starts a run only
-when its body starts with a command, or mentions the App, listed in
-`vars.fixer_comment_triggers`. The seed default is `["/fix",
-"@rules-culture-dev"]`. The webhook receiver reads two facts from the body:
+**A comment must ask: start the comment with `/fix` or
+`@rules-culture-dev`.** Only the comment's first token counts, after any
+leading whitespace. Anything later in the body never starts a run: a mention
+mid-sentence, a quote, a code block. The accepted forms are listed in
+`vars.fixer_comment_triggers`; the seed default is `["/fix",
+"@rules-culture-dev"]`. The webhook receiver reads two facts from that first
+token:
 
-- `command`: the first word, when the body starts with `/`, lowercased;
-- `mention`: `@rules-culture-dev`, when the body mentions the App in prose.
-  Quoted lines and all Markdown code do not count: backtick or tilde fences of
-  any length, indented code blocks and inline code. The slug is the App
-  actor's `params.self_identity` without `[bot]`.
+- `command`: the token when it is a `/word`, lowercased (`/fix`);
+- `mention`: `@rules-culture-dev` when the token is the App's mention. The
+  match is case-insensitive and needs a token boundary: `@rules-culture-dev,`
+  counts, `@rules-culture-devx` does not. The slug is the App actor's
+  `params.self_identity` without `[bot]`.
 
 Narrow the variable to `["/fix"]` to ignore mentions. Qodo's billing notice,
 a status note and a closing comment (the three live cases) carry neither, so
