@@ -422,3 +422,85 @@ def test_c3_a_refusal_on_an_unseen_head_keeps_its_pr_number_and_branch(pem, worl
     _refuse_base_changed(pem, world, store)
     rec = store.get(SETTLE_COLLECTION, f"acme/widgets@{world.a}".lower())
     assert rec["pr_numbers"] == [3] and rec["number"] == 3 and rec["head_branch"] == "fix"
+
+
+# --------------------------------------------------------------------------- upgrade (Codex #3)
+
+
+def old_release_approval(store, sha, start, *, verdict="approve", run_id="run-1", **over):
+    """What the 0.13.0 build wrote for a single-workflow run: a record without ``target``
+    and a per-run pointer in ``fixer_review_current``."""
+    rid = f"{run_id}:fix[0]/verdict:1"
+    store.put(
+        "fixer_reviews",
+        {
+            "id": rid,
+            "run_id": run_id,
+            "iteration": 0,
+            "attempt": 1,
+            "step": "fix[0]/verdict",
+            "commit_sha": sha,
+            "reviewed_commit": sha,
+            "start_sha": start,
+            "base_sha": PR_BASE_SHA,
+            "verdict": verdict,
+            "repo": "acme/widgets",
+            "number": 3,
+            "reviewer_actor": "codex-reviewer",
+            "reviewer_backend": "codex",
+            "implementer_actor": "qwen-fixer",
+            "implementer_backend": "qwen",
+            **over,
+        },
+    )
+    store.put(
+        "fixer_review_current",
+        {
+            "id": run_id,
+            "run_id": run_id,
+            "record": rid,
+            "iteration": 0,
+            "attempt": 1,
+            "state": "current",
+        },
+    )
+    return rid
+
+
+def test_an_in_flight_single_workflow_run_approved_by_the_old_release_still_pushes(
+    pem, world  # noqa: F811
+):
+    store = make_store()
+    old_release_approval(store, world.b, world.a)
+    res, _fake, _rec = attempt(pem, world, store)
+    assert res.outcome == "completed" and res.output["pushed"] is True, res
+    assert world.remote_head() == world.b
+    assert store.get("fixer_review_current", "run-1")["state"] == "consumed"
+
+
+@pytest.mark.parametrize(
+    "over, code",
+    [
+        ({"verdict": "request_changes"}, "review_rejected"),
+        ({"reviewed_commit": "0" * 40}, "review_commit_mismatch"),
+        ({"reviewer_backend": "qwen"}, "reviewer_is_implementer"),
+        ({"number": 4}, "review_target_mismatch"),
+    ],
+)
+def test_the_old_release_approval_is_judged_exactly_as_d20_did(
+    pem, world, over, code  # noqa: F811
+):
+    store = make_store()
+    verdict = over.pop("verdict", "approve")
+    old_release_approval(store, world.b, world.a, verdict=verdict, **over)
+    assert_refused(*attempt(pem, world, store), world, code)
+
+
+def test_the_legacy_path_serves_only_single_workflow_runs(pem, world):  # noqa: F811
+    store = make_store()
+    old_release_approval(store, world.b, world.a)
+    run = store.get("runs", "run-1")
+    run["workflow"]["definition"] = {**run["workflow"]["definition"], "description": "x"}
+    store.put("runs", run)  # no longer a trusted single-workflow run
+    res, fake, rec = attempt(pem, world, store)
+    assert (res.outcome, res.error) == ("failed", "workflow_not_trusted")

@@ -204,3 +204,70 @@ def test_the_core_library_holds_no_sonar_client():
             # a describe word may name it; no client, endpoint or import may live there
             for needle in ("sonarcloud.io", "apps.sonarcloud", "node.actions.sonar", "/api/"):
                 assert needle not in text, (path, needle)
+
+
+# --------------------------------------------------------------------------- paging (Codex #5)
+
+
+class PagedSonar(FakeSonar):
+    """Pages issues and hotspots as SonarCloud does (``ps``/``p``, ``paging.total``)."""
+
+    def __call__(self, method, url, headers, timeout):
+        parts = urlsplit(url)
+        query = {k: v[0] for k, v in parse_qs(parts.query).items()}
+        self.requests.append((parts.path, query, dict(headers)))
+        if parts.path == "/api/qualitygates/project_status":
+            return 200, json.dumps(self.gate).encode()
+        size, page = int(query.get("ps", 100)), int(query.get("p", 1))
+        if parts.path == "/api/issues/search":
+            wanted = set(query["types"].split(","))
+            rows = [i for i in self.issues if i["type"] in wanted]
+            key = "issues"
+        else:
+            rows, key = self.hotspots, "hotspots"
+        chunk = rows[(page - 1) * size : page * size]
+        doc = {key: chunk, "paging": {"pageIndex": page, "pageSize": size, "total": len(rows)}}
+        return 200, json.dumps(doc).encode()
+
+
+def hotspot(n):
+    return {"key": f"h{n}", "component": f"{KEY}:src/x.py", "line": n, "message": "check"}
+
+
+def test_hotspots_are_paged_and_their_total_reported():
+    fake = PagedSonar(
+        gate(cond("new_security_hotspots_reviewed")), hotspots=[hotspot(n) for n in range(250)]
+    )
+    out = run(fake, config={"max_issues": 150}).output
+    assert len(out["issues"]) == 150
+    assert out["truncated"] is True and out["omitted"] == 100 and out["total"] == 250
+    pages = [q for p, q, _h in fake.requests if p == "/api/hotspots/search"]
+    assert len(pages) == 2  # 100 + 50: a cap above one page is reached by paging
+    assert "first 150 of 250" in out["note"]
+
+
+def test_totals_and_truncation_count_every_type():
+    fake = PagedSonar(
+        gate(cond("new_reliability_rating"), cond("new_security_hotspots_reviewed")),
+        issues=[issue(str(n), "BUG", line=n) for n in range(30)],
+        hotspots=[hotspot(n) for n in range(30)],
+    )
+    out = run(fake, config={"max_issues": 40}).output
+    assert len(out["issues"]) == 40
+    assert out["total"] == 60 and out["omitted"] == 20 and out["truncated"] is True
+    assert "first 40 of 60" in out["note"]
+
+
+def test_a_full_list_is_not_truncated():
+    fake = PagedSonar(gate(cond("new_reliability_rating")), issues=[issue("1", "BUG")])
+    out = run(fake).output
+    assert (out["total"], out["omitted"], out["truncated"]) == (1, 0, False)
+    assert "first" not in out["note"]
+
+
+def test_issues_beyond_one_page_are_paged_to_the_cap():
+    fake = PagedSonar(
+        gate(cond("new_reliability_rating")), issues=[issue(str(n), "BUG") for n in range(180)]
+    )
+    out = run(fake, config={"max_issues": 150}).output
+    assert len(out["issues"]) == 150 and out["total"] == 180 and out["omitted"] == 30

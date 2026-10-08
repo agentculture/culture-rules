@@ -28,7 +28,8 @@ repo allowlist and its per-actor App cache. There is deliberately no merge port.
        :mod:`culture_rules.actors.lineage`). The commit, its start, its bundle, the repo, PR
        and branch must be exactly what that fix run's last gate built and gated
        (``chain_mismatch``), the gate must have passed (``gate_not_passed``), and the rule
-       of every run of the chain must still be enabled (``rule_disabled``);
+       of every run of the chain must still be enabled (``rule_disabled``) - for a re-fix
+       back through every earlier review and fix to the run an external event started;
     4. the review (d20, :func:`culture_rules.actors.review.approved_review`): the review
        record of the commit's target (repo, PR, base, start, tip), written only by the
        built-in ``review`` step and never read from a param, must approve exactly
@@ -110,11 +111,20 @@ from datetime import UTC, datetime
 from typing import Any
 
 from culture_rules.actors import trusted
-from culture_rules.actors.lineage import LineageError, final_gate, rules_live, upstream
+from culture_rules.actors.lineage import (
+    LineageError,
+    final_gate,
+    fix_ancestry,
+    rules_live,
+    upstream,
+)
 from culture_rules.actors.review import (
     REVIEWS_COLLECTION,
     approved_review,
     consume_approval,
+    current_review,
+    legacy_approval,
+    legacy_consume,
     review_target,
 )
 from culture_rules.actors.trusted import doc_refusal
@@ -537,13 +547,13 @@ class GitHubPushPort(GitHubCommentPort):
         if record != job.review_record:
             raise _Refused("review_changed")
         # round 2 (#4): consume the approval - a compare-and-set no later verdict can undo
-        refusal = consume_approval(
-            self._store,
-            job.chain.target if job.chain else None,
-            record,
-            sha,
-            by=f"{context.run_id}/{context.step_id}#{context.attempt}",
-        )
+        by = f"{context.run_id}/{context.step_id}#{context.attempt}"
+        target = job.chain.target if job.chain else None
+        reviewed = self._store.get(REVIEWS_COLLECTION, record or "") or {}
+        if job.chain and job.chain.single and record and not reviewed.get("target"):
+            refusal = legacy_consume(self._store, job.chain.reviewer_run, record, sha, by=by)
+        else:
+            refusal = consume_approval(self._store, target, record, sha, by=by)
         if refusal:
             raise _Refused(refusal)
         job.require(PUSH_MARGIN_S)  # never start the push this close to the deadline
@@ -581,6 +591,18 @@ class GitHubPushPort(GitHubCommentPort):
         refusal = rules_live(self._store, chain.runs)
         if refusal:
             return refusal, None
+        if chain.single and current_review(self._store, chain.target) == (None, None, None):
+            # Codex #3: an in-flight single-workflow run the old release reviewed
+            legacy = legacy_approval(
+                self._store,
+                chain.reviewer_run,
+                str(input["commit_sha"]),
+                repo=input.get("repo"),
+                number=input.get("number"),
+                start_sha=input.get("expected_head_sha"),
+            )
+            if legacy is not None:
+                return legacy
         return approved_review(
             self._store,
             chain.target,
@@ -627,6 +649,9 @@ class _Chain:
     reviewer_run: str
     target: str | None
     runs: tuple[Mapping[str, Any], ...]
+    single: bool = False
+    """A run of the d20 single workflow (its own reviewer): the only kind the legacy
+    approval path (:func:`~culture_rules.actors.review.legacy_approval`) may serve."""
 
 
 def _chain(store: Any, run: Mapping[str, Any] | None, input: Mapping[str, Any]) -> _Chain:
@@ -651,7 +676,15 @@ def _chain(store: Any, run: Mapping[str, Any] | None, input: Mapping[str, Any]) 
         fix = upstream(store, reviewer)
         if trusted.workflow_role(fix) != trusted.ROLE_FIX:
             raise LineageError("workflow_not_trusted", "the reviewed run is not a pr-fix")
-        runs = (run, reviewer, fix)
+        # a re-fix: every earlier review and fix back to the chain's initiator (Codex #2)
+        earlier = fix_ancestry(
+            store,
+            fix,
+            role_of=trusted.workflow_role,
+            review_role=trusted.ROLE_REVIEW,
+            fix_role=trusted.ROLE_FIX,
+        )
+        runs = (run, reviewer, fix, *earlier)
     else:
         raise LineageError("workflow_not_trusted")
     g = final_gate(fix).outputs
@@ -676,7 +709,13 @@ def _chain(store: Any, run: Mapping[str, Any] | None, input: Mapping[str, Any]) 
         input.get("expected_head_sha"),
         input.get("commit_sha"),
     )
-    return _Chain(fix_run=fix, reviewer_run=str(reviewer["id"]), target=target, runs=runs)
+    return _Chain(
+        fix_run=fix,
+        reviewer_run=str(reviewer["id"]),
+        target=target,
+        runs=runs,
+        single=role == trusted.ROLE_SINGLE,
+    )
 
 
 def _push_input_error(input: Mapping[str, Any]) -> str | None:

@@ -19,7 +19,9 @@ issues: the note says what it needs.
 
 Outputs: ``available`` (the lookup worked), ``gate`` (``OK`` / ``ERROR`` / ...), ``failing``
 (``{metric, actual, threshold}`` each), ``issues`` (``{kind, key, rule, severity, message,
-path, line}`` each, at most ``max_issues``), ``truncated`` and ``note``. Advisory data, not
+path, line}`` each, at most ``max_issues``, paged), ``total`` (what SonarCloud counts across
+every listed type), ``omitted`` and ``truncated`` (the cap left some out: the note says the
+list is the first N of the total), and ``note``. Advisory data, not
 a guard: a failed lookup (no analysis for the PR, SonarCloud down) is ``available: false``
 with a note, never a failed step, so a fix of failing tests is never blocked by Sonar.
 ``bad_input`` (fail closed) for a malformed repo or PR number. Standard-library only.
@@ -127,22 +129,27 @@ class SonarGateIssuesPort:
         try:
             types = [k for k in kinds if k != HOTSPOT]
             if types:
-                found, total = client.issues(project, number, types, limit=cap)
+                found, count = client.issues(project, number, types, limit=cap)
                 issues += [_issue(i, project) for i in found]
-            if HOTSPOT in kinds and len(issues) < cap:
-                spots = client.hotspots(project, number, limit=cap - len(issues))
+                total += count
+            if HOTSPOT in kinds:
+                # read even with the cap reached: the total says what the list leaves out
+                spots, count = client.hotspots(project, number, limit=cap - len(issues))
                 issues += [_hotspot(h, project) for h in spots]
-                total += len(spots)
+                total += count
         except SonarError as exc:
             return _unavailable(f"SonarCloud is unavailable ({exc.code})")
-        truncated = total > len(issues)
+        total = max(total, len(issues))
+        omitted = total - len(issues)
         return {
             "available": True,
             "gate": gate["status"],
             "failing": failing,
             "issues": issues,
-            "truncated": truncated,
-            "note": _note(gate["status"], failing, issues, truncated, cap),
+            "total": total,
+            "omitted": omitted,
+            "truncated": omitted > 0,
+            "note": _note(gate["status"], failing, issues, total),
         }
 
 
@@ -182,21 +189,22 @@ def _unavailable(why: str) -> dict[str, Any]:
 
 
 def _note(
-    gate: Any,
-    failing: list[dict[str, Any]],
-    issues: list[dict[str, Any]],
-    truncated: bool,
-    cap: int,
+    gate: Any, failing: list[dict[str, Any]], issues: list[dict[str, Any]], total: int
 ) -> str:
     if not failing:
         return f"The SonarCloud quality gate passes ({gate}): do not work on Sonar issues."
     names = ", ".join(f"{f['metric']} ({f['actual']} vs {f['threshold']})" for f in failing)
     text = f"The SonarCloud quality gate fails on: {names}. "
-    if issues:
+    if issues and total > len(issues):
         text += (
-            f"The sonar_issues input lists the {len(issues)} issue(s) behind those conditions"
-            + (f" (the first {cap})" if truncated else "")
-            + ". Fix exactly these and nothing else of the Sonar backlog. "
+            f"The sonar_issues input lists the first {len(issues)} of {total} issues behind "
+            f"those conditions ({total - len(issues)} left out). Fix exactly these and nothing "
+            "else of the Sonar backlog; the rest are for a later run. "
+        )
+    elif issues:
+        text += (
+            f"The sonar_issues input lists all {len(issues)} issue(s) behind those conditions. "
+            "Fix exactly these and nothing else of the Sonar backlog. "
         )
     other = [f["metric"] for f in failing if f["metric"] not in METRIC_KINDS]
     if other:

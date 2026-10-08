@@ -337,9 +337,10 @@ when its body starts with a command, or mentions the App, listed in
 "@rules-culture-dev"]`. The webhook receiver reads two facts from the body:
 
 - `command`: the first word, when the body starts with `/`, lowercased;
-- `mention`: `@rules-culture-dev`, when the body mentions the App outside
-  quoted lines and code. The slug is the App actor's `params.self_identity`
-  without `[bot]`.
+- `mention`: `@rules-culture-dev`, when the body mentions the App in prose.
+  Quoted lines and all Markdown code do not count: backtick or tilde fences of
+  any length, indented code blocks and inline code. The slug is the App
+  actor's `params.self_identity` without `[bot]`.
 
 Narrow the variable to `["/fix"]` to ignore mentions. Qodo's billing notice,
 a status note and a closing comment (the three live cases) carry neither, so
@@ -397,8 +398,10 @@ It builds and gates one commit. It never reviews or pushes it.
    | `new_maintainability_rating` | code smells |
    | `new_security_hotspots_reviewed` | hotspots still to review |
 
-   The step lists at most 50. Coverage and duplication have no issue list; the
-   step names them in its note. The project key is `{owner}_{name}`. A failed
+   The step lists at most 50, paged across every listed type. It reports the
+   `total` SonarCloud counts and how many it `omitted`; a capped list's note
+   says "the first N of TOTAL". Coverage and duplication have no issue list;
+   the step names them in its note. The project key is `{owner}_{name}`. A failed
    lookup (no analysis, SonarCloud down) is `available: false` with a note.
    It never fails the run: Sonar data is advice, not a guard.
 4. `fix`: a `retry_until` of up to 3 tries until the gate verdict is `pass`
@@ -460,7 +463,9 @@ longer read.
      are exactly what that pr-fix run's last gate built (`chain_mismatch`),
      and the gate passed (`gate_not_passed`);
    - the rule of every run of the chain is still enabled (`rule_disabled`).
-     Disabling any fixer rule mid-chain stops the push;
+     For a re-fix the chain reaches back through every earlier review and fix
+     to the trigger rule that started it. Disabling any fixer rule mid-chain,
+     the initiating one included, stops the push;
    - the commit's review record approves exactly this commit, by a reviewer
      other than the implementer, and was **written by this chain's review
      run** (`review_not_in_chain`);
@@ -664,9 +669,9 @@ The order matters: nodes first, then the data.
 1. **Pause the engine** (`culture-rules runs pause`, lapse l5) and let the
    fixer runs in flight finish, or stop them (`rules stop-runs`). A d20 run
    pinned to the single workflow can still push after the upgrade (its digest
-   stays trusted) when its review is recorded by the new build. A review the
-   old build recorded (per run) is not read by the new push: that run hands
-   back with `review_missing` and pushes nothing.
+   stays trusted). A review the old build recorded is read through a narrow
+   legacy path: only for a run of that trusted workflow, only from its per-run
+   pointer in `fixer_review_current`, judged and consumed exactly as d20 did.
 2. **Upgrade every node and the API** to the 0.14.0 wheel. It holds the new
    trusted digests, the chain holds, the cancel stage and the Sonar built-in.
    An old node that evaluates a stage rule cannot hold the key or verify the

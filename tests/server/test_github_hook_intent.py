@@ -207,3 +207,74 @@ def test_a_review_and_a_review_comment_carry_their_intent_and_state():
     }
     data = _deliver(store, "pull_request", sync, "d-4")
     assert data["state"] == "open" and "command" not in data
+
+
+# ------------------------------------------------------------------- Markdown code (Codex #4)
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "~~~\n@rules-culture-dev\n~~~",
+        "~~~~python\n@rules-culture-dev fix\n~~~~",
+        "````\n```\n@rules-culture-dev\n```\n````",  # a longer fence holds a shorter one
+        "```\n@rules-culture-dev\n",  # an unclosed fence runs to the end
+        "text\n\n    @rules-culture-dev in an indented block\n",
+        "text\n\n\t@rules-culture-dev in a tab-indented block\n",
+        "see ``@rules-culture-dev`` here",
+        "see ```@rules-culture-dev``` inline",
+        "  > @rules-culture-dev quoted with leading spaces",
+    ],
+    ids=[
+        "tilde",
+        "long_tilde_info",
+        "nested_backticks",
+        "unclosed",
+        "indented",
+        "tab_indented",
+        "double_backtick",
+        "triple_backtick_inline",
+        "quote",
+    ],
+)
+def test_a_mention_inside_any_markdown_code_or_quote_is_not_an_ask(body):
+    assert "mention" not in intent(body)
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "~~~\ncode\n~~~\n@rules-culture-dev please fix",
+        "```\ncode\n```\nthen @rules-culture-dev fix it",
+        "intro\n    @rules-culture-dev",  # not preceded by a blank line: a paragraph line
+    ],
+)
+def test_a_mention_outside_the_code_still_counts(body):
+    assert intent(body).get("mention") == "@rules-culture-dev"
+
+
+@pytest.mark.parametrize(
+    "body",
+    ["    /fix", "\t/fix", "```\n/fix\n```", "~~~\n/fix\n~~~"],
+    ids=["indented", "tab", "backtick_fence", "tilde_fence"],
+)
+def test_a_command_in_code_is_not_a_command(body):
+    assert "command" not in intent(body)
+
+
+def test_a_command_may_be_indented_by_up_to_three_spaces():
+    assert intent("   /fix it")["command"] == "/fix"
+
+
+def test_hostile_backtick_runs_parse_in_linear_time():
+    import time
+
+    bodies = [
+        "@rules-culture-dev " + "`" * 9_900,
+        "".join("`" * n + "x " for n in range(1, 140)),
+        "`a" * 5_000,
+    ]
+    start = time.monotonic()
+    for body in bodies:
+        intent(body)
+    assert time.monotonic() - start < 0.5

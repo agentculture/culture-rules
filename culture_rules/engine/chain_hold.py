@@ -33,7 +33,10 @@ continue it, in the same transaction that records its completion:
   hold is **released** (``hold_released`` = the held run); the chain consumers watch the
   budget documents and the one owning the pending event's rule fires it then.
 * Backstop: a hold older than :data:`HOLD_TTL` no longer blocks the key (a continuation
-  placed on a host that never came back), so a key is never held forever.
+  placed on a host that never came back), so a key is never held forever, and every
+  node's cycle releases it (:func:`expire_holds`) so its pending event fires. A late
+  continuation of an expired or released hold still succeeds its holder and keeps the
+  pending event for the chain's end (:func:`is_continuation`).
 
 Holding a key changes nothing for a run without a concurrency key, and nothing for a run
 whose completion no rule continues: then there is no hold, and the key is released at the
@@ -65,6 +68,7 @@ __all__ = [
     "RUN_EVENT_TYPE_PREFIX",
     "continuations",
     "decline",
+    "expire_holds",
     "hold_active",
     "is_continuation",
     "set_hold",
@@ -158,15 +162,52 @@ def hold_active(budget: Mapping[str, Any] | None, now: datetime | None = None) -
 
 
 def is_continuation(budget: Mapping[str, Any] | None, envelope: Mapping[str, Any] | None) -> bool:
-    """Whether ``envelope`` is an event of the run ``budget`` is held for (its run event)."""
-    hold = (budget or {}).get("hold")
-    if not isinstance(hold, Mapping) or not isinstance(envelope, Mapping):
+    """Whether ``envelope`` is an event of the finished run that still holds ``budget`` and
+    was (or is) held for its continuation - a live, expired or released hold alike. A late
+    continuation of an expired or released hold still succeeds its holder: it keeps the
+    key's pending event for the chain's end instead of coalescing it away (Codex #1)."""
+    if not isinstance(envelope, Mapping) or not isinstance(budget, Mapping):
         return False
     if not str(envelope.get("type") or "").startswith(RUN_EVENT_TYPE_PREFIX):
         return False
+    hold = budget.get("hold")
+    held = hold.get("run_id") if isinstance(hold, Mapping) else None
+    holder = budget.get("run_id")
+    if not holder or holder not in (held, budget.get("hold_released")):
+        return False
     data = envelope.get("data")
     run_id = data.get("run_id") if isinstance(data, Mapping) else None
-    return isinstance(run_id, str) and run_id == hold.get("run_id")
+    return isinstance(run_id, str) and run_id == holder
+
+
+def expire_holds(store: Any, now: datetime | None = None) -> list[str]:
+    """Release every hold older than :data:`HOLD_TTL` (any node, each cycle): its
+    continuation was never decided - placed on a host that never came back. The release
+    is the same compare-and-set :func:`decline` ends with (``hold_released``), so the chain
+    consumers fire the key's pending event exactly as for a declined continuation. Answer
+    the budget ids released."""
+    moment = now if now is not None else datetime.now(UTC)
+    released = []
+    for doc in store.find(RULE_ATTEMPT_BUDGETS):
+        hold = doc.get("hold")
+        if not isinstance(hold, Mapping) or hold.get("run_id") != doc.get("run_id"):
+            continue
+        since = _parse_time(hold.get("since"))
+        if since is not None and moment - since < HOLD_TTL:
+            continue  # still waiting for its continuation (unreadable since: expired)
+        won = store.update_if(
+            RULE_ATTEMPT_BUDGETS,
+            doc["id"],
+            {"revision": doc.get("revision"), "run_id": doc.get("run_id")},
+            {
+                "hold": None,
+                "hold_released": doc.get("run_id"),
+                "revision": (doc.get("revision") or 0) + 1,
+            },
+        ).won
+        if won:
+            released.append(doc["id"])
+    return released
 
 
 def set_hold(

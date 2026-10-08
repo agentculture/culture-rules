@@ -23,8 +23,12 @@ actor-less built-in ``gate`` step; the loop ``succeeded``; the gate of its last 
 ``succeeded``. That state (in the store) is the authority on the built commit, its start
 and base, its diff and its bundle (``gate_missing`` / ``bad_config`` otherwise).
 
+:func:`fix_ancestry` - a re-fix's earlier reviews and fixes, back to the fix an external
+event started, each link verified the same way.
+
 :func:`rules_live` - every rule of a chain is still live and enabled (``rule_disabled``):
-disabling any fixer rule mid-chain stops the chain's push. Standard-library only.
+disabling any fixer rule mid-chain - the initiating trigger rule included - stops the
+chain's push. Standard-library only.
 """
 
 from __future__ import annotations
@@ -36,6 +40,7 @@ from typing import Any
 __all__ = [
     "CHAIN_UNVERIFIED",
     "FinalGate",
+    "fix_ancestry",
     "LineageError",
     "RUN_SUCCEEDED",
     "final_gate",
@@ -86,6 +91,43 @@ def upstream(store: Any, run: Mapping[str, Any]) -> Mapping[str, Any]:
     if not up or up.get("status") != "succeeded":
         raise LineageError(CHAIN_UNVERIFIED, "the upstream run did not succeed")
     return up
+
+
+def fix_ancestry(
+    store: Any,
+    fix: Mapping[str, Any],
+    *,
+    role_of: Any,
+    review_role: str,
+    fix_role: str,
+) -> list[Mapping[str, Any]]:
+    """The earlier runs of ``fix``'s chain, newest first (Codex #2): a re-fix was started
+    by a review run requesting changes, itself started by an earlier fix run, and so on back
+    to the fix an external event started (the chain's initiator). Each link is verified like
+    :func:`upstream` and must be in its role (``workflow_not_trusted``). Bounded by the hop
+    cap and cycle-safe: a longer or circular lineage is ``chain_unverified``."""
+    from culture_rules.events.emit import MAX_EVENT_HOPS  # noqa: PLC0415
+
+    out: list[Mapping[str, Any]] = []
+    seen = {fix.get("id")}
+    current = fix
+    for _ in range(MAX_EVENT_HOPS + 1):
+        trigger = current.get("trigger")
+        kind = trigger.get("type") if isinstance(trigger, Mapping) else None
+        if not (isinstance(kind, str) and kind.startswith("rules.run.")):
+            return out  # started by an external event (or by hand): the initiator
+        review = upstream(store, current)
+        if role_of(review) != review_role:
+            raise LineageError("workflow_not_trusted", "a re-fix not started by a review run")
+        earlier = upstream(store, review)
+        if role_of(earlier) != fix_role:
+            raise LineageError("workflow_not_trusted", "a review not of a pr-fix run")
+        if review.get("id") in seen or earlier.get("id") in seen:
+            raise LineageError(CHAIN_UNVERIFIED, "the chain's lineage loops")
+        seen.update((review.get("id"), earlier.get("id")))
+        out += [review, earlier]
+        current = earlier
+    raise LineageError(CHAIN_UNVERIFIED, "the chain's lineage is longer than the hop cap")
 
 
 def _definition(run: Mapping[str, Any]) -> Mapping[str, Any]:

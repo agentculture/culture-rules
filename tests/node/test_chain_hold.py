@@ -316,3 +316,106 @@ def test_a_restore_drops_a_held_reservation_and_the_continuation_still_runs():
     cycles(c, 4)
     fix = c.run("fix", "evt_1")
     assert c.run("review", run_event_id(fix["id"]))["status"] == "succeeded"
+
+
+# --------------------------------------------------------------------------- expiry (Codex #1)
+
+
+def _offline_review_cluster():
+    """The review rule is placed on thor, enrolled but never beating: no consumer ever
+    decides it, so the fix run's hold is never declined - only its expiry can end it."""
+    from culture_rules.machines.enrol import enrol
+    from culture_rules.model.placement import Placement
+    from tests.engine.run_helpers import machine
+
+    rule = review_rule(placement=Placement(machine="thor"))
+    c = cluster(fix_rule(concurrency_key=KEY), rule)
+    enrol(c.base, machine("thor"), apply=True)
+    return c
+
+
+def test_an_expired_hold_is_released_and_its_pending_event_fires():
+    c = _offline_review_cluster()
+    started_fix(c)
+    finish_fix(c)
+    end_runs(c)
+    fix = c.run("fix", "evt_1")
+    assert budget(c)["hold"]["rules"] == ["review"]
+    settle(c, 2)  # deduplicated behind the hold
+    cycles(c, 3)
+    assert c.run("fix", "evt_2") is None
+    c.clock.advance(HOLD_TTL.total_seconds() + 1)
+    cycles(c, 3)  # the expiry sweep releases the hold; the pending event fires once
+    assert c.run("review", run_event_id(fix["id"])) is None
+    second = c.run("fix", "evt_2")
+    assert second is not None
+    # the first chain's hold is gone (the second run holds the key for its own chain now)
+    assert (budget(c).get("hold") or {}).get("run_id") != fix["id"]
+
+
+def test_a_late_continuation_after_expiry_keeps_the_pending_event():
+    from datetime import UTC, datetime
+
+    from culture_rules.engine.claims import note_deduplicated
+
+    store = MemoryStore()
+    assert reserve_concurrency(store, "fix", "k", "run-1", "i-1", 3) is None
+    note_deduplicated(store, "fix", "k", "evt_2")
+    t0 = datetime(2026, 1, 1, tzinfo=UTC)
+    _held(store, since=t0.isoformat())
+    store.put(
+        RULE_ATTEMPT_BUDGETS,
+        {
+            **store.get(RULE_ATTEMPT_BUDGETS, budget_id("k")),
+            "pending_event_id": "evt_2",
+            "pending_rule_id": "fix",
+        },
+    )
+    late = t0 + HOLD_TTL + timedelta(minutes=1)
+    out: dict = {}
+    assert (
+        reserve_concurrency(
+            store,
+            "review",
+            "k",
+            "run-3",
+            "i-3",
+            None,
+            counts=False,
+            event=_run_event(),
+            now=late,
+            outcome=out,
+        )
+        is None
+    )
+    assert out["continuation"] is True
+    doc = store.get(RULE_ATTEMPT_BUDGETS, budget_id("k"))
+    assert doc["run_id"] == "run-3" and doc["pending_event_id"] == "evt_2"
+
+
+def test_a_continuation_after_the_hold_was_released_keeps_the_pending_event():
+    from culture_rules.engine.claims import note_deduplicated
+
+    store = MemoryStore()
+    assert reserve_concurrency(store, "fix", "k", "run-1", "i-1", 3) is None
+    note_deduplicated(store, "fix", "k", "evt_2")
+    store.put("runs", {"id": "run-1", "status": "succeeded"})
+    doc = store.get(RULE_ATTEMPT_BUDGETS, budget_id("k"))
+    store.put(RULE_ATTEMPT_BUDGETS, {**doc, "hold": None, "hold_released": "run-1"})
+    out: dict = {}
+    assert (
+        reserve_concurrency(
+            store,
+            "review",
+            "k",
+            "run-3",
+            "i-3",
+            None,
+            counts=False,
+            event=_run_event(),
+            outcome=out,
+        )
+        is None
+    )
+    assert out["continuation"] is True
+    assert store.get(RULE_ATTEMPT_BUDGETS, budget_id("k"))["pending_event_id"] == "evt_2"

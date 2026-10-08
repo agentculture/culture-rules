@@ -520,6 +520,10 @@ def reserve_concurrency(
                 if not is_continuation(current, event):
                     return "deduplicated"
                 continuation = True
+            elif is_continuation(current, event):
+                # a late continuation of an expired or released hold: it still succeeds
+                # the holder, so the pending event waits for the chain's end (Codex #1)
+                continuation = True
         if counts and max_attempts is not None and count >= max_attempts:
             return "attempt_budget_exhausted"
         revision = current.get("revision")

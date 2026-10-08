@@ -425,6 +425,7 @@ class Node:
             self._stage(report, self._schedule, report)
             self._stage(report, self._probe, report)
             self._stage(report, self._settle, report)
+            self._stage(report, self._expire_holds, report)
             if self._listen_gateways:
                 self._stage(report, self._discord_gateway, report)
             for consumer in self.firing.consumers:
@@ -467,6 +468,15 @@ class Node:
 
     def _settle(self, report: CycleReport) -> None:
         self.settler.tick()
+
+    def _expire_holds(self, report: CycleReport) -> None:
+        """Release chain holds past their TTL (d21): their pending events then fire through
+        the chain consumers (:func:`~culture_rules.engine.chain_hold.expire_holds`)."""
+        del report
+        from culture_rules.engine.chain_hold import expire_holds  # noqa: PLC0415
+
+        for doc_id in expire_holds(self._store, self._clock()):
+            log.warning("chain hold on %s expired before its continuation: released", doc_id)
 
     def _discord_gateway(self, report: CycleReport) -> None:
         report.listening += self.gateways.tick()

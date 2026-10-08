@@ -265,7 +265,13 @@ count. With any such rule, the key's budget document gets
   hold is released (`hold_released`), and the chain consumers fire the pending
   event through its rule's owner, as at a run's end.
 - **A hold expires after 15 minutes** (`HOLD_TTL`). This covers a continuation
-  placed on a host that never came back, so a key is never held forever.
+  placed on a host that never came back, so a key is never held forever. Every
+  node's cycle releases expired holds the same way, so their pending events
+  fire.
+- **A late continuation still continues.** When the held run's own event fires
+  a rule after its hold expired or was released, and no other run has taken
+  the key, that rule succeeds the holder. It keeps the pending event for the
+  chain's end and never coalesces it away.
 - **A restore drops a hold with its reservation.** The restored run event then
   finds the key free.
 

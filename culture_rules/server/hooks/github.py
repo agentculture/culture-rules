@@ -221,9 +221,9 @@ def _data(event: str, action: str, payload: Mapping[str, Any]) -> dict[str, Any]
 
 INTENT_MAX_CHARS = 10_000
 """How much of a comment body :func:`comment_intent` reads (a bound on the regex work)."""
-_COMMAND_RE = re.compile(r"/([a-z][a-z0-9_-]{0,31})(?=\s|$)", re.IGNORECASE)
-_FENCE_RE = re.compile(r"```.*?(?:```|\Z)", re.DOTALL)
-_INLINE_CODE_RE = re.compile(r"`[^`\n]*`")
+_COMMAND_RE = re.compile(r" {0,3}/([a-z][a-z0-9_-]{0,31})(?=\s|$)", re.IGNORECASE)
+_FENCE_OPEN_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+_BACKTICKS_RE = re.compile(r"`+")
 _SLUG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,62}$")
 _BODY_PATHS = {
     "issue_comment": ("comment", "body"),
@@ -232,17 +232,83 @@ _BODY_PATHS = {
 }
 
 
+def _prose_lines(text: str) -> list[str]:
+    """The body's lines that are prose: no fenced code (backtick or tilde fences of three or
+    more, closed only by a fence of the same character at least as long; an unclosed fence
+    runs to the end), no indented code block (four spaces or a tab, opened after a blank
+    line), no quoted line; inline code spans (any run of backticks) blanked out."""
+    out: list[str] = []
+    fence: str | None = None
+    prev_blank, in_indented = True, False
+    for line in text.splitlines():
+        if fence is not None:
+            close = _FENCE_OPEN_RE.match(line)
+            if close and close.group(1)[0] == fence[0] and len(close.group(1)) >= len(fence):
+                if not line.strip().strip(fence[0]):
+                    fence = None
+            continue
+        opened = _FENCE_OPEN_RE.match(line)
+        if opened and not (opened.group(1)[0] == "`" and "`" in line[opened.end() :]):
+            fence = opened.group(1)
+            prev_blank, in_indented = False, False
+            continue
+        blank = not line.strip()
+        indented = line.startswith(("    ", "\t"))
+        if not blank and indented and (prev_blank or in_indented):
+            in_indented = True
+            continue
+        if not blank:
+            in_indented = False
+        prev_blank = blank
+        if line.lstrip().startswith(">"):
+            continue
+        out.append(_strip_inline_code(line))
+    return out
+
+
+def _strip_inline_code(line: str) -> str:
+    """``line`` with every inline code span blanked: a backtick run opens a span that the
+    next run of exactly the same length closes (an unmatched run is literal). Linear: the
+    runs are found once and paired through per-length queues."""
+    runs = [(m.start(), m.end()) for m in _BACKTICKS_RE.finditer(line)]
+    if not runs:
+        return line
+    later: dict[int, list[int]] = {}
+    for i, (a, b) in enumerate(runs):
+        later.setdefault(b - a, []).append(i)
+    heads = dict.fromkeys(later, 0)
+    parts, pos, i = [], 0, 0
+    while i < len(runs):
+        a, b = runs[i]
+        n = b - a
+        queue = later[n]
+        while heads[n] < len(queue) and queue[heads[n]] <= i:
+            heads[n] += 1
+        if heads[n] >= len(queue):
+            i += 1  # no closing run of this length: literal backticks
+            continue
+        j = queue[heads[n]]
+        parts.append(line[pos:a])
+        parts.append(" ")
+        pos = runs[j][1]
+        i = j + 1
+    parts.append(line[pos:])
+    return "".join(parts)
+
+
 def comment_intent(body: Any, self_identity: Any) -> dict[str, str]:
     """What a comment asks of the App (d21): ``command`` - the body's first word when the
-    body starts with ``/`` (``/fix``), lowercased; ``mention`` - ``@<slug>`` when the body
-    mentions the App (``self_identity`` without ``[bot]``) outside quoted lines and code.
-    Each is omitted when absent, so a rule comparing it is false. Only the first
-    :data:`INTENT_MAX_CHARS` characters are read."""
+    body's first non-blank line starts with ``/`` (indented by three spaces at most, so not
+    code), lowercased; ``mention`` - ``@<slug>`` when the body mentions the App
+    (``self_identity`` without ``[bot]``) in prose: outside Markdown code (fenced, indented,
+    inline) and quoted lines. Each is omitted when absent, so a rule comparing it is false.
+    Only the first :data:`INTENT_MAX_CHARS` characters are read."""
     if not isinstance(body, str):
         return {}
     text = body[:INTENT_MAX_CHARS]
     out: dict[str, str] = {}
-    command = _COMMAND_RE.match(text.lstrip())
+    first = next((ln for ln in text.splitlines() if ln.strip()), "")
+    command = _COMMAND_RE.match(first)
     if command:
         out["command"] = "/" + command.group(1).lower()
     slug = self_identity.strip() if isinstance(self_identity, str) else ""
@@ -250,12 +316,10 @@ def comment_intent(body: Any, self_identity: Any) -> dict[str, str]:
         slug = slug[: -len("[bot]")]
     if not _SLUG_RE.match(slug):
         return out
-    visible = _INLINE_CODE_RE.sub(" ", _FENCE_RE.sub(" ", text))
-    lines = [ln for ln in visible.splitlines() if not ln.lstrip().startswith(">")]
     mention = re.compile(
         r"(?<![\w@.-])@" + re.escape(slug) + r"(?:\[bot\])?(?![\w-])", re.IGNORECASE
     )
-    if mention.search("\n".join(lines)):
+    if mention.search("\n".join(_prose_lines(text))):
         out["mention"] = "@" + slug.lower()
     return out
 

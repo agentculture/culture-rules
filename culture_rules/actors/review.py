@@ -125,7 +125,10 @@ __all__ = [
     "ReviewVerdictPort",
     "parse_review",
     "CURRENT_COLLECTION",
+    "LEGACY_CURRENT",
     "approved_review",
+    "legacy_approval",
+    "legacy_consume",
     "consume_approval",
     "current_review",
     "record_review",
@@ -617,6 +620,56 @@ def approved_review(
     if refusal is None and (not isinstance(reviewer_run, str) or doc.get("run_id") != reviewer_run):
         refusal = "review_not_in_chain"
     return refusal, record_id
+
+
+LEGACY_CURRENT = "fixer_review_current"
+"""The 0.13.0 (d20) per-run pointers: id = run id. Read only by :func:`legacy_approval`,
+for a run of the single ``pr-fixer`` workflow whose review the old release recorded."""
+
+
+def legacy_approval(
+    store: Any, run_id: str, commit_sha: str, *, repo: Any, number: Any, start_sha: Any
+) -> tuple[str | None, str | None] | None:
+    """The upgrade path (Codex #3): a single-workflow run in flight when the nodes moved to
+    this release may hold an approval the old release recorded - a per-run pointer in
+    :data:`LEGACY_CURRENT` and a record without a ``target``. Judged exactly as d20 did
+    (:func:`_refusal_of`, conflict and consumption states); ``None`` when the run has no
+    such pointer, so the per-commit path applies. The caller serves only runs pinned to the
+    trusted single ``pr-fixer`` workflow. A record this release wrote (it names a target)
+    is never read this way."""
+    cur = store.get(LEGACY_CURRENT, run_id) if isinstance(run_id, str) and run_id else None
+    if not cur or cur.get("run_id") != run_id:
+        return None
+    state, record = cur.get("state"), cur.get("record")
+    if state not in (CURRENT, CONSUMED) or not isinstance(record, str):
+        return "review_conflict", None
+    doc = store.get(REVIEWS_COLLECTION, record)
+    if not doc or doc.get("run_id") != run_id or doc.get("target"):
+        return "review_missing", None
+    if state == CONSUMED and cur.get("consumed_commit") != commit_sha:
+        return "review_consumed", record
+    return _refusal_of(doc, commit_sha, repo=repo, number=number, start_sha=start_sha), record
+
+
+def legacy_consume(
+    store: Any, run_id: str, record_id: str | None, commit_sha: str, *, by: str
+) -> str | None:
+    """:func:`consume_approval` on the run's legacy pointer, exactly as d20 did."""
+    for _ in range(16):
+        cur = store.get(LEGACY_CURRENT, run_id) if isinstance(run_id, str) else None
+        if not cur or not record_id or cur.get("record") != record_id:
+            return "review_changed"
+        state = cur.get("state")
+        if state == CONSUMED:
+            return None if cur.get("consumed_commit") == commit_sha else "review_consumed"
+        if state != CURRENT:
+            return "review_conflict"
+        changes = {"state": CONSUMED, "consumed_commit": commit_sha, "consumed_by": by}
+        if store.update_if(
+            LEGACY_CURRENT, run_id, {"record": record_id, "state": CURRENT}, changes
+        ).won:
+            return None
+    return "review_changed"
 
 
 def _refusal_of(

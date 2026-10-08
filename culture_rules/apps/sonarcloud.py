@@ -8,7 +8,11 @@ of one project:
   status and its conditions;
 * :meth:`SonarCloud.issues` - ``GET /api/issues/search``: the PR's open issues of the given
   types (``BUG``, ``VULNERABILITY``, ``CODE_SMELL``), paged, up to a cap;
-* :meth:`SonarCloud.hotspots` - ``GET /api/hotspots/search``: its hotspots still to review.
+* :meth:`SonarCloud.hotspots` - ``GET /api/hotspots/search``: its hotspots still to review,
+  paged, up to a cap.
+
+Each list read also answers the total SonarCloud reports, so a capped list says what it left
+out.
 
 Public projects need no token. An optional token (a private project) rides only in the
 ``Authorization`` header, never the URL or a log. The transport is injectable
@@ -143,25 +147,46 @@ class SonarCloud:
             if not isinstance(found, list):
                 raise SonarError("malformed", "issues")
             paging = doc.get("paging") if isinstance(doc.get("paging"), Mapping) else {}
-            total = int(paging.get("total") or len(found)) if page == 1 else total
+            if page == 1:
+                total = _total(paging, len(found))
             out.extend(i for i in found if isinstance(i, Mapping))
             if len(found) < _PAGE:
                 break
             page += 1
         return out[:limit], max(total, len(out))
 
-    def hotspots(self, project: str, pull_request: int, *, limit: int) -> list[Mapping[str, Any]]:
-        """The PR's security hotspots still to review (at most ``limit``)."""
-        doc = self._get(
-            "/api/hotspots/search",
-            {
-                "projectKey": project,
-                "pullRequest": str(pull_request),
-                "status": "TO_REVIEW",
-                "ps": str(min(limit, _PAGE)),
-            },
-        )
-        found = doc.get("hotspots")
-        if not isinstance(found, list):
-            raise SonarError("malformed", "hotspots")
-        return [h for h in found if isinstance(h, Mapping)][:limit]
+    def hotspots(
+        self, project: str, pull_request: int, *, limit: int
+    ) -> tuple[list[Mapping[str, Any]], int]:
+        """The PR's security hotspots still to review (at most ``limit``, paged) and how
+        many there are. ``limit`` 0 reads one row for the total only."""
+        out: list[Mapping[str, Any]] = []
+        total, page = 0, 1
+        while True:
+            size = _PAGE if limit > 0 else 1
+            doc = self._get(
+                "/api/hotspots/search",
+                {
+                    "projectKey": project,
+                    "pullRequest": str(pull_request),
+                    "status": "TO_REVIEW",
+                    "ps": str(size),
+                    "p": str(page),
+                },
+            )
+            found = doc.get("hotspots")
+            if not isinstance(found, list):
+                raise SonarError("malformed", "hotspots")
+            paging = doc.get("paging") if isinstance(doc.get("paging"), Mapping) else {}
+            if page == 1:
+                total = _total(paging, len(found))
+            out.extend(h for h in found if isinstance(h, Mapping))
+            if limit <= 0 or len(out) >= limit or len(found) < size:
+                break
+            page += 1
+        return out[: max(limit, 0)], max(total, len(out[: max(limit, 0)]))
+
+
+def _total(paging: Mapping[str, Any], fallback: int) -> int:
+    value = paging.get("total")
+    return value if isinstance(value, int) and not isinstance(value, bool) else fallback

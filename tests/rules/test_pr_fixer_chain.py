@@ -514,3 +514,26 @@ def test_an_edited_review_commit_workflow_records_nothing_a_push_accepts(tmp_pat
     assert review["status"] == "failed"
     assert review["error"]["message"].startswith("workflow_not_trusted")
     assert w.push.calls == []
+
+
+def test_disabling_the_initiating_trigger_rule_after_a_refix_pushes_nothing(tmp_path, pem):
+    """checks -> fix A -> review A (changes) -> refix: fix B -> review B (approve) ->
+    publish. The push follows the verified re-fix lineage back to fix A, so disabling the
+    rule that started the chain (pr-fixer-checks) during review B stops it (Codex #2)."""
+    w = ChainWorld(tmp_path, reviews=[changes, verdict_text], real_push_pem=pem)
+    trust_app(w)
+    calls = {"n": 0}
+
+    def disable_on_second_review():
+        calls["n"] += 1
+        if calls["n"] == 2:
+            doc = w.c.base.get("rules", "pr-fixer-checks")
+            w.c.base.put("rules", {**doc, "enabled": False})
+
+    w.reviewer.on_request = disable_on_second_review
+    w.fire()
+    assert [r["rule_id"] for r in w.run_of("pr-fix")] == ["pr-fixer-checks", "pr-fixer-refix"]
+    (publish,) = w.run_of("publish-fix")
+    assert publish["status"] == "failed"
+    assert publish["error"]["message"] == "rule_disabled"
+    assert w.remote_head() == w.repo.start
