@@ -264,3 +264,44 @@ def test_the_incident_link_is_rebuilt_from_its_digits():
     assert found["incident_url"] == url
     (found,), _ = parse_findings(SAMPLE)
     assert found["incident_url"] == INCIDENT_URL  # with ?occurrence=<digits>
+
+
+# --------------------------------------------------------------------------- Codex round 2 (d25)
+
+
+def test_a_shorter_fence_does_not_close_a_longer_one():
+    text = f"````\n```\n{HEADER}\n| 1 | Triggered | {OUTSIDE} | {SHA} | a.py | |\n````\n"
+    assert parse_findings(text) == ([], 0)
+
+
+def test_a_fence_closes_only_with_its_own_char_and_nothing_after():
+    for close in ("~~~", "``` text", "``"):
+        text = f"```\n{close}\n{HEADER}\n| 1 | Triggered | {OUTSIDE} | {SHA} | a.py | |\n"
+        assert parse_findings(text) == ([], 0), close
+
+
+def test_a_longer_closing_fence_closes():
+    text = f"```\ncode\n`````\n{SAMPLE}"
+    assert parse_findings(text) == ([FINDING], 1)
+
+
+@pytest.mark.parametrize("indent", ["\t", "  \t", " \t"])
+def test_a_tab_indented_table_is_a_code_block(indent):
+    text = "\n".join(indent + line for line in (HEADER + "\n" + ROW).split("\n"))
+    assert parse_findings(text) == ([], 0)
+
+
+def test_up_to_three_spaces_of_indent_is_still_a_table():
+    text = "\n".join("   " + line for line in (HEADER + "\n" + ROW).split("\n"))
+    assert parse_findings(text) == ([FINDING], 1)
+
+
+@pytest.mark.parametrize(
+    "separator",
+    ["|---|---|---|---|---|", "|---|---|---|---|---|---|---|", "|---|---|x|---|---|---|"],
+    ids=["fewer", "more", "not_dashes"],
+)
+def test_the_separator_must_match_the_header_cell_for_cell(separator):
+    header = HEADER.split("\n")[0]
+    text = f"{header}\n{separator}\n| 1 | Triggered | {OUTSIDE} | {SHA} | a.py | |\n"
+    assert parse_findings(text) == ([], 0)

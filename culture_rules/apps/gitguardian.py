@@ -26,9 +26,11 @@ survives).
 Only a recognizable findings table is read: a header row naming at least the ``Secret``
 and ``Filename`` columns (any order, extra whitespace; other columns optional and read as
 ``None`` when missing), *immediately* followed by a ``|---|`` separator row, then the
-contiguous rows up to the first line that is not a table row. Lines inside ``` or ~~~
-fences and indented code blocks are never table rows. Several tables are read in turn,
-and a row with none of incident, type, file and commit is dropped.
+contiguous rows up to the first line that is not a table row. The separator has exactly
+the header's cell count, each cell ``:?-+:?``. Lines inside ``` or ~~~ fences (closed only
+by the same character, at least as many, and nothing after) and indented code blocks (4
+columns or more, tabs expanded to 4-column stops) are never table rows. Several tables
+are read in turn, and a row with none of incident, type, file and commit is dropped.
 
 :func:`check_state` folds the App's check runs of one commit into ``absent`` / ``pending``
 / ``failing`` / ``clean``: only a completed run concluded ``failure`` is
@@ -180,44 +182,49 @@ class _TableReader:
     """Line by line: fences, then a known header, its separator, and contiguous rows."""
 
     def __init__(self) -> None:
-        self.fence: str | None = None
+        self.fence: tuple[str, int] | None = None  # (char, length) of the open fence
         self.header: dict[str, int] | None = None
+        self.width = 0  # the header's cell count
         self.columns: dict[str, int] | None = None
 
     def _reset(self) -> None:
         self.header = self.columns = None
 
-    def _fenced(self, line: str) -> bool:
-        """Whether ``line`` opens, closes or sits inside a fenced code block."""
-        marker = _FENCE.match(line)
+    def _fenced(self, line: str, indent: int) -> bool:
+        """Whether ``line`` opens, closes or sits inside a fenced code block (CommonMark: a
+        fence is indented at most 3 columns; it closes with the same character, at least
+        as many of them, and nothing but whitespace after)."""
+        marker = _FENCE.match(line) if indent < _CODE_INDENT else None
         if self.fence is None:
-            if marker is None:
-                return False
-            self.fence = marker.group(1)[0]
-            return True
-        if marker is not None and marker.group(1)[0] == self.fence:
+            if marker is not None:
+                self.fence = (marker.group(1)[0], len(marker.group(1)))
+            return marker is not None
+        char, length = self.fence
+        run = marker.group(1) if marker is not None else ""
+        if run[:1] == char and len(run) >= length and not line[len(run) :].strip():
             self.fence = None
         return True
 
     def feed(self, raw: str) -> dict[str, Any] | None:
-        line = raw.strip()
-        indent = len(raw) - len(raw.lstrip())
-        if self._fenced(line) or indent >= _CODE_INDENT or not line.startswith("|"):
+        expanded = raw.expandtabs(_CODE_INDENT)
+        line = expanded.strip()
+        indent = len(expanded) - len(expanded.lstrip())
+        if self._fenced(line, indent) or indent >= _CODE_INDENT or not line.startswith("|"):
             self._reset()  # anything outside a table ends it
             return None
         cells = _cells(line)
         if self.columns is not None:
-            return None if _is_separator(cells) else _finding(cells, self.columns)
-        if self.header is not None and _is_separator(cells):
+            return None if _is_separator(cells, len(cells)) else _finding(cells, self.columns)
+        if self.header is not None and _is_separator(cells, self.width):
             self.columns, self.header = self.header, None
             return None
-        self.header = _header(cells)
+        self.header, self.width = _header(cells), len(cells)
         return None
 
 
-def _is_separator(cells: list[str]) -> bool:
-    filled = [c.replace(" ", "") for c in cells if c.strip()]
-    return bool(filled) and all(_SEPARATOR.match(c) for c in filled)
+def _is_separator(cells: list[str], width: int) -> bool:
+    """Whether ``cells`` is a separator row of ``width`` cells, each ``:?-+:?``."""
+    return len(cells) == width and all(_SEPARATOR.match(c.replace(" ", "")) for c in cells)
 
 
 def _rows(text: str) -> Iterable[dict[str, Any]]:
