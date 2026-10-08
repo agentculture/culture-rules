@@ -635,9 +635,11 @@ nothing checks its digest.
 ### The status comment (d26)
 
 **The fixer says that it works, on the PR, while it works.** Each fix chain
-keeps exactly one comment on the PR, posted by the App and edited live. The
-code is `culture_rules/node/fixer_status.py`; the text cleaners are
-`culture_rules/apps/public_text.py`.
+keeps exactly one comment on the PR, posted by the App and edited live.
+`culture_rules/node/fixer_status.py` reads the chain and renders the
+comment; `culture_rules/node/status_board.py` owns the comment's record and
+every GitHub call; `culture_rules/apps/public_text.py` makes relayed text
+inert.
 
 - **Opting in.** A chain writes a status comment when its rules' chain-end
   `github.comment` (the action or `on_failure`) has `params.status: true`.
@@ -646,23 +648,22 @@ code is `culture_rules/node/fixer_status.py`; the text cleaners are
   comment). `rules describe` reads `(as its chain's status comment)`.
   `status` does not combine with `once_key`.
 - **The start.** The node on the App actor's machine (spark) looks at the
-  running runs every cycle. The first run of an opted-in chain that is past
-  its hold posts the comment: the `secrets` step (`gitguardian.hold`) has
-  succeeded, which also means the quiet period is over. A run superseded in
-  its quiet period, or stopped by the hold, never posts; its hand-back is the
-  chain's only comment, as before. The comment says what started the chain
-  (checks settled, a comment, a review or a review comment, with the author
-  and the head SHA), lists the stages and links the chain's first run.
-- **One per chain.** The comment is recorded in `fixer_status_comments`,
-  keyed by the chain's **root**: the run an external event started. A
-  review, a re-fix or a publish walks its verified `rules.run.succeeded`
-  links back to it (`culture_rules/actors/lineage.py`), so a re-fix reuses
-  the comment. The record is claimed by insert before the post: a chain
-  posts at most once. It is backed up with the run history. A new chain on
-  the same PR (a later settle or `/fix`) gets its own comment.
-- **Live edits.** The same node re-renders every open chain each cycle and
-  edits the comment (`PATCH /repos/{owner}/{repo}/issues/comments/{id}`) as
-  the stages move:
+  running runs in its `status` stage, after the drive stage. The first run
+  of an opted-in chain that is past its hold gets a record: its `secrets`
+  step (`gitguardian.hold`) has succeeded, which also means the quiet period
+  is over. A run superseded in its quiet period, or stopped by the hold,
+  never gets one; its hand-back is the chain's only comment, as before. The
+  comment says what started the chain (checks settled, a comment, a review
+  or a review comment, with the author and the head SHA), lists the stages
+  and links the chain's first run.
+- **One per chain.** The record lives in `fixer_status_comments`, keyed by
+  the chain's **root**: the run an external event started. A review, a
+  re-fix or a publish walks its verified `rules.run.succeeded` links back to
+  it (`culture_rules/actors/lineage.py`), so a re-fix reuses the comment. It
+  is backed up with the run history. A new chain on the same PR (a later
+  settle or `/fix`) gets its own comment.
+- **Live edits.** The node re-renders every open chain and edits the comment
+  (`PATCH /repos/{owner}/{repo}/issues/comments/{id}`) as the stages move:
 
   | Stage | Shows |
   |---|---|
@@ -676,39 +677,65 @@ code is `culture_rules/node/fixer_status.py`; the text cleaners are
   findings).` The comment also shows the agent's status notes (below), its
   last activity, and the **fix summary** of the latest fix that succeeded
   (the agent's own summary, which the chain-end texts no longer carry).
-- **Rate.** A stage change is edited in at once, but never sooner than 5 s
-  after the previous edit. A change of the notes alone is edited in at most
-  once a minute.
-- **The end.** The chain-end action writes its body (the hand-back, the
-  push line, the review-only verdict) as the comment's **final section**,
-  on top, and the stages show their final state. No other comment is
-  posted. If the chain has no status comment yet (it ended before the
-  node's cycle saw it), the action posts it, complete. A chain that ends
-  without a chain-end action (a run cancelled or superseded mid-chain, or
-  nothing continuing it for 15 minutes) is closed by the node with a short
-  final line. A final comment is never edited again.
-- **A deleted comment** (the edit answers 404) is posted again, and the
-  record follows the new comment.
-- **A failed post** is recorded (`state: unknown`) and not retried, so a
-  comment is never posted twice; the chain-end action then posts the final
-  comment.
+- **The end never fails the run.** The chain-end action (the hand-back, the
+  push line, the review-only verdict) does not call GitHub: it stores its
+  text as the record's **pending final** and completes. The `status` stage
+  delivers it as the comment's final section, on top, with the run that
+  ended the chain linked by the engine; if the chain has no comment yet, it
+  posts the comment, complete. The record is `final` only once GitHub
+  answered 2xx. A chain that ends without a chain-end action (a run
+  cancelled or superseded mid-chain, or nothing continuing it for 15
+  minutes) gets an engine-worded final the same way. A final comment is
+  never edited again.
 
-A pushed fix after one re-fix reads (ids and SHAs made up):
+#### One writer, acknowledged, paced
+
+- **Every write is a compare-and-set** on the record's revision `rev`. A
+  write that loses stops the work at hand; the next cycle re-reads.
+- **A lease** (`lease = {owner, until}`, 60 s, taken by compare-and-set)
+  must be held to post, edit, recreate or resolve. So two nodes never both
+  post, and never both recreate a deleted comment.
+- **States.** `none` (no comment: post it), `posting` (set before the POST),
+  `posted` (edit it), `unknown` (the POST's answer was lost), `unresolved`.
+  A deleted comment (the edit answers 404) goes back to `none` and is posted
+  again under the same lease.
+- **A lost POST answer is resolved, never repeated.** For a record left
+  `unknown` (or `posting` by a dead process) the node lists the PR's
+  comments, adopts the one this App posted (`performed_via_github_app.id`)
+  that carries the chain's hidden marker, and edits it from then on. If
+  there is none, the record gives up silently (`unresolved`) rather than
+  risk a second comment.
+- **Pacing.** Every write, final ones included, keeps 5 s after the previous
+  one; a change of the notes alone waits a minute.
+- **Backoff.** A failed call sets `retry_at` (5 s, doubling, at most 15
+  minutes). `http_403`, `http_422`, and an App that cannot serve the repo
+  give up after 3 tries (`outcome: gave_up`). A pending final gives up after
+  24 hours.
+- **Budget.** One `status` stage makes at most 10 GitHub calls within 10
+  seconds, each call bounded by the time left, so it never holds up the
+  node's pushes for long.
+- **Housekeeping.** The node declares the indexes these queries use (open
+  and final records by date, a key's runs by date, a run's bridge
+  invocations). Open records are read for 2 days. Final records are dropped
+  30 days after they became final.
+
+A pushed fix after one re-fix reads (ids and SHAs made up; relayed text is
+backslash-escaped, so it renders as plain words):
 
 ```markdown
-PR fixer pushed the fix: gate pass, reviewed and approved, pushed True, head 8af19b226deb6f248a0c97edcf6046004775a33c.
+PR fixer pushed the fix\: gate pass, reviewed and approved, pushed True, head 39051c8ff0e0a4c1a5bfc7876ce399283a8dd75b\.
 
 Run: https://rules.culture.dev/api/runs/<publish run id>
 
 **PR fixer status**
 
-Started by checks settled (failure) at `86499f6440d5`.
+Started by checks settled (failure) at `dab3155b8700`.
 
 - **done** Quiet period and GitGuardian hold
 - **done** Agent (qwen-fixer)
 - **verdict pass** Test gate
 - **approve (0 findings)** Review (codex-reviewer)
-- **pushed `8af19b226deb`** Push
+- **pushed `39051c8ff0e0`** Push
 
 Earlier: round 1: review request_changes (1 finding).
 
@@ -737,10 +764,12 @@ Status notes (optional): to tell the people on this PR what you are doing, run t
 
 The bridge reports each shell tool call in a `progress` callback whose note
 is the call's title (`tool_call: Shell: echo "STATUS: fixing the test"`).
-The engine (`record_bridge_event`) reads the text after `STATUS:`, cleans it
-and keeps the last 5 notes on the bridge invocation. Other progress notes
-(the agent's other tool calls) are never relayed. The agent never holds a
-GitHub token: the engine relays its notes as the App.
+The engine (`record_bridge_event`) reads the text after `STATUS:`,
+normalizes and checks it, and keeps the last 5 notes on the bridge
+invocation. A refused note is counted (`status_notes_withheld`) and drops
+the kept notes too. Other progress notes (the agent's other tool calls) are
+never relayed. The agent never holds a GitHub token: the engine relays its
+notes as the App.
 
 **Known limit of the bridge as deployed (cultureagent 0.14.0, Qwen Code
 0.24.x).** Against an OpenAI-compatible streaming backend (cortex), Qwen
@@ -752,27 +781,49 @@ arguments (title `Shell`), then sends the full title in a
 describes a `tool_call_update` that carries a title. The engine side is
 ready either way; the change belongs to cultureagent.
 
-#### What is relayed, and how it is cleaned
+#### What is relayed, and how it is made inert
 
-Everything from the agent or a bridge goes through
-`culture_rules/apps/public_text.py` before it reaches the comment:
+Untrusted text (notes, the fix summary, the chain-end text, which can quote
+a reviewer's findings) is never "cleaned" Markdown. It is:
 
-- **A note** (`clean_note`) is one line of at most 200 characters. HTML
-  tags, images, code spans and fences are removed. A markdown link keeps its
-  text, and a bare URL becomes `[link]`. `@name` gets a zero-width space, so
-  it never pings. A note that holds anything token-shaped is **dropped
-  whole** and never stored: GitHub tokens (`ghp_`, `gho_`, `ghs_`, `ghu_`,
-  `ghr_`, `github_pat_`), AWS keys (`AKIA`, `ASIA`), Slack and OpenAI-style
-  keys, private key blocks, and any long run of letters and digits that
-  looks random (a commit SHA or a run id does not).
-- **The fix summary** is cleaned the same way over several lines (at most
-  1200 characters), with token-shaped text replaced by `[redacted]` and bare
-  URLs dropped.
-- **The final section** (the chain-end action's rendered body, which can
-  quote the reviewer's findings) is cleaned the same way, but keeps bare
-  URLs (the run link). An unbalanced code fence is closed.
-- **Engine facts** (verdicts, codes, SHAs, run ids, the author's login, the
-  repository) are rendered only when they have their expected shape.
+1. **normalized**: Unicode NFKC; control and format characters (zero-width,
+   bidi) removed; every URL (`scheme://…`, `//host…`, `www.…`) dropped;
+   whitespace collapsed (one line of at most 200 characters for a note);
+2. **checked**, and refused when it, or its stripped view (tags,
+   backslashes, backticks, emphasis removed, so `ghp_<b></b>…`
+   reassembles), looks like a credential: GitHub tokens (`ghp_`, `gho_`,
+   `ghs_`, `ghu_`, `ghr_`, `github_pat_`), AWS keys (`AKIA`, `ASIA`), Slack
+   and OpenAI-style keys, private key blocks, long random strings (a commit
+   SHA or a run id is not one). It is also refused when, compacted
+   (lower-cased, separators and markup dropped, so spaces and note
+   boundaries cannot split a value), it holds a **known secret** of the
+   process: a 12-character piece of a value, or of its hex, base64 or
+   urlsafe-base64 encoding. Known values are everything the process
+   resolved through `grant` (the App private key, bridge tokens), its
+   `CULTURE_RULES_SECRET_*` environment, and the bridge bearer tokens it
+   used. Notes are checked one by one and together. A refused note is
+   dropped; a refused summary or final section renders `[withheld]`;
+3. **escaped**: every Markdown metacharacter is backslash-escaped, `<`, `>`
+   and `&` become entities (so `<!--` can never appear), `@` gets a
+   zero-width space (no mention pings), leading spaces are dropped. It
+   renders as the same words: no link, image, heading, list, table, fence
+   or HTML.
+
+Engine facts (verdicts, codes, SHAs, run ids, the author's login, the
+repository) are rendered only when they have their expected shape. Run links
+and the hidden marker are built from validated engine values, never from
+the relayed text. Right before every post or edit the whole body is checked
+again: an untrusted section that holds a secret, alone or with the rest,
+becomes `[withheld]`.
+
+**Residual risk, plainly.** These checks stop accidents and the obvious
+leaks. An agent determined to exfiltrate through an encoding of its own
+choosing cannot be fully stopped by any filter. The known-secret check
+covers the values the checking process holds: notes are checked by the API
+(which receives the bridge callbacks) and again by the node on spark, which
+renders and posts; the fixer's bridge token is resolved on spark2, so it is
+known there only when it is in the checking process's environment. What the
+fixer's agent holds is its bridge token, scoped to its own bridge.
 
 ### Review-only mode
 
@@ -1017,7 +1068,7 @@ split".
 
 ### Rolling out the status comment (d26)
 
-d26 ships in 0.16.0. It changes no pinned workflow, so no digest changes;
+d26 ships in 0.16.0, over the live 0.15.0. It changes no pinned workflow, so no digest changes;
 only the rules change (`status: true` and their texts).
 
 1. **Upgrade every node and the API** to the release. The API records the
@@ -1028,7 +1079,7 @@ only the rules change (`status: true` and their texts).
    permission as posting one (`Issues: write` for an issue comment;
    `Pull requests: write` covers comments on a PR). The App already posts
    the chain-end comments, so nothing should change; a 403 on the first
-   edit shows in the node log (`status comment ... not edited: http_403`).
+   edit shows in the node log (`status comment of chain ... not edited: http_403`), and the record gives up after 3 tries (`outcome: gave_up`): the fix itself is never affected.
 3. **Import** the rules (`culture-rules rules import docs/rules/pr-fixer
    --apply`). That sets every rule back to `enabled: false`; re-enable the
    ones that were on (`culture-rules rules enable <id> --apply`).
