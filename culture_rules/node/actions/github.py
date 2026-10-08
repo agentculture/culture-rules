@@ -55,6 +55,12 @@ log = logging.getLogger(__name__)
 ONCE_COLLECTION = "github_comment_once"
 """Claims of ``github.comment`` posts made with a ``once_key`` (one document per key)."""
 CLAIMED, POSTED, UNKNOWN = "claimed", "posted", "unknown"
+BAD_INPUT, ACTOR_NOT_FOUND, SECRET_UNAVAILABLE = (
+    "bad_input",
+    "actor_not_found",
+    "secret_unavailable",
+)
+"""Failure codes of the port (shared with the ports built on it)."""
 _REFUSED = re.compile(r"http_4(?!08)\d\d")
 
 
@@ -211,7 +217,7 @@ class GitHubCommentPort:
         conn = self._connection(actor_id)
         if conn is None:
             self._apps.pop(str(actor_id), None)  # deleted/disabled: free its key material
-            return InvocationResult.failed("actor_not_found", retryable=False)
+            return InvocationResult.failed(ACTOR_NOT_FOUND, retryable=False)
         repo = input.get("repo")
         allowed = {str(r).lower() for r in conn.get("repos") or ()}
         if not GitHubApp.is_repo_name(repo) or repo.lower() not in allowed:
@@ -221,13 +227,13 @@ class GitHubCommentPort:
         try:
             number, body = int(input["number"]), str(input["body"])
         except (KeyError, TypeError, ValueError):
-            return InvocationResult.failed("bad_input", retryable=False)
+            return InvocationResult.failed(BAD_INPUT, retryable=False)
         once, status = input.get("once_key"), input.get("status", False)
         if not _options_ok(once, status):
-            return InvocationResult.failed("bad_input", retryable=False)
+            return InvocationResult.failed(BAD_INPUT, retryable=False)
         app = self._app(str(actor_id), conn, allowed)
         if app is None:
-            return InvocationResult.failed("secret_unavailable", retryable=False)
+            return InvocationResult.failed(SECRET_UNAVAILABLE, retryable=False)
         if status:
             return self._post_status(app, repo, number, body, context)
         if once is None:
@@ -249,13 +255,13 @@ class GitHubCommentPort:
         """The App ``actor_id`` serving ``repo`` (raises :class:`GitHubError` otherwise)."""
         conn = self._connection(actor_id)
         if conn is None:
-            raise GitHubError("actor_not_found")
+            raise GitHubError(ACTOR_NOT_FOUND)
         allowed, refusal = repo_refusal(conn, repo)
         if refusal:
             raise GitHubError(refusal)
         app = self._app(actor_id, conn, allowed)
         if app is None:
-            raise GitHubError("secret_unavailable")
+            raise GitHubError(SECRET_UNAVAILABLE)
         return app
 
     def _serves(self, actor_id: str, host: str) -> bool:
@@ -350,7 +356,7 @@ class GitHubPrHeadPort(GitHubCommentPort):
         conn = self._connection(actor_id)
         if conn is None:
             self._apps.pop(str(actor_id), None)
-            return InvocationResult.failed("actor_not_found", retryable=False)
+            return InvocationResult.failed(ACTOR_NOT_FOUND, retryable=False)
         repo = input.get("repo")
         allowed, refusal = repo_refusal(conn, repo)
         if refusal:
@@ -358,13 +364,13 @@ class GitHubPrHeadPort(GitHubCommentPort):
         try:
             number = int(input["number"])
         except (KeyError, TypeError, ValueError):
-            return InvocationResult.failed("bad_input", retryable=False)
+            return InvocationResult.failed(BAD_INPUT, retryable=False)
         try:
             app = self._app_within(str(actor_id), conn, allowed, deadline)
         except GitHubError as exc:
             return InvocationResult.failed(exc.code, retryable=exc.retryable)
         if app is None:
-            return InvocationResult.failed("secret_unavailable", retryable=False)
+            return InvocationResult.failed(SECRET_UNAVAILABLE, retryable=False)
         try:
             with app.deadline(deadline):
                 pull = app.get_pull(repo, number)

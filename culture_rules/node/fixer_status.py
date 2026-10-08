@@ -91,11 +91,31 @@ PUBLIC_URL = os.environ.get("CULTURE_RULES_PUBLIC_URL", "https://rules.culture.d
 """Where runs are linked from the comment (``<url>/api/runs/<id>``)."""
 MARKER = "<!-- culture-rules:fixer-status {} -->"
 
+_STATUS = "status"
+_ACTOR = "actor"
+_TRIGGER = "trigger"
+_CREATED_AT = "created_at"
+_COMMENT_ID = "comment_id"
+_FINAL = "final"
+_EDITS = "edits"
+_STATE = "state"
+_WAITING = "waiting"
+_WORKING = "working"
+_SUCCEEDED = "succeeded"
+_FAILED = "failed"
+_OUTPUTS = "outputs"
+_ERROR = "error"
+_NUMBER = "number"
+_KEY = "concurrency_key"
+_STAGE_SIG = "stage_sig"
+_NOTES_SIG = "notes_sig"
+_LAST_EDIT_AT = "last_edit_at"
+_FINAL_BODY = "final_body"
 _RUNS = "runs"  # culture_rules.engine.runs.RUNS_COLLECTION (no engine import cycle)
 _BRIDGE = "bridge_invocations"  # culture_rules.actors.agent.BRIDGE_INVOCATIONS
 _ACTIVE = "running"
-_RUN_DONE = ("succeeded", "failed", "cancelled", "superseded")
-_STEP_OPEN = ("dispatching", "waiting", "blocked", "sleeping")
+_RUN_DONE = (_SUCCEEDED, _FAILED, "cancelled", "superseded")
+_STEP_OPEN = ("dispatching", _WAITING, "blocked", "sleeping")
 _HOLD_BUILTIN = "gitguardian.hold"
 _GATE_BUILTIN = "gate"
 _REVIEW_BUILTIN = "review"
@@ -164,8 +184,8 @@ def status_actor(rule_def: Any) -> str | None:
         if not isinstance(action, Mapping) or action.get("kind") != _COMMENT_KIND:
             continue
         params = action.get("params") if isinstance(action.get("params"), Mapping) else {}
-        actor = params.get("actor")
-        if params.get("status") is True and isinstance(actor, str) and actor:
+        actor = params.get(_ACTOR)
+        if params.get(_STATUS) is True and isinstance(actor, str) and actor:
             return actor
     return None
 
@@ -184,7 +204,7 @@ def chain_root(store: Any, run: Mapping[str, Any]) -> Mapping[str, Any] | None:
 
     current = run
     for _ in range(MAX_EVENT_HOPS + 1):
-        trigger = current.get("trigger")
+        trigger = current.get(_TRIGGER)
         kind = trigger.get("type") if isinstance(trigger, Mapping) else None
         if not (isinstance(kind, str) and kind.startswith("rules.run.")):
             return current
@@ -223,7 +243,7 @@ def _state(run: Mapping[str, Any], key: str) -> Mapping[str, Any]:
 
 
 def _outputs(state: Mapping[str, Any]) -> Mapping[str, Any]:
-    out = state.get("outputs")
+    out = state.get(_OUTPUTS)
     return out if isinstance(out, Mapping) else {}
 
 
@@ -264,7 +284,7 @@ def past_hold(run: Mapping[str, Any]) -> bool:
     succeeded, else its first ``wait`` step, else at once."""
     hold = _step_where(run, lambda s: _builtin(s) == _HOLD_BUILTIN)
     hold = hold or _step_where(run, lambda s: s.get("kind") == "wait")
-    return hold is None or _state(run, hold).get("status") == "succeeded"
+    return hold is None or _state(run, hold).get(_STATUS) == _SUCCEEDED
 
 
 # --------------------------------------------------------------------------- the chain
@@ -289,7 +309,7 @@ class Chain:
 
     @property
     def ended(self) -> bool:
-        return all(r.get("status") in _RUN_DONE for r in self.runs)
+        return all(r.get(_STATUS) in _RUN_DONE for r in self.runs)
 
 
 # --------------------------------------------------------------------------- rendering
@@ -301,12 +321,12 @@ _TRIGGERS = {
     "github.review.submitted": "a review",
     "github.review_comment.created": "a review comment",
 }
-_STATE_WORDS = {"succeeded": "done", "failed": "failed", "skipped": "skipped"}
+_STATE_WORDS = {_SUCCEEDED: "done", _FAILED: _FAILED, "skipped": "skipped"}
 STAGES = ("Quiet period and GitGuardian hold", "Agent", "Test gate", "Review", "Push")
 
 
 def _trigger_line(root: Mapping[str, Any]) -> str:
-    trigger = root.get("trigger") if isinstance(root.get("trigger"), Mapping) else {}
+    trigger = root.get(_TRIGGER) if isinstance(root.get(_TRIGGER), Mapping) else {}
     data = trigger.get("data") if isinstance(trigger.get("data"), Mapping) else {}
     kind = str(trigger.get("type"))
     what = _TRIGGERS.get(kind, "an event")
@@ -320,31 +340,31 @@ def _trigger_line(root: Mapping[str, Any]) -> str:
     return f"Started by {what}" + (f" at `{sha}`" if sha else "") + "."
 
 
-def _step_word(state: Mapping[str, Any], default: str = "waiting") -> str:
-    status = state.get("status")
+def _step_word(state: Mapping[str, Any], default: str = _WAITING) -> str:
+    status = state.get(_STATUS)
     if status in _STEP_OPEN:
-        return "working"
+        return _WORKING
     return _STATE_WORDS.get(str(status), default)
 
 
 def _hold_line(fix: Mapping[str, Any] | None) -> str:
     if fix is None:
-        return "waiting"
-    return "done" if past_hold(fix) else _step_word({"status": "dispatching"})
+        return _WAITING
+    return "done" if past_hold(fix) else _step_word({_STATUS: "dispatching"})
 
 
 def _fix_lines(fix: Mapping[str, Any] | None) -> tuple[str, str]:
     """The agent's and the gate's words for the latest try of ``fix``."""
     loop = _agent_loop(fix) if fix else None
     if fix is None or loop is None:
-        return "waiting", "waiting"
+        return _WAITING, _WAITING
     name, agent, gate, tries = loop
     i = _state(fix, name).get("iteration")
     i = i if isinstance(i, int) and i >= 0 else 0
     agent_state = _state(fix, f"{name}[{i}]/{agent}")
     gate_state = _state(fix, f"{name}[{i}]/{gate}")
     agent_word = _step_word(agent_state)
-    if agent_word == "working":
+    if agent_word == _WORKING:
         agent_word += f" (try {i + 1} of {tries})"
     verdict = _word(_outputs(gate_state).get("verdict"))
     gate_word = f"verdict {verdict}" if verdict else _step_word(gate_state)
@@ -353,7 +373,7 @@ def _fix_lines(fix: Mapping[str, Any] | None) -> tuple[str, str]:
 
 def _review_line(review: Mapping[str, Any] | None) -> str:
     if review is None:
-        return "waiting"
+        return _WAITING
     out = _outputs(_state(review, _review_step(review) or ""))
     verdict = _word(out.get("review"))
     if verdict:
@@ -364,17 +384,17 @@ def _review_line(review: Mapping[str, Any] | None) -> str:
 
 
 def _run_word(run: Mapping[str, Any]) -> str:
-    status = run.get("status")
+    status = run.get(_STATUS)
     if status == _ACTIVE:
-        return "working"
-    error = run.get("error") if isinstance(run.get("error"), Mapping) else {}
+        return _WORKING
+    error = run.get(_ERROR) if isinstance(run.get(_ERROR), Mapping) else {}
     code = _word(error.get("code"))
-    return f"{status} ({code})" if status == "failed" and code else str(_word(status) or "?")
+    return f"{status} ({code})" if status == _FAILED and code else str(_word(status) or "?")
 
 
 def _push_line(publish: Mapping[str, Any] | None) -> str:
     if publish is None:
-        return "waiting"
+        return _WAITING
     out = _outputs(_state(publish, _push_step(publish) or ""))
     head = _sha(out.get("head_after"))
     if out.get("pushed") is True and head:
@@ -391,7 +411,7 @@ def _ai_actor(run: Mapping[str, Any]) -> str | None:
         for candidate in (step, *inner):
             placement = candidate.get("placement")
             if candidate.get("kind") == "ai" and isinstance(placement, Mapping):
-                return _login(placement.get("actor"))
+                return _login(placement.get(_ACTOR))
     return None
 
 
@@ -413,7 +433,7 @@ def stage_lines(chain: Chain) -> list[str]:
     """The current round's stages, one ``- **state** stage`` line each."""
     fix = chain.latest(_agent_loop)
     review = chain.latest(_review_step)
-    if review is not None and fix is not None and review["created_at"] < fix["created_at"]:
+    if review is not None and fix is not None and review[_CREATED_AT] < fix[_CREATED_AT]:
         review = None  # the review of an earlier round
     publish = chain.latest(_push_step)
     agent, gate = _fix_lines(fix)
@@ -440,8 +460,8 @@ def notes_lines(chain: Chain) -> list[str]:
 
 
 def _summary(chain: Chain) -> str:
-    fix = chain.latest(lambda r: r.get("status") == "succeeded" and _agent_loop(r))
-    outputs = fix.get("outputs") if fix and isinstance(fix.get("outputs"), Mapping) else {}
+    fix = chain.latest(lambda r: r.get(_STATUS) == _SUCCEEDED and _agent_loop(r))
+    outputs = fix.get(_OUTPUTS) if fix and isinstance(fix.get(_OUTPUTS), Mapping) else {}
     return clean_block(outputs.get("summary"), 1200, keep_urls=False)
 
 
@@ -481,9 +501,9 @@ class Target:
 
 
 def _target(root: Mapping[str, Any], actor: str) -> Target | None:
-    trigger = root.get("trigger") if isinstance(root.get("trigger"), Mapping) else {}
+    trigger = root.get(_TRIGGER) if isinstance(root.get(_TRIGGER), Mapping) else {}
     data = trigger.get("data") if isinstance(trigger.get("data"), Mapping) else {}
-    repo, number = data.get("repository"), data.get("number")
+    repo, number = data.get("repository"), data.get(_NUMBER)
     if not isinstance(repo, str) or not _REPO.fullmatch(repo):
         return None
     if not isinstance(number, int) or isinstance(number, bool) or number < 1:
@@ -536,16 +556,16 @@ class StatusBoard:
 
     def chain(self, root: Mapping[str, Any]) -> Chain:
         """The chain of ``root``: the runs on its key since it, whose root it is."""
-        key = root.get("concurrency_key")
-        since = str(root.get("created_at") or "")
-        found = self._store.find(_RUNS, {"concurrency_key": key}) if key else [root]
+        key = root.get(_KEY)
+        since = str(root.get(_CREATED_AT) or "")
+        found = self._store.find(_RUNS, {_KEY: key}) if key else [root]
         runs = [
             r
             for r in found
-            if str(r.get("created_at") or "") >= since
+            if str(r.get(_CREATED_AT) or "") >= since
             and (r.get("id") == root.get("id") or self._roots_to(r, root))
         ]
-        runs.sort(key=lambda r: (str(r.get("created_at") or ""), str(r.get("id"))))
+        runs.sort(key=lambda r: (str(r.get(_CREATED_AT) or ""), str(r.get("id"))))
         chain = Chain(root=root, runs=runs or [root])
         self._notes(chain)
         return chain
@@ -560,7 +580,7 @@ class StatusBoard:
         if fix is None:
             return
         docs = self._store.find(_BRIDGE, {"run_id": fix.get("id")})
-        docs.sort(key=lambda d: (d.get("attempt") or 0, str(d.get("created_at") or "")))
+        docs.sort(key=lambda d: (d.get("attempt") or 0, str(d.get(_CREATED_AT) or "")))
         notes = [n for d in docs for n in d.get("status_notes") or () if isinstance(n, Mapping)]
         chain.notes = notes[-STATUS_NOTES_KEPT:]
         times = [d.get("last_event_at") for d in docs if isinstance(d.get("last_event_at"), str)]
@@ -574,9 +594,9 @@ class StatusBoard:
         may act as that App actor (it lives on this machine, or on none)."""
         done = 0
         with self._lock:
-            for run in self._store.find(_RUNS, {"status": _ACTIVE}):
+            for run in self._store.find(_RUNS, {_STATUS: _ACTIVE}):
                 done += self._start(apps, serves, run)
-            for doc in self._store.find(STATUS_COLLECTION, {"final": False}):
+            for doc in self._store.find(STATUS_COLLECTION, {_FINAL: False}):
                 done += self._refresh(apps, serves, doc)
         return done
 
@@ -598,15 +618,15 @@ class StatusBoard:
         doc = {
             "id": str(root.get("id")),
             "repo": target.repo,
-            "number": target.number,
-            "actor": target.actor,
-            "concurrency_key": root.get("concurrency_key"),
-            "state": _POSTING,
-            "final": False,
-            "comment_id": None,
+            _NUMBER: target.number,
+            _ACTOR: target.actor,
+            _KEY: root.get(_KEY),
+            _STATE: _POSTING,
+            _FINAL: False,
+            _COMMENT_ID: None,
             "url": None,
-            "edits": 0,
-            "created_at": _iso(self._clock()),
+            _EDITS: 0,
+            _CREATED_AT: _iso(self._clock()),
         }
         try:
             return self._store.insert(STATUS_COLLECTION, doc)
@@ -616,15 +636,15 @@ class StatusBoard:
     @staticmethod
     def _sigs(chain: Chain) -> dict[str, str]:
         return {
-            "stage_sig": _digest("\n".join(stage_lines(chain))),
-            "notes_sig": _digest("\n".join(notes_lines(chain))),
+            _STAGE_SIG: _digest("\n".join(stage_lines(chain))),
+            _NOTES_SIG: _digest("\n".join(notes_lines(chain))),
         }
 
     def _changes(self, doc: Mapping[str, Any], changes: Mapping[str, Any]) -> None:
         """Merge ``changes`` into the record (compare-and-set on its edit count)."""
         current = self._store.get(STATUS_COLLECTION, doc["id"]) or {}
-        expected = {"edits": current.get("edits", 0)}
-        merged = {**changes, "edits": current.get("edits", 0) + 1}
+        expected = {_EDITS: current.get(_EDITS, 0)}
+        merged = {**changes, _EDITS: current.get(_EDITS, 0) + 1}
         self._store.update_if(STATUS_COLLECTION, doc["id"], expected, merged)
 
     def _post(self, apps: AppLookup, doc: Mapping, body: str, sigs: Mapping) -> _Failure | None:
@@ -633,27 +653,27 @@ class StatusBoard:
         from culture_rules.apps.github import GitHubError  # noqa: PLC0415
 
         try:
-            out = apps(doc["actor"], doc["repo"]).post_comment(doc["repo"], doc["number"], body)
+            out = apps(doc[_ACTOR], doc["repo"]).post_comment(doc["repo"], doc[_NUMBER], body)
         except GitHubError as exc:
-            log.warning("status comment on %s#%s not posted: %s", doc["repo"], doc["number"], exc)
-            self._changes(doc, {"state": _UNKNOWN, "error": exc.code})
+            log.warning("status comment on %s#%s not posted: %s", doc["repo"], doc[_NUMBER], exc)
+            self._changes(doc, {_STATE: _UNKNOWN, _ERROR: exc.code})
             return _Failure(exc.code, exc.retryable)
         changes = {
-            "state": _POSTED,
-            "comment_id": out.get("comment_id"),
+            _STATE: _POSTED,
+            _COMMENT_ID: out.get(_COMMENT_ID),
             "url": out.get("url"),
-            "last_edit_at": _iso(self._clock()),
+            _LAST_EDIT_AT: _iso(self._clock()),
             **sigs,
         }
         self._changes(doc, changes)
         return None
 
     def _refresh(self, apps: AppLookup, serves: Callable[[str], bool], doc: Mapping) -> int:
-        if doc.get("state") != _POSTED or not serves(str(doc.get("actor"))):
+        if doc.get(_STATE) != _POSTED or not serves(str(doc.get(_ACTOR))):
             return 0
         root = self._store.get(_RUNS, doc["id"])
         if root is None:
-            self._changes(doc, {"final": True, "final_at": _iso(self._clock())})
+            self._changes(doc, {_FINAL: True, "final_at": _iso(self._clock())})
             return 0
         chain = self.chain(root)
         closing = self._closing(chain)
@@ -671,15 +691,15 @@ class StatusBoard:
         """A chain finished (on another process) while this tick edited its comment: write
         the final body again, so the last edit is the final one."""
         doc = self._store.get(STATUS_COLLECTION, doc_id) or {}
-        if doc.get("final") and isinstance(doc.get("final_body"), str):
-            self._edit(apps, doc, doc["final_body"], {})
+        if doc.get(_FINAL) and isinstance(doc.get(_FINAL_BODY), str):
+            self._edit(apps, doc, doc[_FINAL_BODY], {})
 
     def _closing(self, chain: Chain) -> str | None:
         """The final section of a chain that ended without a status action, else None."""
         if not chain.ended:
             return None
         last = chain.runs[-1]
-        status = last.get("status")
+        status = last.get(_STATUS)
         link = run_link(last.get("id"))
         if status == "cancelled":
             return f"**PR fixer stopped:** the run was cancelled.\n\nRun: {link}"
@@ -691,11 +711,11 @@ class StatusBoard:
         return None
 
     def _due(self, doc: Mapping[str, Any], sigs: Mapping[str, str]) -> bool:
-        last = _parse(doc.get("last_edit_at"))
+        last = _parse(doc.get(_LAST_EDIT_AT))
         since = (self._clock() - last).total_seconds() if last else float("inf")
-        if sigs["stage_sig"] != doc.get("stage_sig"):
+        if sigs[_STAGE_SIG] != doc.get(_STAGE_SIG):
             return since >= self._floor
-        if sigs["notes_sig"] != doc.get("notes_sig"):
+        if sigs[_NOTES_SIG] != doc.get(_NOTES_SIG):
             return since >= self._notes_every
         return False
 
@@ -704,23 +724,21 @@ class StatusBoard:
         from culture_rules.apps.github import GitHubError  # noqa: PLC0415
 
         try:
-            apps(doc["actor"], doc["repo"]).update_issue_comment(
-                doc["repo"], doc["comment_id"], body
-            )
+            apps(doc[_ACTOR], doc["repo"]).update_issue_comment(doc["repo"], doc[_COMMENT_ID], body)
         except GitHubError as exc:
             if exc.code == "http_404":
-                log.info("status comment %s was deleted: posting it again", doc["comment_id"])
+                log.info("status comment %s was deleted: posting it again", doc[_COMMENT_ID])
                 return self._post(apps, doc, body, sigs)
-            log.warning("status comment %s not edited: %s", doc.get("comment_id"), exc)
+            log.warning("status comment %s not edited: %s", doc.get(_COMMENT_ID), exc)
             return _Failure(exc.code, exc.retryable)
-        self._changes(doc, {"last_edit_at": _iso(self._clock()), **sigs})
+        self._changes(doc, {_LAST_EDIT_AT: _iso(self._clock()), **sigs})
         return None
 
     def _finalize(self, apps: AppLookup, doc: Mapping, chain: Chain, final: str) -> _Failure | None:
         body = render(chain, final=clean_block(final, FINAL_CAP))
-        self._changes(doc, {"final": True, "final_at": _iso(self._clock()), "final_body": body})
+        self._changes(doc, {_FINAL: True, "final_at": _iso(self._clock()), _FINAL_BODY: body})
         fresh = self._store.get(STATUS_COLLECTION, doc["id"]) or doc
-        if fresh.get("state") == _POSTED and fresh.get("comment_id"):
+        if fresh.get(_STATE) == _POSTED and fresh.get(_COMMENT_ID):
             return self._edit(apps, fresh, body, self._sigs(chain))
         return self._post(apps, fresh, body, self._sigs(chain))
 
@@ -752,11 +770,11 @@ class StatusBoard:
             failure = self._finalize(apps, doc, self.chain(root), text)
             done = self._store.get(STATUS_COLLECTION, root_id) or {}
         if failure is not None:
-            return {"error": failure.code, "retryable": failure.retryable}
-        return {"comment_id": done.get("comment_id"), "url": done.get("url"), "status": True}
+            return {_ERROR: failure.code, "retryable": failure.retryable}
+        return {_COMMENT_ID: done.get(_COMMENT_ID), "url": done.get("url"), _STATUS: True}
 
     def _wait_floor(self, doc: Mapping[str, Any]) -> None:
-        last = _parse(doc.get("last_edit_at"))
+        last = _parse(doc.get(_LAST_EDIT_AT))
         if last is None:
             return
         left = self._floor - (self._clock() - last).total_seconds()
@@ -774,4 +792,4 @@ class _Failure:
 
 def open_chains(store: Any) -> Iterable[Mapping[str, Any]]:
     """The status comments still edited live (for operators and tests)."""
-    return store.find(STATUS_COLLECTION, {"final": False})
+    return store.find(STATUS_COLLECTION, {_FINAL: False})
