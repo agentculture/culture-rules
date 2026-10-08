@@ -205,30 +205,47 @@ def settle_decision(
     key = decision_key(decision.rule_id, event_id)
     existing = tx.get(RULE_DECISIONS, key)
     waiting = not decision.fire and decision.reason == BLOCKED_BY_PREDECESSOR
+    where = {"event_id": event_id, "host": host, "at": at, "run_id": run_id}
     if existing is None:
         if not always and (decision.fire or decision.reason not in RECORDED_REASONS):
             return None
         if decision.fire:
             decision = replace(decision, by=tuple(decision.upstream))
         return tx.insert(
-            RULE_DECISIONS,
-            {
-                **_record(decision, event_id=event_id, host=host, at=at, run_id=run_id),
-                **trigger_snapshot(trigger),
-            },
+            RULE_DECISIONS, {**_record(decision, **where), **trigger_snapshot(trigger)}
         )
-    if (
-        existing.get("reason") not in (BLOCKED_BY_PREDECESSOR, DEDUPLICATED)
-        or decision.reason == PAUSED
-        or (existing.get("reason") == DEDUPLICATED and decision.reason == DEDUPLICATED)
-    ):
+    if _stays(existing, decision):
         return existing
     if waiting:
         return _refresh_waiting(tx, key, decision, existing)
+    return _supersede(tx, key, decision, existing, where, trigger)
+
+
+def _stays(existing: Mapping[str, Any], decision: Decision) -> bool:
+    """Whether the stored record stays as it is: a final record (redelivery), a ``paused``
+    decision (not an outcome), or a deduplicated record deduplicated again."""
+    return (
+        existing.get("reason") not in (BLOCKED_BY_PREDECESSOR, DEDUPLICATED)
+        or decision.reason == PAUSED
+        or (existing.get("reason") == DEDUPLICATED and decision.reason == DEDUPLICATED)
+    )
+
+
+def _supersede(
+    tx: StoreOps,
+    key: str,
+    decision: Decision,
+    existing: Mapping[str, Any],
+    where: Mapping[str, Any],
+    trigger: Mapping[str, Any] | None,
+) -> Mapping[str, Any] | None:
+    """The waiting or deduplicated record takes ``decision``'s outcome; its state is
+    appended to ``superseded``, and a record with no trigger snapshot (nor its omission)
+    takes ``trigger``'s (d21). A fire names the predecessors the record waited for."""
     if decision.fire:  # it waited for these and then ran
         decision = replace(decision, by=tuple(existing.get("by") or ()))
     prior = {k: existing.get(k) for k in ("reason", "by", "detail", "message", "at", "host")}
-    new = _record(decision, event_id=event_id, host=host, at=at, run_id=run_id)
+    new = _record(decision, **where)
     if "trigger" not in existing and not existing.get("trigger_omitted"):
         new.update(trigger_snapshot(trigger))
     new["superseded"] = [*(existing.get("superseded") or ()), prior]
