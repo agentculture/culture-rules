@@ -2227,6 +2227,8 @@ def _due_timers(plan: _Plan, doc: Mapping, now: datetime) -> Found:
     if adopted is not None:
         return adopted
     for st in doc["steps"]:
+        # parsed before any timer, as it always was: a malformed deadline raises, unwritten
+        _parse(st.get("deadline"))
         for timer in (_lookup_queue_timer, _working_deadline, _queue_bound, _retry_or_reask):
             found = timer(plan, doc, st, now)
             if found is not None:

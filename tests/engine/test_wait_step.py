@@ -719,3 +719,16 @@ def test_a_refused_lookup_that_itself_ran_past_the_queue_bound_fails_queue_timeo
     assert timeouts[0]["step"] == "w" and timeouts[0]["at"] == clock().isoformat()
     assert [h["event"] for h in doc["history"]].count("wait_blocked") == 1
     assert doc["status"] == "failed"
+
+
+def test_a_malformed_deadline_raises_before_an_expired_lookup_queue_fails_the_wait(monkeypatch):
+    """Characterization (Codex review of the complexity refactor): ``_due_timers`` parses a
+    step's ``deadline`` before checking any timer, so a sleeping step whose lookup queue
+    expired but whose deadline is malformed raises, unwritten - it is not failed
+    ``queue_timeout``."""
+    from culture_rules.engine import runs
+
+    monkeypatch.setattr(runs, "_lookup_queue_expired", lambda plan, st, now: {"code": "x"})
+    doc = {"steps": [{"key": "w", "status": runs.SLEEPING, "deadline": "not-a-date"}]}
+    with pytest.raises(ValueError, match="not-a-date"):
+        runs._due_timers(None, doc, runs._parse("2026-10-08T00:00:00+00:00"))
