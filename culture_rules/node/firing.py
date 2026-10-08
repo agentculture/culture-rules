@@ -606,7 +606,9 @@ class RuleFiring:
         else:
             predecessor = doc.get("rule_id")
             stored = tx.get(EVENTS_COLLECTION, doc.get("event_id") or "")
-            envelope = (stored or {}).get("envelope") or {}
+            # after a restore the event itself is gone (not backed up): continue from the
+            # trigger snapshot the decision record carries, never from a guess (d21)
+            envelope = (stored or {}).get("envelope") or doc.get("trigger") or {}
         event_id = envelope.get("id")
         if not predecessor or not event_id:
             return
@@ -786,6 +788,7 @@ class RuleFiring:
                 at=utc_timestamp(now),
                 run_id=run_id,
                 always=chained,
+                trigger=envelope,
             )
             if decision.reason == HOP_LIMIT:
                 log.warning(

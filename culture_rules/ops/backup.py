@@ -17,9 +17,11 @@ runs and run completions, scanned in :data:`RUN_COLLECTIONS` order - and a resto
 one reconciliation pass before any node starts
 (:func:`~culture_rules.ops.reconcile.reconcile_restored`), which repairs the known gaps:
 undelivered run events are re-opened under their assigned ids, orphan key reservations are
-dropped, and finished runs whose dependants were not decided yet are re-driven through the
-chain consumers. Anything else needs an operator's review (``docs/operations/backup.md``,
-"Restore limits").
+dropped, and finished runs, final skip decisions and failed firing intents whose dependants
+were not decided yet are re-driven through the chain consumers (a decision written by an
+older build without its trigger snapshot is reported as ``needs_review`` instead).
+Anything else needs an operator's review (``docs/operations/backup.md``, "Restore
+limits").
 
 A backup chain written before
 ``run_completions`` was listed has no feed token for it: the schedule then takes a new
@@ -197,7 +199,9 @@ class RestoreReport:
     reservations_dropped: int = 0
     """Orphan concurrency reservations the reconciliation dropped."""
     chains_redriven: int = 0
-    """Finished runs whose undecided dependants the reconciliation re-drove."""
+    """Chain sources (finished runs, final decisions, failed intents) re-driven."""
+    needs_review: int = 0
+    """Final decisions left for an operator: undecided dependants, no trigger snapshot."""
 
 
 @dataclass(frozen=True)
@@ -446,6 +450,7 @@ class Backup:
             fixed.reopened if fixed else 0,
             fixed.reservations_dropped if fixed else 0,
             fixed.chains_redriven if fixed else 0,
+            fixed.needs_review if fixed else 0,
         )
 
     def _restore_snapshot(self, target: StoragePort, snap: BackupRecord) -> int:

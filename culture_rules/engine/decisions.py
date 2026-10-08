@@ -43,6 +43,7 @@ from an external one is recorded as the final skip ``hop_limit`` (d21), and a fi
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from dataclasses import replace
 from typing import Any
@@ -75,6 +76,7 @@ __all__ = [
     "decisions_for",
     "record_decision",
     "settle_decision",
+    "trigger_snapshot",
 ]
 
 RULE_DECISIONS = "rule_decisions"
@@ -152,6 +154,24 @@ def record_decision(
     return tx.insert(RULE_DECISIONS, _record(decision, event_id=event_id, host=host, at=at))
 
 
+TRIGGER_SNAPSHOT_MAX = 65536
+"""Largest trigger envelope (bytes of JSON) a decision record keeps as ``trigger``."""
+
+
+def trigger_snapshot(envelope: Mapping[str, Any] | None) -> dict[str, Any]:
+    """The fields a decision record keeps of its trigger event: the envelope itself when its
+    JSON fits :data:`TRIGGER_SNAPSHOT_MAX`, else ``trigger_omitted`` (d21). Backups leave the
+    ``events`` collection out, so a restored final decision carries its own trigger for the
+    chain consumers to continue from; one without it is never guessed at
+    (:mod:`culture_rules.ops.reconcile` reports it for review)."""
+    if envelope is None:
+        return {}
+    size = len(json.dumps(envelope, sort_keys=True, default=str).encode("utf-8"))
+    if size > TRIGGER_SNAPSHOT_MAX:
+        return {"trigger_omitted": True}
+    return {"trigger": dict(envelope)}
+
+
 def settle_decision(
     tx: StoreOps,
     decision: Decision,
@@ -161,6 +181,7 @@ def settle_decision(
     at: str,
     run_id: str | None = None,
     always: bool = False,
+    trigger: Mapping[str, Any] | None = None,
 ) -> Mapping[str, Any] | None:
     """Record ``decision``, superseding a waiting (``blocked_by_predecessor``) record.
 
@@ -191,7 +212,10 @@ def settle_decision(
             decision = replace(decision, by=tuple(decision.upstream))
         return tx.insert(
             RULE_DECISIONS,
-            _record(decision, event_id=event_id, host=host, at=at, run_id=run_id),
+            {
+                **_record(decision, event_id=event_id, host=host, at=at, run_id=run_id),
+                **trigger_snapshot(trigger),
+            },
         )
     if (
         existing.get("reason") not in (BLOCKED_BY_PREDECESSOR, DEDUPLICATED)
@@ -205,6 +229,8 @@ def settle_decision(
         decision = replace(decision, by=tuple(existing.get("by") or ()))
     prior = {k: existing.get(k) for k in ("reason", "by", "detail", "message", "at", "host")}
     new = _record(decision, event_id=event_id, host=host, at=at, run_id=run_id)
+    if "trigger" not in existing and not existing.get("trigger_omitted"):
+        new.update(trigger_snapshot(trigger))
     new["superseded"] = [*(existing.get("superseded") or ()), prior]
     changes = {k: v for k, v in new.items() if k != "id"}
     return tx.update_if(RULE_DECISIONS, key, {"reason": existing["reason"]}, changes).document

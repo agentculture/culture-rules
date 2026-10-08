@@ -95,13 +95,23 @@ reconciliation pass before any node starts
   pending firing intent nor a running run is dropped, and each one is
   logged. Its attempt count is kept. A pending event it remembered is not
   fired, because that event is not in the backup.
-- **Unfinished chain work.** A finished run whose must/may-run-after
+- **Unfinished chain work.** A chain continues from a finished run, a final
+  skip decision or a failed firing intent. Each one whose must/may-run-after
   dependants had not been decided for its event is re-driven through the
-  chain consumers once. Deterministic run and intent ids keep this
+  chain consumers once. Every chain consumer's cursors are pinned first, so
+  what that writes (a dependant's final skip) carries on down the chain.
+  A decision continues from the trigger snapshot it carries (up to 64 KiB),
+  since `events` is not backed up. Deterministic run and intent ids keep this
   idempotent.
+- **Refunds.** A dropped reservation gives its counted attempt back only
+  when its firing intent explicitly failed and no run exists. A finished run,
+  or an orphan with no evidence either way, keeps it.
 
 The restore report counts each repair (`reopened`, `reservations_dropped`,
-`chains_redriven`).
+`chains_redriven`) and `needs_review`: final decisions with undecided
+dependants but no trigger snapshot (written before snapshots existed, or a
+trigger over 64 KiB). They are logged and left for an operator, never
+guessed at.
 
 ### Not covered
 
