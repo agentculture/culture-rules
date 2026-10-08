@@ -215,3 +215,68 @@ def test_an_encoded_raw_path_is_not_exempt(world):
     assert _raw_post(app, path, encoded) == 401  # middleware: no credential
     assert _raw_post(app, path, path.encode()) == 401  # handler: no callback token
     assert store.get(BRIDGE_INVOCATIONS, doc_id)["status"] == "accepted"
+
+
+# ---------------------------------------------------------------- characterization
+# (the Sonar S3776 split of _register_bridge_callbacks: every branch, pinned)
+
+
+def test_a_streamed_body_past_the_cap_is_413_without_a_content_length(world):
+    from culture_rules.actors.agent import BRIDGE_MAX_EVENT_BYTES
+
+    store, client, doc_id, token = world
+
+    def chunks():
+        for _ in range(BRIDGE_MAX_EVENT_BYTES // 4096 + 2):
+            yield b"x" * 4096
+
+    r = client.post(
+        BRIDGE_CALLBACK_PATH.format(id=doc_id),
+        content=chunks(),
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert (r.status_code, r.json()) == (413, {"status": "too_large"})
+    assert store.get(BRIDGE_INVOCATIONS, doc_id)["status"] == "accepted"
+
+
+def test_a_body_at_the_cap_is_read(world):
+    from culture_rules.actors.agent import BRIDGE_MAX_EVENT_BYTES
+
+    _, client, doc_id, token = world
+    event = json.dumps({"sequence": 2, "kind": "heartbeat", "pad": ""}).encode()
+    body = event[:-2] + b"x" * (BRIDGE_MAX_EVENT_BYTES - len(event)) + event[-2:]
+    assert len(body) == BRIDGE_MAX_EVENT_BYTES
+    r = client.post(
+        BRIDGE_CALLBACK_PATH.format(id=doc_id),
+        content=body,
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 200, r.text
+
+
+def test_a_non_bearer_authorization_or_a_non_utf8_body(world):
+    store, client, doc_id, token = world
+    r = client.post(
+        BRIDGE_CALLBACK_PATH.format(id=doc_id),
+        content=json.dumps(completed_event()).encode(),
+        headers={"Authorization": f"Basic {token}"},
+    )
+    assert (r.status_code, r.json()) == (401, {"status": "unauthorized"})
+    r = client.post(
+        BRIDGE_CALLBACK_PATH.format(id=doc_id),
+        content=b"\xff\xfe{}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert (r.status_code, r.json()) == (400, {"status": "invalid"})
+    assert store.get(BRIDGE_INVOCATIONS, doc_id)["status"] == "accepted"
+
+
+def test_the_callback_route_schema_is_patched_once_and_cached(world):
+    _, client, _, _ = world
+    app = client.app
+    first = app.openapi()
+    assert app.openapi() is first
+    op = first["paths"]["/bridge-invocations/{invocation_id}/events"]["post"]
+    assert op["security"] == []
+    assert "403" not in op["responses"] and "422" not in op["responses"]
+    assert set(op["responses"]) == {"200", "400", "401", "404", "410", "413"}

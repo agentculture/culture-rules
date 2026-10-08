@@ -524,15 +524,7 @@ class RuleFiring:
     ) -> None:
         """A predecessor settled for an event: re-evaluate its dependants that are ours."""
         self._pending[marker_id] = []
-        if kind == "run":
-            predecessor = (doc.get("rule") or {}).get("id")
-            envelope = doc.get("trigger") or {}
-        elif kind == "intent":
-            predecessor, envelope = doc.get("rule_id"), doc.get("trigger") or {}
-        else:
-            predecessor = doc.get("rule_id")
-            stored = tx.get(EVENTS_COLLECTION, doc.get("event_id") or "")
-            envelope = (stored or {}).get("envelope") or {}
+        predecessor, envelope = _settled_source(tx, kind, doc)
         event_id = envelope.get("id")
         if not predecessor or not event_id:
             return
@@ -716,20 +708,18 @@ class RuleFiring:
                 snapshot = {n: values[n] for n in sorted(refs[decision.rule_id])}
                 tx.insert(
                     RULE_FIRES,
-                    {
-                        **({"variables": snapshot} if snapshot else {}),
-                        **({"concurrency_key": key} if key is not None else {}),
-                        "id": intent_id,
-                        "rule_id": decision.rule_id,
-                        "event_id": event_id,
-                        "run_id": run_id,
-                        "host": self.host,
-                        "placed": placed,
-                        "fired_at": utc_timestamp(now),
-                        "status": "pending",
-                        "trigger": dict(envelope),
-                        "upstream": {k: dict(v) for k, v in decision.upstream.items()},
-                    },
+                    _intent_doc(
+                        intent_id,
+                        decision,
+                        event_id,
+                        run_id,
+                        self.host,
+                        placed,
+                        now,
+                        envelope,
+                        snapshot,
+                        key,
+                    ),
                 )
 
     def _rate_capped(
@@ -765,46 +755,49 @@ class RuleFiring:
                 self._abandon_if_host_gone(intent)  # else it starts where it was evaluated
                 continue
             with log_context(run_id=intent["run_id"], host=self.host):
-                if self._unresolved(intent):
-                    continue
-                try:
-                    self.executor.start_from_store(
-                        intent["rule_id"],
-                        trigger=intent["trigger"],
-                        upstream=intent.get("upstream") or None,
-                        run_id=intent["run_id"],
-                        variables=intent.get("variables"),
-                        concurrency_key=intent.get("concurrency_key"),
-                        fence=_claim_intent(intent),
-                    )
-                except _IntentGone as gone:
-                    log.info("rule %s on event %s not started: %s", *_ids(intent), gone)
-                    continue  # abandoned, started elsewhere, or its reservation is gone
-                except TransientStoreError:
-                    # A write conflict on the intent: someone else moved it (an abandonment
-                    # or another host's start) first. The next cycle re-reads it.
-                    log.info("rule %s on event %s: start conflicted, re-read", *_ids(intent))
-                    continue
-                except DuplicateKeyError:
-                    pass  # another host started it first
-                except RunError as exc:
-                    if exc.code == "paused":
-                        continue
-                    log.warning("rule %s did not start: %s", intent["rule_id"], exc.code)
-                    self.store.update_if(
-                        RULE_FIRES,
-                        intent["id"],
-                        {"status": "pending"},
-                        {"status": "failed", "error": exc.code},
-                    )
-                    continue
-                else:
-                    started.append(intent["run_id"])
-                    log.info("run started for rule %s on event %s", *_ids(intent))
-                self.store.update_if(
-                    RULE_FIRES, intent["id"], {"status": "pending"}, {"status": "started"}
-                )
+                self._start_intent(intent, started)
         return started
+
+    def _start_intent(self, intent: Mapping[str, Any], started: list[str]) -> None:
+        """Start this host's pending ``intent`` (appending its run id to ``started``), or
+        leave, fail or mark it as the outcome says."""
+        if self._unresolved(intent):
+            return
+        try:
+            self.executor.start_from_store(
+                intent["rule_id"],
+                trigger=intent["trigger"],
+                upstream=intent.get("upstream") or None,
+                run_id=intent["run_id"],
+                variables=intent.get("variables"),
+                concurrency_key=intent.get("concurrency_key"),
+                fence=_claim_intent(intent),
+            )
+        except _IntentGone as gone:
+            log.info("rule %s on event %s not started: %s", *_ids(intent), gone)
+            return  # abandoned, started elsewhere, or its reservation is gone
+        except TransientStoreError:
+            # A write conflict on the intent: someone else moved it (an abandonment
+            # or another host's start) first. The next cycle re-reads it.
+            log.info("rule %s on event %s: start conflicted, re-read", *_ids(intent))
+            return
+        except DuplicateKeyError:
+            pass  # another host started it first
+        except RunError as exc:
+            if exc.code == "paused":
+                return
+            log.warning("rule %s did not start: %s", intent["rule_id"], exc.code)
+            self.store.update_if(
+                RULE_FIRES,
+                intent["id"],
+                {"status": "pending"},
+                {"status": "failed", "error": exc.code},
+            )
+            return
+        else:
+            started.append(intent["run_id"])
+            log.info("run started for rule %s on event %s", *_ids(intent))
+        self.store.update_if(RULE_FIRES, intent["id"], {"status": "pending"}, {"status": "started"})
 
     def _abandon_if_host_gone(self, intent: Mapping[str, Any]) -> None:
         """Fail another host's pending placed intent once that host has been offline for
@@ -865,6 +858,49 @@ class RuleFiring:
             {"status": "failed", "error": VARIABLES_UNSUPPORTED},
         )
         return True
+
+
+def _settled_source(
+    tx: StoreOps, kind: str, doc: Mapping[str, Any]
+) -> tuple[Any, Mapping[str, Any]]:
+    """The settled predecessor rule's id and the event envelope it settled for, from a
+    finished ``run``, a failed ``intent`` or a recorded skip ``decision`` (whose event is
+    read from the store)."""
+    if kind == "run":
+        return (doc.get("rule") or {}).get("id"), doc.get("trigger") or {}
+    if kind == "intent":
+        return doc.get("rule_id"), doc.get("trigger") or {}
+    stored = tx.get(EVENTS_COLLECTION, doc.get("event_id") or "")
+    return doc.get("rule_id"), (stored or {}).get("envelope") or {}
+
+
+def _intent_doc(
+    intent_id: str,
+    decision: Decision,
+    event_id: str,
+    run_id: str,
+    host: str,
+    placed: bool,
+    now: datetime,
+    envelope: Mapping[str, Any],
+    snapshot: Mapping[str, Any],
+    key: str | None,
+) -> dict[str, Any]:
+    """A pending firing intent (the variables snapshot and concurrency key when any)."""
+    return {
+        **({"variables": snapshot} if snapshot else {}),
+        **({"concurrency_key": key} if key is not None else {}),
+        "id": intent_id,
+        "rule_id": decision.rule_id,
+        "event_id": event_id,
+        "run_id": run_id,
+        "host": host,
+        "placed": placed,
+        "fired_at": utc_timestamp(now),
+        "status": "pending",
+        "trigger": dict(envelope),
+        "upstream": {k: dict(v) for k, v in decision.upstream.items()},
+    }
 
 
 def _trigger_matcher(envelope: Mapping[str, Any], rules: list[Rule]) -> TriggerMatcher:

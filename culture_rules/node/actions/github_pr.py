@@ -106,7 +106,7 @@ from culture_rules.engine.runs import (
     RUNS_COLLECTION,
     WORKFLOWS_COLLECTION,
 )
-from culture_rules.node.actions.github import GitHubCommentPort
+from culture_rules.node.actions.github import GitHubCommentPort, repo_refusal
 from culture_rules.node.actors import ACTORS_COLLECTION
 
 __all__ = [
@@ -229,6 +229,32 @@ def source_rule_refusal(store: Any, run_id: str) -> str | None:
         return None if _live(doc) else "workflow_disabled"
     doc = store.get(RULES_COLLECTION, rule_id) if isinstance(rule_id, str) else None
     return None if _live(doc) else "rule_disabled"
+
+
+_ALREADY = "already"
+"""The PR head already is the commit to push (:func:`_pull_verdict`)."""
+
+
+def _pull_verdict(
+    pull: Mapping[str, Any], repo: str, branch: str, sha: str, expected: str
+) -> str | None:
+    """Whether the PR read lets the push go on (None), finds it already done
+    (:data:`_ALREADY`), or refuses it: ``pr_not_open``, ``not_same_repo_pr`` (a fork, or
+    another base repo), ``not_pr_head_branch`` or ``head_moved`` - checked in that order."""
+    head, base = pull.get("head") or {}, pull.get("base") or {}
+    if pull.get("state") != "open":
+        return "pr_not_open"
+    if not _same((head.get("repo") or {}).get("full_name"), repo) or not _same(
+        (base.get("repo") or {}).get("full_name"), repo
+    ):
+        return "not_same_repo_pr"
+    if head.get("ref") != branch:
+        return "not_pr_head_branch"
+    if head.get("sha") == sha:
+        return _ALREADY
+    if head.get("sha") != expected:
+        return "head_moved"
+    return None
 
 
 class _Refused(Exception):
@@ -389,33 +415,14 @@ class GitHubPushPort(GitHubCommentPort):
         if conn is None:
             self._apps.pop(str(actor_id), None)
             return InvocationResult.failed("actor_not_found", retryable=False)
-        repo = input.get("repo")
-        allowed = {str(r).lower() for r in conn.get("repos") or ()}
-        if not GitHubApp.is_repo_name(repo) or repo.lower() not in allowed:
-            return InvocationResult.failed("repo_not_allowed", retryable=False)
-        if not conn.get("app_id") or not conn.get("installation_id"):
-            return InvocationResult.failed("actor_misconfigured", retryable=False)
+        allowed, refusal = repo_refusal(conn, input.get("repo"))
+        if refusal:
+            return InvocationResult.failed(refusal, retryable=False)
         bad = _push_input_error(input)
         if bad:
             return InvocationResult.failed(bad, retryable=False)
-        refusal = source_rule_refusal(self._store, context.run_id)
+        refusal, review_record = self._governance_refusal(input, context, actor_id, snapshot)
         if refusal:
-            return InvocationResult.failed(refusal, retryable=False)
-        # d20 round 2: only a run of a workflow pinned as trusted in code may push
-        refusal = workflow_refusal(self._store.get(RUNS_COLLECTION, context.run_id))
-        if refusal:
-            log.info(_PUSH_REFUSED, refusal)
-            return InvocationResult.failed(refusal, retryable=False)
-        # d20: the run's reviewer must have approved exactly this commit (read from the
-        # store, never a param), whatever the workflow wires
-        refusal, review_record = self._review(input, context)
-        if refusal:
-            log.info(_PUSH_REFUSED, refusal)
-            return InvocationResult.failed(refusal, retryable=False)
-        # round 3 (#1): the App actor's security fields must match a digest pinned in code
-        refusal, _digest = doc_refusal(actor_id, snapshot)
-        if refusal:
-            log.info(_PUSH_REFUSED, refusal)
             return InvocationResult.failed(refusal, retryable=False)
         if self._clock() >= deadline:
             return InvocationResult.failed("deadline_exceeded", retryable=True)
@@ -431,6 +438,37 @@ class GitHubPushPort(GitHubCommentPort):
             return InvocationResult.failed(exc.code, retryable=exc.retryable)
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
+
+    def _governance_refusal(
+        self,
+        input: Mapping[str, Any],
+        context: InvocationContext,
+        actor_id: Any,
+        snapshot: Mapping[str, Any] | None,
+    ) -> tuple[str | None, str | None]:
+        """``(refusal, review record)``: the push is refused unless its rule is live, the run
+        is of a trusted workflow, the run's review approved exactly this commit, and the App
+        actor matches a pinned digest - checked in that order (all but the first logged)."""
+        refusal = source_rule_refusal(self._store, context.run_id)
+        if refusal:
+            return refusal, None
+        # d20 round 2: only a run of a workflow pinned as trusted in code may push
+        refusal = workflow_refusal(self._store.get(RUNS_COLLECTION, context.run_id))
+        if refusal:
+            log.info(_PUSH_REFUSED, refusal)
+            return refusal, None
+        # d20: the run's reviewer must have approved exactly this commit (read from the
+        # store, never a param), whatever the workflow wires
+        refusal, review_record = self._review(input, context)
+        if refusal:
+            log.info(_PUSH_REFUSED, refusal)
+            return refusal, None
+        # round 3 (#1): the App actor's security fields must match a digest pinned in code
+        refusal, _digest = doc_refusal(actor_id, snapshot)
+        if refusal:
+            log.info(_PUSH_REFUSED, refusal)
+            return refusal, None
+        return None, review_record
 
     def _push(
         self,
@@ -475,19 +513,12 @@ class GitHubPushPort(GitHubCommentPort):
             out["head_after"],
         )
         pull = app.get_pull(repo, int(input["number"]))
-        head, base = pull.get("head") or {}, pull.get("base") or {}
-        if pull.get("state") != "open":
-            raise _Refused("pr_not_open")
-        if not _same((head.get("repo") or {}).get("full_name"), repo) or not _same(
-            (base.get("repo") or {}).get("full_name"), repo
-        ):
-            raise _Refused("not_same_repo_pr")
-        if head.get("ref") != branch:
-            raise _Refused("not_pr_head_branch")
-        if head.get("sha") == sha:
+        base = pull.get("base") or {}
+        verdict = _pull_verdict(pull, repo, branch, sha, expected)
+        if verdict == _ALREADY:
             return InvocationResult.completed({**out, "pushed": False, "already": True})
-        if head.get("sha") != expected:
-            raise _Refused("head_moved")
+        if verdict:
+            raise _Refused(verdict)
         # round 4 (#2): the gate policy came from the base the review recorded; a base that
         # moved or was retargeted since then means it is not the policy this commit passed.
         # The head's settle is re-armed (round 5), so a fresh run gates the new base.
@@ -502,6 +533,18 @@ class GitHubPushPort(GitHubCommentPort):
             return InvocationResult.completed({**out, "pushed": False, "already": True})
         if remote != expected:
             raise _Refused("head_moved")
+        self._consume_or_refuse(input, context, job, sha)
+        job.require(PUSH_MARGIN_S)  # never start the push this close to the deadline
+        job.push(url, sha, branch, token)
+        log.info("github.push: %s %s fast-forwarded", repo, branch)
+        return InvocationResult.completed({**out, "pushed": True})
+
+    def _consume_or_refuse(
+        self, input: Mapping[str, Any], context: InvocationContext, job: _PushJob, sha: str
+    ) -> None:
+        """Right before the push: the rule is still live, the run's review is still the one
+        judged (re-read: a newer result, or any other current record, stops it), and its
+        approval is consumed by compare-and-set; else :class:`_Refused`."""
         refusal = source_rule_refusal(self._store, context.run_id)
         if refusal:
             raise _Refused(refusal)
@@ -518,10 +561,6 @@ class GitHubPushPort(GitHubCommentPort):
         )
         if refusal:
             raise _Refused(refusal)
-        job.require(PUSH_MARGIN_S)  # never start the push this close to the deadline
-        job.push(url, sha, branch, token)
-        log.info("github.push: %s %s fast-forwarded", repo, branch)
-        return InvocationResult.completed({**out, "pushed": True})
 
     def _rearm(self, repo: str, head_sha: str, cause: str | None, number: int, branch: str) -> None:
         """After ``base_changed``, settle the unchanged head again so a fresh run gates and

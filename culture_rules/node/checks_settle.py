@@ -73,6 +73,7 @@ import time
 from collections.abc import Callable, Mapping
 from concurrent.futures import Future
 from concurrent.futures import TimeoutError as FutureTimeout
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -196,10 +197,8 @@ def rearm_settle(
     ``replayed`` or ``limit``."""
     when = now or datetime.now(UTC)
     rid = f"{repo}@{sha}".lower()
-    timeout = _var(store, "checks_settle_timeout_s")
-    if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0:
-        timeout = DEFAULT_TIMEOUT_S
-    numbers = [number] if isinstance(number, int) and not isinstance(number, bool) else []
+    timeout = _rearm_timeout(store)
+    numbers = _named_numbers(number)
     fresh = {
         "state": "pending",
         "armed_at": _iso(when),
@@ -208,70 +207,147 @@ def rearm_settle(
         "polls": 0,
         "rearmed_for": reason,
     }
+    head = _RearmHead(rid, repo, sha, cause, numbers, head_branch, fresh)
     for _ in range(10):
-        rec = store.get(SETTLE_COLLECTION, rid)
-        causes = list((rec or {}).get("rearm_causes") or [])
-        if cause is not None and cause in causes:
-            return "replayed"  # this refusal already re-armed the head once
-        recorded = causes + ([cause] if cause is not None else [])
-        if rec is None:
-            doc = {
-                "id": rid,
-                "repository": repo,
-                "head_sha": sha,
-                "head_branch": head_branch,
-                "pr_numbers": numbers,
-                "number": numbers[0] if numbers else None,
-                "generation": 0,
-                "rearm_causes": recorded,
-                **fresh,
-            }
+        move = _rearm_move(store.get(SETTLE_COLLECTION, rid), head)
+        if move.kind == "answer":
+            return move.outcome
+        if move.kind == "limit":
+            log.warning("checks settle: %s re-armed %d times; not again", rid, move.generation)
+            return "limit"
+        if move.kind == "insert":
             try:
-                store.insert(SETTLE_COLLECTION, doc)
+                store.insert(SETTLE_COLLECTION, move.changes)
                 return "armed"
             except DuplicateKeyError:
                 continue
-        if rec.get("state") == "pending":
-            # coalesce into the settle that is still waiting: record the cause (so a replay
-            # after it settles is a no-op) and fill a PR number or branch it lacks, by
-            # compare-and-set on state, generation, causes and PR facts; a lost race (it
-            # settled meanwhile) is retried and takes the re-arm path instead
-            fill: dict[str, Any] = {}
-            if cause is not None:
-                fill["rearm_causes"] = recorded
-            if numbers and not rec.get("pr_numbers"):
-                fill.update(pr_numbers=numbers, number=numbers[0])
-            if head_branch and not rec.get("head_branch"):
-                fill["head_branch"] = head_branch
-            if not fill:
-                return "pending"
-            guard = {
-                "state": "pending",
-                "generation": rec.get("generation"),
-                "rearm_causes": rec.get("rearm_causes"),
-                "pr_numbers": rec.get("pr_numbers"),
-                "head_branch": rec.get("head_branch"),
-            }
-            if store.update_if(SETTLE_COLLECTION, rid, guard, fill).won:
-                return "pending"
-            continue
-        gen = _generation(rec)
-        if gen >= REARM_LIMIT:
-            log.warning("checks settle: %s re-armed %d times; not again", rid, gen)
-            return "limit"
-        changes = {**fresh, "generation": gen + 1, "rearm_causes": recorded}
-        if numbers and not rec.get("pr_numbers"):  # a head first seen by this refusal
-            changes.update(pr_numbers=numbers, number=numbers[0])
-        if head_branch and not rec.get("head_branch"):
-            changes["head_branch"] = head_branch
-        expected = {
-            "state": rec.get("state"),
-            "generation": rec.get("generation"),
-            "rearm_causes": rec.get("rearm_causes"),
-        }
-        if store.update_if(SETTLE_COLLECTION, rid, expected, changes).won:
-            return "rearmed"
+        if store.update_if(SETTLE_COLLECTION, rid, move.expected, move.changes).won:
+            return move.outcome
     return "pending"
+
+
+def _named_numbers(number: Any) -> list[int]:
+    """``[number]`` when the refusal named an int PR number (not a bool), else ``[]``."""
+    return [number] if isinstance(number, int) and not isinstance(number, bool) else []
+
+
+@dataclass(frozen=True)
+class _RearmHead:
+    """What :func:`rearm_settle` was asked: the head, the refusal and its fresh settle."""
+
+    rid: str
+    repo: str
+    sha: str
+    cause: str | None
+    numbers: list[int]
+    head_branch: str | None
+    fresh: Mapping[str, Any]
+
+
+@dataclass(frozen=True)
+class _RearmMove:
+    """One :func:`rearm_settle` decision over the record as read: ``answer`` (return
+    ``outcome``, nothing written), ``limit``, ``insert`` (``changes`` is the new record) or
+    ``update`` (compare-and-set ``changes`` on ``expected``; ``outcome`` when it wins)."""
+
+    kind: str
+    outcome: str = "pending"
+    expected: Mapping[str, Any] | None = None
+    changes: dict[str, Any] = field(default_factory=dict)
+    generation: int = 0
+
+
+def _rearm_move(rec: Mapping[str, Any] | None, head: _RearmHead) -> _RearmMove:
+    """Decide :func:`rearm_settle`'s next write from the settle record ``rec`` as read."""
+    cause = head.cause
+    causes = list((rec or {}).get("rearm_causes") or [])
+    if cause is not None and cause in causes:
+        return _RearmMove("answer", "replayed")  # this refusal already re-armed the head once
+    recorded = causes + ([cause] if cause is not None else [])
+    if rec is None:
+        doc = _first_settle(
+            head.rid, head.repo, head.sha, head.head_branch, head.numbers, recorded, head.fresh
+        )
+        return _RearmMove("insert", "armed", changes=doc)
+    if rec.get("state") == "pending":
+        # coalesce into the settle that is still waiting: record the cause (so a replay
+        # after it settles is a no-op) and fill a PR number or branch it lacks, by
+        # compare-and-set on state, generation, causes and PR facts; a lost race (it
+        # settled meanwhile) is retried and takes the re-arm path instead
+        fill: dict[str, Any] = {}
+        if cause is not None:
+            fill["rearm_causes"] = recorded
+        fill.update(_missing_pr_facts(rec, head.numbers, head.head_branch))
+        if not fill:
+            return _RearmMove("answer", "pending")
+        return _RearmMove("update", "pending", _pending_guard(rec), fill)
+    gen = _generation(rec)
+    if gen >= REARM_LIMIT:
+        return _RearmMove("limit", "limit", generation=gen)
+    changes = {**head.fresh, "generation": gen + 1, "rearm_causes": recorded}
+    # PR facts of a head first seen by this refusal
+    changes.update(_missing_pr_facts(rec, head.numbers, head.head_branch))
+    expected = {
+        "state": rec.get("state"),
+        "generation": rec.get("generation"),
+        "rearm_causes": rec.get("rearm_causes"),
+    }
+    return _RearmMove("update", "rearmed", expected, changes)
+
+
+def _rearm_timeout(store: StoragePort) -> Any:
+    """``checks_settle_timeout_s`` when a positive number, else :data:`DEFAULT_TIMEOUT_S`."""
+    timeout = _var(store, "checks_settle_timeout_s")
+    if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0:
+        timeout = DEFAULT_TIMEOUT_S
+    return timeout
+
+
+def _first_settle(
+    rid: str,
+    repo: str,
+    sha: str,
+    head_branch: str | None,
+    numbers: list[int],
+    recorded: list,
+    fresh: Mapping[str, Any],
+) -> dict[str, Any]:
+    """The settle record :func:`rearm_settle` arms for a head that has none yet."""
+    return {
+        "id": rid,
+        "repository": repo,
+        "head_sha": sha,
+        "head_branch": head_branch,
+        "pr_numbers": numbers,
+        "number": numbers[0] if numbers else None,
+        "generation": 0,
+        "rearm_causes": recorded,
+        **fresh,
+    }
+
+
+def _missing_pr_facts(
+    rec: Mapping[str, Any], numbers: list[int], head_branch: str | None
+) -> dict[str, Any]:
+    """The PR number and branch the refusal names that settle record ``rec`` lacks."""
+    facts: dict[str, Any] = {}
+    if numbers and not rec.get("pr_numbers"):
+        facts.update(pr_numbers=numbers, number=numbers[0])
+    if head_branch and not rec.get("head_branch"):
+        facts["head_branch"] = head_branch
+    return facts
+
+
+def _pending_guard(rec: Mapping[str, Any]) -> dict[str, Any]:
+    """The compare-and-set guard of a fill into pending ``rec``: state, generation, causes
+    and PR facts as read."""
+    return {
+        "state": "pending",
+        "generation": rec.get("generation"),
+        "rearm_causes": rec.get("rearm_causes"),
+        "pr_numbers": rec.get("pr_numbers"),
+        "head_branch": rec.get("head_branch"),
+    }
 
 
 def _var(store: StoragePort, name: str) -> Any:
@@ -288,6 +364,32 @@ def _parse(text: Any) -> datetime | None:
         return datetime.fromisoformat(text)
     except (TypeError, ValueError):
         return None
+
+
+def _settle_verdict(done: bool, conclusion: str, timed_out: bool) -> tuple[str, str] | None:
+    """How a polled SHA settles (``settled_by``, ``conclusion``), or None to keep waiting:
+    ``all_completed`` once done, else ``timeout`` past the deadline (``no_checks`` when no
+    suite was counted)."""
+    if not done and not timed_out:
+        return None
+    by = "all_completed" if done else "timeout"
+    if not done:
+        conclusion = NO_CHECKS if conclusion == NO_CHECKS else "timeout"
+    return by, conclusion
+
+
+def _arm_changes(
+    rec: Mapping[str, Any], data: Mapping[str, Any], numbers: list[int]
+) -> dict[str, Any]:
+    """The PR facts a completion's ``data`` carries that settle record ``rec`` lacks."""
+    changes: dict[str, Any] = {}
+    if numbers and not rec.get("pr_numbers"):
+        changes["pr_numbers"] = numbers
+    if data.get("number") is not None and rec.get("number") is None:
+        changes["number"] = data["number"]
+    if data.get("head_branch") and not rec.get("head_branch"):
+        changes["head_branch"] = data["head_branch"]
+    return changes
 
 
 class ChecksSettler:
@@ -390,19 +492,21 @@ class ChecksSettler:
                 continue  # the App actor is placed elsewhere, or its key is not here
             if not self._claim_poll(rec, now, deadline):
                 continue  # not due yet, or another node holds this interval's poll
-            try:
-                done, conclusion = self._check_state(repo, sha)
-            except GitHubError as exc:
-                log.warning("checks settle: suite listing failed (%s)", exc.code)
-                done, conclusion = False, "timeout"  # the timeout fires regardless
-            if not done and not timed_out:
+            verdict = _settle_verdict(*self._polled_state(repo, sha), timed_out)
+            if verdict is None:
                 continue
-            by = "all_completed" if done else "timeout"
-            if not done:
-                conclusion = NO_CHECKS if conclusion == NO_CHECKS else "timeout"
-            if self._emit(repo, sha, rec, by, conclusion) == "emitted":
+            if self._emit(repo, sha, rec, *verdict) == "emitted":
                 emitted += 1
         return emitted
+
+    def _polled_state(self, repo: str, sha: str) -> tuple[bool, str]:
+        """:meth:`_check_state` for the tick: a failed listing is not done (``timeout``), so
+        the timeout fires regardless."""
+        try:
+            return self._check_state(repo, sha)
+        except GitHubError as exc:
+            log.warning("checks settle: suite listing failed (%s)", exc.code)
+            return False, "timeout"  # the timeout fires regardless
 
     def _serves_here(self, repo: Any) -> bool:
         if self._serves is None:
@@ -535,13 +639,7 @@ class ChecksSettler:
             pass
         for _ in range(10):
             rec = self._store.get(SETTLE_COLLECTION, rid) or doc
-            changes: dict[str, Any] = {}
-            if numbers and not rec.get("pr_numbers"):
-                changes["pr_numbers"] = numbers
-            if data.get("number") is not None and rec.get("number") is None:
-                changes["number"] = data["number"]
-            if data.get("head_branch") and not rec.get("head_branch"):
-                changes["head_branch"] = data["head_branch"]
+            changes = _arm_changes(rec, data, numbers)
             if not changes or rec.get("state") != "pending":
                 return rec
             expected = {k: rec.get(k) for k in changes}

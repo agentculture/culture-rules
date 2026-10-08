@@ -635,16 +635,7 @@ class MongoStore:
         for _ in range(50):
             doc = self._get_variable_doc(name)
             if doc is not None:
-                existing_version = SchemaVersion.parse(doc.get("schema_version", "1.0"))
-                if existing_version.major > self._node.major:
-                    raise VersionSkewError(
-                        f"document {name!r} is schema {existing_version}; "
-                        f"this node supports up to major {self._node.major}"
-                    )
-                # A doc without the counter derives it from its history; the CAS
-                # below still matches the stored value (absent -> None), and
-                # _update_if replaces the exact document it read.
-                latest_version = doc.get("latest_version") or len(doc.get("versions", []))
+                latest_version = self._stored_latest_version(name, doc)
             if expected_version is not None and latest_version != expected_version:
                 raise VariableVersionConflict(
                     f"variable {name!r} is at version {latest_version}, not {expected_version}"
@@ -664,20 +655,8 @@ class MongoStore:
                 None,
                 VARIABLES_COLLECTION,
                 name,
-                expected={
-                    "versions": list(doc.get("versions", [])) if doc else None,
-                    "latest_version": doc.get("latest_version") if doc else None,
-                },
-                changes={
-                    "name": name,
-                    "value": value,
-                    "version": next_version,
-                    "updated_by": updated_by,
-                    "updated_at": now,
-                    "description": description,
-                    "versions": list(doc.get("versions", [])) + [entry] if doc else [entry],
-                    "latest_version": next_version,
-                },
+                expected=_variable_expected(doc),
+                changes=_variable_changes(doc, name, entry),
                 upsert=doc is None,
             )
             if result.won:
@@ -686,6 +665,20 @@ class MongoStore:
                 view["updated_at"] = result.document.get("updated_at", view.get("updated_at"))
                 return view
         raise StoreError(f"put_variable {name!r}: too much contention after 50 CAS attempts")
+
+    def _stored_latest_version(self, name: str, doc: Document) -> int:
+        """The latest version of stored variable ``doc``; a document of a newer schema major
+        than this node supports raises :class:`VersionSkewError`."""
+        existing_version = SchemaVersion.parse(doc.get("schema_version", "1.0"))
+        if existing_version.major > self._node.major:
+            raise VersionSkewError(
+                f"document {name!r} is schema {existing_version}; "
+                f"this node supports up to major {self._node.major}"
+            )
+        # A doc without the counter derives it from its history; the CAS
+        # below still matches the stored value (absent -> None), and
+        # _update_if replaces the exact document it read.
+        return doc.get("latest_version") or len(doc.get("versions", []))
 
     def get_variable(self, name: str) -> Document | None:
         doc = self._get_variable_doc(name)
@@ -824,3 +817,25 @@ def _translate_transient(exc: BaseException) -> TransientStoreError | None:
     if _has_label(exc, _TRANSIENT_LABEL) or getattr(exc, "code", None) == _WRITE_CONFLICT:
         return TransientStoreError(f"transient transaction failure, retry it: {exc}")
     return None
+
+
+def _variable_expected(doc: Document | None) -> dict[str, Any]:
+    """The compare-and-set guard of a variable put: the versions and counter as read."""
+    return {
+        "versions": list(doc.get("versions", [])) if doc else None,
+        "latest_version": doc.get("latest_version") if doc else None,
+    }
+
+
+def _variable_changes(doc: Document | None, name: str, entry: Document) -> dict[str, Any]:
+    """A variable put's write: the new latest fields plus ``entry`` appended to the history."""
+    return {
+        "name": name,
+        "value": entry["value"],
+        "version": entry["version"],
+        "updated_by": entry["updated_by"],
+        "updated_at": entry["updated_at"],
+        "description": entry["description"],
+        "versions": list(doc.get("versions", [])) + [entry] if doc else [entry],
+        "latest_version": entry["version"],
+    }

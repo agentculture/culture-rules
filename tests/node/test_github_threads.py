@@ -300,3 +300,85 @@ def test_default_ports_register_both_builtins():
     code = ports["code"]
     assert isinstance(code, BuiltinCodePort)
     assert {"gate", "github.threads", "github.threads_addressed"} <= set(code._builtins)
+
+
+# ---------------------------------------------------------------- characterization
+# (the Sonar S3776 split of apps.github._open_thread: every shape, pinned)
+
+
+def _node(**over):
+    node = {
+        "id": "T1",
+        "isResolved": False,
+        "path": "src/a.py",
+        "line": 4,
+        "comments": {
+            "nodes": [
+                {
+                    "databaseId": 9,
+                    "author": {"login": "alice", "__typename": "User"},
+                    "body": "fix this",
+                }
+            ]
+        },
+    }
+    node.update(over)
+    return node
+
+
+def _first(**over):
+    first = dict(_node()["comments"]["nodes"][0])
+    first.update(over)
+    return {"comments": {"nodes": [first]}}
+
+
+def test_open_thread_reads_one_unresolved_thread():
+    from culture_rules.apps.github import _open_thread
+
+    assert _open_thread(_node()) == {
+        "thread_id": "T1",
+        "comment_id": 9,
+        "path": "src/a.py",
+        "line": 4,
+        "author": "alice",
+        "body": "fix this",
+    }
+
+
+@pytest.mark.parametrize(
+    "node",
+    [
+        None,
+        [],
+        _node(isResolved=True),
+        _node(isResolved=None),
+        _node(id=""),
+        _node(id=5),
+        _node(comments=None),
+        _node(comments={"nodes": []}),
+        _node(comments={"nodes": ["x"]}),
+        _node(**_first(databaseId="9")),
+        _node(**_first(databaseId=True)),
+        _node(**_first(author=None)),
+        _node(**_first(author="alice")),
+        _node(**_first(author={"login": 3})),
+    ],
+)
+def test_open_thread_skips_resolved_or_unreadable_threads(node):
+    from culture_rules.apps.github import _open_thread
+
+    assert _open_thread(node) is None
+
+
+def test_open_thread_normalises_optional_fields_and_bot_logins():
+    from culture_rules.apps.github import THREAD_BODY_MAX, _open_thread
+
+    bot = _open_thread(_node(**_first(author={"login": "sonar", "__typename": "Bot"})))
+    assert bot["author"] == "sonar[bot]"
+    named = _open_thread(_node(**_first(author={"login": "x[bot]", "__typename": "Bot"})))
+    assert named["author"] == "x[bot]"
+    odd = _open_thread(_node(path=3, line=True, **_first(body=None)))
+    assert (odd["path"], odd["line"], odd["body"]) == (None, None, "")
+    long = _open_thread(_node(**_first(body="y" * (THREAD_BODY_MAX + 5))))
+    assert long["body"] == "y" * THREAD_BODY_MAX
+    assert _open_thread(_node(line=None, path=None))["line"] is None

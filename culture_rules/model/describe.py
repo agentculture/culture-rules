@@ -371,31 +371,41 @@ def step_text(step: Any) -> str:
     kind = s.get("kind")
     config = s.get("config") if isinstance(s.get("config"), Mapping) else {}
     where = _placement(s.get("placement"))
+    text = _kind_text(s, kind, config, where)
+    if "when" in config:  # d20: the step runs only when this holds (skipped otherwise)
+        text += f", when {condition_text(config['when'])}"
+    extras = _step_extras(s)
+    return text + (f" ({', '.join(extras)})" if extras else "")
+
+
+def _kind_text(s: Mapping[str, Any], kind: Any, config: Mapping[str, Any], where: Any) -> str:
+    """The words for a step's kind: what runs it, and where."""
     if kind == "wait":
-        text = _wait_text(config)
-    elif kind == "code":
-        text = _code_text(config, where)
-    elif kind == "ai":
+        return _wait_text(config)
+    if kind == "code":
+        return _code_text(config, where)
+    if kind == "ai":
         actor = _plain(s.get("placement")).get("actor")
         sandbox = config.get("sandbox")
         detail = f"agent, {sandbox}" if isinstance(sandbox, str) and sandbox else "agent"
-        text = f"{actor} ({detail})" if actor else _join(detail, where)
-    elif kind == "actor_task":
+        return f"{actor} ({detail})" if actor else _join(detail, where)
+    if kind == "actor_task":
         actor = _plain(s.get("placement")).get("actor") or config.get("actor")
-        text = f"task for {actor}" if actor else _join("task", where)
-    elif kind in ("for_each", "retry_until"):
-        text = _loop_text(s, config)
-    else:  # logic and anything unknown read as their kind
-        text = _join(str(kind or "step"), where)
-    if "when" in config:  # d20: the step runs only when this holds (skipped otherwise)
-        text += f", when {condition_text(config['when'])}"
+        return f"task for {actor}" if actor else _join("task", where)
+    if kind in ("for_each", "retry_until"):
+        return _loop_text(s, config)
+    return _join(str(kind or "step"), where)  # logic and anything unknown read as their kind
+
+
+def _step_extras(s: Mapping[str, Any]) -> list[str]:
+    """A step's parenthesised notes: its attempt bound and whether it is disabled."""
     extras = []
     retry = s.get("retry")
     if isinstance(retry, Mapping) and (retry.get("max_attempts") or 1) > 1:
         extras.append(f"≤{retry['max_attempts']} attempts")
     if s.get("enabled") is False:
         extras.append("disabled")
-    return text + (f" ({', '.join(extras)})" if extras else "")
+    return extras
 
 
 def _step_entries(steps: Any, prefix: str, depth: int) -> list[dict[str, Any]]:

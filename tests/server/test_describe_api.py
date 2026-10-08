@@ -82,3 +82,31 @@ def test_rule_pinned_to_another_workflow_version_says_unavailable(viewer):
     store.put("rules", {**rule, "workflow": {**rule["workflow"], "version": 7}})
     lines = client.get("/rules/pr-fixer-checks/describe").json()["lines"]
     assert "Run workflow pr-fixer v7 (version unavailable)" in lines
+
+
+# ---------------------------------------------------------------- characterization
+# (the Sonar S3776 split of _register_runs: the rule's workflow lookup, pinned)
+
+
+def test_rule_describe_without_a_workflow_reads_none(viewer, monkeypatch):
+    from culture_rules.model import describe
+
+    store, client = viewer
+    seen = []
+    real = describe.describe_rule
+
+    def spy(rule, workflow):
+        seen.append(workflow)
+        return real(rule, workflow)
+
+    monkeypatch.setattr(describe, "describe_rule", spy)
+    rule = store.get("rules", "pr-fixer-checks")
+    for ref in (None, {"id": ""}, "pr-fixer"):
+        store.put("rules", {**rule, "workflow": ref})
+        assert client.get("/rules/pr-fixer-checks/describe").status_code == 200
+    store.put("rules", {**rule, "workflow": {"id": "missing"}})
+    client.get("/rules/pr-fixer-checks/describe")
+    store.put("rules", rule)
+    client.get("/rules/pr-fixer-checks/describe")
+    assert seen[:4] == [None, None, None, {}]
+    assert seen[4]["id"] == "pr-fixer"
