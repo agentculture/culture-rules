@@ -135,10 +135,13 @@ def reserved_reason(envelope: Mapping[str, Any]) -> str | None:
     namespace (types :data:`SETTLE_TYPES`, ids ``settled_*`` / ``late_*``, d25) and the
     internal sources are written only by the engine itself (deviation d21): a copy from
     outside could otherwise fire a rule or squat a deterministic event id. An envelope
-    carrying an ``envelope`` field is refused as ambiguous with a stored document."""
+    carrying an ``envelope`` field is refused as ambiguous with a stored document, and one
+    whose ``type`` is present but not a string as malformed. Never raises."""
     if "envelope" in envelope:
         return "an envelope field makes it ambiguous with a stored event document"
     eid, kind, source = envelope.get("id"), envelope.get("type"), envelope.get("source")
+    if kind is not None and not isinstance(kind, str):
+        return "type must be a string"  # d25: never raise on it, never store it
     if isinstance(eid, str) and eid.startswith(RUN_EVENT_ID_PREFIX):
         return f"id prefix {RUN_EVENT_ID_PREFIX} is reserved for the engine's run events"
     if isinstance(kind, str) and kind.startswith(RUN_EVENT_TYPE_PREFIX):
@@ -150,7 +153,7 @@ def reserved_reason(envelope: Mapping[str, Any]) -> str | None:
 
 def _settle_reserved(eid: Any, kind: Any) -> str | None:
     """Why an id or type in the checks settler's namespace is refused (d25), or ``None``."""
-    if kind in SETTLE_TYPES:
+    if isinstance(kind, str) and kind in SETTLE_TYPES:
         return f"type {kind} is reserved for the engine's checks settle"
     if isinstance(eid, str) and eid.startswith(SETTLE_ID_PREFIXES):
         return "id prefixes settled_ and late_ are reserved for the engine's checks settle"
