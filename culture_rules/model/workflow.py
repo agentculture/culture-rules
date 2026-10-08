@@ -24,10 +24,18 @@ __all__ = [
 ]
 
 PortType = Literal["string", "number", "integer", "boolean", "object", "array", "any"]
-StepKind = Literal["logic", "ai", "code", "actor_task", "for_each", "retry_until"]
+StepKind = Literal["logic", "ai", "code", "actor_task", "for_each", "retry_until", "wait"]
 
 PORT_TYPES: tuple[str, ...] = ("string", "number", "integer", "boolean", "object", "array", "any")
-STEP_KINDS: tuple[str, ...] = ("logic", "ai", "code", "actor_task", "for_each", "retry_until")
+STEP_KINDS: tuple[str, ...] = (
+    "logic",
+    "ai",
+    "code",
+    "actor_task",
+    "for_each",
+    "retry_until",
+    "wait",
+)
 LOOP_KINDS: tuple[str, ...] = ("for_each", "retry_until")
 
 _VALUE_TYPE = "Value type"
@@ -81,7 +89,7 @@ class Step(Model):
     id: str = doc("Step id, unique within the workflow (including loop bodies)")
     name: str = doc("Display name", default="")
     description: str = doc(_FREE_TEXT, default="")
-    kind: StepKind = doc("logic | ai | code | actor_task | for_each | retry_until")
+    kind: StepKind = doc("logic | ai | code | actor_task | for_each | retry_until | wait")
     inputs: tuple[Port, ...] = doc("Typed input ports", default=())
     outputs: tuple[Port, ...] = doc("Typed output ports", default=())
     placement: Placement | None = doc(

@@ -211,3 +211,24 @@ export const IMPORT_FILE_TEXT = JSON.stringify({
   name: "Triage",
   steps: [{ id: "label", kind: "logic" }],
 });
+
+/**
+ * `GET /workflows/review-pr/describe` (d19): what culture_rules/model/describe.py
+ * answers for REVIEW_PR — its steps in plain words, from the config only.
+ */
+export const REVIEW_PR_DESCRIBED = {
+  id: REVIEW_PR_ID,
+  kind: "workflow" as const,
+  lines: [
+    "1 fetch-diff — code on spark",
+    "2 run-tests — code on spark2",
+    "3 review — agent on thor",
+    "4 decide — logic on spark",
+  ],
+  entries: [
+    { label: "1", text: "code on spark", depth: 0, step: "fetch-diff" },
+    { label: "2", text: "code on spark2", depth: 0, step: "run-tests" },
+    { label: "3", text: "agent on thor", depth: 0, step: "review" },
+    { label: "4", text: "logic on spark", depth: 0, step: "decide" },
+  ],
+};

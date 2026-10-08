@@ -32,11 +32,16 @@ from datetime import UTC, datetime
 from typing import Any
 
 from culture_rules.events.source import EventFabricError, EventSource
-from culture_rules.store.port import CURSOR_COLLECTION, Document, DuplicateKeyError, StoragePort
+from culture_rules.store.port import (
+    CURSOR_COLLECTION,
+    EVENTS_COLLECTION,
+    Document,
+    DuplicateKeyError,
+    StoragePort,
+)
 from culture_rules.store.versioning import utc_timestamp
 
-EVENTS_COLLECTION = "events"
-"""The collection holding every ingested envelope, keyed by envelope id."""
+# EVENTS_COLLECTION (the collection, keyed by envelope id) lives in the store port.
 
 DEFAULT_BATCH = 100
 MAX_BATCH = 1000

@@ -264,3 +264,20 @@ def disable_typeless_event_rules(
             disable(doc["id"])
         found.append({"id": doc["id"], "name": doc.get("name"), "enabled_before": enabled})
     return found
+
+
+# ------------------------------------------------------------------ variables
+
+
+def ensure_variables_collection(store: StoragePort) -> None:
+    """Create the ``variables`` collection and a unique index on ``name``.
+
+    Stores that create collections lazily (e.g.
+    :class:`~culture_rules.store.memory.MemoryStore`) expose no such hook, so
+    this is a no-op for them; :class:`~culture_rules.store.mongo.MongoStore`
+    creates the collection (with change-stream images) and the index.
+    Idempotent: safe to run on every start.
+    """
+    ensure = getattr(store, "ensure_variables_collection", None)
+    if callable(ensure):
+        ensure()

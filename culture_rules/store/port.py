@@ -62,7 +62,7 @@ transactions or write through the store itself inside one.
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping
+from collections.abc import Collection, Iterator, Mapping
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol, runtime_checkable
@@ -74,6 +74,12 @@ ChangeOp = Literal["insert", "update", "delete"]
 
 CURSOR_COLLECTION = "_cursors"
 """Reserved collection holding change-feed cursors saved via ``save_cursor``."""
+
+VARIABLES_COLLECTION = "variables"
+"""Collection holding shared variables (``put_variable`` and friends)."""
+
+EVENTS_COLLECTION = "events"
+"""Collection holding every stored event envelope (see :mod:`culture_rules.events.ingest`)."""
 
 
 class StoreError(Exception):
@@ -92,6 +98,11 @@ class TransientStoreError(StoreError):
 
 class VersionSkewError(StoreError):
     """A write involves a document of a newer major schema version than this node supports."""
+
+
+class VariableVersionConflict(StoreError):
+    """``put_variable(..., expected_version=n)`` found the variable at another version: someone
+    else wrote it since it was read. Re-read and retry (a compare-and-set on the version)."""
 
 
 class SchemaDowngradeError(StoreError):
@@ -204,6 +215,71 @@ class StoragePort(StoreOps, Protocol):
 
     def load_cursor(self, consumer: str, collection: str) -> str | None:
         """Return the token last saved by ``consumer`` for ``collection``, or None."""
+
+    def find_events(
+        self,
+        *,
+        types: Collection[str],
+        after: tuple[str, str],
+        until: str,
+        limit: int,
+    ) -> list[Document]:
+        """Return stored events (:data:`EVENTS_COLLECTION`) in ``(received_at, id)`` order.
+
+        Only events whose ``envelope.type`` is in ``types``, whose ``(received_at, id)`` is
+        strictly greater than the ``after`` cursor and whose ``received_at`` is at most
+        ``until`` match; at most ``limit`` (a positive int) are returned. Timestamps are the
+        ``utc_timestamp`` ISO strings ``received_at`` is stored as, compared as strings, so
+        ``(t, "")`` includes every event received at ``t``. Pass the last result's
+        ``(received_at, id)`` as ``after`` to continue. On MongoDB an
+        ``(envelope.type, received_at, _id)`` index serves it.
+        """
+
+    def put_variable(
+        self,
+        name: str,
+        value: Any,
+        *,
+        updated_by: str,
+        description: str | None = None,
+        expected_version: int | None = None,
+    ) -> Document:
+        """Append a new version of variable ``name`` (version n+1, append-only).
+
+        Validates ``name`` (must match :data:`~culture_rules.model.variable.VALID_VARIABLE_NAME_RE`)
+        and ``value`` (must be a JSON scalar or list).  Returns the latest
+        version document.  Raises :class:`ValueError` on validation failure.
+        With ``expected_version`` (0 = the variable must not exist yet) the write is a
+        compare-and-set: :class:`VariableVersionConflict` when the latest version differs.
+        """
+
+    def get_variable(self, name: str) -> Document | None:
+        """Return the latest version document for variable ``name``, or ``None``."""
+
+    def get_variable_version(self, name: str, version: int) -> Document | None:
+        """Return a specific version document for variable ``name``, or ``None``."""
+
+    def list_variables(self) -> list[Document]:
+        """Return every variable's latest version document, ordered by name."""
+
+
+def events_query(
+    types: Collection[str], after: tuple[str, str], until: str, limit: int
+) -> tuple[list[str], str, str]:
+    """Validate :meth:`StoragePort.find_events` arguments; return ``(types, ts, id)``."""
+    if isinstance(types, str) or not all(isinstance(t, str) and t for t in types):
+        raise ValueError("types must be a collection of non-empty strings")
+    if (
+        not isinstance(after, tuple)
+        or len(after) != 2
+        or not all(isinstance(part, str) for part in after)
+    ):
+        raise ValueError("after must be a (received_at, id) tuple of strings")
+    if not isinstance(until, str):
+        raise ValueError("until must be a string timestamp")
+    if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
+        raise ValueError("limit must be a positive int")
+    return sorted(set(types)), after[0], after[1]
 
 
 def cursor_id(consumer: str, collection: str) -> str:

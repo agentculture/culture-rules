@@ -137,6 +137,11 @@ export interface Rule {
   condition?: Condition | null;
   workflow?: WorkflowRef | null;
   action: Action;
+  /**
+   * Run once when the run ends failed (d16). The editor does not show or edit
+   * it yet; it rides along on save like any other untyped field.
+   */
+  on_failure?: Action | null;
   placement?: Placement | null;
   must_after?: string[];
   may_after?: string[];
@@ -161,6 +166,50 @@ export interface Machine {
 }
 
 /** `GET /runs` items (server/app.py `_run_summary`). */
+/**
+ * One active (non-terminal) run of a rule, as `POST /rules/{id}/disable`
+ * answers it in `active_runs` and `POST /rules/{id}/stop-runs` lists it (d17).
+ */
+export interface ActiveRun {
+  id: string;
+  status: string | null;
+  started_at: string | null;
+}
+
+/** `POST /rules/{id}/stop-runs` — the StopRunsResult schema in api/openapi.json. */
+export interface StopRunsResult {
+  rule_id: string;
+  applied: boolean;
+  /** The active runs, oldest first (at most 50). */
+  runs: ActiveRun[];
+  /** How many runs were active. */
+  total: number;
+  /** The ids this call cancelled; empty in a dry-run. */
+  cancelled: string[];
+}
+
+/** One line of a description: the DescribeEntry schema in api/openapi.json (d19). */
+export interface DescribeEntry {
+  /** `When`, `If`, `and`, `Then` … on a rule; `1`, `3.1` … on a workflow step. */
+  label: string;
+  text: string;
+  /** Nesting: a loop's body is one deeper. */
+  depth: number;
+  /** The step id (workflow entries only). */
+  step?: string;
+}
+
+/**
+ * `GET /rules/{id}/describe` and `GET /workflows/{id}/describe` — the
+ * Description schema: a plain description generated from the config only.
+ */
+export interface Description {
+  id: string;
+  kind: "rule" | "workflow";
+  lines: string[];
+  entries: DescribeEntry[];
+}
+
 export interface RunSummary {
   id: string;
   /**

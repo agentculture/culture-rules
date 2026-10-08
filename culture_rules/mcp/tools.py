@@ -51,10 +51,15 @@ def call_tool(name: str, arguments: dict[str, Any] | None, client: Any) -> Any:
     extra = sorted(set(args) - known)
     if extra:
         raise ToolError(f"{name}: unexpected argument(s) {', '.join(extra)}")
-    missing = [p.name for p in verb.params if p.required and args.get(p.name) is None]
+    missing = [
+        p.name
+        for p in verb.params
+        if p.required and (p.name not in args if p.type == "any" else args.get(p.name) is None)
+    ]
     if missing:
         raise ToolError(f"{name}: missing required argument(s) {', '.join(missing)}")
-    params = {k: v for k, v in args.items() if v is not None}
+    any_typed = {p.name for p in verb.params if p.type == "any"}  # an explicit null is a value
+    params = {k: v for k, v in args.items() if v is not None or k in any_typed}
     try:
         return verb.handler(Context(client=client, apply=apply), **params)
     except CliError as exc:

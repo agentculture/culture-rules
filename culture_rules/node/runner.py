@@ -14,6 +14,15 @@ Production wiring done by :func:`run_node`:
   ``CULTURE_RULES_REPORT_CHANNEL`` (unset: no reporter) through the agent mesh
   (``culture channel message``) when ``culture`` is on PATH, else to the log.
 * **Logs** - :func:`~culture_rules.ops.logs.configure_logging` with the node's host.
+* **Built-in code steps** - a ``code`` step with no actor runs the built-in named by its
+  ``config.builtin`` (:class:`BuiltinCodePort`): ``gate``, the PR fixer's test gate and diff
+  guard (:class:`~culture_rules.actors.gate.GatePort`, which runs commands only through
+  ``CULTURE_RULES_GATE_RUN_AS`` and refuses while it is unset), ``github.threads`` and
+  ``github.threads_addressed`` (d15, the fixer's trusted review threads and the agent's
+  replies to them, :mod:`culture_rules.node.actions.github_pr`), and ``action`` (d12), which
+  never reaches this port: the executor routes a ``builtin: action`` step exactly like a
+  rule's terminal action, to the ``action:<kind>`` port through the actor router
+  (:mod:`culture_rules.model.action_step`).
 """
 
 from __future__ import annotations
@@ -31,6 +40,7 @@ from culture_rules.engine.reports import RunReporter
 from culture_rules.events.emit import Emitter
 from culture_rules.events.ingest import EVENTS_COLLECTION, event_document
 from culture_rules.events.source import EventFabricError, EventSource
+from culture_rules.model.action_step import ACTION_BUILTIN
 from culture_rules.node.mesh import MeshPoster
 from culture_rules.ops.logs import configure_logging
 from culture_rules.ops.nodename import node_name
@@ -38,6 +48,7 @@ from culture_rules.store.port import DuplicateKeyError, StoragePort, StoreError
 
 __all__ = [
     "REPORT_CHANNEL_ENV",
+    "BuiltinCodePort",
     "LoggingPoster",
     "MeshPoster",
     "NodeSetupError",
@@ -191,14 +202,66 @@ class MissingExtraPort:
         )
 
 
+class BuiltinCodePort:
+    """Routes an actor-less ``code`` step to the built-in its ``config.builtin`` names.
+
+    An unknown or missing name fails the step at once (``no_builtin``): a code step that
+    names neither an actor nor a built-in has nothing to run. ``action`` is registered but
+    served by the executor's action routing; reaching it here means the step was not
+    routed as an action, which fails ``action_step_unrouted`` instead of running anything."""
+
+    supports_idempotency_key = True  # every built-in here is safe to re-invoke
+
+    def __init__(self, builtins: Mapping[str, Any]) -> None:
+        self._builtins = dict(builtins)
+
+    def invoke(
+        self,
+        input: Mapping[str, Any],
+        idempotency_key: str,
+        deadline: datetime,
+        *,
+        context: InvocationContext,
+    ) -> InvocationResult:
+        name = (context.config or {}).get("builtin")
+        if name == ACTION_BUILTIN and name not in self._builtins:
+            return InvocationResult.failed(
+                "action_step_unrouted: a builtin action step runs through the action router",
+                retryable=False,
+            )
+        port = self._builtins.get(name) if isinstance(name, str) else None
+        if port is None:
+            known = ", ".join(sorted(self._builtins)) or "none"
+            return InvocationResult.failed(
+                f"no_builtin: code step names no actor and builtin {name!r} is unknown "
+                f"(known: {known})",
+                retryable=False,
+            )
+        return port.invoke(input, idempotency_key, deadline, context=context)
+
+
 def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
     """Action ports for every catalogued kind (stored actors are wired by the router).
 
-    A port whose extra is missing (``github.comment`` needs ``cryptography``) is replaced
+    A port whose extra is missing (the ``github.*`` kinds need ``cryptography``) is replaced
     by one that fails ``extra_missing``. Detection uses ``find_spec``: nothing is imported.
+    ``code`` serves actor-less code steps through :class:`BuiltinCodePort`.
     """
     del host
-    from culture_rules.node.actions.github import GitHubCommentPort  # noqa: PLC0415
+    from culture_rules.actors.gate import GatePort  # noqa: PLC0415
+    from culture_rules.actors.review import REVIEW_BUILTIN, ReviewVerdictPort  # noqa: PLC0415
+    from culture_rules.node.actions.github import (  # noqa: PLC0415
+        GitHubCommentPort,
+        GitHubPrHeadPort,
+    )
+    from culture_rules.node.actions.github_pr import (  # noqa: PLC0415
+        ADDRESSED_BUILTIN,
+        THREADS_BUILTIN,
+        AddressedThreadsPort,
+        GitHubPushPort,
+        GitHubReviewReplyPort,
+        GitHubThreadsPort,
+    )
     from culture_rules.node.actions.http import HttpCallPort  # noqa: PLC0415
     from culture_rules.node.actions.jira import JiraCommentPort  # noqa: PLC0415
     from culture_rules.node.actions.machine import MachineCommandPort  # noqa: PLC0415
@@ -208,20 +271,32 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
     )
 
     message = MessageAction(store)
-    github: Any = (
-        GitHubCommentPort(store)
-        if importlib.util.find_spec("cryptography") is not None
-        else MissingExtraPort("github")
-    )
+    has_github = importlib.util.find_spec("cryptography") is not None
+    github: Any = GitHubCommentPort(store) if has_github else MissingExtraPort("github")
+    push: Any = GitHubPushPort(store) if has_github else MissingExtraPort("github")
+    reply: Any = GitHubReviewReplyPort(store) if has_github else MissingExtraPort("github")
+    head: Any = GitHubPrHeadPort(store) if has_github else MissingExtraPort("github")
+    threads: Any = GitHubThreadsPort(store) if has_github else MissingExtraPort("github")
     return {
         "action:noop": NoopAction(),
+        "action:github.pr_head": head,  # not a rule action: the wait guard's head lookup
         "action:message": message,
         "action:mesh.message": message,  # legacy alias of message
         "action:discord.message": DiscordMessageAction(store),
         "action:github.comment": github,
+        "action:github.push": push,
+        "action:github.review_reply": reply,
         "action:jira.comment": JiraCommentPort(store),
         "action:http.call": HttpCallPort(store),
         "action:machine.command": MachineCommandPort(store),
+        "code": BuiltinCodePort(
+            {
+                "gate": GatePort.from_env(store, pr_lookup=head),
+                REVIEW_BUILTIN: ReviewVerdictPort(store),
+                THREADS_BUILTIN: threads,
+                ADDRESSED_BUILTIN: AddressedThreadsPort(),
+            }
+        ),
     }
 
 

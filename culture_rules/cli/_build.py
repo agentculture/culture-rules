@@ -50,7 +50,7 @@ def _add_param(p: argparse.ArgumentParser, param: Param) -> None:
     kw = {"dest": param.name, "help": param.help, "required": param.required}
     if param.type == "integer":
         kw["type"] = int
-    if param.type == "object":
+    if param.type in ("object", "any"):
         kw["metavar"] = "JSON|@FILE|-"
     if param.type == "array":
         kw["action"] = "append"
@@ -66,31 +66,58 @@ def _dry_run_head(result: dict) -> str:
     return f"dry-run: {result.get('verb')} (nothing was changed)"  # a server-side dry run
 
 
-def render_text(result: Any) -> str:
-    if isinstance(result, dict) and "sections" in result and "subject" in result:
+def _render_variables(items: list) -> str:
+    """Variable versions: name, version, value and who/when, one per line."""
+    lines = [f"{len(items)} item(s)"]
+    for i in items:
+        lines.append(
+            f"- {i.get('name', i.get('id', '?'))} v{i['version']} = "
+            f"{json.dumps(i['value'], ensure_ascii=False)}"
+            f"  (by {i.get('updated_by')} at {i.get('updated_at')})"
+        )
+    return "\n".join(lines)
+
+
+def render_text(result: Any, noun: str | None = None) -> str:
+    text = _render_dict(result, noun) if isinstance(result, dict) else None
+    if text is not None:
+        return text
+    return json.dumps(result, indent=2, ensure_ascii=False)
+
+
+def _render_dict(result: dict, noun: str | None) -> str | None:
+    """The text of a result object of a known shape, else None (rendered as JSON)."""
+    if "sections" in result and "subject" in result:
         from culture_rules.cli._commands.overview import render_text as render  # noqa: PLC0415
 
         return render(result["subject"], result["sections"])
-    if isinstance(result, dict) and isinstance(result.get("lines"), list):
+    if isinstance(result.get("lines"), list):
         return "\n".join(str(x) for x in result["lines"])  # a verb that renders itself
-    if isinstance(result, dict) and result.get("dry_run"):
+    if result.get("dry_run"):
         return (
             _dry_run_head(result)
             + "\n"
             + json.dumps(result, indent=2)
             + "\nre-run with --apply to commit"
         )
-    if isinstance(result, dict) and isinstance(result.get("items"), list):
-        lines = [f"{len(result['items'])} item(s)"]
-        for item in result["items"]:
-            extra = " ".join(
-                f"{k}={item[k]}" for k in ("status", "enabled", "rule_id") if k in item
-            )
-            lines.append(f"- {item.get('id', '?')} {extra}".rstrip())
-        return "\n".join(lines)
-    if isinstance(result, dict) and isinstance(result.get("files"), dict):
+    if isinstance(result.get("items"), list):
+        return _render_items(result["items"], noun)
+    if isinstance(result.get("files"), dict):
         return "\n".join(f"# {k}\n{v}" for k, v in result["files"].items())
-    return json.dumps(result, indent=2, ensure_ascii=False)
+    if result.get("applied") and isinstance(result.get("hint"), str):
+        return json.dumps(result, indent=2, ensure_ascii=False) + "\nhint: " + result["hint"]
+    return None
+
+
+def _render_items(items: list, noun: str | None) -> str:
+    """A listing: variable versions for ``variables``, else ids with their flags."""
+    if noun == "variables" and items and all("value" in i and "version" in i for i in items):
+        return _render_variables(items)
+    lines = [f"{len(items)} item(s)"]
+    for item in items:
+        extra = " ".join(f"{k}={item[k]}" for k in ("status", "enabled", "rule_id") if k in item)
+        lines.append(f"- {item.get('id', '?')} {extra}".rstrip())
+    return "\n".join(lines)
 
 
 def _handler(verb: Verb) -> Callable[[argparse.Namespace], int]:
@@ -98,11 +125,12 @@ def _handler(verb: Verb) -> Callable[[argparse.Namespace], int]:
         params: dict[str, Any] = {}
         for param in verb.params:
             value = getattr(args, param.name, None)
-            if param.type == "object" and isinstance(value, str):
+            given = value is not None  # an `any` param parsed from "null" is given, as None
+            if param.type in ("object", "any") and isinstance(value, str):
                 value = parse_object(value)
             if value is None and param.type == "boolean":
                 value = False
-            if value is not None:
+            if value is not None or (given and param.type == "any"):
                 params[param.name] = value
         ctx = Context(
             client=_api.make_client(getattr(args, "api_url", None)),
@@ -110,7 +138,7 @@ def _handler(verb: Verb) -> Callable[[argparse.Namespace], int]:
         )
         result = verb.handler(ctx, **params)
         json_mode = bool(getattr(args, "json", False))
-        emit_result(result if json_mode else render_text(result), json_mode=json_mode)
+        emit_result(result if json_mode else render_text(result, verb.noun), json_mode=json_mode)
         return 0
 
     return run

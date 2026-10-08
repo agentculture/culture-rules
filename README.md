@@ -3,8 +3,8 @@
 Rules engine for the AgentCulture mesh: **rules → conditions → workflows →
 actions**, carried out by **actors** (agents, humans, code, services,
 robots, …). It is a Python library, `culture_rules`, with a CLI, an HTTP
-API, an MCP server and a graph-first React Flow editor that has four tabs:
-**Rules | Workflows | Actors | Statistics**.
+API, an MCP server and a graph-first React Flow editor that has five tabs:
+**Rules | Workflows | Actors | Variables | Statistics**.
 
 **Who it is for.** Two readers, one system:
 
@@ -39,8 +39,8 @@ PR approved  →  base = main  →  Review PR  →  Comment
 
 ## The editor
 
-The editor has four primary tabs: **Rules | Workflows | Actors |
-Statistics**. Runs, history, ledger and inbox are not tabs; they appear in
+The editor has five primary tabs: **Rules | Workflows | Actors |
+Variables | Statistics**. Runs, history, ledger and inbox are not tabs; they appear in
 context, inside a rule or workflow.
 
 - **Rules** is a rule list plus the focused rule as a vertical flow.
@@ -117,7 +117,7 @@ From a checkout, `uv sync` installs everything above, and
 
 | Verb | What it does |
 |------|--------------|
-| `rules`, `workflows`, `actors`, `machines` | `list`, `show`, `create`, `update`, `enable`, `disable`, `delete`, `restore`, `purge`; rules, workflows and actors also `export` / `import`; machines also `drain` / `undrain`; rules also `run` and `replay`. |
+| `rules`, `workflows`, `actors`, `machines` | `list`, `show`, `create`, `update`, `enable`, `disable`, `delete`, `restore`, `purge`; rules, workflows and actors also `export` / `import`; machines also `drain` / `undrain`; rules also `run`, `replay` and `stop-runs` (cancel a disabled rule's current runs; a disable reports them). |
 | `runs` | `list`, `show`, `cancel`, `pause`, `resume`, `controls`. |
 | `serve` | Run the HTTP API (needs the `server` extra). |
 | `node run` | Run this host's engine node (`--once` for one cycle). |
@@ -146,7 +146,7 @@ CLI. A parity test keeps the two surfaces identical.
 ## Architecture
 
 ```text
- browser (Rules | Workflows | Actors | Statistics)      mesh agents
+ browser (Rules | Workflows | Actors | Variables | Statistics) mesh agents
         │  Cloudflare Access SSO                      CLI / MCP (stdio)
         ▼                                                    │
  cloudflared ──► loopback listener ┐                         ▼
@@ -178,6 +178,9 @@ CLI. A parity test keeps the two surfaces identical.
   schedule and the restore drill.
 - [`docs/operations/rules-culture-dev.md`](docs/operations/rules-culture-dev.md):
   the rules.culture.dev tunnel, Cloudflare Access and the loopback listener.
+- [`docs/operations/pr-fixer.md`](docs/operations/pr-fixer.md): the PR
+  fixer machine (spark2): the unprivileged account, the agent bridges and their
+  actors.
 
 ## Background
 
@@ -203,7 +206,7 @@ records what was found and cites its scope entries:
 The product model and UX come from issues
 [#1](https://github.com/agentculture/culture-rules/issues/1) (the build
 brief) and [#2](https://github.com/agentculture/culture-rules/issues/2)
-(the product model), and the four-tab decision is recorded in the spec.
+(the product model), and the tab decision is recorded in the spec.
 
 ## Prompt files by harness
 

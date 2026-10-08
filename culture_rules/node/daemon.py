@@ -4,7 +4,9 @@ A :class:`Node` on host ``H`` does, every cycle (:meth:`Node.run_once`):
 
 1. **heartbeat** - at :meth:`Node.start` it probes the platform
    (:func:`~culture_rules.machines.probe.probe_platform`) and publishes a heartbeat
-   carrying the probed tools (and GPU load when readable); later cycles re-beat every
+   carrying the probed tools (and GPU load when readable) and its capabilities
+   (:attr:`HeartbeatOptions.capabilities`; ``variables`` by default, see
+   :mod:`culture_rules.engine.variables`); later cycles re-beat every
    :attr:`HeartbeatOptions.beat_every` seconds. Under :meth:`Node.run` a daemon thread
    beats on that cadence as well, so a long synchronous step in the drive stage never
    makes this host look offline; the thread stops when :meth:`Node.run` returns (or the
@@ -35,10 +37,12 @@ A :class:`Node` on host ``H`` does, every cycle (:meth:`Node.run_once`):
 5. **start** - turns pending intents into runs (run id derived from rule + event);
    then **redeliver** - resumes runs for human asks that were answered but whose
    delivery was lost (a crash between recording the answer and delivering it;
-   :func:`~culture_rules.actors.human.redeliver`). The run's compare-and-set keeps it
-   exactly once when several nodes redeliver the same answer, and the actor's limit slot
-   is freed (:mod:`culture_rules.node.completions`). Mesh replies are not polled:
-   ``MeshAgentActor`` is not among the production adapters;
+   :func:`~culture_rules.actors.human.redeliver`), and delivers bridge agent results the
+   API recorded from a bridge's callback (:func:`~culture_rules.actors.agent.redeliver_bridge`;
+   a result for an attempt the step has moved past is discarded). The run's
+   compare-and-set keeps it exactly once when several nodes redeliver the same answer,
+   and the actor's limit slot is freed (:mod:`culture_rules.node.completions`). Mesh
+   replies are not polled: ``MeshAgentActor`` is not among the production adapters;
 6. **drive** - ticks the :class:`~culture_rules.engine.runs.Executor` until idle; actors
    are reached through :class:`~culture_rules.node.actors.ActorRouter`;
 7. **report** - optional: posts finished runs this node started through
@@ -63,18 +67,20 @@ from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from culture_rules.actors import human
+from culture_rules.actors import agent, human
+from culture_rules.actors.review import CURRENT_COLLECTION, REVIEWS_COLLECTION
 from culture_rules.apps.discord_gateway import (
     GATEWAY_STATE_COLLECTION,
     Gateway,
     GatewayOptions,
     GatewaySupervisor,
 )
-from culture_rules.engine.claims import DEFAULT_LEASE
+from culture_rules.engine.claims import DEFAULT_LEASE, RULE_ATTEMPT_BUDGETS
 from culture_rules.engine.decisions import RULE_DECISIONS
 from culture_rules.engine.named_lease import LEASES_COLLECTION
 from culture_rules.engine.reports import RunReporter
 from culture_rules.engine.runs import RUNS_COLLECTION, Executor
+from culture_rules.engine.variables import NODE_CAPABILITIES, VARIABLES_CAPABILITY
 from culture_rules.events.hook_sink import HOOK_STATS_COLLECTION
 from culture_rules.events.ingest import EVENTS_COLLECTION, EventIngest
 from culture_rules.events.source import EventSource
@@ -89,6 +95,13 @@ from culture_rules.machines.heartbeat import (
 from culture_rules.machines.probe import ProbeResult, probe_platform, read_load
 from culture_rules.node import completions
 from culture_rules.node.actors import ACTORS_COLLECTION, ActorRouter, AdapterFactory
+from culture_rules.node.checks_settle import (
+    RECOVERY_COLLECTION,
+    SETTLE_COLLECTION,
+    UNRESOLVED_RETRY_S,
+    AppSuiteLister,
+    ChecksSettler,
+)
 from culture_rules.node.firing import RULE_FIRES, RuleFiring
 from culture_rules.node.probe_trigger import PROBE_STATE, CommandRunner, ProbeTrigger
 from culture_rules.node.schedule import Scheduler
@@ -111,10 +124,16 @@ NODE_COLLECTIONS = (
     RULE_DECISIONS,
     "actor_usage",
     human.ASKS_COLLECTION,
+    agent.BRIDGE_INVOCATIONS,
+    REVIEWS_COLLECTION,
+    CURRENT_COLLECTION,
     PROBE_STATE,
     LEASES_COLLECTION,
     HOOK_STATS_COLLECTION,
     GATEWAY_STATE_COLLECTION,
+    SETTLE_COLLECTION,
+    RECOVERY_COLLECTION,
+    RULE_ATTEMPT_BUDGETS,
 )
 """Collections a node touches (created up front on MongoDB)."""
 
@@ -131,6 +150,9 @@ class HeartbeatOptions:
     """Reads the current load, on every beat."""
     engine_version: str | None = None
     """Published on the heartbeat (``None``: the installed version)."""
+    capabilities: tuple[str, ...] = NODE_CAPABILITIES
+    """Advertised on the heartbeat. Without ``variables`` this node refuses to evaluate a
+    rule that references a shared variable (records ``variables_unsupported``)."""
     beat_every: float = HEARTBEAT_INTERVAL_S
     """Seconds between heartbeats after the first."""
 
@@ -230,7 +252,13 @@ class Node:
                 seconds=MISSED_BEATS_OFFLINE * self._beat_options.beat_every
             ),
         )
-        self.firing = RuleFiring(store, host, self.executor, clock=self._clock)
+        self.firing = RuleFiring(
+            store,
+            host,
+            self.executor,
+            clock=self._clock,
+            variables=VARIABLES_CAPABILITY in self._beat_options.capabilities,
+        )
         self.scheduler = Scheduler(store, host, self.firing, clock=self._clock)
         self.prober = ProbeTrigger(
             store, host, self.firing, clock=self._clock, runner=options.probe_runner
@@ -250,6 +278,17 @@ class Node:
             host=host,
         )
         self._listen_gateways = options.listen_gateways
+        # placed: this node settles only the SHAs whose App actor it can serve (wave-3 P1)
+        lister = AppSuiteLister(
+            store, secrets=resolve_secret, host=host, unresolved_retry_s=UNRESOLVED_RETRY_S
+        )
+        self.settler = ChecksSettler(
+            store,
+            lister.list_suites,
+            pull=lister.get_pull,
+            serves=lister.serves,
+            clock=self._clock,
+        )
         self.heartbeat: HeartbeatPublisher | None = None
         self._last_beat: datetime | None = None
         self._reporter = reporter
@@ -282,6 +321,7 @@ class Node:
                 clock=self._clock,
                 load_reader=load,
                 engine_version=self._beat_options.engine_version,
+                capabilities=tuple(self._beat_options.capabilities),
             )
             doc = self.beat()
             pinned = CycleReport(self.host)
@@ -369,6 +409,7 @@ class Node:
                 self._stage(report, self._ingest, report)
             self._stage(report, self._schedule, report)
             self._stage(report, self._probe, report)
+            self._stage(report, self._settle, report)
             if self._listen_gateways:
                 self._stage(report, self._discord_gateway, report)
             for consumer in self.firing.consumers:
@@ -408,6 +449,9 @@ class Node:
     def _probe(self, report: CycleReport) -> None:
         report.probed += self.prober.tick()
 
+    def _settle(self, report: CycleReport) -> None:
+        self.settler.tick()
+
     def _discord_gateway(self, report: CycleReport) -> None:
         report.listening += self.gateways.tick()
 
@@ -426,6 +470,7 @@ class Node:
 
     def _redeliver(self, report: CycleReport) -> None:
         report.redelivered += human.redeliver(self._store, self.executor)
+        report.redelivered += agent.redeliver_bridge(self._store, self.executor)
 
     def _drive(self, report: CycleReport) -> None:
         report.transitions += self.executor.run_until_idle(self._max_ticks)

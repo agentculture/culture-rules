@@ -184,3 +184,263 @@ def test_a_disabled_actor_drops_its_cached_app(pem):
     store.put("actors", {**actor_doc(), "enabled": False})
     assert port.invoke(params(), "k2", DEADLINE, context=ctx()).error == "actor_not_found"
     assert "gh-app" not in port._apps
+
+
+class HeadFake(Fake):
+    def __init__(self, sha="c" * 40, status=200):
+        super().__init__(status)
+        self.sha = sha
+
+    def __call__(self, method, url, headers, body, timeout):
+        if "/pulls/" in url:
+            self.calls.append(url)
+            if self.status != 200:
+                return self.status, b"{}"
+            return 200, json.dumps({"head": {"sha": self.sha}}).encode()
+        return super().__call__(method, url, headers, body, timeout)
+
+
+def test_pr_head_port_reads_the_head_sha(pem):
+    from culture_rules.node.actions.github import GitHubPrHeadPort
+
+    store = MemoryStore()
+    store.put("actors", actor_doc())
+    fake = HeadFake()
+    port = GitHubPrHeadPort(store, transport=fake, secrets=lambda ref: pem)
+    res = port.invoke({"repo": "acme/widgets", "number": 3}, "k", DEADLINE, context=ctx())
+    assert res.outcome == "completed"
+    assert dict(res.output) == {"head_sha": "c" * 40, "base_sha": None}
+    assert fake.calls[-1].endswith("/repos/acme/widgets/pulls/3")
+
+
+def test_pr_head_port_refuses_unlisted_repo_and_surfaces_errors(pem):
+    from culture_rules.node.actions.github import GitHubPrHeadPort
+
+    store = MemoryStore()
+    store.put("actors", actor_doc())
+    fake = HeadFake(status=500)
+    port = GitHubPrHeadPort(store, transport=fake, secrets=lambda ref: pem)
+    bad = port.invoke({"repo": "evil/repo", "number": 3}, "k", DEADLINE, context=ctx())
+    assert (bad.outcome, bad.error) == ("failed", "repo_not_allowed")
+    assert fake.calls == []
+    res = port.invoke({"repo": "acme/widgets", "number": 3}, "k", DEADLINE, context=ctx())
+    assert res.outcome == "failed"
+
+
+class SlowSecrets:
+    """A ``grant get`` stand-in that blocks until released (a cold, slow resolve)."""
+
+    def __init__(self, pem):
+        import threading
+
+        self.pem = pem
+        self.release = threading.Event()
+        self.calls = 0
+
+    def __call__(self, ref):
+        self.calls += 1
+        self.release.wait(10)
+        return self.pem
+
+
+def test_pr_head_port_honours_the_deadline_through_a_cold_secret_resolve(pem):
+    """Review #17 finding 6: the head lookup runs inside the executor tick, so a slow
+    ``grant get`` must not hold it past the invocation deadline. It answers
+    ``deadline_exceeded`` (retryable) at the deadline; the resolve finishes in the
+    background and caches the App, so the next lookup is warm (one resolve in all)."""
+    import time
+
+    from culture_rules.node.actions.github import GitHubPrHeadPort
+
+    store = MemoryStore()
+    store.put("actors", actor_doc())
+    fake = HeadFake()
+    secrets = SlowSecrets(pem)
+    port = GitHubPrHeadPort(store, transport=fake, secrets=secrets)
+    try:
+        started = time.monotonic()
+        soon = datetime.now(UTC) + timedelta(seconds=0.2)
+        res = port.invoke({"repo": "acme/widgets", "number": 3}, "k", soon, context=ctx())
+        assert (res.outcome, res.error, res.retryable) == ("failed", "deadline_exceeded", True)
+        assert time.monotonic() - started < 2
+    finally:
+        secrets.release.set()
+    give_up = time.monotonic() + 5
+    while "gh-app" not in port._apps:  # the timed-out worker warms the per-actor App cache
+        assert time.monotonic() < give_up
+        time.sleep(0.01)
+    while True:
+        later = datetime.now(UTC) + timedelta(seconds=2)
+        res = port.invoke({"repo": "acme/widgets", "number": 3}, "k", later, context=ctx())
+        if res.outcome == "completed" or time.monotonic() > give_up:
+            break
+        assert res.error in ("deadline_exceeded", "lookup_busy")
+        time.sleep(0.02)
+    assert dict(res.output) == {"head_sha": "c" * 40, "base_sha": None}
+    assert secrets.calls == 1
+
+
+def test_pr_head_port_bounds_its_http_calls_by_the_deadline(pem):
+    from culture_rules.node.actions.github import GitHubPrHeadPort
+
+    store = MemoryStore()
+    store.put("actors", actor_doc())
+    fake = HeadFake()
+    port = GitHubPrHeadPort(store, transport=fake, secrets=lambda ref: pem)
+    warm = port.invoke({"repo": "acme/widgets", "number": 3}, "k", DEADLINE, context=ctx())
+    assert warm.outcome == "completed"
+    fake.calls.clear()
+    past = datetime.now(UTC) - timedelta(seconds=1)
+    res = port.invoke({"repo": "acme/widgets", "number": 3}, "k", past, context=ctx())
+    assert (res.outcome, res.error, res.retryable) == ("failed", "deadline_exceeded", True)
+    assert fake.calls == []  # no network call started past the deadline
+
+
+class HangingHeadFake(HeadFake):
+    """GitHub accepting the PR read but never answering: the transport times out after the
+    timeout it was given, as urllib does (``TimeoutError``, wrapped in ``URLError``)."""
+
+    def __init__(self, wrap=False):
+        super().__init__()
+        self.wrap = wrap
+        self.timeouts = []
+
+    def __call__(self, method, url, headers, body, timeout):
+        import time
+        from urllib.error import URLError
+
+        if "/pulls/" in url:
+            self.timeouts.append(timeout)
+            time.sleep(timeout)
+            exc = TimeoutError("timed out")
+            raise URLError(exc) if self.wrap else exc
+        return super().__call__(method, url, headers, body, timeout)
+
+
+@pytest.mark.parametrize("wrap", [False, True])
+def test_pr_head_port_turns_an_in_flight_http_timeout_into_deadline_exceeded(pem, wrap):
+    """Codex r17b finding 2: a read cut off in flight by the deadline-bound timeout is
+    ``deadline_exceeded`` (retryable, which the wait guard re-arms on), not a
+    ``network_error`` that fails the run at once."""
+    from culture_rules.node.actions.github import GitHubPrHeadPort
+
+    store = MemoryStore()
+    store.put("actors", actor_doc())
+    fake = HangingHeadFake(wrap=wrap)
+    port = GitHubPrHeadPort(store, transport=fake, secrets=lambda ref: pem)
+    soon = datetime.now(UTC) + timedelta(seconds=0.3)
+    res = port.invoke({"repo": "acme/widgets", "number": 3}, "k", soon, context=ctx())
+    assert (res.outcome, res.error, res.retryable) == ("failed", "deadline_exceeded", True)
+    assert fake.timeouts
+    assert fake.timeouts[0] <= 0.3
+
+
+def test_a_transport_failure_unrelated_to_the_deadline_stays_a_network_error(pem):
+    from culture_rules.node.actions.github import GitHubPrHeadPort
+
+    class Refused(HeadFake):
+        def __call__(self, method, url, headers, body, timeout):
+            if "/pulls/" in url:
+                raise ConnectionRefusedError("no")
+            return super().__call__(method, url, headers, body, timeout)
+
+    store = MemoryStore()
+    store.put("actors", actor_doc())
+    port = GitHubPrHeadPort(store, transport=Refused(), secrets=lambda ref: pem)
+    res = port.invoke({"repo": "acme/widgets", "number": 3}, "k", DEADLINE, context=ctx())
+    assert (res.outcome, res.error) == ("failed", "network_error")
+
+
+# ---------------------------------------------------------------- characterization
+# (the Sonar S3776 split of GitHubPrHeadPort.invoke: every outcome, pinned)
+
+
+def _head_port(pem, doc=None, fake=None, secrets=None):
+    from culture_rules.node.actions.github import GitHubPrHeadPort
+
+    store = MemoryStore()
+    if doc is not False:
+        store.put("actors", doc or actor_doc())
+    fake = fake or HeadFake()
+    port = GitHubPrHeadPort(store, transport=fake, secrets=secrets or (lambda ref: pem))
+    return port, fake
+
+
+def _ask(port, **inp):
+    return port.invoke({"repo": "acme/widgets", "number": 3, **inp}, "k", DEADLINE, context=ctx())
+
+
+def test_pr_head_port_without_the_actor_is_actor_not_found(pem):
+    port, fake = _head_port(pem, doc=False)
+    port._apps["gh-app"] = ((), object())
+    res = _ask(port)
+    assert (res.outcome, res.error, res.retryable) == ("failed", "actor_not_found", False)
+    assert "gh-app" not in port._apps
+    assert fake.calls == []
+
+
+@pytest.mark.parametrize("conn", [{"app_id": ""}, {"installation_id": None}])
+def test_pr_head_port_misconfigured_actor(pem, conn):
+    port, fake = _head_port(pem, doc=actor_doc(**conn))
+    res = _ask(port)
+    assert (res.error, res.retryable) == ("actor_misconfigured", False)
+    assert fake.calls == []
+
+
+@pytest.mark.parametrize("number", [None, "x", [3]])
+def test_pr_head_port_bad_number_is_bad_input(pem, number):
+    port, fake = _head_port(pem)
+    res = _ask(port, number=number)
+    assert (res.error, res.retryable) == ("bad_input", False)
+    assert fake.calls == []
+
+
+def test_pr_head_port_missing_number_is_bad_input(pem):
+    port, _ = _head_port(pem)
+    res = port.invoke({"repo": "acme/widgets"}, "k", DEADLINE, context=ctx())
+    assert (res.error, res.retryable) == ("bad_input", False)
+
+
+def test_pr_head_port_secret_failure_is_secret_unavailable(pem):
+    def boom(ref):
+        raise RuntimeError("no grant")
+
+    port, fake = _head_port(pem, secrets=boom)
+    res = _ask(port)
+    assert (res.error, res.retryable) == ("secret_unavailable", False)
+    assert fake.calls == []
+
+
+@pytest.mark.parametrize("sha", [None, "", 7])
+def test_pr_head_port_without_a_head_sha_is_a_retryable_bad_response(pem, sha):
+    port, _ = _head_port(pem, fake=HeadFake(sha=sha))
+    res = _ask(port)
+    assert (res.error, res.retryable) == ("bad_response", True)
+
+
+def test_pr_head_port_reports_a_string_base_sha_only(pem):
+    class BaseFake(HeadFake):
+        def __init__(self, base):
+            super().__init__()
+            self.base = base
+
+        def __call__(self, method, url, headers, body, timeout):
+            if "/pulls/" in url:
+                doc = {"head": {"sha": self.sha}, "base": {"sha": self.base}}
+                return 200, json.dumps(doc).encode()
+            return super().__call__(method, url, headers, body, timeout)
+
+    port, _ = _head_port(pem, fake=BaseFake("d" * 40))
+    assert dict(_ask(port).output) == {"head_sha": "c" * 40, "base_sha": "d" * 40}
+    port, _ = _head_port(pem, fake=BaseFake(5))
+    assert dict(_ask(port).output) == {"head_sha": "c" * 40, "base_sha": None}
+
+
+def test_pr_head_port_http_error_keeps_its_code_and_retryability(pem):
+    port, _ = _head_port(pem, fake=HeadFake(status=500))
+    res = _ask(port)
+    assert (res.error, res.retryable) == ("http_500", True)
+    port, _ = _head_port(pem, fake=HeadFake(status=404))
+    res = _ask(port)
+    assert res.outcome == "failed"
+    assert res.retryable is False

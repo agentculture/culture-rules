@@ -17,8 +17,10 @@ exception (including :class:`~culture_rules.node.firing.Deferred`) rolls its cha
 and leaves that collection's token before it; the other sources are still polled and the
 first exception is re-raised afterwards. Changes nobody keys only move the token (saved
 once, at the end of the poll). A keyed document whose rule no live rule depends on (its id
-is in no rule's ``must_after`` / ``may_after``) is treated the same way: nothing could
-continue a chain from it, so it opens no transaction. The dependants set is read from the
+is in no rule's ``must_after`` / ``may_after``, and the rule has no concurrency key) is
+treated the same way: nothing could continue a chain from it, so it opens no transaction -
+unless it is a run or firing intent still recorded as a concurrency budget's holder, whose
+end releases the key even after its rule was deleted or unkeyed. The dependants set is read from the
 ``rules`` collection at most once per poll of a source, lazily, so a rule saved between
 polls is seen by the next poll. The first poll of a new consumer pins each feed's head.
 Standard-library only.
@@ -32,6 +34,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+from culture_rules.engine.claims import RULE_ATTEMPT_BUDGETS
+from culture_rules.engine.runs import RUNS_COLLECTION
 from culture_rules.events.triggers import FIRES_COLLECTION
 from culture_rules.model.rule import Rule
 from culture_rules.store.port import (
@@ -166,12 +170,30 @@ class FeedConsumer:
         return True
 
     def _dependencies(self) -> set[str]:
-        """Rule ids some live rule must or may run after."""
+        """Rule ids some live rule must or may run after, plus every keyed rule (its run
+        ending releases its concurrency key, :mod:`culture_rules.node.firing`)."""
         out: set[str] = set()
         for rule in live_rules(self.store.find("rules")):
+            if rule.concurrency_key is not None:
+                out.add(rule.id)
             out.update(rule.must_after)
             out.update(rule.may_after)
         return out
+
+    def _holds_reservation(self, source: Source, doc: Mapping[str, Any]) -> bool:
+        """Whether ``doc`` (a run, or a firing intent) is the holder recorded on a
+        concurrency budget: its end must release the key and fire the event coalesced
+        meanwhile even when its rule was deleted or lost its key since it fired, which
+        drops the rule from :meth:`_dependencies` (:mod:`culture_rules.node.firing`)."""
+        if source.collection == RUNS_COLLECTION:
+            run_id = doc.get("id")
+        elif source.collection == "rule_fires":
+            run_id = doc.get("run_id")
+        else:
+            return False
+        if not isinstance(run_id, str) or not run_id:
+            return False
+        return bool(self.store.find(RULE_ATTEMPT_BUDGETS, {"run_id": run_id}))
 
     def _poll_source(self, source: Source) -> list[str]:
         token = saved = self._token(source.collection)
@@ -187,7 +209,7 @@ class FeedConsumer:
             if rid is not None:
                 if depended is None:
                     depended = self._dependencies()
-                if rid not in depended:
+                if rid not in depended and not self._holds_reservation(source, doc):
                     continue  # nobody chains after it: only the cursor moves
             if self._fire(source, doc, key, token):
                 fired.append(self.marker_id(source.collection, key))

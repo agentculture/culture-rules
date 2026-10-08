@@ -205,6 +205,27 @@
   flex: 1;
 }
 
+/* d17: 'Stop N current runs?' after a disable; wraps on a narrow board */
+.notice--stop {
+  flex-wrap: wrap;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .notice--stop {
+    animation: notice-in 0.2s var(--ease-out);
+  }
+
+  @keyframes notice-in {
+    from {
+      opacity: 0;
+    }
+
+    to {
+      opacity: 1;
+    }
+  }
+}
+
 /* ---------- pending asks ---------- */
 
 .asks {
@@ -376,4 +397,18 @@
   color: var(--ink);
   font: 600 15px var(--font-mono, ui-monospace, monospace);
   overflow-wrap: anywhere;
+}
+
+.rule-form label.action-picker__check {
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  font-size: 16px;
+}
+
+.rule-form .action-picker__check input {
+  width: 24px;
+  min-height: 24px;
+  height: 24px;
 }

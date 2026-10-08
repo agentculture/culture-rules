@@ -21,8 +21,13 @@ The event id is ``hook_<surface>_<sha256(delivery_id)[:24]>``, so redelivery by 
 a retry) inserts exactly once. The stored document is the ingest shape
 (:func:`~culture_rules.events.ingest.event_document`) around an events-cli wire envelope whose
 ``source`` is ``app://<actor id>`` and whose ``data`` is the payload plus ``delivery_id``,
-``actor`` and, when ``author`` equals ``params.self_identity`` (case-insensitive),
-``self_authored: true``. A payload key of those names is overwritten, never trusted.
+``actor`` and, whenever the actor names a ``params.self_identity``, ``self_authored`` on every
+event: ``true`` when ``author`` equals it (case-insensitive) and the type is not one of the
+exempt check-completion types (``github.checks.suite_completed``,
+``github.checks.workflow_completed``), ``false`` otherwise - so a human push is told apart from
+an untagged one (the attempt budget resets only on an explicit ``false``,
+:mod:`culture_rules.node.firing`). Without a ``self_identity`` the key is absent. A payload key
+of those names is overwritten, never trusted.
 
 Outcome counters live in :data:`HOOK_STATS_COLLECTION`, one document per (actor, outcome) with
 a ``count`` and the ``surface`` (receiver refusals are counted by
@@ -51,6 +56,7 @@ __all__ = [
     "IGNORED",
     "OUTCOMES",
     "REFUSALS",
+    "SELF_TAG_EXEMPT_TYPES",
     "TOO_LARGE",
     "UNAUTHORIZED",
     "event_id_for",
@@ -69,6 +75,14 @@ OUTCOMES = (ACCEPTED, DUPLICATE, IGNORED, DISABLED)
 UNAUTHORIZED, BAD_REQUEST, TOO_LARGE = "unauthorized", "bad_request", "too_large"
 REFUSALS = (UNAUTHORIZED, BAD_REQUEST, TOO_LARGE)
 """Outcomes of deliveries refused before the sink (see :func:`record_outcome`)."""
+SELF_TAG_EXEMPT_TYPES = frozenset(
+    ("github.checks.suite_completed", "github.checks.workflow_completed")
+)
+"""Event types tagged ``self_authored`` *false* even when the author is the app itself.
+
+For every other type a matching author sets it to *true*; a non-matching author sets it to
+*false* (once ``params.self_identity`` is configured; without one the key is absent).
+"""
 _CAS_RETRIES = 50
 
 
@@ -154,13 +168,12 @@ def sink(
     payload["actor"] = actor_id
     payload.pop("self_authored", None)
     me = params.get("self_identity")
-    if (
-        isinstance(me, str)
-        and me
-        and isinstance(author, str)
-        and author.casefold() == me.casefold()
-    ):
-        payload["self_authored"] = True
+    if isinstance(me, str) and me:
+        payload["self_authored"] = (
+            isinstance(author, str)
+            and author.casefold() == me.casefold()
+            and type not in SELF_TAG_EXEMPT_TYPES
+        )
 
     envelope = derive_envelope(
         None,

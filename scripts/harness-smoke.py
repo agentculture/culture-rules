@@ -122,6 +122,10 @@ STEWARD_WAIVED_PORTABILITY_PATHS = frozenset(
         "docs/plans/2026-10-04-culture-rules-second-mile-split.md",
         ".devague/frames/culture-rules-second-mile.json",
         ".devague/plans/culture-rules-second-mile.json",
+        # the PR-fixer ops recipe installs tools into the dedicated fixer account's own
+        # home (uv, grant and Qwen Code under its ~/.local, its ~/.qwen settings); those
+        # per-account paths are the instructions themselves, so they are waived
+        "docs/operations/pr-fixer.md",
     }
 )
 

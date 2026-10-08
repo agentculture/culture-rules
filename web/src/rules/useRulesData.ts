@@ -10,15 +10,40 @@ import {
   listWaitingRuns,
   restoreRule,
   setRuleEnabled,
+  stopRuleRuns,
   updateRule,
   type Ask,
   type RuleDoc,
 } from "../api/rules";
 import type { Machine, Workflow } from "../api/types";
+import { guidanceFor } from "../api/guidance";
 import { usePending } from "../usePending";
 
 /** Never throws, so the handlers below that describe a failure cannot fail themselves. */
-const describe = (err: unknown) => (err instanceof ApiError ? err.message : failureMessage(err));
+/** The variable refusals the editor explains in its own words (api/guidance.ts). */
+const VARIABLE_CODES = ["variable_undefined", "variables_unsupported_nodes"];
+
+function describe(err: unknown): string {
+  if (!(err instanceof ApiError)) return failureMessage(err);
+  const hit =
+    VARIABLE_CODES.find((c) => c === err.code) ?? err.errors.find((e) => VARIABLE_CODES.includes(e.code));
+  if (!hit) return err.message;
+  const code = typeof hit === "string" ? hit : hit.code;
+  // The nested message names the variable or the nodes at fault; it rides after the plain words.
+  const detail = typeof hit === "string" ? "" : ` (${hit.message})`;
+  return `${guidanceFor(code).message}${detail}`;
+}
+
+/**
+ * The 'Stop N current runs?' offer after a disable (d17): `ask` waits for the
+ * operator, `busy` is the stop in flight, `done` reports how many stopped.
+ */
+export interface StopOffer {
+  rule: RuleDoc;
+  total: number;
+  phase: "ask" | "busy" | "done";
+  stopped?: number;
+}
 
 interface Loaded {
   rules: RuleDoc[];
@@ -108,17 +133,45 @@ export function useRulesData(routeRuleId: string | undefined) {
     }
   }, []);
 
+  // d17: disabling a rule with runs still going offers to stop them (never automatically).
+  const [stopOffer, setStopOffer] = useState<StopOffer | null>(null);
+
   const { pending: togglePending, run: runToggle } = usePending();
   const toggle = useCallback(
     (rule: RuleDoc) =>
       runToggle(rule.id, async () => {
         const next = rule.enabled === false;
         replace({ ...rule, enabled: next }); // optimistic; rolled back below on refusal
-        const doc = await attempt(() => setRuleEnabled(rule, next));
-        replace(doc ?? rule);
+        const answer = await attempt(() => setRuleEnabled(rule, next));
+        replace(answer?.rule ?? rule);
+        if (answer && next) setStopOffer((o) => (o?.rule.id === rule.id ? null : o));
+        if (answer && !next && answer.activeRunsTotal > 0) {
+          setStopOffer({ rule: answer.rule, total: answer.activeRunsTotal, phase: "ask" });
+        }
       }),
     [attempt, replace, runToggle],
   );
+
+  /**
+   * Approve the offer: cancel the rule's active runs, then say how many stopped.
+   * The answer lands only if the offer is still the one this request belongs to
+   * (identity of the `busy` offer): a newer offer (another rule disabled
+   * meanwhile) or a withdrawal (the rule re-enabled) is never overwritten.
+   */
+  const stopRuns = useCallback(async () => {
+    const offer = stopOffer;
+    if (offer?.phase !== "ask") return;
+    const pending: StopOffer = { ...offer, phase: "busy" };
+    setStopOffer(pending);
+    const done = await attempt(() => stopRuleRuns(offer.rule.id));
+    const settled: StopOffer = done
+      ? { ...offer, phase: "done", stopped: done.cancelled.length }
+      : { ...offer, phase: "ask" };
+    setStopOffer((current) => (current === pending ? settled : current));
+  }, [attempt, stopOffer]);
+
+  /** Dismiss the offer (or its report): the runs, if any, keep going. */
+  const dismissStop = useCallback(() => setStopOffer(null), []);
 
   const save = useCallback(
     async (rule: RuleDoc): Promise<boolean> => {
@@ -203,6 +256,9 @@ export function useRulesData(routeRuleId: string | undefined) {
     setNotice,
     toggle,
     togglePending,
+    stopOffer,
+    stopRuns,
+    dismissStop,
     save,
     create,
     remove,

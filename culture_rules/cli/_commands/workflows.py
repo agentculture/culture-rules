@@ -8,13 +8,14 @@ from typing import Any
 
 from culture_rules.cli._build import register_noun
 from culture_rules.cli._errors import EXIT_USER_ERROR, CliError
-from culture_rules.cli._nounlib import ID, definition_verbs, seg, write
+from culture_rules.cli._nounlib import ID, definition_verbs, describe_verb, seg, write
 from culture_rules.cli.registry import Context, Param, Verb
 
 NOUN = "workflows"
 VERBS: list[Verb] = definition_verbs(
     NOUN, "workflow", "Workflows are the reusable work a rule runs.", exchange=True
 )
+VERBS.append(describe_verb(NOUN, "workflow", "its numbered steps"))
 
 
 def _parse_inputs(inputs_json: dict | None, inputs: list[str] | None) -> dict[str, Any]:

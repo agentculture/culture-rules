@@ -239,3 +239,24 @@ def test_saving_a_new_rule_with_unknown_action_kind_is_still_422(client):
     r = client.post("/rules", json=rule_body("new", action={"kind": "teleport"}), headers=ALICE)
     assert r.status_code == 422
     assert any(e["code"] == "action_kind_unknown" for e in r.json()["error"]["errors"])
+
+
+def test_restore_refuses_an_enabled_variable_rule_while_an_old_node_is_online(store, client):
+    """d7 holds on restore: an old node that came online since the delete must not be handed
+    a live, enabled variable rule (it would read ``not(a in vars.x)`` as true)."""
+    from datetime import UTC, datetime
+
+    from culture_rules.machines.heartbeat import HEARTBEAT_COLLECTION
+
+    store.put_variable("x", ["qodo"], updated_by="alice")
+    cond = {"op": "not", "arg": {"op": "in", "value": {"field": "a"}, "items": {"var": "x"}}}
+    assert (
+        client.post("/rules", json=rule_body("v", condition=cond), headers=ALICE).status_code == 201
+    )
+    assert client.delete("/rules/v", headers=ALICE).status_code == 200
+    now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    store.put(HEARTBEAT_COLLECTION, {"id": "orin", "machine": "orin", "ts": now})
+    r = client.post("/rules/v/restore", headers=ALICE)
+    assert r.status_code == 422, r.text
+    assert r.json()["error"]["errors"][0]["code"] == "variables_unsupported_nodes"
+    assert store.get("rules", "v")["deleted_at"]

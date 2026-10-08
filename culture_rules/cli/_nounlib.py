@@ -252,3 +252,21 @@ def definition_verbs(noun: str, singular: str, summary: str, *, exchange: bool) 
             ),
         ]
     return verbs
+
+
+def describe_verb(noun: str, singular: str, what: str) -> Verb:
+    """``<noun> describe <id>``: the definition in plain words, from its config only (d19).
+
+    Text mode prints the ``lines``; ``--json`` adds the structured ``entries``.
+    """
+
+    def describe(ctx: Context, id: str) -> Any:
+        return _api.call(lambda: ctx.client.request("GET", f"/{noun}/{seg(id)}/describe"))
+
+    return Verb(
+        noun,
+        "describe",
+        f"Describe a {singular} in plain words ({what}), from its config only",
+        describe,
+        (ID,),
+    )

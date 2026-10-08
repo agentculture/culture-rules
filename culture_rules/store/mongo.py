@@ -58,13 +58,19 @@ from __future__ import annotations
 import contextlib
 import importlib
 import time
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Collection, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any
 
+from culture_rules.model.variable import (
+    validate_variable_name,
+    validate_variable_value,
+)
 from culture_rules.store.port import (
     CURSOR_COLLECTION,
+    EVENTS_COLLECTION,
+    VARIABLES_COLLECTION,
     Change,
     ChangeOp,
     Document,
@@ -73,7 +79,10 @@ from culture_rules.store.port import (
     StoreOps,
     TransientStoreError,
     UpdateResult,
+    VariableVersionConflict,
+    VersionSkewError,
     cursor_id,
+    events_query,
 )
 from culture_rules.store.retry import DEFAULT_ATTEMPTS, run_transaction
 from culture_rules.store.versioning import (
@@ -87,6 +96,8 @@ from culture_rules.store.versioning import (
 )
 
 ENV_URI = "CULTURE_RULES_MONGO_URI"
+EVENTS_TYPE_RECEIVED_INDEX = "events_type_received"
+"""The ``(envelope.type, received_at, _id)`` index serving :meth:`MongoStore.find_events`."""
 ENV_DB = "CULTURE_RULES_MONGO_DB"
 ENV_TLS_CA = "CULTURE_RULES_MONGO_TLS_CA_FILE"
 ENV_TLS_CERT_KEY = "CULTURE_RULES_MONGO_TLS_CERT_KEY_FILE"
@@ -229,6 +240,7 @@ class MongoStore:
         self._client = pymongo.MongoClient(config.uri, **{**options, **build_client_kwargs(config)})
         self._db = self._client[config.database]
         self._ensured: set[str] = set()
+        self._events_indexed = False
         if connect:
             try:
                 self.verify_least_privilege()
@@ -419,6 +431,32 @@ class MongoStore:
     def get(self, collection: str, id: str) -> Document | None:
         return self._get(None, collection, id)
 
+    def find_events(
+        self,
+        *,
+        types: Collection[str],
+        after: tuple[str, str],
+        until: str,
+        limit: int,
+    ) -> list[Document]:
+        wanted, ts, last = events_query(types, after, until, limit)
+        coll = self._collection(EVENTS_COLLECTION)
+        if not self._events_indexed:
+            # idempotent; the equality-then-range-then-sort shape lets the planner merge
+            # the per-type index ranges in (received_at, _id) order without a sort stage
+            coll.create_index(
+                [("envelope.type", 1), ("received_at", 1), ("_id", 1)],
+                name=EVENTS_TYPE_RECEIVED_INDEX,
+            )
+            self._events_indexed = True
+        query = {
+            "envelope.type": {"$in": wanted},
+            "received_at": {"$gte": ts, "$lte": until},
+            "$or": [{"received_at": {"$gt": ts}}, {"_id": {"$gt": last}}],
+        }
+        cursor = coll.find(query).sort([("received_at", 1), ("_id", 1)]).limit(limit)
+        return [_to_doc(raw) for raw in cursor]
+
     def find(
         self,
         collection: str,
@@ -554,6 +592,126 @@ class MongoStore:
         doc = self.get(CURSOR_COLLECTION, cursor_id(consumer, collection))
         return None if doc is None else doc.get("token")
 
+    # ---------------------------------------------------------------- variables
+
+    def _validate_variable_name(self, name: str) -> None:
+        validate_variable_name(name)
+
+    @staticmethod
+    def _validate_variable_value(value: Any) -> None:
+        validate_variable_value(value)
+
+    @staticmethod
+    def _variable_view(name: str, version: Mapping[str, Any]) -> Document:
+        """The flat, single-version view of a stored variable document."""
+        return {
+            "id": name,
+            "name": name,
+            "value": version["value"],
+            "version": version["version"],
+            "updated_by": version["updated_by"],
+            "updated_at": version["updated_at"],
+            "description": version.get("description"),
+        }
+
+    def _get_variable_doc(self, name: str) -> Document | None:
+        raw = self._collection(VARIABLES_COLLECTION).find_one({"_id": name})
+        return _to_doc(raw)
+
+    def put_variable(
+        self,
+        name: str,
+        value: Any,
+        *,
+        updated_by: str,
+        description: str | None = None,
+        expected_version: int | None = None,
+    ) -> Document:
+        self._validate_variable_name(name)
+        self._validate_variable_value(value)
+        now = self._now()
+        latest_version: int = 0
+
+        for _ in range(50):
+            doc = self._get_variable_doc(name)
+            if doc is not None:
+                latest_version = self._stored_latest_version(name, doc)
+            if expected_version is not None and latest_version != expected_version:
+                raise VariableVersionConflict(
+                    f"variable {name!r} is at version {latest_version}, not {expected_version}"
+                )
+            next_version = latest_version + 1
+            entry: Document = {
+                "version": next_version,
+                "value": value,
+                "updated_by": updated_by,
+                "updated_at": now,
+                "description": description,
+            }
+            # Use update_if with CAS on the versions list to ensure
+            # no other writer changed it between read and write.
+            # This mirrors the MemoryStore pattern exactly.
+            result = self._update_if(
+                None,
+                VARIABLES_COLLECTION,
+                name,
+                expected=_variable_expected(doc),
+                changes=_variable_changes(doc, name, entry),
+                upsert=doc is None,
+            )
+            if result.won:
+                view = self._variable_view(name, result.document["versions"][-1])
+                view["schema_version"] = result.document.get("schema_version")
+                view["updated_at"] = result.document.get("updated_at", view.get("updated_at"))
+                return view
+        raise StoreError(f"put_variable {name!r}: too much contention after 50 CAS attempts")
+
+    def _stored_latest_version(self, name: str, doc: Document) -> int:
+        """The latest version of stored variable ``doc``; a document of a newer schema major
+        than this node supports raises :class:`VersionSkewError`."""
+        existing_version = SchemaVersion.parse(doc.get("schema_version", "1.0"))
+        if existing_version.major > self._node.major:
+            raise VersionSkewError(
+                f"document {name!r} is schema {existing_version}; "
+                f"this node supports up to major {self._node.major}"
+            )
+        # A doc without the counter derives it from its history; the CAS
+        # below still matches the stored value (absent -> None), and
+        # _update_if replaces the exact document it read.
+        return doc.get("latest_version") or len(doc.get("versions", []))
+
+    def get_variable(self, name: str) -> Document | None:
+        doc = self._get_variable_doc(name)
+        if doc is None:
+            return None
+        versions = doc.get("versions", [])
+        return None if not versions else self._variable_view(doc["name"], versions[-1])
+
+    def get_variable_version(self, name: str, version: int) -> Document | None:
+        doc = self._get_variable_doc(name)
+        if doc is None:
+            return None
+        for v in doc.get("versions", []):
+            if v["version"] == version:
+                return self._variable_view(doc["name"], v)
+        return None
+
+    def list_variables(self) -> list[Document]:
+        cursor = self._collection(VARIABLES_COLLECTION).find({}).sort("name", 1)
+        result: list[Document] = []
+        for raw in cursor:
+            doc = _to_doc(raw)
+            versions = doc.get("versions", [])
+            if versions:
+                result.append(self._variable_view(doc["name"], versions[-1]))
+        return result
+
+    def ensure_variables_collection(self) -> None:
+        """Create the variables collection (with change-stream images) and a
+        unique index on ``name``."""
+        self._collection(VARIABLES_COLLECTION)
+        self._db[VARIABLES_COLLECTION].create_index("name", unique=True, name="name_unique")
+
 
 _OPS: dict[str, ChangeOp] = {
     "insert": "insert",
@@ -561,47 +719,6 @@ _OPS: dict[str, ChangeOp] = {
     "replace": "update",
     "delete": "delete",
 }
-
-
-def _to_change(collection: str, event: Mapping[str, Any]) -> Change | None:
-    kind = event["operationType"]
-    if kind not in _OPS:
-        if kind in {"drop", "dropDatabase", "rename", "invalidate"}:
-            raise StoreError(f"collection {collection!r} feed ended: {kind}")
-        return None
-    return Change(
-        token=event["_id"]["_data"],
-        collection=collection,
-        op=_OPS[kind],
-        id=event["documentKey"]["_id"],
-        document=_to_doc(event.get("fullDocument")),
-    )
-
-
-def _reject_raw_id(document: Any) -> None:
-    if isinstance(document, Mapping) and "_id" in document:
-        raise ValueError("documents use 'id'; '_id' is reserved by the adapter")
-
-
-def _raise_if_in_transaction(session: Any) -> None:
-    if session is not None:
-        raise TransientStoreError("a concurrent write conflicted inside the transaction; retry it")
-
-
-def _has_label(exc: BaseException, label: str) -> bool:
-    has = getattr(exc, "has_error_label", None)
-    return bool(callable(has) and has(label))
-
-
-def _translate_transient(exc: BaseException) -> TransientStoreError | None:
-    """The typed error for a pymongo transient-transaction failure, else None."""
-    if isinstance(exc, TransientStoreError):
-        return exc
-    if isinstance(exc, StoreError):
-        return None
-    if _has_label(exc, _TRANSIENT_LABEL) or getattr(exc, "code", None) == _WRITE_CONFLICT:
-        return TransientStoreError(f"transient transaction failure, retry it: {exc}")
-    return None
 
 
 class _TxHandle:
@@ -659,3 +776,66 @@ class _TxHandle:
 
     def delete(self, collection: str, id: str) -> bool:
         return self._call(self._store._delete, collection, id)
+
+
+def _to_change(collection: str, event: Mapping[str, Any]) -> Change | None:
+    kind = event["operationType"]
+    if kind not in _OPS:
+        if kind in {"drop", "dropDatabase", "rename", "invalidate"}:
+            raise StoreError(f"collection {collection!r} feed ended: {kind}")
+        return None
+    return Change(
+        token=event["_id"]["_data"],
+        collection=collection,
+        op=_OPS[kind],
+        id=event["documentKey"]["_id"],
+        document=_to_doc(event.get("fullDocument")),
+    )
+
+
+def _reject_raw_id(document: Any) -> None:
+    if isinstance(document, Mapping) and "_id" in document:
+        raise ValueError("documents use 'id'; '_id' is reserved by the adapter")
+
+
+def _raise_if_in_transaction(session: Any) -> None:
+    if session is not None:
+        raise TransientStoreError("a concurrent write conflicted inside the transaction; retry it")
+
+
+def _has_label(exc: BaseException, label: str) -> bool:
+    has = getattr(exc, "has_error_label", None)
+    return bool(callable(has) and has(label))
+
+
+def _translate_transient(exc: BaseException) -> TransientStoreError | None:
+    """The typed error for a pymongo transient-transaction failure, else None."""
+    if isinstance(exc, TransientStoreError):
+        return exc
+    if isinstance(exc, StoreError):
+        return None
+    if _has_label(exc, _TRANSIENT_LABEL) or getattr(exc, "code", None) == _WRITE_CONFLICT:
+        return TransientStoreError(f"transient transaction failure, retry it: {exc}")
+    return None
+
+
+def _variable_expected(doc: Document | None) -> dict[str, Any]:
+    """The compare-and-set guard of a variable put: the versions and counter as read."""
+    return {
+        "versions": list(doc.get("versions", [])) if doc else None,
+        "latest_version": doc.get("latest_version") if doc else None,
+    }
+
+
+def _variable_changes(doc: Document | None, name: str, entry: Document) -> dict[str, Any]:
+    """A variable put's write: the new latest fields plus ``entry`` appended to the history."""
+    return {
+        "name": name,
+        "value": entry["value"],
+        "version": entry["version"],
+        "updated_by": entry["updated_by"],
+        "updated_at": entry["updated_at"],
+        "description": entry["description"],
+        "versions": list(doc.get("versions", [])) + [entry] if doc else [entry],
+        "latest_version": entry["version"],
+    }

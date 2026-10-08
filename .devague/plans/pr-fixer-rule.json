@@ -1,0 +1,1115 @@
+{
+  "slug": "pr-fixer-rule",
+  "title": "pr-fixer rule",
+  "frame_slug": "pr-fixer-rule",
+  "schema_version": 5,
+  "status": "exported",
+  "created": "2026-10-06T04:46:38Z",
+  "updated": "2026-10-07T16:26:19Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "A new PR in any AgentCulture repo is picked up by a fixer agent that drives it to green: SonarCloud gate, failing checks and unresolved review threads fixed on the PR branch, never merged",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "The fixer runs from a GitHub event, not a sweep: no cron rule is needed for a new PR to be picked up",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c2",
+      "kind": "requirement",
+      "text": "The GitHub webhook maps pull_request synchronize/ready_for_review and check_suite/workflow_run completed to typed events, and event data carries head SHA, head branch, head repo (for the fork skip), base, draft and PR author (not just sender)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "A synchronize event pushed by the App arrives tagged self_authored and fires no fixer run; one pushed by a human does",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c3",
+      "kind": "requirement",
+      "text": "An async agent dispatch that targets an arbitrary repo+PR branch in an isolated worktree and reports completion back to the executor (not a sync step holding a worker)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "The engine-node worker is free while the agent runs: the agent step returns accepted and completion arrives later through deliver(), surviving a node restart",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c6",
+      "kind": "requirement",
+      "text": "At most one fixer run per PR at a time, and a per-PR attempt budget stops fix/test/push cycles; because the App pushes, its own synchronize events are skipped by the existing self_authored check",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "Two events for the same PR within a minute produce exactly one active fixer run; after the attempt budget is spent the PR gets a comment and no further runs until a human pushes",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c8",
+      "kind": "boundary",
+      "text": "The fixer never merges and never force-pushes; merging stays a human gate. It replaces culture-nodes' pr-upkeep lane (taken down), porting its Sonar/Qodo/failed-check readiness logic",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "The App's credentials are never used for a merge or a force-push: github.push rejects non-fast-forward updates and no merge action kind exists",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c10",
+      "kind": "boundary",
+      "text": "No SonarCloud client code in the culture_rules core library; Sonar state is read agent-side or via a probe/http.call",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "culture_rules core imports still have zero third-party runtime dependencies after the change (import check passes with no extras installed)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "The rules-culture-dev App gains Contents: read & write, Checks: read and Actions: read (workflow_run webhooks and failing job logs need it); it does not get Workflows permission; the org installation re-approves the new permissions (operator hand-turn)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "The App's installation token can push a commit to a same-repo PR branch and read check runs, verified on one scratch repo before the rule is enabled",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c13",
+      "kind": "requirement",
+      "text": "A test-gate step between the agent and the push: it runs the repo's test command on the agent's commit in the worktree; pass leads to an App push, fail returns the failing output to the agent, up to a per-PR attempt budget, after which the PR gets a comment and no push",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "A commit that fails the repo's tests is never pushed: the gate's verdict is recorded on the run and the failing output is what the agent receives on its next attempt",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c14",
+      "kind": "requirement",
+      "text": "A github.push action kind (as the App, non-force, to the PR head branch only, refusing when the remote head moved since the agent started)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "github.push refuses when the remote head SHA differs from the SHA the agent started from, and only ever targets the PR's own head branch in its own repo",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c17",
+      "kind": "audience",
+      "text": "The operator (who reviews and merges PRs) and the AgentCulture repo agents whose PRs currently stall on Sonar, CI and review threads",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "The operator is the only party who merges; repo agents need no change to their own setup to benefit",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c18",
+      "kind": "before_state",
+      "text": "Every PR is driven to green by hand: an agent or the operator runs the cicd skill's status/await, reads Sonar, fixes, and replies to threads; culture-nodes' pr-upkeep sweep did this centrally but has been taken down",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "No automated PR fixer is running anywhere today (pr-upkeep is down, no repo workflow runs an agent on PRs)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c19",
+      "kind": "after_state",
+      "text": "A same-repo PR in any agentculture repo gets a fixer run on spark2 without anyone asking: the agent fixes Sonar issues, failing checks, and review comments from the operator, Qodo and a pre-approved list of users and apps (comments from anyone else are ignored) in a worktree; the engine's tests gate each commit, the App pushes passing commits, and the operator only reviews and merges",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "Between PR open and merge review, the only pushes to the PR branch from the fixer path come from the App, after a passing test gate",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c20",
+      "kind": "why_it_matters",
+      "text": "Fixing Sonar issues, failing checks and trusted reviewers' comments is the bulk of PR toil across ~100 repos; doing it event-driven with a test gate keeps quality without the operator babysitting each PR",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "Sonar, failing checks and review threads are the issues the fixer targets; anything else on the PR (design feedback, scope) is left to humans",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c21",
+      "kind": "success_signal",
+      "text": "On a test PR seeded with one Sonar issue and one failing test, within 30 minutes the App pushes at most 3 commits, CI is green, the Sonar gate passes, and the PR has 0 unresolved threads; a fork PR and a draft PR get 0 fixer runs",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h14",
+      "kind": "honesty",
+      "text": "The success run is recorded on the culture-rules run history (rule firing, agent attempts, gate verdicts, App push SHAs) so the numbers are read off evidence, not reported by the agent",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c23",
+      "kind": "requirement",
+      "text": "The comment-author allowlist has two parts. It is defined once as the shared variable trusted_authors in the Variables tab (operator, Qodo's bot, pre-approved users and apps). The fixer rule's condition carries a field that references it: an 'in' predicate over the event author whose items field is set to vars.trusted_authors, picked in the condition editor. The rule's workflow inputs reference the same variable. A comment or review from a listed author fires a run, and only threads from listed authors are handed to the agent",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h15",
+      "kind": "honesty",
+      "text": "A thread opened by an account not on the allowlist is never handed to the agent and never fires a run, even if it mentions the bot",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h20",
+      "kind": "honesty",
+      "text": "The list's contents live only in the trusted_authors variable, and each rule's condition holds a reference to it in a field. Editing the variable changes every referencing rule without editing them. Pointing a rule at a different variable, or removing the check, is done in that condition field. The rule and workflow never hold a copied list",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c25",
+      "kind": "requirement",
+      "text": "The engine resolves vars.<name> from the shared variable store when it evaluates a condition and maps workflow inputs; WorkflowRef.inputs accepts a {\"$var\": name} reference; the API, CLI noun group (variables), MCP tools, openapi.json and explain catalog gain the variable verbs",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h17",
+      "kind": "honesty",
+      "text": "Changing trusted_authors in the Variables tab changes what every referencing rule fires on and what its workflow receives on the next event, with no rule edited; a rule referencing an undefined variable is refused at save time",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c26",
+      "kind": "requirement",
+      "text": "The 'exactly four primary tabs' constraint becomes five (Rules | Workflows | Actors | Variables | Statistics): CLAUDE.md, QWEN.md, AGENTS.override.md, AGENTS.colleague.md, the spec and the App.test tab-order test change together, and the design canvas gains the Variables tab",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h18",
+      "kind": "honesty",
+      "text": "All four harness prompt files and the engine-editor spec state the same five tabs, and the web test asserts that order",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c27",
+      "kind": "requirement",
+      "text": "The fixer fires once per PR head SHA, when every check suite on that SHA has completed except those from apps in a shared ignored_check_apps variable (seeded with the 'claude' app, whose suite stays queued), or after a settle timeout; individual suite completions before that do not start a run",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h21",
+      "kind": "honesty",
+      "text": "On a commit with GitHub Actions, SonarCloud and GitGuardian suites, exactly one fixer run starts, after the last of them completes; a suite stuck in queued from an ignored app does not hold it back",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c28",
+      "kind": "requirement",
+      "text": "The self_authored skip applies to pull_request synchronize only; check_suite/workflow_run completions on an App-pushed SHA still fire the fixer (bounded by the attempt budget), so the agent sees whether its fix went green",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h22",
+      "kind": "honesty",
+      "text": "After the App pushes a fix, the next check completion on that SHA starts a verification run unless the attempt budget is spent; a synchronize from the App never does",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c29",
+      "kind": "requirement",
+      "text": "The App installation token used for a push is minted per push, scoped to the single PR repository with contents:write only, held by the push step alone, and never placed in the agent's or the test gate's environment or worktree",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h23",
+      "kind": "honesty",
+      "text": "Inspecting the agent and test-gate process environments and worktree files during a run finds no GitHub App token or private key; the push token's repositories list holds exactly one repo",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c30",
+      "kind": "boundary",
+      "text": "The agent and the test gate run PR code as a dedicated unprivileged Unix user on the fixer machine, with no grant secrets, App key, Sonar token or operator credentials in their environment or home",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h24",
+      "kind": "honesty",
+      "text": "As the fixer user, reading the engine node's secrets, the App private key or the operator's gh and claude credentials fails with permission denied",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c31",
+      "kind": "requirement",
+      "text": "A diff guard in the gate rejects (and hands back) any fixer commit that touches protected paths or weakens checks: .github/workflows/**, sonar-project.properties, coverage or lint config, deleted or skipped tests, and new NOSONAR / noqa / type-ignore markers; the protected list is a shared variable",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h25",
+      "kind": "honesty",
+      "text": "A fixer commit that deletes a failing test or adds NOSONAR is never pushed; the gate verdict names the guard rule it tripped",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c32",
+      "kind": "requirement",
+      "text": "A github.review_reply action kind posts a reply to a review thread and optionally resolves it, as the App; the fixer's result lists, per thread, the commit that addressed it",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h26",
+      "kind": "honesty",
+      "text": "Every thread reply and resolution made on the fixer path is authored by rules-culture-dev[bot]; none is authored by the operator's account",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c33",
+      "kind": "requirement",
+      "text": "Draft PRs get no fixer run; marking a PR ready for review (pull_request ready_for_review) makes it eligible",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h27",
+      "kind": "honesty",
+      "text": "A draft PR with failing checks gets 0 fixer runs; the same PR gets a run once marked ready and its checks complete",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c34",
+      "kind": "requirement",
+      "text": "A rule whose condition or inputs reference a shared variable is evaluated only by nodes that advertise variable support; on any other node it fails closed (no fire, recorded as an error), never evaluating the reference as missing",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h28",
+      "kind": "honesty",
+      "text": "With one node on the pre-variables version, an event matching a rule that uses not(author in vars.X) fires nothing on that node and leaves an error on the rule's history",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c35",
+      "kind": "requirement",
+      "text": "Writing a shared variable requires the admin role, every write creates a new version with author and time, and the Variables tab shows which rules reference each variable",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h29",
+      "kind": "honesty",
+      "text": "An editor-role principal is refused when changing trusted_authors; an admin's change appears as a new version naming who made it",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c36",
+      "kind": "requirement",
+      "text": "Containment: a repo listed in a shared fixer_excluded_repos variable gets no fixer runs; disabling the fixer rule stops new runs and lets in-flight runs finish without pushing; every fixer run appears on the fixer machine's Statistics lane and its PR comment links the run",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h30",
+      "kind": "honesty",
+      "text": "Adding a repo to fixer_excluded_repos stops runs for its next event; with the rule disabled mid-run, no App push follows",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c37",
+      "kind": "boundary",
+      "text": "Fixer commits are ordinary fast-forward commits authored by the App, so any of them is undone with git revert; the fixer never rewrites history",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h31",
+      "kind": "honesty",
+      "text": "Every fixer commit on a PR branch is a descendant of the SHA it started from and is authored by rules-culture-dev[bot]",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c40",
+      "kind": "requirement",
+      "text": "Workflows gain a wait step kind: it pauses the run for a duration (the quiet period) without holding a worker, persists across node restarts, and on resume checks a guard; if the PR head moved during the wait (someone pushed) the run ends without dispatching the agent, and the next checks-completed event starts a fresh one",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h32",
+      "kind": "honesty",
+      "text": "A fixer run on a PR the author pushes to during the quiet period dispatches no agent; with no push during the wait, the agent is dispatched once the wait ends, including when the node restarted mid-wait",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c41",
+      "kind": "requirement",
+      "text": "culture.yaml gains a top-level gate section with setup and test commands as argv lists (e.g. setup: [[uv, sync]], test: [[uv, run, pytest, -n, auto]]); culture-agent-template ships it so new repos inherit it, existing repos add it, and a repo without a gate section gets a comment from the fixer and never a push",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h33",
+      "kind": "honesty",
+      "text": "The test gate runs exactly the argv lists from the PR head's culture.yaml, with no shell; a repo with no gate section gets 0 App pushes; culture's loader and steward doctor accept the new section",
+      "deferred": false,
+      "deferred_reason": ""
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "cultureagent: lift the qwen (ACP) and codex bridges from culture-nodes into cultureagent with one shared core and a plain result schema",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "cultureagent ships cultureagent.bridges.qwen and cultureagent.bridges.codex with no third-party runtime dependencies (pyproject check)",
+        "an invocation with repo, head_branch and head_sha provisions a detached worktree at that SHA and the result reports head_before == head_sha",
+        "the bridge never pushes: tests assert no git push is ever spawned, and the result lists local commits only",
+        "the shared core module exists once; no byte-identical copies of preflight/workspace remain across bridges"
+      ],
+      "deps": [],
+      "covers": [],
+      "instruction": "Work in ../cultureagent on a branch. Copy adapters/qwen and adapters/codex from ../culture-nodes (cite, don't import). Factor the duplicated preflight/workspace/reap/preserve/liveness modules into one cultureagent/bridges/core package. Keep stdlib-only and the HTTP surface (POST /v1/invocations, cancel, GET /v1/capabilities, /healthz, callbacks). Replace the ledger 'proposed claim' with a plain result: status, summary, head_before, head_after, commits, changed_files, diffstat, threads_addressed. Worktrees are created from a given repo URL + head branch + head SHA. Follow cultureagent's own CLAUDE.md for version bump and PR."
+    },
+    {
+      "id": "t2",
+      "summary": "Webhook: map synchronize, ready_for_review, check_suite/workflow_run completed and pull_request_review_comment; enrich event data; self_authored applies to synchronize only",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a pull_request synchronize payload sent by the App's identity is ingested with self_authored true; the same payload from a human is not",
+        "a check_suite completed payload whose sender is the App is ingested with self_authored false",
+        "event data for every pull_request-derived type carries head_sha, head_branch, head_repo, base_repo, draft and pr_author",
+        "pull_request_review_comment created maps to github.review_comment.created with the comment author"
+      ],
+      "deps": [],
+      "covers": [
+        "c2",
+        "h2",
+        "c28",
+        "h22",
+        "c33",
+        "h27"
+      ],
+      "instruction": "Files: culture_rules/server/hooks/github.py (_TYPES, _data) and culture_rules/events/hook_sink.py (self_authored). Add types github.pr.synchronize, github.pr.ready, github.checks.suite_completed, github.checks.workflow_completed, github.review_comment.created. _data adds head_sha, head_branch, head_repo, base_repo, base_branch, draft, pr_author (from pull_request.user), check app slug and conclusion. Tag self_authored only for github.pr.synchronize. Update api/openapi.json only if the event schema is in it."
+    },
+    {
+      "id": "t3",
+      "summary": "Shared variables: model, store (memory + mongo) and migration",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "store.put_variable creates version n+1 and keeps every prior version readable",
+        "a variable name must match ^[a-z][a-z0-9_]{0,63}$; other names are refused",
+        "MemoryStore and MongoStore pass the same variable contract test"
+      ],
+      "deps": [],
+      "covers": [],
+      "instruction": "New culture_rules/model/variable.py (Variable: name, value JSON scalar or list, version, updated_by, updated_at, description). Store port + memory.py + mongo.py gain variable CRUD with append-only versions; migrations.py adds the collection and a unique index on name. No engine or API wiring here."
+    },
+    {
+      "id": "t4",
+      "summary": "Workflow model: a wait step kind (duration plus a resume guard) with validation",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a workflow with a wait step of 300 seconds and guard head_unchanged validates; a negative or missing duration is refused with a field path",
+        "STEP_KINDS and the explain catalog list wait"
+      ],
+      "deps": [],
+      "covers": [],
+      "instruction": "Files: culture_rules/model/workflow.py (STEP_KINDS gains 'wait'; config: seconds, guard: 'head_unchanged' with a ref to the head SHA input) and culture_rules/model/validate.py. Model and validation only; the executor is a separate task."
+    },
+    {
+      "id": "t5",
+      "summary": "GitHub actions: github.push and github.review_reply as the App, with per-push repo-scoped tokens",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "github.push with a stale expected_head_sha fails and pushes nothing",
+        "the minted push token request carries exactly one repository and only contents:write",
+        "a non-fast-forward update is refused before any network push; no merge action kind exists in ACTION_KINDS",
+        "github.review_reply posts as the App and resolves the thread when resolve is true",
+        "github.push is refused when the source rule is disabled at execution time"
+      ],
+      "deps": [],
+      "covers": [
+        "c14",
+        "h9",
+        "c29",
+        "h23",
+        "c32",
+        "h26",
+        "c8",
+        "h5",
+        "c37",
+        "h31"
+      ],
+      "instruction": "Files: culture_rules/model/action_kinds.py, culture_rules/apps/github.py, a new handler under culture_rules/node/actions/. github.push takes repo, head_branch, expected_head_sha and the local commit bundle/worktree ref; it mints an installation token with repositories=[repo] and permissions {contents: write}, does a non-force push, and refuses when the remote head differs from expected_head_sha or when the target is not the PR's own head branch in its own repo. It also refuses when the firing rule is disabled at push time. github.review_reply posts a reply to a review thread and optionally resolves it (GraphQL resolveReviewThread) as the App. No merge action is added."
+    },
+    {
+      "id": "t6",
+      "summary": "culture.yaml gate section: declare setup and test argv in culture-agent-template and in culture-rules' own culture.yaml",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "culture-agent-template's culture.yaml carries a gate section and its own CI still passes",
+        "culture-rules' culture.yaml carries a gate section; culture-rules doctor and steward doctor stay green"
+      ],
+      "deps": [],
+      "covers": [
+        "c41"
+      ],
+      "instruction": "In ../culture-agent-template add a top-level gate: {setup: [[uv, sync]], test: [[uv, run, pytest, -n, auto]]} to culture.yaml and document it in its README; open the PR there per its CLAUDE.md. In this repo add the same section to culture.yaml. Check steward doctor and culture's loader accept the key (culture's load_culture_yaml ignores unknown top-level keys). Values are configuration only; no code default."
+    },
+    {
+      "id": "t7",
+      "summary": "Engine resolves shared variables in conditions and workflow inputs; undefined references refused at save; fail closed on nodes without variable support",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "changing a variable's value changes the outcome of the next matching event for every rule that references it, with no rule edited",
+        "saving a rule whose condition references vars.missing is refused with the variable name in the error",
+        "on a node without the variables capability, a rule with not(author in vars.x) fires nothing and records an error",
+        "workflow inputs mapped with {\"$var\": name} receive the variable's current value at firing time"
+      ],
+      "deps": [
+        "t3"
+      ],
+      "covers": [
+        "c25",
+        "h17",
+        "c34",
+        "h28"
+      ],
+      "instruction": "Files: culture_rules/engine/matching.py (pass variables loaded from the store into _condition), culture_rules/model/refs.py (WorkflowRef.inputs accepts {\"$var\": name}), culture_rules/model/validate.py (refuse a rule that references an undefined variable), node heartbeat capability 'variables' (culture_rules/node/daemon.py). A rule that references a variable is only evaluated on nodes advertising the capability; elsewhere it records an error and does not fire."
+    },
+    {
+      "id": "t8",
+      "summary": "Variables over the API, CLI, MCP, openapi.json and explain: admin-only writes, version history, referencing rules",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "an editor-role principal gets 403 on PUT /variables/{name}; an admin's write creates a new version naming the principal",
+        "culture-rules variables set trusted_authors --value '[...]' is a dry run without --apply",
+        "tests/server/test_openapi_contract.py and the CLI/MCP parity test pass with the new verbs",
+        "GET /variables/{name}/refs lists every rule whose condition or inputs reference it"
+      ],
+      "deps": [
+        "t3"
+      ],
+      "covers": [
+        "c35",
+        "h29"
+      ],
+      "instruction": "Files: culture_rules/server/app.py (+ service.py), new culture_rules/cli/_commands/variables.py wired in _build_parser, culture_rules/mcp/tools.py, api/openapi.json, culture_rules/explain/catalog.py and learn. Verbs: list, get, set (dry-run by default, --apply commits), history, refs (rules that reference it). Writes require the admin role; every write records the principal. Keep the CLI/MCP parity test green."
+    },
+    {
+      "id": "t9",
+      "summary": "Async bridge agent actor: dispatch to a cultureagent bridge for an arbitrary repo and PR head, completion via callback",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "an actor_task on a BridgeAgentActor returns accepted and frees the worker; a later completed callback finishes the step",
+        "after a node restart between accepted and completed, the completion still finishes the step",
+        "python -c 'import culture_rules, culture_rules.actors.agent' succeeds with no extras installed",
+        "the bridge request carries repo, head_branch and head_sha taken from step inputs"
+      ],
+      "deps": [],
+      "covers": [
+        "c3",
+        "h3",
+        "c10",
+        "h6"
+      ],
+      "instruction": "Files: culture_rules/actors/agent.py (new BridgeAgentActor) and culture_rules/node/actors.py (production factory). Speak the bridge HTTP protocol with stdlib urllib only (no third-party import in the core). invoke() returns accepted with the invocation id; completion and heartbeat callbacks arrive on a node endpoint and call Executor.deliver. Repo, head branch and head SHA come from step config, not the actor. Does not depend on cultureagent at import time (HTTP only)."
+    },
+    {
+      "id": "t10",
+      "summary": "Executor: run wait steps without holding a worker, persist across restarts, enforce the head-unchanged guard",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a wait step of N seconds parks the run with no worker held and resumes after N seconds",
+        "with a node restart mid-wait the run still resumes once",
+        "if the PR head SHA changed during the wait, the run ends superseded and no later step runs"
+      ],
+      "deps": [
+        "t4"
+      ],
+      "covers": [
+        "c40",
+        "h32"
+      ],
+      "instruction": "File: culture_rules/engine/runs.py (and engine/lifecycle.py if the resume timer lives there). Reuse the persisted-wait machinery human asks use. On resume, the head_unchanged guard reads the PR's current head SHA (via the GitHub app actor) and ends the run as 'superseded' when it moved."
+    },
+    {
+      "id": "t11",
+      "summary": "Per-PR concurrency key and attempt budget",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "two firings with the same concurrency key within a minute produce exactly one active run; the second is recorded as deduplicated",
+        "after max_attempts the next firing is skipped and recorded; a human push resets the counter"
+      ],
+      "deps": [
+        "t7"
+      ],
+      "covers": [
+        "c6",
+        "h4"
+      ],
+      "instruction": "Files: culture_rules/model/rule.py (optional concurrency_key template, e.g. '{trigger.data.repository}#{trigger.data.number}', and max_attempts) and culture_rules/engine/claims.py. A firing whose key has an active run is dropped (recorded as deduplicated); after max_attempts runs without the key going green, further firings are skipped until a non-self push (github.pr.synchronize with self_authored false) resets the counter."
+    },
+    {
+      "id": "t12",
+      "summary": "Once-per-SHA settle: fire the fixer only when every non-ignored check suite on the head SHA has completed, or after a settle timeout",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "for a SHA with github-actions, sonarqubecloud and gitguardian suites, exactly one checks_settled event is emitted, after the last completes",
+        "a queued suite from an app in ignored_check_apps does not hold back the event",
+        "with a suite still running at the settle timeout, one checks_settled event is emitted with settled_by: timeout"
+      ],
+      "deps": [
+        "t2",
+        "t7"
+      ],
+      "covers": [
+        "c27",
+        "h21"
+      ],
+      "instruction": "New module culture_rules/node/checks_settle.py, called from the GitHub check-event path. On a check completion, list the head SHA's check suites through the App (Checks: read), drop suites from apps in vars.ignored_check_apps (seed it with 'claude'), and emit one github.pr.checks_settled event per head SHA when all remaining suites are completed, or after vars.checks_settle_timeout_s. Deduplicate per SHA. The fixer rule triggers on github.pr.checks_settled."
+    },
+    {
+      "id": "t13",
+      "summary": "Test gate and diff guard: run the culture.yaml gate as the fixer user, reject commits that weaken checks",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a commit that deletes a failing test gets verdict guard naming the rule; nothing is pushed",
+        "a repo whose culture.yaml has no gate section gets verdict no_gate and zero pushes",
+        "the gate runs exactly the declared argv with shell=False; a test asserts no shell is spawned",
+        "a failing test run returns verdict fail with the output tail, which becomes the agent's next instruction",
+        "a PR that edits its own culture.yaml gate section is judged by the base branch's gate section"
+      ],
+      "deps": [
+        "t6",
+        "t7"
+      ],
+      "covers": [
+        "c13",
+        "h8",
+        "c31",
+        "h25",
+        "h33"
+      ],
+      "instruction": "New culture_rules/actors/gate.py plus a 'gate' code-step in the fixer workflow. Read the gate section from culture.yaml on the PR's BASE branch (r1 decision), never the PR head, run setup then test as argv lists with shell=False in the agent's worktree as the fixer Unix user, capture the tail of output. Before running tests, the diff guard checks the commits since the start SHA against vars.fixer_protected_paths (seed: .github/workflows/**, sonar-project.properties, coverage/lint config) and rejects deleted or skipped tests and new NOSONAR / noqa / type: ignore markers. Verdict: pass, fail (with output), guard (with rule name), no_gate. No built-in default command."
+    },
+    {
+      "id": "t14",
+      "summary": "Editor: Variables tab and a variable picker in the condition editor",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "App.test.tsx asserts exactly five tabs in the order Rules, Workflows, Actors, Variables, Statistics",
+        "in the condition editor, an author check can be set to vars.trusted_authors from a picker, and the saved condition stores a var operand, not a copied list",
+        "the Variables tab lists variables, edits a list value (admin only), shows version history and the rules that reference each",
+        "Playwright and the webglass agent-state gate pass in the web CI job"
+      ],
+      "deps": [
+        "t8"
+      ],
+      "covers": [
+        "c23",
+        "h20",
+        "c26"
+      ],
+      "instruction": "Files: new web/src/routes/Variables.tsx (+ test), web/src/App.tsx, web/src/App.test.tsx (tab order Rules | Workflows | Actors | Variables | Statistics), the condition editor under web/src/rules/ (an 'in' operand can pick a variable instead of a literal list). Follow the design canvas look; update the canvas with the new tab. Large targets, keyboard accessible, prefers-reduced-motion respected. Types compile against api/openapi.json."
+    },
+    {
+      "id": "t15",
+      "summary": "Docs: five primary tabs in CLAUDE.md, QWEN.md, AGENTS.override.md, AGENTS.colleague.md and the engine-editor spec",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "grep finds the same five-tab sentence in CLAUDE.md, QWEN.md, AGENTS.override.md and AGENTS.colleague.md, and none still says 'four primary tabs'",
+        "harness-smoke --stage config and markdownlint pass"
+      ],
+      "deps": [
+        "t14"
+      ],
+      "covers": [
+        "h18"
+      ],
+      "instruction": "Edit the 'Exactly four primary tabs' constraint in all four harness prompt files and docs/specs/2026-10-03-culture-rules-engine-editor.md to five (Rules | Workflows | Actors | Variables | Statistics), noting the operator decision from the pr-fixer spec. Keep the load-bearing phrases listed in CLAUDE.md intact; run scripts/harness-smoke.py --stage config."
+    },
+    {
+      "id": "t16",
+      "summary": "Operator hand-turn: add Contents RW, Checks R and Actions R to the rules-culture-dev App, re-approve the org installation, and prove it on a scratch repo",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "docs/actors/github.md lists Contents RW, Checks R, Actions R, Pull requests RW, Issues RW, Metadata R and the new subscribed events",
+        "on a scratch repo, a token scoped to that repo pushes one commit to a PR branch and reads its check runs; the commit's author is rules-culture-dev[bot]"
+      ],
+      "deps": [],
+      "covers": [
+        "c12",
+        "h7"
+      ],
+      "instruction": "Operator changes the App's permissions in GitHub settings and approves the installation update. The agent then, on a scratch agentculture repo, mints a single-repo token and pushes one commit to a same-repo PR branch and lists check runs; records the evidence. Update docs/actors/github.md (permissions and events: check_suite, workflow_run, pull_request_review_comment). No Workflows permission."
+    },
+    {
+      "id": "t17",
+      "summary": "The fixer rule and workflow, defined as data: settled checks or trusted comment -> wait -> agent -> gate (retry) -> push -> replies -> comment",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "importing the rule and workflow with --apply validates; the rule's condition references vars.trusted_authors and vars.fixer_excluded_repos, not literal lists",
+        "a replayed github.comment.created from a non-trusted author does not fire; from a trusted author it does",
+        "with the repository in fixer_excluded_repos the rule does not fire; disabling the rule mid-run leaves no App push",
+        "every run's final App comment links the run, and the run appears on spark2's Statistics lane"
+      ],
+      "deps": [
+        "t5",
+        "t9",
+        "t10",
+        "t11",
+        "t12",
+        "t13"
+      ],
+      "covers": [
+        "c1",
+        "h1",
+        "h15",
+        "c36",
+        "h30"
+      ],
+      "instruction": "Author the rule and workflow as committed data (docs/rules/pr-fixer.yaml or the repo's io import format) and seed the variables trusted_authors, ignored_check_apps, fixer_excluded_repos, fixer_protected_paths, checks_settle_timeout_s. Rule: triggers github.pr.checks_settled and github.review_comment.created / github.review.submitted / github.comment.created; condition: head_repo == base_repo, not draft, repository not in vars.fixer_excluded_repos, and for comment triggers author in vars.trusted_authors; concurrency_key per PR, max_attempts 3; placement on spark2. Workflow: wait (quiet period, head_unchanged) -> retry_until(gate pass, max 3){ agent step on the bridge actor with threads filtered to vars.trusted_authors -> gate } -> github.push -> github.review_reply per addressed thread -> github.comment with the run link. Rule ships disabled."
+    },
+    {
+      "id": "t18",
+      "summary": "spark2 fixer machine: dedicated unprivileged user, cultureagent bridges as user services, Qwen Code on cortex, Codex, read-only GitHub and Sonar access, registered actors",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "as culture-fixer, reading the node's secret env, the App private key, or ~spark/.config/gh fails with permission denied",
+        "GET /v1/capabilities on both bridges answers over the tailnet with the bearer token and 401 without it",
+        "culture-rules actors list shows qwen-fixer and codex-fixer placed on spark2"
+      ],
+      "deps": [
+        "t1",
+        "t9"
+      ],
+      "covers": [
+        "c30",
+        "h24"
+      ],
+      "instruction": "Add docs/operations/pr-fixer.md and a deploy script under deploy/. Create Unix user culture-fixer on spark2 with no access to the node's secrets, the App key or the operator's gh/claude credentials. Install the cultureagent qwen and codex bridges as systemd --user units of that user, bound to the tailnet with a bearer token sealed by grant. Qwen Code points at the cortex model; Codex logs in for that user. Give it a read-only GitHub token (Contents R, Pull requests R, Checks R, Actions R) and a Sonar token for reads. Register BridgeAgentActor actors (qwen-fixer, codex-fixer) placed on spark2."
+    },
+    {
+      "id": "t19",
+      "summary": "Roll the gate section out to agentculture repos",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a list of repos with and without a gate section is committed to docs/operations/pr-fixer.md",
+        "at least culture-rules, culture-agent-template and one other repo carry a gate section on main"
+      ],
+      "deps": [
+        "t6",
+        "t18"
+      ],
+      "covers": [],
+      "instruction": "After t6 merges, add a gate section to each agentculture repo's culture.yaml that wants fixer runs (start with the Python/uv repos; take each repo's command from its CI). Use guildmaster's broadcast or per-repo PRs, each with its own version bump. Repos without a gate section stay comment-only by design."
+    },
+    {
+      "id": "t20",
+      "summary": "End-to-end success run on a scratch repo, read off run history",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "within 30 minutes of the seeded PR's checks settling: at most 3 App commits, CI green, Sonar gate passing, 0 unresolved threads, all read from run history and the cicd status verb",
+        "the fork PR and the draft PR have 0 fixer runs in run history",
+        "every fixer-path commit and thread reply on the PR is authored by rules-culture-dev[bot]"
+      ],
+      "deps": [
+        "t16",
+        "t17",
+        "t18"
+      ],
+      "covers": [
+        "c17",
+        "h10",
+        "c18",
+        "h11",
+        "c19",
+        "h12",
+        "c20",
+        "h13",
+        "c21",
+        "h14"
+      ],
+      "instruction": "Enable the rule for one scratch agentculture repo only (all others in fixer_excluded_repos). Open a PR seeded with one Sonar issue and one failing test, plus a fork PR and a draft PR. Read the outcome with culture-rules runs and the cicd skill's status verb, never the agent's own report. File the evidence with devague evidence. Then widen fixer_excluded_repos step by step."
+    },
+    {
+      "id": "t21",
+      "summary": "Live testing on rules.culture.dev: the built fixer on the real fleet (spark, thor, orin, spark2) against real GitHub webhooks",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "each of the six live probes has an evidence record naming the run ids or delivery ids that prove it",
+        "no probe leaves an App push on a PR where the spec says none may happen"
+      ],
+      "deps": [
+        "t20"
+      ],
+      "covers": [
+        "h28",
+        "h30",
+        "h21",
+        "h32"
+      ],
+      "instruction": "Upgrade all four nodes to the release, then run live probes against rules.culture.dev, recording each with devague evidence: (1) a real PR on a scratch repo through settled checks with SonarCloud, GitGuardian and the never-completing claude suite present; (2) a push during the wait step supersedes the run; (3) disable the rule mid-run and confirm no App push; (4) add the repo to fixer_excluded_repos and confirm no run; (5) hold one node on the previous version and confirm a variable-referencing rule fails closed there; (6) a comment from a non-trusted account fires nothing. Use the worker colleague seat for live checks where it helps. Read outcomes from run history and webhook deliveries, never the agent's report."
+    },
+    {
+      "id": "t22",
+      "summary": "Dogfood: turn the fixer on for culture-rules itself and let it work this delivery's own PR",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "the fixer ran on at least three real culture-rules PRs, including this delivery's PR, each with run ids recorded",
+        "every unwanted or wrong fix seen while dogfooding is filed as a delta or a follow-up issue, none silently dropped"
+      ],
+      "deps": [
+        "t21"
+      ],
+      "covers": [
+        "c1",
+        "h1"
+      ],
+      "instruction": "Remove culture-rules from fixer_excluded_repos after t21. Open the delivery PR (per the cicd skill) and let the fixer handle its Sonar issues, failing checks and Qodo threads. Also run it on at least two more real culture-rules PRs. Record every fixer run, each gate verdict and any wrong or unwanted fix as devague evidence or behavioral delta. Keep other repos excluded until the operator widens it."
+    },
+    {
+      "id": "t23",
+      "summary": "Run /validate-delivery: run the plan's behavioral tests agent-side and file evidence and deltas",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "every confirmed task has at least one evidence record; failing or partial outcomes are filed, not omitted"
+      ],
+      "deps": [
+        "t22"
+      ],
+      "covers": [],
+      "instruction": "Run the validate-delivery skill after t22, before the final PR is marked ready. Run every task's acceptance criteria and every confirmed honesty condition as behavioral tests; file each outcome with devague evidence and every change from the plan with devague delta. Do not suppress failing or partial outcomes."
+    },
+    {
+      "id": "t24",
+      "summary": "Run /summarize-delivery: planned versus actual, drift, evidence-backed delivery claims, remaining work",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a delivery summary is committed that lists every task as delivered, changed or not delivered, with evidence ids",
+        "the final PR description links the summary"
+      ],
+      "deps": [
+        "t23"
+      ],
+      "covers": [],
+      "instruction": "Run the summarize-delivery skill after t23 and commit its artifact; it is the last step before the final PR goes to the operator for review. Include the dogfooding and live-test results and every deviation."
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "Should the test gate read the gate section from the PR's base branch (a PR cannot change how it is judged) or from the PR head (gate edits take effect in the same PR)? Recommendation: base branch",
+      "kind": "unknown_blocking",
+      "task_id": "t13",
+      "resolved": true,
+      "resolution": "Read the gate section from the PR's base branch, so a PR cannot change how it is judged; gate edits take effect after merge (operator confirmed the recommendation, 2026-10-06)"
+    },
+    {
+      "id": "r2",
+      "text": "Multi-hour agent runs vs step deadlines and unsafe_retry (bridge actors do not support idempotency keys); retry_until bounds need a measured run time",
+      "kind": "unknown_nonblocking",
+      "task_id": "t9",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r3",
+      "text": "Capacity: one cortex GPU on spark2 for ~100 repos; set max_concurrency and token_budget on the fixer actors from the first week's queue depth",
+      "kind": "unknown_nonblocking",
+      "task_id": "t18",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r4",
+      "text": "Backup and restore (docs/operations/backup) do not yet name the new variables collection",
+      "kind": "follow_up",
+      "task_id": "t3",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r5",
+      "text": "culture-nodes' Go actor registration against the new plain bridge result schema is unexamined; culture-nodes may need to cite the bridges back",
+      "kind": "follow_up",
+      "task_id": "t1",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r6",
+      "text": "Bridge completion callbacks need a reachable endpoint: the node daemon has no HTTP listener, so callbacks likely land on the API server and are delivered from the store",
+      "kind": "unknown_nonblocking",
+      "task_id": "t9",
+      "resolved": true,
+      "resolution": "Resolved by deviation d1: callbacks land on POST /bridge-invocations/{id}/events on the API (t9, merged); the node redelivers from the store each cycle"
+    },
+    {
+      "id": "r7",
+      "text": "steward 0.19.3 'steward doctor .' crashes (TypeError PosixPath / list in steward/cli/_commands/_agents.py:157, backend-consistency check) on culture-rules main without any gate change, so t6's 'steward doctor stays green' criterion cannot be shown; culture-rules doctor and culture's loader both pass",
+      "kind": "follow_up",
+      "task_id": "t6",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r8",
+      "text": "A node crash after a RETRYABLE bridge failure is recorded but before its actor slot is released leaves the slot held until the retry or the deadline; freeing it early could race the retry for the same key's slot (t9 final-round note)",
+      "kind": "follow_up",
+      "task_id": "t9",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r9",
+      "text": "An intermittent single-test failure in the full suite (seen once after the t4 merge, once by the t5 agent; a Qwen run named tests/multihost test_kill_lands_mid_action as flaky) passes on rerun; not yet identified. It predates or is unrelated to wave 1 as far as reruns show, but must be pinned before the final PR",
+      "kind": "follow_up",
+      "task_id": null,
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r10",
+      "text": "t3 Mongo variables embed full version history in one document; a very large value written many times can hit the 16 MiB document limit (Codex t3 r3). Variables are small admin-written values today; move history to per-version docs or bounded buckets if that changes.",
+      "kind": "follow_up",
+      "task_id": "t3",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r11",
+      "text": "A cultureagent bridge passes its environment (including its own bearer token) to the agent, which runs as the same Unix user, so the agent can call its own bridge. Reach is limited to what the account can already do (fetch allowlisted repos, commit locally); a separate bridge user would close it. Found in t18.",
+      "kind": "follow_up",
+      "task_id": "t18",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r12",
+      "text": "The fixer's read-only fine-grained GitHub token (FIXER_GITHUB_TOKEN, owner OriNachum) can still open a NEW issue on any public agentculture repo: GitHub allows that as a permissionless action (X-Accepted-GitHub-Permissions: allows_permissionless_access=true) regardless of the token's Issues setting. Probed 2026-10-07: comments, labels, refs, PRs and any private-repo write are 403. Accepted by the operator; follow-up: a dedicated machine user before broad rollout so a stray issue is attributable to the bot, not the operator.",
+      "kind": "follow_up",
+      "task_id": "t18",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r13",
+      "text": "t11 coalescing: a 'deduplicated' decision is still a final skip for the chain feed, so a rule that must_after a keyed rule settles predecessor_failed on that event even if the event later fires through coalescing. Edge case, untested.",
+      "kind": "follow_up",
+      "task_id": "t11",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r14",
+      "text": "t12 answers 503 when arming a settle record fails, relying on GitHub to redeliver; GitHub does NOT redeliver failed webhook deliveries automatically, so that SHA's settle can be lost. Fix: have the node's settle tick also arm records from stored check-completion events that have none (recover from the events collection), instead of relying on redelivery. Found by the d14 agent.",
+      "kind": "follow_up",
+      "task_id": "t12",
+      "resolved": true,
+      "resolution": "fixed and merged into rules/pr-fixer (fee5e09), Codex-reviewed clean"
+    },
+    {
+      "id": "r15",
+      "text": "the fixer agent can still read every PR thread with its read-only GitHub token, so the d15 thread filter stops untrusted threads from being handed or answered, not from being read",
+      "kind": "follow_up",
+      "task_id": "t17",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r16",
+      "text": "github.push runs on spark2, so spark2's node needs the App private key (RULES_GITHUB_APP_PRIVATE_KEY) in the spark2 user's grant store, next to the fixer account",
+      "kind": "unknown_nonblocking",
+      "task_id": "t20",
+      "resolved": true,
+      "resolution": "operator: acceptable \u2014 the App private key sits in the spark2 node account's grant store on the fixer machine (separate OS user from culture-fixer)"
+    },
+    {
+      "id": "r17",
+      "text": "the checks settler's on_check webhook path calls _app_for/list_suites inline without the 5 s whole-lookup bound t17b added for comment enrichment; a cold grant resolve can hold a check_run webhook past GitHub's delivery timeout",
+      "kind": "follow_up",
+      "task_id": "t12",
+      "resolved": true,
+      "resolution": "fixed by the code-review #17 fixes (webhook_on_check, 5 s shared budget), merged into rules/pr-fixer"
+    },
+    {
+      "id": "r18",
+      "text": "t11 _fire_coalesced: when the holding rule was deleted and nothing is pending at release time, no owner consumer writes the release guard; a deduplicated event recorded in that exact window could be left pending with nothing to fire it",
+      "kind": "unknown_nonblocking",
+      "task_id": "t11",
+      "resolved": true,
+      "resolution": "fixed and merged into rules/pr-fixer (d8016a6), Codex-reviewed clean"
+    },
+    {
+      "id": "r19",
+      "text": "t11 (Codex round 3, unfixed after the 3-round cap): on MongoDB, when a placed and a shared rule share a concurrency key, the non-owner consumer's completion skips the budget write, so a concurrent trigger transaction can commit a pending event with no write conflict and neither consumer fires it. Not reachable with the shipped fixer (all four rules placed on spark2, one consumer). Fix: always write the budget guard during completion, owner or not",
+      "kind": "follow_up",
+      "task_id": "t11",
+      "resolved": true,
+      "resolution": "fixed and merged into rules/pr-fixer (d8016a6), Codex-reviewed clean"
+    },
+    {
+      "id": "r20",
+      "text": "r14 recovery (fee5e09): the first deploy scans back 24 h and arms every SHA with stored check completions but no settle record (settled events fire for pre-t12 SHAs; harmless while the fixer rules ship disabled); a hook-server clock >120 s behind the node's can land a completion behind the watermark and miss recovery; an event-store write failure still needs a manual redelivery",
+      "kind": "follow_up",
+      "task_id": "t20",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r21",
+      "text": "MongoStore creates no indexes on runs: the executor's {status: running} scan and d17's {rule_id, status} active-runs query are collection scans; add (status) and (rule_id, status) indexes",
+      "kind": "follow_up",
+      "task_id": "t17",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r22",
+      "text": "published wheels (PyPI 0.12.0, TestPyPI 0.13.0.dev57) do not contain culture_rules/web_dist although publish.yml builds the web UI first (uv build makes the wheel from the sdist, which lacks the gitignored bundle); spark's editor only works because it runs a locally built wheel. Fix publish (build the wheel directly or include web_dist in the sdist) before relying on PyPI installs for the editor",
+      "kind": "follow_up",
+      "task_id": "t20",
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r23",
+      "text": "variable version history lives in one document per variable: every write rewrites the full versions array and history() re-reads it per version (O(N^2)); move versions to their own collection or return them from one read (code-review of #17)",
+      "kind": "follow_up",
+      "task_id": null,
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r24",
+      "text": "the gate packs and indexes the full repository history per iteration and bundles full history on pass; large repos can hit source/checkout timeouts; pack only what the gate needs (code-review of #17)",
+      "kind": "follow_up",
+      "task_id": null,
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r25",
+      "text": "variable helpers duplicated between MemoryStore and MongoStore (validation, view) and CLI/service item-kind; already drifted (deep copy, retry bound) (code-review of #17)",
+      "kind": "follow_up",
+      "task_id": null,
+      "resolved": false,
+      "resolution": ""
+    },
+    {
+      "id": "r26",
+      "text": "the fixer needs a real way to stop on issues it cannot fix (environment/publisher failures, Sonar issues out of reach); for now max_attempts 3 per PR is the operator-accepted bound (2026-10-07): the App's own pushes never reset the budget, only a human push or green checks do, so the loop ends after 3 attempts per human push. Follow-up: classify unfixable failures (and remember them per SHA/check) so the fixer skips or hands back without burning an attempt",
+      "kind": "follow_up",
+      "task_id": "t11",
+      "resolved": false,
+      "resolution": ""
+    }
+  ],
+  "obligations": []
+}

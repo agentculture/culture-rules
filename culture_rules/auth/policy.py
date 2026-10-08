@@ -4,9 +4,11 @@
   rule's contextual history (``GET /rules/{id}/history``) and the live feed;
 - editor: create/update/enable/disable/delete/restore of definitions, import, export into a
   configured repository (``POST /export``, dry-run included), runs (start/cancel, and a direct
-  workflow run) and answering asks;
+  workflow run), stopping a disabled rule's runs (``POST /rules/{id}/stop-runs``) and answering
+  asks;
 - admin: purge, the data migrations (typeless rules, run-id backfill), service tokens, and
-  engine/machine containment (pause/resume/drain/undrain).
+  engine/machine containment (pause/resume/drain/undrain), and writing a shared variable
+  (``PUT /variables/{name}``, via the fail-closed default); variable reads are viewer.
 
 Saving a workflow step that carries inline script text is admin-only too, and so is adding or
 changing a runner actor's command registry (``params.commands``), but those depend on the body
@@ -40,6 +42,7 @@ _EDITOR_PATTERNS = {
         re.compile(r"^/runs$"),
         re.compile(r"^/workflows/[^/]+/run$"),
         re.compile(r"^/runs/[^/]+/cancel$"),
+        re.compile(r"^/rules/[^/]+/stop-runs$"),
         re.compile(r"^/asks/[^/]+/answer$"),
     ),
     "PUT": (re.compile(rf"^/({_KINDS})/[^/]+$"),),

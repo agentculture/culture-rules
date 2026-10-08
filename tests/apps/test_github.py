@@ -208,3 +208,158 @@ def test_a_401_with_a_fresh_token_is_not_retried_again(pem):
     assert err.value.code == "http_401"
     assert not err.value.retryable
     assert sum(not c[1].endswith("/access_tokens") for c in fake.calls) == 2
+
+
+def test_push_token_is_fresh_single_repo_contents_write(pem):
+    fake = Fake()
+    app, _ = make(pem, fake)
+    assert app.push_token("acme/widgets") == FAKE_BEARER
+    assert app.push_token("acme/widgets") == FAKE_BEARER
+    mints = [c for c in fake.calls if c[1].endswith("/access_tokens")]
+    assert len(mints) == 2  # never cached
+    for _, _, headers, body in mints:
+        assert json.loads(body) == {
+            "repositories": ["widgets"],
+            "permissions": {"contents": "write"},
+        }
+        assert headers["Authorization"] != f"Bearer {FAKE_BEARER}"  # signed with the App JWT
+    app.installation_token()  # the general token is a separate, unscoped exchange
+    assert fake.calls[-1][3] is None
+
+
+def test_push_token_refuses_off_allowlist_without_network(pem):
+    fake = Fake()
+    app, _ = make(pem, fake)
+    with pytest.raises(GitHubError) as err:
+        app.push_token("evil/repo")
+    assert err.value.code == "repo_not_allowed"
+    assert fake.calls == []
+
+
+def test_push_token_scope_mismatch_is_refused(pem):
+    def fake(method, url, headers, body, timeout):
+        payload = {
+            "token": FAKE_BEARER,
+            "expires_at": "2030-01-01T00:00:00Z",
+            "repositories": [{"full_name": "acme/widgets"}, {"full_name": "acme/other"}],
+        }
+        return 201, json.dumps(payload).encode()
+
+    app, _ = make(pem, fake)
+    with pytest.raises(GitHubError) as err:
+        app.push_token("acme/widgets")
+    assert err.value.code == "token_scope_mismatch"
+
+
+def test_app_has_no_merge_call():
+    assert not [n for n in dir(GitHubApp) if "merge" in n.lower()]
+
+
+def test_deadline_bounds_http_timeouts_and_refuses_when_past(pem):
+    seen = []
+
+    def fake(method, url, headers, body, timeout):
+        seen.append(timeout)
+        return Fake()(method, url, headers, body, timeout)
+
+    app, now = make(pem, fake)
+    with app.deadline(NOW + timedelta(seconds=4)):
+        app.post_comment("acme/widgets", 1, "x")
+    assert seen
+    assert max(seen) <= 4
+    seen.clear()
+    with app.deadline(NOW - timedelta(seconds=1)):
+        with pytest.raises(GitHubError) as err:
+            app.post_comment("acme/widgets", 1, "x")
+    assert err.value.code == "deadline_exceeded"
+    assert err.value.retryable
+    assert seen == []
+    app.post_comment("acme/widgets", 1, "x")  # outside the block: the default bound again
+    assert seen == [15]
+
+
+def test_list_check_suites_paginates_and_trims(pem):
+    def page(n):
+        return [
+            {"app": {"slug": f"app{n}-{i}"}, "status": "completed", "conclusion": "success"}
+            for i in range(100 if n == 1 else 2)
+        ]
+
+    class SuitesFake(Fake):
+        def __call__(self, method, url, headers, body, timeout):
+            if "/check-suites" not in url:
+                return super().__call__(method, url, headers, body, timeout)
+            self.calls.append((method, url, dict(headers), body))
+            n = int(url.rsplit("page=", 1)[1])
+            return 200, json.dumps({"check_suites": page(n)}).encode()
+
+    fake = SuitesFake()
+    app, _ = make(pem, fake)
+    out = app.list_check_suites("acme/widgets", "ab12" * 10)
+    assert len(out) == 102
+    assert out[0] == {
+        "app_slug": "app1-0",
+        "status": "completed",
+        "conclusion": "success",
+    }
+    with pytest.raises(GitHubError) as err:
+        app.list_check_suites("acme/widgets", "../x")
+    assert err.value.code == "bad_input"
+    with pytest.raises(GitHubError) as err:
+        app.list_check_suites("other/repo", "ab12" * 10)
+    assert err.value.code == "repo_not_allowed"
+
+
+def test_pr_facts_shape():
+    from culture_rules.apps.github import PR_FACT_FIELDS, complete_pr_facts, pr_facts
+
+    pr = {
+        "draft": True,
+        "head": {"sha": "a" * 40, "ref": "feat", "repo": {"full_name": "fork/r"}},
+        "base": {"sha": "b" * 40, "ref": "main", "repo": {"full_name": "o/r"}},
+        "user": {"login": "alice"},
+    }
+    facts = {
+        "head_sha": "a" * 40,
+        "head_branch": "feat",
+        "head_repo": "fork/r",
+        "base_repo": "o/r",
+        "base_branch": "main",
+        "base_sha": "b" * 40,
+        "draft": True,
+        "pr_author": "alice",
+    }
+    assert pr_facts(pr) == facts
+    assert tuple(pr_facts(pr)) == PR_FACT_FIELDS
+    assert complete_pr_facts(pr) == facts
+    assert pr_facts(None) == {}
+    assert pr_facts(["x"]) == {}
+
+
+def test_pr_facts_omit_missing_and_malformed_fields_never_null():
+    from culture_rules.apps.github import complete_pr_facts, pr_facts
+
+    assert pr_facts({}) == {}  # no null repos to compare equal, no default draft
+    assert complete_pr_facts({}) is None
+    assert complete_pr_facts(None) is None
+    bad = {
+        "draft": "false",
+        "head": {"sha": "abc123", "ref": "", "repo": None},
+        "base": {"sha": "g" * 40, "ref": 7, "repo": {"full_name": "not a repo"}},
+        "user": {"login": ""},
+    }
+    assert pr_facts(bad) == {}
+    assert complete_pr_facts(bad) is None
+    # a deleted fork: only head_repo is gone, so head_repo == base_repo cannot hold
+    fork = {
+        "draft": False,
+        "head": {"sha": "a" * 40, "ref": "feat", "repo": None},
+        "base": {"sha": "b" * 40, "ref": "main", "repo": {"full_name": "o/r"}},
+        "user": {"login": "alice"},
+    }
+    facts = pr_facts(fork)
+    assert "head_repo" not in facts
+    assert facts["base_repo"] == "o/r"
+    assert facts["draft"] is False
+    assert complete_pr_facts(fork) is None
+    assert pr_facts({"draft": 0}) == {}  # a real bool only

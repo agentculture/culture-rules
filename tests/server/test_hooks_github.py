@@ -18,13 +18,19 @@ from culture_rules.store.memory import MemoryStore
 REF = "grant:GH_HOOK"
 KEY_A = pysecrets.token_hex(16)
 KEY_B = pysecrets.token_hex(16)
+HEAD_SHA, BASE_SHA, H1_SHA = "abc123" + "0" * 34, "def456" + "0" * 34, "1" * 40
 ALL_TYPES = [
     "github.pr.opened",
     "github.pr.closed",
     "github.pr.reopened",
+    "github.pr.synchronize",
+    "github.pr.ready",
     "github.comment.created",
     "github.issue.opened",
     "github.review.submitted",
+    "github.review_comment.created",
+    "github.checks.suite_completed",
+    "github.checks.workflow_completed",
 ]
 
 
@@ -54,7 +60,24 @@ def sign(body: bytes, secret: str = KEY_A) -> str:
 
 
 def pr_body(action="opened", **over):
-    pr = {"number": 7, "title": "T", "html_url": "https://x/pr/7", "merged": False}
+    pr = {
+        "number": 7,
+        "title": "T",
+        "html_url": "https://x/pr/7",
+        "merged": False,
+        "draft": False,
+        "head": {
+            "sha": HEAD_SHA,
+            "ref": "feature-branch",
+            "repo": {"full_name": "o/r"},
+        },
+        "base": {
+            "sha": BASE_SHA,
+            "ref": "main",
+            "repo": {"full_name": "o/r"},
+        },
+        "user": {"login": "alice"},
+    }
     pr.update(over)
     return json.dumps(
         {
@@ -215,6 +238,96 @@ def test_event_mapping_and_data():
             ).encode(),
             "github.review.submitted",
         ),
+        (
+            "pull_request",
+            json.dumps(
+                {
+                    "action": "synchronize",
+                    "pull_request": {
+                        "number": 7,
+                        "title": "T",
+                        "html_url": "https://x/pr/7",
+                        "merged": False,
+                        "draft": True,
+                        "head": {"sha": HEAD_SHA, "ref": "feat", "repo": {"full_name": "o/r"}},
+                        "base": {"ref": "main", "repo": {"full_name": "o/r"}},
+                        "user": {"login": "bob"},
+                    },
+                    "repository": {"full_name": "o/r"},
+                    "sender": {"login": "bob"},
+                }
+            ).encode(),
+            "github.pr.synchronize",
+        ),
+        (
+            "pull_request",
+            json.dumps(
+                {
+                    "action": "ready_for_review",
+                    "pull_request": {
+                        "number": 8,
+                        "title": "U",
+                        "html_url": "https://x/pr/8",
+                        "merged": False,
+                        "draft": False,
+                        "head": {"sha": "def789", "ref": "release", "full_name": "o/r"},
+                        "base": {"ref": "main", "full_name": "o/r"},
+                        "user": {"login": "carol"},
+                    },
+                    "repository": {"full_name": "o/r"},
+                    "sender": {"login": "carol"},
+                }
+            ).encode(),
+            "github.pr.ready",
+        ),
+        (
+            "check_suite",
+            json.dumps(
+                {
+                    "action": "completed",
+                    "check_suite": {
+                        "app": {"slug": "ci-bot"},
+                        "conclusion": "success",
+                        "head_sha": HEAD_SHA,
+                    },
+                    "repository": {"full_name": "o/r"},
+                    "sender": {"login": "ci-bot"},
+                }
+            ).encode(),
+            "github.checks.suite_completed",
+        ),
+        (
+            "workflow_run",
+            json.dumps(
+                {
+                    "action": "completed",
+                    "workflow_run": {
+                        "conclusion": "failure",
+                        "head_sha": BASE_SHA,
+                    },
+                    "repository": {"full_name": "o/r"},
+                    "sender": {"login": "ci-bot"},
+                }
+            ).encode(),
+            "github.checks.workflow_completed",
+        ),
+        (
+            "pull_request_review_comment",
+            json.dumps(
+                {
+                    "action": "created",
+                    "pull_request": {"number": 7, "title": "T", "html_url": "https://x/pr/7"},
+                    "comment": {
+                        "id": 42,
+                        "body": "look here",
+                        "user": {"login": "reviewer"},
+                    },
+                    "repository": {"full_name": "o/r"},
+                    "sender": {"login": "other-user"},
+                }
+            ).encode(),
+            "github.review_comment.created",
+        ),
     ]
     for i, (ev, b, typ) in enumerate(cases):
         assert post(s, b, hdrs(b, event=ev, delivery=f"d{i}"))[0] == 202
@@ -226,11 +339,299 @@ def test_event_mapping_and_data():
     assert "approved" in blob
 
 
-def test_self_authored_tagged():
+def test_pull_request_data_enrichment():
+    """Every PR event carries head_sha, head_branch, head_repo, base_repo, draft, pr_author."""
     s = make()
-    b = pr_body().replace(b'"alice"', b'"culture[bot]"')
-    post(s, b, hdrs(b))
-    assert "self_authored" in json.dumps(events(s)[0])
+    pr_actions = ["opened", "closed", "reopened", "synchronize", "ready_for_review"]
+    for i, action in enumerate(pr_actions):
+        b = pr_body(action)
+        assert post(s, b, hdrs(b, delivery=f"d{i}"))[0] == 202
+
+    pr_events = [e for e in events(s) if e["envelope"]["type"].startswith("github.pr.")]
+    assert len(pr_events) == len(pr_actions)
+    for ev in pr_events:
+        data = ev["envelope"]["data"]
+        assert data["head_sha"] == HEAD_SHA
+        assert data["head_branch"] == "feature-branch"
+        assert data["head_repo"] == "o/r"
+        assert data["base_repo"] == "o/r"
+        assert isinstance(data["draft"], bool)
+        assert data["pr_author"] == "alice"
+
+
+def test_pull_request_review_data_enrichment():
+    """github.review.submitted and github.review_comment.created carry PR enrichment."""
+    s = make()
+    # review.submitted
+    review_body = json.dumps(
+        {
+            "action": "submitted",
+            "review": {"state": "approved"},
+            "pull_request": {
+                "number": 7,
+                "title": "T",
+                "html_url": "https://x/pr/7",
+                "merged": False,
+                "draft": True,
+                "head": {"sha": HEAD_SHA, "ref": "feat", "repo": {"full_name": "o/r"}},
+                "base": {"ref": "main", "repo": {"full_name": "o/r"}},
+                "user": {"login": "alice"},
+            },
+            "repository": {"full_name": "o/r"},
+            "sender": {"login": "bob"},
+        }
+    ).encode()
+    assert (
+        post(s, review_body, hdrs(review_body, event="pull_request_review", delivery="d-rv"))[0]
+        == 202
+    )
+    # review_comment.created
+    comment_body = json.dumps(
+        {
+            "action": "created",
+            "pull_request": {
+                "number": 7,
+                "title": "T",
+                "html_url": "https://x/pr/7",
+                "merged": False,
+                "draft": False,
+                "head": {"sha": BASE_SHA, "ref": "fix", "repo": {"full_name": "o/r"}},
+                "base": {"ref": "main", "repo": {"full_name": "o/r"}},
+                "user": {"login": "carol"},
+            },
+            "comment": {"id": 42, "user": {"login": "reviewer-a"}},
+            "repository": {"full_name": "o/r"},
+            "sender": {"login": "other"},
+        }
+    ).encode()
+    assert (
+        post(
+            s,
+            comment_body,
+            hdrs(comment_body, event="pull_request_review_comment", delivery="d-rc"),
+        )[0]
+        == 202
+    )
+
+    evs = events(s)
+    rv = [e for e in evs if "github.review.submitted" in json.dumps(e)][0]
+    rc = [e for e in evs if "github.review_comment.created" in json.dumps(e)][0]
+    for ev in (rv, rc):
+        data = ev["envelope"]["data"]
+        assert isinstance(data["draft"], bool)
+        assert "head_sha" in data
+        assert "head_branch" in data
+        assert "base_repo" in data
+        assert "pr_author" in data
+    assert rv["envelope"]["data"]["draft"] is True
+    assert rc["envelope"]["data"]["author"] == "reviewer-a"
+
+
+def test_check_suite_data_enrichment():
+    """check_suite event extracts nested fields: head_sha, head_branch, pr_numbers, etc."""
+    s = make()
+    body = json.dumps(
+        {
+            "action": "completed",
+            "check_suite": {
+                "app": {"slug": "ci-bot"},
+                "conclusion": "success",
+                "status": "completed",
+                "head_sha": "abc123def",
+                "head_branch": "feature/auth",
+                "pull_requests": [
+                    {"number": 42, "url": "https://github/o/r/pull/42"},
+                    {"number": 55, "url": "https://github/o/r/pull/55"},
+                ],
+            },
+            "repository": {"full_name": "o/r"},
+            "sender": {"login": "ci-bot"},
+        }
+    ).encode()
+    assert post(s, body, hdrs(body, event="check_suite"))[0] == 202
+    (ev,) = [e for e in events(s) if e["envelope"]["type"] == "github.checks.suite_completed"]
+    data = ev["envelope"]["data"]
+    # Nested fields
+    assert data["head_sha"] == "abc123def"
+    assert data["head_branch"] == "feature/auth"
+    assert data["pr_numbers"] == [42, 55]
+    assert data["repository"] == "o/r"
+    # check_suite-specific
+    assert data["app_slug"] == "ci-bot"
+    assert data["workflow_name"] is None
+    assert data["status"] == "completed"
+    assert data["conclusion"] == "success"
+    # Legacy field (null when no top-level pull_request)
+    assert data["number"] is None
+
+
+def test_check_suite_empty_pull_requests_keeps_sha_and_branch():
+    """When pull_requests is empty, head_sha and head_branch must still be present."""
+    s = make()
+    body = json.dumps(
+        {
+            "action": "completed",
+            "check_suite": {
+                "app": {"slug": "my-app"},
+                "conclusion": "failure",
+                "status": "completed",
+                "head_sha": "deadbeef",
+                "head_branch": "main",
+                "pull_requests": [],
+            },
+            "repository": {"full_name": "o/r"},
+            "sender": {"login": "ci-bot"},
+        }
+    ).encode()
+    assert post(s, body, hdrs(body, event="check_suite"))[0] == 202
+    (ev,) = events(s)
+    data = ev["envelope"]["data"]
+    assert data["head_sha"] == "deadbeef"
+    assert data["head_branch"] == "main"
+    assert data["pr_numbers"] == []
+
+
+def test_workflow_run_data_enrichment():
+    """workflow_run event extracts nested fields: head_sha, head_branch, pr_numbers, etc."""
+    s = make()
+    body = json.dumps(
+        {
+            "action": "completed",
+            "workflow_run": {
+                "id": 98765,
+                "name": "CI Build",
+                "conclusion": "failure",
+                "status": "completed",
+                "head_sha": "feedface",
+                "head_branch": "develop",
+                "pull_requests": [
+                    {"number": 10, "url": "https://github/o/r/pull/10"},
+                ],
+            },
+            "repository": {"full_name": "o/r"},
+            "sender": {"login": "github-actions[bot]"},
+        }
+    ).encode()
+    assert post(s, body, hdrs(body, event="workflow_run"))[0] == 202
+    (ev,) = [e for e in events(s) if e["envelope"]["type"] == "github.checks.workflow_completed"]
+    data = ev["envelope"]["data"]
+    # Nested fields
+    assert data["head_sha"] == "feedface"
+    assert data["head_branch"] == "develop"
+    assert data["pr_numbers"] == [10]
+    assert data["repository"] == "o/r"
+    # workflow_run-specific
+    assert data["app_slug"] is None
+    assert data["workflow_name"] == "CI Build"
+    assert data["status"] == "completed"
+    assert data["conclusion"] == "failure"
+    # Legacy field (null when no top-level pull_request)
+    assert data["number"] is None
+
+
+def test_workflow_run_empty_pull_requests_keeps_sha_and_branch():
+    """When pull_requests is empty, head_sha and head_branch must still be present."""
+    s = make()
+    body = json.dumps(
+        {
+            "action": "completed",
+            "workflow_run": {
+                "id": 11111,
+                "name": "Deploy",
+                "conclusion": "success",
+                "status": "completed",
+                "head_sha": "cafebabe",
+                "head_branch": "main",
+                "pull_requests": [],
+            },
+            "repository": {"full_name": "x/y"},
+            "sender": {"login": "github-actions[bot]"},
+        }
+    ).encode()
+    assert post(s, body, hdrs(body, event="workflow_run"))[0] == 202
+    (ev,) = events(s)
+    data = ev["envelope"]["data"]
+    assert data["head_sha"] == "cafebabe"
+    assert data["head_branch"] == "main"
+    assert data["pr_numbers"] == []
+    assert data["workflow_name"] == "Deploy"
+    assert data["repository"] == "x/y"
+
+
+def test_review_comment_author_from_comment_not_sender():
+    s = make()
+    body = json.dumps(
+        {
+            "action": "created",
+            "pull_request": {"number": 1, "title": "T", "html_url": "https://x/p/1"},
+            "comment": {"id": 42, "user": {"login": "reviewer-a"}},
+            "repository": {"full_name": "o/r"},
+            "sender": {"login": "different-user"},
+        }
+    ).encode()
+    assert post(s, body, hdrs(body, event="pull_request_review_comment"))[0] == 202
+    (ev,) = events(s)
+    assert ev["envelope"]["data"]["author"] == "reviewer-a"
+    assert ev["envelope"]["data"]["action"] == "created"
+
+
+def test_self_authored_tagged():
+    """Bot-authored opened -> self_authored true; bot-authored synchronize -> true."""
+    s = make()
+    # opened by bot: self_authored is True (non-exempt type)
+    b_opened = pr_body("opened").replace(b'"alice"', b'"culture[bot]"')
+    post(s, b_opened, hdrs(b_opened, delivery="d-opened"))
+    # synchronize by bot: self_authored is true
+    b_sync = pr_body("synchronize").replace(b'"alice"', b'"culture[bot]"')
+    post(s, b_sync, hdrs(b_sync, delivery="d-sync"))
+    # synchronize should have self_authored true
+    ev_sync = [e for e in events(s) if "d-sync" in json.dumps(e)][0]
+    assert ev_sync["envelope"]["data"]["self_authored"] is True
+    # opened should also have self_authored true (non-exempt type)
+    ev_opened = [e for e in events(s) if "d-opened" in json.dumps(e)][0]
+    assert ev_opened["envelope"]["data"]["self_authored"] is True
+
+
+def test_check_suite_self_authored_is_false_for_bot():
+    """A check_suite completed by the App has self_authored false."""
+    s = make()
+    body = json.dumps(
+        {
+            "action": "completed",
+            "check_suite": {"app": {"slug": "ci-bot"}, "conclusion": "success"},
+            "repository": {"full_name": "o/r"},
+            "sender": {"login": "culture[bot]"},
+        }
+    ).encode()
+    assert post(s, body, hdrs(body, event="check_suite", delivery="d-cs"))[0] == 202
+    (ev,) = events(s)
+    assert ev["envelope"]["data"]["self_authored"] is False
+
+
+def test_workflow_run_self_authored_is_false_for_bot():
+    """A workflow_run completed by the App has self_authored false."""
+    s = make()
+    body = json.dumps(
+        {
+            "action": "completed",
+            "workflow_run": {"conclusion": "success", "name": "CI"},
+            "repository": {"full_name": "o/r"},
+            "sender": {"login": "culture[bot]"},
+        }
+    ).encode()
+    assert post(s, body, hdrs(body, event="workflow_run", delivery="d-wr"))[0] == 202
+    (ev,) = events(s)
+    assert ev["envelope"]["data"]["self_authored"] is False
+
+
+def test_sync_self_authored_false_for_human_author():
+    """Synchronize by a human user is tagged self_authored false explicitly (the attempt
+    budget resets only on an explicit false, never on an absent tag)."""
+    s = make()
+    b_sync = pr_body("synchronize")  # author is "alice"
+    post(s, b_sync, hdrs(b_sync, delivery="d-human"))
+    (ev,) = events(s)
+    assert ev["envelope"]["data"]["self_authored"] is False
 
 
 def test_multiple_app_actors_selected_by_target_id():
@@ -314,3 +715,525 @@ def test_router_body_limit_413():
     b = b"x" * (gh.MAX_BODY_BYTES + 1)
     assert c.post("/hooks/github", content=b, headers=hdrs(b)).status_code == 413
     assert events(s) == []
+
+
+def test_on_check_failure_answers_503_and_redelivery_settles():
+    s = make()
+    seen = []
+
+    def on_check(data):
+        seen.append(data["head_sha"])
+        if len(seen) == 1:
+            raise RuntimeError("arming blew up")
+
+    def go(body, event, delivery):
+        return gh.handle(
+            s,
+            body=body,
+            headers=hdrs(body, event=event, delivery=delivery),
+            query={},
+            secrets=resolver({REF: KEY_A}),
+            on_check=on_check,
+        )
+
+    suite = json.dumps(
+        {
+            "action": "completed",
+            "check_suite": {"status": "completed", "head_sha": "abc123d", "app": {"slug": "x"}},
+            "repository": {"full_name": "o/r"},
+            "sender": {"login": "ci-bot"},
+        }
+    ).encode()
+    assert go(suite, "check_suite", "d-1")[0] == 503  # stored, but arming failed: retry
+    assert go(suite, "check_suite", "d-1")[0] == 200  # redelivery re-runs on_check, now fine
+    go(pr_body(), "pull_request", "d-2")  # non-check events never call it
+    assert seen == ["abc123d", "abc123d"]
+
+
+# ---------------------------------------------------------------- d14: PR facts everywhere
+
+PR_FIELDS = (
+    "head_sha",
+    "head_branch",
+    "head_repo",
+    "base_repo",
+    "base_branch",
+    "base_sha",
+    "draft",
+    "pr_author",
+)
+
+
+def full_pr(**over):
+    pr = {
+        "number": 7,
+        "draft": False,
+        "head": {"sha": HEAD_SHA, "ref": "feature-branch", "repo": {"full_name": "o/r"}},
+        "base": {"sha": BASE_SHA, "ref": "main", "repo": {"full_name": "o/r"}},
+        "user": {"login": "alice"},
+    }
+    pr.update(over)
+    return pr
+
+
+def comment_body(pr=True, number=7, author="bob"):
+    issue = {"number": number, "title": "T", "html_url": f"https://x/pull/{number}"}
+    if pr:
+        issue["pull_request"] = {"url": f"https://api.github.com/repos/o/r/pulls/{number}"}
+    return json.dumps(
+        {
+            "action": "created",
+            "issue": issue,
+            "comment": {"body": "please fix"},
+            "repository": {"full_name": "o/r"},
+            "sender": {"login": author},
+        }
+    ).encode()
+
+
+class Pulls:
+    """A fake read-only App PR lookup: ``(repo, number) -> PR document``."""
+
+    def __init__(self, pr=None, fail=None):
+        self.pr = pr if pr is not None else full_pr()
+        self.fail = fail
+        self.calls: list[tuple[str, int]] = []
+
+    def __call__(self, repo, number):
+        self.calls.append((repo, number))
+        if self.fail is not None:
+            raise self.fail
+        return self.pr
+
+
+def post_pull(store, body, headers, pull):
+    return gh.handle(
+        store, body=body, headers=headers, query={}, secrets=resolver({REF: KEY_A}), pull=pull
+    )
+
+
+def data_of(store, etype):
+    return [e["envelope"]["data"] for e in events(store) if e["envelope"]["type"] == etype]
+
+
+def test_pr_review_and_review_comment_events_carry_base_sha_and_base_branch():
+    s = make()
+    b = pr_body("synchronize")
+    assert post(s, b, hdrs(b, delivery="d-pr"))[0] == 202
+    for event, extra, delivery in (
+        ("pull_request_review", {"review": {"state": "commented"}}, "d-rv"),
+        ("pull_request_review_comment", {"comment": {"id": 1, "user": {"login": "x"}}}, "d-rc"),
+    ):
+        payload = {
+            "action": "submitted" if event == "pull_request_review" else "created",
+            "pull_request": {**full_pr(), "title": "T", "html_url": "https://x/pr/7"},
+            "repository": {"full_name": "o/r"},
+            "sender": {"login": "bob"},
+            **extra,
+        }
+        body = json.dumps(payload).encode()
+        assert post(s, body, hdrs(body, event=event, delivery=delivery))[0] == 202
+    for etype in (
+        "github.pr.synchronize",
+        "github.review.submitted",
+        "github.review_comment.created",
+    ):
+        (data,) = data_of(s, etype)
+        assert data["base_sha"] == BASE_SHA, etype
+        assert data["base_branch"] == "main", etype
+        assert set(PR_FIELDS) <= set(data), etype
+
+
+def test_pr_comment_is_enriched_from_the_app_lookup():
+    s = make()
+    pulls = Pulls(
+        full_pr(draft=True, head={"sha": H1_SHA, "ref": "fx", "repo": {"full_name": "f/r"}})
+    )
+    b = comment_body()
+    assert post_pull(s, b, hdrs(b, event="issue_comment"), pulls)[0] == 202
+    assert pulls.calls == [("o/r", 7)]
+    (data,) = data_of(s, "github.comment.created")
+    assert data["pr_enriched"] is True
+    assert data["head_sha"] == H1_SHA
+    assert data["head_branch"] == "fx"
+    assert data["head_repo"] == "f/r"
+    assert data["base_repo"] == "o/r"
+    assert data["base_branch"] == "main"
+    assert data["base_sha"] == BASE_SHA
+    assert data["draft"] is True
+    assert data["pr_author"] == "alice"
+    assert data["author"] == "bob"  # the commenter, not the PR author
+    assert data["comment"] == "please fix"
+
+
+def test_plain_issue_comment_is_not_looked_up():
+    s = make()
+    pulls = Pulls()
+    b = comment_body(pr=False, number=3)
+    assert post_pull(s, b, hdrs(b, event="issue_comment"), pulls)[0] == 202
+    assert pulls.calls == []
+    (data,) = data_of(s, "github.comment.created")
+    assert "pr_enriched" not in data
+    assert not set(PR_FIELDS) & set(data)
+
+
+def test_failed_lookup_stores_comment_unenriched_and_later_events_flow():
+    from culture_rules.apps.github import GitHubError
+
+    s = make()
+    pulls = Pulls(fail=GitHubError("network_error", retryable=True))
+    b = comment_body()
+    assert post_pull(s, b, hdrs(b, event="issue_comment", delivery="d-c1"), pulls)[0] == 202
+    (data,) = data_of(s, "github.comment.created")
+    assert data["pr_enriched"] is False
+    assert not set(PR_FIELDS) & set(data)
+    # an unexpected exception type is contained the same way
+    pulls.fail = RuntimeError("boom")
+    b2 = comment_body(number=8)
+    assert post_pull(s, b2, hdrs(b2, event="issue_comment", delivery="d-c2"), pulls)[0] == 202
+    assert [d["pr_enriched"] for d in data_of(s, "github.comment.created")] == [False, False]
+    # and the next delivery of any kind still flows
+    pr = pr_body()
+    assert post_pull(s, pr, hdrs(pr, delivery="d-pr"), pulls)[0] == 202
+    assert len(data_of(s, "github.pr.opened")) == 1
+
+
+def test_bad_lookup_result_is_treated_as_a_failure():
+    s = make()
+    b = comment_body()
+    assert post_pull(s, b, hdrs(b, event="issue_comment"), Pulls(pr=["not", "a", "pr"]))[0] == 202
+    (data,) = data_of(s, "github.comment.created")
+    assert data["pr_enriched"] is False
+
+
+def test_redelivered_pr_comment_is_not_looked_up_again_and_keeps_stored_data():
+    s = make()
+    pulls = Pulls()
+    b = comment_body()
+    h = hdrs(b, event="issue_comment", delivery="d-same")
+    assert post_pull(s, b, h, pulls)[0] == 202
+    before = data_of(s, "github.comment.created")
+    pulls.pr = full_pr(head={"sha": "9" * 40, "ref": "fx", "repo": {"full_name": "o/r"}})
+    assert post_pull(s, b, h, pulls) == (200, {"duplicate": True})
+    assert pulls.calls == [("o/r", 7)]  # the redelivery did not look the PR up again
+    assert data_of(s, "github.comment.created") == before
+
+
+def test_pr_comment_lookup_skipped_when_the_sink_would_not_store_it():
+    actor = app_actor()
+    actor["params"]["events"] = [t for t in ALL_TYPES if t != "github.comment.created"]
+    s = make(actor)
+    pulls = Pulls()
+    b = comment_body()
+    assert post_pull(s, b, hdrs(b, event="issue_comment"), pulls)[0] == 202
+    assert pulls.calls == []
+    disabled = make(app_actor(enabled=False))
+    post_pull(disabled, b, hdrs(b, event="issue_comment"), pulls)
+    assert pulls.calls == []
+
+
+def test_pr_comment_without_lookup_seam_is_marked_unenriched():
+    s = make()
+    b = comment_body()
+    assert post(s, b, hdrs(b, event="issue_comment"))[0] == 202
+    (data,) = data_of(s, "github.comment.created")
+    assert data["pr_enriched"] is False
+
+
+def test_router_passes_the_pull_seam():
+    s = make()
+    pulls = Pulls()
+    app = FastAPI()
+    app.include_router(gh.router(s, secrets=resolver({REF: KEY_A}), pull=pulls))
+    b = comment_body()
+    r = TestClient(app).post("/hooks/github", content=b, headers=hdrs(b, event="issue_comment"))
+    assert r.status_code == 202
+    assert pulls.calls == [("o/r", 7)]
+    assert data_of(s, "github.comment.created")[0]["pr_enriched"] is True
+
+
+# ------------------------------------- d14 review: malformed PR facts never read as a match
+
+FIXER_SAME_REPO = {
+    "op": "compare",
+    "cmp": "==",
+    "left": {"field": "head_repo"},
+    "right": {"field": "base_repo"},
+}
+FIXER_NOT_DRAFT = {
+    "op": "compare",
+    "cmp": "==",
+    "left": {"field": "draft"},
+    "right": {"literal": False},
+}
+
+
+def _fixer_matches(data):
+    from culture_rules.model.condition import evaluate
+
+    tree = {"op": "and", "args": [FIXER_SAME_REPO, FIXER_NOT_DRAFT]}
+    return evaluate(tree, {"trigger": data, "variables": {}})
+
+
+MALFORMED_PULLS = {
+    "empty": {},
+    "no_head_repo": full_pr(head={"sha": HEAD_SHA, "ref": "fx", "repo": None}),
+    "both_repos_null": full_pr(
+        head={"sha": HEAD_SHA, "ref": "fx", "repo": None},
+        base={"sha": BASE_SHA, "ref": "main", "repo": None},
+    ),
+    "repo_not_a_string": full_pr(
+        head={"sha": HEAD_SHA, "ref": "fx", "repo": {"full_name": 5}},
+    ),
+    "repo_empty": full_pr(head={"sha": HEAD_SHA, "ref": "fx", "repo": {"full_name": ""}}),
+    "short_sha": full_pr(head={"sha": "abc123", "ref": "fx", "repo": {"full_name": "o/r"}}),
+    "base_sha_missing": full_pr(base={"ref": "main", "repo": {"full_name": "o/r"}}),
+    "empty_branch": full_pr(head={"sha": HEAD_SHA, "ref": "", "repo": {"full_name": "o/r"}}),
+    "draft_string": full_pr(draft="false"),
+    "draft_missing": {k: v for k, v in full_pr().items() if k != "draft"},
+    "draft_null": full_pr(draft=None),
+    "no_author": full_pr(user=None),
+}
+
+
+def test_malformed_lookup_result_is_not_enriched():
+    for name, pr in MALFORMED_PULLS.items():
+        s = make()
+        b = comment_body()
+        assert post_pull(s, b, hdrs(b, event="issue_comment"), Pulls(pr=pr))[0] == 202, name
+        (data,) = data_of(s, "github.comment.created")
+        assert data["pr_enriched"] is False, name
+        assert not set(PR_FIELDS) & set(data), name
+        assert not _fixer_matches(data), name
+
+
+def test_well_formed_lookup_result_matches_the_fixer_condition():
+    s = make()
+    b = comment_body()
+    assert post_pull(s, b, hdrs(b, event="issue_comment"), Pulls())[0] == 202
+    (data,) = data_of(s, "github.comment.created")
+    assert data["pr_enriched"] is True
+    assert _fixer_matches(data)
+
+
+def test_pr_event_with_malformed_facts_omits_them_and_never_matches():
+    s = make()
+    deleted_fork = {"sha": HEAD_SHA, "ref": "fx", "repo": None}
+    cases = {
+        "d-fork": {"head": deleted_fork},
+        "d-none": {"head": None, "base": None},
+        "d-draft": {"draft": "no"},
+        "d-shas": {
+            "head": {"sha": "nope", "ref": "fx", "repo": {"full_name": "o/r"}},
+            "base": {"sha": "", "ref": "main", "repo": {"full_name": "o/r"}},
+        },
+    }
+    for delivery, over in cases.items():
+        b = pr_body("synchronize", **over)
+        assert post(s, b, hdrs(b, delivery=delivery))[0] == 202
+    by_delivery = {d["delivery_id"]: d for d in data_of(s, "github.pr.synchronize")}
+    fork = by_delivery["d-fork"]
+    assert "head_repo" not in fork
+    assert fork["base_repo"] == "o/r"
+    assert fork["head_sha"] == HEAD_SHA
+    assert fork["draft"] is False
+    none = by_delivery["d-none"]
+    assert not {"head_repo", "base_repo", "head_sha", "base_sha"} & set(none)
+    assert "draft" not in by_delivery["d-draft"]
+    shas = by_delivery["d-shas"]
+    assert "head_sha" not in shas
+    assert "base_sha" not in shas
+    for delivery in ("d-fork", "d-none", "d-draft"):
+        assert not _fixer_matches(by_delivery[delivery]), delivery
+    for data in by_delivery.values():
+        assert None not in [data.get(k, "absent") for k in PR_FIELDS]
+
+
+def test_failed_arm_is_recovered_by_the_settle_tick_without_any_redelivery(monkeypatch):
+    """Risk r14 end to end: the hook stores the completion *before* arming, so a store
+    error while arming answers 503 yet leaves the event the node recovers from - GitHub
+    never redelivers it, and the settled event still fires exactly once."""
+    from datetime import UTC, datetime, timedelta
+
+    from culture_rules.node.checks_settle import (
+        RECOVERY_GRACE_S,
+        SETTLE_COLLECTION,
+        SETTLED_TYPE,
+        ChecksSettler,
+    )
+    from culture_rules.store.port import StoreError
+
+    s = make()
+    s.put_variable("checks_settle_min_s", 0, updated_by="test")
+    now = [datetime.now(UTC)]
+    ci = [{"app_slug": "ci", "status": "completed", "conclusion": "failure"}]
+    settler = ChecksSettler(s, lambda *_: ci, clock=lambda: now[0])
+    original = s.insert
+
+    def fail_arm(collection, document):
+        if collection == SETTLE_COLLECTION:
+            raise StoreError("temporary outage")
+        return original(collection, document)
+
+    monkeypatch.setattr(s, "insert", fail_arm)
+    body = json.dumps(
+        {
+            "action": "completed",
+            "check_suite": {"head_sha": HEAD_SHA, "head_branch": "feat", "pull_requests": []},
+            "repository": {"full_name": "o/r"},
+        }
+    ).encode()
+    status, _ = gh.handle(
+        s,
+        body=body,
+        headers=hdrs(body, event="check_suite"),
+        query={},
+        secrets=resolver({REF: KEY_A}),
+        on_check=settler.on_check,
+    )
+    assert status == 503
+    [stored] = events(s)  # the recovery source exists although arming failed
+    assert stored["envelope"]["type"] == "github.checks.suite_completed"
+    assert s.get(SETTLE_COLLECTION, f"o/r@{HEAD_SHA}") is None
+    monkeypatch.setattr(s, "insert", original)  # the outage ends; no redelivery arrives
+    assert settler.tick() == 0  # still inside the grace
+    now[0] += timedelta(seconds=RECOVERY_GRACE_S + 1)
+    assert settler.tick() == 1
+    assert settler.tick() == 0
+    assert ChecksSettler(s.peer(), lambda *_: ci, clock=lambda: now[0]).tick() == 0
+    [settled] = [e for e in events(s) if e["envelope"]["type"] == SETTLED_TYPE]
+    assert settled["envelope"]["data"]["head_sha"] == HEAD_SHA
+
+
+# ---------------------------------------------------------------- characterization
+# (the Sonar S3776 split of hooks.github._data / handle: every branch, pinned)
+
+
+def _stat(store, key):
+    from culture_rules.events.hook_sink import HOOK_STATS_COLLECTION
+
+    doc = store.get(HOOK_STATS_COLLECTION, key)
+    return doc and doc["count"]
+
+
+def test_a_delivery_without_an_id_is_a_bad_request():
+    store = make()
+    body = pr_body()
+    status, out = post(store, body, hdrs(body, delivery="  "))
+    assert (status, out) == (400, {"error": "missing delivery id"})
+    assert _stat(store, "gh-app:bad_request") == 1
+    assert events(store) == []
+
+
+def test_ping_and_unknown_events_store_nothing():
+    store = make()
+    body = b"{}"
+    assert post(store, body, hdrs(body, event="ping")) == (200, {"pong": True})
+    assert post(store, body, hdrs(body, event="deployment")) == gh._IGNORED
+    body = json.dumps({"action": "edited", "pull_request": {}}).encode()
+    assert post(store, body, hdrs(body)) == gh._IGNORED  # a known event, unmapped action
+    assert events(store) == []
+
+
+def test_an_unparseable_or_non_object_payload_is_a_bad_request():
+    store = make()
+    for body in (b"{not json", b"[1, 2]", b'"text"'):
+        assert post(store, body, hdrs(body)) == (400, {"error": "invalid payload"})
+    assert _stat(store, "gh-app:bad_request") == 3
+    assert events(store) == []
+
+
+def test_a_too_large_body_is_refused_before_anything():
+    store = make()
+    body = b"x" * (gh.MAX_BODY_BYTES + 1)
+    status, out = post(store, body, {})
+    assert status == 413
+    assert _stat(store, "github:too_large") == 1
+
+
+def _base(action="x", **extra):
+    return {"repository": {"full_name": "o/r"}, "sender": {"login": "s"}, "action": action, **extra}
+
+
+def test_data_common_fields_prefer_the_pull_request_over_the_issue():
+    data = gh._data(
+        "issues",
+        "opened",
+        _base(
+            issue={"number": 3, "title": "I", "html_url": "u"},
+        ),
+    )
+    assert data == {
+        "repository": "o/r",
+        "number": 3,
+        "title": "I",
+        "url": "u",
+        "author": "s",
+        "action": "opened",
+    }
+    both = gh._data("issues", "opened", _base(issue={"number": 3}, pull_request={"number": 4}))
+    assert both["number"] == 4
+
+
+def test_data_of_an_issue_comment_caps_or_nulls_the_body():
+    long = gh._data("issue_comment", "created", _base(comment={"body": "z" * 9000}))
+    assert long["comment"] == "z" * gh._COMMENT_MAX
+    assert gh._data("issue_comment", "created", _base(comment={"body": 5}))["comment"] is None
+    assert gh._data("issue_comment", "created", _base())["comment"] is None
+
+
+def test_data_of_a_review_comment_takes_its_author_only_when_readable():
+    def author(comment):
+        payload = _base(**({"comment": comment} if comment is not None else {}))
+        return gh._data("pull_request_review_comment", "created", payload)["author"]
+
+    assert author({"user": {"login": "bob"}}) == "bob"
+    assert author({"user": {"login": 7}}) == "s"
+    assert author({"user": "bob"}) == "s"
+    assert author({}) == "s"
+    assert author("text") == "s"
+    assert author(None) == "s"
+
+
+def test_data_of_a_review_keeps_its_state():
+    data = gh._data("pull_request_review", "submitted", _base(review={"state": "approved"}))
+    assert data["review_state"] == "approved"
+
+
+def test_data_of_check_runs_and_workflow_runs():
+    prs = [{"number": 7}, {"number": "8"}, "x", {"number": 9}]
+    suite = {
+        "head_sha": "h",
+        "head_branch": "b",
+        "pull_requests": prs,
+        "app": {"slug": "github-actions"},
+        "status": "completed",
+        "conclusion": "success",
+        "name": "ignored",
+    }
+    data = gh._data("check_suite", "completed", _base(check_suite=suite))
+    assert list(data)[6:] == [
+        "head_sha",
+        "head_branch",
+        "pr_numbers",
+        "app_slug",
+        "workflow_name",
+        "status",
+        "conclusion",
+    ]
+    assert [data[k] for k in list(data)[6:]] == [
+        "h",
+        "b",
+        [7, 9],
+        "github-actions",
+        None,
+        "completed",
+        "success",
+    ]
+    run = {**suite, "name": "CI", "pull_requests": "nope"}
+    data = gh._data("workflow_run", "completed", _base(workflow_run=run))
+    assert [data[k] for k in list(data)[6:]] == ["h", "b", [], None, "CI", "completed", "success"]
+    for event, key in (("check_suite", "check_suite"), ("workflow_run", "workflow_run")):
+        bare = gh._data(event, "completed", _base(**{key: "nope"}))
+        assert "head_sha" not in bare
+        assert len(bare) == 6

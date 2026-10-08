@@ -1,6 +1,41 @@
 {
   "components": {
     "schemas": {
+      "ActiveRun": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "ActiveRun",
+        "type": "object"
+      },
       "Ask": {
         "additionalProperties": true,
         "description": "A human ask (``asks`` collection, culture_rules/actors/human.py).",
@@ -136,6 +171,21 @@
         "title": "BackfillResult",
         "type": "object"
       },
+      "BridgeEventAck": {
+        "description": "What :func:`culture_rules.actors.agent.record_bridge_event` did with the event.",
+        "properties": {
+          "status": {
+            "description": "recorded | duplicate | invalid | unauthorized | unknown | expired",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "BridgeEventAck",
+        "type": "object"
+      },
       "Controls": {
         "properties": {
           "drained": {
@@ -155,6 +205,80 @@
           "drained"
         ],
         "title": "Controls",
+        "type": "object"
+      },
+      "DescribeEntry": {
+        "properties": {
+          "depth": {
+            "description": "nesting: a loop's body is one deeper",
+            "title": "Depth",
+            "type": "integer"
+          },
+          "label": {
+            "description": "When/If/and/Then/... for a rule; 1, 3.1 ... for a step",
+            "title": "Label",
+            "type": "string"
+          },
+          "step": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "the step id (workflow entries only)",
+            "title": "Step"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "text",
+          "depth"
+        ],
+        "title": "DescribeEntry",
+        "type": "object"
+      },
+      "Description": {
+        "description": "d19: a plain description generated only from the definition's config (no AI).",
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/DescribeEntry"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "description": "rule or workflow",
+            "title": "Kind",
+            "type": "string"
+          },
+          "lines": {
+            "description": "the entries as text, one per line",
+            "items": {
+              "type": "string"
+            },
+            "title": "Lines",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "lines",
+          "entries"
+        ],
+        "title": "Description",
         "type": "object"
       },
       "DiscordChannel": {
@@ -903,6 +1027,67 @@
         "title": "RunningStep",
         "type": "object"
       },
+      "StopRunsRequest": {
+        "properties": {
+          "apply": {
+            "default": false,
+            "description": "false = dry-run: list the active runs, cancel nothing",
+            "title": "Apply",
+            "type": "boolean"
+          },
+          "reason": {
+            "default": "",
+            "description": "recorded on each cancelled run; default 'rule disabled: stopped by <you>'",
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "title": "StopRunsRequest",
+        "type": "object"
+      },
+      "StopRunsResult": {
+        "description": "d17: the active runs of a disabled rule, and which of them this call cancelled.",
+        "properties": {
+          "applied": {
+            "title": "Applied",
+            "type": "boolean"
+          },
+          "cancelled": {
+            "description": "ids this call cancelled (status cancelled); empty in a dry-run",
+            "items": {
+              "type": "string"
+            },
+            "title": "Cancelled",
+            "type": "array"
+          },
+          "rule_id": {
+            "title": "Rule Id",
+            "type": "string"
+          },
+          "runs": {
+            "description": "the active runs, oldest first (at most 50)",
+            "items": {
+              "$ref": "#/components/schemas/ActiveRun"
+            },
+            "title": "Runs",
+            "type": "array"
+          },
+          "total": {
+            "description": "how many runs were active",
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "rule_id",
+          "applied",
+          "runs",
+          "total",
+          "cancelled"
+        ],
+        "title": "StopRunsResult",
+        "type": "object"
+      },
       "TokenIssue": {
         "properties": {
           "kind": {
@@ -1079,6 +1264,44 @@
           "type"
         ],
         "title": "ValidationError",
+        "type": "object"
+      },
+      "VariableItem": {
+        "properties": {
+          "item": {
+            "description": "a JSON scalar of the list's item type",
+            "title": "Item"
+          }
+        },
+        "required": [
+          "item"
+        ],
+        "title": "VariableItem",
+        "type": "object"
+      },
+      "VariableWrite": {
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "what the variable is for",
+            "title": "Description"
+          },
+          "value": {
+            "description": "a JSON scalar, or a flat list of JSON scalars",
+            "title": "Value"
+          }
+        },
+        "required": [
+          "value"
+        ],
+        "title": "VariableWrite",
         "type": "object"
       },
       "WhoAmI": {
@@ -2266,6 +2489,128 @@
         "summary": "Answer",
         "tags": [
           "asks"
+        ]
+      }
+    },
+    "/bridge-invocations/{invocation_id}/events": {
+      "post": {
+        "description": "Called by a cultureagent bridge, not by clients: one callback event (heartbeat, progress, completed, failed, ...) for a bridge invocation. Authenticated only by that invocation's callback token (Bearer); no service token or Access JWT applies. The node delivers a recorded result to its run.",
+        "operationId": "bridge_callback",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "invocation_id",
+            "required": true,
+            "schema": {
+              "title": "Invocation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "event_id": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "enum": [
+                      "completed",
+                      "failed",
+                      "blocked",
+                      "accepted",
+                      "heartbeat",
+                      "progress",
+                      "artifact",
+                      "signal"
+                    ],
+                    "type": "string"
+                  },
+                  "payload": {
+                    "type": "object"
+                  },
+                  "sequence": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "sequence"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BridgeEventAck"
+                }
+              }
+            },
+            "description": "Recorded, or a duplicate of one already recorded"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BridgeEventAck"
+                }
+              }
+            },
+            "description": "Not a callback event"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BridgeEventAck"
+                }
+              }
+            },
+            "description": "Missing or wrong callback token"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BridgeEventAck"
+                }
+              }
+            },
+            "description": "No such bridge invocation"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BridgeEventAck"
+                }
+              }
+            },
+            "description": "The attempt was expired or superseded"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BridgeEventAck"
+                }
+              }
+            },
+            "description": "Event too large"
+          }
+        },
+        "security": [],
+        "summary": "Bridge callback event (callback token auth)",
+        "tags": [
+          "bridge"
         ]
       }
     },
@@ -4404,6 +4749,7 @@
         ]
       },
       "put": {
+        "description": "Replace the rule. A save that switches an enabled rule off answers `active_runs` and `active_runs_total` too, as `POST /rules/{id}/disable` does (d17).",
         "operationId": "update_rule",
         "parameters": [
           {
@@ -4506,8 +4852,90 @@
         ]
       }
     },
+    "/rules/{id}/describe": {
+      "get": {
+        "description": "The rule in plain words, from its config only (d19): ``When``, ``If``, ``Run``,\n``On``, ``Then``, ``On failure``, ``Key`` ... The referenced workflow adds its step\ncount, or ``not found`` when it is missing or deleted.",
+        "operationId": "describe_rule",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "title": "Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Description"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Describe Rule Route",
+        "tags": [
+          "rules"
+        ]
+      }
+    },
     "/rules/{id}/disable": {
       "post": {
+        "description": "Disable the rule. The answer is the stored rule plus `active_runs` (its non-terminal runs, oldest first, at most 50, each `{id, status, started_at}`) and `active_runs_total`. Disabling never stops those runs: offer `POST /rules/{id}/stop-runs` to cancel them (d17); left running, a push step still refuses with `rule_disabled`.",
         "operationId": "disable_rule",
         "parameters": [
           {
@@ -4999,6 +5427,114 @@
         "summary": "Restore",
         "tags": [
           "rules"
+        ]
+      }
+    },
+    "/rules/{rule_id}/stop-runs": {
+      "post": {
+        "description": "d17: cancel every active run of a **disabled** rule (409 ``rule_enabled`` while it is\nenabled). ``apply: false`` (the default) lists them only. Each run is cancelled through\n``POST /runs/{run_id}/cancel``'s path (status ``cancelled``, audited ``runs.cancel``),\nso it pushes nothing more and hands nothing back; runs on any node are included.\nIdempotent: once none are active it cancels nothing.",
+        "operationId": "stop_rule_runs",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "rule_id",
+            "required": true,
+            "schema": {
+              "title": "Rule Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/StopRunsRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StopRunsResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Wrong state / already exists"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Validation failed (errors listed)"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Stop Rule Runs",
+        "tags": [
+          "runs"
         ]
       }
     },
@@ -5702,6 +6238,576 @@
         ]
       }
     },
+    "/variables": {
+      "get": {
+        "operationId": "list_variables",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "List Variables",
+        "tags": [
+          "variables"
+        ]
+      }
+    },
+    "/variables/{name}": {
+      "get": {
+        "operationId": "get_variable",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Variable",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Validation failed (errors listed)"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Get Variable",
+        "tags": [
+          "variables"
+        ]
+      },
+      "put": {
+        "description": "Append a new version of the variable (admin only); the version names the caller.",
+        "operationId": "set_variable",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VariableWrite"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Set Variable",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Validation failed (errors listed)"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Set Variable",
+        "tags": [
+          "variables"
+        ]
+      }
+    },
+    "/variables/{name}/history": {
+      "get": {
+        "description": "Every version of the variable, oldest first.",
+        "operationId": "variable_history",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Validation failed (errors listed)"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Variable History",
+        "tags": [
+          "variables"
+        ]
+      }
+    },
+    "/variables/{name}/items/add": {
+      "post": {
+        "description": "Add an item to a list variable (admin) with a compare-and-set, so concurrent adds\nall land; already present means no new version (``changed: false``).",
+        "operationId": "add_variable_item",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VariableItem"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Add Variable Item",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Wrong state / already exists"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Validation failed (errors listed)"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Add Variable Item",
+        "tags": [
+          "variables"
+        ]
+      }
+    },
+    "/variables/{name}/items/remove": {
+      "post": {
+        "description": "Remove an item from a list variable (admin); absent means no new version.",
+        "operationId": "remove_variable_item",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VariableItem"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Remove Variable Item",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Wrong state / already exists"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Validation failed (errors listed)"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Remove Variable Item",
+        "tags": [
+          "variables"
+        ]
+      }
+    },
+    "/variables/{name}/refs": {
+      "get": {
+        "description": "Live rules whose condition or workflow inputs reference the variable.",
+        "operationId": "variable_refs",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Validation failed (errors listed)"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Variable Refs",
+        "tags": [
+          "variables"
+        ]
+      }
+    },
     "/whoami": {
       "get": {
         "operationId": "whoami",
@@ -6172,6 +7278,87 @@
           }
         ],
         "summary": "Update",
+        "tags": [
+          "workflows"
+        ]
+      }
+    },
+    "/workflows/{id}/describe": {
+      "get": {
+        "description": "The workflow's steps in plain words, from its config only (d19): numbered, a\nloop's body nested one level deeper.",
+        "operationId": "describe_workflow",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "title": "Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Description"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Describe Workflow Route",
         "tags": [
           "workflows"
         ]

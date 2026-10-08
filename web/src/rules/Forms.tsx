@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { Actor } from "../api/actors";
 import type { Ask, RuleDoc } from "../api/rules";
-import type { Action, Machine, Trigger, Workflow } from "../api/types";
+import type { Action, Condition, Machine, Operand, Trigger, Workflow } from "../api/types";
+import { listVariables, type Variable } from "../api/variables";
 import GuidedNotice from "../components/GuidedNotice";
 import { useEscapeKey } from "../hooks/useEscapeKey";
 import { slugFor } from "../routes/rules-view";
@@ -206,52 +207,123 @@ interface AddProps {
   onCancel: () => void;
 }
 
-/** The `+` forms: a simple condition (variable, is / is not, value) or a workflow. */
+const TYPED_LIST = "__typed__";
+
+/**
+ * What the author typed for the left side: `trigger.data.author` reads the trigger's own
+ * field (`{field: "data.author"}`); anything else names a variable (`{var}`).
+ */
+function leftOperand(text: string): Operand {
+  const typed = text.trim();
+  if (typed.startsWith("trigger.") && typed.length > "trigger.".length) {
+    return { field: typed.slice("trigger.".length) };
+  }
+  return { var: typed.replace(/^vars\./, "") };
+}
+
+/** Variables whose value is a list: the ones an `is one of` check can read. */
+const listVariablesOf = (variables: Variable[]) => variables.filter((v) => Array.isArray(v.value));
+
+/** The `+` forms: a simple condition (variable, is / is not / is one of, value) or a workflow. */
 export function AddStageForm({ rule, workflows, choice, onSave, onCancel }: Readonly<AddProps>) {
   const [variable, setVariable] = useState("");
   const [cmp, setCmp] = useState("==");
   const [value, setValue] = useState("");
+  const [list, setList] = useState("");
+  const [typed, setTyped] = useState("");
+  const [variables, setVariables] = useState<Variable[]>([]);
   const [workflow, setWorkflow] = useState(workflows[0]?.id ?? "");
   // The first field is the Variable input or the Workflow select, by `choice`.
   const { form, first } = useFormKeyboard<HTMLInputElement & HTMLSelectElement>(onCancel, choice);
 
+  useEffect(() => {
+    if (choice !== "condition") return;
+    const controller = new AbortController();
+    // No variables to pick from is not an error here: the typed list still works.
+    listVariables(controller.signal)
+      .then(setVariables)
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [choice]);
+
+  const membership = cmp === "in";
+  const items = (): Operand =>
+    list === TYPED_LIST || !list
+      ? {
+          literal: typed
+            .split(",")
+            .map((item) => item.trim())
+            .filter(Boolean),
+        }
+      : { var: list };
+
   const submit = async (e: FormEvent) => {
     e.preventDefault();
+    let condition: Condition;
+    if (membership) {
+      condition = { op: "in", value: leftOperand(variable), items: items() };
+    } else {
+      condition = { op: "compare", cmp, left: { var: variable.trim() }, right: { literal: value } };
+    }
     const next: RuleDoc =
-      choice === "condition"
-        ? {
-            ...rule,
-            condition: {
-              op: "compare",
-              cmp,
-              left: { var: variable.trim() },
-              right: { literal: value },
-            },
-          }
-        : { ...rule, workflow: { id: workflow, inputs: {} } };
+      choice === "condition" ? { ...rule, condition } : { ...rule, workflow: { id: workflow, inputs: {} } };
     if (await onSave(next)) onCancel();
   };
 
   const title = choice === "condition" ? "Add condition" : "Add workflow";
+  const lists = listVariablesOf(variables);
+  const typingList = membership && (list === TYPED_LIST || lists.length === 0);
   return (
     <form ref={form} className="rule-form rule-form--inline" aria-label={title} onSubmit={submit}>
       {choice === "condition" ? (
         <>
           <label>
             <span>Variable</span>
-            <input ref={first} value={variable} onChange={(e) => setVariable(e.target.value)} required />
+            <input
+              ref={first}
+              value={variable}
+              placeholder={membership ? "trigger.data.author" : undefined}
+              onChange={(e) => setVariable(e.target.value)}
+              required
+            />
           </label>
           <label>
             <span>Comparison</span>
             <select value={cmp} onChange={(e) => setCmp(e.target.value)}>
               <option value="==">is</option>
               <option value="!=">is not</option>
+              <option value="in">is one of</option>
             </select>
           </label>
-          <label>
-            <span>Value</span>
-            <input value={value} onChange={(e) => setValue(e.target.value)} required />
-          </label>
+          {membership ? (
+            <>
+              <label>
+                <span>Allowed list</span>
+                <select value={list || (lists.length === 0 ? TYPED_LIST : "")} onChange={(e) => setList(e.target.value)} required>
+                  <option value="" disabled>
+                    Pick a variable…
+                  </option>
+                  {lists.map((v) => (
+                    <option key={v.name} value={v.name}>
+                      vars.{v.name}
+                    </option>
+                  ))}
+                  <option value={TYPED_LIST}>A list I type</option>
+                </select>
+              </label>
+              {typingList ? (
+                <label>
+                  <span>Items</span>
+                  <input value={typed} placeholder="main, dev" onChange={(e) => setTyped(e.target.value)} required />
+                </label>
+              ) : null}
+            </>
+          ) : (
+            <label>
+              <span>Value</span>
+              <input value={value} onChange={(e) => setValue(e.target.value)} required />
+            </label>
+          )}
         </>
       ) : (
         <label>

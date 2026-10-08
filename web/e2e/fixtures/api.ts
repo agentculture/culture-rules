@@ -3,6 +3,9 @@ import {
   ACTORS,
   MACHINES,
   RULES,
+  VARIABLES,
+  VARIABLE_REFS,
+  VARIABLE_VERSIONS,
   WHOAMI,
   WORKFLOWS,
   runsFor,
@@ -28,6 +31,7 @@ export async function mockApi(
     "/api/actors": { items: ACTORS },
     "/api/workflows": { items: WORKFLOWS },
     "/api/runs": { items: runsFor(now) },
+    "/api/variables": { items: VARIABLES },
   };
   await page.route("**/api/**", async (route) => {
     const url = new URL(route.request().url());
@@ -41,8 +45,30 @@ export async function mockApi(
       });
       return;
     }
+    const described = url.pathname.match(/^\/api\/rules\/([^/]+)\/describe$/);
+    if (described) {
+      const rule = RULES.find((r) => r.id === decodeURIComponent(described[1]));
+      if (rule) {
+        // A stand-in for culture_rules/model/describe.py: the trigger and the action, in words.
+        const params = (rule.trigger.params ?? {}) as Record<string, unknown>;
+        const entries = [
+          { label: "When", text: String(params.type ?? rule.trigger.kind), depth: 0 },
+          { label: "Then", text: rule.action.kind, depth: 0 },
+        ];
+        const lines = entries.map((e) => `${e.label} ${e.text}`);
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ id: rule.id, kind: "rule", lines, entries }),
+        });
+        return;
+      }
+    }
     const history = url.pathname.match(/^\/api\/rules\/([^/]+)\/history$/);
-    const body = history
+    const variable = url.pathname.match(/^\/api\/variables\/([^/]+)\/(history|refs)$/);
+    const body = variable
+      ? { items: variable[2] === "history" ? VARIABLE_VERSIONS : VARIABLE_REFS }
+      : history
       ? {
           items: runsFor(now)
             .filter((r) => r.rule_id === decodeURIComponent(history[1]))

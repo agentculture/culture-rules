@@ -1,8 +1,8 @@
 # web
 
 The culture-rules visual editor: Vite 6 + React 18 + TypeScript, with
-`@xyflow/react` 12 and `elkjs` for the graph views. It has exactly four
-top-level tabs: **Rules | Workflows | Actors | Statistics**. Runs, history,
+`@xyflow/react` 12 and `elkjs` for the graph views. It has exactly five
+top-level tabs: **Rules | Workflows | Actors | Variables | Statistics**. Runs, history,
 ledger and inbox are never top-level. They appear in context, inside a
 rule or a workflow.
 
@@ -14,7 +14,7 @@ recorded on the PR with a screenshot.
 ## What is here today
 
 - **The shell:**
-  - the header (brand dot, `rules` wordmark, the four tabs, the
+  - the header (brand dot, `rules` wordmark, the five tabs, the
     signed-in avatar);
   - routing, where every other path lands on Rules;
   - the design layer (`src/culture-design/`);
@@ -22,6 +22,10 @@ recorded on the PR with a screenshot.
 - **Rules** (`/rules/:ruleId?`) is the 'Chosen — Rules' board, editable:
   - the rule list, with machine dots and enable switches (`POST
     /rules/{id}/enable|disable`, rolled back when refused);
+  - switching a rule off while it has runs going shows a non-modal
+    "Stop N current runs?" notice: Approve calls `POST
+    /rules/{id}/stop-runs` and reports how many stopped, Keep running
+    leaves them going (d17);
   - the focused rule as a relationship ghost → Trigger → Condition →
     Workflow → Action → `+`;
   - edit (`PUT`), delete (soft `DELETE`, with an Undo that calls
@@ -34,7 +38,14 @@ recorded on the PR with a screenshot.
     answered with `POST /asks/{id}/answer`;
   - the rule's last runs and recorded skips, newest first (`GET
     /rules/{id}/history`): a skipped rule reads `superseded by <rule>`
-    (or "lost its group to", "waiting for") with an icon and a label.
+    (or "lost its group to", "waiting for") with an icon and a label;
+  - an (i) "About" button on every list row and beside the focused
+    rule's title (d19). It opens a non-modal panel anchored to the button
+    with the rule as short labelled lines (`When …`, `If …`, `and …`,
+    `Run …`, `On …`, `Then …`, `On failure …`, `Key …`), fetched from
+    `GET /rules/{id}/describe` each time it opens. The API builds the lines
+    from the config alone (no AI), so the panel shows exactly what
+    `culture-rules rules describe` prints. See "The (i) panel" below.
   Code: `src/routes/Rules.tsx`, `src/rules/`, `src/api/rules.ts`.
 - **Workflows** (`/workflows?id=&run=`) is the 'Chosen — Workflows' board:
   - New workflow (in the head next to Import, and the empty state's
@@ -50,6 +61,20 @@ recorded on the PR with a screenshot.
   - the workflow as a React Flow graph laid out by elkjs (Inputs → steps
     → Outputs), with typed ports: a drag between mismatched types is
     refused;
+  - zoom (d19), from 25% to 200%: a pinch or ctrl/cmd + wheel, the
+    on-canvas Zoom out / Zoom in / Fit to width buttons (with the level
+    read out), or `+` / `-` / `0` while focus is in the canvas. A plain
+    wheel never zooms, so the page keeps scrolling. The canvas is sized
+    like a document at its zoom, so Fit shrinks a wide graph to the canvas
+    width and returns to 100% when the graph already fits
+    (`src/workflows/zoom.ts`);
+  - an (i) "About" button on every list row and beside the open
+    workflow's title (d19): the stored workflow's steps, numbered, a loop's
+    body indented (`GET /workflows/{id}/describe`, the same lines as
+    `culture-rules workflows describe`). While the draft has unsaved edits
+    the head's panel says it shows "the saved version". The button makes
+    the head's row full at 1280px beside the list, so Run may wrap under
+    it there;
   - a step panel to edit a step, its placement and its enable switch; add
     and delete steps; save with `PUT /workflows/{id}`;
   - Run (`POST /runs` through the rule that uses the workflow) and a run
@@ -152,6 +177,25 @@ Each tab adds its own optional slice, typed in `src/agent-state/store.ts`:
 even when the load failed. A failed load is listed in `errors` and
 rendered as an alert. It does not leave the page "loading".
 
+## The (i) panel
+
+`src/components/AboutButton.tsx` (d19) replaces an always-visible
+description: progressive disclosure keeps the boards as the design canvas
+draws them, and the (i) costs one small control per row. The button is
+36px with the 44px hit area of d4, named "About" plus the rule or workflow name, with
+`aria-expanded` and `aria-controls`. Enter or Space opens it, focus moves
+into the panel (`role="dialog"`, `aria-modal="false"`), and Escape closes
+it and returns focus to the button, as Close does. A press outside closes
+it. The panel stays inside the window: it is never wider than the window
+less a 16px gutter each side, and it moves left of its button when it would
+pass the right edge. Each open re-reads the description; a reopened panel
+keeps its last lines on screen until the fresh ones arrive, so it never
+flashes "Reading…". A click on a row's (i) never opens the row. The lines are a `<pre>`
+in the mono face, so indentation and the symbols `∈ ≠ × ≤` read exactly
+as the CLI prints them. Copy puts them on the clipboard. The panel has no
+motion, and at phone width (640px and under) it docks to the bottom of
+the screen. A failed call shows its error in the panel.
+
 ## Accessibility
 
 - A skip link opens the tab order. Every tab, switch and button is
@@ -163,7 +207,11 @@ rendered as an alert. It does not leave the page "loading".
 - A run's status is announced in words. It is never carried by the dot's
   color alone.
 - `prefers-reduced-motion: reduce` disables every transition (the
-  `tokens.css` kill switch).
+  `tokens.css` kill switch), and a button or key zoom on the workflow
+  canvas then lands at once instead of animating.
+- The workflow canvas zooms from the keyboard: `+`, `-` and `0` (fit)
+  while focus is in it, never while typing in a field. The zoom buttons
+  are labelled and announce the new level.
 - The Playwright suite runs axe on every tab and requires zero serious or
   critical violations.
 

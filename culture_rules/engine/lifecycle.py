@@ -115,7 +115,16 @@ class Lifecycle:
         return after
 
     @mutating_verb("lifecycle.restore", "Restore a tombstoned item within the 30-day window")
-    def restore(self, collection: str, id: str, identity: str) -> Document:
+    def restore(
+        self,
+        collection: str,
+        id: str,
+        identity: str,
+        *,
+        check: Callable[[Any, Document], None] | None = None,
+    ) -> Document:
+        """``check(tx, before)`` runs inside the restore transaction before the tombstone is
+        cleared; it raises to refuse (the server's d7 node-capability guard)."""
         require_identity(identity)
         now = self._clock()
         with self._store.transaction() as tx:
@@ -124,6 +133,8 @@ class Lifecycle:
                 raise LifecycleError(f"{collection}/{id} is not deleted")
             if now > datetime.fromisoformat(before["restorable_until"]):
                 raise LifecycleError(f"restore window expired for {collection}/{id}")
+            if check is not None:
+                check(tx, before)
             res = tx.update_if(collection, id, {"deleted_at": before["deleted_at"]}, _LIVE)
             if not res.won:
                 raise LifecycleError(f"{collection}/{id} changed concurrently")

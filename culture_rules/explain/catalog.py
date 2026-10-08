@@ -15,7 +15,7 @@ _ROOT = """\
 The rules engine for the AgentCulture mesh: rules -> conditions -> workflows ->
 actions, carried out by actors (agents, humans, code). It is a Python library
 (`culture_rules`) with a CLI, an HTTP API, an MCP server, an engine node per host,
-and a React Flow editor with four tabs: Rules | Workflows | Actors | Statistics.
+and a React Flow editor with five tabs: Rules | Workflows | Actors | Variables | Statistics.
 
 ## Who it is for
 
@@ -40,11 +40,21 @@ stops being per-host glue only its author understands.
 - `culture-rules overview` — descriptive snapshot of the agent.
 - `culture-rules doctor` — check the agent-identity invariants.
 - `culture-rules cli overview` — describe the CLI surface.
-- `culture-rules rules|workflows|actors|machines|runs <verb>` — the engine's nouns over the
-  HTTP API; `culture-rules explain <noun>` lists each noun's verbs.
+- `culture-rules rules|workflows|actors|machines|runs|variables <verb>` — the engine's nouns
+  over the HTTP API; `culture-rules explain <noun>` lists each noun's verbs.
 - `culture-rules serve` — run the HTTP API (needs the `server` extra).
 - `culture-rules node run` — run this host's engine node (talks to the store directly).
 - `culture-rules mcp` — serve the CLI verbs as MCP tools over stdio (needs the `mcp` extra).
+
+## Step kinds
+
+logic — pure computation (expressions, conditionals).
+ai — invoke an LLM with a prompt.
+code — run a Python function or script.
+actor_task — delegate to a named actor.
+for_each — iterate over a collection.
+retry_until — loop until a condition is met.
+wait — pause for a duration with an optional resume guard.
 
 ## Exit-code policy
 
@@ -221,6 +231,12 @@ _NOUN_BLURBS = {
     "workflows": "Workflows are the reusable *how*: steps, branching and waits.",
     "actors": "Actors are who or what can perform work: agents, humans, code, services.",
     "machines": "Machines are the hosts that execute steps; drain one to stop new placements.",
+    "variables": (
+        "Variables are shared values (a scalar or a flat list) that rule conditions and workflow "
+        "inputs read; every change appends a version naming who made it, and only an admin may "
+        "write. `add` / `remove` change one item of a list atomically (concurrent adds all "
+        "land; a no-op writes no version)."
+    ),
     "runs": "Runs are executions of a rule's workflow; pause and resume gate the whole engine.",
 }
 
@@ -235,6 +251,53 @@ def _noun_entry(noun: str, verbs: list) -> str:
         "`CULTURE_RULES_TOKEN` is a bearer token or a `grant:<NAME>` reference).\n\n"
         f"## Usage\n\n    culture-rules {noun} overview\n    culture-rules {noun} list --json\n"
     )
+
+
+_STOP_RUNS_NOTE = """\
+## Disabling a rule with current runs (d17)
+
+Disabling a rule stops it firing; it never stops the runs already going.
+`rules disable` (and a `rules update` that sets `enabled: false`) answers the
+rule plus `active_runs` (each `{id, status, started_at}`, at most 50, oldest first)
+and `active_runs_total`, and adds a hint when there are any. Then either:
+
+- **stop them**: `culture-rules rules stop-runs <id> --apply` cancels every
+  active run of the rule (status `cancelled`, reason
+  `rule disabled: stopped by <you>`), on whichever node it runs. A cancelled run
+  pushes nothing more and has no failure hand-back. Without `--apply` it lists
+  what it would cancel. It is refused (`rule_enabled`, exit 1) while the rule is
+  still enabled, and a second call is a no-op;
+- **leave them**: they keep running, and a push step still refuses with
+  `rule_disabled` because the push checks the live rule.
+
+The editor asks the same question: "Stop N current runs?".
+"""
+
+_DESCRIBE_NOTE = """\
+## Output
+
+A deterministic description built only from the definition's config (no AI, and
+never its name or description fields): one fixed phrase per trigger kind, step
+kind, built-in, action kind and condition operator, with the raw name as a
+fallback for anything unknown. Text mode prints one line per entry; `--json`
+returns `{id, kind, lines, entries}`, each entry `{label, text, depth}` plus
+`step` (the step id) on a workflow entry. The web editor shows the same lines.
+
+A rule reads `When` (the trigger), `If` / `and` / `or` (the condition, symbols
+`= ≠ < ≤ > ≥ ∈`, `not (…)`), `After`, `Supersedes`, `Run` (the workflow and its step
+count), `On` (placement), `Then`, `On failure`, `Key`, `Group`, `Disabled`. A
+workflow reads its steps numbered `1`, `2`, `3.1` ..., a loop's body one level
+deeper (a one-step body inline). API: `GET /rules/{id}/describe`,
+`GET /workflows/{id}/describe`.
+"""
+
+_VERB_NOTES = {
+    ("rules", "describe"): _DESCRIBE_NOTE,
+    ("workflows", "describe"): _DESCRIBE_NOTE,
+    ("rules", "disable"): _STOP_RUNS_NOTE,
+    ("rules", "update"): _STOP_RUNS_NOTE,
+    ("rules", "stop-runs"): _STOP_RUNS_NOTE,
+}
 
 
 def _verb_entry(v) -> str:
@@ -254,6 +317,7 @@ def _verb_entry(v) -> str:
         f"# culture-rules {v.noun} {v.name}\n\n{v.summary}.\n\n{mode} "
         f"Required role: `{v.role}`.\n\n## Parameters\n\n{params or '(none)'}\n\n"
         f"## Usage\n\n    culture-rules {v.noun} {v.name} --json\n"
+        + (f"\n{_VERB_NOTES[v.path]}" if v.path in _VERB_NOTES else "")
     )
 
 

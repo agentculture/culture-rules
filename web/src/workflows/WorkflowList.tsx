@@ -2,6 +2,7 @@ import type { ReactNode, RefObject } from "react";
 import { Link } from "react-router-dom";
 import type { WorkflowDef } from "../api/workflows";
 import { MachineDot, Switch, machineStyle } from "../culture-design/stages";
+import { AboutButton } from "../components/AboutButton";
 
 interface Props {
   workflows: readonly WorkflowDef[];
@@ -81,6 +82,7 @@ export function WorkflowList({
             >
               {wf.name}
             </Link>
+            <AboutButton noun="workflows" id={wf.id} name={wf.name} />
             <Switch label={`${wf.name} enabled`} checked={enabled} disabled={pending?.has(wf.id)} onChange={() => onToggle(wf)} />
           </div>
         );

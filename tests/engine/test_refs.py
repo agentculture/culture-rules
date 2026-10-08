@@ -154,3 +154,29 @@ def test_valid_refs_and_literals_pass():
 def test_a_ref_to_a_rule_output_is_checked_like_a_plain_reference():
     errors = validate_rule_set([ref_rule({"x": {"$ref": "rules.up.outputs.s"}})])
     assert codes(errors) == ["not_a_predecessor"]
+
+
+# --------------------------------------------------------------------------- run.id
+
+
+def test_run_id_resolves_in_rule_action_params(ex):
+    got = action_inputs(
+        ex,
+        {"plain": "run.id", "ref": {"$ref": "run.id"}, "body": "see /runs/{{ run.id }} now"},
+    )
+    run_id = got["plain"]
+    assert isinstance(run_id, str)
+    assert run_id.startswith("run-")
+    assert got["ref"] == run_id
+    assert got["body"] == f"see /runs/{run_id} now"
+    assert ex.run(run_id)["id"] == run_id  # it is this run's own id
+
+
+def test_run_lookalike_literals_stay_literal(ex):
+    params = {"a": "run.sh", "b": "run.id.x", "c": "{{ run.other }}"}
+    assert action_inputs(ex, params) == {"a": "run.sh", "b": "run.id.x", "c": "{{ run.other }}"}
+
+
+def test_run_id_ref_is_valid_and_other_run_fields_are_refused():
+    assert validate(ref_rule({"x": {"$ref": "run.id"}})) == []
+    assert codes(validate(ref_rule({"x": {"$ref": "run.status"}}))) == ["invalid_reference"]

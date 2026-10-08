@@ -18,14 +18,21 @@ import dataclasses
 import json
 import math
 import re
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Collection, Iterator
 from dataclasses import dataclass
+from string import Formatter
 from typing import Any, Literal, get_args, get_origin
 
 from culture_rules.model import condition as condition_tree
 from culture_rules.model import serde
 from culture_rules.model.action import Action
 from culture_rules.model.action_kinds import ACTION_KINDS, is_lenient, param_type_ok, resolve_kind
+from culture_rules.model.action_step import (
+    ACTION_SPEC_FIELDS,
+    is_action_step,
+    ref_problems,
+    validation_params,
+)
 from culture_rules.model.actor import Actor
 from culture_rules.model.app_actor import app_param_errors
 from culture_rules.model.common import SCHEMA_VERSION, RetryPolicy
@@ -37,12 +44,22 @@ from culture_rules.model.refs import (
     REF_KEY,
     TRIGGER_FIELDS,
     ref_errors,
+    run_error_refs,
     structured_form,
+    var_name,
 )
 from culture_rules.model.rule import TRIGGER_KINDS, Rule, Trigger, WorkflowRef
+from culture_rules.model.variable import VALID_VARIABLE_NAME_RE
+from culture_rules.model.variable_refs import condition_variable_refs
 from culture_rules.model.workflow import LOOP_KINDS, Edge, Output, Port, Step, Variable, Workflow
 
-__all__ = ["CATALOG_CODES", "ValidationError", "validate", "validate_data"]
+__all__ = [
+    "CATALOG_CODES",
+    "ValidationError",
+    "validate",
+    "validate_data",
+    "variable_ref_errors",
+]
 
 #: Pseudo step id an edge uses to read from the workflow's own inputs.
 INPUTS_NODE = "inputs"
@@ -110,6 +127,36 @@ def validate(obj: Any, *, stored: bool = False) -> list[ValidationError]:
     _validate(obj, "", errors)
     if stored:
         return [e for e in errors if e.code not in CATALOG_CODES]
+    return errors
+
+
+def variable_ref_errors(rule: Rule, defined: Collection[str]) -> list[ValidationError]:
+    """``variable_undefined`` for every shared variable ``rule`` references that is not in
+    ``defined`` (the names the store holds), each naming the variable.
+
+    :func:`validate` is pure, so the save path (which can read the store) calls this with
+    the defined names: a rule that references an undefined variable is refused at save.
+    """
+    errors: Errors = []
+    missing = sorted(condition_variable_refs(rule.condition) - set(defined))
+    if missing:
+        names = ", ".join(repr(n) for n in missing)
+        _err(
+            errors,
+            "condition",
+            "variable_undefined",
+            f"the condition references undefined shared variable(s): {names}",
+        )
+    inputs = rule.workflow.inputs if rule.workflow is not None else {}
+    for input_name, mapping in sorted(inputs.items()):
+        name = var_name(mapping)
+        if name is not None and name not in defined:
+            _err(
+                errors,
+                _join(_join("workflow", "inputs"), input_name),
+                "variable_undefined",
+                f"input {input_name!r} references undefined shared variable {name!r}",
+            )
     return errors
 
 
@@ -431,36 +478,83 @@ def _check_workflow_ref(obj: WorkflowRef, path: str, errors: Errors) -> None:
                 errors,
                 _join(_join(path, "inputs"), name),
                 "invalid_input_mapping",
-                'a workflow input is a string, {"$ref": <string>} or {"$literal": <value>}',
+                'a workflow input is a string, {"$ref": <string>}, {"$literal": <value>} '
+                'or {"$var": <variable name>}',
             )
 
 
 def _input_mapping_ok(mapping: Any) -> bool:
     if isinstance(mapping, str):
         return True
+    name = var_name(mapping)
+    if name is not None:
+        return VALID_VARIABLE_NAME_RE.fullmatch(name) is not None
     form = structured_form(mapping)
     return form == LITERAL_KEY or (form == REF_KEY and isinstance(mapping[REF_KEY], str))
+
+
+_KEY_PLACEHOLDER_RE = re.compile(r"trigger(?:\.[A-Za-z0-9_-]+)+")
+
+
+def _concurrency_key_problem(template: str) -> str | None:
+    """Why ``template`` is not a valid concurrency key, or ``None``: only
+    ``{trigger.<path>}`` placeholders, balanced braces (``{{`` / ``}}`` escape one), no
+    format spec or conversion - the same template the engine resolves
+    (:func:`culture_rules.engine.claims.resolve_concurrency_key`)."""
+    if not template.strip():
+        return "concurrency_key must not be empty"
+    unescaped = template.replace("{{", "").replace("}}", "")
+    if re.search(r"\{[^{}]*[:!]", unescaped):
+        return "format specs and conversions are not allowed"
+    try:
+        fields = list(Formatter().parse(template))
+    except ValueError as exc:
+        return f"unbalanced braces: {exc}"
+    for _literal, name, _spec, _conversion in fields:
+        if name is not None and not _KEY_PLACEHOLDER_RE.fullmatch(name):
+            return f"only {{trigger.<path>}} placeholders are allowed, not {{{name}}}"
+    return None
 
 
 def _check_rule(obj: Rule, path: str, errors: Errors) -> None:
     _nonempty(obj, ("id", "name"), path, errors)
     _schema_version(obj.schema_version, _join(path, "schema_version"), errors)
+    if isinstance(obj.max_attempts, int) and obj.max_attempts < 1:
+        _err(errors, _join(path, "max_attempts"), "range", "max_attempts must be >= 1")
+    if isinstance(obj.concurrency_key, str):
+        problem = _concurrency_key_problem(obj.concurrency_key)
+        if problem is not None:
+            _err(errors, _join(path, "concurrency_key"), "invalid_template", problem)
     if obj.exclusive_group is not None:
         _nonempty(obj, ("exclusive_group",), path, errors)
     if isinstance(obj.condition, dict):
-        try:
-            condition_tree.validate(obj.condition)
-        except condition_tree.ConditionError as exc:
-            _err(errors, _join(path, "condition"), "condition_invalid", str(exc))
-    if isinstance(obj.action, Action) and isinstance(obj.action.params, dict):
-        params_path = _join(_join(path, "action"), "params")
-        has_workflow = obj.workflow is not None
-        for p, reason in ref_errors(
-            obj.action.params, params_path, _join, has_workflow=has_workflow
-        ):
-            _err(errors, p, "invalid_reference", reason)
+        _check_rule_condition(obj.condition, path, errors)
+    for field in ("action", "on_failure"):
+        _check_action_refs(obj, field, path, errors)
     for rel in ("must_after", "may_after", "supersedes"):
         _check_relation(obj, rel, path, errors)
+
+
+def _check_rule_condition(condition: dict, path: str, errors: Errors) -> None:
+    try:
+        condition_tree.validate(condition)
+    except condition_tree.ConditionError as exc:
+        _err(errors, _join(path, "condition"), "condition_invalid", str(exc))
+
+
+def _check_action_refs(obj: Rule, field: str, path: str, errors: Errors) -> None:
+    """The references in a rule's ``action`` or ``on_failure`` params (``run.error`` only
+    for ``on_failure``)."""
+    act = getattr(obj, field)
+    if not isinstance(act, Action) or not isinstance(act.params, dict):
+        return
+    params_path = _join(_join(path, field), "params")
+    has_workflow = obj.workflow is not None
+    for p, reason in ref_errors(act.params, params_path, _join, has_workflow=has_workflow):
+        _err(errors, p, "invalid_reference", reason)
+    if field == "action":
+        for p in run_error_refs(act.params, params_path, _join):
+            _err(errors, p, "invalid_reference", "run.error is set only for on_failure")
 
 
 def _check_relation(obj: Rule, rel: str, path: str, errors: Errors) -> None:
@@ -498,6 +592,65 @@ def _check_edge(obj: Edge, path: str, errors: Errors) -> None:
     _nonempty(obj, ("source", "source_port", "target", "target_port"), path, errors)
 
 
+def _check_wait_config(config: dict, path: str, errors: Errors) -> None:
+    """Validate wait-step config: seconds (required, > 0) and head_unchanged guard."""
+    if not isinstance(config, dict):
+        _err(errors, path, "type", "wait steps require a config object with seconds")
+        return
+    if "seconds" not in config:
+        _err(
+            errors,
+            _join(path, "seconds"),
+            "required",
+            "wait steps require config.seconds (a positive number)",
+        )
+        return
+    seconds = config["seconds"]
+    if not isinstance(seconds, (int, float)) or isinstance(seconds, bool):
+        _err(errors, _join(path, "seconds"), "type", "wait config.seconds must be a number")
+        return
+    if not math.isfinite(seconds) or seconds <= 0:
+        _err(
+            errors,
+            _join(path, "seconds"),
+            "range",
+            "wait config.seconds must be a finite number > 0",
+        )
+        return
+    guard = config.get("guard")
+    if guard is None:
+        return
+    if not isinstance(guard, dict):
+        _err(errors, _join(path, "guard"), "type", "wait config.guard must be an object")
+        return
+    guard_value = guard.get("value")
+    if guard_value != "head_unchanged":
+        _err(
+            errors,
+            _join(path, "guard.value"),
+            "invalid_guard",
+            f"wait guard value must be 'head_unchanged' (got {guard_value!r})",
+        )
+        return
+    ref = guard.get("ref")
+    if not ref or not isinstance(ref, str):
+        _err(
+            errors,
+            _join(path, "guard.ref"),
+            "missing_ref",
+            "head_unchanged guard requires a config.guard.ref pointing to an input or variable",
+        )
+        return
+    if not ref.startswith(("inputs.", "vars.")):
+        _err(
+            errors,
+            _join(path, "guard.ref"),
+            "invalid_ref",
+            "head_unchanged guard ref must point to an input (inputs.<name>) "
+            "or variable (vars.<name>)",
+        )
+
+
 def _check_step(obj: Step, path: str, errors: Errors) -> None:
     _nonempty(obj, ("id",), path, errors)
     if isinstance(obj.id, str) and obj.id in _RESERVED_STEP_IDS:
@@ -516,6 +669,63 @@ def _check_step(obj: Step, path: str, errors: Errors) -> None:
             _err(errors, max_path, "not_allowed", "only loop steps take max_iterations")
         if obj.body:
             _err(errors, _join(path, "body"), "not_allowed", "only loop steps have a body")
+        if obj.kind == "wait":
+            _check_wait_config(obj.config, _join(path, "config"), errors)
+        elif is_action_step(obj.kind, obj.config):
+            _check_action_step(obj, _join(path, "config.action"), errors)
+    _check_when_explain(obj, _join(path, "config"), errors)
+
+
+def _check_when_explain(obj: Step, path: str, errors: Errors) -> None:
+    """``config.when`` (d20): a condition tree over the step's inputs, on a step the executor
+    dispatches (not a loop or wait step). ``config.explain``: a result field name, on a
+    ``retry_until`` loop only."""
+    config = obj.config if isinstance(obj.config, dict) else {}
+    if "when" in config:
+        where = _join(path, "when")
+        if obj.kind in LOOP_KINDS or obj.kind == "wait":
+            _err(errors, where, "not_allowed", f"a {obj.kind} step takes no when")
+        else:
+            try:
+                condition_tree.validate(config["when"])
+            except condition_tree.ConditionError as exc:
+                _err(errors, where, "when_invalid", f"when must be a condition tree: {exc}")
+    if "explain" in config:
+        where = _join(path, "explain")
+        if obj.kind != "retry_until":
+            _err(errors, where, "not_allowed", "only a retry_until loop takes explain")
+        elif not isinstance(config["explain"], str) or not config["explain"].strip():
+            _err(errors, where, "explain_invalid", "explain must name a result field")
+
+
+def _check_action_step(obj: Step, path: str, errors: Errors) -> None:
+    """A built-in action step (d12): a catalogued kind whose params pass the rule-action
+    kind-param checks; its references must be ``inputs.<declared input port>``."""
+    spec = obj.config.get("action")
+    kind = spec.get("kind") if isinstance(spec, dict) else None
+    params = spec.get("params", {}) if isinstance(spec, dict) else None
+    if not isinstance(kind, str) or not kind.strip() or not isinstance(params, dict):
+        _err(errors, path, "action_step_invalid", "needs config.action {kind, params: object}")
+        return
+    _check_action_spec_fields(spec, path, errors)
+    _check_action_kind(Action(kind=kind, params=validation_params(params)), path, errors)
+    ports = {p.name for _i, p in _items(obj.inputs, Port)}
+    for where, reason in ref_problems(params, ports):
+        _err(errors, _join(_join(path, "params"), where), "action_step_ref", reason)
+
+
+def _check_action_spec_fields(spec: dict, path: str, errors: Errors) -> None:
+    """``config.action``'s own fields, typed as on a rule :class:`Action` (an untyped dict
+    gets no serde pass): a non-boolean ``idempotent`` (``"false"``) must never pass for
+    true. ``retry`` / ``timeout_s`` are the step's own, and any other key is unknown."""
+    for key, value in spec.items():
+        where = _join(path, str(key))
+        if key in ACTION_SPEC_FIELDS:
+            _check_scalar(ACTION_SPEC_FIELDS[key], value, where, errors)
+        elif key in ("retry", "timeout_s"):
+            _err(errors, where, "not_allowed", f"an action step's {key} is the step's own")
+        elif key not in ("kind", "params"):
+            _err(errors, where, "unknown_field", "unknown field")
 
 
 def _check_actor(obj: Actor, path: str, errors: Errors) -> None:

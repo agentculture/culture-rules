@@ -10,6 +10,7 @@ an unauthenticated or unauthorized caller. Every mutating route goes through an 
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -21,7 +22,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.security import APIKeyHeader, HTTPBearer
 from pydantic import BaseModel, ConfigDict, Field
 
-from culture_rules.actors import human
+from culture_rules.actors import agent, human
 from culture_rules.actors.code import InlineScriptDenied
 from culture_rules.actors.secrets import SecretError
 from culture_rules.auth import guards
@@ -39,9 +40,11 @@ from culture_rules.engine.runs import (
     Containment,
     Executor,
     RunError,
+    active_runs,
     drained_machines,
     is_paused,
 )
+from culture_rules.model import describe
 from culture_rules.ops.health import health_status
 from culture_rules.ops.nodename import node_name
 from culture_rules.server import events, humans, static
@@ -56,12 +59,14 @@ from culture_rules.server.service import (
     NotFound,
     RuleReferenced,
     ServiceError,
+    Variables,
 )
 from culture_rules.store.migrations import backfill_run_ids, disable_typeless_event_rules
 from culture_rules.store.port import StoragePort
 
 __all__ = [
     "API_VERSION",
+    "BRIDGE_CALLBACK_RE",
     "HOOK_PATHS",
     "IDENTITY_HEADER",
     "create_app",
@@ -74,6 +79,11 @@ __all__ = [
 # the decoded *and* raw path, so a prefix, a trailing slash, a case or percent-encoding
 # variant, or the ``/api`` alias never matches. Nothing else is public - not even ``/health``.
 HOOK_PATHS = frozenset({"/hooks/github", "/hooks/jira"})
+BRIDGE_CALLBACK_RE = agent.BRIDGE_CALLBACK_RE
+"""The one other exemption: ``POST`` to a bridge callback path,
+``/bridge-invocations/bri_<24 hex>/events`` (full match, same raw-path and ``/api`` rules).
+The bridge holds only the per-attempt callback token, which the handler checks against the
+stored hash; the token is no credential anywhere else."""
 
 API_VERSION = "1.0.0"
 """The HTTP contract version (independent of the package version, so a release bump never
@@ -137,6 +147,47 @@ class WorkflowRun(BaseModel):
 
 class RunCancel(BaseModel):
     reason: str = ""
+
+
+class StopRunsRequest(BaseModel):
+    apply: bool = Field(False, description="false = dry-run: list the active runs, cancel nothing")
+    reason: str = Field(
+        "", description="recorded on each cancelled run; default 'rule disabled: stopped by <you>'"
+    )
+
+
+class DescribeEntry(BaseModel):
+    label: str = Field(description="When/If/and/Then/... for a rule; 1, 3.1 ... for a step")
+    text: str
+    depth: int = Field(description="nesting: a loop's body is one deeper")
+    step: str | None = Field(default=None, description="the step id (workflow entries only)")
+
+
+class Description(BaseModel):
+    """d19: a plain description generated only from the definition's config (no AI)."""
+
+    id: str
+    kind: str = Field(description="rule or workflow")
+    lines: list[str] = Field(description="the entries as text, one per line")
+    entries: list[DescribeEntry]
+
+
+class ActiveRun(BaseModel):
+    id: str
+    status: str | None = None
+    started_at: str | None = None
+
+
+class StopRunsResult(BaseModel):
+    """d17: the active runs of a disabled rule, and which of them this call cancelled."""
+
+    rule_id: str
+    applied: bool
+    runs: list[ActiveRun] = Field(description="the active runs, oldest first (at most 50)")
+    total: int = Field(description="how many runs were active")
+    cancelled: list[str] = Field(
+        description="ids this call cancelled (status cancelled); empty in a dry-run"
+    )
 
 
 class ImportRequest(BaseModel):
@@ -256,6 +307,15 @@ class ReplayRequest(BaseModel):
 
 class PurgeRequest(BaseModel):
     apply: bool = Field(False, description="false = dry-run: check only, remove nothing")
+
+
+class VariableWrite(BaseModel):
+    value: Any = Field(description="a JSON scalar, or a flat list of JSON scalars")
+    description: str | None = Field(None, description="what the variable is for")
+
+
+class VariableItem(BaseModel):
+    item: Any = Field(description="a JSON scalar of the list's item type")
 
 
 class MigrateRequest(BaseModel):
@@ -507,6 +567,7 @@ def create_app(
     _register_auth_routes(app, tokens)
     _register_ops(app, store, node)
     _register_migrations(app, store, defs)
+    _register_variables(app, Variables(store))
     for kind in DEFINITION_KINDS:
         _register_kind(app, kind, defs, life, store, audit)
     _register_runs(app, store, defs, executor, containment)
@@ -515,6 +576,7 @@ def create_app(
     _register_asks(app, store, answer_ask)
     _register_stream(app, store)
     _register_hooks(app, store)
+    _register_bridge_callbacks(app, store)
     _register_discord_targets(app, store, resolve_secret, discord_transport)
     static.install(app, web_dist)
     # outermost: every answer, 401/403 envelopes included, says how it may be cached
@@ -546,12 +608,15 @@ def _install_auth(app: FastAPI, resolver: Resolver, sign_in: humans.HumanSignIn)
 
 
 def _hook_exempt(request: Request) -> bool:
-    """``POST`` to an exact :data:`HOOK_PATHS` entry, as sent (not via ``/api``, not encoded)."""
+    """``POST`` to an exact :data:`HOOK_PATHS` entry or a :data:`BRIDGE_CALLBACK_RE` path, as
+    sent (not via ``/api``, not encoded)."""
     if request.method != "POST":
         return False
     scope = request.scope
     path = scope.get("path", "")
-    if path not in HOOK_PATHS or scope.get(static._FLAG):  # /api alias
+    if scope.get(static._FLAG):  # /api alias
+        return False
+    if path not in HOOK_PATHS and BRIDGE_CALLBACK_RE.fullmatch(path) is None:
         return False
     raw = scope.get("raw_path")
     return raw is None or raw == path.encode("ascii")
@@ -564,10 +629,137 @@ def _register_hooks(app: FastAPI, store: StoragePort) -> None:
     GitHub/Jira, not by the CLI, MCP or web clients the contract types, and the contract's
     global 401/403 envelope and credential schemes do not apply to them.
     """
+    from culture_rules.node import checks_settle  # noqa: PLC0415
     from culture_rules.server.hooks import github, jira  # noqa: PLC0415
 
-    app.include_router(github.router(store), include_in_schema=False)
+    lister = checks_settle.AppSuiteLister(store)
+    # Every GitHub read on the delivery path is bounded (suites, PR read and secret resolve
+    # within one budget); past it the SHA stays armed and the node's tick settles it.
+    on_check = checks_settle.webhook_on_check(store, lister)
+
+    def pull(repo: str, number: int) -> Any:  # read-only, bounded PR lookup for PR comments
+        return lister.get_pull(repo, number, timeout_s=github.PULL_LOOKUP_TIMEOUT_S)
+
+    app.include_router(github.router(store, on_check=on_check, pull=pull), include_in_schema=False)
     app.include_router(jira.router(store), include_in_schema=False)
+
+
+class BridgeEventAck(BaseModel):
+    """What :func:`culture_rules.actors.agent.record_bridge_event` did with the event."""
+
+    status: str = Field(
+        description="recorded | duplicate | invalid | unauthorized | unknown | expired"
+    )
+
+
+_BRIDGE_EVENT_SCHEMA = {
+    "type": "object",
+    "required": ["kind", "sequence"],
+    "properties": {
+        "event_id": {"type": "string"},
+        "sequence": {"type": "integer"},
+        "kind": {
+            "type": "string",
+            "enum": [*agent.TERMINAL_KINDS, *agent.NON_TERMINAL_KINDS],
+        },
+        "payload": {"type": "object"},
+    },
+}
+
+
+_BRIDGE_CALLBACK_ROUTE = "/bridge-invocations/{invocation_id}/events"
+
+
+async def _capped_body(request: Request, limit: int) -> bytes | None:
+    """The request body, or None once it is (declared or streamed) over ``limit`` bytes."""
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > limit:
+        return None
+    chunks, size = [], 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > limit:
+            return None
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def _bearer_of(header: str) -> str:
+    """The token of an ``Authorization: Bearer`` header, else ``""``."""
+    return header[len("Bearer ") :] if header.startswith("Bearer ") else ""
+
+
+def _json_or_none(body: bytes) -> Any:
+    """The UTF-8 JSON body, or None when it is not."""
+    try:
+        return json.loads(body.decode("utf-8"))
+    except ValueError:  # UnicodeDecodeError and JSONDecodeError are ValueErrors
+        return None
+
+
+def _register_bridge_callbacks(app: FastAPI, store: StoragePort) -> None:
+    """``POST /bridge-invocations/{id}/events``: a bridge's callback, recorded in the store.
+
+    Exempt from principal resolution (:func:`_hook_exempt`); authenticated by the per-attempt
+    callback token in ``Authorization: Bearer``. The node delivers recorded results on its
+    next cycle (:func:`culture_rules.actors.agent.redeliver_bridge`).
+    """
+    from starlette.concurrency import run_in_threadpool  # noqa: PLC0415
+
+    ack = {"model": BridgeEventAck}
+
+    @app.post(
+        _BRIDGE_CALLBACK_ROUTE,
+        tags=["bridge"],
+        operation_id="bridge_callback",
+        response_model=BridgeEventAck,
+        summary="Bridge callback event (callback token auth)",
+        description=(
+            "Called by a cultureagent bridge, not by clients: one callback event "
+            "(heartbeat, progress, completed, failed, ...) for a bridge invocation. "
+            "Authenticated only by that invocation's callback token (Bearer); no service "
+            "token or Access JWT applies. The node delivers a recorded result to its run."
+        ),
+        responses={
+            200: {**ack, "description": "Recorded, or a duplicate of one already recorded"},
+            400: {**ack, "description": "Not a callback event"},
+            401: {**ack, "description": "Missing or wrong callback token"},
+            404: {**ack, "description": "No such bridge invocation"},
+            410: {**ack, "description": "The attempt was expired or superseded"},
+            413: {**ack, "description": "Event too large"},
+        },
+        openapi_extra={
+            "requestBody": {
+                "required": True,
+                "content": {"application/json": {"schema": _BRIDGE_EVENT_SCHEMA}},
+            },
+        },
+    )
+    async def bridge_callback(invocation_id: str, request: Request) -> JSONResponse:
+        body = await _capped_body(request, agent.BRIDGE_MAX_EVENT_BYTES)
+        if body is None:
+            return JSONResponse({"status": "too_large"}, status_code=413)
+        header = request.headers.get("authorization", "")
+        token = _bearer_of(header)
+        event = _json_or_none(body)
+        outcome = await run_in_threadpool(
+            agent.record_bridge_event, store, invocation_id, token, event
+        )
+        return JSONResponse({"status": outcome}, status_code=agent.BRIDGE_EVENT_STATUS[outcome])
+
+    generate = app.openapi
+
+    def openapi() -> dict[str, Any]:
+        """The app's schema, minus the global credential schemes and 403 on this route."""
+        if app.openapi_schema is None:
+            schema = generate()
+            op = schema["paths"][_BRIDGE_CALLBACK_ROUTE]["post"]
+            op["security"] = []  # the callback token is checked by the handler
+            for code in ("403", "422"):  # no role, and the raw body is read by hand
+                op["responses"].pop(code, None)
+        return app.openapi_schema
+
+    app.openapi = openapi  # type: ignore[method-assign]
 
 
 class DiscordChannel(BaseModel):
@@ -717,6 +909,106 @@ def _register_migrations(app: FastAPI, store: StoragePort, defs: Definitions) ->
         return {"count": backfill_run_ids(store, dry_run=not apply), "applied": apply}
 
 
+def _register_variables(app: FastAPI, variables: Variables) -> None:
+    """Shared variables; writes need the admin role (the route matrix) and record the caller."""
+
+    @app.get(
+        "/variables", response_model=ItemList, tags=["variables"], operation_id="list_variables"
+    )
+    def list_variables():
+        return {"items": variables.list()}
+
+    @app.get(
+        "/variables/{name}",
+        tags=["variables"],
+        operation_id="get_variable",
+        responses={404: ERRORS[404], 422: ERRORS[422]},
+        response_model=dict[str, Any],
+    )
+    def get_variable(name: str):
+        return variables.get(name)
+
+    @app.put(
+        "/variables/{name}",
+        tags=["variables"],
+        operation_id="set_variable",
+        responses={422: ERRORS[422]},
+        response_model=dict[str, Any],
+    )
+    def set_variable(name: str, body: VariableWrite, identity: Identity):
+        """Append a new version of the variable (admin only); the version names the caller."""
+        return variables.set(name, body.value, identity, body.description)
+
+    @app.post(
+        "/variables/{name}/items/add",
+        tags=["variables"],
+        operation_id="add_variable_item",
+        responses={404: ERRORS[404], 409: ERRORS[409], 422: ERRORS[422]},
+        response_model=dict[str, Any],
+    )
+    def add_variable_item(name: str, body: VariableItem, identity: Identity):
+        """Add an item to a list variable (admin) with a compare-and-set, so concurrent adds
+        all land; already present means no new version (``changed: false``)."""
+        return variables.add_item(name, body.item, identity)
+
+    @app.post(
+        "/variables/{name}/items/remove",
+        tags=["variables"],
+        operation_id="remove_variable_item",
+        responses={404: ERRORS[404], 409: ERRORS[409], 422: ERRORS[422]},
+        response_model=dict[str, Any],
+    )
+    def remove_variable_item(name: str, body: VariableItem, identity: Identity):
+        """Remove an item from a list variable (admin); absent means no new version."""
+        return variables.remove_item(name, body.item, identity)
+
+    @app.get(
+        "/variables/{name}/history",
+        response_model=ItemList,
+        tags=["variables"],
+        operation_id="variable_history",
+        responses={404: ERRORS[404], 422: ERRORS[422]},
+    )
+    def variable_history(name: str):
+        """Every version of the variable, oldest first."""
+        return {"items": variables.history(name)}
+
+    @app.get(
+        "/variables/{name}/refs",
+        response_model=ItemList,
+        tags=["variables"],
+        operation_id="variable_refs",
+        responses={422: ERRORS[422]},
+    )
+    def variable_refs(name: str):
+        """Live rules whose condition or workflow inputs reference the variable."""
+        return {"items": variables.refs(name)}
+
+
+def _described_workflow(store: StoragePort, ref: Any) -> Mapping[str, Any] | None:
+    """The workflow a rule's ``workflow`` reference names, for its description: None without
+    a reference, ``{}`` when it is missing or deleted."""
+    if not (isinstance(ref, Mapping) and ref.get("id")):
+        return None
+    found = store.get("workflows", str(ref["id"]))
+    return found if found and not found.get("deleted_at") else {}
+
+
+def _invalid_inputs(exc: RunError) -> JSONResponse:
+    """A 422 ``invalid_inputs`` naming each offending input port in ``errors[].path``."""
+    # name the offending input port in errors[].path
+    details = [
+        {
+            "path": f"inputs.{d['port']}",
+            "code": d.get("code", exc.code),
+            "message": exc.message,
+        }
+        for d in exc.details or ()
+        if isinstance(d, dict) and "port" in d
+    ]
+    return _envelope(422, exc.code, exc.message, details or exc.details)
+
+
 def _register_runs(
     app: FastAPI,
     store: StoragePort,
@@ -765,6 +1057,35 @@ def _register_runs(
         return {"items": merged[:limit]}
 
     @app.get(
+        "/rules/{id}/describe",
+        response_model=Description,
+        response_model_exclude_none=True,
+        tags=["rules"],
+        operation_id="describe_rule",
+        responses={404: ERRORS[404]},
+    )
+    def describe_rule_route(id: str):
+        """The rule in plain words, from its config only (d19): ``When``, ``If``, ``Run``,
+        ``On``, ``Then``, ``On failure``, ``Key`` ... The referenced workflow adds its step
+        count, or ``not found`` when it is missing or deleted."""
+        rule = defs.get("rules", id)
+        workflow = _described_workflow(store, rule.get("workflow"))
+        return _description(id, "rule", describe.describe_rule(rule, workflow))
+
+    @app.get(
+        "/workflows/{id}/describe",
+        response_model=Description,
+        response_model_exclude_none=True,
+        tags=["workflows"],
+        operation_id="describe_workflow",
+        responses={404: ERRORS[404]},
+    )
+    def describe_workflow_route(id: str):
+        """The workflow's steps in plain words, from its config only (d19): numbered, a
+        loop's body nested one level deeper."""
+        return _description(id, "workflow", describe.describe_workflow(defs.get("workflows", id)))
+
+    @app.get(
         "/runs/{run_id}",
         tags=["runs"],
         operation_id="get_run",
@@ -804,17 +1125,7 @@ def _register_runs(
         except RunError as exc:
             if exc.code != "invalid_inputs":
                 raise
-            # name the offending input port in errors[].path
-            details = [
-                {
-                    "path": f"inputs.{d['port']}",
-                    "code": d.get("code", exc.code),
-                    "message": exc.message,
-                }
-                for d in exc.details or ()
-                if isinstance(d, dict) and "port" in d
-            ]
-            return _envelope(422, exc.code, exc.message, details or exc.details)
+            return _invalid_inputs(exc)
 
     @app.post(
         "/runs/{run_id}/cancel",
@@ -825,6 +1136,22 @@ def _register_runs(
     )
     def cancel_run(run_id: str, identity: Identity, body: RunCancel | None = None):
         return containment.cancel(run_id, identity, (body or RunCancel()).reason)
+
+    @app.post(
+        "/rules/{rule_id}/stop-runs",
+        tags=["runs"],
+        operation_id="stop_rule_runs",
+        response_model=StopRunsResult,
+        responses=ERRORS,
+    )
+    def stop_rule_runs(rule_id: str, identity: Identity, body: StopRunsRequest | None = None):
+        """d17: cancel every active run of a **disabled** rule (409 ``rule_enabled`` while it is
+        enabled). ``apply: false`` (the default) lists them only. Each run is cancelled through
+        ``POST /runs/{run_id}/cancel``'s path (status ``cancelled``, audited ``runs.cancel``),
+        so it pushes nothing more and hands nothing back; runs on any node are included.
+        Idempotent: once none are active it cancels nothing."""
+        req = body or StopRunsRequest()
+        return containment.stop_rule_runs(rule_id, identity, apply=req.apply, reason=req.reason)
 
 
 def _register_controls(app: FastAPI, store: StoragePort, containment: Containment) -> None:
@@ -1039,6 +1366,32 @@ def _register_stream(app: FastAPI, store: StoragePort) -> None:
         )
 
 
+def _description(id: str, kind: str, entries: list[dict[str, Any]]) -> dict[str, Any]:
+    return {"id": id, "kind": kind, "lines": describe.render(entries), "entries": entries}
+
+
+_DISABLE_RULE_NOTE = (
+    "Disable the rule. The answer is the stored rule plus `active_runs` (its non-terminal "
+    "runs, oldest first, at most 50, each `{id, status, started_at}`) and "
+    "`active_runs_total`. Disabling never stops those runs: offer "
+    "`POST /rules/{id}/stop-runs` to cancel them (d17); left running, a push step still "
+    "refuses with `rule_disabled`."
+)
+_UPDATE_RULE_NOTE = (
+    "Replace the rule. A save that switches an enabled rule off answers `active_runs` and "
+    "`active_runs_total` too, as `POST /rules/{id}/disable` does (d17)."
+)
+
+
+def _with_active_runs(store: StoragePort, doc: dict[str, Any]) -> dict[str, Any]:
+    """The stored rule plus its active runs: what a disable offers to stop (d17).
+
+    Response-only fields: they are never stored, and a client saving the rule back drops them.
+    """
+    listed, total = active_runs(store, doc["id"])
+    return {**doc, "active_runs": listed, "active_runs_total": total}
+
+
 def _register_kind(
     app: FastAPI,
     kind: str,
@@ -1084,15 +1437,25 @@ def _register_kind(
         operation_id=f"update_{one}",
         responses=ERRORS,
         response_model=dict[str, Any],
+        description=_UPDATE_RULE_NOTE if kind == "rules" else None,
     )
     def update(id: str, body: dict[str, Any], principal: Caller):
         guards.check_definition(principal, kind, body)
-        return defs.update(kind, id, body, principal.identity, check=guards.save_check(principal))
+        before = store.get(kind, id) if kind == "rules" else None
+        doc = defs.update(kind, id, body, principal.identity, check=guards.save_check(principal))
+        if (
+            before is not None
+            and before.get("enabled") is not False
+            and doc.get("enabled") is False
+        ):
+            return _with_active_runs(store, doc)  # this save switched the rule off (d17)
+        return doc
 
     for verb, flag in (("enable", True), ("disable", False)):
 
         def toggle(id: str, identity: Identity, _flag: bool = flag):
-            return defs.set_enabled(kind, id, _flag, identity)
+            doc = defs.set_enabled(kind, id, _flag, identity)
+            return _with_active_runs(store, doc) if kind == "rules" and not _flag else doc
 
         app.post(
             f"{path}/{verb}",
@@ -1100,6 +1463,7 @@ def _register_kind(
             operation_id=f"{verb}_{one}",
             responses=ERRORS,
             response_model=dict[str, Any],
+            description=_DISABLE_RULE_NOTE if (kind, flag) == ("rules", False) else None,
         )(toggle)
 
     @app.delete(
@@ -1123,7 +1487,7 @@ def _register_kind(
     )
     def restore(id: str, identity: Identity):
         defs.get(kind, id)
-        return life.restore(kind, id, identity)
+        return defs.restore(kind, id, identity, life)  # d7: the node-capability guard
 
     @app.post(
         f"{path}/purge",

@@ -110,7 +110,8 @@ test.describe("Workflows tab: New workflow", () => {
   test("with a workflow selected, the list's New button creates and switches to the new one", async ({ page }) => {
     const calls = await open(page, WORKFLOW_DOCS, "/workflows?id=review-pr");
     await expect(page.getByRole("heading", { level: 1, name: "Review PR" })).toBeVisible();
-    // The design board's head stays one row at 1280px beside the list: title, rename, delete, io group, Run.
+    // The design board's head stays one row at 1280px beside the list: title, (i), rename, delete, io
+    // group. Since d19's (i) the row is full there, so Run may wrap under it (it is checked separately).
     const middle = async (name: string, role: "heading" | "button" | "switch") => {
       const box = (await page.getByRole(role, { name, exact: true }).first().boundingBox())!;
       return box.y + box.height / 2;
@@ -121,7 +122,6 @@ test.describe("Workflows tab: New workflow", () => {
       ["Delete workflow", "button"],
       ["Import", "button"],
       ["Export", "button"],
-      ["Run", "button"],
     ] as const) {
       expect(Math.abs((await middle(name, role)) - row)).toBeLessThan(12);
     }

@@ -62,9 +62,12 @@ export function canvasBounds(positions: Positions, heights: Readonly<Record<stri
   };
 }
 
-/** The canvas's pixel height: toolbar room, the graph, room for the `+`; never under the board's. */
-export function canvasHeight(bounds: Bounds): number {
-  return Math.max(CANVAS_MIN_HEIGHT, CANVAS_TOP + bounds.maxY - bounds.minY + CANVAS_BOTTOM);
+/**
+ * The canvas's pixel height: toolbar room, the graph (scaled by `zoom`), room for the `+`;
+ * never under the board's.
+ */
+export function canvasHeight(bounds: Bounds, zoom = 1): number {
+  return Math.max(CANVAS_MIN_HEIGHT, CANVAS_TOP + (bounds.maxY - bounds.minY) * zoom + CANVAS_BOTTOM);
 }
 
 function graphOf(wf: WorkflowDef) {

@@ -1,6 +1,6 @@
 # culture-rules engine + editor
 
-> culture-rules implements issues #1 and #2: a Python rules → condition → workflow → action engine with persisted runs on a MongoDB replica set, placement of rules and workflow steps by machine, actor or requirement across enrolled machines (spark, thor, spark2), a generic Actor registry (agents with db- or repo-based config, harness, model), controlled from a CLI, an MCP server and a graph-first React Flow editor with four tabs (Rules | Workflows | Actors | Statistics), served always-on from several hosts at rules.culture.dev behind cultureflare SSO
+> culture-rules implements issues #1 and #2: a Python rules → condition → workflow → action engine with persisted runs on a MongoDB replica set, placement of rules and workflow steps by machine, actor or requirement across enrolled machines (spark, thor, spark2), a generic Actor registry (agents with db- or repo-based config, harness, model), controlled from a CLI, an MCP server and a graph-first React Flow editor with five tabs (Rules | Workflows | Actors | Variables | Statistics), served always-on from several hosts at rules.culture.dev behind cultureflare SSO
 
 ## Audience
 
@@ -21,9 +21,9 @@
 
 ## Requirements
 
-- The editor has four primary tabs — Rules | Workflows | Actors | Statistics (operator decision 2026-10-03 adds Statistics to issue #2's three); runs/history/ledger/inbox stay contextual inside a rule or workflow, while per-machine state and work live in Statistics
-  - honesty: The app shell renders exactly four top-level tabs and no runs/history/ledger/inbox route exists at top level
-    - instruction: Playwright: count nav links == 4; router table has no top-level runs route
+- Exactly five primary tabs: Rules | Workflows | Actors | Variables | Statistics. The operator decision on 2026-10-03 added Statistics to issue #2's three; the 2026-10-05 [pr-fixer spec](2026-10-05-pr-fixer-rule.md) adds Variables as the fifth tab. Runs/history/ledger/inbox stay contextual inside a rule or workflow, while per-machine state and work live in Statistics
+  - honesty: The app shell renders exactly five top-level tabs and no runs/history/ledger/inbox route exists at top level
+    - instruction: Playwright: count nav links == 5; router table has no top-level runs route
 - Workflows declare inputs, internal variables, steps and outputs and do not know which trigger fired them; a rule binds a trigger (+ optional condition) to an optional workflow and a required action (issue #2 'Workflow'; operator decision q3)
   - honesty: A workflow definition contains no reference to any trigger; a rule with no workflow validates and runs Trigger -> Action
     - instruction: schema test: workflow schema has no trigger field; engine test runs a workflow-less rule end to end

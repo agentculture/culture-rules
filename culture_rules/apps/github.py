@@ -1,4 +1,4 @@
-"""GitHub App client: App JWT, cached installation token, allow-listed issue comments.
+"""GitHub App client: App JWT, installation tokens, allow-listed comments, PR reads and replies.
 
 Cited (cite-don't-import) in spirit from the culture-nodes Go github adapter: a repo
 allowlist is enforced *before* any network call, and secrets are held only in memory.
@@ -10,6 +10,12 @@ allowlist is enforced *before* any network call, and secrets are held only in me
 * The installation token is exchanged via
   ``POST {api_base}/app/installations/{id}/access_tokens`` and cached per app instance
   until five minutes before its ``expires_at``.
+* :meth:`GitHubApp.push_token` mints a fresh, *uncached* token per push, scoped to exactly
+  one repository with ``{contents: write}`` only; the caller holds it for one push alone.
+* Review threads: :meth:`GitHubApp.reply_review_comment` (REST) and
+  :meth:`GitHubApp.resolve_review_thread` (GraphQL ``resolveReviewThread``), both as the App;
+  :meth:`GitHubApp.list_review_threads` reads the unresolved ones (GraphQL, bounded pages).
+* There is deliberately no merge call: merging stays a human gate.
 * Neither the key, the JWT nor the token is ever logged or put in an error message.
 
 The HTTP transport is injectable: ``transport(method, url, headers, body, timeout) ->
@@ -24,11 +30,21 @@ import logging
 import re
 import urllib.error
 import urllib.request
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-__all__ = ["DEFAULT_API_BASE", "GitHubApp", "GitHubError", "urllib_transport"]
+__all__ = [
+    "DEFAULT_API_BASE",
+    "PR_FACT_FIELDS",
+    "GitHubApp",
+    "GitHubError",
+    "complete_pr_facts",
+    "pr_facts",
+    "urllib_transport",
+]
 
 log = logging.getLogger(__name__)
 
@@ -36,9 +52,99 @@ DEFAULT_API_BASE = "https://api.github.com"
 API_VERSION = "2022-11-28"
 _REFRESH_MARGIN = timedelta(minutes=5)
 _TIMEOUT_S = 15
+_SHA_RE = re.compile(r"^[0-9a-fA-F]{7,64}$")
 _REPO_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9._-]+$")
 
+#: The current call's ``(deadline, clock)`` (see :meth:`GitHubApp.deadline`).
+_DEADLINE: ContextVar[tuple[datetime, Callable[[], datetime]] | None] = ContextVar(
+    "github_deadline", default=None
+)
+
 Transport = Callable[[str, str, dict[str, str], bytes | None, float], tuple[int, bytes]]
+
+
+PR_FACT_FIELDS = (
+    "head_sha",
+    "head_branch",
+    "head_repo",
+    "base_repo",
+    "base_branch",
+    "base_sha",
+    "draft",
+    "pr_author",
+)
+"""The PR facts every fixer-trigger event carries under the same names (d14)."""
+
+
+_FULL_SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
+
+
+def _get(obj: Any, *path: str) -> Any:
+    for key in path:
+        if not isinstance(obj, dict):
+            return None
+        obj = obj.get(key)
+    return obj
+
+
+def _is_text(value: Any) -> bool:
+    return isinstance(value, str) and bool(value)
+
+
+def _is_repo(value: Any) -> bool:
+    return isinstance(value, str) and bool(_REPO_RE.match(value))
+
+
+def _is_full_sha(value: Any) -> bool:
+    return isinstance(value, str) and bool(_FULL_SHA_RE.match(value))
+
+
+def _is_bool(value: Any) -> bool:
+    return isinstance(value, bool)
+
+
+_FACT_VALID: dict[str, Callable[[Any], bool]] = {
+    "head_sha": _is_full_sha,
+    "head_branch": _is_text,
+    "head_repo": _is_repo,
+    "base_repo": _is_repo,
+    "base_branch": _is_text,
+    "base_sha": _is_full_sha,
+    "draft": _is_bool,
+    "pr_author": _is_text,
+}
+
+
+def pr_facts(pr: Any) -> dict[str, Any]:
+    """The valid :data:`PR_FACT_FIELDS` of one pull-request document (a webhook's
+    ``pull_request`` object or a REST ``GET /repos/{repo}/pulls/{n}`` result; same shape).
+
+    Each fact is checked: repos are ``owner/name`` strings, SHAs 40 hex digits, branches and
+    the author non-empty strings, ``draft`` a real bool. A missing or malformed fact is
+    *omitted*, never ``None`` and never defaulted, so a condition comparing it is false (two
+    missing repos cannot read as ``head_repo == base_repo``; a deleted fork's null
+    ``head.repo`` drops only ``head_repo``). A non-mapping yields ``{}``."""
+    if not isinstance(pr, dict):
+        return {}
+    head, base = pr.get("head"), pr.get("base")
+    raw = {
+        "head_sha": _get(head, "sha"),
+        "head_branch": _get(head, "ref"),
+        "head_repo": _get(head, "repo", "full_name") or _get(head, "full_name"),
+        "base_repo": _get(base, "repo", "full_name") or _get(base, "full_name"),
+        "base_branch": _get(base, "ref"),
+        "base_sha": _get(base, "sha"),
+        "draft": pr.get("draft"),
+        "pr_author": _get(pr, "user", "login"),
+    }
+    return {key: value for key, value in raw.items() if _FACT_VALID[key](value)}
+
+
+def complete_pr_facts(pr: Any) -> dict[str, Any] | None:
+    """:func:`pr_facts` when *every* fact is present and valid, else ``None``: the all-or-
+    nothing form a lookup-based enrichment uses, so it is never half-applied."""
+    facts = pr_facts(pr)
+    return facts if len(facts) == len(PR_FACT_FIELDS) else None
 
 
 class GitHubError(Exception):
@@ -133,9 +239,51 @@ class GitHubApp:
             raise GitHubError("bad_private_key", type(exc).__name__) from None
         return f"{signing}.{_b64url(signature)}"
 
+    @contextmanager
+    def deadline(
+        self, deadline: datetime, clock: Callable[[], datetime] | None = None
+    ) -> Iterator[None]:
+        """Bound every HTTP call in the block by the time left until ``deadline``.
+
+        A call that would start at or after the deadline raises ``deadline_exceeded``
+        (retryable) without touching the network, and so does a call the deadline cuts off in
+        flight (its transport timeout). Held in a ContextVar, so concurrent
+        callers do not see each other's deadline."""
+        reset = _DEADLINE.set((deadline, clock or self._clock))
+        try:
+            yield
+        finally:
+            _DEADLINE.reset(reset)
+
+    @staticmethod
+    def _timeout() -> float:
+        bound = _DEADLINE.get()
+        if bound is None:
+            return _TIMEOUT_S
+        left = (bound[0] - bound[1]()).total_seconds()
+        if left <= 0:
+            raise GitHubError("deadline_exceeded", retryable=True)
+        return min(float(_TIMEOUT_S), left)
+
+    @staticmethod
+    def _cut_by_deadline(exc: BaseException, timeout: float) -> bool:
+        """Whether a transport failure is the active :meth:`deadline` cutting a call off: a
+        timeout (``TimeoutError``, bare or as urllib's ``URLError.reason``) of a call whose
+        timeout was the deadline's remainder, or any failure once the deadline has passed.
+        Callers then see ``deadline_exceeded`` (retryable), as for a call never started."""
+        bound = _DEADLINE.get()
+        if bound is None:
+            return False
+        if (bound[0] - bound[1]()).total_seconds() <= 0:
+            return True
+        reason = getattr(exc, "reason", None)
+        timed_out = isinstance(exc, TimeoutError) or isinstance(reason, TimeoutError)
+        return timed_out and timeout < _TIMEOUT_S
+
     def _request(
         self, method: str, path: str, bearer: str, payload: dict[str, Any] | None
     ) -> tuple[int, dict[str, Any]]:
+        timeout = self._timeout()
         headers = {
             "Authorization": f"Bearer {bearer}",
             "Accept": "application/vnd.github+json",
@@ -147,8 +295,10 @@ class GitHubApp:
             body = json.dumps(payload).encode()
             headers["Content-Type"] = "application/json"
         try:
-            status, raw = self._transport(method, self._api_base + path, headers, body, _TIMEOUT_S)
+            status, raw = self._transport(method, self._api_base + path, headers, body, timeout)
         except Exception as exc:  # noqa: BLE001 - network failure is retryable; text withheld
+            if self._cut_by_deadline(exc, timeout):
+                raise GitHubError("deadline_exceeded", retryable=True) from None
             raise GitHubError("network_error", type(exc).__name__, retryable=True) from None
         if status >= 400:
             raise GitHubError(f"http_{status}", retryable=status >= 500 or status == 429)
@@ -172,19 +322,264 @@ class GitHubApp:
         log.debug("github app %s: installation token refreshed", self._app_id)
         return token
 
-    def post_comment(self, repo: str, number: int, body: str) -> dict[str, Any]:
-        """Comment on issue/PR ``number`` of ``repo``; returns ``{comment_id, url}``."""
-        if not self.is_allowed(repo):
-            log.warning("github comment refused: repo not allow-listed")
-            raise GitHubError("repo_not_allowed", "repo is not on the actor's allowlist")
-        number = int(number)
-        path = f"/repos/{repo}/issues/{number}/comments"
+    def _call(self, method: str, path: str, payload: dict[str, Any] | None) -> dict[str, Any]:
+        """One call with the installation token; a revoked (401) cached token is swapped once."""
         try:
-            _, data = self._request("POST", path, self.installation_token(), {"body": body})
+            return self._request(method, path, self.installation_token(), payload)[1]
         except GitHubError as exc:
             if exc.code != "http_401":
                 raise
             # the cached token was revoked server-side: drop it and exchange once more
             self._token = self._token_expiry = None
-            _, data = self._request("POST", path, self.installation_token(), {"body": body})
+            return self._request(method, path, self.installation_token(), payload)[1]
+
+    def _require_allowed(self, repo: str, what: str) -> None:
+        if not self.is_allowed(repo):
+            log.warning("github %s refused: repo not allow-listed", what)
+            raise GitHubError("repo_not_allowed", "repo is not on the actor's allowlist")
+
+    def post_comment(self, repo: str, number: int, body: str) -> dict[str, Any]:
+        """Comment on issue/PR ``number`` of ``repo``; returns ``{comment_id, url}``."""
+        self._require_allowed(repo, "comment")
+        data = self._call("POST", f"/repos/{repo}/issues/{int(number)}/comments", {"body": body})
         return {"comment_id": data.get("id"), "url": data.get("html_url")}
+
+    def push_token(self, repo: str) -> str:
+        """A fresh installation token for one push: ``repositories=[repo]``, contents:write only.
+
+        Never cached and never shared with :meth:`installation_token`; the caller drops it
+        after the push. GitHub takes repository *names* (the installation fixes the owner).
+        """
+        self._require_allowed(repo, "push token")
+        owner, name = repo.split("/", 1)
+        payload = {"repositories": [name], "permissions": {"contents": "write"}}
+        path = f"/app/installations/{self._installation_id}/access_tokens"
+        _, data = self._request("POST", path, self.make_jwt(), payload)
+        token = data.get("token")
+        if not isinstance(token, str) or not token:
+            raise GitHubError("bad_response", "token exchange", retryable=True)
+        granted = data.get("repositories")
+        if isinstance(granted, list) and any(
+            isinstance(r, dict) and str(r.get("full_name", "")).lower() != repo.lower()
+            for r in granted
+        ):
+            raise GitHubError("token_scope_mismatch", "token is not scoped to the one repo")
+        log.debug("github app %s: single-repo push token minted (owner %s)", self._app_id, owner)
+        return token
+
+    def get_pull(self, repo: str, number: int) -> dict[str, Any]:
+        """The pull request ``number`` of ``repo`` (REST ``GET /repos/{repo}/pulls/{n}``)."""
+        self._require_allowed(repo, "pull read")
+        return self._call("GET", f"/repos/{repo}/pulls/{int(number)}", None)
+
+    def list_check_suites(self, repo: str, sha: str) -> list[dict[str, Any]]:
+        """Every check suite of commit ``sha`` (REST, paginated); read-only (Checks: read).
+
+        Each item is ``{app_slug, status, conclusion}`` - the three fields a settle decision
+        needs - so nothing else of GitHub's payload is carried around."""
+        self._require_allowed(repo, "check suites")
+        if not isinstance(sha, str) or not _SHA_RE.match(sha):
+            raise GitHubError("bad_input", "sha")
+        out: list[dict[str, Any]] = []
+        for page in range(1, _MAX_PAGES + 1):
+            data = self._call(
+                "GET", f"/repos/{repo}/commits/{sha}/check-suites?per_page=100&page={page}", None
+            )
+            suites = data.get("check_suites")
+            suites = suites if isinstance(suites, list) else []
+            out.extend(_suite_fact(suite) for suite in suites if isinstance(suite, dict))
+            if len(suites) < 100:
+                return out
+        raise GitHubError("too_many_pages", "check suites")
+
+    def reply_review_comment(
+        self, repo: str, number: int, comment_id: int, body: str
+    ) -> dict[str, Any]:
+        """Reply in the review thread of ``comment_id``; returns ``{comment_id, url, node_id}``."""
+        self._require_allowed(repo, "review reply")
+        path = f"/repos/{repo}/pulls/{int(number)}/comments/{int(comment_id)}/replies"
+        data = self._call("POST", path, {"body": body})
+        return {"comment_id": data.get("id"), "url": data.get("html_url")}
+
+    def graphql(self, query: str, variables: dict[str, Any]) -> dict[str, Any]:
+        """One GraphQL call as the App; GraphQL-level ``errors`` raise ``graphql_error``."""
+        data = self._call("POST", "/graphql", {"query": query, "variables": variables})
+        if data.get("errors"):
+            raise GitHubError("graphql_error", retryable=False)
+        out = data.get("data")
+        return out if isinstance(out, dict) else {}
+
+    def _thread_has_comment(self, thread_id: str, page: Any, comment_id: int) -> bool:
+        """Whether review thread ``thread_id`` holds ``comment_id``, paging its comments."""
+        for _ in range(_MAX_PAGES):
+            page = page if isinstance(page, dict) else {}
+            if any((c or {}).get("databaseId") == comment_id for c in page.get("nodes") or ()):
+                return True
+            info = page.get("pageInfo") or {}
+            if not info.get("hasNextPage"):
+                return False
+            data = self.graphql(
+                _THREAD_COMMENTS_QUERY, {"id": thread_id, "after": info.get("endCursor")}
+            )
+            page = (data.get("node") or {}).get("comments")
+        raise GitHubError("too_many_pages", "review thread comments")
+
+    def find_review_thread(self, repo: str, number: int, comment_id: int) -> str | None:
+        """The GraphQL id of the PR review thread holding REST comment ``comment_id``.
+
+        Pages through every review thread of the PR (and each thread's comments)."""
+        self._require_allowed(repo, "thread lookup")
+        owner, name = repo.split("/", 1)
+        after: str | None = None
+        for _ in range(_MAX_PAGES):
+            variables = {"owner": owner, "name": name, "number": int(number), "after": after}
+            data = self.graphql(_THREADS_QUERY, variables)
+            pull = ((data.get("repository") or {}).get("pullRequest")) or {}
+            threads = pull.get("reviewThreads") or {}
+            for thread in threads.get("nodes") or ():
+                tid = (thread or {}).get("id")
+                if isinstance(tid, str) and self._thread_has_comment(
+                    tid, thread.get("comments"), int(comment_id)
+                ):
+                    return tid
+            info = threads.get("pageInfo") or {}
+            if not info.get("hasNextPage"):
+                return None
+            after = info.get("endCursor")
+        raise GitHubError("too_many_pages", _THREADS_WHAT)
+
+    def review_thread_matches(
+        self, repo: str, number: int, thread_id: str, comment_id: int
+    ) -> bool:
+        """Whether ``thread_id`` is a review thread of PR ``number`` in ``repo`` holding
+        ``comment_id``. The installation token can reach any thread it is installed on, so a
+        caller-supplied id is never trusted unchecked."""
+        self._require_allowed(repo, "thread check")
+        node = self.graphql(_THREAD_NODE_QUERY, {"id": thread_id}).get("node") or {}
+        pull = node.get("pullRequest") or {}
+        where = (pull.get("repository") or {}).get("nameWithOwner")
+        if not isinstance(where, str) or where.lower() != repo.lower():
+            return False
+        if pull.get("number") != int(number):
+            return False
+        return self._thread_has_comment(thread_id, node.get("comments"), int(comment_id))
+
+    def list_review_threads(
+        self, repo: str, number: int, *, max_pages: int | None = None
+    ) -> list[dict[str, Any]]:
+        """The PR's **unresolved** review threads, each described by its opening comment.
+
+        One GraphQL ``reviewThreads`` page (100 threads) per call, at most ``max_pages``
+        (default :data:`THREAD_PAGES`) pages, else ``too_many_pages``. Each item is
+        ``{thread_id, comment_id, path, line, author, body}``: ``thread_id`` the GraphQL node
+        id (what ``resolveReviewThread`` takes), ``comment_id`` the opening comment's REST id
+        (what a reply targets), ``author`` its login with GraphQL's bare bot login given the
+        REST ``[bot]`` suffix (so it compares with webhook ``author`` values), ``body``
+        clipped to :data:`THREAD_BODY_MAX` characters. A thread whose opening comment cannot
+        be read is left out."""
+        self._require_allowed(repo, _THREADS_WHAT)
+        owner, name = repo.split("/", 1)
+        out: list[dict[str, Any]] = []
+        after: str | None = None
+        for _ in range(max_pages or THREAD_PAGES):
+            variables = {"owner": owner, "name": name, "number": int(number), "after": after}
+            data = self.graphql(_OPEN_THREADS_QUERY, variables)
+            pull = ((data.get("repository") or {}).get("pullRequest")) or {}
+            threads = pull.get("reviewThreads") or {}
+            for node in threads.get("nodes") or ():
+                item = _open_thread(node)
+                if item is not None:
+                    out.append(item)
+            info = threads.get("pageInfo") or {}
+            if not info.get("hasNextPage"):
+                return out
+            after = info.get("endCursor")
+        raise GitHubError("too_many_pages", _THREADS_WHAT)
+
+    def resolve_review_thread(self, thread_id: str) -> bool:
+        """Resolve the review thread ``thread_id`` (GraphQL ``resolveReviewThread``)."""
+        data = self.graphql(_RESOLVE_MUTATION, {"threadId": thread_id})
+        thread = ((data.get("resolveReviewThread") or {}).get("thread")) or {}
+        return bool(thread.get("isResolved"))
+
+
+def _suite_fact(suite: dict[str, Any]) -> dict[str, Any]:
+    """The three fields of one check suite a settle decision needs."""
+    app = suite.get("app") if isinstance(suite.get("app"), dict) else {}
+    return {
+        "app_slug": app.get("slug"),
+        "status": suite.get("status"),
+        "conclusion": suite.get("conclusion"),
+    }
+
+
+_MAX_PAGES = 50
+_THREADS_WHAT = "review threads"
+THREAD_PAGES = 10
+"""Page cap of :meth:`GitHubApp.list_review_threads` (100 threads a page)."""
+THREAD_BODY_MAX = 4000
+"""Characters of a thread's opening comment kept by :meth:`GitHubApp.list_review_threads`."""
+
+
+def _open_thread(node: Any) -> dict[str, Any] | None:
+    """One unresolved thread of a ``reviewThreads`` page, or None (resolved / unreadable)."""
+    if not isinstance(node, dict) or node.get("isResolved") is not False:
+        return None
+    tid = node.get("id")
+    first = ((node.get("comments") or {}).get("nodes") or [None])[0]
+    if not isinstance(tid, str) or not tid or not isinstance(first, dict):
+        return None
+    opener = _thread_opener(first)
+    if opener is None:
+        return None
+    cid, login = opener
+    body = first.get("body")
+    line = node.get("line")
+    return {
+        "thread_id": tid,
+        "comment_id": cid,
+        "path": node.get("path") if isinstance(node.get("path"), str) else None,
+        "line": line if isinstance(line, int) and not isinstance(line, bool) else None,
+        "author": login,
+        "body": body[:THREAD_BODY_MAX] if isinstance(body, str) else "",
+    }
+
+
+def _thread_opener(first: Mapping[str, Any]) -> tuple[int, str] | None:
+    """The opening comment's database id and author login (a GitHub App bot's login ends
+    ``[bot]``), or None when either is unreadable."""
+    cid, author = first.get("databaseId"), first.get("author") or {}
+    login = author.get("login") if isinstance(author, dict) else None
+    if not isinstance(cid, int) or isinstance(cid, bool) or not isinstance(login, str):
+        return None
+    if author.get("__typename") == "Bot" and not login.endswith("[bot]"):
+        login += "[bot]"
+    return cid, login
+
+
+_PAGE = "pageInfo{hasNextPage endCursor}"
+_THREADS_QUERY = (
+    "query($owner:String!,$name:String!,$number:Int!,$after:String)"
+    "{repository(owner:$owner,name:$name){pullRequest(number:$number)"
+    "{reviewThreads(first:100,after:$after){" + _PAGE + " nodes{id "
+    "comments(first:100){" + _PAGE + " nodes{databaseId}}}}}}}"
+)
+_OPEN_THREADS_QUERY = (
+    "query($owner:String!,$name:String!,$number:Int!,$after:String)"
+    "{repository(owner:$owner,name:$name){pullRequest(number:$number)"
+    "{reviewThreads(first:100,after:$after){" + _PAGE + " nodes{id isResolved path line "
+    "comments(first:1){nodes{databaseId body author{__typename login}}}}}}}}"
+)
+_THREAD_NODE_QUERY = (
+    "query($id:ID!){node(id:$id){... on PullRequestReviewThread{id "
+    "pullRequest{number repository{nameWithOwner}} "
+    "comments(first:100){" + _PAGE + " nodes{databaseId}}}}}"
+)
+_THREAD_COMMENTS_QUERY = (
+    "query($id:ID!,$after:String){node(id:$id){... on PullRequestReviewThread"
+    "{comments(first:100,after:$after){" + _PAGE + " nodes{databaseId}}}}}"
+)
+_RESOLVE_MUTATION = (
+    "mutation($threadId:ID!){resolveReviewThread(input:{threadId:$threadId})"
+    "{thread{id isResolved}}}"
+)

@@ -17,13 +17,21 @@ Waiting is not final. A ``blocked_by_predecessor`` record ("waiting for predeces
 with ``fire: true`` and the ``run_id`` when the rule then fired ("ran after X"),
 ``predecessor_failed`` when X did not succeed, or whatever else the re-evaluation decided -
 and the waiting state moves to its ``superseded`` list, so the rule's history shows both
-what it waited for and how that ended. Every other recorded reason is final and is never
+what it waited for and how that ended. ``deduplicated`` (a concurrency key was held by an
+active run) is superseded the same way when the node later fires that event as the key's
+newest deduplicated one; a ``deduplicated`` record replaced as its key's newest is marked
+``coalesced`` (final: it never fires). Every other recorded reason is final and is never
 rewritten. A fired record is not a skip: :func:`decisions_for` leaves it out with
 ``skips_only`` (the run itself is the history entry).
 
 A rule over its fire-rate cap (``trigger.params.max_fires_per_hour``, enforced by the node,
 :mod:`culture_rules.node.firing`, "Rate cap") is recorded as the final skip ``rate_capped``
 instead of a run.
+
+A rule that references a shared variable which the evaluating node cannot read - the node
+does not advertise the ``variables`` capability, or the variable is not defined - is
+recorded as the final skip ``variables_unsupported`` / ``variable_undefined``: an error on
+the rule's history, never a silent non-match (:mod:`culture_rules.engine.variables`).
 
 ``condition_false``, ``disabled`` and ``paused`` are not recorded: they are the normal
 "this rule did not apply" outcome and would flood the history. Standard-library only.
@@ -37,12 +45,17 @@ from typing import Any
 
 from culture_rules.engine.claims import firing_key
 from culture_rules.engine.matching import (
+    ATTEMPT_BUDGET_EXHAUSTED,
     BLOCKED_BY_PREDECESSOR,
+    CONCURRENCY_KEY_UNRESOLVED,
+    DEDUPLICATED,
     FIRE,
     GROUP_LOST,
     PAUSED,
     PREDECESSOR_FAILED,
     SUPERSEDED_BY,
+    VARIABLE_UNDEFINED,
+    VARIABLES_UNSUPPORTED,
     Decision,
 )
 from culture_rules.store.port import StoreOps
@@ -68,6 +81,11 @@ RECORDED_REASONS: tuple[str, ...] = (
     GROUP_LOST,
     PREDECESSOR_FAILED,
     RATE_CAPPED,
+    VARIABLES_UNSUPPORTED,
+    VARIABLE_UNDEFINED,
+    DEDUPLICATED,
+    CONCURRENCY_KEY_UNRESOLVED,
+    ATTEMPT_BUDGET_EXHAUSTED,
 )
 FINAL_SKIP_REASONS: tuple[str, ...] = tuple(
     r for r in RECORDED_REASONS if r != BLOCKED_BY_PREDECESSOR
@@ -146,6 +164,9 @@ def settle_decision(
       predecessors it waited for (``by``) and its ``run_id``. A ``paused`` decision is
       not an outcome and leaves a waiting record as it is (the node defers a chain
       re-evaluation during a pause, :mod:`culture_rules.node.firing`, "Pause");
+    * a ``deduplicated`` record and a different decision: superseded the same way - the
+      node re-decides the newest deduplicated event of a concurrency key once the run
+      holding the key ends (:mod:`culture_rules.node.firing`, "Concurrency keys");
     * a final record: left as it is (redelivery).
     """
     key = decision_key(decision.rule_id, event_id)
@@ -160,7 +181,11 @@ def settle_decision(
             RULE_DECISIONS,
             _record(decision, event_id=event_id, host=host, at=at, run_id=run_id),
         )
-    if existing.get("reason") != BLOCKED_BY_PREDECESSOR or decision.reason == PAUSED:
+    if (
+        existing.get("reason") not in (BLOCKED_BY_PREDECESSOR, DEDUPLICATED)
+        or decision.reason == PAUSED
+        or (existing.get("reason") == DEDUPLICATED and decision.reason == DEDUPLICATED)
+    ):
         return existing
     if waiting:
         return _refresh_waiting(tx, key, decision, existing)
@@ -170,7 +195,7 @@ def settle_decision(
     new = _record(decision, event_id=event_id, host=host, at=at, run_id=run_id)
     new["superseded"] = [*(existing.get("superseded") or ()), prior]
     changes = {k: v for k, v in new.items() if k != "id"}
-    return tx.update_if(RULE_DECISIONS, key, {"reason": BLOCKED_BY_PREDECESSOR}, changes).document
+    return tx.update_if(RULE_DECISIONS, key, {"reason": existing["reason"]}, changes).document
 
 
 def _refresh_waiting(
@@ -180,7 +205,7 @@ def _refresh_waiting(
     if list(decision.by) == list(existing.get("by") or ()):
         return existing
     changes = {"by": list(decision.by), "message": decision.message}
-    return tx.update_if(RULE_DECISIONS, key, {"reason": BLOCKED_BY_PREDECESSOR}, changes).document
+    return tx.update_if(RULE_DECISIONS, key, {"reason": existing["reason"]}, changes).document
 
 
 def decisions_for(

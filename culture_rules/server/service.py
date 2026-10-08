@@ -2,7 +2,10 @@
 
 Every save path - create, update and import - validates the definition with the model
 validators and, for rules, runs :func:`culture_rules.engine.ruleset.validate_rule_set` over the
-whole resulting rule set, refusing with :class:`Invalid` (HTTP 422) on any error. Every
+whole resulting rule set, refusing with :class:`Invalid` (HTTP 422) on any error. A rule
+that references a shared variable is also refused when the variable is undefined
+(``variable_undefined``) or while any online node does not advertise variable support
+(``variables_unsupported_nodes``, deviation d7). Every
 mutating verb writes its change and exactly one audit entry in one transaction. Nothing is
 cached in the process: each call reads the store.
 """
@@ -10,20 +13,25 @@ cached in the process: each call reads the store.
 from __future__ import annotations
 
 import json
+import math
 import uuid
 from collections.abc import Callable, Iterable, Mapping
 from datetime import UTC, datetime
 from typing import Any
 
 from culture_rules.engine.audit import AuditLog, mutating_verb, require_identity
+from culture_rules.engine.lifecycle import Lifecycle
 from culture_rules.engine.ruleset import validate_rule_set
+from culture_rules.engine.variables import defined_variables, nodes_without_variables
 from culture_rules.io import exchange, gitrepo
 from culture_rules.io.bundle import KINDS, Bundle, SecretRef, check_name
 from culture_rules.model.machine import Machine
 from culture_rules.model.rule import Rule
-from culture_rules.model.validate import validate, validate_data
+from culture_rules.model.validate import validate, validate_data, variable_ref_errors
+from culture_rules.model.variable import validate_variable_name
+from culture_rules.model.variable_refs import rule_variable_refs
 from culture_rules.model.workflow import Workflow
-from culture_rules.store.port import Document, StoragePort
+from culture_rules.store.port import Document, StoragePort, VariableVersionConflict
 
 __all__ = [
     "DEFINITION_KINDS",
@@ -33,6 +41,7 @@ __all__ = [
     "RuleReferenced",
     "NotFound",
     "ServiceError",
+    "Variables",
 ]
 
 #: kind -> model class; the kind is also the store collection.
@@ -113,6 +122,35 @@ def _tolerant(cls: type, doc: Mapping[str, Any]) -> Any | None:
 #: save. Runs inside the write transaction, so it sees the version it compares against
 #: (``culture_rules.auth.guards.save_check`` builds the API's).
 SaveCheck = Callable[[str, "Mapping[str, Any] | None", Mapping[str, Any]], None]
+
+
+class _RuleRef:
+    """A stored rule document seen as ``id`` + references (for :func:`_old_node_errors`)."""
+
+    def __init__(self, rule_id: str, doc: Mapping[str, Any]) -> None:
+        self.id = rule_id
+        self.condition = doc.get("condition")
+        self.workflow = doc.get("workflow")
+
+
+def _old_node_errors(rules: Iterable[Any], lacking: list[str]) -> list[dict[str, str]]:
+    """``variables_unsupported_nodes`` for each rule that references a shared variable while
+    online nodes in ``lacking`` cannot resolve variables (deviation d7): such a node would
+    evaluate the reference as missing (``not(a in vars.x)`` true) and fire wrongly."""
+    if not lacking:
+        return []
+    nodes = ", ".join(lacking)
+    return [
+        {
+            "path": f"rules/{r.id}",
+            "code": "variables_unsupported_nodes",
+            "message": f"rule {r.id!r} references shared variable(s) "
+            f"{', '.join(sorted(rule_variable_refs(r)))}, but online node(s) without "
+            f"variable support would evaluate it wrongly: {nodes}; upgrade them first",
+        }
+        for r in rules
+        if rule_variable_refs(r)
+    ]
 
 
 def _rule_set_errors(rules: Iterable[Rule], workflows: Iterable[Workflow]) -> list[dict[str, str]]:
@@ -211,6 +249,9 @@ class Definitions:
                     others.append(parsed)
         wfs = [w for d in ops.find("workflows") if (w := _tolerant(Workflow, d)) is not None]
         errors = _rule_set_errors([*others, obj], wfs)
+        errors += [e.to_dict() for e in variable_ref_errors(obj, defined_variables(ops))]
+        if rule_variable_refs(obj):
+            errors += _old_node_errors([obj], nodes_without_variables(ops, self._clock()))
         if errors:
             raise Invalid("rule set failed validation", errors)
 
@@ -278,6 +319,15 @@ class Definitions:
                 raise NotFound(f"{kind}/{id} does not exist")
             if not _is_live(before):
                 raise Conflict(f"{kind}/{id} is deleted; restore it first")
+            if kind == "rules" and enabled and rule_variable_refs(before):
+                # Enabling is where a variable rule starts to fire (the fixer ships
+                # disabled): refuse it while an online node lacks variable support (d7).
+                # Disabling is never blocked.
+                errors = _old_node_errors(
+                    [_RuleRef(id, before)], nodes_without_variables(tx, self._clock())
+                )
+                if errors:
+                    raise Invalid("rule cannot be enabled yet", errors)
             res = tx.update_if(kind, id, {"enabled": before.get("enabled")}, {"enabled": enabled})
             if not res.won:
                 raise Conflict(f"{kind}/{id} changed concurrently")
@@ -291,6 +341,26 @@ class Definitions:
                 after=res.document,
             )
         return res.document
+
+    def restore(self, kind: str, id: str, identity: str, life: Lifecycle) -> Document:
+        """Restore a tombstoned definition through ``life`` (audited there), refusing an
+        *enabled* rule that references a shared variable while an online node lacks variable
+        support (d7, as :meth:`set_enabled` refuses enabling it). The check runs inside the
+        restore transaction, so the rule never goes live past it. A disabled rule restores
+        freely: enabling it later is where the guard applies."""
+        self._cls(kind)
+
+        def check(tx: Any, before: Mapping[str, Any]) -> None:
+            if kind != "rules" or before.get("enabled") is False:
+                return
+            ref = _RuleRef(id, before)
+            if not rule_variable_refs(ref):
+                return
+            errors = _old_node_errors([ref], nodes_without_variables(tx, self._clock()))
+            if errors:
+                raise Invalid("rule cannot be restored enabled yet", errors)
+
+        return life.restore(kind, id, identity, check=check)
 
     # ------------------------------------------------------------------ export / import
 
@@ -418,6 +488,14 @@ class Definitions:
             if d["id"] not in incoming_wf and (p := _tolerant(Workflow, d)) is not None
         ]
         errors += _rule_set_errors(rules, wfs)
+        defined = defined_variables(tx)
+        errors += [
+            {**e.to_dict(), "path": f"rules/{r.id}/{e.path}"}
+            for r in bundle.rules
+            for e in variable_ref_errors(r, defined)
+        ]
+        if any(rule_variable_refs(r) for r in bundle.rules):
+            errors += _old_node_errors(bundle.rules, nodes_without_variables(tx, self._clock()))
         changes: list[dict[str, str]] = []
         writes: list[tuple[str, dict[str, Any]]] = []
         for kind in (*KINDS, SECRETS):
@@ -507,6 +585,148 @@ class _LiveView:
 
     def find(self, collection: str, where: Any = None, *, limit: int | None = None) -> list:
         return [d for d in self._store.find(collection, where, limit=limit) if _is_live(d)]
+
+
+_EDIT_ATTEMPTS = 20
+
+
+def _item_kind(value: Any) -> str:
+    """The JSON type of a list item (a boolean is not a number)."""
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, (int, float)):
+        return "number"
+    if isinstance(value, str):
+        return "string"
+    if value is None:
+        return "null"
+    return "other"
+
+
+def _same_item(a: Any, b: Any) -> bool:
+    return _item_kind(a) == _item_kind(b) and a == b
+
+
+def _check_item(value: list, item: Any, *, add: bool) -> None:
+    """``item`` must be a finite JSON scalar. An added one must also be of a type the list
+    already holds - each item's own type, so mixed and null-holding lists work (any scalar
+    for an empty list). A removed one may be any scalar: one the list does not hold is
+    simply absent (no new version)."""
+    kind = _item_kind(item)
+    if kind == "other" or (isinstance(item, float) and not math.isfinite(item)):
+        raise Invalid(
+            "an item is a JSON scalar",
+            [{"path": "item", "code": "invalid_item", "message": "not a finite JSON scalar"}],
+        )
+    kinds = {_item_kind(v) for v in value}
+    if add and kinds and kind not in kinds:
+        expected = " or ".join(sorted(kinds))
+        raise Invalid(
+            f"the list holds {expected} items, not {kind}",
+            [{"path": "item", "code": "item_type_mismatch", "message": f"expected {expected}"}],
+        )
+
+
+class Variables:
+    """Shared variables behind the API: reads, an append-only write, history and referrers.
+
+    Authorization (admin-only writes) is the route matrix's job; this class records whichever
+    identity it is handed as ``updated_by``.
+    """
+
+    def __init__(self, store: StoragePort) -> None:
+        self._store = store
+
+    @staticmethod
+    def _checked(name: str) -> str:
+        try:
+            validate_variable_name(name)
+        except ValueError as exc:
+            raise Invalid(str(exc), [{"path": "name", "code": "invalid_name", "message": str(exc)}])
+        return name
+
+    def list(self) -> list[Document]:
+        return self._store.list_variables()
+
+    def get(self, name: str) -> Document:
+        self._checked(name)
+        doc = self._store.get_variable(name)
+        if doc is None:
+            raise NotFound(f"variables/{name} does not exist")
+        return doc
+
+    def set(self, name: str, value: Any, identity: str, description: str | None = None) -> Document:
+        self._checked(name)
+        principal = require_identity(identity)  # outside the try: not a value error
+        try:
+            return self._store.put_variable(
+                name, value, updated_by=principal, description=description
+            )
+        except ValueError as exc:
+            raise Invalid(
+                str(exc), [{"path": "value", "code": "invalid_value", "message": str(exc)}]
+            )
+
+    def add_item(self, name: str, item: Any, identity: str) -> dict[str, Any]:
+        """Add ``item`` to list variable ``name`` (admin): a new version naming the caller, or
+        ``changed: false`` (no version) when it is already there."""
+        return self._edit(name, item, identity, add=True)
+
+    def remove_item(self, name: str, item: Any, identity: str) -> dict[str, Any]:
+        """Remove every copy of ``item`` from list variable ``name`` (admin): a new version
+        naming the caller, or ``changed: false`` (no version) when it is not there."""
+        return self._edit(name, item, identity, add=False)
+
+    def _edit(self, name: str, item: Any, identity: str, *, add: bool) -> dict[str, Any]:
+        """Read, change and write back with a compare-and-set on the version, retrying when
+        another writer got in between, so concurrent edits never lose one another."""
+        self._checked(name)
+        principal = require_identity(identity)
+        for _ in range(_EDIT_ATTEMPTS):
+            current = self.get(name)
+            value = current.get("value")
+            if not isinstance(value, list):
+                raise Invalid(
+                    f"variable {name!r} is not a list",
+                    [{"path": "name", "code": "not_a_list", "message": "the value is a scalar"}],
+                )
+            _check_item(value, item, add=add)
+            present = any(_same_item(v, item) for v in value)
+            if add == present:
+                return {"changed": False, "variable": current}
+            new = [*value, item] if add else [v for v in value if not _same_item(v, item)]
+            try:
+                doc = self._store.put_variable(
+                    name,
+                    new,
+                    updated_by=principal,
+                    description=current.get("description"),
+                    expected_version=current["version"],
+                )
+            except VariableVersionConflict:
+                continue
+            except ValueError as exc:
+                raise Invalid(
+                    str(exc), [{"path": "item", "code": "invalid_value", "message": str(exc)}]
+                )
+            return {"changed": True, "variable": doc}
+        raise Conflict(f"variables/{name}: too many concurrent writers, try again")
+
+    def history(self, name: str) -> list[Document]:
+        """Every version, oldest first (the store is append-only, so versions are 1..latest)."""
+        latest = self.get(name)["version"]
+        out = [self._store.get_variable_version(name, n) for n in range(1, latest + 1)]
+        return [v for v in out if v is not None]
+
+    def refs(self, name: str) -> list[Document]:
+        """Live rules whose condition or workflow inputs reference ``name``, by id."""
+        self._checked(name)
+        docs = [d for d in self._store.find("rules") if _is_live(d)]
+        hits = [d for d in docs if name in rule_variable_refs(d)]
+        return [
+            {"id": d.get("id"), "name": d.get("name"), "enabled": d.get("enabled", True)}
+            for d in sorted(hits, key=lambda d: str(d.get("id")))
+        ]
 
 
 def dumps(value: Any) -> str:
