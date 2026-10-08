@@ -1012,11 +1012,7 @@ class Executor:
             raise RunError(
                 "invalid_workflow", "workflow failed validation", [e.to_dict() for e in errors]
             )
-        for s in workflow.steps:
-            if s.id in TERMINAL_STEPS or any(b.kind in LOOP_KINDS for b in s.body):
-                raise RunError("unsupported_workflow", f"step {s.id!r}: reserved id or nested loop")
-            if any(b.kind == "wait" for b in s.body):
-                raise RunError("unsupported_workflow", f"step {s.id!r}: wait inside a loop body")
+        _check_supported_steps(workflow)
         missing = sorted(
             {n for ref in rule.workflow.inputs.values() if (n := var_name(ref)) is not None}
             - set(variables)
@@ -1063,25 +1059,30 @@ class Executor:
             doc = self._store.get(RUNS_COLLECTION, run_id)
             if doc is None or doc.get("status") != ACTIVE:
                 break
-            now = self._clock()
-            plan = _Plan.of(doc)
-            new = _housekeep(plan, doc, now, self.host)
-            if new is not None:
-                if self._cas(doc, new):
-                    made += 1
-                continue
-            woken = self._wake_waits(plan, doc, now, is_paused(self._store))
-            if woken is not None:
-                if woken:
-                    made += 1
-                continue
-            if is_paused(self._store):
+            moved = self._transition(doc)
+            if moved is None:
                 break
-            if self._dispatch_one(plan, doc, now):
+            if moved:
                 made += 1
-                continue
-            break
         return made
+
+    def _transition(self, doc: Document) -> bool | None:
+        """Try the next transition of active run ``doc``: housekeeping, else a due wake, else
+        (unless paused) one dispatch. None: nothing more to do now; else whether one was
+        made (a lost CAS is retried with a fresh read)."""
+        now = self._clock()
+        plan = _Plan.of(doc)
+        new = _housekeep(plan, doc, now, self.host)
+        if new is not None:
+            return bool(self._cas(doc, new))
+        woken = self._wake_waits(plan, doc, now, is_paused(self._store))
+        if woken is not None:
+            return bool(woken)
+        if is_paused(self._store):
+            return None
+        if self._dispatch_one(plan, doc, now):
+            return True
+        return None
 
     # ------------------------------------------------------------------ wait steps
 
@@ -1096,69 +1097,104 @@ class Executor:
         unguarded wake makes no external call and completes even under pause (nothing new
         dispatches). A ``blocked`` lookup re-arms the timer instead of failing."""
         for st in doc["steps"]:
-            wake = _parse(st.get("deadline"))
-            if st["status"] != SLEEPING or wake is None or now < wake:
+            wake = _due_wake(st, now)
+            if wake is None:
                 continue
             step = plan.step(st)
             guard = (step.config.get("guard") if step else None) or None
-            if guard and paused:
-                continue
             if guard:
-                where = self._guard_eligible(plan, step, guard, now)
-                if isinstance(where, PlacementError):
-                    answer = self._guard_unplaceable(doc, st, where, wake, now)
-                    if answer is None:
-                        continue
-                    return answer
-                if not where:
+                gate = self._guard_gate(plan, doc, st, step, guard, wake, now, paused)
+                if gate is _WAKE_SKIP:
                     continue
-            outcome = self._check_guard(plan, doc, step, guard) if guard else None
-            new, nst = _copy_with(doc, st["key"])
-            retries = int(st.get("lookup_retries") or 0) + 1
-            if outcome is not None and outcome["code"] == HEAD_RETRY:
-                if retries > HEAD_LOOKUP_RETRIES:
-                    outcome = _error("head_lookup_failed", outcome["message"])
-            # A retry backs off from when the lookup returned: a lookup that used its whole
-            # deadline must not leave a due timer behind and re-run within this tick.
-            later = self._clock() if guard else now
-            if outcome is not None and outcome["code"] == HEAD_BLOCKED:
-                # the lookup's actor is at a limit: back off like a blocked step, and record
-                # the first refusal only (the counter tracks repeats; history stays bounded)
-                blocked = int(st.get("lookup_blocked") or 0) + 1
-                since = _parse(st.get("lookup_blocked_since")) or later
-                nst["lookup_blocked_since"] = _iso(since)
-                expired = _lookup_queue_expired(plan, nst, later)
-                if expired is not None:  # the lookup itself ran past the bound
-                    nst.update(status="failed", error=expired)
-                    _record(new, later, self.host, QUEUE_TIMEOUT, st["key"])
-                    return self._cas(doc, new)
-                nst["deadline"] = _iso(later + timedelta(seconds=_blocked_delay(blocked)))
-                nst["lookup_blocked"] = blocked
-                if blocked == 1:
-                    _record(new, later, self.host, "wait_blocked", st["key"])
-                else:
-                    _bump(new)
-            elif outcome is not None and outcome["code"] == HEAD_RETRY:
-                nst["deadline"] = _iso(later + timedelta(seconds=BLOCKED_RETRY_S))
-                nst["lookup_retries"] = retries
-                # the lookup was admitted: a later refusal starts a new queue spell
-                nst.update(lookup_blocked=0, lookup_blocked_since=None)
-                _record(new, later, self.host, "wait_retry", st["key"])
-            elif outcome is None:
-                nst.update(status="succeeded", outputs={}, error=None)
-                _record(new, now, self.host, "wait_done", st["key"])
-            elif outcome["code"] == SUPERSEDED:
-                nst.update(status="cancelled", error=outcome)
-                for s in new["steps"]:
-                    if s["status"] not in STEP_DONE:
-                        s["status"] = "cancelled"
-                new.update(status=SUPERSEDED, finished_at=_iso(now), error=None)
-                _record(new, now, self.host, SUPERSEDED, st["key"])
-            else:
-                nst.update(status="failed", error=outcome)
-                _record(new, now, self.host, "failed", st["key"])
-            return self._cas(doc, new)
+                if gate is not _WAKE_GO:
+                    return gate
+            return self._wake_one(plan, doc, st, step, guard, now)
         return None
+
+    def _guard_gate(
+        self,
+        plan: _Plan,
+        doc: Document,
+        st: Mapping,
+        step: Step | None,
+        guard: Mapping,
+        wake: datetime,
+        now: datetime,
+        paused: bool,
+    ) -> Any:
+        """Whether a due guarded wake proceeds here (``_WAKE_GO``), is left for now
+        (``_WAKE_SKIP``), or was answered by :meth:`_guard_unplaceable` (whether its CAS won)."""
+        if paused:
+            return _WAKE_SKIP
+        where = self._guard_eligible(plan, step, guard, now)
+        if isinstance(where, PlacementError):
+            answer = self._guard_unplaceable(doc, st, where, wake, now)
+            if answer is None:
+                return _WAKE_SKIP
+            return answer
+        if not where:
+            return _WAKE_SKIP
+        return _WAKE_GO
+
+    def _wake_one(
+        self,
+        plan: _Plan,
+        doc: Document,
+        st: Mapping,
+        step: Step | None,
+        guard: Mapping | None,
+        now: datetime,
+    ) -> bool:
+        """Wake due sleeping ``st`` (its guard, if any, checked now); whether our CAS won."""
+        outcome = self._check_guard(plan, doc, step, guard) if guard else None
+        new, nst = _copy_with(doc, st["key"])
+        retries = int(st.get("lookup_retries") or 0) + 1
+        if outcome is not None and outcome["code"] == HEAD_RETRY:
+            if retries > HEAD_LOOKUP_RETRIES:
+                outcome = _error("head_lookup_failed", outcome["message"])
+        # A retry backs off from when the lookup returned: a lookup that used its whole
+        # deadline must not leave a due timer behind and re-run within this tick.
+        later = self._clock() if guard else now
+        code = outcome["code"] if outcome is not None else None
+        if code == HEAD_BLOCKED:
+            self._wake_blocked(plan, st, new, nst, later)
+        elif code == HEAD_RETRY:
+            nst["deadline"] = _iso(later + timedelta(seconds=BLOCKED_RETRY_S))
+            nst["lookup_retries"] = retries
+            # the lookup was admitted: a later refusal starts a new queue spell
+            nst.update(lookup_blocked=0, lookup_blocked_since=None)
+            _record(new, later, self.host, "wait_retry", st["key"])
+        elif outcome is None:
+            nst.update(status="succeeded", outputs={}, error=None)
+            _record(new, now, self.host, "wait_done", st["key"])
+        elif code == SUPERSEDED:
+            _supersede_wake(new, nst, outcome, now, self.host, st["key"])
+        else:
+            nst.update(status="failed", error=outcome)
+            _record(new, now, self.host, "failed", st["key"])
+        return self._cas(doc, new)
+
+    def _wake_blocked(
+        self, plan: _Plan, st: Mapping, new: dict, nst: dict, later: datetime
+    ) -> None:
+        """A guarded wake whose lookup was refused (``blocked``): fail it ``queue_timeout``
+        when the lookup itself ran past the queue bound, else back off like a blocked step
+        and record the first refusal only (the counter tracks repeats; history stays
+        bounded)."""
+        blocked = int(st.get("lookup_blocked") or 0) + 1
+        since = _parse(st.get("lookup_blocked_since")) or later
+        nst["lookup_blocked_since"] = _iso(since)
+        expired = _lookup_queue_expired(plan, nst, later)
+        if expired is not None:  # the lookup itself ran past the bound
+            nst.update(status="failed", error=expired)
+            _record(new, later, self.host, QUEUE_TIMEOUT, st["key"])
+            return
+        nst["deadline"] = _iso(later + timedelta(seconds=_blocked_delay(blocked)))
+        nst["lookup_blocked"] = blocked
+        if blocked == 1:
+            _record(new, later, self.host, "wait_blocked", st["key"])
+        else:
+            _bump(new)
 
     def _guard_eligible(
         self, plan: _Plan, step: Step | None, guard: Mapping, now: datetime
@@ -1566,25 +1602,10 @@ class Executor:
                     claims = self._claims.with_ops(tx)
                     doc = tx.get(RUNS_COLLECTION, run_id)
                     st = step_state(doc, key) if doc else None
-                    if (
-                        doc is None
-                        or doc["status"] != ACTIVE
-                        or st is None
-                        or st["status"] != "dispatching"
-                        or st["attempt"] != attempt
-                        or st["host"] != self.host
-                    ):
+                    if not _still_dispatching(doc, st, attempt, self.host):
                         claims.release(claim)  # cancelled, delivered or moved on meanwhile
                         return
-                    plan = _Plan.of(doc)
-                    now = self._clock()
-                    new = copy.deepcopy(doc)
-                    nst = step_state(new, key)
-                    _apply(plan, nst, result, now, self._key_safe(plan, st, port))
-                    if nst["status"] == "blocked" and _in_queue(st):
-                        _bump(new)  # still queued: counted on the step, not in history
-                    else:
-                        _record(new, now, self.host, nst["status"], key)
+                    new, nst = self._settled(doc, st, key, result, port)
                     res = tx.update_if(RUNS_COLLECTION, run_id, {"rev": doc["rev"]}, _mutable(new))
                     if not res.won:
                         raise _Conflict
@@ -1596,6 +1617,21 @@ class Executor:
             except _Conflict:
                 continue
         raise RunError("contention", f"could not record {key} of {run_id}")  # pragma: no cover
+
+    def _settled(
+        self, doc: Mapping, st: Mapping, key: str, result: InvocationResult | None, port: Any
+    ) -> tuple[dict, dict]:
+        """``doc`` with the invocation's outcome applied to step ``key``, and that step."""
+        plan = _Plan.of(doc)
+        now = self._clock()
+        new = copy.deepcopy(doc)
+        nst = step_state(new, key)
+        _apply(plan, nst, result, now, self._key_safe(plan, st, port))
+        if nst["status"] == "blocked" and _in_queue(st):
+            _bump(new)  # still queued: counted on the step, not in history
+        else:
+            _record(new, now, self.host, nst["status"], key)
+        return new, nst
 
     # ------------------------------------------------------------------ events
 
@@ -1619,10 +1655,8 @@ class Executor:
         for _ in range(_MAX_CAS_RETRIES):
             doc = self._store.get(RUNS_COLLECTION, run_id)
             st = step_state(doc, key) if doc else None
-            if doc is None or doc["status"] != ACTIVE or st is None or st["status"] in STEP_DONE:
+            if not _deliverable(doc, st, attempt):
                 return False
-            if attempt is not None and st["attempt"] != attempt:
-                return False  # a newer attempt runs (or none ran yet): not this result's
             plan = _Plan.of(doc)
             now = self._clock()
             new = copy.deepcopy(doc)
@@ -1637,6 +1671,62 @@ class Executor:
 
 
 # --------------------------------------------------------------------------- pure transitions
+
+
+_WAKE_GO = object()
+"""A due guarded wake this node may perform now (:meth:`Executor._guard_gate`)."""
+_WAKE_SKIP = object()
+"""A due guarded wake left for now: paused, not this node's, or nothing to write."""
+
+
+def _due_wake(st: Mapping, now: datetime) -> datetime | None:
+    """The wake time of a sleeping step that is due at ``now``, else None."""
+    wake = _parse(st.get("deadline"))
+    if st["status"] != SLEEPING or wake is None or now < wake:
+        return None
+    return wake
+
+
+def _supersede_wake(
+    new: dict, nst: dict, outcome: Mapping, now: datetime, host: str, key: str
+) -> None:
+    """End the run ``superseded``: the guarded wake's PR head moved during the wait."""
+    nst.update(status="cancelled", error=outcome)
+    for s in new["steps"]:
+        if s["status"] not in STEP_DONE:
+            s["status"] = "cancelled"
+    new.update(status=SUPERSEDED, finished_at=_iso(now), error=None)
+    _record(new, now, host, SUPERSEDED, key)
+
+
+def _check_supported_steps(workflow: Workflow) -> None:
+    """Refuse a step with a reserved id, a nested loop, or a wait inside a loop body."""
+    for s in workflow.steps:
+        if s.id in TERMINAL_STEPS or any(b.kind in LOOP_KINDS for b in s.body):
+            raise RunError("unsupported_workflow", f"step {s.id!r}: reserved id or nested loop")
+        if any(b.kind == "wait" for b in s.body):
+            raise RunError("unsupported_workflow", f"step {s.id!r}: wait inside a loop body")
+
+
+def _still_dispatching(doc: Mapping | None, st: Mapping | None, attempt: int, host: str) -> bool:
+    """Whether ``st`` of active ``doc`` is still the ``attempt`` this ``host`` dispatched."""
+    return not (
+        doc is None
+        or doc["status"] != ACTIVE
+        or st is None
+        or st["status"] != "dispatching"
+        or st["attempt"] != attempt
+        or st["host"] != host
+    )
+
+
+def _deliverable(doc: Mapping | None, st: Mapping | None, attempt: int | None) -> bool:
+    """Whether a later-reported result may finish ``st``: the run is active, the step is not
+    done, and (with ``attempt``) it is the step's current attempt - a newer attempt runs (or
+    none ran yet) otherwise, so the result is not this one's."""
+    if doc is None or doc["status"] != ACTIVE or st is None or st["status"] in STEP_DONE:
+        return False
+    return not (attempt is not None and st["attempt"] != attempt)
 
 
 def _outcome_unknown(st: Mapping, resume: bool) -> bool:
@@ -1904,13 +1994,16 @@ def _ready_since(plan: _Plan, doc: Mapping, st: Mapping) -> datetime | None:
         if key == st["key"] and h.get("event") in _NOT_READINESS:
             continue
         if key == st["key"] or key in deps:
-            at = _parse(h.get("at"))
-            if at is not None and (since is None or at > since):
-                since = at
+            since = _later_of(since, _parse(h.get("at")))
     if _in_queue(st):  # a queued step's repeat polls are dated on the step, not in history
-        polled = _parse(st["queue"].get("last_at"))
-        if polled is not None and (since is None or polled > since):
-            since = polled
+        since = _later_of(since, _parse(st["queue"].get("last_at")))
+    return since
+
+
+def _later_of(since: datetime | None, at: datetime | None) -> datetime | None:
+    """``at`` when it is later than ``since`` (or ``since`` is unknown), else ``since``."""
+    if at is not None and (since is None or at > since):
+        return at
     return since
 
 
@@ -1927,19 +2020,29 @@ def due_steps(doc: Mapping[str, Any], now: datetime) -> list[tuple[str, datetime
     plan: _Plan | None = None
     for st in doc.get("steps") or ():
         status = st.get("status")
-        if status == "retry_wait":
-            due = _parse(st.get("next_attempt_at"))
-            if due is None or due <= now:
-                found.append((st["key"], due))
-        elif status == SLEEPING:
-            due = _parse(st.get("deadline"))
-            if due is not None and due <= now:
-                found.append((st["key"], due))
-        elif status == "pending":
+        if status == "pending":
             plan = plan or _Plan.of(doc)
             if _ready(plan, doc, st):
                 found.append((st["key"], _ready_since(plan, doc, st)))
+            continue
+        timed = _due_timer(st, status, now)
+        if timed is not None:
+            found.append(timed)
     return found
+
+
+def _due_timer(st: Mapping, status: Any, now: datetime) -> tuple[str, datetime | None] | None:
+    """A ``retry_wait`` step past ``next_attempt_at`` (or with none), or a ``sleeping`` one
+    past its ``deadline``, with when it became due; else None."""
+    if status == "retry_wait":
+        due = _parse(st.get("next_attempt_at"))
+        if due is None or due <= now:
+            return (st["key"], due)
+    elif status == SLEEPING:
+        due = _parse(st.get("deadline"))
+        if due is not None and due <= now:
+            return (st["key"], due)
+    return None
 
 
 def _latest_output(doc: Mapping, plan: _Plan, step_id: str) -> Mapping[str, Any]:
@@ -1987,11 +2090,18 @@ def _implicit_loop_inputs(
     if loop_step is not None and loop_step.kind == "retry_until" and isinstance(carry, dict):
         previous = results[i - 1] if 0 < i <= len(results) else None
         if isinstance(previous, Mapping):
-            for name, field_name in carry.items():
-                if isinstance(name, str) and isinstance(field_name, str):
-                    if field_name in previous:
-                        implicit[name] = previous[field_name]
+            implicit.update(_carried(carry, previous))
     return implicit
+
+
+def _carried(carry: Mapping, previous: Mapping) -> dict[str, Any]:
+    """The inputs a ``retry_until`` loop's ``carry`` (``{input name: result field}``) takes
+    from the previous iteration's result: string pairs whose field the result has."""
+    return {
+        name: previous[field_name]
+        for name, field_name in carry.items()
+        if isinstance(name, str) and isinstance(field_name, str) and field_name in previous
+    }
 
 
 def _step_inputs(plan: _Plan, doc: Mapping, st: Mapping) -> dict[str, Any]:
@@ -2117,55 +2227,83 @@ def _due_timers(plan: _Plan, doc: Mapping, now: datetime) -> Found:
     if adopted is not None:
         return adopted
     for st in doc["steps"]:
-        status = st["status"]
-        deadline = _parse(st.get("deadline"))
-        if status == SLEEPING and (expired := _lookup_queue_expired(plan, st, now)):
-            # a guarded wake queued on its lookup's actor: bounded whatever its node does
-            new, nst = _copy_with(doc, st["key"])
-            nst.update(status="failed", error=expired)
-            return new, QUEUE_TIMEOUT, st["key"]
-        if status == "waiting" and deadline is not None and now >= deadline:
-            new, nst = _copy_with(doc, st["key"])
-            # Re-invoking timed-out work reuses its key; dispatch refuses (unsafe_retry)
-            # when the target cannot deduplicate, since housekeeping does not know the port.
-            error = _error("timeout", "the step's deadline passed")
-            _attempt_failed(plan, nst, error, now, retryable=True, unknown=True, key_safe=True)
-            nst["resume"] = False
-            return new, "timeout", st["key"]
-        queue = st.get("queue") or {}
-        # The bound holds while the step is blocked and while a re-poll left it pending
-        # (a drained or unavailable node may hold it there), never once it is dispatching:
-        # that work may have started, and its resumed dispatch settles it.
-        queued = status == "blocked" or (status == "pending" and _in_queue(st))
-        bound = _parse(queue.get("deadline")) if queued else None
-        if bound is not None and now >= bound:
-            # Queued work never started (the outcome is known): fail it outright - a retry
-            # would only queue again, and the queue bound is the explicit end of waiting.
-            new, nst = _copy_with(doc, st["key"])
-            last = (st.get("error") or {}).get("message")
-            message = (
-                f"waited in the actor's queue from {queue.get('since')} past its bound "
-                f"({queue.get('polls')} asks; last answer: {last})"
-            )
-            nst.update(
-                status="failed",
-                error=_error(QUEUE_TIMEOUT, message),
-                next_attempt_at=None,
-                resume=False,
-                queue=dict(queue, left_at=_iso(now)),
-            )
-            return new, QUEUE_TIMEOUT, st["key"]
-        due = _parse(st.get("next_attempt_at"))
-        if status in ("retry_wait", "blocked") and due is not None and now >= due:
-            new, nst = _copy_with(doc, st["key"])
-            nst.update(status="pending", next_attempt_at=None, resume=status == "blocked")
-            if status == "retry_wait":
-                return new, "retry_due", st["key"]
-            if _in_queue(st):  # a repeat poll: dated on the step, not in history
-                nst["queue"] = dict(queue, last_at=_iso(now))
-                return new, None, st["key"]
-            return new, "unblocked", st["key"]
+        for timer in (_lookup_queue_timer, _working_deadline, _queue_bound, _retry_or_reask):
+            found = timer(plan, doc, st, now)
+            if found is not None:
+                return found
     return None
+
+
+def _lookup_queue_timer(plan: _Plan, doc: Mapping, st: Mapping, now: datetime) -> Found:
+    """A guarded wake queued on its lookup's actor: bounded whatever its node does."""
+    if st["status"] == SLEEPING and (expired := _lookup_queue_expired(plan, st, now)):
+        new, nst = _copy_with(doc, st["key"])
+        nst.update(status="failed", error=expired)
+        return new, QUEUE_TIMEOUT, st["key"]
+    return None
+
+
+def _working_deadline(plan: _Plan, doc: Mapping, st: Mapping, now: datetime) -> Found:
+    """A ``waiting`` step past its working deadline times out (a retryable attempt)."""
+    deadline = _parse(st.get("deadline"))
+    if st["status"] == "waiting" and deadline is not None and now >= deadline:
+        new, nst = _copy_with(doc, st["key"])
+        # Re-invoking timed-out work reuses its key; dispatch refuses (unsafe_retry)
+        # when the target cannot deduplicate, since housekeeping does not know the port.
+        error = _error("timeout", "the step's deadline passed")
+        _attempt_failed(plan, nst, error, now, retryable=True, unknown=True, key_safe=True)
+        nst["resume"] = False
+        return new, "timeout", st["key"]
+    return None
+
+
+def _queue_bound(plan: _Plan, doc: Mapping, st: Mapping, now: datetime) -> Found:
+    """Queued work past its queue bound fails ``queue_timeout``.
+
+    The bound holds while the step is blocked and while a re-poll left it pending (a drained
+    or unavailable node may hold it there), never once it is dispatching: that work may have
+    started, and its resumed dispatch settles it."""
+    status = st["status"]
+    queue = st.get("queue") or {}
+    queued = status == "blocked" or (status == "pending" and _in_queue(st))
+    bound = _parse(queue.get("deadline")) if queued else None
+    if bound is None or now < bound:
+        return None
+    # Queued work never started (the outcome is known): fail it outright - a retry
+    # would only queue again, and the queue bound is the explicit end of waiting.
+    new, nst = _copy_with(doc, st["key"])
+    last = (st.get("error") or {}).get("message")
+    message = (
+        f"waited in the actor's queue from {queue.get('since')} past its bound "
+        f"({queue.get('polls')} asks; last answer: {last})"
+    )
+    nst.update(
+        status="failed",
+        error=_error(QUEUE_TIMEOUT, message),
+        next_attempt_at=None,
+        resume=False,
+        queue=dict(queue, left_at=_iso(now)),
+    )
+    return new, QUEUE_TIMEOUT, st["key"]
+
+
+def _retry_or_reask(plan: _Plan, doc: Mapping, st: Mapping, now: datetime) -> Found:
+    """A ``retry_wait`` or ``blocked`` step past ``next_attempt_at`` returns to pending.
+
+    The event ``None`` marks a queued step's repeat poll: dated on the step, not in
+    history."""
+    status = st["status"]
+    due = _parse(st.get("next_attempt_at"))
+    if status not in ("retry_wait", "blocked") or due is None or now < due:
+        return None
+    new, nst = _copy_with(doc, st["key"])
+    nst.update(status="pending", next_attempt_at=None, resume=status == "blocked")
+    if status == "retry_wait":
+        return new, "retry_due", st["key"]
+    if _in_queue(st):  # a repeat poll: dated on the step, not in history
+        nst["queue"] = dict(st.get("queue") or {}, last_at=_iso(now))
+        return new, None, st["key"]
+    return new, "unblocked", st["key"]
 
 
 QUEUE_ADOPTED = "queue_adopted"
