@@ -1673,3 +1673,47 @@ def test_a_candidate_no_node_confirms_is_dropped_after_the_recovery_window():
     settler.tick()
     assert store.find(LATE_COLLECTION) == []
     assert late_events(store) == []
+
+
+# ------------------------------------------------------------ d25 round 4: candidate CAS
+
+
+def test_a_stale_clean_confirmation_never_deletes_a_newer_failures_candidate():
+    from culture_rules.node.checks_settle import LATE_COLLECTION
+
+    store, a, _ = _timed_out_with_gitguardian_pending()
+    gitguardian_now(a)
+    listed = a._suites
+
+    def down(repo, sha):
+        raise GitHubError("network_error", retryable=True)
+
+    b = ChecksSettler(store.peer(), down, clock=a._clock)
+
+    def clean_then_b_refreshes(repo, sha):
+        # node A reads a clean listing (a re-run went green) ...
+        out = [{**s, "conclusion": "success"} for s in listed(repo, sha)]
+        # ... then node B records a new failure of the same head and app; its lookup fails
+        assert b.on_check(completion()) == "pending"
+        return out
+
+    a._suites = clean_then_b_refreshes
+    assert a.on_check(completion()) == "pending"  # A's stale delete is refused
+    [candidate] = store.find(LATE_COLLECTION)
+    assert candidate["version"] == 2
+    assert late_events(store) == []
+    a._suites = listed  # a later healthy tick: GitGuardian still fails
+    a.tick()
+    assert len(late_events(store)) == 1
+    assert store.find(LATE_COLLECTION) == []
+    a.tick()
+    assert len(late_events(store)) == 1
+
+
+def test_a_clean_confirmation_of_an_unchanged_candidate_drops_it():
+    from culture_rules.node.checks_settle import LATE_COLLECTION
+
+    store, settler, _ = _timed_out_with_gitguardian_pending()
+    gitguardian_now(settler, "success")
+    assert settler.on_check(completion()) == "duplicate"
+    assert store.find(LATE_COLLECTION) == []

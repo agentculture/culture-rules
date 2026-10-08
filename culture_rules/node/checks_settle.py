@@ -119,6 +119,7 @@ from culture_rules.events.emit import (
 from culture_rules.events.ingest import EVENTS_COLLECTION, event_document
 from culture_rules.node.actions.github import GitHubCommentPort
 from culture_rules.store.port import DuplicateKeyError, StoragePort
+from culture_rules.store.retry import run_transaction
 from culture_rules.store.versioning import utc_timestamp
 
 __all__ = [
@@ -559,19 +560,52 @@ class ChecksSettler:
             "app": app,
             "settled_id": emitted.get("id"),
             "noted_at": _iso(self._now()),
+            "version": 1,
         }
-        try:
-            self._store.insert(LATE_COLLECTION, candidate)
-        except DuplicateKeyError:
-            pass  # noted before: confirm it again here
+        candidate = self._note_late(candidate)
         if not self._serves_here(repo):
             return "pending"  # a node that can read the repo's checks confirms it
         return self._try_late(candidate)
 
+    def _note_late(self, fresh: dict[str, Any]) -> dict[str, Any]:
+        """Insert the candidate, or bump the stored one's ``version`` (and ``noted_at``) by
+        compare-and-set, so a confirmer that read an older version can no longer drop it.
+        Returns the candidate as now stored."""
+        for _ in range(10):
+            try:
+                return dict(self._store.insert(LATE_COLLECTION, fresh))
+            except DuplicateKeyError:
+                pass
+            current = self._store.get(LATE_COLLECTION, fresh["id"])
+            if current is None:
+                continue  # dropped meanwhile: insert again
+            version = current.get("version")
+            bumped = {"version": (version if isinstance(version, int) else 0) + 1}
+            bumped["noted_at"] = fresh["noted_at"]
+            if self._store.update_if(
+                LATE_COLLECTION, fresh["id"], {"version": version}, bumped
+            ).won:
+                return {**current, **bumped}
+        return dict(self._store.get(LATE_COLLECTION, fresh["id"]) or fresh)
+
+    def _drop_late(self, candidate: Mapping[str, Any]) -> bool:
+        """Delete the candidate iff it still has the ``version`` it was read with (one
+        transaction): a newer failure noted meanwhile keeps it."""
+
+        def drop(tx: Any) -> bool:
+            current = tx.get(LATE_COLLECTION, candidate["id"])
+            if current is None or current.get("version") != candidate.get("version"):
+                return False
+            tx.delete(LATE_COLLECTION, candidate["id"])
+            return True
+
+        return run_transaction(self._store, drop)
+
     def _try_late(self, candidate: Mapping[str, Any]) -> str:
         """Confirm a late candidate from the App's *current* listing - the app's suite for
         the head still concluded ``failure`` - and emit its event; no clock decides it. The
-        candidate is dropped once decided; a failed listing keeps it (``pending``)."""
+        candidate (as read, by its ``version``) is dropped once decided; a failed listing,
+        or a newer version noted meanwhile, keeps it (``pending``)."""
         repo, sha, app = candidate["repository"], candidate["head_sha"], candidate["app"]
         try:
             failing = self._still_failing(repo, sha, app)
@@ -581,8 +615,9 @@ class ChecksSettler:
         outcome = "duplicate"
         emitted = self._store.get(EVENTS_COLLECTION, str(candidate.get("settled_id")))
         if failing and emitted is not None:
-            outcome = self._emit_late(repo, sha, app, emitted)
-        self._store.delete(LATE_COLLECTION, candidate["id"])
+            outcome = self._emit_late(repo, sha, app, emitted)  # once ever, by its fixed id
+        if not self._drop_late(candidate) and outcome != "late":
+            return "pending"  # a newer failure was noted meanwhile: confirm that one later
         return outcome
 
     def _still_failing(self, repo: str, sha: str, app: str) -> bool:
@@ -622,7 +657,7 @@ class ChecksSettler:
         for doc in self._store.find(LATE_COLLECTION):
             noted = _parse(doc.get("noted_at"))
             if noted is None or noted < floor:
-                self._store.delete(LATE_COLLECTION, doc["id"])
+                self._drop_late(doc)  # only as read: a refresh meanwhile keeps it
             elif self._serves_here(doc.get("repository")):
                 emitted += self._try_late(doc) == "late"
         return emitted

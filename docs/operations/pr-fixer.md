@@ -533,8 +533,12 @@ How it fits together:
   emitted only once the App's current listing still shows the app's suite
   for that head concluded `failure`. So a failure that was re-run green is
   never reported. A failed listing, or a node that cannot read the repo's
-  checks, keeps the candidate for the next tick on a node that can. A
+  checks, keeps the candidate for the next tick on a node that can. Each
+  new failure noted for the head and app bumps the candidate's `version`. A
+  confirmer drops the candidate only if its version has not changed since
+  it read it, so a stale clean listing never drops a newer failure. A
   candidate nobody confirms within the 24-hour recovery window is dropped.
+  Candidates are not backed up; see the backup doc's "Not covered".
   The settle tick's recovery scan notes a candidate for a late completion the
   webhook stored but never handled. It also looks at completions received up
   to 5 minutes (`LATE_SKEW_MARGIN_S`) before the settled event, because the

@@ -138,6 +138,15 @@ risk on the `pr-fixer-rule` plan (d21); until then this list is the record:
 
 - events other than run events (webhook, bus, schedule and probe events): not
   backed up, so whatever had not been evaluated before the backup is lost;
+- the checks settle state (`checks_settle`, `checks_settle_recovery` and, d25,
+  the late-failure candidates in `checks_settle_late`): not backed up, like
+  the `events` they are derived from. A candidate lost on restore leaves a
+  GitGuardian failure that completed after its head settled unreported. The
+  restored store has no settled event or stored completion to rebuild it
+  from. This loss is limited to reporting. The `pr-fix` GitGuardian hold reads the
+  live checks, so the fixer still never works on that head. The next head's
+  settle reports a failure that persists. Lost settle records are re-armed by
+  the next completion, as for any unarmed head;
 - shared variables, rate windows and the budget-reset markers: not backed
   up, so an undecided event meets today's values (a rule reading a variable
   that is not re-seeded is refused, `variable_undefined`);
