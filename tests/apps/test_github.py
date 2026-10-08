@@ -509,3 +509,50 @@ def test_a_request_guard_sees_every_request_and_can_stop_one(pem):
     assert len(fake.calls) == 2  # the third request was never sent
     app.post_comment("acme/widgets", 1, "c")  # outside the block: unguarded
     assert len(seen) == 3
+
+
+def test_a_trickling_response_is_cut_by_the_whole_call_deadline():
+    # Codex round 3: the socket timeout bounds each read, not the call; one byte every
+    # 0.5 s would never time out. The transport reads within one monotonic deadline.
+    import threading
+    import time
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    from culture_rules.apps.github import urllib_transport
+
+    class Trickle(BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def do_GET(self):  # noqa: N802
+            self.send_response(200)
+            self.send_header("Content-Length", "100")
+            self.end_headers()
+            try:
+                for _ in range(100):
+                    self.wfile.write(b"x")
+                    self.wfile.flush()
+                    time.sleep(0.5)
+            except OSError:
+                pass
+
+    server = HTTPServer(("127.0.0.1", 0), Trickle)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    url = f"http://127.0.0.1:{server.server_address[1]}/"
+    started = time.monotonic()
+    try:
+        with pytest.raises(TimeoutError):
+            urllib_transport("GET", url, {}, None, 1.5)
+    finally:
+        server.shutdown()
+    assert time.monotonic() - started < 4
+
+
+def test_a_response_body_larger_than_the_cap_is_refused():
+    import io
+
+    from culture_rules.apps.github import _read_within
+
+    with pytest.raises(ValueError):
+        _read_within(io.BytesIO(b"y" * 100), deadline_at=float("inf"), max_bytes=10)
+    assert _read_within(io.BytesIO(b"ok"), deadline_at=float("inf"), max_bytes=10) == b"ok"

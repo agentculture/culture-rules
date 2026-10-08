@@ -28,6 +28,7 @@ import base64
 import json
 import logging
 import re
+import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Iterable, Iterator, Mapping
@@ -174,13 +175,38 @@ def urllib_transport(
     """Default transport: one urllib request; HTTP error statuses are returned, not raised."""
     if not url.startswith(("https://", "http://")):
         raise ValueError("unsupported url scheme")
+    deadline_at = time.monotonic() + timeout  # the whole call: connect, send, full read
     req = urllib.request.Request(url, data=body, headers=headers, method=method)  # noqa: S310
     opener = urllib.request.build_opener(_NoRedirect)
     try:
         with opener.open(req, timeout=timeout) as resp:  # nosec B310 - scheme checked above
-            return resp.status, resp.read()
+            return resp.status, _read_within(resp, deadline_at)
     except urllib.error.HTTPError as exc:
-        return exc.code, exc.read()
+        return exc.code, _read_within(exc, deadline_at)
+
+
+MAX_RESPONSE_BYTES = 8 << 20
+"""The largest response body read (d26: a listing of a long PR's comments is far less)."""
+_CHUNK = 64 << 10
+
+
+def _read_within(stream: Any, deadline_at: float, max_bytes: int = MAX_RESPONSE_BYTES) -> bytes:
+    """Read ``stream`` to its end in chunks, within the monotonic ``deadline_at`` (a
+    response trickling in slower than the socket timeout raises ``TimeoutError``, which the
+    App reports as ``deadline_exceeded`` under :meth:`GitHubApp.deadline`) and at most
+    ``max_bytes`` (``ValueError``)."""
+    chunks: list[bytes] = []
+    size = 0
+    while True:
+        if time.monotonic() >= deadline_at:
+            raise TimeoutError("the response did not arrive within the call's deadline")
+        chunk = stream.read1(_CHUNK) if hasattr(stream, "read1") else stream.read(_CHUNK)
+        if not chunk:
+            return b"".join(chunks)
+        size += len(chunk)
+        if size > max_bytes:
+            raise ValueError("response too large")
+        chunks.append(chunk)
 
 
 def _b64url(data: bytes) -> str:
