@@ -244,6 +244,9 @@ class PostedApp:
     def __init__(self):
         self.posts = []
 
+    def installation_token(self):
+        return "token"
+
     def post_comment(self, repo, number, body):
         self.posts.append((repo, number, body))
         return {"comment_id": len(self.posts), "url": f"https://x/{len(self.posts)}"}

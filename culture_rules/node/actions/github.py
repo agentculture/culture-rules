@@ -10,16 +10,21 @@ The GitHub REST API cannot deduplicate comments, so ``supports_idempotency_key``
 
 ``once_key`` (optional, d25): a non-empty string that makes the comment durable once per
 (repo, PR, key), across runs, rules, budget resets and nodes. Before posting, the port
-claims ``sha256(repo#number#key)`` by insert in :data:`ONCE_COLLECTION`; a claim already
-there completes with the earlier comment and ``skipped: posted_before``, posting nothing. A
-failed post releases the claim, so a later firing may post. At most once: a node that dies
-between the claim and the post leaves the claim, and nothing is posted for that key.
+claims ``sha256(repo#number#key)`` by insert in :data:`ONCE_COLLECTION` (after it has an
+installation token, so a token failure takes no claim); a claim already there completes
+with the earlier comment and ``skipped: posted_before`` (or ``claimed_before`` when that
+post's outcome is unknown), posting nothing. Only a post GitHub refused with a client error
+(4xx but 408: no comment exists) releases the claim, so a later firing may post. Any other
+failure (5xx, 408, a network error, the deadline, an unreadable answer) may follow a
+created comment, so the claim stays (state ``unknown``, with the error): at most once, never
+twice. A node that dies between the claim and the post leaves the claim too.
 """
 
 from __future__ import annotations
 
 import hashlib
 import logging
+import re
 import threading
 from collections.abc import Callable, Mapping
 from concurrent.futures import Future
@@ -39,6 +44,16 @@ log = logging.getLogger(__name__)
 
 ONCE_COLLECTION = "github_comment_once"
 """Claims of ``github.comment`` posts made with a ``once_key`` (one document per key)."""
+CLAIMED, POSTED, UNKNOWN = "claimed", "posted", "unknown"
+_REFUSED = re.compile(r"http_4(?!08)\d\d")
+
+
+def _refused(code: str | None) -> bool:
+    """Whether GitHub answered the post with a client error (4xx but 408): no comment was
+    created. A 5xx, 408, network error, deadline or unreadable answer may follow a created
+    comment, so it is not a refusal."""
+    return isinstance(code, str) and _REFUSED.fullmatch(code) is not None
+
 
 RESOLVE_WORKERS = 2
 """The most deadline-bounded App resolves (:meth:`GitHubCommentPort._app_within`) running at
@@ -207,33 +222,29 @@ class GitHubCommentPort:
         self, app: GitHubApp, repo: str, number: int, body: str, once: str
     ) -> InvocationResult:
         """:meth:`_post` at most once per (repo, PR, ``once``) (module doc)."""
+        try:
+            app.installation_token()  # before the claim: a token failure sends no comment
+        except GitHubError as exc:
+            return InvocationResult.failed(exc.code, retryable=exc.retryable)
         key = f"{repo.lower()}#{number}#{once}"
         claim_id = hashlib.sha256(key.encode()).hexdigest()
+        claim = {"id": claim_id, "repo": repo, "number": number, "once_key": once}
         try:
-            self._store.insert(
-                ONCE_COLLECTION,
-                {
-                    "id": claim_id,
-                    "repo": repo,
-                    "number": number,
-                    "once_key": once,
-                    "state": "claimed",
-                },
-            )
+            self._store.insert(ONCE_COLLECTION, {**claim, "state": CLAIMED})
         except DuplicateKeyError:
             prior = self._store.get(ONCE_COLLECTION, claim_id) or {}
             done = {k: prior.get(k) for k in ("comment_id", "url")}
-            return InvocationResult.completed({**done, "skipped": "posted_before"})
+            seen = "posted_before" if prior.get("state") == POSTED else "claimed_before"
+            return InvocationResult.completed({**done, "skipped": seen})
         result = self._post(app, repo, number, body)
         if result.outcome == "completed":
-            self._store.update_if(
-                ONCE_COLLECTION,
-                claim_id,
-                {"state": "claimed"},
-                {"state": "posted", **result.output},
-            )
-        else:
-            self._store.delete(ONCE_COLLECTION, claim_id)
+            changes = {"state": POSTED, **result.output}
+            self._store.update_if(ONCE_COLLECTION, claim_id, {"state": CLAIMED}, changes)
+        elif _refused(result.error):
+            self._store.delete(ONCE_COLLECTION, claim_id)  # GitHub created nothing
+        else:  # the comment may exist: keep the claim (at most once)
+            changes = {"state": UNKNOWN, "error": result.error}
+            self._store.update_if(ONCE_COLLECTION, claim_id, {"state": CLAIMED}, changes)
         return result
 
 
