@@ -30,7 +30,7 @@ import logging
 import re
 import urllib.error
 import urllib.request
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import UTC, datetime, timedelta
@@ -529,12 +529,10 @@ def _open_thread(node: Any) -> dict[str, Any] | None:
     first = ((node.get("comments") or {}).get("nodes") or [None])[0]
     if not isinstance(tid, str) or not tid or not isinstance(first, dict):
         return None
-    cid, author = first.get("databaseId"), first.get("author") or {}
-    login = author.get("login") if isinstance(author, dict) else None
-    if not isinstance(cid, int) or isinstance(cid, bool) or not isinstance(login, str):
+    opener = _thread_opener(first)
+    if opener is None:
         return None
-    if author.get("__typename") == "Bot" and not login.endswith("[bot]"):
-        login += "[bot]"
+    cid, login = opener
     body = first.get("body")
     line = node.get("line")
     return {
@@ -545,6 +543,18 @@ def _open_thread(node: Any) -> dict[str, Any] | None:
         "author": login,
         "body": body[:THREAD_BODY_MAX] if isinstance(body, str) else "",
     }
+
+
+def _thread_opener(first: Mapping[str, Any]) -> tuple[int, str] | None:
+    """The opening comment's database id and author login (a GitHub App bot's login ends
+    ``[bot]``), or None when either is unreadable."""
+    cid, author = first.get("databaseId"), first.get("author") or {}
+    login = author.get("login") if isinstance(author, dict) else None
+    if not isinstance(cid, int) or isinstance(cid, bool) or not isinstance(login, str):
+        return None
+    if author.get("__typename") == "Bot" and not login.endswith("[bot]"):
+        login += "[bot]"
+    return cid, login
 
 
 _PAGE = "pageInfo{hasNextPage endCursor}"
