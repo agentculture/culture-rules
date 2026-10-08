@@ -397,6 +397,30 @@ class GitHubApp:
                 return out
         raise GitHubError("too_many_pages", "check suites")
 
+    def list_check_runs(self, repo: str, sha: str) -> list[dict[str, Any]]:
+        """The latest check run of each check of commit ``sha`` (REST, paginated); read-only
+        (Checks: read).
+
+        Each item is ``{name, app_slug, status, conclusion, title, text, html_url}`` (the
+        run's ``output.title`` and ``output.text``, d25: GitGuardian's findings table), so
+        nothing else of GitHub's payload is carried around."""
+        self._require_allowed(repo, "check runs")
+        if not isinstance(sha, str) or not _SHA_RE.match(sha):
+            raise GitHubError("bad_input", "sha")
+        out: list[dict[str, Any]] = []
+        for page in range(1, _MAX_PAGES + 1):
+            data = self._call(
+                "GET",
+                f"/repos/{repo}/commits/{sha}/check-runs?filter=latest&per_page=100&page={page}",
+                None,
+            )
+            runs = data.get("check_runs")
+            runs = runs if isinstance(runs, list) else []
+            out.extend(_run_fact(run) for run in runs if isinstance(run, dict))
+            if len(runs) < 100:
+                return out
+        raise GitHubError("too_many_pages", "check runs")
+
     def reply_review_comment(
         self, repo: str, number: int, comment_id: int, body: str
     ) -> dict[str, Any]:
@@ -515,6 +539,21 @@ def _suite_fact(suite: dict[str, Any]) -> dict[str, Any]:
         "app_slug": app.get("slug"),
         "status": suite.get("status"),
         "conclusion": suite.get("conclusion"),
+    }
+
+
+def _run_fact(run: dict[str, Any]) -> dict[str, Any]:
+    """The fields of one check run a findings report needs (:meth:`GitHubApp.list_check_runs`)."""
+    app = run.get("app") if isinstance(run.get("app"), dict) else {}
+    output = run.get("output") if isinstance(run.get("output"), dict) else {}
+    return {
+        "name": run.get("name"),
+        "app_slug": app.get("slug"),
+        "status": run.get("status"),
+        "conclusion": run.get("conclusion"),
+        "title": output.get("title"),
+        "text": output.get("text"),
+        "html_url": run.get("html_url"),
     }
 
 
