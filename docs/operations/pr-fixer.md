@@ -303,13 +303,17 @@ fires the next through the `rules.run.succeeded` event it emits:
 
 | Rule | Fires on | Runs | Budget |
 |---|---|---|---|
-| `pr-fixer-checks` | `github.pr.checks_settled`, conclusion neither `success` nor `no_checks` | `pr-fix` | counts, 3 per PR |
+| `pr-fixer-checks` | `github.pr.checks_settled`, conclusion neither `success` nor `no_checks`, GitGuardian not failed | `pr-fix` | counts, 3 per PR |
 | `pr-fixer-comment` | `github.comment.created` by a trusted author that asks (below) | `pr-fix` | counts |
 | `pr-fixer-review` | `github.review.submitted` by a trusted author | `pr-fix` | counts |
 | `pr-fixer-review-comment` | `github.review_comment.created` by a trusted author that asks | `pr-fix` | counts |
 | `pr-fixer-review-commit` | `rules.run.succeeded` of `pr-fix`, gate `pass` or `no_gate` | `review-commit` | outside |
 | `pr-fixer-refix` | `rules.run.succeeded` of `review-commit`, review `request_changes` | `pr-fix` with the findings | counts |
 | `pr-fixer-publish` | `rules.run.succeeded` of `review-commit`, review `approve`, gate `pass` | `publish-fix` | outside |
+| `pr-fixer-secrets` (d25) | `github.pr.checks_settled` with `gitguardian` in `failed_apps` | `report-secrets` | its own key, 1 per head SHA |
+
+`pr-fixer-secrets` is not part of the chain: it only comments (see
+[GitGuardian findings](#gitguardian-findings-d25)).
 
 The d21 text calls the review stage `pr-fixer-review`. That id already names
 the review-submitted trigger rule, so the stage is `pr-fixer-review-commit`,
@@ -389,10 +393,15 @@ It builds and gates one commit. It never reviews or pushes it.
 1. `quiet`: a 300-second `wait` with the `head_unchanged` guard. It is the
    same as the d20 workflow's: a push during the wait ends the run
    `superseded`.
-2. `threads`: the built-in `github.threads` (d15). Only the PR's unresolved
+2. `secrets` (d25): the built-in `gitguardian.hold`. It reads the GitGuardian
+   check of the PR head as the App. While GitGuardian fails on the head, the
+   run fails `secrets_found` before any agent runs, and hands back once. A
+   lookup error fails the run too (fail closed, like `threads`). See
+   [GitGuardian findings](#gitguardian-findings-d25).
+3. `threads`: the built-in `github.threads` (d15). Only the PR's unresolved
    threads opened by a trusted author reach the agent. Any error fails the
    run.
-3. `sonar`: the built-in `sonar.gate_issues`
+4. `sonar`: the built-in `sonar.gate_issues`
    (`culture_rules/node/actions/sonar.py`). It reads the PR's SonarCloud
    quality gate from SonarCloud's public API. For each **failing** condition
    it lists the issues behind it:
@@ -410,7 +419,7 @@ It builds and gates one commit. It never reviews or pushes it.
    the step names them in its note. The project key is `{owner}_{name}`. A failed
    lookup (no analysis, SonarCloud down) is `available: false` with a note.
    It never fails the run: Sonar data is advice, not a guard.
-4. `fix`: a `retry_until` of up to 3 tries until the gate verdict is `pass`
+5. `fix`: a `retry_until` of up to 3 tries until the gate verdict is `pass`
    or `no_gate`. The gate's failure text is the next try's instruction.
    - `agent`: `qwen-fixer` in mode `yolo`. Its bound inputs are the trusted
      `threads`, `sonar_issues` and `sonar_note`. The rule's instruction says
@@ -484,6 +493,83 @@ longer read.
    A thread resolved meanwhile is not answered.
 3. `pick` and `replies`: one `github.review_reply` per trusted thread the
    agent addressed, naming the pushed commit.
+
+### GitGuardian findings (d25)
+
+**A failed GitGuardian check is never auto-fixed.** A leaked secret must be
+revoked and rotated by a human. An agent editing the file would only hide
+the finding: rewriting history does not un-leak a secret. So the fixer posts
+the findings as a PR comment and stays off the PR until GitGuardian passes.
+
+GitGuardian reports through a GitHub check run of its App (slug
+`gitguardian`, check `GitGuardian Security Checks`). On a finding the run
+concludes `failure`, its title reads like `1 secret uncovered!`, and its text
+holds a markdown table: GitGuardian id (the incident link), status, secret
+type, commit, filename and a "View secret" link to the diff line. The secret
+value is not in the table. A PR too large to scan concludes `neutral`
+("Could not complete scanning of your commits"): that is not a finding, and
+nothing is posted.
+
+How it fits together:
+
+- **The settled event names the failed apps.** `github.pr.checks_settled`
+  carries `failed_apps`: the app slugs, lower-cased and sorted, of the counted
+  suites that completed `failure`.
+- **`pr-fixer-checks` stays off.** Its condition gains
+  `not (gitguardian ∈ failed_apps)`, so a head GitGuardian fails on starts no
+  fix, whatever else failed. An event without `failed_apps` (one settled
+  before the upgrade) is read as no GitGuardian failure.
+- **The `pr-fix` hold stops every other fix run.** A `/fix` comment, a review
+  or a re-fix runs `pr-fix`, whose `secrets` step (`gitguardian.hold`) fails
+  `secrets_found` after the quiet period, before the threads, the agent and
+  the gate. The hand-back reads `PR fixer handed back (actor_failed):
+  secrets_found: GitGuardian reports 1 hardcoded secret on 0ef24e4. A human
+  revokes and rotates them first; ...`. It counts as an attempt.
+- **`pr-fixer-secrets` posts the findings.** It fires on the same settled
+  event when `gitguardian ∈ failed_apps`, for an open, same-repo PR of a
+  repository in `vars.fixer_repos` and not in `vars.fixer_excluded_repos`.
+  Drafts are included: a pushed secret is leaked whether or not the PR is a
+  draft. It runs `report-secrets`, whose one step, the built-in
+  `gitguardian.findings` (`culture_rules/node/actions/gitguardian.py`), reads
+  the check as the App and parses the table
+  (`culture_rules/apps/gitguardian.py`). The action posts its `comment` as
+  the App, with the run link.
+- **Once per head SHA.** The rule has its own key,
+  `pr-secrets:{repository}#{number}@{head_sha}`, with `max_attempts: 1`, so a
+  head is commented once even when its settle is re-armed. It is outside the
+  fixer's per-PR key and budget, so a fix chain in flight never delays it.
+
+What the comment carries, per finding: the secret type, `file:line` (the
+line from the "View secret" anchor, when there is one), the short commit,
+the incident link and the GitGuardian status. Nothing else of the check text
+reaches it. Cells are cleaned of backticks, pipes, angle brackets and links.
+An incident link is kept only when it is `https` on a `gitguardian.com`
+host, and a commit only when it is hex. At most 50 findings are listed
+(`max_findings`, up to 200); a longer list ends with `… and N more`. N counts
+the table's rows, or the check title's count when that is larger. For the
+sample check (values made up):
+
+```markdown
+**GitGuardian found 1 hardcoded secret on `0ef24e4`.**
+
+| Secret type | File | Commit | Incident | Status |
+|---|---|---|---|---|
+| `Generic Password` | `esphome/x.yaml:8` | `0ef24e4` | [12345678](https://dashboard.gitguardian.com/workspace/111/incidents/12345678?occurrence=222) | Triggered |
+
+Revoke and rotate each secret, then remove it from the code; rewriting history does not un-leak it. The PR fixer does not touch secrets and stays off this PR until GitGuardian passes.
+
+Run: https://rules.culture.dev/api/runs/<run id>
+```
+
+A failing check whose table cannot be read still gets a comment. It says
+how many secrets the title reports and points to the check. A failed lookup
+fails the run, and `on_failure` posts that the findings could not be read
+(`{{ run.error.code }}`), with the same remediation. If GitGuardian no
+longer fails by the time the step reads it (a re-run passed), the comment
+says so and lists nothing.
+
+`report-secrets` holds no trusted role: it never pushes or reviews, so
+nothing checks its digest.
 
 ### Review-only mode
 
@@ -664,7 +750,7 @@ The shipped digests (0.14.0):
 | Role | Digest |
 |---|---|
 | `pr-fixer` | `sha256:01ece1cd…f4fc5d6` (kept for the transition) |
-| `pr-fix` | `sha256:165571b8…7cb626` |
+| `pr-fix` | `sha256:04570dee…43b6a8` (d25, with the GitGuardian hold); `sha256:165571b8…7cb626` (d21, kept for the transition) |
 | `review-commit` | `sha256:79064f76…b158e6` |
 | `publish-fix` | `sha256:0fa92074…c23680` |
 
@@ -699,6 +785,24 @@ The order matters: nodes first, then the data.
    `pr-fixer-publish` off.
 7. **Resume** (`culture-rules runs resume`).
 8. In a later release, drop the `pr-fixer` digest from `TRUSTED_WORKFLOWS`.
+
+### Rolling out the GitGuardian report (d25)
+
+1. **Upgrade every node and the API** to the release. It emits
+   `failed_apps`, holds the new `pr-fix` digest (the d21 one stays trusted
+   for runs in flight) and the `gitguardian.*` built-ins. A node without
+   them fails `report-secrets` and the new `pr-fix` with `no_builtin`.
+2. **Check the App can read checks**: the GitHub App needs `Checks: read`
+   (the settle already uses it).
+3. **Import** the workflows, then the rules
+   (`culture-rules workflows import docs/rules/pr-fixer --apply`, then
+   `culture-rules rules import docs/rules/pr-fixer --apply`). That adds
+   `report-secrets` and `pr-fixer-secrets`, updates `pr-fix` (the hold) and
+   `pr-fixer-checks` (the GitGuardian clause), and sets every rule back to
+   `enabled: false`.
+4. **Enable** `pr-fixer-secrets` and re-enable the rules that were on
+   (`culture-rules rules enable <id> --apply`).
+5. In a later release, drop the d21 `pr-fix` digest from `TRUSTED_WORKFLOWS`.
 
 ### Trusted actors (d20 round 3)
 
@@ -777,7 +881,8 @@ and repository ∈ vars.fixer_repos
 and not (repository ∈ vars.fixer_excluded_repos)
 and conclusion ≠ success
 and conclusion ≠ no_checks
-Run workflow pr-fix (4 steps)
+and not (gitguardian ∈ failed_apps)
+Run workflow pr-fix (5 steps)
 On spark2
 Then github.comment as github-app (only where its chain ends)
 On failure github.comment as github-app (only where its chain ends)
@@ -796,13 +901,29 @@ Then github.comment as github-app (only where its chain ends)
 On failure github.comment as github-app (only where its chain ends)
 Key pr-fixer:{repository}#{number}, outside the attempt budget
 Disabled
+$ culture-rules rules describe pr-fixer-secrets
+When github.pr.checks_settled
+If head_repo = base_repo
+and state = open
+and repository ∈ vars.fixer_repos
+and not (repository ∈ vars.fixer_excluded_repos)
+and gitguardian ∈ failed_apps
+Run workflow report-secrets (1 step)
+On spark2
+Then github.comment as github-app
+On failure github.comment as github-app
+Key pr-secrets:{repository}#{number}@{head_sha}, ≤1 attempt
+Disabled
 $ culture-rules workflows describe pr-fix
 1 quiet — wait 300 s; stop if the PR head moves (head_unchanged, as github-app)
-2 threads — github.threads as github-app: unresolved threads by trusted authors
-3 sonar — sonar.gate_issues: the issues behind the PR's failing SonarCloud gate
-4 fix — retry up to 3×, until verdict ∈ {pass, no_gate}:
-  4.1 agent — qwen-fixer (agent, must commit)
-  4.2 gate — test gate on spark2
+2 secrets — gitguardian.hold as github-app: stop while GitGuardian fails on the head
+3 threads — github.threads as github-app: unresolved threads by trusted authors
+4 sonar — sonar.gate_issues: the issues behind the PR's failing SonarCloud gate
+5 fix — retry up to 3×, until verdict ∈ {pass, no_gate}:
+  5.1 agent — qwen-fixer (agent, must commit)
+  5.2 gate — test gate on spark2
+$ culture-rules workflows describe report-secrets
+1 findings — gitguardian.findings as github-app: the head's GitGuardian findings, no secret values
 $ culture-rules workflows describe review-commit
 1 review — codex-reviewer (agent, read-only), when gate_verdict ∈ {pass, no_gate} and diff_truncated = false
 2 verdict — review verdict, recorded for its commit (github.push checks it)
