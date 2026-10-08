@@ -572,14 +572,17 @@ class RuleFiring:
         self._pending[marker_id] = []  # a retried transaction re-evaluates from scratch
         if is_run_event(envelope):
             # consumer progress, backed up with the intents decided here: a run event
-            # re-delivered after a restore is not re-decided by a consumer that decided it
+            # re-delivered after a restore is not re-decided by a consumer that decided it.
+            # Only a verified envelope is ever marked: an unverified one at the same id
+            # (a conflict) must not suppress the genuine event that replaces it.
             mark = consumption_id(consumer, event_id)
             if tx.get(RUN_EVENT_CONSUMPTION, mark) is not None:
                 return
-            tx.insert(
-                RUN_EVENT_CONSUMPTION,
-                {"id": mark, "consumer": consumer, "event_id": event_id, "host": self.host},
-            )
+            if verify_run_event(tx, envelope) is None:
+                tx.insert(
+                    RUN_EVENT_CONSUMPTION,
+                    {"id": mark, "consumer": consumer, "event_id": event_id, "host": self.host},
+                )
         rules = self._live_rules(tx)
         ours = self._ours(tx, rules, event_id, placed=placed)
         if _resets_budgets(envelope):

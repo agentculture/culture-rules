@@ -191,8 +191,17 @@ What this gives:
   - a restored pending intent starts once, with its key reservation, and a
     started intent's run is not started again.
 
-  Skip decisions, rate windows and shared variables are not backed up. A
-  decided event is not affected; an undecided one meets today's.
+  Decision records are backed up too. A per-collection backup can still tear
+  across collections, so a restore runs a reconciliation pass before any
+  node starts: it drops key reservations no intent or running run holds, and
+  re-drives the end of finished runs whose dependants were not decided yet.
+  Rate windows and shared variables are not backed up; an undecided event
+  meets today's (`docs/operations/backup.md`, "Restore limits").
+- **A refused event is never marked consumed.** A trigger consumer records
+  its consumption mark only for a run event that verifies. When the genuine
+  event is first stored under an id a removed conflict had used, the stale
+  trigger markers for that id are cleared, so the genuine event is
+  evaluated.
 
 The pending query is an equality query on `emitted` and `blocked` that the
 store orders and limits itself (100 per poll). On MongoDB it uses a partial

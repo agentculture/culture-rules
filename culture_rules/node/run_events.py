@@ -97,6 +97,8 @@ from culture_rules.events.ingest import (
     ensure_quarantine_ttl,
     event_document,
 )
+from culture_rules.events.triggers import FIRES_COLLECTION
+from culture_rules.machines.enrol import enrolled_machines
 from culture_rules.store.port import StoragePort, StoreOps
 from culture_rules.store.versioning import utc_timestamp
 
@@ -207,6 +209,7 @@ def deliver(tx: StoreOps, record_id: str, *, now: datetime | None = None) -> str
         envelope = {**genuine, "id": event_id}
         existing = tx.get(EVENTS_COLLECTION, event_id)
         if existing is None:
+            _clear_stale_fire_markers(tx, event_id)
             tx.insert(EVENTS_COLLECTION, event_document(envelope, host=RUN_EVENTS_HOST))
         elif existing.get("envelope") != envelope:
             _quarantine_conflict(tx, existing, record_id)
@@ -248,6 +251,19 @@ def deliver(tx: StoreOps, record_id: str, *, now: datetime | None = None) -> str
         attempts,
     )
     return None
+
+
+def _clear_stale_fire_markers(tx: StoreOps, event_id: str) -> None:
+    """The genuine event is about to be stored under ``event_id`` for the first time in this
+    store, so any trigger consumer's fire marker for that id belongs to an envelope that held
+    it before and was removed (a conflict, refused and quarantined): drop those markers so
+    the genuine event is evaluated. A genuine evaluation is recorded separately, by its
+    consumption mark, which is kept."""
+    consumers = ["triggers", *(f"triggers@{m.name}" for m in enrolled_machines(tx))]
+    for consumer in consumers:  # the trigger consumers' marker ids are deterministic
+        marker_id = f"{consumer}/{event_id}"
+        if tx.get(FIRES_COLLECTION, marker_id) is not None:
+            tx.delete(FIRES_COLLECTION, marker_id)
 
 
 class DeliveryBlocked(RuntimeError):
@@ -313,7 +329,7 @@ class RunEventOutbox:
         self._before = before
         ensure = getattr(store, "ensure_collections", None)
         if callable(ensure):  # Mongo: collections must exist before a transaction uses them
-            ensure(RUN_COMPLETIONS, EVENTS_COLLECTION, QUARANTINE_COLLECTION)
+            ensure(RUN_COMPLETIONS, EVENTS_COLLECTION, QUARANTINE_COLLECTION, FIRES_COLLECTION)
         ensure_pending_index(store)
         ensure_quarantine_ttl(store)
         self.migrate_legacy()

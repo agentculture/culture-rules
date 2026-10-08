@@ -220,15 +220,16 @@ def reopen_undelivered(store: Any, *, limit: int | None = None) -> int:
     * a consumer that had not evaluated it evaluates it now, with the rules of now, as it
       would any pending event.
 
-    Paged: :data:`REOPEN_BATCH` records per query, at most ``limit`` re-opened in all (all of
-    them when ``None``); a page in which nothing can be re-opened (their events are present)
-    ends it. Answer how many were re-opened."""
-    reopened = 0
+    Keyset-paged over completion ids (:data:`REOPEN_BATCH` per query, each page after the
+    last id inspected, so records whose event is present never hide later ones); ``limit``
+    caps the records *re-opened*, not those scanned (``None``: all). Answer how many."""
+    reopened, last = 0, None
     while limit is None or reopened < limit:
-        page = REOPEN_BATCH if limit is None else min(REOPEN_BATCH, limit - reopened)
-        records = store.find(RUN_COMPLETIONS, {"emitted": True}, limit=page)
-        moved_here = 0
-        for record in records:
+        page = _page(store, last)
+        if not page:
+            break
+        for record in page:
+            last = record["id"]
             event_id = record.get("event_id")
             if not event_id or store.get(EVENTS_COLLECTION, event_id) is not None:
                 continue
@@ -238,8 +239,22 @@ def reopen_undelivered(store: Any, *, limit: int | None = None) -> int:
                 {"emitted": True},
                 {"emitted": False, "blocked": False},
             )
-            moved_here += 1 if moved.won else 0
-        reopened += moved_here
-        if len(records) < page or moved_here == 0:
-            break
+            reopened += 1 if moved.won else 0
+            if limit is not None and reopened >= limit:
+                break
     return reopened
+
+
+def _page(store: Any, after: str | None) -> list[Mapping[str, Any]]:
+    """The next :data:`REOPEN_BATCH` emitted completions after id ``after``, in id order."""
+    ranged = getattr(store, "find_range", None)
+    if callable(ranged):
+        return ranged(
+            RUN_COMPLETIONS, {"emitted": True}, field="id", after=after, limit=REOPEN_BATCH
+        )
+    records = [
+        r
+        for r in store.find(RUN_COMPLETIONS, {"emitted": True})
+        if after is None or r["id"] > after
+    ]
+    return records[:REOPEN_BATCH]

@@ -456,6 +456,7 @@ def test_the_backup_carries_the_decision_state_in_a_consistent_order():
     # earlier ones depend on (module doc)
     assert RUN_COLLECTIONS == (
         "run_event_consumption",
+        "rule_decisions",
         "rule_fires",
         "rule_attempt_budgets",
         "runs",

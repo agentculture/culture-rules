@@ -2,13 +2,13 @@
 
 culture-rules backs up config (`rules`, `workflows`, `actors`, `machines`) and
 run history (`runs`, `audit`, `run_completions`) to an S3 bucket with
-server-side encryption. Run history also carries the run-event decision state:
-`run_event_consumption`, `rule_fires` and `rule_attempt_budgets`, scanned in
-that order before `runs`, `audit` and `run_completions`. A backup chain
-written before these were added has no token for them, so the schedule takes
-a new snapshot first. The `events` collection is not backed up: a restore
-re-opens every emitted run completion whose event is missing, and the first
-node delivers it again under its assigned id (see `docs/run-events.md`).
+server-side encryption. Run history also carries the run-event decision
+state: `run_event_consumption`, `rule_decisions`, `rule_fires` and
+`rule_attempt_budgets`, scanned in that order before `runs`, `audit` and
+`run_completions`. A backup chain written before these were added has no
+token for them, so the schedule takes a new snapshot first. The `events`
+collection is not backed up; see [Restore limits](#restore-limits) for what a
+restore repairs and what it does not.
 The library is `culture_rules/ops/backup.py`; its module docstring is the
 contract.
 
@@ -78,3 +78,41 @@ Fill one row per drill.
 Pass: RPO <= 3600 and RTO <= 1800 and no mismatches. Until a row is filled in,
 the real-S3 RPO/RTO acceptance is not met; the moto and Mongo-rig tests only
 prove the mechanism.
+
+## Restore limits
+
+Backups are **per collection**, not one point in time across collections:
+each collection is consistent as of its own scan. A restore also has no
+`events`, no consumer cursors and no fire markers. So a restore runs one
+reconciliation pass before any node starts
+(`culture_rules/ops/reconcile.py`), which repairs these known gaps:
+
+- **Undelivered run events.** Every run completion marked emitted whose
+  event is missing is re-opened. The first node delivers it again under its
+  assigned id. A trigger consumer that had decided it skips it; one that had
+  not decides it now, with the rules of now.
+- **Orphan key reservations.** A concurrency reservation held by neither a
+  pending firing intent nor a running run is dropped, and each one is
+  logged. Its attempt count is kept. A pending event it remembered is not
+  fired, because that event is not in the backup.
+- **Unfinished chain work.** A finished run whose must/may-run-after
+  dependants had not been decided for its event is re-driven through the
+  chain consumers once. Deterministic run and intent ids keep this
+  idempotent.
+
+The restore report counts each repair (`reopened`, `reservations_dropped`,
+`chains_redriven`).
+
+### Not covered
+
+These need an operator's review after a restore. They are to be recorded as a
+risk on the `pr-fixer-rule` plan (d21); until then this list is the record:
+
+- events other than run events (webhook, bus, schedule and probe events): not
+  backed up, so whatever had not been evaluated before the backup is lost;
+- shared variables, rate windows and the budget-reset markers: not backed
+  up, so an undecided event meets today's values (a rule reading a variable
+  that is not re-seeded is refused, `variable_undefined`);
+- a tear across collections other than the three repaired above (for
+  example audit entries newer than the runs they describe);
+- human asks and bridge invocations in flight.

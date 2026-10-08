@@ -719,15 +719,27 @@ class MongoStore:
         where: Mapping[str, Any] | None,
         *,
         field: str,
-        upto: Any,
+        upto: Any = None,
+        after: Any = None,
         limit: int,
     ) -> list[Document]:
-        """Documents matching ``where`` whose ``field`` is at most ``upto``, ordered by
-        (``field``, id) and limited on the server (see :meth:`ensure_index`)."""
-        query = {**_translate_where(where), field: {"$lte": upto}}
-        cursor = (
-            self._collection(collection).find(query).sort([(field, 1), ("_id", 1)]).limit(limit)
-        )
+        """Documents matching ``where`` whose ``field`` is greater than ``after`` and at most
+        ``upto`` (either bound optional), ordered by (``field``, id) and limited on the
+        server (see :meth:`ensure_index`); ``field`` may be ``id``. ``limit`` is checked like
+        :meth:`find`'s: 0 answers nothing (MongoDB would read 0 as no limit)."""
+        if not isinstance(limit, int) or isinstance(limit, bool) or limit < 0:
+            raise ValueError("limit must be a non-negative int")
+        if limit == 0:
+            return []
+        key = "_id" if field == "id" else field
+        bounds: dict[str, Any] = {"$exists": True, "$ne": None}
+        if upto is not None:
+            bounds["$lte"] = upto
+        if after is not None:
+            bounds["$gt"] = after
+        query = {**_translate_where(where), key: bounds}
+        order = [(key, 1)] if key == "_id" else [(key, 1), ("_id", 1)]
+        cursor = self._collection(collection).find(query).sort(order).limit(limit)
         return [_to_doc(raw) for raw in cursor]
 
     def ensure_index(

@@ -4,26 +4,22 @@ What is backed up
 =================
 
 *Config* collections (``rules``, ``workflows``, ``actors``, ``machines``) and
-*run history* collections (``run_event_consumption``, ``rule_fires``,
+*run history* collections (``run_event_consumption``, ``rule_decisions``, ``rule_fires``,
 ``rule_attempt_budgets``, ``runs``, ``audit``, ``run_completions``) read through the
 :class:`~culture_rules.store.port.StoragePort`. Both lists are configurable.
 
-Run events and decision state (d21)
------------------------------------
-The ``events`` collection is not backed up. A restore re-opens every completion marked
-emitted whose event is missing (:func:`~culture_rules.engine.run_completions.reopen_undelivered`,
-paged) and the first node delivers it again under its assigned event id. What a trigger
-consumer had decided on it is backed up: its consumption mark, the firing intents and key
-reservations committed with that mark, and the runs started from them. Run history is
-scanned in :data:`RUN_COLLECTIONS` order, each collection after the one whose writes it
-depends on - a mark is written with its intents and reservations, an intent's run is written
-when it starts, a completion when its run ends - so a later scan always holds what an
-earlier one implies: a captured mark always has its intents, a started intent its run.
-After a restore a consumer that had decided the event skips it (no re-decision against
-today's rules), one that had not decides it now, a pending intent starts once (its key
-reservation is restored with it), and a started intent's run is not started again.
-The skip decisions (``rule_decisions``), rate windows and shared variables are not backed
-up: a decided event is not affected; an undecided one meets today's.
+Run events, decision state and reconciliation (d21)
+---------------------------------------------------
+A backup is consistent **per collection**, not one point in time across collections, and
+it leaves out ``events`` and every consumer's cursor and fire markers. Run history carries
+the decision state - consumption marks, decision records, firing intents, key reservations,
+runs and run completions, scanned in :data:`RUN_COLLECTIONS` order - and a restore then runs
+one reconciliation pass before any node starts
+(:func:`~culture_rules.ops.reconcile.reconcile_restored`), which repairs the known gaps:
+undelivered run events are re-opened under their assigned ids, orphan key reservations are
+dropped, and finished runs whose dependants were not decided yet are re-driven through the
+chain consumers. Anything else needs an operator's review (``docs/operations/backup.md``,
+"Restore limits").
 
 A backup chain written before
 ``run_completions`` was listed has no feed token for it: the schedule then takes a new
@@ -85,7 +81,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, NoReturn
 
 from culture_rules.actors.secrets import SecretError, resolve_or_literal
-from culture_rules.engine.run_completions import reopen_undelivered
+from culture_rules.ops.reconcile import reconcile_restored
 from culture_rules.store.port import StoragePort
 
 __all__ = [
@@ -104,6 +100,7 @@ __all__ = [
 CONFIG_COLLECTIONS = ("rules", "workflows", "actors", "machines")
 RUN_COLLECTIONS = (
     "run_event_consumption",
+    "rule_decisions",
     "rule_fires",
     "rule_attempt_budgets",
     "runs",
@@ -197,6 +194,10 @@ class RestoreReport:
     restored_to: datetime
     reopened: int = 0
     """Run completions re-opened for delivery (their event was not in the backup)."""
+    reservations_dropped: int = 0
+    """Orphan concurrency reservations the reconciliation dropped."""
+    chains_redriven: int = 0
+    """Finished runs whose undecided dependants the reconciliation re-drove."""
 
 
 @dataclass(frozen=True)
@@ -435,9 +436,16 @@ class Backup:
         snap = snaps[-1]
         documents = self._restore_snapshot(target, snap)
         chain, restored_to = self._apply_increments(target, snap, records)
-        reopened = reopen_undelivered(target) if "run_completions" in collections else 0
+        fixed = reconcile_restored(target) if "run_completions" in collections else None
         return RestoreReport(
-            snap.key, chain, documents, time.monotonic() - started, restored_to, reopened
+            snap.key,
+            chain,
+            documents,
+            time.monotonic() - started,
+            restored_to,
+            fixed.reopened if fixed else 0,
+            fixed.reservations_dropped if fixed else 0,
+            fixed.chains_redriven if fixed else 0,
         )
 
     def _restore_snapshot(self, target: StoragePort, snap: BackupRecord) -> int:

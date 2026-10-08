@@ -177,7 +177,7 @@ def bounded_record(doc: dict[str, Any]) -> dict[str, Any]:
     record whatever its fields: first the payload (``envelope`` / ``preview``) is dropped,
     then every other field is bounded (:func:`bounded_value`), and last only the fields of
     :data:`_KEEP` stay (the dedupe key, the counters, the TTL date and the payload digest),
-    with any of them still too long replaced by its digest."""
+    each retained text field over :data:`QUARANTINE_MAX_FIELD` replaced by its digest."""
     if _size(doc) <= QUARANTINE_MAX_RECORD:
         return doc
     if "sha256" not in doc and "envelope" in doc:
@@ -192,10 +192,12 @@ def bounded_record(doc: dict[str, Any]) -> dict[str, Any]:
         return slim
     minimal = {k: slim[k] for k in _KEEP if k in slim}
     minimal["truncated"] = True
-    for key in ("id", "sha256"):
-        value = minimal.get(key)
-        if isinstance(value, str) and len(value.encode("utf-8")) > QUARANTINE_MAX_FIELD:
-            minimal[key] = "q_" + hashlib.sha256(value.encode("utf-8")).hexdigest()[:32]
+    for key, value in list(minimal.items()):
+        if not isinstance(value, str) or len(value.encode("utf-8")) <= QUARANTINE_MAX_FIELD:
+            continue
+        digest = hashlib.sha256(value.encode("utf-8")).hexdigest()
+        # the key keeps its role (a stable id, a digest); any other text keeps its digest
+        minimal[key] = f"q_{digest[:32]}" if key == "id" else f"sha256:{digest}"
     return minimal
 
 

@@ -285,3 +285,16 @@ def test_parked_records_due_first_and_legacy_migration_on_mongo(mongo_store):
         .explain()
     )
     assert PARKED_INDEX in str(plan["queryPlanner"]["winningPlan"])
+
+
+def test_find_range_pages_by_id_and_limits_like_find_on_mongo(mongo_store):
+    mongo_store.ensure_collections("run_completions")
+    for i in range(5):
+        mongo_store.put("run_completions", {"id": f"r{i}", "emitted": True})
+    page = mongo_store.find_range(
+        "run_completions", {"emitted": True}, field="id", after="r1", limit=2
+    )
+    assert [d["id"] for d in page] == ["r2", "r3"]
+    assert mongo_store.find_range("run_completions", None, field="id", limit=0) == []
+    with pytest.raises(ValueError):
+        mongo_store.find_range("run_completions", None, field="id", limit=-1)
