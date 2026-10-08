@@ -70,8 +70,9 @@ __all__ = ["CHAIN_NEEDS_REVIEW", "FeedConsumer", "Source", "Unrecoverable", "liv
 CHAIN_NEEDS_REVIEW = "chain_needs_review"
 """Chain continuations a consumer could not recover (d21): one record per (consumer,
 collection, key), naming the rule, the event and the dependants left undecided. The change
-is *not* marked handled, so touching the document again once the cause is fixed retries it.
-``health_status`` counts them."""
+is *not* marked handled, so touching the document again once the cause is fixed retries it;
+the retry that succeeds deletes the record in its own transaction. ``health_status`` counts
+the records left, i.e. the unresolved ones."""
 
 
 class Unrecoverable(Exception):
@@ -177,6 +178,9 @@ class FeedConsumer:
                 except DuplicateKeyError:
                     raise _AlreadyHandled from None
                 source.handler(tx, doc, marker_id)
+                if tx.get(CHAIN_NEEDS_REVIEW, marker_id) is not None:
+                    # an earlier attempt could not continue; this one did: resolve it
+                    tx.delete(CHAIN_NEEDS_REVIEW, marker_id)
                 tx.put(CURSOR_COLLECTION, cursor)
         except _AlreadyHandled:
             self.store.save_cursor(self.consumer, source.collection, token)

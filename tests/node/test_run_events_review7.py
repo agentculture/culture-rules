@@ -93,6 +93,9 @@ def test_an_unrecoverable_continuation_is_recorded_and_not_marked_handled():
     c.base.update_if(RULE_DECISIONS, b["id"], {"reason": b["reason"]}, {"touched": 2})
     cycles(c, 4)
     assert len(_runs(c, "c")) == 1
+    # the successful continuation resolved its review record
+    assert c.base.find("chain_needs_review") == []
+    assert health_status(c.base, c.clock(), "spark")["chain_needs_review"] == 0
 
 
 def test_reconcile_recovers_a_snapshotless_decision_from_its_predecessors_run():
@@ -114,3 +117,28 @@ def test_reconcile_recovers_a_snapshotless_decision_from_its_predecessors_run():
     c.start()
     cycles(c, 5)
     assert len(_runs(c, "c")) == 1
+
+
+def test_recovery_walks_transitive_predecessors_down_a_four_rule_chain():
+    from tests.events.fakes import envelope
+    from tests.node.test_run_events import PR, SETTLED
+    from tests.node.test_run_events_review6 import _rule
+
+    # a fails; b must after a, c must after b (both settle predecessor_failed on an
+    # oversized trigger, so neither keeps a snapshot); d may after c
+    rules = (
+        _rule("a"),
+        _rule("b", must_after=("a",)),
+        _rule("c", must_after=("b",)),
+        _rule("d", may_after=("c",)),
+    )
+    src = cluster(*rules)
+    src.actor.on("@action", ("fail", "broken", False))
+    src.publish(envelope(1, type=SETTLED, data={**PR, "big": BIG}))
+    cycles(src, 1)
+    c, report = _restore(src)
+    c.start()
+    cycles(c, 6)
+    assert decision(c, "c")["reason"] == "predecessor_failed"
+    assert len(_runs(c, "d")) == 1
+    assert c.base.find("chain_needs_review") == []

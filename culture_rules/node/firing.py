@@ -1229,25 +1229,42 @@ def _finished_run(doc: Mapping[str, Any]) -> str | None:
     return doc["id"]
 
 
+RECOVERY_DEPTH = 32
+"""How many predecessor levels :func:`_recover_trigger` walks (a cycle-safe bound)."""
+
+
 def _recover_trigger(
     tx: StoreOps, rules: list[Rule], rule_id: str, event_id: Any
 ) -> dict[str, Any]:
-    """The trigger envelope of ``event_id`` from a durable record that holds it whole - the
-    rule's own firing intent or run, else those of its must/may-run-after predecessors
-    (deterministic ids) - or ``{}``: a continuation is never built from a guess (d21)."""
+    """The trigger envelope of ``event_id`` from a durable record that holds it whole - a
+    firing intent or run of the rule, else of its must/may-run-after predecessors,
+    transitively (breadth-first, each rule once, at most :data:`RECOVERY_DEPTH` levels;
+    deterministic ids, and the envelope must carry ``event_id``) - or ``{}``: a
+    continuation is never built from a guess (d21)."""
     if not isinstance(event_id, str) or not event_id:
         return {}
     by_id = {r.id: r for r in rules}
-    rule = by_id.get(rule_id)
-    candidates = [rule_id, *((*rule.must_after, *rule.may_after) if rule else ())]
-    for rid in candidates:
-        for doc in (
-            tx.get(RUNS_COLLECTION, run_id_for(rid, event_id)),
-            tx.get(RULE_FIRES, firing_key(rid, event_id)),
-        ):
-            trigger = (doc or {}).get("trigger")
-            if isinstance(trigger, Mapping) and trigger.get("id") == event_id:
-                return dict(trigger)
+    seen = {rule_id}
+    level = [rule_id]
+    for _ in range(RECOVERY_DEPTH + 1):
+        for rid in level:
+            for doc in (
+                tx.get(RUNS_COLLECTION, run_id_for(rid, event_id)),
+                tx.get(RULE_FIRES, firing_key(rid, event_id)),
+            ):
+                trigger = (doc or {}).get("trigger")
+                if isinstance(trigger, Mapping) and trigger.get("id") == event_id:
+                    return dict(trigger)
+        upper: list[str] = []
+        for rid in level:
+            rule = by_id.get(rid)
+            for pid in (*rule.must_after, *rule.may_after) if rule else ():
+                if pid not in seen:
+                    seen.add(pid)
+                    upper.append(pid)
+        if not upper:
+            break
+        level = sorted(upper)
     return {}
 
 
