@@ -100,8 +100,8 @@ def test_a_failure_after_the_record_rolls_back_the_terminal_transition_on_mongo(
     ex, run = _waiting_run(mongo_store, clock)
     real = runs.record_completion
 
-    def record_then_fail(tx, before, after):
-        real(tx, before, after)
+    def record_then_fail(tx, before, after, now=None):
+        real(tx, before, after, now)
         raise RuntimeError("died after writing the record, before commit")
 
     monkeypatch.setattr(runs, "record_completion", record_then_fail)
@@ -169,12 +169,12 @@ def test_cancel_racing_completion_leaves_one_matching_record_on_mongo(
     real = runs.record_completion
     holder: list[str] = []
 
-    def held(tx, before, after):
+    def held(tx, before, after, now=None):
         if after.get("status") in runs.RUN_DONE and not holder:
             holder.append(after["status"])
             inside.set()  # this transition has written the run in its transaction ...
             release.wait(timeout=10)  # ... and holds there while the other one runs
-        return real(tx, before, after)
+        return real(tx, before, after, now)
 
     monkeypatch.setattr(runs, "record_completion", held)
 

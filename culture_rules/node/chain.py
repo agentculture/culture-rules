@@ -222,6 +222,8 @@ class FeedConsumer:
         concurrency budget: its end must release the key and fire the event coalesced
         meanwhile even when its rule was deleted or lost its key since it fired, which
         drops the rule from :meth:`_dependencies` (:mod:`culture_rules.node.firing`)."""
+        if source.collection == RULE_ATTEMPT_BUDGETS:
+            return True  # a released chain hold: the key's own document (d21 phase 2)
         if source.collection == RUNS_COLLECTION:
             run_id = doc.get("id")
         elif source.collection == "rule_fires":

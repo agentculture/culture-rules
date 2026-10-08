@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Mapping
+from datetime import datetime
 from typing import Any
 
 from culture_rules.engine.matching import exported_outputs
@@ -173,10 +174,19 @@ def build_run_event(run: Mapping[str, Any]) -> dict[str, Any] | None:
     )
 
 
-def record_completion(tx: StoreOps, before: Mapping[str, Any], after: Mapping[str, Any]) -> bool:
+def record_completion(
+    tx: StoreOps,
+    before: Mapping[str, Any],
+    after: Mapping[str, Any],
+    now: datetime | None = None,
+) -> bool:
     """In the terminal transition's transaction ``tx``: when ``after`` finishes a run that
     ``before`` had not finished, insert its completion record (read first: a duplicate key
-    aborts a MongoDB transaction; the first record wins). Answer whether one was inserted."""
+    aborts a MongoDB transaction; the first record wins). Answer whether one was inserted.
+
+    A keyed run whose event a live rule would continue also holds its concurrency key for
+    that continuation, in the same transaction (:func:`~culture_rules.engine.chain_hold.set_hold`,
+    d21 phase 2), so no fresh firing takes the key between two stages of a chain."""
     if after.get("status") not in RUN_EVENT_TYPES or before.get("status") in RUN_EVENT_TYPES:
         return False
     envelope = build_run_event(after)
@@ -193,9 +203,12 @@ def record_completion(tx: StoreOps, before: Mapping[str, Any], after: Mapping[st
             "emitted": False,
             "event_id": None,
             "blocked": False,
-            "recorded_at": utc_timestamp(None),
+            "recorded_at": utc_timestamp(now),
         },
     )
+    from culture_rules.engine.chain_hold import set_hold  # noqa: PLC0415 - matching cycle
+
+    set_hold(tx, after, envelope, now)
     return True
 
 

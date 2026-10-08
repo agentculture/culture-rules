@@ -10,10 +10,11 @@ any node starts, and repairs exactly these gaps:
    (:func:`~culture_rules.engine.run_completions.reopen_undelivered`).
 2. **Orphan key reservations** - a concurrency reservation (``rule_attempt_budgets``) whose
    holder is neither a pending firing intent nor a run still running would hold its key
-   forever (``deduplicated`` for every later firing). It is dropped - its holder, intent and
-   pending event cleared - and logged. Its counted attempt is refunded only when its intent
-   explicitly failed and no run exists (as the next reservation would have done); a
-   finished run or an ambiguous orphan keeps it.
+   forever (``deduplicated`` for every later firing). It is dropped - its holder, intent,
+   pending event and any chain hold cleared - and logged (the restored run event then
+   finds the key free and its continuation is admitted as an ordinary firing). Its counted
+   attempt is refunded only when its intent explicitly failed and no run exists (as the
+   next reservation would have done); a finished run or an ambiguous orphan keeps it.
 3. **Unfinished chain work** - a chain continues from three kinds of document: a finished
    run, a final skip decision and a failed firing intent. One whose rule has a must/may-run-
    after dependant undecided for its event (no firing intent, and no final decision record:
@@ -135,6 +136,8 @@ def _drop_orphan_reservations(store: Any) -> int:
                 "intent_id": None,
                 "pending_event_id": None,
                 "pending_rule_id": None,
+                "hold": None,  # a chain hold dies with its holder's reservation (d21)
+                "hold_released": None,
                 "count": max(0, count - 1) if refund else count,
                 "revision": (budget.get("revision") or 0) + 1,
             },

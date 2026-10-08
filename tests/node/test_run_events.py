@@ -320,10 +320,10 @@ def test_a_crash_in_the_terminal_transition_writes_neither_status_nor_record(mon
 
     real = runs.record_completion
 
-    def crash(tx, before, after):
+    def crash(tx, before, after, now=None):
         if after.get("status") in runs.RUN_DONE:
             raise Crash("node died inside the terminal transition")
-        return real(tx, before, after)
+        return real(tx, before, after, now)
 
     monkeypatch.setattr(runs, "record_completion", crash)
     settle(c)

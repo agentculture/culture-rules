@@ -209,6 +209,7 @@ from culture_rules.engine.audit import AUDIT_COLLECTION, AuditLog, mutating_verb
 from culture_rules.engine.claims import (
     CLAIMS_COLLECTION,
     DEFAULT_LEASE,
+    RULE_ATTEMPT_BUDGETS,
     ClaimResult,
     Claims,
     ReclaimGuard,
@@ -279,6 +280,7 @@ RUN_COLLECTIONS: tuple[str, ...] = (
     CLAIMS_COLLECTION,
     AUDIT_COLLECTION,
     RUN_COMPLETIONS,
+    RULE_ATTEMPT_BUDGETS,  # a terminal transition may hold its key (chain_hold, d21)
 )
 RULES_COLLECTION = "rules"
 WORKFLOWS_COLLECTION = "workflows"
@@ -634,7 +636,7 @@ class Containment:
             # before this point. The guard covers an adapter that does neither.
             if not res.won:  # pragma: no cover
                 raise RunError("conflict", f"run {run_id!r} changed concurrently")
-            record_completion(tx, before, doc)
+            record_completion(tx, before, doc, now)
             self._audit.write(
                 tx,
                 identity=identity,
@@ -1288,7 +1290,7 @@ class Executor:
                     RUNS_COLLECTION, before["id"], {"rev": before["rev"]}, _mutable(after)
                 )
                 if res.won:
-                    record_completion(tx, before, after)
+                    record_completion(tx, before, after, self._clock())
             return res.won
         res = self._store.update_if(
             RUNS_COLLECTION, before["id"], {"rev": before["rev"]}, _mutable(after)
@@ -1609,7 +1611,7 @@ class Executor:
                     res = tx.update_if(RUNS_COLLECTION, run_id, {"rev": doc["rev"]}, _mutable(new))
                     if not res.won:
                         raise _Conflict
-                    record_completion(tx, doc, new)
+                    record_completion(tx, doc, new, now)
                     if nst["status"] in STEP_DONE:
                         claims.complete(claim)
                     else:

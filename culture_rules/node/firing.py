@@ -241,6 +241,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from culture_rules.engine.chain_hold import decline as decline_hold
 from culture_rules.engine.chaining import LIVE, START_FAILED, sequence
 from culture_rules.engine.claims import (
     RULE_ATTEMPT_BUDGETS,
@@ -460,6 +461,7 @@ class RuleFiring:
                 Source(RUNS_COLLECTION, _finished_run, handle("run")),
                 Source(RULE_DECISIONS, _settled_skip, handle("decision")),
                 Source(RULE_FIRES, _failed_intent, handle("intent")),
+                Source(RULE_ATTEMPT_BUDGETS, _released_hold, handle("hold")),
             ),
             host=self.host,
             consumer=consumer,
@@ -570,6 +572,7 @@ class RuleFiring:
         consumer = placed_consumer(self.host) if placed else SHARED_CONSUMER
         marker_id = f"{consumer}/{event_id}"  # EventTriggers.fire_id
         self._pending[marker_id] = []  # a retried transaction re-evaluates from scratch
+        verified = False
         if is_run_event(envelope):
             # consumer progress, backed up with the intents decided here: a run event
             # re-delivered after a restore is not re-decided by a consumer that decided it.
@@ -578,7 +581,8 @@ class RuleFiring:
             mark = consumption_id(consumer, event_id)
             if tx.get(RUN_EVENT_CONSUMPTION, mark) is not None:
                 return
-            if verify_run_event(tx, envelope) is None:
+            verified = verify_run_event(tx, envelope) is None
+            if verified:
                 tx.insert(
                     RUN_EVENT_CONSUMPTION,
                     {"id": mark, "consumer": consumer, "event_id": event_id, "host": self.host},
@@ -592,12 +596,26 @@ class RuleFiring:
                 reset_attempt_budget(tx, key, event_id)
         if ours:
             self._decide(tx, envelope, rules, ours, marker_id, placed=placed, chained=False)
+        if verified:
+            # d21 phase 2: the rules this consumer decided on the event, and every rule no
+            # consumer will decide any more, leave the key's chain hold (module doc)
+            live = {r.id for r in rules if r.enabled}
+            decline_hold(tx, envelope, ours, live)
 
     def _settled(
         self, tx: StoreOps, kind: str, doc: Mapping[str, Any], marker_id: str, *, placed: bool
     ) -> None:
         """A predecessor settled for an event: re-evaluate its dependants that are ours."""
         self._pending[marker_id] = []
+        if kind == "hold":
+            # a chain hold ended without a continuation taking the key: release the key
+            # and fire the event deduplicated meanwhile, as at the end of the holder's run
+            holding = doc.get("run_id")
+            if holding and holding == doc.get("hold_released"):
+                pending = str(doc.get("pending_event_id") or holding)
+                rules = self._live_rules(tx)
+                self._fire_coalesced(tx, holding, pending, rules, marker_id, placed=placed)
+            return
         if kind == "run":
             predecessor = (doc.get("rule") or {}).get("id")
             envelope = doc.get("trigger") or {}
@@ -673,7 +691,7 @@ class RuleFiring:
                 # owner's consumer, done with this run already, never fires (r18, r19).
                 guard_concurrency(tx, budget["id"], holding)
                 continue
-            pending = release_concurrency(tx, budget["id"], holding)
+            pending = release_concurrency(tx, budget["id"], holding, now=self._clock())
             if pending is None:
                 continue
             pending_event, pending_rule = pending
@@ -699,6 +717,7 @@ class RuleFiring:
         decision: Decision,
         run_id: str,
         intent_id: str,
+        now: datetime,
     ) -> tuple[Decision, str | None]:
         """Reserve ``rule``'s concurrency key for a firing ``decision``: the decision (a
         skip in its place when the key is held, the budget spent or the key unresolved)
@@ -717,8 +736,21 @@ class RuleFiring:
         # event and a deduplication replaces it - either way it never fires (module doc).
         displaced = _pending(tx, key)
         counts = rule.counts_toward_budget is not False
-        reason = reserve_concurrency(tx, rule.id, key, run_id, intent_id, limit, counts=counts)
-        if reason in (None, DEDUPLICATED):
+        outcome: dict[str, Any] = {}
+        reason = reserve_concurrency(
+            tx,
+            rule.id,
+            key,
+            run_id,
+            intent_id,
+            limit,
+            counts=counts,
+            event=envelope,
+            now=now,
+            outcome=outcome,
+        )
+        if reason == DEDUPLICATED or (reason is None and not outcome.get("continuation")):
+            # a chain's continuation keeps the pending event for the chain's end (d21)
             _coalesce_away(tx, displaced, rule.id, envelope["id"])
         if reason is None:
             return decision, key
@@ -790,7 +822,7 @@ class RuleFiring:
             key = None
             if decision.fire and by_id[decision.rule_id].concurrency_key is not None:
                 decision, key = self._admit(
-                    tx, by_id[decision.rule_id], rules, envelope, decision, run_id, intent_id
+                    tx, by_id[decision.rule_id], rules, envelope, decision, run_id, intent_id, now
                 )
             # A skip that matters ("superseded by A", ...) is part of the rule's history;
             # it commits (or rolls back) with this transaction, once per (rule, event). A
@@ -1286,6 +1318,15 @@ def _settled_skip(doc: Mapping[str, Any]) -> str | None:
     if not doc.get("superseded") and reason not in FINAL_SKIP_REASONS:
         return None
     return doc.get("id")
+
+
+def _released_hold(doc: Mapping[str, Any]) -> str | None:
+    """A concurrency budget whose chain hold was released with no continuation taking the
+    key (d21 phase 2, :mod:`culture_rules.engine.chain_hold`): its marker key, else None."""
+    released = doc.get("hold_released")
+    if not released or doc.get("run_id") != released:
+        return None
+    return f"{doc.get('id')}/hold/{released}"
 
 
 def _failed_intent(doc: Mapping[str, Any]) -> str | None:

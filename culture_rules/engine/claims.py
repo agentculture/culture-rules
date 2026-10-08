@@ -368,7 +368,10 @@ run of a rule that counts toward the budget counts, whatever its outcome); ``cou
 key's one active run but is neither counted nor refused, d21); ``pending_event_id`` /
 ``pending_rule_id`` (the newest firing deduplicated while the key was held, and the rule
 that recorded it: it is fired once, through that rule, when the holding run ends, so the
-latest event is never lost); and
+latest event is never lost);
+``limit`` (the ``max_attempts`` the holding reservation was admitted under); ``hold`` /
+``hold_released`` (a finished holder's key held for its chain's continuation, and the run
+whose hold was released: :mod:`culture_rules.engine.chain_hold`); and
 ``revision`` (the compare-and-set token every write bumps). The counter resets only on an
 explicit signal (:func:`reset_attempt_budget`, once per key and reset event): a human push
 or green checks.
@@ -458,8 +461,18 @@ def reserve_concurrency(
     max_attempts: int | None,
     *,
     counts: bool = True,
+    event: Mapping[str, Any] | None = None,
+    now: datetime | None = None,
+    outcome: dict[str, Any] | None = None,
 ) -> str | None:
     """Atomically reserve a key and consume one attempt, or return a skip reason.
+
+    Chain holds (d21 phase 2, :mod:`culture_rules.engine.chain_hold`): while the key is held
+    for the continuation of its finished holder, only a firing on that run's ``rules.run.*``
+    ``event`` is admitted (``now`` judges the hold's age); any other firing is
+    ``deduplicated``. The continuation keeps the key's pending event (it fires at the chain's
+    end) and is reported as ``outcome["continuation"] = True``. Every reservation records the
+    key's ``limit`` (``max_attempts``) for the stages that read it.
 
     ``counts`` false (a rule outside the budget, ``counts_toward_budget``): the key is
     reserved exactly the same way - one active run, ``deduplicated`` while held - but the
@@ -482,6 +495,7 @@ def reserve_concurrency(
     the newer firing supersedes it. The caller settles the displaced event's decision in
     the same transaction (:mod:`culture_rules.node.firing`, ``_coalesce_away``).
     """
+    from culture_rules.engine.chain_hold import hold_active, is_continuation
     from culture_rules.engine.runs import RUN_DONE, RUNS_COLLECTION
 
     doc_id = budget_id(key)
@@ -489,6 +503,7 @@ def reserve_concurrency(
         current = store.get(RULE_ATTEMPT_BUDGETS, doc_id) or {}
         count = current.get("count", 0)
         active = current.get("run_id")
+        continuation = False
         if active:
             run = store.get(RUNS_COLLECTION, active)
             if run is None:
@@ -500,27 +515,38 @@ def reserve_concurrency(
                     count = max(0, count - 1)
             elif run.get("status") not in RUN_DONE:
                 return "deduplicated"
+            elif hold_active(current, now):
+                # held for the finished run's continuation: only that is admitted
+                if not is_continuation(current, event):
+                    return "deduplicated"
+                continuation = True
         if counts and max_attempts is not None and count >= max_attempts:
             return "attempt_budget_exhausted"
         revision = current.get("revision")
-        outcome = store.update_if(
+        fields: dict[str, Any] = {
+            "rule_id": rule_id,
+            "key": key,
+            "count": count + 1 if counts else count,
+            "counted": counts,
+            "run_id": run_id,
+            "intent_id": intent_id,
+            "limit": max_attempts,
+            "hold": None,
+            "hold_released": None,
+            "revision": (revision or 0) + 1,
+        }
+        if not continuation:  # a continuation keeps the pending event for the chain's end
+            fields.update(pending_event_id=None, pending_rule_id=None)
+        result = store.update_if(
             RULE_ATTEMPT_BUDGETS,
             doc_id,
             {"revision": revision},
-            {
-                "rule_id": rule_id,
-                "key": key,
-                "count": count + 1 if counts else count,
-                "counted": counts,
-                "run_id": run_id,
-                "intent_id": intent_id,
-                "pending_event_id": None,
-                "pending_rule_id": None,
-                "revision": (revision or 0) + 1,
-            },
+            fields,
             upsert=not current,
         )
-        if outcome.won:
+        if result.won:
+            if outcome is not None:
+                outcome["continuation"] = continuation
             return None
 
     raise TransientStoreError("concurrency reservation contention")
@@ -574,9 +600,15 @@ def note_deduplicated(store: StoreOps, rule_id: str, key: str, event_id: str) ->
     return None if doc is None else doc.get("run_id")
 
 
-def release_concurrency(store: StoreOps, doc_id: str, run_id: str) -> tuple[str, str] | None:
+def release_concurrency(
+    store: StoreOps, doc_id: str, run_id: str, *, now: datetime | None = None
+) -> tuple[str, str] | None:
     """The holding run ``run_id`` ended: clear and answer the key's pending event, if any,
     as ``(event_id, rule_id)`` - the rule that recorded it fires it.
+
+    A key still held for ``run_id``'s continuation (:mod:`culture_rules.engine.chain_hold`,
+    judged at ``now``) is not released: only the guard is written and the pending event
+    waits for the chain's end (the hold's release, or the continuation's own end).
 
     Always writes the budget document while ``run_id`` still holds the key, even with no
     pending event: a concurrent trigger transaction that read the run as active and is
@@ -584,12 +616,16 @@ def release_concurrency(store: StoreOps, doc_id: str, run_id: str) -> tuple[str,
     committing an event nobody would fire (MongoDB snapshot isolation, write skew). Every
     other consumer handling the run's end writes the same guard (:func:`guard_concurrency`).
     """
+    from culture_rules.engine.chain_hold import hold_active
+
     taken: list[tuple[str, str]] = []
 
     def change(current: Document) -> dict[str, Any] | None:
         taken.clear()
         if current.get("run_id") != run_id:
             return None  # another run already holds the key: it cleared the pending event
+        if hold_active(current, now):
+            return {}  # a continuation is to come: the guard only, the pending event waits
         event, rule = current.get("pending_event_id"), current.get("pending_rule_id")
         if event and rule:
             taken.append((event, rule))
