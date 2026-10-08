@@ -50,6 +50,7 @@ from culture_rules.node.firing import (
     SHARED_CHAIN,
     _failed_intent,
     _finished_run,
+    _recover_trigger,
     _settled_skip,
     placed_chain,
 )
@@ -198,11 +199,13 @@ def _redrive_chains(store: Any, now: datetime) -> tuple[int, int]:
         for record in store.find(RULE_DECISIONS, {"rule_id": pid}):
             if _settled_skip(record) is None or not _undecided(store, deps, record["event_id"]):
                 continue
-            if not isinstance(record.get("trigger"), dict):
+            if not isinstance(record.get("trigger"), dict) and not _recover_trigger(
+                store, rules, pid, record["event_id"]
+            ):
                 review += 1
                 log.warning(
-                    "restore: decision %s (%s) has undecided dependants but no trigger "
-                    "snapshot (an older build): left for an operator, not guessed",
+                    "restore: decision %s (%s) has undecided dependants, no trigger snapshot "
+                    "and no run or intent holding it: left for an operator, not guessed",
                     record["id"],
                     record.get("reason"),
                 )

@@ -298,7 +298,7 @@ from culture_rules.model.actor import Actor
 from culture_rules.model.rule import Rule
 from culture_rules.model.variable_refs import rule_variable_refs
 from culture_rules.model.workflow import Workflow
-from culture_rules.node.chain import FeedConsumer, Source, live_rules
+from culture_rules.node.chain import FeedConsumer, Source, Unrecoverable, live_rules
 from culture_rules.node.run_events import RunEventOutbox, is_run_event, verify_run_event
 from culture_rules.ops.logs import log_context
 from culture_rules.store.port import (
@@ -609,10 +609,25 @@ class RuleFiring:
             # after a restore the event itself is gone (not backed up): continue from the
             # trigger snapshot the decision record carries, never from a guess (d21)
             envelope = (stored or {}).get("envelope") or doc.get("trigger") or {}
+        rules = self._live_rules(tx)
+        if kind == "decision" and not envelope.get("id") and predecessor:
+            envelope = _recover_trigger(tx, rules, predecessor, doc.get("event_id"))
+            if not envelope:
+                waiting = [r for r in rules if predecessor in (*r.must_after, *r.may_after)]
+                mine = self._ours(tx, waiting, str(doc.get("event_id")), placed=placed)
+                if mine:  # only the consumer that owns a dependant records it
+                    raise Unrecoverable(
+                        {
+                            "rule_id": predecessor,
+                            "event_id": doc.get("event_id"),
+                            "dependants": sorted(mine),
+                            "reason": "the trigger event is gone and no run or intent holds it",
+                        }
+                    )
+                return
         event_id = envelope.get("id")
         if not predecessor or not event_id:
             return
-        rules = self._live_rules(tx)
         if kind in ("run", "intent"):
             holding = doc.get("id") if kind == "run" else doc.get("run_id")
             if holding:
@@ -1212,6 +1227,28 @@ def _finished_run(doc: Mapping[str, Any]) -> str | None:
     if not rule_id or not event_id or doc.get("id") != run_id_for(rule_id, event_id):
         return None  # started by hand, not by an event: no chain to continue
     return doc["id"]
+
+
+def _recover_trigger(
+    tx: StoreOps, rules: list[Rule], rule_id: str, event_id: Any
+) -> dict[str, Any]:
+    """The trigger envelope of ``event_id`` from a durable record that holds it whole - the
+    rule's own firing intent or run, else those of its must/may-run-after predecessors
+    (deterministic ids) - or ``{}``: a continuation is never built from a guess (d21)."""
+    if not isinstance(event_id, str) or not event_id:
+        return {}
+    by_id = {r.id: r for r in rules}
+    rule = by_id.get(rule_id)
+    candidates = [rule_id, *((*rule.must_after, *rule.may_after) if rule else ())]
+    for rid in candidates:
+        for doc in (
+            tx.get(RUNS_COLLECTION, run_id_for(rid, event_id)),
+            tx.get(RULE_FIRES, firing_key(rid, event_id)),
+        ):
+            trigger = (doc or {}).get("trigger")
+            if isinstance(trigger, Mapping) and trigger.get("id") == event_id:
+                return dict(trigger)
+    return {}
 
 
 def _settled_skip(doc: Mapping[str, Any]) -> str | None:

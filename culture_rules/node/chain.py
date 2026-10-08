@@ -65,7 +65,23 @@ def live_rules(docs: Iterable[Mapping[str, Any]]) -> list[Rule]:
     return rules
 
 
-__all__ = ["FeedConsumer", "Source", "live_rules"]
+__all__ = ["CHAIN_NEEDS_REVIEW", "FeedConsumer", "Source", "Unrecoverable", "live_rules"]
+
+CHAIN_NEEDS_REVIEW = "chain_needs_review"
+"""Chain continuations a consumer could not recover (d21): one record per (consumer,
+collection, key), naming the rule, the event and the dependants left undecided. The change
+is *not* marked handled, so touching the document again once the cause is fixed retries it.
+``health_status`` counts them."""
+
+
+class Unrecoverable(Exception):
+    """A handler cannot continue the chain from this document (its trigger envelope is gone
+    and no durable reference holds it): roll back, record :data:`CHAIN_NEEDS_REVIEW`, move
+    the cursor on, and leave the change unhandled (no marker)."""
+
+    def __init__(self, record: dict[str, Any]) -> None:
+        super().__init__(f"chain continuation needs review: {record}")
+        self.record = record
 
 
 @dataclass(frozen=True)
@@ -124,6 +140,7 @@ class FeedConsumer:
             ensure(
                 FIRES_COLLECTION,
                 CURSOR_COLLECTION,
+                CHAIN_NEEDS_REVIEW,
                 *(s.collection for s in sources),
                 *handler_collections,
             )
@@ -162,6 +179,25 @@ class FeedConsumer:
                 source.handler(tx, doc, marker_id)
                 tx.put(CURSOR_COLLECTION, cursor)
         except _AlreadyHandled:
+            self.store.save_cursor(self.consumer, source.collection, token)
+            return False
+        except Unrecoverable as stuck:
+            # rolled back: no marker, so the change stays unhandled and can be retried by
+            # touching the document; the cursor moves on so the feed is not wedged
+            review = {
+                **stuck.record,
+                "id": marker_id,
+                "consumer": self.consumer,
+                "collection": source.collection,
+                "key": key,
+                "host": self.host,
+                "at": utc_timestamp(self._clock()),
+            }
+            try:
+                self.store.insert(CHAIN_NEEDS_REVIEW, review)
+            except DuplicateKeyError:
+                pass
+            log.error("chain %s: %s needs review: %s", self.consumer, marker_id, stuck.record)
             self.store.save_cursor(self.consumer, source.collection, token)
             return False
         return True

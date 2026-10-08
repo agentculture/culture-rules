@@ -108,10 +108,20 @@ reconciliation pass before any node starts
   or an orphan with no evidence either way, keeps it.
 
 The restore report counts each repair (`reopened`, `reservations_dropped`,
-`chains_redriven`) and `needs_review`: final decisions with undecided
-dependants but no trigger snapshot (written before snapshots existed, or a
-trigger over 64 KiB). They are logged and left for an operator, never
+`chains_redriven`) and `needs_review`. That counts final decisions with
+undecided dependants whose trigger is in no snapshot (written before
+snapshots existed, or over 64 KiB) and in no run or firing intent of the
+rule or its predecessors. They are logged and left for an operator, never
 guessed at.
+
+A node meets the same case later when a chain continuation becomes final
+during or after the restore, for example a dependant settling
+`predecessor_failed` on an oversized trigger. It first recovers the trigger
+from the rule's or its predecessors' run or intent. When nothing holds it,
+the node records the continuation in `chain_needs_review` (rule, event,
+dependants), logs an error and leaves the change unhandled: once the cause is
+fixed, touching the decision record retries it. `health_status` reports the
+count as `chain_needs_review`.
 
 ### Not covered
 

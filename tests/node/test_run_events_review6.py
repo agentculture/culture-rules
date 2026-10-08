@@ -91,8 +91,13 @@ def test_a_decision_without_a_trigger_snapshot_is_reported_for_review_not_guesse
     runs_source = next(s for s in chain.sources if s.collection == RUNS_COLLECTION)
     chain._poll_source(runs_source)
     old = dict(decision(src, "b"))
-    old.pop("trigger", None)  # written by an older build
+    old.pop("trigger", None)  # written by an older build ...
     src.base.put(RULE_DECISIONS, old)
+    # ... and no run or intent of a predecessor holds the event either
+    for run in _runs(src, "a"):
+        src.base.delete(RUNS_COLLECTION, run["id"])
+    for intent in src.base.find("rule_fires", {"rule_id": "a"}):
+        src.base.delete("rule_fires", intent["id"])
     c, report = _restore(src)
     assert report.needs_review == 1
     c.start()

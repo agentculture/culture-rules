@@ -101,6 +101,7 @@ from culture_rules.machines.heartbeat import (
 from culture_rules.machines.probe import ProbeResult, probe_platform, read_load
 from culture_rules.node import completions
 from culture_rules.node.actors import ACTORS_COLLECTION, ActorRouter, AdapterFactory
+from culture_rules.node.chain import CHAIN_NEEDS_REVIEW
 from culture_rules.node.checks_settle import (
     RECOVERY_COLLECTION,
     SETTLE_COLLECTION,
@@ -142,6 +143,7 @@ NODE_COLLECTIONS = (
     RUN_COMPLETIONS,
     RUN_EVENT_CONSUMPTION,
     QUARANTINE_COLLECTION,
+    CHAIN_NEEDS_REVIEW,
 )
 """Collections a node touches (created up front on MongoDB)."""
 
