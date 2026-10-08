@@ -72,6 +72,7 @@ Standard-library only.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
@@ -102,6 +103,7 @@ from culture_rules.store.versioning import utc_timestamp
 __all__ = [
     "GENUINE_SUFFIX",
     "OUTBOX_BATCH",
+    "PARKED_INDEX",
     "PENDING_INDEX",
     "RUN_COMPLETIONS",
     "RUN_EVENTS_HOST",
@@ -135,6 +137,10 @@ OUTBOX_BATCH = 100
 PENDING_INDEX = "run_completions_pending_v2"
 """The partial index (``emitted``, ``blocked``, id) over un-emitted completion records only:
 it serves both the main queue (``blocked: false``) and the parked one."""
+LEGACY_BATCH = 100
+"""Records without a ``blocked`` field migrated per call (:meth:`RunEventOutbox.migrate_legacy`)."""
+PARKED_INDEX = "run_completions_parked"
+"""The partial index (``retry_at``, id) over parked records (un-emitted and blocked)."""
 PARKED_BATCH = 20
 """Parked records looked at per poll (their ``retry_at`` decides which are retried)."""
 PARKED_RETRY_S = 60.0
@@ -143,7 +149,8 @@ PARKED_RETRY_MAX_S = 3600.0
 
 
 def ensure_pending_index(store: Any) -> None:
-    """Create :data:`PENDING_INDEX` where the store supports indexes (MongoDB)."""
+    """Create :data:`PENDING_INDEX` and :data:`PARKED_INDEX` where the store supports
+    indexes (MongoDB)."""
     ensure = getattr(store, "ensure_index", None)
     if callable(ensure):
         ensure(
@@ -151,6 +158,12 @@ def ensure_pending_index(store: Any) -> None:
             [("emitted", 1), ("blocked", 1), ("id", 1)],
             name=PENDING_INDEX,
             partial={"emitted": False},
+        )
+        ensure(
+            RUN_COMPLETIONS,
+            [("retry_at", 1), ("id", 1)],
+            name=PARKED_INDEX,
+            partial={"emitted": False, "blocked": True},
         )
 
 
@@ -175,7 +188,8 @@ def deliver(tx: StoreOps, record_id: str, *, now: datetime | None = None) -> str
     Every candidate id is checked: an id holding exactly the genuine envelope (under that id)
     is the delivered event; one holding anything else is quarantined as a conflict and the
     next candidate is tried. A record that was delivered before (re-opened by a restore)
-    tries its own ``event_id`` first, so it comes back under the same id. The record is
+    uses its assigned ``event_id`` and no other: a conflict there parks it until that exact
+    id can be recovered, never a new id (downstream run ids derive from it). The record is
     marked emitted (with ``emitted_at``) only once the stored envelope equals the genuine
     one. With every candidate taken, the conflicts are quarantined, an error is logged and
     the record is **parked** - ``blocked``, with ``attempts`` and a backed-off ``retry_at``
@@ -186,9 +200,9 @@ def deliver(tx: StoreOps, record_id: str, *, now: datetime | None = None) -> str
         return None
     genuine = dict(record["envelope"])
     own = record.get("event_id")
-    candidates = candidate_ids(genuine["id"])
-    if own:
-        candidates = [own, *(c for c in candidates if c != own)]
+    # Once an id is assigned it is the event's identity - downstream run ids derive from
+    # it - so a re-delivery (a restore re-opened it) uses exactly that id or nothing.
+    candidates = [own] if own else candidate_ids(genuine["id"])
     for event_id in candidates:
         envelope = {**genuine, "id": event_id}
         existing = tx.get(EVENTS_COLLECTION, event_id)
@@ -229,7 +243,7 @@ def deliver(tx: StoreOps, record_id: str, *, now: datetime | None = None) -> str
         },
     )
     log.error(
-        "run event of %s not delivered: every candidate id is taken (parked, attempt %d)",
+        "run event of %s not delivered: its event id is taken (parked, attempt %d)",
         record_id,
         attempts,
     )
@@ -243,7 +257,9 @@ class DeliveryBlocked(RuntimeError):
 def _quarantine_conflict(tx: StoreOps, existing: Mapping[str, Any], record_id: str) -> None:
     """Record the event occupying a candidate id (once per id), bounded like every other
     quarantine record (:func:`~culture_rules.events.ingest.quarantine`)."""
-    doc_id = f"conflict/{existing.get('id')}"
+    # the dedupe key is a digest, so an id of any length gives a bounded record id
+    digest = hashlib.sha256(str(existing.get("id")).encode("utf-8")).hexdigest()[:32]
+    doc_id = f"conflict_{digest}"
     if tx.get(QUARANTINE_COLLECTION, doc_id) is not None:
         return
     envelope = existing.get("envelope") if isinstance(existing.get("envelope"), Mapping) else {}
@@ -256,7 +272,10 @@ def _quarantine_conflict(tx: StoreOps, existing: Mapping[str, Any], record_id: s
                 "envelope_id": bounded_value(existing.get("id")),
                 "type": bounded_value(envelope.get("type")),
                 "source": bounded_value(envelope.get("source")),
-                "reason": f"occupies a candidate event id of run {record_id}'s completion",
+                "reason": bounded_value(
+                    f"occupies a candidate event id of run {record_id}'s completion"
+                ),
+                "run_id": bounded_value(record_id),
                 "host": RUN_EVENTS_HOST,
                 "count": 1,
                 "received_at": utc_timestamp(now),
@@ -297,30 +316,46 @@ class RunEventOutbox:
             ensure(RUN_COMPLETIONS, EVENTS_COLLECTION, QUARANTINE_COLLECTION)
         ensure_pending_index(store)
         ensure_quarantine_ttl(store)
+        self.migrate_legacy()
 
     def pending(self) -> list[Mapping[str, Any]]:
         """Un-emitted, unparked records, at most one batch: an equality query the store
         orders (by id) and limits itself - on MongoDB through the partial index
         :data:`PENDING_INDEX`, so an empty queue costs nothing however long the history."""
-        records = self.store.find(
+        return self.store.find(
             RUN_COMPLETIONS, {"emitted": False, "blocked": False}, limit=self._batch
         )
-        room = self._batch - len(records)
-        if room > 0:
-            # a record without the field (an older build, or restored from its backup) is
-            # unblocked: ``None`` matches a missing field on every adapter
-            records += self.store.find(
-                RUN_COMPLETIONS, {"emitted": False, "blocked": None}, limit=room
+
+    def migrate_legacy(self) -> int:
+        """Give up to :data:`LEGACY_BATCH` un-emitted records without a ``blocked`` field
+        (an older build, or restored from its backup) ``blocked: false``, by compare-and-set
+        (``None`` matches a missing field on every adapter); answer how many. Run at start
+        and before each drain, so legacy records join the one queue instead of waiting
+        behind it."""
+        migrated = 0
+        for record in self.store.find(
+            RUN_COMPLETIONS, {"emitted": False, "blocked": None}, limit=LEGACY_BATCH
+        ):
+            moved = self.store.update_if(
+                RUN_COMPLETIONS, record["id"], {"blocked": None}, {"blocked": False}
             )
-        return records
+            migrated += 1 if moved.won else 0
+        return migrated
 
     def parked_due(self, now: datetime) -> list[Mapping[str, Any]]:
-        """Parked records whose ``retry_at`` has come, from at most :data:`PARKED_BATCH`."""
-        parked = self.store.find(
-            RUN_COMPLETIONS, {"emitted": False, "blocked": True}, limit=PARKED_BATCH
-        )
+        """At most :data:`PARKED_BATCH` parked records whose ``retry_at`` has come, the
+        longest-due first: the store filters on ``retry_at`` before it limits (on MongoDB
+        through :data:`PARKED_INDEX`), so records still backing off never hide due ones."""
+        where = {"emitted": False, "blocked": True}
         stamp = utc_timestamp(now)
-        return [r for r in parked if (r.get("retry_at") or "") <= stamp]
+        ranged = getattr(self.store, "find_range", None)
+        if callable(ranged):
+            return ranged(RUN_COMPLETIONS, where, field="retry_at", upto=stamp, limit=PARKED_BATCH)
+        parked = [
+            r for r in self.store.find(RUN_COMPLETIONS, where) if (r.get("retry_at") or "") <= stamp
+        ]
+        parked.sort(key=lambda r: (r.get("retry_at") or "", r["id"]))
+        return parked[:PARKED_BATCH]
 
     def poll(self) -> list[str]:
         """Deliver the pending records and the parked ones that are due (one transaction
@@ -328,6 +363,7 @@ class RunEventOutbox:
         written."""
         now = self._clock()
         delivered: list[str] = []
+        self.migrate_legacy()
         pending = [*self.pending(), *self.parked_due(now)]
         if pending and self._before is not None:
             # the event-trigger cursors must exist before an event is emitted, or a cursor

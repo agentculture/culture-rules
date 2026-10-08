@@ -248,3 +248,40 @@ def test_the_pending_and_ttl_indexes_exist_and_are_used_on_mongo(mongo_store):
     from datetime import datetime
 
     assert isinstance(rec["expires_at"], datetime) and rec["count"] == 2
+
+
+def test_parked_records_due_first_and_legacy_migration_on_mongo(mongo_store):
+    from datetime import UTC, datetime
+
+    from culture_rules.engine.run_completions import RUN_COMPLETIONS
+    from culture_rules.node.run_events import PARKED_INDEX, RunEventOutbox
+
+    mongo_store.ensure_collections(RUN_COMPLETIONS)
+    for i in range(30):
+        mongo_store.put(
+            RUN_COMPLETIONS,
+            {
+                "id": f"a{i:03d}",
+                "emitted": False,
+                "blocked": True,
+                "retry_at": "2999-01-01T00:00:00+00:00",
+                "envelope": {},
+            },
+        )
+    mongo_store.put(
+        RUN_COMPLETIONS,
+        {"id": "zzz", "emitted": False, "blocked": True, "retry_at": "2000-01-01", "envelope": {}},
+    )
+    mongo_store.put(RUN_COMPLETIONS, {"id": "legacy", "emitted": False, "envelope": {}})
+    outbox = RunEventOutbox(mongo_store, paused=lambda tx: False, defer=Exception)
+    assert mongo_store.get(RUN_COMPLETIONS, "legacy")["blocked"] is False
+    due = outbox.parked_due(datetime(2026, 10, 8, tzinfo=UTC))
+    assert [r["id"] for r in due] == ["zzz"]
+    plan = (
+        mongo_store._db[RUN_COMPLETIONS]
+        .find({"emitted": False, "blocked": True, "retry_at": {"$lte": "2026-10-08"}})
+        .sort([("retry_at", 1), ("_id", 1)])
+        .limit(20)
+        .explain()
+    )
+    assert PARKED_INDEX in str(plan["queryPlanner"]["winningPlan"])

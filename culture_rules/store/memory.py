@@ -252,6 +252,26 @@ class MemoryStore:
     ) -> list[Document]:
         return self._find(None, collection, where, limit)
 
+    def find_range(
+        self,
+        collection: str,
+        where: Mapping[str, Any] | None,
+        *,
+        field: str,
+        upto: Any,
+        limit: int,
+    ) -> list[Document]:
+        """Documents matching the equality filter ``where`` whose ``field`` is set and at
+        most ``upto``, ordered by (``field``, id), at most ``limit`` (the bounded "due"
+        query; MongoDB serves it from an index)."""
+        found = [
+            d
+            for d in self._find(None, collection, where, None)
+            if d.get(field) is not None and d[field] <= upto
+        ]
+        found.sort(key=lambda d: (d[field], d["id"]))
+        return found[:limit]
+
     def insert(self, collection: str, document: Mapping[str, Any]) -> Document:
         return self._insert(None, collection, document)
 

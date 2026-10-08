@@ -713,6 +713,23 @@ class MongoStore:
                 result.append(self._variable_view(doc["name"], versions[-1]))
         return result
 
+    def find_range(
+        self,
+        collection: str,
+        where: Mapping[str, Any] | None,
+        *,
+        field: str,
+        upto: Any,
+        limit: int,
+    ) -> list[Document]:
+        """Documents matching ``where`` whose ``field`` is at most ``upto``, ordered by
+        (``field``, id) and limited on the server (see :meth:`ensure_index`)."""
+        query = {**_translate_where(where), field: {"$lte": upto}}
+        cursor = (
+            self._collection(collection).find(query).sort([(field, 1), ("_id", 1)]).limit(limit)
+        )
+        return [_to_doc(raw) for raw in cursor]
+
     def ensure_index(
         self,
         collection: str,

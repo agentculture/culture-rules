@@ -18,9 +18,10 @@ Record: ``id`` (= the run id, one record per run), ``run_id``, ``rule_id``, ``st
 ``recorded_at``.
 
 Restore: completions are backed up with run history, the events themselves are not. A
-restore re-opens the recently emitted completions whose event is missing
-(:func:`reopen_undelivered`) and the outbox delivers them again under the same id; the
-deterministic run ids keep downstream work to exactly once relative to the backup.
+restore re-opens every emitted completion whose event is missing (:func:`reopen_undelivered`)
+and the outbox delivers it again under its assigned id. The consumption marks
+(:data:`RUN_EVENT_CONSUMPTION`) and the intents, reservations and runs backed up with them
+keep downstream work exactly once relative to the backup.
 
 Upgrade cut-off: only terminal transitions written by this code produce a record, so runs that
 finished under an older engine emit nothing - and none is lost in between, since emission is
@@ -31,7 +32,6 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Mapping
-from datetime import datetime, timedelta
 from typing import Any
 
 from culture_rules.engine.matching import exported_outputs
@@ -49,13 +49,15 @@ from culture_rules.store.port import EVENTS_COLLECTION, StoreOps
 from culture_rules.store.versioning import utc_timestamp
 
 __all__ = [
-    "REOPEN_WINDOW",
+    "REOPEN_BATCH",
     "RUN_COMPLETIONS",
+    "RUN_EVENT_CONSUMPTION",
     "RUN_EVENT_PREFIX",
     "RUN_EVENT_SOURCE",
     "RUN_EVENT_TYPES",
     "SUBJECT_FIELDS",
     "build_run_event",
+    "consumption_id",
     "record_completion",
     "reopen_undelivered",
     "run_event_id",
@@ -63,6 +65,12 @@ __all__ = [
 
 RUN_COMPLETIONS = "run_completions"
 """One immutable completion record per finished run (the run-event outbox)."""
+RUN_EVENT_CONSUMPTION = "run_event_consumption"
+"""One mark per (trigger consumer, run event) it evaluated, written in the evaluating
+transaction together with the firing intents and key reservations it decided. Backed up with
+them (consumption marks, then intents, then reservations, then runs:
+:mod:`culture_rules.ops.backup`), it is the consumer progress a restore needs: a re-delivered
+run event is not re-decided by a consumer that had already decided it."""
 RUN_EVENT_PREFIX = RUN_EVENT_TYPE_PREFIX
 RUN_EVENT_TYPES: dict[str, str] = {
     "succeeded": "rules.run.succeeded",
@@ -191,34 +199,47 @@ def record_completion(tx: StoreOps, before: Mapping[str, Any], after: Mapping[st
     return True
 
 
-REOPEN_WINDOW = timedelta(hours=24)
-"""How far before the restored point an emitted completion is re-opened by a restore:
-the daily snapshot interval. Older ones were consumed long before the backup."""
+REOPEN_BATCH = 500
+"""How many completion records one :func:`reopen_undelivered` page looks at."""
 
 
-def reopen_undelivered(store: Any, *, restored_to: datetime | None = None) -> int:
-    """After a restore: re-open every completion emitted within :data:`REOPEN_WINDOW` before
-    ``restored_to`` (or with no ``emitted_at``) whose event is not in the ``events``
-    collection, which is not backed up. The outbox then delivers it again under the **same**
-    ``event_id``, and the trigger consumers evaluate it with the restored rules:
+def consumption_id(consumer: str, event_id: str) -> str:
+    """The id of the mark that trigger consumer ``consumer`` evaluated run event ``event_id``."""
+    return f"{consumer}/{event_id}"
 
-    * a downstream rule that had fired already has its run in the restored ``runs`` (the run
-      id is derived from rule and event id), so starting it again is a duplicate key and no
-      second run starts;
-    * one whose firing had not reached a run yet (or had not been evaluated) runs now.
 
-    Downstream work stays exactly once relative to the backup. Answer how many."""
-    cutoff = None if restored_to is None else utc_timestamp(restored_to - REOPEN_WINDOW)
+def reopen_undelivered(store: Any, *, limit: int | None = None) -> int:
+    """After a restore: re-open every completion marked emitted whose event is not in the
+    ``events`` collection (it is not backed up) - whatever its age: age is no proof that its
+    event was consumed. The outbox then delivers it again under its **assigned** ``event_id``
+    (immutable once assigned, :func:`~culture_rules.node.run_events.deliver`), and:
+
+    * a trigger consumer that had evaluated it before the backup finds its consumption mark
+      (:data:`RUN_EVENT_CONSUMPTION`, backed up) and skips it, so no rule re-decides it
+      against today's rules - and the intents it committed then are restored with it;
+    * a consumer that had not evaluated it evaluates it now, with the rules of now, as it
+      would any pending event.
+
+    Paged: :data:`REOPEN_BATCH` records per query, at most ``limit`` re-opened in all (all of
+    them when ``None``); a page in which nothing can be re-opened (their events are present)
+    ends it. Answer how many were re-opened."""
     reopened = 0
-    for record in store.find(RUN_COMPLETIONS, {"emitted": True}):
-        event_id = record.get("event_id")
-        if not event_id or store.get(EVENTS_COLLECTION, event_id) is not None:
-            continue
-        emitted_at = record.get("emitted_at")
-        if cutoff is not None and emitted_at and emitted_at < cutoff:
-            continue
-        moved = store.update_if(
-            RUN_COMPLETIONS, record["id"], {"emitted": True}, {"emitted": False, "blocked": False}
-        )
-        reopened += 1 if moved.won else 0
+    while limit is None or reopened < limit:
+        page = REOPEN_BATCH if limit is None else min(REOPEN_BATCH, limit - reopened)
+        records = store.find(RUN_COMPLETIONS, {"emitted": True}, limit=page)
+        moved_here = 0
+        for record in records:
+            event_id = record.get("event_id")
+            if not event_id or store.get(EVENTS_COLLECTION, event_id) is not None:
+                continue
+            moved = store.update_if(
+                RUN_COMPLETIONS,
+                record["id"],
+                {"emitted": True},
+                {"emitted": False, "blocked": False},
+            )
+            moved_here += 1 if moved.won else 0
+        reopened += moved_here
+        if len(records) < page or moved_here == 0:
+            break
     return reopened

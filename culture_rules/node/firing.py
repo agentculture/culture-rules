@@ -277,6 +277,7 @@ from culture_rules.engine.matching import (
     trigger_matches,
 )
 from culture_rules.engine.placement import MachineState, Resolved, resolve_rule_placement
+from culture_rules.engine.run_completions import RUN_EVENT_CONSUMPTION, consumption_id
 from culture_rules.engine.runs import (
     FATAL_PLACEMENT,
     PLACEMENT_ABANDON_AFTER,
@@ -412,7 +413,13 @@ class RuleFiring:
             lambda tx, ev: self._evaluate(tx, ev, placed=True),
             host=host,
             consumer=placed_consumer(host),
-            handler_collections=(RULE_FIRES, RULE_DECISIONS, RULE_RATES, RULE_ATTEMPT_BUDGETS),
+            handler_collections=(
+                RULE_FIRES,
+                RULE_DECISIONS,
+                RULE_RATES,
+                RULE_ATTEMPT_BUDGETS,
+                RUN_EVENT_CONSUMPTION,
+            ),
             clock=clock,
         )
         self.shared = EventTriggers(
@@ -420,7 +427,13 @@ class RuleFiring:
             lambda tx, ev: self._evaluate(tx, ev, placed=False),
             host=host,
             consumer=SHARED_CONSUMER,
-            handler_collections=(RULE_FIRES, RULE_DECISIONS, RULE_RATES, RULE_ATTEMPT_BUDGETS),
+            handler_collections=(
+                RULE_FIRES,
+                RULE_DECISIONS,
+                RULE_RATES,
+                RULE_ATTEMPT_BUDGETS,
+                RUN_EVENT_CONSUMPTION,
+            ),
             clock=clock,
         )
         self.chain_placed = self._chain(placed_chain(host), placed=True)
@@ -557,6 +570,16 @@ class RuleFiring:
         consumer = placed_consumer(self.host) if placed else SHARED_CONSUMER
         marker_id = f"{consumer}/{event_id}"  # EventTriggers.fire_id
         self._pending[marker_id] = []  # a retried transaction re-evaluates from scratch
+        if is_run_event(envelope):
+            # consumer progress, backed up with the intents decided here: a run event
+            # re-delivered after a restore is not re-decided by a consumer that decided it
+            mark = consumption_id(consumer, event_id)
+            if tx.get(RUN_EVENT_CONSUMPTION, mark) is not None:
+                return
+            tx.insert(
+                RUN_EVENT_CONSUMPTION,
+                {"id": mark, "consumer": consumer, "event_id": event_id, "host": self.host},
+            )
         rules = self._live_rules(tx)
         ours = self._ours(tx, rules, event_id, placed=placed)
         if _resets_budgets(envelope):

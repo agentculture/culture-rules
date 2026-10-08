@@ -79,7 +79,7 @@ from culture_rules.engine.claims import DEFAULT_LEASE, RULE_ATTEMPT_BUDGETS
 from culture_rules.engine.decisions import RULE_DECISIONS
 from culture_rules.engine.named_lease import LEASES_COLLECTION
 from culture_rules.engine.reports import RunReporter
-from culture_rules.engine.run_completions import RUN_COMPLETIONS
+from culture_rules.engine.run_completions import RUN_COMPLETIONS, RUN_EVENT_CONSUMPTION
 from culture_rules.engine.runs import RUNS_COLLECTION, Executor
 from culture_rules.engine.variables import NODE_CAPABILITIES, VARIABLES_CAPABILITY
 from culture_rules.events.hook_sink import HOOK_STATS_COLLECTION
@@ -140,6 +140,7 @@ NODE_COLLECTIONS = (
     RECOVERY_COLLECTION,
     RULE_ATTEMPT_BUDGETS,
     RUN_COMPLETIONS,
+    RUN_EVENT_CONSUMPTION,
     QUARANTINE_COLLECTION,
 )
 """Collections a node touches (created up front on MongoDB)."""

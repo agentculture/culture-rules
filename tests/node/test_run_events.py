@@ -582,7 +582,8 @@ def test_a_conflicting_event_at_the_id_is_quarantined_and_the_genuine_one_still_
     assert record["event_id"] == squat["id"] + GENUINE_SUFFIX
     genuine = c.base.get(EVENTS_COLLECTION, record["event_id"])["envelope"]
     assert genuine["data"]["outputs"] == {"verdict": "no"}
-    assert [q["id"] for q in c.base.find("event_quarantine")] == [f"conflict/{squat['id']}"]
+    (conflict,) = c.base.find("event_quarantine")
+    assert conflict["id"].startswith("conflict_") and conflict["envelope_id"] == squat["id"]
     assert c.base.find(RUNS_COLLECTION, {"rule_id": "publish"}) == []
     assert decision(c, "publish", squat["id"])["reason"] == "run_event_unverified"
 

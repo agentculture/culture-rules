@@ -111,7 +111,9 @@ Three refusals guard these events:
   per refused id and reason, whose `count` grows on repeats; the payload is
   kept whole only up to 8 KiB (else a preview, its size and hash); the id,
   type and source are kept as is only up to 256 bytes (else the same preview
-  form); a record never exceeds 16 KiB; it expires 30 days after it was last
+  form), and so is every field of a delivery-conflict record (whose id is a
+  digest); a record never exceeds 16 KiB, which is checked on the final
+  record; it expires 30 days after it was last
   seen (a MongoDB TTL index on `expires_at`, installed by every node and the
   API, the processes that can quarantine); and only a new record is logged.
 - **`run_event_unverified`.** Before a rule fires on a `rules.run.*` event,
@@ -169,22 +171,37 @@ What this gives:
 - **First start.** A node pins its event-trigger cursors before it delivers
   anything, at start and before every drain, so a completion pending before
   the first node started still reaches its downstream rules.
-- **Backup and restore.** Completion records are backed up with run history;
-  the events are not. A restore therefore re-opens every completion emitted
-  within a day before the restored point whose event is missing, and the
-  first node delivers it again under the **same** event id. The trigger
-  consumers evaluate it with the restored rules. A downstream run that
-  already exists has the same deterministic id, so no second run starts; a
-  firing that had been decided but had not reached a run yet (or had not
-  been evaluated) runs now. Downstream work stays exactly once relative to
-  the backup. Per-consumer "consumed" marks would not give that: the mark
-  commits with the firing intent, which is not backed up, so a backup taken
-  between the two would restore a mark with no run.
+- **The event id is fixed once assigned.** Downstream run ids derive from it,
+  so a completion that was delivered once is only ever re-delivered under
+  that same id. If something else holds it, the record is parked until that
+  exact id can be recovered; it never takes a new one.
+- **Backup and restore.** Completion records are backed up with run history,
+  together with the decision state: each trigger consumer's consumption mark
+  for a run event, the firing intents and key reservations committed with
+  it, and the runs started from them. They are scanned in that order, so a
+  backed-up mark always has its intents and a started intent its run. The
+  events are not backed up, so a restore re-opens every emitted completion
+  whose event is missing, whatever its age, in pages, and the first node
+  delivers it again under its assigned id. Then:
+  - a consumer that had decided the event finds its mark and skips it, so the
+    event is not re-decided against today's rules, and a rule added after
+    the backup does not fire on it (like a live rule, which never backfills);
+  - a consumer that had not decided it decides it now, with the rules of now,
+    as it would any pending event;
+  - a restored pending intent starts once, with its key reservation, and a
+    started intent's run is not started again.
+
+  Skip decisions, rate windows and shared variables are not backed up. A
+  decided event is not affected; an undecided one meets today's.
 
 The pending query is an equality query on `emitted` and `blocked` that the
 store orders and limits itself (100 per poll). On MongoDB it uses a partial
-index over un-emitted records only, so an empty queue costs nothing. A record
-without the `blocked` field counts as unblocked.
+index over un-emitted records only, so an empty queue costs nothing. Parked
+records are read due-first: the store keeps only those whose `retry_at` has
+come, ordered by it, before it limits (20 per poll; a second partial index),
+so records still backing off never hide due ones. A record without the
+`blocked` field (an older build) is migrated to `blocked: false` in bounded
+batches before each drain, so it joins the one queue.
 
 The change-feed consumers that remain (triggers and chains) now initialise
 their cursor once, by insert: two nodes starting together agree on one

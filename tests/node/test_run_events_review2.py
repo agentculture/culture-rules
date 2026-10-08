@@ -112,6 +112,7 @@ def test_the_pending_query_is_limited_by_the_store():
         store.put(RUN_COMPLETIONS, {"id": f"old-{i:04d}", "emitted": True, "envelope": {}})
     spy = SpyStore(store)
     outbox = RunEventOutbox(spy, paused=lambda tx: False, defer=Exception)
+    spy.finds.clear()  # construction migrates legacy records (its own bounded query)
     assert len(outbox.pending()) == OUTBOX_BATCH
     assert spy.finds == [(RUN_COMPLETIONS, {"emitted": False, "blocked": False}, OUTBOX_BATCH)]
 

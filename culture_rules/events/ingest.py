@@ -164,15 +164,39 @@ def bounded_value(value: Any) -> Any:
     }
 
 
+_KEEP = ("id", "count", "received_at", "last_seen", "expires_at", "size", "sha256")
+"""Fields a quarantine record always keeps: its dedupe key, counters, TTL date and digest."""
+
+
+def _size(doc: Mapping[str, Any]) -> int:
+    return len(json.dumps(doc, default=str).encode("utf-8"))
+
+
 def bounded_record(doc: dict[str, Any]) -> dict[str, Any]:
-    """``doc`` within :data:`QUARANTINE_MAX_RECORD` bytes of JSON: when it is over (it cannot
-    be with bounded fields, but the limit is enforced, not assumed) the payload is dropped
-    and only its size and digest are kept."""
-    if len(json.dumps(doc, default=str).encode("utf-8")) <= QUARANTINE_MAX_RECORD:
+    """``doc`` within :data:`QUARANTINE_MAX_RECORD` bytes of JSON, enforced on the final
+    record whatever its fields: first the payload (``envelope`` / ``preview``) is dropped,
+    then every other field is bounded (:func:`bounded_value`), and last only the fields of
+    :data:`_KEEP` stay (the dedupe key, the counters, the TTL date and the payload digest),
+    with any of them still too long replaced by its digest."""
+    if _size(doc) <= QUARANTINE_MAX_RECORD:
         return doc
+    if "sha256" not in doc and "envelope" in doc:
+        body = json.dumps(doc["envelope"], sort_keys=True, default=str).encode("utf-8")
+        doc = {**doc, "sha256": hashlib.sha256(body).hexdigest()}
     slim = {k: v for k, v in doc.items() if k not in ("envelope", "preview")}
     slim["truncated"] = True
-    return slim
+    if _size(slim) <= QUARANTINE_MAX_RECORD:
+        return slim
+    slim = {k: (v if k in _KEEP else bounded_value(v)) for k, v in slim.items()}
+    if _size(slim) <= QUARANTINE_MAX_RECORD:
+        return slim
+    minimal = {k: slim[k] for k in _KEEP if k in slim}
+    minimal["truncated"] = True
+    for key in ("id", "sha256"):
+        value = minimal.get(key)
+        if isinstance(value, str) and len(value.encode("utf-8")) > QUARANTINE_MAX_FIELD:
+            minimal[key] = "q_" + hashlib.sha256(value.encode("utf-8")).hexdigest()[:32]
+    return minimal
 
 
 def bounded_payload(envelope: Mapping[str, Any]) -> dict[str, Any]:
