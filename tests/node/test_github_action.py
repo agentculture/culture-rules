@@ -444,3 +444,101 @@ def test_pr_head_port_http_error_keeps_its_code_and_retryability(pem):
     res = _ask(port)
     assert res.outcome == "failed"
     assert res.retryable is False
+
+
+# --------------------------------------------------------------------------- once_key (d25)
+
+
+def _comments(fake) -> int:
+    return sum(1 for url in fake.calls if url.endswith("/comments"))
+
+
+def test_a_once_key_posts_once_per_repo_and_pr_durably_across_ports(pem):
+    fake = Fake()
+    port, _ = setup(pem, fake)
+    once = {**params(), "once_key": "gitguardian@" + "a" * 40}
+    first = port.invoke(once, "k1", DEADLINE, context=ctx())
+    assert dict(first.output) == {"comment_id": 9, "url": "https://x/9"}
+    again = port.invoke(once, "k2", DEADLINE, context=ctx())
+    assert again.outcome == "completed"
+    assert dict(again.output) == {"comment_id": 9, "url": "https://x/9", "skipped": "posted_before"}
+    # another node, another process: the claim is in the store
+    other = GitHubCommentPort(port._store, transport=fake, secrets=lambda ref: pem)
+    assert other.invoke(once, "k3", DEADLINE, context=ctx()).output["skipped"] == "posted_before"
+    assert _comments(fake) == 1
+
+
+def test_a_once_key_is_scoped_to_its_pr_and_absent_keys_always_post(pem):
+    fake = Fake()
+    port, _ = setup(pem, fake)
+    port.invoke({**params(), "once_key": "x"}, "k", DEADLINE, context=ctx())
+    port.invoke({**params(), "number": 4, "once_key": "x"}, "k", DEADLINE, context=ctx())
+    port.invoke(params(), "k", DEADLINE, context=ctx())
+    port.invoke(params(), "k", DEADLINE, context=ctx())
+    assert _comments(fake) == 4
+
+
+@pytest.mark.parametrize("status", [400, 403, 404, 422, 429])
+def test_a_refused_post_releases_its_once_key(pem, status):
+    # GitHub answered with a client error: no comment exists, a later firing may post
+    fake = Fake(status=status)
+    port, _ = setup(pem, fake)
+    once = {**params(), "once_key": "x"}
+    res = port.invoke(once, "k", DEADLINE, context=ctx())
+    assert res.outcome == "failed"
+    fake.status = 201
+    assert dict(port.invoke(once, "k", DEADLINE, context=ctx()).output)["comment_id"] == 9
+
+
+@pytest.mark.parametrize("status", [408, 500, 502, 503])
+def test_an_ambiguous_post_keeps_its_once_key(pem, status):
+    # the comment may exist (a timeout, a 5xx after the write): at most once, never twice
+    fake = Fake(status=status)
+    port, _ = setup(pem, fake)
+    once = {**params(), "once_key": "x"}
+    assert port.invoke(once, "k", DEADLINE, context=ctx()).outcome == "failed"
+    fake.status = 201
+    again = port.invoke(once, "k", DEADLINE, context=ctx())
+    assert again.outcome == "completed"
+    assert again.output["skipped"] == "claimed_before"
+    assert _comments(fake) == 1  # the one ambiguous attempt only
+
+
+def test_a_network_error_on_the_post_keeps_its_once_key(pem):
+    class Drops(Fake):
+        def __call__(self, method, url, headers, body, timeout):
+            if url.endswith("/comments"):
+                self.calls.append(url)
+                raise ConnectionResetError("reset after send")
+            return super().__call__(method, url, headers, body, timeout)
+
+    fake = Drops()
+    port, _ = setup(pem, fake)
+    once = {**params(), "once_key": "x"}
+    res = port.invoke(once, "k", DEADLINE, context=ctx())
+    assert res.error == "network_error"
+    assert port.invoke(once, "k", DEADLINE, context=ctx()).output["skipped"] == "claimed_before"
+
+
+def test_a_token_failure_happens_before_the_claim(pem):
+    # nothing was sent to the comments endpoint: no claim is taken, a retry may post
+    class NoToken(Fake):
+        def __call__(self, method, url, headers, body, timeout):
+            if url.endswith("/access_tokens"):
+                self.calls.append(url)
+                raise ConnectionResetError("down")
+            return super().__call__(method, url, headers, body, timeout)
+
+    fake = NoToken()
+    port, _ = setup(pem, fake)
+    once = {**params(), "once_key": "x"}
+    assert port.invoke(once, "k", DEADLINE, context=ctx()).error == "network_error"
+    assert port._store.find("github_comment_once") == []
+
+
+def test_a_once_key_that_is_not_a_non_empty_string_is_bad_input(pem):
+    fake = Fake()
+    port, _ = setup(pem, fake)
+    res = port.invoke({**params(), "once_key": ""}, "k", DEADLINE, context=ctx())
+    assert res.error == "bad_input"
+    assert _comments(fake) == 0

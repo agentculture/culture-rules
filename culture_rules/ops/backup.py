@@ -108,8 +108,10 @@ RUN_COLLECTIONS = (
     "runs",
     "audit",
     "run_completions",
+    "github_comment_once",
 )
-"""Run history, in scan order (module doc, "Run events and decision state")."""
+"""Run history, in scan order (module doc, "Run events and decision state"); last, the
+``github.comment`` once-key claims (d25), so a restore never posts a once comment again."""
 SNAPSHOT_INTERVAL = timedelta(hours=24)
 INCREMENT_INTERVAL = timedelta(hours=1)
 _SSE_MODES = ("AES256", "aws:kms")

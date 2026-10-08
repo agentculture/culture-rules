@@ -116,6 +116,37 @@ Three refusals guard these events:
   record; it expires 30 days after it was last
   seen (a MongoDB TTL index on `expires_at`, installed by every node and the
   API, the processes that can quarantine); and only a new record is logged.
+- **Unstorable or malformed content.** The same refusal covers more than
+  run events:
+  - the checks settler's types and ids (d25), and schedule and probe events;
+  - a checked field (`id`, `type`, `kind`, `source`) that is present but not
+    a non-empty string;
+  - nesting deeper than 32 levels;
+  - an object key that is not a string, contains NUL or starts with `$`;
+  - text that is not UTF-8 (a lone surrogate);
+  - an int outside signed 64-bit.
+
+  These are checked iteratively, before anything copies the envelope. The
+  quarantine record of such a shape keeps only ASCII renderings of its id,
+  type, source and reason, and the hash and preview of a bounded repr. It
+  never keeps the envelope. A store may also refuse an envelope's content
+  with a known content error: a driver `InvalidDocument`,
+  `InvalidStringData` or `DocumentTooLarge`, an `OverflowError`, a
+  `RecursionError` or a `UnicodeError`. That envelope gets the same minimal
+  record, with the error's class in the reason, and the batch goes on.
+  Records are deduplicated on the full id and reason. Anything else
+  propagates and the batch is drained again, with the cursor not saved: a
+  store outage, `OperationFailure` (a write conflict), `WriteConcernError`,
+  or an unknown error. A valid event is never dropped to keep the bus
+  moving. A duplicate envelope stays a counted duplicate.
+
+  Two limits, both by design (fail closed). On the bus, an envelope that
+  always raises an unknown error stalls ingest: each node cycle logs a
+  warning and records the exception, and an operator must step in. In the
+  webhook sink, a delivery that fails this way answers an error and stores
+  nothing. GitHub does not redeliver a failed delivery on its own, so it
+  stays missing until someone redelivers it (the App's advanced settings,
+  or the API's `POST /app/hook/deliveries/{id}/attempts`).
 - **`run_event_unverified`.** Before a rule fires on a `rules.run.*` event,
   the node compares the whole envelope, extra keys included, with the
   envelope in the run's completion record. The id must also be the one the

@@ -310,6 +310,60 @@ def test_list_check_suites_paginates_and_trims(pem):
     assert err.value.code == "repo_not_allowed"
 
 
+def test_list_check_runs_paginates_and_keeps_only_the_report_fields(pem):
+    def page(n):
+        return [
+            {
+                "id": i,
+                "name": f"check {n}-{i}",
+                "app": {"slug": "gitguardian", "owner": {"login": "x"}},
+                "status": "completed",
+                "conclusion": "failure",
+                "html_url": "https://github.com/acme/widgets/runs/1",
+                "output": {"title": "1 secret uncovered!", "text": "| t |", "summary": "s"},
+                "head_sha": "ab12" * 10,
+            }
+            for i in range(100 if n == 1 else 1)
+        ]
+
+    class RunsFake(Fake):
+        def __call__(self, method, url, headers, body, timeout):
+            if "/check-runs" not in url:
+                return super().__call__(method, url, headers, body, timeout)
+            self.calls.append((method, url, dict(headers), body))
+            n = int(url.rsplit("page=", 1)[1])
+            return 200, json.dumps({"check_runs": page(n)}).encode()
+
+    fake = RunsFake()
+    app, _ = make(pem, fake)
+    out = app.list_check_runs("acme/widgets", "ab12" * 10)
+    assert len(out) == 101
+    assert out[0] == {
+        "name": "check 1-0",
+        "app_slug": "gitguardian",
+        "status": "completed",
+        "conclusion": "failure",
+        "title": "1 secret uncovered!",
+        "text": "| t |",
+        "html_url": "https://github.com/acme/widgets/runs/1",
+    }
+    urls = [c[1] for c in fake.calls if "/check-runs" in c[1]]
+    assert "filter=latest" in urls[0]
+    assert all(c[0] == "GET" for c in fake.calls if "/check-runs" in c[1])
+
+
+def test_list_check_runs_refuses_a_bad_sha_or_an_unlisted_repo_before_any_call(pem):
+    fake = Fake()
+    app, _ = make(pem, fake)
+    with pytest.raises(GitHubError) as err:
+        app.list_check_runs("acme/widgets", "../x")
+    assert err.value.code == "bad_input"
+    with pytest.raises(GitHubError) as err:
+        app.list_check_runs("other/repo", "ab12" * 10)
+    assert err.value.code == "repo_not_allowed"
+    assert fake.calls == []
+
+
 def test_pr_facts_shape():
     from culture_rules.apps.github import PR_FACT_FIELDS, complete_pr_facts, pr_facts
 

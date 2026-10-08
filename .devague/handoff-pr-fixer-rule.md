@@ -4,29 +4,30 @@ This is the working state for resuming after context compaction. The main agent
 rewrote it on 2026-10-07 at about 19:40 IDT. The authoritative records are the devague
 frame, plan and delivery store. This file points at them and adds what they don't hold.
 
-## Read this first: status at 2026-10-08 ~17:50 IDT (compaction point)
+## Read this first: status at 2026-10-08 ~23:10 IDT
 
-- **#17 (culture-rules 0.13.0, gate 3)** is CLEAN at `6955315`: all CI green, SonarCloud gate OK, 41 open issues (38 python + 3 typescript S3776 cognitive complexity). The operator chose to **fix those 41 on #17 before merging** (worktree `../.worktrees.culture-rules/pr17-complexity`, branch `rules/pr17-complexity`, cut from `6955315`; list at the scratchpad `sonar17-41.tsv`, regenerate with the SonarCloud issues API for `pullRequest=17`). No subagent started yet. Then: Codex review, merge into `rules/pr-fixer`, push, CI + Sonar, operator merges.
-- **Deployed live (rules.culture.dev):** d20 (agent review before any push) from wheel `7bb9026`; queue fix. Codex reviewer bridge on spark (`127.0.0.1:8094`, runs as `spark` by operator choice, read-only sandbox verified confined). `github-app` actor has `commit_author: rules-culture-dev[bot]`. All four old fixer rules enabled; workflow `pr-fixer` (single) live. Proven: culture-rules-tester#4 run-0f45b494.
-- **d21 (split into chained rules; operator-approved FOLLOW-UP PR after #17):** branch `rules/pr-fixer-split` (worktree `pr-fixer-split`), head `0a4ac6f`, version 0.14.0, 3789 tests pass; already merged with `rules/pr-fixer@6955315` (`bc3482c`). Phase 1 (run events, hop cap, outbox, restore reconciliation) Codex-reviewed 7 rounds; phase 2 (pr-fix / review-commit / publish-fix, 7 rules, chain key hold, push verifies the whole chain, trigger fixes) Codex-reviewed 3 rounds + matcher fixes. Not deployed. After #17 merges: rebase/merge onto main, open the PR, deploy per `docs/operations/pr-fixer.md` "Rolling out the split" (pause, upgrade every node, seed `fixer_comment_triggers`, import actors→workflows→rules, disable workflow `pr-fixer`, enable stage rules then triggers, resume), prove on culture-rules-tester (chain + review-only mode).
-- **t23/t24 done:** 36 obligations, 77 evidence (67 pass, 10 fail), 12 deltas, all operator-approved; summary `docs/deliveries/2026-10-06-pr-fixer-rule.md`, linked from #17's description.
+- **Merged:** #17 (0.13.0, squash 5c524e6, tree == rules/pr-fixer@3196452); #19 (0.13.1 Variables editor: an edited empty list item takes the list's type, 45e1959).
+- **#20 open, CLEAN** (`rules/pr-fixer-split`, 988d80f, 0.14.0): d21 split + d23 + d24 + the hops-on-the-bus fix (events-cli 0.10.0 has no `hops` field: `to_bus`/`from_bus` move it into `data._culture_rules_hops`). Main was recorded merged with `-s ours` after applying #19's diff (content verified identical). Includes the fixer's own commit 4cce77d (run-2515a070: Qwen fixed 10 Sonar issues, gate + Codex approved, App pushed). CI green, Sonar 0 issues. Waiting on the operator's merge.
+- **d25 ready, not pushed** (`rules/d25-gitguardian` worktree, on top of #20 at 8fb46a3/988d80f-equivalent; head 48ecb14). GitGuardian findings comment (`pr-fixer-secrets`, `pr-fixer-secrets-late`, workflow `report-secrets`, built-ins `gitguardian.findings`/`gitguardian.hold`), fixer held off a head GitGuardian fails on (pr-fixer-checks clause + `secrets` step in pr-fix; trusted pr-fix digest only 04570dee), late failures via `github.pr.checks_failed_late` with token-CAS candidates (`checks_settle_late`) and atomic confirm+emit, `once_key` on `github.comment` (`github_comment_once`, backed up). Ingest hardening: reserved settle/late/schedule/probe namespaces, every reserved field validated, unstorable shapes refused, allowlisted content errors quarantined, everything else stalls+retries. 7 Codex rounds; final verdict sound. 4327 passed. Next: after #20 merges, merge main in, move d25 CHANGELOG lines to a 0.15.0 section, bump, open PR.
+- **Rollout (after both merge):** one window per docs/operations/pr-fixer.md "Rolling out the split" (pause, upgrade every node + API, seed `fixer_comment_triggers`, import actors→workflows→rules, disable workflow `pr-fixer`, enable 9 rules: stages, then `pr-fixer-secrets`/`-late`, then triggers, resume), then prove on culture-rules-tester (chain + review-only + a seeded GitGuardian finding if feasible).
+- **Live now:** 0.13.x d20 wheel (7bb9026) on all nodes; any trusted comment triggers a run until d24 deploys (Qodo billing notices did: run-29b53dcd on #19, run-2515a070 on #20). Operator: "Qodo will be fixed".
+- **Records:** d1-d25 approved (d25 = GitGuardian findings comment, never auto-fix), lapses l1-l7 approved.
 
 ### Waiting on the operator
 
-1. Merge #17 (after the 41-issue pass).
-2. t21 probe 5 (hold one node on the old build ~15 min) and probe 6 (a comment from an account outside `trusted_authors`). Probes 1–4 pass.
-3. Branch protection on `main` (0 approvals, no required checks on culture-rules, lobes-cli, culture-rules-tester) — offer to draft settings.
-4. GitGuardian = **d25** (pending): reading — never auto-fix a GitGuardian finding, post it as a review comment; settle stops blocking on empty queued suites.
-5. guildmaster#139 (ledger: culture-rules-tester as downstream consumer).
-6. Lapses `l1`–`l7` (proposed).
+1. Merge #20.
+2. t21 probe 5 (hold one node on the old build ~15 min) and probe 6 (`/fix` from a non-trusted account; better after d24 deploys).
+3. Required status checks on `main` (rulesets "Protect main" exist on culture-rules, lobes-cli, culture-rules-tester: PR required, no force-push/deletion, 0 approvals, NO required checks).
+4. d25 second half: should settle stop blocking on empty queued GitGuardian suites?
+5. guildmaster#139.
+6. Optional follow-up: automatic replay of failed GitHub webhook deliveries (App deliveries API).
 
 ### Then
 
-- the 41 complexity refactors on #17 (above);
-- d21 follow-up PR, deploy, prove;
-- r22 (published wheels lack web_dist; nodes run local wheels);
-- canvas design artifact Jgm3JPnAhKWpeiCxFXvNBi owes the Variables tab, (i) button, zoom;
-- optional: move the reviewer bridge to a dedicated `culture-reviewer` account.
+- d25 PR, single rollout, live proof;
+- r22 (published wheels lack web_dist);
+- canvas artifact Jgm3JPnAhKWpeiCxFXvNBi owes Variables tab, (i), zoom;
+- optional dedicated `culture-reviewer` account for the Codex bridge (Codex quota is shared with the main session's login: running out stops live reviews, fail closed).
 
 ## Original request (operator, verbatim intent)
 
@@ -93,8 +94,7 @@ The flow is:
 | d22 | Manual fallback after 3 fixer cycles, with a PR comment |
 | d23 | `pr-fixer-review-commit` name; optional workflow inputs |
 | d24 | Comment intent: begins with `/fix` or `@rules-culture-dev`; counts toward 3 attempts |
-
-**Pending:** d25 GitGuardian (see above).
+| d25 | GitGuardian failure: PR comment with findings (type, file:line, commit, incident link), never auto-fixed |
 
 ## Workforce rules in force
 

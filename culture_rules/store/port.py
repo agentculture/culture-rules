@@ -96,6 +96,27 @@ class TransientStoreError(StoreError):
     :func:`culture_rules.store.retry.run_transaction`)."""
 
 
+_CONTENT_ERROR_NAMES = frozenset(("InvalidDocument", "InvalidStringData", "DocumentTooLarge"))
+"""Driver errors (by class name, so the core imports no driver) that mean the store refused
+a document's *content*: ``bson.errors.InvalidDocument`` / ``InvalidStringData`` and
+``pymongo.errors.DocumentTooLarge``."""
+
+
+def is_content_error(exc: BaseException) -> bool:
+    """Whether ``exc`` is a *known* refusal of a document's content, which retrying cannot
+    fix: a driver content error (:data:`_CONTENT_ERROR_NAMES`), an int too large
+    (``OverflowError``), nesting too deep (``RecursionError``) or text that is not UTF-8
+    (``UnicodeError``). Anything else - a :class:`StoreError`, ``OperationFailure`` (a write
+    conflict), ``WriteConcernError``, an unknown error - is not: a caller that guards
+    against bad content re-raises it, so the work is retried rather than a valid document
+    being skipped. Stalling is recoverable; losing a document is not."""
+    if isinstance(exc, StoreError):
+        return False
+    if isinstance(exc, OverflowError | RecursionError | UnicodeError):
+        return True
+    return any(cls.__name__ in _CONTENT_ERROR_NAMES for cls in type(exc).__mro__)
+
+
 class VersionSkewError(StoreError):
     """A write involves a document of a newer major schema version than this node supports."""
 

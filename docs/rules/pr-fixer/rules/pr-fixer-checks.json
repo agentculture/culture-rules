@@ -86,12 +86,24 @@
         "right": {
           "literal": "no_checks"
         }
+      },
+      {
+        "arg": {
+          "items": {
+            "field": "data.failed_apps"
+          },
+          "op": "in",
+          "value": {
+            "literal": "gitguardian"
+          }
+        },
+        "op": "not"
       }
     ],
     "op": "and"
   },
   "counts_toward_budget": true,
-  "description": "Fires once per PR head SHA when its checks settle not green (a head with no counted check, conclusion no_checks, is left alone). Same-repo, non-draft PRs of repos in vars.fixer_repos only; vars.fixer_excluded_repos overrides it. Starts a pr-fix chain; shares the pr-fix workflow and the per-PR concurrency key and attempt budget with the other pr-fixer-* rules. Only while the PR is open.",
+  "description": "Fires once per PR head SHA when its checks settle not green (a head with no counted check, conclusion no_checks, is left alone; so is a head GitGuardian fails on, d25: pr-fixer-secrets reports it and a human acts). Same-repo, non-draft PRs of repos in vars.fixer_repos only; vars.fixer_excluded_repos overrides it. Starts a pr-fix chain; shares the pr-fix workflow and the per-PR concurrency key and attempt budget with the other pr-fixer-* rules. Only while the PR is open.",
   "enabled": false,
   "exclusive_group": null,
   "id": "pr-fixer-checks",

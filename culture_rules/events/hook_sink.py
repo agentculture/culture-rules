@@ -45,9 +45,14 @@ import logging
 from collections.abc import Mapping
 from typing import Any
 
-from culture_rules.events.emit import derive_envelope, reserved_reason
-from culture_rules.events.ingest import EVENTS_COLLECTION, event_document, quarantine
-from culture_rules.store.port import DuplicateKeyError, StoragePort
+from culture_rules.events.emit import derive_envelope, envelope_shape_problem, reserved_reason
+from culture_rules.events.ingest import (
+    EVENTS_COLLECTION,
+    event_document,
+    quarantine,
+    quarantine_failure,
+)
+from culture_rules.store.port import DuplicateKeyError, StoragePort, is_content_error
 
 __all__ = [
     "ACCEPTED",
@@ -184,7 +189,34 @@ def sink(
         return _finish(store, actor_id, type, QUARANTINED, surface)
     if type not in (params.get("events") or ()):
         return _finish(store, actor_id, type, IGNORED, surface)
+    refused = {"id": event_id_for(surface, delivery_id), "type": type, "data": data}
+    try:
+        return _record(store, view, type, data, delivery_id, author)
+    except Exception as exc:
+        # a known refusal of the payload's content is quarantined; anything else raises
+        if not is_content_error(exc):
+            raise  # not a known content refusal: the delivery fails; redeliver it by hand
+        quarantine_failure(store, {**refused, "source": f"app://{actor_id}"}, exc, host=HOOK_HOST)
+        return _finish(store, actor_id, type, QUARANTINED, surface)
 
+
+def _record(
+    store: StoragePort,
+    view: Mapping[str, Any],
+    type: str,
+    data: Mapping[str, Any] | None,
+    delivery_id: str,
+    author: str | None,
+) -> str:
+    """Store one accepted delivery's event (or quarantine what a store cannot hold)."""
+    actor_id = view.get("id")
+    params = view.get("params") or {}
+    surface = params.get("surface")
+    shape = envelope_shape_problem(data)  # before anything copies or walks it
+    if shape is not None:
+        refused = {"id": event_id_for(surface, delivery_id), "type": type, "data": data}
+        quarantine(store, {**refused, "source": f"app://{actor_id}"}, shape, host=HOOK_HOST)
+        return _finish(store, actor_id, type, QUARANTINED, surface)
     payload = dict(data or {})
     payload["delivery_id"] = delivery_id
     payload["actor"] = actor_id
@@ -204,6 +236,11 @@ def sink(
         data=payload,
         id=event_id_for(surface, delivery_id),
     )
+    unstorable = reserved_reason(envelope)
+    if unstorable is not None:
+        # text a store cannot hold (a lone surrogate in the payload): recorded, not stored
+        quarantine(store, envelope, unstorable, host=HOOK_HOST)
+        return _finish(store, actor_id, type, QUARANTINED, surface)
     try:
         store.insert(EVENTS_COLLECTION, event_document(envelope, host=HOOK_HOST))
     except DuplicateKeyError:

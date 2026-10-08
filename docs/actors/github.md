@@ -180,7 +180,8 @@ holds `self_authored`. Each type then adds:
 | `github.comment.created` on a PR | `comment` (truncated), `pr_enriched` and, when enriched, the PR facts |
 | `github.comment.created` on an issue | `comment` (truncated) |
 | `github.checks.*` | `head_sha`, `head_branch`, `pr_numbers`, `app_slug`, `workflow_name`, `status`, `conclusion` |
-| `github.pr.checks_settled` | `head_sha`, `head_branch`, `pr_numbers`, `number`, `settled_by`, `conclusion` and the PR facts |
+| `github.pr.checks_settled` | `head_sha`, `head_branch`, `pr_numbers`, `number`, `settled_by`, `conclusion`, `failed_apps` (d25: app slugs whose suites concluded `failure`) and the PR facts |
+| `github.pr.checks_failed_late` | d25: a counted app's suite concluded `failure` after its head settled. The settled event's data, with `failed_apps` grown by the app, `late_app`, `conclusion: failure` and `settled_by: late`; once per (repo, head SHA, app) |
 
 The **PR facts** have the same names on every PR-scoped type, so the fixer
 rules share one condition shape and the workflow gets the same inputs

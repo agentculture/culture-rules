@@ -2,9 +2,9 @@
 
 spark (the App actor, the reviewer) and spark2 (the fixer machine: agent, gate, push) share
 one store. The shipped bundle (docs/rules/pr-fixer) is imported with its rules enabled; a
-red checks settle starts the chain: ``pr-fix`` (quiet, threads, Sonar, agent, gate) ->
-``review-commit`` (Codex, the verdict) -> ``publish-fix`` (push, replies) or ``pr-fix``
-again with the findings. Real gate, real review builtin, real run events and holds; the
+red checks settle starts the chain: ``pr-fix`` (quiet, GitGuardian hold, threads, Sonar,
+agent, gate) -> ``review-commit`` (Codex, the verdict) -> ``publish-fix`` (push, replies) or
+``pr-fix`` again with the findings. Real gate, real review builtin, real run events and holds; the
 qwen and codex bridges are transport doubles behind the real bridge adapter, so callbacks,
 ``require_commit`` and the locked brief run for real. The push is a recorder by default, or
 the real ``github.push`` port against a local bare remote and a fake GitHub API.
@@ -12,6 +12,7 @@ the real ``github.push`` port against a local bare remote and a fake GitHub API.
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import json
 import subprocess
@@ -26,6 +27,7 @@ from culture_rules.apps.sonarcloud import SonarCloud
 from culture_rules.engine.runs import RUNS_COLLECTION
 from culture_rules.io.exchange import read_bundle
 from culture_rules.model.actor import Actor
+from culture_rules.node.actions.gitguardian import GitGuardianPort
 from culture_rules.node.actions.github_pr import (
     AddressedThreadsPort,
     GitHubPushPort,
@@ -59,6 +61,10 @@ TRIGGER_RULES = (
     "pr-fixer-review-comment",
 )
 STAGE_RULES = ("pr-fixer-review-commit", "pr-fixer-refix", "pr-fixer-publish")
+SECRETS_RULE = "pr-fixer-secrets"
+"""d25: comments GitGuardian's findings; outside the fix chain (its own key, no workflow role)."""
+SECRETS_LATE_RULE = "pr-fixer-secrets-late"
+"""d25: the same report for a GitGuardian failure that completes after the settle."""
 CHAIN_VARIABLES = {**VARIABLES, "fixer_comment_triggers": ["/fix", "@rules-culture-dev"]}
 KEY = f"pr-fixer:{REPO}#7"
 
@@ -173,6 +179,22 @@ class PushRecorder(FakeActor):
         super().__init__(default=lambda inp, ctx: {"head_after": inp["commit_sha"], "pushed": True})
 
 
+class ChecksApp:
+    """The App behind ``gitguardian.hold`` / ``gitguardian.findings``: a commit's check runs
+    (none unless told otherwise, so the hold passes)."""
+
+    def __init__(self) -> None:
+        self.runs: list[dict] = []
+        self.calls: list[tuple] = []
+
+    def deadline(self, deadline):
+        return contextlib.nullcontext()
+
+    def list_check_runs(self, repo, sha):
+        self.calls.append((repo, sha))
+        return [dict(r) for r in self.runs]
+
+
 class GitHubDouble:
     """The GitHub REST API the real push port talks to, for PR o/r#7 on a local remote."""
 
@@ -213,6 +235,7 @@ class ChainWorld:
         real_push_pem: str | None = None,
         disabled: tuple[str, ...] = (),
         verdict_port: Any = None,
+        comment_port: Any = None,
     ) -> None:
         self.tmp = tmp_path
         self.repo = Repo(tmp_path, gate_yaml([PASSING]))
@@ -258,7 +281,7 @@ class ChainWorld:
         else:
             self.push = PushRecorder()
         self.reply = FakeActor(default=lambda inp, ctx: {"comment_id": 1, "resolved": True})
-        self.comment = FakeActor(default=lambda inp, ctx: {"comment_id": 2})
+        self.comment = comment_port or FakeActor(default=lambda inp, ctx: {"comment_id": 2})
         self.app = ThreadsApp(
             [
                 {
@@ -281,6 +304,11 @@ class ChainWorld:
         )
         threads = GitHubThreadsPort(base)
         threads._app = lambda actor_id, conn, allowed: self.app
+        self.checks = ChecksApp()
+        hold = GitGuardianPort(base, hold=True)
+        hold._app = lambda actor_id, conn, allowed: self.checks
+        findings = GitGuardianPort(base)
+        findings._app = lambda actor_id, conn, allowed: self.checks
         ports = {
             "action:github.pr_head": FakeActor(default=head),
             "action:github.push": self.push,
@@ -296,6 +324,8 @@ class ChainWorld:
                     "sonar.gate_issues": SonarGateIssuesPort(
                         client=lambda: SonarCloud(transport=self.sonar)
                     ),
+                    "gitguardian.hold": hold,
+                    "gitguardian.findings": findings,
                 }
             ),
         }

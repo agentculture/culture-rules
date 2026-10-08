@@ -18,6 +18,17 @@ An envelope claiming the engine's own namespace (run-event ids and types, intern
 or carrying an ``envelope`` field is never stored: it is quarantined
 (:data:`QUARANTINE_COLLECTION`, :func:`quarantine`) and counted on the result (deviation d21).
 
+Ingest never raises on envelope content. A shape a store cannot hold or walk (nesting
+deeper than 32, a key with NUL or a leading ``$``, text that is not UTF-8, an int outside
+signed 64-bit) is refused up front (:func:`~culture_rules.events.emit.reserved_reason`), and
+its quarantine record keeps only a bounded, ASCII summary. Anything else the content makes
+raise while validating, copying, storing or quarantining is caught per envelope and recorded
+as a minimal, always-storable quarantine record (:func:`quarantine_failure`), and the batch
+goes on - but only for a *known* content error
+(:func:`~culture_rules.store.port.is_content_error`). Anything else (a store outage, a write
+conflict, an unknown error) propagates: the cursor is not saved and the batch is drained
+again, so a valid event is never dropped.
+
 Nothing in culture-rules updates or deletes a stored event; a redelivered
 envelope with the same id - even with different content - never rewrites it.
 
@@ -33,12 +44,13 @@ import copy
 import hashlib
 import json
 import logging
+import reprlib
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from culture_rules.events.emit import reserved_reason
+from culture_rules.events.emit import envelope_shape_problem, reserved_reason
 from culture_rules.events.source import EventFabricError, EventSource
 from culture_rules.store.port import (
     CURSOR_COLLECTION,
@@ -46,6 +58,7 @@ from culture_rules.store.port import (
     Document,
     DuplicateKeyError,
     StoragePort,
+    is_content_error,
 )
 from culture_rules.store.versioning import utc_timestamp
 
@@ -105,6 +118,12 @@ def quarantine(
     seen - MongoDB's TTL index :data:`QUARANTINE_TTL_INDEX` removes it then. Only a new
     record is logged, so a flood of repeats costs one log line."""
     now = at or datetime.now(UTC)
+    if envelope_shape_problem(envelope) is not None:
+        # unstorable or unbounded: never copy or serialise it, keep a bounded summary
+        return _quarantine_minimal(store, envelope, reason, host=host, now=now)
+    # the record must be storable whatever the refused envelope held: text that is not
+    # UTF-8 encodable (a lone surrogate) is kept escaped (backslashreplace)
+    envelope, reason, host = encodable(envelope), encodable(reason), encodable(host)
     key = json.dumps([envelope.get("id"), reason], default=str).encode("utf-8")
     doc_id = "q_" + hashlib.sha256(key).hexdigest()[:32]
     seen, expires = utc_timestamp(now), now + QUARANTINE_RETENTION
@@ -143,6 +162,101 @@ def quarantine(
         log.warning("quarantined event %r: %s", envelope.get("id"), reason)
         return True
     return False  # contention: the refusal is still refused, only not counted
+
+
+_SAFE_REPR = reprlib.Repr(
+    maxlevel=4, maxdict=16, maxlist=16, maxtuple=16, maxstring=120, maxother=120, maxlong=40
+)
+
+
+def _ascii(value: Any, limit: int = QUARANTINE_MAX_FIELD) -> str:
+    """A bounded, ASCII-only rendering of any value (``reprlib`` stops at a depth, so a deep
+    or huge value is safe), never raising."""
+    try:
+        text = _SAFE_REPR.repr(value)
+    except Exception:  # a hostile __repr__: still record something
+        text = f"<{type(value).__name__}>"
+    return ascii(text)[:limit]
+
+
+def _identity(value: Any) -> str:
+    """``value`` (an envelope's id, or the id itself) in full as ASCII, for hashing: a
+    string whole; anything else through the bounded repr."""
+    if isinstance(value, Mapping):
+        value = value.get("id")
+    return ascii(value) if isinstance(value, str) else _ascii(value, 4 * QUARANTINE_MAX_FIELD)
+
+
+def _field(envelope: Any, name: str) -> str | None:
+    value = envelope.get(name) if isinstance(envelope, Mapping) else None
+    return None if value is None else _ascii(value)
+
+
+def _quarantine_minimal(
+    store: Any, envelope: Any, reason: Any, *, host: Any, now: datetime
+) -> bool:
+    """The minimal, always-storable quarantine record: ASCII renderings of the id, type,
+    source, reason and host, and the sha256 and a preview of a bounded repr - never the
+    envelope itself. One per (id, reason), a repeat bumps its count."""
+    summary = _ascii(envelope, 4 * QUARANTINE_MAX_FIELD)
+    envelope_id, why = _field(envelope, "id"), _ascii(reason)
+    # dedupe on the FULL id and reason (the renderings above are bounded for display only)
+    key = f"{_identity(envelope)}|{_identity(reason)}".encode("ascii")
+    doc_id = "q_" + hashlib.sha256(key).hexdigest()[:32]
+    seen, expires = utc_timestamp(now), now + QUARANTINE_RETENTION
+    doc = {
+        "id": doc_id,
+        "envelope_id": envelope_id,
+        "type": _field(envelope, "type"),
+        "source": _field(envelope, "source"),
+        "reason": why,
+        "host": _ascii(host),
+        "count": 1,
+        "received_at": seen,
+        "last_seen": seen,
+        "expires_at": expires,
+        "truncated": True,
+        "sha256": hashlib.sha256(summary.encode("ascii")).hexdigest(),
+        "preview": summary[:QUARANTINE_MAX_FIELD],
+    }
+    for _ in range(_QUARANTINE_RETRIES):
+        try:
+            store.insert(QUARANTINE_COLLECTION, doc)
+        except DuplicateKeyError:
+            current = store.get(QUARANTINE_COLLECTION, doc_id)
+            if current is None:
+                continue  # expired meanwhile: insert again
+            n = current.get("count", 1)
+            changes = {"count": n + 1, "last_seen": seen, "expires_at": expires}
+            if store.update_if(QUARANTINE_COLLECTION, doc_id, {"count": n}, changes).won:
+                return False
+            continue  # another host bumped it first: count this one on top
+        log.warning("quarantined event %s: %s", envelope_id, why)
+        return True
+    return False  # contention: the refusal is still refused, only not counted
+
+
+def quarantine_failure(
+    store: Any, envelope: Any, exc: BaseException, *, host: str, at: datetime | None = None
+) -> bool:
+    """Record an envelope whose content made validating, copying, storing or quarantining
+    raise ``exc``, a known content error
+    (:func:`~culture_rules.store.port.is_content_error`): the minimal record, its reason
+    naming the error's class."""
+    reason = f"unstorable envelope content ({type(exc).__name__})"
+    return _quarantine_minimal(store, envelope, reason, host=host, now=at or datetime.now(UTC))
+
+
+def encodable(value: Any) -> Any:
+    """``value`` with every string (dict keys included, at any depth) made UTF-8 encodable:
+    a lone surrogate becomes its ``\\uXXXX`` escape. Other values are returned as is."""
+    if isinstance(value, str):
+        return value.encode("utf-8", "backslashreplace").decode("utf-8")
+    if isinstance(value, Mapping):
+        return {encodable(k): encodable(v) for k, v in value.items()}
+    if isinstance(value, list | tuple):
+        return [encodable(v) for v in value]
+    return value
 
 
 def bounded_value(value: Any) -> Any:
@@ -293,23 +407,11 @@ class EventIngest:
                 f"source {self.source.name!r} returned {len(batch.envelopes)} envelopes, "
                 f"over the bound of {self.batch_size}"
             )
-        inserted = duplicates = rejected = quarantined = 0
+        counts = dict.fromkeys(("inserted", "duplicates", "rejected", "quarantined"), 0)
         for envelope in batch.envelopes:
-            if not _usable(envelope):
-                rejected += 1
-                continue
-            reason = reserved_reason(envelope)
-            if reason is not None:
-                quarantine(self.store, envelope, reason, host=self.host, at=self._clock())
-                quarantined += 1
-                continue
-            doc = event_document(envelope, host=self.host, received_at=self._clock())
-            try:
-                self.store.insert(EVENTS_COLLECTION, doc)
-            except DuplicateKeyError:
-                duplicates += 1
-            else:
-                inserted += 1
+            counts[self._guarded(envelope)] += 1
+        inserted, duplicates = counts["inserted"], counts["duplicates"]
+        rejected, quarantined = counts["rejected"], counts["quarantined"]
         if batch.cursor is not None and batch.cursor != after:
             self.store.save_cursor(self.consumer, self.cursor_key, batch.cursor)
         return IngestResult(
@@ -321,6 +423,33 @@ class EventIngest:
             has_more=batch.has_more,
             quarantined=quarantined,
         )
+
+    def _guarded(self, envelope: Any) -> str:
+        """:meth:`_ingest_one`: a known content error becomes a minimal quarantine record;
+        anything else re-raises, so the batch is retried and no valid event is dropped
+        (module doc)."""
+        try:
+            return self._ingest_one(envelope)
+        except Exception as exc:
+            if not is_content_error(exc):
+                raise  # not a known content refusal: retry the batch, never drop an event
+            quarantine_failure(self.store, envelope, exc, host=self.host, at=self._clock())
+            return "quarantined"
+
+    def _ingest_one(self, envelope: Any) -> str:
+        """Store one envelope; return which count it adds to."""
+        if not _usable(envelope):
+            return "rejected"
+        reason = reserved_reason(envelope)
+        if reason is not None:
+            quarantine(self.store, envelope, reason, host=self.host, at=self._clock())
+            return "quarantined"
+        doc = event_document(envelope, host=self.host, received_at=self._clock())
+        try:
+            self.store.insert(EVENTS_COLLECTION, doc)
+        except DuplicateKeyError:
+            return "duplicates"
+        return "inserted"
 
     def ingest(self, max_batches: int = 10, timeout: float = 0.0) -> list[IngestResult]:
         """Drain up to ``max_batches`` bounded batches, stopping when nothing more is queued."""

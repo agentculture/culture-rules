@@ -6,7 +6,10 @@ server-side encryption. Run history also carries the run-event decision
 state: `run_event_consumption`, `rule_decisions`, `rule_fires` and
 `rule_attempt_budgets`, scanned in that order before `runs`, `audit` and
 `run_completions`. A backup chain written before these were added has no
-token for them, so the schedule takes a new snapshot first. The `events`
+token for them, so the schedule takes a new snapshot first. Last comes
+`github_comment_once` (d25): the claims that make a `github.comment` with a
+`once_key` post at most once, so a restored store never posts such a comment
+again. The `events`
 collection is not backed up; see [Restore limits](#restore-limits) for what a
 restore repairs and what it does not.
 The library is `culture_rules/ops/backup.py`; its module docstring is the
@@ -135,6 +138,15 @@ risk on the `pr-fixer-rule` plan (d21); until then this list is the record:
 
 - events other than run events (webhook, bus, schedule and probe events): not
   backed up, so whatever had not been evaluated before the backup is lost;
+- the checks settle state (`checks_settle`, `checks_settle_recovery` and, d25,
+  the late-failure candidates in `checks_settle_late`): not backed up, like
+  the `events` they are derived from. A candidate lost on restore leaves a
+  GitGuardian failure that completed after its head settled unreported. The
+  restored store has no settled event or stored completion to rebuild it
+  from. This loss is limited to reporting. The `pr-fix` GitGuardian hold reads the
+  live checks, so the fixer still never works on that head. The next head's
+  settle reports a failure that persists. Lost settle records are re-armed by
+  the next completion, as for any unarmed head;
 - shared variables, rate windows and the budget-reset markers: not backed
   up, so an undecided event meets today's values (a rule reading a variable
   that is not re-seeded is refused, `variable_undefined`);
