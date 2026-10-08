@@ -550,52 +550,77 @@ def record_bridge_event(
     """
     now = _iso((clock or _utcnow)())
     for _ in range(5):  # compare-and-set; a lost race re-reads
-        doc = (
-            store.get(BRIDGE_INVOCATIONS, invocation_id) if isinstance(invocation_id, str) else None
-        )
-        if doc is None:
-            return UNKNOWN
-        if not _token_ok(doc, token):
-            return UNAUTHORIZED
-        if not isinstance(event, Mapping):
-            return INVALID
+        doc = _bridge_invocation(store, invocation_id)
+        refusal = _event_refusal(doc, token, event)
+        if refusal is not None:
+            return refusal
         kind, seq = event.get("kind"), event.get("sequence")
-        if kind not in TERMINAL_KINDS + NON_TERMINAL_KINDS:
-            return INVALID
-        if not isinstance(seq, int) or isinstance(seq, bool):
-            return INVALID
-        if doc["status"] in (_EXPIRED, _SUPERSEDED):
-            return EXPIRED
         payload = event.get("payload")
         payload = payload if isinstance(payload, Mapping) else {}
-        if kind in TERMINAL_KINDS:
-            if doc["status"] not in _OPEN:
-                return DUPLICATE
-            if _superseded(store, doc):  # a newer attempt runs: never finish it with this
-                _supersede(store, doc, {"status": doc["status"]})
-                return EXPIRED
-            result = result_from_terminal(str(kind), payload)
-            changes = {
-                "status": _COMPLETED if result.outcome == COMPLETED else _FAILED,
-                "result": result.to_dict(),
-                "pending_delivery": True,
-                "finished_at": now,
-                "last_event_at": now,
-                "last_sequence": max(seq, doc.get("last_sequence") or 0),
-            }
-            expected = {"status": doc["status"]}
-        else:
-            if seq <= (doc.get("last_sequence") or 0):
-                return DUPLICATE
-            changes = {"last_sequence": seq, "last_event_at": now}
-            if kind == "heartbeat":
-                changes["last_heartbeat_at"] = now
-            if kind == "accepted" and payload.get("invocation_id") and not doc.get("invocation_id"):
-                changes["invocation_id"] = str(payload["invocation_id"])
-            expected = {"status": doc["status"], "last_sequence": doc.get("last_sequence") or 0}
+        if _not_newer(doc, kind, seq):
+            return DUPLICATE
+        # a newer attempt runs: never finish it with this
+        if kind in TERMINAL_KINDS and _superseded(store, doc):
+            _supersede(store, doc, {"status": doc["status"]})
+            return EXPIRED
+        expected, changes = _event_changes(doc, kind, seq, payload, now)
         if store.update_if(BRIDGE_INVOCATIONS, invocation_id, expected, changes).won:
             return RECORDED
     return DUPLICATE  # pragma: no cover - sustained contention: the bridge retries
+
+
+def _bridge_invocation(store: Any, invocation_id: Any) -> Mapping[str, Any] | None:
+    return store.get(BRIDGE_INVOCATIONS, invocation_id) if isinstance(invocation_id, str) else None
+
+
+def _event_refusal(doc: Mapping[str, Any] | None, token: Any, event: Any) -> str | None:
+    """Why a callback event is refused before it is looked at (:data:`UNKNOWN`,
+    :data:`UNAUTHORIZED`, :data:`INVALID` or :data:`EXPIRED`, in that order), else None."""
+    if doc is None:
+        return UNKNOWN
+    if not _token_ok(doc, token):
+        return UNAUTHORIZED
+    if not isinstance(event, Mapping):
+        return INVALID
+    kind, seq = event.get("kind"), event.get("sequence")
+    if kind not in TERMINAL_KINDS + NON_TERMINAL_KINDS:
+        return INVALID
+    if not isinstance(seq, int) or isinstance(seq, bool):
+        return INVALID
+    if doc["status"] in (_EXPIRED, _SUPERSEDED):
+        return EXPIRED
+    return None
+
+
+def _not_newer(doc: Mapping[str, Any], kind: Any, seq: int) -> bool:
+    """A :data:`DUPLICATE`: a terminal event once the invocation is no longer open, or a
+    non-terminal one whose ``sequence`` is not newer than the last recorded."""
+    if kind in TERMINAL_KINDS:
+        return doc["status"] not in _OPEN
+    return seq <= (doc.get("last_sequence") or 0)
+
+
+def _event_changes(
+    doc: Mapping[str, Any], kind: Any, seq: int, payload: Mapping[str, Any], now: str
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """``(expected, changes)``: the compare-and-set recording one new callback event."""
+    if kind in TERMINAL_KINDS:
+        result = result_from_terminal(str(kind), payload)
+        changes = {
+            "status": _COMPLETED if result.outcome == COMPLETED else _FAILED,
+            "result": result.to_dict(),
+            "pending_delivery": True,
+            "finished_at": now,
+            "last_event_at": now,
+            "last_sequence": max(seq, doc.get("last_sequence") or 0),
+        }
+        return {"status": doc["status"]}, changes
+    changes = {"last_sequence": seq, "last_event_at": now}
+    if kind == "heartbeat":
+        changes["last_heartbeat_at"] = now
+    if kind == "accepted" and payload.get("invocation_id") and not doc.get("invocation_id"):
+        changes["invocation_id"] = str(payload["invocation_id"])
+    return {"status": doc["status"], "last_sequence": doc.get("last_sequence") or 0}, changes
 
 
 def _deliver_one(store: Any, executor: Any, doc: Mapping[str, Any]) -> bool:
@@ -637,6 +662,31 @@ def redeliver_bridge(store: Any, executor: Any, invocation_id: str | None = None
     else:
         pending = store.find(BRIDGE_INVOCATIONS, {"pending_delivery": True})
     return sum(1 for doc in pending if _deliver_one(store, executor, doc))
+
+
+def _address(
+    input: Mapping[str, Any], config: Mapping[str, Any]
+) -> tuple[dict[str, str], str | None]:
+    """The step's ``repo``/``head_branch``/``head_sha`` (input first, then config), stripped;
+    or ``({}, problem)`` for the first one missing or blank."""
+    address: dict[str, str] = {}
+    for name in ADDRESS_FIELDS:
+        value = input.get(name) or config.get(name)
+        if not isinstance(value, str) or not value.strip():
+            return {}, f"the step input has no {name!r} (repo, head_branch and head_sha)"
+        address[name] = value.strip()
+    return address, None
+
+
+def _sandbox_refusal(input: Mapping[str, Any], config: Mapping[str, Any]) -> str | None:
+    """A read-only actor refuses an input or step config asking for another sandbox."""
+    for where, source in (("an input", input), ("the step config", config)):
+        if "sandbox" in source and source["sandbox"] != READ_ONLY_SANDBOX:
+            return (
+                f"sandbox_locked: the actor is {READ_ONLY_SANDBOX}; "
+                f"{where} asks for sandbox {source['sandbox']!r}"
+            )
+    return None
 
 
 # -- the adapter ----------------------------------------------------------------------
@@ -717,21 +767,16 @@ class BridgeAgentActor:
         if not instruction:
             return None, _NO_INSTRUCTION
         out: dict[str, Any] = {k: v for k, v in input.items() if v is not None}
-        for name in ADDRESS_FIELDS:
-            value = input.get(name) or config.get(name)
-            if not isinstance(value, str) or not value.strip():
-                return None, f"the step input has no {name!r} (repo, head_branch and head_sha)"
-            out[name] = value.strip()
+        address, problem = _address(input, config)
+        if problem:
+            return None, problem
+        out.update(address)
         if not _SHA_RE.match(out["head_sha"]):
             return None, f"head_sha {out['head_sha']!r} is not a commit SHA"
         locked = self._defaults.get("sandbox") == READ_ONLY_SANDBOX
-        if locked:
-            for where, source in (("an input", input), ("the step config", config)):
-                if "sandbox" in source and source["sandbox"] != READ_ONLY_SANDBOX:
-                    return None, (
-                        f"sandbox_locked: the actor is {READ_ONLY_SANDBOX}; "
-                        f"{where} asks for sandbox {source['sandbox']!r}"
-                    )
+        problem = _sandbox_refusal(input, config) if locked else None
+        if problem:
+            return None, problem
         for name in PASSTHROUGH_CONFIG:
             value = config.get(name, self._defaults.get(name))
             if value is not None:
@@ -789,11 +834,7 @@ class BridgeAgentActor:
         *,
         context: InvocationContext,
     ) -> InvocationResult:
-        payload, problem = self.bridge_input(input, context.config or {})
-        if not problem:
-            problem = self._bound_inputs_problem(payload or {})
-        digest, trust_problem = self._trust()
-        problem = problem or trust_problem
+        payload, digest, problem = self._checked_input(input, context.config or {})
         if problem:
             return InvocationResult.failed(problem, retryable=False)
         if not self.callback_url:
@@ -841,6 +882,18 @@ class BridgeAgentActor:
             self._settle(doc_id, _REJECTED, error=str(exc))
             return InvocationResult.failed(str(exc))
         return self._response(doc_id, status, raw)
+
+    def _checked_input(
+        self, input: Mapping[str, Any], config: Mapping[str, Any]
+    ) -> tuple[dict[str, Any] | None, str | None, str | None]:
+        """``(payload, digest, problem)``: the bridge input, the actor's trust digest, and
+        the first refusal (the input, then its bound size, then trust; trust is always
+        checked, so the digest is known)."""
+        payload, problem = self.bridge_input(input, config)
+        if not problem:
+            problem = self._bound_inputs_problem(payload or {})
+        digest, trust_problem = self._trust()
+        return payload, digest, problem or trust_problem
 
     def _bearer(self) -> str | None:
         if not self._token_ref:
