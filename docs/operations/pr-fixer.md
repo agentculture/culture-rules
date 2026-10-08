@@ -526,7 +526,14 @@ How it fits together:
   re-run failed), the settler emits `github.pr.checks_failed_late` once per
   (repo, head SHA, app): the settled event's data with `failed_apps` grown
   by the app, `late_app`, `conclusion: failure` and `settled_by: late`. Its
-  PR facts are those of the settle. `pr-fixer-secrets-late` fires on it with
+  PR facts are those of the settle. That is on purpose: a secret pushed to a
+  PR is leaked even if the PR has since been closed or its head has moved,
+  so reporting it is still right. The settle tick's recovery scan emits the
+  same event for a late completion the webhook stored but never handled. Both
+  settle event types and their id prefixes (`settled_`, `late_`) are
+  reserved: the bus and the webhooks quarantine a copy, so nothing outside
+  the settler can fire the report or squat its id.
+  `pr-fixer-secrets-late` fires on it with
   the same condition, workflow, key and once key as `pr-fixer-secrets`. No
   fixer rule fires on it. A fix that the earlier settle started stops at the
   `pr-fix` hold if GitGuardian has failed by the end of the quiet period. If
@@ -553,7 +560,12 @@ How it fits together:
   claimed completes as `skipped: posted_before` and posts nothing. The claim
   survives every budget reset (a green settle resets the attempt budget,
   so `max_attempts` cannot dedupe), re-armed settles, the late rule and other
-  nodes. A failed post releases the claim, so a later firing can post. The
+  nodes. Only a post GitHub refused with a client error (4xx except 408)
+  releases the claim, so a later firing can post. Any other failure (a 5xx,
+  408, network error, the deadline, an unreadable answer) may follow a
+  created comment, so the claim stays as `unknown` and a later post is
+  skipped as `claimed_before`: at most once, never twice. The claims are
+  backed up with the run history. The
   `on_failure` comment has its own once key. Both rules share the key
   `pr-secrets:{repository}#{number}@{head_sha}`, one run at a time per head,
   outside the fixer's per-PR key and budget, so a fix chain in flight never
