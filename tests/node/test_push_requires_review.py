@@ -340,3 +340,44 @@ def test_r4_1_push_trusts_and_uses_one_actor_snapshot(pem, world):  # noqa: F811
     res, fake, rec = attempt(pem, world, store)
     assert (res.outcome, res.error) == ("failed", "actor_not_trusted")
     assert fake.calls == [] and "push" not in rec.verbs() and world.remote_head() == world.a
+
+
+# --------------------------------------------------------------------------- round 5, #1
+
+
+def test_r5_1_a_base_change_re_arms_the_heads_settle_for_a_fresh_run(pem, world):  # noqa: F811
+    from culture_rules.events.ingest import EVENTS_COLLECTION
+    from culture_rules.node.checks_settle import SETTLED_TYPE, ChecksSettler
+
+    store = make_store()
+    store.put_variable("checks_settle_min_s", 0, updated_by="t")
+    new_base = "f" * 40
+    pull = {
+        "head": {"sha": world.a, "ref": "fix", "repo": {"full_name": "acme/widgets"}},
+        "base": {"sha": new_base, "ref": "main", "repo": {"full_name": "acme/widgets"}},
+        "draft": False,
+        "user": {"login": "alice"},
+    }
+    settler = ChecksSettler(
+        store,
+        lambda repo, sha: [{"app_slug": "ci", "status": "completed", "conclusion": "failure"}],
+        pull=lambda repo, number: pull,
+    )
+    check = {
+        "repository": "acme/widgets",
+        "head_sha": world.a,
+        "head_branch": "fix",
+        "pr_numbers": [3],
+    }
+    assert settler.on_check(check) == "emitted"  # the settle that started the reviewed run
+    approve(store, world.b, start_sha=world.a)  # reviewed under the old base
+    fake = FakeGitHub(world, base_sha=new_base)  # the base moved during the review
+    res = push_port(pem, world, fake, store=store, review=False).invoke(
+        push_params(world), "k", DEADLINE, context=ctx()
+    )
+    assert res.error == "base_changed"
+    # the next completion (or the re-armed settle's own poll) settles the head again
+    assert settler.on_check(check) == "emitted" or settler.tick() == 1
+    events = [d for d in store.find(EVENTS_COLLECTION) if d["envelope"]["type"] == SETTLED_TYPE]
+    assert len(events) == 2 and len({e["id"] for e in events}) == 2
+    assert events[-1]["envelope"]["data"]["base_sha"] == new_base

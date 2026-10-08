@@ -975,3 +975,52 @@ def test_api_server_wires_the_bounded_webhook_settle(monkeypatch):
     monkeypatch.setattr(cs, "webhook_on_check", fake)
     server_app._register_hooks(FastAPI(), MemoryStore())
     assert isinstance(seen["lister"], cs.AppSuiteLister)
+
+
+# --------------------------------------------------------------------------- d20 round 5
+
+
+def test_rearm_settles_the_same_head_again_in_a_new_generation_then_dedupes():
+    from culture_rules.node.checks_settle import rearm_settle
+
+    store, _, clock, settler = make(("a", "completed"))
+    assert settler.on_check(check_data()) == "emitted"
+    assert settler.on_check(check_data()) == "duplicate"
+    assert rearm_settle(store, REPO, SHA, reason="base_changed", now=clock()) == "rearmed"
+    assert rearm_settle(store, REPO, SHA, reason="base_changed", now=clock()) == "pending"
+    assert settler.on_check(check_data()) == "emitted"  # generation 1
+    assert settler.on_check(check_data()) == "duplicate"
+    ids = {e["id"] for e in settled(store)}
+    assert ids == {settled_event_id(REPO, SHA), settled_event_id(REPO, SHA, 1)}
+    assert settled_event_id(REPO, SHA, 0) == settled_event_id(REPO, SHA)  # unchanged ids
+
+
+def test_a_re_armed_head_also_settles_from_the_nodes_poll():
+    from culture_rules.node.checks_settle import rearm_settle
+
+    store, _, clock, settler = make(("a", "completed"))
+    settler.on_check(check_data())
+    rearm_settle(store, REPO, SHA, reason="base_changed", now=clock())
+    assert settler.tick() == 1  # no new check completion needed
+    assert len(settled(store)) == 2
+
+
+def test_rearming_is_bounded():
+    from culture_rules.node.checks_settle import REARM_LIMIT, rearm_settle
+
+    store, _, clock, settler = make(("a", "completed"))
+    settler.on_check(check_data())
+    for _ in range(REARM_LIMIT):
+        assert rearm_settle(store, REPO, SHA, reason="base_changed", now=clock()) == "rearmed"
+        assert settler.on_check(check_data()) == "emitted"
+    assert rearm_settle(store, REPO, SHA, reason="base_changed", now=clock()) == "limit"
+    assert settler.on_check(check_data()) == "duplicate"
+    assert len(settled(store)) == REARM_LIMIT + 1
+
+
+def test_rearming_a_head_never_settled_arms_it():
+    from culture_rules.node.checks_settle import rearm_settle
+
+    store, _, clock, settler = make(("a", "completed"))
+    assert rearm_settle(store, REPO, SHA, reason="base_changed", now=clock()) == "armed"
+    assert settler.tick() == 1 and len(settled(store)) == 1

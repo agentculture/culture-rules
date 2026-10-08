@@ -427,8 +427,15 @@ Workflow `pr-fixer`:
    **consumes** the approval: a compare-and-set turns the pointer to
    `consumed`, bound to the pushed commit. Before that, the PR's base as
    GitHub reports it must still be the base the review recorded
-   (`base_changed` otherwise; the next checks event runs the gate and the
-   review again against the new base). No later verdict can move a
+   (`base_changed` otherwise). A base change does not move the head, and
+   the checks settle is once per head, so `base_changed` **re-arms** the
+   head's settle in a new generation: the next check completion, or the
+   node's own poll, emits a fresh `github.pr.checks_settled` carrying the
+   PR's current base, and `pr-fixer-checks` starts a new run that gates and
+   reviews against it. At most three re-arms per head (`REARM_LIMIT`), within
+   the rules' per-PR attempt budget. Only `pr-fixer-checks` re-fires this
+   way, and only while the head's checks are red; a run started by a comment
+   on a green head needs a new comment. No later verdict can move a
    consumed pointer (it is recorded and fails `review_consumed`), so no
    revocation can land between that moment and the push. What remains is the
    GitHub reads and the git network call themselves, which cannot be part

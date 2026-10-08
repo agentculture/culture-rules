@@ -849,3 +849,46 @@ def test_r4_1_the_invocation_records_the_digest_and_endpoint_it_used(tmp_path):
     (inv,) = [d for d in w.c.base.find(BRIDGE_INVOCATIONS) if d["actor"] == "codex-reviewer"]
     assert inv["actor_digest"] == actor_digest(reviewer_actor())
     assert inv["bridge_url"] == reviewer_actor()["params"]["bridge_url"]
+
+
+# --------------------------------------------------------------------------- round 5, #1
+
+
+def test_r5_1_a_re_armed_settle_starts_a_fresh_run_gated_on_the_new_base(tmp_path):
+    from culture_rules.engine.runs import RUNS_COLLECTION
+    from culture_rules.node.checks_settle import settled_event_id
+    from tests.events.fakes import envelope
+    from tests.rules.test_pr_fixer_bundle import pr_facts
+
+    w = World(tmp_path)
+    first = w.fire()
+    assert first["status"] == "succeeded"
+    # main moves on (a new base commit with its own gate policy); the push of a review made
+    # under the old base was refused base_changed and re-armed the head's settle, which
+    # emits generation 1 of the same head with the PR's current facts
+    git(w.repo.wt, "checkout", "-q", "-b", "main-moved", w.repo.base)
+    new_base = w.repo.commit("main moves on", {"README.md": "new\n"})
+    git(w.repo.wt, "checkout", "-q", "--detach", w.repo.start)
+    w.repo.base = new_base  # what the App now reports as the PR's base
+    data = pr_facts(head_sha=w.repo.start, base_sha=new_base, conclusion="failure")
+    w.c.publish(
+        envelope(
+            2,
+            type="github.pr.checks_settled",
+            data=data,
+            id=settled_event_id("o/r", w.repo.start, 1),
+        )
+    )
+    w.cycle()
+    w.c.clock.advance(301)
+    w.cycle()
+    runs = [
+        d
+        for d in w.c.base.find(RUNS_COLLECTION, {"rule_id": "pr-fixer-checks"})
+        if d["id"] != first["id"]
+    ]
+    assert len(runs) == 1, "the re-armed settle started a fresh run"
+    second = runs[0]
+    gate = step_state(second, "fix[0]/gate")
+    assert gate["inputs"]["base_sha"] == new_base and gate["outputs"]["verdict"] == "pass"
+    assert record(w, second)["base_sha"] == new_base
