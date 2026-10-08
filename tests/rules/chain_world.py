@@ -23,11 +23,13 @@ from typing import Any
 from culture_rules.actors.agent import BridgeAgentActor, record_bridge_event
 from culture_rules.actors.gate import GatePort
 from culture_rules.actors.review import ReviewVerdictPort
+from culture_rules.apps.github import GitHubError
 from culture_rules.apps.sonarcloud import SonarCloud
 from culture_rules.engine.runs import RUNS_COLLECTION
 from culture_rules.io.exchange import read_bundle
 from culture_rules.model.actor import Actor
 from culture_rules.node.actions.gitguardian import GitGuardianPort
+from culture_rules.node.actions.github import GitHubCommentPort
 from culture_rules.node.actions.github_pr import (
     AddressedThreadsPort,
     GitHubPushPort,
@@ -102,6 +104,14 @@ class QwenBridge:
         self.inputs: list[dict] = []
         self.seq = 0
         self.on_request = None
+        self.progress: list[str] = []
+        """Progress notes (d26) each turn reports before it completes, as the bridge does."""
+
+    def _report_progress(self, inv: str, token: str) -> None:
+        for note in self.progress:
+            self.seq += 1
+            event = {"kind": "progress", "sequence": self.seq, "payload": {"note": note}}
+            assert record_bridge_event(self.store, inv, token, event) == "recorded"
 
     def __call__(self, method, url, body, headers, timeout):
         if url.endswith("/cancel"):
@@ -134,9 +144,10 @@ class QwenBridge:
                 {"thread_id": "PRRT_2", "commit": head, "reply": "untrusted"},
             ],
         }
+        inv = doc["callback"]["url"].rsplit("/", 2)[-2]
+        self._report_progress(inv, doc["callback"]["token"])
         self.seq += 1
         event = {"kind": "completed", "sequence": self.seq, "payload": {"result": result}}
-        inv = doc["callback"]["url"].rsplit("/", 2)[-2]
         assert record_bridge_event(self.store, inv, doc["callback"]["token"], event) == "recorded"
         return 202, json.dumps({"invocation_id": f"qinv-{self.seq}"}).encode()
 
@@ -193,6 +204,33 @@ class ChecksApp:
     def list_check_runs(self, repo, sha):
         self.calls.append((repo, sha))
         return [dict(r) for r in self.runs]
+
+
+class IssuesApp:
+    """The App behind the real ``github.comment`` port (d26): posted comments, their edits
+    and their current bodies; editing a comment in ``deleted`` answers 404."""
+
+    def __init__(self) -> None:
+        self.posts: list[tuple[str, int, str]] = []
+        self.edits: list[tuple[str, int, str]] = []
+        self.bodies: dict[int, str] = {}
+        self.deleted: set[int] = set()
+
+    def installation_token(self) -> str:
+        return "token"
+
+    def post_comment(self, repo, number, body):
+        self.posts.append((repo, number, body))
+        comment_id = len(self.posts)
+        self.bodies[comment_id] = body
+        return {"comment_id": comment_id, "url": f"https://github.com/{repo}#c{comment_id}"}
+
+    def update_issue_comment(self, repo, comment_id, body):
+        if comment_id in self.deleted:
+            raise GitHubError("http_404")
+        self.edits.append((repo, comment_id, body))
+        self.bodies[comment_id] = body
+        return {"comment_id": comment_id, "url": "u"}
 
 
 class GitHubDouble:
@@ -281,7 +319,8 @@ class ChainWorld:
         else:
             self.push = PushRecorder()
         self.reply = FakeActor(default=lambda inp, ctx: {"comment_id": 1, "resolved": True})
-        self.comment = comment_port or FakeActor(default=lambda inp, ctx: {"comment_id": 2})
+        self.issues = IssuesApp()
+        self.comment = comment_port or self._comment_port(base)
         self.app = ThreadsApp(
             [
                 {
@@ -339,6 +378,12 @@ class ChainWorld:
             self.c.nodes[host] = self.c.node(host, actors=ports, adapters={"agent": agent_for})
         self.c.start()
 
+    def _comment_port(self, base) -> GitHubCommentPort:
+        """The real github.comment port (status comments included, d26) on a fake App."""
+        port = GitHubCommentPort(base, clock=self.c.clock, sleep=self.c.clock.advance)
+        port._app = lambda actor_id, conn, allowed: self.issues
+        return port
+
     # ------------------------------------------------------------------ the remote
 
     def _remote(self) -> None:
@@ -386,4 +431,7 @@ class ChainWorld:
         return sorted(docs, key=lambda d: d["created_at"])
 
     def comments(self) -> list[str]:
-        return [c[1]["body"] for c in self.comment.calls]
+        """The current body of every comment posted, in posting order (edits applied)."""
+        if hasattr(self.comment, "calls"):
+            return [c[1]["body"] for c in self.comment.calls]
+        return [self.issues.bodies[n] for n in sorted(self.issues.bodies)]
