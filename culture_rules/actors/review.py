@@ -1030,7 +1030,7 @@ class ReviewVerdictPort:
         if role == _trusted.ROLE_SINGLE:
             return self._judge_single(run, input, context, names, facts)
         if role == _trusted.ROLE_REVIEW:
-            return self._judge_chain(run, input, context, names, facts)
+            return self._judge_chain(run, context, names, facts)
         raise ReviewError("workflow_not_trusted", "the run's workflow is not a trusted one")
 
     def _judge_single(
@@ -1075,7 +1075,6 @@ class ReviewVerdictPort:
     def _judge_chain(
         self,
         run: Mapping[str, Any],
-        input: Mapping[str, Any],
         context: InvocationContext,
         names: Mapping[str, str],
         facts: dict[str, Any],

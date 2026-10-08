@@ -65,7 +65,7 @@ def urllib_transport(
             return resp.status, resp.read()
     except urllib.error.HTTPError as exc:
         return exc.code, exc.read()
-    except OSError as exc:  # URLError is an OSError
+    except OSError as exc:  # urllib.error.URLError derives from OSError
         raise SonarError("unreachable", type(exc).__name__) from exc
 
 
@@ -105,7 +105,7 @@ class SonarCloud:
             raise SonarError(f"http_{status}", path)
         try:
             doc = json.loads(raw.decode("utf-8"))
-        except ValueError as exc:  # UnicodeDecodeError is a ValueError
+        except ValueError as exc:  # UnicodeDecodeError derives from ValueError
             raise SonarError("malformed", path) from exc
         if not isinstance(doc, Mapping):
             raise SonarError("malformed", path)
