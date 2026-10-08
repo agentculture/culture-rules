@@ -19,29 +19,45 @@ repo allowlist and its per-actor App cache. There is deliberately no merge port.
     1. actor, allowlist and input shape (no secret read, no network);
     2. the run's source rule (or, for a direct workflow run, its workflow) is still live and
        enabled;
-    3. the run's review (d20, :func:`culture_rules.actors.review.review_refusal`): the
-       review record of this run, written only by the built-in ``review`` step and never
-       read from a param, must approve exactly ``commit_sha``, by a reviewer whose actor and
-       backend both differ from the implementer's - else ``review_missing``,
-       ``review_rejected``, ``review_commit_mismatch`` or ``reviewer_is_implementer``. This
-       holds for every push, so a workflow that skips the review step pushes nothing.
-       The approving record is re-read right before the final ``git push`` (step 8); a
-       different current record refuses ``review_changed``. The PR's base (read in step 5)
-       must still be the base the review recorded, else ``base_changed``;
-    4. ``commit_sha`` is fetched into a fresh, node-owned bare repo (so nothing in the agent's
+    3. the chain (d21, :func:`_chain`, from the store): the pushing run's pinned workflow is
+       trusted in a role that may push (``workflow_not_trusted``) - the single d20
+       ``pr-fixer`` workflow, which built, gated and reviewed the commit itself, or
+       ``publish-fix``, which must have been started by a trusted ``review-commit`` run
+       succeeding, itself started by a trusted ``pr-fix`` run succeeding, each link verified
+       against the upstream run's immutable completion record (``chain_unverified``,
+       :mod:`culture_rules.actors.lineage`). The commit, its start, its bundle, the repo, PR
+       and branch must be exactly what that fix run's last gate built and gated
+       (``chain_mismatch``), the gate must have passed (``gate_not_passed``), and the rule
+       of every run of the chain must still be enabled (``rule_disabled``);
+    4. the review (d20, :func:`culture_rules.actors.review.approved_review`): the review
+       record of the commit's target (repo, PR, base, start, tip), written only by the
+       built-in ``review`` step and never read from a param, must approve exactly
+       ``commit_sha``, by a reviewer whose actor and backend both differ from the
+       implementer's, and have been written by the chain's own review run - else
+       ``review_missing``, ``review_rejected``, ``review_commit_mismatch``,
+       ``reviewer_is_implementer`` or ``review_not_in_chain``. This holds for every push,
+       so a workflow that skips the review step pushes nothing. The approving record is
+       re-read right before the final ``git push`` (step 9); a different current record
+       refuses ``review_changed``. The PR's base (read in step 6) must still be the base
+       the review recorded, else ``base_changed``. The approval is then consumed by a
+       compare-and-set (``review_consumed`` for any other commit afterwards);
+    5. ``commit_sha`` is fetched into a fresh, node-owned bare repo (so nothing in the agent's
        repo config, hooks or credential helpers ever sees the token) and must descend from
        ``expected_head_sha``: a non-fast-forward update is refused before any network call.
        If the App actor sets ``params.commit_author`` (a git author name or email), every
        commit in ``expected_head_sha..commit_sha`` must carry it, else ``foreign_author``;
        unset, the check is off;
-    5. the PR (read as the App) must be open, its head and base repo both ``repo`` and its
-       head ref ``head_branch``; its head SHA must equal ``expected_head_sha``;
-    6. a fresh token is minted for this push alone: ``repositories=[repo]``,
+    6. the PR (read as the App) must be open, its head and base repo both ``repo`` and its
+       head ref ``head_branch``; its head SHA must equal ``expected_head_sha``
+       (``head_moved``). A commit equal to ``expected_head_sha`` has nothing to push, but is
+       reported done only after the same PR read (d21: never a success on a closed PR);
+    7. a fresh token is minted for this push alone: ``repositories=[repo]``,
        ``permissions={contents: write}``. It reaches git only through the child process's
        environment (an ``http.extraHeader``), never argv, a file or a log;
-    7. ``git ls-remote`` with that token must still report ``expected_head_sha``;
-    8. the rule is checked again, then one plain ``git push`` (no force, no ``+`` refspec,
-       hooks off) of ``<sha>:refs/heads/<head_branch>``. The server also refuses non-ff.
+    8. ``git ls-remote`` with that token must still report ``expected_head_sha``;
+    9. the rules of the chain are checked again, then one plain ``git push`` (no force, no
+       ``+`` refspec, hooks off) of ``<sha>:refs/heads/<head_branch>``. The server also
+       refuses non-ff.
 
     Every git and HTTP call is bounded by the time left before the invocation's deadline
     (past it the executor stops renewing the step's claim and another host may take over),

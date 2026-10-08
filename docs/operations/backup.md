@@ -94,7 +94,10 @@ reconciliation pass before any node starts
 - **Orphan key reservations.** A concurrency reservation held by neither a
   pending firing intent nor a running run is dropped, and each one is
   logged. Its attempt count is kept. A pending event it remembered is not
-  fired, because that event is not in the backup.
+  fired, because that event is not in the backup. A chain hold on it (d21:
+  a finished run holding its key for its continuation) goes with it, so the
+  re-delivered run event finds the key free and continues the chain as an
+  ordinary firing.
 - **Unfinished chain work.** A chain continues from a finished run, a final
   skip decision or a failed firing intent. Each one whose must/may-run-after
   dependants had not been decided for its event is re-driven through the

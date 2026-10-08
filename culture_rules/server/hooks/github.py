@@ -21,7 +21,17 @@ marked ``pr_enriched``; a failed lookup stores the comment without the PR fields
 ``pr_enriched: false`` (fail-closed for the fixer's condition); so does an answer missing any
 valid PR fact. On every type a missing or malformed fact is omitted rather than null, so it
 never compares equal (a deleted fork has no ``head_repo``). The lookup runs only when the
-sink would store the delivery, so a redelivery never re-reads the PR. The endpoint is public:
+sink would store the delivery, so a redelivery never re-reads the PR. Every PR-scoped event
+also carries the PR's ``state`` (``open``/``closed``, d21) when it is known.
+
+Comment intent (d21): an ``issue_comment``, ``pull_request_review`` or
+``pull_request_review_comment`` also carries ``command`` (the body's first word when the body
+starts with ``/``, lowercased: ``/fix``) and ``mention`` (``@<slug>`` when the body mentions
+the App - its ``params.self_identity`` without ``[bot]`` - outside quoted lines and code), each
+omitted when absent (:func:`comment_intent`). The fixer's comment rules match them against
+``vars.fixer_comment_triggers``, so a comment that asks for nothing starts nothing.
+
+The endpoint is public:
 authentication is the signature alone, failures are a bare 401 that does not say whether the
 app, the header or the secret was wrong, and logs carry the outcome and event type only -
 never the payload, signature or secret.

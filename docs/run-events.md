@@ -236,22 +236,72 @@ a rule decides whether it is counted, as they decide everything else about
 it. A value that is not a boolean is refused when the rule is read, and a
 stored `null` is treated as counted.
 
-## The pr-fixer split (*planned*)
+## A chain is one unit per key
 
-Phase 2 of d21 (*planned*, not built) re-shapes the PR fixer on these events:
+A run that finishes on a concurrency key **holds** the key for the rules that
+would continue it (d21 phase 2, `culture_rules/engine/chain_hold.py`). Between
+two stages of a chain the key used to be free: the finished run no longer held
+it, and the next stage's run did not exist yet, because its event is delivered
+one node cycle later. A fresh external event in that window (new checks on the
+PR) took the key, and the next stage was deduplicated behind it.
 
-- `pr-fixer-{checks,comment,review,review-comment}` run the `pr-fix`
-  workflow: quiet period, threads, agent and gate;
-- `pr-fixer-review` fires on `pr-fix` succeeding and runs `review-commit`;
-- `pr-fixer-refix` fires on `review = request_changes` and runs `pr-fix` with
-  the findings;
-- `pr-fixer-publish` fires on `review = approve` and runs `publish-fix`: push,
-  pick and replies.
+Now the terminal transition, in the transaction that records the completion,
+works out which live rules would fire on the run's event. That is the same
+matching a trigger consumer runs: trigger type, condition, shared variables and
+the hop cap. Only rules whose concurrency key resolves to the run's own key
+count. With any such rule, the key's budget document gets
+`hold = {run_id, rules, since}`. Then:
 
-Only fix runs will count against the per-PR budget. Disabling
-`pr-fixer-publish` will give a review-only mode. Until then, the shipped
-bundle in `docs/rules/pr-fixer/` is the single-workflow fixer.
+- **Only the continuation is admitted.** That is a firing on a `rules.run.*`
+  event of exactly the held run, verified against its completion record first.
+  Every other firing on the key is `deduplicated` as usual and becomes the key's
+  pending event.
+- **The pending event waits for the chain's end.** The continuation keeps it, so
+  it fires when the chain finally ends, never in the middle.
+- **The holder's end does not release the key.** Only the guard is written.
+- **A continuation that does not take the key releases it.** Its condition no
+  longer holds, it was disabled or deleted, or the budget refused it. The
+  consumer that evaluated it removes it from the hold. When none is left the
+  hold is released (`hold_released`), and the chain consumers fire the pending
+  event through its rule's owner, as at a run's end.
+- **A hold expires after 15 minutes** (`HOLD_TTL`). This covers a continuation
+  placed on a host that never came back, so a key is never held forever.
+- **A restore drops a hold with its reservation.** The restored run event then
+  finds the key free.
 
-Phase 2 will also need two integration tests that reach the push guard and
-push nothing: a genuine completion that claims approval with no genuine
-review record, and a PR head that moved after the review.
+A run without a concurrency key, or one nothing continues, holds nothing.
+
+## One comment per chain
+
+An action or `on_failure` marked `only_at_chain_end: true` is skipped
+(`chain_continues`, with the continuing rules on the step's outputs) when a live
+rule would continue the run's chain on its key. The run still succeeds. So only
+the stage that ends a chain posts. `rules describe` adds
+`(only where its chain ends)` to the `Then` / `On failure` line, and the editor
+shows it as a checkbox on the action.
+
+The decision is taken when the terminal step is dispatched. If the continuing
+rule is disabled between that moment and the evaluation of the run's event, the
+chain ends with no comment. The run's history still has it.
+
+## The pr-fixer split (d21 phase 2)
+
+The shipped PR fixer (`docs/rules/pr-fixer/`) is built on these events:
+
+- `pr-fixer-{checks,comment,review,review-comment}` run the `pr-fix` workflow:
+  quiet period, threads, the failing SonarCloud conditions, agent and gate;
+- `pr-fixer-review-commit` fires on `pr-fix` succeeding and runs `review-commit`
+  (outside the attempt budget);
+- `pr-fixer-refix` fires on `review = request_changes` and runs `pr-fix` again
+  with the findings (a counted fix attempt);
+- `pr-fixer-publish` fires on `review = approve` with a passing gate and runs
+  `publish-fix`: push, threads and replies (outside the budget).
+
+The rules share the PR's key, which the chain holds between its stages. Only
+fix runs count against the per-PR budget. Disabling `pr-fixer-publish` gives a
+review-only mode: the review ends the chain and posts its verdict. The review
+step and `github.push` walk the chain back through these events in the store
+(`culture_rules/actors/lineage.py`). The rule names differ from the d21 text in
+one place: the review stage is `pr-fixer-review-commit`, because
+`pr-fixer-review` already names the review-submitted trigger rule. The
+operations recipe is `docs/operations/pr-fixer.md`, section 7.

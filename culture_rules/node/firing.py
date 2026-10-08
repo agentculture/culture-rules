@@ -196,6 +196,12 @@ prefix (``pr-fixer:``). :mod:`culture_rules.engine.claims` keeps one
   event, whatever the event's own type. A reset applies once per (key, event) whatever the
   order consumers reach it in (a marker per pair, see ``reset_attempt_budget``), so a
   lagging consumer never grants an attempt without a new signal;
+* **a chain is one unit per key** (d21 phase 2, :mod:`culture_rules.engine.chain_hold`).
+  A keyed run whose event a live rule would continue holds its key at its end: only
+  that continuation is admitted on it, it keeps the key's pending event for the chain's
+  end, and the holder's end writes only the guard. A continuation a consumer decided
+  without taking the key is removed from the hold (:func:`_evaluate`), and a released
+  hold is handled by the chain consumers' budgets source like a holder's end;
 * **fail closed per rule.** A key that does not resolve on a firing event (a missing or
   non-scalar value) records the final skip ``concurrency_key_unresolved``; other rules on
   the same event, and later events, are unaffected;

@@ -1,4 +1,4 @@
-"""The PR fixer's agent review (d20): a built-in ``review`` code step and push's check.
+"""The PR fixer's agent review (d20, d21): a built-in ``review`` code step and push's check.
 
 After the test gate passes, a reviewer agent (``codex-reviewer``: Codex through the
 cultureagent codex bridge, sandbox ``read-only``) reviews the fix commit. This module reads
@@ -26,21 +26,36 @@ commit is ``review_commit_mismatch``), never an approval. An ``approve`` that ca
 The built-in ``review`` step
 ============================
 
-It runs as the last step of the fixer's ``retry_until`` body, so its outputs are the
-loop's result (``until`` and ``carry`` read them). It takes nothing that matters for safety
-from wired inputs: it reads the run document in the store for its own iteration - the
-``gate`` step's outputs (it must be the built-in gate) and the reviewer step's inputs and
-outputs (an ``ai`` step; ids in ``config.gate_step`` / ``config.review_step``, defaults
-``gate`` / ``review``) - and the actors from the pinned workflow's placements and the
-``actors`` collection. The implementer is never named by config: it is the one ``ai`` step
-of this try that succeeded with ``head_after`` equal to the gate's ``agent_commit_sha``.
-The reviewer must be an actor with ``params.reviewer: true`` on a backend in
-:data:`REVIEWER_BACKENDS` (``reviewer_not_allowed``), and its invocation must carry the
-locked brief's digest. Its only wired input, ``task`` (the original instruction), is prose
-for the next attempt.
+It runs in one of two trusted workflows, told apart by the pinned workflow's role
+(:data:`~culture_rules.actors.trusted.TRUSTED_WORKFLOWS`; anything else is
+``workflow_not_trusted``):
+
+* **the d20 single workflow** (role ``pr-fixer``): the last step of the fixer's
+  ``retry_until`` body, so its outputs are the loop's result (``until`` and ``carry`` read
+  them); it judges *this* try's gate and reviewer, in its own run;
+* **the d21 chain** (role ``review-commit``): a top-level step of a ``review-commit`` run.
+  It judges the commit of the ``pr-fix`` run whose success started this run, found by
+  **verified run-event lineage** (:func:`culture_rules.actors.lineage.upstream`: this run
+  was started by its rule firing on that run's genuine ``rules.run.succeeded`` event; the
+  upstream run is a trusted ``pr-fix`` run that succeeded) and read from that run's last
+  gate attempt in the store (:func:`culture_rules.actors.lineage.final_gate`).
+
+Either way it takes nothing that matters for safety from wired inputs: it reads run
+documents in the store - the gate's outputs (the built-in, actor-less gate), the reviewer
+step's inputs and outputs (an ``ai`` step; ids in ``config.gate_step`` /
+``config.review_step``, defaults ``gate`` / ``review``) - and the actors from the pinned
+workflows' placements and the ``actors`` collection. The implementer is never named by
+config: it is the one ``ai`` step of the gate's try that succeeded with ``head_after``
+equal to the gate's ``agent_commit_sha``. The reviewer must be an actor with
+``params.reviewer: true`` on a backend in :data:`REVIEWER_BACKENDS`
+(``reviewer_not_allowed``), and its invocation must carry the locked brief's digest. Its
+only wired input in the single workflow, ``task`` (the original instruction), is prose for
+the next attempt; in the chain the original task is the ``pr-fix`` run's ``task`` input, or
+its ``instruction`` on a first fix.
 
 * gate verdict not ``pass``/``no_gate``: ``review`` is ``not_run`` and the gate's own
-  ``instruction`` goes on to the next attempt;
+  ``instruction`` goes on to the next attempt (in the chain a ``pr-fix`` run never
+  succeeds on a failed gate: ``review_invalid``);
 * the gate's diff was cut at its size cap (``diff_truncated``): the reviewer never saw all
   of it, so ``review`` is ``request_changes`` with one finding asking for a smaller fix;
 * otherwise the reviewer step must have run on exactly the gate's ``commit_sha``,
@@ -50,25 +65,38 @@ for the next attempt.
 
 Outputs: ``verdict`` (the gate's), ``review`` (``approve`` / ``request_changes`` /
 ``not_run``), ``findings``, ``reviewed_commit`` and ``instruction`` (the next attempt's:
-the gate's text, or the findings plus the original task; none on approval). Anything else
-fails the step - and so the run, which hands back - with ``code: detail``:
-``review_missing``, ``review_invalid``, ``review_commit_mismatch``,
-``reviewer_not_read_only``, ``reviewer_not_allowed``, ``reviewer_is_implementer``,
-``gate_missing``, ``bad_config``, ``run_not_found``.
+the gate's text, or the findings plus the original task; none on approval); in the chain
+also ``task``, ``commit_sha``, ``start_sha``, ``base_sha`` and ``summary`` (one line per
+finding). In the chain a request for changes when the key's attempt budget is spent
+(``count >= limit``: no re-fix would be admitted) fails the run ``changes_requested`` with
+the findings, so the chain hands back once instead of ending silently. Anything else fails
+the step - and so the run, which hands back - with ``code: detail``: ``review_missing``,
+``review_invalid``, ``review_commit_mismatch``, ``reviewer_not_read_only``,
+``reviewer_not_allowed``, ``reviewer_is_implementer``, ``gate_missing``, ``bad_config``,
+``run_not_found``, ``workflow_not_trusted``, ``chain_unverified``.
 
-Every outcome, failures included, overwrites the run's one record in
-:data:`REVIEWS_COLLECTION` (document id = run id), so an older approval never outlives a
-newer result.
+Review records (d21: per commit)
+================================
+
+Every outcome, failures included, is an immutable record in :data:`REVIEWS_COLLECTION`
+(id ``<run>:<step>:<attempt>``). A record that names a whole **target** - repo, PR, base,
+start and tip (:func:`review_target`) - also moves that target's pointer in
+:data:`CURRENT_COLLECTION` forward (:func:`record_review`), so ``github.push``, in another
+run, finds the approval by the exact commit it pushes, and an older result never outlives a
+newer one for that commit.
 
 ``github.push``'s check
 =======================
 
-:func:`review_refusal` is called by the push port for **every** push, whatever the workflow
-wires: the run's record must exist (``review_missing``), say ``approve``
-(``review_rejected``), name exactly the commit being pushed as both the commit asked about
-and the commit reviewed (``review_commit_mismatch``), and show a reviewer whose actor id and
-backend both differ from the implementer's (``reviewer_is_implementer``). A workflow edited
-to drop the review therefore cannot push. Standard-library only.
+:func:`approved_review` is called by the push port for **every** push, whatever the
+workflow wires: the target's current record must exist (``review_missing``), say
+``approve`` (``review_rejected``), name exactly the commit being pushed as both the commit
+asked about and the commit reviewed and the reviewed start (``review_commit_mismatch``),
+show a reviewer whose actor id and backend both differ from the implementer's
+(``reviewer_is_implementer``), and have been written by the review run of the push's own
+verified chain (``review_not_in_chain``). A conflicting or consumed pointer refuses
+(``review_conflict``, ``review_consumed``). A workflow edited to drop the review therefore
+cannot push. Standard-library only.
 """
 
 from __future__ import annotations
