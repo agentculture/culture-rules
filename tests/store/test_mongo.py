@@ -505,3 +505,68 @@ def test_find_events_is_served_by_the_type_received_index(fresh):
     stats = plan["executionStats"]
     assert EVENTS_TYPE_RECEIVED_INDEX in str(plan["queryPlanner"]["winningPlan"])
     assert stats["totalDocsExamined"] <= 4  # never the noise or the events before the cursor
+
+
+# ------------------------------------------------------------------- characterization
+# (the Sonar S3776 split of MongoStore.put_variable: its CAS shape and contention bound)
+
+
+def test_put_variable_cas_expects_the_versions_as_read_and_bounds_contention(fresh):
+    ensure_variables_collection(fresh)
+    fresh.put_variable("v", 1, updated_by="me")
+    real = fresh._update_if
+    seen = []
+
+    def lose(tx, collection, id, expected, changes, *, upsert=False):
+        seen.append((dict(expected), dict(changes), upsert))
+        return type("R", (), {"won": False})()
+
+    fresh._update_if = lose
+    with pytest.raises(StoreError) as exc:
+        fresh.put_variable("v", 2, updated_by="you", description="d")
+    fresh._update_if = real
+    assert str(exc.value) == "put_variable 'v': too much contention after 50 CAS attempts"
+    assert len(seen) == 50
+    expected, changes, upsert = seen[0]
+    assert upsert is False
+    assert expected["latest_version"] == 1 and [v["value"] for v in expected["versions"]] == [1]
+    assert [k for k in changes] == [
+        "name",
+        "value",
+        "version",
+        "updated_by",
+        "updated_at",
+        "description",
+        "versions",
+        "latest_version",
+    ]
+    assert (changes["version"], changes["latest_version"], changes["value"]) == (2, 2, 2)
+    assert [v["version"] for v in changes["versions"]] == [1, 2]
+    assert changes["versions"][-1]["description"] == "d"
+    assert fresh.get_variable("v")["value"] == 1
+
+
+def test_put_variable_first_write_upserts_and_expects_nothing(fresh):
+    ensure_variables_collection(fresh)
+    real = fresh._update_if
+    seen = []
+
+    def spy(tx, collection, id, expected, changes, *, upsert=False):
+        seen.append((dict(expected), upsert))
+        return real(tx, collection, id, expected, changes, upsert=upsert)
+
+    fresh._update_if = spy
+    view = fresh.put_variable("n", "x", updated_by="me", expected_version=0)
+    fresh._update_if = real
+    assert seen == [({"versions": None, "latest_version": None}, True)]
+    assert view["version"] == 1
+
+
+def test_put_variable_expected_version_conflict(fresh):
+    from culture_rules.store.port import VariableVersionConflict
+
+    ensure_variables_collection(fresh)
+    fresh.put_variable("c", 1, updated_by="me")
+    with pytest.raises(VariableVersionConflict) as exc:
+        fresh.put_variable("c", 2, updated_by="me", expected_version=0)
+    assert str(exc.value) == "variable 'c' is at version 1, not 0"
