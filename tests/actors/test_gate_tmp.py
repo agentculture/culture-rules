@@ -85,7 +85,8 @@ def test_gate_commands_get_workspace_tmp_and_run_as_declared(store, tmp_path, cl
     runner = fixer_runner(tmp_path)
     out = judge(store, runner, repo, tmp_path, clock)
     assert out["verdict"] == PASS, out
-    assert out["command"] is None and out["gate"]["test"] == [probe]
+    assert out["command"] is None
+    assert out["gate"]["test"] == [probe]
     raw = [c for c in runner.calls if PY in c]
     assert len(raw) == 2
     for argv, declared in zip(raw, (setup, probe)):
@@ -94,7 +95,8 @@ def test_gate_commands_get_workspace_tmp_and_run_as_declared(store, tmp_path, cl
         (cwd,) = {d for c, d in zip(runner.calls, runner.cwds) if c == argv}
         workspace = os.path.dirname(cwd)
         assert env_words == gate_env(os.path.join(workspace, "tmp"))
-        assert FIXER not in workspace and "-" not in workspace.removeprefix(str(tmp_path))
+        assert FIXER not in workspace
+        assert "-" not in workspace.removeprefix(str(tmp_path))
     printed_tmp = out["output_tail"].split()[0]
     assert printed_tmp == os.path.join(workspace, "tmp")
     assert "['a', '-f']" in out["output_tail"]
@@ -115,7 +117,8 @@ def test_the_production_runner_passes_the_env_through(store, tmp_path, clock):  
     result = port_.invoke(repo.inputs(), "k", T0 + timedelta(hours=1), context=ctx())
     assert result.output["verdict"] == PASS, (result.error, result.output)
     (argv,) = [a for a in seen if probe[2] in a]
-    assert argv[:3] == ["env", "env", "-C"] and argv[4] == "--"
+    assert argv[:3] == ["env", "env", "-C"]
+    assert argv[4] == "--"
     workspace = os.path.dirname(argv[3])
     assert argv[5:] == [*gate_env(os.path.join(workspace, "tmp")), *probe]
     assert f"T={workspace}/tmp" in result.output["output_tail"]

@@ -100,10 +100,12 @@ def test_the_bundle_is_four_disabled_rules_sharing_one_workflow():
     for r in b.rules:
         assert r.enabled is False
         assert r.trigger.kind == "event"
-        assert r.workflow is not None and r.workflow.id == "pr-fixer"
+        assert r.workflow is not None
+        assert r.workflow.id == "pr-fixer"
         assert r.concurrency_key == "pr-fixer:{trigger.data.repository}#{trigger.data.number}"
         assert r.max_attempts == 3
-        assert r.placement is not None and r.placement.machine == "spark2"
+        assert r.placement is not None
+        assert r.placement.machine == "spark2"
         assert r.action.kind == "github.comment"
         assert r.action.params["actor"] == "github-app"
         assert "{{ run.id }}" in r.action.params["body"]
@@ -149,7 +151,8 @@ def test_the_workflow_steps_and_placements():
     assert top["pick"].config == {"builtin": "github.threads_addressed"}
     assert top["quiet"].config["guard"]["value"] == "head_unchanged"
     fix = top["fix"]
-    assert fix.kind == "retry_until" and fix.max_iterations == 3
+    assert fix.kind == "retry_until"
+    assert fix.max_iterations == 3
     gate_ok, approved = fix.config["until"]["args"]
     assert fix.config["until"]["op"] == "and"
     assert gate_ok["items"] == {"literal": ["pass", "no_gate"]}
@@ -163,16 +166,20 @@ def test_the_workflow_steps_and_placements():
     assert fix.config["carry"] == {"instruction": "instruction"}
     assert fix.config["explain"] == "instruction"
     agent, gate, review, verdict = fix.body
-    assert agent.placement.actor == "qwen-fixer" and agent.config["mode"] == "yolo"
-    assert gate.config == {"builtin": "gate"} and gate.placement.machine == "spark2"
+    assert agent.placement.actor == "qwen-fixer"
+    assert agent.config["mode"] == "yolo"
+    assert gate.config == {"builtin": "gate"}
+    assert gate.placement.machine == "spark2"
     # d20: an independent, read-only reviewer, only after a passing gate whose diff fit
-    assert review.kind == "ai" and review.placement.actor == "codex-reviewer"
+    assert review.kind == "ai"
+    assert review.placement.actor == "codex-reviewer"
     assert review.config["sandbox"] == "read-only"
     assert review.config["when"]["args"][0]["items"] == {"literal": ["pass", "no_gate"]}
     assert review.config["when"]["args"][1]["right"] == {"literal": False}
     assert "instruction" not in {p.name for p in review.inputs}  # the brief is the config's
     assert not {"prompt", "task", "text"} & {p.name for p in review.inputs}
-    assert verdict.config == {"builtin": "review"} and verdict.placement is None
+    assert verdict.config == {"builtin": "review"}
+    assert verdict.placement is None
     assert [p.name for p in verdict.inputs] == ["task"]  # nothing safety-relevant is wired
     push = top["push"]
     assert push.config["action"]["kind"] == "github.push"
@@ -208,14 +215,16 @@ def test_import_with_apply_validates_and_writes_the_definitions():
     # As the CLI does it: `actors import`, `workflows import`, then `rules import`.
     assert defs.import_files(actors, "admin@test", apply=True)["applied"] is True
     reviewer = mem.get("actors", "codex-reviewer")
-    assert reviewer["machine"] == "spark" and reviewer["harness"] == "codex"
+    assert reviewer["machine"] == "spark"
+    assert reviewer["harness"] == "codex"
     assert reviewer["params"]["sandbox"] == "read-only"
     assert reviewer["params"]["max_concurrency"] == 1
     assert reviewer["params"]["max_bound_input_chars"] == 60000
     assert reviewer["params"]["bridge_token"].startswith("grant:")
     assert defs.import_files(workflows, "admin@test", apply=True)["applied"] is True
     plan = defs.import_files(rules, "admin@test", apply=True)
-    assert plan["applied"] is True and plan["errors"] == []
+    assert plan["applied"] is True
+    assert plan["errors"] == []
     assert sorted(c["id"] for c in plan["changes"]) == sorted(RULE_IDS)
     assert all(mem.get("rules", rid)["enabled"] is False for rid in RULE_IDS)
     # Re-importing the same files changes nothing.
@@ -843,13 +852,15 @@ class World:
 
 def assert_handed_back(w: World, doc: dict, step: str, text: str) -> None:
     """The run failed at ``step`` and posted exactly one hand-back comment linking it."""
-    assert doc["status"] == "failed" and doc["error"]["step"] == step
+    assert doc["status"] == "failed"
+    assert doc["error"]["step"] == step
     (call,) = w.comment.calls
     body = call[1]["body"]
     assert body.startswith(f"PR fixer handed back ({doc['error']['code']}): ")
     assert text in body
     assert f"https://rules.culture.dev/api/runs/{doc['id']}" in body
-    assert call[1]["repo"] == REPO and call[1]["number"] == 7
+    assert call[1]["repo"] == REPO
+    assert call[1]["number"] == 7
     assert step_state(doc, FAILURE_STEP)["host"] == "spark"  # where the App lives
 
 
@@ -871,7 +882,8 @@ def test_a_settled_failing_pr_is_fixed_pushed_replied_and_commented(tmp_path):
     assert step_state(doc, "threads")["host"] == "spark"  # where the App actor lives
     assert "o/r#7" in agent_input["instruction"]
     gate = step_state(doc, "fix[0]/gate")
-    assert gate["outputs"]["verdict"] == "pass" and gate["host"] == "spark2"
+    assert gate["outputs"]["verdict"] == "pass"
+    assert gate["host"] == "spark2"
     # push: the gated bundle, verdict pass, on spark2
     (push_call,) = w.push.calls
     assert push_call[1]["gate_verdict"] == "pass"
@@ -884,7 +896,8 @@ def test_a_settled_failing_pr_is_fixed_pushed_replied_and_commented(tmp_path):
     # one reply: the trusted thread, by its integer REST id; the made-up id and the
     # untrusted thread the agent claimed get none
     (reply_call,) = w.reply.calls
-    assert reply_call[1]["comment_id"] == 101 and reply_call[1]["thread_id"] == "PRRT_1"
+    assert reply_call[1]["comment_id"] == 101
+    assert reply_call[1]["thread_id"] == "PRRT_1"
     assert reply_call[1]["resolve"] is True
     assert step_state(doc, "pick")["outputs"]["dropped"] == 2
     assert reply_call[1]["body"].startswith("Done (addressed in ")
@@ -894,8 +907,10 @@ def test_a_settled_failing_pr_is_fixed_pushed_replied_and_commented(tmp_path):
     assert "handed back" not in body
     assert step_state(doc, FAILURE_STEP) is None
     assert f"https://rules.culture.dev/api/runs/{doc['id']}" in body
-    assert "pass" in body and "made x 3" in body
-    assert comment_call[1]["repo"] == REPO and comment_call[1]["number"] == 7
+    assert "pass" in body
+    assert "made x 3" in body
+    assert comment_call[1]["repo"] == REPO
+    assert comment_call[1]["number"] == 7
     # the run is on spark2's Statistics lane
     assert "spark2" in run_hosts(doc)
 
@@ -913,8 +928,10 @@ def test_disabling_the_rule_mid_run_leaves_no_app_push(tmp_path):
     push = w.push
     doc = w.fire()
     assert doc["status"] == "failed"
-    assert doc["error"]["step"] == "push" and doc["error"]["message"] == "rule_disabled"
-    assert push.git_calls == [] and push.http_calls == []
+    assert doc["error"]["step"] == "push"
+    assert doc["error"]["message"] == "rule_disabled"
+    assert push.git_calls == []
+    assert push.http_calls == []
     assert w.reply.calls == []
     assert_handed_back(w, doc, "push", "rule_disabled")
     assert step_state(doc, ACTION_STEP) is None
@@ -941,7 +958,8 @@ def test_a_failing_gate_never_reaches_push(tmp_path, monkeypatch):
     doc = w.fire()
     assert doc["status"] == "failed"
     assert step_state(doc, "fix")["error"]["code"] == "loop_max_exceeded"
-    assert w.push.calls == [] and w.reply.calls == []
+    assert w.push.calls == []
+    assert w.reply.calls == []
     assert_handed_back(w, doc, "fix", "loop_max_exceeded")
 
 
@@ -954,8 +972,11 @@ def test_a_thread_lookup_error_fails_the_run_before_the_agent(tmp_path):
     w.app.list_review_threads = broken
     doc = w.fire()
     assert doc["status"] == "failed"
-    assert doc["error"]["step"] == "threads" and doc["error"]["message"] == "http_502"
-    assert w.agent.calls == [] and w.push.calls == [] and w.reply.calls == []
+    assert doc["error"]["step"] == "threads"
+    assert doc["error"]["message"] == "http_502"
+    assert w.agent.calls == []
+    assert w.push.calls == []
+    assert w.reply.calls == []
     assert_handed_back(w, doc, "threads", "http_502")
 
 
@@ -964,7 +985,9 @@ def test_a_superseded_run_posts_nothing(tmp_path):
     w.moved_head = "f" * 40  # someone pushed during the quiet period
     doc = w.fire()
     assert doc["status"] == "superseded"
-    assert w.agent.calls == [] and w.push.calls == [] and w.comment.calls == []
+    assert w.agent.calls == []
+    assert w.push.calls == []
+    assert w.comment.calls == []
 
 
 def test_a_failing_hand_back_comment_is_tried_once_and_the_run_ends(tmp_path, monkeypatch):
@@ -979,6 +1002,7 @@ def test_a_failing_hand_back_comment_is_tried_once_and_the_run_ends(tmp_path, mo
     w.c.clock.advance(3600)
     w.cycle()
     doc = w.c.base.get(RUNS_COLLECTION, doc["id"])
-    assert doc["status"] == "failed" and doc["error"]["step"] == "threads"
+    assert doc["status"] == "failed"
+    assert doc["error"]["step"] == "threads"
     assert len(w.comment.calls) == 1  # no retry policy: one attempt, never again
     assert step_state(doc, FAILURE_STEP)["status"] == "failed"

@@ -85,7 +85,8 @@ def test_a_wildcard_empty_or_malformed_host_is_refused(tmp_path):
 
 def test_create_user_is_a_dry_run_without_apply(tmp_path):
     out = run(tmp_path, CREATE_USER).stdout
-    assert "useradd" in out and "culture-fixer" in out
+    assert "useradd" in out
+    assert "culture-fixer" in out
     assert "enable-linger culture-fixer" in out
     assert "Dry run: nothing was changed" in out
 

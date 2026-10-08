@@ -190,7 +190,8 @@ def test_accepted_frees_the_worker_and_a_completed_callback_finishes_the_step(st
     assert step_state(ex.run(run_id), "fix")["status"] == "waiting"  # run_until_idle returned
     assert len(bridge.requests) == 1
     doc = invocation(store)
-    assert doc["status"] == "accepted" and doc["invocation_id"] == "inv-1"
+    assert doc["status"] == "accepted"
+    assert doc["invocation_id"] == "inv-1"
 
     assert record_bridge_event(store, doc["id"], token_of(bridge), completed_event()) == RECORDED
     assert redeliver_bridge(store, ex) == 1
@@ -310,12 +311,14 @@ def test_address_comes_from_the_step_not_the_actor(store, clock):
     res = actor.invoke(
         {"instruction": "x", "repo": "r"}, "k1", T0 + timedelta(hours=1), context=ctx
     )
-    assert res.outcome == "failed" and not res.retryable
+    assert res.outcome == "failed"
+    assert not res.retryable
     assert "head_branch" in res.error
     assert bridge.requests == []
     bad_sha = {**PR, "head_sha": "not a sha"}
     res = actor.invoke(bad_sha, "k2", T0 + timedelta(hours=1), context=ctx)
-    assert res.outcome == "failed" and "head_sha" in res.error
+    assert res.outcome == "failed"
+    assert "head_sha" in res.error
     cfg_ctx = InvocationContext("r", "fix", "actor_task", "spark", 1, "a", dict(PR))
     assert actor.invoke({}, "k3", T0 + timedelta(hours=1), context=cfg_ctx).outcome == "accepted"
     assert bridge.requests[0]["body"]["input"]["head_sha"] == SHA
@@ -326,7 +329,8 @@ def test_no_callback_url_fails_without_dispatching(store, clock):
     actor = make_actor(store, clock, bridge, callback_url=None)
     ctx = InvocationContext("r", "fix", "actor_task", "spark", 1, None, {})
     res = actor.invoke(PR, "k", T0 + timedelta(hours=1), context=ctx)
-    assert res.outcome == "failed" and "callback_url" in res.error
+    assert res.outcome == "failed"
+    assert "callback_url" in res.error
     assert bridge.requests == []
 
 
@@ -411,7 +415,8 @@ def test_a_new_attempt_expires_the_previous_invocation(store, clock):
     # the actor is not idempotent on the key: a timed-out attempt is never re-asked blindly
     assert len(bridge.requests) == 1
     fix = step_state(ex.run(run_id), "fix")
-    assert fix["status"] == "failed" and fix["error"]["code"] == "unsafe_retry"
+    assert fix["status"] == "failed"
+    assert fix["error"]["code"] == "unsafe_retry"
     assert store.get(BRIDGE_INVOCATIONS, first["id"])["status"] == "accepted"
     # an attempt-2 invoke (a step declared idempotent) supersedes attempt 1
     actor = make_actor(store, clock, bridge)
@@ -433,7 +438,8 @@ def test_reinvoking_an_accepted_attempt_does_not_post_again(store, clock):
     doc = invocation(store)
     record_bridge_event(store, doc["id"], token_of(bridge), completed_event())
     res = actor.invoke(PR, "k", deadline, context=ctx)  # the callback beat the re-invoke
-    assert res.outcome == "completed" and res.output["summary"] == "fixed the lint"
+    assert res.outcome == "completed"
+    assert res.output["summary"] == "fixed the lint"
     assert len(bridge.requests) == 1
 
 
@@ -451,7 +457,8 @@ def test_synchronous_200_completes_at_once(store, clock):
     body = {"invocation_id": "inv-1", "result": bridge_result(summary="done", commits=[])}
     res, _ = invoke_once(store, clock, (200, body))
     assert res.outcome == "completed"
-    assert res.output["summary"] == "done" and res.output["commits"] == []
+    assert res.output["summary"] == "done"
+    assert res.output["commits"] == []
     assert res.output["status"] == "completed"
     assert invocation(store)["status"] == "completed"
     assert invocation(store)["pending_delivery"] is False
@@ -459,13 +466,17 @@ def test_synchronous_200_completes_at_once(store, clock):
 
 def test_rejections_map_to_failed_or_blocked(store, clock):
     res, _ = invoke_once(store, clock, (400, {"error": "input.instruction is required"}), key="a")
-    assert res.outcome == "failed" and not res.retryable and "400" in res.error
+    assert res.outcome == "failed"
+    assert not res.retryable
+    assert "400" in res.error
     res, _ = invoke_once(store, clock, (403, {"error": "not in allowlist"}), key="b")
-    assert res.outcome == "failed" and not res.retryable
+    assert res.outcome == "failed"
+    assert not res.retryable
     res, _ = invoke_once(store, clock, (503, {"error": "busy"}), key="c")
     assert res.outcome == "blocked"
     res, _ = invoke_once(store, clock, (500, {"error": "boom"}), key="d")
-    assert res.outcome == "failed" and res.retryable
+    assert res.outcome == "failed"
+    assert res.retryable
 
 
 def test_blocked_then_accepted_on_the_same_attempt_rotates_the_callback_token(store, clock):
@@ -476,7 +487,8 @@ def test_blocked_then_accepted_on_the_same_attempt_rotates_the_callback_token(st
     assert actor.invoke(PR, "k", deadline, context=ctx).outcome == "blocked"
     assert actor.invoke(PR, "k", deadline, context=ctx).outcome == "accepted"
     doc = invocation(store)
-    assert doc["status"] == "accepted" and doc["invocation_id"] == "inv-2"
+    assert doc["status"] == "accepted"
+    assert doc["invocation_id"] == "inv-2"
     assert record_bridge_event(store, doc["id"], token_of(bridge), completed_event()) == RECORDED
 
 
@@ -485,7 +497,9 @@ def test_an_expired_attempt_deadline_dispatches_nothing(store, clock):
     actor = make_actor(store, clock, bridge)
     ctx = InvocationContext("r", "fix", "actor_task", "spark", 1, None, {})
     res = actor.invoke(PR, "k", T0 - timedelta(seconds=1), context=ctx)
-    assert res.outcome == "failed" and res.retryable and "deadline" in res.error
+    assert res.outcome == "failed"
+    assert res.retryable
+    assert "deadline" in res.error
     assert bridge.requests == []
     assert invocation(store)["status"] == "rejected"
 
@@ -501,7 +515,8 @@ def test_the_request_timeout_never_runs_past_the_attempt_deadline(store, clock):
 def test_unreachable_bridge(store, clock):
     refused = BridgeUnreachable("refused", definite=True)
     res, _ = invoke_once(store, clock, refused, key="a")
-    assert res.outcome == "failed" and res.retryable
+    assert res.outcome == "failed"
+    assert res.retryable
     with pytest.raises(BridgeUnreachable):  # maybe received: no ack, outcome unknown
         invoke_once(store, clock, BridgeUnreachable("reset", definite=False), key="b")
 
@@ -509,11 +524,13 @@ def test_unreachable_bridge(store, clock):
 def test_result_mapping():
     for status in ("completed", "no_changes", "uncommitted", "permission_blocked"):
         res = result_from_terminal("completed", {"result": bridge_result(status=status)})
-        assert res.outcome == "completed" and res.output["status"] == status
+        assert res.outcome == "completed"
+        assert res.output["status"] == status
     res = result_from_terminal(
         "completed", {"result": {"status": "no_changes", "summary": "nothing", "extra": 1}}
     )
-    assert res.output["changed_files"] is None and res.output["commits"] is None  # absent
+    assert res.output["changed_files"] is None
+    assert res.output["commits"] is None  # absent
     assert res.output["extra"] == 1  # unknown keys pass through
     assert res.output["summary"] == "nothing"
     # a completed event whose status says the turn did not end is not a success
@@ -521,7 +538,9 @@ def test_result_mapping():
         "completed",
         {"result": bridge_result(status="timed_out", error={"class": "timeout", "message": "t"})},
     )
-    assert odd.outcome == "failed" and odd.retryable and odd.error.startswith("timeout")
+    assert odd.outcome == "failed"
+    assert odd.retryable
+    assert odd.error.startswith("timeout")
     assert not result_from_terminal("blocked", {"message": "needs a human"}).retryable
     for cls in ("execution", "capacity_exhausted", "timeout", "cancelled", "actor_unavailable"):
         assert result_from_terminal("failed", {"class": cls, "message": "m"}).retryable, cls
@@ -560,7 +579,8 @@ def test_urllib_transport_speaks_http_to_a_loopback_bridge():
         status, raw = _urllib_transport(
             "POST", base + "/v1/invocations", b'{"a": 1}', {"Authorization": "Bearer t"}, 5
         )
-        assert status == 202 and json.loads(raw) == {"invocation_id": "inv-9"}
+        assert status == 202
+        assert json.loads(raw) == {"invocation_id": "inv-9"}
         assert seen == {"auth": "Bearer t", "body": {"a": 1}}
         status, _ = _urllib_transport("POST", base + "/nope", b"{}", {}, 5)
         assert status == 404
@@ -611,7 +631,8 @@ def test_factory_builds_a_bridge_actor_from_params(store):
         strict=False,
     )
     adapter = factories["agent"](bridge, bridge.to_dict())
-    assert isinstance(adapter, BridgeAgentActor) and isinstance(adapter, ActorPort)
+    assert isinstance(adapter, BridgeAgentActor)
+    assert isinstance(adapter, ActorPort)
     assert adapter.bridge_url == "http://127.0.0.1:8765"
     assert adapter.callback_url == "http://127.0.0.1:8766"
     assert adapter.actor_id == "qwen-fixer"
@@ -652,16 +673,19 @@ def dispatch_attempt_2(ex, clock, run_id, bridge):
     clock.advance(5)
     ex.run_until_idle()
     fix = step_state(ex.run(run_id), "fix")
-    assert fix["attempt"] == 2 and fix["status"] == "waiting"
+    assert fix["attempt"] == 2
+    assert fix["status"] == "waiting"
     assert bridge.requests[-1]["headers"]["Idempotency-Key"].endswith("#2")
 
 
 def assert_attempt_2_still_waiting(store, ex, run_id, first_id):
     fix = step_state(ex.run(run_id), "fix")
-    assert fix["status"] == "waiting" and fix["attempt"] == 2
+    assert fix["status"] == "waiting"
+    assert fix["attempt"] == 2
     assert not fix.get("outputs")
     old = store.get(BRIDGE_INVOCATIONS, first_id)
-    assert old["status"] in ("superseded", "expired") and old["pending_delivery"] is False
+    assert old["status"] in ("superseded", "expired")
+    assert old["pending_delivery"] is False
 
 
 def test_attempt_1_completion_recorded_late_does_not_finish_attempt_2(store, clock):

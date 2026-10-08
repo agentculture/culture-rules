@@ -79,7 +79,8 @@ def test_a_text_only_change_has_no_problems(store, tmp_path, clock):  # noqa: F8
     repo = Repo(tmp_path, gate_yaml([PASSING]))
     repo.commit("fix", {"src/app.py": "x = 3\n", "src/new.py": "y = 1\n"})
     out = judge(store, LocalRunner(), repo, tmp_path, clock)
-    assert out["diff_truncated"] is False and out["diff_problems"] == []
+    assert out["diff_truncated"] is False
+    assert out["diff_problems"] == []
 
 
 def test_non_utf8_text_is_incomplete_not_replaced(store, tmp_path, clock):  # noqa: F811

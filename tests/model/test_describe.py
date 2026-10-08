@@ -98,7 +98,8 @@ def test_entries_shape():
         "depth": 0,
         "step": "fix",
     }
-    assert entries[3]["depth"] == 1 and entries[3]["label"] == "3.1"
+    assert entries[3]["depth"] == 1
+    assert entries[3]["label"] == "3.1"
     assert all("step" not in e for e in describe_rule(_load("rules/pr-fixer-checks.json")))
 
 

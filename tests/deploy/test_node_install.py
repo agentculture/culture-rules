@@ -58,7 +58,8 @@ def test_without_gate_run_as_the_unit_keeps_no_new_privileges(tmp_path):
 def test_a_sudo_gate_run_as_is_written_and_relaxes_no_new_privileges(tmp_path):
     out = plan(tmp_path, "--gate-run-as", SUDO_PREFIX)
     assert f'CULTURE_RULES_GATE_RUN_AS="{SUDO_PREFIX}"' in out
-    assert "NoNewPrivileges=false" in out and "NoNewPrivileges=true" not in out
+    assert "NoNewPrivileges=false" in out
+    assert "NoNewPrivileges=true" not in out
 
 
 def test_a_non_sudo_gate_run_as_keeps_no_new_privileges(tmp_path):
@@ -112,7 +113,8 @@ def test_apply_writes_the_prefix_so_the_node_reads_it_back_verbatim(tmp_path):
     )
     env_file = home / ".config" / "culture-rules" / "node.env"
     unit = (home / ".config" / "systemd" / "user" / "culture-rules-node.service").read_text()
-    assert "NoNewPrivileges=false" in unit and "NoNewPrivileges=true" not in unit
+    assert "NoNewPrivileges=false" in unit
+    assert "NoNewPrivileges=true" not in unit
     # systemd's EnvironmentFile double quotes unescape \\ \" \$ \` exactly as POSIX sh does.
     read_back = subprocess.run(  # nosec B603 B607 - fixed argv, test only
         ["sh", "-c", '. "$1"; printf %s "$CULTURE_RULES_GATE_RUN_AS"', "sh", str(env_file)],
@@ -139,7 +141,8 @@ def test_a_quoted_or_escaped_executable_is_refused(tmp_path, prefix):
     so an executable whose shell quoting could change what it names is refused outright."""
     with pytest.raises(subprocess.CalledProcessError) as exc:
         plan(tmp_path, "--gate-run-as", prefix)
-    assert "--gate-run-as" in exc.value.stderr and "quote" in exc.value.stderr
+    assert "--gate-run-as" in exc.value.stderr
+    assert "quote" in exc.value.stderr
 
 
 @pytest.mark.parametrize(
@@ -154,5 +157,6 @@ def test_the_unit_agrees_with_the_gates_own_parse_of_the_executable(tmp_path, pr
     from culture_rules.actors.gate import run_as_from_env
 
     run_as, _ = run_as_from_env({"CULTURE_RULES_GATE_RUN_AS": prefix})
-    assert run_as is not None and run_as.uses_sudo == (nnp == "false")
+    assert run_as is not None
+    assert run_as.uses_sudo == (nnp == "false")
     assert f"NoNewPrivileges={nnp}" in plan(tmp_path, "--gate-run-as", prefix)

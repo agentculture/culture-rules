@@ -44,35 +44,42 @@ def test_an_update_that_disables_reports_them_too(wire, capsys, tmp_path):  # no
     seeded(wire, 1)
     body = write_body(tmp_path, rule_body("r1", enabled=False))
     out = jrun(capsys, "rules", "update", "r1", "--body", f"@{body}", "--apply")
-    assert out["result"]["active_runs_total"] == 1 and "stop-runs r1" in out["hint"]
+    assert out["result"]["active_runs_total"] == 1
+    assert "stop-runs r1" in out["hint"]
 
 
 def test_disable_without_runs_has_no_hint(wire, capsys):  # noqa: F811
     seeded(wire, 0)
     out = jrun(capsys, "rules", "disable", "r1", "--apply")
-    assert out["result"]["active_runs_total"] == 0 and "hint" not in out
+    assert out["result"]["active_runs_total"] == 0
+    assert "hint" not in out
 
 
 def test_stop_runs_dry_run_lists_then_apply_cancels_then_no_op(wire, store, capsys):  # noqa: F811
     ids = seeded(wire)
     jrun(capsys, "rules", "disable", "r1", "--apply")
     dry = jrun(capsys, "rules", "stop-runs", "r1")
-    assert dry["dry_run"] is True and dry["applied"] is False
-    assert dry["result"]["cancelled"] == [] and dry["result"]["total"] == 2
+    assert dry["dry_run"] is True
+    assert dry["applied"] is False
+    assert dry["result"]["cancelled"] == []
+    assert dry["result"]["total"] == 2
     assert statuses(store, ids) == {"running"}
     done = jrun(capsys, "rules", "stop-runs", "r1", "--apply")
-    assert done["applied"] is True and sorted(done["result"]["cancelled"]) == sorted(ids)
+    assert done["applied"] is True
+    assert sorted(done["result"]["cancelled"]) == sorted(ids)
     assert statuses(store, ids) == {"cancelled"}
     reason = store.get("runs", ids[0])["error"]["message"]
     assert reason == "rule disabled: stopped by alice"  # the token's name
     again = jrun(capsys, "rules", "stop-runs", "r1", "--apply")
-    assert again["result"]["cancelled"] == [] and again["result"]["total"] == 0
+    assert again["result"]["cancelled"] == []
+    assert again["result"]["total"] == 0
 
 
 def test_stop_runs_on_an_enabled_rule_is_a_user_error(wire, store, capsys):  # noqa: F811
     ids = seeded(wire, 1)
     rc, out, err = run(capsys, "rules", "stop-runs", "r1", "--apply", "--json")
-    assert rc == 1 and out == ""
+    assert rc == 1
+    assert out == ""
     assert "rule_enabled" in json.loads(err)["message"]
     assert statuses(store, ids) == {"running"}
 
@@ -85,9 +92,12 @@ def test_stop_runs_is_an_mcp_tool_with_the_same_contract(wire, store):  # noqa: 
     names = {t["name"] for t in tool_specs()}
     assert "rules_stop-runs" in names
     verb = REGISTRY.get("rules", "stop-runs")
-    assert verb.mutating and verb.role == "editor"
+    assert verb.mutating
+    assert verb.role == "editor"
     client = _api.make_client()
     dry = call_tool("rules_stop-runs", {"id": "r1"}, client)
-    assert dry["dry_run"] is True and statuses(store, ids) == {"running"}
+    assert dry["dry_run"] is True
+    assert statuses(store, ids) == {"running"}
     done = call_tool("rules_stop-runs", {"id": "r1", "apply": True}, client)
-    assert done["result"]["cancelled"] == ids and statuses(store, ids) == {"cancelled"}
+    assert done["result"]["cancelled"] == ids
+    assert statuses(store, ids) == {"cancelled"}

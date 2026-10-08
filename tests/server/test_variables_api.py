@@ -44,9 +44,11 @@ def test_admin_write_creates_a_version_naming_the_principal(world):
         headers=hdr["admin"],
     )
     assert r.status_code == 200, r.text
-    assert r.json()["version"] == 1 and r.json()["updated_by"] == "admin"
+    assert r.json()["version"] == 1
+    assert r.json()["updated_by"] == "admin"
     r = client.put("/variables/trusted_authors", json={"value": ["a", "b"]}, headers=hdr["admin"])
-    assert r.json()["version"] == 2 and r.json()["value"] == ["a", "b"]
+    assert r.json()["version"] == 2
+    assert r.json()["value"] == ["a", "b"]
 
 
 def test_reads_are_viewer_and_list_get_history(world):
@@ -58,7 +60,8 @@ def test_reads_are_viewer_and_list_get_history(world):
     names = [i["name"] for i in client.get("/variables", headers=v).json()["items"]]
     assert names == ["limit", "trusted_authors"]
     got = client.get("/variables/trusted_authors", headers=v).json()
-    assert got["version"] == 2 and got["value"] == ["a", "b"]
+    assert got["version"] == 2
+    assert got["value"] == ["a", "b"]
     hist = client.get("/variables/trusted_authors/history", headers=v).json()["items"]
     assert [h["version"] for h in hist] == [1, 2]
     assert [h["value"] for h in hist] == [["a"], ["a", "b"]]

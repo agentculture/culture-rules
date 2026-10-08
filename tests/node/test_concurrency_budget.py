@@ -77,7 +77,8 @@ def test_old_rule_loads_and_fires_unchanged_without_key_or_budget():
     old.pop("concurrency_key")
     old.pop("max_attempts")
     loaded = Rule.from_dict(old)
-    assert loaded.concurrency_key is None and loaded.max_attempts is None
+    assert loaded.concurrency_key is None
+    assert loaded.max_attempts is None
     c.base.put("rules", old)
     c.start()
     c.actor.on(ACTION_STEP, ("accept",), ("accept",))
@@ -439,7 +440,8 @@ def test_wait_then_superseded_hands_the_key_to_the_new_sha():
     assert c.run("a", "evt_1")["status"] == "superseded"
     c.cycle()
     new = c.run("a", "evt_2")
-    assert new is not None and new["trigger"]["data"]["head_sha"] == SHA_B
+    assert new is not None
+    assert new["trigger"]["data"]["head_sha"] == SHA_B
     c.clock.advance(11)
     c.cycle()
     assert c.run("a", "evt_2")["status"] == "succeeded"
@@ -569,7 +571,8 @@ def test_distinct_templates_isolate_rules():
     c.actor.on(ACTION_STEP, ("accept",))
     send(c, 1, SETTLED, conclusion="failure")
     send(c, 2, COMMENT)
-    assert c.run("A", "evt_1") is not None and c.run("B", "evt_2") is not None
+    assert c.run("A", "evt_1") is not None
+    assert c.run("B", "evt_2") is not None
 
 
 def test_budget_is_consumed_across_rules_sharing_the_key():
@@ -578,10 +581,12 @@ def test_budget_is_consumed_across_rules_sharing_the_key():
     c = shared_cluster(a_max=2, b_max=2)
     send(c, 1, SETTLED, conclusion="failure")
     send(c, 2, COMMENT)
-    assert c.run("A", "evt_1") is not None and c.run("B", "evt_2") is not None
+    assert c.run("A", "evt_1") is not None
+    assert c.run("B", "evt_2") is not None
     send(c, 3, SETTLED, conclusion="failure")
     send(c, 4, COMMENT)
-    assert c.run("A", "evt_3") is None and c.run("B", "evt_4") is None
+    assert c.run("A", "evt_3") is None
+    assert c.run("B", "evt_4") is None
     assert reasons(c) == ["attempt_budget_exhausted"] * 2
     (budget,) = c.base.find(RULE_ATTEMPT_BUDGETS)
     assert budget["count"] == 2
@@ -650,12 +655,14 @@ def test_budget_id_is_the_key_alone_and_a_reset_applies_once_per_event():
     from culture_rules.store.memory import MemoryStore
 
     assert budget_id("pr#1") != budget_id("pr#2")
-    assert budget_id('a","b') != budget_id("a") and budget_id("x") == budget_id("x")
+    assert budget_id('a","b') != budget_id("a")
+    assert budget_id("x") == budget_id("x")
     store = MemoryStore()
     assert reserve_concurrency(store, "A", "pr#1", "run1", "i1", 3) is None
     assert reserve_concurrency(store, "B", "pr#1", "run2", "i2", 3) == "deduplicated"
     (budget,) = store.find(RULE_ATTEMPT_BUDGETS)
-    assert budget["id"] == budget_id("pr#1") and budget["rule_id"] == "A"
+    assert budget["id"] == budget_id("pr#1")
+    assert budget["rule_id"] == "A"
     reset_attempt_budget(store, "pr#1", "evt_9")
     store.update_if(RULE_ATTEMPT_BUDGETS, budget["id"], {}, {"count": 1})  # admitted after
     reset_attempt_budget(store, "pr#1", "evt_9")  # the same event via a second consumer
@@ -865,7 +872,8 @@ def test_admission_displacing_the_pending_event_settles_it_as_coalesced():
     assert c.run("A", "evt_3") is not None
     assert c.run("A", "evt_2") is None  # coalesced: the newer event handles the PR
     a2 = c.base.get(RULE_DECISIONS, decision_key("A", "evt_2"))
-    assert a2["reason"] == "deduplicated" and a2["coalesced"] is True
+    assert a2["reason"] == "deduplicated"
+    assert a2["coalesced"] is True
     b2 = c.base.get(RULE_DECISIONS, decision_key("B", "evt_2"))
     assert b2["reason"] == "predecessor_failed", b2
     assert c.run("B", "evt_3") is not None  # A's evt_3 run succeeded: B runs after it
@@ -875,7 +883,8 @@ def test_exhausted_newer_event_keeps_the_pending_one_which_then_settles():
     """The newer event is refused by the budget (no write), so the pending event stays and
     is re-decided on the completion - exhausted too - and both dependants settle."""
     c = displacement_cluster(max_attempts=1)
-    assert c.run("A", "evt_2") is None and c.run("A", "evt_3") is None
+    assert c.run("A", "evt_2") is None
+    assert c.run("A", "evt_3") is None
     a2 = c.base.get(RULE_DECISIONS, decision_key("A", "evt_2"))
     assert a2["reason"] == "attempt_budget_exhausted"
     assert a2["superseded"][0]["reason"] == "deduplicated"

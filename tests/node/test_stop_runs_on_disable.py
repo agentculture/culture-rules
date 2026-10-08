@@ -87,7 +87,9 @@ def test_approving_the_stop_cancels_the_run_and_nothing_is_pushed(pem, world):
     f = Fixer(pem, world)
     f.disable()
     out = Containment(f.store, clock=f.clock).stop_rule_runs("fixer", "ori", apply=True)
-    assert out["cancelled"] == [f.run_id] and out["total"] == 1 and out["applied"] is True
+    assert out["cancelled"] == [f.run_id]
+    assert out["total"] == 1
+    assert out["applied"] is True
     doc = f.ex.run(f.run_id)
     assert doc["status"] == "cancelled"
     assert doc["error"] == {"code": "cancelled", "message": "rule disabled: stopped by ori"}
@@ -96,7 +98,8 @@ def test_approving_the_stop_cancels_the_run_and_nothing_is_pushed(pem, world):
     doc = f.ex.run(f.run_id)
     assert doc["status"] == "cancelled"
     assert {step_state(doc, k)["status"] for k in ("push", "comment")} == {"cancelled"}
-    assert f.nothing_pushed() and f.fake.calls == []
+    assert f.nothing_pushed()
+    assert f.fake.calls == []
     assert f.comment.calls == []
     assert active_runs(f.store, "fixer") == ([], 0)
 
@@ -108,8 +111,10 @@ def test_not_approving_leaves_the_run_going_and_the_push_still_refuses(pem, worl
     assert f.agent_finishes() is True
     doc = f.ex.run(f.run_id)
     assert doc["status"] == "failed"
-    assert doc["error"]["step"] == "push" and doc["error"]["message"] == "rule_disabled"
-    assert f.nothing_pushed() and f.fake.calls == []
+    assert doc["error"]["step"] == "push"
+    assert doc["error"]["message"] == "rule_disabled"
+    assert f.nothing_pushed()
+    assert f.fake.calls == []
     assert f.comment.calls == []
 
 
@@ -164,7 +169,8 @@ def test_active_runs_are_filtered_in_the_store_query_not_after_loading():
     store.put("rules", {"id": "r1", "name": "r1", "enabled": False})
     spy = _FindSpy(store)
     listed, total = active_runs(spy, "r1")
-    assert [r["id"] for r in listed] == [live] and total == 1
+    assert [r["id"] for r in listed] == [live]
+    assert total == 1
     out = Containment(spy).stop_rule_runs("r1", "ori", apply=True)
     assert out["cancelled"] == [live]
     assert spy.queries, "expected a runs query"

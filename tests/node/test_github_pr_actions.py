@@ -367,7 +367,8 @@ def world(tmp_path):
 
 
 def test_no_merge_action_kind_exists():
-    assert "github.push" in ACTION_KINDS and "github.review_reply" in ACTION_KINDS
+    assert "github.push" in ACTION_KINDS
+    assert "github.review_reply" in ACTION_KINDS
     assert not [k for k in ACTION_KINDS if "merge" in k]
 
 
@@ -381,10 +382,12 @@ def test_push_fast_forwards_the_pr_head_branch(pem, world, caplog):
     res = port.invoke(push_params(world), "k", DEADLINE, context=ctx())
     assert res.outcome == "completed", res
     assert res.output["pushed"] is True
-    assert res.output["head_before"] == world.a and res.output["head_after"] == world.b
+    assert res.output["head_before"] == world.a
+    assert res.output["head_after"] == world.b
     assert world.remote_head() == world.b
     assert "push" in rec.verbs()
-    assert PUSH_TOKEN not in caplog.text and INSTALL_TOKEN not in caplog.text
+    assert PUSH_TOKEN not in caplog.text
+    assert INSTALL_TOKEN not in caplog.text
 
 
 @pytest.mark.parametrize("verdict", ["fail", "guard", "no_gate", None, ""])
@@ -393,14 +396,16 @@ def test_push_refuses_unless_the_wired_gate_verdict_is_pass(pem, world, verdict)
     port = push_port(pem, world, fake, gitrec=rec)
     res = port.invoke(push_params(world, gate_verdict=verdict), "k", DEADLINE, context=ctx())
     assert (res.outcome, res.error, res.retryable) == ("failed", "gate_not_passed", False)
-    assert fake.calls == [] and rec.verbs() == []
+    assert fake.calls == []
+    assert rec.verbs() == []
     assert world.remote_head() == world.a
 
 
 def test_push_with_a_passing_gate_verdict_pushes(pem, world):
     port = push_port(pem, world, FakeGitHub(world))
     res = port.invoke(push_params(world, gate_verdict="pass"), "k", DEADLINE, context=ctx())
-    assert res.outcome == "completed" and res.output["pushed"] is True
+    assert res.outcome == "completed"
+    assert res.output["pushed"] is True
 
 
 def test_push_token_is_minted_for_exactly_one_repo_with_contents_write_only(pem, world):
@@ -415,16 +420,21 @@ def test_push_never_forces_and_keeps_the_token_out_of_argv(pem, world):
     push_port(pem, world, fake, gitrec=rec).invoke(push_params(world), "k", DEADLINE, context=ctx())
     for argv, env in rec.calls:
         joined = " ".join(argv)
-        assert PUSH_TOKEN not in joined and INSTALL_TOKEN not in joined
-        assert "--force" not in argv and "-f" not in argv
-        assert "--force-with-lease" not in joined and "--mirror" not in argv
+        assert PUSH_TOKEN not in joined
+        assert INSTALL_TOKEN not in joined
+        assert "--force" not in argv
+        assert "-f" not in argv
+        assert "--force-with-lease" not in joined
+        assert "--mirror" not in argv
         assert not any(a.startswith("+") for a in argv)
     pushes = [(argv, env) for argv, env in rec.calls if "push" in argv]
     assert len(pushes) == 1
     argv, env = pushes[0]
-    assert "--no-verify" in argv and argv[-1] == f"{world.b}:refs/heads/fix"
+    assert "--no-verify" in argv
+    assert argv[-1] == f"{world.b}:refs/heads/fix"
     assert env.get("GIT_CONFIG_KEY_0") == "http.extraHeader"
-    assert env.get("GIT_CONFIG_GLOBAL") and env.get("GIT_CONFIG_NOSYSTEM") == "1"
+    assert env.get("GIT_CONFIG_GLOBAL")
+    assert env.get("GIT_CONFIG_NOSYSTEM") == "1"
     # only the ls-remote and push calls ever carry credentials
     with_token = [a for a, e in rec.calls if "GIT_CONFIG_VALUE_0" in e]
     assert {next(x for x in a if x in ("ls-remote", "push")) for a in with_token} == {
@@ -437,7 +447,9 @@ def test_stale_expected_head_sha_fails_and_pushes_nothing(pem, world):
     fake, rec = FakeGitHub(world), RecordingGit()
     port = push_port(pem, world, fake, gitrec=rec, review_start=world.a0)
     res = port.invoke(push_params(world, expected_head_sha=world.a0), "k", DEADLINE, context=ctx())
-    assert res.outcome == "failed" and res.error == "head_moved" and not res.retryable
+    assert res.outcome == "failed"
+    assert res.error == "head_moved"
+    assert not res.retryable
     assert world.remote_head() == world.a
     assert "push" not in rec.verbs()
     assert not [c for c in fake.calls if c[3]]  # no push token was ever minted
@@ -449,7 +461,8 @@ def test_remote_moved_after_the_pr_read_is_refused_by_ls_remote(pem, world):
     port = push_port(pem, world, fake, gitrec=rec)
     fake.on_push_token = world.move_remote  # ... but the branch moves before the push
     res = port.invoke(push_params(world), "k", DEADLINE, context=ctx())
-    assert res.outcome == "failed" and res.error == "head_moved"
+    assert res.outcome == "failed"
+    assert res.error == "head_moved"
     assert "push" not in rec.verbs()
     assert world.remote_head() != world.b
 
@@ -461,9 +474,12 @@ def test_non_fast_forward_is_refused_before_any_network_call(pem, world):
     res = push_port(pem, world, fake, gitrec=rec, review=divergent).invoke(
         push_params(world, commit_sha=divergent), "k", DEADLINE, context=ctx()
     )
-    assert res.outcome == "failed" and res.error == "not_fast_forward" and not res.retryable
+    assert res.outcome == "failed"
+    assert res.error == "not_fast_forward"
+    assert not res.retryable
     assert fake.calls == []
-    assert "ls-remote" not in rec.verbs() and "push" not in rec.verbs()
+    assert "ls-remote" not in rec.verbs()
+    assert "push" not in rec.verbs()
     assert world.remote_head() == world.a
 
 
@@ -472,15 +488,19 @@ def test_unknown_expected_sha_is_not_fast_forward(pem, world):
     res = push_port(pem, world, fake, review_start="1" * 40).invoke(
         push_params(world, expected_head_sha="1" * 40), "k", DEADLINE, context=ctx()
     )
-    assert res.error == "not_fast_forward" and fake.calls == []
+    assert res.error == "not_fast_forward"
+    assert fake.calls == []
 
 
 def test_disabled_rule_refuses_before_anything(pem, world):
     fake, rec = FakeGitHub(world), RecordingGit()
     port = push_port(pem, world, fake, store=make_store(rule_enabled=False), gitrec=rec)
     res = port.invoke(push_params(world), "k", DEADLINE, context=ctx())
-    assert res.outcome == "failed" and res.error == "rule_disabled" and not res.retryable
-    assert fake.calls == [] and rec.calls == []
+    assert res.outcome == "failed"
+    assert res.error == "rule_disabled"
+    assert not res.retryable
+    assert fake.calls == []
+    assert rec.calls == []
 
 
 def test_rule_disabled_during_the_push_step_is_refused_at_push_time(pem, world):
@@ -491,7 +511,8 @@ def test_rule_disabled_during_the_push_step_is_refused_at_push_time(pem, world):
         "rules", {"id": "fixer", "name": "fixer", "enabled": False}
     )
     res = port.invoke(push_params(world), "k", DEADLINE, context=ctx())
-    assert res.outcome == "failed" and res.error == "rule_disabled"
+    assert res.outcome == "failed"
+    assert res.error == "rule_disabled"
     assert "push" not in rec.verbs()
     assert world.remote_head() == world.a
 
@@ -525,7 +546,8 @@ def test_target_must_be_the_prs_own_head_branch(pem, world):
     res = push_port(pem, world, fake, gitrec=rec).invoke(
         push_params(world, head_branch="other"), "k", DEADLINE, context=ctx()
     )
-    assert res.outcome == "failed" and res.error == "not_pr_head_branch"
+    assert res.outcome == "failed"
+    assert res.error == "not_pr_head_branch"
     assert "push" not in rec.verbs()
 
 
@@ -534,7 +556,8 @@ def test_fork_pr_is_refused(pem, world):
     res = push_port(pem, world, fake, gitrec=rec).invoke(
         push_params(world), "k", DEADLINE, context=ctx()
     )
-    assert res.error == "not_same_repo_pr" and "push" not in rec.verbs()
+    assert res.error == "not_same_repo_pr"
+    assert "push" not in rec.verbs()
 
 
 def test_closed_pr_is_refused(pem, world):
@@ -548,7 +571,9 @@ def test_repo_off_the_allowlist_fails_without_network(pem, world):
     res = push_port(pem, world, fake, gitrec=rec).invoke(
         push_params(world, repo="evil/repo"), "k", DEADLINE, context=ctx()
     )
-    assert res.error == "repo_not_allowed" and fake.calls == [] and rec.calls == []
+    assert res.error == "repo_not_allowed"
+    assert fake.calls == []
+    assert rec.calls == []
 
 
 @pytest.mark.parametrize(
@@ -570,7 +595,9 @@ def test_bad_input_is_refused(pem, world, over):
     res = push_port(pem, world, fake, gitrec=rec).invoke(
         push_params(world, **over), "k", DEADLINE, context=ctx()
     )
-    assert res.error == "bad_input" and fake.calls == [] and rec.calls == []
+    assert res.error == "bad_input"
+    assert fake.calls == []
+    assert rec.calls == []
 
 
 def test_retry_after_success_completes_without_pushing_again(pem, world):
@@ -580,7 +607,8 @@ def test_retry_after_success_completes_without_pushing_again(pem, world):
     rec = RecordingGit()
     port._git = rec
     res = port.invoke(push_params(world), "k", DEADLINE, context=ctx())
-    assert res.outcome == "completed" and res.output["pushed"] is False
+    assert res.outcome == "completed"
+    assert res.output["pushed"] is False
     assert res.output.get("already") is True
     assert "push" not in rec.verbs()
 
@@ -590,7 +618,9 @@ def test_nothing_to_push_when_commit_is_expected(pem, world):
     res = push_port(pem, world, fake, review=world.a).invoke(
         push_params(world, commit_sha=world.a), "k", DEADLINE, context=ctx()
     )
-    assert res.outcome == "completed" and res.output["pushed"] is False and fake.calls == []
+    assert res.outcome == "completed"
+    assert res.output["pushed"] is False
+    assert fake.calls == []
 
 
 def test_push_targets_commit_sha_even_after_the_agent_moves_on(pem, world):
@@ -600,15 +630,18 @@ def test_push_targets_commit_sha_even_after_the_agent_moves_on(pem, world):
     res = push_port(pem, world, fake, gitrec=rec).invoke(
         push_params(world), "k", DEADLINE, context=ctx()
     )
-    assert res.outcome == "completed" and res.output["head_after"] == world.b
+    assert res.outcome == "completed"
+    assert res.output["head_after"] == world.b
     assert world.remote_head() == world.b != later
     # a retry with the same input after the worktree moved again completes without pushing
     commit(world.agent, "e")
     rec2 = RecordingGit()
     port = push_port(pem, world, fake, gitrec=rec2)
     res = port.invoke(push_params(world), "k", DEADLINE, context=ctx())
-    assert res.outcome == "completed" and res.output.get("already") is True
-    assert "push" not in rec2.verbs() and world.remote_head() == world.b
+    assert res.outcome == "completed"
+    assert res.output.get("already") is True
+    assert "push" not in rec2.verbs()
+    assert world.remote_head() == world.b
 
 
 def test_commit_sha_missing_from_source_is_refused(pem, world):
@@ -616,8 +649,11 @@ def test_commit_sha_missing_from_source_is_refused(pem, world):
     res = push_port(pem, world, fake, gitrec=rec, review="2" * 40).invoke(
         push_params(world, commit_sha="2" * 40), "k", DEADLINE, context=ctx()
     )
-    assert res.outcome == "failed" and res.error == "commit_not_found" and not res.retryable
-    assert fake.calls == [] and "push" not in rec.verbs()
+    assert res.outcome == "failed"
+    assert res.error == "commit_not_found"
+    assert not res.retryable
+    assert fake.calls == []
+    assert "push" not in rec.verbs()
 
 
 def test_foreign_author_is_refused_when_a_commit_author_is_configured(pem, world):
@@ -626,8 +662,11 @@ def test_foreign_author_is_refused_when_a_commit_author_is_configured(pem, world
     res = push_port(pem, world, fake, store=store, gitrec=rec).invoke(
         push_params(world), "k", DEADLINE, context=ctx()
     )
-    assert res.outcome == "failed" and res.error == "foreign_author" and not res.retryable
-    assert fake.calls == [] and "push" not in rec.verbs()
+    assert res.outcome == "failed"
+    assert res.error == "foreign_author"
+    assert not res.retryable
+    assert fake.calls == []
+    assert "push" not in rec.verbs()
     assert world.remote_head() == world.a
 
 
@@ -648,7 +687,8 @@ def test_push_from_a_bundle(pem, world, tmp_path):
         push_params(world, source=str(bundle)), "k", DEADLINE, context=ctx()
     )
     assert res.output["head_after"] == world.b
-    assert res.outcome == "completed" and res.output["pushed"] is True
+    assert res.outcome == "completed"
+    assert res.output["pushed"] is True
     assert world.remote_head() == world.b
 
 
@@ -664,7 +704,8 @@ def test_agent_repo_config_cannot_redirect_the_push(pem, world, tmp_path):
     res = push_port(pem, world, FakeGitHub(world)).invoke(
         push_params(world), "k", DEADLINE, context=ctx()
     )
-    assert res.outcome == "completed" and world.remote_head() == world.b
+    assert res.outcome == "completed"
+    assert world.remote_head() == world.b
     assert not marker.exists()
 
 
@@ -690,7 +731,8 @@ def test_review_reply_posts_as_the_app_without_resolving(pem):
     fake = FakeGitHub(None)
     res = reply_port(pem, fake).invoke(reply_params(), "k", DEADLINE, context=ctx())
     assert res.outcome == "completed", res
-    assert res.output["comment_id"] == 501 and res.output["resolved"] is False
+    assert res.output["comment_id"] == 501
+    assert res.output["resolved"] is False
     reply = [c for c in fake.calls if c[1].endswith("/replies")]
     assert [c[1] for c in reply] == ["/repos/acme/widgets/pulls/3/comments/77/replies"]
     assert reply[0][2]["Authorization"] == f"Bearer {INSTALL_TOKEN}"  # the App's token
@@ -704,7 +746,8 @@ def test_review_reply_resolves_the_given_thread_after_verifying_it(pem):
     res = reply_port(pem, fake).invoke(
         reply_params(resolve=True, thread_id="PRRT_9"), "k", DEADLINE, context=ctx()
     )
-    assert res.outcome == "completed" and res.output["resolved"] is True
+    assert res.outcome == "completed"
+    assert res.output["resolved"] is True
     gql = [c for c in fake.calls if c[1] == "/graphql"]
     assert "nameWithOwner" in gql[0][3]["query"]  # the supplied id is verified first
     assert "resolveReviewThread" in gql[-1][3]["query"]
@@ -727,7 +770,9 @@ def test_review_reply_refuses_a_thread_id_that_does_not_match(pem, thread, resol
     res = reply_port(pem, fake).invoke(
         reply_params(resolve=resolve, thread_id="PRRT_X"), "k", DEADLINE, context=ctx()
     )
-    assert res.outcome == "failed" and res.error == "thread_mismatch" and not res.retryable
+    assert res.outcome == "failed"
+    assert res.error == "thread_mismatch"
+    assert not res.retryable
     assert not [p for p in fake.paths() if p.endswith("/replies")]
     assert not [q for q, _ in fake.gql.queries if "resolveReviewThread" in q]
 
@@ -751,7 +796,8 @@ def test_review_reply_thread_lookup_pages_threads_and_comments(pem):
         ("PRRT_d", REPO, 3, [10, 11, 12, 77]),
     ]
     res = reply_port(pem, fake).invoke(reply_params(resolve=True), "k", DEADLINE, context=ctx())
-    assert res.outcome == "completed" and res.output["thread_id"] == "PRRT_d"
+    assert res.outcome == "completed"
+    assert res.output["thread_id"] == "PRRT_d"
     thread_pages = [v.get("after") for q, v in fake.gql.queries if "reviewThreads" in q]
     assert thread_pages == [None, "2"]
     assert any("after" in v and v.get("id") == "PRRT_d" for _, v in fake.gql.queries)
@@ -764,14 +810,16 @@ def test_review_reply_verifies_a_given_thread_across_comment_pages(pem):
     res = reply_port(pem, fake).invoke(
         reply_params(thread_id="PRRT_z"), "k", DEADLINE, context=ctx()
     )
-    assert res.outcome == "completed" and res.output["thread_id"] == "PRRT_z"
+    assert res.outcome == "completed"
+    assert res.output["thread_id"] == "PRRT_z"
     assert res.output["resolved"] is False
 
 
 def test_review_reply_finds_the_thread_then_resolves(pem):
     fake = FakeGitHub(None)
     res = reply_port(pem, fake).invoke(reply_params(resolve="true"), "k", DEADLINE, context=ctx())
-    assert res.outcome == "completed" and res.output["thread_id"] == "PRRT_1"
+    assert res.outcome == "completed"
+    assert res.output["thread_id"] == "PRRT_1"
     order = [c[1] for c in fake.calls if not c[1].endswith("/access_tokens")]
     assert order == [
         "/graphql",
@@ -784,7 +832,8 @@ def test_review_reply_unknown_thread_posts_nothing(pem):
     fake = FakeGitHub(None)
     fake.gql.threads = []
     res = reply_port(pem, fake).invoke(reply_params(resolve=True), "k", DEADLINE, context=ctx())
-    assert res.outcome == "failed" and res.error == "thread_not_found"
+    assert res.outcome == "failed"
+    assert res.error == "thread_not_found"
     assert not [p for p in fake.paths() if p.endswith("/replies")]
 
 
@@ -817,7 +866,9 @@ def test_deadline_passing_before_the_push_pushes_nothing(pem, world):
 
     fake.on_push_token = late
     res = port.invoke(push_params(world), "k", deadline, context=ctx())
-    assert res.outcome == "failed" and res.error == "deadline_exceeded" and res.retryable
+    assert res.outcome == "failed"
+    assert res.error == "deadline_exceeded"
+    assert res.retryable
     assert "push" not in rec.verbs()
     assert world.remote_head() == world.a
 
@@ -833,8 +884,10 @@ def test_push_is_not_started_inside_the_safety_margin(pem, world):
 
     fake.on_push_token = nearly
     res = port.invoke(push_params(world), "k", deadline, context=ctx())
-    assert res.error == "deadline_exceeded" and res.retryable
-    assert "push" not in rec.verbs() and world.remote_head() == world.a
+    assert res.error == "deadline_exceeded"
+    assert res.retryable
+    assert "push" not in rec.verbs()
+    assert world.remote_head() == world.a
 
 
 def test_expired_deadline_refuses_before_any_git_or_network(pem, world):
@@ -842,7 +895,9 @@ def test_expired_deadline_refuses_before_any_git_or_network(pem, world):
     fake, rec = FakeGitHub(world), RecordingGit()
     port = push_port(pem, world, fake, gitrec=rec, clock=clock)
     res = port.invoke(push_params(world), "k", clock.now - timedelta(seconds=1), context=ctx())
-    assert res.error == "deadline_exceeded" and fake.calls == [] and rec.calls == []
+    assert res.error == "deadline_exceeded"
+    assert fake.calls == []
+    assert rec.calls == []
 
 
 def test_git_and_http_calls_are_bounded_by_the_remaining_time(pem, world):
@@ -851,8 +906,10 @@ def test_git_and_http_calls_are_bounded_by_the_remaining_time(pem, world):
     port = push_port(pem, world, fake, gitrec=rec, clock=clock)
     res = port.invoke(push_params(world), "k", clock.now + timedelta(seconds=30), context=ctx())
     assert res.outcome == "completed", res
-    assert rec.timeouts and max(rec.timeouts) <= 30
-    assert fake.timeouts and max(fake.timeouts) <= 30
+    assert rec.timeouts
+    assert max(rec.timeouts) <= 30
+    assert fake.timeouts
+    assert max(fake.timeouts) <= 30
 
 
 def test_review_reply_honours_the_deadline(pem):
@@ -860,7 +917,9 @@ def test_review_reply_honours_the_deadline(pem):
     port = GitHubReviewReplyPort(make_store(), transport=fake, secrets=lambda ref: pem)
     past = datetime.now(UTC) - timedelta(seconds=1)
     res = port.invoke(reply_params(), "k", past, context=ctx())
-    assert res.outcome == "failed" and res.error == "deadline_exceeded" and res.retryable
+    assert res.outcome == "failed"
+    assert res.error == "deadline_exceeded"
+    assert res.retryable
     assert not [p for p in fake.paths() if p.endswith("/replies")]
 
 
@@ -883,7 +942,8 @@ def test_git_timeout_kills_the_whole_process_group(tmp_path):
     script.chmod(0o755)
     started = time.monotonic()
     rc, out = subprocess_git([str(script)], {"PATH": os.environ["PATH"]}, 0.5)
-    assert rc == GIT_TIMED_OUT and out == ""
+    assert rc == GIT_TIMED_OUT
+    assert out == ""
     assert time.monotonic() - started < 10
     child = int(pidfile.read_text().strip())
     assert not _alive(child)  # the grandchild (stand-in for git-remote-https) is gone
@@ -915,8 +975,11 @@ def test_git_timeouts_are_retryable_not_validation_failures(pem, world, verb):
     res = push_port(pem, world, fake, store=store, gitrec=rec).invoke(
         push_params(world), "k", DEADLINE, context=ctx()
     )
-    assert res.outcome == "failed" and res.error == "git_timeout" and res.retryable, res
-    assert fake.calls == [] and "push" not in rec.verbs()
+    assert res.outcome == "failed", res
+    assert res.error == "git_timeout", res
+    assert res.retryable, res
+    assert fake.calls == []
+    assert "push" not in rec.verbs()
 
 
 def test_git_timeout_past_the_deadline_is_deadline_exceeded(pem, world):
@@ -933,4 +996,5 @@ def test_git_timeout_past_the_deadline_is_deadline_exceeded(pem, world):
     res = push_port(pem, world, FakeGitHub(world), gitrec=Late(), clock=clock).invoke(
         push_params(world), "k", deadline, context=ctx()
     )
-    assert res.error == "deadline_exceeded" and res.retryable
+    assert res.error == "deadline_exceeded"
+    assert res.retryable

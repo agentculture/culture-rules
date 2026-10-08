@@ -57,7 +57,8 @@ def test_add_appends_a_version_naming_the_caller_and_keeps_the_description():
     assert out["changed"] is True
     doc = out["variable"]
     assert doc["value"] == ["agentculture/a", "agentculture/b"]
-    assert doc["version"] == 2 and doc["updated_by"] == "guildmaster"
+    assert doc["version"] == 2
+    assert doc["updated_by"] == "guildmaster"
     assert doc["description"] == "repos the fixer runs on"
 
 
@@ -71,7 +72,8 @@ def test_add_of_a_present_item_and_remove_of_an_absent_one_write_nothing():
 def test_remove_takes_every_copy_out_in_one_version():
     s, v = seeded(("x/a", "x/b"))
     out = v.remove_item(REPOS, "x/a", "admin")
-    assert out["changed"] is True and out["variable"]["value"] == ["x/b"]
+    assert out["changed"] is True
+    assert out["variable"]["value"] == ["x/b"]
     assert out["variable"]["version"] == 2
 
 
@@ -156,7 +158,8 @@ def test_add_and_remove_routes_are_admin_only(world):
     assert s.get_variable(REPOS)["version"] == 1
     r = client.post(f"/variables/{REPOS}/items/add", json={"item": "x/b"}, headers=hdr["admin"])
     assert r.status_code == 200, r.text
-    assert r.json()["changed"] is True and r.json()["variable"]["updated_by"] == "admin"
+    assert r.json()["changed"] is True
+    assert r.json()["variable"]["updated_by"] == "admin"
     r = client.post(f"/variables/{REPOS}/items/remove", json={"item": "x/a"}, headers=hdr["admin"])
     assert r.json()["variable"]["value"] == ["x/b"]
 
@@ -168,7 +171,8 @@ def test_route_errors(world):
         client.post("/variables/nope/items/add", json={"item": "x"}, headers=a).status_code == 404
     )
     r = client.post(f"/variables/{REPOS}/items/add", json={"item": 3}, headers=a)
-    assert r.status_code == 422 and "item_type_mismatch" in r.text
+    assert r.status_code == 422
+    assert "item_type_mismatch" in r.text
 
 
 # ------------------------------------------------------------------ CLI
@@ -183,7 +187,9 @@ def cli(capsys, *argv):
 def test_cli_add_is_a_dry_run_without_apply(store, wire, capsys):  # noqa: F811
     store.put_variable(REPOS, ["x/a"], updated_by="seed")
     code, out = cli(capsys, "add", REPOS, "x/b")
-    assert code == 0 and out["dry_run"] is True and out["would_change"] is True
+    assert code == 0
+    assert out["dry_run"] is True
+    assert out["would_change"] is True
     assert out["would"] == {
         "method": "POST",
         "path": f"/variables/{REPOS}/items/add",
@@ -197,7 +203,9 @@ def test_cli_add_is_a_dry_run_without_apply(store, wire, capsys):  # noqa: F811
 def test_cli_add_and_remove_with_apply(store, wire, capsys):  # noqa: F811
     store.put_variable(REPOS, ["x/a"], updated_by="seed")
     code, out = cli(capsys, "add", REPOS, "agentculture/culture-rules-tester", "--apply")
-    assert code == 0 and out["applied"] is True and out["result"]["changed"] is True
+    assert code == 0
+    assert out["applied"] is True
+    assert out["result"]["changed"] is True
     assert store.get_variable(REPOS)["value"] == ["x/a", "agentculture/culture-rules-tester"]
     code, out = cli(capsys, "remove", REPOS, "x/a", "--apply")
     assert out["result"]["variable"]["value"] == ["agentculture/culture-rules-tester"]

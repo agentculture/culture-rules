@@ -35,9 +35,11 @@ def test_the_prs_own_base_passes_and_is_read_as_the_app(store, tmp_path, clock):
     repo.commit("fix", {"src/app.py": "x = 3\n"})
     lookup = FakeActor(default=lambda inp, ctx: {"head_sha": repo.start, "base_sha": repo.base})
     res = run_gate(store, repo, tmp_path, clock, lookup)
-    assert res.outcome == "completed" and res.output["verdict"] == "pass"
+    assert res.outcome == "completed"
+    assert res.output["verdict"] == "pass"
     ((_, given, ctx, _),) = lookup.calls
-    assert given == {"repo": "o/r", "number": 7} and ctx.actor == "github-app"
+    assert given == {"repo": "o/r", "number": 7}
+    assert ctx.actor == "github-app"
 
 
 def test_another_base_is_base_mismatch(store, tmp_path, clock):  # noqa: F811
@@ -45,7 +47,8 @@ def test_another_base_is_base_mismatch(store, tmp_path, clock):  # noqa: F811
     repo.commit("fix", {"src/app.py": "x = 3\n"})
     lookup = FakeActor(default=lambda inp, ctx: {"head_sha": repo.start, "base_sha": "f" * 40})
     res = run_gate(store, repo, tmp_path, clock, lookup)
-    assert res.outcome == "failed" and res.error.startswith("base_mismatch")
+    assert res.outcome == "failed"
+    assert res.error.startswith("base_mismatch")
 
 
 def test_a_base_that_cannot_be_checked_fails_closed(store, tmp_path, clock):  # noqa: F811
@@ -53,12 +56,15 @@ def test_a_base_that_cannot_be_checked_fails_closed(store, tmp_path, clock):  # 
     repo.commit("fix", {"src/app.py": "x = 3\n"})
     failing = FakeActor().on("fix[0]/gate", ("fail", "http_502", True))
     res = run_gate(store, repo, tmp_path, clock, failing)
-    assert res.outcome == "failed" and res.error.startswith("base_unverified")
+    assert res.outcome == "failed"
+    assert res.error.startswith("base_unverified")
     res = run_gate(store, repo, tmp_path, clock, FakeActor())  # completes with no base
-    assert res.outcome == "failed" and res.error.startswith("base_unverified")
+    assert res.outcome == "failed"
+    assert res.error.startswith("base_unverified")
     store.delete("runs", "run-1")
     res = run_gate(store, repo, tmp_path, clock, FakeActor(), run=False)  # no run to read
-    assert res.outcome == "failed" and res.error.startswith("base_unverified")
+    assert res.outcome == "failed"
+    assert res.error.startswith("base_unverified")
 
 
 def test_the_production_gate_has_the_app_lookup():

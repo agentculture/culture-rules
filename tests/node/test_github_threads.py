@@ -218,7 +218,8 @@ def test_a_lookup_error_fails_the_step_closed(error):
     res = threads_port(FakeApp(error=error)).invoke(
         {"repo": REPO, "number": 7, "trusted_authors": ["alice"]}, "k", DEADLINE, context=ctx()
     )
-    assert res.outcome == "failed" and res.error == error.code
+    assert res.outcome == "failed"
+    assert res.error == error.code
     assert res.retryable is error.retryable
     assert not res.output
 
@@ -235,7 +236,8 @@ def test_a_lookup_error_fails_the_step_closed(error):
 def test_bad_input_and_allowlist_fail_without_a_lookup(inp, code):
     fake = FakeApp(LISTED)
     res = threads_port(fake).invoke(inp, "k", DEADLINE, context=ctx())
-    assert res.outcome == "failed" and res.error == code
+    assert res.outcome == "failed"
+    assert res.error == code
     assert fake.calls == []
 
 
@@ -287,7 +289,8 @@ def test_addressed_with_bad_input_fails():
     res = AddressedThreadsPort().invoke(
         {"threads": "x", "addressed": []}, "k", DEADLINE, context=ctx()
     )
-    assert res.outcome == "failed" and res.error == "bad_input"
+    assert res.outcome == "failed"
+    assert res.error == "bad_input"
 
 
 def test_default_ports_register_both_builtins():

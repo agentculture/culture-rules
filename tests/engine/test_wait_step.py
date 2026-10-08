@@ -479,7 +479,8 @@ def test_a_timed_out_head_lookup_is_retried_later_not_failed(store, clock):
     clock.advance(61)
     ex.run_until_idle()
     st = step_state(ex.run(run["id"]), "w")
-    assert st["status"] == "sleeping" and st["lookup_retries"] == 1
+    assert st["status"] == "sleeping"
+    assert st["lookup_retries"] == 1
     for _ in range(2):
         clock.advance(10)
         ex.run_until_idle()

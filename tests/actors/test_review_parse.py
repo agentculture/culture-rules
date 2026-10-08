@@ -335,7 +335,8 @@ def test_the_briefs_own_example_final_line_parses_as_a_verdict():
     (line,) = [ln for ln in brief.splitlines() if ln.startswith('{"summary": "{\\"verdict')]
     message = "I reviewed the diff.\n" + line.replace("<commit_sha>", SHA)
     out = parse_review(_bridge_summary(message), SHA)
-    assert out["verdict"] == REQUEST_CHANGES and out["findings"][0]["severity"] == "high"
+    assert out["verdict"] == REQUEST_CHANGES
+    assert out["findings"][0]["severity"] == "high"
 
 
 def test_the_brief_names_every_check_the_reviewer_must_make():
@@ -371,7 +372,8 @@ def test_default_ports_serve_the_review_builtin():
         "run-x", "fix[0]/verdict", "code", "spark", config={"builtin": "review"}
     )
     res = code.invoke({}, "k", None, context=ctx)
-    assert res.outcome == "failed" and res.error.startswith("run_not_found")
+    assert res.outcome == "failed"
+    assert res.error.startswith("run_not_found")
     from culture_rules.actors.review import current_review
 
     assert current_review(store, "run-x")[1]["verdict"] == "run_not_found"
@@ -383,7 +385,9 @@ def test_the_review_step_outside_a_loop_is_a_config_error():
 
     port = ReviewVerdictPort(MemoryStore())
     res = port.invoke({}, "k", None, context=InvocationContext("r", "verdict", "code", "h"))
-    assert res.outcome == "failed" and res.error.startswith("bad_config") and not res.retryable
+    assert res.outcome == "failed"
+    assert res.error.startswith("bad_config")
+    assert not res.retryable
 
 
 # --------------------------------------------------------------------------- round 2, #5
