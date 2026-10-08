@@ -489,3 +489,66 @@ def test_an_idle_fan_in_persists_the_reset_so_it_warns_only_once(bad, caplog):
         assert first.cursor != bad
         src.drain(first.cursor, max=5, timeout=0.0)
     assert len([r for r in caplog.records if r.levelname == "WARNING"]) == 1
+
+
+# --- hops across the bus (d21): events-cli has no hops field, so it rides in data -------
+
+
+ENGINE = "app://culture-rules/spark"  # engine_app_source("spark")
+
+
+def test_the_sink_carries_hops_inside_data_not_as_an_envelope_field():
+    calls = []
+
+    class Client:
+        def publish_event(self, env, topic, *, qos, wait):
+            calls.append(env.wire)
+            return SimpleNamespace(ok=True)
+
+    sink = adapter.EventsCliSink(Client(), envelope_cls=FakeEnvelope, topic_for=str)
+    sink.publish({"id": "evt_1", "type": "a.b", "source": ENGINE, "hops": 2, "data": {"x": 1}})
+    assert calls == [
+        {"id": "evt_1", "type": "a.b", "source": ENGINE, "data": {"x": 1, adapter.BUS_HOPS_KEY: 2}}
+    ]
+
+
+def test_an_envelope_without_hops_is_published_unchanged():
+    env = {"id": "evt_1", "type": "a.b", "source": ENGINE, "data": {"x": 1}}
+    assert adapter.to_bus(env) == env
+
+
+def test_drained_engine_events_get_their_hops_back_from_data():
+    wire = {"id": "evt_1", "source": ENGINE, "data": {"x": 1, adapter.BUS_HOPS_KEY: 3}}
+    history = FakeHistory([SimpleNamespace(seq=1, envelope=FakeEnvelope(wire))])
+    batch = _source(FakeEventsCli(history)).drain(None, max=5, timeout=0.0)
+    assert batch.envelopes == ({"id": "evt_1", "source": ENGINE, "data": {"x": 1}, "hops": 3},)
+
+
+@pytest.mark.parametrize(
+    "wire",
+    [
+        {"id": "e", "source": "github", "data": {adapter.BUS_HOPS_KEY: 0}},  # not the engine
+        {"id": "e", "source": ENGINE, "data": {adapter.BUS_HOPS_KEY: "1"}},  # kept: malformed
+        {"id": "e", "source": ENGINE, "data": {"x": 1}},
+        {"id": "e", "source": ENGINE},
+    ],
+)
+def test_from_bus_restores_hops_only_on_an_engine_event_carrying_the_key(wire):
+    out = adapter.from_bus(wire)
+    if wire["source"] == ENGINE and adapter.BUS_HOPS_KEY in (wire.get("data") or {}):
+        assert out["hops"] == "1"  # moved as is: event_hops then fails it closed
+        assert adapter.BUS_HOPS_KEY not in out["data"]
+    else:
+        assert out == wire
+
+
+def test_a_derived_event_round_trips_through_the_real_events_cli_envelope():
+    envelope_mod = pytest.importorskip("events_cli.core.envelope")
+    from culture_rules.events.emit import derive_envelope, event_hops
+
+    root = derive_envelope(None, type="a.b", source=ENGINE, data={"x": 1})
+    child = derive_envelope(root, type="c.d", source=ENGINE, data={"y": 2})
+    wire = envelope_mod.Envelope.from_dict(adapter.to_bus(child)).to_dict()
+    back = adapter.from_bus(wire)
+    assert event_hops(back) == 1
+    assert back["data"] == {"y": 2}

@@ -46,6 +46,7 @@ from contextlib import contextmanager
 from types import SimpleNamespace
 from typing import Any
 
+from culture_rules.events.emit import is_engine_source
 from culture_rules.events.source import EventFabricError, SourceBatch
 
 _log = logging.getLogger(__name__)
@@ -213,7 +214,7 @@ class EventsCliSource:
                 **options,
             )
             records, cursor, has_more = result.records, result.cursor, result.has_more
-        envelopes = tuple(record.envelope.to_dict() for record in records)
+        envelopes = tuple(from_bus(record.envelope.to_dict()) for record in records)
         out = after if cursor == since else str(cursor)
         return SourceBatch(envelopes=envelopes, cursor=out, has_more=bool(has_more))
 
@@ -321,6 +322,37 @@ def open_host_source(
     return EventsCliFanIn(name, sources)
 
 
+BUS_HOPS_KEY = "_culture_rules_hops"
+"""Where an envelope's ``hops`` rides on the bus: events-cli's envelope has no ``hops``
+field and refuses unknown ones, so :func:`to_bus` moves it into ``data`` under this key and
+:func:`from_bus` moves it back (d21)."""
+
+
+def to_bus(envelope: Mapping[str, Any]) -> dict[str, Any]:
+    """``envelope`` as events-cli accepts it: a ``hops`` field moves into ``data``."""
+    env = dict(envelope)
+    if "hops" not in env:
+        return env
+    env["data"] = {**dict(env.get("data") or {}), BUS_HOPS_KEY: env.pop("hops")}
+    return env
+
+
+def from_bus(envelope: Mapping[str, Any]) -> dict[str, Any]:
+    """A drained ``envelope`` with its ``hops`` back as a field - only on an engine event
+    (:func:`~culture_rules.events.emit.is_engine_source`; no outside producer counts hops).
+    The value moves as is, so a malformed one still fails closed in ``event_hops``."""
+    env = dict(envelope)
+    data = env.get("data")
+    if not is_engine_source(env.get("source")) or not isinstance(data, Mapping):
+        return env
+    if BUS_HOPS_KEY not in data:
+        return env
+    rest = dict(data)
+    env["hops"] = rest.pop(BUS_HOPS_KEY)
+    env["data"] = rest
+    return env
+
+
 class EventsCliSink:
     """Publishes wire-form envelopes through an events-cli ``EventClient`` at QoS 1."""
 
@@ -342,7 +374,7 @@ class EventsCliSink:
         self._wait = wait
 
     def publish(self, envelope: Mapping[str, Any]) -> None:
-        typed = self._envelope_cls.from_dict(dict(envelope))  # validates at the boundary
+        typed = self._envelope_cls.from_dict(to_bus(envelope))  # validates at the boundary
         result = self._client.publish_event(
             typed, self._topic_for(envelope["type"]), qos=1, wait=self._wait
         )

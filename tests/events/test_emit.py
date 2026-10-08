@@ -80,6 +80,9 @@ def test_emitter_publishes_root_and_caused_events():
 
 def test_derived_envelopes_validate_against_events_cli_when_installed():
     events_cli_envelope = pytest.importorskip("events_cli.core.envelope")
+    from culture_rules.events.events_cli_adapter import to_bus
+
     out = derive_envelope(envelope(1, runId="run_1"), type="rule.fired", source="cr://engine")
-    parsed = events_cli_envelope.Envelope.from_dict(out)
+    assert "hops" in out  # events-cli has no hops field: the sink moves it into data
+    parsed = events_cli_envelope.Envelope.from_dict(to_bus(out))
     assert (parsed.causation_id, parsed.run_id) == ("evt_1", "run_1")
