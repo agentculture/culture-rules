@@ -44,11 +44,15 @@ can single out one app's failure - the PR fixer's ``pr-fixer-secrets`` fires on
 
 **Late failures** (d25): a counted app's suite that completes ``failure`` *after* its SHA
 settled (the settle timed out while it ran, or a re-run failed) is not in that event's
-``failed_apps``, and the completion is otherwise a ``duplicate``. :meth:`ChecksSettler.on_check`
-then emits one :data:`LATE_TYPE` event per (repo, SHA, app) (:func:`late_event_id`): the settled
-event's data (its PR facts as of the settle) with ``failed_apps`` grown by the app,
-``late_app``, ``conclusion: "failure"`` and ``settled_by: "late"``. ``pr-fixer-secrets-late``
-reports a GitGuardian finding from it; no fixer rule fires on it.
+``failed_apps``, and the completion is otherwise a ``duplicate``.
+:meth:`ChecksSettler.on_check` then emits one :data:`LATE_TYPE` event per (repo, SHA, app)
+(:func:`late_event_id`): the settled event's data (its PR facts as of the settle) with
+``failed_apps`` grown by the app, ``late_app``, ``conclusion: "failure"`` and
+``settled_by: "late"``. ``pr-fixer-secrets-late`` reports a GitGuardian finding from it; no
+fixer rule fires on it. The recovery scan does the same for a stored completion of a settled
+SHA received after its settled event (a webhook that died before
+:meth:`ChecksSettler.on_check`); the fixed id keeps it once. Both settle types and their id
+prefixes are reserved at external ingest (:func:`~culture_rules.events.emit.reserved_reason`).
 
 With a ``pull`` seam the event also carries the PR facts of its first PR number
 (:func:`~culture_rules.apps.github.complete_pr_facts`: ``head_repo``, ``base_repo``,
@@ -541,8 +545,9 @@ class ChecksSettler:
         envelope = derive_envelope(
             None, type=LATE_TYPE, source=SOURCE, data=payload, id=late_event_id(repo, sha, app)
         )
+        doc = event_document(envelope, host=SETTLE_HOST, received_at=self._now())
         try:
-            self._store.insert(EVENTS_COLLECTION, event_document(envelope, host=SETTLE_HOST))
+            self._store.insert(EVENTS_COLLECTION, doc)
         except DuplicateKeyError:
             return "duplicate"
         return "late"
@@ -645,7 +650,9 @@ class ChecksSettler:
         repo, sha = data.get("repository"), data.get("head_sha")
         if not isinstance(repo, str) or not repo or not isinstance(sha, str) or not sha:
             return 0
-        if self._store.get(SETTLE_COLLECTION, f"{repo}@{sha}".lower()) is not None:
+        rec = self._store.get(SETTLE_COLLECTION, f"{repo}@{sha}".lower())
+        if rec is not None:
+            self._recover_late(repo, sha, event, rec)
             return 0  # armed by the webhook (or settled by completion or timeout)
         if self._store.get(EVENTS_COLLECTION, settled_event_id(repo, sha)) is not None:
             return 0
@@ -654,6 +661,18 @@ class ChecksSettler:
         self._arm(repo, sha, data, at=at)
         log.info("checks settle: recovered an unarmed SHA from a stored completion")
         return 1
+
+    def _recover_late(
+        self, repo: str, sha: str, event: Mapping[str, Any], rec: Mapping[str, Any]
+    ) -> None:
+        """A stored completion of a settled SHA, received after its settled event, that the
+        webhook never turned into a late event (d25): :meth:`_late`, idempotent by its
+        fixed id."""
+        emitted = self._store.get(EVENTS_COLLECTION, settled_event_id(repo, sha, _generation(rec)))
+        if emitted is None or str(event.get("received_at")) <= str(emitted.get("received_at")):
+            return  # not settled yet, or received before the settle: not late
+        if self._late(repo, sha, event["envelope"]["data"], emitted) == "late":
+            log.info("checks settle: recovered a late failure from a stored completion")
 
     # ------------------------------------------------------------------ persistence
 
@@ -771,7 +790,8 @@ class ChecksSettler:
             id=settled_event_id(repo, sha, _generation(src)),
         )
         try:
-            self._store.insert(EVENTS_COLLECTION, event_document(envelope, host=SETTLE_HOST))
+            doc = event_document(envelope, host=SETTLE_HOST, received_at=self._now())
+            self._store.insert(EVENTS_COLLECTION, doc)
             outcome = "emitted"
         except DuplicateKeyError:
             outcome = "duplicate"

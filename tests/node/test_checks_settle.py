@@ -1526,3 +1526,40 @@ def test_no_late_event_for_an_app_the_settle_already_named():
     assert settler.on_check(completion()) == "emitted"
     assert settler.on_check(completion()) == "duplicate"
     assert late_events(store) == []
+
+
+# ------------------------------------------------------------ d25 round 2: late-event recovery
+
+
+def test_recovery_turns_a_stored_late_completion_into_its_late_event():
+    # the webhook stored GitGuardian's failure after the settle, then died before on_check
+    store, settler, _ = _timed_out_with_gitguardian_pending()
+    clock = settler._clock
+    clock.now += timedelta(seconds=5)
+    stored_check(
+        store, clock, "gg-late", app_slug="gitguardian", conclusion="failure", status="completed"
+    )
+    past_grace(clock)
+    settler.tick()
+    [late] = late_events(store)
+    assert late["envelope"]["data"]["late_app"] == "gitguardian"
+    settler.tick()  # idempotent: the fixed late id
+    assert settler.on_check(completion()) == "duplicate"
+    assert len(late_events(store)) == 1
+
+
+def test_recovery_ignores_a_failure_received_before_the_settle():
+    # stored before the settle (a run that was re-run green before it): not late
+    store = MemoryStore()
+    clock = Clock()
+    store.put_variable("checks_settle_min_s", 0, updated_by="t")
+    suites = ConcludedSuites(("gitguardian", "completed", "success"))
+    settler = ChecksSettler(store, suites, clock=clock)
+    stored_check(
+        store, clock, "gg-early", app_slug="gitguardian", conclusion="failure", status="completed"
+    )
+    clock.now += timedelta(seconds=1)
+    assert settler.on_check(check_data()) == "emitted"
+    past_grace(clock)
+    settler.tick()
+    assert late_events(store) == []
