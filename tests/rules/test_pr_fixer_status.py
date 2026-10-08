@@ -9,8 +9,9 @@ other comment is posted by the chain.
 
 from __future__ import annotations
 
+from culture_rules.apps.github import GitHubError
 from culture_rules.node.fixer_status import STATUS_COLLECTION
-from tests.rules.chain_world import ChainWorld
+from tests.rules.chain_world import ChainWorld, plain
 from tests.rules.test_pr_fixer_chain import FINDING, changes
 from tests.rules.test_pr_fixer_single import verdict_text
 
@@ -104,15 +105,15 @@ def test_a_deleted_status_comment_is_posted_again(tmp_path):
     w.fire()
     assert len(w.issues.posts) == 2
     assert record(w)["comment_id"] == 2
-    assert w.issues.bodies[2].startswith("PR fixer pushed the fix")
+    assert plain(w.issues.bodies[2]).startswith("PR fixer pushed the fix")
 
 
 def test_the_agents_notes_are_relayed_cleaned(tmp_path):
     w = ChainWorld(tmp_path)
     w.qwen.progress = [
+        f'tool_call: Shell: echo "STATUS: pushing with {GHP}"',  # refused, never stored
         'tool_call: Shell: echo "STATUS: reading the failing test, cc @mallory"',
         "tool_call: Shell: pytest -q",
-        f'tool_call: Shell: echo "STATUS: pushing with {GHP}"',
     ]
     w.fire()
     bodies = every_body(w)
@@ -129,5 +130,26 @@ def test_a_run_stopped_by_the_gitguardian_hold_posts_only_its_hand_back(tmp_path
     w.checks.runs = [gg_run()]
     w.fire()
     (post,) = w.issues.posts
-    assert post[2].startswith("PR fixer handed back (actor_failed): secrets_found")
+    assert plain(post[2]).startswith("PR fixer handed back (actor_failed): secrets_found")
     assert w.issues.edits == []
+
+
+def test_an_accepted_post_whose_answer_was_lost_is_adopted_not_repeated(tmp_path):
+    w = ChainWorld(tmp_path)
+    w.issues.lose_next_post = True
+    w.fire()
+    assert len(w.issues.posts) == 1
+    (body,) = w.comments()
+    assert body.startswith("PR fixer pushed the fix")
+    assert record(w)["outcome"] == "delivered"
+
+
+def test_the_chain_end_never_fails_when_github_refuses_the_comment(tmp_path):
+    w = ChainWorld(tmp_path)
+    w.issues.fail_posts = GitHubError("http_403")
+    w.fire()
+    for run in (*w.run_of("pr-fix"), *w.run_of("review-commit"), *w.run_of("publish-fix")):
+        assert run["status"] == "succeeded", (run["workflow_id"], run.get("error"))
+    assert len(w.push.calls) == 1
+    assert w.issues.posts == []
+    assert record(w)["outcome"] == "gave_up"

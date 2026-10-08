@@ -15,6 +15,7 @@ from __future__ import annotations
 import contextlib
 import copy
 import json
+import re
 import subprocess
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -208,21 +209,31 @@ class ChecksApp:
 
 class IssuesApp:
     """The App behind the real ``github.comment`` port (d26): posted comments, their edits
-    and their current bodies; editing a comment in ``deleted`` answers 404."""
+    and their current bodies. Editing a comment in ``deleted`` answers 404 (and it is no
+    longer listed); ``lose_next_post`` creates the next comment but answers 502."""
+
+    app_id = "1"  # tests/rules/test_pr_fixer_single.py APP_ACTOR's app_id
 
     def __init__(self) -> None:
         self.posts: list[tuple[str, int, str]] = []
         self.edits: list[tuple[str, int, str]] = []
         self.bodies: dict[int, str] = {}
         self.deleted: set[int] = set()
+        self.lose_next_post = False
+        self.fail_posts: Any = None
 
     def installation_token(self) -> str:
         return "token"
 
     def post_comment(self, repo, number, body):
+        if self.fail_posts is not None:
+            raise self.fail_posts
         self.posts.append((repo, number, body))
         comment_id = len(self.posts)
         self.bodies[comment_id] = body
+        if self.lose_next_post:
+            self.lose_next_post = False
+            raise GitHubError("http_502", retryable=True)
         return {"comment_id": comment_id, "url": f"https://github.com/{repo}#c{comment_id}"}
 
     def update_issue_comment(self, repo, comment_id, body):
@@ -231,6 +242,13 @@ class IssuesApp:
         self.edits.append((repo, comment_id, body))
         self.bodies[comment_id] = body
         return {"comment_id": comment_id, "url": "u"}
+
+    def list_issue_comments(self, repo, number):
+        return [
+            {"comment_id": n, "url": "u", "body": b, "app_id": self.app_id}
+            for n, b in sorted(self.bodies.items())
+            if n not in self.deleted
+        ]
 
 
 class GitHubDouble:
@@ -380,7 +398,7 @@ class ChainWorld:
 
     def _comment_port(self, base) -> GitHubCommentPort:
         """The real github.comment port (status comments included, d26) on a fake App."""
-        port = GitHubCommentPort(base, clock=self.c.clock, sleep=self.c.clock.advance)
+        port = GitHubCommentPort(base, clock=self.c.clock)
         port._app = lambda actor_id, conn, allowed: self.issues
         return port
 
@@ -431,7 +449,15 @@ class ChainWorld:
         return sorted(docs, key=lambda d: d["created_at"])
 
     def comments(self) -> list[str]:
-        """The current body of every comment posted, in posting order (edits applied)."""
+        """The current body of every comment posted, in posting order (edits applied),
+        unescaped (d26 escapes relayed text: compare words, not Markdown)."""
         if hasattr(self.comment, "calls"):
-            return [c[1]["body"] for c in self.comment.calls]
-        return [self.issues.bodies[n] for n in sorted(self.issues.bodies)]
+            return [plain(c[1]["body"]) for c in self.comment.calls]
+        return [plain(self.issues.bodies[n]) for n in sorted(self.issues.bodies)]
+
+
+def plain(body: str) -> str:
+    """Escaped Markdown back to its words: backslash escapes, entities and the zero-width
+    spaces after ``@`` removed (for assertions)."""
+    text = re.sub(r"\\(.)", r"\1", body).replace("\u200b", "")
+    return text.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")

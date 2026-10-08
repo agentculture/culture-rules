@@ -6,7 +6,7 @@
     "only_at_chain_end": true,
     "params": {
       "actor": "github-app",
-      "body": "PR fixer pushed the fix: gate {{ trigger.data.outputs.verdict }}, reviewed and approved, pushed {{ workflow.outputs.pushed }}, head {{ workflow.outputs.head_after }}.\n\nRun: https://rules.culture.dev/api/runs/{{ run.id }}",
+      "body": "PR fixer pushed the fix: gate {{ trigger.data.outputs.verdict }}, reviewed and approved, pushed {{ workflow.outputs.pushed }}, head {{ workflow.outputs.head_after }}.",
       "number": "trigger.data.number",
       "repo": "trigger.data.repository",
       "status": true
@@ -87,7 +87,7 @@
     "only_at_chain_end": true,
     "params": {
       "actor": "github-app",
-      "body": "PR fixer handed back ({{ run.error.code }}): {{ run.error.message }}\n\nRun: https://rules.culture.dev/api/runs/{{ run.id }}",
+      "body": "PR fixer handed back ({{ run.error.code }}): {{ run.error.message }}",
       "number": "trigger.data.number",
       "repo": "trigger.data.repository",
       "status": true

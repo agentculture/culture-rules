@@ -19,14 +19,14 @@ failure (5xx, 408, a network error, the deadline, an unreadable answer) may foll
 created comment, so the claim stays (state ``unknown``, with the error): at most once, never
 twice. A node that dies between the claim and the post leaves the claim too.
 
-``status`` (optional bool, d26): ``true`` writes the body as the **final section of the
-run's chain's status comment** (:mod:`culture_rules.node.fixer_status`) - the comment is
-edited, or posted when the chain has none - instead of posting another comment. It needs
-the run to be in a chain whose rules opt in (this action, or the rule's other one, with
-``status: true``) on the same repository and PR; otherwise it posts a plain comment. It
-cannot be combined with ``once_key``. The same port runs the node's status reporter
-(:meth:`GitHubCommentPort.status_tick`), so the reporter's edits and the final one share
-one lock.
+``status`` (optional bool, d26): ``true`` makes the body the **final section of the run's
+chain's status comment** (:mod:`culture_rules.node.fixer_status`). The action stores it as
+the chain's pending final (:meth:`~culture_rules.node.status_board.StatusBoard.finish`) and
+completes at once: it never calls GitHub and never fails the run; the node's status stage
+(:meth:`GitHubCommentPort.status_tick`, the same board) delivers it with retries. Outside a
+chain whose rules opt in (this action, or the rule's other one, with ``status: true``) on
+the same repository and PR, it posts a plain comment: the text made inert, then the run
+link. It cannot be combined with ``once_key``.
 """
 
 from __future__ import annotations
@@ -35,7 +35,6 @@ import hashlib
 import logging
 import re
 import threading
-import time
 from collections.abc import Callable, Mapping
 from concurrent.futures import Future
 from concurrent.futures import TimeoutError as FutureTimeout
@@ -108,7 +107,6 @@ class GitHubCommentPort:
         secrets: Callable[[str], str] | None = None,
         api_base: str = DEFAULT_API_BASE,
         clock: Callable[[], datetime] | None = None,
-        sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self._store = store
         self._transport = transport
@@ -117,7 +115,6 @@ class GitHubCommentPort:
         self._apps: dict[str, tuple[tuple[Any, ...], GitHubApp]] = {}
         self._resolve_slots = threading.BoundedSemaphore(RESOLVE_WORKERS)
         self._clock = clock
-        self._sleep = sleep
         self._board: Any = None
 
     def _connection(self, actor_id: str | None) -> Mapping[str, Any] | None:
@@ -244,11 +241,11 @@ class GitHubCommentPort:
 
     @property
     def status_board(self) -> Any:
-        """The :class:`~culture_rules.node.fixer_status.StatusBoard` of this port (lazily)."""
+        """The :class:`~culture_rules.node.status_board.StatusBoard` of this port (lazily)."""
         if self._board is None:
-            from culture_rules.node.fixer_status import StatusBoard  # noqa: PLC0415
+            from culture_rules.node.status_board import StatusBoard  # noqa: PLC0415
 
-            self._board = StatusBoard(self._store, clock=self._clock, sleep=self._sleep)
+            self._board = StatusBoard(self._store, clock=self._clock)
         return self._board
 
     def _status_app(self, actor_id: str, repo: str) -> GitHubApp:
@@ -281,14 +278,16 @@ class GitHubCommentPort:
     def _post_status(
         self, app: GitHubApp, repo: str, number: int, body: str, context: InvocationContext
     ) -> InvocationResult:
-        """``status: true`` (module doc): the body as the chain's final status section."""
+        """``status: true`` (module doc): the chain's pending final, or a plain inert
+        comment with the run link outside a status chain."""
+        from culture_rules.actors.secrets import known_values  # noqa: PLC0415
+        from culture_rules.node.fixer_status import plain_final  # noqa: PLC0415
+
         run = self._store.get("runs", context.run_id) if context.run_id else None
-        out = self.status_board.finish(self._status_app, run, body, where=(repo, number))
-        if out is None:  # not a status chain on this PR: a plain comment, as before
-            return self._post(app, repo, number, body)
-        if "error" in out:
-            return InvocationResult.failed(out["error"], retryable=out["retryable"])
-        return InvocationResult.completed(out)
+        out = self.status_board.finish(run, body, where=(repo, number))
+        if out is not None:
+            return InvocationResult.completed(out)
+        return self._post(app, repo, number, plain_final(body, context.run_id, known_values()))
 
     @staticmethod
     def _post(app: GitHubApp, repo: str, number: int, body: str) -> InvocationResult:
