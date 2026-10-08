@@ -49,10 +49,9 @@ A :class:`Node` on host ``H`` does, every cycle (:meth:`Node.run_once`):
    the jobs whose step attempt is over (:func:`~culture_rules.actors.agent.cancel_orphans`,
    d21 phase 2), so an orphaned agent session never holds a bridge's seat;
 7. **status** - the PR fixer's live status comments (d26,
-   :mod:`culture_rules.node.status_board`): for the App actors on this machine (or on
-   none), posts a fix chain's status comment once its first run is past its hold, edits it
-   as its stages move and delivers its pending final; leased per chain, paced, backed off,
-   and bounded per cycle (calls and seconds), after the drive stage;
+   :mod:`culture_rules.node.status_board`): the single writer of the status comments of
+   the App actors placed on this machine reconciles each to its desired state, bounded per
+   cycle (requests and seconds), after the drive stage;
 8. **report** - optional: posts finished runs this node started through
    :meth:`~culture_rules.engine.reports.RunReporter.observe`.
 

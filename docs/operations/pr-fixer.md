@@ -689,48 +689,60 @@ inert.
   minutes) gets an engine-worded final the same way. A final comment is
   never edited again.
 
-#### One writer, acknowledged, paced
+#### One writer, desired state
 
-- **Every write is a compare-and-set** on the record's revision `rev`. A
-  write that loses stops the work at hand; the next cycle re-reads.
-- **A lease** (`lease = {owner, until}`, 60 s, taken by compare-and-set)
-  must be held to post, edit, recreate or resolve. So two nodes never both
-  post, and never both recreate a deleted comment. The lease is renewed by
-  compare-and-set right before every call, and every call (resolving the
-  App's key included, through the port's bounded resolver) is bounded by
-  20 s, well inside the lease.
-- **The comment always ends final.** If a call still lands after another
-  node delivered the final (a process paused past its lease), the node
-  re-reads the record after every non-final edit and writes the final again
-  (`repair`; another node does it if this one cannot take the lease).
-- **States.** `none` (no comment: post it), `posting` (set before the POST),
-  `posted` (edit it), `unknown` (the POST's answer was lost), `unresolved`.
-  A deleted comment (the edit answers 404) goes back to `none` and is posted
-  again under the same lease.
-- **A lost POST answer is resolved, never repeated.** For a record left
-  `unknown` (or `posting` by a dead process) the node lists the PR's
-  comments, adopts the one this App posted (`performed_via_github_app.id`)
-  that carries the chain's hidden marker, and edits it from then on. If
-  there is none, the record gives up silently (`unresolved`) rather than
-  risk a second comment.
-- **Pacing.** Every write, final ones included, keeps 5 s after the previous
-  one; a change of the notes alone waits a minute.
+- **A single writer.** Only the node on the App actor's **placed machine**
+  writes status comments. The shipped `github-app` actor is placed on spark
+  (`tests/rules/fixtures/github-app.live.json`, `machine: spark`), so spark
+  is the writer. The record stores the machine when it is claimed, and a
+  node reads only its own machine's records. Its `status` stage is
+  single-threaded and works one record at a time. **An App actor without a
+  machine gets no live status comment:** `status: true` then posts a plain
+  chain-end comment, as before d26.
+- **Desired state.** The store holds the inputs: the chain's runs, the
+  agent's notes, the pending final text. Each cycle the writer renders the
+  comment they describe and hashes it (`desired_rev`). If GitHub has not
+  acknowledged that body (`acked_rev`), the writer edits the comment to it,
+  or posts it when there is none yet. `acked_rev` moves only on a 2xx. A
+  failed or ambiguous call (5xx, 408, a timeout, a network error) changes
+  nothing and is retried with backoff. Because the one writer always sends
+  the *current* desired body, the last write is the newest state: a stale
+  edit or an older final cannot stay on the comment. A record is done only
+  once the acknowledged body is the final body.
+- **Other writers change only inputs.** The chain-end action and the API
+  write the record's inputs; every store write is a compare-and-set on the
+  record's revision `rev`, and a write that loses stops the work at hand
+  (the next cycle re-reads).
+- **Posting at most once.** A post is recorded as `posting` before it is
+  sent. An ambiguous answer leaves it `posting`; the next cycle lists the
+  PR's comments, adopts the one this App posted
+  (`performed_via_github_app.id`) that carries the chain's hidden marker,
+  and edits it from then on. If there is none, the record gives up silently
+  (`unresolved`) rather than risk a second comment. A refused post (4xx),
+  or one never sent, goes back to `none`. A deleted comment (the edit
+  answers 404) is posted again.
+- **Pacing.** Writes keep 5 s apart, final ones included; a change of the
+  notes alone waits a minute.
 - **Backoff.** A failed call sets `retry_at` (5 s, doubling, at most 15
   minutes). `http_403`, `http_422`, and an App that cannot serve the repo
-  give up after 3 tries (`outcome: gave_up`). A pending final gives up after
-  24 hours.
-- **Budget.** One `status` stage makes at most 10 HTTP requests (token
-  exchanges and every page of a comment listing included, each charged
-  before it is sent) within 10 seconds, so it never holds up the node's
-  pushes for long. Work the budget stops waits for the next cycle without
-  counting as a failure.
-- **Housekeeping.** The node declares the indexes these queries use
-  (records with pending work, final records by date, a key's runs by date, a
-  run's bridge invocations). A record is read while it has pending work
-  (`pending`: not final, or a final to repair), never by its age, so a
-  stored final is always delivered or given up. A record with no activity
-  for 7 days gives up. Final records are dropped 30 days after they became
-  final.
+  give up after 3 tries (`outcome: gave_up`).
+- **Every pending record ends.** A final still undelivered 24 hours after
+  it was asked, or a record with no activity for 7 days (whatever it is
+  retrying), gives up (`gave_up`, final, no longer pending). Retention then
+  drops it 30 days later.
+- **Bounded calls.** One `status` stage makes at most 10 HTTP requests
+  (token exchanges and every page of a comment listing included, each
+  charged before it is sent) within 10 seconds, after the drive stage. Each
+  call, resolving the App's key included (through the port's bounded
+  resolver), has a 20 s deadline covering connect, send and the whole read:
+  the transport reads the response in chunks against that deadline (and a
+  size cap), so a trickling response cannot outlast it. Work the budget
+  stops waits for the next cycle without counting as a failure.
+- **Fair selection.** A cycle reads its machine's pending records that are
+  due (`retry_at` up to now), ordered by `retry_at`, page by page; a written
+  or failed record moves to the back. The node declares the indexes these
+  queries use (a machine's due records, final records by date, a key's runs
+  by date, a run's bridge invocations).
 
 A pushed fix after one re-fix reads (ids and SHAs made up; relayed text is
 backslash-escaped, so it renders as plain words):

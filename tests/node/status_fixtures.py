@@ -50,6 +50,8 @@ class Issues:
         self.fail_edit: list[GitHubError] = []
         self.fail_post: list[GitHubError] = []
         self.lose_post = False
+        self.lose_edit = False  # the next edit lands, then its answer is lost (502)
+        self.list_fails = False
         self.deleted: set[int] = set()
         self.others: list[dict] = []  # comments by someone else
         self.next_id = 100
@@ -99,10 +101,15 @@ class Issues:
             raise self.fail_edit.pop(0)
         self.edits.append((repo, comment_id, body))
         self.bodies[comment_id] = body
+        if self.lose_edit:
+            self.lose_edit = False
+            raise GitHubError("http_502", retryable=True)
         return {"comment_id": comment_id, "url": "u"}
 
     def list_issue_comments(self, repo, number):
         self._request(self.pages)
+        if self.list_fails:
+            raise GitHubError("http_502", retryable=True)
         self.listed += 1
         mine = [
             {"comment_id": n, "url": f"u{n}", "body": b, "app_id": self.app_id}
@@ -158,3 +165,14 @@ def set_steps(store, run_id: str = RUN, **status) -> None:
 def set_run(store, run_id: str = RUN, **fields) -> None:
     run = store.get("runs", run_id)
     store.put("runs", {**run, **fields})
+
+
+APP_ACTOR = {
+    "id": "github-app",
+    "name": "GitHub App",
+    "kind": "app",
+    "machine": "spark",
+    "params": {"surface": "github", "connection": {"app_id": APP_ID, "repos": [REPO]}},
+    "schema_version": "1.0",
+}
+"""The App actor, placed on spark: the status comments' single writer."""

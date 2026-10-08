@@ -21,12 +21,14 @@ twice. A node that dies between the claim and the post leaves the claim too.
 
 ``status`` (optional bool, d26): ``true`` makes the body the **final section of the run's
 chain's status comment** (:mod:`culture_rules.node.fixer_status`). The action stores it as
-the chain's pending final (:meth:`~culture_rules.node.status_board.StatusBoard.finish`) and
-completes at once: it never calls GitHub and never fails the run; the node's status stage
-(:meth:`GitHubCommentPort.status_tick`, the same board) delivers it with retries. Outside a
-chain whose rules opt in (this action, or the rule's other one, with ``status: true``) on
-the same repository and PR, it posts a plain comment: the text made inert, then the run
-link. It cannot be combined with ``once_key``.
+the chain's pending final (:meth:`~culture_rules.node.status_board.StatusBoard.finish`)
+before any credential is resolved and completes at once: it never calls GitHub and never
+fails the run; the status stage of the node on the App actor's machine - the comment's
+single writer (:meth:`GitHubCommentPort.status_tick`) - delivers it. Outside a chain whose
+rules opt in (this action, or the rule's other one, with ``status: true``) on the same
+repository and PR, or when the App actor has no machine (no single writer, so no live
+status), it posts a plain comment: the text made inert, then the run link. It cannot be
+combined with ``once_key``.
 """
 
 from __future__ import annotations
@@ -265,19 +267,11 @@ class GitHubCommentPort:
             raise GitHubError(SECRET_UNAVAILABLE)
         return app
 
-    def _serves(self, actor_id: str, host: str) -> bool:
-        """Whether a node on ``host`` acts as App ``actor_id``: an enabled actor placed on
-        that machine, or on none (where its key resolves)."""
-        doc = self._store.get(ACTORS_COLLECTION, actor_id)
-        if not doc or doc.get("deleted_at") or doc.get("enabled") is False:
-            return False
-        machine = doc.get("machine")
-        return not machine or machine == host
-
     def status_tick(self, host: str) -> int:
-        """The node's status reporter (:meth:`StatusBoard.tick`) for the App actors on
-        ``host``; returns how many status comments it posted or edited."""
-        return self.status_board.tick(self._status_app, lambda actor: self._serves(actor, host))
+        """The node's status stage (:meth:`StatusBoard.tick`): the single writer of the
+        status comments of the App actors placed on ``host``; returns how many writes GitHub
+        acknowledged."""
+        return self.status_board.tick(self._status_app, host)
 
     def _post_status(
         self,

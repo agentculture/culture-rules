@@ -581,14 +581,13 @@ def test_status_false_is_an_ordinary_comment(pem):
     assert res.outcome == "completed"
 
 
-def test_the_reporter_acts_only_for_the_app_actors_on_its_host(pem):
+def test_only_the_app_actors_machine_writes_status_comments(pem):
     port, _ = setup(pem, Fake(), doc={**actor_doc(), "machine": "spark"})
-    assert port._serves("gh-app", "spark") is True
-    assert port._serves("gh-app", "spark2") is False
-    assert port._serves("missing", "spark") is False
+    assert port.status_board.machine_of("gh-app") == "spark"
+    assert port.status_board.machine_of("missing") is None
     unplaced, _ = setup(pem, Fake())
-    assert unplaced._serves("gh-app", "anywhere") is True
-    assert unplaced.status_tick("spark") == 0  # no runs: nothing to post
+    assert unplaced.status_board.machine_of("gh-app") is None  # no single writer
+    assert unplaced.status_tick("spark") == 0
 
 
 def test_a_status_final_is_stored_before_any_credential_is_resolved(pem):
@@ -597,7 +596,7 @@ def test_a_status_final_is_stored_before_any_credential_is_resolved(pem):
 
     store = MemoryStore()
     doc = actor_doc(repos=["o/r"])
-    store.put("actors", {**doc, "id": "github-app"})
+    store.put("actors", {**doc, "id": "github-app", "machine": "spark"})
     run = fix_run(status="failed")
     store.put("runs", run)
     resolved = []
@@ -632,7 +631,7 @@ def test_a_slow_key_resolve_never_holds_the_status_stage_past_its_budget(pem):
     from tests.node.status_fixtures import fix_run
 
     store = MemoryStore()
-    store.put("actors", {**actor_doc(repos=["o/r"]), "id": "github-app"})
+    store.put("actors", {**actor_doc(repos=["o/r"]), "id": "github-app", "machine": "spark"})
     store.put("runs", fix_run())
     release = threading.Event()
 
