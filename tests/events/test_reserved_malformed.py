@@ -46,8 +46,9 @@ def test_a_missing_type_is_left_to_the_existing_handling():
 @pytest.mark.parametrize("kind", [[], {}])
 def test_the_webhook_sink_refuses_a_non_string_type_as_bad_input(kind):
     actor = {"id": "a", "kind": "app", "params": {"surface": "github", "events": []}}
+    store = MemoryStore()
     with pytest.raises(ValueError, match="type must be a non-empty string"):
-        sink(MemoryStore(), actor, kind, {}, "d1", "alice")
+        sink(store, actor, kind, {}, "d1", "alice")
 
 
 # --------------------------------------------------------------------------- Codex round 4
@@ -82,8 +83,9 @@ def test_the_bus_never_stores_it_and_its_cursor_advances(field, value):
 @pytest.mark.parametrize("value", BAD, ids=BAD_IDS)
 def test_the_webhook_sink_rejects_a_bad_type_with_its_documented_error(value):
     actor = {"id": "a", "kind": "app", "params": {"surface": "github", "events": []}}
+    store = MemoryStore()
     with pytest.raises(ValueError, match="type must be a non-empty string"):
-        sink(MemoryStore(), actor, value, {}, "d1", "alice")
+        sink(store, actor, value, {}, "d1", "alice")
 
 
 def test_an_absent_field_keeps_todays_handling():
