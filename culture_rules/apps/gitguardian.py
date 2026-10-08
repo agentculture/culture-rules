@@ -14,16 +14,24 @@ diff of the commit, ``...#diff-<hash>R<line>``).
 The ``Secret`` column is the detector (the secret's *type*), never its value; GitGuardian
 puts no value in the table. :func:`parse_findings` reads each row into ``{incident,
 incident_url, status, type, commit, file, line}`` and keeps nothing else: the line is the
-``R<n>`` anchor of the "View secret" link (``None`` without one), the incident link is kept
-only when it is an ``https`` URL on a ``gitguardian.com`` host, every text cell is cleaned
-of markdown that could break out of a table cell or a code span (backticks, pipes, angle
-brackets, links), and a commit is kept only when it is 7 to 40 hex digits.
+``R<n>`` anchor of the "View secret" link (``None`` without one; the link itself is never
+kept), every text cell is cleaned of markdown that could break out of a table cell or a
+code span (backticks, pipes, angle brackets, links), and a commit is kept only when it is 7
+to 40 hex digits. GitGuardian's incident URL is never echoed: when the raw link is exactly
+``https://dashboard.gitguardian.com/workspace/<digits>/incidents/<the row's
+id>[?occurrence=<digits>]`` the link is *rebuilt* from those digits, else it is dropped
+and only the id is kept (an entity such as ``&sol;`` that Markdown would decode never
+survives).
 
-The parse is tolerant: columns are found by their header (any order, extra whitespace,
-missing columns read as ``None``), several tables are read in turn, separator rows and
-anything outside a table are skipped, and a row with none of incident, type, file and commit
-is dropped. :func:`check_state` folds the App's check runs of one commit into ``absent`` /
-``pending`` / ``failing`` / ``clean``: only a completed run concluded ``failure`` is
+Only a recognizable findings table is read: a header row naming at least the ``Secret``
+and ``Filename`` columns (any order, extra whitespace; other columns optional and read as
+``None`` when missing), *immediately* followed by a ``|---|`` separator row, then the
+contiguous rows up to the first line that is not a table row. Lines inside ``` or ~~~
+fences and indented code blocks are never table rows. Several tables are read in turn,
+and a row with none of incident, type, file and commit is dropped.
+
+:func:`check_state` folds the App's check runs of one commit into ``absent`` / ``pending``
+/ ``failing`` / ``clean``: only a completed run concluded ``failure`` is
 ``failing``; ``neutral`` (GitGuardian's "Could not complete scanning" on a PR too large to
 scan) is ``clean``, never a finding.
 """
@@ -33,7 +41,6 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable, Mapping
 from typing import Any
-from urllib.parse import urlsplit
 
 __all__ = [
     "APP_SLUG",
@@ -72,6 +79,12 @@ HEADERS: dict[str, str] = {
     "": VIEW,
 }
 _TABLE_MARKERS = frozenset((TYPE, FILE))
+_FENCE = re.compile(r"^(`{3,}|~{3,})")
+_CODE_INDENT = 4
+_INCIDENT_URL = re.compile(
+    r"https://dashboard\.gitguardian\.com/workspace/(\d{1,20})/incidents/(\d{1,20})"
+    r"(?:\?occurrence=(\d{1,20}))?"
+)
 
 _CELL_SPLIT = re.compile(r"(?<!\\)\|")
 _SEPARATOR = re.compile(r"^:?-+:?$")
@@ -98,22 +111,18 @@ def _clean(value: Any, limit: int = TEXT_MAX) -> str | None:
 
 
 def _incident(cell: str) -> tuple[str | None, str | None]:
-    """``(id, url)`` of the incident cell: the id is its digits; the URL only an https link
-    on a gitguardian.com host."""
+    """``(id, url)`` of the incident cell: the id is the digits of its text (else of a
+    rebuilt link); the URL is rebuilt from validated digits only (module doc)."""
     match = _LINK.search(cell)
-    text, url = (match.group(1), match.group(2)) if match else (cell, "")
+    text, raw = (match.group(1), match.group(2)) if match else (cell, "")
     digits = _DIGITS.search(text)
-    return (digits.group(0) if digits else None), _incident_url(url)
-
-
-def _incident_url(url: str) -> str | None:
-    try:
-        parts = urlsplit(url)
-    except ValueError:
-        return None
-    host = (parts.hostname or "").lower()
-    trusted = host == "gitguardian.com" or host.endswith(".gitguardian.com")
-    return url if parts.scheme == "https" and trusted else None
+    ident = digits.group(0) if digits else None
+    link = _INCIDENT_URL.fullmatch(raw)
+    if link is None or (ident is not None and link.group(2) != ident):
+        return ident, None
+    workspace, incident, occurrence = link.groups()
+    url = f"https://dashboard.gitguardian.com/workspace/{workspace}/incidents/{incident}"
+    return incident, url + (f"?occurrence={occurrence}" if occurrence else "")
 
 
 def _commit(cell: str) -> str | None:
@@ -145,7 +154,7 @@ def _header(cells: list[str]) -> dict[str, int] | None:
         field = HEADERS.get(_SPACES.sub(" ", cell).strip().lower())
         if field is not None and field not in columns:
             columns[field] = index
-    return columns if _TABLE_MARKERS & columns.keys() else None
+    return columns if _TABLE_MARKERS <= columns.keys() else None
 
 
 def _finding(cells: list[str], columns: Mapping[str, int]) -> dict[str, Any] | None:
@@ -167,19 +176,54 @@ def _finding(cells: list[str], columns: Mapping[str, int]) -> dict[str, Any] | N
     return found if any(found[k] for k in keys) else None
 
 
+class _TableReader:
+    """Line by line: fences, then a known header, its separator, and contiguous rows."""
+
+    def __init__(self) -> None:
+        self.fence: str | None = None
+        self.header: dict[str, int] | None = None
+        self.columns: dict[str, int] | None = None
+
+    def _reset(self) -> None:
+        self.header = self.columns = None
+
+    def _fenced(self, line: str) -> bool:
+        """Whether ``line`` opens, closes or sits inside a fenced code block."""
+        marker = _FENCE.match(line)
+        if self.fence is None:
+            if marker is None:
+                return False
+            self.fence = marker.group(1)[0]
+            return True
+        if marker is not None and marker.group(1)[0] == self.fence:
+            self.fence = None
+        return True
+
+    def feed(self, raw: str) -> dict[str, Any] | None:
+        line = raw.strip()
+        indent = len(raw) - len(raw.lstrip())
+        if self._fenced(line) or indent >= _CODE_INDENT or not line.startswith("|"):
+            self._reset()  # anything outside a table ends it
+            return None
+        cells = _cells(line)
+        if self.columns is not None:
+            return None if _is_separator(cells) else _finding(cells, self.columns)
+        if self.header is not None and _is_separator(cells):
+            self.columns, self.header = self.header, None
+            return None
+        self.header = _header(cells)
+        return None
+
+
+def _is_separator(cells: list[str]) -> bool:
+    filled = [c.replace(" ", "") for c in cells if c.strip()]
+    return bool(filled) and all(_SEPARATOR.match(c) for c in filled)
+
+
 def _rows(text: str) -> Iterable[dict[str, Any]]:
-    columns: dict[str, int] | None = None
+    reader = _TableReader()
     for raw in text.splitlines():
-        if not raw.strip().startswith("|"):
-            columns = None  # anything outside a table ends it
-            continue
-        cells = _cells(raw)
-        if columns is None:
-            columns = _header(cells)
-            continue
-        if all(_SEPARATOR.match(c.replace(" ", "")) for c in cells if c):
-            continue
-        found = _finding(cells, columns)
+        found = reader.feed(raw)
         if found is not None:
             yield found
 

@@ -264,3 +264,30 @@ def test_the_node_wires_both_builtins():
     assert isinstance(code._builtins[HOLD_BUILTIN], GitGuardianPort)
     assert code._builtins[HOLD_BUILTIN]._hold is True
     assert code._builtins[FINDINGS_BUILTIN]._hold is False
+
+
+# --------------------------------------------------------------------------- Codex review (d25)
+
+
+def test_the_view_secret_link_is_never_rendered():
+    out = invoke(port(ChecksApp([gg_run()]))).output
+    assert "/commit/" not in out["comment"]
+    assert "#diff-" not in out["comment"]
+    assert "/commit/" not in repr(out["findings"])
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://github.com/agentculture/r/runs/1&sol;@evil.example",
+        "https://github.com/agentculture/r/runs/1?x=https://evil.example",
+        "https://github.com/agentculture/r/pull/1",
+        "https://github.com.evil.example/agentculture/r/runs/1",
+    ],
+)
+def test_a_check_url_that_does_not_parse_exactly_is_dropped(url):
+    run = {**gg_run(text="x"), "html_url": url}
+    out = invoke(port(ChecksApp([run]))).output
+    assert out["check_url"] is None
+    assert "evil" not in out["comment"]
+    assert "](" not in out["comment"]

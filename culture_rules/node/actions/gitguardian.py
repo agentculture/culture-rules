@@ -69,7 +69,10 @@ REMEDIATION = (
 )
 HOLD_NOTE = "The PR fixer does not touch secrets and stays off this PR until GitGuardian passes."
 _SHA = re.compile(r"^[0-9a-fA-F]{7,40}$")
-_CHECK_URL = re.compile(r"^https://github\.com/[^\s()<>]+$")
+_CHECK_URL = re.compile(
+    r"https://github\.com/([A-Za-z0-9][A-Za-z0-9-]{0,38})/([A-Za-z0-9._-]{1,100})"
+    r"/runs/(\d{1,20})"
+)
 _NONE = "—"
 STATE, TOTAL, OMITTED = "state", "total", "omitted"
 
@@ -146,9 +149,7 @@ def read_report(runs: list[Any], slug: str, cap: int) -> dict[str, Any]:
         found, rows = parse_findings(run.get("text"), cap - len(findings))
         findings += found
         total += max(rows, title_count(run.get("title")) or 0)
-        url = run.get("html_url")
-        if check_url is None and isinstance(url, str) and _CHECK_URL.match(url):
-            check_url = url
+        check_url = check_url or _check_url(run.get("html_url"))
     omitted = max(total - len(findings), 0)
     return {
         STATE: state,
@@ -158,6 +159,16 @@ def read_report(runs: list[Any], slug: str, cap: int) -> dict[str, Any]:
         "truncated": omitted > 0,
         "check_url": check_url,
     }
+
+
+def _check_url(url: Any) -> str | None:
+    """The check run's link, rebuilt from its validated parts (owner, repo, run id) - never
+    echoed - or None when it is not exactly ``https://github.com/<owner>/<repo>/runs/<id>``."""
+    match = _CHECK_URL.fullmatch(url) if isinstance(url, str) else None
+    if match is None:
+        return None
+    owner, repo, run_id = match.groups()
+    return f"https://github.com/{owner}/{repo}/runs/{run_id}"
 
 
 def _short(sha: Any) -> str:

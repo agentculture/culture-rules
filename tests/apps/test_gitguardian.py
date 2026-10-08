@@ -83,12 +83,12 @@ def test_columns_are_found_by_header_in_any_order_with_padding():
     text = (
         "|   Filename   |  Secret |   Commit  | GitGuardian id |\n"
         "| :--- | :---: | ---: | --- |\n"
-        f"|   src/a.py   |   AWS Keys   | {SHA[:12]} |  [9]({INCIDENT_URL})  |\n"
+        f"|   src/a.py   |   AWS Keys   | {SHA[:12]} |  [12345678]({INCIDENT_URL})  |\n"
     )
     (found,), total = parse_findings(text)
     assert total == 1
     assert found == {
-        "incident": "9",
+        "incident": "12345678",
         "incident_url": INCIDENT_URL,
         "status": None,
         "type": "AWS Keys",
@@ -197,3 +197,70 @@ def test_another_apps_failing_run_is_not_gitguardians():
     other = {**gg_run(), "app_slug": "github-actions"}
     assert failing_runs([other, gg_run(conclusion="success")]) == []
     assert check_state([other, gg_run(conclusion="success")]) == "clean"
+
+
+# --------------------------------------------------------------------------- Codex review (d25)
+
+
+OUTSIDE = "OUTSIDE_TABLE_SECRET"
+
+
+@pytest.mark.parametrize("fence", ["```", "~~~", "````"])
+def test_a_fenced_block_is_never_read_as_a_table(fence):
+    text = f"{fence}\n{HEADER}\n| 1 | Triggered | {OUTSIDE} | {SHA} | a.py | |\n{fence}\n"
+    assert parse_findings(text) == ([], 0)
+    assert parse_findings(SAMPLE + "\n" + text) == ([FINDING], 1)
+
+
+def test_a_header_without_its_separator_row_is_no_table():
+    text = f"| Secret | Filename |\n| {OUTSIDE} | a.py |\n"
+    assert parse_findings(text) == ([], 0)
+
+
+def test_a_separator_must_follow_the_header_immediately():
+    header, separator = HEADER.split("\n")
+    text = f"{header}\n| {OUTSIDE} | x | y | {SHA} | a.py | |\n{separator}\n{ROW}\n"
+    assert parse_findings(text) == ([], 0)
+
+
+def test_a_table_ends_at_the_first_non_table_line():
+    text = f"{HEADER}\n{ROW}\nprose\n| 2 | Triggered | {OUTSIDE} | {SHA} | b.py | |\n"
+    found, total = parse_findings(text)
+    assert total == 1
+    assert OUTSIDE not in repr(found)
+
+
+def test_an_indented_code_block_is_no_table():
+    text = "\n".join("    " + line for line in (HEADER + "\n" + ROW).split("\n"))
+    assert parse_findings(text) == ([], 0)
+
+
+def test_a_table_needs_both_the_secret_and_the_filename_columns():
+    text = f"| Secret | Commit |\n|---|---|\n| {OUTSIDE} | {SHA} |\n"
+    assert parse_findings(text) == ([], 0)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://evil.example&sol;@dashboard.gitguardian.com/workspace/1/incidents/12345678",
+        "https://dashboard.gitguardian.com/workspace/1/incidents/12345678&#41;",
+        "https://dashboard.gitguardian.com/workspace/1/incidents/12345678?x=https://evil.example",
+        "https://dashboard.gitguardian.com.evil.example/workspace/1/incidents/12345678",
+        "https://dashboard.gitguardian.com/workspace/1/incidents/99",  # not this incident
+        "https://other.gitguardian.com/workspace/1/incidents/12345678",
+    ],
+)
+def test_an_incident_link_that_does_not_parse_exactly_is_dropped(url):
+    row = ROW.replace(INCIDENT_URL, url)
+    (found,), _ = parse_findings(f"{HEADER}\n{row}")
+    assert found["incident"] == "12345678"
+    assert found["incident_url"] is None
+
+
+def test_the_incident_link_is_rebuilt_from_its_digits():
+    url = "https://dashboard.gitguardian.com/workspace/111/incidents/12345678"
+    (found,), _ = parse_findings(f"{HEADER}\n{ROW.replace(INCIDENT_URL, url)}")
+    assert found["incident_url"] == url
+    (found,), _ = parse_findings(SAMPLE)
+    assert found["incident_url"] == INCIDENT_URL  # with ?occurrence=<digits>
