@@ -728,10 +728,15 @@ inert.
   the *current* desired body, the last write is the newest state: a stale
   edit or an older final cannot stay on the comment. A record is done only
   once the acknowledged body is the final body.
-- **Other writers change only inputs.** The chain-end action and the API
-  write the record's inputs; every store write is a compare-and-set on the
-  record's revision `rev`, and a write that loses stops the work at hand
-  (the next cycle re-reads).
+- **Field ownership.** The chain-end action and the API own the record's
+  inputs (`final_text`, `final_run`, `final_requested_at`); the writer owns
+  the delivery state (state, comment, `acked_rev`, `retry_at`, failures,
+  outcome, the final and pending flags). Every write re-reads the record and
+  re-applies only its own fields on the fresh document by compare-and-set,
+  retrying a lost one, so a final stored while the writer is mid-call is
+  never dropped and never turns an unsent post into `unresolved`. An input
+  write leaves the record pending; a writer's ending decided on older inputs
+  (a final delivered, a horizon) is not applied over newer ones.
 - **Posting at most once.** A post is recorded as `posting` before it is
   sent. An ambiguous answer leaves it `posting`; the next cycle lists the
   PR's comments, adopts the one this App posted

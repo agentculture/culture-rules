@@ -15,9 +15,13 @@ enforced by a watchdog) by a margin, so a call never outlives the lease it start
 moving the actor to another machine transfers the writer once the old lease expires.
 Records are selected by actor, so a move strands none. An App actor without a machine gets
 no live status comment: ``status: true`` then falls back to a plain chain-end comment.
-Other writers (the API and the chain-end action through :meth:`StatusBoard.finish`) only
-change the record's *inputs*; every store write is a compare-and-set on the record's
-revision ``rev``, and a lost one stops the work at hand (the next tick re-reads).
+**Field ownership.** :meth:`StatusBoard.finish` (and the API) own the record's *inputs*
+(``final_text``, ``final_run``, ``final_requested_at``); the writer owns the delivery state
+(state, comment, ``acked_rev``, ``retry_at``, failures, outcome, the final and pending
+flags it sets). Every write re-reads the record and re-applies only its own fields on the
+fresh document by compare-and-set, retrying a lost one, so no write is dropped; an
+input write leaves ``pending`` true, and a writer's ending decided on old inputs (a final
+delivered, a horizon) is not applied over newer ones.
 
 **Desired state.** Each tick the writer renders the comment the store's inputs describe -
 the chain's runs, the agent's notes, the pending final text - and hashes it
@@ -169,6 +173,14 @@ _ACKED_REV, _ACKED_AT, _ACKED_STAGES = "acked_rev", "acked_at", "acked_stage_sig
 _DESIRED_REV = "desired_rev"
 NONE, POSTING, POSTED, UNRESOLVED = "none", "posting", "posted", "unresolved"
 _FINAL_TEXT_CAP = 20_000
+_INPUT_FIELDS = (_FINAL_TEXT, _FINAL_RUN, _FINAL_ASKED)
+"""The record's inputs, owned by :meth:`StatusBoard.finish` (and the API); every other
+field is the writer's delivery state."""
+_CAS_TRIES = 8
+
+
+def _inputs(doc: Mapping[str, Any]) -> tuple[Any, ...]:
+    return tuple(doc.get(k) for k in _INPUT_FIELDS)
 
 
 def ensure_status_indexes(store: Any) -> None:
@@ -344,14 +356,56 @@ class StatusBoard:
 
     # ------------------------------------------------------------------ the record
 
-    def _save(self, doc: Mapping[str, Any], changes: Mapping[str, Any]) -> dict[str, Any] | None:
-        """Compare-and-set ``changes`` on the record's revision: the new record, or None when
-        another writer (the API, :meth:`finish`) moved it first; the caller stops."""
-        rev = doc.get(_REV, 0)
-        res = self._store.update_if(
-            STATUS_COLLECTION, doc[_ID], {_REV: rev}, {**changes, _REV: rev + 1}
-        )
-        return dict(res.document) if res.won and res.document is not None else None
+    def _apply(
+        self,
+        doc: Mapping[str, Any],
+        changes: Mapping[str, Any],
+        *,
+        ending: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        """A writer transition: re-read the record and re-apply only the writer's own
+        fields (``changes``: delivery state) on the fresh document, by compare-and-set,
+        retrying a lost one - never dropping it. ``ending`` (final, outcome, pending: a
+        decision taken on ``doc``'s inputs) is applied only while the inputs are still
+        those ``doc`` had; after :meth:`finish` wrote new ones the record stays pending.
+        The fresh record, or None when it is gone or every try was lost."""
+        basis = _inputs(doc)
+        for _ in range(_CAS_TRIES):
+            fresh = self._store.get(STATUS_COLLECTION, doc[_ID])
+            if fresh is None:
+                return None
+            out = dict(changes)
+            if ending and _inputs(fresh) == basis:
+                out.update(ending)
+            rev = fresh.get(_REV, 0)
+            res = self._store.update_if(
+                STATUS_COLLECTION, doc[_ID], {_REV: rev}, {**out, _REV: rev + 1}
+            )
+            if res.won and res.document is not None:
+                return dict(res.document)
+        log.warning("status comment of chain %s: a write lost %d times", doc[_ID], _CAS_TRIES)
+        return None
+
+    def _set_inputs(
+        self, doc_id: str, inputs: Mapping[str, Any], *, only_if_unset: bool = False
+    ) -> dict[str, Any] | None:
+        """An input write (:meth:`finish`, or the writer's own closing words): only the
+        input fields, re-applied on the fresh record by compare-and-set, and ``pending``
+        derived (a record not final with a final to deliver is pending). With
+        ``only_if_unset`` a final already stored is kept."""
+        for _ in range(_CAS_TRIES):
+            fresh = self._store.get(STATUS_COLLECTION, doc_id)
+            if fresh is None or fresh.get(_FINAL):
+                return fresh
+            if only_if_unset and fresh.get(_FINAL_TEXT) is not None:
+                return fresh
+            rev = fresh.get(_REV, 0)
+            out = {**inputs, _PENDING: True, _REV: rev + 1}
+            res = self._store.update_if(STATUS_COLLECTION, doc_id, {_REV: rev}, out)
+            if res.won and res.document is not None:
+                return dict(res.document)
+        log.warning("status comment of chain %s: inputs lost %d times", doc_id, _CAS_TRIES)
+        return None
 
     def _claim(self, root: Mapping[str, Any], target: _Target) -> dict[str, Any] | None:
         now = iso(self._clock())
@@ -516,7 +570,7 @@ class StatusBoard:
             return self._resolve(ctx, doc)
         root = self._store.get(_RUNS, doc[_ID])
         if root is None:
-            self._end(doc, "gone")
+            self._end(doc, "gone", on_inputs=False)
             return 0
         chain = self.chain(root)
         doc = self._closing(doc, chain)
@@ -562,8 +616,8 @@ class StatusBoard:
                 text = "PR fixer: the chain ended."
         if text is None:
             return doc
-        changes = {_FINAL_TEXT: text, _FINAL_RUN: last.get(_ID), _FINAL_ASKED: iso(self._clock())}
-        return self._save(doc, changes)
+        inputs = {_FINAL_TEXT: text, _FINAL_RUN: last.get(_ID), _FINAL_ASKED: iso(self._clock())}
+        return self._set_inputs(doc[_ID], inputs, only_if_unset=True)
 
     def _desired(self, doc: Mapping[str, Any], chain: Chain) -> _Desired:
         text = doc.get(_FINAL_TEXT)
@@ -582,9 +636,17 @@ class StatusBoard:
         notes_only = not desired.final and doc.get(_ACKED_STAGES) == desired.stages
         return not notes_only or since >= NOTES_EVERY_S
 
-    def _end(self, doc: Mapping[str, Any], outcome: str) -> None:
+    def _ending(self, outcome: str) -> dict[str, Any]:
         now = iso(self._clock())
-        self._save(doc, {_FINAL: True, _FINAL_AT: now, _OUTCOME: outcome, _PENDING: False})
+        return {_FINAL: True, _FINAL_AT: now, _OUTCOME: outcome, _PENDING: False}
+
+    def _end(self, doc: Mapping[str, Any], outcome: str, *, on_inputs: bool = True) -> None:
+        """End the record. ``on_inputs``: the decision rests on ``doc``'s inputs (delivered,
+        a horizon), so it holds only while they are unchanged."""
+        if on_inputs:
+            self._apply(doc, {}, ending=self._ending(outcome))
+        else:
+            self._apply(doc, self._ending(outcome))
 
     # ------------------------------------------------------------------ GitHub
 
@@ -618,7 +680,7 @@ class StatusBoard:
     def _acked(self, desired: _Desired) -> dict[str, Any]:
         """The changes of an acknowledged write: the body GitHub has now."""
         now = self._clock()
-        changes = {
+        return {
             _ACKED_REV: desired.rev,
             _DESIRED_REV: desired.rev,
             _ACKED_STAGES: desired.stages,
@@ -626,13 +688,13 @@ class StatusBoard:
             _FAILURES: 0,
             _RETRY_AT: iso(now + timedelta(seconds=EDIT_FLOOR_S)),
         }
-        if desired.final:
-            changes.update({_FINAL: True, _FINAL_AT: iso(now), _OUTCOME: "delivered"})
-            changes[_PENDING] = False
-        return changes
+
+    def _acked_ending(self, desired: _Desired) -> dict[str, Any] | None:
+        """A final body acknowledged ends the record (while its inputs are unchanged)."""
+        return self._ending("delivered") if desired.final else None
 
     def _post(self, ctx: _Ctx, doc: dict[str, Any], desired: _Desired) -> int:
-        doc = self._save(doc, {_STATE: POSTING, _DESIRED_REV: desired.rev})
+        doc = self._apply(doc, {_STATE: POSTING, _DESIRED_REV: desired.rev})
         if doc is None:
             return 0
 
@@ -644,14 +706,14 @@ class StatusBoard:
             self._post_failed(doc, out)
             return 0
         found = {_STATE: POSTED, _COMMENT_ID: out.get(_COMMENT_ID), _URL: out.get(_URL)}
-        self._save(doc, {**found, **self._acked(desired)})
+        self._apply(doc, {**found, **self._acked(desired)}, ending=self._acked_ending(desired))
         return 1
 
     def _post_failed(self, doc: dict[str, Any], failure: _Failure) -> None:
         """Never sent, or refused (4xx): no comment exists, ``none``; ambiguous: the post
         may have landed, it stays ``posting`` and is resolved next tick."""
         if failure.code in _WAITS:
-            self._save(doc, {_STATE: NONE})
+            self._apply(doc, {_STATE: NONE})
             return
         log.warning("status comment of chain %s not posted: %s", doc[_ID], failure.code)
         landed = failure.sent and not _refused(failure.code)
@@ -666,13 +728,13 @@ class StatusBoard:
             return 0
         if isinstance(out, _Failure) and out.code == "http_404":
             log.info("status comment of chain %s was deleted: posting it again", doc[_ID])
-            fresh = self._save(doc, {_STATE: NONE, _COMMENT_ID: None, _ACKED_REV: None})
+            fresh = self._apply(doc, {_STATE: NONE, _COMMENT_ID: None, _ACKED_REV: None})
             return self._post(ctx, fresh, desired) if fresh else 0
         if isinstance(out, _Failure):  # acked_rev unchanged: the next try sends what is due
             log.warning("status comment of chain %s not edited: %s", doc[_ID], out.code)
             self._fail(doc, out, {_DESIRED_REV: desired.rev})
             return 0
-        self._save(doc, self._acked(desired))
+        self._apply(doc, self._acked(desired), ending=self._acked_ending(desired))
         return 1
 
     def _fail(self, doc: Mapping[str, Any], failure: _Failure, changes: Mapping) -> None:
@@ -688,8 +750,8 @@ class StatusBoard:
             _RETRY_AT: iso(now + timedelta(seconds=wait)),
         }
         if failure.code in GIVE_UP_CODES and tries >= GIVE_UP_TRIES:
-            out.update({_FINAL: True, _FINAL_AT: iso(now), _OUTCOME: "gave_up", _PENDING: False})
-        self._save(doc, out)
+            out.update(self._ending("gave_up"))  # permanent: whatever the inputs
+        self._apply(doc, out)
 
     def _resolve(self, ctx: _Ctx, doc: dict[str, Any]) -> int:
         """A post whose answer was lost: adopt the comment this App posted with the chain's
@@ -709,12 +771,10 @@ class StatusBoard:
         mine = [c for c in comments if c.get("app_id") == app_id and marker in c.get("body", "")]
         if mine:
             found = {_COMMENT_ID: mine[0].get(_COMMENT_ID), _URL: mine[0].get(_URL)}
-            self._save(doc, {_STATE: POSTED, **found, _ACKED_REV: None, _FAILURES: 0})
+            self._apply(doc, {_STATE: POSTED, **found, _ACKED_REV: None, _FAILURES: 0})
             return 0
         log.info("status comment of chain %s not found after a lost post: giving up", doc[_ID])
-        now = iso(self._clock())
-        ended = {_FINAL: True, _FINAL_AT: now, _OUTCOME: UNRESOLVED, _PENDING: False}
-        self._save(doc, {_STATE: UNRESOLVED, **ended})
+        self._apply(doc, {_STATE: UNRESOLVED, **self._ending(UNRESOLVED)})
         return 0
 
     def _retain(self) -> None:
@@ -751,26 +811,22 @@ class StatusBoard:
         target = self._target(root, actor)
         if target is None or not _same_pr(target, where):
             return None
-        now = iso(self._clock())
-        changes = {
+        inputs = {
             _FINAL_TEXT: str(text)[:_FINAL_TEXT_CAP],
             _FINAL_RUN: run.get(_ID),
-            _FINAL_ASKED: now,
-            _FAILURES: 0,
-            _RETRY_AT: now,
+            _FINAL_ASKED: iso(self._clock()),
         }
         root_id = str(root.get(_ID))
         with self._lock:
-            for _ in range(5):
-                doc = self._store.get(STATUS_COLLECTION, root_id) or self._claim(root, target)
-                if doc is None:
-                    continue  # claimed meanwhile: read it
-                if doc.get(_FINAL):
-                    return {"status": True, "pending": False, _OUTCOME: doc.get(_OUTCOME)}
-                if self._save(doc, changes) is not None:
-                    return {"status": True, "pending": True}
-        log.warning("status comment of chain %s: the final text was not stored", root_id)
-        return {"status": True, "pending": False}
+            if self._store.get(STATUS_COLLECTION, root_id) is None:
+                self._claim(root, target)  # a lost race: the other claim is used
+            doc = self._set_inputs(root_id, inputs)
+        if doc is None:
+            log.warning("status comment of chain %s: the final text was not stored", root_id)
+            return {"status": True, "pending": False}
+        if doc.get(_FINAL):
+            return {"status": True, "pending": False, _OUTCOME: doc.get(_OUTCOME)}
+        return {"status": True, "pending": True}
 
 
 @contextlib.contextmanager

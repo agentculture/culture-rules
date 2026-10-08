@@ -305,14 +305,13 @@ class Racing(MemoryStore):
         return super().update_if(collection, doc_id, expected, changes)
 
 
-def test_a_lost_compare_and_set_stops_before_any_call():
+def test_a_lost_compare_and_set_is_reapplied_on_the_fresh_record():
+    # round 6: another writer moving the revision never drops the writer's transition
     w = World(Racing())
     w.store.race = True
     started(w)
-    assert w.issues.posts == []
-    assert w.record()["state"] == "none"
-    w.tick()
     assert len(w.issues.posts) == 1
+    assert w.record()["state"] == "posted"
 
 
 def test_an_accepted_post_whose_answer_was_lost_is_adopted(w):
@@ -769,4 +768,124 @@ def test_a_writer_on_a_host_ahead_never_overwrites_the_old_writers_call(w, ahead
         w.clock.advance(5)
         thor.tick(lambda actor, repo, until: w.issues, "thor")
     assert w.shown().startswith(HANDED_BACK)  # the newest body is the last one written
+    assert w.record()["outcome"] == "delivered"
+
+
+# --------------------------------------------------------------------------- Codex round 6
+
+
+class RaceOnce(MemoryStore):
+    """Runs ``action`` (another process's finish) right before the first writer update of
+    the record that ``when(changes)`` picks: the writer's compare-and-set then sees a newer
+    revision and must re-apply its own fields, never drop them."""
+
+    when = None
+    action = None
+
+    def update_if(self, collection, doc_id, expected, changes):
+        if collection == STATUS_COLLECTION and self.when is not None and self.when(changes):
+            action, self.when = self.action, None
+            action()
+        return super().update_if(collection, doc_id, expected, changes)
+
+
+def _state(value):
+    return lambda c: c.get("state") == value and "final_text" not in c
+
+
+RACES = {
+    "posting": (_state("posting"), lambda w: None),
+    "unsent_revert": (
+        _state("none"),
+        lambda w: setattr(w.issues, "fail_post", [GitHubError("transport_busy", retryable=True)]),
+    ),
+    "ambiguous_post_fail": (  # the post landed, its answer was lost: resolved by marker
+        lambda c: "failures" in c and c.get("failures", 0) > 0,
+        lambda w: setattr(w.issues, "lose_post", True),
+    ),
+    "post_acked": (lambda c: c.get("state") == "posted" and "acked_rev" in c, lambda w: None),
+}
+
+
+@pytest.mark.parametrize("race", RACES)
+def test_finish_racing_a_writer_transition_on_the_post_is_never_lost(race):
+    when, setup = RACES[race]
+    store = RaceOnce()
+    w = World(store)
+    setup(w)
+    w.store.put("runs", fix_run())
+
+    def other_process_finishes():
+        set_run(w.store, status="failed")
+        b = w.new_board(process="api")
+        b.finish(w.run(), HANDED_BACK, where=(REPO, 7))
+
+    store.when, store.action = when, other_process_finishes
+    for _ in range(12):
+        w.tick()
+        w.clock.advance(70)
+    doc = w.record()
+    assert doc["final_text"] == HANDED_BACK
+    assert doc["outcome"] == "delivered"
+    assert doc["state"] == "posted"
+    assert len(w.issues.posts) == 1
+    assert w.shown().startswith(HANDED_BACK)
+
+
+EDIT_RACES = {
+    "edit_acked": (lambda c: "acked_rev" in c and "state" not in c, lambda w: None),
+    "edit_failed": (
+        lambda c: c.get("failures", 0) > 0,
+        lambda w: setattr(w.issues, "fail_edit", [GitHubError("http_502", retryable=True)]),
+    ),
+    "deleted_reset": (
+        lambda c: c.get("comment_id", 1) is None,
+        lambda w: w.issues.deleted.add(101),
+    ),
+}
+
+
+@pytest.mark.parametrize("race", EDIT_RACES)
+def test_finish_racing_a_writer_transition_on_an_edit_is_never_lost(race):
+    when, setup = EDIT_RACES[race]
+    store = RaceOnce()
+    w = World(store)
+    started(w)
+    setup(w)
+    agent_done(w)
+
+    def other_process_finishes():
+        set_run(w.store, status="failed")
+        b = w.new_board(process="api")
+        b.finish(w.run(), HANDED_BACK, where=(REPO, 7))
+
+    store.when, store.action = when, other_process_finishes
+    for _ in range(12):
+        w.clock.advance(70)
+        w.tick()
+    doc = w.record()
+    assert doc["outcome"] == "delivered"
+    assert w.shown(doc["comment_id"]).startswith(HANDED_BACK)
+    assert doc["final_text"] == HANDED_BACK
+
+
+def test_a_delivered_ending_is_not_applied_over_a_newer_final(w):
+    """The writer acknowledges final A while final B is stored: the ending of A must not
+    close the record; B is delivered next."""
+    store = RaceOnce()
+    w = World(store)
+    started(w)
+    w.clock.advance(70)
+    w.finish(w.run(), HANDED_BACK)
+
+    def newer_final():
+        w.new_board(process="api").finish(w.run(), NEWER, where=(REPO, 7))
+
+    store.when = lambda c: c.get("outcome") == "delivered"
+    store.action = newer_final
+    w.tick()
+    assert w.record()["pending"] is True
+    w.clock.advance(70)
+    w.tick()
+    assert w.shown().startswith(NEWER)
     assert w.record()["outcome"] == "delivered"
