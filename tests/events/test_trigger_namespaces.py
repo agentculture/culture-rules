@@ -69,5 +69,5 @@ def test_the_reserved_names_are_the_engines_own():
     from culture_rules.node.probe_trigger import PROBE_KIND
     from culture_rules.node.schedule import SCHEDULE_KIND
 
-    assert {SCHEDULE_KIND, PROBE_KIND} == TRIGGER_EVENT_KINDS
-    assert {SCHEDULE_SOURCE, PROBE_SOURCE} == set(TRIGGER_EVENT_SOURCES)
+    assert TRIGGER_EVENT_KINDS == {SCHEDULE_KIND, PROBE_KIND}
+    assert set(TRIGGER_EVENT_SOURCES) == {SCHEDULE_SOURCE, PROBE_SOURCE}

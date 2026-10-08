@@ -144,8 +144,9 @@ def test_anything_else_the_content_makes_raise_is_a_minimal_quarantine_record():
 def test_a_store_outage_still_propagates_and_the_cursor_stays():
     store = DownStore()
     src = FakeEventSource([envelope(1)])
+    ingester = EventIngest(store, src, host="h")
     with pytest.raises(TransientStoreError):
-        EventIngest(store, src, host="h").ingest()
+        ingester.ingest()
     assert store.find(QUARANTINE_COLLECTION) == []
     assert store.load_cursor("ingest@h", f"source:{src.name}") is None
 
@@ -190,10 +191,19 @@ CONTENT_ERRORS = {
     "UnicodeEncodeError": _unicode_error,
 }
 OTHER_ERRORS = {
-    "OperationFailure_112": lambda: OperationFailure("WriteConflict", code=112),
-    "WriteConcernError": lambda: WriteConcernError("waiting for replication timed out"),
-    "RuntimeError": lambda: RuntimeError("something unknown"),
-    "TransientStoreError": lambda: TransientStoreError("the replica set has no primary"),
+    "OperationFailure_112": (
+        OperationFailure,
+        lambda: OperationFailure("WriteConflict", code=112),
+    ),
+    "WriteConcernError": (
+        WriteConcernError,
+        lambda: WriteConcernError("waiting for replication timed out"),
+    ),
+    "RuntimeError": (RuntimeError, lambda: RuntimeError("something unknown")),
+    "TransientStoreError": (
+        TransientStoreError,
+        lambda: TransientStoreError("the replica set has no primary"),
+    ),
 }
 
 
@@ -225,11 +235,13 @@ def test_a_known_content_error_quarantines_and_the_batch_goes_on(name):
 
 @pytest.mark.parametrize("name", sorted(OTHER_ERRORS))
 def test_anything_else_re_raises_with_no_quarantine_and_no_cursor(name):
-    store = RaisingStore(OTHER_ERRORS[name])
+    cls, make = OTHER_ERRORS[name]
+    store = RaisingStore(make)
     src = FakeEventSource([envelope(1), envelope(2)])
-    with pytest.raises(Exception) as err:
-        EventIngest(store, src, host="h").ingest()
-    assert type(err.value).__name__ == OTHER_ERRORS[name]().__class__.__name__
+    ingester = EventIngest(store, src, host="h")
+    with pytest.raises(cls) as err:
+        ingester.ingest()
+    assert type(err.value) is cls
     assert store.find(QUARANTINE_COLLECTION) == []
     assert store.load_cursor("ingest@h", f"source:{src.name}") is None
 
@@ -248,10 +260,11 @@ def test_the_webhook_sink_quarantines_a_known_content_error(name):
 
 @pytest.mark.parametrize("name", sorted(OTHER_ERRORS))
 def test_the_webhook_sink_re_raises_anything_else(name):
-    store = RaisingStore(OTHER_ERRORS[name], only=None)
-    with pytest.raises(Exception) as err:
+    cls, make = OTHER_ERRORS[name]
+    store = RaisingStore(make, only=None)
+    with pytest.raises(cls) as err:
         _hook(store)
-    assert type(err.value).__name__ == OTHER_ERRORS[name]().__class__.__name__
+    assert type(err.value) is cls
     assert store.find(QUARANTINE_COLLECTION) == []
 
 
