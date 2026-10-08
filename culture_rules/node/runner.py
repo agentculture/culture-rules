@@ -22,6 +22,8 @@ Production wiring done by :func:`run_node`:
   replies to them, :mod:`culture_rules.node.actions.github_pr`), ``review`` (d20, the
   reviewer's verdict, :mod:`culture_rules.actors.review`), ``sonar.gate_issues`` (d21, the
   issues behind a PR's failing SonarCloud gate, :mod:`culture_rules.node.actions.sonar`),
+  ``gitguardian.findings`` and ``gitguardian.hold`` (d25, a PR head's GitGuardian findings
+  and the fix-run hold while GitGuardian fails, :mod:`culture_rules.node.actions.gitguardian`)
   and ``action`` (d12), which
   never reaches this port: the executor routes a ``builtin: action`` step exactly like a
   rule's terminal action, to the ``action:<kind>`` port through the actor router
@@ -253,6 +255,11 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
     del host
     from culture_rules.actors.gate import GatePort  # noqa: PLC0415
     from culture_rules.actors.review import REVIEW_BUILTIN, ReviewVerdictPort  # noqa: PLC0415
+    from culture_rules.node.actions.gitguardian import (  # noqa: PLC0415
+        FINDINGS_BUILTIN,
+        HOLD_BUILTIN,
+        GitGuardianPort,
+    )
     from culture_rules.node.actions.github import (  # noqa: PLC0415
         GitHubCommentPort,
         GitHubPrHeadPort,
@@ -281,6 +288,8 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
     reply: Any = GitHubReviewReplyPort(store) if has_github else MissingExtraPort("github")
     head: Any = GitHubPrHeadPort(store) if has_github else MissingExtraPort("github")
     threads: Any = GitHubThreadsPort(store) if has_github else MissingExtraPort("github")
+    findings: Any = GitGuardianPort(store) if has_github else MissingExtraPort("github")
+    hold: Any = GitGuardianPort(store, hold=True) if has_github else MissingExtraPort("github")
     return {
         "action:noop": NoopAction(),
         "action:github.pr_head": head,  # not a rule action: the wait guard's head lookup
@@ -300,6 +309,8 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
                 THREADS_BUILTIN: threads,
                 ADDRESSED_BUILTIN: AddressedThreadsPort(),
                 SONAR_BUILTIN: SonarGateIssuesPort(),  # d21: the PR's failing gate's issues
+                FINDINGS_BUILTIN: findings,  # d25: GitGuardian's findings, for the comment
+                HOLD_BUILTIN: hold,  # d25: no fix run while GitGuardian fails on the head
             }
         ),
     }
