@@ -4,12 +4,16 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+import pytest
+
 from culture_rules.apps.github import GitHubError
 from culture_rules.events.ingest import EVENTS_COLLECTION
 from culture_rules.node.checks_settle import (
+    LATE_TYPE,
     SETTLE_COLLECTION,
     SETTLED_TYPE,
     ChecksSettler,
+    late_event_id,
     settled_event_id,
 )
 from culture_rules.store.memory import MemoryStore
@@ -1450,3 +1454,75 @@ def test_a_timeout_still_names_the_suites_that_failed():
     )
     assert data["settled_by"] == "timeout"
     assert data["failed_apps"] == ["gitguardian"]
+
+
+# --------------------------------------------------------------------------- d25: late failures
+
+
+def late_events(store):
+    return [d for d in store.find(EVENTS_COLLECTION) if d["envelope"]["type"] == LATE_TYPE]
+
+
+def _timed_out_with_gitguardian_pending():
+    """Settled by the timeout while GitGuardian still ran: failed_apps lacks it."""
+    store = MemoryStore()
+    clock = Clock()
+    store.put_variable("checks_settle_min_s", 0, updated_by="t")
+    store.put_variable("checks_settle_timeout_s", 60, updated_by="t")
+    suites = ConcludedSuites(
+        ("github-actions", "completed", "success"), ("gitguardian", "in_progress", None)
+    )
+    settler = ChecksSettler(store, suites, clock=clock)
+    settler.on_check(check_data())
+    clock.now = T0 + timedelta(seconds=61)
+    assert settler.tick() == 1
+    [event] = settled(store)
+    assert event["envelope"]["data"]["failed_apps"] == []
+    return store, settler, event["envelope"]["data"]
+
+
+def completion(app="gitguardian", conclusion="failure", status="completed"):
+    return check_data(app_slug=app, conclusion=conclusion, status=status)
+
+
+def test_a_gitguardian_failure_after_the_settle_emits_one_late_event():
+    store, settler, data = _timed_out_with_gitguardian_pending()
+    assert settler.on_check(completion()) == "late"
+    assert settler.on_check(completion()) == "duplicate"  # redelivered: once
+    [late] = late_events(store)
+    assert late["envelope"]["id"] == late_event_id(REPO, SHA, "gitguardian")
+    got = late["envelope"]["data"]
+    assert got["failed_apps"] == ["gitguardian"]
+    assert got["late_app"] == "gitguardian"
+    assert got["conclusion"] == "failure"
+    assert got["settled_by"] == "late"
+    for key in ("repository", "head_sha", "number", "pr_numbers"):
+        assert got[key] == data[key], key  # the PR facts of the settled event
+    assert len(settled(store)) == 1
+
+
+@pytest.mark.parametrize(
+    "late",
+    [
+        completion(conclusion="success"),
+        completion(conclusion="neutral"),
+        completion(status="in_progress", conclusion=None),
+        completion(app="claude"),  # an ignored app
+        check_data(),  # a workflow run: no app slug
+    ],
+    ids=["success", "neutral", "running", "ignored_app", "no_app"],
+)
+def test_no_late_event_for_anything_but_a_counted_apps_failure(late):
+    store, settler, _ = _timed_out_with_gitguardian_pending()
+    assert settler.on_check(late) == "duplicate"
+    assert late_events(store) == []
+
+
+def test_no_late_event_for_an_app_the_settle_already_named():
+    store = MemoryStore()
+    store.put_variable("checks_settle_min_s", 0, updated_by="t")
+    suites = ConcludedSuites(("gitguardian", "completed", "failure"))
+    settler = ChecksSettler(store, suites, clock=Clock())
+    assert settler.on_check(completion()) == "emitted"
+    assert settler.on_check(completion()) == "duplicate"
+    assert late_events(store) == []

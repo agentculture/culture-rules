@@ -42,6 +42,14 @@ counted suites that completed with conclusion ``failure`` (``[]`` when none did)
 can single out one app's failure - the PR fixer's ``pr-fixer-secrets`` fires on
 ``"gitguardian" in failed_apps`` and ``pr-fixer-checks`` stays off it.
 
+**Late failures** (d25): a counted app's suite that completes ``failure`` *after* its SHA
+settled (the settle timed out while it ran, or a re-run failed) is not in that event's
+``failed_apps``, and the completion is otherwise a ``duplicate``. :meth:`ChecksSettler.on_check`
+then emits one :data:`LATE_TYPE` event per (repo, SHA, app) (:func:`late_event_id`): the settled
+event's data (its PR facts as of the settle) with ``failed_apps`` grown by the app,
+``late_app``, ``conclusion: "failure"`` and ``settled_by: "late"``. ``pr-fixer-secrets-late``
+reports a GitGuardian finding from it; no fixer rule fires on it.
+
 With a ``pull`` seam the event also carries the PR facts of its first PR number
 (:func:`~culture_rules.apps.github.complete_pr_facts`: ``head_repo``, ``base_repo``,
 ``base_branch``, ``base_sha``, ``draft``, ``pr_author``; best-effort, all omitted on failure or
@@ -107,6 +115,7 @@ __all__ = [
     "RECOVERY_COLLECTION",
     "RECOVERY_GRACE_S",
     "RECOVERY_WINDOW_S",
+    "LATE_TYPE",
     "SETTLED_TYPE",
     "SETTLE_COLLECTION",
     "UNRESOLVED_RETRY_S",
@@ -114,6 +123,7 @@ __all__ = [
     "AppSuiteLister",
     "ChecksSettler",
     "rearm_settle",
+    "late_event_id",
     "settled_event_id",
     "webhook_on_check",
 ]
@@ -122,6 +132,8 @@ log = logging.getLogger(__name__)
 
 SETTLE_COLLECTION = "checks_settle"
 SETTLED_TYPE = "github.pr.checks_settled"
+LATE_TYPE = "github.pr.checks_failed_late"
+"""A counted app's suite failed after its SHA settled (d25; module doc, "Late failures")."""
 CHECK_TYPES = frozenset(("github.checks.suite_completed", "github.checks.workflow_completed"))
 DEFAULT_IGNORED_APPS: tuple[str, ...] = ("claude",)
 DEFAULT_TIMEOUT_S = 900.0
@@ -167,6 +179,12 @@ def settled_event_id(repo: str, sha: str, generation: int = 0) -> str:
     key = f"{repo}@{sha}".lower() + (f"#{generation}" if generation else "")
     digest = hashlib.sha256(key.encode()).hexdigest()[:24]
     return f"settled_{digest}"
+
+
+def late_event_id(repo: str, sha: str, app: str) -> str:
+    """The deterministic events id of ``app``'s late failure on ``repo@sha`` (once ever)."""
+    key = f"{repo}@{sha}#{app}".lower()
+    return "late_" + hashlib.sha256(key.encode()).hexdigest()[:24]
 
 
 def _generation(rec: Mapping[str, Any] | None) -> int:
@@ -478,8 +496,9 @@ class ChecksSettler:
         if not isinstance(repo, str) or not repo or not isinstance(sha, str) or not sha:
             return "ignored"
         gen = _generation(self._store.get(SETTLE_COLLECTION, f"{repo}@{sha}".lower()))
-        if self._store.get(EVENTS_COLLECTION, settled_event_id(repo, sha, gen)) is not None:
-            return "duplicate"
+        emitted = self._store.get(EVENTS_COLLECTION, settled_event_id(repo, sha, gen))
+        if emitted is not None:
+            return self._late(repo, sha, data, emitted)
         rec = self._arm(repo, sha, data)  # before the lookup: a failure must not lose the SHA
         try:
             done, conclusion, failed = self._check_state(repo, sha)
@@ -492,6 +511,35 @@ class ChecksSettler:
             except _PullDeferred:
                 return "pending"  # the node's tick emits it, with the PR facts
         return "pending"
+
+    def _late(
+        self, repo: str, sha: str, data: Mapping[str, Any], emitted: Mapping[str, Any]
+    ) -> str:
+        """A completion for a settled SHA: ``late`` when it is a counted app's failure the
+        settled event does not name (one :data:`LATE_TYPE` event), else ``duplicate``."""
+        app = str(data.get("app_slug") or "").casefold()
+        failed = data.get("status") == "completed" and data.get("conclusion") == "failure"
+        if not app or not failed or app in self.ignored_apps():
+            return "duplicate"
+        prior = dict((emitted.get("envelope") or {}).get("data") or {})
+        named = [a for a in prior.get("failed_apps") or () if isinstance(a, str)]
+        if app in named:
+            return "duplicate"
+        payload = {
+            **prior,
+            "conclusion": "failure",
+            "settled_by": "late",
+            "failed_apps": sorted({*named, app}),
+            "late_app": app,
+        }
+        envelope = derive_envelope(
+            None, type=LATE_TYPE, source=SOURCE, data=payload, id=late_event_id(repo, sha, app)
+        )
+        try:
+            self._store.insert(EVENTS_COLLECTION, event_document(envelope, host=SETTLE_HOST))
+        except DuplicateKeyError:
+            return "duplicate"
+        return "late"
 
     def tick(self) -> int:
         """Settle pending SHAs: emit ``timeout`` past the deadline, or ``all_completed`` once
