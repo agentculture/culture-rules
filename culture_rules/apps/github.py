@@ -235,8 +235,11 @@ def _watched(call: Callable[[], tuple[int, bytes]], timeout: float) -> tuple[int
     def work() -> None:
         try:
             result.set_result(call())
-        except BaseException as exc:  # noqa: BLE001 - handed to the waiting caller
+        except Exception as exc:  # noqa: BLE001 - handed to the waiting caller
             result.set_exception(exc)
+        except BaseException as exc:  # handed over too, then left to end this thread
+            result.set_exception(exc)
+            raise
         finally:
             _WATCH_SLOTS.release()
 

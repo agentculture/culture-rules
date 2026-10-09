@@ -269,7 +269,32 @@ def _quoted(rest: str, quote: str) -> str:
     return rest if end < 0 else rest[:end]
 
 
-_TRAILERS = re.compile(r"(?:\s+\[[^\[\]]{0,200}\]|\s+\([^()]{0,300}\))+\s*$")
+_TRAILERS = {"]": ("[", 200), ")": ("(", 300)}  # closer: its opener, the longest inside
+
+
+def _strip_trailers(text: str) -> str:
+    """``text`` less its trailing run of whitespace-led ``[...]`` / ``(...)`` groups (each with
+    no bracket of its own kind inside), scanned from the end in linear time; unchanged when
+    it has none."""
+    end = _space_before(text, len(text))
+    cut = None
+    while end and text[end - 1] in _TRAILERS:
+        opener, longest = _TRAILERS[text[end - 1]]
+        start = text.rfind(opener, max(0, end - 2 - longest), end - 1)
+        if start < 1 or text.find(text[end - 1], start + 1, end - 1) >= 0:
+            break
+        if not text[start - 1].isspace():
+            break
+        end = _space_before(text, start)
+        cut = end
+    return text if cut is None else text[:cut]
+
+
+def _space_before(text: str, end: int) -> int:
+    """Where the whitespace run that ends at ``end`` starts."""
+    while end and text[end - 1].isspace():
+        end -= 1
+    return end
 
 
 def status_note(progress: Any) -> str | None:
@@ -288,6 +313,6 @@ def status_note(progress: Any) -> str | None:
     if before in ("'", '"'):
         rest = _quoted(rest, before)
     else:
-        rest = _TRAILERS.sub("", rest)
+        rest = _strip_trailers(rest)
     note = rest.strip()
     return note or None

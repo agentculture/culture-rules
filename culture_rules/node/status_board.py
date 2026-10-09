@@ -574,7 +574,8 @@ class StatusBoard:
             self._end(doc, "gave_up", basis=inputs_rev(doc))
             return 0
         if doc.get(_STATE) == POSTING:
-            return self._resolve(ctx, doc)
+            self._resolve(ctx, doc)
+            return 0
         root = self._store.get(_RUNS, doc[_ID])
         if root is None:
             self._end(doc, "gone")
@@ -767,7 +768,7 @@ class StatusBoard:
             out.update(self._ending("gave_up"))  # permanent: whatever the inputs
         self._apply(doc, out)
 
-    def _resolve(self, ctx: _Ctx, doc: dict[str, Any]) -> int:
+    def _resolve(self, ctx: _Ctx, doc: dict[str, Any]) -> None:
         """A post whose answer was lost: adopt the comment this App posted with the chain's
         marker (it is edited to the desired body next), else give up silently."""
 
@@ -776,20 +777,19 @@ class StatusBoard:
 
         out = self._call(ctx, doc, listing)
         if isinstance(out, _Failure) and out.code in _WAITS:
-            return 0
+            return
         if isinstance(out, _Failure):
             self._fail(doc, out, {})
-            return 0
+            return
         comments, app_id = out
         marker = marker_of(doc[_ID])
         mine = [c for c in comments if c.get("app_id") == app_id and marker in c.get("body", "")]
         if mine:
             found = {_COMMENT_ID: mine[0].get(_COMMENT_ID), _URL: mine[0].get(_URL)}
             self._apply(doc, {_STATE: POSTED, **found, _ACKED_REV: None, _FAILURES: 0})
-            return 0
+            return
         log.info("status comment of chain %s not found after a lost post: giving up", doc[_ID])
         self._apply(doc, {_STATE: UNRESOLVED, **self._ending(UNRESOLVED)})
-        return 0
 
     def _retain(self) -> None:
         """Drop final records older than :data:`RETENTION` (at most hourly)."""

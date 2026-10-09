@@ -130,11 +130,12 @@ _GATE_BUILTIN = "gate"
 _REVIEW_BUILTIN = "review"
 _PUSH_KIND = "github.push"
 _COMMENT_KIND = "github.comment"
+FINISHED = "PR fixer finished."  # a final section with no text of its own
 
 _WORD = re.compile(r"[a-z][a-z0-9_]{0,39}")
 _SHA = re.compile(r"[0-9a-f]{7,64}")
 _RUN_ID = re.compile(r"[A-Za-z0-9_.:-]{1,80}")
-_LOGIN = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})(?:\[bot\])?")
+_LOGIN = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,38}(?:\[bot\])?")
 _REPO = re.compile(r"[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}")
 
 
@@ -550,7 +551,7 @@ def render(chain: Chain, final: Final | None = None, known: Iterable[str] = ()) 
     root_id = root_id if _RUN_ID.fullmatch(root_id) else "?"
     sections: list[tuple[str, bool]] = []
     if final is not None:
-        sections.append((inert_block(final.text, FINAL_CAP, known) or "PR fixer finished.", True))
+        sections.append((inert_block(final.text, FINAL_CAP, known) or FINISHED, True))
         link = run_link(final.run_id)
         sections += [(f"Run: {link}", False)] if link else []
     else:
@@ -593,8 +594,8 @@ def plain_final(text: Any, run_id: Any, known: Iterable[str] = ()) -> str:
     """A chain-end text outside a status chain: the text inert, then the engine's run link
     (the same checks as a status comment)."""
     known = frozenset(known)
-    sections = [(inert_block(text, FINAL_CAP, known) or "PR fixer finished.", True)]
+    sections = [(inert_block(text, FINAL_CAP, known) or FINISHED, True)]
     link = run_link(run_id)
     if link:
         sections.append((f"Run: {link}", False))
-    return _guard(sections, known, lambda: "PR fixer finished.")
+    return _guard(sections, known, lambda: FINISHED)

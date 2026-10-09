@@ -257,3 +257,32 @@ def test_a_known_hex_secret_in_angle_brackets_is_refused(text):
 def test_a_token_inside_angle_brackets_is_refused():
     assert looks_secret(f"<{GHP}>") is True
     assert looks_secret(escape(f"<{GHP}>")) is True
+
+
+@pytest.mark.parametrize(
+    ("progress", "note"),
+    [
+        ("tool_call: Shell: STATUS: fixing it [in /w] [timeout: 5m] (run tests)", "fixing it"),
+        ("tool_call: STATUS: a (b) [c]  ", "a"),
+        ("tool_call: STATUS: keep [a]b", "keep [a]b"),
+        ("tool_call: STATUS: x[y]", "x[y]"),
+        ("tool_call: STATUS: p (q(r))", "p (q(r))"),
+        ("tool_call: STATUS: p [q]]", "p [q]]"),
+        ("tool_call: STATUS: long [" + "y" * 200 + "]", "long"),
+        ("tool_call: STATUS: long [" + "y" * 201 + "]", "long [" + "y" * 201 + "]"),
+        ("tool_call: STATUS: long (" + "y" * 300 + ")", "long"),
+        ("tool_call: STATUS: long (" + "y" * 301 + ")", "long (" + "y" * 301 + ")"),
+    ],
+)
+def test_a_status_note_loses_only_its_trailing_title_groups(progress, note):
+    assert status_note(progress) == note
+
+
+def test_trailing_title_groups_are_stripped_in_linear_time():
+    # Sonar S8786: the old regex backtracked on long runs of groups
+    import time
+
+    many = "tool_call: STATUS: done" + " [x]" * 200_000
+    started = time.monotonic()
+    assert status_note(many) == "done"
+    assert time.monotonic() - started < 2

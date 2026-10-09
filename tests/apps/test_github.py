@@ -553,9 +553,10 @@ def test_a_response_body_larger_than_the_cap_is_refused():
 
     from culture_rules.apps.github import _read_within
 
+    big, never = io.BytesIO(b"y" * 100), float("inf")
     with pytest.raises(ValueError):
-        _read_within(io.BytesIO(b"y" * 100), deadline_at=float("inf"), max_bytes=10)
-    assert _read_within(io.BytesIO(b"ok"), deadline_at=float("inf"), max_bytes=10) == b"ok"
+        _read_within(big, deadline_at=never, max_bytes=10)
+    assert _read_within(io.BytesIO(b"ok"), deadline_at=never, max_bytes=10) == b"ok"
 
 
 @pytest.mark.parametrize("drip", ["headers", "chunks", "trailers"])
