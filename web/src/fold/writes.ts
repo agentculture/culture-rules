@@ -1,7 +1,8 @@
 /** Fold writes return data for the Simple view's overrides/retry controls. */
 import { ApiError } from "../api/client";
 import { getRule, SERVER_MANAGED_RULE_FIELDS, updateRule } from "../api/rules";
-import type { Condition, Operand, Rule } from "../api/types";
+import type { Condition, Rule } from "../api/types";
+import { predecessorTerms } from "./model";
 import { createWorkflowDef, deleteWorkflowDef, type WorkflowDef } from "../api/workflows";
 
 interface RuleAttempt {
@@ -149,34 +150,23 @@ export async function createD7Workflow(
   }
 }
 
-function isWorkflowField(operand: Operand): boolean {
-  return "field" in operand && operand.field === "data.workflow_id";
-}
-function isWorkflowId(operand: Operand): boolean {
-  return "literal" in operand && typeof operand.literal === "string";
-}
-
-/** Rewrites one positive all-term equality only, never terms inside `or`/`not`. */
+/**
+ * Rewrites one positive all-term equality only, never terms inside `or`/`not`.
+ * The term is found with the model's `predecessorTerms`, so the editor can
+ * rewrite exactly the links the fold model shows as linked.
+ */
 function rewritePredecessor(condition: Condition | null | undefined, predecessorId: string): Condition {
-  let matches = 0;
-  function visit(node: Condition): Condition {
-    if (node.op === "and") return { ...node, args: node.args.map(visit) };
-    if (node.op !== "compare" || node.cmp !== "==") return node;
-    if (isWorkflowField(node.left) && isWorkflowId(node.right)) {
-      matches++;
-      return { ...node, right: { ...node.right, literal: predecessorId } };
-    }
-    if (isWorkflowField(node.right) && isWorkflowId(node.left)) {
-      matches++;
-      return { ...node, left: { ...node.left, literal: predecessorId } };
-    }
-    return node;
-  }
-  const rewritten = condition && visit(condition);
-  if (!rewritten || matches !== 1) {
+  const terms = predecessorTerms(condition);
+  if (!condition || terms.length !== 1) {
     throw new Error("Changing a predecessor requires exactly one all-term data.workflow_id equality");
   }
-  return rewritten;
+  const [term] = terms;
+  const field = "field" in term.left ? "right" : "left";
+  function visit(node: Condition): Condition {
+    if (node === term) return { ...node, [field]: { ...node[field], literal: predecessorId } };
+    return node.op === "and" ? { ...node, args: node.args.map(visit) } : node;
+  }
+  return visit(condition);
 }
 
 /** Dedicated predecessor save; unrelated predicates and rule fields stay intact. */

@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-09T09:29:21Z",
-  "updated": "2026-10-09T11:00:15Z",
+  "updated": "2026-10-09T11:18:55Z",
   "claims": [
     {
       "id": "c1",
@@ -700,6 +700,17 @@
       "code": "grader-unverified",
       "what": "t5 Debug view wires and visual match to WF-Variables boards never observed in a real browser (jsdom zero sizes)",
       "skipped_check": "visual check in a browser / Playwright",
+      "refs": [
+        "t5"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l4",
+      "code": "assumption-for-measurement",
+      "what": "t5 loop result producer taken as the last enabled body step from the definition; engine uses the last body step that actually succeeded (differs when a later step is skipped)",
+      "skipped_check": "",
       "refs": [
         "t5"
       ],

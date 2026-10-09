@@ -4,6 +4,7 @@
  * documents, including fields not yet named by the web client's types.
  * No React, network calls, inferred engine defaults, or stored chain metadata.
  */
+import { SERVER_MANAGED_RULE_FIELDS } from "../api/rules";
 import type { Condition, Operand, Rule, Workflow } from "../api/types";
 
 export type SharedValue =
@@ -121,8 +122,7 @@ function identical(a: unknown, b: unknown): boolean {
 
 /** Entry identity/lifecycle and server-managed metadata must never fan out. */
 export const EXCLUDED_RULE_FIELDS = [
-  "id", "name", "description", "enabled", "schema_version", "updated_at",
-  "deleted_at", "deleted_by", "restorable_until",
+  "id", "name", "description", "enabled", "schema_version", ...SERVER_MANAGED_RULE_FIELDS,
 ] as const;
 const PRIVATE_FIELDS = new Set<string>(EXCLUDED_RULE_FIELDS);
 
