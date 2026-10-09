@@ -1,4 +1,4 @@
-"""D7 engine proof (h8/h15): adding a stepless wrapper changes only workflow_id."""
+"""D7 engine proof (h8/h15): a stepless wrapper changes only workflow identity."""
 
 from dataclasses import replace
 
@@ -85,6 +85,9 @@ def _assert_same_fields(before, after, path=()):
     if path == ("data", "workflow_id"):
         assert before is None
         assert after == "stepless-wrapper"
+    elif path == ("data", "workflow_version"):
+        assert before is None
+        assert after == 1
     elif isinstance(before, dict):
         assert isinstance(after, dict), path
         assert before.keys() == after.keys(), path
@@ -94,9 +97,12 @@ def _assert_same_fields(before, after, path=()):
         assert before == after, ".".join(path)
 
 
-def test_run_events_differ_only_in_workflow_id_field_by_field(paired_runs):
+def test_run_events_differ_only_in_workflow_id_and_workflow_version_field_by_field(
+    paired_runs,
+):
     (_, _, plain_event), (_, _, wrapped_event) = paired_runs
     assert plain_event["type"] == wrapped_event["type"] == "rules.run.succeeded"
+    assert {"workflow_id", "workflow_version"} <= plain_event["data"].keys()
     _assert_same_fields(plain_event, wrapped_event)
 
 
