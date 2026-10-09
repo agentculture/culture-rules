@@ -2,6 +2,7 @@
 
 plan: `editor-rules-folded-into-workflows-three-views` · run: `partial` · date: `2026-10-09`
 baseline: `devague summary skeleton`
+updated: `2026-10-09`, after PR #27 merged (t11 and t12 rows, Evidence, Remaining Work)
 
 ## Intent
 
@@ -38,8 +39,8 @@ After: Opening a workflow shows, in the Simple view, its When entry points (each
 | `t8` | delivered | Four tabs, `/rules` redirects (`routes/legacy-redirects.ts`), `/workflows/:id`, agent-state entry points with the deprecated `rules` alias, the views and list mounted, New rule and the D7 place. Built by the main agent, two Opus reviews. d6's trusted-save question was added on top. |
 | `t9` | delivered | The inventory ported (every row named or kept), the legacy files deleted after porting, and `e2e/fold.spec.ts`, `entry-points.spec.ts` and `entry-pickers.spec.ts`. vitest 653, Playwright 98, webglass locally. Opus build under d4, two Opus reviews. |
 | `t10` | delivered | CLAUDE.md, QWEN.md, AGENTS.override.md, AGENTS.colleague.md, .pi/SYSTEM.md, the dated amendment, README.md, web/README.md, docs/demo.md, docs/operations/pr-fixer.md, docs/run-events.md and `tests/test_docs_fold.py`. Opus build, two Opus reviews. |
-| `t11` | partial | The boundary check holds (only the two d5 strings changed under `culture_rules/`; `api/` is unchanged), 0.17.0 with its CHANGELOG entry, and every CLAUDE.md gate green locally. The PR is not open yet: it waits for this summary and the queued Codex reviews (d4). |
-| `t12` | partial | The operator approved deploying before merge. The branch's 0.17.0 wheel went onto spark, with only `culture-rules-api` restarted; the nodes stay on 0.16.1, since the engine is unchanged. Rollback is a 0.16.1 wheel built with its web bundle. Observed live (e21): four tabs, `/rules` redirects, the PR fixer as 2 chain cards (d2), all three views with 0 errors on all 7 workflows, and old rule links landing on their entry point. D7 converted `test-jira-scrum21-to-discord` through the editor (e22) after the run-event probe passed. Not done: a live condition edit (it would change a production rule), and the rule's next run, because the rule is disabled. Nodes and `main` still need the merged release. |
+| `t11` | partial | The boundary check holds (only the two d5 strings changed under `culture_rules/`; `api/` is unchanged), 0.17.0 with its CHANGELOG entry, and every CLAUDE.md gate green locally. After this summary and the d4 Codex reviews, PR [#27](https://github.com/agentculture/culture-rules/pull/27) opened (16:37Z), passed CI and merged as `6158304` (17:55Z); 0.17.0 is on PyPI. The run's 70 SonarCloud findings were fixed on the PR (the PR fixer fixed S4822), except two, which PR #28 (0.17.1) fixes. Status after merge: delivered. |
+| `t12` | partial | The operator approved deploying before merge. The branch's 0.17.0 wheel went onto spark, with only `culture-rules-api` restarted; the nodes stay on 0.16.1, since the engine is unchanged. Rollback is a 0.16.1 wheel built with its web bundle. Observed live (e21): four tabs, `/rules` redirects, the PR fixer as 2 chain cards (d2), all three views with 0 errors on all 7 workflows, and old rule links landing on their entry point. D7 converted `test-jira-scrum21-to-discord` through the editor (e22) after the run-event probe passed. Not done: a live condition edit (it would change a production rule), and the rule's next run, because the rule is disabled. After merge, the operator approved all four nodes: 0.17.0 from `main` is on spark (API and node), orin and spark2, active with 0 errors, and the served bundle matches the `main` build. thor was offline at first. When it came back, it got the same wheel (bundle `index-C9Udfela.js`), with `runs pause`/`resume` around the install. Status after merge: partial, because the live condition edit and the converted rule's next run were not observed. |
 
 ## Mid-work Decisions
 
@@ -95,6 +96,7 @@ Run at commit `4c42240` (2026-10-09T14:21Z) unless noted. After the Codex review
 - unmet: e4 (fail) — no editor for priority, exclusive_group or the inputs mapping
 - not checked: o11 (c18 live) — no evidence filed; t12
 - commits: `origin/main` (9d72b1e)..`e04910a` on `rules/editor-fold-spec` (60 commits)
+- post-merge: `gh pr view 27` merged at `6158304`; `importlib.metadata.version('culture-rules')` = 0.17.0 on spark, orin, spark2 and thor, `systemctl --user is-active culture-rules-node` active, 0 ERROR lines in 15 min; PR #28 checks all green with the SonarCloud gate OK (0 issues)
 - PRs / issues: none yet; related #26 (a rule to visualize a spec on its PR)
 
 ## Delivery Claims
@@ -144,10 +146,12 @@ Lapse ledger evidence:
 
 ## Remaining Work / Follow-up
 
-- **t11, the PR.** The queued Codex reviews of t6, t8, t9, t10 and d6 (d4) run after the 19:16 reset. Then open the PR through cicd and get CI green, including the web job (closes c19's l9). Owner: the main agent.
-- **t12, after merge.** Release 0.17.0 from `main` to all four nodes (`runs pause` is not needed, since the engine is unchanged). Re-check the live counts. Converted rule: `test-jira-scrum21-to-discord` now runs through `test-scrum-21-comment-spark-tests`. Observe it when the rule is next enabled. Owner: the main agent.
+- **t11: done after this summary.** The Codex reviews ran, and PR #27 merged with CI green, including the web job (closes c19's l9).
+- **t12, what is left.** All four nodes run 0.17.0. Observe `test-jira-scrum21-to-discord` running through `test-scrum-21-comment-spark-tests` when the rule is next enabled. Owner: the main agent.
+- **A visual check of the released editor.** This needs the operator to sign in to Cloudflare Access again.
+- **PR #28 (0.17.1).** It fixes the last two SonarCloud findings. CI is green, and it waits for the operator to merge.
 - **o3 / e4.** Decide whether priority, exclusive_group and the inputs mapping get editors (a follow-up issue), or amend c9's field list. Owner: the operator.
-- **Adjudication.** The operator confirms or rejects evidence e1–e20, deltas b1–b8 and lapses l1–l9.
+- **Adjudication: done.** The operator approved evidence e1–e22, deltas b1–b8 and lapses l1–l9.
 - **Server gap.** `DELETE /workflows/{id}` should refuse a workflow a rule still uses. That is an API change, out of scope under c2. Issue to file if the operator agrees.
 - **Fixed by the fold, not separately on `main`.** The `updated_at` 422 on rule saves. Patch `main` separately only if the fold's release is delayed. Owner: the operator.
 - **Minor follow-ups.** Two copies of the rules data remain (the list's and the Simple view's). Three things the Rules board drew are not drawn (the skipped-run icon, the relationship variable chip, the machine colour on placement). Import can overwrite a trusted workflow without the d6 question (it has its own plan step). The demo screenshots predate the fold.

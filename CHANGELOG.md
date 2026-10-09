@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.1] - 2026-10-09
+
+### Fixed
+
+- SonarCloud: trigger params narrow arrays and primitives explicitly (S6551); the deprecated agent-state Tab alias is documented for Sonar (S6564)
+
+### Changed
+
+- The editor-fold delivery summary records what happened after merge: t11 delivered (PR #27); t12 released to all four nodes
+
 ## [0.17.0] - 2026-10-09
 
 ### Added

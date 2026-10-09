@@ -28,7 +28,7 @@ type TabValue = TabId | "rules";
  * agent that still compares against it type-checks; drop it in the release
  * after the fold. Use `TabId` for the tabs a view reports.
  */
-export type Tab = TabValue;
+export type Tab = TabValue; // NOSONAR S6564: the deprecated public alias agent-state consumers still import (c33), kept for one release
 
 export interface AgentIdentity {
   status: "loading" | "signed-in" | "unauthenticated" | "unavailable";
