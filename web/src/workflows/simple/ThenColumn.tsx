@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import type { Actor } from "../../api/actors";
 import type { Action, Rule, Workflow } from "../../api/types";
 import { predecessorTerms, type Continuation } from "../../fold/model";
+import { actionChips } from "../../routes/rules-view";
 import { useFocusReturn } from "./focus";
 import { RunsForm, SharedActionForm } from "./SharedForms";
 import { actionBody, actionText, attemptsText, conditionRows, rowText, runEventWords, split, valueText, type Split } from "./text";
@@ -66,6 +67,19 @@ const EditButton = forwardRef<HTMLButtonElement, { label: string; open: boolean;
 /** The workflow's value in words, or that the entry points differ (each then shows its own). */
 function shown(s: Split, words: (value: unknown) => string): string {
   return s.shared || s.baseline ? words(s.value) : "Differs per entry point";
+}
+
+/** The action's params mapped from a reference, as the Rules board drew them: "image → tag". */
+function Mapped({ action }: Readonly<{ action: Action | null | undefined }>) {
+  const chips = action ? actionChips(action) : [];
+  if (chips.length === 0) return null;
+  return (
+    <ul className="fold-then__mapped" aria-label="Mapped params">
+      {chips.map((chip) => (
+        <li key={chip} className="fold-term fold-term--field">{chip}</li>
+      ))}
+    </ul>
+  );
 }
 
 /** Entry points whose value differs from the one shown for the workflow: name and own value. */
@@ -170,6 +184,7 @@ export function ThenColumn({ workflowId, rules, onward, workflows, actors, trigg
       <Card label="Ends here" icon={<CommentIcon />} edit={noEntries ? null : <EditButton ref={endsButton} label="Edit ends here" open={editing === "ends"} onClick={toggle("ends")} />}>
         <span className="fold-then__value">{noEntries ? "No entry point starts it yet." : shown(ends, (v) => actionText(v as Action | null | undefined))}</span>
         {actionBody(endsAction) ? <span className="fold-then__body">{actionBody(endsAction)}</span> : null}
+        <Mapped action={noEntries || !(ends.shared || ends.baseline) ? null : endsAction} />
         {noEntries || !(ends.shared || ends.baseline) ? null : (
           <span className="fold-then__note">
             {endsAction?.only_at_chain_end ? "Only when the chain ends here." : "After every run."}
@@ -196,6 +211,7 @@ export function ThenColumn({ workflowId, rules, onward, workflows, actors, trigg
           {failDiffers ? "Differs per entry point" : failAction ? actionText(failAction) : "Nothing runs on failure."}
         </span>
         {actionBody(failAction) ? <span className="fold-then__body">{actionBody(failAction)}</span> : null}
+        <Mapped action={failDiffers ? null : failAction} />
         {failAction?.only_at_chain_end ? <span className="fold-then__note">Once per chain.</span> : null}
         <Overrides items={failure.overrides.map((o) => ({ rule: o.rule, text: valueText("on_failure", o.value) }))} />
         {editing === "failure" ? (

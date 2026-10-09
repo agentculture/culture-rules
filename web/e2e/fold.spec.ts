@@ -18,6 +18,26 @@ async function untilReady(page: Page) {
   await expect.poll(async () => (await agentState(page)).status).toBe("ready");
 }
 
+/**
+ * Resolve once no request has been in flight for `quietMs` (a network-idle wait that works after
+ * load, unlike waitForLoadState("networkidle")): a late extra write would be in flight or done.
+ */
+function trackNetwork(page: Page) {
+  let inFlight = 0;
+  let lastChange = Date.now();
+  const bump = (n: number) => {
+    inFlight += n;
+    lastChange = Date.now();
+  };
+  page.on("request", () => bump(1));
+  page.on("requestfinished", () => bump(-1));
+  page.on("requestfailed", () => bump(-1));
+  return (quietMs = 500) =>
+    expect
+      .poll(() => inFlight <= 0 && Date.now() - lastChange >= quietMs, { timeout: 10_000, intervals: [100] })
+      .toBe(true);
+}
+
 const entry = (page: Page, name: string) => page.getByRole("group", { name: `Entry point: ${name}`, exact: true });
 
 async function openEntry(page: Page, workflow: string, rule: string, name: string) {
@@ -68,6 +88,7 @@ test.describe("the fold against the fake API (PR fixer)", () => {
 
   test("editing one entry point's condition issues exactly 1 rule PUT, for its rule", async ({ page }) => {
     const api = await mockPrFixerApi(page);
+    const quiet = trackNetwork(page);
     const card = await openEntry(page, "pr-fix", "pr-fixer-comment", COMMENT);
     await card.getByRole("button", { name: "Remove condition pr_enriched = true", exact: true }).click();
     await expect.poll(() => writesOf(api)).toEqual(["PUT /rules/pr-fixer-comment"]);
@@ -75,8 +96,11 @@ test.describe("the fold against the fake API (PR fixer)", () => {
     const terms = ((put.body as Rule).condition as { args: unknown[] }).args;
     expect(JSON.stringify(terms)).not.toContain("data.pr_enriched");
     expect(terms).toHaveLength(8);
-    // The other entry points kept their own conditions: nothing else was written.
+    // Settled: the saved rule is drawn (its row gone), then the network goes quiet. Only then is
+    // "exactly 1" checked, so a late second PUT cannot slip past.
     await expect(card.getByRole("button", { name: /^Remove condition pr_enriched/ })).toHaveCount(0);
+    await quiet();
+    // The other entry points kept their own conditions: nothing else was written.
     expect(writesOf(api)).toEqual(["PUT /rules/pr-fixer-comment"]);
   });
 

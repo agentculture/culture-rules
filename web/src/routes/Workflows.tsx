@@ -921,7 +921,8 @@ export function Workflows() {
 
   const overlay = useMemo(() => (run?.doc ? runOverlay(run.doc) : null), [run?.doc]);
   const errors = boardErrors(loaded, run, actionError);
-  const ready = loaded !== null && runSettledFor(runId, run);
+  // Not ready while a just-created workflow is still opening (nothing is selected yet).
+  const ready = loaded !== null && runSettledFor(runId, run) && !awaiting;
   useTabReady("workflows", ready, errors);
 
   const stepIds = (workflow?.steps ?? []).map((s) => s.id);
