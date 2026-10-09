@@ -2,21 +2,12 @@ import { useCallback, useRef, useState } from "react";
 import type { Rule } from "../../api/types";
 import { predecessorTerms } from "../../fold/model";
 import { saveSharedEdit, savePredecessor, type RuleWriteResult, type SharedRuleEdit } from "../../fold/writes";
-import { canonical, fieldOf, valueText } from "./text";
+import { fieldOf, valueText } from "./text";
 
-/** A rule that already held what the edit would write: nothing was sent for it. */
-export interface UnchangedResult {
-  ruleId: string;
-  snapshot: Rule;
-  attempted: Rule;
-  status: "unchanged";
-}
-export type FoldWriteResult = RuleWriteResult | UnchangedResult;
+export type FoldWriteResult = RuleWriteResult;
 
-/** Write `edit` to one rule through the fold writes, unless the rule already holds it. */
+/** Write `edit` to one rule through the fold writes (re-read first; a no-op is `unchanged` there). */
 async function writeOne(snapshot: Rule, edit: SharedRuleEdit): Promise<FoldWriteResult> {
-  const same = Object.entries(edit).every(([field, value]) => canonical(fieldOf(snapshot, field)) === canonical(value));
-  if (same) return { ruleId: snapshot.id, snapshot, attempted: snapshot, status: "unchanged" };
   return (await saveSharedEdit([snapshot], edit))[0];
 }
 

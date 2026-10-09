@@ -16,7 +16,7 @@ type State =
   | { phase: "saved"; workflow: Pick<WorkflowDef, "id" | "name"> }
   | { phase: "orphan"; orphan: WorkflowDef; snapshot: Rule; message: string };
 
-function attachFailure(rule: Rule, workflowId: string, result: Exclude<RuleWriteResult, { status: "saved" }>): string {
+function attachFailure(rule: Rule, workflowId: string, result: Exclude<RuleWriteResult, { status: "saved" | "unchanged" }>): string {
   if (result.status === "skipped-changed") return `${rule.name} changed since you opened it, so it was not pointed at ${workflowId}`;
   return `${rule.name} could not be pointed at ${workflowId} (${errorText(result.error)})`;
 }
@@ -103,7 +103,7 @@ export function D7Offer({ rule, takenIds, hrefFor, onCreated, autoStart = false 
       return setState({ phase: "orphan", orphan, snapshot, message: `${orphan.id} is still unused: ${rule.name} could not be re-read (${errorText(now.error)}).` });
     }
     const [result] = await saveSharedEdit([now.rule], { workflow: { id: orphan.id } });
-    if (result.status === "saved") return done(orphan);
+    if (result.status === "saved" || result.status === "unchanged") return done(orphan);
     setState({ phase: "orphan", orphan, snapshot: now.rule, message: `${orphan.id} is still unused: ${attachFailure(rule, orphan.id, result)}.` });
   };
 

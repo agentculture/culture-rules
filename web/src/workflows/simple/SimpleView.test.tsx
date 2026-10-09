@@ -1163,3 +1163,35 @@ describe("full-pass review follow-up", () => {
     await waitFor(() => expect(alert).toHaveFocus());
   });
 });
+
+describe("re-review: unchanged after the re-read, delete only an unused workflow", () => {
+  it("a rule whose snapshot already holds the value but changed meanwhile is skipped and flagged, with Apply", async () => {
+    use(foldApi((rules) => { rules[1].placement = { machine: "thor" }; }));
+    const user = userEvent.setup();
+    renderSimple();
+    await findEntry("Trusted PR comment");
+    Object.assign(api.rules[1], { name: "Trusted PR comment (renamed)", updated_at: "2026-10-09T13:00:00Z" });
+    await user.click(within(screen.getByRole("group", { name: "Shared by every entry point" })).getByRole("button", { name: /evaluates/ }));
+    await user.selectOptions(screen.getByLabelText("Evaluates on"), "thor");
+    await user.click(screen.getByRole("button", { name: "Save for every entry point" }));
+    const results = await screen.findByRole("region", { name: "Save results" });
+    const row = await within(results).findByText("Trusted PR comment");
+    await waitFor(() => expect(row.closest("li")).toHaveAttribute("data-status", "skipped-changed"));
+    expect(within(results).getByRole("button", { name: "Apply to Trusted PR comment as it is now" })).toBeInTheDocument();
+    expect(sent("PUT", "/rules/pr-fixer-comment")).toHaveLength(0);
+    expect(sent("GET", "/rules/pr-fixer-comment")).toHaveLength(1);
+  });
+
+  it("Delete the workflow too re-reads the rules and keeps a workflow a rule still uses", async () => {
+    const user = userEvent.setup();
+    renderSimple({ workflowId: "review-commit", def: FOLD_WORKFLOWS[1] });
+    const only = await findEntry("Review the fix");
+    await user.click(within(only).getByRole("button", { name: "Delete Review the fix" }));
+    await waitFor(() => expect(screen.queryByRole("group", { name: "Entry point: Review the fix" })).not.toBeInTheDocument());
+    // another editor points a rule at review-commit meanwhile
+    api.rules.push({ ...structuredClone(FOLD_RULES[7]), id: "late", name: "Late", workflow: { id: "review-commit" } });
+    await user.click(screen.getByRole("button", { name: "Delete the workflow Review the fix too" }));
+    expect(await screen.findByText(/Kept the workflow Review the fix: Late still uses it/)).toBeInTheDocument();
+    expect(sent("DELETE", "/workflows/review-commit")).toHaveLength(0);
+  });
+});

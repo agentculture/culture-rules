@@ -28,7 +28,7 @@ import { useLiveUpdates, type LiveChange } from "../../api/live";
 import type { Placement, Rule } from "../../api/types";
 import type { WorkflowDef } from "../../api/workflows";
 import { foldModel, predecessorTerms, type Continuation, type FoldEntry } from "../../fold/model";
-import { deleteWorkflowDoc, type SharedRuleEdit } from "../../fold/writes";
+import { deleteUnusedWorkflow, type SharedRuleEdit } from "../../fold/writes";
 import { AddStageForm, NewRuleForm } from "../../rules/Forms";
 import { StopRunsNotice } from "../../rules/StopRunsNotice";
 import { useRulesData } from "../../rules/useRulesData";
@@ -149,10 +149,12 @@ function WorkflowSimple({
   const entries: FoldEntry[] = useMemo(() => folded?.entries ?? [], [folded]);
   const rules = useMemo(() => entries.map((e) => e.rule), [entries]);
 
+  // Until the reader chooses, the asked-for entry (else the first) is open from the very first
+  // paint with rules; the effect only records it, so asks load for it too.
+  const openId = open !== undefined ? open : (entries.find((e) => e.rule.id === entry)?.rule.id ?? entries[0]?.rule.id ?? null);
   useEffect(() => {
-    if (open !== undefined || entries.length === 0) return;
-    setOpen(entries.find((e) => e.rule.id === entry)?.rule.id ?? entries[0].rule.id);
-  }, [open, entries, entry]);
+    if (open === undefined && openId) setOpen(openId);
+  }, [open, openId]);
 
   // A D7 candidate named by `entry` keeps its offer on screen through the writes that end its candidacy.
   const [candidate, setCandidate] = useState<Rule | null>(null);
@@ -212,7 +214,7 @@ function WorkflowSimple({
     if (!(await data.remove(rule))) return;
     setDeleted({ rule, last });
     requestAnimationFrame(() => undoButton.current?.focus());
-    if (open === rule.id) setOpen(entries.find((e) => e.rule.id !== rule.id)?.rule.id ?? null);
+    if (openId === rule.id) setOpen(entries.find((e) => e.rule.id !== rule.id)?.rule.id ?? null);
   };
   const undo = async () => {
     if (!deleted) return;
@@ -224,11 +226,17 @@ function WorkflowSimple({
     }
   };
   const deleteWorkflow = async () => {
-    const result = await deleteWorkflowDoc(workflowId);
+    const name = def?.name ?? workflowId;
+    const result = await deleteUnusedWorkflow(workflowId);
     if (result.status === "deleted") {
       setDeleted(null);
-      setWorkflowNote(`Deleted the workflow ${def?.name ?? workflowId}.`);
+      setWorkflowNote(`Deleted the workflow ${name}.`);
       onWorkflowDeleted?.(workflowId);
+    } else if (result.status === "in-use") {
+      setDeleted(null);
+      const users = result.rules.map((r) => r.name);
+      setWorkflowNote(`Kept the workflow ${name}: ${users.join(", ")} still ${users.length === 1 ? "uses" : "use"} it.`);
+      refreshRules();
     } else {
       setWorkflowNote(`Could not delete ${workflowId}: ${result.error instanceof Error ? result.error.message : String(result.error)}`);
     }
@@ -390,7 +398,7 @@ function WorkflowSimple({
             <EntryCard
               key={e.rule.id}
               entry={e}
-              expanded={open === e.rule.id}
+              expanded={openId === e.rule.id}
               onExpand={(next) => setOpen(next ? e.rule.id : null)}
               data={data}
               conditionShared={conditionShared}

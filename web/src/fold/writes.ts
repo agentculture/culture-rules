@@ -1,5 +1,5 @@
 /** Fold writes return data for the Simple view's overrides/retry controls. */
-import { ApiError } from "../api/client";
+import { ApiError, listRules } from "../api/client";
 import { createRule, getRule, SERVER_MANAGED_RULE_FIELDS, updateRule } from "../api/rules";
 import type { Condition, Rule } from "../api/types";
 import { predecessorTerms } from "./model";
@@ -12,6 +12,8 @@ interface RuleAttempt {
 }
 export type RuleWriteResult = RuleAttempt & (
   | { status: "saved"; rule: Rule }
+  /** Re-read equal to the snapshot, and the edit changes nothing: no PUT was sent. */
+  | { status: "unchanged"; current: Rule }
   | { status: "skipped-changed"; current: Rule }
   | { status: "failed"; phase: "prepare" | "read" | "write"; error: unknown }
 );
@@ -48,9 +50,14 @@ async function checkAttempt(attempt: RuleAttempt): Promise<UnsuccessfulRuleWrite
   return null;
 }
 
-async function saveAttempt(attempt: RuleAttempt): Promise<RuleWriteResult> {
+/** Re-read, then PUT; never answers `unchanged` (D7's attach always changes the rule). */
+async function writeAttempt(attempt: RuleAttempt): Promise<Exclude<RuleWriteResult, { status: "unchanged" }>> {
   const checked = await checkAttempt(attempt);
   if (checked) return checked;
+  return putAttempt(attempt);
+}
+
+async function putAttempt(attempt: RuleAttempt): Promise<Exclude<RuleWriteResult, { status: "unchanged" }>> {
   // The existing endpoint has no If-Match support. This check cannot close
   // the race between GET and PUT; never claim an atomic compare-and-swap.
   try {
@@ -58,6 +65,20 @@ async function saveAttempt(attempt: RuleAttempt): Promise<RuleWriteResult> {
   } catch (error) {
     return { ...attempt, status: "failed", phase: "write", error };
   }
+}
+
+/**
+ * Re-read, then PUT. A no-op is judged only after the re-read (c27): the stored rule equals the
+ * snapshot and the attempt equals it too, so there is nothing to write. A rule changed meanwhile
+ * is `skipped-changed` whatever the edit, as before.
+ */
+async function saveAttempt(attempt: RuleAttempt): Promise<RuleWriteResult> {
+  const checked = await checkAttempt(attempt);
+  if (checked) return checked;
+  if (canonical(attempt.attempted) === canonical(attempt.snapshot)) {
+    return { ...attempt, status: "unchanged", current: attempt.snapshot };
+  }
+  return putAttempt(attempt);
 }
 
 /**
@@ -85,7 +106,7 @@ export async function saveSharedEdit(
   return results;
 }
 
-type UnsuccessfulRuleWrite = Exclude<RuleWriteResult, { status: "saved" }>;
+type UnsuccessfulRuleWrite = Exclude<RuleWriteResult, { status: "saved" | "unchanged" }>;
 export type D7WriteResult =
   | { status: "saved"; workflow: WorkflowDef; ruleResult: Extract<RuleWriteResult, { status: "saved" }> }
   | { status: "failed"; phase: "prepare" | "create"; error: unknown }
@@ -121,7 +142,7 @@ export async function createD7Workflow(
   } catch (error) {
     return { status: "failed", phase: "create", error };
   }
-  const ruleResult = await saveAttempt({
+  const ruleResult = await writeAttempt({
     ruleId: original.id, snapshot: original,
     attempted: { ...original, workflow: { id: workflow.id } },
   });
@@ -204,4 +225,25 @@ export async function deleteWorkflowDoc(workflowId: string): Promise<WorkflowDel
   } catch (error) {
     return { status: "failed", workflowId, error };
   }
+}
+
+export type UnusedWorkflowDeleteResult =
+  | WorkflowDeleteResult
+  | { status: "in-use"; workflowId: string; rules: { id: string; name: string }[] }
+  | { status: "failed"; workflowId: string; phase: "read"; error: unknown };
+
+/**
+ * Delete a workflow only if no rule uses it, judged from a fresh `GET /rules`: the server
+ * soft-deletes a workflow even while a rule still points at it.
+ */
+export async function deleteUnusedWorkflow(workflowId: string): Promise<UnusedWorkflowDeleteResult> {
+  let rules: Rule[];
+  try {
+    rules = await listRules();
+  } catch (error) {
+    return { status: "failed", workflowId, phase: "read", error };
+  }
+  const users = rules.filter((rule) => rule.workflow?.id === workflowId).map(({ id, name }) => ({ id, name }));
+  if (users.length > 0) return { status: "in-use", workflowId, rules: users };
+  return deleteWorkflowDoc(workflowId);
 }
