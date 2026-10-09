@@ -1,0 +1,739 @@
+/*
+ * The Simple view (design canvas board Fold-Editor,
+ * https://claude.ai/artifact/Jgm3JPnAhKWpeiCxFXvNBi): When entry points on
+ * the left, the workflow's steps in the middle, Then on the right. Colors are
+ * tokens.css / app.css / views.css custom properties plus the few below,
+ * each with a dark-mode twin. The global prefers-reduced-motion kill switch
+ * in tokens.css stops every transition declared here.
+ */
+
+:root {
+  --fold-card-shadow: 0 6px 20px rgba(35, 42, 77, 0.1);
+  --fold-open-ring: 0 0 0 3px var(--ink), 0 10px 28px rgba(35, 42, 77, 0.12);
+  --fold-row-bg: #f7f8fc;
+  --fold-term-bg: #eef0f7;
+  --fold-var-bg: #e3f1ee;
+  --fold-warn: #b4531f;
+  --fold-warn-tint: #fff9f5;
+  --fold-chip-bg: #eceef5;
+  --fold-dots: rgba(35, 42, 77, 0.12);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fold-card-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+    --fold-open-ring: 0 0 0 3px var(--ink), 0 10px 28px rgba(0, 0, 0, 0.4);
+    --fold-row-bg: #1b2140;
+    --fold-term-bg: #1e2442;
+    --fold-var-bg: color-mix(in srgb, #7fdcc9 20%, var(--surface));
+    --fold-warn: #f2b774;
+    --fold-warn-tint: color-mix(in srgb, #d0743d 14%, var(--surface));
+    --fold-chip-bg: #1e2442;
+    --fold-dots: rgba(233, 236, 248, 0.1);
+  }
+}
+
+.fold-simple {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.fold-board {
+  display: grid;
+  grid-template-columns: minmax(18rem, 22rem) minmax(0, 1fr) minmax(18rem, 24rem);
+  gap: 24px;
+  align-items: start;
+}
+
+/* Without the middle steps column, When and Then share the width. */
+.fold-board:not(:has(.fold-col--steps)) {
+  grid-template-columns: minmax(18rem, 1fr) minmax(18rem, 1fr);
+}
+
+@media (max-width: 1100px) {
+  .fold-board,
+  .fold-board:not(:has(.fold-col--steps)) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.fold-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.fold-col__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+}
+
+.fold-col__title {
+  margin: 0;
+  flex: 1;
+  font-family: var(--font-display);
+  font-size: 1.625rem;
+  font-weight: 600;
+  letter-spacing: var(--ac-tracking-heading);
+}
+
+.fold-col--then .fold-col__title {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+}
+
+.fold-col__empty {
+  margin: 0;
+  color: var(--ink-soft);
+}
+
+/* ---------- shared terms, chips, badges ---------- */
+
+.fold-term {
+  padding: 1px 7px;
+  border-radius: 6px;
+  background: var(--fold-term-bg);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+}
+
+.fold-term--var {
+  border-radius: 999px;
+  background: var(--fold-var-bg);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.fold-term--words {
+  padding: 0;
+  background: none;
+  font-family: var(--font-body);
+  font-size: 0.875rem;
+}
+
+.fold-badge {
+  flex: none;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--fold-chip-bg);
+  color: var(--ink-soft);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.fold-badge--off {
+  color: var(--fold-warn);
+}
+
+.fold-badge--override {
+  background: var(--fold-warn-tint);
+  color: var(--fold-warn);
+  border: 1px dashed var(--fold-warn);
+}
+
+.fold-add {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 2px dashed var(--line);
+  background: transparent;
+  color: var(--ink);
+  font: 600 0.875rem var(--font-body);
+  cursor: pointer;
+}
+
+.fold-add--big {
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: 12px;
+  font-size: 0.95rem;
+}
+
+.fold-add:focus-visible,
+.fold-entry__expand:focus-visible,
+.fold-then__edit:focus-visible,
+.fold-shared__placement:focus-visible,
+.fold-chip-button:focus-visible,
+.fold-onward__link:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.fold-chip-button {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--fold-chip-bg);
+  color: var(--ink);
+  font: 500 0.8125rem var(--font-body);
+  cursor: pointer;
+}
+
+/* ---------- When: shared values ---------- */
+
+.fold-shared {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: var(--fold-card-shadow);
+  color: var(--ink-soft);
+  font-size: 0.875rem;
+}
+
+.fold-shared__placement {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--fold-chip-bg);
+  color: var(--ink);
+  font: 600 0.875rem var(--font-body);
+  cursor: pointer;
+}
+
+.fold-shared .fold-conditions,
+.fold-shared .rule-form {
+  flex-basis: 100%;
+}
+
+/* ---------- When: entry points ---------- */
+
+.fold-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 10px 12px 14px;
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow: var(--fold-card-shadow);
+  transition: box-shadow 0.2s var(--ease-out);
+}
+
+.fold-entry.is-open {
+  padding: 14px 16px;
+  border-radius: 22px;
+  box-shadow: var(--fold-open-ring);
+}
+
+.fold-entry.is-disabled .fold-entry__name {
+  color: var(--ink-soft);
+}
+
+.fold-entry__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.fold-entry__icon {
+  display: inline-flex;
+  color: var(--ink);
+}
+
+.fold-entry__title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.fold-entry__name-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.fold-entry__name {
+  font-size: 1.0625rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.fold-entry__sub {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--ink-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fold-entry__expand {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: var(--fold-chip-bg);
+  color: var(--ink);
+  cursor: pointer;
+  transition: transform 0.2s var(--ease-out);
+}
+
+.fold-entry__expand.is-open {
+  transform: rotate(180deg);
+}
+
+.fold-entry__body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.fold-entry__trigger,
+.fold-entry__from {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--ink-soft);
+}
+
+.fold-entry__from select {
+  min-height: 36px;
+  font: inherit;
+  color: var(--ink);
+}
+
+.fold-entry__label {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.fold-entry__meta {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--ink-soft);
+}
+
+.fold-conditions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fold-condition {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--fold-row-bg);
+  font-size: 0.875rem;
+}
+
+.fold-condition__op {
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+
+.fold-condition__not {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--fold-warn);
+}
+
+.fold-overrides {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.875rem;
+}
+
+.fold-entry__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line-soft);
+  font-size: 0.875rem;
+  color: var(--ink-soft);
+}
+
+.fold-entry__inputs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fold-entry__bindings {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fold-entry__budget {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fold-entry__order-toggle {
+  align-self: flex-start;
+}
+
+.fold-entry__order {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fold-entry__tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.fold-spacer {
+  flex: 1;
+}
+
+.fold-danger {
+  color: var(--fold-warn);
+}
+
+/* ---------- history ---------- */
+
+.fold-history {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.875rem;
+}
+
+.fold-history__item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.fold-history__when,
+.fold-history__note {
+  color: var(--ink-soft);
+}
+
+.fold-history__note--error {
+  color: var(--fold-warn);
+}
+
+/* ---------- middle: steps ---------- */
+
+.fold-col--steps {
+  padding: 20px;
+  border-radius: 28px;
+  background-color: var(--surface);
+  background-image: radial-gradient(var(--fold-dots) 1px, transparent 1px);
+  background-size: 22px 22px;
+  box-shadow: var(--shadow);
+}
+
+.fold-steps {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fold-step {
+  width: min(100%, 14rem);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: var(--fold-card-shadow);
+}
+
+.fold-step__name {
+  font-weight: 700;
+}
+
+.fold-step__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.fold-step--start,
+.fold-step--end {
+  width: 10rem;
+  flex-direction: row;
+  justify-content: center;
+  border-radius: 999px;
+  font-weight: 600;
+}
+
+.fold-step--start {
+  background: var(--ink);
+  color: var(--surface);
+}
+
+.fold-step--end {
+  border: 2px solid var(--ink);
+  box-shadow: none;
+}
+
+.fold-step__empty {
+  color: var(--ink-soft);
+  text-align: center;
+  font-size: 0.875rem;
+}
+
+/* ---------- Then ---------- */
+
+.fold-then {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 18px;
+  border-radius: 22px;
+  background: var(--surface);
+  box-shadow: var(--fold-card-shadow);
+}
+
+.fold-then__kicker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink);
+}
+
+.fold-then__kicker--warn {
+  color: var(--fold-warn);
+}
+
+.fold-then__label {
+  flex: 1;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.fold-then__edit {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 10px;
+  background: var(--fold-chip-bg);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.fold-then__value {
+  font-size: 1.125rem;
+  font-weight: 700;
+}
+
+.fold-then__body,
+.fold-then__key {
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--fold-row-bg);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--ink-soft);
+  overflow-wrap: anywhere;
+}
+
+.fold-then__words {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.875rem;
+  color: var(--ink-soft);
+}
+
+.fold-then__note {
+  font-size: 0.8125rem;
+  color: var(--ink-soft);
+}
+
+.fold-onwards {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fold-onward {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fold-onward__link {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.fold-onward__link:hover {
+  color: var(--accent);
+}
+
+/* ---------- write results and D7 ---------- */
+
+.fold-results {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px;
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: var(--fold-card-shadow);
+}
+
+.fold-results--partial {
+  border: 2px dashed var(--fold-warn);
+  background: var(--fold-warn-tint);
+}
+
+.fold-results__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fold-results__title {
+  flex: 1;
+  font-weight: 700;
+}
+
+.fold-results__list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fold-result {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+}
+
+.fold-result__name {
+  font-weight: 600;
+}
+
+.fold-result__words {
+  flex: 1;
+  min-width: 12rem;
+  color: var(--ink-soft);
+}
+
+.fold-d7 {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 18px;
+  border-radius: 16px;
+  border: 2px dashed var(--fold-warn);
+  background: var(--fold-warn-tint);
+}
+
+.fold-d7__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.fold-d7__lead,
+.fold-d7__message,
+.fold-d7__done {
+  margin: 0;
+}
+
+.fold-d7__fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.fold-d7__fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.875rem;
+}
+
+.fold-d7__fields input {
+  min-height: 40px;
+  font: inherit;
+}
+
+.fold-d7 > .btn {
+  align-self: flex-start;
+}
+
+.fold-d7__orphan {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
