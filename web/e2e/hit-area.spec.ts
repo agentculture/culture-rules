@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { mockApi } from "./fixtures/api";
 import { mockActorsApi } from "./fixtures/actors";
 import { mockStatistics } from "./fixtures/statistics";
+import { withView } from "./fixtures/view";
 import { mockWorkflowsApi } from "./fixtures/workflows";
 import { REVIEW_PR } from "../src/workflows/fixture";
 
@@ -72,9 +73,38 @@ async function smallHitAreas(page: Page, within?: string): Promise<string[]> {
   return misses;
 }
 
-const TABS: { name: string; path: string; mock: (page: Page) => Promise<unknown> }[] = [
-  { name: "Rules", path: "/rules/build-and-publish", mock: (page) => mockApi(page) },
-  { name: "Workflows", path: "/workflows?id=review-pr", mock: (page) => mockWorkflowsApi(page) },
+const TABS: {
+  name: string;
+  path: string;
+  mock: (page: Page) => Promise<unknown>;
+  /** What must be on screen before the sweep (beyond agent-state's ready). */
+  settled?: (page: Page) => Promise<void>;
+}[] = [
+  // Rules are folded into Workflows: a rule is an entry point, open in the Simple view.
+  {
+    name: "Workflows (an entry point open, Simple)",
+    path: "/workflows?id=build-image&entry=build-and-publish",
+    mock: (page) => mockApi(page),
+    // The entry point opens once its rules load: sweep its controls too.
+    settled: (page) => expect(page.getByRole("button", { name: "Collapse Build and publish" })).toBeVisible(),
+  },
+  { name: "Workflows (a rule without a workflow)", path: "/workflows?entry=clean-caches", mock: (page) => mockApi(page) },
+  {
+    name: "Workflows (Detailed)",
+    path: "/workflows?id=review-pr",
+    mock: async (page) => {
+      await withView(page, "detailed");
+      await mockWorkflowsApi(page);
+    },
+  },
+  {
+    name: "Workflows (Debug)",
+    path: "/workflows?id=review-pr",
+    mock: async (page) => {
+      await withView(page, "debug");
+      await mockWorkflowsApi(page);
+    },
+  },
   {
     name: "Workflows (empty state)",
     path: "/workflows",
@@ -101,6 +131,7 @@ test.describe("d4: every control has a 44x44 hit area", () => {
       await tab.mock(page);
       await page.goto(tab.path);
       await expect.poll(async () => (await agentState(page)).status).toBe("ready");
+      await tab.settled?.(page);
       expect(await smallHitAreas(page)).toEqual([]);
     });
   }
@@ -126,11 +157,12 @@ test.describe("d4: every control has a 44x44 hit area", () => {
       await expect.poll(async () => (await agentState(page)).status).toBe("ready");
       const list = page.getByRole("navigation", { name: "Workflows" });
       await expect(list.getByRole("button", { name: "New workflow" })).toBeVisible();
-      await expect(list.getByRole("link")).toHaveCount(start.length);
+      // One enable switch per stored workflow (its section on the folded list).
+      await expect(list.getByRole("switch")).toHaveCount(start.length);
       expect(await smallHitAreas(page, 'nav[aria-label="Workflows"]')).toEqual([]);
-      // The row itself is a large target too: at least 44px tall, as the New button is.
-      for (const el of [list.getByRole("button", { name: "New workflow" }), ...(start.length ? [list.locator(".rule-row")] : [])]) {
-        expect((await el.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+      // New workflow and New rule are large targets too: at least 44px tall.
+      for (const name of ["New workflow", "New rule"]) {
+        expect((await list.getByRole("button", { name }).boundingBox())!.height).toBeGreaterThanOrEqual(44);
       }
     });
   }

@@ -1,12 +1,11 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetAgentState } from "../../agent-state/store";
 import type { Condition, Rule } from "../../api/types";
 import { SELECTED_RULE_ID } from "../../fixtures/rules-fixture";
 import { createFakeApi, fetchFor, handle, withActiveRuns, type FakeApi } from "../../rules/fake-api";
-import Rules from "../../rules/RulesBoard.legacy";
 import { FOLD_RULES, FOLD_WORKFLOWS, ON_FAILURE, RUN_KEY } from "./fixture";
 import NewRule from "./NewRule";
 import SimpleView, { type SimpleViewProps } from "./SimpleView";
@@ -68,8 +67,8 @@ describe("When: the workflow's entry points", () => {
     renderSimple();
     const view = await screen.findByRole("region", { name: "Simple view" });
     expect(within(view).getByRole("heading", { level: 2, name: "When" })).toBeInTheDocument();
-    const names = within(view)
-      .getAllByRole("group", { name: /^Entry point: / })
+    // The view mounts before its rules load: wait for the entry points (one load lists them all).
+    const names = (await within(view).findAllByRole("group", { name: /^Entry point: / }))
       .map((g) => g.getAttribute("aria-label"));
     expect(names).toEqual([
       "Entry point: Checks settled, not green",
@@ -199,43 +198,70 @@ describe("shared values once, differing ones per entry", () => {
   });
 });
 
-/** Run the same user flow on the Rules tab and in the Simple view; return each one's PUT bodies. */
+/**
+ * What the Rules tab sent for each flow below, recorded from it (the board, src/routes/Rules.tsx,
+ * last run as src/rules/RulesBoard.legacy.tsx) before it was deleted with the fold (t9). The
+ * Simple view must send exactly these: the same rule document, through the same endpoint.
+ */
+const BUILD_AND_PUBLISH = {
+  id: "build-and-publish",
+  name: "Build and publish",
+  trigger: { kind: "event", params: { label: "Push to main" } },
+  condition: { op: "compare", cmp: "==", left: { var: "verdict" }, right: { literal: "approve" } },
+  workflow: { id: "build-image", inputs: { commit: "trigger.data.sha", repo: "trigger.data.repo" } },
+  action: { kind: "http.call", name: "Publish", params: { tag: "workflow.outputs.image" } },
+  placement: { machine: "thor" },
+  must_after: ["review-on-approve"],
+  enabled: true,
+};
+const RULES_TAB = {
+  editForm: [["PUT", "/rules/build-and-publish", {
+    ...BUILD_AND_PUBLISH,
+    name: "Ship it",
+    trigger: { kind: "event", params: { type: "github.push" } },
+    action: { kind: "noop", name: "PublishHold" },
+    placement: { machine: "spark2" },
+  }]],
+  addCondition: [["PUT", "/rules/train-batch", {
+    id: "train-batch",
+    name: "Train batch",
+    trigger: { kind: "schedule", params: { label: "Hourly" } },
+    action: { kind: "code.run", name: "Train" },
+    placement: { machine: "thor" },
+    enabled: true,
+    workflow: { id: "review-pr", inputs: {} },
+    condition: { op: "compare", cmp: "==", left: { var: "branch" }, right: { literal: "main" } },
+  }]],
+  relate: [["PUT", "/rules/build-and-publish", { ...BUILD_AND_PUBLISH, may_after: ["train-batch"] }]],
+  unrelate: [["PUT", "/rules/build-and-publish", { ...BUILD_AND_PUBLISH, must_after: [] }]],
+  disable: [["POST", "/rules/build-and-publish/disable", undefined]],
+};
+
+/** Run a user flow in the Simple view; return its writes, as the Rules tab's recorded above. */
 async function putBodies(
+  rulesTab: unknown[][],
   ruleId: string,
   workflowId: string,
   flow: (user: User, scope: HTMLElement) => Promise<void>,
   setup?: (fake: FakeApi) => void,
-) {
-  const bodies: unknown[][] = [];
-  for (const where of ["rules", "simple"] as const) {
-    const fake = createFakeApi(NOW);
-    setup?.(fake);
-    use(fake);
-    const user = userEvent.setup();
-    const view = where === "rules"
-      ? render(
-        <MemoryRouter initialEntries={[`/rules/${ruleId}`]}>
-          <Routes><Route path="/rules/:ruleId?" element={<Rules />} /></Routes>
-        </MemoryRouter>,
-      )
-      : render(<MemoryRouter><SimpleView workflowId={workflowId} entry={ruleId} /></MemoryRouter>);
-    const name = fake.rules.find((r) => r.id === ruleId)!.name;
-    const scope = where === "rules"
-      ? await screen.findByRole("main")
-      : await findEntry(name);
-    if (where === "rules") await screen.findByRole("heading", { level: 1, name });
-    await flow(user, scope);
-    await waitFor(() => expect(fake.calls.some((c) => c.method !== "GET")).toBe(true));
-    await waitFor(() => expect(screen.queryByRole("form")).not.toBeInTheDocument());
-    bodies.push(fake.calls.filter((c) => c.method !== "GET").map((c) => [c.method, c.path, c.body]));
-    view.unmount();
-  }
-  return bodies;
+): Promise<[unknown[][], unknown[][]]> {
+  const fake = createFakeApi(NOW);
+  setup?.(fake);
+  use(fake);
+  const user = userEvent.setup();
+  const view = render(<MemoryRouter><SimpleView workflowId={workflowId} entry={ruleId} /></MemoryRouter>);
+  const name = fake.rules.find((r) => r.id === ruleId)!.name;
+  await flow(user, await findEntry(name));
+  await waitFor(() => expect(fake.calls.some((c) => c.method !== "GET")).toBe(true));
+  await waitFor(() => expect(screen.queryByRole("form")).not.toBeInTheDocument());
+  const simple = fake.calls.filter((c) => c.method !== "GET").map((c) => [c.method, c.path, c.body]);
+  view.unmount();
+  return [rulesTab, simple];
 }
 
 describe("the same rule document the Rules tab saved", () => {
   it("the edit form: name, trigger, action and placement", async () => {
-    const [rules, simple] = await putBodies(SELECTED_RULE_ID, "build-image", async (user, scope) => {
+    const [rules, simple] = await putBodies(RULES_TAB.editForm, SELECTED_RULE_ID, "build-image", async (user, scope) => {
       const open = within(scope).queryByRole("button", { name: "Edit rule" })
         ?? within(scope).getByRole("button", { name: "Edit Build and publish" });
       await user.click(open);
@@ -258,7 +284,7 @@ describe("the same rule document the Rules tab saved", () => {
     const setup = (fake: FakeApi) => {
       fake.rules.find((r) => r.id === "train-batch")!.workflow = { id: "review-pr", inputs: {} };
     };
-    const [rules, simple] = await putBodies("train-batch", "review-pr", async (user, scope) => {
+    const [rules, simple] = await putBodies(RULES_TAB.addCondition, "train-batch", "review-pr", async (user, scope) => {
       const stage = within(scope).queryByRole("button", { name: "Add stage" });
       if (stage) await user.click(stage);
       await user.click(screen.getByRole("button", { name: "Add condition" }));
@@ -272,7 +298,7 @@ describe("the same rule document the Rules tab saved", () => {
   });
 
   it("a relationship", async () => {
-    const [rules, simple] = await putBodies(SELECTED_RULE_ID, "build-image", async (user, scope) => {
+    const [rules, simple] = await putBodies(RULES_TAB.relate, SELECTED_RULE_ID, "build-image", async (user, scope) => {
       await user.selectOptions(within(scope).getByLabelText("Add may run after"), "train-batch");
     });
     expect(rules).toHaveLength(1);
@@ -281,7 +307,7 @@ describe("the same rule document the Rules tab saved", () => {
   });
 
   it("removing a relationship", async () => {
-    const [rules, simple] = await putBodies(SELECTED_RULE_ID, "build-image", async (user, scope) => {
+    const [rules, simple] = await putBodies(RULES_TAB.unrelate, SELECTED_RULE_ID, "build-image", async (user, scope) => {
       await user.click(within(scope).getByRole("button", { name: "Remove: must run after Review on approve" }));
     });
     expect(rules).toHaveLength(1);
@@ -289,7 +315,7 @@ describe("the same rule document the Rules tab saved", () => {
   });
 
   it("enable / disable", async () => {
-    const [rules, simple] = await putBodies(SELECTED_RULE_ID, "build-image", async (user) => {
+    const [rules, simple] = await putBodies(RULES_TAB.disable, SELECTED_RULE_ID, "build-image", async (user) => {
       await user.click(screen.getAllByRole("switch", { name: "Build and publish enabled" })[0]);
     });
     expect(simple).toEqual(rules);
@@ -838,21 +864,17 @@ describe("creating rules once the Rules tab is gone", () => {
       await user.selectOptions(within(form).getByLabelText("Event"), "github.pr.opened");
       await user.click(within(form).getByRole("button", { name: "Create rule" }));
     };
-    use(createFakeApi(NOW));
-    let user = userEvent.setup();
-    const tab = render(
-      <MemoryRouter initialEntries={["/rules/train-batch"]}>
-        <Routes><Route path="/rules/:ruleId?" element={<Rules />} /></Routes>
-      </MemoryRouter>,
-    );
-    await user.click(await screen.findByRole("button", { name: "New rule" }));
-    await fill(user);
-    await waitFor(() => expect(sent("POST", "/rules")).toHaveLength(1));
-    const fromTab = sent("POST", "/rules")[0].body as Rule;
-    tab.unmount();
+    // What the Rules tab's New rule sent for this form (recorded before the tab was deleted, t9).
+    const fromTab = {
+      id: "pr-opened",
+      name: "PR opened",
+      trigger: { kind: "event", params: { type: "github.pr.opened" } },
+      action: { kind: "mesh.message", name: "Notify" },
+      enabled: true,
+    };
 
     use(createFakeApi(NOW));
-    user = userEvent.setup();
+    const user = userEvent.setup();
     render(<MemoryRouter><SimpleView workflowId="build-image" /></MemoryRouter>);
     await findEntry("Build and publish");
     await user.click(screen.getByRole("button", { name: "Entry point" }));

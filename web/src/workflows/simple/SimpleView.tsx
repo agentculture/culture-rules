@@ -39,11 +39,14 @@ import { PlacementForm } from "./SharedForms";
 import { useFocusReturn } from "./focus";
 import { canonical, conditionRows, countsEdit, fieldOf, placementWords, split, triggerParts, valueText, withTerm, withoutEqualTerm } from "./text";
 import { ThenColumn } from "./ThenColumn";
+import { useFeedSubscription, type LiveFeed } from "./liveFeed";
 import { useFanout } from "./useFanout";
 import { WriteResults } from "./WriteResults";
 import "./simple.css";
 
 const LIVE_COLLECTIONS = ["rules", "runs", "asks", "rule_decisions"] as const;
+/** With a feed from the page, no stream of its own (an empty list opens none). */
+const NO_COLLECTIONS: readonly string[] = [];
 
 /** The fields an entry shows as an override when it differs from the workflow's value. */
 const OVERRIDE_FIELDS = ["placement", "action", "on_failure", "concurrency_key", "max_attempts"] as const;
@@ -60,6 +63,11 @@ export interface SimpleViewProps {
   onCreated?: (workflowId: string) => void;
   /** The workflow was deleted from here (after its last entry point went). */
   onWorkflowDeleted?: (workflowId: string) => void;
+  /**
+   * Live changes from the page's own stream (it must carry rules, runs, asks and
+   * rule_decisions). Given, the view opens no EventSource of its own; absent, it opens one.
+   */
+  live?: LiveFeed;
 }
 
 const defaultHref = (id: string) => `/workflows?id=${encodeURIComponent(id)}`;
@@ -130,6 +138,7 @@ function WorkflowSimple({
   hrefFor = defaultHref,
   onCreated,
   onWorkflowDeleted,
+  live: feed,
 }: Readonly<SimpleViewProps>) {
   // undefined: not chosen yet (the asked-for entry, else the first, once the rules are in).
   const [open, setOpen] = useState<string | null | undefined>(undefined);
@@ -142,7 +151,8 @@ function WorkflowSimple({
     if (touched.has("runs") || touched.has("asks")) refreshAsks();
     if (touched.has("runs") || touched.has("rule_decisions")) setHistoryTick((n) => n + 1);
   }, [refreshRules, refreshAsks]);
-  const live = useLiveUpdates(LIVE_COLLECTIONS, onLive);
+  const live = useLiveUpdates(feed ? NO_COLLECTIONS : LIVE_COLLECTIONS, onLive);
+  useFeedSubscription(feed, onLive);
 
   const model = useMemo(() => foldModel(data.rules, data.workflows), [data.rules, data.workflows]);
   const folded = model.workflows.find((w) => w.id === workflowId) ?? null;

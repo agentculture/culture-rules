@@ -1,6 +1,7 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 import { mockApi } from "./fixtures/api";
+import { withView } from "./fixtures/view";
 import { mockWorkflowsApi, type Recorded } from "./fixtures/workflows";
 import { WORKFLOW_DOCS } from "../src/workflows/fixture";
 import type { WorkflowDef } from "../src/api/workflows";
@@ -22,6 +23,8 @@ async function agentState(page: Page) {
 }
 
 async function open(page: Page, start: WorkflowDef[], path = "/workflows"): Promise<Recorded[]> {
+  // The canvas scenarios drive the Detailed (steps) view; a workflow opens in Simple by default.
+  await withView(page);
   await mockApi(page);
   const calls = await mockWorkflowsApi(page, start);
   await page.goto(path);
@@ -35,6 +38,9 @@ const emptyState = (page: Page) => page.getByRole("region", { name: "No workflow
 const nameForm = (page: Page) => page.getByRole("form", { name: "New workflow" });
 const list = (page: Page) => page.getByRole("navigation", { name: "Workflows" });
 const listNew = (page: Page) => list(page).getByRole("button", { name: "New workflow" });
+/** A workflow's name link on the list (its entry points' links name rules, not workflows). */
+const workflowLinks = (page: Page) => list(page).locator(".fold-workflow h3").getByRole("link");
+const section = (page: Page, id: string) => page.locator(`.fold-workflow[data-workflow-id="${id}"]`);
 
 async function noSeriousAxe(page: Page, label: string) {
   const results = await new AxeBuilder({ page }).analyze();
@@ -50,9 +56,10 @@ test.describe("Workflows tab: New workflow", () => {
     await expect(cta).toBeVisible();
     // Large target: the primary action is drawn at 56px.
     expect(Math.round((await cta.boundingBox())!.height)).toBe(56);
-    // The list is there with no workflows: its New button, no rows; the header has no "+ New".
+    // The list is there with no workflows: its New button, no stored workflow (no switch); the
+    // fixture's rules still name theirs, shown as missing. The header has no "+ New".
     await expect(listNew(page)).toBeVisible();
-    await expect(list(page).getByRole("link")).toHaveCount(0);
+    await expect(list(page).getByRole("switch")).toHaveCount(0);
     const head = page.locator(".wf-head__end");
     await expect(head.getByRole("button", { name: "New workflow" })).toHaveCount(0);
     await expect(head.getByRole("button", { name: "Import", exact: true })).toBeVisible();
@@ -113,7 +120,9 @@ test.describe("Workflows tab: New workflow", () => {
     // The design board's head stays one row at 1280px beside the list: title, (i), rename, delete, io
     // group. Since d19's (i) the row is full there, so Run may wrap under it (it is checked separately).
     const middle = async (name: string, role: "heading" | "button" | "switch") => {
-      const box = (await page.getByRole(role, { name, exact: true }).first().boundingBox())!;
+      // The board's h1, not the list's chain card heading of the same name.
+      const query = role === "heading" ? { name, exact: true, level: 1 } : { name, exact: true };
+      const box = (await page.getByRole(role, query).first().boundingBox())!;
       return box.y + box.height / 2;
     };
     const row = await middle("Review PR", "heading");
@@ -133,8 +142,8 @@ test.describe("Workflows tab: New workflow", () => {
     await nameForm(page).getByRole("button", { name: "Create workflow" }).click();
     await expect(page.getByRole("heading", { level: 1, name: "Ship release" })).toBeVisible();
     await expect(page).toHaveURL(/\/workflows\?id=ship-release$/);
-    await expect(list(page).getByRole("link", { name: "Ship release" })).toHaveAttribute("aria-current", "true");
-    await expect(list(page).getByRole("link")).toHaveCount(3);
+    await expect(workflowLinks(page).filter({ hasText: "Ship release" })).toHaveAttribute("aria-current", "true");
+    await expect(workflowLinks(page)).toHaveCount(3);
     expect(posts(calls)).toHaveLength(1);
   });
 
@@ -186,7 +195,7 @@ test.describe("Workflows tab: rename, enable / disable and delete", () => {
     await expect(toggle).toHaveAttribute("aria-checked", "true");
     await toggle.click();
     await expect(toggle).toHaveAttribute("aria-checked", "false");
-    await expect(page.locator('.rule-row[data-workflow-id="nightly-report"]')).toHaveClass(/is-disabled/);
+    await expect(section(page, "nightly-report")).toHaveClass(/is-disabled/);
     await toggle.click();
     await expect(toggle).toHaveAttribute("aria-checked", "true");
     expect(calls.filter((c) => c.method === "POST").map((c) => c.path)).toEqual([
@@ -207,7 +216,7 @@ test.describe("Workflows tab: rename, enable / disable and delete", () => {
       "POST /api/workflows/nightly-report/restore",
     ]);
 
-    await list(page).getByRole("link", { name: "Review PR" }).click();
+    await workflowLinks(page).filter({ hasText: "Review PR" }).click();
     await expect(page.getByRole("heading", { level: 1, name: "Review PR" })).toBeVisible();
     await page.getByRole("button", { name: "Delete workflow" }).click();
     await expect(page.getByRole("alert")).toContainText("workflows/review-pr is used by a rule");

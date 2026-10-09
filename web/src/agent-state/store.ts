@@ -60,8 +60,11 @@ export interface AgentWorkflowsState {
   dirty: boolean;
   /** The run overlaid on the canvas (?run=), from persisted run state. */
   run: { id: string; status: string } | null;
-  /** The view switch: simple (When / Then), detailed (steps) or debug (ports). */
-  view?: "simple" | "detailed" | "debug";
+  /**
+   * The view switch: simple (When / Then), detailed (steps) or debug (ports);
+   * null while no view switch is shown (the D7 place, New rule, New workflow, an empty list).
+   */
+  view?: "simple" | "detailed" | "debug" | null;
   /** The open workflow's entry points and continuations (rule ids, list order). */
   entries?: string[];
   /** The entry point asked for (?entry=), a rule id, else null. */
