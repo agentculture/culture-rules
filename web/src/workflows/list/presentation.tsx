@@ -34,11 +34,21 @@ export function triggerText(rule: Rule): string {
   if (rule.trigger.kind === "probe") return `Probe: ${params?.command ?? "not set"}`;
   return rule.trigger.kind;
 }
-export function EntrySummary({ entry, onOpen }: { entry: FoldEntry; onOpen?: (id: string) => void }) {
+export function SameEventNote({ model, entry }: { model: FoldModel; entry: FoldEntry }) {
+  const type = (entry.rule.trigger.params as Record<string, unknown> | undefined)?.type;
+  if (entry.kind !== "entry" || typeof type !== "string") return null;
+  const ids = [...new Set(model.entryPoints.filter((other) =>
+    other.workflowId !== entry.workflowId
+    && other.rule.trigger.kind === entry.rule.trigger.kind
+    && (other.rule.trigger.params as Record<string, unknown> | undefined)?.type === type).map((other) => other.workflowId))];
+  return <>{ids.map((id) => <small key={id}>same event starts {workflowName(model, id)}</small>)}</>;
+}
+export function EntrySummary({ entry, model, onOpen }: { entry: FoldEntry; model?: FoldModel; onOpen?: (id: string) => void }) {
   return <div className="fold-entry" data-rule-id={entry.rule.id}>
     <Link to={workflowUrl(entry.workflowId, entry.rule.id)} onClick={() => onOpen?.(entry.workflowId)}>{entry.rule.name}</Link>
     {!entry.enabled && <span className="fold-tag">Disabled</span>}
     <small>{entry.kind === "continuation" ? `${fromText(entry)} · ` : ""}{triggerText(entry.rule)}</small>
+    {model && <SameEventNote model={model} entry={entry} />}
     {entry.rule.condition && <details><summary>Guard</summary><p>{guardText(entry.rule.condition)}</p></details>}
     {entry.rule.placement?.machine && <span className="fold-tag">{entry.rule.placement.machine}</span>}
     <small>was {entry.rule.id}</small>

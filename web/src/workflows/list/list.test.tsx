@@ -26,8 +26,8 @@ describe("folded workflow list", () => {
     render(<MemoryRouter><WorkflowList {...props} /></MemoryRouter>);
     const cards = screen.getAllByRole("article", { name: /^Chain:/ });
     expect(cards).toHaveLength(2);
-    expect(within(cards[0]).getByText("3 workflows · 4 entry points · was 7 rules")).toBeInTheDocument();
-    expect(within(cards[1]).getByText("1 workflow · 2 entry points · was 2 rules")).toBeInTheDocument();
+    expect(within(cards[0]).getByText("3 workflows linked by continuations · 4 entry points · was 7 rules")).toBeInTheDocument();
+    expect(within(cards[1]).getByText("1 workflow linked by continuations · 2 entry points · was 2 rules")).toBeInTheDocument();
     expect(within(cards[0]).getAllByRole("group", { name: /^Workflow:/ })).toHaveLength(3);
     expect(within(cards[1]).getAllByRole("group", { name: /^Workflow:/ })).toHaveLength(1);
     for (const label of ["Starts when", "Continues into", "Runs", "Ends with"]) {
@@ -56,13 +56,79 @@ describe("folded workflow list", () => {
     expect(onNew).toHaveBeenCalledOnce();
   });
 
+  it("dims disabled workflows and keeps terminal wording and one continuation destination link", () => {
+    const disabled = workflows.map((wf, index) => ({ ...wf, enabled: index !== 0 }));
+    render(<MemoryRouter><WorkflowList {...props} workflows={disabled} model={foldModel(rules, disabled)} /></MemoryRouter>);
+    expect(screen.getByRole("group", { name: `Workflow: ${disabled[0].name}` })).toHaveClass("is-disabled");
+    expect(screen.getAllByText("Nothing. The chain ends here.").length).toBeGreaterThan(0);
+    for (const entry of model.continuations) {
+      const source = screen.getByRole("group", { name: `Workflow: ${workflows.find(wf => wf.id === entry.fromWorkflowId)!.name}` });
+      const dd = within(source).getByText("Continues into").nextElementSibling!;
+      expect(dd.querySelectorAll(`a[href="/workflows?id=${entry.workflowId}&entry=${entry.rule.id}"]`)).toHaveLength(1);
+    }
+  });
+
+  it("lists D7 candidates with names, rule links and an inclusive total", () => {
+    const candidates = ["loose / one", "loose-two"].map(id => ({ ...rules[0], id, name: id, workflow: undefined }));
+    const mixed = foldModel([...rules, ...candidates], workflows);
+    render(<MemoryRouter><WorkflowList {...props} model={mixed} /></MemoryRouter>);
+    const section = screen.getByRole("region", { name: "Rules without a workflow" });
+    for (const rule of candidates) expect(within(section).getByRole("link", { name: rule.name })).toHaveAttribute("href", `/rules/${encodeURIComponent(rule.id)}`);
+    expect(within(section).getAllByText("D7 candidate · can become a one-step workflow")).toHaveLength(2);
+    expect(screen.getByText("4 workflows · 6 entry points · was 11 rules")).toBeInTheDocument();
+  });
+
+  it("derives same-event notes across chains from the PR fixer fixture", () => {
+    const renamed = workflows.map(wf => wf.id === "report-secrets" ? { ...wf, name: "Secret reporter" } : wf);
+    render(<MemoryRouter><WorkflowList {...props} workflows={renamed} model={foldModel(rules, renamed)} /></MemoryRouter>);
+    const entry = screen.getByRole("link", { name: rules.find(rule => rule.id === "pr-fixer-checks")!.name }).closest(".fold-entry")!;
+    expect(within(entry as HTMLElement).getByText("same event starts Secret reporter")).toBeInTheDocument();
+    expect(within(entry as HTMLElement).queryByText(/same event starts.*pr-fix/)).not.toBeInTheDocument();
+  });
+
+  it("matches D1 on both trigger kind and type, deduplicating destination workflows", () => {
+    const wf = [{ id: "a", name: "Alpha" }, { id: "b", name: "Beta" }];
+    const entry = (id: string, workflow: string, kind: string, type?: string): Rule => ({
+      id, name: id, workflow: { id: workflow }, trigger: { kind, params: { type } }, action: { kind: "noop" },
+    });
+    const entries = [
+      entry("source", "a", "event", "custom.event"),
+      entry("same-workflow", "a", "event", "custom.event"),
+      entry("match", "b", "event", "custom.event"),
+      entry("duplicate", "b", "event", "custom.event"),
+      entry("different-kind", "b", "probe", "custom.event"),
+      entry("different-type", "b", "event", "another.event"),
+      entry("no-type", "a", "manual"),
+      entry("also-no-type", "b", "manual"),
+    ];
+    render(<MemoryRouter><WorkflowList {...props} workflows={wf} model={foldModel(entries, wf)} /></MemoryRouter>);
+    const source = screen.getByRole("link", { name: "source" }).closest(".fold-entry") as HTMLElement;
+    expect(within(source).getAllByText("same event starts Beta")).toHaveLength(1);
+    for (const name of ["different-kind", "different-type", "no-type", "also-no-type"]) {
+      const row = screen.getByRole("link", { name }).closest(".fold-entry") as HTMLElement;
+      expect(within(row).queryByText(/same event starts/)).not.toBeInTheDocument();
+    }
+  });
+
+  it("returns focus to the second card when that chain was opened", () => {
+    render(<MemoryRouter><WorkflowList {...props} /></MemoryRouter>);
+    fireEvent.click(screen.getAllByRole("button", { name: "See it as one chain" })[1]);
+    expect(screen.getByRole("heading", { level: 2 })).toHaveFocus();
+    fireEvent.click(screen.getByRole("button", { name: "List" }));
+    expect(screen.getAllByRole("button", { name: "See it as one chain" })[1]).toHaveFocus();
+  });
+
   it("opens the chosen chain and returns to the list", () => {
     render(<MemoryRouter><WorkflowList {...props} /></MemoryRouter>);
     fireEvent.click(screen.getAllByRole("button", { name: "See it as one chain" })[0]);
+    expect(screen.getByRole("heading", { level: 2 })).toHaveFocus();
+    expect(screen.getByRole("button", { name: "Chain" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "List" })).toHaveAttribute("aria-pressed", "false");
     expect(screen.getAllByRole("group", { name: /^Entry point:/ })).toHaveLength(4);
     expect(screen.getByText("7 rules → 4 entry points, 3 continuations, 3 workflows")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "List" }));
     expect(screen.getAllByRole("article", { name: /^Chain:/ })).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: "See it as one chain" })[0]).toHaveFocus();
   });
 });
 
@@ -91,6 +157,7 @@ describe("Chain view", () => {
     expect(screen.getByText(/from an empty workflow id/)).toBeInTheDocument();
     expect(screen.getByText(/from multiple workflow terms/)).toBeInTheDocument();
     expect(container.querySelectorAll("path[data-continuation-id]")).toHaveLength(0);
+    expect(container.querySelector(".fold-chain__canvas")).toHaveStyle({ height: "360px" });
   });
 
   it("handles an empty model without fabricated counts", () => {

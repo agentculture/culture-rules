@@ -1,7 +1,7 @@
 import { useId } from "react";
 import { Link } from "react-router-dom";
 import type { Chain, FoldModel } from "../../fold/model";
-import { count, EndSummary, EntrySummary, fromText, guardText, triggerText, workflowName, workflowUrl } from "./presentation";
+import { count, SameEventNote, EndSummary, EntrySummary, fromText, guardText, triggerText, workflowName, workflowUrl } from "./presentation";
 import "./list.css";
 
 export interface ChainViewProps {
@@ -21,11 +21,11 @@ export function ChainView({ model, chain, selectedId, onOpen }: Readonly<ChainVi
   const positions = new Map(ids.map((id, index) => [id, { x: 360 + index * 340, y: 60 }]));
   const width = Math.max(680, 380 + ids.length * 340);
   const laneStart = Math.max(320, 60 + entries.length * 180);
-  const height = laneStart + continuations.length * 100 + 40;
   const linked = continuations.filter((entry) => entry.fromWorkflowId !== null && positions.has(entry.fromWorkflowId));
+  const height = laneStart + linked.length * 100 + 40;
   const unresolved = continuations.filter((entry) => !linked.includes(entry));
   return <section className="fold-chain" aria-label="Chain view">
-    <p>{count(entries.length + continuations.length, "rule")} → {count(entries.length, "entry point")}, {count(continuations.length, "continuation")}, {count(ids.length, "workflow")}</p>
+    <p>{count(entries.length + continuations.length + (chain ? 0 : model.d7Candidates.length), "rule")} → {count(entries.length, "entry point")}, {count(continuations.length, "continuation")}, {count(ids.length, "workflow")}</p>
     {!ids.length ? <p>No workflows yet.</p> : <div className="fold-chain__scroll" tabIndex={0} role="region" aria-label="Workflow chain diagram">
       <div className="fold-chain__canvas" style={{ width, height }}>
         <strong className="fold-chain__when">When</strong>
@@ -50,6 +50,7 @@ export function ChainView({ model, chain, selectedId, onOpen }: Readonly<ChainVi
         {entries.map((entry, index) => <div key={entry.rule.id} className="fold-chain__entry" role="group" aria-label={`Entry point: ${entry.rule.name}`} style={{ left: 0, top: 60 + index * 180 }}>
           <Link to={workflowUrl(entry.workflowId, entry.rule.id)} onClick={() => onOpen?.(entry.workflowId)}>{entry.rule.name}</Link>
           <small>{triggerText(entry.rule)}</small>{!entry.enabled && <span className="fold-tag">Disabled</span>}
+          <SameEventNote model={model} entry={entry} />
           <small>was {entry.rule.id}</small>
         </div>)}
         {ids.map((id) => {
@@ -65,6 +66,7 @@ export function ChainView({ model, chain, selectedId, onOpen }: Readonly<ChainVi
         {linked.map((entry, index) => <div key={entry.rule.id} className="fold-chain__edge-label" style={{ left: 360, top: laneStart + index * 100 + 8, width: width - 400 }}>
           <Link to={workflowUrl(entry.workflowId, entry.rule.id)} onClick={() => onOpen?.(entry.workflowId)}>{entry.rule.name}</Link>
           <small>{fromText(entry)} → {workflowName(model, entry.workflowId)} · {triggerText(entry.rule)}{!entry.enabled ? " · Disabled" : ""}</small>
+          <SameEventNote model={model} entry={entry} />
           <small>was {entry.rule.id}</small>
         </div>)}
       </div>

@@ -36,3 +36,9 @@
   .fold-summary { grid-template-columns: minmax(0, 1fr); gap: 0.5rem; }
   .fold-summary dd { margin-bottom: 0.75rem; }
 }
+
+.fold-workflow a[aria-current] { background: var(--surface); box-shadow: 0 0 0 3px var(--m, var(--machine-none)); border-radius: var(--radius); font-weight: 700; }
+.fold-workflow.is-disabled h3 a { color: var(--ink-soft); }
+.fold-workflow.is-disabled .machine-dot { opacity: 0.5; }
+.fold-view-toggle { display: inline-flex; gap: 0.25rem; padding: 0.25rem; border-radius: var(--radius); background: var(--line-soft); }
+.fold-view-toggle [aria-pressed="true"] { background: var(--ink); color: var(--surface); }
