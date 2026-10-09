@@ -333,7 +333,8 @@ export function bundleEdges(
 /**
  * The id of a card's one bundle handle on a side (`in`: the target on its left,
  * `out`: the source on its right): `__in` / `__out`, lengthened with `_` until it
- * names none of that side's ports, so it never collides with a real port.
+ * names none of the card's ports on either side. React Flow already looks handles up
+ * by type, so only same-side names could collide; avoiding both is cheap insurance.
  */
 export function bundleHandle(side: "in" | "out", portNames: readonly string[]): string {
   const taken = new Set(portNames);

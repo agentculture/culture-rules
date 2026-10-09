@@ -343,5 +343,7 @@ describe("bundle handles", () => {
     expect(bundleHandle("in", ["diff"])).toBe("__in");
     expect(bundleHandle("out", [])).toBe("__out");
     expect(bundleHandle("in", ["__in", "__in_"])).toBe("__in__");
+    // Canvas passes both sides' names: an output port named `__in` pushes the in-handle along too.
+    expect(bundleHandle("in", ["diff", "__in"])).toBe("__in_");
   });
 });

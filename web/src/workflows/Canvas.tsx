@@ -229,7 +229,8 @@ function CanvasInner(props: Readonly<CanvasProps>) {
   });
   const isExpanded = useCallback((id: string) => id === selected || id === dropTarget, [selected, dropTarget]);
   const handleOf = useCallback(
-    (node: string, side: "in" | "out") => bundleHandle(side, nodePortNames(workflow, node, side)),
+    (node: string, side: "in" | "out") =>
+      bundleHandle(side, [...nodePortNames(workflow, node, "in"), ...nodePortNames(workflow, node, "out")]),
     [workflow],
   );
 
