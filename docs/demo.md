@@ -294,8 +294,10 @@ browser needs nothing.) Runs are shown in context, never as a tab.
 
 **The screenshots predate the fold.** They were taken when this walkthrough
 was executed, before Rules was folded into Workflows, and were not
-re-taken: the Workflows screenshot shows the canvas the Detailed view still
-draws, and the Rules screenshot shows the old Rules tab. In the folded
+re-taken: the Workflows screenshot shows the canvas the Detailed view drew
+before it went compact (0.18.0, every port row on every card; today a card
+shows its ports only while selected), and the Rules screenshot shows the
+old Rules tab. In the folded
 editor the same objects read as follows:
 
 - **Workflows** lists `greet-flow` on its own chain card: "Starts when"
@@ -311,8 +313,10 @@ editor the same objects read as follows:
   failure action, run key and budget), and saving writes the rule
   (`PUT /rules/greet-on-event`). The workflow inputs mapping is shown
   read-only, and `priority` and `exclusive_group` have no editor yet.
-- The view switch also offers **Detailed** (the steps and edges, below)
-  and **Debug** (every port, type and reference). The choice is kept per
+- The view switch also offers **Detailed** (the steps and edges, below:
+  compact cards, one edge per connected pair labelled with its wire count,
+  the selected step's ports and wires in full) and **Debug** (every port,
+  type and reference). The choice is kept per
   viewer in the browser.
 - The old address `/rules/greet-on-event` redirects to
   `/workflows/greet-flow?entry=greet-on-event`, the same page with that

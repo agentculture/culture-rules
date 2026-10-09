@@ -4,8 +4,10 @@
  *   Simple   — the When / Then workflow (canvas Fold-Editor). Its component
  *              lands with t6; until then the caller may pass it as `simple`,
  *              and a placeholder stands in.
- *   Detailed — today's steps-and-edges canvas (canvas WF-Flow), unchanged:
- *              ../Canvas.tsx with the same props.
+ *   Detailed — the steps-and-edges canvas (canvas WF-Flow), compact: cards
+ *              without port rows, one edge per connected pair labelled with
+ *              its wire count; the selected card expands to its ports and
+ *              its wires (../Canvas.tsx, with the same props).
  *   Debug    — every port, its type and reference, with upstream/downstream
  *              highlighting on port selection (canvas WF-Variables,
  *              WF-Variables-Port): ./DebugView.tsx, its own layout.

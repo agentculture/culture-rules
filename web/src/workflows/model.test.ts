@@ -5,6 +5,9 @@ import {
   INPUTS_NODE,
   OUTPUTS_NODE,
   addStep,
+  bundleEdges,
+  bundleHandle,
+  bundleId,
   compatibleSources,
   connect,
   deleteStep,
@@ -286,5 +289,59 @@ describe("workflowMachine: actor placement resolves to a known machine (#7)", ()
   it("an actor on a machine nobody enrolled stays unresolved", () => {
     const ghost = { ...thorServer, id: "g", machine: "mars" };
     expect(workflowMachine(wf(onActor("g")), { machines: MACHINES, actors: [ghost] })).toBeNull();
+  });
+});
+
+describe("Detailed edge bundles", () => {
+  const wires = [
+    { id: "a", source: "one", target: "two", sourcePort: "x", targetPort: "a", cross: false, kind: "wire" as const },
+    { id: "b", source: "one", target: "two", sourcePort: "y", targetPort: "b", cross: true, kind: "wire" as const },
+    { id: "c", source: "two", target: "outputs", sourcePort: "z", targetPort: "c", cross: false, kind: "output" as const },
+    { id: "d", source: "two", target: "outputs", sourcePort: "w", targetPort: "d", cross: false, kind: "output" as const },
+  ];
+  it("counts wires and output bindings, propagating hops and light", () => {
+    const result = bundleEdges(wires, new Set(["b"]), null);
+    expect(result).toHaveLength(2);
+    expect(result[0]).toMatchObject({ count: 2, cross: true, lit: true });
+    expect(result[1]).toMatchObject({ count: 2, cross: false, lit: false });
+  });
+  it("keeps incident wires and their port identities, bundling other pairs", () => {
+    const result = bundleEdges(wires, new Set(["a"]), "one");
+    expect(result).toHaveLength(3);
+    expect(result[0]).toMatchObject({ ...wires[0], count: 1, bundled: false, lit: true });
+    expect(result[1]).toMatchObject({ ...wires[1], count: 1, bundled: false });
+    expect(result[2]).toMatchObject({ count: 2, bundled: true });
+  });
+  it("has stable, order-independent bundle ids and loses no wires in any selection", () => {
+    const ids = (edges: typeof wires) => bundleEdges(edges, new Set(), null).map(e => e.id).sort();
+    expect(ids([...wires].reverse())).toEqual(ids(wires));
+    for (const expanded of [null, "one", "two", "outputs"]) {
+      const result = bundleEdges(wires, new Set(), expanded);
+      expect(result.flatMap(e => e.wires.map(w => w.id)).sort()).toEqual(wires.map(e => e.id).sort());
+      expect(result.reduce((sum, e) => sum + e.count, 0)).toBe(wires.length);
+    }
+  });
+  it("names a bundle by its pair alone, even when it holds one wire", () => {
+    const [one] = bundleEdges([wires[2]], new Set(), null);
+    expect(one).toMatchObject({ id: bundleId("two", "outputs"), count: 1, bundled: true, kind: "output" });
+    expect(one.sourcePort).toBeNull();
+    expect(one.targetPort).toBeNull();
+  });
+  it("bundles every pair of the Review PR fixture, and expands only the selected step's wires", () => {
+    const graph = graphEdges(REVIEW_PR, ctx);
+    const pairs = new Set(graph.map((e) => `${e.source}->${e.target}`));
+    expect(bundleEdges(graph, new Set(), null)).toHaveLength(pairs.size);
+    const expanded = bundleEdges(graph, new Set(), "review");
+    const wired = graph.filter((e) => e.source === "review" || e.target === "review");
+    expect(expanded.filter((e) => !e.bundled).map((e) => e.id).sort()).toEqual(wired.map((e) => e.id).sort());
+    expect(expanded.filter((e) => e.bundled).every((e) => e.source !== "review" && e.target !== "review")).toBe(true);
+  });
+});
+
+describe("bundle handles", () => {
+  it("are __in / __out, lengthened past any port of the same name", () => {
+    expect(bundleHandle("in", ["diff"])).toBe("__in");
+    expect(bundleHandle("out", [])).toBe("__out");
+    expect(bundleHandle("in", ["__in", "__in_"])).toBe("__in__");
   });
 });

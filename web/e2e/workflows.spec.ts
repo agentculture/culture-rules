@@ -29,6 +29,22 @@ const edge = (page: Page, id: string) => page.getByTestId(`rf__edge-${id}`);
 const dash = (locator: Locator) =>
   locator.locator(".react-flow__edge-path").evaluate((el) => getComputedStyle(el).strokeDasharray);
 
+/**
+ * Drag a wire from an expanded card's port handle onto a compact card: the card under the
+ * pointer expands while the wire is dragged, then the drop lands on its `port` handle.
+ */
+async function dragWire(page: Page, from: Locator, onto: Locator, port: string) {
+  await from.hover();
+  await page.mouse.down();
+  const box = (await onto.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + 20, { steps: 8 });
+  const target = onto.locator(`[data-port="${port}"] .react-flow__handle`);
+  await expect(target).toBeVisible();
+  const handle = (await target.boundingBox())!;
+  await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2, { steps: 8 });
+  await page.mouse.up();
+}
+
 test.describe("Workflows tab", () => {
   test("matches the 'Chosen — Workflows' board layout (screenshot)", async ({ page }) => {
     await open(page);
@@ -65,24 +81,35 @@ test.describe("Workflows tab", () => {
     expect(await head("Review")).toBe("rgb(251, 234, 223)");
     expect(await head("Run tests")).toBe("rgb(230, 233, 248)");
 
-    // Type scale: step names 17px bold, ports 14px mono.
+    // Type scale: step names 17px bold.
     const name = step(page, "Review").locator(".wf-card__name");
     expect(await name.evaluate((el) => getComputedStyle(el).fontSize)).toBe("17px");
-    const port = step(page, "Review").locator('[data-port="in:diff"]');
-    expect(await port.evaluate((el) => getComputedStyle(el).fontSize)).toBe("14px");
 
-    // Dashed edges mark cross-machine hops; same-machine edges are solid.
-    await expect(page.locator(".react-flow__edge")).toHaveCount(8);
-    expect(await dash(edge(page, "fetch-diff.diff->review.diff"))).toBe("7px, 6px");
-    expect(await dash(edge(page, "review.owner->outputs.owner"))).toBe("7px, 6px");
-    expect(await dash(edge(page, "decide.verdict->outputs.verdict"))).toBe("none");
-    expect(await dash(edge(page, "inputs.repo->run-tests.repo"))).toBe("none");
+    // Compact: no port rows, one edge per connected pair (8 wires, 7 pairs), labelled with
+    // its wire count when it carries more than one. Dashed edges mark cross-machine hops;
+    // same-machine edges are solid.
+    await expect(page.locator(".wf-canvas [data-port]")).toHaveCount(0);
+    await expect(page.locator(".react-flow__edge")).toHaveCount(7);
+    await expect(page.getByRole("img", { name: "2 connections", exact: true })).toHaveText("2");
+    expect(await dash(edge(page, "bundle:fetch-diff->review"))).toBe("7px, 6px");
+    expect(await dash(edge(page, "bundle:review->outputs"))).toBe("7px, 6px");
+    expect(await dash(edge(page, "bundle:decide->outputs"))).toBe("none");
+    expect(await dash(edge(page, "bundle:inputs->run-tests"))).toBe("none");
     await expect(page.getByText("crosses machines")).toBeVisible();
     await expect(page.getByRole("button", { name: "Add step" })).toBeVisible();
 
     // The board shows Review selected, its toolbar floating above it.
     await step(page, "Review").locator(".wf-card__name").click();
     await expect(page.getByRole("button", { name: "on thor" })).toBeVisible();
+    // Selected, Review shows its ports (14px mono) and its wires are drawn port to port.
+    const port = step(page, "Review").locator('[data-port="in:diff"]');
+    expect(await port.evaluate((el) => getComputedStyle(el).fontSize)).toBe("14px");
+    await expect(step(page, "Review").locator("[data-port]")).toHaveCount(3);
+    await expect(page.locator(".react-flow__edge")).toHaveCount(7);
+    expect(await dash(edge(page, "fetch-diff.diff->review.diff"))).toBe("7px, 6px");
+    expect(await dash(edge(page, "review.owner->outputs.owner"))).toBe("7px, 6px");
+    expect(await dash(edge(page, "bundle:decide->outputs"))).toBe("none");
+    await expect(edge(page, "bundle:fetch-diff->review")).toHaveCount(0);
     await page.mouse.move(0, 0);
     // The selection ring is a 3px ink outline once its transition settles.
     await expect
@@ -122,15 +149,25 @@ test.describe("Workflows tab", () => {
     await open(page);
     const handle = (name: string, port: string) =>
       step(page, name).locator(`[data-port="${port}"] .react-flow__handle`);
+    // Ports show once their card is selected.
+    await expect(handle("Review", "in:diff")).toHaveCount(0);
+    await step(page, "Review").locator(".wf-card__name").click();
     await expect(handle("Review", "in:diff")).toHaveAttribute("data-port-type", "string");
 
-    // boolean -> string: refused.
-    await handle("Run tests", "out:passed").dragTo(handle("Review", "in:diff"));
+    // boolean -> string: refused. Drag from the selected Run tests onto the compact Review.
+    await step(page, "Run tests").locator(".wf-card__name").click();
+    await expect(handle("Review", "in:diff")).toHaveCount(0);
+    await dragWire(page, handle("Run tests", "out:passed"), step(page, "Review"), "in:diff");
+    await expect(page.getByText(/Not wired: cannot wire passed/)).toBeVisible();
+    // The drop target collapses again once the drag ends.
+    await expect(handle("Review", "in:diff")).toHaveCount(0);
+    await step(page, "Review").locator(".wf-card__name").click();
     await expect(edge(page, "run-tests.passed->review.diff")).toHaveCount(0);
     await expect(edge(page, "fetch-diff.diff->review.diff")).toHaveCount(1);
 
-    // string -> string: wires, replacing what fed Review's diff.
-    await handle("Inputs", "out:repo").dragTo(handle("Review", "in:diff"));
+    // string -> string: wires, replacing what fed Review's diff. Dragged the other way,
+    // from the selected Review's input onto the compact Inputs card.
+    await dragWire(page, handle("Review", "in:diff"), step(page, "Inputs"), "out:repo");
     await expect(edge(page, "inputs.repo->review.diff")).toHaveCount(1);
     await expect(edge(page, "fetch-diff.diff->review.diff")).toHaveCount(0);
   });
@@ -203,8 +240,12 @@ test.describe("Workflows tab", () => {
     await expect(step(page, "Review")).toContainText("succeeded on thor");
     await expect(step(page, "Run tests")).toContainText("succeeded on spark2");
     await expect(step(page, "Fetch diff")).toContainText("succeeded on spark");
+    // Bundles are lit when a wire in them is; selected, Review's own wires are lit port to port.
+    await expect(edge(page, "bundle:review->decide")).toHaveClass(/is-lit/);
+    await expect(edge(page, "bundle:decide->outputs")).not.toHaveClass(/is-lit/);
+    await step(page, "Review").locator(".wf-card__name").click();
     await expect(edge(page, "review.findings->decide.findings")).toHaveClass(/is-lit/);
-    await expect(edge(page, "decide.verdict->outputs.verdict")).not.toHaveClass(/is-lit/);
+    await expect(edge(page, "bundle:decide->outputs")).not.toHaveClass(/is-lit/);
     const state = await agentState(page);
     expect(state.workflows.run).toEqual({ id: "run-7", status: "failed" });
     // `animations: "disabled"` fast-forwards the lit edges' transition to its end state.

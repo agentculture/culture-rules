@@ -2,14 +2,18 @@
  * The two card shapes of the 'Chosen — Workflows' board:
  *
  *   step card — a 190px white card; a header tinted with its machine's color
- *               (machine name + enable switch), the step name (17px bold),
- *               then one 30px mono row per typed port: inputs on the left
- *               (hollow handles), outputs on the right (filled handles).
- *               A `logic` step has a dashed border, like the Rules board's
- *               Condition: it decides. Selected, it floats its toolbar
- *               (placement chip, edit, delete) above itself.
+ *               (machine name + enable switch) and the step name (17px bold).
+ *               Compact (the Detailed view's default) it shows no port rows:
+ *               one hidden bundle handle on each side carries the bundled
+ *               edges. Expanded (selected, or under a connection being
+ *               dragged) it adds one 30px mono row per typed port: inputs on
+ *               the left (hollow handles), outputs on the right (filled
+ *               handles). A `logic` step has a dashed border, like the Rules
+ *               board's Condition: it decides. Selected, it floats its
+ *               toolbar (placement chip, edit, delete) above itself.
  *   io card   — the workflow's `in` / `out`: dashed, unshadowed, Fraunces
- *               title, hollow handles.
+ *               title; compact, a count line ("9 inputs"); expanded, its
+ *               ports with hollow handles.
  */
 import { Handle, Position, type NodeProps, type Node } from "@xyflow/react";
 import type { Port, Step } from "../api/workflows";
@@ -26,6 +30,11 @@ export interface StepNodeData extends Record<string, unknown> {
   subtitle: string | null;
   placement: string;
   run: StepRun | null;
+  /** Port rows showing (selected, or a drop target while a wire is dragged). */
+  expanded: boolean;
+  /** The ids of the hidden bundle handles: target on the left, source on the right. */
+  inHandle: string;
+  outHandle: string;
   onToggle: (id: string) => void;
   onPlacement: (id: string, trigger: HTMLElement) => void;
   onEdit: (id: string, trigger: HTMLElement) => void;
@@ -35,6 +44,9 @@ export interface StepNodeData extends Record<string, unknown> {
 export interface IoNodeData extends Record<string, unknown> {
   side: "in" | "out";
   ports: Port[];
+  expanded: boolean;
+  /** The hidden bundle handle's id (a source on `in`, a target on `out`). */
+  handle: string;
 }
 
 export type StepNodeType = Node<StepNodeData, "step">;
@@ -87,8 +99,25 @@ function PortRow({ port, side, filled }: Readonly<{ port: Port; side: "in" | "ou
   );
 }
 
+/**
+ * A card's one bundle handle on a side: hidden, never connectable, there only so a
+ * bundled edge has somewhere to land. It sits beside the title, clear of the port rows.
+ */
+function BundleHandle({ side, id }: Readonly<{ side: "in" | "out"; id: string }>) {
+  return (
+    <Handle
+      type={side === "in" ? "target" : "source"}
+      position={side === "in" ? Position.Left : Position.Right}
+      id={id}
+      isConnectable={false}
+      className="wf-handle wf-handle--bundle"
+      aria-hidden="true"
+    />
+  );
+}
+
 export function StepNode({ id, data, selected }: NodeProps<StepNodeType>) {
-  const { step, label, slot, host, subtitle, placement, run } = data;
+  const { step, label, slot, host, subtitle, placement, run, expanded } = data;
   const enabled = step.enabled !== false;
   const runClass = run ? ` is-run-${run.status}` : "";
   return (
@@ -128,9 +157,13 @@ export function StepNode({ id, data, selected }: NodeProps<StepNodeType>) {
         </div>
       ) : null}
       <div
-        className={`wf-card wf-card--${step.kind}${enabled ? "" : " is-disabled"}${runClass}`}
+        className={`wf-card wf-card--${step.kind}${enabled ? "" : " is-disabled"}${runClass}${
+          expanded ? " is-expanded" : " is-compact"
+        }`}
         style={machineStyle(slot)}
       >
+        <BundleHandle side="in" id={data.inHandle} />
+        <BundleHandle side="out" id={data.outHandle} />
         <div className="wf-card__machine" data-machine-slot={slot ?? "none"}>
           <span className="wf-card__host" title={placement}>
             {host}
@@ -144,14 +177,16 @@ export function StepNode({ id, data, selected }: NodeProps<StepNodeType>) {
           {subtitle ? <span className="wf-card__sub">{subtitle}</span> : null}
         </div>
         {run ? <RunBadge run={run} /> : null}
-        <div className="wf-card__ports">
-          {(step.inputs ?? []).map((p) => (
-            <PortRow key={`in-${p.name}`} port={p} side="in" filled={false} />
-          ))}
-          {(step.outputs ?? []).map((p) => (
-            <PortRow key={`out-${p.name}`} port={p} side="out" filled />
-          ))}
-        </div>
+        {expanded ? (
+          <div className="wf-card__ports">
+            {(step.inputs ?? []).map((p) => (
+              <PortRow key={`in-${p.name}`} port={p} side="in" filled={false} />
+            ))}
+            {(step.outputs ?? []).map((p) => (
+              <PortRow key={`out-${p.name}`} port={p} side="out" filled />
+            ))}
+          </div>
+        ) : null}
       </div>
     </>
   );
@@ -160,14 +195,21 @@ export function StepNode({ id, data, selected }: NodeProps<StepNodeType>) {
 export function IoNode({ data }: NodeProps<IoNodeType>) {
   // The workflow's inputs are *sources* on the canvas; its outputs are *targets*.
   const side = data.side === "in" ? "out" : "in";
+  const noun = data.side === "in" ? "input" : "output";
+  const count = data.ports.length;
   return (
-    <div className={`wf-card wf-card--io wf-card--${data.side}`}>
+    <div className={`wf-card wf-card--io wf-card--${data.side}${data.expanded ? " is-expanded" : " is-compact"}`}>
+      <BundleHandle side={side} id={data.handle} />
       <div className="wf-card__io-title">{data.side}</div>
-      <div className="wf-card__ports wf-card__ports--io">
-        {data.ports.map((p) => (
-          <PortRow key={p.name} port={p} side={side} filled={false} />
-        ))}
-      </div>
+      {data.expanded ? (
+        <div className="wf-card__ports wf-card__ports--io">
+          {data.ports.map((p) => (
+            <PortRow key={p.name} port={p} side={side} filled={false} />
+          ))}
+        </div>
+      ) : (
+        <div className="wf-card__count">{`${count} ${noun}${count === 1 ? "" : "s"}`}</div>
+      )}
     </div>
   );
 }

@@ -4,6 +4,10 @@
  * upstream — the 'Chosen — Workflows' board's columns (190px cards, 60px
  * between layers). Positions are top-left corners in flow coordinates.
  *
+ * Cards are laid out at their compact height (no port rows): the Detailed
+ * view expands only the selected card, which then grows downward in place,
+ * raised over its neighbours, rather than reflowing the whole graph.
+ *
  * elkjs is ~1.4 MB, so it is loaded on first use (its own chunk); until it
  * answers, and if it ever fails, a deterministic column layout stands in.
  */
@@ -21,15 +25,39 @@ const RUN_ROW = 30;
 
 export type Positions = Record<string, { x: number; y: number }>;
 
-/** A card's height on the board: header, title, one 30px row per port. */
+/** An expanded card's height on the board: header, title, one 30px row per port. */
 export function cardHeight(ports: number, io = false): number {
   return io ? HEADER + 24 + PORT_ROW * ports : HEADER + TITLE + PORT_PAD + PORT_ROW * ports + RUN_ROW;
 }
 
-/** Each node's height on the board, from its port count — or its measured height, if taller. */
-export function nodeHeights(wf: WorkflowDef, measured: Readonly<Record<string, number>> = {}): Record<string, number> {
+/** A compact card's height: header and title (a step, room for a run line too), or the io count line. */
+export function compactHeight(io = false): number {
+  return io ? HEADER + 24 + PORT_ROW : HEADER + TITLE + PORT_PAD + RUN_ROW;
+}
+
+/** A node's port count (both sides), by id. */
+function portCount(wf: WorkflowDef, id: string): { ports: number; io: boolean } {
+  if (id === INPUTS_NODE) return { ports: (wf.inputs ?? []).length, io: true };
+  if (id === OUTPUTS_NODE) return { ports: (wf.outputs ?? []).length, io: true };
+  const step = (wf.steps ?? []).find((s) => s.id === id);
+  return { ports: (step?.inputs ?? []).length + (step?.outputs ?? []).length, io: false };
+}
+
+/**
+ * Each node's height on the board: compact, or — for the `expanded` node — from its
+ * port count; or its measured height, if taller.
+ */
+export function nodeHeights(
+  wf: WorkflowDef,
+  measured: Readonly<Record<string, number>> = {},
+  expanded: string | null = null,
+): Record<string, number> {
   const out: Record<string, number> = {};
-  for (const n of graphOf(wf).nodes) out[n.id] = Math.max(n.height, measured[n.id] ?? 0);
+  for (const n of graphOf(wf).nodes) {
+    const { ports, io } = portCount(wf, n.id);
+    const estimate = n.id === expanded ? cardHeight(ports, io) : n.height;
+    out[n.id] = Math.max(estimate, measured[n.id] ?? 0);
+  }
   return out;
 }
 
@@ -73,13 +101,9 @@ export function canvasHeight(bounds: Bounds, zoom = 1): number {
 function graphOf(wf: WorkflowDef) {
   const steps = wf.steps ?? [];
   const nodes = [
-    { id: INPUTS_NODE, width: CARD_WIDTH, height: cardHeight((wf.inputs ?? []).length, true) },
-    ...steps.map((s) => ({
-      id: s.id,
-      width: CARD_WIDTH,
-      height: cardHeight((s.inputs ?? []).length + (s.outputs ?? []).length),
-    })),
-    { id: OUTPUTS_NODE, width: CARD_WIDTH, height: cardHeight((wf.outputs ?? []).length, true) },
+    { id: INPUTS_NODE, width: CARD_WIDTH, height: compactHeight(true) },
+    ...steps.map((s) => ({ id: s.id, width: CARD_WIDTH, height: compactHeight() })),
+    { id: OUTPUTS_NODE, width: CARD_WIDTH, height: compactHeight(true) },
   ];
   const ids = new Set(nodes.map((n) => n.id));
   const pairs = new Set<string>();

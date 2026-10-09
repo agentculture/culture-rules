@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Port, WorkflowDef } from "../api/workflows";
-import { CANVAS_TOP, canvasBounds, canvasHeight, cardHeight, nodeHeights } from "./layout";
+import { CANVAS_TOP, canvasBounds, canvasHeight, cardHeight, compactHeight, nodeHeights } from "./layout";
 
 const ports = (n: number, prefix: string): Port[] =>
   Array.from({ length: n }, (_, i) => ({ name: `${prefix}${i + 1}`, type: "string" }));
@@ -25,14 +25,19 @@ const POSITIONS = {
 };
 
 describe("canvas bounds", () => {
-  it("measures each card from its port count", () => {
+  it("measures each card compact, and the expanded card from its port count", () => {
     const heights = nodeHeights(TALL);
-    expect(heights.eight).toBe(cardHeight(8));
-    expect(heights.inputs).toBe(cardHeight(1, true));
+    expect(heights.eight).toBe(compactHeight());
+    expect(heights.inputs).toBe(compactHeight(true));
+    expect(compactHeight()).toBeLessThan(cardHeight(2));
+    const expanded = nodeHeights(TALL, {}, "eight");
+    expect(expanded.eight).toBe(cardHeight(8));
+    expect(expanded.first).toBe(compactHeight());
+    expect(nodeHeights(TALL, {}, "inputs").inputs).toBe(cardHeight(1, true));
   });
 
-  it("a step with 8 ports fits inside the canvas", () => {
-    const bounds = canvasBounds(POSITIONS, nodeHeights(TALL));
+  it("a step with 8 ports, expanded, fits inside the canvas", () => {
+    const bounds = canvasBounds(POSITIONS, nodeHeights(TALL, {}, "eight"));
     const bottom = POSITIONS.eight.y + cardHeight(8);
     expect(bounds.maxY).toBeGreaterThanOrEqual(bottom);
     // In canvas pixels: the card's bottom edge sits above the canvas's bottom (and the + below it).

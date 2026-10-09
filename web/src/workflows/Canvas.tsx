@@ -4,6 +4,17 @@
  * mismatched wire, dashed edges for machine hops and — with a run overlaid —
  * the travelled path lit and each step badged with its host and outcome.
  *
+ * Compact by default (the Detailed view): each card shows its header and name
+ * but no port rows, and every pair of connected cards is joined by one bundled
+ * edge labelled with its wire count (./model.ts `bundleEdges`, ./edges.tsx).
+ * The selected card (a step, or `in` / `out` while its editor is open) expands
+ * to its port rows, and each of its wires is drawn on its own, from its port
+ * (to the far card's edge, which stays compact), so a wire is dragged from a
+ * port as before. While a wire is being dragged, the card under the
+ * pointer expands too, so the drop lands on a real port; it collapses when the
+ * pointer leaves it or the drag ends. Debug (./views/DebugView.tsx) keeps every
+ * port in view.
+ *
  * Zoom 1 is the board's 190px cards. A plain wheel never zooms: the page keeps
  * scrolling under it (why zoom was locked before d19). Zoom is a pinch, ctrl/cmd
  * + wheel, the on-canvas zoom out / zoom in / fit buttons, or `+` / `-` / `0`
@@ -14,7 +25,9 @@ import {
   ReactFlow,
   ReactFlowProvider,
   useNodesState,
+  useConnection,
   useReactFlow,
+  useStore,
   useUpdateNodeInternals,
   type Connection as FlowConnection,
   type Edge,
@@ -28,6 +41,7 @@ import type { Actor, Step, WorkflowDef } from "../api/workflows";
 import { machineColors } from "../culture-design/chart";
 import {
   CANVAS_TOP,
+  CARD_WIDTH,
   canvasBounds,
   canvasHeight,
   columnLayout,
@@ -39,14 +53,18 @@ import {
   INPUTS_NODE,
   OUTPUTS_NODE,
   connectionProblem,
+  bundleEdges,
+  bundleHandle,
   graphEdges,
   litEdges,
+  nodePortNames,
   placementLabel,
   stepLabel,
   stepMachine,
   type Connection,
   type RunOverlay,
 } from "./model";
+import { EDGE_TYPES, connectionsLabel, type BundleEdgeData } from "./edges";
 import { NODE_TYPES, type IoNodeData, type StepNodeData } from "./nodes";
 import {
   MAX_ZOOM,
@@ -96,6 +114,23 @@ function measuredHeights(nodes: readonly Node[]): Record<string, number> {
   const out: Record<string, number> = {};
   for (const n of nodes) if (n.measured?.height) out[n.id] = n.measured.height;
   return out;
+}
+
+/** The node whose card holds a flow-coordinate point (its measured box, else its estimate). */
+function nodeAt(
+  nodes: readonly Node[],
+  heights: Readonly<Record<string, number>>,
+  point: { x: number; y: number },
+  except: string,
+): string | null {
+  for (const n of nodes) {
+    if (n.id === except) continue;
+    const width = n.measured?.width ?? CARD_WIDTH;
+    const height = n.measured?.height ?? heights[n.id] ?? 0;
+    const { x, y } = n.position;
+    if (point.x >= x && point.x <= x + width && point.y >= y && point.y <= y + height) return n.id;
+  }
+  return null;
 }
 
 function subtitleOf(step: Step): string | null {
@@ -180,17 +215,37 @@ function CanvasInner(props: Readonly<CanvasProps>) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shape]);
 
+  const [nodes, setNodes, onNodesChangeBase] = useNodesState<Node>([]);
+
+  // While a wire is dragged, the card under the pointer (not the one it left) expands, so
+  // the drop lands on a real port. React Flow reports the pointer in canvas pixels.
+  const transform = useStore((s) => s.transform);
+  const estimates = useMemo(() => nodeHeights(workflow), [workflow]);
+  const dropTarget = useConnection((c) => {
+    if (!c.inProgress) return null;
+    const [tx, ty, scale] = transform;
+    const point = { x: (c.pointer.x - tx) / scale, y: (c.pointer.y - ty) / scale };
+    return nodeAt(nodes, estimates, point, c.fromNode.id);
+  });
+  const isExpanded = useCallback((id: string) => id === selected || id === dropTarget, [selected, dropTarget]);
+  const handleOf = useCallback(
+    (node: string, side: "in" | "out") => bundleHandle(side, nodePortNames(workflow, node, side)),
+    [workflow],
+  );
+
   const built = useMemo<Node[]>(() => {
     const stepNodes: Node<StepNodeData>[] = (workflow.steps ?? []).map((step) => {
       const where = stepMachine(step, ctx);
       const slot = where.machine !== null && slots.has(where.machine) ? slots.get(where.machine)! : null;
       const run = overlay?.get(step.id) ?? null;
       const label = stepLabel(step);
+      const expanded = isExpanded(step.id);
       return {
         id: step.id,
         type: "step",
         position: { x: 0, y: 0 },
         ariaLabel: label,
+        ...(expanded ? { zIndex: 10 } : {}),
         domAttributes: {
           "data-machine-slot": slot === null ? "none" : String(slot),
           ...(run ? { "data-run-status": run.status } : {}),
@@ -203,6 +258,9 @@ function CanvasInner(props: Readonly<CanvasProps>) {
           subtitle: subtitleOf(step),
           placement: placementLabel(step.placement),
           run,
+          expanded,
+          inHandle: handleOf(step.id, "in"),
+          outHandle: handleOf(step.id, "out"),
           onToggle: props.onToggle,
           onPlacement: props.onPlacement,
           onEdit: props.onEdit,
@@ -210,25 +268,31 @@ function CanvasInner(props: Readonly<CanvasProps>) {
         },
       };
     });
-    const io = (side: "in" | "out"): Node<IoNodeData> => ({
-      id: side === "in" ? INPUTS_NODE : OUTPUTS_NODE,
-      type: "io",
-      position: { x: 0, y: 0 },
-      ariaLabel: side === "in" ? "Inputs" : "Outputs",
-      data: {
-        side,
-        ports:
-          side === "in"
-            ? (workflow.inputs ?? [])
-            : (workflow.outputs ?? []).map((o) => ({ name: o.name, type: o.type })),
-      },
-    });
+    const io = (side: "in" | "out"): Node<IoNodeData> => {
+      const id = side === "in" ? INPUTS_NODE : OUTPUTS_NODE;
+      const expanded = isExpanded(id);
+      return {
+        id,
+        type: "io",
+        position: { x: 0, y: 0 },
+        ariaLabel: side === "in" ? "Inputs" : "Outputs",
+        ...(expanded ? { zIndex: 10 } : {}),
+        data: {
+          side,
+          ports:
+            side === "in"
+              ? (workflow.inputs ?? [])
+              : (workflow.outputs ?? []).map((o) => ({ name: o.name, type: o.type })),
+          expanded,
+          // `in` is a source (its handle on the right), `out` a target (on the left).
+          handle: handleOf(id, side === "in" ? "out" : "in"),
+        },
+      };
+    };
     return [io("in"), ...stepNodes, io("out")];
     // Callbacks are stable (useCallback upstream).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workflow, ctx, slots, overlay]);
-
-  const [nodes, setNodes, onNodesChangeBase] = useNodesState<Node>([]);
+  }, [workflow, ctx, slots, overlay, isExpanded, handleOf]);
 
   // Data / selection changes keep each node's place (and its measurement).
   useEffect(() => {
@@ -262,7 +326,8 @@ function CanvasInner(props: Readonly<CanvasProps>) {
 
   // Each card's real height: its port count, or what React Flow measured if taller. Keyed
   // as a string so a selection (a new nodes array, same sizes) never re-centres the canvas.
-  const heightKey = JSON.stringify(nodeHeights(workflow, measuredHeights(nodes)));
+  // The selected card is counted at its expanded height straight away, before it is measured.
+  const heightKey = JSON.stringify(nodeHeights(workflow, measuredHeights(nodes), selected));
   const bounds = useMemo(
     () => canvasBounds(positions, JSON.parse(heightKey) as Record<string, number>),
     [positions, heightKey],
@@ -324,24 +389,45 @@ function CanvasInner(props: Readonly<CanvasProps>) {
     zoomToRef.current = zoomTo;
   }, [zoomTo]);
 
+  // One edge per connected pair of cards; the selected card's wires port to port.
   const edges = useMemo<Edge[]>(() => {
     const graph = graphEdges(workflow, ctx, overlay);
     const lit = litEdges(graph, overlay);
     const name = (node: string) => nodeName(workflow, node);
-    return graph.map((e) => ({
-      id: e.id,
-      source: e.source,
-      target: e.target,
-      sourceHandle: e.sourcePort,
-      targetHandle: e.targetPort,
-      selectable: false,
-      focusable: false,
-      className: `wf-edge ${e.cross ? "wf-edge--cross" : "wf-edge--same"}${lit.has(e.id) ? " is-lit" : ""}`,
-      ariaLabel: `${name(e.source)} ${e.sourcePort} to ${name(e.target)} ${e.targetPort}, ${
-        e.cross ? "crosses machines" : "same machine"
-      }`,
-    }));
-  }, [workflow, ctx, overlay]);
+    return bundleEdges(graph, lit, selected).map((e): Edge => {
+      const className = `wf-edge ${e.cross ? "wf-edge--cross" : "wf-edge--same"}${e.lit ? " is-lit" : ""}`;
+      const machines = e.cross ? "crosses machines" : "same machine";
+      if (!e.bundled) {
+        // The selected card's end is its port; the far card is compact, so that end is its
+        // bundle handle.
+        return {
+          id: e.id,
+          source: e.source,
+          target: e.target,
+          sourceHandle: e.source === selected ? e.sourcePort : handleOf(e.source, "out"),
+          targetHandle: e.target === selected ? e.targetPort : handleOf(e.target, "in"),
+          selectable: false,
+          focusable: false,
+          className,
+          ariaLabel: `${name(e.source)} ${e.sourcePort} to ${name(e.target)} ${e.targetPort}, ${machines}`,
+        };
+      }
+      const data: BundleEdgeData = { count: e.count, cross: e.cross, lit: e.lit };
+      return {
+        id: e.id,
+        type: "bundle",
+        source: e.source,
+        target: e.target,
+        sourceHandle: handleOf(e.source, "out"),
+        targetHandle: handleOf(e.target, "in"),
+        selectable: false,
+        focusable: false,
+        className: `${className} wf-edge--bundle`,
+        data,
+        ariaLabel: `${name(e.source)} to ${name(e.target)}, ${connectionsLabel(e.count)}, ${machines}`,
+      };
+    });
+  }, [workflow, ctx, overlay, selected, handleOf]);
 
   const sectionRef = useRef<HTMLElement | null>(null);
   const nodeElement = (id: string) =>
@@ -423,6 +509,9 @@ function CanvasInner(props: Readonly<CanvasProps>) {
       if (state.isValid || !state.fromHandle || !state.toHandle) return;
       const from = state.fromHandle;
       const to = state.toHandle;
+      // A bundle handle is never a port: nothing to wire, and nothing to explain.
+      const isBundle = (h: typeof from) => h.id === handleOf(h.nodeId, h.type === "target" ? "in" : "out");
+      if (isBundle(from) || isBundle(to)) return;
       const forward = from.type === "source";
       const conn: Connection = forward
         ? { source: from.nodeId, sourcePort: from.id ?? "", target: to.nodeId, targetPort: to.id ?? "" }
@@ -431,7 +520,7 @@ function CanvasInner(props: Readonly<CanvasProps>) {
       if (problem) props.onRefused(problem);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [workflow, props.onRefused],
+    [workflow, props.onRefused, handleOf],
   );
 
   return (
@@ -448,6 +537,7 @@ function CanvasInner(props: Readonly<CanvasProps>) {
             nodes={nodes}
             edges={edges}
             nodeTypes={NODE_TYPES}
+            edgeTypes={EDGE_TYPES}
             onNodesChange={onNodesChange}
             onNodeClick={(_, node) => choose(node.id)}
             onPaneClick={() => props.onSelect(null)}

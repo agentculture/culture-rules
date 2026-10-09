@@ -414,6 +414,31 @@
   stroke-width: 4;
 }
 
+/* A bundled edge's wire count ("3"): a small pill at the edge's middle, never a drop target. */
+.wf-canvas .wf-edge-count {
+  position: absolute;
+  min-width: 24px;
+  padding: 1px 7px;
+  box-sizing: border-box;
+  border: 2px solid var(--wf-edge);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink);
+  font: 600 13px/18px var(--font-body);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  pointer-events: none;
+}
+
+.wf-canvas .wf-edge-count--cross {
+  border-style: dashed;
+}
+
+.wf-canvas .wf-edge-count.is-lit {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .wf-canvas .react-flow__attribution {
   background: transparent;
 }
@@ -631,6 +656,32 @@
 
 .wf-canvas .wf-handle--filled {
   background: var(--wf-port);
+}
+
+/* The bundle handles: where a bundled edge meets a card, beside the title and clear of
+   the port rows below it. Invisible and inert; a wire is dragged from a port. */
+.wf-canvas .react-flow__handle.wf-handle--bundle {
+  top: 54px;
+  width: 1px;
+  height: 1px;
+  border: 0;
+  background: transparent;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.wf-card--io .react-flow__handle.wf-handle--bundle {
+  top: 40px;
+}
+
+.wf-card.is-compact {
+  padding-bottom: 12px;
+}
+
+.wf-card__count {
+  padding: 0 14px;
+  font-size: 14px;
+  color: var(--ink-soft);
 }
 
 .wf-canvas .react-flow__handle.connectingto,
