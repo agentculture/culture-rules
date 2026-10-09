@@ -2,7 +2,7 @@
   "plan_slug": "editor-rules-folded-into-workflows-three-views",
   "schema_version": 2,
   "created": "2026-10-09T11:07:59Z",
-  "updated": "2026-10-09T20:25:48Z",
+  "updated": "2026-10-09T20:32:33Z",
   "deviations": [
     {
       "id": "d1",
@@ -530,7 +530,7 @@
         "commit": "9508334"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 30
     },
@@ -549,7 +549,7 @@
         "commit": "9508334"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 31
     },
@@ -587,7 +587,7 @@
         "commit": "a10b024"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 33
     },
@@ -606,7 +606,7 @@
         "commit": "a10b024"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 34
     }
@@ -735,7 +735,7 @@
         "e23"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false
     }
   ],

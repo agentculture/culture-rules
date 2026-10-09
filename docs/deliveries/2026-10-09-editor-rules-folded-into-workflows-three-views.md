@@ -100,7 +100,7 @@ Run at commit `4c42240` (2026-10-09T14:21Z) unless noted. After the Codex review
 - commits: `origin/main` (9d72b1e)..`e04910a` on `rules/editor-fold-spec` (60 commits)
 - post-merge: `gh pr view 27` merged at `6158304`; `importlib.metadata.version('culture-rules')` = 0.17.0 on spark, orin, spark2 and thor, `systemctl --user is-active culture-rules-node` active, 0 ERROR lines in 15 min; PR #28 checks all green with the SonarCloud gate OK (0 issues)
 - t12 live (2026-10-09 20:23–20:26Z, 0.17.1): e25 for o11 (condition add and remove read back through the API; PUTs per save not counted); e26 for o16 (enable/disable via the card switch); e27 for o7 (`run-74e19f870becff16570f10180734e361`, succeeded)
-- d7 (PR #33, commit `9508334`): e23 for o5 (vitest 686/686, Playwright 98/98, CI green, SonarCloud OK); e24 for o6 (outside `web/`, docs and version files, the diff changes only a test's timing bound); delta b9 (amended, from d7). All three are proposed and await the operator
+- d7 (PR #33, commit `9508334`): e23 for o5 (vitest 686/686, Playwright 98/98, CI green, SonarCloud OK); e24 for o6 (outside `web/`, docs and version files, the diff changes only a test's timing bound); delta b9 (amended, from d7). The operator approved all three
 - PRs / issues: #27, #28, #32, #33; issues #29–#31; related #26 (a rule to visualize a spec on its PR)
 
 ## Delivery Claims
@@ -151,11 +151,12 @@ Lapse ledger evidence:
 ## Remaining Work / Follow-up
 
 - **t11: done after this summary.** The Codex reviews ran, and PR #27 merged with CI green, including the web job (closes c19's l9).
-- **t12: done.** All four nodes run 0.17.1. The live condition edit, enable/disable and the converted rule's next run are observed (e25, e26, e27; proposed, awaiting the operator). The test rule is disabled again, unchanged.
+- **t12: done.** All four nodes run 0.17.1. The live condition edit, enable/disable and the converted rule's next run are observed (e25, e26, e27). The operator approved e26 and e27; e25 stays proposed, because the PUTs per save were not counted in the browser. The test rule is disabled again, unchanged.
 - **Quick-form limit (not a regression).** In the Simple view's "+ condition" form, "is" / "is not" compare only shared variables; a trigger field works only with "is one of". This matches the old Rules tab (o3 parity). Trigger-field equality in the quick form could be a small follow-up if wanted.
 - **A visual check of the released editor: done.** The operator signed in. 0.17.1 rendered all three views, the chain and the `/rules/<id>` redirect, with 0 console errors.
 - **PR #28 (0.17.1): merged** and released to all four nodes.
-- **d7, PR #33 (0.18.0).** The compact Detailed view. CI is green; it waits for the operator to merge it, decide on a release, and adjudicate e23, e24 and b9.
+- **d7, PR #33 (0.18.0).** The compact Detailed view. CI is green and the operator approved e23, e24, e26, e27 and b9; it waits for the operator to merge and decide on a release.
+- **e25 (o11), still proposed.** To upgrade it, count the rule PUTs per condition save in the browser's network log on the next live edit.
 - **o3 / e4.** The operator chose a follow-up issue: [#29](https://github.com/agentculture/culture-rules/issues/29), editors for priority, exclusive_group and the inputs mapping. `c9` is unchanged.
 - **Adjudication: done.** The operator approved evidence e1–e22, deltas b1–b8 and lapses l1–l9.
 - **Server gap.** `DELETE /workflows/{id}` should refuse a workflow a rule still uses. That is an API change, out of scope under c2. Issue to file if the operator agrees.
