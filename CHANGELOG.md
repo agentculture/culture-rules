@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.1] - 2026-10-10
+
+### Changed
+
+- The editor-fold delivery summary closes the run: 0.18.0 is released to all four nodes and checked live (evidence e29, approved); every evidence, delta and lapse record is settled
+- CI: the MongoDB test image is pulled through Google's Docker Hub mirror (`mirror.gcr.io`) and tagged `mongo:8.0`, falling back to Docker Hub; anonymous Docker Hub pulls from shared runners failed with `toomanyrequests`
+
 ## [0.18.0] - 2026-10-09
 
 ### Changed

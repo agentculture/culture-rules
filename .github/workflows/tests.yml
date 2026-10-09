@@ -32,8 +32,16 @@ jobs:
       # The Mongo-backed suites (tests/store, tests/engine/test_runs_mongo.py, ...) drive a
       # real replica set through docker, which ubuntu-latest ships. Pre-pull the image so
       # they RUN here; locally, with no docker, they skip cleanly instead.
+      # Pulled through Google's Docker Hub mirror and tagged mongo:8.0 (the name the tests use):
+      # anonymous Docker Hub pulls from shared runners hit "toomanyrequests" (PR #34). Docker Hub
+      # stays the fallback.
       - name: pull the MongoDB image the docker-backed tests use
-        run: docker pull mongo:8.0
+        run: |
+          if docker pull mirror.gcr.io/library/mongo:8.0; then
+            docker tag mirror.gcr.io/library/mongo:8.0 mongo:8.0
+          else
+            docker pull mongo:8.0
+          fi
 
       # Gate 2: coverage >= 60% (--cov-fail-under; mirrors [tool.coverage.report]).
       # COVERAGE_CORE=sysmon: coverage's sys.monitoring tracer (Python 3.12+), about 23%
