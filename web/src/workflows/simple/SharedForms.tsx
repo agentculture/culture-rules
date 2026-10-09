@@ -227,6 +227,12 @@ const KEEP = "__keep__";
 const MIXED = "__mixed__";
 
 /** "evaluates on …": one placement for every entry point (a machine, anywhere, or a kept actor/capability one). */
+/** The placement select's first value: "differs", keep a non-machine placement, or the machine. */
+function initialPlacementChoice(mixed: boolean, foreign: boolean, placed: string): string {
+  if (mixed) return MIXED;
+  return foreign ? KEEP : placed;
+}
+
 export function PlacementForm({
   value,
   mixed = false,
@@ -245,7 +251,7 @@ export function PlacementForm({
 }>) {
   const placed = value?.machine ?? "";
   const foreign = !placed && (value?.actor || value?.requirement?.length);
-  const [choice, setChoice] = useState(mixed ? MIXED : foreign ? KEEP : placed);
+  const [choice, setChoice] = useState(() => initialPlacementChoice(mixed, Boolean(foreign), placed));
   const chosen = (): Placement | null => {
     if (choice === KEEP) return value ?? null;
     return choice ? { machine: choice } : null;

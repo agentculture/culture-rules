@@ -94,15 +94,21 @@ function entryFor(rule: Rule, workflowId: string): FoldEntry {
   }
   const sources = predecessorTerms(rule.condition).map((term) =>
     (workflowLiteral(term.left, term.right) ?? workflowLiteral(term.right, term.left))!);
-  const predecessor: Predecessor = sources.length === 0 ? { kind: "any" }
-    : sources.length === 1 ? { kind: "linked", workflowId: sources[0] }
-      : { kind: "ambiguous", workflowIds: sources };
+  const predecessor = predecessorFrom(sources);
   const fromWorkflowId = predecessor.kind === "linked" ? predecessor.workflowId : null;
-  return {
-    ...base, kind: "continuation", predecessor, fromWorkflowId,
-    fromLabel: predecessor.kind === "ambiguous" ? "from multiple workflow terms"
-      : predecessor.kind === "any" ? "from any workflow" : `from ${predecessor.workflowId}`,
-  };
+  return { ...base, kind: "continuation", predecessor, fromWorkflowId, fromLabel: fromLabelOf(predecessor) };
+}
+
+function predecessorFrom(sources: string[]): Predecessor {
+  if (sources.length === 0) return { kind: "any" };
+  if (sources.length === 1) return { kind: "linked", workflowId: sources[0] };
+  return { kind: "ambiguous", workflowIds: sources };
+}
+
+function fromLabelOf(predecessor: Predecessor): string {
+  if (predecessor.kind === "ambiguous") return "from multiple workflow terms";
+  if (predecessor.kind === "any") return "from any workflow";
+  return `from ${predecessor.workflowId}`;
 }
 
 /** JSON structural equality: object key order is irrelevant, array order is not. */

@@ -66,6 +66,20 @@ const Chevron = () => (
 
 const kindClass = (kind: ConditionRow["leftKind"]) => `fold-term fold-term--${kind}`;
 
+/**
+ * A key per row from what it says: rows have no identity of their own, so a row repeated word
+ * for word is told apart by how many times those words came before it.
+ */
+function keyedRows(rows: readonly ConditionRow[]): { row: ConditionRow; key: string }[] {
+  const seen = new Map<string, number>();
+  return rows.map((row) => {
+    const text = `${row.leftKind}:${row.rightKind}:${rowText(row)}`;
+    const nth = seen.get(text) ?? 0;
+    seen.set(text, nth + 1);
+    return { row, key: nth === 0 ? text : `${text}#${nth}` };
+  });
+}
+
 /** "Only if all of": one row per all-term, its operands in mono, a `vars.` operand as a teal chip. */
 export function ConditionRows({
   rows,
@@ -78,9 +92,9 @@ export function ConditionRows({
     <>
       <span className="fold-entry__label" aria-hidden="true">{label}</span>
       <ul className="fold-conditions" aria-label={label}>
-        {rows.map((row, i) => (
-          // Rows have no identity of their own; their order is the stored order.
-          <li key={i} className="fold-condition">
+        {keyedRows(rows).map(({ row, key }) => (
+          // Their order is the stored order.
+          <li key={key} className="fold-condition">
             {row.not ? <span className="fold-condition__not">not</span> : null}
             <span className={kindClass(row.leftKind)}>{row.left}</span>
             {row.op ? <span className="fold-condition__op">{row.op}</span> : null}
@@ -138,8 +152,10 @@ function InputsBound({ rule }: Readonly<{ rule: Rule }>) {
   const [open, setOpen] = useState(false);
   const inputs = Object.entries(rule.workflow?.inputs ?? {});
   if (inputs.length === 0) return <span className="fold-entry__meta">no inputs bound</span>;
-  const source = (from: (typeof inputs)[number][1]) =>
-    typeof from === "string" ? from : "$ref" in from ? from.$ref : JSON.stringify(from.$literal);
+  const source = (from: (typeof inputs)[number][1]): string => {
+    if (typeof from === "string") return from;
+    return "$ref" in from ? from.$ref : JSON.stringify(from.$literal);
+  };
   return (
     <span className="fold-entry__inputs">
       <button type="button" className="fold-chip-button" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
@@ -158,21 +174,197 @@ function InputsBound({ rule }: Readonly<{ rule: Rule }>) {
   );
 }
 
+const errorMessage = (err: unknown) => (err instanceof Error ? err.message : String(err));
+
+type Conflict = { current: Rule; changed: string[]; form: boolean };
+
+/** This entry's overrides of the workflow's values (D3-D6), in words. */
+function OverrideList({ overrides }: Readonly<{ overrides: Override[] }>) {
+  if (overrides.length === 0) return null;
+  return (
+    <ul className="fold-overrides" aria-label="Overrides">
+      {overrides.map((o) => (
+        <li key={o.field}>
+          <span className="fold-badge fold-badge--override">override</span> {o.text}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** Whether the rule counts toward the attempt budget: its switch, and the budget in words. */
+function BudgetFoot({ rule, busy, onCounts }: Readonly<{ rule: Rule; busy: boolean; onCounts: (rule: Rule) => void }>) {
+  const counts = fieldOf(rule, "counts_toward_budget") !== false;
+  const own = fieldOf(rule, "max_attempts");
+  const budget = typeof own === "number" ? `the ${own} attempts` : "the attempt budget";
+  const canSwitch = countsEdit(rule) !== null;
+  return (
+    <div className="fold-entry__foot">
+      <InputsBound rule={rule} />
+      <span className="fold-entry__budget">
+        <Switch label="Counts toward the attempt budget" checked={counts} disabled={busy || !canSwitch} onChange={() => onCounts(rule)} />
+        {counts ? `counts toward ${budget}` : `does not count toward ${budget}`}
+        {canSwitch ? null : <span className="fold-entry__meta"> (opting out needs a run key)</span>}
+      </span>
+    </div>
+  );
+}
+
+type Overriding = "failure" | "runs" | null;
+
+/** "Only for this entry point": the on-failure and run-key overrides, each with its form. */
+function OverrideTools({
+  entry,
+  data,
+  busy,
+  onOverride,
+}: Readonly<Pick<EntryCardProps, "entry" | "data" | "busy" | "onOverride">>) {
+  const rule = entry.rule;
+  const [overriding, setOverriding] = useState<Overriding>(null);
+  const failureButton = useFocusReturn<HTMLButtonElement>(overriding === "failure");
+  const runsButton = useFocusReturn<HTMLButtonElement>(overriding === "runs");
+  const trigger = triggerParts(rule.trigger);
+  const workflow = data.workflows.find((w) => w.id === entry.workflowId);
+  const type = rule.trigger.kind === "event" ? trigger.value || undefined : undefined;
+  // The override forms keep the rule as it was when they opened (c27).
+  const at = useFrozen(overriding, rule);
+  const override = (label: string, edit: Record<string, unknown>) => {
+    setOverriding(null);
+    onOverride(at, `${rule.name}: ${label}`, edit);
+  };
+  const toggle = (which: Exclude<Overriding, null>) => () => setOverriding((o) => (o === which ? null : which));
+  return (
+    <>
+      <div className="fold-entry__tools">
+        <span className="fold-entry__label">Only for this entry point:</span>
+        <button
+          ref={failureButton}
+          type="button"
+          className="fold-chip-button"
+          aria-expanded={overriding === "failure"}
+          aria-label={`On failure for ${rule.name}`}
+          onClick={toggle("failure")}
+        >
+          On failure
+        </button>
+        <button
+          ref={runsButton}
+          type="button"
+          className="fold-chip-button"
+          aria-expanded={overriding === "runs"}
+          aria-label={`Runs for ${rule.name}`}
+          onClick={toggle("runs")}
+        >
+          Run key and budget
+        </button>
+      </div>
+      {overriding === "failure" ? (
+        <SharedActionForm
+          label={`On failure for ${rule.name}`}
+          scope="this entry point"
+          value={at.on_failure}
+          actors={data.actors}
+          triggerType={type}
+          workflow={workflow}
+          busy={busy}
+          onSave={(action: Action) => override("on failure", { on_failure: action })}
+          onRemove={at.on_failure ? () => override("on failure", { on_failure: null }) : undefined}
+          onCancel={() => setOverriding(null)}
+        />
+      ) : null}
+      {overriding === "runs" ? (
+        <RunsForm
+          label={`Runs for ${rule.name}`}
+          scope="this entry point"
+          rules={[at]}
+          runKey={fieldOf(at, "concurrency_key")}
+          attempts={fieldOf(at, "max_attempts")}
+          busy={busy}
+          onSave={(edit: RunsEdit) => override("runs", { ...edit })}
+          onCancel={() => setOverriding(null)}
+        />
+      ) : null}
+    </>
+  );
+}
+
+/** The rule's run order (must / may run after, supersedes); it opens by itself when it has any. */
+function RunOrder({
+  rule,
+  rules,
+  edits,
+}: Readonly<{ rule: Rule; rules: Rule[]; edits: ReturnType<typeof relationEdits> }>) {
+  const { relate, unrelate, moveRelation } = edits;
+  const { outgoing, incoming } = relationsOf(rules, rule.id);
+  const total = outgoing.length + incoming.length;
+  const [ordering, setOrdering] = useState(total > 0);
+  const nameOf = (id: string) => rules.find((r) => r.id === id)?.name ?? id;
+  return (
+    <>
+      <button
+        type="button"
+        className="fold-chip-button fold-entry__order-toggle"
+        aria-expanded={ordering}
+        onClick={() => setOrdering((o) => !o)}
+      >
+        Run order{total > 0 ? ` (${total})` : ""} {ordering ? "▾" : "▸"}
+      </button>
+      {ordering ? (
+        <fieldset className="fold-entry__order plain-group" aria-label={`Order of ${rule.name}`}>
+          <RelationSlots rules={rules} focused={rule} dragging={null} onAdd={(kind, id) => relate(rule, kind, id)} onMove={moveRelation} />
+          {outgoing.map((rel) => (
+            <Fragment key={`${rel.kind}-${rel.to}`}>
+              <RelationCard rel={rel} direction="out" nameOf={nameOf} onRemove={unrelate} />
+            </Fragment>
+          ))}
+          {incoming.map((rel) => (
+            <RelationCard key={`${rel.kind}-${rel.from}`} rel={rel} direction="in" nameOf={nameOf} onRemove={unrelate} />
+          ))}
+        </fieldset>
+      ) : null}
+    </>
+  );
+}
+
+/** A direct write found the rule changed since it was shown: say so, and offer to reload. */
+function ConflictNotice({
+  rule,
+  conflict,
+  editing,
+  onReload,
+  onShow,
+}: Readonly<{ rule: Rule; conflict: Conflict; editing: boolean; onReload: () => void; onShow: () => void }>) {
+  return (
+    <div className="notice notice--error fold-conflict" role="alert">
+      <span>
+        {rule.name} changed since you opened it, so this was not saved
+        {conflict.changed.length ? ` (changed: ${conflict.changed.join(", ")})` : ""}.
+      </span>
+      {conflict.form && editing ? (
+        <button type="button" className="btn btn--primary" onClick={onReload}>
+          Reload the form from the stored rule
+        </button>
+      ) : (
+        <button type="button" className="btn" onClick={onShow}>
+          Show the stored rule
+        </button>
+      )}
+    </div>
+  );
+}
+
 /** The expanded entry's body: everything the Rules tab showed and edited for this rule. */
 function EntryBody({ entry, data, conditionShared, overrides, busy, historyTick, onCounts, onPredecessor, onDelete, onOverride }: Readonly<EntryCardProps>) {
   const rule = entry.rule;
   const [editing, setEditing] = useState(false);
   const [adding, setAdding] = useState(false);
   const [history, setHistory] = useState(false);
-  const [overriding, setOverriding] = useState<"failure" | "runs" | null>(null);
   const editButton = useFocusReturn<HTMLButtonElement>(editing);
   const addButton = useFocusReturn<HTMLButtonElement>(adding);
-  const failureButton = useFocusReturn<HTMLButtonElement>(overriding === "failure");
-  const runsButton = useFocusReturn<HTMLButtonElement>(overriding === "runs");
   const { rules } = data;
   // c27 for this entry's direct writes (the Rules tab's forms and calls, d3): re-read the rule
   // first; if it changed since it was shown (or since the form opened), nothing is written.
-  const [conflict, setConflict] = useState<{ current: Rule; changed: string[]; form: boolean } | null>(null);
+  const [conflict, setConflict] = useState<Conflict | null>(null);
   const [editBase, setEditBase] = useState<Rule | null>(null);
   const [editKey, setEditKey] = useState(0);
   const guarded = async (snapshot: Rule, next: Rule, form = false): Promise<boolean> => {
@@ -180,7 +372,7 @@ function EntryBody({ entry, data, conditionShared, overrides, busy, historyTick,
     try {
       current = await getRule(snapshot.id);
     } catch (err) {
-      data.setNotice(`${snapshot.name} could not be re-read, so nothing was saved: ${err instanceof Error ? err.message : String(err)}`);
+      data.setNotice(`${snapshot.name} could not be re-read, so nothing was saved: ${errorMessage(err)}`);
       return false;
     }
     if (canonical(current) !== canonical(snapshot)) {
@@ -190,32 +382,17 @@ function EntryBody({ entry, data, conditionShared, overrides, busy, historyTick,
     setConflict(null);
     return data.save(next);
   };
-  const { relate, unrelate, moveRelation } = relationEdits({
+  const edits = relationEdits({
     rules: data.rules,
     setNotice: data.setNotice,
     save: (next) => guarded(data.rules.find((r) => r.id === next.id) ?? next, next),
   });
-  const { outgoing, incoming } = relationsOf(rules, rule.id);
-  // The rule's run order (must / may run after, supersedes) opens by itself when it has any.
-  const [ordering, setOrdering] = useState(outgoing.length + incoming.length > 0);
   const nameOf = (id: string) => rules.find((r) => r.id === id)?.name ?? id;
   const trigger = triggerParts(rule.trigger);
   // A continuation's predecessor term has its own control: never a row, never removed here (c32).
   const skip = entry.kind === "continuation" ? predecessorTerms(rule.condition) : [];
   const rows = conditionShared ? [] : conditionRows(rule.condition, skip);
-  const counts = fieldOf(rule, "counts_toward_budget") !== false;
-  const own = fieldOf(rule, "max_attempts");
-  const budget = typeof own === "number" ? `the ${own} attempts` : "the attempt budget";
-  const canSwitch = countsEdit(rule) !== null;
-  const workflow = data.workflows.find((w) => w.id === entry.workflowId);
-  const type = rule.trigger.kind === "event" ? trigger.value || undefined : undefined;
-  // The override forms keep the rule as it was when they opened (c27).
-  const at = useFrozen(overriding, rule);
   const addingAt = useFrozen(adding ? "add-condition" : null, rule);
-  const override = (label: string, edit: Record<string, unknown>) => {
-    setOverriding(null);
-    onOverride(at, `${rule.name}: ${label}`, edit);
-  };
 
   return (
     <div className="fold-entry__body">
@@ -265,96 +442,13 @@ function EntryBody({ entry, data, conditionShared, overrides, busy, historyTick,
         />
       ) : null}
 
-      {overrides.length > 0 ? (
-        <ul className="fold-overrides" aria-label="Overrides">
-          {overrides.map((o) => (
-            <li key={o.field}>
-              <span className="fold-badge fold-badge--override">override</span> {o.text}
-            </li>
-          ))}
-        </ul>
-      ) : null}
+      <OverrideList overrides={overrides} />
 
-      <div className="fold-entry__foot">
-        <InputsBound rule={rule} />
-        <span className="fold-entry__budget">
-          <Switch label="Counts toward the attempt budget" checked={counts} disabled={busy || !canSwitch} onChange={() => onCounts(rule)} />
-          {counts ? `counts toward ${budget}` : `does not count toward ${budget}`}
-          {canSwitch ? null : <span className="fold-entry__meta"> (opting out needs a run key)</span>}
-        </span>
-      </div>
+      <BudgetFoot rule={rule} busy={busy} onCounts={onCounts} />
 
-      <div className="fold-entry__tools">
-        <span className="fold-entry__label">Only for this entry point:</span>
-        <button
-          ref={failureButton}
-          type="button"
-          className="fold-chip-button"
-          aria-expanded={overriding === "failure"}
-          aria-label={`On failure for ${rule.name}`}
-          onClick={() => setOverriding((o) => (o === "failure" ? null : "failure"))}
-        >
-          On failure
-        </button>
-        <button
-          ref={runsButton}
-          type="button"
-          className="fold-chip-button"
-          aria-expanded={overriding === "runs"}
-          aria-label={`Runs for ${rule.name}`}
-          onClick={() => setOverriding((o) => (o === "runs" ? null : "runs"))}
-        >
-          Run key and budget
-        </button>
-      </div>
-      {overriding === "failure" ? (
-        <SharedActionForm
-          label={`On failure for ${rule.name}`}
-          scope="this entry point"
-          value={at.on_failure}
-          actors={data.actors}
-          triggerType={type}
-          workflow={workflow}
-          busy={busy}
-          onSave={(action: Action) => override("on failure", { on_failure: action })}
-          onRemove={at.on_failure ? () => override("on failure", { on_failure: null }) : undefined}
-          onCancel={() => setOverriding(null)}
-        />
-      ) : null}
-      {overriding === "runs" ? (
-        <RunsForm
-          label={`Runs for ${rule.name}`}
-          scope="this entry point"
-          rules={[at]}
-          runKey={fieldOf(at, "concurrency_key")}
-          attempts={fieldOf(at, "max_attempts")}
-          busy={busy}
-          onSave={(edit: RunsEdit) => override("runs", { ...edit })}
-          onCancel={() => setOverriding(null)}
-        />
-      ) : null}
+      <OverrideTools entry={entry} data={data} busy={busy} onOverride={onOverride} />
 
-      <button
-        type="button"
-        className="fold-chip-button fold-entry__order-toggle"
-        aria-expanded={ordering}
-        onClick={() => setOrdering((o) => !o)}
-      >
-        Run order{outgoing.length + incoming.length > 0 ? ` (${outgoing.length + incoming.length})` : ""} {ordering ? "▾" : "▸"}
-      </button>
-      {ordering ? (
-        <fieldset className="fold-entry__order plain-group" aria-label={`Order of ${rule.name}`}>
-          <RelationSlots rules={rules} focused={rule} dragging={null} onAdd={(kind, id) => relate(rule, kind, id)} onMove={moveRelation} />
-          {outgoing.map((rel) => (
-            <Fragment key={`${rel.kind}-${rel.to}`}>
-              <RelationCard rel={rel} direction="out" nameOf={nameOf} onRemove={unrelate} />
-            </Fragment>
-          ))}
-          {incoming.map((rel) => (
-            <RelationCard key={`${rel.kind}-${rel.from}`} rel={rel} direction="in" nameOf={nameOf} onRemove={unrelate} />
-          ))}
-        </fieldset>
-      ) : null}
+      <RunOrder rule={rule} rules={rules} edits={edits} />
 
       <div className="fold-entry__tools">
         <button
@@ -396,42 +490,33 @@ function EntryBody({ entry, data, conditionShared, overrides, busy, historyTick,
         />
       ) : null}
       {conflict ? (
-        <div className="notice notice--error fold-conflict" role="alert">
-          <span>
-            {rule.name} changed since you opened it, so this was not saved
-            {conflict.changed.length ? ` (changed: ${conflict.changed.join(", ")})` : ""}.
-          </span>
-          {conflict.form && editing ? (
-            <button
-              type="button"
-              className="btn btn--primary"
-              onClick={() => {
-                setEditBase(conflict.current);
-                setEditKey((k) => k + 1);
-                setConflict(null);
-                data.refreshRules();
-              }}
-            >
-              Reload the form from the stored rule
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="btn"
-              onClick={() => {
-                setConflict(null);
-                data.refreshRules();
-              }}
-            >
-              Show the stored rule
-            </button>
-          )}
-        </div>
+        <ConflictNotice
+          rule={rule}
+          conflict={conflict}
+          editing={editing}
+          onReload={() => {
+            setEditBase(conflict.current);
+            setEditKey((k) => k + 1);
+            setConflict(null);
+            data.refreshRules();
+          }}
+          onShow={() => {
+            setConflict(null);
+            data.refreshRules();
+          }}
+        />
       ) : null}
       {history ? <EntryHistory ruleId={rule.id} nameOf={nameOf} tick={historyTick} /> : null}
       {data.asks && data.selected?.id === rule.id ? <AsksPanel asks={data.asks.items} onAnswer={data.answer} /> : null}
     </div>
   );
+}
+
+function entryClass(expanded: boolean, enabled: boolean): string {
+  const classes = ["fold-entry", "plain-group"];
+  if (expanded) classes.push("is-open");
+  if (!enabled) classes.push("is-disabled");
+  return classes.join(" ");
 }
 
 /**
@@ -447,10 +532,9 @@ export function EntryCard(props: Readonly<EntryCardProps>) {
   const continuation = entry.kind === "continuation";
   const sub = continuation ? entry.fromLabel : triggerParts(rule.trigger).value || rule.trigger.kind;
   return (
-    <div
-      role="group"
+    <fieldset
       aria-label={`Entry point: ${rule.name}`}
-      className={`fold-entry${expanded ? " is-open" : ""}${entry.enabled ? "" : " is-disabled"}`}
+      className={entryClass(expanded, entry.enabled)}
       data-rule-id={rule.id}
       data-enabled={String(entry.enabled)}
     >
@@ -482,7 +566,7 @@ export function EntryCard(props: Readonly<EntryCardProps>) {
         </button>
       </div>
       {expanded ? <EntryBody {...props} /> : null}
-    </div>
+    </fieldset>
   );
 }
 

@@ -86,7 +86,7 @@ export async function getRule(id: string): Promise<RuleDoc> {
 
 export async function updateRule(rule: RuleDoc): Promise<RuleDoc> {
   const body = Object.fromEntries(Object.entries(rule).filter(
-    ([key]) => !SERVER_MANAGED_RULE_FIELDS.some((field) => field === key),
+    ([key]) => !(SERVER_MANAGED_RULE_FIELDS as readonly string[]).includes(key),
   )) as unknown as RuleDoc;
   const { doc } = splitActiveRuns(await request<unknown>("PUT", `/rules/${enc(rule.id)}`, body));
   return asRule(doc, rule);

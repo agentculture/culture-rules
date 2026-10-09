@@ -14,12 +14,24 @@ function Words({ result, batch }: Readonly<{ result: FoldWriteResult; batch: Wri
       </span>
     );
   }
-  const when = result.phase === "read" ? "could not be re-read" : result.phase === "prepare" ? "cannot take this edit" : "not saved";
   return (
     <span className="fold-result__words">
-      {when === "not saved" ? "not saved" : `not saved: ${when}`} ({errorText(result.error)}); keeps {batch.oldText(result.snapshot)}
+      {failedWords(result.phase)} ({errorText(result.error)}); keeps {batch.oldText(result.snapshot)}
     </span>
   );
+}
+
+function failedWords(phase: "prepare" | "read" | "write"): string {
+  if (phase === "read") return "not saved: could not be re-read";
+  if (phase === "prepare") return "not saved: cannot take this edit";
+  return "not saved";
+}
+
+/** The batch headline after the label: "done for its rule", "done for all 3 rules", "1 of 3 rules done". */
+function doneText(saved: number, total: number): string {
+  if (saved !== total) return `${saved} of ${total} rules done`;
+  if (total === 1) return "done for its rule";
+  return `done for all ${total} rules`;
 }
 
 /**
@@ -42,7 +54,7 @@ export function WriteResults({
     <section className={`fold-results${allSaved ? "" : " fold-results--partial"}`} aria-label="Save results" aria-live="polite">
       <div className="fold-results__head">
         <span className="fold-results__title">
-          {batch.label}: {allSaved ? `done for ${total === 1 ? "its rule" : `all ${total} rules`}` : `${saved} of ${total} rules done`}
+          {batch.label}: {doneText(saved, total)}
         </span>
         <button type="button" className="icon-button icon-button--small" aria-label="Dismiss save results" onClick={onDismiss}>
           ×
