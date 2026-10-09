@@ -3,8 +3,9 @@
 Rules engine for the AgentCulture mesh: **rules → conditions → workflows →
 actions**, carried out by **actors** (agents, humans, code, services,
 robots, …). It is a Python library, `culture_rules`, with a CLI, an HTTP
-API, an MCP server and a graph-first React Flow editor that has five tabs:
-**Rules | Workflows | Actors | Variables | Statistics**.
+API, an MCP server and a graph-first React Flow editor that has four tabs:
+**Workflows | Actors | Variables | Statistics**. The editor shows each rule
+as an entry point of the workflow it starts, so there is no Rules tab.
 
 **Who it is for.** Two readers, one system:
 
@@ -39,15 +40,37 @@ PR approved  →  base = main  →  Review PR  →  Comment
 
 ## The editor
 
-The editor has five primary tabs: **Rules | Workflows | Actors |
-Variables | Statistics**. Runs, history, ledger and inbox are not tabs; they appear in
-context, inside a rule or workflow.
+The editor has four primary tabs: **Workflows | Actors | Variables |
+Statistics**. There is no Rules tab: rules are folded into Workflows
+([spec](docs/specs/2026-10-09-editor-rules-folded-into-workflows-three-views.md)).
+Rules are still rules in the engine, API, CLI and MCP; only the editor shows
+them differently. Runs, history, ledger and inbox are not tabs; they appear
+in context, inside a workflow or one of its entry points.
 
-- **Rules** is a rule list plus the focused rule as a vertical flow.
-  Rules start from "New rule", which asks "When does this happen?", and grow through a `+`.
-- **Workflows** is the free-form React Flow canvas with typed ports and the
-  machine shown on each node. A run lights up its path on the graph.
+- **Workflows** lists workflows as chain cards: workflows linked by
+  continuations sit on one card, each with what starts it, what it continues
+  into, how it runs and what it ends with, and the number of rules it was.
+  "See it as one chain" draws the chain. "Rules without a workflow" lists
+  rules that have none yet; each can get a stored workflow with no steps.
+  "New workflow" and "New rule" start new ones ("New rule" asks "When does
+  this happen?" and gives the rule its own workflow at once). A workflow
+  opens in one of three views, kept per viewer in the browser:
+  - **Simple** (the default): When / Then. Each rule that starts the
+    workflow is an entry point under When (trigger, condition, placement,
+    attempt counting, history, About, enable). Then shows what it continues
+    into, "Ends here" (the chain-end action), "On failure" and "Runs" (key
+    and budget). A value every entry point holds identically shows once;
+    editing it saves rule by rule and reports each result, with a retry for
+    any that failed.
+  - **Detailed**: the steps and edges on the React Flow canvas, with typed
+    ports and the machine shown on each node. A run lights up its path.
+  - **Debug**: every port, type and reference; picking a port highlights
+    what feeds it and what it feeds.
+
+  Old `/rules` and `/rules/<id>` links redirect to the workflow that shows
+  the rule.
 - **Actors** is a large-type roster that expands inline.
+- **Variables** holds the shared values rules read as `vars.<name>`.
 - **Statistics** has one lane per enrolled machine: online state, CPU, GPU
   and memory load, what it is running, queue depth and 24h ok/failed.
 
@@ -146,7 +169,7 @@ CLI. A parity test keeps the two surfaces identical.
 ## Architecture
 
 ```text
- browser (Rules | Workflows | Actors | Variables | Statistics) mesh agents
+ browser (Workflows | Actors | Variables | Statistics)        mesh agents
         │  Cloudflare Access SSO                      CLI / MCP (stdio)
         ▼                                                    │
  cloudflared ──► loopback listener ┐                         ▼

@@ -420,3 +420,30 @@
 - [unknown_nonblocking] Which tool reports GPU/CPU load per platform (nvidia-smi on DGX Spark vs tegrastats/jtop on Jetson Thor/Orin) — no precedent found in culture-nodes/internal or sibling repos — resolved: Probe the platform at daemon/container start; probe USB-attached requirements on need
 - [unknown_nonblocking] Cloudflare tunnel replica routing (connector selection, failover time, SSE stickiness) is general Cloudflare behaviour, verified in no repo — probe it during the deploy task — resolved: Follow the culture-nodes nodes.culture.dev pattern via cultureflare (loopback Access listener + LAN listener per host)
 - [unknown_nonblocking] Whether the mesh runs one events-cli broker per host or a shared one, and how events reach a rule's host after failover — resolved: Use a MongoDB events collection (change streams) as the cross-host event fabric; ingest events-cli envelopes into it
+
+## Amendment 2026-10-09
+
+The operator folded Rules into Workflows
+(spec `docs/specs/2026-10-09-editor-rules-folded-into-workflows-three-views.md`,
+design canvas v11). The text above is left as it was decided; where it
+differs, this amendment wins for the editor:
+
+- The primary tabs are now four: **Workflows | Actors | Variables |
+  Statistics**. There is no Rules tab. The tab requirement above ("Exactly
+  five primary tabs") and the "Rules tab = direction C" composition are
+  superseded.
+- Rules are unchanged as engine, API, CLI and MCP objects, with their stored
+  shape. The editor shows each rule as an entry point (When) of the workflow
+  it starts, or as a continuation owned by that workflow; the previous
+  workflow shows a read-only "Continues into" link. Supersession and
+  must/may-run-after stay editable on the entry point.
+- The Workflows list groups workflows linked by continuations into chain
+  cards, with a Chain view and a "Rules without a workflow" section.
+- A workflow opens in one of three views, kept per viewer in localStorage:
+  Simple (When / Then, the default), Detailed (steps and edges) and Debug
+  (every port, type and reference).
+- A rule with no workflow can be given a stored workflow with no steps
+  (D7). The engine treats it like the same rule without a workflow; its run
+  events differ only in `data.workflow_id` and `data.workflow_version`.
+- Old `/rules` and `/rules/<id>` links redirect to the workflow that shows
+  the rule.

@@ -47,6 +47,26 @@ same concurrency key template as the rule upstream of it, for example
 down a chain. Nothing else is copied from the trigger, so free text such as a
 comment body stays out.
 
+### A rule whose workflow has no steps
+
+The editor can give a rule with no workflow a stored workflow of its own
+with no steps and no outputs (D7 of the
+[editor fold](specs/2026-10-09-editor-rules-folded-into-workflows-three-views.md)),
+so the rule shows as that workflow's entry point. The engine runs such a
+rule exactly as it ran without a workflow: the same action, the same
+`trigger.*` references resolved, the same outcome. Its run event differs from
+the one it emitted before in two fields only, `data.workflow_id` (now the
+wrapper's id, before `null`) and `data.workflow_version` (now its version,
+before `null`); `outputs` stays `{}`. A rule listening on `rules.run.*` with a
+`data.workflow_id` term therefore starts nothing new because of the wrapper,
+while one without such a term already fired for the run before and still
+does. `tests/engine/test_stepless_workflow.py` pins this field by field
+(deviation d1 of the fold plan).
+
+The editor also reads chains from that term: a rule on a `rules.run.*` event
+whose condition compares `data.workflow_id == <workflow>` is shown as a
+continuation of that workflow, and one without it reads "from any workflow".
+
 The event's lineage:
 
 - `causationId` is the run's trigger event;

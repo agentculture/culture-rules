@@ -41,9 +41,12 @@ code, services, robots, …). It is built and on disk:
 - a thin `culture-rules` CLI (`rules`, `workflows`, `actors`, `machines`,
   `runs`, `serve`, `node`, `mcp`), an HTTP API with its contract pinned in
   `api/openapi.json`, and an MCP server exposing the same verbs as tools;
-- a Node.js + React Flow editor in `web/` with five tabs: **Rules |
-  Workflows | Actors | Variables | Statistics**. Runs and history appear in context,
-  never as a tab.
+- a Node.js + React Flow editor in `web/` with four tabs: **Workflows |
+  Actors | Variables | Statistics**. There is no Rules tab: each rule is
+  shown and edited as an entry point of the workflow it starts, and a
+  workflow opens in a Simple (When / Then), Detailed (steps) or Debug
+  (ports and references) view. Runs and history appear in context, never
+  as a tab.
 
 **Status: the first mile is shipped on `main` (PR #4); the second
 mile (issues #5–#7: typed and scheduled triggers, app actors with GitHub/Jira webhooks and
@@ -69,7 +72,8 @@ conventions if you need more context than fits here. It covers:
 
 If a delegated task touches the domain, hold to these constraints:
 
-- **Exactly five primary tabs: Rules | Workflows | Actors | Variables | Statistics.**
+- **Exactly four primary tabs: Workflows | Actors | Variables | Statistics.**
+  There is no Rules tab; a rule is edited as a workflow's entry point.
 - Conditions are never `eval()` of user Python.
 - Actors are not a stage in the rule chain.
 - Workflows don't know what triggered them.

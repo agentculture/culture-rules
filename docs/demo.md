@@ -284,15 +284,40 @@ build it once and link it where the API looks (both paths are gitignored):
 ln -s ../web/dist culture_rules/web_dist     # then restart `culture-rules serve`
 ```
 
-A browser at `http://127.0.0.1:8791/` then shows the five tabs, **Rules |
-Workflows | Actors | Variables | Statistics**. (The dev identity is a header, so the
-screenshots below were taken with Playwright sending
-`X-Culture-Identity: ori`. Behind Cloudflare Access the browser needs
-nothing.) Runs are shown in context, never as a tab.
+A browser at `http://127.0.0.1:8791/` then shows the four tabs,
+**Workflows | Actors | Variables | Statistics**. There is no Rules tab: the
+editor folds each rule into the workflow it starts
+([spec](specs/2026-10-09-editor-rules-folded-into-workflows-three-views.md)).
+(The dev identity is a header, so the screenshots below were taken with
+Playwright sending `X-Culture-Identity: ori`. Behind Cloudflare Access the
+browser needs nothing.) Runs are shown in context, never as a tab.
 
-The **Workflows** tab with the run overlay: the step shows which machine it
-ran on and its outcome, sourced from the persisted run state
-(`/workflows?id=greet-flow&run=<run id>`):
+**The screenshots predate the fold.** They were taken when this walkthrough
+was executed, before Rules was folded into Workflows, and were not
+re-taken: the Workflows screenshot shows the canvas the Detailed view still
+draws, and the Rules screenshot shows the old Rules tab. In the folded
+editor the same objects read as follows:
+
+- **Workflows** lists `greet-flow` on its own chain card: "Starts when"
+  names `greet-on-event` (its one entry point), "Continues into" reads
+  "Nothing. The chain ends here.", and the card reads "1 workflow linked
+  by continuations · 1 entry point · was 1 rule" (the list's own counts
+  above it read "1 workflow · 1 entry point · was 1 rule").
+- Opening it (`/workflows?id=greet-flow`) shows the **Simple** view by
+  default: When holds the entry point `greet-on-event` with its trigger
+  (`demo.greet`), its placement (spark) and its workflow inputs; Then holds
+  the `noop` action. Every rule field is
+  edited there, and saving writes the rule (`PUT /rules/greet-on-event`).
+- The view switch also offers **Detailed** (the steps and edges, below)
+  and **Debug** (every port, type and reference). The choice is kept per
+  viewer in the browser.
+- The old address `/rules/greet-on-event` redirects to
+  `/workflows/greet-flow?entry=greet-on-event`, the same page with that
+  entry point open.
+
+The **Workflows** tab's Detailed view with the run overlay: the step shows
+which machine it ran on and its outcome, sourced from the persisted run
+state (`/workflows?id=greet-flow&run=<run id>`):
 
 ![Workflows tab with the run overlay](img/demo-workflow-run.png)
 
@@ -303,9 +328,10 @@ they render **offline**. They are listed anyway:
 
 ![Statistics tab](img/demo-statistics.png)
 
-The **Rules** tab, the rule as a focused flow:
+Before the fold, the **Rules** tab showed the rule as a focused flow. The
+Simple view's entry point now carries the same fields:
 
-![Rules tab](img/demo-rules.png)
+![The former Rules tab, before the fold](img/demo-rules.png)
 
 ## 9. The MCP server
 

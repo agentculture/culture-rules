@@ -321,6 +321,68 @@ The d21 text calls the review stage `pr-fixer-review`. That id already names
 the review-submitted trigger rule, so the stage is `pr-fixer-review-commit`,
 after its workflow.
 
+### The fixer in the editor
+
+The editor has no Rules tab: it folds each rule into the workflow it starts
+([spec](../specs/2026-10-09-editor-rules-folded-into-workflows-three-views.md)).
+The rules above are unchanged; only the way the editor shows them is. On the
+**Workflows** tab the fixer's 9 rules and 4 workflows read as:
+
+- **one chain card for the fix chain**: `pr-fix`, `review-commit` and
+  `publish-fix`, linked by continuations, "3 workflows linked by
+  continuations · 4 entry points · was 7 rules". `pr-fix` starts when one of
+  its 4 entry points fires (`pr-fixer-checks`, `-comment`, `-review`,
+  `-review-comment`) and owns the continuation `pr-fixer-refix`.
+  `review-commit` owns `pr-fixer-review-commit`, and `publish-fix` owns
+  `pr-fixer-publish`. Each previous workflow shows a read-only "Continues
+  into" link to the next;
+- **a chain card of its own for `report-secrets`**, with its 2 entry points
+  `pr-fixer-secrets` and `pr-fixer-secrets-late`: no continuation links it
+  to the fix chain. `pr-fixer-checks` and `pr-fixer-secrets` both start on
+  `github.pr.checks_settled`, so the list notes on each "same event starts"
+  the other workflow.
+
+Over the whole list that is "4 workflows · 6 entry points · was 9 rules";
+"See it as one chain" draws the chain. These counts are what the editor
+derives from the rules it reads (`web/src/fold/model.ts`), nothing is
+stored for them. A continuation is linked only by its condition's
+`data.workflow_id == <workflow>` term (the `rules.run.succeeded` rows above):
+edit the predecessor with the "Continues from" control on the entry point,
+which writes exactly that term, rather than in the condition.
+
+Opening `pr-fix` shows the **Simple** view: When lists its entry points,
+each with its trigger, condition, placement and whether it counts toward the
+attempt budget; Then reads "Continues into" `review-commit`, "Ends here",
+"On failure" and "Runs" (the PR's key and the budget). A value all 5 of its
+rules hold identically (the PR's key, or the placement on spark2) shows
+once; editing it writes each
+rule in turn, skipping and flagging any rule changed meanwhile. **Detailed**
+shows the steps (`quiet`, `secrets`, `threads`, `sonar`, `fix`) and
+**Debug** every port and reference. An old `/rules/pr-fixer-checks` link
+opens `/workflows/pr-fix?entry=pr-fixer-checks`.
+
+Editing an entry point in the Simple view writes only that rule, so no
+trusted workflow digest moves. Any save of the workflow itself does change
+its digest: a rename from the head (which works in every view, Simple
+included) or step edits in Detailed. A trusted workflow saved that way stops
+being trusted ([Trusted workflows](#trusted-workflows-d20-round-2-d21-roles)):
+its runs still start, but the chain will not review or push their work
+until the new digest is added to `culture_rules/actors/trusted.py` and
+released to every node. Saving the original definition back restores the
+trust.
+
+So the editor asks first (deviation d6 of the fold). Save on a workflow
+whose id is a trusted role (`pr-fixer`, `pr-fix`, `review-commit`,
+`publish-fix`; `web/src/workflows/trusted.ts`) opens **"Save a trusted
+workflow?"**, which says exactly that: the new digest is not trusted, the
+runs still start but the fixer chain will not review or push their work
+until the digest is in `trusted.py` on every node, and saving the original
+back restores the trust. **Keep editing** (focused first; Escape does the
+same) closes it and nothing is saved; **Save anyway** saves. The editor
+matches by id, which holds only because every trusted digest's workflow id
+is its role's name: `tests/rules/test_trusted_role_ids.py` pins that, so a
+role named differently fails there rather than slipping past the question.
+
 ### What every rule checks
 
 The four trigger rules fire only for:
@@ -1222,8 +1284,9 @@ actor. Drop the first digest in a later release.
 (`GET /rules/{id}/describe`, `GET /workflows/{id}/describe`, and the MCP tools
 `rules_describe` / `workflows_describe`) describe a stored definition from its
 config alone. No AI writes it, and the name and description fields are not
-used. In the editor, the (i) "About" button on each rule and workflow (list
-rows and title) shows the same lines. For the shipped bundle (d21):
+used. In the editor, the (i) "About" button on each workflow (list row and
+title) and on each entry point of a workflow's Simple view shows the same
+lines. For the shipped bundle (d21):
 
 ```console
 $ culture-rules rules describe pr-fixer-checks
@@ -1478,8 +1541,9 @@ $ culture-rules rules disable pr-fixer --apply --json
 
 `active_runs` lists at most 50 runs, oldest first; `active_runs_total` counts
 them all. A `rules update` that sets `enabled: false` answers the same. In the
-editor, switching the rule off shows a notice, **"Stop N current runs?"**,
-with **Approve** and **Keep running**.
+editor, switching the rule's entry point off (in its workflow's Simple view)
+shows a notice, **"Stop N current runs?"**, with **Approve** and **Keep
+running**.
 
 - **Approve** (`culture-rules rules stop-runs pr-fixer --apply`, or
   `POST /rules/pr-fixer/stop-runs` with `{"apply": true}`, editor role):
