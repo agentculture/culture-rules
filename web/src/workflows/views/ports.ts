@@ -22,10 +22,14 @@
  *   - a retry_until loop's `config.carry` (`{input: result field}`) feeds the
  *     previous try's result field into that body input from the second try
  *     on (`carry`);
- *   - a loop's result is its final body step's outputs (`_progress_loop`): a
- *     retry_until loop's outputs are its last result's fields of the same
- *     name, a for_each loop's per-name lists, and its `results` the whole
- *     result objects (`_loop_outputs`), so every final-step output feeds it.
+ *   - a loop's result is the outputs of its last body step that *succeeded*
+ *     (`_progress_loop`); a step whose `config.when` is false is skipped, so
+ *     the possible sources are the last unconditional body step and every
+ *     later conditional one (marked `conditional`). A retry_until loop's
+ *     outputs are that result's fields of the same name, except `iterations`,
+ *     the engine's own count; a for_each loop's are per-name lists, and its
+ *     `results` the whole result objects, so every output of a source feeds
+ *     it (`_loop_outputs`).
  * Nothing here touches React, and nothing mutates its input.
  */
 import type { Port, PortType, Step, WorkflowDef } from "../../api/workflows";
@@ -47,8 +51,11 @@ export interface DebugPort {
   reads: string | null;
   /** The input is filled implicitly by its loop (a loop input of its name, or the engine's `loop.<n>`). */
   byName: boolean;
-  /** From a retry_until loop's second try on, the previous result field this input takes (`config.carry`). */
-  carried: string | null;
+  /**
+   * From a retry_until loop's second try on, the previous result field this input takes
+   * (`config.carry`): one entry per body step that may produce the result.
+   */
+  carried: Carried[];
   /** An `out` port that a workflow output reads. */
   exported: boolean;
 }
@@ -66,10 +73,18 @@ export interface DebugGroup {
 
 export type LinkKind = "wire" | "output" | "step" | "by-name" | "carry";
 
+export interface Carried {
+  ref: string;
+  /** The source step has a `config.when`: it feeds the value only when it runs. */
+  conditional: boolean;
+}
+
 export interface PortLink {
   from: string;
   to: string;
   kind: LinkKind;
+  /** A loop-result link (`carry`, or into a loop output) whose source step may be skipped. */
+  conditional?: boolean;
 }
 
 /** A port's reference, as a definition names it. */
@@ -92,9 +107,20 @@ const ENGINE_INPUTS: Record<string, readonly string[]> = {
   retry_until: ["iteration", "index"],
 };
 
-/** The body step whose outputs are an iteration's result: the last one that runs. */
-function resultStep(loop: Step): Step | undefined {
-  return (loop.body ?? []).filter((b) => b.enabled !== false).at(-1);
+const isConditional = (step: Step) => step.config != null && "when" in step.config;
+
+/**
+ * The body steps whose outputs may be an iteration's result (the last one that
+ * succeeded): the last enabled step without a `when`, then every later enabled step
+ * with one. With no unconditional step, every enabled step.
+ */
+function resultSteps(loop: Step): { step: Step; conditional: boolean }[] {
+  const enabled = (loop.body ?? []).filter((b) => b.enabled !== false);
+  let from = 0;
+  enabled.forEach((b, i) => {
+    if (!isConditional(b)) from = i;
+  });
+  return enabled.slice(from).map((step) => ({ step, conditional: isConditional(step) }));
 }
 
 /** A retry_until loop's `config.carry`, as `{input name: result field}` string pairs. */
@@ -142,7 +168,7 @@ function toPort(
     required: p.required !== false,
     reads: extra.reads ?? null,
     byName: extra.byName ?? false,
-    carried: extra.carried ?? null,
+    carried: extra.carried ?? [],
     exported: extra.exported ?? false,
   };
 }
@@ -158,12 +184,16 @@ function stepGroup(wf: WorkflowDef, step: Step, loop: Step | null, exported: Set
   const loopInputs = new Set((loop?.inputs ?? []).map((p) => p.name));
   const engine = new Set(loop ? (ENGINE_INPUTS[loop.kind] ?? []) : []);
   const carry = carryOf(loop);
-  const last = loop ? resultStep(loop) : undefined;
+  const sources = loop ? resultSteps(loop) : [];
   const inputs = (step.inputs ?? []).map((p) => {
     const reads = wired.get(p.name);
     if (reads) return toPort(step.id, "in", p, { reads });
     const field = carry.get(p.name);
-    const carried = field && last ? portRef(last.id, "out", field) : null;
+    const carried: Carried[] = field
+      ? sources
+          .filter(({ step: s }) => (s.outputs ?? []).some((o) => o.name === field))
+          .map(({ step: s, conditional }) => ({ ref: portRef(s.id, "out", field), conditional }))
+      : [];
     if (engine.has(p.name)) return toPort(step.id, "in", p, { reads: `loop.${p.name}`, byName: true, carried });
     if (loop && loopInputs.has(p.name)) {
       return toPort(step.id, "in", p, { reads: portRef(loop.id, "in", p.name), byName: true, carried });
@@ -278,17 +308,25 @@ export function allLinks(wf: WorkflowDef): PortLink[] {
       links.push({ from: p.reads, to: p.ref, kind });
     }
     for (const p of g.inputs) {
-      if (p.carried && known.has(p.carried)) links.push({ from: p.carried, to: p.ref, kind: "carry" });
+      for (const c of p.carried) {
+        if (known.has(c.ref)) links.push({ from: c.ref, to: p.ref, kind: "carry", conditional: c.conditional });
+      }
     }
     if (g.kind !== "step") continue;
     for (const i of g.inputs) for (const o of g.outputs) links.push({ from: i.ref, to: o.ref, kind: "step" });
-    // a loop's result is its final body step's outputs (`_progress_loop`, `_loop_outputs`)
-    const last = g.step ? resultStep(g.step) : undefined;
-    const final = g.body.find((inner) => inner.id === last?.id);
-    for (const out of final ? g.outputs : []) {
-      const gathersAll = g.step?.kind === "for_each" && out.name === "results";
-      for (const o of final!.outputs) {
-        if (gathersAll || o.name === out.name) links.push({ from: o.ref, to: out.ref, kind: "by-name" });
+    // a loop's result is its last succeeded body step's outputs (`_progress_loop`, `_loop_outputs`)
+    if (!g.step || g.body.length === 0) continue;
+    const loopKind = g.step.kind;
+    for (const { step: src, conditional } of resultSteps(g.step)) {
+      const inner = g.body.find((b) => b.id === src.id);
+      for (const out of inner ? g.outputs : []) {
+        if (loopKind === "retry_until" && out.name === "iterations") continue; // the engine's count
+        const gathersAll = loopKind === "for_each" && out.name === "results";
+        for (const o of inner!.outputs) {
+          if (gathersAll || o.name === out.name) {
+            links.push({ from: o.ref, to: out.ref, kind: "by-name", conditional });
+          }
+        }
       }
     }
   }

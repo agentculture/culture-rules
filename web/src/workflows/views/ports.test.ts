@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { WorkflowDef } from "../../api/workflows";
 import { REVIEW_PR } from "../fixture";
-import { debugColumns, debugPorts, portLinks, portRef, unboundRequired } from "./ports";
+import { allLinks, debugColumns, debugPorts, portLinks, portRef, unboundRequired } from "./ports";
 
 describe("the Debug view's port model", () => {
   it("names a port by the reference a definition would use", () => {
@@ -214,7 +214,7 @@ describe("the Debug view's port model", () => {
       expect(byRef.get("steps.agent.inputs.instruction")).toMatchObject({
         reads: "steps.fix.inputs.instruction",
         byName: true,
-        carried: "steps.gate.outputs.instruction",
+        carried: [{ ref: "steps.gate.outputs.instruction", conditional: false }],
       });
       expect([...portLinks(fixer, "steps.gate.outputs.instruction").downstream]).toContain(
         "steps.agent.inputs.instruction",
@@ -271,6 +271,75 @@ describe("the Debug view's port model", () => {
       const a = [...portLinks(wf, "steps.each.outputs.a").upstream];
       expect(a).toContain("steps.one.outputs.a");
       expect(a).not.toContain("steps.one.outputs.b");
+    });
+
+    it("a conditional final step: every step that may end the try is a source, the conditional ones marked", () => {
+      const wf: WorkflowDef = {
+        id: "c",
+        name: "c",
+        steps: [
+          {
+            id: "loop",
+            kind: "retry_until",
+            max_iterations: 3,
+            config: { carry: { note: "note" } },
+            inputs: [],
+            outputs: [
+              { name: "note", type: "string" },
+              { name: "iterations", type: "integer" },
+            ],
+            body: [
+              { id: "early", kind: "code", inputs: [{ name: "note", type: "string", required: false }], outputs: [{ name: "note" }] },
+              { id: "base", kind: "code", inputs: [], outputs: [{ name: "note" }, { name: "iterations" }] },
+              {
+                id: "maybe",
+                kind: "code",
+                config: { when: { field: "x", op: "eq", value: 1 } },
+                inputs: [],
+                outputs: [{ name: "note" }],
+              },
+            ],
+          },
+        ],
+        edges: [],
+        outputs: [],
+      };
+      const up = portLinks(wf, "steps.loop.outputs.note").upstream;
+      expect(up).toContain("steps.base.outputs.note");
+      expect(up).toContain("steps.maybe.outputs.note");
+      expect(up).not.toContain("steps.early.outputs.note");
+      const note = debugPorts(wf).find((p) => p.ref === "steps.early.inputs.note")!;
+      expect(note.carried).toEqual([
+        { ref: "steps.base.outputs.note", conditional: false },
+        { ref: "steps.maybe.outputs.note", conditional: true },
+      ]);
+      const carry = allLinks(wf).filter((l) => l.kind === "carry");
+      expect(carry).toEqual([
+        { from: "steps.base.outputs.note", to: "steps.early.inputs.note", kind: "carry", conditional: false },
+        { from: "steps.maybe.outputs.note", to: "steps.early.inputs.note", kind: "carry", conditional: true },
+      ]);
+    });
+
+    it("a retry loop's iterations output is the engine's count, not a body output", () => {
+      const wf: WorkflowDef = {
+        id: "c",
+        name: "c",
+        steps: [
+          {
+            id: "loop",
+            kind: "retry_until",
+            max_iterations: 3,
+            inputs: [],
+            outputs: [{ name: "iterations", type: "integer" }],
+            body: [{ id: "only", kind: "code", inputs: [], outputs: [{ name: "iterations", type: "integer" }] }],
+          },
+        ],
+        edges: [],
+        outputs: [],
+      };
+      expect([...portLinks(wf, "steps.loop.outputs.iterations").upstream]).not.toContain(
+        "steps.only.outputs.iterations",
+      );
     });
   });
 });

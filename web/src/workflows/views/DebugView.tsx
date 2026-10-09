@@ -33,6 +33,7 @@ import {
   portLinks,
   unboundRequired,
   type DebugGroup,
+  type Carried,
   type DebugPort,
   type PortLink,
 } from "./ports";
@@ -47,16 +48,20 @@ interface Wire {
   id: string;
   d: string;
   kind: PortLink["kind"];
+  conditional: boolean;
   from: string;
   to: string;
 }
+
+/** "if gate runs": a carried value from a body step with a `config.when`. */
+const ifRuns = (c: Carried) => (c.conditional ? ` if ${c.ref.split(".")[1]} runs` : "");
 
 function portLabel(p: DebugPort): string {
   const bits = [p.ref, p.type];
   if (!p.required) bits.push("optional");
   if (p.reads) bits.push(`reads ${p.reads}${p.byName ? " by name" : ""}`);
   else if (p.side === "in") bits.push("not wired");
-  if (p.carried) bits.push(`then carried from ${p.carried}`);
+  for (const c of p.carried) bits.push(`then carried from ${c.ref}${ifRuns(c)}`);
   if (p.exported) bits.push("exported to out");
   return bits.join(", ");
 }
@@ -91,7 +96,12 @@ function PortRow({
             {port.byName ? " · by name" : ""}
           </span>
         ) : null}
-        {port.carried ? <span className="wf-debug-port__reads wf-debug-port__reads--carry">↻ {port.carried}</span> : null}
+        {port.carried.map((c) => (
+          <span key={c.ref} className="wf-debug-port__reads wf-debug-port__reads--carry">
+            ↻ {c.ref}
+            {c.conditional ? ` ·${ifRuns(c)}` : ""}
+          </span>
+        ))}
       </button>
     </li>
   );
@@ -262,6 +272,7 @@ function useWires(
         id: `${l.from}->${l.to}`,
         d: `M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}`,
         kind: l.kind,
+        conditional: l.conditional ?? false,
         from: l.from,
         to: l.to,
       });
@@ -354,7 +365,7 @@ export function DebugView({ workflow }: Readonly<DebugViewProps>) {
             {wires.map((w) => {
               let state = "";
               if (current) state = lit(w) ? " is-lit" : " is-dim";
-              return <path key={w.id} d={w.d} className={`wf-debug-wire wf-debug-wire--${w.kind}${state}`} />;
+              return <path key={w.id} d={w.d} className={`wf-debug-wire wf-debug-wire--${w.kind}${w.conditional ? " is-conditional" : ""}${state}`} />;
             })}
           </svg>
           {columns.map((col) => (

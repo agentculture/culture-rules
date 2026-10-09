@@ -182,6 +182,10 @@
   stroke-dasharray: 4 5;
 }
 
+.wf-debug-wire.is-conditional {
+  stroke-dasharray: 2 4;
+}
+
 .wf-debug-wire.is-lit {
   stroke: var(--accent);
   stroke-width: 3;
