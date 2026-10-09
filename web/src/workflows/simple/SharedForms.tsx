@@ -121,6 +121,8 @@ export function RunsForm({
   rules,
   runKey,
   attempts,
+  keyMixed = false,
+  attemptsMixed = false,
   busy,
   onSave,
   onCancel,
@@ -131,34 +133,69 @@ export function RunsForm({
   rules: readonly Rule[];
   runKey: unknown;
   attempts: unknown;
+  /** The entry points hold different run keys / budgets: the field starts empty and untouched. */
+  keyMixed?: boolean;
+  attemptsMixed?: boolean;
   busy: boolean;
   onSave: (edit: RunsEdit) => void;
   onCancel: () => void;
 }>) {
-  const initialKey = typeof runKey === "string" ? runKey : "";
-  const initialLimit = typeof attempts === "number" ? String(attempts) : "";
+  const initialKey = !keyMixed && typeof runKey === "string" ? runKey : "";
+  const initialLimit = !attemptsMixed && typeof attempts === "number" ? String(attempts) : "";
   const [key, setKey] = useState(initialKey);
   const [limit, setLimit] = useState(initialLimit);
+  // Mixed and untouched sends nothing (each rule keeps its own); touched — typed, or cleared on
+  // purpose — sends the field, an empty one as null (no key, no limit) for every rule.
+  const [keyTouched, setKeyTouched] = useState(false);
+  const [limitTouched, setLimitTouched] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const submit = () => {
     const edit: RunsEdit = {};
-    if (key.trim() !== initialKey) edit.concurrency_key = key.trim() || null;
-    if (limit.trim() !== initialLimit) edit.max_attempts = limit.trim() ? Number(limit) : null;
+    if (keyMixed ? keyTouched : key.trim() !== initialKey) edit.concurrency_key = key.trim() || null;
+    if (attemptsMixed ? limitTouched : limit.trim() !== initialLimit) edit.max_attempts = limit.trim() ? Number(limit) : null;
     if (Object.keys(edit).length === 0) return onCancel();
     const found = runsProblem(rules, edit);
     setProblem(found);
     if (!found) onSave(edit);
   };
+  const mixedHint = "Differs per entry point";
   return (
     <SharedForm label={label} scope={scope} busy={busy} onCancel={onCancel} onSubmit={submit}>
       <label>
         <span>Run key</span>
-        <input value={key} placeholder="No run key" onChange={(e) => setKey(e.target.value)} />
+        <input
+          value={key}
+          placeholder={keyMixed && !keyTouched ? mixedHint : "No run key"}
+          onChange={(e) => {
+            setKey(e.target.value);
+            setKeyTouched(true);
+          }}
+        />
       </label>
+      {keyMixed ? (
+        <button type="button" className="btn" aria-pressed={keyTouched && !key} onClick={() => { setKey(""); setKeyTouched(true); }}>
+          No run key for {scope}
+        </button>
+      ) : null}
       <label>
         <span>Attempts per key</span>
-        <input type="number" min={1} step={1} value={limit} placeholder="No limit" onChange={(e) => setLimit(e.target.value)} />
+        <input
+          type="number"
+          min={1}
+          step={1}
+          value={limit}
+          placeholder={attemptsMixed && !limitTouched ? mixedHint : "No limit"}
+          onChange={(e) => {
+            setLimit(e.target.value);
+            setLimitTouched(true);
+          }}
+        />
       </label>
+      {attemptsMixed ? (
+        <button type="button" className="btn" aria-pressed={limitTouched && !limit} onClick={() => { setLimit(""); setLimitTouched(true); }}>
+          No limit for {scope}
+        </button>
+      ) : null}
       {problem ? (
         <p className="notice notice--error" role="alert">
           {problem}

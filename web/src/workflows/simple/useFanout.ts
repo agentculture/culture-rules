@@ -60,6 +60,23 @@ export function useFanout(onWritten: () => void) {
     [start],
   );
 
+  /**
+   * A per-rule edit: each rule's write is computed from that rule (its own current condition,
+   * say), so a retry or "apply to it as it is now" recomputes it from the rule as stored then.
+   */
+  const fanOutEach = useCallback(
+    (label: string, fields: readonly string[], snapshots: readonly Rule[], editFor: (rule: Rule) => SharedRuleEdit) => {
+      const one = async (snapshot: Rule) => (await saveSharedEdit([snapshot], editFor(snapshot)))[0];
+      const all = snapshots.map((s) => structuredClone(s));
+      return start(label, fieldsText(fields), one, async () => {
+        const results: RuleWriteResult[] = [];
+        for (const snapshot of all) results.push(await one(snapshot));
+        return results;
+      });
+    },
+    [start],
+  );
+
   /** A continuation's predecessor: exactly its data.workflow_id compare is rewritten. */
   const predecessor = useCallback(
     (label: string, snapshot: Rule, workflowId: string) =>
@@ -93,7 +110,7 @@ export function useFanout(onWritten: () => void) {
   );
 
   const dismiss = useCallback(() => setBatch(null), []);
-  return { batch, busy, fanOut, predecessor, retry, dismiss };
+  return { batch, busy, fanOut, fanOutEach, predecessor, retry, dismiss };
 }
 
 /** The workflow a rule's single predecessor term names, as the fold model reads it. */

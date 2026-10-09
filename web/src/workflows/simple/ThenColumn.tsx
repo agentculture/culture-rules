@@ -232,6 +232,8 @@ export function ThenColumn({ workflowId, rules, onward, workflows, actors, trigg
           <RunsForm
             rules={rules}
             runKey={key.value}
+            keyMixed={!key.shared && !key.baseline}
+            attemptsMixed={!attempts.shared && !attempts.baseline}
             attempts={attempts.value}
             busy={busy}
             onSave={(edit) => save("Runs", { ...edit })}

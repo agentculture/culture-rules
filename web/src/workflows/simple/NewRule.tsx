@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { listActors, type Actor } from "../../api/actors";
 import { ApiError, listRules, listWorkflows } from "../../api/client";
 import { createRule } from "../../api/rules";
@@ -53,7 +53,15 @@ export function NewRule({ hrefFor = (id) => `/workflows?id=${encodeURIComponent(
     return () => controller.abort();
   }, []);
 
+  // One create-then-D7 transaction at a time: while `POST /rules` is in flight the form is
+  // disabled (a second submit cannot create a second rule) and cancel waits; once the rule exists
+  // the D7 offer runs its writes at once and the form is gone.
+  const [pending, setPending] = useState(false);
+  const inFlight = useRef(false);
   const onCreate = async (doc: Rule) => {
+    if (inFlight.current) return false;
+    inFlight.current = true;
+    setPending(true);
     setError(null);
     try {
       setCreated(await createRule(doc));
@@ -61,7 +69,13 @@ export function NewRule({ hrefFor = (id) => `/workflows?id=${encodeURIComponent(
     } catch (err) {
       setError(errorText(err));
       return false;
+    } finally {
+      inFlight.current = false;
+      setPending(false);
     }
+  };
+  const cancel = () => {
+    if (!inFlight.current) onCancel();
   };
 
   return (
@@ -74,7 +88,9 @@ export function NewRule({ hrefFor = (id) => `/workflows?id=${encodeURIComponent(
       {created ? (
         <D7Offer rule={created} takenIds={known?.workflowIds ?? []} hrefFor={hrefFor} onCreated={onCreated} autoStart />
       ) : (
-        <NewRuleForm actors={known?.actors ?? []} takenIds={known?.ruleIds ?? []} onCancel={onCancel} onCreate={onCreate} />
+        <fieldset className="plain-group" disabled={pending} aria-busy={pending}>
+          <NewRuleForm actors={known?.actors ?? []} takenIds={known?.ruleIds ?? []} onCancel={cancel} onCreate={onCreate} />
+        </fieldset>
       )}
     </section>
   );

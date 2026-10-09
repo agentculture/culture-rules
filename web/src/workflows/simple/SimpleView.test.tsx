@@ -897,3 +897,114 @@ describe("creating rules once the Rules tab is gone", () => {
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith("push-seen"));
   });
 });
+
+describe("re-review follow-up", () => {
+  const publishTwice = (rules: Rule[]) => {
+    const publish = rules.find((r) => r.id === "pr-fixer-publish")!;
+    rules.splice(rules.findIndex((r) => r.id === "any-failure"), 1, { ...structuredClone(publish), id: "publish-2", name: "Publish again" });
+  };
+  const fromTerm = (id: string) => ({ op: "compare", cmp: "==", left: { field: "data.workflow_id" }, right: { literal: id } });
+  const branchMain = { op: "compare", cmp: "==", left: { var: "branch" }, right: { literal: "main" } };
+
+  it("Apply to it as it is now adds the condition term to that rule's current condition, keeping its current predecessor", async () => {
+    use(foldApi(publishTwice));
+    const user = userEvent.setup();
+    renderSimple({ workflowId: "publish-fix" });
+    await findEntry("Publish again");
+    // meanwhile someone repoints Publish again at pr-fix
+    const other = api.rules.find((r) => r.id === "publish-2")!;
+    (other.condition as { args: Condition[] }).args[0] = fromTerm("pr-fix") as Condition;
+    Object.assign(other, { updated_at: "2026-10-09T13:00:00Z" });
+
+    const shared = screen.getByRole("group", { name: "Shared by every entry point" });
+    await user.click(within(shared).getByRole("button", { name: "Add a condition for every entry point" }));
+    const form = screen.getByRole("form", { name: "Add condition" });
+    await user.type(within(form).getByLabelText("Variable"), "branch");
+    await user.type(within(form).getByLabelText("Value"), "main");
+    await user.click(within(form).getByRole("button", { name: "Add" }));
+
+    const results = await screen.findByRole("region", { name: "Save results" });
+    await waitFor(() => expect(within(results).getByText("Publish again").closest("li")).toHaveAttribute("data-status", "skipped-changed"));
+    expect(sent("PUT", "/rules/publish-2")).toHaveLength(0);
+    await user.click(within(results).getByRole("button", { name: "Apply to Publish again as it is now" }));
+    await waitFor(() => expect(sent("PUT", "/rules/publish-2")).toHaveLength(1));
+    expect((sent("PUT", "/rules/publish-2")[0].body as Rule).condition).toEqual({
+      op: "and",
+      args: [fromTerm("pr-fix"), { op: "compare", cmp: "==", left: { field: "data.outputs.review" }, right: { literal: "approve" } }, branchMain],
+    });
+  });
+
+  it("removing a shared condition term removes it from each rule's own condition", async () => {
+    use(foldApi(publishTwice));
+    const user = userEvent.setup();
+    renderSimple({ workflowId: "publish-fix" });
+    await findEntry("Publish again");
+    const other = api.rules.find((r) => r.id === "publish-2")!;
+    (other.condition as { args: Condition[] }).args[0] = fromTerm("pr-fix") as Condition;
+    Object.assign(other, { updated_at: "2026-10-09T13:00:00Z" });
+    const shared = screen.getByRole("group", { name: "Shared by every entry point" });
+    await user.click(within(shared).getByRole("button", { name: 'Remove condition outputs.review = "approve"' }));
+    const results = await screen.findByRole("region", { name: "Save results" });
+    await user.click(await within(results).findByRole("button", { name: "Apply to Publish again as it is now" }));
+    await waitFor(() => expect(sent("PUT", "/rules/publish-2")).toHaveLength(1));
+    expect((sent("PUT", "/rules/publish-2")[0].body as Rule).condition).toEqual(fromTerm("pr-fix"));
+    expect((sent("PUT", "/rules/pr-fixer-publish")[0].body as Rule).condition).toEqual(fromTerm("review-commit"));
+  });
+
+  it("New rule runs create-then-D7 once: no second submit, no cancel while it is in flight", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const base = fetchFor(api);
+    vi.stubGlobal("fetch", (async (input: RequestInfo | URL, init?: RequestInit) => {
+      if ((init?.method ?? "GET").toUpperCase() === "POST" && String(input).endsWith("/rules")) await gate;
+      return base(input, init);
+    }) as typeof fetch);
+    const onCreated = vi.fn();
+    const onCancel = vi.fn();
+    const user = userEvent.setup();
+    render(<MemoryRouter><NewRule onCreated={onCreated} onCancel={onCancel} /></MemoryRouter>);
+    const form = await screen.findByRole("form", { name: "New rule" });
+    await waitFor(() => expect(sent("GET", "/workflows")).toHaveLength(1));
+    await user.type(within(form).getByLabelText("Name"), "Push seen");
+    await user.selectOptions(within(form).getByLabelText("Surface"), "github-app");
+    await user.selectOptions(within(form).getByLabelText("Event"), "github.push");
+    const create = within(form).getByRole("button", { name: "Create rule" });
+    await user.click(create);
+    await waitFor(() => expect(create).toBeDisabled());
+    expect(within(form).getByRole("button", { name: "Cancel" })).toBeDisabled();
+    expect(within(form).getByLabelText("Name")).toBeDisabled();
+    await user.click(create);
+    await user.keyboard("{Escape}");
+    expect(onCancel).not.toHaveBeenCalled();
+    release();
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith("push-seen"));
+    expect(writes().map((c) => `${c.method} ${c.path}`)).toEqual(["POST /rules", "POST /workflows", "PUT /rules/push-seen"]);
+  });
+
+  it("differing run keys and budgets can be cleared for every entry point; untouched mixed fields send nothing", async () => {
+    use(foldApi((rules) => {
+      (rules[1] as Rule & { max_attempts?: number }).max_attempts = 5;
+      (rules[2] as Rule & { concurrency_key?: string }).concurrency_key = "other:{trigger.data.number}";
+    }));
+    const user = userEvent.setup();
+    renderSimple();
+    await findEntry("Checks settled, not green");
+    await user.click(within(then("Runs")).getByRole("button", { name: "Edit runs" }));
+    let form = screen.getByRole("form", { name: "Runs" });
+    // both fields differ: untouched, the save sends nothing
+    await user.click(within(form).getByRole("button", { name: "Save for every entry point" }));
+    expect(writes()).toHaveLength(0);
+
+    await user.click(within(then("Runs")).getByRole("button", { name: "Edit runs" }));
+    form = screen.getByRole("form", { name: "Runs" });
+    expect(within(form).getByLabelText("Attempts per key")).toHaveAttribute("placeholder", "Differs per entry point");
+    await user.click(within(form).getByRole("button", { name: "No limit for every entry point" }));
+    await user.click(within(form).getByRole("button", { name: "Save for every entry point" }));
+    await waitFor(() => expect(writes()).toHaveLength(4));
+    for (const put of writes()) {
+      const body = put.body as Rule & { max_attempts?: number | null; concurrency_key?: string };
+      expect(body.max_attempts).toBeNull();
+      expect(body.concurrency_key).toBe(put.path === "/rules/pr-fixer-review" ? "other:{trigger.data.number}" : RUN_KEY);
+    }
+  });
+});

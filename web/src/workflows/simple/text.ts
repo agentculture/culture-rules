@@ -217,6 +217,18 @@ export function split(rules: readonly Rule[], field: string, baseline?: { value:
   return { shared: false, value: undefined, baseline: false, overrides: all };
 }
 
+/**
+ * The condition without its first all-term equal (as JSON) to `term`, found through nested
+ * `and`s: how a term removed from a shared condition leaves each rule's own condition. A
+ * data.workflow_id predecessor term is never removed. Unchanged when the rule has no such term.
+ */
+export function withoutEqualTerm(condition: Condition | null | undefined, term: Condition, keep: readonly Condition[] = []): Condition | null {
+  const wanted = canonical(term);
+  const flat = (node: Condition): Condition[] => (node.op === "and" ? node.args.flatMap(flat) : [node]);
+  const found = condition ? flat(condition).find((node) => !keep.includes(node) && canonical(node) === wanted) : undefined;
+  return found ? withoutTerm(condition, found) : (condition ?? null);
+}
+
 /** The run fields a Runs edit may change; only the ones the author changed are sent. */
 export interface RunsEdit {
   concurrency_key?: string | null;

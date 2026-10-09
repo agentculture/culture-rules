@@ -37,7 +37,7 @@ import { D7Offer } from "./D7Offer";
 import { ConditionRows, EntryCard, type Override } from "./EntryCard";
 import { PlacementForm } from "./SharedForms";
 import { useFocusReturn } from "./focus";
-import { canonical, conditionRows, countsEdit, fieldOf, placementWords, split, triggerParts, valueText, withTerm, withoutTerm } from "./text";
+import { canonical, conditionRows, countsEdit, fieldOf, placementWords, split, triggerParts, valueText, withTerm, withoutEqualTerm } from "./text";
 import { ThenColumn } from "./ThenColumn";
 import { useFanout } from "./useFanout";
 import { WriteResults } from "./WriteResults";
@@ -183,6 +183,12 @@ export function SimpleView({
     setBaselines((b) => ({ ...b, ...Object.fromEntries(Object.entries(edit).map(([f, value]) => [f, { value }])) }));
     void fanout.fanOut(label, rules, edit as SharedRuleEdit);
   };
+  /**
+   * A shared condition edit, computed per rule from that rule's own condition, so each keeps its
+   * own data.workflow_id predecessor term (c32), also when re-applied to a rule changed meanwhile.
+   */
+  const conditionEach = (next: (rule: Rule) => Rule["condition"]) =>
+    void fanout.fanOutEach("Condition", ["condition"], rules, (rule) => ({ condition: next(rule) }) as SharedRuleEdit);
   /** One entry's own value: a one-rule write through the fold writes, so it becomes an override. */
   const override = (rule: Rule, label: string, edit: Record<string, unknown>) =>
     void fanout.fanOut(label, [rule], edit as SharedRuleEdit);
@@ -338,7 +344,7 @@ export function SimpleView({
                     rows={sharedCondition}
                     label="Every entry point only if all of"
                     busy={fanout.busy}
-                    onRemove={(row) => fanOut("Condition", { condition: withoutTerm(rules[0].condition, row.node!) })}
+                    onRemove={(row) => conditionEach((rule) => withoutEqualTerm(rule.condition, row.node!, predecessorTerms(rule.condition)))}
                   />
                   <button
                     ref={sharedAddButton}
@@ -356,7 +362,7 @@ export function SimpleView({
                       workflows={data.workflows}
                       choice="condition"
                       onSave={async (next) => {
-                        fanOut("Condition", { condition: withTerm(rules[0].condition, next.condition!) });
+                        conditionEach((rule) => withTerm(rule.condition, next.condition!));
                         return true;
                       }}
                       onCancel={() => setAddingShared(false)}
