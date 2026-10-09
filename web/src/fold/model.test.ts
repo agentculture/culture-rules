@@ -3,7 +3,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Condition, Rule, Workflow } from "../api/types";
-import { foldModel, sharedValues } from "./model";
+import { EXCLUDED_RULE_FIELDS, SHAREABLE_RULE_FIELDS, foldModel, predecessorTerms, sharedValues } from "./model";
 
 function fixture<T>(directory: string): T[] {
   const path = resolve(dirname(fileURLToPath(import.meta.url)), "../../../docs/rules/pr-fixer", directory);
@@ -80,6 +80,36 @@ describe("foldModel", () => {
     expect(model.chains).toHaveLength(3);
   });
 
+  it.each([["a", "a"], ["a", "c"]])("marks multiple predecessor terms ambiguous: %j", (...ids) => {
+    const terms = ids.map((id) => compare(id));
+    const condition: Condition = { op: "and", args: [terms[0], { op: "and", args: [terms[1]] }] };
+    expect(predecessorTerms(condition)).toEqual(terms);
+    const model = foldModel([rule("r", run(condition))], workflows);
+    expect(model.continuations[0]).toMatchObject({
+      predecessor: { kind: "ambiguous", workflowIds: ids },
+      fromWorkflowId: null, fromLabel: "from multiple workflow terms",
+    });
+    expect(model.chains).toHaveLength(3);
+  });
+
+  it.each([
+    compare(""),
+    { op: "compare", cmp: "==", left: { literal: "" }, right: { field: "data.workflow_id" } } as Condition,
+  ])("accepts an empty string predecessor literal: %j", (condition) => {
+    expect(predecessorTerms(condition)).toEqual([condition]);
+    expect(foldModel([rule("r", run(condition))], workflows).continuations[0]).toMatchObject({
+      predecessor: { kind: "linked", workflowId: "" }, fromWorkflowId: "", fromLabel: "from ",
+    });
+  });
+
+  it("treats an empty workflow reference as a D7 candidate", () => {
+    const candidate = rule("empty", { workflow: { id: "" } });
+    const model = foldModel([candidate], workflows);
+    expect(model.d7Candidates).toEqual([candidate]);
+    expect(model.workflows.map((workflow) => workflow.id)).toEqual(["a", "b", "c"]);
+    expect(model.entryPoints).toEqual([]);
+  });
+
   it("handles cycles, duplicate links and self links as connected components", () => {
     const model = foldModel([
       rule("ab", run(compare())), rule("ab2", run(compare())),
@@ -105,6 +135,26 @@ describe("foldModel", () => {
 });
 
 describe("sharedValues", () => {
+  it("excludes schema and server metadata even when values differ", () => {
+    const a = { ...rule("r"), schema_version: "1.0", updated_at: "first",
+      deleted_at: null, deleted_by: null, restorable_until: null };
+    const b = { ...a, schema_version: "2.0", updated_at: "second" };
+    const shared = sharedValues([a, b]);
+    expect(EXCLUDED_RULE_FIELDS).toEqual([
+      "id", "name", "description", "enabled", "schema_version", "updated_at",
+      "deleted_at", "deleted_by", "restorable_until",
+    ]);
+    for (const field of EXCLUDED_RULE_FIELDS) expect(shared).not.toHaveProperty(field);
+  });
+
+  it("exports the D3-D6 workflow presentation fields using stored Rule names", () => {
+    expect(SHAREABLE_RULE_FIELDS).toEqual([
+      "must_after", "may_after", "supersedes", "exclusive_group", "priority",
+      "concurrency_key", "max_attempts", "counts_toward_budget",
+      "placement", "action", "on_failure", "condition",
+    ]);
+  });
+
   it("compares JSON objects structurally and excludes identity and lifecycle even when identical", () => {
     const a = rule("a", { description: "same", enabled: true, placement: { machine: "spark", actor: null } });
     const b = rule("b", { description: "same", enabled: true, placement: { actor: null, machine: "spark" } });

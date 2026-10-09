@@ -17,13 +17,19 @@ export interface EntryPoint {
   kind: "entry";
 }
 
+export type Predecessor =
+  | { kind: "any" }
+  | { kind: "linked"; workflowId: string }
+  | { kind: "ambiguous"; workflowIds: string[] };
+
 /** A continuation belongs to the workflow it starts, including an unscoped one. */
 export interface Continuation {
   rule: Rule;
   workflowId: string;
   enabled: boolean;
   kind: "continuation";
-  /** Null means no unique predecessor is required by an all-term equality. */
+  predecessor: Predecessor;
+  /** Null for unscoped or ambiguous predecessors; consult predecessor.kind. */
   fromWorkflowId: string | null;
   fromLabel: string;
 }
@@ -58,18 +64,24 @@ export interface FoldModel {
 
 function workflowLiteral(field: Operand, literal: Operand): string | null {
   return "field" in field && field.field === "data.workflow_id"
-    && "literal" in literal && typeof literal.literal === "string" && literal.literal.length > 0
+    && "literal" in literal && typeof literal.literal === "string"
     ? literal.literal : null;
 }
 
-/** Only descend through conjunctions: OR/NOT do not require a predecessor. */
-function predecessorTerms(condition: Condition | null | undefined): string[] {
+type PredecessorTerm = Extract<Condition, { op: "compare" }>;
+
+/**
+ * Return qualifying equality nodes in traversal order, preserving duplicates.
+ * Only descend through AND: OR/NOT do not require a predecessor. Exactly one
+ * term is editable as a predecessor; string literals include the empty string.
+ */
+export function predecessorTerms(condition: Condition | null | undefined): PredecessorTerm[] {
   if (!condition) return [];
   if (condition.op === "and") return condition.args.flatMap(predecessorTerms);
   if (condition.op !== "compare" || condition.cmp !== "==") return [];
   const id = workflowLiteral(condition.left, condition.right)
     ?? workflowLiteral(condition.right, condition.left);
-  return id === null ? [] : [id];
+  return id === null ? [] : [condition];
 }
 
 function entryFor(rule: Rule, workflowId: string): FoldEntry {
@@ -79,12 +91,16 @@ function entryFor(rule: Rule, workflowId: string): FoldEntry {
   if (rule.trigger.kind !== "event" || typeof eventType !== "string" || !eventType.startsWith("rules.run.")) {
     return { ...base, kind: "entry" };
   }
-  const sources = new Set(predecessorTerms(rule.condition));
-  // Conflicting mandatory equalities cannot identify one valid predecessor.
-  const fromWorkflowId = sources.size === 1 ? [...sources][0] : null;
+  const sources = predecessorTerms(rule.condition).map((term) =>
+    (workflowLiteral(term.left, term.right) ?? workflowLiteral(term.right, term.left))!);
+  const predecessor: Predecessor = sources.length === 0 ? { kind: "any" }
+    : sources.length === 1 ? { kind: "linked", workflowId: sources[0] }
+      : { kind: "ambiguous", workflowIds: sources };
+  const fromWorkflowId = predecessor.kind === "linked" ? predecessor.workflowId : null;
   return {
-    ...base, kind: "continuation", fromWorkflowId,
-    fromLabel: fromWorkflowId === null ? "from any workflow" : `from ${fromWorkflowId}`,
+    ...base, kind: "continuation", predecessor, fromWorkflowId,
+    fromLabel: predecessor.kind === "ambiguous" ? "from multiple workflow terms"
+      : predecessor.kind === "any" ? "from any workflow" : `from ${predecessor.workflowId}`,
   };
 }
 
@@ -103,7 +119,24 @@ function identical(a: unknown, b: unknown): boolean {
     && keys.every((key) => Object.hasOwn(right, key) && identical(left[key], right[key]));
 }
 
-const PRIVATE_FIELDS = new Set(["id", "name", "description", "enabled"]);
+/** Entry identity/lifecycle and server-managed metadata must never fan out. */
+export const EXCLUDED_RULE_FIELDS = [
+  "id", "name", "description", "enabled", "schema_version", "updated_at",
+  "deleted_at", "deleted_by", "restorable_until",
+] as const;
+const PRIVATE_FIELDS = new Set<string>(EXCLUDED_RULE_FIELDS);
+
+/**
+ * D3-D6 fields consumers should present at workflow level when shared: order
+ * and limits, placement, terminal/failure actions, and the guard condition.
+ * OpenAPI exposes open rule bodies; names come from culture_rules/model/rule.py.
+ * sharedValues still compares every non-excluded stored field.
+ */
+export const SHAREABLE_RULE_FIELDS = [
+  "must_after", "may_after", "supersedes", "exclusive_group", "priority",
+  "concurrency_key", "max_attempts", "counts_toward_budget",
+  "placement", "action", "on_failure", "condition",
+] as const;
 
 /**
  * Compare top-level stored fields across every owning rule. Unknown API fields
@@ -162,7 +195,7 @@ export function foldModel(rules: readonly Rule[], workflows: readonly Workflow[]
   const continuations: Continuation[] = [];
   const d7Candidates: Rule[] = [];
   for (const rule of rules) {
-    if (!rule.workflow) {
+    if (!rule.workflow?.id) {
       d7Candidates.push(rule);
       continue;
     }
