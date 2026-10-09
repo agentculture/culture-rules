@@ -12,7 +12,7 @@
  *
  * The chosen view is kept per viewer in localStorage (./mode.ts).
  */
-import { useCallback, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import WorkflowCanvas, { type CanvasProps } from "../Canvas";
 import DebugView from "./DebugView";
 import { readViewMode, writeViewMode, type ViewMode } from "./mode";
@@ -24,6 +24,8 @@ export interface WorkflowViewsProps extends CanvasProps {
   simple?: ReactNode;
   /** Extra toolbar content, after the switch (status chips, actions). */
   toolbar?: ReactNode;
+  /** Told the view on mount and on every switch (agent-state reports it). */
+  onModeChange?: (mode: ViewMode) => void;
 }
 
 function SimplePlaceholder() {
@@ -35,8 +37,9 @@ function SimplePlaceholder() {
   );
 }
 
-export function WorkflowViews({ simple, toolbar, ...canvas }: Readonly<WorkflowViewsProps>) {
+export function WorkflowViews({ simple, toolbar, onModeChange, ...canvas }: Readonly<WorkflowViewsProps>) {
   const [mode, setMode] = useState<ViewMode>(readViewMode);
+  useEffect(() => onModeChange?.(mode), [mode, onModeChange]);
   const choose = useCallback((next: ViewMode) => {
     setMode(next);
     writeViewMode(next);

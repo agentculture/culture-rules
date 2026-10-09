@@ -18,6 +18,10 @@ export interface WorkflowListProps {
   /** Workflow ids whose toggle request is in flight (their switch is disabled). */
   pending?: ReadonlySet<string>;
   onNew: () => void;
+  /** "New rule": a rule with no workflow yet, given its own at once (D7). Absent: not offered. */
+  onNewRule?: () => void;
+  /** The New rule button, so a cancelled rule form can return focus to it. */
+  newRuleRef?: RefObject<HTMLButtonElement>;
   /** A row's link was followed (the board closes what was open for the old selection). */
   onOpen?: (id: string) => void;
   /** The New button, so a closed name form can return focus to its opener. */
@@ -61,6 +65,7 @@ export function WorkflowList(props: Readonly<WorkflowListProps>) {
   </section>;
   return <nav className="fold-list" aria-label="Workflows">
     <button ref={newRef} type="button" className="rule-list__new" onClick={onNew}>New workflow</button>
+    {props.onNewRule ? <button ref={props.newRuleRef} type="button" className="wf-button" onClick={props.onNewRule}>New rule</button> : null}
     <p>{count(model.workflows.length, "workflow")} · {count(model.entryPoints.length, "entry point")} · was {count(model.entryPoints.length + model.continuations.length + model.d7Candidates.length, "rule")}</p>
     {!model.chains.length && <p>No workflows yet.</p>}
     {model.chains.map((item) => <article className="fold-card" key={item.workflowIds[0]} aria-label={`Chain: ${chainName(model, item)}`}>
@@ -78,7 +83,7 @@ export function WorkflowList(props: Readonly<WorkflowListProps>) {
         const def = workflows.find((wf) => wf.id === id);
         const name = workflowName(model, id);
         const outgoing = model.continuations.filter((entry) => entry.fromWorkflowId === id);
-        return <section className={`fold-workflow${def?.enabled === false ? " is-disabled" : ""}`} key={id} role="group" aria-label={`Workflow: ${name}`} data-workflow-id={id}>
+        return <section className={`fold-workflow${def?.enabled === false ? " is-disabled" : ""}`} key={id} role="group" aria-label={`Workflow: ${name}`} data-workflow-id={id} data-missing={folded.workflow ? undefined : "true"}>
           <header className="fold-workflow__header" style={machineStyle(def ? slotOf(def) : null)}>
             <MachineDot slot={def ? slotOf(def) : null} /><div>
               <h3><Link to={workflowUrl(id)} aria-current={id === selectedId ? "true" : undefined} onClick={() => onOpen?.(id)}>{name}</Link></h3>
@@ -103,12 +108,13 @@ export function WorkflowList(props: Readonly<WorkflowListProps>) {
     {model.d7Candidates.length > 0 && <section aria-label="Rules without a workflow">
       <h2>Rules without a workflow</h2>
       {model.d7Candidates.map((rule) => <div className="fold-entry" key={rule.id}>
-        <Link to={`/rules/${encodeURIComponent(rule.id)}`}>{rule.name}</Link>
+        <Link to={`/workflows?entry=${encodeURIComponent(rule.id)}`} onClick={() => onOpen?.(rule.id)}>{rule.name}</Link>
         <small>D7 candidate · can get a workflow of its own, with no steps yet</small>
       </div>)}
     </section>}
-    {props.showDeleted && props.deleted?.map((wf) => <div className="fold-workflow" key={wf.id}>
-      <span>{wf.name} · deleted{wf.restorable_until ? ` · restorable until ${wf.restorable_until.slice(0, 10)}` : ""}</span>
+    {props.showDeleted && props.deleted?.map((wf) => <div className="fold-workflow is-deleted" key={wf.id} data-workflow-id={wf.id}>
+      <span className="fold-workflow__name">{wf.name}</span> <small>deleted</small>
+      {wf.restorable_until ? <small> · restorable until {wf.restorable_until.slice(0, 10)}</small> : null}
       <button type="button" className="wf-button" disabled={props.restoring?.has(wf.id)} onClick={() => props.onRestore?.(wf)}>Restore {wf.name}</button>
       {props.onPurge && <button type="button" className="wf-button" onClick={() => props.onPurge?.(wf)}>Purge {wf.name}</button>}
     </div>)}
