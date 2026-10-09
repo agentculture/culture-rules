@@ -1,5 +1,6 @@
 import type { ActiveRun, Rule, RunSummary } from "../api/types";
 import type { Variable } from "../api/variables";
+import type { WorkflowDef } from "../api/workflows";
 import {
   ACTORS,
   MACHINES,
@@ -40,6 +41,8 @@ export interface FakeDecision {
 
 export interface FakeApi {
   rules: Rule[];
+  workflows: WorkflowDef[];
+  workflowTrash: WorkflowDef[];
   decisions: FakeDecision[];
   trash: Rule[];
   /** Every variable version, oldest first (the latest of each name is what lists show). */
@@ -62,6 +65,8 @@ export interface FakeResponse {
 export function createFakeApi(now = Date.now()): FakeApi {
   return {
     rules: structuredClone(RULES),
+    workflows: structuredClone(WORKFLOWS),
+    workflowTrash: [],
     decisions: [],
     trash: [],
     variableVersions: structuredClone([...VARIABLE_VERSIONS, VARIABLES[1]]),
@@ -118,7 +123,12 @@ function handleGet(api: FakeApi, path: string, query: URLSearchParams): FakeResp
   if (path === "/rules") return json(200, { items: api.rules });
   if (path === "/actors") return json(200, { items: ACTORS });
   if (path === "/machines") return json(200, { items: MACHINES });
-  if (path === "/workflows") return json(200, { items: WORKFLOWS });
+  if (path === "/workflows") return json(200, { items: api.workflows });
+  const rule = /^\/rules\/([^/]+)$/.exec(path);
+  if (rule) {
+    const found = api.rules.find((r) => r.id === decodeURIComponent(rule[1]));
+    return found ? json(200, found) : error(404, "not_found", path);
+  }
   const described = /^\/rules\/([^/]+)\/describe$/.exec(path);
   if (described) return describeRule(api, described[1]);
   if (path === "/runs") return listRuns(api, query);
@@ -293,6 +303,25 @@ export function handle(
     return error(forced.status, forced.code, forced.message);
   }
   if (method === "GET") return handleGet(api, path, query);
+  if (method === "POST" && path === "/workflows") {
+    const doc = body as WorkflowDef;
+    if ([...api.workflows, ...api.workflowTrash].some((w) => w.id === doc.id)) {
+      return error(409, "conflict", `${doc.id} exists`);
+    }
+    api.workflows.push(structuredClone(doc));
+    return json(201, api.workflows.at(-1));
+  }
+  const workflow = /^\/workflows\/([^/]+)$/.exec(path);
+  if (method === "DELETE" && workflow) {
+    const id = decodeURIComponent(workflow[1]);
+    const at = api.workflows.findIndex((w) => w.id === id);
+    if (at < 0) return error(404, "not_found", path);
+    if (api.rules.some((r) => r.workflow?.id === id)) {
+      return error(409, "in_use", `${id} is in use`);
+    }
+    api.workflowTrash.push(api.workflows.splice(at, 1)[0]);
+    return json(200, { id, deleted: true });
+  }
   if (method === "POST" && path === "/rules") {
     const doc = body as Rule;
     if (api.rules.some((r) => r.id === doc.id)) return error(409, "conflict", `${doc.id} exists`);
@@ -303,7 +332,7 @@ export function handle(
   if (method === "PUT" && variable) return variableWrite(api, decodeURIComponent(variable[1]), body);
   const rule = /^\/rules\/([^/]+)(?:\/(enable|disable|restore|stop-runs))?$/.exec(path);
   if (rule) {
-    const done = handleRuleWrite(api, method, rule[1], rule[2], body);
+    const done = handleRuleWrite(api, method, decodeURIComponent(rule[1]), rule[2], body);
     if (done) return done;
   }
   const ask = /^\/asks\/([^/]+)\/answer$/.exec(path);
