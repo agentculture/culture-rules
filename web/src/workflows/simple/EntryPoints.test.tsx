@@ -294,7 +294,15 @@ describe("editing a typed trigger (was RulesEditor › editing a typed trigger)"
 describe("editing a typed action (was RulesEditor › editing a typed action)", () => {
   it("preselects the kind and saves a mapped param as its reference string", async () => {
     const user = userEvent.setup();
-    renderEntry("triage-bugs");
+    // Triage bugs alone starts review-pr here, so its action is the workflow's "ends here".
+    api = createFakeApi(NOW);
+    api.rules.find((r) => r.id === "triage-bugs")!.workflow = { id: "review-pr", inputs: {} };
+    vi.stubGlobal("fetch", fetchFor(api));
+    render(
+      <MemoryRouter>
+        <SimpleView workflowId="review-pr" entry="triage-bugs" />
+      </MemoryRouter>,
+    );
     const card = await opened("Triage bugs");
     await user.click(within(card).getByRole("button", { name: "Edit Triage bugs" }));
     const form = screen.getByRole("form", { name: "Edit rule" });
@@ -314,6 +322,7 @@ describe("editing a typed action (was RulesEditor › editing a typed action)", 
         params: { actor: "github-app", repo: "acme/app", number: "trigger.data.number", body: "Triaged" },
       },
     });
+    await waitFor(() => expect(screen.getByRole("group", { name: "Ends here" })).toHaveTextContent("number → number"));
   });
 
   it("explains a missing required param in plain words and sends nothing", async () => {
@@ -450,7 +459,8 @@ describe("create, progressively (was RulesEditor › create, progressively)", ()
     await user.type(within(form).getByLabelText("Variable"), "branch");
     await user.type(within(form).getByLabelText("Value"), "main");
     await user.click(within(form).getByRole("button", { name: "Add" }));
-    await waitFor(() => expect(within(card).getByRole("list", { name: "Only if all of" })).toHaveTextContent("branch"));
+    // The row reads as the board's "branch is main" did, in the Simple view's words: branch = "main".
+    await waitFor(() => expect(within(card).getByRole("list", { name: "Only if all of" })).toHaveTextContent('branch="main"'));
     expect(sent("PUT", "/rules/train-batch")[0].body).toMatchObject({
       condition: { op: "compare", cmp: "==", left: { var: "branch" }, right: { literal: "main" } },
     });
@@ -526,6 +536,9 @@ describe("the board's entry point (was routes/Rules.test › Rules board)", () =
 
   it("draws the entry point as trigger → condition → workflow (inputs bound) → action", async () => {
     const user = userEvent.setup();
+    // Only Build and publish starts build-image here: its action is the workflow's "ends here".
+    api = createFakeApi(NOW);
+    vi.stubGlobal("fetch", fetchFor(api));
     render(
       <MemoryRouter>
         <SimpleView workflowId="build-image" entry={SELECTED_RULE_ID} def={{ id: "build-image", name: "Build image", steps: [], edges: [] }} />
@@ -541,8 +554,9 @@ describe("the board's entry point (was routes/Rules.test › Rules board)", () =
     const bound = within(card).getByRole("list", { name: "Inputs bound" });
     expect(bound).toHaveTextContent("commit");
     expect(bound).toHaveTextContent("trigger.data.sha");
-    // The action is the Then's "ends here".
+    // The action is the Then's "ends here", with its mapped params as the board drew them.
     expect(screen.getByRole("group", { name: "Ends here" })).toHaveTextContent("Publish");
+    expect(screen.getByRole("group", { name: "Ends here" })).toHaveTextContent("image → tag");
     expect(within(card).getByRole("button", { name: "Add condition" })).toBeInTheDocument();
   });
 

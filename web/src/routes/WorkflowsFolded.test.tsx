@@ -260,11 +260,16 @@ describe("Workflows, folded: t8 review follow-ups (t9)", () => {
       await new Promise((r) => setTimeout(r, 50));
     });
     expect(screen.queryByText(/No workflow “clean-caches”/)).toBeNull();
+    // While it opens, agent-state is not ready: nothing is selected yet (t9 review).
+    expect(screen.getByText("Opening clean-caches…")).toBeInTheDocument();
+    expect(getAgentState()).toMatchObject({ status: "loading", view_ready: false });
     // Never some other workflow in its place either.
     expect(screen.queryByRole("heading", { level: 1, name: "Build image" })).toBeNull();
     await act(async () => release());
     expect(await screen.findByRole("heading", { level: 1, name: "Clean caches" })).toBeInTheDocument();
     expect(screen.queryByText(/No workflow “clean-caches”/)).toBeNull();
+    await waitFor(() => expect(getAgentState().status).toBe("ready"));
+    expect(getAgentState().workflows?.selected).toBe("clean-caches");
   });
 });
 

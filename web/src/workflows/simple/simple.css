@@ -742,3 +742,13 @@
   align-items: center;
   gap: 8px;
 }
+
+/* An action's mapped params ("image → tag"), as chips under its name. */
+.fold-then__mapped {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
