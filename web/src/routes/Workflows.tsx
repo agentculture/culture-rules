@@ -873,9 +873,15 @@ export function Workflows() {
     (loaded?.loadedAt ?? -1) < awaited.after &&
     !workflows.some((w) => w.id === wantedId);
 
-  const current = awaiting ? null : pickWorkflow(workflows, wantedId);
-  // Asked for a workflow that is not there (deleted, or a rule pointing at a missing one): say so.
-  const missingWorkflow = loaded?.listed && !awaiting && wantedId && current?.id !== wantedId ? wantedId : null;
+  // Asked for a workflow that is not there (deleted, or a rule pointing at a missing one): say so,
+  // and never open another workflow in its place.
+  const missingWorkflow =
+    loaded?.listed && !awaiting && wantedId && !workflows.some((w) => w.id === wantedId) ? wantedId : null;
+  const current = awaiting || missingWorkflow ? null : pickWorkflow(workflows, wantedId);
+  // Rules that still point at the missing workflow stay reachable there, as its entry points.
+  const strandedRules = missingWorkflow
+    ? (model.workflows.find((w) => w.id === missingWorkflow)?.entries.length ?? 0)
+    : 0;
   // The D7 place: /workflows?entry=<rule> for a rule with no workflow yet (old /rules links land here).
   const d7Rule = wantedId ? null : (model.d7Candidates.find((r) => r.id === entryId) ?? null);
 
@@ -1192,6 +1198,7 @@ export function Workflows() {
   let aside: string | null = null;
   if (creatingRule) aside = "New rule";
   else if (d7Rule && !creating) aside = d7Rule.name;
+  else if (strandedRules > 0 && !creating) aside = `Missing workflow ${missingWorkflow}`;
 
   let body: ReactNode = null;
   if (creatingRule) {
@@ -1259,6 +1266,19 @@ export function Workflows() {
           ) : null
         }
       />
+    );
+  } else if (missingWorkflow && strandedRules > 0) {
+    body = (
+      <section className="wf-missing-place" aria-label={`Rules of the missing workflow ${missingWorkflow}`}>
+        <SimpleView
+          workflowId={missingWorkflow}
+          def={null}
+          entry={entryId}
+          hrefFor={hrefFor}
+          live={simpleFeed}
+          onCreated={(id) => openCreated(id, entryId)}
+        />
+      </section>
     );
   } else if (awaiting) {
     body = (
@@ -1351,7 +1371,7 @@ export function Workflows() {
             />
           </span>
           <HeadActions
-            creating={creating || aside !== null}
+            creating={creating || aside !== null || current === null}
             dirty={draft?.dirty === true}
             saving={saving}
             runBlock={runBlock}

@@ -306,8 +306,11 @@ editor the same objects read as follows:
 - Opening it (`/workflows?id=greet-flow`) shows the **Simple** view by
   default: When holds the entry point `greet-on-event` with its trigger
   (`demo.greet`), its placement (spark) and its workflow inputs; Then holds
-  the `noop` action. Every rule field is
-  edited there, and saving writes the rule (`PUT /rules/greet-on-event`).
+  the `noop` action. The fields the Rules tab edited are edited there
+  (trigger, condition, action, placement, run order, enabled, plus the
+  failure action, run key and budget), and saving writes the rule
+  (`PUT /rules/greet-on-event`). The workflow inputs mapping is shown
+  read-only, and `priority` and `exclusive_group` have no editor yet.
 - The view switch also offers **Detailed** (the steps and edges, below)
   and **Debug** (every port, type and reference). The choice is kept per
   viewer in the browser.

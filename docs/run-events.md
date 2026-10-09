@@ -58,9 +58,13 @@ rule exactly as it ran without a workflow: the same action, the same
 the one it emitted before in two fields only, `data.workflow_id` (now the
 wrapper's id, before `null`) and `data.workflow_version` (now its version,
 before `null`); `outputs` stays `{}`. A rule listening on `rules.run.*` with a
-`data.workflow_id` term therefore starts nothing new because of the wrapper,
-while one without such a term already fired for the run before and still
-does. `tests/engine/test_stepless_workflow.py` pins this field by field
+`data.workflow_id` term that names some other workflow therefore starts
+nothing new because of the wrapper, while one without such a term already
+fired for the run before and still does. A listener that compares
+`data.workflow_id` with the wrapper's own id (or `data.workflow_version` with
+its version) would start firing after the conversion; check for one before
+converting a rule (the fold's live conversion checked the three live
+run-event rules first). `tests/engine/test_stepless_workflow.py` pins this field by field
 (deviation d1 of the fold plan).
 
 The editor also reads chains from that term: a rule on a `rules.run.*` event

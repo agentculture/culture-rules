@@ -153,6 +153,33 @@ describe("Workflows, folded (t8)", () => {
   it("a workflow id that is not there is named, not silently swapped for another", async () => {
     renderAt("/workflows?id=gone-flow&entry=x");
     expect(await screen.findByText(/No workflow “gone-flow”/)).toBeInTheDocument();
+    // Nothing unrelated opens in its place: no other workflow's head, delete or run.
+    expect(screen.queryByRole("button", { name: "Delete workflow" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Run" })).toBeNull();
+    await waitFor(() => expect(getAgentState().workflows?.selected).toBeNull());
+  });
+
+  it("a rule pointing at a missing workflow stays editable there: its entry point, not another workflow", async () => {
+    mockFetch(
+      routes({
+        "/api/rules": {
+          body: {
+            items: [
+              ...WORKFLOW_RULES,
+              { ...WORKFLOW_RULES[0], id: "stranded", name: "Stranded rule", workflow: { id: "gone-flow" } },
+            ],
+          },
+        },
+      }),
+    );
+    renderAt("/workflows?id=gone-flow&entry=stranded");
+    expect(await screen.findByRole("heading", { level: 1, name: "Missing workflow gone-flow" })).toBeInTheDocument();
+    expect(screen.getByText(/No workflow “gone-flow”/)).toBeInTheDocument();
+    const place = screen.getByRole("region", { name: "Rules of the missing workflow gone-flow" });
+    expect((await within(place).findAllByText("Stranded rule")).length).toBeGreaterThan(0);
+    // Its entry point keeps its own controls (enable / disable at least).
+    expect(within(place).getAllByRole("switch").length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: "Delete workflow" })).toBeNull();
   });
 });
 
