@@ -192,7 +192,7 @@ function stepGroup(wf: WorkflowDef, step: Step, loop: Step | null, exported: Set
   for (const e of wf.edges ?? []) {
     if (e.target !== step.id) continue;
     // inside a loop, an edge from the loop itself reads the loop's inputs (`_edge_source`)
-    const side = loop && e.source === loop.id ? "in" : "out";
+    const side = loop?.id === e.source ? "in" : "out";
     wired.set(e.target_port, portRef(e.source, side, e.source_port));
   }
   const loopInputs = new Set((loop?.inputs ?? []).map((p) => p.name));
@@ -319,6 +319,71 @@ export function debugPorts(wf: WorkflowDef): DebugPort[] {
   return flatten(debugColumns(wf).flat()).flatMap((g) => [...g.inputs, ...g.outputs]);
 }
 
+/** What an input reads: a wire, a workflow output's source, or a by-name loop value. */
+function readLinks(g: DebugGroup, known: ReadonlySet<string>): PortLink[] {
+  const kindOf = (p: DebugPort): LinkKind => {
+    if (g.kind === "outputs") return "output";
+    return p.byName ? "by-name" : "wire";
+  };
+  return g.inputs.flatMap((p) => (p.reads && known.has(p.reads) ? [{ from: p.reads, to: p.ref, kind: kindOf(p) }] : []));
+}
+
+/** A wired body input's implicit loop value, used when the wire supplies nothing (`_gathered_inputs`). */
+function fallbackLinks(g: DebugGroup, known: ReadonlySet<string>): PortLink[] {
+  return g.inputs.flatMap((p) =>
+    p.fallback && known.has(p.fallback) ? [{ from: p.fallback, to: p.ref, kind: "by-name" as const, fallback: true }] : [],
+  );
+}
+
+/** A retry_until loop's `config.carry`: the previous try's result field into a body input. */
+function carryLinks(g: DebugGroup, known: ReadonlySet<string>): PortLink[] {
+  return g.inputs.flatMap((p) =>
+    p.carried
+      .filter((c) => known.has(c.ref))
+      .map((c): PortLink => ({
+        from: c.ref,
+        to: p.ref,
+        kind: "carry",
+        conditional: c.conditional,
+        ...(c.behindWire ? { fallback: true } : {}),
+      })),
+  );
+}
+
+/** A step's outputs come from its inputs. */
+function stepLinks(g: DebugGroup): PortLink[] {
+  if (g.kind !== "step") return [];
+  return g.inputs.flatMap((i) => g.outputs.map((o): PortLink => ({ from: i.ref, to: o.ref, kind: "step" })));
+}
+
+/**
+ * The body step outputs a loop output gathers (`_loop_outputs`): a retry_until loop's
+ * `iterations` is the engine's own count; a for_each loop's `results` takes the whole result
+ * objects, so every output of a source; otherwise the output of the same name.
+ */
+function loopOutputFeeds(loopKind: string, out: DebugPort, inner: DebugGroup): DebugPort[] {
+  if (loopKind === "retry_until" && out.name === "iterations") return [];
+  if (loopKind === "for_each" && out.name === "results") return inner.outputs;
+  return inner.outputs.filter((o) => o.name === out.name);
+}
+
+/** A loop's result is its last succeeded body step's outputs (`_progress_loop`, `_loop_outputs`). */
+function loopResultLinks(g: DebugGroup): PortLink[] {
+  if (g.kind !== "step" || !g.step || g.body.length === 0) return [];
+  const loopKind = g.step.kind;
+  const links: PortLink[] = [];
+  for (const { step: src, conditional } of resultSteps(g.step)) {
+    const inner = g.body.find((b) => b.id === src.id);
+    if (!inner) continue;
+    for (const out of g.outputs) {
+      for (const o of loopOutputFeeds(loopKind, out, inner)) {
+        links.push({ from: o.ref, to: out.ref, kind: "by-name", conditional });
+      }
+    }
+  }
+  return links;
+}
+
 /** Every data link between two ports (see the module comment). */
 export function allLinks(wf: WorkflowDef): PortLink[] {
   const groups = flatten(debugColumns(wf).flat());
@@ -333,43 +398,45 @@ export function allLinks(wf: WorkflowDef): PortLink[] {
     links.push(link);
   };
   for (const g of groups) {
-    for (const p of g.inputs) {
-      if (!p.reads || !known.has(p.reads)) continue;
-      let kind: LinkKind = "wire";
-      if (g.kind === "outputs") kind = "output";
-      else if (p.byName) kind = "by-name";
-      add({ from: p.reads, to: p.ref, kind });
-    }
-    for (const p of g.inputs) {
-      if (p.fallback && known.has(p.fallback)) {
-        add({ from: p.fallback, to: p.ref, kind: "by-name", fallback: true });
-      }
-    }
-    for (const p of g.inputs) {
-      for (const c of p.carried) {
-        if (!known.has(c.ref)) continue;
-        add({ from: c.ref, to: p.ref, kind: "carry", conditional: c.conditional, ...(c.behindWire ? { fallback: true } : {}) });
-      }
-    }
-    if (g.kind !== "step") continue;
-    for (const i of g.inputs) for (const o of g.outputs) add({ from: i.ref, to: o.ref, kind: "step" });
-    // a loop's result is its last succeeded body step's outputs (`_progress_loop`, `_loop_outputs`)
-    if (!g.step || g.body.length === 0) continue;
-    const loopKind = g.step.kind;
-    for (const { step: src, conditional } of resultSteps(g.step)) {
-      const inner = g.body.find((b) => b.id === src.id);
-      for (const out of inner ? g.outputs : []) {
-        if (loopKind === "retry_until" && out.name === "iterations") continue; // the engine's count
-        const gathersAll = loopKind === "for_each" && out.name === "results";
-        for (const o of inner!.outputs) {
-          if (gathersAll || o.name === out.name) {
-            add({ from: o.ref, to: out.ref, kind: "by-name", conditional });
-          }
-        }
-      }
-    }
+    readLinks(g, known).forEach(add);
+    fallbackLinks(g, known).forEach(add);
+    carryLinks(g, known).forEach(add);
+    stepLinks(g).forEach(add);
+    loopResultLinks(g).forEach(add);
   }
   return links;
+}
+
+type Neighbours = (ref: string, kinds: (k: LinkKind) => boolean) => string[];
+
+const across = (k: LinkKind) => k !== "step";
+const within = (k: LinkKind) => k === "step";
+
+/**
+ * One hop in a direction, as the board draws it: the ports across a link, then through the
+ * port's own step (a `step` link) and one link across from there.
+ */
+function oneHop(ref: string, next: Neighbours): Set<string> {
+  const found = new Set<string>();
+  for (const s of next(ref, across)) found.add(s);
+  for (const i of next(ref, within)) {
+    found.add(i);
+    for (const s of next(i, across)) found.add(s);
+  }
+  return found;
+}
+
+/** Every port reachable from `ref` (`ref` itself excluded). */
+function reachable(ref: string, next: (ref: string) => string[]): Set<string> {
+  const found = new Set<string>();
+  const stack = next(ref);
+  while (stack.length) {
+    const port = stack.pop()!;
+    if (port === ref || found.has(port)) continue;
+    found.add(port);
+    stack.push(...next(port));
+  }
+  return found;
 }
 
 export interface PortRelations {
@@ -394,32 +461,8 @@ export function portLinks(
     links.filter((l) => l.to === to && kinds(l.kind)).map((l) => l.from);
   const outOf = (from: string, kinds: (k: LinkKind) => boolean) =>
     links.filter((l) => l.from === from && kinds(l.kind)).map((l) => l.to);
-  const across = (k: LinkKind) => k !== "step";
-  const within = (k: LinkKind) => k === "step";
-
-  const upstream = new Set<string>();
-  for (const s of into(ref, across)) upstream.add(s);
-  for (const i of into(ref, within)) {
-    upstream.add(i);
-    for (const s of into(i, across)) upstream.add(s);
-  }
-
-  const downstream = new Set<string>();
-  if (options.everything) {
-    const stack = outOf(ref, () => true);
-    while (stack.length) {
-      const next = stack.pop()!;
-      if (next === ref || downstream.has(next)) continue;
-      downstream.add(next);
-      stack.push(...outOf(next, () => true));
-    }
-  } else {
-    for (const t of outOf(ref, across)) downstream.add(t);
-    for (const o of outOf(ref, within)) {
-      downstream.add(o);
-      for (const t of outOf(o, across)) downstream.add(t);
-    }
-  }
+  const upstream = oneHop(ref, into);
+  const downstream = options.everything ? reachable(ref, (from) => outOf(from, () => true)) : oneHop(ref, outOf);
   upstream.delete(ref);
   return { upstream, downstream };
 }

@@ -21,7 +21,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type KeyboardEvent,
   type RefObject,
 } from "react";
 import type { WorkflowDef } from "../../api/workflows";
@@ -139,10 +138,9 @@ function DebugCard({
     ) : null;
   const subtitle = groupSubtitle(group);
   return (
-    <div
-      role="group"
+    <fieldset
       aria-label={group.label}
-      className={`wf-debug-card wf-debug-card--${group.kind}${group.body.length ? " wf-debug-card--loop" : ""}`}
+      className={`wf-debug-card wf-debug-card--${group.kind}${group.body.length ? " wf-debug-card--loop" : ""} plain-group`}
     >
       <div className="wf-debug-card__head">
         {group.step ? <span className="wf-debug-card__host">{placementLabel(group.step.placement)}</span> : null}
@@ -158,7 +156,7 @@ function DebugCard({
         </div>
       ) : null}
       {ports(group.outputs, "out")}
-    </div>
+    </fieldset>
   );
 }
 
@@ -301,6 +299,26 @@ function useWires(
   return wires;
 }
 
+/**
+ * Escape anywhere inside `ref`'s element calls the latest `onEscape`. A native listener, as on the
+ * canvas: the element is a labelled region with no interactive role to hang a React handler on.
+ */
+function useEscapeWithin(ref: RefObject<HTMLElement | null>, onEscape: (e: KeyboardEvent) => void) {
+  const latest = useRef(onEscape);
+  useEffect(() => {
+    latest.current = onEscape;
+  });
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") latest.current(e);
+    };
+    el.addEventListener("keydown", onKeyDown);
+    return () => el.removeEventListener("keydown", onKeyDown);
+  }, [ref]);
+}
+
 export function DebugView({ workflow }: Readonly<DebugViewProps>) {
   const columns = useMemo(() => debugColumns(workflow), [workflow]);
   const ports = useMemo(() => new Map(debugPorts(workflow).map((p) => [p.ref, p])), [workflow]);
@@ -339,24 +357,24 @@ export function DebugView({ workflow }: Readonly<DebugViewProps>) {
     setEverything(false);
     if (ref) gridRef.current?.querySelector<HTMLElement>(`[data-ref="${CSS.escape(ref)}"]`)?.focus();
   };
-  const onKeyDown = (e: KeyboardEvent<HTMLElement>) => {
-    if (e.key === "Escape" && current) {
-      e.stopPropagation();
-      clear();
-    }
-  };
+  // Escape is a convenience; Close and a second click on the port do the same.
+  const sectionRef = useRef<HTMLElement | null>(null);
+  useEscapeWithin(sectionRef, (e) => {
+    if (!current) return;
+    e.stopPropagation();
+    clear();
+  });
 
   const wires = useWires(gridRef, links);
   const lit = (w: Wire) => relatedOf(w.from) !== "none" && relatedOf(w.to) !== "none";
 
   const port = current ? ports.get(current) : undefined;
   return (
-    // Escape is a convenience; Close and a second click on the port do the same.
     <section
+      ref={sectionRef}
       className="wf-debug"
       aria-label="Workflow ports"
       data-selection={current ? "true" : "false"}
-      onKeyDown={onKeyDown}
     >
       <div className="wf-debug__status">
         {unbound.length === 0 ? (

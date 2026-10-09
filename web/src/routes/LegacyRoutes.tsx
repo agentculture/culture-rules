@@ -31,7 +31,7 @@ export function RuleRedirect() {
   if (!target) {
     return (
       <main id="main" className="redirect-note" tabIndex={-1}>
-        <p role="status">Finding where this rule lives now…</p>
+        <output>Finding where this rule lives now…</output>
       </main>
     );
   }

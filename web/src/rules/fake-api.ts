@@ -299,6 +299,32 @@ function answerAsk(api: FakeApi, id: string, body: unknown): FakeResponse {
   return json(200, found);
 }
 
+/** `POST /workflows`: an id already taken, live or deleted, is a conflict. */
+function createWorkflow(api: FakeApi, body: unknown): FakeResponse {
+  const doc = body as WorkflowDef;
+  if ([...api.workflows, ...api.workflowTrash].some((w) => w.id === doc.id)) {
+    return error(409, "conflict", `${doc.id} exists`);
+  }
+  api.workflows.push(structuredClone(doc));
+  return json(201, api.workflows.at(-1));
+}
+
+/** `DELETE /workflows/{id}`: a soft delete, into the trash. */
+function deleteWorkflow(api: FakeApi, id: string, path: string): FakeResponse {
+  const at = api.workflows.findIndex((w) => w.id === id);
+  if (at < 0) return error(404, "not_found", path);
+  api.workflowTrash.push(api.workflows.splice(at, 1)[0]);
+  return json(200, { id, deleted: true });
+}
+
+/** `POST /rules`: a new rule, enabled unless it says otherwise. */
+function createRule(api: FakeApi, body: unknown): FakeResponse {
+  const doc = body as Rule;
+  if (api.rules.some((r) => r.id === doc.id)) return error(409, "conflict", `${doc.id} exists`);
+  api.rules.push(stampRule(api, { enabled: true, ...doc }, true));
+  return json(201, api.rules.at(-1));
+}
+
 export function handle(
   api: FakeApi,
   method: string,
@@ -314,28 +340,10 @@ export function handle(
     return error(forced.status, forced.code, forced.message);
   }
   if (method === "GET") return handleGet(api, path, query);
-  if (method === "POST" && path === "/workflows") {
-    const doc = body as WorkflowDef;
-    if ([...api.workflows, ...api.workflowTrash].some((w) => w.id === doc.id)) {
-      return error(409, "conflict", `${doc.id} exists`);
-    }
-    api.workflows.push(structuredClone(doc));
-    return json(201, api.workflows.at(-1));
-  }
+  if (method === "POST" && path === "/workflows") return createWorkflow(api, body);
   const workflow = /^\/workflows\/([^/]+)$/.exec(path);
-  if (method === "DELETE" && workflow) {
-    const id = decodeURIComponent(workflow[1]);
-    const at = api.workflows.findIndex((w) => w.id === id);
-    if (at < 0) return error(404, "not_found", path);
-    api.workflowTrash.push(api.workflows.splice(at, 1)[0]);
-    return json(200, { id, deleted: true });
-  }
-  if (method === "POST" && path === "/rules") {
-    const doc = body as Rule;
-    if (api.rules.some((r) => r.id === doc.id)) return error(409, "conflict", `${doc.id} exists`);
-    api.rules.push(stampRule(api, { enabled: true, ...doc }, true));
-    return json(201, api.rules.at(-1));
-  }
+  if (method === "DELETE" && workflow) return deleteWorkflow(api, decodeURIComponent(workflow[1]), path);
+  if (method === "POST" && path === "/rules") return createRule(api, body);
   const variable = /^\/variables\/([^/]+)$/.exec(path);
   if (method === "PUT" && variable) return variableWrite(api, decodeURIComponent(variable[1]), body);
   const rule = /^\/rules\/([^/]+)(?:\/(enable|disable|restore|stop-runs))?$/.exec(path);
