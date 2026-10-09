@@ -1,4 +1,3 @@
-// TEMPORARY (PR #32 diagnostic): touch a web file so Sonar runs its JS security sensor; removed before merge.
 /**
  * The PR fixer's trusted workflows (culture_rules/actors/trusted.py). The engine trusts by
  * definition digest only; the digest covers the workflow's id, and every trusted digest's id is
