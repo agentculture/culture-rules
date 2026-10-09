@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createFakeApi, fetchFor, type FakeApi } from "../../rules/fake-api";
-import { createRuleDoc, deleteUnusedWorkflow, deleteWorkflowDoc, saveSharedEdit } from "../../fold/writes";
+import { createD7Workflow, createRuleDoc, deleteUnusedWorkflow, deleteWorkflowDoc, saveSharedEdit } from "../../fold/writes";
 import { handle } from "../../rules/fake-api";
 import { runKeyProblem } from "./text";
 
@@ -81,5 +81,49 @@ describe("deleteUnusedWorkflow re-reads the rules first", () => {
   });
   it("deletes when no rule uses it", async () => {
     expect(await deleteUnusedWorkflow("review-pr")).toEqual({ status: "deleted", workflowId: "review-pr" });
+  });
+});
+
+describe("fold-fixA: D7 cleanup never deletes a referenced wrapper", () => {
+  const lone = () => ({ id: "lone", name: "Lone", trigger: { kind: "manual" }, action: { kind: "noop" }, enabled: true });
+  beforeEach(() => {
+    api.rules.push(lone() as never);
+    handle(api, "GET", "/rules", new URLSearchParams());
+    api.calls = [];
+  });
+  /** After the wrapper is created, `meanwhile` runs once (another writer), before the next request. */
+  function after(createPath: string, meanwhile: () => void) {
+    const base = fetchFor(api);
+    let done = false;
+    vi.stubGlobal("fetch", (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const answer = await base(input, init);
+      if (!done && (init?.method ?? "GET").toUpperCase() === "POST" && String(input).endsWith(createPath)) {
+        done = true;
+        meanwhile();
+      }
+      return answer;
+    }) as typeof fetch);
+  }
+
+  it("an attach completed by another writer before the second read is reconciled as saved", async () => {
+    after("/workflows", () => {
+      Object.assign(api.rules.find((r) => r.id === "lone")!, { workflow: { id: "lone-wf" }, updated_at: "2030-01-01T00:00:00Z" });
+    });
+    const snapshot = structuredClone(api.rules.find((r) => r.id === "lone")!);
+    delete (snapshot as { workflow?: unknown }).workflow;
+    const result = await createD7Workflow({ ...snapshot }, { id: "lone-wf", name: "Lone" });
+    expect(result.status).toBe("saved");
+    expect(api.calls.some((c) => c.method === "DELETE")).toBe(false);
+  });
+
+  it("a failed attach keeps the wrapper when another rule has adopted it", async () => {
+    api.failNext["PUT /rules/lone"] = { status: 422, code: "invalid_rule", message: "refused" };
+    after("/workflows", () => {
+      api.rules.push({ ...lone(), id: "adopter", name: "Adopter", workflow: { id: "lone-wf" } } as never);
+    });
+    const result = await createD7Workflow(structuredClone(api.rules.find((r) => r.id === "lone")!), { id: "lone-wf", name: "Lone" });
+    expect(result).toMatchObject({ status: "failed", cleanup: "in-use", usedBy: [{ id: "adopter", name: "Adopter" }] });
+    expect(api.calls.some((c) => c.method === "DELETE")).toBe(false);
+    expect(api.workflows.some((w) => w.id === "lone-wf")).toBe(true);
   });
 });

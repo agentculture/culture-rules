@@ -1217,3 +1217,140 @@ describe("re-review: unchanged after the re-read, delete only an unused workflow
     expect(sent("DELETE", "/workflows/review-commit")).toHaveLength(0);
   });
 });
+
+describe("fold-fixA: an open form keeps the snapshot it was opened on (c27)", () => {
+  const PR_FIX = ["pr-fixer-checks", "pr-fixer-comment", "pr-fixer-review", "pr-fixer-refix"];
+  /** A live feed the test emits into, as the Workflows tab hands one down. */
+  function testFeed() {
+    const listeners = new Set<(changes: { collection: string; op: string; id: string }[]) => void>();
+    return {
+      subscribe: (l: (changes: { collection: string; op: string; id: string }[]) => void) => {
+        listeners.add(l);
+        return () => {
+          listeners.delete(l);
+        };
+      },
+      emit: (changes: { collection: string; op: string; id: string }[]) => listeners.forEach((l) => l(changes)),
+    };
+  }
+  /** Someone else edits a rule; the change arrives through live refresh. */
+  async function concurrent(feed: ReturnType<typeof testFeed>, id: string, change: Partial<Rule> & Record<string, unknown>) {
+    Object.assign(api.rules.find((r) => r.id === id)!, change, { updated_at: "2026-10-09T13:30:00Z" });
+    const before = sent("GET", "/rules").length;
+    feed.emit([{ collection: "rules", op: "update", id }]);
+    await waitFor(() => expect(sent("GET", "/rules").length).toBeGreaterThan(before));
+  }
+
+  it("an untouched Ends here save after a concurrent action edit writes nothing over it", async () => {
+    const feed = testFeed();
+    const user = userEvent.setup();
+    renderSimple({ live: feed });
+    await findEntry("Checks settled, not green");
+    await user.click(within(then("Ends here")).getByRole("button", { name: "Edit ends here" }));
+    // someone else changes the chain-end action on every entry: still shared, but newer
+    const newer = { ...FOLD_RULES[1].action, name: "Someone else's end" };
+    for (const id of PR_FIX) Object.assign(api.rules.find((r) => r.id === id)!, { action: structuredClone(newer) });
+    await concurrent(feed, "pr-fixer-comment", { action: structuredClone(newer) });
+    await waitFor(() => expect(then("Ends here").querySelector(".fold-then__value")).toHaveTextContent("Someone else's end"));
+    await user.click(within(screen.getByRole("form", { name: "Ends here" })).getByRole("button", { name: "Save for every entry point" }));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(writes()).toHaveLength(0);
+    for (const id of PR_FIX) expect(api.rules.find((r) => r.id === id)!.action).toEqual(newer);
+  });
+
+  it("a changed Ends here save skips the rule edited meanwhile instead of overwriting it", async () => {
+    const feed = testFeed();
+    const user = userEvent.setup();
+    renderSimple({ live: feed });
+    await findEntry("Checks settled, not green");
+    await user.click(within(then("Ends here")).getByRole("button", { name: "Edit ends here" }));
+    const form = screen.getByRole("form", { name: "Ends here" });
+    await user.clear(within(form).getByLabelText("Action label"));
+    await user.type(within(form).getByLabelText("Action label"), "Mine");
+    const newer = { ...FOLD_RULES[1].action, name: "Someone else's end" };
+    await concurrent(feed, "pr-fixer-comment", { action: newer });
+    await user.click(within(screen.getByRole("form", { name: "Ends here" })).getByRole("button", { name: "Save for every entry point" }));
+    const results = await screen.findByRole("region", { name: "Save results" });
+    await waitFor(() => expect(within(results).getByText("Trusted PR comment").closest("li")).toHaveAttribute("data-status", "skipped-changed"));
+    expect(sent("PUT", "/rules/pr-fixer-comment")).toHaveLength(0);
+    expect(api.rules.find((r) => r.id === "pr-fixer-comment")!.action).toEqual(newer);
+  });
+
+  it("an untouched Runs save after a concurrent budget edit restores nothing", async () => {
+    const feed = testFeed();
+    const user = userEvent.setup();
+    renderSimple({ live: feed });
+    await findEntry("Checks settled, not green");
+    await user.click(within(then("Runs")).getByRole("button", { name: "Edit runs" }));
+    // every entry's budget becomes 7 meanwhile: still shared, but newer
+    for (const id of PR_FIX) Object.assign(api.rules.find((r) => r.id === id)!, { max_attempts: 7 });
+    await concurrent(feed, "pr-fixer-review", { max_attempts: 7 });
+    await waitFor(() => expect(then("Runs")).toHaveTextContent("7 attempts per key"));
+    await user.click(within(screen.getByRole("form", { name: "Runs" })).getByRole("button", { name: "Save for every entry point" }));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(writes()).toHaveLength(0);
+    for (const id of PR_FIX) expect((api.rules.find((r) => r.id === id) as Rule & { max_attempts?: number }).max_attempts).toBe(7);
+  });
+
+  it("a form opened in the mixed state stays mixed when a refresh makes the value shared: no invented noop", async () => {
+    use(foldApi((rules) => { rules[3].action = { ...rules[3].action, name: "Other end" }; }));
+    const feed = testFeed();
+    const user = userEvent.setup();
+    renderSimple({ live: feed });
+    await findEntry("Checks settled, not green");
+    await user.click(within(then("Ends here")).getByRole("button", { name: "Edit ends here" }));
+    await concurrent(feed, "pr-fixer-refix", { action: structuredClone(FOLD_RULES[0].action) });
+    // the card now shows the shared value; the open form keeps what it was opened on (mixed)
+    await waitFor(() => expect(then("Ends here").querySelector(".fold-then__value")).toHaveTextContent("Comment when the chain ends here"));
+    expect(screen.getByRole("form", { name: "Ends here" })).toHaveTextContent("Differs per entry point");
+    await user.click(within(screen.getByRole("form", { name: "Ends here" })).getByRole("button", { name: "Save for every entry point" }));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(writes()).toHaveLength(0);
+  });
+
+  it("an entry's own Runs form keeps its snapshot too", async () => {
+    const feed = testFeed();
+    const user = userEvent.setup();
+    renderSimple({ live: feed });
+    const first = await findEntry("Checks settled, not green");
+    await user.click(within(first).getByRole("button", { name: "Runs for Checks settled, not green" }));
+    await concurrent(feed, "pr-fixer-checks", { max_attempts: 9 });
+    await user.click(within(screen.getByRole("form", { name: "Runs for Checks settled, not green" })).getByRole("button", { name: "Save for this entry point" }));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(writes()).toHaveLength(0);
+    expect((api.rules[0] as Rule & { max_attempts?: number }).max_attempts).toBe(9);
+  });
+});
+
+describe("fold-fixA: the view follows the asked-for entry", () => {
+  it("opens the newly asked entry point without remounting", async () => {
+    api.failNext["PUT /rules/pr-fixer-comment"] = failure;
+    const user = userEvent.setup();
+    const view = render(<MemoryRouter><SimpleView workflowId="pr-fix" entry="pr-fixer-checks" /></MemoryRouter>);
+    await findEntry("Checks settled, not green");
+    await editRunKey(user, "pr:{trigger.data.number}");
+    await screen.findByRole("region", { name: "Save results" });
+    view.rerender(<MemoryRouter><SimpleView workflowId="pr-fix" entry="pr-fixer-comment" /></MemoryRouter>);
+    await waitFor(() => expect(within(entry("Trusted PR comment")).getByRole("button", { name: "Collapse Trusted PR comment" })).toBeInTheDocument());
+    expect(within(entry("Checks settled, not green")).getByRole("button", { name: "Expand Checks settled, not green" })).toBeInTheDocument();
+    // same instance: the save results are still there
+    expect(screen.getByRole("region", { name: "Save results" })).toBeInTheDocument();
+  });
+});
+
+describe("fold-fixA: D7 never deletes a workflow something uses", () => {
+  it("a manual orphan Delete keeps a wrapper another rule has adopted", async () => {
+    api.failNext["PUT /rules/lone-alert"] = { status: 422, code: "invalid_rule", message: "refused" };
+    api.failNext["DELETE /workflows/lone-alert"] = failure;
+    const user = userEvent.setup();
+    renderSimple({ entry: "lone-alert" });
+    const offer = await screen.findByRole("region", { name: "Lone alert has no workflow" });
+    await user.click(within(offer).getByRole("button", { name: "Create its workflow" }));
+    await within(offer).findByRole("alert");
+    api.rules.push({ ...structuredClone(FOLD_RULES[7]), id: "adopter", name: "Adopter", workflow: { id: "lone-alert" } });
+    const deletes = sent("DELETE", "/workflows/lone-alert").length;
+    await user.click(within(offer).getByRole("button", { name: "Delete lone-alert" }));
+    expect(await within(offer).findByText(/lone-alert was kept: Adopter uses it/)).toBeInTheDocument();
+    expect(sent("DELETE", "/workflows/lone-alert")).toHaveLength(deletes);
+  });
+});

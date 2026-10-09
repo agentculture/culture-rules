@@ -10,6 +10,7 @@ import type { useRulesData } from "../../rules/useRulesData";
 import { EntryHistory } from "./EntryHistory";
 import { relationEdits } from "./relationEdits";
 import { useFocusReturn } from "./focus";
+import { useFrozen } from "./freeze";
 import { RunsForm, SharedActionForm } from "./SharedForms";
 import { conditionRows, countsEdit, fieldOf, placementWords, rowText, triggerParts, withTerm, withoutTerm, type ConditionRow, type RunsEdit } from "./text";
 
@@ -175,9 +176,11 @@ function EntryBody({ entry, data, conditionShared, overrides, busy, historyTick,
   const canSwitch = countsEdit(rule) !== null;
   const workflow = data.workflows.find((w) => w.id === entry.workflowId);
   const type = rule.trigger.kind === "event" ? trigger.value || undefined : undefined;
+  // The override forms keep the rule as it was when they opened (c27).
+  const at = useFrozen(overriding !== null, rule);
   const override = (label: string, edit: Record<string, unknown>) => {
     setOverriding(null);
-    onOverride(rule, `${rule.name}: ${label}`, edit);
+    onOverride(at, `${rule.name}: ${label}`, edit);
   };
 
   return (
@@ -273,13 +276,13 @@ function EntryBody({ entry, data, conditionShared, overrides, busy, historyTick,
         <SharedActionForm
           label={`On failure for ${rule.name}`}
           scope="this entry point"
-          value={rule.on_failure}
+          value={at.on_failure}
           actors={data.actors}
           triggerType={type}
           workflow={workflow}
           busy={busy}
           onSave={(action: Action) => override("on failure", { on_failure: action })}
-          onRemove={rule.on_failure ? () => override("on failure", { on_failure: null }) : undefined}
+          onRemove={at.on_failure ? () => override("on failure", { on_failure: null }) : undefined}
           onCancel={() => setOverriding(null)}
         />
       ) : null}
@@ -287,9 +290,9 @@ function EntryBody({ entry, data, conditionShared, overrides, busy, historyTick,
         <RunsForm
           label={`Runs for ${rule.name}`}
           scope="this entry point"
-          rules={[rule]}
-          runKey={fieldOf(rule, "concurrency_key")}
-          attempts={own}
+          rules={[at]}
+          runKey={fieldOf(at, "concurrency_key")}
+          attempts={fieldOf(at, "max_attempts")}
           busy={busy}
           onSave={(edit: RunsEdit) => override("runs", { ...edit })}
           onCancel={() => setOverriding(null)}

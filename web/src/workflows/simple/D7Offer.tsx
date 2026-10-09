@@ -5,7 +5,10 @@ import { failureMessage } from "../../api/settle";
 import { getRule } from "../../api/rules";
 import type { Rule } from "../../api/types";
 import type { WorkflowDef } from "../../api/workflows";
-import { createD7Workflow, deleteWorkflowDoc, saveSharedEdit, type RuleWriteResult } from "../../fold/writes";
+import { createD7Workflow, deleteUnusedWorkflow, saveSharedEdit, type RuleWriteResult } from "../../fold/writes";
+
+/** "Adopter uses it", "A, B use it". */
+const usersText = (rules: { name: string }[]) => `${rules.map((r) => r.name).join(", ")} ${rules.length === 1 ? "uses" : "use"} it`;
 import { slugFor } from "../../routes/rules-view";
 
 const errorText = (err: unknown) => (err instanceof ApiError ? err.message : failureMessage(err));
@@ -76,6 +79,13 @@ export function D7Offer({ rule, takenIds, hrefFor, onCreated, autoStart = false 
       return setState({ phase: "idle", message: `${attachFailure(rule, wrapper.id, result.ruleResult)}; nothing was created.` });
     }
     const why = attachFailure(rule, result.workflow.id, result.ruleResult);
+    if (result.cleanup === "in-use") {
+      if (result.usedBy.some((r) => r.id === rule.id)) return done(result.workflow);
+      const taken = [...used, result.workflow.id];
+      setUsed(taken);
+      setId(slugFor(wrapper.name, [...takenIds, ...taken], "workflow"));
+      return setState({ phase: "idle", message: `${why}. The new workflow ${result.workflow.id} was kept: ${usersText(result.usedBy)}.` });
+    }
     if (result.cleanup === "deleted") {
       // A soft-deleted id stays taken: suggest a fresh one for the retry.
       const taken = [...used, result.workflow.id];
@@ -115,8 +125,13 @@ export function D7Offer({ rule, takenIds, hrefFor, onCreated, autoStart = false 
     if (!now.rule) {
       return setState({ phase: "orphan", orphan, snapshot, message: `${orphan.id} was kept: ${rule.name} could not be re-read to check it is unused (${errorText(now.error)}).` });
     }
-    const removed = await deleteWorkflowDoc(orphan.id);
+    // Nor one another rule has adopted: the full rule list decides.
+    const removed = await deleteUnusedWorkflow(orphan.id);
     if (removed.status === "deleted") return setState({ phase: "idle", message: `Deleted the unused workflow ${orphan.id}.` });
+    if (removed.status === "in-use") {
+      if (removed.rules.some((r) => r.id === rule.id)) return done(orphan);
+      return setState({ phase: "idle", message: `${orphan.id} was kept: ${usersText(removed.rules)}.` });
+    }
     setState({ phase: "orphan", orphan, snapshot: now.rule, message: `${orphan.id} is still unused; deleting it failed (${errorText(removed.error)}).` });
   };
 

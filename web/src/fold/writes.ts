@@ -113,6 +113,8 @@ export type D7WriteResult =
   | { status: "failed" | "skipped-changed"; ruleResult: UnsuccessfulRuleWrite; workflow?: never; cleanup?: never }
   | ({ status: "failed" | "skipped-changed"; workflow: WorkflowDef; ruleResult: UnsuccessfulRuleWrite } & (
       | { cleanup: "deleted" }
+      /** Kept: a fresh GET /rules found rules pointing at it (the server soft-deletes regardless). */
+      | { cleanup: "in-use"; usedBy: { id: string; name: string }[] }
       | { cleanup: "orphan"; orphan: WorkflowDef; cleanupError: unknown }
     ));
 
@@ -147,6 +149,10 @@ export async function createD7Workflow(
     attempted: { ...original, workflow: { id: workflow.id } },
   });
   if (ruleResult.status === "saved") return { status: "saved", workflow, ruleResult };
+  // Another writer may have completed the very same attach before the re-read: that is saved.
+  if (ruleResult.status === "skipped-changed" && ruleResult.current.workflow?.id === workflow.id) {
+    return { status: "saved", workflow, ruleResult: { ...ruleResult, status: "saved", rule: ruleResult.current } };
+  }
   const result = { status: ruleResult.status, workflow, ruleResult };
   // A lost response or server error may hide a committed attachment. Soft
   // delete permits referenced workflows, so reconcile before attempting cleanup.
@@ -163,12 +169,11 @@ export async function createD7Workflow(
       return { ...result, cleanup: "orphan", orphan: workflow, cleanupError };
     }
   }
-  try {
-    await deleteWorkflowDef(workflow.id);
-    return { ...result, cleanup: "deleted" };
-  } catch (cleanupError) {
-    return { ...result, cleanup: "orphan", orphan: workflow, cleanupError };
-  }
+  // Never delete a wrapper something uses: the full rule list decides, not this rule alone.
+  const cleanup = await deleteUnusedWorkflow(workflow.id);
+  if (cleanup.status === "deleted") return { ...result, cleanup: "deleted" };
+  if (cleanup.status === "in-use") return { ...result, cleanup: "in-use", usedBy: cleanup.rules };
+  return { ...result, cleanup: "orphan", orphan: workflow, cleanupError: cleanup.error };
 }
 
 /**
