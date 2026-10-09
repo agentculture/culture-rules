@@ -36,7 +36,11 @@ jobs:
         run: docker pull mongo:8.0
 
       # Gate 2: coverage >= 60% (--cov-fail-under; mirrors [tool.coverage.report]).
+      # COVERAGE_CORE=sysmon: coverage's sys.monitoring tracer (Python 3.12+), about 23%
+      # faster here than the default trace function; line coverage is unchanged.
       - run: uv run pytest -n auto --cov=culture_rules --cov-fail-under=60 --cov-report=xml:coverage.xml --cov-report=term -v
+        env:
+          COVERAGE_CORE: sysmon
 
       # Web coverage for SonarCloud (sonar.javascript.lcov.reportPaths): the TypeScript in
       # web/src is analysed, so its real vitest coverage must reach the gate too.
