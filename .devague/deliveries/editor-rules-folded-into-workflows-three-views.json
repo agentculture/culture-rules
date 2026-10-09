@@ -2,7 +2,7 @@
   "plan_slug": "editor-rules-folded-into-workflows-three-views",
   "schema_version": 2,
   "created": "2026-10-09T11:07:59Z",
-  "updated": "2026-10-09T15:21:19Z",
+  "updated": "2026-10-09T20:13:23Z",
   "deviations": [
     {
       "id": "d1",
@@ -83,6 +83,17 @@
       "status": "approved",
       "classification": "needs-follow-up",
       "seq": 6
+    },
+    {
+      "id": "d7",
+      "what": "t5 after delivery: the Detailed view becomes compact at the operator's request. Cards show machine, switch and name with no port rows; one edge per connected card pair, labelled with its wire count; selecting a card (or dragging over it) expands its ports and draws its wires port to port; in and out each own the first and last column. Debug keeps the full port view",
+      "task_ref": "t5",
+      "reason": "Operator, after seeing 0.17.1 live: 'Detailed view should be less descriptive. Less lines'; chose 'Steps only; ports on select' from three options; then 'We need to make sure In is most left, and Out is most right.' Shipped in PR #33 (0.18.0); no engine, API or CLI change (c12 holds)",
+      "affects": [],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 29
     }
   ],
   "evidence": [
@@ -503,6 +514,44 @@
       "status": "approved",
       "superseded": false,
       "seq": 28
+    },
+    {
+      "id": "e23",
+      "obligation_ref": "o5",
+      "test_ref": "web/src/workflows/Canvas.test.tsx (3 wires Fetch->Review render as one edge labelled 3, no port rows; selecting Review draws 3 port-level wires and its port rows; deselect collapses; Enter selects); web/src/workflows/model.test.ts::Detailed edge bundles + bundle handles; web/src/workflows/layout.test.ts::in and out columns; e2e/workflows.spec.ts (board: 0 port rows, 7 bundled edges, '2 connections'; drag onto a compact card refused and wired)",
+      "behavior_text": "Detailed renders compact cards with one counted edge per connected pair, expands the selected card's ports and wires, keeps drag-to-connect, and puts in alone first and out alone last",
+      "contract_text": "Simple, Detailed and Debug render their canvas (When/Then, steps and edges, every port), as amended by d7",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "vitest 686/686 and Playwright 98/98 ran green at the named commit; CI on PR #33 green",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-09T23:05:38+03:00",
+        "commit": "9508334"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 30
+    },
+    {
+      "id": "e24",
+      "obligation_ref": "o6",
+      "test_ref": "git diff --name-only origin/main...9508334 (PR #33)",
+      "behavior_text": "outside web/, docs and version files, the only change is the timing bound in tests/model/test_condition_regex_safety.py; no engine, model, API, CLI or MCP code",
+      "contract_text": "no engine, model, API, CLI or MCP code changes; every editor write goes through an existing endpoint",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "diff listing at the named commit",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-09T23:05:38+03:00",
+        "commit": "9508334"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 31
     }
   ],
   "deltas": [
@@ -616,6 +665,20 @@
       ],
       "origin": "llm",
       "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b9",
+      "kind": "amended",
+      "behavior_text": "Detailed no longer renders every port row and port-to-port wire: cards are compact, one counted edge joins each connected pair, the selected card (or the drop target of a drag) expands its ports and wires, and in/out own the first and last column; Debug keeps the full port view",
+      "caused_by": [
+        "d7"
+      ],
+      "evidence_refs": [
+        "e23"
+      ],
+      "origin": "llm",
+      "status": "proposed",
       "superseded": false
     }
   ],
