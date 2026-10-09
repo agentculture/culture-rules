@@ -6,7 +6,7 @@ import { resetAgentState } from "../../agent-state/store";
 import type { Condition, Rule } from "../../api/types";
 import { SELECTED_RULE_ID } from "../../fixtures/rules-fixture";
 import { createFakeApi, fetchFor, handle, withActiveRuns, type FakeApi } from "../../rules/fake-api";
-import Rules from "../../routes/Rules";
+import Rules from "../../rules/RulesBoard.legacy";
 import { FOLD_RULES, FOLD_WORKFLOWS, ON_FAILURE, RUN_KEY } from "./fixture";
 import NewRule from "./NewRule";
 import SimpleView, { type SimpleViewProps } from "./SimpleView";

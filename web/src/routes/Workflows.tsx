@@ -51,6 +51,9 @@ import StepEditor from "../workflows/StepEditor";
 import { useWhoami } from "../hooks/useWhoami";
 import PurgePanel, { type PurgeState } from "../workflows/PurgePanel";
 import { WorkflowList } from "../workflows/list";
+import { SimpleView } from "../workflows/simple/SimpleView";
+import { NewRule } from "../workflows/simple/NewRule";
+import { D7Offer } from "../workflows/simple/D7Offer";
 import WorkflowNameForm from "../workflows/WorkflowNameForm";
 import { ago, slugFor } from "./rules-view";
 import { useTabReady } from "./useTabReady";
@@ -76,7 +79,8 @@ const RUN_DONE = new Set(["succeeded", "failed", "cancelled", "superseded"]);
 const POLL_MS = 2000;
 /** Ids tried past a taken one (a 409: a live or soft-deleted workflow holds it). */
 const MAX_ID_TRIES = 20;
-const LIVE_COLLECTIONS = ["workflows", "runs"] as const;
+// rules too: the list folds them in (entry points, continuations, D7 candidates).
+const LIVE_COLLECTIONS = ["workflows", "runs", "rules"] as const;
 
 /** The open floating editor: a step's placement or fields, or the `in` / `out` node's. */
 type Editing = { kind: "placement" | "step" | "io"; id: string; trigger: HTMLElement | null } | null;
@@ -775,6 +779,7 @@ export function Workflows() {
   const [focusAddStep, setFocusAddStep] = useState<string | null>(null);
   const [deleted, setDeleted] = useState<WorkflowDef | null>(null);
   const [renaming, setRenaming] = useState(false);
+  const [creatingRule, setCreatingRule] = useState(false);
   const newButton = useRef<HTMLButtonElement>(null); // the list's "New workflow"
   const renameButton = useRef<HTMLButtonElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
@@ -937,6 +942,7 @@ export function Workflows() {
   };
 
   const openNew = () => {
+    setCreatingRule(false);
     setCreateError(null);
     setRenaming(false);
     setCreating(true);
@@ -1062,10 +1068,54 @@ export function Workflows() {
 
   const now = Date.now();
 
-  const simpleView: ReactNode = undefined;
+  const hrefFor = (id: string) => `/workflows?id=${encodeURIComponent(id)}`;
+  const opened = (id: string) => {
+    setReload((n) => n + 1);
+    setQuery({ id, entry: entryId, run: null });
+  };
+  const simpleView: ReactNode = current ? (
+    <SimpleView
+      workflowId={current.id}
+      def={current}
+      entry={entryId}
+      hrefFor={hrefFor}
+      onCreated={opened}
+      onWorkflowDeleted={() => {
+        setReload((n) => n + 1);
+        setQuery({ id: null, entry: null, run: null });
+      }}
+    />
+  ) : null;
+  // The D7 place: /workflows?entry=<rule> for a rule with no workflow yet (old /rules links land here).
+  const d7Rule = wantedId ? null : (model.d7Candidates.find((r) => r.id === entryId) ?? null);
 
   let body: ReactNode = null;
-  if (creating) {
+  if (creatingRule) {
+    body = (
+      <NewRule
+        hrefFor={hrefFor}
+        onCreated={(id) => {
+          setCreatingRule(false);
+          opened(id);
+        }}
+        onCancel={() => setCreatingRule(false)}
+      />
+    );
+  } else if (d7Rule && !creating) {
+    body = (
+      <section className="wf-d7-place" aria-label={`Rule without a workflow: ${d7Rule.name}`}>
+        <D7Offer
+          rule={d7Rule}
+          takenIds={workflows.map((w) => w.id)}
+          hrefFor={hrefFor}
+          onCreated={(id) => {
+            setReload((n) => n + 1);
+            setQuery({ id, entry: d7Rule.id, run: null });
+          }}
+        />
+      </section>
+    );
+  } else if (creating) {
     body = (
       <WorkflowNameForm
         label="New workflow"
@@ -1120,7 +1170,14 @@ export function Workflows() {
         onToggle={(wf) => void toggleWorkflow(wf)}
         pending={togglePending}
         onNew={openNew}
-        onOpen={openRow}
+        onNewRule={() => {
+          setCreating(false);
+          setCreatingRule(true);
+        }}
+        onOpen={() => {
+          setCreatingRule(false);
+          openRow();
+        }}
         newRef={newButton}
         showDeleted={showDeleted}
         onShowDeleted={(on) => {
