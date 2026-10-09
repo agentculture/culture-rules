@@ -2,7 +2,7 @@
   "plan_slug": "editor-rules-folded-into-workflows-three-views",
   "schema_version": 2,
   "created": "2026-10-09T11:07:59Z",
-  "updated": "2026-10-09T20:32:33Z",
+  "updated": "2026-10-09T20:43:17Z",
   "deviations": [
     {
       "id": "d1",
@@ -568,7 +568,7 @@
         "commit": "a10b024"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "rejected",
       "superseded": false,
       "seq": 32
     },
@@ -609,6 +609,25 @@
       "status": "approved",
       "superseded": false,
       "seq": 34
+    },
+    {
+      "id": "e28",
+      "obligation_ref": "o11",
+      "test_ref": "live rules.culture.dev (0.17.1, main a10b024), test-jira-scrum21-to-discord: Simple view '+ condition' (trigger.data.t12_probe is one of [edit-check]) then the chip's remove button, with the browser network log captured per save",
+      "behavior_text": "each save issued exactly 1 write, PUT /api/rules/test-jira-scrum21-to-discord (200), preceded by a GET of that rule (the c27 re-read) and followed only by GET refreshes (rules, workflows, machines, actors); no other rule or workflow was written; afterwards the rule equals its saved copy field for field and stays disabled",
+      "contract_text": "editing one entry point's condition issues exactly 1 rule PUT",
+      "evidence_type": "manual",
+      "strength": "execution",
+      "strength_basis": "Chrome network log read and cleared around each of the two saves (2026-10-09 ~20:33-20:35Z), plus culture-rules rules show --json after the removal; this counts the PUTs that e25 did not",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-09T20:35:06Z",
+        "commit": "a10b024"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 35
     }
   ],
   "deltas": [
