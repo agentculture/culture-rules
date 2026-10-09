@@ -210,6 +210,9 @@ def test_the_public_url_must_be_a_plain_origin():
         "https://rules.example.test?",
         "https://rules.example.test#",
         "https://[::1",
+        "http://[12]:8791",
+        "http://[1:2:3]:8791",
+        "http://[fe80::1%25eth0]:8791",  # zones are not supported
         "https://rules.example.test/?token=x",
         "https://rules.example.test/#frag",
         "ftp://rules.example.test",
@@ -228,3 +231,16 @@ def test_a_secret_crossing_the_edge_of_an_engine_literal_is_still_caught():
     assert plain_final("done", "run-cafe012345", ["runs/run-cafe"]).startswith("PR fixer finished")
     assert "run-cafe" not in plain_final("done", "run-cafe012345", ["runs/run-cafe"])
     assert "xyz" not in plain_final("xyz", "run-123", ["xyzrunhttps"])
+
+
+def test_a_set_but_invalid_public_url_warns(caplog):
+    from culture_rules.node.fixer_status import DEFAULT_PUBLIC_URL, public_url
+
+    with caplog.at_level("WARNING", logger="culture_rules.node.fixer_status"):
+        assert public_url(" \n\t ") == DEFAULT_PUBLIC_URL
+        assert public_url("https://[1:2:3]") == DEFAULT_PUBLIC_URL
+    assert len([r for r in caplog.records if "PUBLIC_URL" in r.getMessage()]) == 2
+    caplog.clear()
+    with caplog.at_level("WARNING", logger="culture_rules.node.fixer_status"):
+        assert public_url(None) == public_url("") == DEFAULT_PUBLIC_URL  # unset: silent
+    assert not caplog.records

@@ -30,6 +30,7 @@ marker come from engine values only. The assembled body is checked once more as 
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import logging
 import os
 import re
@@ -102,11 +103,12 @@ DEFAULT_PUBLIC_URL = "https://rules.culture.dev"
 
 def public_url(raw: Any) -> str:
     """The comment's link base: ``raw`` rebuilt from its parts when it is a plain http(s)
-    origin (``scheme://host[:port][/path]``: an ASCII host name, IPv4 or bracketed IPv6;
+    origin (``scheme://host[:port][/path]``: an ASCII host name, IPv4 or a bracketed IPv6
+    address without a zone;
     a port of 1-65535; a path of safe characters; no credentials, query, fragment,
     whitespace or control characters), else the default (with a warning when one was set)."""
-    if raw is None or (isinstance(raw, str) and not raw.strip()):
-        return DEFAULT_PUBLIC_URL
+    if raw is None or raw == "":
+        return DEFAULT_PUBLIC_URL  # unset
     url = _plain_origin(raw)
     if url is None:
         log.warning("CULTURE_RULES_PUBLIC_URL is not a plain http(s) origin: using the default")
@@ -125,6 +127,11 @@ def _plain_origin(raw: Any) -> str | None:
     if port is not None and not 0 < int(port) < 65536:
         return None
     host = match["host"].lower()
+    if host.startswith("["):
+        try:
+            ipaddress.IPv6Address(host[1:-1])
+        except ValueError:
+            return None
     path = (match["path"] or "").rstrip("/")
     return f"{match['scheme'].lower()}://{host}{':' + port if port else ''}{path}"
 
