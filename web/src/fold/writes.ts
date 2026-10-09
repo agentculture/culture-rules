@@ -27,11 +27,16 @@ export type SharedRuleEdit = Partial<Omit<Rule, "id" | "name" | "description" | 
   schema_version?: never;
 } & Partial<Record<typeof SERVER_MANAGED_RULE_FIELDS[number], never>>;
 
+function compareKeys(a: string, b: string): number {
+  if (a < b) return -1;
+  return a > b ? 1 : 0;
+}
+
 /** JSON wire equality: object order is irrelevant; array order and all fields matter. */
 function canonical(value: unknown): string {
   return JSON.stringify(value, (_key, item: unknown) => {
     if (item && typeof item === "object" && !Array.isArray(item)) {
-      return Object.fromEntries(Object.entries(item).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0));
+      return Object.fromEntries(Object.entries(item).sort(([a], [b]) => compareKeys(a, b)));
     }
     return item;
   });
@@ -99,9 +104,12 @@ export async function saveSharedEdit(
   const forbidden = ["id", "name", "description", "enabled", "schema_version", ...SERVER_MANAGED_RULE_FIELDS].some((key) => key in edit);
   const results: RuleWriteResult[] = [];
   for (const attempt of attempts) {
-    results.push(forbidden
-      ? { ...attempt, status: "failed", phase: "prepare", error: new Error("Identity, lifecycle, schema and server-managed fields cannot be shared") }
-      : await saveAttempt(attempt));
+    if (forbidden) {
+      results.push({ ...attempt, status: "failed", phase: "prepare", error: new Error("Identity, lifecycle, schema and server-managed fields cannot be shared") });
+      continue;
+    }
+    // Rule by rule, never in parallel (c25/c27): each save re-reads its rule just before its PUT.
+    results.push(await saveAttempt(attempt)); // NOSONAR S9382: sequential by design (c25/c27)
   }
   return results;
 }

@@ -102,10 +102,16 @@ export function withoutTerm(condition: Condition | null | undefined, node: Condi
   if (!condition || condition === node) return null;
   if (condition.op !== "and") return condition;
   const args = condition.args
-    .map((arg) => (arg === node ? null : arg.op === "and" ? withoutTerm(arg, node) : arg))
+    .map((arg) => withoutTermIn(arg, node))
     .filter((arg): arg is Condition => arg !== null);
   if (args.length === 0) return null;
   return args.length === 1 ? args[0] : { ...condition, args };
+}
+
+/** One argument of an `and` without `node`: gone if it is the node, recursed into if an `and`. */
+function withoutTermIn(arg: Condition, node: Condition): Condition | null {
+  if (arg === node) return null;
+  return arg.op === "and" ? withoutTerm(arg, node) : arg;
 }
 
 /** A row as plain words, for one-line summaries ("verdict in [...]"). */
@@ -150,7 +156,9 @@ export function placementWords(placement: Placement | null | undefined): string 
 }
 
 export function attemptsText(value: unknown): string {
-  return typeof value === "number" ? `${value} attempt${value === 1 ? "" : "s"} per key` : "no attempt limit";
+  if (typeof value !== "number") return "no attempt limit";
+  const noun = value === 1 ? "attempt" : "attempts";
+  return `${value} ${noun} per key`;
 }
 
 /** One stored value in words, by field (the old value a failed save keeps, an override). */
@@ -178,12 +186,17 @@ export function valueText(field: string, value: unknown): string {
   }
 }
 
+function compareKeys(a: string, b: string): number {
+  if (a < b) return -1;
+  return a > b ? 1 : 0;
+}
+
 /** JSON wire identity: object key order is irrelevant, array order is not; `undefined` is its own value. */
 export function canonical(value: unknown): string {
   if (value === undefined) return "undefined";
   return JSON.stringify(value, (_key, item: unknown) =>
     item && typeof item === "object" && !Array.isArray(item)
-      ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+      ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => compareKeys(a, b)))
       : item,
   );
 }
@@ -262,23 +275,37 @@ export function runKeyProblem(template: string): string | null {
   if (/\{[^{}]*[:!]/.test(unescaped)) return "A run key's placeholders take no format specs and conversions (: or !).";
   let i = 0;
   while (i < template.length) {
-    const c = template[i];
-    if (c === "{" && template[i + 1] === "{") i += 2;
-    else if (c === "}" && template[i + 1] === "}") i += 2;
-    else if (c === "}") return "A run key has unbalanced braces: a single } (write }} for a literal one).";
-    else if (c === "{") {
-      const end = template.indexOf("}", i + 1);
-      if (end < 0) return "A run key has unbalanced braces: a { is never closed.";
-      const name = template.slice(i + 1, end);
-      if (name.includes("{")) return "A run key has unbalanced braces: a { inside a placeholder.";
-      if (!KEY_PLACEHOLDER.test(name)) return `A run key takes only {trigger.<path>} placeholders, not {${name}}.`;
-      i = end + 1;
-    } else i += 1;
+    const step = runKeyStep(template, i);
+    if (typeof step === "string") return step;
+    i = step;
   }
   return null;
 }
 
+/** One scan step of a run-key template at `i`: the next index, or the problem found there. */
+function runKeyStep(template: string, i: number): number | string {
+  const c = template[i];
+  if ((c === "{" || c === "}") && template[i + 1] === c) return i + 2;
+  if (c === "}") return "A run key has unbalanced braces: a single } (write }} for a literal one).";
+  if (c !== "{") return i + 1;
+  const end = template.indexOf("}", i + 1);
+  if (end < 0) return "A run key has unbalanced braces: a { is never closed.";
+  const name = template.slice(i + 1, end);
+  if (name.includes("{")) return "A run key has unbalanced braces: a { inside a placeholder.";
+  if (!KEY_PLACEHOLDER.test(name)) return `A run key takes only {trigger.<path>} placeholders, not {${name}}.`;
+  return end + 1;
+}
+
 export function runsProblem(rules: readonly Rule[], edit: RunsEdit): string | null {
+  const own = editProblem(edit);
+  if (own) return own;
+  const outside = rules.filter(outsideBudget);
+  if (outside.length === 0) return null;
+  return outsideBudgetProblem(outside, edit);
+}
+
+/** What is wrong with the edit's own values, whatever the rules. */
+function editProblem(edit: RunsEdit): string | null {
   if (typeof edit.concurrency_key === "string") {
     const bad = runKeyProblem(edit.concurrency_key);
     if (bad) return bad;
@@ -286,13 +313,21 @@ export function runsProblem(rules: readonly Rule[], edit: RunsEdit): string | nu
   if (typeof edit.max_attempts === "number" && (!Number.isInteger(edit.max_attempts) || edit.max_attempts < 1)) {
     return "An attempt budget is a whole number, at least 1.";
   }
-  const outside = rules.filter(outsideBudget);
+  return null;
+}
+
+/** Why rules outside the attempt budget (at least one) cannot take this edit. */
+function outsideBudgetProblem(outside: readonly Rule[], edit: RunsEdit): string | null {
   const names = outside.map((r) => r.name).join(", ");
-  if (typeof edit.max_attempts === "number" && outside.length > 0) {
-    return `${names} ${outside.length === 1 ? "does" : "do"} not count toward the attempt budget, so ${outside.length === 1 ? "it" : "they"} cannot take one. Count ${outside.length === 1 ? "it" : "them"} first.`;
+  const one = outside.length === 1;
+  if (typeof edit.max_attempts === "number") {
+    const verb = one ? "does" : "do";
+    const subject = one ? "it" : "they";
+    const object = one ? "it" : "them";
+    return `${names} ${verb} not count toward the attempt budget, so ${subject} cannot take one. Count ${object} first.`;
   }
-  if ("concurrency_key" in edit && edit.concurrency_key === null && outside.length > 0) {
-    return `${names} ${outside.length === 1 ? "is" : "are"} outside the attempt budget, which needs a run key.`;
+  if ("concurrency_key" in edit && edit.concurrency_key === null) {
+    return `${names} ${one ? "is" : "are"} outside the attempt budget, which needs a run key.`;
   }
   return null;
 }

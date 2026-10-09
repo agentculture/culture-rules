@@ -23,7 +23,7 @@
  *     the fold writes too (savePredecessor, a one-rule shared edit);
  *   - a rule with no workflow is offered D7: a stepless workflow of its own.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useLiveUpdates, type LiveChange } from "../../api/live";
 import type { Placement, Rule } from "../../api/types";
 import type { WorkflowDef } from "../../api/workflows";
@@ -38,7 +38,7 @@ import { ConditionRows, EntryCard, type Override } from "./EntryCard";
 import { PlacementForm } from "./SharedForms";
 import { useFocusReturn } from "./focus";
 import { useFrozen } from "./freeze";
-import { canonical, conditionRows, countsEdit, fieldOf, placementWords, split, triggerParts, valueText, withTerm, withoutEqualTerm } from "./text";
+import { canonical, conditionRows, countsEdit, fieldOf, placementWords, split, triggerParts, valueText, withTerm, withoutEqualTerm, type Split } from "./text";
 import { ThenColumn } from "./ThenColumn";
 import { useFeedSubscription, type LiveFeed } from "./liveFeed";
 import { useFanout } from "./useFanout";
@@ -102,7 +102,177 @@ function Steps({ def }: Readonly<{ def: WorkflowDef }>) {
 
 /** The words for the shared placement button and its override count. */
 function overrideCount(n: number) {
-  return n === 0 ? "" : ` · ${n} override${n === 1 ? "" : "s"}`;
+  if (n === 0) return "";
+  const noun = n === 1 ? "override" : "overrides";
+  return ` · ${n} ${noun}`;
+}
+
+/** The continuations that start after this workflow: linked to it, after any, or naming it among several. */
+function onwardOf(continuations: readonly Continuation[], workflowId: string): Continuation[] {
+  return continuations.filter(
+    (c) => c.workflowId !== workflowId && (c.fromWorkflowId === workflowId || c.predecessor.kind === "any"
+      || (c.predecessor.kind === "ambiguous" && c.predecessor.workflowIds.includes(workflowId))),
+  );
+}
+
+/** The entry open until the reader chooses: the asked-for one if it is here, else the first. */
+function defaultOpenId(entries: readonly FoldEntry[], entry: string | null | undefined): string | null {
+  return entries.find((e) => e.rule.id === entry)?.rule.id ?? entries[0]?.rule.id ?? null;
+}
+
+/** The one event type every entry point listens for, if there is exactly one. */
+const soleType = (types: readonly string[]) => (types.length === 1 && types[0] ? types[0] : undefined);
+
+const emptyWords = (found: boolean, workflowId: string) => (found ? "No rule starts this workflow yet." : `No workflow ${workflowId}.`);
+
+const errorMessage = (err: unknown) => (err instanceof Error ? err.message : String(err));
+
+/** What a workflow delete did, in words. */
+function workflowDeleteNote(result: Awaited<ReturnType<typeof deleteUnusedWorkflow>>, name: string, workflowId: string): string {
+  if (result.status === "deleted") return `Deleted the workflow ${name}.`;
+  if (result.status === "in-use") {
+    const users = result.rules.map((r) => r.name);
+    const verb = users.length === 1 ? "uses" : "use";
+    return `Kept the workflow ${name}: ${users.join(", ")} still ${verb} it.`;
+  }
+  return `Could not delete ${workflowId}: ${errorMessage(result.error)}`;
+}
+
+/** The undo notice after an entry point is deleted, with the D7 workflow delete when offered (c30). */
+function DeletedNotice({
+  name,
+  workflowName,
+  offerWorkflowDelete,
+  undoButton,
+  onUndo,
+  onDeleteWorkflow,
+  onDismiss,
+}: Readonly<{
+  name: string;
+  workflowName: string;
+  offerWorkflowDelete: boolean;
+  undoButton: RefObject<HTMLButtonElement>;
+  onUndo: () => void;
+  onDeleteWorkflow: () => void;
+  onDismiss: () => void;
+}>) {
+  return (
+    <output className="notice notice--undo">
+      <span>Deleted {name}</span>
+      <button ref={undoButton} type="button" className="btn" onClick={onUndo}>
+        Undo
+      </button>
+      {offerWorkflowDelete ? (
+        <button type="button" className="btn" onClick={onDeleteWorkflow}>
+          Delete the workflow {workflowName} too
+        </button>
+      ) : null}
+      <button type="button" className="icon-button icon-button--small" aria-label="Dismiss" onClick={onDismiss}>
+        ×
+      </button>
+    </output>
+  );
+}
+
+/**
+ * "Shared by every entry point": the placement and, when every entry holds it, the condition,
+ * each edited once and fanned out. Rendered always (empty without rules) so its open forms
+ * keep their state as before.
+ */
+function SharedBlock({
+  rules,
+  data,
+  baselines,
+  placement,
+  conditionShared,
+  busy,
+  fanOut,
+  conditionEach,
+}: Readonly<{
+  rules: Rule[];
+  data: ReturnType<typeof useRulesData>;
+  baselines: Record<string, { value: unknown }>;
+  placement: Split;
+  conditionShared: boolean;
+  busy: boolean;
+  fanOut: (label: string, edit: Record<string, unknown>, snapshots?: readonly Rule[]) => void;
+  conditionEach: (next: (rule: Rule) => Rule["condition"], snapshots?: readonly Rule[]) => void;
+}>) {
+  const [placing, setPlacing] = useState(false);
+  const [addingShared, setAddingShared] = useState(false);
+  const placeButton = useFocusReturn<HTMLButtonElement>(placing);
+  const sharedAddButton = useFocusReturn<HTMLButtonElement>(addingShared);
+  // The placement and shared-condition forms keep what they were opened on (c27).
+  const placeAt = useFrozen(placing ? "placement" : null, { rules, placement: split(rules, "placement", baselines.placement) });
+  const conditionAt = useFrozen(addingShared ? "shared-condition" : null, rules);
+  if (rules.length === 0) return null;
+  // A shared condition's continuation term (identical on every entry) is never a removable row (c32).
+  const sharedCondition = conditionShared ? conditionRows(rules[0].condition, predecessorTerms(rules[0].condition)) : [];
+  return (
+    <fieldset aria-label="Shared by every entry point" className="fold-shared plain-group">
+      <button
+        ref={placeButton}
+        type="button"
+        className="fold-shared__placement"
+        aria-expanded={placing}
+        onClick={() => setPlacing((p) => !p)}
+      >
+        {placement.shared || placement.baseline
+          ? `evaluates ${placementWords(placement.value as Placement | null | undefined)}`
+          : "evaluates: differs per entry point"}{" "}
+        <span aria-hidden="true">▾</span>
+      </button>
+      <span className="fold-shared__count">{overrideCount(placement.overrides.length)}</span>
+      {placing ? (
+        <PlacementForm
+          value={placeAt.placement.value as Placement | null | undefined}
+          mixed={!placeAt.placement.shared && !placeAt.placement.baseline}
+          machines={data.machines}
+          busy={busy}
+          onSave={(next) => {
+            setPlacing(false);
+            fanOut("Placement", { placement: next }, placeAt.rules);
+          }}
+          onCancel={() => setPlacing(false)}
+        />
+      ) : null}
+      {conditionShared ? (
+        <>
+          <ConditionRows
+            rows={sharedCondition}
+            label="Every entry point only if all of"
+            busy={busy}
+            onRemove={(row) => {
+              sharedAddButton.current?.focus();
+              conditionEach((rule) => withoutEqualTerm(rule.condition, row.node!, predecessorTerms(rule.condition)));
+            }}
+          />
+          <button
+            ref={sharedAddButton}
+            type="button"
+            className="fold-add"
+            aria-label="Add a condition for every entry point"
+            aria-expanded={addingShared}
+            onClick={() => setAddingShared((a) => !a)}
+          >
+            <span aria-hidden="true">+</span> condition for every entry point
+          </button>
+          {addingShared ? (
+            <AddStageForm
+              rule={rules[0]}
+              workflows={data.workflows}
+              choice="condition"
+              onSave={(next) => {
+                conditionEach((rule) => withTerm(rule.condition, next.condition!), conditionAt);
+                return Promise.resolve(true);
+              }}
+              onCancel={() => setAddingShared(false)}
+            />
+          ) : null}
+        </>
+      ) : null}
+    </fieldset>
+  );
 }
 
 /** The overrides one entry carries: its own value of each D3-D6 field that differs. */
@@ -162,7 +332,7 @@ function WorkflowSimple({
 
   // Until the reader chooses, the asked-for entry (else the first) is open from the very first
   // paint with rules; the effect only records it, so asks load for it too.
-  const openId = open !== undefined ? open : (entries.find((e) => e.rule.id === entry)?.rule.id ?? entries[0]?.rule.id ?? null);
+  const openId = open === undefined ? defaultOpenId(entries, entry) : open;
   useEffect(() => {
     if (open === undefined && openId) setOpen(openId);
   }, [open, openId]);
@@ -187,20 +357,13 @@ function WorkflowSimple({
   // Per field, the value the last shared edit wrote: until the next one, the rules that did not
   // take it (a failed or skipped write) are the overrides, showing their old value.
   const [baselines, setBaselines] = useState<Record<string, { value: unknown }>>({});
-  const [placing, setPlacing] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [addingShared, setAddingShared] = useState(false);
-  const placeButton = useFocusReturn<HTMLButtonElement>(placing);
   const createButton = useFocusReturn<HTMLButtonElement>(creating);
-  const sharedAddButton = useFocusReturn<HTMLButtonElement>(addingShared);
   const undoButton = useRef<HTMLButtonElement>(null);
   const [focusEntry, setFocusEntry] = useState<string | null>(null);
   const [deleted, setDeleted] = useState<{ rule: Rule; last: boolean } | null>(null);
   const [workflowNote, setWorkflowNote] = useState<string | null>(null);
 
-  // The placement and shared-condition forms keep what they were opened on (c27).
-  const placeAt = useFrozen(placing ? "placement" : null, { rules, placement: split(rules, "placement", baselines.placement) });
-  const conditionAt = useFrozen(addingShared ? "shared-condition" : null, rules);
   const splits = useMemo(
     () => new Map(OVERRIDE_FIELDS.map((f) => [f, split(rules, f, baselines[f])])),
     [rules, baselines],
@@ -208,10 +371,7 @@ function WorkflowSimple({
   const conditionShared = rules.length > 1 && rules.every((r) => r.condition && canonical(r.condition) === canonical(rules[0].condition));
   const placement = splits.get("placement")!;
   const types = [...new Set(rules.map((r) => (r.trigger.kind === "event" ? triggerParts(r.trigger).value : "")))];
-  const onward = model.continuations.filter(
-    (c) => c.workflowId !== workflowId && (c.fromWorkflowId === workflowId || c.predecessor.kind === "any"
-      || (c.predecessor.kind === "ambiguous" && c.predecessor.workflowIds.includes(workflowId))),
-  );
+  const onward = onwardOf(model.continuations as Continuation[], workflowId);
 
   /** Fan out to `snapshots`: by default the rules shown now, else what the form was opened on. */
   const fanOut = (label: string, edit: Record<string, unknown>, snapshots: readonly Rule[] = rules) => {
@@ -252,18 +412,10 @@ function WorkflowSimple({
   const deleteWorkflow = async () => {
     const name = def?.name ?? workflowId;
     const result = await deleteUnusedWorkflow(workflowId);
-    if (result.status === "deleted") {
-      setDeleted(null);
-      setWorkflowNote(`Deleted the workflow ${name}.`);
-      onWorkflowDeleted?.(workflowId);
-    } else if (result.status === "in-use") {
-      setDeleted(null);
-      const users = result.rules.map((r) => r.name);
-      setWorkflowNote(`Kept the workflow ${name}: ${users.join(", ")} still ${users.length === 1 ? "uses" : "use"} it.`);
-      refreshRules();
-    } else {
-      setWorkflowNote(`Could not delete ${workflowId}: ${result.error instanceof Error ? result.error.message : String(result.error)}`);
-    }
+    if (result.status === "deleted" || result.status === "in-use") setDeleted(null);
+    setWorkflowNote(workflowDeleteNote(result, name, workflowId));
+    if (result.status === "deleted") onWorkflowDeleted?.(workflowId);
+    if (result.status === "in-use") refreshRules();
   };
   // Deleting the last entry point of a stepless (D7) workflow offers to delete the workflow too (c30).
   const offerWorkflowDelete = deleted?.last && entries.length === 0 && def && (def.steps ?? []).length === 0;
@@ -287,8 +439,6 @@ function WorkflowSimple({
   });
 
   const alerts = [...data.loadErrors, ...(data.notice ? [data.notice] : [])];
-  // A shared condition's continuation term (identical on every entry) is never a removable row (c32).
-  const sharedCondition = conditionShared ? conditionRows(rules[0].condition, predecessorTerms(rules[0].condition)) : [];
 
   return (
     <section className="fold-simple" aria-label="Simple view" data-live-flash={live.flash || undefined}>
@@ -301,20 +451,15 @@ function WorkflowSimple({
         <StopRunsNotice offer={data.stopOffer} onApprove={() => void data.stopRuns()} onDismiss={data.dismissStop} />
       ) : null}
       {deleted ? (
-        <output className="notice notice--undo">
-          <span>Deleted {deleted.rule.name}</span>
-          <button ref={undoButton} type="button" className="btn" onClick={() => void undo()}>
-            Undo
-          </button>
-          {offerWorkflowDelete ? (
-            <button type="button" className="btn" onClick={() => void deleteWorkflow()}>
-              Delete the workflow {def?.name ?? workflowId} too
-            </button>
-          ) : null}
-          <button type="button" className="icon-button icon-button--small" aria-label="Dismiss" onClick={() => setDeleted(null)}>
-            ×
-          </button>
-        </output>
+        <DeletedNotice
+          name={deleted.rule.name}
+          workflowName={def?.name ?? workflowId}
+          offerWorkflowDelete={Boolean(offerWorkflowDelete)}
+          undoButton={undoButton}
+          onUndo={() => void undo()}
+          onDeleteWorkflow={() => void deleteWorkflow()}
+          onDismiss={() => setDeleted(null)}
+        />
       ) : null}
       {workflowNote ? <output className="notice">{workflowNote}</output> : null}
       {fanout.batch ? (
@@ -352,71 +497,16 @@ function WorkflowSimple({
             />
           ) : null}
 
-          {rules.length > 0 ? (
-            <div role="group" aria-label="Shared by every entry point" className="fold-shared">
-              <button
-                ref={placeButton}
-                type="button"
-                className="fold-shared__placement"
-                aria-expanded={placing}
-                onClick={() => setPlacing((p) => !p)}
-              >
-                {placement.shared || placement.baseline
-                  ? `evaluates ${placementWords(placement.value as Placement | null | undefined)}`
-                  : "evaluates: differs per entry point"}{" "}
-                <span aria-hidden="true">▾</span>
-              </button>
-              <span className="fold-shared__count">{overrideCount(placement.overrides.length)}</span>
-              {placing ? (
-                <PlacementForm
-                  value={placeAt.placement.value as Placement | null | undefined}
-                  mixed={!placeAt.placement.shared && !placeAt.placement.baseline}
-                  machines={data.machines}
-                  busy={fanout.busy}
-                  onSave={(next) => {
-                    setPlacing(false);
-                    fanOut("Placement", { placement: next }, placeAt.rules);
-                  }}
-                  onCancel={() => setPlacing(false)}
-                />
-              ) : null}
-              {conditionShared ? (
-                <>
-                  <ConditionRows
-                    rows={sharedCondition}
-                    label="Every entry point only if all of"
-                    busy={fanout.busy}
-                    onRemove={(row) => {
-                      sharedAddButton.current?.focus();
-                      conditionEach((rule) => withoutEqualTerm(rule.condition, row.node!, predecessorTerms(rule.condition)));
-                    }}
-                  />
-                  <button
-                    ref={sharedAddButton}
-                    type="button"
-                    className="fold-add"
-                    aria-label="Add a condition for every entry point"
-                    aria-expanded={addingShared}
-                    onClick={() => setAddingShared((a) => !a)}
-                  >
-                    <span aria-hidden="true">+</span> condition for every entry point
-                  </button>
-                  {addingShared ? (
-                    <AddStageForm
-                      rule={rules[0]}
-                      workflows={data.workflows}
-                      choice="condition"
-                      onSave={async (next) => {
-                        conditionEach((rule) => withTerm(rule.condition, next.condition!), conditionAt);
-                        return true;
-                      }}
-                      onCancel={() => setAddingShared(false)}
-                    />
-                  ) : null}
-                </>
-              ) : null}
-            </div>
-          ) : null}
+          <SharedBlock
+            rules={rules}
+            data={data}
+            baselines={baselines}
+            placement={placement}
+            conditionShared={conditionShared}
+            busy={fanout.busy}
+            fanOut={fanOut}
+            conditionEach={conditionEach}
+          />
 
           {entries.map((e) => (
             <EntryCard
@@ -436,7 +526,7 @@ function WorkflowSimple({
             />
           ))}
           {data.loaded && entries.length === 0 ? (
-            <p className="fold-col__empty">{folded ? "No rule starts this workflow yet." : `No workflow ${workflowId}.`}</p>
+            <p className="fold-col__empty">{emptyWords(folded !== null, workflowId)}</p>
           ) : null}
         </section>
 
@@ -445,10 +535,10 @@ function WorkflowSimple({
         <ThenColumn
           workflowId={workflowId}
           rules={rules}
-          onward={onward as Continuation[]}
+          onward={onward}
           workflows={data.workflows}
           actors={data.actors}
-          triggerType={types.length === 1 && types[0] ? types[0] : undefined}
+          triggerType={soleType(types)}
           busy={fanout.busy}
           hrefFor={hrefFor}
           onFanOut={fanOut}

@@ -33,6 +33,10 @@ const ClockIcon = () => (
   </svg>
 );
 
+function kickerClass(tone?: "warn"): string {
+  return tone ? `fold-then__kicker fold-then__kicker--${tone}` : "fold-then__kicker";
+}
+
 function Card({
   label,
   icon,
@@ -41,14 +45,14 @@ function Card({
   children,
 }: Readonly<{ label: string; icon: ReactNode; tone?: "warn"; edit?: ReactNode; children: ReactNode }>) {
   return (
-    <div role="group" aria-label={label} className="fold-then">
-      <span className={`fold-then__kicker${tone ? ` fold-then__kicker--${tone}` : ""}`}>
+    <fieldset aria-label={label} className="fold-then plain-group">
+      <span className={kickerClass(tone)}>
         {icon}
         <span className="fold-then__label">{label}</span>
         {edit}
       </span>
       {children}
-    </div>
+    </fieldset>
   );
 }
 
@@ -145,6 +149,175 @@ export interface ThenColumnProps {
  * once; entries that differ are listed as overrides. Editing writes every
  * entry point's rule, one at a time.
  */
+/** "Differs per entry point" when the on-failure actions differ, else the action or that none runs. */
+function failureWords(differs: boolean, action: Action | null | undefined): string {
+  if (differs) return "Differs per entry point";
+  return action ? actionText(action) : "Nothing runs on failure.";
+}
+
+/** How runs are keyed: one at a time per key, side by side, or that entry points differ. */
+function runKeyWords(key: Split): string {
+  if (!key.shared && !key.baseline) return "Run key differs per entry point";
+  return typeof key.value === "string" && key.value ? "One at a time per key" : "Runs side by side";
+}
+
+/** The form-side props every editable card shares: busy, the frozen rules, save and cancel. */
+interface CardForm {
+  noEntries: boolean;
+  open: boolean;
+  editButton: ReactNode;
+  busy: boolean;
+  save: (label: string, edit: Record<string, unknown>) => void;
+  onCancel: () => void;
+}
+
+function ContinuesCard({ onward, nameOf, hrefFor }: Readonly<{ onward: Continuation[]; nameOf: (id: string) => string; hrefFor: (id: string) => string }>) {
+  return (
+    <Card label="Continues into" icon={<ContinueIcon />}>
+      {onward.length === 0 ? (
+        <span className="fold-then__words">Nothing continues from here.</span>
+      ) : (
+        <ul className="fold-onwards">
+          {onward.map((entry) => (
+            <Onward key={entry.rule.id} entry={entry} nameOf={nameOf} hrefFor={hrefFor} />
+          ))}
+        </ul>
+      )}
+    </Card>
+  );
+}
+
+function EndsCard({
+  ends,
+  frozen,
+  actors,
+  triggerType,
+  workflow,
+  form,
+}: Readonly<{ ends: Split; frozen: Split; actors: Actor[]; triggerType?: string; workflow?: Workflow; form: CardForm }>) {
+  const { noEntries } = form;
+  const endsAction = ends.value as Action | null | undefined;
+  const showsValue = !noEntries && (ends.shared || ends.baseline);
+  return (
+    <Card label="Ends here" icon={<CommentIcon />} edit={noEntries ? null : form.editButton}>
+      <span className="fold-then__value">{noEntries ? "No entry point starts it yet." : shown(ends, (v) => actionText(v as Action | null | undefined))}</span>
+      {actionBody(endsAction) ? <span className="fold-then__body">{actionBody(endsAction)}</span> : null}
+      <Mapped action={showsValue ? endsAction : null} />
+      {showsValue ? (
+        <span className="fold-then__note">
+          {endsAction?.only_at_chain_end ? "Only when the chain ends here." : "After every run."}
+        </span>
+      ) : null}
+      <Overrides items={ends.overrides.map((o) => ({ rule: o.rule, text: valueText("action", o.value) }))} />
+      {form.open ? (
+        <SharedActionForm
+          label="Ends here"
+          value={frozen.value as Action | null | undefined}
+          mixed={!frozen.shared && !frozen.baseline}
+          actors={actors}
+          triggerType={triggerType}
+          workflow={workflow}
+          busy={form.busy}
+          onSave={(action) => form.save("Ends here", { action })}
+          onCancel={form.onCancel}
+        />
+      ) : null}
+    </Card>
+  );
+}
+
+function FailureCard({
+  failure,
+  frozen,
+  frozenRules,
+  actors,
+  triggerType,
+  workflow,
+  form,
+}: Readonly<{ failure: Split; frozen: Split; frozenRules: readonly Rule[]; actors: Actor[]; triggerType?: string; workflow?: Workflow; form: CardForm }>) {
+  const failAction = failure.value as Action | null | undefined;
+  const failDiffers = !failure.shared && !failure.baseline;
+  return (
+    <Card label="On failure" icon={<BackIcon />} tone="warn" edit={form.noEntries ? null : form.editButton}>
+      <span className="fold-then__value">
+        {failureWords(failDiffers, failAction)}
+      </span>
+      {actionBody(failAction) ? <span className="fold-then__body">{actionBody(failAction)}</span> : null}
+      <Mapped action={failDiffers ? null : failAction} />
+      {failAction?.only_at_chain_end ? <span className="fold-then__note">Once per chain.</span> : null}
+      <Overrides items={failure.overrides.map((o) => ({ rule: o.rule, text: valueText("on_failure", o.value) }))} />
+      {form.open ? (
+        <SharedActionForm
+          label="On failure"
+          value={frozen.value as Action | null | undefined}
+          mixed={!frozen.shared && !frozen.baseline}
+          actors={actors}
+          triggerType={triggerType}
+          workflow={workflow}
+          busy={form.busy}
+          onSave={(action) => form.save("On failure", { on_failure: action })}
+          onRemove={frozenRules.some((r) => r.on_failure) ? () => form.save("On failure", { on_failure: null }) : undefined}
+          onCancel={form.onCancel}
+        />
+      ) : null}
+    </Card>
+  );
+}
+
+function RunsCard({
+  rules,
+  keySplit: key,
+  attempts,
+  frozen,
+  form,
+}: Readonly<{
+  rules: Rule[];
+  keySplit: Split;
+  attempts: Split;
+  frozen: { rules: readonly Rule[]; key: Split; attempts: Split };
+  form: CardForm;
+}>) {
+  const counted = rules.filter((r) => (r as unknown as Record<string, unknown>).counts_toward_budget !== false).length;
+  return (
+    <Card label="Runs" icon={<ClockIcon />} edit={form.noEntries ? null : form.editButton}>
+      <span className="fold-then__value">
+        {runKeyWords(key)}
+      </span>
+      {(key.shared || key.baseline) && typeof key.value === "string" && key.value ? <span className="fold-then__key">{key.value}</span> : null}
+      <span className="fold-then__words">
+        {shown(attempts, attemptsText)}
+        {(attempts.shared || attempts.baseline) && typeof attempts.value === "number" ? `, counted by ${counted} of ${rules.length} entry points` : ""}
+      </span>
+      <Overrides
+        items={[
+          ...key.overrides.map((o) => ({ rule: o.rule, text: valueText("concurrency_key", o.value) })),
+          ...attempts.overrides.map((o) => ({ rule: o.rule, text: valueText("max_attempts", o.value) })),
+        ]}
+      />
+      {form.open ? (
+        <RunsForm
+          rules={frozen.rules}
+          runKey={frozen.key.value}
+          keyMixed={!frozen.key.shared && !frozen.key.baseline}
+          attemptsMixed={!frozen.attempts.shared && !frozen.attempts.baseline}
+          attempts={frozen.attempts.value}
+          busy={form.busy}
+          onSave={(edit) => form.save("Runs", { ...edit })}
+          onCancel={form.onCancel}
+        />
+      ) : null}
+    </Card>
+  );
+}
+
+/**
+ * The Then column (canvas Fold-Editor): where the workflow continues (D2,
+ * read-only links; each continuation is edited on the workflow it starts),
+ * how it ends (the chain-end action), what runs on failure, and how it runs
+ * (the run key and attempt budget). A value every entry point holds shows
+ * once; entries that differ are listed as overrides. Editing writes every
+ * entry point's rule, one at a time.
+ */
 export function ThenColumn({ workflowId, rules, onward, workflows, actors, triggerType, busy, hrefFor, onFanOut, baselines = {} }: Readonly<ThenColumnProps>) {
   const [editing, setEditing] = useState<Editing>(null);
   const endsButton = useFocusReturn<HTMLButtonElement>(editing === "ends");
@@ -156,10 +329,6 @@ export function ThenColumn({ workflowId, rules, onward, workflows, actors, trigg
   const failure = split(rules, "on_failure", baselines.on_failure);
   const key = split(rules, "concurrency_key", baselines.concurrency_key);
   const attempts = split(rules, "max_attempts", baselines.max_attempts);
-  const counted = rules.filter((r) => (r as unknown as Record<string, unknown>).counts_toward_budget !== false).length;
-  const endsAction = ends.value as Action | null | undefined;
-  const failAction = failure.value as Action | null | undefined;
-  const failDiffers = !failure.shared && !failure.baseline;
   // What the open form was opened on: its values, and the rules its save compares against (c27).
   const at = useFrozen(editing, { rules, ends, failure, key, attempts });
   const save = (label: string, edit: Record<string, unknown>) => {
@@ -168,101 +337,42 @@ export function ThenColumn({ workflowId, rules, onward, workflows, actors, trigg
   };
   const toggle = (which: Editing) => () => setEditing((e) => (e === which ? null : which));
   const noEntries = rules.length === 0;
+  const form = (which: Exclude<Editing, null>, editButton: ReactNode): CardForm => ({
+    noEntries, open: editing === which, editButton, busy, save, onCancel: () => setEditing(null),
+  });
 
   return (
     <section className="fold-col fold-col--then" aria-labelledby={`${workflowId}-then`}>
       <h2 id={`${workflowId}-then`} className="fold-col__title">Then</h2>
 
-      <Card label="Continues into" icon={<ContinueIcon />}>
-        {onward.length === 0 ? (
-          <span className="fold-then__words">Nothing continues from here.</span>
-        ) : (
-          <ul className="fold-onwards">
-            {onward.map((entry) => (
-              <Onward key={entry.rule.id} entry={entry} nameOf={nameOf} hrefFor={hrefFor} />
-            ))}
-          </ul>
-        )}
-      </Card>
+      <ContinuesCard onward={onward} nameOf={nameOf} hrefFor={hrefFor} />
 
-      <Card label="Ends here" icon={<CommentIcon />} edit={noEntries ? null : <EditButton ref={endsButton} label="Edit ends here" open={editing === "ends"} onClick={toggle("ends")} />}>
-        <span className="fold-then__value">{noEntries ? "No entry point starts it yet." : shown(ends, (v) => actionText(v as Action | null | undefined))}</span>
-        {actionBody(endsAction) ? <span className="fold-then__body">{actionBody(endsAction)}</span> : null}
-        <Mapped action={noEntries || !(ends.shared || ends.baseline) ? null : endsAction} />
-        {noEntries || !(ends.shared || ends.baseline) ? null : (
-          <span className="fold-then__note">
-            {endsAction?.only_at_chain_end ? "Only when the chain ends here." : "After every run."}
-          </span>
-        )}
-        <Overrides items={ends.overrides.map((o) => ({ rule: o.rule, text: valueText("action", o.value) }))} />
-        {editing === "ends" ? (
-          <SharedActionForm
-            label="Ends here"
-            value={at.ends.value as Action | null | undefined}
-            mixed={!at.ends.shared && !at.ends.baseline}
-            actors={actors}
-            triggerType={triggerType}
-            workflow={workflow}
-            busy={busy}
-            onSave={(action) => save("Ends here", { action })}
-            onCancel={() => setEditing(null)}
-          />
-        ) : null}
-      </Card>
+      <EndsCard
+        ends={ends}
+        frozen={at.ends}
+        actors={actors}
+        triggerType={triggerType}
+        workflow={workflow}
+        form={form("ends", <EditButton ref={endsButton} label="Edit ends here" open={editing === "ends"} onClick={toggle("ends")} />)}
+      />
 
-      <Card label="On failure" icon={<BackIcon />} tone="warn" edit={noEntries ? null : <EditButton ref={failureButton} label="Edit on failure" open={editing === "failure"} onClick={toggle("failure")} />}>
-        <span className="fold-then__value">
-          {failDiffers ? "Differs per entry point" : failAction ? actionText(failAction) : "Nothing runs on failure."}
-        </span>
-        {actionBody(failAction) ? <span className="fold-then__body">{actionBody(failAction)}</span> : null}
-        <Mapped action={failDiffers ? null : failAction} />
-        {failAction?.only_at_chain_end ? <span className="fold-then__note">Once per chain.</span> : null}
-        <Overrides items={failure.overrides.map((o) => ({ rule: o.rule, text: valueText("on_failure", o.value) }))} />
-        {editing === "failure" ? (
-          <SharedActionForm
-            label="On failure"
-            value={at.failure.value as Action | null | undefined}
-            mixed={!at.failure.shared && !at.failure.baseline}
-            actors={actors}
-            triggerType={triggerType}
-            workflow={workflow}
-            busy={busy}
-            onSave={(action) => save("On failure", { on_failure: action })}
-            onRemove={at.rules.some((r) => r.on_failure) ? () => save("On failure", { on_failure: null }) : undefined}
-            onCancel={() => setEditing(null)}
-          />
-        ) : null}
-      </Card>
+      <FailureCard
+        failure={failure}
+        frozen={at.failure}
+        frozenRules={at.rules}
+        actors={actors}
+        triggerType={triggerType}
+        workflow={workflow}
+        form={form("failure", <EditButton ref={failureButton} label="Edit on failure" open={editing === "failure"} onClick={toggle("failure")} />)}
+      />
 
-      <Card label="Runs" icon={<ClockIcon />} edit={noEntries ? null : <EditButton ref={runsButton} label="Edit runs" open={editing === "runs"} onClick={toggle("runs")} />}>
-        <span className="fold-then__value">
-          {!key.shared && !key.baseline ? "Run key differs per entry point"
-            : typeof key.value === "string" && key.value ? "One at a time per key" : "Runs side by side"}
-        </span>
-        {(key.shared || key.baseline) && typeof key.value === "string" && key.value ? <span className="fold-then__key">{key.value}</span> : null}
-        <span className="fold-then__words">
-          {shown(attempts, attemptsText)}
-          {(attempts.shared || attempts.baseline) && typeof attempts.value === "number" ? `, counted by ${counted} of ${rules.length} entry points` : ""}
-        </span>
-        <Overrides
-          items={[
-            ...key.overrides.map((o) => ({ rule: o.rule, text: valueText("concurrency_key", o.value) })),
-            ...attempts.overrides.map((o) => ({ rule: o.rule, text: valueText("max_attempts", o.value) })),
-          ]}
-        />
-        {editing === "runs" ? (
-          <RunsForm
-            rules={at.rules}
-            runKey={at.key.value}
-            keyMixed={!at.key.shared && !at.key.baseline}
-            attemptsMixed={!at.attempts.shared && !at.attempts.baseline}
-            attempts={at.attempts.value}
-            busy={busy}
-            onSave={(edit) => save("Runs", { ...edit })}
-            onCancel={() => setEditing(null)}
-          />
-        ) : null}
-      </Card>
+      <RunsCard
+        rules={rules}
+        keySplit={key}
+        attempts={attempts}
+        frozen={at}
+        form={form("runs", <EditButton ref={runsButton} label="Edit runs" open={editing === "runs"} onClick={toggle("runs")} />)}
+      />
     </section>
   );
 }

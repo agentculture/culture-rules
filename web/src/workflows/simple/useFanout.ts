@@ -65,8 +65,9 @@ export function useFanout(onWritten: () => void) {
       // Every input is captured before the first await, so UI changes cannot alter a batch.
       const all = snapshots.map((s) => structuredClone(s));
       return start(label, fieldsText(fields), one, async () => {
+        // Rule by rule, never in parallel (c25/c27): each write re-reads its rule just before its PUT.
         const results: FoldWriteResult[] = [];
-        for (const snapshot of all) results.push(await one(snapshot));
+        for (const snapshot of all) results.push(await one(snapshot)); // NOSONAR S9382: sequential by design (c25/c27)
         return results;
       });
     },
@@ -121,6 +122,8 @@ function predecessorText(rule: Rule): string {
   const terms = predecessorTerms(rule.condition);
   if (terms.length !== 1) return "its previous workflow";
   const [term] = terms;
-  const literal = "literal" in term.right ? term.right.literal : "literal" in term.left ? term.left.literal : null;
+  let literal: unknown = null;
+  if ("literal" in term.right) literal = term.right.literal;
+  else if ("literal" in term.left) literal = term.left.literal;
   return typeof literal === "string" ? literal : "its previous workflow";
 }
