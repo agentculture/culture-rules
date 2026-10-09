@@ -29,6 +29,7 @@ import type { ViewMode } from "../workflows/views/mode";
 import { foldModel, type FoldModel } from "../fold/model";
 import { useLiveFeed } from "../workflows/simple/liveFeed";
 import { stagesOf } from "./rules-view";
+import { isTrustedWorkflow } from "../workflows/trusted";
 import { NOTICE_RULE_NOT_FOUND, NOTICE_RULES_UNAVAILABLE } from "./legacy-redirects";
 import { AboutButton } from "../components/AboutButton";
 import IoControls from "../workflows/IoControls";
@@ -573,6 +574,7 @@ function HeadActions({
   runRef,
   onSave,
   onRun,
+  saveRef,
 }: Readonly<{
   creating: boolean;
   dirty: boolean;
@@ -582,12 +584,13 @@ function HeadActions({
   runRef: RefObject<HTMLButtonElement>;
   onSave: () => void;
   onRun: () => void;
+  saveRef?: RefObject<HTMLButtonElement>;
 }>) {
   if (creating) return null;
   return (
     <>
       {dirty ? (
-        <button type="button" className="wf-button wf-button--save" disabled={saving} onClick={onSave}>
+        <button ref={saveRef} type="button" className="wf-button wf-button--save" disabled={saving} onClick={onSave}>
           Save
         </button>
       ) : null}
@@ -718,6 +721,42 @@ function useFocusAddStep(
   }, [wanted, openId]);
 }
 
+/**
+ * Before a trusted workflow is saved (spec c32, d6): any change to its definition changes its
+ * digest, so the engine stops trusting its runs to push until the new digest ships.
+ */
+function TrustedSaveAsk({
+  name,
+  id,
+  onSave,
+  onCancel,
+}: Readonly<{ name: string; id: string; onSave: () => void; onCancel: () => void }>) {
+  const keep = useRef<HTMLButtonElement>(null);
+  useEffect(() => keep.current?.focus(), []);
+  return (
+    <div
+      className="wf-notice wf-trust-ask"
+      role="group"
+      aria-label="Save a trusted workflow?"
+      onKeyDown={(e) => {
+        if (e.key === "Escape") onCancel();
+      }}
+    >
+      <p>
+        <strong>{name}</strong> is trusted to push (role <code>{id}</code>). Saving any change makes its
+        runs untrusted: they still run, but can no longer push until the new definition&apos;s digest
+        ships in culture_rules/actors/trusted.py.
+      </p>
+      <button ref={keep} type="button" className="wf-button" onClick={onCancel}>
+        Keep editing
+      </button>
+      <button type="button" className="wf-button wf-button--save" onClick={onSave}>
+        Save anyway
+      </button>
+    </div>
+  );
+}
+
 /** Why Run is unavailable, or null when it is. */
 function runBlockReason(enabled: boolean | undefined, dirty: boolean | undefined): string | null {
   if (enabled === false) return "Enable this workflow to run it";
@@ -805,6 +844,9 @@ export function Workflows() {
   // Live: `runsTick` re-reads the recent runs, `runTick` the overlaid run.
   const [runFormOpen, setRunFormOpen] = useState(false);
   const runButton = useRef<HTMLButtonElement>(null);
+  const saveButton = useRef<HTMLButtonElement>(null);
+  // Saving a trusted workflow changes its digest: ask first (spec c32, deviation d6).
+  const [askTrust, setAskTrust] = useState(false);
   const [runsTick, setRunsTick] = useState(0);
   const [runTick, setRunTick] = useState(0);
 
@@ -972,6 +1014,15 @@ export function Workflows() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const askOrSave = () => {
+    if (isTrustedWorkflow(draft?.id)) setAskTrust(true);
+    else void save();
+  };
+  const keepEditing = () => {
+    setAskTrust(false);
+    requestAnimationFrame(() => saveButton.current?.focus());
   };
 
   const runBlock = runBlockReason(current?.enabled, draft?.dirty);
@@ -1299,10 +1350,22 @@ export function Workflows() {
             saving={saving}
             runBlock={runBlock}
             runRef={runButton}
-            onSave={() => void save()}
+            onSave={askOrSave}
+            saveRef={saveButton}
             onRun={() => setRunFormOpen(true)}
           />
         </div>
+        {askTrust && draft ? (
+          <TrustedSaveAsk
+            name={draft.def.name}
+            id={draft.id}
+            onSave={() => {
+              setAskTrust(false);
+              void save();
+            }}
+            onCancel={keepEditing}
+          />
+        ) : null}
         <output className="wf-status">{status}</output>
 
         {run?.doc?.status === "succeeded" && run.doc.outputs ? <RunOutputs outputs={run.doc.outputs} /> : null}
