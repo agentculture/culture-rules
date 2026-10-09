@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.2] - 2026-10-09
+
+### Changed
+
+- CI: the pytest step runs coverage with `COVERAGE_CORE=sysmon` (faster tracer, same line coverage)
+
 ## [0.17.1] - 2026-10-09
 
 ### Fixed
