@@ -217,12 +217,10 @@ function SelectedPort({
 }>) {
   const [copied, setCopied] = useState(false);
   useEffect(() => setCopied(false), [port.ref]);
-  const copy = () => {
+  const copy = async () => {
     try {
-      navigator.clipboard.writeText(port.ref).then(
-        () => setCopied(true),
-        () => setCopied(false),
-      );
+      await navigator.clipboard.writeText(port.ref);
+      setCopied(true);
     } catch {
       setCopied(false); // no clipboard here: the reference stays on screen to select
     }
