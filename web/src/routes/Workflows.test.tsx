@@ -440,11 +440,28 @@ describe("Workflows tab live updates (h61 / c80)", () => {
     });
   }
 
-  it("subscribes to workflows and runs", async () => {
+  it("subscribes to workflows, runs and rules (the list folds rules in)", async () => {
     renderWorkflows();
     await loaded();
     const url = new URL(FakeEventSource.latest().url, "http://x");
-    expect(url.searchParams.get("collections")?.split(",").sort()).toEqual(["runs", "workflows"]);
+    expect(url.searchParams.get("collections")?.split(",").sort()).toEqual(["rules", "runs", "workflows"]);
+  });
+
+  it("a rules change re-reads the list, so a new entry point shows", async () => {
+    renderWorkflows();
+    await loaded();
+    const list = screen.getByRole("navigation", { name: "Workflows" });
+    expect(within(list).queryByRole("link", { name: "Late reviewer" })).toBeNull();
+    api["/api/rules"] = {
+      body: {
+        items: [
+          ...WORKFLOW_RULES,
+          { ...WORKFLOW_RULES[0], id: "late-reviewer", name: "Late reviewer", workflow: { id: "review-pr" } },
+        ],
+      },
+    };
+    await emit("rules", "late-reviewer");
+    expect(await within(list).findByRole("link", { name: "Late reviewer" })).toBeInTheDocument();
   });
 
   it("a runs change re-reads the overlaid run, so the overlay follows it", async () => {

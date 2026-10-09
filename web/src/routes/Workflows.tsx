@@ -446,7 +446,8 @@ function routeLiveChanges(
   runId: string | null,
   bump: { reload: () => void; runs: () => void; run: () => void },
 ) {
-  if (changes.some((c) => c.collection === "workflows")) bump.reload();
+  // A rule change re-folds the list (entry points, continuations, D7 candidates).
+  if (changes.some((c) => c.collection === "workflows" || c.collection === "rules")) bump.reload();
   const runChanges = changes.filter((c) => c.collection === "runs");
   if (runChanges.length > 0) bump.runs();
   if (runId && runChanges.some((c) => c.id === runId)) bump.run();
