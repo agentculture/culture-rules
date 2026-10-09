@@ -5,8 +5,10 @@ import { mockRulesApi } from "./fixtures/rules";
 
 /**
  * The typed trigger picker and the typed action picker, driven through the
- * New rule form. The fake API records every request body, so each test
- * asserts exactly what would be saved.
+ * New rule form, now opened from the Workflows list ("New rule": the rule,
+ * then at once a stepless workflow of its own, D7). Before the fold these
+ * ran on the Rules tab (e2e/rules-pickers.spec.ts). The fake API records
+ * every request body, so each test asserts exactly what would be saved.
  */
 async function untilReady(page: Page) {
   await expect
@@ -25,9 +27,9 @@ const created = (api: FakeApi) =>
 
 async function openNewRule(page: Page, name: string) {
   const api = await mockRulesApi(page);
-  await page.goto("/rules");
+  await page.goto("/workflows");
   await untilReady(page);
-  await page.getByRole("button", { name: "New rule" }).click();
+  await page.getByRole("navigation", { name: "Workflows" }).getByRole("button", { name: "New rule" }).click();
   const form = page.getByRole("form", { name: "New rule" });
   await form.getByLabel("Name").fill(name);
   return { api, form };
@@ -50,6 +52,9 @@ test.describe("Trigger picker", () => {
     await expect(page.getByRole("heading", { level: 1, name: "On PR opened" })).toBeVisible();
     expect(created(api)).toHaveLength(1);
     expect(created(api)[0].trigger).toEqual({ kind: "event", params: { type: "github.pr.opened" } });
+    // The rule is an entry point of its own new workflow (D7), opened at once.
+    await expect(page).toHaveURL(/\/workflows\?id=on-pr-opened/);
+    await expect(page.getByRole("group", { name: "Entry point: On PR opened" })).toBeVisible();
   });
 
   test("an event trigger without an event is refused with a guided notice and nothing is sent", async ({ page }) => {

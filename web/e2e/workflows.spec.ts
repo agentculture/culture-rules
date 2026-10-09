@@ -1,6 +1,7 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { mockApi } from "./fixtures/api";
+import { withView } from "./fixtures/view";
 import { mockWorkflowsApi } from "./fixtures/workflows";
 import { IMPORT_FILE_NAME, IMPORT_FILE_TEXT, REVIEW_PR_DESCRIBED } from "../src/workflows/fixture";
 
@@ -12,6 +13,8 @@ async function agentState(page: Page) {
 }
 
 async function open(page: Page, path = "/workflows?id=review-pr") {
+  // The canvas scenarios drive the Detailed (steps) view; a workflow opens in Simple by default.
+  await withView(page);
   await mockApi(page);
   const calls = await mockWorkflowsApi(page);
   await page.goto(path);
@@ -271,7 +274,17 @@ test.describe("Workflows tab", () => {
     await page.mouse.wheel(0, 200);
     await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
     await expect(level).toHaveText(fitted!);
-    // ctrl + wheel (a trackpad pinch arrives as one) zooms.
+    // ctrl + wheel (a trackpad pinch arrives as one) zooms. The page scrolls smoothly
+    // (tokens.css): let it come to rest, then put the pointer back over the canvas.
+    await expect
+      .poll(async () => {
+        const y = await page.evaluate(() => window.scrollY);
+        await page.waitForTimeout(100);
+        return y === (await page.evaluate(() => window.scrollY));
+      })
+      .toBe(true);
+    const after = (await canvas.boundingBox())!;
+    await page.mouse.move(after.x + 30, after.y + Math.min(after.height / 2, 80));
     await page.keyboard.down("Control");
     await page.mouse.wheel(0, 300);
     await page.keyboard.up("Control");

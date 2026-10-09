@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type
 import { Link, useSearchParams } from "react-router-dom";
 import { machineColors } from "../culture-design/chart";
 import { ApiError, listMachines, listRules } from "../api/client";
-import { settleAll } from "../api/settle";
+import { failureMessage, settleAll } from "../api/settle";
 import { usePending } from "../usePending";
 import { useLiveUpdates, type LiveChange } from "../api/live";
 import type { Machine, Placement, Rule, RunSummary } from "../api/types";
@@ -27,7 +27,9 @@ import { type CanvasProps } from "../workflows/Canvas";
 import { WorkflowViews } from "../workflows/views/WorkflowViews";
 import type { ViewMode } from "../workflows/views/mode";
 import { foldModel, type FoldModel } from "../fold/model";
+import { useLiveFeed } from "../workflows/simple/liveFeed";
 import { stagesOf } from "./rules-view";
+import { isTrustedWorkflow } from "../workflows/trusted";
 import { NOTICE_RULE_NOT_FOUND, NOTICE_RULES_UNAVAILABLE } from "./legacy-redirects";
 import { AboutButton } from "../components/AboutButton";
 import IoControls from "../workflows/IoControls";
@@ -67,9 +69,12 @@ interface Loaded {
   /** GET /workflows answered: an empty list really is "no workflows yet". */
   listed: boolean;
   errors: string[];
+  /** The `reload` count this load answered (a later reload still in flight is newer). */
+  loadedAt: number;
 }
 
-const message = (err: unknown) => (err instanceof ApiError ? err.message : String(err));
+// failureMessage never throws: a reason with no string form must not sink the whole load.
+const message = (err: unknown) => (err instanceof ApiError ? err.message : failureMessage(err));
 const settledError = (r: PromiseSettledResult<unknown>) =>
   r.status === "rejected" ? message(r.reason) : null;
 const value = <T,>(r: PromiseSettledResult<T>, fallback: T): T =>
@@ -79,8 +84,9 @@ const RUN_DONE = new Set(["succeeded", "failed", "cancelled", "superseded"]);
 const POLL_MS = 2000;
 /** Ids tried past a taken one (a 409: a live or soft-deleted workflow holds it). */
 const MAX_ID_TRIES = 20;
-// rules too: the list folds them in (entry points, continuations, D7 candidates).
-const LIVE_COLLECTIONS = ["workflows", "runs", "rules"] as const;
+// rules too: the list folds them in (entry points, continuations, D7 candidates). asks and
+// rule_decisions are the Simple view's (its asks and entry history): one stream serves both.
+const LIVE_COLLECTIONS = ["workflows", "runs", "rules", "asks", "rule_decisions"] as const;
 
 /** The open floating editor: a step's placement or fields, or the `in` / `out` node's. */
 type Editing = { kind: "placement" | "step" | "io"; id: string; trigger: HTMLElement | null } | null;
@@ -155,6 +161,7 @@ function useWorkflowsLoad(reload: number, includeDeleted: boolean) {
           rules: value(rules, [] as Rule[]),
           listed: workflows.status === "fulfilled",
           errors: results.map(settledError).filter((m): m is string => m !== null),
+          loadedAt: reload,
         });
       },
       (message) => {
@@ -167,6 +174,7 @@ function useWorkflowsLoad(reload: number, includeDeleted: boolean) {
           rules: [],
           listed: false,
           errors: [message],
+          loadedAt: reload,
         });
       },
     );
@@ -452,8 +460,9 @@ function StepPanels({
 function routeLiveChanges(
   changes: LiveChange[],
   runId: string | null,
-  bump: { reload: () => void; runs: () => void; run: () => void },
+  bump: { reload: () => void; runs: () => void; run: () => void; simple: (changes: LiveChange[]) => void },
 ) {
+  bump.simple(changes);
   // A rule change re-folds the list (entry points, continuations, D7 candidates).
   if (changes.some((c) => c.collection === "workflows" || c.collection === "rules")) bump.reload();
   const runChanges = changes.filter((c) => c.collection === "runs");
@@ -471,7 +480,8 @@ function agentSnapshot(
     step: string | null;
     dirty: boolean;
     run: RunDoc | null;
-    view: ViewMode;
+    /** null: no view switch is mounted (the D7 place, New rule, New workflow, empty). */
+    view: ViewMode | null;
     model: FoldModel;
     entry: string | null;
   },
@@ -564,6 +574,7 @@ function HeadActions({
   runRef,
   onSave,
   onRun,
+  saveRef,
 }: Readonly<{
   creating: boolean;
   dirty: boolean;
@@ -573,12 +584,13 @@ function HeadActions({
   runRef: RefObject<HTMLButtonElement>;
   onSave: () => void;
   onRun: () => void;
+  saveRef?: RefObject<HTMLButtonElement>;
 }>) {
   if (creating) return null;
   return (
     <>
       {dirty ? (
-        <button type="button" className="wf-button wf-button--save" disabled={saving} onClick={onSave}>
+        <button ref={saveRef} type="button" className="wf-button wf-button--save" disabled={saving} onClick={onSave}>
           Save
         </button>
       ) : null}
@@ -709,6 +721,45 @@ function useFocusAddStep(
   }, [wanted, openId]);
 }
 
+/**
+ * Before a trusted workflow is saved (spec c32, d6): any change to its definition changes its
+ * digest, so the engine stops trusting its runs to push until the new digest ships.
+ */
+function TrustedSaveAsk({
+  name,
+  id,
+  onSave,
+  onCancel,
+}: Readonly<{ name: string; id: string; onSave: () => void; onCancel: () => void }>) {
+  const keep = useRef<HTMLButtonElement>(null);
+  useEffect(() => keep.current?.focus(), []);
+  return (
+    <div
+      className="wf-notice wf-trust-ask"
+      role="group"
+      aria-label="Save a trusted workflow?"
+      aria-describedby="wf-trust-ask-text"
+      onKeyDown={(e) => {
+        if (e.key === "Escape") onCancel();
+      }}
+    >
+      <p id="wf-trust-ask-text">
+        <strong>{name}</strong> (<code>{id}</code>) is one of the PR fixer&apos;s trusted workflows.
+        Saving a change gives it a new digest the engine does not trust: its runs will still start,
+        but the fixer chain will not review or push their work until this definition&apos;s digest is
+        added to culture_rules/actors/trusted.py and released to every node. Saving the original
+        definition back restores the trust.
+      </p>
+      <button ref={keep} type="button" className="wf-button" onClick={onCancel}>
+        Keep editing
+      </button>
+      <button type="button" className="wf-button wf-button--save" onClick={onSave}>
+        Save anyway
+      </button>
+    </div>
+  );
+}
+
 /** Why Run is unavailable, or null when it is. */
 function runBlockReason(enabled: boolean | undefined, dirty: boolean | undefined): string | null {
   if (enabled === false) return "Enable this workflow to run it";
@@ -796,14 +847,14 @@ export function Workflows() {
   // Live: `runsTick` re-reads the recent runs, `runTick` the overlaid run.
   const [runFormOpen, setRunFormOpen] = useState(false);
   const runButton = useRef<HTMLButtonElement>(null);
+  const saveButton = useRef<HTMLButtonElement>(null);
+  // Saving a trusted workflow changes its digest: ask first (spec c32, deviation d6).
+  const [askTrust, setAskTrust] = useState(false);
   const [runsTick, setRunsTick] = useState(0);
   const [runTick, setRunTick] = useState(0);
 
   const { workflows, deletedDefs } = useSplitDefs(loaded);
   const wantedId = params.get("id");
-  const current = pickWorkflow(workflows, wantedId);
-  // Asked for a workflow that is not there (deleted, or a rule pointing at a missing one): say so.
-  const missingWorkflow = loaded?.listed && wantedId && current?.id !== wantedId ? wantedId : null;
   const runId = params.get("run");
   const entryId = params.get("entry");
   const notice = params.get("notice");
@@ -813,6 +864,20 @@ export function Workflows() {
   const rules = loaded?.rules;
   const model = useMemo(() => foldModel(rules ?? [], workflows), [rules, workflows]);
   const [view, setView] = useState<ViewMode>("simple");
+  // A workflow just created elsewhere (the D7 place, New rule, a D7 offer) and opened before the
+  // list's reload lands: until then it is "opening", never "missing" or swapped for another.
+  const [awaited, setAwaited] = useState<{ id: string; after: number } | null>(null);
+  const awaiting =
+    awaited !== null &&
+    awaited.id === wantedId &&
+    (loaded?.loadedAt ?? -1) < awaited.after &&
+    !workflows.some((w) => w.id === wantedId);
+
+  const current = awaiting ? null : pickWorkflow(workflows, wantedId);
+  // Asked for a workflow that is not there (deleted, or a rule pointing at a missing one): say so.
+  const missingWorkflow = loaded?.listed && !awaiting && wantedId && current?.id !== wantedId ? wantedId : null;
+  // The D7 place: /workflows?entry=<rule> for a rule with no workflow yet (old /rules links land here).
+  const d7Rule = wantedId ? null : (model.d7Candidates.find((r) => r.id === entryId) ?? null);
 
   // A fresh draft whenever the selected workflow (or its stored copy) changes;
   // unsaved edits to the same workflow survive a reload.
@@ -827,6 +892,8 @@ export function Workflows() {
 
   const workflow = draftOf(current, draft);
   const empty = isEmptyList(loaded, workflows);
+  // The canvas (and its view switch) is what the board shows: not New rule, the D7 place or New workflow.
+  const showsCanvas = workflow !== null && !creatingRule && !creating && d7Rule === null;
 
   // A workflow just created opens with the step `+` focused: add the first step.
   useFocusAddStep(focusAddStep, workflow?.id, stageRef, () => setFocusAddStep(null));
@@ -839,14 +906,16 @@ export function Workflows() {
 
   // Live updates: a stored workflow changed (another editor, an import) or a run
   // moved. Unsaved edits survive a workflows refetch (the draft effect above).
+  const simpleFeed = useLiveFeed();
   const onLive = useCallback(
     (changes: LiveChange[]) =>
       routeLiveChanges(changes, runId, {
         reload: () => setReload((n) => n + 1),
         runs: () => setRunsTick((n) => n + 1),
         run: () => setRunTick((n) => n + 1),
+        simple: simpleFeed.emit,
       }),
-    [runId],
+    [runId, simpleFeed.emit],
   );
   const live = useLiveUpdates(LIVE_COLLECTIONS, onLive);
 
@@ -866,13 +935,13 @@ export function Workflows() {
         step: selectedStep,
         dirty: draft?.dirty ?? false,
         run: run?.doc ?? null,
-        view,
+        view: showsCanvas ? view : null,
         model,
         entry: entryId,
       }),
     );
     setAgentState({ rules: rulesAlias(loaded, entryId) });
-  }, [loaded, workflows.length, current?.id, stepKey, selectedStep, draft?.dirty, run?.doc, view, model, entryId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [loaded, workflows.length, current?.id, stepKey, selectedStep, draft?.dirty, run?.doc, view, showsCanvas, model, entryId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const setQuery = (patch: Record<string, string | null>) => {
     const next = new URLSearchParams(params);
@@ -948,6 +1017,17 @@ export function Workflows() {
     } finally {
       setSaving(false);
     }
+  };
+
+  // The question is about one draft: another workflow, or none, closes it.
+  useEffect(() => setAskTrust(false), [draft?.id]);
+  const askOrSave = () => {
+    if (isTrustedWorkflow(draft?.id)) setAskTrust(true);
+    else void save();
+  };
+  const keepEditing = () => {
+    setAskTrust(false);
+    requestAnimationFrame(() => saveButton.current?.focus());
   };
 
   const runBlock = runBlockReason(current?.enabled, draft?.dirty);
@@ -1086,10 +1166,13 @@ export function Workflows() {
   const now = Date.now();
 
   const hrefFor = (id: string) => `/workflows?id=${encodeURIComponent(id)}`;
-  const opened = (id: string) => {
-    setReload((n) => n + 1);
-    setQuery({ id, entry: entryId, run: null });
+  /** Open a workflow just created elsewhere: re-read the list, and wait for it there. */
+  const openCreated = (id: string, entry: string | null) => {
+    setAwaited({ id, after: reload + 1 });
+    setReload(reload + 1);
+    setQuery({ id, entry, run: null });
   };
+  const opened = (id: string) => openCreated(id, entryId);
   const simpleView: ReactNode = current ? (
     <SimpleView
       workflowId={current.id}
@@ -1097,14 +1180,13 @@ export function Workflows() {
       entry={entryId}
       hrefFor={hrefFor}
       onCreated={opened}
+      live={simpleFeed}
       onWorkflowDeleted={() => {
         setReload((n) => n + 1);
         setQuery({ id: null, entry: null, run: null });
       }}
     />
   ) : null;
-  // The D7 place: /workflows?entry=<rule> for a rule with no workflow yet (old /rules links land here).
-  const d7Rule = wantedId ? null : (model.d7Candidates.find((r) => r.id === entryId) ?? null);
   // While New rule or the D7 place is shown, the head names it: no workflow's rename, delete or run.
   let aside: string | null = null;
   if (creatingRule) aside = "New rule";
@@ -1117,8 +1199,7 @@ export function Workflows() {
         hrefFor={hrefFor}
         onCreated={(id) => {
           setCreatingRule(false);
-          setReload((n) => n + 1);
-          setQuery({ id, entry: null, run: null });
+          openCreated(id, null);
         }}
         onCancel={() => {
           setCreatingRule(false);
@@ -1133,10 +1214,7 @@ export function Workflows() {
           rule={d7Rule}
           takenIds={workflows.map((w) => w.id)}
           hrefFor={hrefFor}
-          onCreated={(id) => {
-            setReload((n) => n + 1);
-            setQuery({ id, entry: d7Rule.id, run: null });
-          }}
+          onCreated={(id) => openCreated(id, d7Rule.id)}
         />
       </section>
     );
@@ -1180,6 +1258,12 @@ export function Workflows() {
           ) : null
         }
       />
+    );
+  } else if (awaiting) {
+    body = (
+      <p className="wf-notice" role="status">
+        Opening {wantedId}…
+      </p>
     );
   } else if (empty) {
     body = <EmptyWorkflows onNew={openNew} />;
@@ -1271,10 +1355,23 @@ export function Workflows() {
             saving={saving}
             runBlock={runBlock}
             runRef={runButton}
-            onSave={() => void save()}
+            onSave={askOrSave}
+            saveRef={saveButton}
             onRun={() => setRunFormOpen(true)}
           />
         </div>
+        {askTrust && draft?.dirty && isTrustedWorkflow(draft.id) && aside === null ? (
+          <TrustedSaveAsk
+            name={draft.def.name}
+            id={draft.id}
+            onSave={() => {
+              setAskTrust(false);
+              // Save goes away once saved: focus Run, which stays.
+              void save().then(() => requestAnimationFrame(() => runButton.current?.focus()));
+            }}
+            onCancel={keepEditing}
+          />
+        ) : null}
         <output className="wf-status">{status}</output>
 
         {run?.doc?.status === "succeeded" && run.doc.outputs ? <RunOutputs outputs={run.doc.outputs} /> : null}

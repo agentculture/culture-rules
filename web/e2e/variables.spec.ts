@@ -1,5 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
+import { createFakeApi } from "../src/rules/fake-api";
 import { mockRulesApi } from "./fixtures/rules";
 
 async function untilReady(page: Page) {
@@ -17,9 +18,8 @@ test.describe("Variables tab", () => {
     const list = page.getByRole("navigation", { name: "Variables" });
     await expect(list.getByRole("link")).toHaveCount(2);
     await expect(page.getByRole("list", { name: "Version history" }).getByRole("listitem")).toHaveCount(2);
-    await expect(page.getByRole("list", { name: "Used by rules" }).getByRole("link")).toHaveText(
-      "Build and publish",
-    );
+    const usedBy = page.getByRole("list", { name: "Used by rules" }).getByRole("link");
+    await expect(usedBy).toHaveText("Build and publish");
     const state = JSON.parse((await page.locator("#agent-state").textContent()) ?? "{}");
     expect(state.tab).toBe("variables");
     expect(state.errors).toEqual([]);
@@ -27,6 +27,12 @@ test.describe("Variables tab", () => {
       (v) => v.impact === "serious" || v.impact === "critical",
     );
     expect(bad.map((v) => v.id)).toEqual([]);
+    // The rule is reached where it lives now: its entry point on the workflow it starts.
+    await usedBy.click();
+    await expect(page).toHaveURL(/\/workflows\?id=build-image&entry=build-and-publish$/);
+    await expect(
+      page.getByRole("group", { name: "Entry point: Build and publish" }).getByRole("button", { name: "Collapse Build and publish" }),
+    ).toBeVisible();
   });
 
   test("an admin edits a list from the keyboard and a new version is appended", async ({ page }) => {
@@ -56,17 +62,20 @@ test.describe("Variables tab", () => {
 
 test.describe("Condition editor: variable picker", () => {
   test("an author check picks vars.trusted_authors and saves a var operand", async ({ page }) => {
-    const api = await mockRulesApi(page);
-    await page.goto("/rules/train-batch");
+    const api = createFakeApi();
+    // Train batch starts review-pr here, so it is that workflow's entry point (the fold's home for it).
+    api.rules.find((r) => r.id === "train-batch")!.workflow = { id: "review-pr", inputs: {} };
+    await mockRulesApi(page, api);
+    await page.goto("/workflows?id=review-pr&entry=train-batch");
     await untilReady(page);
-    await page.getByRole("button", { name: "Add stage" }).click();
-    await page.getByRole("button", { name: "Add condition" }).click();
+    const card = page.getByRole("group", { name: "Entry point: Train batch" });
+    await card.getByRole("button", { name: "Add condition" }).click();
     const form = page.getByRole("form", { name: "Add condition" });
     await form.getByLabel("Variable").fill("trigger.data.author");
     await form.getByLabel("Comparison").selectOption("in");
     await form.getByLabel("Allowed list").selectOption({ label: "vars.trusted_authors" });
     await form.getByRole("button", { name: "Add" }).click();
-    await expect(page.getByTestId("stage-condition")).toContainText("is in vars.trusted_authors");
+    await expect(card.getByRole("list", { name: "Only if all of" })).toContainText("vars.trusted_authors");
     const put = api.calls.find((c) => c.method === "PUT" && c.path === "/rules/train-batch");
     expect((put?.body as { condition: unknown }).condition).toEqual({
       op: "in",
