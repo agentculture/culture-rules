@@ -1,6 +1,15 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, vi } from "vitest";
-import { cleanup } from "@testing-library/react";
+import { cleanup, configure } from "@testing-library/react";
+
+// Under a busy full-suite run (every file in parallel, React Flow measuring and
+// elkjs laying out in each), a canvas can take longer than Testing Library's
+// default 1s to reach the accessibility tree, and a whole scenario longer than
+// vitest's default 5s. Those were the WorkflowsZoomDescribe "flakes" (they
+// passed alone): the waits were right, their budgets were not. Generous
+// budgets cost nothing on a pass; only a real failure waits them out.
+configure({ asyncUtilTimeout: 5_000 });
+vi.setConfig({ testTimeout: 20_000 });
 
 // jsdom ships neither ResizeObserver nor DOMMatrix, both of which React Flow
 // touches on mount. Component tests here render the presentational layer

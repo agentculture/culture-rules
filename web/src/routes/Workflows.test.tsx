@@ -106,12 +106,15 @@ describe("Workflows board (Chosen — Workflows)", () => {
     vi.restoreAllMocks();
   });
 
-  it("names a load that fails while being applied and still reports ready", async () => {
-    // A rejection reason with no string form: describing it throws inside the load's .then.
+  it("names a rejection with no string form, keeps the rest of the load, and still reports ready", async () => {
+    // A rejection reason with no string form. Describing it used to throw inside the load's .then
+    // and blank the whole board ("Cannot convert object to primitive value"); it is named as the
+    // Rules tab named it, and the calls that answered still apply (t9).
     vi.spyOn(client, "listMachines").mockRejectedValue(Object.create(null));
     renderWorkflows();
-    expect(await screen.findByRole("alert")).toHaveTextContent(/primitive/i);
+    expect(await screen.findByRole("alert")).toHaveTextContent("unexpected error");
     await waitFor(() => expect(getAgentState().status).toBe("ready"));
+    expect(screen.getByRole("heading", { level: 1, name: "Review PR" })).toBeInTheDocument();
   });
 
   it("heads the board with the workflow name, version and the io controls", async () => {
@@ -440,11 +443,13 @@ describe("Workflows tab live updates (h61 / c80)", () => {
     });
   }
 
-  it("subscribes to workflows, runs and rules (the list folds rules in)", async () => {
+  it("subscribes to workflows, runs and rules (the list folds rules in), plus the Simple view's asks and decisions: one stream", async () => {
     renderWorkflows();
     await loaded();
     const url = new URL(FakeEventSource.latest().url, "http://x");
-    expect(url.searchParams.get("collections")?.split(",").sort()).toEqual(["rules", "runs", "workflows"]);
+    expect(url.searchParams.get("collections")?.split(",").sort()).toEqual([
+      "asks", "rule_decisions", "rules", "runs", "workflows",
+    ]);
   });
 
   it("a rules change re-reads the list, so a new entry point shows", async () => {

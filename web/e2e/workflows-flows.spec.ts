@@ -1,6 +1,7 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { mockApi } from "./fixtures/api";
+import { withView } from "./fixtures/view";
 import { FORM_RUN_OUTPUTS, GONE_WORKFLOW, mockWorkflowsApi } from "./fixtures/workflows";
 import { WORKFLOW_DOCS } from "../src/workflows/fixture";
 import type { WorkflowDef } from "../src/api/workflows";
@@ -18,6 +19,8 @@ async function open(
   page: Page,
   { roles, gone = [], path = "/workflows?id=review-pr" }: { roles?: string[]; gone?: WorkflowDef[]; path?: string } = {},
 ) {
+  // The canvas scenarios drive the Detailed (steps) view; a workflow opens in Simple by default.
+  await withView(page);
   await mockApi(page, { roles });
   const calls = await mockWorkflowsApi(page, WORKFLOW_DOCS, gone);
   await page.goto(path);

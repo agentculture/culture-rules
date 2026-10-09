@@ -129,6 +129,8 @@
 }
 
 .fold-badge--off {
+  /* On the warn tint, not the grey chip: warn on --fold-chip-bg is 4.31:1, under AA's 4.5. */
+  background: var(--fold-warn-tint);
   color: var(--fold-warn);
 }
 
@@ -407,6 +409,9 @@
 
 .fold-entry__order-toggle {
   align-self: flex-start;
+  /* 14px from the 30px chips above: each one's 44px hit area (d4, hit-area.css) reaches 7px out,
+     and with the body's 10px gap the toggle's took the bottom of "Run key and budget". */
+  margin-top: 4px;
 }
 
 .fold-entry__order {

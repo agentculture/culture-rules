@@ -42,3 +42,13 @@
 .fold-workflow.is-disabled .machine-dot { opacity: 0.5; }
 .fold-view-toggle { display: inline-flex; gap: 0.25rem; padding: 0.25rem; border-radius: var(--radius); background: var(--line-soft); }
 .fold-view-toggle [aria-pressed="true"] { background: var(--ink); color: var(--surface); }
+
+/*
+ * On the Workflows tab the list is the left column of the board's layout
+ * (workflows.css .wf-layout: 260-300px, then the 28px gap), as the old list
+ * was. Without a basis it took the whole row and pushed the open workflow
+ * below the cards. Its summaries stack in the column.
+ */
+.wf-layout > .fold-list { flex: 1 1 260px; max-width: 300px; }
+.wf-layout > .fold-list .fold-summary { grid-template-columns: minmax(0, 1fr); gap: 0.25rem; }
+.wf-layout > .fold-list .fold-summary dd { margin-bottom: 0.75rem; }

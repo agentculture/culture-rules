@@ -13,13 +13,15 @@ async function agentState(page: Page) {
 async function untilReady(page: Page) {
   await expect.poll(async () => (await agentState(page)).status).toBe("ready");
 }
+/** Where an old /rules/build-and-publish link lands: its entry point on its workflow. */
+const ENTRY = "/workflows?id=build-image&entry=build-and-publish";
 const seriousAxe = async (page: Page) =>
   (await new AxeBuilder({ page }).analyze()).violations
     .filter((v) => v.impact === "serious" || v.impact === "critical")
-    .map((v) => `${v.id} — ${v.help}`);
+    .map((v) => `${v.id} — ${v.help}: ${v.nodes.map((n) => `${n.target} ${n.failureSummary}`).join(" | ")}`);
 
 test.describe("live editor updates (h61 / c80)", () => {
-  test("a rule toggled in one browser shows in another without a reload", async ({ browser }) => {
+  test("an entry point toggled in one browser shows in another without a reload, over one stream", async ({ browser }) => {
     const api = createFakeApi();
     const feed = new LiveFeed();
     const [a, b] = await Promise.all([browser.newContext(), browser.newContext()]);
@@ -30,32 +32,36 @@ test.describe("live editor updates (h61 / c80)", () => {
       await feed.broadcastWrites(page);
       await feed.attach(page);
     }
-    await pageA.goto("/rules/build-and-publish");
-    await pageB.goto("/rules/build-and-publish");
+    // Rules live in their workflows now: Build and publish is build-image's entry point.
+    await pageA.goto(ENTRY);
+    await pageB.goto(ENTRY);
     await untilReady(pageA);
     await untilReady(pageB);
 
-    const swB = pageB.getByRole("switch", { name: "Train batch enabled" });
+    const name = "Build and publish enabled";
+    const swB = pageB.getByRole("group", { name: "Entry point: Build and publish" }).getByRole("switch", { name });
     await expect(swB).toHaveAttribute("aria-checked", "true");
     let navigations = 0;
     pageB.on("framenavigated", () => (navigations += 1));
 
-    await pageA.getByRole("switch", { name: "Train batch enabled" }).click();
-    await expect(pageA.getByRole("switch", { name: "Train batch enabled" })).toHaveAttribute(
-      "aria-checked",
-      "false",
-    );
+    const swA = pageA.getByRole("group", { name: "Entry point: Build and publish" }).getByRole("switch", { name });
+    await swA.click();
+    await expect(swA).toHaveAttribute("aria-checked", "false");
     await expect(swB).toHaveAttribute("aria-checked", "false", { timeout: 10_000 });
+    // The list's copy follows too: the same rule is listed under build-image, disabled.
+    await expect(
+      pageB.getByRole("navigation", { name: "Workflows" }).locator('.fold-entry[data-rule-id="build-and-publish"]'),
+    ).toContainText("Disabled");
     expect(navigations).toBe(0);
-    expect(feed.streams.some((u) => /collections=rules%2Cruns%2Casks%2Crule_decisions/.test(u))).toBe(
-      true,
-    );
+    // One stream per page: the board's, which the Simple view shares (no second EventSource).
+    const collections = feed.streams.map((u) => new URL(u).searchParams.get("collections"));
+    expect(new Set(collections)).toEqual(new Set(["workflows,runs,rules,asks,rule_decisions"]));
     expect(await seriousAxe(pageB)).toEqual([]);
     await a.close();
     await b.close();
   });
 
-  test("a skipped (superseded) rule reads 'superseded by <rule>' in Last runs", async ({ page }) => {
+  test("a skipped (superseded) entry point reads 'superseded by <rule>' in its last runs", async ({ page }) => {
     const api = createFakeApi();
     api.decisions = [
       {
@@ -69,13 +75,17 @@ test.describe("live editor updates (h61 / c80)", () => {
       },
     ];
     await mockRulesApi(page, api);
-    await page.goto("/rules/build-and-publish");
+    await page.goto(ENTRY);
     await untilReady(page);
-    const aside = page.getByRole("complementary", { name: "Last runs" });
-    const skip = aside.locator('[data-decision="superseded_by"]');
+    const card = page.getByRole("group", { name: "Entry point: Build and publish" });
+    await card.getByRole("button", { name: "History of Build and publish" }).click();
+    const runs = card.getByRole("list", { name: "Last runs" });
+    const skip = runs.locator('[data-decision="superseded_by"]');
     await expect(skip).toContainText("superseded by Review on approve");
     await expect(skip).toContainText("skipped");
-    await expect(skip.locator("svg")).toHaveCount(1);
+    // The runs read from the same GET /rules/{id}/history, newest first.
+    await expect(runs.locator("[data-run-status]")).toHaveCount(4);
+    expect(api.calls.some((c) => c.method === "GET" && c.path === "/rules/build-and-publish/history")).toBe(true);
     expect(await seriousAxe(page)).toEqual([]);
   });
 });

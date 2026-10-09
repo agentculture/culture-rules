@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Navigate, useLocation, useParams } from "react-router-dom";
 import { listRules } from "../api/client";
 import { ruleRedirect, rulesUnavailableRedirect, workflowPath, type Redirect } from "./legacy-redirects";
+import { useTabReady } from "./useTabReady";
 
 /**
  * `/rules` and `/rules/:ruleId`: the Rules tab folded into Workflows (t8).
@@ -12,6 +13,8 @@ import { ruleRedirect, rulesUnavailableRedirect, workflowPath, type Redirect } f
 export function RuleRedirect() {
   const { ruleId } = useParams();
   const [target, setTarget] = useState<Redirect | null>(ruleId ? null : ruleRedirect(undefined, []));
+  // Where it lands is the Workflows tab: say so while looking (never ready: the tab reports that).
+  useTabReady("workflows", false);
   useEffect(() => {
     if (!ruleId) return;
     const controller = new AbortController();
