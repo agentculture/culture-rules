@@ -62,8 +62,11 @@ in context, inside a workflow or one of its entry points.
     and budget). A value every entry point holds identically shows once;
     editing it saves rule by rule and reports each result, with a retry for
     any that failed.
-  - **Detailed**: the steps and edges on the React Flow canvas, with typed
-    ports and the machine shown on each node. A run lights up its path.
+  - **Detailed**: the steps and edges on the React Flow canvas, compact:
+    each node shows its machine, enable switch and name, and one edge joins
+    two connected nodes, labelled with how many wires it carries. Selecting
+    a node shows its typed ports and wires, to drag new ones. A run lights
+    up its path.
   - **Debug**: every port, type and reference; picking a port highlights
     what feeds it and what it feeds.
 

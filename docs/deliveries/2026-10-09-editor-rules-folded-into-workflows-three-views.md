@@ -1,8 +1,8 @@
 # Delivery Summary — Editor: rules folded into workflows, three views
 
-plan: `editor-rules-folded-into-workflows-three-views` · run: `partial` · date: `2026-10-09`
+plan: `editor-rules-folded-into-workflows-three-views` · run: `complete` (was `partial` until the t12 observations on 2026-10-09) · date: `2026-10-09`
 baseline: `devague summary skeleton`
-updated: `2026-10-09`, after PR #27 merged (t11 and t12 rows, Evidence, Remaining Work)
+updated: `2026-10-09`, after PR #27 merged (t11 and t12 rows, Evidence, Remaining Work), and for d7 / PR #33 (t5 row, decisions, drift, evidence, remaining work)
 
 ## Intent
 
@@ -33,14 +33,14 @@ After: Opening a workflow shows, in the Simple view, its When entry points (each
 | `t2` | delivered | `docs/plans/2026-10-09-editor-fold-test-inventory.md`: 374 scenario rows plus webglass G1–G3, and the before state (the PR fixer as 2 chains, d2). Opus build, Codex review. |
 | `t3` | delivered | `web/src/fold/model.ts` and its test: entry points, continuations (any, linked or ambiguous), chains, `sharedValues`, D7 candidates, `predecessorTerms`, `SHAREABLE_RULE_FIELDS`. Codex build, two Opus reviews. |
 | `t4` | delivered | `web/src/fold/writes.ts` and its test: fan-out with a re-read before each write, D7 with rollback and orphan handling, predecessor rewrite, server-managed fields stripped on rule PUT. Codex build, three Opus reviews with real-server probes. |
-| `t5` | delivered | `web/src/workflows/views/`: the Simple / Detailed / Debug switch and a Debug port graph that matches the engine's loop, carry and conditional semantics. Opus build, three Codex reviews. |
+| `t5` | delivered | `web/src/workflows/views/`: the Simple / Detailed / Debug switch and a Debug port graph that matches the engine's loop, carry and conditional semantics. Opus build, three Codex reviews. After the release, the operator redesigned Detailed (`d7`, PR #33): compact cards, one counted edge per pair, ports on select, `in`/`out` in their own end columns. |
 | `t6` | delivered | `web/src/workflows/simple/`: the When / Then view with per-rule and shared edits, override and retry results, D7 offer, + Entry point and New rule. Opus build; three Codex and two Opus review rounds; d3. |
 | `t7` | delivered | `web/src/workflows/list/`: chain cards, the Chain view, rules without a workflow, the same-event note and focus handling. Codex build, two Opus reviews. |
 | `t8` | delivered | Four tabs, `/rules` redirects (`routes/legacy-redirects.ts`), `/workflows/:id`, agent-state entry points with the deprecated `rules` alias, the views and list mounted, New rule and the D7 place. Built by the main agent, two Opus reviews. d6's trusted-save question was added on top. |
 | `t9` | delivered | The inventory ported (every row named or kept), the legacy files deleted after porting, and `e2e/fold.spec.ts`, `entry-points.spec.ts` and `entry-pickers.spec.ts`. vitest 653, Playwright 98, webglass locally. Opus build under d4, two Opus reviews. |
 | `t10` | delivered | CLAUDE.md, QWEN.md, AGENTS.override.md, AGENTS.colleague.md, .pi/SYSTEM.md, the dated amendment, README.md, web/README.md, docs/demo.md, docs/operations/pr-fixer.md, docs/run-events.md and `tests/test_docs_fold.py`. Opus build, two Opus reviews. |
-| `t11` | partial | The boundary check holds (only the two d5 strings changed under `culture_rules/`; `api/` is unchanged), 0.17.0 with its CHANGELOG entry, and every CLAUDE.md gate green locally. After this summary and the d4 Codex reviews, PR [#27](https://github.com/agentculture/culture-rules/pull/27) opened (16:37Z), passed CI and merged as `6158304` (17:55Z); 0.17.0 is on PyPI. The run's 70 SonarCloud findings were fixed on the PR (the PR fixer fixed S4822), except two, which PR #28 (0.17.1) fixes. Status after merge: delivered. |
-| `t12` | partial | The operator approved deploying before merge. The branch's 0.17.0 wheel went onto spark, with only `culture-rules-api` restarted; the nodes stay on 0.16.1, since the engine is unchanged. Rollback is a 0.16.1 wheel built with its web bundle. Observed live (e21): four tabs, `/rules` redirects, the PR fixer as 2 chain cards (d2), all three views with 0 errors on all 7 workflows, and old rule links landing on their entry point. D7 converted `test-jira-scrum21-to-discord` through the editor (e22) after the run-event probe passed. Not done: a live condition edit (it would change a production rule), and the rule's next run, because the rule is disabled. After merge, the operator approved all four nodes: 0.17.0 from `main` is on spark (API and node), orin and spark2, active with 0 errors, and the served bundle matches the `main` build. thor was offline at first. When it came back, it got the same wheel (bundle `index-C9Udfela.js`), with `runs pause`/`resume` around the install. Status after merge: partial, because the live condition edit and the converted rule's next run were not observed. |
+| `t11` | delivered | The boundary check holds (only the two d5 strings changed under `culture_rules/`; `api/` is unchanged), 0.17.0 with its CHANGELOG entry, and every CLAUDE.md gate green locally. After this summary and the d4 Codex reviews, PR [#27](https://github.com/agentculture/culture-rules/pull/27) opened (16:37Z), passed CI and merged as `6158304` (17:55Z); 0.17.0 is on PyPI. The run's 70 SonarCloud findings were fixed on the PR (the PR fixer fixed S4822), except two, which PR #28 (0.17.1) fixes. Status after merge: delivered. |
+| `t12` | delivered | The operator approved deploying before merge. The branch's 0.17.0 wheel went onto spark, with only `culture-rules-api` restarted; the nodes stay on 0.16.1, since the engine is unchanged. Rollback is a 0.16.1 wheel built with its web bundle. Observed live (e21): four tabs, `/rules` redirects, the PR fixer as 2 chain cards (d2), all three views with 0 errors on all 7 workflows, and old rule links landing on their entry point. D7 converted `test-jira-scrum21-to-discord` through the editor (e22) after the run-event probe passed. Not done: a live condition edit (it would change a production rule), and the rule's next run, because the rule is disabled. After merge, the operator approved all four nodes: 0.17.0 from `main` is on spark (API and node), orin and spark2, active with 0 errors, and the served bundle matches the `main` build. thor was offline at first. When it came back, it got the same wheel (bundle `index-C9Udfela.js`), with `runs pause`/`resume` around the install. After the 0.17.1 release, the operator chose "Do both on the test rule". Live condition edit (e25): in the Simple view, added a condition to the disabled `test-jira-scrum21-to-discord`, read it back through the API, then removed it. Enable/disable (e26): enabled the rule with the card switch, then disabled it again. Converted rule's next run (e27): the operator commented on SCRUM-21, and `run-74e19f87` went through the stepless `test-scrum-21-comment-spark-tests` and posted to #spark-tests (succeeded, 0.53 s). Afterwards the rule equals its saved copy field for field. Status: delivered. |
 
 ## Mid-work Decisions
 
@@ -50,6 +50,7 @@ After: Opening a workflow shows, in the Simple view, its When entry points (each
 - `d4` — Codex usage limit until 19:16: Codex-owned work falls back to a fresh Opus subagent (t6 third review now; t9 build; t8 review), with a Codex review of each queued after the reset — codex exec returned 'You've hit your usage limit ... try again at 7:16 PM' during t6's third review; the handoff's fallback is an Opus subagent with a Codex review afterwards (reviewer stays a different agent instance from the builder)
 - `d5` — d5: the CLI learn text (`culture_rules`/cli/`_commands`/learn.py) and the explain catalog (`culture_rules`/explain/catalog.py) change their 'five tabs (Rules | ...)' description strings to the four tabs; no behaviour change; t11's boundary check allows exactly these strings — CLAUDE.md requires the CLI self-descriptions to match it; c2/c12 forbid `culture_rules`/ changes; operator chose to allow the two strings
 - `d6` — d6: new small task (main agent builds, Opus reviews): saving a trusted workflow (pr-fix, review-commit, publish-fix) from Detailed or Debug asks for confirmation first, naming the trust it loses; trusted ids mirrored in a web constant with a test keeping them in step with `culture_rules`/actors/trusted.py — confirmed assumption c32 says the editor should warn before saving a trusted workflow; no plan task covered it (assumptions are not coverage targets); t10 found no warning exists; operator chose to add it now
+- `d7` — t5 after delivery: the Detailed view becomes compact at the operator's request (cards with no port rows, one edge per connected pair labelled with its wire count, the selected or drop-target card expands its ports, `in` and `out` each own an end column; Debug keeps the full port view) — the operator, after seeing 0.17.1 live: "Detailed view should be less descriptive. Less lines", then chose "Steps only; ports on select" and asked that "In is most left, and Out is most right". Shipped in PR #33 (0.18.0); no engine, API or CLI change
 
 - The legacy Rules board was kept, unmounted, as a test oracle between t8 and t9, then deleted once t9 hard-coded the bodies it sent (`RULES_TAB`, verified against the board by the t9 reviewer). No deviation record covers this, because it stayed inside both tasks' contracts.
 - Wave 2 started t7 before t4 merged, because t7 depends only on t3. This followed the plan's graph more closely than its wave grouping.
@@ -77,8 +78,9 @@ After: Opening a workflow shows, in the Simple view, its When entry points (each
 | `t11` (`d5`) | CLAUDE.md requires the CLI self-descriptions to match it; c2/c12 forbid `culture_rules`/ changes; operator chose to allow the two strings | `acceptable` |
 | `t6` | o3 lists inputs mapping, priority and exclusive group as editable with Rules-tab parity; neither the Simple view nor the old Rules tab edits them, so parity holds only vacuously (evidence e4: fail; delta b6) | `needs-follow-up` |
 | `t11` | the PR has not opened yet: the operator's goal puts /validate-delivery and /summarize-delivery first, and the d4 Codex reviews are queued until the 19:16 reset | `acceptable` |
-| `t12` | run before merge at the operator's request; the live condition edit and the disabled rule's next run were not observed | `acceptable` |
+| `t12` | run before merge at the operator's request; the live condition edit and the converted rule's next run were observed later, on the test rule, after the 0.17.1 release (e25–e27) | `acceptable` |
 | `t8` (`d6`) | confirmed assumption c32 says the editor should warn before saving a trusted workflow; no plan task covered it (assumptions are not coverage targets); t10 found no warning exists; operator chose to add it now | `needs-follow-up` |
+| `t5` (`d7`) | the operator redesigned Detailed after release ("Detailed view should be less descriptive. Less lines"); the spec's "Detailed renders exactly today's steps-and-edges graph" no longer holds, while Debug still renders every port | `acceptable` |
 
 ## Evidence
 
@@ -97,7 +99,10 @@ Run at commit `4c42240` (2026-10-09T14:21Z) unless noted. After the Codex review
 - not checked: o11 (c18 live) — no evidence filed; t12
 - commits: `origin/main` (9d72b1e)..`e04910a` on `rules/editor-fold-spec` (60 commits)
 - post-merge: `gh pr view 27` merged at `6158304`; `importlib.metadata.version('culture-rules')` = 0.17.0 on spark, orin, spark2 and thor, `systemctl --user is-active culture-rules-node` active, 0 ERROR lines in 15 min; PR #28 checks all green with the SonarCloud gate OK (0 issues)
-- PRs / issues: none yet; related #26 (a rule to visualize a spec on its PR)
+- t12 live (2026-10-09 20:23–20:26Z, 0.17.1): e25 for o11 (condition add and remove read back through the API; PUTs per save not counted); e26 for o16 (enable/disable via the card switch); e27 for o7 (`run-74e19f870becff16570f10180734e361`, succeeded)
+- o11 recheck (2026-10-09 ~20:33–20:35Z): e28. The browser network log, read around each save, shows 1 PUT to the rule (200), a GET of that rule before it, and only GET refreshes after; the rule was restored. e25 was rejected in its favour
+- d7 (PR #33, commit `9508334`): e23 for o5 (vitest 686/686, Playwright 98/98, CI green, SonarCloud OK); e24 for o6 (outside `web/`, docs and version files, the diff changes only a test's timing bound); delta b9 (amended, from d7). The operator approved all three
+- PRs / issues: #27, #28, #32, #33; issues #29–#31; related #26 (a rule to visualize a spec on its PR)
 
 ## Delivery Claims
 
@@ -147,9 +152,12 @@ Lapse ledger evidence:
 ## Remaining Work / Follow-up
 
 - **t11: done after this summary.** The Codex reviews ran, and PR #27 merged with CI green, including the web job (closes c19's l9).
-- **t12, what is left.** All four nodes run 0.17.0. Observe `test-jira-scrum21-to-discord` running through `test-scrum-21-comment-spark-tests` when the rule is next enabled. Owner: the main agent.
-- **A visual check of the released editor.** This needs the operator to sign in to Cloudflare Access again.
-- **PR #28 (0.17.1).** It fixes the last two SonarCloud findings. CI is green, and it waits for the operator to merge.
+- **t12: done.** All four nodes run 0.17.1. The live condition edit, enable/disable and the converted rule's next run are observed (e28, e26, e27, all approved). The first condition check, e25, was rejected because it did not count the requests; its counted recheck, e28, replaces it. The test rule is disabled again, unchanged.
+- **Quick-form limit (not a regression).** In the Simple view's "+ condition" form, "is" / "is not" compare only shared variables; a trigger field works only with "is one of". This matches the old Rules tab (o3 parity). Trigger-field equality in the quick form could be a small follow-up if wanted.
+- **A visual check of the released editor: done.** The operator signed in. 0.17.1 rendered all three views, the chain and the `/rules/<id>` redirect, with 0 console errors.
+- **PR #28 (0.17.1): merged** and released to all four nodes.
+- **d7, PR #33 (0.18.0).** The compact Detailed view. CI is green and the operator approved e23, e24, e26, e27 and b9; it waits for the operator to merge and decide on a release.
+- **o11: settled.** The recheck (e28) counted exactly 1 `PUT /api/rules/<id>` per condition save, add and remove alike, each after a re-read GET. The operator approved e28 and rejected e25.
 - **o3 / e4.** The operator chose a follow-up issue: [#29](https://github.com/agentculture/culture-rules/issues/29), editors for priority, exclusive_group and the inputs mapping. `c9` is unchanged.
 - **Adjudication: done.** The operator approved evidence e1–e22, deltas b1–b8 and lapses l1–l9.
 - **Server gap.** `DELETE /workflows/{id}` should refuse a workflow a rule still uses. That is an API change, out of scope under c2. Issue to file if the operator agrees.

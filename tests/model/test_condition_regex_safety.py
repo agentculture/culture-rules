@@ -17,6 +17,11 @@ from culture_rules.model.regex_safety import unsafe_reason
 from culture_rules.model.validate import validate
 from tests.model.factories import make_rule
 
+# The bound for "finished fast". (a+)+b on 28 characters, unguarded, takes 6.8 s, so 1 s still
+# tells a refused or linear match from a backtracking one. 0.1 s flaked on a loaded CI runner
+# (0.227 s under xdist, PR #33).
+FAST = 1.0
+
 UNSAFE = [
     "(a+)+b",
     "(a*)*",
@@ -89,7 +94,7 @@ def test_allowed_pattern_on_max_input_finishes_fast(pattern: str) -> None:
     ctx = {"trigger": {"title": "a" * (c.MAX_INPUT_LEN - 1) + "!"}}  # a failing match
     started = time.perf_counter()
     assert c.evaluate(matches(pattern), ctx) is False
-    assert time.perf_counter() - started < 0.1
+    assert time.perf_counter() - started < FAST
 
 
 def test_matches_input_cap_is_two_thousand_characters() -> None:
@@ -105,7 +110,7 @@ def test_stored_unsafe_pattern_is_refused_quickly_at_evaluation() -> None:
     started = time.perf_counter()
     with pytest.raises(c.UnsafePatternError):
         c.evaluate(tree, ctx)
-    assert time.perf_counter() - started < 0.1
+    assert time.perf_counter() - started < FAST
 
 
 def test_stored_unsafe_pattern_is_a_recorded_non_match_in_matching() -> None:
@@ -119,7 +124,7 @@ def test_stored_unsafe_pattern_is_a_recorded_non_match_in_matching() -> None:
     event = {"kind": "event", "type": "github.pr.merged", "data": {"title": "a" * 28}}
     started = time.perf_counter()
     (decision,) = match(event, [rule])
-    assert time.perf_counter() - started < 0.1
+    assert time.perf_counter() - started < FAST
     assert not decision.fire
     assert decision.reason == CONDITION_FALSE
     assert "backtrack" in decision.detail

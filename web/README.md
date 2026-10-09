@@ -60,7 +60,14 @@ on the PR with a screenshot.
       "Continues into" (a read-only link; the continuation is edited on
       the next workflow), "Ends here" (the chain-end action), "On
       failure" and "Runs" (key and budget);
-    - **Detailed**: the steps-and-edges canvas below, unchanged;
+    - **Detailed**: the steps-and-edges canvas below, compact (0.18.0):
+      a card shows its machine, enable switch and name but no port rows
+      (`in` / `out` show a count, "9 inputs"), and one edge joins two
+      connected cards, labelled with its wire count when it carries more
+      than one (`bundleEdges` in `src/workflows/model.ts`). Selecting a
+      card expands its port rows and draws its wires one by one from its
+      ports; while a wire is dragged, the card under the pointer expands
+      too, so the drop lands on a port;
     - **Debug** (`src/workflows/views/DebugView.tsx`): every input and
       output port with its type and reference. Choosing a port lights it,
       its upstream and its downstream;
@@ -112,8 +119,8 @@ on the PR with a screenshot.
     editing" (focused first, or Escape) closes it and returns to Save;
     "Save anyway" saves;
   - in Detailed, the workflow as a React Flow graph laid out by elkjs (Inputs → steps
-    → Outputs), with typed ports: a drag between mismatched types is
-    refused;
+    → Outputs) at the cards' compact height, with typed ports on the
+    selected card: a drag between mismatched types is refused;
   - zoom (d19), from 25% to 200%: a pinch or ctrl/cmd + wheel, the
     on-canvas Zoom out / Zoom in / Fit to width buttons (with the level
     read out), or `+` / `-` / `0` while focus is in the canvas. A plain

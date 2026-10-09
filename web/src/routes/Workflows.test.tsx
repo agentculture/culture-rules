@@ -144,7 +144,11 @@ describe("Workflows board (Chosen — Workflows)", () => {
       "aria-checked",
       "true",
     );
-    // Typed ports: every port carries its type.
+    // Compact until selected: no port rows.
+    expect(review.querySelector("[data-port]")).toBeNull();
+    // Selected, it shows its typed ports: every port carries its type.
+    fireEvent.click(within(review).getByText("Review"));
+    await waitFor(() => expect(review.querySelector('[data-port="in:diff"]')).not.toBeNull());
     const diff = review.querySelector('[data-port="in:diff"]');
     expect(diff).toHaveAttribute("data-port-type", "string");
     expect(review.querySelector('[data-port="out:findings"]')).toHaveAttribute("data-port-type", "array");
@@ -596,8 +600,17 @@ describe("Workflows: the in / out nodes and the empty canvas (t41)", () => {
     await user.type(within(dialog).getByRole("textbox", { name: "Name of input repo" }), "sitory");
     await user.click(within(dialog).getByRole("button", { name: "Done" }));
     expect(workflowsState()?.dirty).toBe(true);
-    // The canvas shows the new port on the in card.
-    await waitFor(() => expect(card("Inputs").querySelector('[data-port="out:input1"]')).not.toBeNull());
+    // The canvas shows the new port on the in card: counted while it is compact, as a port row
+    // once it is selected (its editor open) again.
+    await waitFor(() => expect(card("Inputs")).toHaveTextContent("3 inputs"));
+    expect(card("Inputs").querySelector("[data-port]")).toBeNull();
+    fireEvent.click(within(card("Inputs")).getByText("in"));
+    dialog = await screen.findByRole("dialog", { name: "Edit inputs" });
+    const canvas = screen.getByRole("region", { name: "Workflow canvas" });
+    await waitFor(() =>
+      expect(within(canvas).getByRole("group", { name: "Inputs" }).querySelector('[data-port="out:input1"]')).not.toBeNull(),
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Done" }));
 
     fireEvent.click(within(card("Outputs")).getByText("out"));
     dialog = await screen.findByRole("dialog", { name: "Edit outputs" });

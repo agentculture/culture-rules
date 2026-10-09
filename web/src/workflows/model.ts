@@ -253,6 +253,104 @@ export function litEdges(edges: readonly GraphEdge[], overlay: RunOverlay | null
   return lit;
 }
 
+// --------------------------------------------------------------------------- Detailed bundles
+
+/**
+ * An edge the Detailed view draws: either one port-to-port wire (an end is the
+ * expanded node) or a bundle of every wire between one (source, target) pair.
+ */
+export interface DrawnEdge {
+  /** A wire keeps its own id; a bundle's is `bundle:<source>-><target>`, whatever wires it holds. */
+  id: string;
+  source: string;
+  target: string;
+  /** The wire's ports; null on a bundle, which joins the cards' bundle handles. */
+  sourcePort: string | null;
+  targetPort: string | null;
+  kind: GraphEdge["kind"];
+  /** How many wires it stands for (1 for a port-to-port wire). */
+  count: number;
+  /** Any of its wires crosses (or may cross) machines: drawn dashed. */
+  cross: boolean;
+  /** Any of its wires is lit by the run overlay. */
+  lit: boolean;
+  bundled: boolean;
+  /** The wires it stands for, in input order. */
+  wires: GraphEdge[];
+}
+
+export const bundleId = (source: string, target: string) => `bundle:${source}->${target}`;
+
+/**
+ * The Detailed view's drawn edges. Wires touching `expanded` (the selected
+ * card, ports showing) stay port to port, each with its own id and fields;
+ * every other (source, target) pair collapses into one bundle that counts its
+ * wires, is dashed if any wire hops machines and lit if any wire is lit.
+ * Every input wire is in exactly one drawn edge's `wires`. Order: each drawn
+ * edge where its first wire appears in `edges`.
+ */
+export function bundleEdges(
+  edges: readonly GraphEdge[],
+  lit: ReadonlySet<string>,
+  expanded: string | null,
+): DrawnEdge[] {
+  const out: DrawnEdge[] = [];
+  const bundles = new Map<string, DrawnEdge>();
+  for (const e of edges) {
+    const isLit = lit.has(e.id);
+    if (expanded !== null && (e.source === expanded || e.target === expanded)) {
+      out.push({ ...e, count: 1, lit: isLit, bundled: false, wires: [e] });
+      continue;
+    }
+    const id = bundleId(e.source, e.target);
+    const bundle = bundles.get(id);
+    if (bundle) {
+      bundle.count += 1;
+      bundle.cross ||= e.cross;
+      bundle.lit ||= isLit;
+      bundle.wires.push(e);
+      continue;
+    }
+    const fresh: DrawnEdge = {
+      id,
+      source: e.source,
+      target: e.target,
+      sourcePort: null,
+      targetPort: null,
+      kind: e.kind,
+      count: 1,
+      cross: e.cross,
+      lit: isLit,
+      bundled: true,
+      wires: [e],
+    };
+    bundles.set(id, fresh);
+    out.push(fresh);
+  }
+  return out;
+}
+
+/**
+ * The id of a card's one bundle handle on a side (`in`: the target on its left,
+ * `out`: the source on its right): `__in` / `__out`, lengthened with `_` until it
+ * names none of the card's ports on either side. React Flow already looks handles up
+ * by type, so only same-side names could collide; avoiding both is cheap insurance.
+ */
+export function bundleHandle(side: "in" | "out", portNames: readonly string[]): string {
+  const taken = new Set(portNames);
+  let id = `__${side}`;
+  while (taken.has(id)) id += "_";
+  return id;
+}
+
+/** The ports on a node's `in` (target) or `out` (source) side, by name. */
+export function nodePortNames(wf: WorkflowDef, node: string, side: "in" | "out"): string[] {
+  if (node === INPUTS_NODE) return side === "out" ? (wf.inputs ?? []).map((p) => p.name) : [];
+  if (node === OUTPUTS_NODE) return side === "in" ? (wf.outputs ?? []).map((o) => o.name) : [];
+  const step = findStep(wf, node);
+  return ((side === "in" ? step?.inputs : step?.outputs) ?? []).map((p) => p.name);
+}
+
 // --------------------------------------------------------------------------- edits
 
 const withSteps = (wf: WorkflowDef, next: Step[]): WorkflowDef => ({ ...wf, steps: next });

@@ -2,7 +2,7 @@
   "plan_slug": "editor-rules-folded-into-workflows-three-views",
   "schema_version": 2,
   "created": "2026-10-09T11:07:59Z",
-  "updated": "2026-10-09T15:21:19Z",
+  "updated": "2026-10-09T20:43:17Z",
   "deviations": [
     {
       "id": "d1",
@@ -83,6 +83,17 @@
       "status": "approved",
       "classification": "needs-follow-up",
       "seq": 6
+    },
+    {
+      "id": "d7",
+      "what": "t5 after delivery: the Detailed view becomes compact at the operator's request. Cards show machine, switch and name with no port rows; one edge per connected card pair, labelled with its wire count; selecting a card (or dragging over it) expands its ports and draws its wires port to port; in and out each own the first and last column. Debug keeps the full port view",
+      "task_ref": "t5",
+      "reason": "Operator, after seeing 0.17.1 live: 'Detailed view should be less descriptive. Less lines'; chose 'Steps only; ports on select' from three options; then 'We need to make sure In is most left, and Out is most right.' Shipped in PR #33 (0.18.0); no engine, API or CLI change (c12 holds)",
+      "affects": [],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 29
     }
   ],
   "evidence": [
@@ -503,6 +514,120 @@
       "status": "approved",
       "superseded": false,
       "seq": 28
+    },
+    {
+      "id": "e23",
+      "obligation_ref": "o5",
+      "test_ref": "web/src/workflows/Canvas.test.tsx (3 wires Fetch->Review render as one edge labelled 3, no port rows; selecting Review draws 3 port-level wires and its port rows; deselect collapses; Enter selects); web/src/workflows/model.test.ts::Detailed edge bundles + bundle handles; web/src/workflows/layout.test.ts::in and out columns; e2e/workflows.spec.ts (board: 0 port rows, 7 bundled edges, '2 connections'; drag onto a compact card refused and wired)",
+      "behavior_text": "Detailed renders compact cards with one counted edge per connected pair, expands the selected card's ports and wires, keeps drag-to-connect, and puts in alone first and out alone last",
+      "contract_text": "Simple, Detailed and Debug render their canvas (When/Then, steps and edges, every port), as amended by d7",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "vitest 686/686 and Playwright 98/98 ran green at the named commit; CI on PR #33 green",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-09T23:05:38+03:00",
+        "commit": "9508334"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 30
+    },
+    {
+      "id": "e24",
+      "obligation_ref": "o6",
+      "test_ref": "git diff --name-only origin/main...9508334 (PR #33)",
+      "behavior_text": "outside web/, docs and version files, the only change is the timing bound in tests/model/test_condition_regex_safety.py; no engine, model, API, CLI or MCP code",
+      "contract_text": "no engine, model, API, CLI or MCP code changes; every editor write goes through an existing endpoint",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "diff listing at the named commit",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-09T23:05:38+03:00",
+        "commit": "9508334"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 31
+    },
+    {
+      "id": "e25",
+      "obligation_ref": "o11",
+      "test_ref": "live rules.culture.dev (0.17.1, main a10b024): Simple view '+ condition' on test-jira-scrum21-to-discord, then the condition chip's remove button; culture-rules rules show --json before/after",
+      "behavior_text": "adding 'trigger.data.t12_probe is one of [edit-check]' stored an and() of the original compare and the new in(); removing it restored the original condition; the rule then equalled its saved copy field for field (timestamps aside); 'is'/'is not' with an undefined shared variable was refused with a visible message and saved nothing",
+      "contract_text": "editing one entry point's condition issues exactly 1 rule PUT",
+      "evidence_type": "manual",
+      "strength": "execution",
+      "strength_basis": "stored result read back through the API after each save; the number of PUTs per save was not counted in the browser",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-09T20:24:46Z",
+        "commit": "a10b024"
+      },
+      "origin": "llm",
+      "status": "rejected",
+      "superseded": false,
+      "seq": 32
+    },
+    {
+      "id": "e26",
+      "obligation_ref": "o16",
+      "test_ref": "live rules.culture.dev: the entry card's enable switch on test-jira-scrum21-to-discord, on then off",
+      "behavior_text": "enabled went false->true->false through the editor switch; the disabled card stayed listed, marked 'disabled'; no other field of the rule changed",
+      "contract_text": "toggling one entry point affects its rule only; a disabled entry point stays listed, marked disabled",
+      "evidence_type": "manual",
+      "strength": "execution",
+      "strength_basis": "culture-rules rules show --json after each toggle, compared with the saved copy",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-09T20:24:46Z",
+        "commit": "a10b024"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 33
+    },
+    {
+      "id": "e27",
+      "obligation_ref": "o7",
+      "test_ref": "live run run-74e19f870becff16570f10180734e361 (operator's Jira SCRUM-21 comment, rule enabled for the test)",
+      "behavior_text": "jira.comment.created for SCRUM-21 fired test-jira-scrum21-to-discord; the run went through the stepless workflow test-scrum-21-comment-spark-tests and its @action step posted the configured text to Discord #spark-tests on spark (message_id returned); succeeded in 0.53 s",
+      "contract_text": "a rule with a stepless workflow fires on the same event and runs the same action with the same outcome as without a workflow",
+      "evidence_type": "manual",
+      "strength": "execution",
+      "strength_basis": "culture-rules runs show --json for the run; the action's inputs equal the rule's action params",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-09T20:24:46Z",
+        "commit": "a10b024"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 34
+    },
+    {
+      "id": "e28",
+      "obligation_ref": "o11",
+      "test_ref": "live rules.culture.dev (0.17.1, main a10b024), test-jira-scrum21-to-discord: Simple view '+ condition' (trigger.data.t12_probe is one of [edit-check]) then the chip's remove button, with the browser network log captured per save",
+      "behavior_text": "each save issued exactly 1 write, PUT /api/rules/test-jira-scrum21-to-discord (200), preceded by a GET of that rule (the c27 re-read) and followed only by GET refreshes (rules, workflows, machines, actors); no other rule or workflow was written; afterwards the rule equals its saved copy field for field and stays disabled",
+      "contract_text": "editing one entry point's condition issues exactly 1 rule PUT",
+      "evidence_type": "manual",
+      "strength": "execution",
+      "strength_basis": "Chrome network log read and cleared around each of the two saves (2026-10-09 ~20:33-20:35Z), plus culture-rules rules show --json after the removal; this counts the PUTs that e25 did not",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-09T20:35:06Z",
+        "commit": "a10b024"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 35
     }
   ],
   "deltas": [
@@ -613,6 +738,20 @@
       ],
       "evidence_refs": [
         "e13"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b9",
+      "kind": "amended",
+      "behavior_text": "Detailed no longer renders every port row and port-to-port wire: cards are compact, one counted edge joins each connected pair, the selected card (or the drop target of a drag) expands its ports and wires, and in/out own the first and last column; Debug keeps the full port view",
+      "caused_by": [
+        "d7"
+      ],
+      "evidence_refs": [
+        "e23"
       ],
       "origin": "llm",
       "status": "approved",
