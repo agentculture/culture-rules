@@ -85,16 +85,17 @@ on the PR with a screenshot.
     the When and its action the Then. That is two writes (`POST
     /workflows`, then `PUT /rules/{id}`): if the second fails, the new
     workflow is deleted again or shown as an orphan with a fix. "New
-    rule" does this at once. Deleting the last entry point of a stepless
+    rule" does this at once. After New rule or a D7 offer creates the
+    workflow, the board reads "Opening `<id>`…" until the reloaded list
+    holds it, then opens it. Deleting the last entry point of a stepless
     D7 workflow offers to delete the workflow too. `DELETE
     /workflows/{id}` soft-deletes a workflow even while a rule still uses
     it, so the editor first reads `GET /rules` and refuses while one does;
   - New workflow (in the head next to Import, and the empty state's
     primary action) asks only for a name and creates it with `POST
-    /workflows` (no steps; a taken id moves on to `-2`, `-3`, …). The
-    board reads "Opening `<id>`…" until the list holds it, then opens it; in
-    Detailed it opens with the step `+` focused. API errors show inline in
-    the form;
+    /workflows` (no steps; a taken id moves on to `-2`, `-3`, …) and
+    opens it at once; in Detailed with the step `+` focused. API errors
+    show inline in the form;
   - the head renames the workflow (a draft edit, written by Save),
     enables / disables it (`POST /workflows/{id}/enable|disable`) and
     deletes it softly with Undo (`DELETE /workflows/{id}`, then `POST
