@@ -738,14 +738,17 @@ function TrustedSaveAsk({
       className="wf-notice wf-trust-ask"
       role="group"
       aria-label="Save a trusted workflow?"
+      aria-describedby="wf-trust-ask-text"
       onKeyDown={(e) => {
         if (e.key === "Escape") onCancel();
       }}
     >
-      <p>
-        <strong>{name}</strong> is trusted to push (role <code>{id}</code>). Saving any change makes its
-        runs untrusted: they still run, but can no longer push until the new definition&apos;s digest
-        ships in culture_rules/actors/trusted.py.
+      <p id="wf-trust-ask-text">
+        <strong>{name}</strong> (<code>{id}</code>) is one of the PR fixer&apos;s trusted workflows.
+        Saving a change gives it a new digest the engine does not trust: its runs will still start,
+        but the fixer chain will not review or push their work until this definition&apos;s digest is
+        added to culture_rules/actors/trusted.py and released to every node. Saving the original
+        definition back restores the trust.
       </p>
       <button ref={keep} type="button" className="wf-button" onClick={onCancel}>
         Keep editing
@@ -1016,6 +1019,8 @@ export function Workflows() {
     }
   };
 
+  // The question is about one draft: another workflow, or none, closes it.
+  useEffect(() => setAskTrust(false), [draft?.id]);
   const askOrSave = () => {
     if (isTrustedWorkflow(draft?.id)) setAskTrust(true);
     else void save();
@@ -1355,13 +1360,14 @@ export function Workflows() {
             onRun={() => setRunFormOpen(true)}
           />
         </div>
-        {askTrust && draft ? (
+        {askTrust && draft?.dirty && isTrustedWorkflow(draft.id) && aside === null ? (
           <TrustedSaveAsk
             name={draft.def.name}
             id={draft.id}
             onSave={() => {
               setAskTrust(false);
-              void save();
+              // Save goes away once saved: focus Run, which stays.
+              void save().then(() => requestAnimationFrame(() => runButton.current?.focus()));
             }}
             onCancel={keepEditing}
           />

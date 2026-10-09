@@ -8,8 +8,13 @@ const TRUSTED_PY = resolve(dirname(fileURLToPath(import.meta.url)), "../../../cu
 
 describe("trusted workflows (c32, d6)", () => {
   it("mirrors every ROLE_* in culture_rules/actors/trusted.py, and nothing else", () => {
-    const roles = [...readFileSync(TRUSTED_PY, "utf8").matchAll(/^ROLE_\w+ = "([^"]+)"$/gm)].map((m) => m[1]);
+    const text = readFileSync(TRUSTED_PY, "utf8").replaceAll("\r\n", "\n");
+    // Every module-level ROLE_* line must parse: a role written in a shape the pattern misses
+    // fails here instead of dropping out of both lists unnoticed.
+    const declared = text.match(/^ROLE_\w+\b/gm) ?? [];
+    const roles = [...text.matchAll(/^ROLE_\w+\s*(?::[^=\n]+)?=\s*["']([^"'\n]+)["']/gm)].map((m) => m[1]);
     expect(roles.length).toBeGreaterThan(0);
+    expect(roles).toHaveLength(declared.length);
     expect([...TRUSTED_WORKFLOW_ROLES].sort()).toEqual(roles.sort());
   });
 

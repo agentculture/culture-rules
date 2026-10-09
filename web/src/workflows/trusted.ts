@@ -1,8 +1,11 @@
 /**
- * The workflows the engine trusts to push (culture_rules/actors/trusted.py): trust is a set of
- * definition digests per role, and each role is named after the stored workflow it pins. Any
- * saved change to such a workflow changes its digest, so its runs stop being trusted (they still
- * run, they can no longer push) until the new digest ships in a release (spec c32, deviation d6).
+ * The PR fixer's trusted workflows (culture_rules/actors/trusted.py). The engine trusts by
+ * definition digest only; the digest covers the workflow's id, and every trusted digest's id is
+ * its role's name (tests/rules/test_trusted_role_ids.py pins that). So only a workflow with one
+ * of these ids can be trusted, and a saved change to it gives it a new, untrusted digest: its
+ * runs still start, but the chain will not review or push their work until the new digest ships
+ * to every node (spec c32, deviation d6). The editor asks before such a save; a stored copy that
+ * was already edited is asked about too (over-warning, never missing one).
  *
  * Mirrored here by role name so the editor can warn before a save; trusted.test.ts keeps this
  * list in step with the ROLE_* constants in trusted.py.
