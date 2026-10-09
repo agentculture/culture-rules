@@ -1,0 +1,44 @@
+.fold-list { display: grid; gap: 1.5rem; min-width: 0; }
+.fold-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
+.fold-card__header, .fold-workflow__header { display: flex; align-items: center; gap: 1rem; padding: 1.25rem; flex-wrap: wrap; }
+.fold-card__header { background: var(--line-soft); justify-content: space-between; }
+.fold-card__header h2, .fold-workflow__header h3 { margin: 0; }
+.fold-card__header p { margin: 0.5rem 0 0; color: var(--ink-soft); }
+.fold-workflow { padding: 1rem; border-top: 1px solid var(--line); }
+.fold-workflow__header { padding: 0 0 1rem; }
+.fold-workflow__header > div { flex: 1; min-width: 12rem; }
+.fold-workflow__header p { font-size: var(--ac-type-ui); color: var(--ink-soft); }
+.fold-summary { display: grid; grid-template-columns: 9rem minmax(0, 1fr); gap: 1rem; margin: 0; }
+.fold-summary dt { font-weight: 650; color: var(--ink-soft); }
+.fold-summary dd { margin: 0; overflow-wrap: anywhere; }
+.fold-summary dd > p { margin-bottom: 0.5rem; }
+.fold-entry { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.4rem 0.75rem; margin-bottom: 0.75rem; }
+.fold-entry > small, .fold-entry > details { flex-basis: 100%; }
+.fold-entry small, .fold-chain small { color: var(--ink-soft); font-size: var(--ac-type-meta); overflow-wrap: anywhere; }
+.fold-entry details { font-size: var(--ac-type-ui); }
+.fold-entry summary, .fold-chain summary { cursor: pointer; }
+.fold-tag { background: var(--line-soft); border-radius: 999px; padding: 0.15rem 0.6rem; font-size: var(--ac-type-meta); color: var(--ink-soft); }
+.fold-chain { min-width: 0; }
+.fold-chain__scroll { overflow: auto; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); }
+.fold-chain__canvas { position: relative; margin: 1.25rem; }
+.fold-chain__when { font-family: var(--font-display); font-size: var(--ac-type-card-title); }
+.fold-chain__edges { position: absolute; inset: 0; color: var(--accent); pointer-events: none; }
+.fold-chain__edges > path { fill: none; stroke: var(--mesh-thread); stroke-width: 2; }
+.fold-chain__edges > .fold-chain__continuation { stroke: var(--accent); }
+.fold-chain__entry, .fold-chain__workflow { position: absolute; display: flex; flex-direction: column; gap: 0.35rem; background: var(--surface); border-radius: var(--radius); padding: 0.75rem 1rem; box-shadow: var(--shadow); overflow: auto; }
+.fold-chain__entry { width: 280px; height: 160px; border: 1px solid var(--line); }
+.fold-chain__workflow { width: 260px; height: 220px; border: 2px solid var(--ink); }
+.fold-chain__workflow h3 { margin: 0; }
+.fold-chain__end { font-size: var(--ac-type-meta); overflow-wrap: anywhere; }
+.fold-chain__edge-label { position: absolute; display: flex; flex-direction: column; font-size: var(--ac-type-ui); background: var(--bg); }
+.fold-chain__guards { margin-top: 1rem; }
+@media (max-width: 640px) {
+  .fold-summary { grid-template-columns: minmax(0, 1fr); gap: 0.5rem; }
+  .fold-summary dd { margin-bottom: 0.75rem; }
+}
+
+.fold-workflow a[aria-current] { background: var(--surface); box-shadow: 0 0 0 3px var(--m, var(--machine-none)); border-radius: var(--radius); font-weight: 700; }
+.fold-workflow.is-disabled h3 a { color: var(--ink-soft); }
+.fold-workflow.is-disabled .machine-dot { opacity: 0.5; }
+.fold-view-toggle { display: inline-flex; gap: 0.25rem; padding: 0.25rem; border-radius: var(--radius); background: var(--line-soft); }
+.fold-view-toggle [aria-pressed="true"] { background: var(--ink); color: var(--surface); }
