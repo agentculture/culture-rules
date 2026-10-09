@@ -74,7 +74,7 @@ describe("folded workflow list", () => {
     render(<MemoryRouter><WorkflowList {...props} model={mixed} /></MemoryRouter>);
     const section = screen.getByRole("region", { name: "Rules without a workflow" });
     for (const rule of candidates) expect(within(section).getByRole("link", { name: rule.name })).toHaveAttribute("href", `/rules/${encodeURIComponent(rule.id)}`);
-    expect(within(section).getAllByText("D7 candidate · can become a one-step workflow")).toHaveLength(2);
+    expect(within(section).getAllByText("D7 candidate · can get a workflow of its own, with no steps yet")).toHaveLength(2);
     expect(screen.getByText("4 workflows · 6 entry points · was 11 rules")).toBeInTheDocument();
   });
 

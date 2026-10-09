@@ -104,7 +104,7 @@ export function WorkflowList(props: Readonly<WorkflowListProps>) {
       <h2>Rules without a workflow</h2>
       {model.d7Candidates.map((rule) => <div className="fold-entry" key={rule.id}>
         <Link to={`/rules/${encodeURIComponent(rule.id)}`}>{rule.name}</Link>
-        <small>D7 candidate · can become a one-step workflow</small>
+        <small>D7 candidate · can get a workflow of its own, with no steps yet</small>
       </div>)}
     </section>}
     {props.showDeleted && props.deleted?.map((wf) => <div className="fold-workflow" key={wf.id}>
