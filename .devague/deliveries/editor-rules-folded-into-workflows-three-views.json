@@ -2,7 +2,7 @@
   "plan_slug": "editor-rules-folded-into-workflows-three-views",
   "schema_version": 2,
   "created": "2026-10-09T11:07:59Z",
-  "updated": "2026-10-09T11:15:35Z",
+  "updated": "2026-10-09T12:34:03Z",
   "deviations": [
     {
       "id": "d1",
@@ -30,6 +30,32 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 2
+    },
+    {
+      "id": "d3",
+      "what": "t6: enable/disable is one POST /rules/{id}/enable|disable (the Rules tab's endpoint, which the stop-runs offer reads), not one PUT; per-entry form saves go through useRulesData/updateRule (not fold/writes) so PUT bodies equal the Rules tab's; D7-orphan and emptied-workflow cleanup call deleteWorkflowDef directly",
+      "task_ref": "t6",
+      "reason": "criterion 3 says 'enable, disable and rename touch one rule (one PUT)' and the instruction says 'write through t4 only'; the Rules tab toggles via POST and stop-runs depends on that answer, and saveSharedEdit refuses name/enabled by design (c28); one rule, one write is still asserted by test",
+      "affects": [],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 3
+    },
+    {
+      "id": "d4",
+      "what": "Codex usage limit until 19:16: Codex-owned work falls back to a fresh Opus subagent (t6 third review now; t9 build; t8 review), with a Codex review of each queued after the reset",
+      "task_ref": "t9",
+      "reason": "codex exec returned 'You've hit your usage limit ... try again at 7:16 PM' during t6's third review; the handoff's fallback is an Opus subagent with a Codex review afterwards (reviewer stays a different agent instance from the builder)",
+      "affects": [
+        "t6",
+        "t8",
+        "t9"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 4
     }
   ],
   "evidence": [],
