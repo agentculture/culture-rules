@@ -61,6 +61,7 @@ function portLabel(p: DebugPort): string {
   if (!p.required) bits.push("optional");
   if (p.reads) bits.push(`reads ${p.reads}${p.byName ? " by name" : ""}`);
   else if (p.side === "in") bits.push("not wired");
+  if (p.fallback) bits.push(`else ${p.fallback} if the wire supplies nothing`);
   for (const c of p.carried) bits.push(`then carried from ${c.ref}${ifRuns(c)}`);
   if (p.exported) bits.push("exported to out");
   return bits.join(", ");
@@ -95,6 +96,9 @@ function PortRow({
             ← {port.reads}
             {port.byName ? " · by name" : ""}
           </span>
+        ) : null}
+        {port.fallback ? (
+          <span className="wf-debug-port__reads wf-debug-port__reads--fallback">else ← {port.fallback}</span>
         ) : null}
         {port.carried.map((c) => (
           <span key={c.ref} className="wf-debug-port__reads wf-debug-port__reads--carry">

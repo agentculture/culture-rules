@@ -341,5 +341,64 @@ describe("the Debug view's port model", () => {
         "steps.only.outputs.iterations",
       );
     });
+
+    it("a wired body input still falls back to its loop's implicit values when the wire supplies nothing", () => {
+      const wf: WorkflowDef = {
+        id: "f",
+        name: "f",
+        steps: [
+          {
+            id: "loop",
+            kind: "retry_until",
+            max_iterations: 3,
+            config: { carry: { note: "note" } },
+            inputs: [{ name: "note", type: "string" }],
+            outputs: [],
+            body: [
+              {
+                id: "maybe",
+                kind: "code",
+                config: { when: { field: "x", op: "eq", value: 1 } },
+                inputs: [],
+                outputs: [{ name: "note", type: "string" }, { name: "index", type: "integer" }],
+              },
+              {
+                id: "use",
+                kind: "code",
+                inputs: [
+                  { name: "note", type: "string" },
+                  { name: "index", type: "integer" },
+                ],
+                outputs: [{ name: "note", type: "string" }],
+              },
+            ],
+          },
+        ],
+        edges: [
+          { source: "maybe", source_port: "note", target: "use", target_port: "note" },
+          { source: "maybe", source_port: "index", target: "use", target_port: "index" },
+        ],
+        outputs: [],
+      };
+      const byRef = new Map(debugPorts(wf).map((p) => [p.ref, p]));
+      expect(byRef.get("steps.use.inputs.note")).toMatchObject({
+        reads: "steps.maybe.outputs.note",
+        byName: false,
+        fallback: "steps.loop.inputs.note",
+        carried: [{ ref: "steps.use.outputs.note", conditional: true }],
+      });
+      expect(byRef.get("steps.use.inputs.index")).toMatchObject({ reads: "steps.maybe.outputs.index", fallback: "loop.index" });
+      expect(allLinks(wf).filter((l) => l.to === "steps.use.inputs.note")).toEqual([
+        { from: "steps.maybe.outputs.note", to: "steps.use.inputs.note", kind: "wire" },
+        { from: "steps.loop.inputs.note", to: "steps.use.inputs.note", kind: "by-name", conditional: true },
+        { from: "steps.use.outputs.note", to: "steps.use.inputs.note", kind: "carry", conditional: true },
+      ]);
+      expect([...portLinks(wf, "steps.loop.inputs.note").downstream]).toContain("steps.use.inputs.note");
+      expect([...portLinks(wf, "steps.use.inputs.note").upstream]).toContain("steps.loop.inputs.note");
+    });
+
+    it("an unwired, unfilled input has no fallback", () => {
+      expect(debugPorts(REVIEW_PR).every((p) => p.fallback === null)).toBe(true);
+    });
   });
 });
