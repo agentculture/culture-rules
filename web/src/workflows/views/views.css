@@ -177,6 +177,11 @@
   stroke-width: 1.6;
 }
 
+.wf-debug-wire--carry {
+  stroke: var(--accent);
+  stroke-dasharray: 4 5;
+}
+
 .wf-debug-wire.is-lit {
   stroke: var(--accent);
   stroke-width: 3;
@@ -360,6 +365,10 @@
   font: 11px/17px var(--font-mono);
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+.wf-debug-port__reads--carry {
+  color: var(--accent);
 }
 
 /* A selection lights the port, its upstream and downstream, and dims the rest. */

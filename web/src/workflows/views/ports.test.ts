@@ -145,4 +145,132 @@ describe("the Debug view's port model", () => {
     expect([...portLinks(wf, "steps.gate.outputs.verdict").downstream]).toEqual(["steps.fix.outputs.verdict"]);
     expect(portLinks(wf, "inputs.repo", { everything: true }).downstream).toContain("outputs.verdict");
   });
+
+  describe("loops, as culture_rules/engine/runs.py runs them", () => {
+    const fixer: WorkflowDef = {
+      id: "pr-fix",
+      name: "pr-fix",
+      inputs: [
+        { name: "instruction", type: "string" },
+        { name: "base_sha", type: "string" },
+      ],
+      steps: [
+        {
+          id: "fix",
+          kind: "retry_until",
+          max_iterations: 3,
+          config: { carry: { instruction: "instruction" } },
+          inputs: [
+            { name: "instruction", type: "string" },
+            { name: "base_sha", type: "string" },
+            { name: "index", type: "integer" },
+          ],
+          outputs: [{ name: "verdict", type: "string" }],
+          body: [
+            {
+              id: "agent",
+              kind: "ai",
+              inputs: [
+                { name: "instruction", type: "string" },
+                { name: "index", type: "integer" },
+              ],
+              outputs: [
+                { name: "worktree", type: "string" },
+                { name: "verdict", type: "string" },
+              ],
+            },
+            {
+              id: "gate",
+              kind: "code",
+              inputs: [
+                { name: "worktree", type: "string" },
+                { name: "base", type: "string" },
+              ],
+              outputs: [
+                { name: "verdict", type: "string" },
+                { name: "instruction", type: "string" },
+              ],
+            },
+          ],
+        },
+      ],
+      edges: [
+        { source: "inputs", source_port: "instruction", target: "fix", target_port: "instruction" },
+        { source: "inputs", source_port: "base_sha", target: "fix", target_port: "base_sha" },
+        { source: "fix", source_port: "base_sha", target: "gate", target_port: "base" },
+        { source: "agent", source_port: "worktree", target: "gate", target_port: "worktree" },
+      ],
+      outputs: [{ name: "verdict", type: "string", source: "steps.fix.outputs.verdict" }],
+    };
+    const byRef = new Map(debugPorts(fixer).map((p) => [p.ref, p]));
+
+    it("an edge from the parent loop reads the loop's input, not an output", () => {
+      expect(byRef.get("steps.gate.inputs.base")).toMatchObject({ reads: "steps.fix.inputs.base_sha", byName: false });
+      expect([...portLinks(fixer, "steps.fix.inputs.base_sha").downstream]).toContain("steps.gate.inputs.base");
+      expect([...portLinks(fixer, "steps.gate.inputs.base").upstream]).toContain("steps.fix.inputs.base_sha");
+    });
+
+    it("a carried input takes the previous try's result field", () => {
+      expect(byRef.get("steps.agent.inputs.instruction")).toMatchObject({
+        reads: "steps.fix.inputs.instruction",
+        byName: true,
+        carried: "steps.gate.outputs.instruction",
+      });
+      expect([...portLinks(fixer, "steps.gate.outputs.instruction").downstream]).toContain(
+        "steps.agent.inputs.instruction",
+      );
+      expect([...portLinks(fixer, "steps.agent.inputs.instruction").upstream]).toContain(
+        "steps.gate.outputs.instruction",
+      );
+    });
+
+    it("index and iteration are the engine's, over a loop input of the same name", () => {
+      expect(byRef.get("steps.agent.inputs.index")).toMatchObject({ reads: "loop.index", byName: true });
+      expect([...portLinks(fixer, "steps.fix.inputs.index").downstream]).not.toContain("steps.agent.inputs.index");
+    });
+
+    it("a retry loop's outputs come only from its final body step", () => {
+      const up = [...portLinks(fixer, "steps.fix.outputs.verdict").upstream];
+      expect(up).toContain("steps.gate.outputs.verdict");
+      expect(up).not.toContain("steps.agent.outputs.verdict");
+    });
+
+    it("a for_each loop's results gather every output of its final body step", () => {
+      const wf: WorkflowDef = {
+        id: "each",
+        name: "each",
+        steps: [
+          {
+            id: "each",
+            kind: "for_each",
+            max_iterations: 5,
+            inputs: [{ name: "items", type: "array" }],
+            outputs: [
+              { name: "results", type: "array" },
+              { name: "a", type: "array" },
+            ],
+            body: [
+              {
+                id: "one",
+                kind: "code",
+                inputs: [{ name: "item" }, { name: "iteration", type: "integer" }],
+                outputs: [{ name: "a" }, { name: "b" }],
+              },
+            ],
+          },
+        ],
+        edges: [],
+        outputs: [],
+      };
+      const ports = new Map(debugPorts(wf).map((p) => [p.ref, p]));
+      expect(ports.get("steps.one.inputs.item")).toMatchObject({ reads: "loop.item", byName: true });
+      expect(ports.get("steps.one.inputs.iteration")).toMatchObject({ reads: "loop.iteration" });
+      expect([...portLinks(wf, "steps.each.outputs.results").upstream]).toEqual(
+        expect.arrayContaining(["steps.one.outputs.a", "steps.one.outputs.b"]),
+      );
+      const a = [...portLinks(wf, "steps.each.outputs.a").upstream];
+      expect(a).toContain("steps.one.outputs.a");
+      expect(a).not.toContain("steps.one.outputs.b");
+    });
+  });
 });

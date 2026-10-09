@@ -13,9 +13,19 @@
  *   - a workflow output reads `inputs.<n>` or `steps.<id>.outputs.<p>`
  *     (a `vars.<n>` source is shown as its reference, not a port);
  *   - a step's outputs come from its inputs (`step`);
- *   - a loop body step's unwired input named like one of the loop's inputs is
- *     filled from it, and a loop's outputs are its body's final outputs by
- *     name (`by-name`).
+ *   - inside a loop, an edge from the loop itself reads the loop's *inputs*
+ *     (`_edge_source`);
+ *   - a loop body step's unwired input is filled implicitly (`by-name`,
+ *     `_implicit_loop_inputs`): `iteration` / `index` (and `item` for
+ *     for_each) are the engine's own values, over a loop input of the same
+ *     name; otherwise a loop input of the same name;
+ *   - a retry_until loop's `config.carry` (`{input: result field}`) feeds the
+ *     previous try's result field into that body input from the second try
+ *     on (`carry`);
+ *   - a loop's result is its final body step's outputs (`_progress_loop`): a
+ *     retry_until loop's outputs are its last result's fields of the same
+ *     name, a for_each loop's per-name lists, and its `results` the whole
+ *     result objects (`_loop_outputs`), so every final-step output feeds it.
  * Nothing here touches React, and nothing mutates its input.
  */
 import type { Port, PortType, Step, WorkflowDef } from "../../api/workflows";
@@ -35,8 +45,10 @@ export interface DebugPort {
   required: boolean;
   /** What an `in` port reads (a port reference, or `vars.<n>`); null when nothing feeds it. */
   reads: string | null;
-  /** The input is filled implicitly from its loop's input of the same name. */
+  /** The input is filled implicitly by its loop (a loop input of its name, or the engine's `loop.<n>`). */
   byName: boolean;
+  /** From a retry_until loop's second try on, the previous result field this input takes (`config.carry`). */
+  carried: string | null;
   /** An `out` port that a workflow output reads. */
   exported: boolean;
 }
@@ -52,7 +64,7 @@ export interface DebugGroup {
   body: DebugGroup[];
 }
 
-export type LinkKind = "wire" | "output" | "step" | "by-name";
+export type LinkKind = "wire" | "output" | "step" | "by-name" | "carry";
 
 export interface PortLink {
   from: string;
@@ -74,11 +86,25 @@ function sourceRef(source: string | null | undefined): string | null {
   return from ? portRef(from.node, "out", from.port) : source;
 }
 
-/** Input ports a loop fills by itself, whatever the loop's own inputs are called. */
-const IMPLICIT_INPUTS: Record<string, readonly string[]> = {
-  for_each: ["item", "index"],
-  retry_until: ["iteration"],
+/** Input ports a loop fills with its own values, over a loop input of the same name. */
+const ENGINE_INPUTS: Record<string, readonly string[]> = {
+  for_each: ["iteration", "index", "item"],
+  retry_until: ["iteration", "index"],
 };
+
+/** The body step whose outputs are an iteration's result: the last one that runs. */
+function resultStep(loop: Step): Step | undefined {
+  return (loop.body ?? []).filter((b) => b.enabled !== false).at(-1);
+}
+
+/** A retry_until loop's `config.carry`, as `{input name: result field}` string pairs. */
+function carryOf(loop: Step | null): Map<string, string> {
+  const carry = loop?.kind === "retry_until" ? loop.config?.carry : null;
+  const out = new Map<string, string>();
+  if (!carry || typeof carry !== "object" || Array.isArray(carry)) return out;
+  for (const [name, field] of Object.entries(carry)) if (typeof field === "string") out.set(name, field);
+  return out;
+}
 
 const topSteps = (wf: WorkflowDef) => wf.steps ?? [];
 
@@ -105,7 +131,7 @@ function toPort(
   node: string,
   side: PortSide,
   p: Pick<Port, "name" | "type" | "required">,
-  extra: Partial<Pick<DebugPort, "reads" | "byName" | "exported">> = {},
+  extra: Partial<Pick<DebugPort, "reads" | "byName" | "carried" | "exported">> = {},
 ): DebugPort {
   return {
     ref: portRef(node, side, p.name),
@@ -116,6 +142,7 @@ function toPort(
     required: p.required !== false,
     reads: extra.reads ?? null,
     byName: extra.byName ?? false,
+    carried: extra.carried ?? null,
     exported: extra.exported ?? false,
   };
 }
@@ -123,18 +150,25 @@ function toPort(
 function stepGroup(wf: WorkflowDef, step: Step, loop: Step | null, exported: Set<string>): DebugGroup {
   const wired = new Map<string, string>();
   for (const e of wf.edges ?? []) {
-    if (e.target === step.id) wired.set(e.target_port, portRef(e.source, "out", e.source_port));
+    if (e.target !== step.id) continue;
+    // inside a loop, an edge from the loop itself reads the loop's inputs (`_edge_source`)
+    const side = loop && e.source === loop.id ? "in" : "out";
+    wired.set(e.target_port, portRef(e.source, side, e.source_port));
   }
   const loopInputs = new Set((loop?.inputs ?? []).map((p) => p.name));
-  const implicit = new Set(loop ? (IMPLICIT_INPUTS[loop.kind] ?? []) : []);
+  const engine = new Set(loop ? (ENGINE_INPUTS[loop.kind] ?? []) : []);
+  const carry = carryOf(loop);
+  const last = loop ? resultStep(loop) : undefined;
   const inputs = (step.inputs ?? []).map((p) => {
     const reads = wired.get(p.name);
     if (reads) return toPort(step.id, "in", p, { reads });
+    const field = carry.get(p.name);
+    const carried = field && last ? portRef(last.id, "out", field) : null;
+    if (engine.has(p.name)) return toPort(step.id, "in", p, { reads: `loop.${p.name}`, byName: true, carried });
     if (loop && loopInputs.has(p.name)) {
-      return toPort(step.id, "in", p, { reads: portRef(loop.id, "in", p.name), byName: true });
+      return toPort(step.id, "in", p, { reads: portRef(loop.id, "in", p.name), byName: true, carried });
     }
-    if (implicit.has(p.name)) return toPort(step.id, "in", p, { reads: `${loop!.kind}.${p.name}`, byName: true });
-    return toPort(step.id, "in", p);
+    return toPort(step.id, "in", p, { carried });
   });
   const outputs = (step.outputs ?? []).map((p) =>
     toPort(step.id, "out", p, { exported: exported.has(portRef(step.id, "out", p.name)) }),
@@ -243,13 +277,18 @@ export function allLinks(wf: WorkflowDef): PortLink[] {
       else if (p.byName) kind = "by-name";
       links.push({ from: p.reads, to: p.ref, kind });
     }
+    for (const p of g.inputs) {
+      if (p.carried && known.has(p.carried)) links.push({ from: p.carried, to: p.ref, kind: "carry" });
+    }
     if (g.kind !== "step") continue;
     for (const i of g.inputs) for (const o of g.outputs) links.push({ from: i.ref, to: o.ref, kind: "step" });
-    // a loop's outputs are its body's final outputs of the same name
-    for (const inner of g.body) {
-      for (const o of inner.outputs) {
-        const out = g.outputs.find((x) => x.name === o.name);
-        if (out) links.push({ from: o.ref, to: out.ref, kind: "by-name" });
+    // a loop's result is its final body step's outputs (`_progress_loop`, `_loop_outputs`)
+    const last = g.step ? resultStep(g.step) : undefined;
+    const final = g.body.find((inner) => inner.id === last?.id);
+    for (const out of final ? g.outputs : []) {
+      const gathersAll = g.step?.kind === "for_each" && out.name === "results";
+      for (const o of final!.outputs) {
+        if (gathersAll || o.name === out.name) links.push({ from: o.ref, to: out.ref, kind: "by-name" });
       }
     }
   }

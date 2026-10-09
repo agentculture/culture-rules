@@ -8,7 +8,8 @@
  * button; choosing one lights it, its upstream and its downstream (./ports.ts
  * portLinks) and dims the rest, and opens the "Selected port" panel with the
  * reference, Copy reference, Show everything downstream and the two lists.
- * Escape, Close or choosing the port again clears the selection.
+ * Escape, Close or choosing the port again clears the selection; Close and
+ * Escape hand focus back to the port.
  *
  * The wires are an SVG under the cards, measured from the port rows after
  * layout; they are decoration (aria-hidden): every link is also a row's text.
@@ -55,6 +56,7 @@ function portLabel(p: DebugPort): string {
   if (!p.required) bits.push("optional");
   if (p.reads) bits.push(`reads ${p.reads}${p.byName ? " by name" : ""}`);
   else if (p.side === "in") bits.push("not wired");
+  if (p.carried) bits.push(`then carried from ${p.carried}`);
   if (p.exported) bits.push("exported to out");
   return bits.join(", ");
 }
@@ -89,6 +91,7 @@ function PortRow({
             {port.byName ? " · by name" : ""}
           </span>
         ) : null}
+        {port.carried ? <span className="wf-debug-port__reads wf-debug-port__reads--carry">↻ {port.carried}</span> : null}
       </button>
     </li>
   );
@@ -309,9 +312,13 @@ export function DebugView({ workflow }: Readonly<DebugViewProps>) {
     setSelected((prev) => (prev === ref ? null : ref));
     setEverything(false);
   }, []);
+  const gridRef = useRef<HTMLDivElement | null>(null);
+  /** Dismiss the panel and hand focus back to the port it was about. */
   const clear = () => {
+    const ref = current;
     setSelected(null);
     setEverything(false);
+    if (ref) gridRef.current?.querySelector<HTMLElement>(`[data-ref="${CSS.escape(ref)}"]`)?.focus();
   };
   const onKeyDown = (e: KeyboardEvent<HTMLElement>) => {
     if (e.key === "Escape" && current) {
@@ -320,7 +327,6 @@ export function DebugView({ workflow }: Readonly<DebugViewProps>) {
     }
   };
 
-  const gridRef = useRef<HTMLDivElement | null>(null);
   const wires = useWires(gridRef, links);
   const lit = (w: Wire) => relatedOf(w.from) !== "none" && relatedOf(w.to) !== "none";
 

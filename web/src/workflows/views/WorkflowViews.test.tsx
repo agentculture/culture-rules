@@ -143,6 +143,22 @@ describe("the Simple / Detailed / Debug switch", () => {
     expect(port("steps.review.outputs.findings")).toHaveAttribute("aria-pressed", "false");
   });
 
+  it("returns focus to the selected port when Close or Escape dismisses the panel", async () => {
+    const user = userEvent.setup();
+    render(<WorkflowViews {...props()} />);
+    await user.click(modeButton("Debug"));
+    await user.click(port("steps.review.inputs.diff"));
+    const panel = screen.getByRole("region", { name: "Selected port" });
+    await user.click(within(panel).getByRole("button", { name: "Close" }));
+    expect(port("steps.review.inputs.diff")).toHaveFocus();
+
+    await user.click(port("steps.decide.inputs.passed"));
+    await user.click(within(screen.getByRole("region", { name: "Selected port" })).getByRole("button", { name: "Copy reference" }));
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("region", { name: "Selected port" })).not.toBeInTheDocument();
+    expect(port("steps.decide.inputs.passed")).toHaveFocus();
+  });
+
   it("keeps the chosen mode per viewer across a remount", async () => {
     const user = userEvent.setup();
     const first = render(<WorkflowViews {...props()} />);
