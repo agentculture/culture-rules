@@ -10,8 +10,18 @@ import type { useRulesData } from "../../rules/useRulesData";
 import { EntryHistory } from "./EntryHistory";
 import { relationEdits } from "./relationEdits";
 import { useFocusReturn } from "./focus";
+import { useFrozen } from "./freeze";
+import { getRule } from "../../api/rules";
 import { RunsForm, SharedActionForm } from "./SharedForms";
-import { conditionRows, countsEdit, fieldOf, placementWords, rowText, triggerParts, withTerm, withoutTerm, type ConditionRow, type RunsEdit } from "./text";
+import { canonical, conditionRows, countsEdit, fieldOf, placementWords, rowText, triggerParts, withTerm, withoutTerm, type ConditionRow, type RunsEdit } from "./text";
+
+/** The stored fields that differ between two versions of a rule (server bookkeeping aside). */
+function changedFields(before: Rule, after: Rule): string[] {
+  const a = before as unknown as Record<string, unknown>;
+  const b = after as unknown as Record<string, unknown>;
+  return [...new Set([...Object.keys(a), ...Object.keys(b)])]
+    .filter((field) => field !== "updated_at" && canonical(a[field]) !== canonical(b[field]));
+}
 
 export type RulesData = ReturnType<typeof useRulesData>;
 
@@ -160,7 +170,31 @@ function EntryBody({ entry, data, conditionShared, overrides, busy, historyTick,
   const failureButton = useFocusReturn<HTMLButtonElement>(overriding === "failure");
   const runsButton = useFocusReturn<HTMLButtonElement>(overriding === "runs");
   const { rules } = data;
-  const { relate, unrelate, moveRelation } = relationEdits(data);
+  // c27 for this entry's direct writes (the Rules tab's forms and calls, d3): re-read the rule
+  // first; if it changed since it was shown (or since the form opened), nothing is written.
+  const [conflict, setConflict] = useState<{ current: Rule; changed: string[]; form: boolean } | null>(null);
+  const [editBase, setEditBase] = useState<Rule | null>(null);
+  const [editKey, setEditKey] = useState(0);
+  const guarded = async (snapshot: Rule, next: Rule, form = false): Promise<boolean> => {
+    let current: Rule;
+    try {
+      current = await getRule(snapshot.id);
+    } catch (err) {
+      data.setNotice(`${snapshot.name} could not be re-read, so nothing was saved: ${err instanceof Error ? err.message : String(err)}`);
+      return false;
+    }
+    if (canonical(current) !== canonical(snapshot)) {
+      setConflict({ current, changed: changedFields(snapshot, current), form });
+      return false;
+    }
+    setConflict(null);
+    return data.save(next);
+  };
+  const { relate, unrelate, moveRelation } = relationEdits({
+    rules: data.rules,
+    setNotice: data.setNotice,
+    save: (next) => guarded(data.rules.find((r) => r.id === next.id) ?? next, next),
+  });
   const { outgoing, incoming } = relationsOf(rules, rule.id);
   // The rule's run order (must / may run after, supersedes) opens by itself when it has any.
   const [ordering, setOrdering] = useState(outgoing.length + incoming.length > 0);
@@ -175,9 +209,12 @@ function EntryBody({ entry, data, conditionShared, overrides, busy, historyTick,
   const canSwitch = countsEdit(rule) !== null;
   const workflow = data.workflows.find((w) => w.id === entry.workflowId);
   const type = rule.trigger.kind === "event" ? trigger.value || undefined : undefined;
+  // The override forms keep the rule as it was when they opened (c27).
+  const at = useFrozen(overriding, rule);
+  const addingAt = useFrozen(adding ? "add-condition" : null, rule);
   const override = (label: string, edit: Record<string, unknown>) => {
     setOverriding(null);
-    onOverride(rule, `${rule.name}: ${label}`, edit);
+    onOverride(at, `${rule.name}: ${label}`, edit);
   };
 
   return (
@@ -194,7 +231,7 @@ function EntryBody({ entry, data, conditionShared, overrides, busy, historyTick,
         onRemove={(row) => {
           // The row's button goes with it: focus moves on to "+ condition".
           addButton.current?.focus();
-          void data.save({ ...rule, condition: withoutTerm(rule.condition, row.node!) });
+          void guarded(rule, { ...rule, condition: withoutTerm(rule.condition, row.node!) });
         }}
       />
       {conditionShared ? <p className="fold-entry__meta">Its condition is shared by every entry point.</p> : null}
@@ -214,14 +251,15 @@ function EntryBody({ entry, data, conditionShared, overrides, busy, historyTick,
       {adding ? (
         // The Rules tab's condition form; its one new term joins this entry's own (and keeps the rest).
         <AddStageForm
-          rule={rule}
+          rule={addingAt}
           workflows={data.workflows}
           choice="condition"
           onSave={async (next) => {
-            const condition = withTerm(rule.condition, next.condition!);
+            // Built from, and guarded against, the rule as it was when the form opened (c27).
+            const condition = withTerm(addingAt.condition, next.condition!);
             // Already one of its terms: nothing to write.
-            if (condition === rule.condition) return true;
-            return data.save({ ...rule, condition });
+            if (condition === addingAt.condition) return true;
+            return guarded(addingAt, { ...addingAt, condition });
           }}
           onCancel={() => setAdding(false)}
         />
@@ -273,13 +311,13 @@ function EntryBody({ entry, data, conditionShared, overrides, busy, historyTick,
         <SharedActionForm
           label={`On failure for ${rule.name}`}
           scope="this entry point"
-          value={rule.on_failure}
+          value={at.on_failure}
           actors={data.actors}
           triggerType={type}
           workflow={workflow}
           busy={busy}
           onSave={(action: Action) => override("on failure", { on_failure: action })}
-          onRemove={rule.on_failure ? () => override("on failure", { on_failure: null }) : undefined}
+          onRemove={at.on_failure ? () => override("on failure", { on_failure: null }) : undefined}
           onCancel={() => setOverriding(null)}
         />
       ) : null}
@@ -287,9 +325,9 @@ function EntryBody({ entry, data, conditionShared, overrides, busy, historyTick,
         <RunsForm
           label={`Runs for ${rule.name}`}
           scope="this entry point"
-          rules={[rule]}
-          runKey={fieldOf(rule, "concurrency_key")}
-          attempts={own}
+          rules={[at]}
+          runKey={fieldOf(at, "concurrency_key")}
+          attempts={fieldOf(at, "max_attempts")}
           busy={busy}
           onSave={(edit: RunsEdit) => override("runs", { ...edit })}
           onCancel={() => setOverriding(null)}
@@ -325,7 +363,12 @@ function EntryBody({ entry, data, conditionShared, overrides, busy, historyTick,
           className="btn"
           aria-label={`Edit ${rule.name}`}
           aria-pressed={editing}
-          onClick={() => setEditing((e) => !e)}
+          onClick={() => {
+            // The form edits the rule as it is now, and its save compares against that (c27).
+            if (!editing) setEditBase(rule);
+            setConflict(null);
+            setEditing((e) => !e);
+          }}
         >
           Edit
         </button>
@@ -340,14 +383,50 @@ function EntryBody({ entry, data, conditionShared, overrides, busy, historyTick,
       </div>
       {editing ? (
         <RuleEditForm
-          key={rule.id}
-          rule={rule}
+          key={`${rule.id}-${editKey}`}
+          rule={editBase ?? rule}
           machines={data.machines}
           workflows={data.workflows}
           actors={data.actors}
-          onSave={data.save}
-          onCancel={() => setEditing(false)}
+          onSave={(next) => guarded(editBase ?? rule, next, true)}
+          onCancel={() => {
+            setEditing(false);
+            setConflict(null);
+          }}
         />
+      ) : null}
+      {conflict ? (
+        <div className="notice notice--error fold-conflict" role="alert">
+          <span>
+            {rule.name} changed since you opened it, so this was not saved
+            {conflict.changed.length ? ` (changed: ${conflict.changed.join(", ")})` : ""}.
+          </span>
+          {conflict.form && editing ? (
+            <button
+              type="button"
+              className="btn btn--primary"
+              onClick={() => {
+                setEditBase(conflict.current);
+                setEditKey((k) => k + 1);
+                setConflict(null);
+                data.refreshRules();
+              }}
+            >
+              Reload the form from the stored rule
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="btn"
+              onClick={() => {
+                setConflict(null);
+                data.refreshRules();
+              }}
+            >
+              Show the stored rule
+            </button>
+          )}
+        </div>
       ) : null}
       {history ? <EntryHistory ruleId={rule.id} nameOf={nameOf} tick={historyTick} /> : null}
       {data.asks && data.selected?.id === rule.id ? <AsksPanel asks={data.asks.items} onAnswer={data.answer} /> : null}

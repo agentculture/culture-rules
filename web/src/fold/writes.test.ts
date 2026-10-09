@@ -269,7 +269,7 @@ describe("D7 races", () => {
     });
     expect(await createD7Workflow(api.rules[0], { id: "wrapper", name: "Wrapper" }))
       .toMatchObject({ status: "failed", cleanup: "deleted", ruleResult: { phase: "read" } });
-    expect(requests()).toEqual(["GET /rules/one", "POST /workflows", "GET /rules/one", "DELETE /workflows/wrapper"]);
+    expect(requests()).toEqual(["GET /rules/one", "POST /workflows", "GET /rules/one", "GET /rules", "DELETE /workflows/wrapper"]);
   });
   it("checks again after creation", async () => {
     const fakeFetch = fetchFor(api);
@@ -280,7 +280,7 @@ describe("D7 races", () => {
     });
     expect(await createD7Workflow(api.rules[0], { id: "wrapper", name: "Wrapper" }))
       .toMatchObject({ status: "skipped-changed", cleanup: "deleted" });
-    expect(requests()).toEqual(["GET /rules/one", "POST /workflows", "GET /rules/one", "DELETE /workflows/wrapper"]);
+    expect(requests()).toEqual(["GET /rules/one", "POST /workflows", "GET /rules/one", "GET /rules", "DELETE /workflows/wrapper"]);
   });
   it.each([0, 500, 503])("reconciles ambiguous PUT status %s before cleanup", async (status) => {
     for (const outcome of ["attached", "not-committed", "read-failed"]) {
@@ -306,7 +306,7 @@ describe("D7 races", () => {
         expect(result).toMatchObject({ status: "saved", ruleResult: { status: "saved", rule: { workflow: { id: "wrapper" } } } });
       } else if (outcome === "not-committed") {
         expect(result).toMatchObject({ status: "failed", cleanup: "deleted", ruleResult: { error: { status } } });
-        expectedCalls.push("DELETE /workflows/wrapper");
+        expectedCalls.push("GET /rules", "DELETE /workflows/wrapper");
       } else {
         expect(result).toMatchObject({ status: "failed", cleanup: "orphan", orphan: { id: "wrapper" },
           ruleResult: { error: { status } }, cleanupError: failure });
@@ -317,11 +317,11 @@ describe("D7 races", () => {
     }
   });
 
-  it("cleans up an unambiguous 4xx without another read", async () => {
+  it("cleans up an unambiguous 4xx without re-reading the rule (only the unused-workflow check)", async () => {
     api.failNext["PUT /rules/one"] = { status: 422, code: "invalid", message: "Invalid rule" };
     expect(await createD7Workflow(api.rules[0], { id: "wrapper", name: "Wrapper" }))
       .toMatchObject({ status: "failed", cleanup: "deleted" });
-    expect(requests()).toEqual(["GET /rules/one", "POST /workflows", "GET /rules/one", "PUT /rules/one", "DELETE /workflows/wrapper"]);
+    expect(requests()).toEqual(["GET /rules/one", "POST /workflows", "GET /rules/one", "PUT /rules/one", "GET /rules", "DELETE /workflows/wrapper"]);
   });
 
   it("fake DELETE soft-deletes a referenced workflow unless failure is injected", async () => {

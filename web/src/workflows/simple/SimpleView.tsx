@@ -37,6 +37,7 @@ import { D7Offer } from "./D7Offer";
 import { ConditionRows, EntryCard, type Override } from "./EntryCard";
 import { PlacementForm } from "./SharedForms";
 import { useFocusReturn } from "./focus";
+import { useFrozen } from "./freeze";
 import { canonical, conditionRows, countsEdit, fieldOf, placementWords, split, triggerParts, valueText, withTerm, withoutEqualTerm } from "./text";
 import { ThenColumn } from "./ThenColumn";
 import { useFeedSubscription, type LiveFeed } from "./liveFeed";
@@ -166,6 +167,15 @@ function WorkflowSimple({
     if (open === undefined && openId) setOpen(openId);
   }, [open, openId]);
 
+  // A newly asked entry (an ?entry= link within the same workflow) opens, without a remount.
+  const [asked, setAsked] = useState(entry);
+  useEffect(() => {
+    if (entry === asked) return;
+    if (entry && !entries.some((e) => e.rule.id === entry)) return; // not loaded yet: try again
+    setAsked(entry);
+    if (entry) setOpen(entry);
+  }, [entry, asked, entries]);
+
   // A D7 candidate named by `entry` keeps its offer on screen through the writes that end its candidacy.
   const [candidate, setCandidate] = useState<Rule | null>(null);
   const liveCandidate = model.d7Candidates.find((r) => r.id === entry) ?? null;
@@ -188,6 +198,9 @@ function WorkflowSimple({
   const [deleted, setDeleted] = useState<{ rule: Rule; last: boolean } | null>(null);
   const [workflowNote, setWorkflowNote] = useState<string | null>(null);
 
+  // The placement and shared-condition forms keep what they were opened on (c27).
+  const placeAt = useFrozen(placing ? "placement" : null, { rules, placement: split(rules, "placement", baselines.placement) });
+  const conditionAt = useFrozen(addingShared ? "shared-condition" : null, rules);
   const splits = useMemo(
     () => new Map(OVERRIDE_FIELDS.map((f) => [f, split(rules, f, baselines[f])])),
     [rules, baselines],
@@ -200,16 +213,17 @@ function WorkflowSimple({
       || (c.predecessor.kind === "ambiguous" && c.predecessor.workflowIds.includes(workflowId))),
   );
 
-  const fanOut = (label: string, edit: Record<string, unknown>) => {
+  /** Fan out to `snapshots`: by default the rules shown now, else what the form was opened on. */
+  const fanOut = (label: string, edit: Record<string, unknown>, snapshots: readonly Rule[] = rules) => {
     setBaselines((b) => ({ ...b, ...Object.fromEntries(Object.entries(edit).map(([f, value]) => [f, { value }])) }));
-    void fanout.fanOut(label, rules, edit as SharedRuleEdit);
+    void fanout.fanOut(label, snapshots, edit as SharedRuleEdit);
   };
   /**
    * A shared condition edit, computed per rule from that rule's own condition, so each keeps its
    * own data.workflow_id predecessor term (c32), also when re-applied to a rule changed meanwhile.
    */
-  const conditionEach = (next: (rule: Rule) => Rule["condition"]) =>
-    void fanout.fanOutEach("Condition", ["condition"], rules, (rule) => ({ condition: next(rule) }) as SharedRuleEdit);
+  const conditionEach = (next: (rule: Rule) => Rule["condition"], snapshots: readonly Rule[] = rules) =>
+    void fanout.fanOutEach("Condition", ["condition"], snapshots, (rule) => ({ condition: next(rule) }) as SharedRuleEdit);
   /** One entry's own value: a one-rule write through the fold writes, so it becomes an override. */
   const override = (rule: Rule, label: string, edit: Record<string, unknown>) =>
     void fanout.fanOut(label, [rule], edit as SharedRuleEdit);
@@ -355,13 +369,13 @@ function WorkflowSimple({
               <span className="fold-shared__count">{overrideCount(placement.overrides.length)}</span>
               {placing ? (
                 <PlacementForm
-                  value={placement.value as Placement | null | undefined}
-                  mixed={!placement.shared && !placement.baseline}
+                  value={placeAt.placement.value as Placement | null | undefined}
+                  mixed={!placeAt.placement.shared && !placeAt.placement.baseline}
                   machines={data.machines}
                   busy={fanout.busy}
                   onSave={(next) => {
                     setPlacing(false);
-                    fanOut("Placement", { placement: next });
+                    fanOut("Placement", { placement: next }, placeAt.rules);
                   }}
                   onCancel={() => setPlacing(false)}
                 />
@@ -393,7 +407,7 @@ function WorkflowSimple({
                       workflows={data.workflows}
                       choice="condition"
                       onSave={async (next) => {
-                        conditionEach((rule) => withTerm(rule.condition, next.condition!));
+                        conditionEach((rule) => withTerm(rule.condition, next.condition!), conditionAt);
                         return true;
                       }}
                       onCancel={() => setAddingShared(false)}

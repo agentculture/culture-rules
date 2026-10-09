@@ -5,6 +5,7 @@ import type { Action, Rule, Workflow } from "../../api/types";
 import { predecessorTerms, type Continuation } from "../../fold/model";
 import { actionChips } from "../../routes/rules-view";
 import { useFocusReturn } from "./focus";
+import { useFrozen } from "./freeze";
 import { RunsForm, SharedActionForm } from "./SharedForms";
 import { actionBody, actionText, attemptsText, conditionRows, rowText, runEventWords, split, valueText, type Split } from "./text";
 
@@ -130,7 +131,8 @@ export interface ThenColumnProps {
   triggerType?: string;
   busy: boolean;
   hrefFor: (workflowId: string) => string;
-  onFanOut: (label: string, edit: Record<string, unknown>) => void;
+  /** Fan `edit` out to `snapshots`: the rules as they were when the form opened. */
+  onFanOut: (label: string, edit: Record<string, unknown>, snapshots: readonly Rule[]) => void;
   /** Per field, the value the last shared edit wrote: rules that did not take it are the overrides. */
   baselines?: Record<string, { value: unknown }>;
 }
@@ -158,9 +160,11 @@ export function ThenColumn({ workflowId, rules, onward, workflows, actors, trigg
   const endsAction = ends.value as Action | null | undefined;
   const failAction = failure.value as Action | null | undefined;
   const failDiffers = !failure.shared && !failure.baseline;
+  // What the open form was opened on: its values, and the rules its save compares against (c27).
+  const at = useFrozen(editing, { rules, ends, failure, key, attempts });
   const save = (label: string, edit: Record<string, unknown>) => {
     setEditing(null);
-    onFanOut(label, edit);
+    onFanOut(label, edit, at.rules);
   };
   const toggle = (which: Editing) => () => setEditing((e) => (e === which ? null : which));
   const noEntries = rules.length === 0;
@@ -194,8 +198,8 @@ export function ThenColumn({ workflowId, rules, onward, workflows, actors, trigg
         {editing === "ends" ? (
           <SharedActionForm
             label="Ends here"
-            value={endsAction}
-            mixed={!ends.shared && !ends.baseline}
+            value={at.ends.value as Action | null | undefined}
+            mixed={!at.ends.shared && !at.ends.baseline}
             actors={actors}
             triggerType={triggerType}
             workflow={workflow}
@@ -217,14 +221,14 @@ export function ThenColumn({ workflowId, rules, onward, workflows, actors, trigg
         {editing === "failure" ? (
           <SharedActionForm
             label="On failure"
-            value={failAction}
-            mixed={failDiffers}
+            value={at.failure.value as Action | null | undefined}
+            mixed={!at.failure.shared && !at.failure.baseline}
             actors={actors}
             triggerType={triggerType}
             workflow={workflow}
             busy={busy}
             onSave={(action) => save("On failure", { on_failure: action })}
-            onRemove={rules.some((r) => r.on_failure) ? () => save("On failure", { on_failure: null }) : undefined}
+            onRemove={at.rules.some((r) => r.on_failure) ? () => save("On failure", { on_failure: null }) : undefined}
             onCancel={() => setEditing(null)}
           />
         ) : null}
@@ -248,11 +252,11 @@ export function ThenColumn({ workflowId, rules, onward, workflows, actors, trigg
         />
         {editing === "runs" ? (
           <RunsForm
-            rules={rules}
-            runKey={key.value}
-            keyMixed={!key.shared && !key.baseline}
-            attemptsMixed={!attempts.shared && !attempts.baseline}
-            attempts={attempts.value}
+            rules={at.rules}
+            runKey={at.key.value}
+            keyMixed={!at.key.shared && !at.key.baseline}
+            attemptsMixed={!at.attempts.shared && !at.attempts.baseline}
+            attempts={at.attempts.value}
             busy={busy}
             onSave={(edit) => save("Runs", { ...edit })}
             onCancel={() => setEditing(null)}
