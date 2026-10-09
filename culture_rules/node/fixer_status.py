@@ -40,6 +40,7 @@ from typing import Any
 
 from culture_rules.apps.public_text import (
     WITHHELD,
+    declare_public,
     escape,
     inert_block,
     known_secret_in,
@@ -131,6 +132,11 @@ _REVIEW_BUILTIN = "review"
 _PUSH_KIND = "github.push"
 _COMMENT_KIND = "github.comment"
 FINISHED = "PR fixer finished."  # a final section with no text of its own
+
+# The engine's own wording and link base are public: a piece a known secret shares with them
+# is no leak (2026-10-09: a webhook secret held a fragment of the public hostname, and every
+# body fell back to the bare headline).
+declare_public(f"{PUBLIC_URL}/api/runs/", MARKER.format(""), HEADLINE, FINISHED)
 
 _WORD = re.compile(r"[a-z][a-z0-9_]{0,39}")
 _SHA = re.compile(r"[0-9a-f]{7,64}")

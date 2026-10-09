@@ -151,3 +151,23 @@ def test_a_final_body_falls_back_to_a_final_built_from_engine_facts():
     assert HEADLINE not in body
     assert f"https://rules.culture.dev/api/runs/{RUN}" in body
     assert body.endswith(marker_of(RUN))
+
+
+# A synthetic secret shaped like the live false positive (2026-10-09, tester#8): part of
+# it is a fragment of the engine's own public hostname, the rest is secret.
+HOSTLIKE = "zq7-rules.culture.dev-" + "k8w3p0x2v9m4"
+
+
+def test_a_secret_sharing_a_piece_with_the_run_link_does_not_hide_the_comment():
+    body = render(chain_of(fix_run()), known=[HOSTLIKE])
+    assert body.startswith(HEADLINE)
+    assert "- **done** Quiet period and GitGuardian hold" in body  # not the bare fallback
+    assert f"Chain started with run: https://rules.culture.dev/api/runs/{RUN}" in body
+
+
+def test_a_secret_sharing_a_piece_with_the_run_link_still_withholds_its_own_text():
+    leaked = fix_run(status="succeeded", outputs={"summary": f"token {HOSTLIKE} used"})
+    body = render(chain_of(leaked), known=[HOSTLIKE])
+    assert HOSTLIKE not in body
+    assert "k8w3p0x2v9m4" not in body
+    assert WITHHELD in body

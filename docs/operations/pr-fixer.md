@@ -107,7 +107,7 @@ bash install.sh --host "<spark2 tailnet IP>" --apply
 
 | Path | Content |
 |---|---|
-| `~/.local/share/cultureagent-bridges/venv` | `cultureagent==0.14.0` |
+| `~/.local/share/cultureagent-bridges/venv` | `cultureagent==0.14.1` (forwards titled `tool_call_update`s, so the agent's `STATUS:` notes arrive) |
 | `~/.config/cultureagent-bridges/qwen.json` (mode 600) | bind the tailnet IP on 8093; allowlist prefix `https://github.com/agentculture/`; one run at a time; `commit_author` the App bot |
 | `~/.qwen/settings.json` (mode 600) | Qwen Code on cortex; the key comes from `QWEN_CUSTOM_API_KEY_CORTEX` |
 | `~/.config/systemd/user/cultureagent-qwen-bridge.service` | `grant run --inject ... -- cultureagent-qwen-bridge --config ...` |
@@ -829,15 +829,14 @@ the kept notes too. Other progress notes (the agent's other tool calls) are
 never relayed. The agent never holds a GitHub token: the engine relays its
 notes as the App.
 
-**Known limit of the bridge as deployed (cultureagent 0.14.0, Qwen Code
-0.24.x).** Against an OpenAI-compatible streaming backend (cortex), Qwen
-Code first announces a tool call as a *preparing* `tool_call` without its
-arguments (title `Shell`), then sends the full title in a
-`tool_call_update`, which the bridge's qwen backend does not describe
-(`_PROGRESS_UPDATES` is `tool_call`, `current_mode_update`, `plan`). So the
-`STATUS:` text likely never reaches the engine until the bridge also
-describes a `tool_call_update` that carries a title. The engine side is
-ready either way; the change belongs to cultureagent.
+**The bridge describes the resolved title (cultureagent 0.14.1).** Against
+an OpenAI-compatible streaming backend (cortex), Qwen Code first announces a
+tool call as a *preparing* `tool_call` without its arguments (title
+`Shell`), then sends the full title in a `tool_call_update`. Since
+cultureagent 0.14.1 (agentculture/cultureagent#53) the qwen backend
+describes a `tool_call_update` that carries a non-empty title, so the
+`STATUS:` text reaches the engine; updates without a title (result frames)
+stay silent. With cultureagent 0.14.0 the notes never arrived.
 
 #### What is relayed, and how it is made inert
 
@@ -859,7 +858,13 @@ a reviewer's findings) is never "cleaned" Markdown. It is:
    urlsafe-base64 encoding. Known values are everything the process
    resolved through `grant` (the App private key, bridge tokens), its
    `CULTURE_RULES_SECRET_*` environment, and the bridge bearer tokens it
-   used. Every check runs on the raw, entity-decoded and normalized text
+   used. A piece that also occurs in the engine's own public wording (the
+   run-link base `<public URL>/api/runs/`, the hidden marker's prefix, the
+   headline, `PR fixer finished.`) is public already and does not count;
+   the value whole and its other pieces still do. Without this, a secret
+   holding a fragment of the public hostname hid every body behind the
+   fallback (seen live on culture-rules-tester#8). Such a secret is weak:
+   rotate it. Every check runs on the raw, entity-decoded and normalized text
    and on the stripped view of each, so neither markup nor angle brackets
    hide a value. Notes are checked one by one and together. A refused note is
    dropped; a refused summary or final section renders `[withheld]`;

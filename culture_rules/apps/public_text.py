@@ -177,13 +177,15 @@ def _encodings(value: str) -> list[str]:
     return [_compact(e) for e in out]
 
 
-_PIECES: dict[frozenset[str], tuple[frozenset[str], frozenset[str]]] = {}
+_PIECES: dict[tuple[frozenset[str], frozenset[str]], tuple[frozenset[str], frozenset[str]]] = {}
+_PUBLIC_COMPACT: frozenset[str] = frozenset()  # declare_public()
 
 
 def _pieces(values: frozenset[str]) -> tuple[frozenset[str], frozenset[str]]:
     """``(windows, whole)``: every 12-character piece of each known value's forms, and the
     shorter forms matched whole. Cached per set of values (never logged)."""
-    cached = _PIECES.get(values)
+    public = _PUBLIC_COMPACT
+    cached = _PIECES.get((values, public))
     if cached is not None:
         return cached
     windows: set[str] = set()
@@ -194,10 +196,21 @@ def _pieces(values: frozenset[str]) -> tuple[frozenset[str], frozenset[str]]:
                 windows.update(form[i : i + WINDOW] for i in range(len(form) - WINDOW + 1))
             elif len(form) >= _MIN_KNOWN:
                 whole.add(form)
+    windows = {w for w in windows if not any(w in p for p in public)}
+    whole = {w for w in whole if not any(w in p for p in public)}
     if len(_PIECES) > 8:
         _PIECES.clear()
-    _PIECES[values] = (frozenset(windows), frozenset(whole))
-    return _PIECES[values]
+    _PIECES[(values, public)] = (frozenset(windows), frozenset(whole))
+    return _PIECES[(values, public)]
+
+
+def declare_public(*texts: str) -> None:
+    """Declare text the engine itself publishes (its link base, its fixed wording). A piece
+    of a known secret that also occurs in it is public already and stops counting as a hit;
+    the value's other pieces, and the value whole, still do. Declarations only grow."""
+    global _PUBLIC_COMPACT  # noqa: PLW0603 - a process-wide, append-only set
+    added = {_compact(unicodedata.normalize("NFKC", t)) for t in texts if isinstance(t, str)}
+    _PUBLIC_COMPACT = _PUBLIC_COMPACT | frozenset(c for c in added if c)
 
 
 def known_secret_in(text: Any, known: Iterable[str]) -> bool:
