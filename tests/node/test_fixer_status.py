@@ -151,3 +151,96 @@ def test_a_final_body_falls_back_to_a_final_built_from_engine_facts():
     assert HEADLINE not in body
     assert f"https://rules.culture.dev/api/runs/{RUN}" in body
     assert body.endswith(marker_of(RUN))
+
+
+# A synthetic secret shaped like the live false positive (2026-10-09, tester#8): part of
+# it is a fragment of the engine's own public hostname, the rest is secret.
+HOSTLIKE = "zq7-rules.culture.dev-" + "k8w3p0x2v9m4"
+
+
+def test_a_secret_sharing_a_piece_with_the_run_link_does_not_hide_the_comment():
+    body = render(chain_of(fix_run()), known=[HOSTLIKE])
+    assert body.startswith(HEADLINE)
+    assert "- **done** Quiet period and GitGuardian hold" in body  # not the bare fallback
+    assert f"Chain started with run: https://rules.culture.dev/api/runs/{RUN}" in body
+
+
+def test_a_secret_sharing_a_piece_with_the_run_link_still_withholds_its_own_text():
+    leaked = fix_run(status="succeeded", outputs={"summary": f"token {HOSTLIKE} used"})
+    body = render(chain_of(leaked), known=[HOSTLIKE])
+    assert HOSTLIKE not in body
+    assert "k8w3p0x2v9m4" not in body
+    assert WITHHELD in body
+
+
+def test_relayed_text_made_of_the_engine_wording_is_still_checked():
+    # Codex: the exemption must never reach relayed text (a short secret of public words)
+    short = "fixerisworking"
+    leaked = fix_run(status="succeeded", outputs={"summary": f"the password is {short}"})
+    body = render(chain_of(leaked), known=[short])
+    assert short not in body
+    assert WITHHELD in body
+    final = plain_final(f"The password is {short}", None, [short])
+    assert short not in final
+
+
+def test_a_known_secret_in_an_engine_fact_still_falls_back():
+    # the literals are dropped only from the check, never the facts beside them
+    author = "rules-culture-dev-k8w3p0x2"
+    assert f"by {author}" in render(chain_of(comment_root(author=author)))
+    body = render(chain_of(comment_root(author=author)), known=[author])
+    assert "k8w3p0x2" not in body
+    assert body.startswith(HEADLINE)
+
+
+def test_the_public_url_must_be_a_plain_origin():
+    from culture_rules.node.fixer_status import DEFAULT_PUBLIC_URL, public_url
+
+    assert public_url("https://rules.example.test/") == "https://rules.example.test"
+    assert public_url("http://127.0.0.1:8791") == "http://127.0.0.1:8791"
+    assert public_url("HTTPS://Rules.Example.Test/base/") == "https://rules.example.test/base"
+    assert public_url("http://[::1]:8791") == "http://[::1]:8791"
+    for bad in (
+        "https://user:pw@rules.example.test",
+        "https://@rules.example.test",
+        "https://rules.example.test/\nabcdef0123456789",
+        "https://bad host",
+        "https://rules.example.test:",
+        "https://rules.example.test:70000",
+        "https://rules.example.test?",
+        "https://rules.example.test#",
+        "https://[::1",
+        "http://[12]:8791",
+        "http://[1:2:3]:8791",
+        "http://[fe80::1%25eth0]:8791",  # zones are not supported
+        "https://rules.example.test/?token=x",
+        "https://rules.example.test/#frag",
+        "ftp://rules.example.test",
+        "https://",
+        "rules.example.test",
+        "https://rules.example.test:0",
+        "https://rules.example.test/a b",
+        None,
+        "",
+    ):
+        assert public_url(bad) == DEFAULT_PUBLIC_URL, bad
+
+
+def test_a_secret_crossing_the_edge_of_an_engine_literal_is_still_caught():
+    # Codex round 2: removing a literal must not remove the pieces that cross its edges
+    assert plain_final("done", "run-cafe012345", ["runs/run-cafe"]).startswith("PR fixer finished")
+    assert "run-cafe" not in plain_final("done", "run-cafe012345", ["runs/run-cafe"])
+    assert "xyz" not in plain_final("xyz", "run-123", ["xyzrunhttps"])
+
+
+def test_a_set_but_invalid_public_url_warns(caplog):
+    from culture_rules.node.fixer_status import DEFAULT_PUBLIC_URL, public_url
+
+    with caplog.at_level("WARNING", logger="culture_rules.node.fixer_status"):
+        assert public_url(" \n\t ") == DEFAULT_PUBLIC_URL
+        assert public_url("https://[1:2:3]") == DEFAULT_PUBLIC_URL
+    assert len([r for r in caplog.records if "PUBLIC_URL" in r.getMessage()]) == 2
+    caplog.clear()
+    with caplog.at_level("WARNING", logger="culture_rules.node.fixer_status"):
+        assert public_url(None) == public_url("") == DEFAULT_PUBLIC_URL  # unset: silent
+    assert not caplog.records

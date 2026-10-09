@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.1] - 2026-10-09
+
+### Changed
+
+- docs/operations/pr-fixer.md: spark2 runs cultureagent 0.14.1, whose qwen bridge forwards titled `tool_call_update`s, so the agent's `STATUS:` notes arrive.
+
+### Fixed
+
+- The status comment fell back to its bare headline whenever a known secret shared a 12-character piece with the engine's own wording. This was seen live on culture-rules-tester#8, where a webhook secret held a fragment of the public hostname and so matched every run link. For the whole-body check, the engine's fixed literals (the run-link base and the headline) now lose their interior. Each keeps its first and last 11 token characters, so a piece of a secret that crosses into a fact or relayed text still matches, and only a piece wholly inside the engine's public wording is not counted. Relayed text and engine facts are checked exactly as before.
+- `CULTURE_RULES_PUBLIC_URL` is used only when it is a plain http(s) origin (`scheme://host[:port][/path]`, with no credentials, query, fragment, whitespace or control characters). It is rebuilt from its parts; anything else falls back to the default with a warning.
+
 ## [0.16.0] - 2026-10-09
 
 Deviation d26: the PR fixer says that it works, on the PR, in one status comment per fix chain, edited live. Ships over the live 0.15.0 (d21, d25); no pinned workflow changes.
