@@ -41,5 +41,6 @@ export function workflowPath(workflowId: string, search: string): string {
   const params = new URLSearchParams(search);
   params.delete("id");
   const rest = params.toString();
-  return `/workflows?id=${enc(workflowId)}${rest ? `&${rest}` : ""}`;
+  const tail = rest ? "&" + rest : "";
+  return `/workflows?id=${enc(workflowId)}${tail}`;
 }

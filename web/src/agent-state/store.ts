@@ -10,15 +10,25 @@
  */
 
 export type AgentStatus = "loading" | "ready";
+
+/** The tabs a view reports today (what `useTabReady` takes). */
+export type TabId = "workflows" | "actors" | "variables" | "statistics";
+
+/**
+ * Every value `AgentState.tab` can hold: the live tabs plus the retired
+ * `"rules"` (spec c33). Internal code types against this, not `Tab`.
+ */
+type TabValue = TabId | "rules";
+
 /**
  * @deprecated member `"rules"`: see below.
  *
  * `"rules"` is deprecated (spec c33): the Rules tab is folded into Workflows,
  * so no view reports it any more. It stays in the type for one release so an
  * agent that still compares against it type-checks; drop it in the release
- * after the fold.
+ * after the fold. Use `TabId` for the tabs a view reports.
  */
-export type Tab = "rules" | "workflows" | "actors" | "variables" | "statistics";
+export type Tab = TabValue;
 
 export interface AgentIdentity {
   status: "loading" | "signed-in" | "unauthenticated" | "unavailable";
@@ -30,14 +40,8 @@ export interface AgentIdentity {
   role: string | null;
 }
 
-/**
- * @deprecated Read `AgentState.workflows` (`entries`, `entry`) instead.
- *
- * Deprecated alias (spec c33), kept for one release: the Workflows tab writes
- * it from the folded rules so an agent reading `rules` keeps working. Read
- * `workflows.entries` / `workflows.entry` instead.
- */
-export interface AgentRulesState {
+/** The shape of the deprecated `rules` alias slice; internal code types against this. */
+interface RulesAliasState {
   /** Every rule (entry points, continuations and rules with no workflow). */
   count: number;
   /** The entry point open (?entry=), else null. */
@@ -45,6 +49,15 @@ export interface AgentRulesState {
   /** The stages drawn for the selected rule, in order. */
   stages: string[];
 }
+
+/**
+ * @deprecated Read `AgentState.workflows` (`entries`, `entry`) instead.
+ *
+ * Deprecated alias (spec c33), kept for one release: the Workflows tab writes
+ * it from the folded rules so an agent reading `rules` keeps working. Read
+ * `workflows.entries` / `workflows.entry` instead.
+ */
+export type AgentRulesState = RulesAliasState;
 
 /** The Workflows tab's slice (src/workflows/agentState.ts writes it). */
 export interface AgentWorkflowsState {
@@ -106,12 +119,12 @@ export interface AgentState {
   /** The current view finished its initial load (well or badly). */
   view_ready: boolean;
   route: string;
-  tab: Tab | null;
+  tab: TabValue | null;
   identity: AgentIdentity | null;
   /** Load errors the current view is showing; empty when all is well. */
   errors: string[];
   /** @deprecated Alias for one release (c33): read `workflows.entries` / `workflows.entry`. */
-  rules?: AgentRulesState | null;
+  rules?: RulesAliasState | null;
   workflows?: AgentWorkflowsState | null;
   actors?: AgentActorsState | null;
   statistics?: AgentStatisticsState | null;

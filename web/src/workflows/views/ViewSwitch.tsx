@@ -13,7 +13,7 @@ export interface ViewSwitchProps {
 
 export function ViewSwitch({ mode, onChange }: Readonly<ViewSwitchProps>) {
   return (
-    <div role="group" aria-label="Canvas view" className="wf-view-switch">
+    <fieldset aria-label="Canvas view" className="wf-view-switch plain-group">
       {VIEW_MODES.map((m) => (
         <button
           key={m}
@@ -25,7 +25,7 @@ export function ViewSwitch({ mode, onChange }: Readonly<ViewSwitchProps>) {
           {VIEW_MODE_LABELS[m]}
         </button>
       ))}
-    </div>
+    </fieldset>
   );
 }
 
