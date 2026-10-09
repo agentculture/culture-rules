@@ -7,16 +7,26 @@ export const workflowName = (model: FoldModel, id: string) =>
   model.workflows.find((wf) => wf.id === id)?.workflow?.name || id || "Empty workflow id";
 // Chains have no stored name. Use their first workflow's name, without inferring a product name.
 export const chainName = (model: FoldModel, chain: Chain) => workflowName(model, chain.workflowIds[0]);
-export const workflowUrl = (id: string, entry?: string) =>
-  `/workflows?id=${encodeURIComponent(id)}${entry ? `&entry=${encodeURIComponent(entry)}` : ""}`;
+export function workflowUrl(id: string, entry?: string): string {
+  const url = `/workflows?id=${encodeURIComponent(id)}`;
+  return entry ? `${url}&entry=${encodeURIComponent(entry)}` : url;
+}
 export function fromText(entry: Continuation): string {
   if (entry.predecessor.kind === "ambiguous") return "from multiple workflow terms";
   if (entry.predecessor.kind === "any") return "from any workflow";
   return entry.predecessor.workflowId ? `from ${entry.predecessor.workflowId}` : "from an empty workflow id";
 }
 const valueText = (value: unknown): string => typeof value === "string" && value !== "" ? value : JSON.stringify(value) ?? "Not set";
-const operandText = (operand: Operand): string => "field" in operand ? operand.field
-  : "var" in operand ? `vars.${operand.var}` : valueText(operand.literal);
+function operandText(operand: Operand): string {
+  if ("field" in operand) return operand.field;
+  if ("var" in operand) return `vars.${operand.var}`;
+  return valueText(operand.literal);
+}
+/** A stored trigger param as text: strings as they are, anything else as JSON, never "[object Object]". */
+function paramText(value: unknown, fallback: string): string {
+  if (value === undefined || value === null) return fallback;
+  return typeof value === "string" ? value : JSON.stringify(value);
+}
 export function guardText(condition: Condition): string {
   switch (condition.op) {
     case "and": case "or": return condition.args.map((term) => `(${guardText(term)})`).join(` ${condition.op} `);
@@ -29,12 +39,12 @@ export function guardText(condition: Condition): string {
 }
 export function triggerText(rule: Rule): string {
   const params = rule.trigger.params as Record<string, unknown> | undefined;
-  if (rule.trigger.kind === "event") return String(params?.type ?? "Event (type not set)");
-  if (rule.trigger.kind === "schedule") return `Schedule: ${params?.cron ?? "not set"} ${params?.tz ?? ""}`.trim();
-  if (rule.trigger.kind === "probe") return `Probe: ${params?.command ?? "not set"}`;
+  if (rule.trigger.kind === "event") return paramText(params?.type, "Event (type not set)");
+  if (rule.trigger.kind === "schedule") return `Schedule: ${paramText(params?.cron, "not set")} ${paramText(params?.tz, "")}`.trim();
+  if (rule.trigger.kind === "probe") return `Probe: ${paramText(params?.command, "not set")}`;
   return rule.trigger.kind;
 }
-export function SameEventNote({ model, entry }: { model: FoldModel; entry: FoldEntry }) {
+export function SameEventNote({ model, entry }: Readonly<{ model: FoldModel; entry: FoldEntry }>) {
   const type = (entry.rule.trigger.params as Record<string, unknown> | undefined)?.type;
   if (entry.kind !== "entry" || typeof type !== "string") return null;
   const ids = [...new Set(model.entryPoints.filter((other) =>
@@ -43,7 +53,7 @@ export function SameEventNote({ model, entry }: { model: FoldModel; entry: FoldE
     && (other.rule.trigger.params as Record<string, unknown> | undefined)?.type === type).map((other) => other.workflowId))];
   return <>{ids.map((id) => <small key={id}>same event starts {workflowName(model, id)}</small>)}</>;
 }
-export function EntrySummary({ entry, model, onOpen }: { entry: FoldEntry; model?: FoldModel; onOpen?: (id: string) => void }) {
+export function EntrySummary({ entry, model, onOpen }: Readonly<{ entry: FoldEntry; model?: FoldModel; onOpen?: (id: string) => void }>) {
   return <div className="fold-entry" data-rule-id={entry.rule.id}>
     <Link to={workflowUrl(entry.workflowId, entry.rule.id)} onClick={() => onOpen?.(entry.workflowId)}>{entry.rule.name}</Link>
     {!entry.enabled && <span className="fold-tag">Disabled</span>}
@@ -56,7 +66,10 @@ export function EntrySummary({ entry, model, onOpen }: { entry: FoldEntry; model
 }
 function actionText(action: Action | null | undefined): string {
   if (!action) return "Not set";
-  return `${action.name || action.kind}${action.params?.actor ? ` · ${action.params.actor}` : ""}${action.only_at_chain_end ? " · only at chain end" : ""}`;
+  const parts = [action.name || action.kind];
+  if (action.params?.actor) parts.push(action.params.actor);
+  if (action.only_at_chain_end) parts.push("only at chain end");
+  return parts.join(" · ");
 }
 function runsText(rule: Rule): string {
   const stored = rule as unknown as Record<string, unknown>;
@@ -68,7 +81,7 @@ function runsText(rule: Rule): string {
   }
   return parts.join(" · ") || "No run limits specified";
 }
-function RuleValues({ workflow, format }: { workflow: FoldWorkflow; format: (rule: Rule) => string }) {
+function RuleValues({ workflow, format }: Readonly<{ workflow: FoldWorkflow; format: (rule: Rule) => string }>) {
   const groups = new Map<string, string[]>();
   for (const { rule } of workflow.entries) {
     const text = format(rule);
@@ -79,9 +92,13 @@ function RuleValues({ workflow, format }: { workflow: FoldWorkflow; format: (rul
     {groups.size > 1 && <strong>{names.join(", ")}: </strong>}{text}
   </p>)}</>;
 }
-export function RunSummary({ workflow }: { workflow: FoldWorkflow }) {
+export function RunSummary({ workflow }: Readonly<{ workflow: FoldWorkflow }>) {
   return <RuleValues workflow={workflow} format={runsText} />;
 }
-export function EndSummary({ workflow }: { workflow: FoldWorkflow }) {
-  return <RuleValues workflow={workflow} format={(rule) => `${actionText(rule.action)}${rule.on_failure ? ` · On failure: ${actionText(rule.on_failure)}` : ""}`} />;
+function endText(rule: Rule): string {
+  const end = actionText(rule.action);
+  return rule.on_failure ? `${end} · On failure: ${actionText(rule.on_failure)}` : end;
+}
+export function EndSummary({ workflow }: Readonly<{ workflow: FoldWorkflow }>) {
+  return <RuleValues workflow={workflow} format={endText} />;
 }

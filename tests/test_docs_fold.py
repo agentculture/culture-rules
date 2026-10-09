@@ -111,7 +111,8 @@ def test_web_readme_names_redirects_and_the_agent_state_alias() -> None:
 def test_run_events_states_the_stepless_workflow_fact() -> None:
     text = _flat("docs/run-events.md")
     assert "no steps" in text
-    assert "`data.workflow_id`" in text and "`data.workflow_version`" in text
+    assert "`data.workflow_id`" in text
+    assert "`data.workflow_version`" in text
     assert "tests/engine/test_stepless_workflow.py" in text
 
 

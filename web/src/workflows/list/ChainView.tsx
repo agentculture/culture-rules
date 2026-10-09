@@ -26,7 +26,7 @@ export function ChainView({ model, chain, selectedId, onOpen }: Readonly<ChainVi
   const unresolved = continuations.filter((entry) => !linked.includes(entry));
   return <section className="fold-chain" aria-label="Chain view">
     <p>{count(entries.length + continuations.length + (chain ? 0 : model.d7Candidates.length), "rule")} → {count(entries.length, "entry point")}, {count(continuations.length, "continuation")}, {count(ids.length, "workflow")}</p>
-    {!ids.length ? <p>No workflows yet.</p> : <div className="fold-chain__scroll" tabIndex={0} role="region" aria-label="Workflow chain diagram">
+    {!ids.length ? <p>No workflows yet.</p> : <section className="fold-chain__scroll" aria-label="Workflow chain diagram">
       <div className="fold-chain__canvas" style={{ width, height }}>
         <strong className="fold-chain__when">When</strong>
         <svg width={width} height={height} className="fold-chain__edges" aria-label="Directed entry and continuation edges" role="img">
@@ -47,21 +47,21 @@ export function ChainView({ model, chain, selectedId, onOpen }: Readonly<ChainVi
             </path>;
           })}
         </svg>
-        {entries.map((entry, index) => <div key={entry.rule.id} className="fold-chain__entry" role="group" aria-label={`Entry point: ${entry.rule.name}`} style={{ left: 0, top: 60 + index * 180 }}>
+        {entries.map((entry, index) => <fieldset key={entry.rule.id} className="fold-chain__entry plain-group" aria-label={`Entry point: ${entry.rule.name}`} style={{ left: 0, top: 60 + index * 180 }}>
           <Link to={workflowUrl(entry.workflowId, entry.rule.id)} onClick={() => onOpen?.(entry.workflowId)}>{entry.rule.name}</Link>
           <small>{triggerText(entry.rule)}</small>{!entry.enabled && <span className="fold-tag">Disabled</span>}
           <SameEventNote model={model} entry={entry} />
           <small>was {entry.rule.id}</small>
-        </div>)}
+        </fieldset>)}
         {ids.map((id) => {
           const workflow = model.workflows.find((wf) => wf.id === id)!;
-          return <div key={id} className="fold-chain__workflow" role="group" aria-label={`Workflow: ${workflowName(model, id)}`} style={{ left: positions.get(id)!.x, top: 60 }}>
+          return <fieldset key={id} className="fold-chain__workflow plain-group" aria-label={`Workflow: ${workflowName(model, id)}`} style={{ left: positions.get(id)!.x, top: 60 }}>
             <h3><Link to={workflowUrl(id)} aria-current={id === selectedId ? "true" : undefined} onClick={() => onOpen?.(id)}>{workflowName(model, id)}</Link></h3>
             <small>{id}</small>
             {!workflow.workflow && <p>Workflow definition missing</p>}
             <small>{count(workflow.entries.filter((entry) => entry.kind === "entry").length, "entry point")}</small>
             <strong>Ends with</strong><div className="fold-chain__end"><EndSummary workflow={workflow} /></div>
-          </div>;
+          </fieldset>;
         })}
         {linked.map((entry, index) => <div key={entry.rule.id} className="fold-chain__edge-label" style={{ left: 360, top: laneStart + index * 100 + 8, width: width - 400 }}>
           <Link to={workflowUrl(entry.workflowId, entry.rule.id)} onClick={() => onOpen?.(entry.workflowId)}>{entry.rule.name}</Link>
@@ -70,7 +70,7 @@ export function ChainView({ model, chain, selectedId, onOpen }: Readonly<ChainVi
           <small>was {entry.rule.id}</small>
         </div>)}
       </div>
-    </div>}
+    </section>}
     {unresolved.length > 0 && <section aria-label="Continuations without a visible predecessor"><h3>Other continuations</h3>
       {unresolved.map((entry) => <div key={entry.rule.id}><p>To {workflowName(model, entry.workflowId)}</p><EntrySummary entry={entry} onOpen={onOpen} /></div>)}
     </section>}

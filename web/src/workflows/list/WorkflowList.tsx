@@ -57,10 +57,10 @@ export function WorkflowList(props: Readonly<WorkflowListProps>) {
   if (chain) return <section className="fold-list" aria-label="Workflows">
     <header className="fold-card__header">
       <h2 ref={headingRef} tabIndex={-1}>{chainName(model, chain)}</h2>
-      <div className="fold-view-toggle" role="group" aria-label="Workflows view">
+      <fieldset className="fold-view-toggle plain-group" aria-label="Workflows view">
         <button type="button" className="wf-button" aria-pressed={false} onClick={() => setChainId(null)}>List</button>
         <button type="button" className="wf-button" aria-pressed={true}>Chain</button>
-      </div>
+      </fieldset>
     </header><ChainView model={model} chain={chain} onOpen={onOpen} selectedId={selectedId} />
   </section>;
   return <nav className="fold-list" aria-label="Workflows">
@@ -83,7 +83,7 @@ export function WorkflowList(props: Readonly<WorkflowListProps>) {
         const def = workflows.find((wf) => wf.id === id);
         const name = workflowName(model, id);
         const outgoing = model.continuations.filter((entry) => entry.fromWorkflowId === id);
-        return <section className={`fold-workflow${def?.enabled === false ? " is-disabled" : ""}`} key={id} role="group" aria-label={`Workflow: ${name}`} data-workflow-id={id} data-missing={folded.workflow ? undefined : "true"}>
+        return <fieldset className={`fold-workflow plain-group${def?.enabled === false ? " is-disabled" : ""}`} key={id} aria-label={`Workflow: ${name}`} data-workflow-id={id} data-missing={folded.workflow ? undefined : "true"}>
           <header className="fold-workflow__header" style={machineStyle(def ? slotOf(def) : null)}>
             <MachineDot slot={def ? slotOf(def) : null} /><div>
               <h3><Link to={workflowUrl(id)} aria-current={id === selectedId ? "true" : undefined} onClick={() => onOpen?.(id)}>{name}</Link></h3>
@@ -102,7 +102,7 @@ export function WorkflowList(props: Readonly<WorkflowListProps>) {
             <dt>Runs</dt><dd><RunSummary workflow={folded} /></dd>
             <dt>Ends with</dt><dd><EndSummary workflow={folded} /></dd>
           </dl>
-        </section>;
+        </fieldset>;
       })}
     </article>)}
     {model.d7Candidates.length > 0 && <section aria-label="Rules without a workflow">
