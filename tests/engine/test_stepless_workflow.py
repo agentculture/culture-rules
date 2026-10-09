@@ -68,13 +68,17 @@ def test_stepless_workflow_preserves_action_params_and_run_status(paired_runs):
     [plain_call] = plain_actor.calls_for(ACTION_STEP)
     [wrapped_call] = wrapped_actor.calls_for(ACTION_STEP)
     assert plain_call[2].config["kind"] == wrapped_call[2].config["kind"] == "noop"
-    assert plain_call[1] == wrapped_call[1] == {
-        "event_id": "event-stepless",
-        "number": 7,
-        "nested": ["ready"],
-        "message": "event=event-stepless",
-        "literal": "trigger.id",
-    }
+    assert (
+        plain_call[1]
+        == wrapped_call[1]
+        == {
+            "event_id": "event-stepless",
+            "number": 7,
+            "nested": ["ready"],
+            "message": "event=event-stepless",
+            "literal": "trigger.id",
+        }
+    )
 
 
 def _assert_same_fields(before, after, path=()):
