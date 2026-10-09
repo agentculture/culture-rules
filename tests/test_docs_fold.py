@@ -119,3 +119,29 @@ def test_pr_fixer_ops_doc_reads_the_fixer_as_one_chain() -> None:
     text = _flat("docs/operations/pr-fixer.md")
     assert "chain card" in text
     assert "Continues into" in text
+
+
+def test_pr_fixer_ops_doc_explains_the_trusted_save_question() -> None:
+    text = _flat("docs/operations/pr-fixer.md")
+    assert "The editor does not warn" not in text
+    for needle in [
+        "Save a trusted workflow?",
+        "Keep editing",
+        "Save anyway",
+        "web/src/workflows/trusted.ts",
+        "tests/rules/test_trusted_role_ids.py",
+        "culture_rules/actors/trusted.py",
+        "a rename from the head",
+        "runs still start",
+        "Saving the original definition back restores the trust",
+    ]:
+        assert needle in text, needle
+
+
+def test_web_readme_counts_two_chains_and_documents_the_trust_question() -> None:
+    text = _flat("web/README.md")
+    assert '"chains": 2' in text
+    assert "Save a trusted workflow?" in text
+    assert "rules unavailable" in text
+    assert "liveFeed.ts" in text
+    assert "RULES_SCREENSHOT=<path> sets where the Rules screenshot" not in text

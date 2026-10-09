@@ -361,10 +361,27 @@ shows the steps (`quiet`, `secrets`, `threads`, `sonar`, `fix`) and
 **Debug** every port and reference. An old `/rules/pr-fixer-checks` link
 opens `/workflows/pr-fix?entry=pr-fixer-checks`.
 
-Editing a rule from the Simple view changes only that rule, so no trusted
-workflow digest moves. Saving a workflow from Detailed (or Debug) changes
-its definition, so a trusted workflow stops being trusted (below). The
-editor does not warn before that save.
+Editing an entry point in the Simple view writes only that rule, so no
+trusted workflow digest moves. Any save of the workflow itself does change
+its digest: a rename from the head (which works in every view, Simple
+included) or step edits in Detailed. A trusted workflow saved that way stops
+being trusted ([Trusted workflows](#trusted-workflows-d20-round-2-d21-roles)):
+its runs still start, but the chain will not review or push their work
+until the new digest is added to `culture_rules/actors/trusted.py` and
+released to every node. Saving the original definition back restores the
+trust.
+
+So the editor asks first (deviation d6 of the fold). Save on a workflow
+whose id is a trusted role (`pr-fixer`, `pr-fix`, `review-commit`,
+`publish-fix`; `web/src/workflows/trusted.ts`) opens **"Save a trusted
+workflow?"**, which says exactly that: the new digest is not trusted, the
+runs still start but the fixer chain will not review or push their work
+until the digest is in `trusted.py` on every node, and saving the original
+back restores the trust. **Keep editing** (focused first; Escape does the
+same) closes it and nothing is saved; **Save anyway** saves. The editor
+matches by id, which holds only because every trusted digest's workflow id
+is its role's name: `tests/rules/test_trusted_role_ids.py` pins that, so a
+role named differently fails there rather than slipping past the question.
 
 ### What every rule checks
 

@@ -25,8 +25,11 @@ on the PR with a screenshot.
   - routing, where every other path lands on Workflows;
   - old links redirect (`src/routes/legacy-redirects.ts`): `/rules` goes to
     `/workflows`, `/rules/<id>` to `/workflows/<its workflow>?entry=<id>`,
-    a rule with no workflow to `/workflows?entry=<id>`, and an unknown id
-    to `/workflows` with a "rule not found" notice;
+    a rule with no workflow to `/workflows?entry=<id>`, an unknown id to
+    `/workflows` with a "rule not found" notice, and, when the rules cannot
+    be read, to `/workflows` with a "rules unavailable" notice that never
+    calls the rule deleted. While it looks the rule up, the redirect reports
+    the tab `workflows` (not yet ready);
   - the design layer (`src/culture-design/`);
   - the agent-state node.
 - **Workflows** (`/workflows?id=&entry=&run=`; `/workflows/<id>` is the
@@ -87,15 +90,26 @@ on the PR with a screenshot.
     /workflows/{id}` soft-deletes a workflow even while a rule still uses
     it, so the editor first reads `GET /rules` and refuses while one does;
   - New workflow (in the head next to Import, and the empty state's
-    primary action) asks only for a name, creates it with `POST
-    /workflows` (no steps; a taken id moves on to `-2`, `-3`, …) and opens
-    it on the canvas with the step `+` focused. API errors show inline in
+    primary action) asks only for a name and creates it with `POST
+    /workflows` (no steps; a taken id moves on to `-2`, `-3`, …). The
+    board reads "Opening `<id>`…" until the list holds it, then opens it; in
+    Detailed it opens with the step `+` focused. API errors show inline in
     the form;
   - the head renames the workflow (a draft edit, written by Save),
     enables / disables it (`POST /workflows/{id}/enable|disable`) and
     deletes it softly with Undo (`DELETE /workflows/{id}`, then `POST
     /workflows/{id}/restore`); a workflow a rule still uses is kept and
-    the conflict named;
+    the conflict named. The rename works in every view, Simple included;
+  - **saving a trusted workflow asks first** (d6,
+    `src/workflows/trusted.ts`): Save on one of the PR fixer's trusted
+    workflows (`pr-fixer`, `pr-fix`, `review-commit`, `publish-fix`) opens
+    "Save a trusted workflow?". It says a saved change gives the workflow a
+    new digest the engine does not trust: its runs still start, but the
+    fixer chain will not review or push their work until the digest is
+    added to `culture_rules/actors/trusted.py` and released to every node,
+    and saving the original definition back restores the trust. "Keep
+    editing" (focused first, or Escape) closes it and returns to Save;
+    "Save anyway" saves;
   - in Detailed, the workflow as a React Flow graph laid out by elkjs (Inputs → steps
     → Outputs), with typed ports: a drag between mismatched types is
     refused;
@@ -113,12 +127,12 @@ on the PR with a screenshot.
     the head's panel says it shows "the saved version". The button makes
     the head's row full at 1280px beside the list, so Run may wrap under
     it there;
-  - a step panel to edit a step, its placement and its enable switch; add
-    and delete steps; save with `PUT /workflows/{id}`;
-  - Run (`POST /runs` through the rule that uses the workflow) and a run
-    overlay from the persisted run state (`GET /runs/{id}`): each step's
-    outcome and the host it ran on. Recent runs come from `GET
-    /runs?workflow_id=`;
+  - in Detailed, a step panel to edit a step, its placement and its enable
+    switch; add and delete steps; save with `PUT /workflows/{id}`;
+  - Run (`POST /runs` through the rule that uses the workflow) and, in
+    Detailed, a run overlay from the persisted run state (`GET
+    /runs/{id}`): each step's outcome and the host it ran on. Recent runs
+    come from `GET /runs?workflow_id=`;
   - Import (files → `POST /import`, dry-run plan, then Apply) and Export
     (`GET /export`, one bundle download);
   - the repository picker (`GET /repos`). Its menu imports from the
@@ -181,11 +195,12 @@ EventSource on `/api/events/stream?collections=...` (the API's SSE
 fan-out) and hands each coalesced batch of changes to the view, which
 refetches what it shows:
 
-- **Workflows:** `workflows` (the list; an unsaved draft survives),
-  `rules` (a rules change re-folds the list and the entry points) and
-  `runs` (recent runs, and the overlaid run); the Simple view also follows
-  `rules`, `runs` and `asks` (pending asks) and `rule_decisions` (an entry
-  point's last runs and skips);
+- **Workflows:** one stream for `workflows` (the list; an unsaved draft
+  survives), `rules` (a rules change re-folds the list and the entry
+  points), `runs` (recent runs, and the overlaid run), `asks` (pending
+  asks) and `rule_decisions` (an entry point's last runs and skips). The
+  Simple view opens no stream of its own: the tab hands each batch down
+  to it (`src/workflows/simple/liveFeed.ts`);
 - **Statistics:** `machines`, `runs` and `heartbeats`.
 
 A stream the browser retries itself resumes with `Last-Event-ID`; one it
@@ -210,7 +225,7 @@ The root renders one `<script type="application/json" id="agent-state">`:
     "count": 4, "selected": "pr-fix", "steps": ["quiet", "secrets", "threads", "sonar", "fix"], "step": null,
     "dirty": false, "run": null, "view": "simple",
     "entries": ["pr-fixer-checks", "pr-fixer-comment", "pr-fixer-review", "pr-fixer-review-comment", "pr-fixer-refix"], "entry": "pr-fixer-checks",
-    "chains": 1, "without_workflow": []
+    "chains": 2, "without_workflow": []
   }
 }
 ```
@@ -218,7 +233,8 @@ The root renders one `<script type="application/json" id="agent-state">`:
 Each tab adds its own optional slice, typed in `src/agent-state/store.ts`:
 `workflows` (`count`, `selected`, `steps`, `step`, `dirty`, `run`, plus
 `view`, `entries`, `entry`, `chains` and `without_workflow` for the folded
-rules), `actors` (`count`, `shown`, `kind`, `selected`) and `statistics`
+rules; `view` is `null` where no view switch is shown: the D7 place, New
+rule, New workflow and an empty list), `actors` (`count`, `shown`, `kind`, `selected`) and `statistics`
 (`machines`, `offline`, `range`, `view`, `source`).
 
 The tab `rules` and the `rules` slice (`count`, `selected`, `stages`) are a
@@ -283,7 +299,15 @@ npm run check          # tokens byte-identity + chart palette validation
 
 The e2e suite serves the API by request interception (`e2e/fixtures/api.ts`
 over `src/fixtures/rules-fixture.ts`). No Python server, no store.
-`RULES_SCREENSHOT=<path>` sets where the Rules screenshot is written.
+Screenshot paths can be set per suite: `RULES_SCREENSHOT` (the Workflows
+board, `e2e/shell.spec.ts`, default `test-results/workflows-board.png`),
+`RULES_APP_SCREENSHOT` (an entry point, `e2e/entry-points.spec.ts`,
+default `test-results/entry-point.png`), `WORKFLOWS_SCREENSHOT`,
+`WORKFLOWS_LIST_SCREENSHOTS` and `WORKFLOWS_CREATE_SCREENSHOTS`
+(directories), `ACTORS_SCREENSHOT` and `STATISTICS_SCREENSHOT`. The fold's
+own suites are `e2e/fold.spec.ts` (the PR fixer against the fake API),
+`e2e/entry-points.spec.ts` and `e2e/entry-pickers.spec.ts` (the trigger
+and action pickers on an entry point).
 
 ## Build integration
 

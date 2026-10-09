@@ -300,8 +300,9 @@ editor the same objects read as follows:
 
 - **Workflows** lists `greet-flow` on its own chain card: "Starts when"
   names `greet-on-event` (its one entry point), "Continues into" reads
-  "Nothing. The chain ends here.", and the counts read "1 workflow · 1
-  entry point · was 1 rule".
+  "Nothing. The chain ends here.", and the card reads "1 workflow linked
+  by continuations · 1 entry point · was 1 rule" (the list's own counts
+  above it read "1 workflow · 1 entry point · was 1 rule").
 - Opening it (`/workflows?id=greet-flow`) shows the **Simple** view by
   default: When holds the entry point `greet-on-event` with its trigger
   (`demo.greet`), its placement (spark) and its workflow inputs; Then holds
