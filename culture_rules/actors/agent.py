@@ -648,9 +648,40 @@ def _event_changes(
     changes = {"last_sequence": seq, "last_event_at": now}
     if kind == "heartbeat":
         changes["last_heartbeat_at"] = now
+    if kind == "progress":
+        changes.update(_status_notes(doc, payload, now))
     if kind == "accepted" and payload.get("invocation_id") and not doc.get("invocation_id"):
         changes["invocation_id"] = str(payload["invocation_id"])
     return {"status": doc["status"], "last_sequence": doc.get("last_sequence") or 0}, changes
+
+
+def _status_notes(doc: Mapping[str, Any], payload: Mapping[str, Any], now: str) -> dict[str, Any]:
+    """d26: the agent's ``STATUS: <note>`` out of a progress callback's ``note`` (a shell
+    tool call's title, e.g. ``tool_call: Shell: echo "STATUS: fixing it"``), normalized and
+    checked (:func:`~culture_rules.apps.public_text.clean_note`, against this process's
+    known secrets too) and appended to the invocation's last
+    :data:`~culture_rules.node.fixer_status.STATUS_NOTES_KEPT` notes; ``{}`` when it carries
+    none. A refused note is counted (``status_notes_withheld``) and drops every kept note
+    too, as does a new note that, with the kept ones, carries a secret (one split across
+    notes)."""
+    from culture_rules.actors.secrets import known_values  # noqa: PLC0415
+    from culture_rules.apps.public_text import clean_note, status_note, withheld  # noqa: PLC0415
+    from culture_rules.node.fixer_status import STATUS_NOTES_KEPT  # noqa: PLC0415
+
+    raw = status_note(payload.get("note"))
+    if raw is None:
+        return {}
+    known = known_values()
+    text = clean_note(raw, known=known)
+    kept = [n for n in doc.get("status_notes") or () if isinstance(n, Mapping)]
+    notes = [*kept, {"at": now, "text": text}][-STATUS_NOTES_KEPT:]
+    if text is None or withheld(" ".join(str(n.get("text")) for n in notes), known):
+        # a refused note may finish a secret the kept ones began: drop them all
+        return {
+            "status_notes": [],
+            "status_notes_withheld": (doc.get("status_notes_withheld") or 0) + 1,
+        }
+    return {"status_notes": notes}
 
 
 def _deliver_one(store: Any, executor: Any, doc: Mapping[str, Any]) -> bool:
@@ -867,6 +898,7 @@ class BridgeAgentActor:
         payload, digest, problem = self._checked_input(input, context.config or {})
         if problem:
             return InvocationResult.failed(problem, retryable=False)
+        payload = self._with_status_hint(payload, context)
         required = bool((context.config or {}).get(REQUIRE_COMMIT, False))
         if not self.callback_url:
             return InvocationResult.failed("the bridge actor has no callback_url", retryable=False)
@@ -916,6 +948,25 @@ class BridgeAgentActor:
             return InvocationResult.failed(str(exc))
         return self._response(doc_id, status, raw, required)
 
+    def _with_status_hint(
+        self, payload: dict[str, Any] | None, context: InvocationContext
+    ) -> dict[str, Any]:
+        """d26: an agent whose run writes its chain's status comment is told how to post
+        status notes (:data:`~culture_rules.node.fixer_status.STATUS_NOTE_HINT`, appended to
+        its instruction). A locked brief is never changed."""
+        from culture_rules.node.fixer_status import (  # noqa: PLC0415
+            STATUS_NOTE_HINT,
+            run_status_actor,
+        )
+
+        payload = payload or {}
+        if self._defaults.get("locked_instruction") is not None or not context.run_id:
+            return payload
+        run = self._store.get("runs", context.run_id)
+        if run_status_actor(run) is None:
+            return payload
+        return {**payload, "instruction": f"{payload.get('instruction', '')}{STATUS_NOTE_HINT}"}
+
     def cancel(self, invocation_id: str) -> bool:
         """Ask the bridge to stop job ``invocation_id`` (``POST /v1/invocations/<id>/cancel``);
         True once it acknowledged (2xx), or does not know the job (404: nothing to stop)."""
@@ -951,11 +1002,12 @@ class BridgeAgentActor:
     def _bearer(self) -> str | None:
         if not self._token_ref:
             return None
-        if self._resolve is not None:
-            return self._resolve(self._token_ref)
         from culture_rules.actors import secrets as secret_refs
 
-        return secret_refs.resolve_or_literal(self._token_ref)
+        resolver = self._resolve or secret_refs.resolve_or_literal
+        bearer = resolver(self._token_ref)
+        secret_refs.remember(bearer)  # d26: never relayed in a public comment
+        return bearer
 
     def _claim(
         self,

@@ -28,9 +28,13 @@ import base64
 import json
 import logging
 import re
+import threading
+import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Iterable, Iterator, Mapping
+from concurrent.futures import Future
+from concurrent.futures import TimeoutError as FutureTimeout
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import UTC, datetime, timedelta
@@ -59,6 +63,11 @@ _REPO_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9._-]+$")
 _DEADLINE: ContextVar[tuple[datetime, Callable[[], datetime]] | None] = ContextVar(
     "github_deadline", default=None
 )
+_GUARD: ContextVar[Callable[[], None] | None] = ContextVar("github_request_guard", default=None)
+"""Called before every HTTP request in a :meth:`GitHubApp.request_guard` block (d26)."""
+_WATCH: ContextVar[bool] = ContextVar("github_watchdog", default=False)
+"""Whether requests run under the watchdog (:meth:`GitHubApp.watchdog`; the status stage
+only, d26)."""
 
 Transport = Callable[[str, str, dict[str, str], bytes | None, float], tuple[int, bytes]]
 
@@ -172,13 +181,77 @@ def urllib_transport(
     """Default transport: one urllib request; HTTP error statuses are returned, not raised."""
     if not url.startswith(("https://", "http://")):
         raise ValueError("unsupported url scheme")
+    deadline_at = time.monotonic() + timeout  # the whole call: connect, send, full read
     req = urllib.request.Request(url, data=body, headers=headers, method=method)  # noqa: S310
     opener = urllib.request.build_opener(_NoRedirect)
     try:
         with opener.open(req, timeout=timeout) as resp:  # nosec B310 - scheme checked above
-            return resp.status, resp.read()
+            return resp.status, _read_within(resp, deadline_at)
     except urllib.error.HTTPError as exc:
-        return exc.code, exc.read()
+        return exc.code, _read_within(exc, deadline_at)
+
+
+MAX_RESPONSE_BYTES = 8 << 20
+"""The largest response body read (d26: a listing of a long PR's comments is far less)."""
+_CHUNK = 64 << 10
+
+
+def _read_within(stream: Any, deadline_at: float, max_bytes: int = MAX_RESPONSE_BYTES) -> bytes:
+    """Read ``stream`` to its end in chunks, within the monotonic ``deadline_at`` (a
+    response trickling in slower than the socket timeout raises ``TimeoutError``, which the
+    App reports as ``deadline_exceeded`` under :meth:`GitHubApp.deadline`) and at most
+    ``max_bytes`` (``ValueError``)."""
+    chunks: list[bytes] = []
+    size = 0
+    while True:
+        if time.monotonic() >= deadline_at:
+            raise TimeoutError("the response did not arrive within the call's deadline")
+        chunk = stream.read1(_CHUNK) if hasattr(stream, "read1") else stream.read(_CHUNK)
+        if not chunk:
+            return b"".join(chunks)
+        size += len(chunk)
+        if size > max_bytes:
+            raise ValueError("response too large")
+        chunks.append(chunk)
+
+
+WATCHDOG_WORKERS = 8
+"""The most transport calls running at once per process under the (opt-in) watchdog; an
+abandoned call (past its deadline) keeps its worker until its socket timeout ends it."""
+_WATCH_SLOTS = threading.BoundedSemaphore(WATCHDOG_WORKERS)
+
+
+def _watched(call: Callable[[], tuple[int, bytes]], timeout: float) -> tuple[int, bytes]:
+    """Run one transport call on a daemon worker and wait at most ``timeout`` (d26): the
+    hard bound of the whole call - connect, headers, chunks and trailers, which http.client
+    reads line by line under the socket timeout alone. Past it the caller gets
+    ``deadline_exceeded`` (retryable) and the worker is abandoned; the transport's socket
+    timeout (the same remaining budget) ends it soon after. With every worker busy, the
+    call fails ``transport_busy`` (retryable) without starting."""
+    if not _WATCH_SLOTS.acquire(blocking=False):
+        raise GitHubError("transport_busy", "every transport worker is busy", retryable=True)
+    result: Future[tuple[int, bytes]] = Future()
+
+    def work() -> None:
+        try:
+            result.set_result(call())
+        except Exception as exc:  # noqa: BLE001 - handed to the waiting caller
+            result.set_exception(exc)
+        except BaseException as exc:  # handed over too, then left to end this thread
+            result.set_exception(exc)
+            raise
+        finally:
+            _WATCH_SLOTS.release()
+
+    try:
+        threading.Thread(target=work, name="github-call", daemon=True).start()
+    except BaseException:
+        _WATCH_SLOTS.release()
+        raise
+    try:
+        return result.result(timeout=timeout)
+    except FutureTimeout:
+        raise GitHubError("deadline_exceeded", retryable=True) from None
 
 
 def _b64url(data: bytes) -> str:
@@ -260,6 +333,29 @@ class GitHubApp:
         finally:
             _DEADLINE.reset(reset)
 
+    @contextmanager
+    def request_guard(self, guard: Callable[[], None]) -> Iterator[None]:
+        """Call ``guard()`` before every HTTP request in the block, token exchanges
+        included (d26: the status board counts each request against its budget; the guard
+        raises :class:`GitHubError` to stop before the request is sent). Held in a
+        ContextVar, like :meth:`deadline`."""
+        reset = _GUARD.set(guard)
+        try:
+            yield
+        finally:
+            _GUARD.reset(reset)
+
+    @contextmanager
+    def watchdog(self) -> Iterator[None]:
+        """Run every request of the block under the watchdog (:func:`_watched`): a hard
+        bound of the whole call, connect to trailers. Opt-in (d26: the status stage only);
+        every other caller runs its requests inline, as before."""
+        reset = _WATCH.set(True)
+        try:
+            yield
+        finally:
+            _WATCH.reset(reset)
+
     @staticmethod
     def _timeout() -> float:
         bound = _DEADLINE.get()
@@ -288,6 +384,9 @@ class GitHubApp:
     def _request(
         self, method: str, path: str, bearer: str, payload: dict[str, Any] | None
     ) -> tuple[int, dict[str, Any]]:
+        guard = _GUARD.get()
+        if guard is not None:
+            guard()
         timeout = self._timeout()
         headers = {
             "Authorization": f"Bearer {bearer}",
@@ -300,7 +399,9 @@ class GitHubApp:
             body = json.dumps(payload).encode()
             headers["Content-Type"] = "application/json"
         try:
-            status, raw = self._transport(method, self._api_base + path, headers, body, timeout)
+            status, raw = self._send(method, self._api_base + path, headers, body, timeout)
+        except GitHubError:
+            raise
         except Exception as exc:  # noqa: BLE001 - network failure is retryable; text withheld
             if self._cut_by_deadline(exc, timeout):
                 raise GitHubError("deadline_exceeded", retryable=True) from None
@@ -311,7 +412,17 @@ class GitHubApp:
             data = json.loads(raw.decode() or "{}")
         except ValueError:
             raise GitHubError("bad_response", retryable=True) from None
+        if isinstance(data, list) and method == "GET":
+            return status, {"items": data}  # a list endpoint (list_issue_comments)
         return status, data if isinstance(data, dict) else {}
+
+    def _send(
+        self, method: str, url: str, headers: dict[str, str], body: bytes | None, timeout: float
+    ) -> tuple[int, bytes]:
+        """One transport call: inline, or under the watchdog inside :meth:`watchdog`."""
+        if not _WATCH.get():
+            return self._transport(method, url, headers, body, timeout)
+        return _watched(lambda: self._transport(method, url, headers, body, timeout), timeout)
 
     def installation_token(self) -> str:
         """The cached installation token, refreshed within 5 minutes of its expiry."""
@@ -348,6 +459,37 @@ class GitHubApp:
         self._require_allowed(repo, "comment")
         data = self._call("POST", f"/repos/{repo}/issues/{int(number)}/comments", {"body": body})
         return {"comment_id": data.get("id"), "url": data.get("html_url")}
+
+    def update_issue_comment(self, repo: str, comment_id: int, body: str) -> dict[str, Any]:
+        """Edit comment ``comment_id`` on ``repo`` (REST ``PATCH
+        /repos/{repo}/issues/comments/{id}``, d26: the PR fixer's status comment, which the
+        App posted); returns ``{comment_id, url}``. A deleted comment answers ``http_404``."""
+        self._require_allowed(repo, "comment edit")
+        if not isinstance(comment_id, int) or isinstance(comment_id, bool) or comment_id < 1:
+            raise GitHubError("bad_input", "comment_id must be a positive integer")
+        data = self._call("PATCH", f"/repos/{repo}/issues/comments/{comment_id}", {"body": body})
+        return {"comment_id": data.get("id"), "url": data.get("html_url")}
+
+    @property
+    def app_id(self) -> str:
+        """The App's id (comments it posted carry it as ``performed_via_github_app.id``)."""
+        return str(self._app_id)
+
+    def list_issue_comments(
+        self, repo: str, number: int, *, max_pages: int = 10
+    ) -> list[dict[str, Any]]:
+        """The comments on issue/PR ``number`` (REST ``GET /repos/{repo}/issues/{n}/comments``,
+        100 a page, at most ``max_pages``), oldest first, as ``{comment_id, url, body,
+        app_id}`` (``app_id`` is the posting App's id, ``None`` for a person; d26)."""
+        self._require_allowed(repo, "comment listing")
+        out: list[dict[str, Any]] = []
+        for page in range(1, max_pages + 1):
+            path = f"/repos/{repo}/issues/{int(number)}/comments?per_page=100&page={page}"
+            items = self._call("GET", path, None).get("items") or []
+            out += [_comment_fact(c) for c in items if isinstance(c, dict)]
+            if len(items) < 100:
+                break
+        return out
 
     def push_token(self, repo: str) -> str:
         """A fresh installation token for one push: ``repositories=[repo]``, contents:write only.
@@ -530,6 +672,18 @@ class GitHubApp:
         data = self.graphql(_RESOLVE_MUTATION, {"threadId": thread_id})
         thread = ((data.get("resolveReviewThread") or {}).get("thread")) or {}
         return bool(thread.get("isResolved"))
+
+
+def _comment_fact(comment: dict[str, Any]) -> dict[str, Any]:
+    via = comment.get("performed_via_github_app")
+    app = via.get("id") if isinstance(via, dict) else None
+    body = comment.get("body")
+    return {
+        "comment_id": comment.get("id"),
+        "url": comment.get("html_url"),
+        "body": body if isinstance(body, str) else "",
+        "app_id": str(app) if isinstance(app, int) and not isinstance(app, bool) else None,
+    }
 
 
 def _suite_fact(suite: dict[str, Any]) -> dict[str, Any]:

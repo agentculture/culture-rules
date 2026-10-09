@@ -416,6 +416,21 @@ def _check_action_kind(obj: Action, path: str, errors: Errors) -> None:
                 "action_param_type",
                 f"params.{name} must be {p.type} (or a reference/template)",
             )
+    _check_comment_status(obj, pp, errors)
+
+
+def _check_comment_status(obj: Action, pp: str, errors: Errors) -> None:
+    """d26: ``github.comment`` writes either its chain's status comment (``status: true``)
+    or a once-only comment (``once_key``), never both."""
+    if obj.kind != "github.comment" or obj.params.get("status") is not True:
+        return
+    if obj.params.get("once_key") not in (None, ""):
+        _err(
+            errors,
+            _join(pp, "status"),
+            "action_param_conflict",
+            "params.status and params.once_key do not combine",
+        )
 
 
 def _check_trigger(obj: Trigger, path: str, errors: Errors) -> None:

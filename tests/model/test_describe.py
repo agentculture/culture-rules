@@ -54,6 +54,9 @@ PUBLISH_FIX_WORKFLOW = [
     "4 replies — for each item (≤200): github.review_reply as github-app and resolve",
 ]
 
+CHAIN_END = "(as its chain's status comment) (only where its chain ends)"
+"""d26: every chain-end comment of the fixer writes the chain's status comment."""
+
 PR_FIXER_CHECKS = [
     "When github.pr.checks_settled",
     "If head_repo = base_repo",
@@ -66,8 +69,8 @@ PR_FIXER_CHECKS = [
     "and not (gitguardian ∈ failed_apps)",
     "Run workflow pr-fix (5 steps)",
     "On spark2",
-    "Then github.comment as github-app (only where its chain ends)",
-    "On failure github.comment as github-app (only where its chain ends)",
+    f"Then github.comment as github-app {CHAIN_END}",
+    f"On failure github.comment as github-app {CHAIN_END}",
     "Key pr-fixer:{repository}#{number}, ≤3 attempts",
     "Disabled",
 ]
@@ -96,8 +99,8 @@ PR_FIXER_PUBLISH = [
     "and not (repository ∈ vars.fixer_excluded_repos)",
     "Run workflow publish-fix (4 steps)",
     "On spark2",
-    "Then github.comment as github-app (only where its chain ends)",
-    "On failure github.comment as github-app (only where its chain ends)",
+    f"Then github.comment as github-app {CHAIN_END}",
+    f"On failure github.comment as github-app {CHAIN_END}",
     "Key pr-fixer:{repository}#{number}, outside the attempt budget",
     "Disabled",
 ]
@@ -590,3 +593,10 @@ def test_a_rule_on_a_finished_run_reads_its_type_and_conditions():
         "Then noop",
         "Key pr-fixer:{repository}#{number}, outside the attempt budget",
     ]
+
+
+def test_a_status_comment_action_says_so():
+    from culture_rules.model.describe import action_text
+
+    action = {"kind": "github.comment", "params": {"actor": "github-app", "status": True}}
+    assert action_text(action) == "github.comment as github-app (as its chain's status comment)"

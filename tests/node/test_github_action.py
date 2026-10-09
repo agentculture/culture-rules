@@ -542,3 +542,110 @@ def test_a_once_key_that_is_not_a_non_empty_string_is_bad_input(pem):
     res = port.invoke({**params(), "once_key": ""}, "k", DEADLINE, context=ctx())
     assert res.error == "bad_input"
     assert _comments(fake) == 0
+
+
+# --------------------------------------------------------------------------- d26: status
+
+
+@pytest.mark.parametrize("status", ["yes", 1, None])
+def test_status_must_be_a_boolean(pem, status):
+    fake = Fake()
+    port, _ = setup(pem, fake)
+    res = port.invoke({**params(), "status": status}, "k", DEADLINE, context=ctx())
+    assert res.error == "bad_input"
+    assert fake.calls == []
+
+
+def test_status_and_once_key_do_not_combine(pem):
+    fake = Fake()
+    port, _ = setup(pem, fake)
+    given = {**params(), "status": True, "once_key": "k1"}
+    res = port.invoke(given, "k", DEADLINE, context=ctx())
+    assert res.error == "bad_input"
+    assert fake.calls == []
+
+
+def test_status_outside_a_status_chain_posts_a_plain_comment(pem):
+    fake = Fake()
+    port, _ = setup(pem, fake)  # run "r" does not exist: no chain to write into
+    res = port.invoke({**params(), "status": True}, "k", DEADLINE, context=ctx())
+    assert res.outcome == "completed"
+    assert dict(res.output) == {"comment_id": 9, "url": "https://x/9"}
+    assert fake.calls[-1].endswith("/repos/acme/widgets/issues/3/comments")
+
+
+def test_status_false_is_an_ordinary_comment(pem):
+    fake = Fake()
+    port, _ = setup(pem, fake)
+    res = port.invoke({**params(), "status": False}, "k", DEADLINE, context=ctx())
+    assert res.outcome == "completed"
+
+
+def test_only_the_app_actors_machine_writes_status_comments(pem):
+    port, _ = setup(pem, Fake(), doc={**actor_doc(), "machine": "spark"})
+    assert port.status_board.machine_of("gh-app") == "spark"
+    assert port.status_board.machine_of("missing") is None
+    unplaced, _ = setup(pem, Fake())
+    assert unplaced.status_board.machine_of("gh-app") is None  # no single writer
+    assert unplaced.status_tick("spark") == 0
+
+
+def test_a_status_final_is_stored_before_any_credential_is_resolved(pem):
+    # Codex round 2: an unavailable or slow key must never fail or block the chain end
+    from tests.node.status_fixtures import fix_run
+
+    store = MemoryStore()
+    doc = actor_doc(repos=["o/r"])
+    store.put("actors", {**doc, "id": "github-app", "machine": "spark"})
+    run = fix_run(status="failed")
+    store.put("runs", run)
+    resolved = []
+
+    def secrets(ref):
+        resolved.append(ref)
+        raise RuntimeError("grant is down")
+
+    port = GitHubCommentPort(store, transport=Fake(), secrets=secrets)
+    c = InvocationContext(
+        run_id=run["id"], step_id="s", kind="action", host="h", actor="github-app"
+    )
+    given = {
+        "actor": "github-app",
+        "repo": "o/r",
+        "number": 7,
+        "body": "handed back",
+        "status": True,
+    }
+    res = port.invoke(given, "k", DEADLINE, context=c)
+    assert res.outcome == "completed"
+    assert dict(res.output) == {"status": True, "pending": True}
+    assert resolved == []
+
+
+def test_a_slow_key_resolve_never_holds_the_status_stage_past_its_budget(pem):
+    # Codex round 2: the board resolves the App through _app_within, bounded
+    import threading
+    import time
+
+    from culture_rules.node.status_board import StatusBoard
+    from tests.node.status_fixtures import fix_run
+
+    store = MemoryStore()
+    store.put("actors", {**actor_doc(repos=["o/r"]), "id": "github-app", "machine": "spark"})
+    store.put("runs", fix_run())
+    release = threading.Event()
+
+    def slow(ref):
+        release.wait(5)
+        return pem
+
+    port = GitHubCommentPort(store, transport=Fake(), secrets=slow)
+    port._board = StatusBoard(store, max_seconds=0.3, known=lambda: ())
+    started = time.monotonic()
+    port.status_tick("spark")
+    took = time.monotonic() - started
+    release.set()
+    assert took < 2.0
+    (doc,) = store.find("fixer_status_comments")
+    assert doc["last_error"] == "deadline_exceeded"
+    assert doc["state"] == "none"  # nothing was sent: posted on a later tick

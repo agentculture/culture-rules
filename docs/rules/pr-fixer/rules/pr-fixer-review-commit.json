@@ -6,9 +6,10 @@
     "only_at_chain_end": true,
     "params": {
       "actor": "github-app",
-      "body": "PR fixer review: {{ workflow.outputs.review }} for {{ workflow.outputs.commit_sha }} (gate {{ workflow.outputs.verdict }}); not pushed: nothing publishes it (review-only mode, or the repository has no test gate).\n\n{{ workflow.outputs.summary }}\n\nRun: https://rules.culture.dev/api/runs/{{ run.id }}",
+      "body": "PR fixer review: {{ workflow.outputs.review }} for {{ workflow.outputs.commit_sha }} (gate {{ workflow.outputs.verdict }}); not pushed: nothing publishes it (review-only mode, or the repository has no test gate).\n\n{{ workflow.outputs.summary }}",
       "number": "trigger.data.number",
-      "repo": "trigger.data.repository"
+      "repo": "trigger.data.repository",
+      "status": true
     },
     "retry": null,
     "timeout_s": null
@@ -78,9 +79,10 @@
     "only_at_chain_end": true,
     "params": {
       "actor": "github-app",
-      "body": "PR fixer handed back ({{ run.error.code }}): {{ run.error.message }}\n\nRun: https://rules.culture.dev/api/runs/{{ run.id }}",
+      "body": "PR fixer handed back ({{ run.error.code }}): {{ run.error.message }}",
       "number": "trigger.data.number",
-      "repo": "trigger.data.repository"
+      "repo": "trigger.data.repository",
+      "status": true
     },
     "retry": null,
     "timeout_s": null

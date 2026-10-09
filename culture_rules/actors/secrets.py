@@ -13,6 +13,11 @@ Two ways to use a secret:
   secret - else runs ``grant get NAME`` (argv list, no shell), which refuses hidden
   secrets. Pass a :class:`Redactor` to register the value so later log/export text can be
   scrubbed.
+* :func:`known_values` (d26) lists the secret values this process holds - every value
+  :func:`resolve` returned, every ``CULTURE_RULES_SECRET_*`` variable injected into its
+  environment, and every value passed to :func:`remember` - so text relayed in public
+  (the PR fixer's status comment) can be refused when it carries one. The values stay in
+  memory and are never logged.
 * :func:`run_with_secrets` / :func:`grant_run_argv` run a step's subprocess as
   ``grant run --inject VAR=NAME -- cmd args``, so the value never enters this process
   (the way to use hidden secrets).
@@ -37,7 +42,9 @@ __all__ = [
     "grant_run_argv",
     "injected_env_var",
     "is_secret_ref",
+    "known_values",
     "parse_ref",
+    "remember",
     "resolve",
     "resolve_or_literal",
     "run_with_secrets",
@@ -116,6 +123,27 @@ class Redactor:
         return obj
 
 
+_KNOWN: set[str] = set()
+_MIN_KNOWN_LEN = 8
+
+
+def remember(value: Any) -> None:
+    """Add a secret value this process holds to :func:`known_values` (d26)."""
+    if isinstance(value, str) and len(value.strip()) >= _MIN_KNOWN_LEN:
+        _KNOWN.add(value.strip())
+
+
+def known_values() -> frozenset[str]:
+    """The secret values this process holds (module doc): resolved, remembered, and the
+    ``CULTURE_RULES_SECRET_*`` variables of its environment."""
+    injected = {
+        v.strip()
+        for k, v in os.environ.items()
+        if k.startswith(INJECTED_PREFIX) and len(v.strip()) >= _MIN_KNOWN_LEN
+    }
+    return frozenset(_KNOWN | injected)
+
+
 def injected_env_var(name: str) -> str:
     """The environment variable a service unit injects grant secret ``name`` as."""
     return INJECTED_PREFIX + _NON_VAR_RE.sub("_", name).upper()
@@ -151,6 +179,7 @@ def resolve(
         raise
     except Exception as exc:  # noqa: BLE001 - never echo the underlying text: it may hold a value
         raise SecretError(f"cannot resolve secret reference {ref}: {type(exc).__name__}") from exc
+    remember(value)
     if redactor is not None:
         redactor.add(value)
     return value

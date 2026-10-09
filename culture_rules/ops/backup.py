@@ -109,9 +109,12 @@ RUN_COLLECTIONS = (
     "audit",
     "run_completions",
     "github_comment_once",
+    "fixer_status_comments",
 )
 """Run history, in scan order (module doc, "Run events and decision state"); last, the
-``github.comment`` once-key claims (d25), so a restore never posts a once comment again."""
+``github.comment`` once-key claims (d25), so a restore never posts a once comment again,
+and the PR fixer's status comments per chain (d26), so a restored chain edits its comment
+instead of posting another."""
 SNAPSHOT_INTERVAL = timedelta(hours=24)
 INCREMENT_INTERVAL = timedelta(hours=1)
 _SSE_MODES = ("AES256", "aws:kms")

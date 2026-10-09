@@ -83,7 +83,9 @@ def test_the_bundle_is_nine_disabled_rules_and_four_workflows():
         assert r.on_failure.kind == "github.comment"
         assert r.on_failure.only_at_chain_end
         assert r.on_failure.params["body"].startswith("PR fixer handed back (")
-        assert "{{ run.id }}" in r.action.params["body"]
+        # d26: the chain's status comment; the engine links the run that ended it
+        assert r.action.params["status"] is True
+        assert r.on_failure.params["status"] is True
     by = {r.id: r for r in b.rules}
     for rid, kind in TYPES.items():
         assert by[rid].trigger.params == {"type": kind}
