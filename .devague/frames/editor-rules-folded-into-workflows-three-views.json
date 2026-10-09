@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-09T09:29:21Z",
-  "updated": "2026-10-09T14:05:41Z",
+  "updated": "2026-10-09T15:21:19Z",
   "claims": [
     {
       "id": "c1",
@@ -682,7 +682,7 @@
         "t2"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l2",
@@ -693,7 +693,7 @@
         "t2"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l3",
@@ -704,7 +704,7 @@
         "t5"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l4",
@@ -715,7 +715,7 @@
         "t5"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l5",
@@ -726,7 +726,7 @@
         "t7"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l6",
@@ -737,7 +737,7 @@
         "t6"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l7",
@@ -748,7 +748,7 @@
         "t10"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l8",
@@ -759,7 +759,7 @@
         "t9"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l9",
@@ -770,7 +770,7 @@
         "t9"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     }
   ],
   "obligations": [
