@@ -873,15 +873,18 @@ repository) are rendered only when they have their expected shape. Run links
 and the hidden marker are built from validated engine values, never from
 the relayed text. Right before every post or edit the whole body is checked
 again: an untrusted section that holds a secret, alone or with the rest,
-becomes `[withheld]`. For that last check the engine's own sections lose
-their fixed literals (the run-link base `<public URL>/api/runs/`, the
-headline, `PR fixer finished.`): a piece a secret shares with the engine's
-wording is not a leak. Without this, a secret that held a fragment of the
+becomes `[withheld]`. For that last check the engine's own fixed literals
+(the run-link base `<public URL>/api/runs/`, the headline) lose their
+interior: each keeps its first and last 11 token characters, so a piece
+that crosses into a fact or relayed text still matches, and only a piece
+wholly inside the engine's public wording is not counted. Without this, a secret that held a fragment of the
 public hostname hid every body behind the fallback (seen live on
 culture-rules-tester#8). Such a secret is weak, so rotate it. Relayed text
 and engine facts are checked exactly as before. `CULTURE_RULES_PUBLIC_URL`
-must be a plain http(s) origin (no credentials, query or fragment), else the
-default is used.
+must be a plain http(s) origin (`scheme://host[:port][/path]`; no
+credentials, query, fragment, whitespace or control characters). It is
+rebuilt from its parts, and anything else falls back to the default with a
+warning.
 
 **Residual risk, plainly.** These checks stop accidents and the obvious
 leaks. An agent determined to exfiltrate through an encoding of its own

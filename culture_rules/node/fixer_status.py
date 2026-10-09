@@ -37,9 +37,9 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from urllib.parse import urlsplit
 
 from culture_rules.apps.public_text import (
+    WINDOW,
     WITHHELD,
     escape,
     inert_block,
@@ -101,32 +101,40 @@ DEFAULT_PUBLIC_URL = "https://rules.culture.dev"
 
 
 def public_url(raw: Any) -> str:
-    """``raw`` as the comment's link base when it is a plain http(s) origin (a host, an
-    optional port and path; no credentials, query or fragment), else the default."""
-    if not isinstance(raw, str) or not raw.strip():
+    """The comment's link base: ``raw`` rebuilt from its parts when it is a plain http(s)
+    origin (``scheme://host[:port][/path]``: an ASCII host name, IPv4 or bracketed IPv6;
+    a port of 1-65535; a path of safe characters; no credentials, query, fragment,
+    whitespace or control characters), else the default (with a warning when one was set)."""
+    if raw is None or (isinstance(raw, str) and not raw.strip()):
         return DEFAULT_PUBLIC_URL
-    try:
-        parts = urlsplit(raw.strip())
-        port_ok = parts.port is None or parts.port > 0
-    except ValueError:
-        return DEFAULT_PUBLIC_URL
-    plain = (
-        parts.scheme in ("https", "http")
-        and bool(parts.hostname)
-        and port_ok
-        and not parts.username
-        and not parts.password
-        and not parts.query
-        and not parts.fragment
-        and _URL_PATH.fullmatch(parts.path or "/")
-    )
-    if not plain:
+    url = _plain_origin(raw)
+    if url is None:
         log.warning("CULTURE_RULES_PUBLIC_URL is not a plain http(s) origin: using the default")
         return DEFAULT_PUBLIC_URL
-    return raw.strip().rstrip("/")
+    return url
 
 
-_URL_PATH = re.compile(r"/[A-Za-z0-9._~/-]*")
+def _plain_origin(raw: Any) -> str | None:
+    if not isinstance(raw, str):
+        return None
+    text = raw.strip()
+    match = _ORIGIN.fullmatch(text)
+    if match is None:
+        return None
+    port = match["port"]
+    if port is not None and not 0 < int(port) < 65536:
+        return None
+    host = match["host"].lower()
+    path = (match["path"] or "").rstrip("/")
+    return f"{match['scheme'].lower()}://{host}{':' + port if port else ''}{path}"
+
+
+_ORIGIN = re.compile(
+    r"(?P<scheme>[Hh][Tt][Tt][Pp][Ss]?)://"
+    r"(?P<host>[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?|\[[0-9A-Fa-f:.]{2,45}\])"
+    r"(?::(?P<port>[0-9]{1,5}))?"
+    r"(?P<path>/[A-Za-z0-9._~/-]{0,200})?"
+)
 PUBLIC_URL = public_url(os.environ.get("CULTURE_RULES_PUBLIC_URL"))
 """Where runs are linked from the comment (``<url>/api/runs/<id>``)."""
 MARKER = "<!-- culture-rules:fixer-status {} -->"
@@ -550,12 +558,27 @@ def _guard(
 
 
 def _without_literals(text: str) -> str:
-    """An engine section less the engine's own fixed wording (its link base, headline and
-    finished line): a piece a known secret shares with them is public, not a leak. Only
-    engine sections, only for the whole-body check; relayed text is checked as it is."""
-    for literal in _LITERALS:
-        text = text.replace(literal, "\n")
+    """An engine section with the interior of each of the engine's fixed literals (its link
+    base, headline) cut out, for the whole-body known-secret check only. A literal keeps its
+    first and last :data:`_EDGE` token characters, so every 12-character piece that crosses
+    its edge into a fact or relayed text still matches; only pieces wholly inside the
+    literal, which is public wording, drop out. The cut leaves a non-space mark, so a link
+    stays one URL for the views that remove URLs."""
+    for literal, collapsed in _COLLAPSED:
+        text = text.replace(literal, collapsed)
     return text
+
+
+def _collapse(literal: str) -> str:
+    tokens = [i for i, ch in enumerate(literal.lower()) if _TOKEN_CHAR.fullmatch(ch)]
+    if len(tokens) <= 2 * _EDGE:
+        return literal
+    return literal[: tokens[_EDGE - 1] + 1] + "~" + literal[tokens[-_EDGE] :]
+
+
+_EDGE = WINDOW - 1  # a crossing piece holds at most this many characters of a literal
+_TOKEN_CHAR = re.compile(r"[a-z0-9+/_-]")  # what compaction keeps (public_text._COMPACT)
+_COLLAPSED = tuple((lit, _collapse(lit)) for lit in _LITERALS)
 
 
 def _outcome(chain: Chain) -> str:

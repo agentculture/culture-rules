@@ -198,8 +198,18 @@ def test_the_public_url_must_be_a_plain_origin():
 
     assert public_url("https://rules.example.test/") == "https://rules.example.test"
     assert public_url("http://127.0.0.1:8791") == "http://127.0.0.1:8791"
+    assert public_url("HTTPS://Rules.Example.Test/base/") == "https://rules.example.test/base"
+    assert public_url("http://[::1]:8791") == "http://[::1]:8791"
     for bad in (
         "https://user:pw@rules.example.test",
+        "https://@rules.example.test",
+        "https://rules.example.test/\nabcdef0123456789",
+        "https://bad host",
+        "https://rules.example.test:",
+        "https://rules.example.test:70000",
+        "https://rules.example.test?",
+        "https://rules.example.test#",
+        "https://[::1",
         "https://rules.example.test/?token=x",
         "https://rules.example.test/#frag",
         "ftp://rules.example.test",
@@ -211,3 +221,10 @@ def test_the_public_url_must_be_a_plain_origin():
         "",
     ):
         assert public_url(bad) == DEFAULT_PUBLIC_URL, bad
+
+
+def test_a_secret_crossing_the_edge_of_an_engine_literal_is_still_caught():
+    # Codex round 2: removing a literal must not remove the pieces that cross its edges
+    assert plain_final("done", "run-cafe012345", ["runs/run-cafe"]).startswith("PR fixer finished")
+    assert "run-cafe" not in plain_final("done", "run-cafe012345", ["runs/run-cafe"])
+    assert "xyz" not in plain_final("xyz", "run-123", ["xyzrunhttps"])
