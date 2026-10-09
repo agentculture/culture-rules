@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { ApiError } from "../../api/client";
 import { failureMessage } from "../../api/settle";
+import { getRule } from "../../api/rules";
 import type { Rule } from "../../api/types";
 import { deleteWorkflowDef, type WorkflowDef } from "../../api/workflows";
 import { createD7Workflow, saveSharedEdit, type RuleWriteResult } from "../../fold/writes";
@@ -26,6 +27,20 @@ export interface D7OfferProps {
   takenIds: readonly string[];
   hrefFor: (workflowId: string) => string;
   onCreated?: (workflowId: string) => void;
+  /** Run the two writes at once, without waiting for a click (D7 for a just-created rule). */
+  autoStart?: boolean;
+}
+
+/**
+ * Where the rule points now. An orphan can hide a committed attach (a lost response whose
+ * reconciliation read failed), so every orphan step re-reads the rule before it acts.
+ */
+async function reread(ruleId: string): Promise<{ rule: Rule | null; error: unknown }> {
+  try {
+    return { rule: await getRule(ruleId), error: null };
+  } catch (error) {
+    return { rule: null, error };
+  }
 }
 
 /**
@@ -36,7 +51,7 @@ export interface D7OfferProps {
  * workflow is deleted again; if that fails too it is flagged as an orphan
  * with the actions that fix it (attach again, or delete it).
  */
-export function D7Offer({ rule, takenIds, hrefFor, onCreated }: Readonly<D7OfferProps>) {
+export function D7Offer({ rule, takenIds, hrefFor, onCreated, autoStart = false }: Readonly<D7OfferProps>) {
   const [name, setName] = useState(rule.name);
   const [used, setUsed] = useState<string[]>([]);
   const [id, setId] = useState(() => slugFor(rule.name, [...takenIds], "workflow"));
@@ -68,30 +83,53 @@ export function D7Offer({ rule, takenIds, hrefFor, onCreated }: Readonly<D7Offer
       setId(slugFor(wrapper.name, [...takenIds, ...taken], "workflow"));
       return setState({ phase: "idle", message: `${why}. The new workflow ${result.workflow.id} was deleted again.` });
     }
+    // The attach may have committed after all: look before calling it an orphan.
+    const now = await reread(rule.id);
+    if (now.rule?.workflow?.id === result.orphan.id) return done(result.orphan);
     setState({
       phase: "orphan",
       orphan: result.orphan,
-      snapshot: result.ruleResult.snapshot,
+      snapshot: now.rule ?? result.ruleResult.snapshot,
       message: `${result.orphan.id} was created but ${rule.name} does not use it: ${why}. Deleting it failed too (${errorText(result.cleanupError)}).`,
     });
   };
 
   const attach = async (orphan: WorkflowDef, snapshot: Rule) => {
     setState({ phase: "busy" });
-    const [result] = await saveSharedEdit([snapshot], { workflow: { id: orphan.id } });
+    // Re-read: the attach may have landed meanwhile, and the write must start from what is stored.
+    const now = await reread(rule.id);
+    if (now.rule?.workflow?.id === orphan.id) return done(orphan);
+    if (!now.rule) {
+      return setState({ phase: "orphan", orphan, snapshot, message: `${orphan.id} is still unused: ${rule.name} could not be re-read (${errorText(now.error)}).` });
+    }
+    const [result] = await saveSharedEdit([now.rule], { workflow: { id: orphan.id } });
     if (result.status === "saved") return done(orphan);
-    setState({ phase: "orphan", orphan, snapshot, message: `${orphan.id} is still unused: ${attachFailure(rule, orphan.id, result)}.` });
+    setState({ phase: "orphan", orphan, snapshot: now.rule, message: `${orphan.id} is still unused: ${attachFailure(rule, orphan.id, result)}.` });
   };
 
   const removeOrphan = async (orphan: WorkflowDef, snapshot: Rule) => {
     setState({ phase: "busy" });
+    // Never delete a workflow the rule turns out to use.
+    const now = await reread(rule.id);
+    if (now.rule?.workflow?.id === orphan.id) return done(orphan);
+    if (!now.rule) {
+      return setState({ phase: "orphan", orphan, snapshot, message: `${orphan.id} was kept: ${rule.name} could not be re-read to check it is unused (${errorText(now.error)}).` });
+    }
     try {
       await deleteWorkflowDef(orphan.id);
       setState({ phase: "idle", message: `Deleted the unused workflow ${orphan.id}.` });
     } catch (err) {
-      setState({ phase: "orphan", orphan, snapshot, message: `${orphan.id} is still unused; deleting it failed (${errorText(err)}).` });
+      setState({ phase: "orphan", orphan, snapshot: now.rule, message: `${orphan.id} is still unused; deleting it failed (${errorText(err)}).` });
     }
   };
+
+  const started = useRef(false);
+  useEffect(() => {
+    // Once per mount, even under StrictMode's double effects: a second run would create twice.
+    if (!autoStart || started.current) return;
+    started.current = true;
+    void create();
+  }, [autoStart]);
 
   return (
     <section className="fold-d7" aria-label={`${rule.name} has no workflow`}>

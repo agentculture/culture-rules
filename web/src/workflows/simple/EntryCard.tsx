@@ -1,5 +1,5 @@
 import { Fragment, useState } from "react";
-import type { Rule, Workflow } from "../../api/types";
+import type { Action, Rule, Workflow } from "../../api/types";
 import { AboutButton } from "../../components/AboutButton";
 import { Switch } from "../../culture-design/stages";
 import { predecessorTerms, type FoldEntry } from "../../fold/model";
@@ -9,7 +9,9 @@ import { relationsOf } from "../../rules/relations";
 import type { useRulesData } from "../../rules/useRulesData";
 import { EntryHistory } from "./EntryHistory";
 import { relationEdits } from "./relationEdits";
-import { conditionRows, fieldOf, placementWords, triggerParts, type ConditionRow } from "./text";
+import { useFocusReturn } from "./focus";
+import { RunsForm, SharedActionForm } from "./SharedForms";
+import { conditionRows, countsEdit, fieldOf, placementWords, rowText, triggerParts, withTerm, withoutTerm, type ConditionRow, type RunsEdit } from "./text";
 
 export type RulesData = ReturnType<typeof useRulesData>;
 
@@ -27,13 +29,13 @@ export interface EntryCardProps {
   conditionShared: boolean;
   /** This entry's values that differ from the workflow's (D3-D6), in words. */
   overrides: Override[];
-  /** The workflow's attempt budget, for "counts toward the 3 attempts". */
-  attempts: unknown;
   busy: boolean;
   historyTick: number;
   onCounts: (rule: Rule) => void;
   onPredecessor: (rule: Rule, workflowId: string) => void;
   onDelete: (rule: Rule) => void;
+  /** Write one field set to this entry's rule alone (an override), through the fold writes. */
+  onOverride: (rule: Rule, label: string, edit: Record<string, unknown>) => void;
 }
 
 const BoltIcon = () => (
@@ -55,7 +57,12 @@ const Chevron = () => (
 const kindClass = (kind: ConditionRow["leftKind"]) => `fold-term fold-term--${kind}`;
 
 /** "Only if all of": one row per all-term, its operands in mono, a `vars.` operand as a teal chip. */
-export function ConditionRows({ rows, label = "Only if all of" }: Readonly<{ rows: ConditionRow[]; label?: string }>) {
+export function ConditionRows({
+  rows,
+  label = "Only if all of",
+  busy = false,
+  onRemove,
+}: Readonly<{ rows: ConditionRow[]; label?: string; busy?: boolean; onRemove?: (row: ConditionRow) => void }>) {
   if (rows.length === 0) return null;
   return (
     <>
@@ -68,6 +75,19 @@ export function ConditionRows({ rows, label = "Only if all of" }: Readonly<{ row
             <span className={kindClass(row.leftKind)}>{row.left}</span>
             {row.op ? <span className="fold-condition__op">{row.op}</span> : null}
             {row.right ? <span className={kindClass(row.rightKind)}>{row.right}</span> : null}
+            {onRemove && row.node ? (
+              <button
+                type="button"
+                className="relationship__remove fold-condition__remove"
+                aria-label={`Remove condition ${rowText(row)}`}
+                disabled={busy}
+                onClick={() => onRemove(row)}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" aria-hidden="true">
+                  <path d="M6 6l12 12M18 6 6 18" />
+                </svg>
+              </button>
+            ) : null}
           </li>
         ))}
       </ul>
@@ -129,11 +149,16 @@ function InputsBound({ rule }: Readonly<{ rule: Rule }>) {
 }
 
 /** The expanded entry's body: everything the Rules tab showed and edited for this rule. */
-function EntryBody({ entry, data, conditionShared, overrides, attempts, busy, historyTick, onCounts, onPredecessor, onDelete }: Readonly<EntryCardProps>) {
+function EntryBody({ entry, data, conditionShared, overrides, busy, historyTick, onCounts, onPredecessor, onDelete, onOverride }: Readonly<EntryCardProps>) {
   const rule = entry.rule;
   const [editing, setEditing] = useState(false);
   const [adding, setAdding] = useState(false);
   const [history, setHistory] = useState(false);
+  const [overriding, setOverriding] = useState<"failure" | "runs" | null>(null);
+  const editButton = useFocusReturn<HTMLButtonElement>(editing);
+  const addButton = useFocusReturn<HTMLButtonElement>(adding);
+  const failureButton = useFocusReturn<HTMLButtonElement>(overriding === "failure");
+  const runsButton = useFocusReturn<HTMLButtonElement>(overriding === "runs");
   const { rules } = data;
   const { relate, unrelate, moveRelation } = relationEdits(data);
   const { outgoing, incoming } = relationsOf(rules, rule.id);
@@ -141,10 +166,19 @@ function EntryBody({ entry, data, conditionShared, overrides, attempts, busy, hi
   const [ordering, setOrdering] = useState(outgoing.length + incoming.length > 0);
   const nameOf = (id: string) => rules.find((r) => r.id === id)?.name ?? id;
   const trigger = triggerParts(rule.trigger);
+  // A continuation's predecessor term has its own control: never a row, never removed here (c32).
   const skip = entry.kind === "continuation" ? predecessorTerms(rule.condition) : [];
   const rows = conditionShared ? [] : conditionRows(rule.condition, skip);
   const counts = fieldOf(rule, "counts_toward_budget") !== false;
-  const budget = typeof attempts === "number" ? `the ${attempts} attempts` : "the attempt budget";
+  const own = fieldOf(rule, "max_attempts");
+  const budget = typeof own === "number" ? `the ${own} attempts` : "the attempt budget";
+  const canSwitch = countsEdit(rule) !== null;
+  const workflow = data.workflows.find((w) => w.id === entry.workflowId);
+  const type = rule.trigger.kind === "event" ? trigger.value || undefined : undefined;
+  const override = (label: string, edit: Record<string, unknown>) => {
+    setOverriding(null);
+    onOverride(rule, `${rule.name}: ${label}`, edit);
+  };
 
   return (
     <div className="fold-entry__body">
@@ -155,16 +189,33 @@ function EntryBody({ entry, data, conditionShared, overrides, attempts, busy, hi
       {entry.kind === "continuation" ? (
         <Predecessor entry={entry} workflows={data.workflows} busy={busy} onChange={(id) => onPredecessor(rule, id)} />
       ) : null}
-      <ConditionRows rows={rows} />
+      <ConditionRows
+        rows={rows}
+        onRemove={(row) => void data.save({ ...rule, condition: withoutTerm(rule.condition, row.node!) })}
+      />
       {conditionShared ? <p className="fold-entry__meta">Its condition is shared by every entry point.</p> : null}
 
-      {!rule.condition && !adding ? (
-        <button type="button" className="fold-add" aria-label="Add condition" onClick={() => setAdding(true)}>
+      {conditionShared ? null : (
+        <button
+          ref={addButton}
+          type="button"
+          className="fold-add"
+          aria-label="Add condition"
+          aria-expanded={adding}
+          onClick={() => setAdding((a) => !a)}
+        >
           <span aria-hidden="true">+</span> condition
         </button>
-      ) : null}
+      )}
       {adding ? (
-        <AddStageForm rule={rule} workflows={data.workflows} choice="condition" onSave={data.save} onCancel={() => setAdding(false)} />
+        // The Rules tab's condition form; its one new term joins this entry's own (and keeps the rest).
+        <AddStageForm
+          rule={rule}
+          workflows={data.workflows}
+          choice="condition"
+          onSave={(next) => data.save({ ...rule, condition: withTerm(rule.condition, next.condition!) })}
+          onCancel={() => setAdding(false)}
+        />
       ) : null}
 
       {overrides.length > 0 ? (
@@ -180,10 +231,61 @@ function EntryBody({ entry, data, conditionShared, overrides, attempts, busy, hi
       <div className="fold-entry__foot">
         <InputsBound rule={rule} />
         <span className="fold-entry__budget">
-          <Switch label="Counts toward the attempt budget" checked={counts} disabled={busy} onChange={() => onCounts(rule)} />
+          <Switch label="Counts toward the attempt budget" checked={counts} disabled={busy || !canSwitch} onChange={() => onCounts(rule)} />
           {counts ? `counts toward ${budget}` : `does not count toward ${budget}`}
+          {canSwitch ? null : <span className="fold-entry__meta"> (opting out needs a run key)</span>}
         </span>
       </div>
+
+      <div className="fold-entry__tools">
+        <span className="fold-entry__label">Only for this entry point:</span>
+        <button
+          ref={failureButton}
+          type="button"
+          className="fold-chip-button"
+          aria-expanded={overriding === "failure"}
+          aria-label={`On failure for ${rule.name}`}
+          onClick={() => setOverriding((o) => (o === "failure" ? null : "failure"))}
+        >
+          On failure
+        </button>
+        <button
+          ref={runsButton}
+          type="button"
+          className="fold-chip-button"
+          aria-expanded={overriding === "runs"}
+          aria-label={`Runs for ${rule.name}`}
+          onClick={() => setOverriding((o) => (o === "runs" ? null : "runs"))}
+        >
+          Run key and budget
+        </button>
+      </div>
+      {overriding === "failure" ? (
+        <SharedActionForm
+          label={`On failure for ${rule.name}`}
+          scope="this entry point"
+          value={rule.on_failure}
+          actors={data.actors}
+          triggerType={type}
+          workflow={workflow}
+          busy={busy}
+          onSave={(action: Action) => override("on failure", { on_failure: action })}
+          onRemove={rule.on_failure ? () => override("on failure", { on_failure: null }) : undefined}
+          onCancel={() => setOverriding(null)}
+        />
+      ) : null}
+      {overriding === "runs" ? (
+        <RunsForm
+          label={`Runs for ${rule.name}`}
+          scope="this entry point"
+          rules={[rule]}
+          runKey={fieldOf(rule, "concurrency_key")}
+          attempts={own}
+          busy={busy}
+          onSave={(edit: RunsEdit) => override("runs", { ...edit })}
+          onCancel={() => setOverriding(null)}
+        />
+      ) : null}
 
       <button
         type="button"
@@ -208,7 +310,14 @@ function EntryBody({ entry, data, conditionShared, overrides, attempts, busy, hi
       ) : null}
 
       <div className="fold-entry__tools">
-        <button type="button" className="btn" aria-label={`Edit ${rule.name}`} aria-pressed={editing} onClick={() => setEditing((e) => !e)}>
+        <button
+          ref={editButton}
+          type="button"
+          className="btn"
+          aria-label={`Edit ${rule.name}`}
+          aria-pressed={editing}
+          onClick={() => setEditing((e) => !e)}
+        >
           Edit
         </button>
         <AboutButton noun="rules" id={rule.id} name={rule.name} />

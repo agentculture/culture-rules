@@ -1,10 +1,11 @@
-import { useState, type ReactNode } from "react";
+import { forwardRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import type { Actor } from "../../api/actors";
 import type { Action, Rule, Workflow } from "../../api/types";
 import { predecessorTerms, type Continuation } from "../../fold/model";
+import { useFocusReturn } from "./focus";
 import { RunsForm, SharedActionForm } from "./SharedForms";
-import { actionBody, actionText, attemptsText, conditionRows, rowText, runEventWords, split, valueText } from "./text";
+import { actionBody, actionText, attemptsText, conditionRows, rowText, runEventWords, split, valueText, type Split } from "./text";
 
 export type Editing = "ends" | "failure" | "runs" | null;
 
@@ -49,14 +50,22 @@ function Card({
   );
 }
 
-function EditButton({ label, onClick }: Readonly<{ label: string; onClick: () => void }>) {
+const EditButton = forwardRef<HTMLButtonElement, { label: string; open: boolean; onClick: () => void }>(function EditButton(
+  { label, open, onClick },
+  ref,
+) {
   return (
-    <button type="button" className="fold-then__edit" aria-label={label} onClick={onClick}>
+    <button ref={ref} type="button" className="fold-then__edit" aria-label={label} aria-expanded={open} onClick={onClick}>
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         <path d="M4 20h4L19 9l-4-4L4 16v4z" />
       </svg>
     </button>
   );
+});
+
+/** The workflow's value in words, or that the entry points differ (each then shows its own). */
+function shown(s: Split, words: (value: unknown) => string): string {
+  return s.shared || s.baseline ? words(s.value) : "Differs per entry point";
 }
 
 /** Entry points whose value differs from the one shown for the workflow: name and own value. */
@@ -108,6 +117,8 @@ export interface ThenColumnProps {
   busy: boolean;
   hrefFor: (workflowId: string) => string;
   onFanOut: (label: string, edit: Record<string, unknown>) => void;
+  /** Per field, the value the last shared edit wrote: rules that did not take it are the overrides. */
+  baselines?: Record<string, { value: unknown }>;
 }
 
 /**
@@ -118,17 +129,21 @@ export interface ThenColumnProps {
  * once; entries that differ are listed as overrides. Editing writes every
  * entry point's rule, one at a time.
  */
-export function ThenColumn({ workflowId, rules, onward, workflows, actors, triggerType, busy, hrefFor, onFanOut }: Readonly<ThenColumnProps>) {
+export function ThenColumn({ workflowId, rules, onward, workflows, actors, triggerType, busy, hrefFor, onFanOut, baselines = {} }: Readonly<ThenColumnProps>) {
   const [editing, setEditing] = useState<Editing>(null);
+  const endsButton = useFocusReturn<HTMLButtonElement>(editing === "ends");
+  const failureButton = useFocusReturn<HTMLButtonElement>(editing === "failure");
+  const runsButton = useFocusReturn<HTMLButtonElement>(editing === "runs");
   const workflow = workflows.find((w) => w.id === workflowId);
   const nameOf = (id: string) => workflows.find((w) => w.id === id)?.name ?? id;
-  const ends = split(rules, "action");
-  const failure = split(rules, "on_failure");
-  const key = split(rules, "concurrency_key");
-  const attempts = split(rules, "max_attempts");
+  const ends = split(rules, "action", baselines.action);
+  const failure = split(rules, "on_failure", baselines.on_failure);
+  const key = split(rules, "concurrency_key", baselines.concurrency_key);
+  const attempts = split(rules, "max_attempts", baselines.max_attempts);
   const counted = rules.filter((r) => (r as unknown as Record<string, unknown>).counts_toward_budget !== false).length;
   const endsAction = ends.value as Action | null | undefined;
   const failAction = failure.value as Action | null | undefined;
+  const failDiffers = !failure.shared && !failure.baseline;
   const save = (label: string, edit: Record<string, unknown>) => {
     setEditing(null);
     onFanOut(label, edit);
@@ -152,10 +167,10 @@ export function ThenColumn({ workflowId, rules, onward, workflows, actors, trigg
         )}
       </Card>
 
-      <Card label="Ends here" icon={<CommentIcon />} edit={noEntries ? null : <EditButton label="Edit ends here" onClick={toggle("ends")} />}>
-        <span className="fold-then__value">{noEntries ? "No entry point starts it yet." : actionText(endsAction)}</span>
+      <Card label="Ends here" icon={<CommentIcon />} edit={noEntries ? null : <EditButton ref={endsButton} label="Edit ends here" open={editing === "ends"} onClick={toggle("ends")} />}>
+        <span className="fold-then__value">{noEntries ? "No entry point starts it yet." : shown(ends, (v) => actionText(v as Action | null | undefined))}</span>
         {actionBody(endsAction) ? <span className="fold-then__body">{actionBody(endsAction)}</span> : null}
-        {noEntries ? null : (
+        {noEntries || !(ends.shared || ends.baseline) ? null : (
           <span className="fold-then__note">
             {endsAction?.only_at_chain_end ? "Only when the chain ends here." : "After every run."}
           </span>
@@ -175,8 +190,10 @@ export function ThenColumn({ workflowId, rules, onward, workflows, actors, trigg
         ) : null}
       </Card>
 
-      <Card label="On failure" icon={<BackIcon />} tone="warn" edit={noEntries ? null : <EditButton label="Edit on failure" onClick={toggle("failure")} />}>
-        <span className="fold-then__value">{failAction ? actionText(failAction) : "Nothing runs on failure."}</span>
+      <Card label="On failure" icon={<BackIcon />} tone="warn" edit={noEntries ? null : <EditButton ref={failureButton} label="Edit on failure" open={editing === "failure"} onClick={toggle("failure")} />}>
+        <span className="fold-then__value">
+          {failDiffers ? "Differs per entry point" : failAction ? actionText(failAction) : "Nothing runs on failure."}
+        </span>
         {actionBody(failAction) ? <span className="fold-then__body">{actionBody(failAction)}</span> : null}
         {failAction?.only_at_chain_end ? <span className="fold-then__note">Once per chain.</span> : null}
         <Overrides items={failure.overrides.map((o) => ({ rule: o.rule, text: valueText("on_failure", o.value) }))} />
@@ -195,12 +212,15 @@ export function ThenColumn({ workflowId, rules, onward, workflows, actors, trigg
         ) : null}
       </Card>
 
-      <Card label="Runs" icon={<ClockIcon />} edit={noEntries ? null : <EditButton label="Edit runs" onClick={toggle("runs")} />}>
-        <span className="fold-then__value">{typeof key.value === "string" && key.value ? "One at a time per key" : "Runs side by side"}</span>
-        {typeof key.value === "string" && key.value ? <span className="fold-then__key">{key.value}</span> : null}
+      <Card label="Runs" icon={<ClockIcon />} edit={noEntries ? null : <EditButton ref={runsButton} label="Edit runs" open={editing === "runs"} onClick={toggle("runs")} />}>
+        <span className="fold-then__value">
+          {!key.shared && !key.baseline ? "Run key differs per entry point"
+            : typeof key.value === "string" && key.value ? "One at a time per key" : "Runs side by side"}
+        </span>
+        {(key.shared || key.baseline) && typeof key.value === "string" && key.value ? <span className="fold-then__key">{key.value}</span> : null}
         <span className="fold-then__words">
-          {attemptsText(attempts.value)}
-          {typeof attempts.value === "number" ? `, counted by ${counted} of ${rules.length} entry points` : ""}
+          {shown(attempts, attemptsText)}
+          {(attempts.shared || attempts.baseline) && typeof attempts.value === "number" ? `, counted by ${counted} of ${rules.length} entry points` : ""}
         </span>
         <Overrides
           items={[
@@ -210,10 +230,11 @@ export function ThenColumn({ workflowId, rules, onward, workflows, actors, trigg
         />
         {editing === "runs" ? (
           <RunsForm
+            rules={rules}
             runKey={key.value}
             attempts={attempts.value}
             busy={busy}
-            onSave={(edit) => save("Runs", edit)}
+            onSave={(edit) => save("Runs", { ...edit })}
             onCancel={() => setEditing(null)}
           />
         ) : null}

@@ -1,9 +1,13 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import type { Actor } from "../../api/actors";
-import type { Action, Machine, Placement, Workflow } from "../../api/types";
+import type { Action, Machine, Placement, Rule, Workflow } from "../../api/types";
 import GuidedNotice from "../../components/GuidedNotice";
 import { useEscapeKey } from "../../hooks/useEscapeKey";
 import ActionPicker, { actionProblem, blankAction } from "../../rules/ActionPicker";
+import { runsProblem, type RunsEdit } from "./text";
+
+/** Who a save writes: every entry point's rule (a shared value) or this entry's alone (an override). */
+export type Scope = "every entry point" | "this entry point";
 
 /**
  * The workflow-level forms of the Simple view. Each edits one value every
@@ -13,12 +17,13 @@ import ActionPicker, { actionProblem, blankAction } from "../../rules/ActionPick
  */
 function SharedForm({
   label,
+  scope = "every entry point",
   onSubmit,
   onCancel,
   busy,
   extra,
   children,
-}: Readonly<{ label: string; onSubmit: () => void; onCancel: () => void; busy: boolean; extra?: ReactNode; children: ReactNode }>) {
+}: Readonly<{ label: string; scope?: Scope; onSubmit: () => void; onCancel: () => void; busy: boolean; extra?: ReactNode; children: ReactNode }>) {
   const form = useRef<HTMLFormElement>(null);
   useEscapeKey(form, onCancel);
   useEffect(() => {
@@ -33,7 +38,7 @@ function SharedForm({
       {children}
       <div className="rule-form__actions">
         <button type="submit" className="btn btn--primary" disabled={busy}>
-          Save for every entry point
+          Save for {scope}
         </button>
         {extra}
         <button type="button" className="btn" onClick={onCancel}>
@@ -55,6 +60,7 @@ function withoutEmptyName(action: Action): Action {
 /** "Ends here" and "On failure": the Rules tab's ActionPicker, saved for every entry point. */
 export function SharedActionForm({
   label,
+  scope = "every entry point",
   value,
   actors,
   triggerType,
@@ -65,6 +71,7 @@ export function SharedActionForm({
   onCancel,
 }: Readonly<{
   label: string;
+  scope?: Scope;
   value: Action | null | undefined;
   actors: Actor[];
   triggerType?: string;
@@ -87,12 +94,13 @@ export function SharedActionForm({
   return (
     <SharedForm
       label={label}
+      scope={scope}
       busy={busy}
       onSubmit={submit}
       onCancel={onCancel}
       extra={onRemove ? (
         <button type="button" className="btn" disabled={busy} onClick={onRemove}>
-          Remove for every entry point
+          Remove for {scope}
         </button>
       ) : null}
     >
@@ -102,37 +110,60 @@ export function SharedActionForm({
   );
 }
 
-/** "Runs": the run key and the attempt budget every entry point shares. */
+/**
+ * "Runs": the run key and the attempt budget. Only the fields the author changed are sent, so
+ * an untouched field keeps every rule's own value (its overrides included); an edit the server
+ * would refuse for one of `rules` (validate.py: a rule outside the budget) is named, not sent.
+ */
 export function RunsForm({
+  label = "Runs",
+  scope = "every entry point",
+  rules,
   runKey,
   attempts,
   busy,
   onSave,
   onCancel,
 }: Readonly<{
+  label?: string;
+  scope?: Scope;
+  /** The rules the edit writes, for the server's rules on budgets. */
+  rules: readonly Rule[];
   runKey: unknown;
   attempts: unknown;
   busy: boolean;
-  onSave: (edit: { concurrency_key: string | null; max_attempts: number | null }) => void;
+  onSave: (edit: RunsEdit) => void;
   onCancel: () => void;
 }>) {
-  const [key, setKey] = useState(typeof runKey === "string" ? runKey : "");
-  const [limit, setLimit] = useState(typeof attempts === "number" ? String(attempts) : "");
+  const initialKey = typeof runKey === "string" ? runKey : "";
+  const initialLimit = typeof attempts === "number" ? String(attempts) : "";
+  const [key, setKey] = useState(initialKey);
+  const [limit, setLimit] = useState(initialLimit);
+  const [problem, setProblem] = useState<string | null>(null);
+  const submit = () => {
+    const edit: RunsEdit = {};
+    if (key.trim() !== initialKey) edit.concurrency_key = key.trim() || null;
+    if (limit.trim() !== initialLimit) edit.max_attempts = limit.trim() ? Number(limit) : null;
+    if (Object.keys(edit).length === 0) return onCancel();
+    const found = runsProblem(rules, edit);
+    setProblem(found);
+    if (!found) onSave(edit);
+  };
   return (
-    <SharedForm
-      label="Runs"
-      busy={busy}
-      onCancel={onCancel}
-      onSubmit={() => onSave({ concurrency_key: key.trim() || null, max_attempts: limit ? Number(limit) : null })}
-    >
+    <SharedForm label={label} scope={scope} busy={busy} onCancel={onCancel} onSubmit={submit}>
       <label>
         <span>Run key</span>
-        <input value={key} placeholder="pr:{trigger.data.repository}#{trigger.data.number}" onChange={(e) => setKey(e.target.value)} />
+        <input value={key} placeholder="No run key" onChange={(e) => setKey(e.target.value)} />
       </label>
       <label>
         <span>Attempts per key</span>
         <input type="number" min={1} step={1} value={limit} placeholder="No limit" onChange={(e) => setLimit(e.target.value)} />
       </label>
+      {problem ? (
+        <p className="notice notice--error" role="alert">
+          {problem}
+        </p>
+      ) : null}
     </SharedForm>
   );
 }

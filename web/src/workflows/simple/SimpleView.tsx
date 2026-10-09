@@ -23,20 +23,21 @@
  *     the fold writes too (savePredecessor, a one-rule shared edit);
  *   - a rule with no workflow is offered D7: a stepless workflow of its own.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLiveUpdates, type LiveChange } from "../../api/live";
 import type { Placement, Rule } from "../../api/types";
 import { deleteWorkflowDef, type WorkflowDef } from "../../api/workflows";
-import { foldModel, type Continuation, type FoldEntry } from "../../fold/model";
+import { foldModel, predecessorTerms, type Continuation, type FoldEntry } from "../../fold/model";
 import type { SharedRuleEdit } from "../../fold/writes";
-import { NewRuleForm } from "../../rules/Forms";
+import { AddStageForm, NewRuleForm } from "../../rules/Forms";
 import { StopRunsNotice } from "../../rules/StopRunsNotice";
 import { useRulesData } from "../../rules/useRulesData";
 import "../../rules/rules.css";
 import { D7Offer } from "./D7Offer";
 import { ConditionRows, EntryCard, type Override } from "./EntryCard";
 import { PlacementForm } from "./SharedForms";
-import { conditionRows, fieldOf, placementWords, split, triggerParts, valueText } from "./text";
+import { useFocusReturn } from "./focus";
+import { canonical, conditionRows, countsEdit, fieldOf, placementWords, split, triggerParts, valueText, withTerm, withoutTerm } from "./text";
 import { ThenColumn } from "./ThenColumn";
 import { useFanout } from "./useFanout";
 import { WriteResults } from "./WriteResults";
@@ -152,33 +153,50 @@ export function SimpleView({
   }, [liveCandidate, candidate]);
 
   const fanout = useFanout(refreshRules);
+  // Per field, the value the last shared edit wrote: until the next one, the rules that did not
+  // take it (a failed or skipped write) are the overrides, showing their old value.
+  const [baselines, setBaselines] = useState<Record<string, { value: unknown }>>({});
   const [placing, setPlacing] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [addingShared, setAddingShared] = useState(false);
+  const placeButton = useFocusReturn<HTMLButtonElement>(placing);
+  const createButton = useFocusReturn<HTMLButtonElement>(creating);
+  const sharedAddButton = useFocusReturn<HTMLButtonElement>(addingShared);
+  const undoButton = useRef<HTMLButtonElement>(null);
+  const [focusEntry, setFocusEntry] = useState<string | null>(null);
   const [deleted, setDeleted] = useState<{ rule: Rule; last: boolean } | null>(null);
   const [workflowNote, setWorkflowNote] = useState<string | null>(null);
 
-  const splits = useMemo(() => new Map(OVERRIDE_FIELDS.map((f) => [f, split(rules, f)])), [rules]);
-  const conditionShared = rules.length > 1 && rules.every((r) => r.condition && JSON.stringify(r.condition) === JSON.stringify(rules[0].condition));
+  const splits = useMemo(
+    () => new Map(OVERRIDE_FIELDS.map((f) => [f, split(rules, f, baselines[f])])),
+    [rules, baselines],
+  );
+  const conditionShared = rules.length > 1 && rules.every((r) => r.condition && canonical(r.condition) === canonical(rules[0].condition));
   const placement = splits.get("placement")!;
-  const attempts = splits.get("max_attempts")!.value;
   const types = [...new Set(rules.map((r) => (r.trigger.kind === "event" ? triggerParts(r.trigger).value : "")))];
   const onward = model.continuations.filter(
     (c) => c.workflowId !== workflowId && (c.fromWorkflowId === workflowId || c.predecessor.kind === "any"
       || (c.predecessor.kind === "ambiguous" && c.predecessor.workflowIds.includes(workflowId))),
   );
 
-  const fanOut = (label: string, edit: Record<string, unknown>) =>
+  const fanOut = (label: string, edit: Record<string, unknown>) => {
+    setBaselines((b) => ({ ...b, ...Object.fromEntries(Object.entries(edit).map(([f, value]) => [f, { value }])) }));
     void fanout.fanOut(label, rules, edit as SharedRuleEdit);
-  const counts = (rule: Rule) =>
-    void fanout.fanOut(`${rule.name}: attempt counting`, [rule], {
-      counts_toward_budget: fieldOf(rule, "counts_toward_budget") === false,
-    } as SharedRuleEdit);
+  };
+  /** One entry's own value: a one-rule write through the fold writes, so it becomes an override. */
+  const override = (rule: Rule, label: string, edit: Record<string, unknown>) =>
+    void fanout.fanOut(label, [rule], edit as SharedRuleEdit);
+  const counts = (rule: Rule) => {
+    const edit = countsEdit(rule);
+    if (edit) override(rule, `${rule.name}: attempt counting`, edit);
+  };
   const predecessor = (rule: Rule, id: string) => void fanout.predecessor(`${rule.name}: continues from`, rule, id);
 
   const remove = async (rule: Rule) => {
     const last = entries.length === 1 && entries[0].rule.id === rule.id;
     if (!(await data.remove(rule))) return;
     setDeleted({ rule, last });
+    requestAnimationFrame(() => undoButton.current?.focus());
     if (open === rule.id) setOpen(entries.find((e) => e.rule.id !== rule.id)?.rule.id ?? null);
   };
   const undo = async () => {
@@ -187,6 +205,7 @@ export function SimpleView({
     if (doc) {
       setDeleted(null);
       setOpen(doc.id);
+      setFocusEntry(doc.id);
     }
   };
   const deleteWorkflow = async () => {
@@ -211,8 +230,18 @@ export function SimpleView({
     return made !== null;
   };
 
+  // After an undo, focus lands on the restored entry point's own toggle.
+  useEffect(() => {
+    if (!focusEntry) return;
+    const button = document.querySelector<HTMLElement>(`[data-rule-id="${CSS.escape(focusEntry)}"] .fold-entry__expand`);
+    if (!button) return;
+    button.focus();
+    setFocusEntry(null);
+  });
+
   const alerts = [...data.loadErrors, ...(data.notice ? [data.notice] : [])];
-  const sharedCondition = conditionShared ? conditionRows(rules[0].condition) : [];
+  // A shared condition's continuation term (identical on every entry) is never a removable row (c32).
+  const sharedCondition = conditionShared ? conditionRows(rules[0].condition, predecessorTerms(rules[0].condition)) : [];
 
   return (
     <section className="fold-simple" aria-label="Simple view" data-live-flash={live.flash || undefined}>
@@ -227,7 +256,7 @@ export function SimpleView({
       {deleted ? (
         <output className="notice notice--undo">
           <span>Deleted {deleted.rule.name}</span>
-          <button type="button" className="btn" onClick={() => void undo()}>
+          <button ref={undoButton} type="button" className="btn" onClick={() => void undo()}>
             Undo
           </button>
           {offerWorkflowDelete ? (
@@ -260,7 +289,7 @@ export function SimpleView({
         <section className="fold-col fold-col--when" aria-labelledby={`${workflowId}-when`}>
           <div className="fold-col__head">
             <h2 id={`${workflowId}-when`} className="fold-col__title">When</h2>
-            <button type="button" className="fold-add fold-add--big" aria-pressed={creating} onClick={() => setCreating((c) => !c)}>
+            <button ref={createButton} type="button" className="fold-add fold-add--big" aria-pressed={creating} onClick={() => setCreating((c) => !c)}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true">
                 <path d="M12 5v14M5 12h14" />
               </svg>
@@ -278,8 +307,17 @@ export function SimpleView({
 
           {rules.length > 0 ? (
             <div role="group" aria-label="Shared by every entry point" className="fold-shared">
-              <button type="button" className="fold-shared__placement" aria-expanded={placing} onClick={() => setPlacing((p) => !p)}>
-                evaluates {placementWords(placement.value as Placement | null | undefined)} <span aria-hidden="true">▾</span>
+              <button
+                ref={placeButton}
+                type="button"
+                className="fold-shared__placement"
+                aria-expanded={placing}
+                onClick={() => setPlacing((p) => !p)}
+              >
+                {placement.shared || placement.baseline
+                  ? `evaluates ${placementWords(placement.value as Placement | null | undefined)}`
+                  : "evaluates: differs per entry point"}{" "}
+                <span aria-hidden="true">▾</span>
               </button>
               <span className="fold-shared__count">{overrideCount(placement.overrides.length)}</span>
               {placing ? (
@@ -294,7 +332,38 @@ export function SimpleView({
                   onCancel={() => setPlacing(false)}
                 />
               ) : null}
-              <ConditionRows rows={sharedCondition} label="Every entry point only if all of" />
+              {conditionShared ? (
+                <>
+                  <ConditionRows
+                    rows={sharedCondition}
+                    label="Every entry point only if all of"
+                    busy={fanout.busy}
+                    onRemove={(row) => fanOut("Condition", { condition: withoutTerm(rules[0].condition, row.node!) })}
+                  />
+                  <button
+                    ref={sharedAddButton}
+                    type="button"
+                    className="fold-add"
+                    aria-label="Add a condition for every entry point"
+                    aria-expanded={addingShared}
+                    onClick={() => setAddingShared((a) => !a)}
+                  >
+                    <span aria-hidden="true">+</span> condition for every entry point
+                  </button>
+                  {addingShared ? (
+                    <AddStageForm
+                      rule={rules[0]}
+                      workflows={data.workflows}
+                      choice="condition"
+                      onSave={async (next) => {
+                        fanOut("Condition", { condition: withTerm(rules[0].condition, next.condition!) });
+                        return true;
+                      }}
+                      onCancel={() => setAddingShared(false)}
+                    />
+                  ) : null}
+                </>
+              ) : null}
             </div>
           ) : null}
 
@@ -307,12 +376,12 @@ export function SimpleView({
               data={data}
               conditionShared={conditionShared}
               overrides={overridesOf(e.rule, splits)}
-              attempts={attempts}
               busy={fanout.busy}
               historyTick={historyTick}
               onCounts={counts}
               onPredecessor={predecessor}
               onDelete={(rule) => void remove(rule)}
+              onOverride={override}
             />
           ))}
           {data.loaded && entries.length === 0 ? (
@@ -332,6 +401,7 @@ export function SimpleView({
           busy={fanout.busy}
           hrefFor={hrefFor}
           onFanOut={fanOut}
+          baselines={baselines}
         />
       </div>
     </section>

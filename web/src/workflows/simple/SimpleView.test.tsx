@@ -3,11 +3,12 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetAgentState } from "../../agent-state/store";
-import type { Rule } from "../../api/types";
+import type { Condition, Rule } from "../../api/types";
 import { SELECTED_RULE_ID } from "../../fixtures/rules-fixture";
 import { createFakeApi, fetchFor, handle, withActiveRuns, type FakeApi } from "../../rules/fake-api";
 import Rules from "../../routes/Rules";
 import { FOLD_RULES, FOLD_WORKFLOWS, ON_FAILURE, RUN_KEY } from "./fixture";
+import NewRule from "./NewRule";
 import SimpleView, { type SimpleViewProps } from "./SimpleView";
 
 type User = ReturnType<typeof userEvent.setup>;
@@ -167,7 +168,7 @@ describe("Then: continues into, ends here, on failure, runs", () => {
 });
 
 describe("shared values once, differing ones per entry", () => {
-  it("marks an entry whose value differs as an override, with its own value", async () => {
+  it("a value is shared only when every entry holds it identically; otherwise each entry shows its own", async () => {
     use(foldApi((rules) => {
       rules[1].placement = { machine: "thor" };
       rules[3].action = { ...rules[3].action, name: "Say the refix ended" };
@@ -175,18 +176,26 @@ describe("shared values once, differing ones per entry", () => {
     const user = userEvent.setup();
     renderSimple();
     await findEntry("Checks settled, not green");
+    // three on spark2, one on thor: no majority wins, every entry carries its own placement
     const shared = screen.getByRole("group", { name: "Shared by every entry point" });
-    expect(shared).toHaveTextContent("evaluates on spark2");
-    expect(shared).toHaveTextContent("1 override");
-    expect(entry("Trusted PR comment")).toHaveTextContent("override");
-    expect(entry("Checks settled, not green")).not.toHaveTextContent("override");
-
+    expect(shared).toHaveTextContent("evaluates: differs per entry point");
+    expect(shared).not.toHaveTextContent("spark2");
+    expect(shared).toHaveTextContent("4 overrides");
+    for (const name of ["Trusted PR comment", "Trusted review", "Review asked for changes"]) {
+      expect(entry(name)).toHaveTextContent("override");
+    }
+    expect(within(entry("Checks settled, not green")).getByRole("list", { name: "Overrides" })).toHaveTextContent("evaluates on spark2");
     const comment = await expand(user, "Trusted PR comment");
     expect(within(comment).getByRole("list", { name: "Overrides" })).toHaveTextContent("evaluates on thor");
 
     const ends = then("Ends here");
-    expect(ends).toHaveTextContent("Comment when the chain ends here");
-    expect(within(ends).getByRole("list", { name: "Overrides" })).toHaveTextContent("Review asked for changes: Say the refix ended");
+    expect(ends).toHaveTextContent("Differs per entry point");
+    const listed = within(ends).getByRole("list", { name: "Overrides" });
+    expect(within(listed).getAllByRole("listitem")).toHaveLength(4);
+    expect(listed).toHaveTextContent("Review asked for changes: Say the refix ended");
+    expect(listed).toHaveTextContent("Checks settled, not green: Comment when the chain ends here");
+    // the run key is identical everywhere: shared, no overrides
+    expect(within(then("Runs")).queryByRole("list", { name: "Overrides" })).not.toBeInTheDocument();
   });
 });
 
@@ -323,9 +332,21 @@ describe("one entry point, one rule", () => {
     await user.click(within(first).getByRole("switch", { name: "Counts toward the attempt budget" }));
     await waitFor(() => expect(sent("PUT", "/rules/pr-fixer-checks")).toHaveLength(1));
     expect(writes()).toHaveLength(1);
-    expect(sent("PUT", "/rules/pr-fixer-checks")[0].body).toEqual({ ...FOLD_RULES[0], counts_toward_budget: false });
+    // validate.py: a rule outside the budget keeps its run key and may not set max_attempts
+    expect(sent("PUT", "/rules/pr-fixer-checks")[0].body).toEqual({ ...FOLD_RULES[0], counts_toward_budget: false, max_attempts: null });
     await waitFor(() => expect(within(entry("Checks settled, not green")).getByRole("switch", { name: "Counts toward the attempt budget" }))
       .toHaveAttribute("aria-checked", "false"));
+  });
+
+  it("the attempt-budget switch cannot opt out a rule with no run key", async () => {
+    const user = userEvent.setup();
+    renderSimple({ workflowId: "publish-fix", entry: "any-failure" });
+    const any = await findEntry("Any run failed");
+    const sw = within(any).getByRole("switch", { name: "Counts toward the attempt budget" });
+    expect(sw).toHaveAttribute("aria-disabled", "true");
+    expect(any).toHaveTextContent("opting out needs a run key");
+    await user.click(sw);
+    expect(writes()).toHaveLength(0);
   });
 
   it("adds an entry point: a new rule that starts this workflow", async () => {
@@ -589,5 +610,290 @@ describe("deleting entry points", () => {
     await user.click(screen.getByRole("button", { name: "Undo" }));
     expect(await findEntry("Checks settled, not green")).toBeInTheDocument();
     expect(sent("POST", "/rules/pr-fixer-checks/restore")).toHaveLength(1);
+  });
+});
+
+const KEY_OF = (id: string) => (api.rules.find((r) => r.id === id) as Rule & { concurrency_key?: string }).concurrency_key;
+
+describe("review follow-up: shared values, budgets and run edits", () => {
+  it("after a partial failure, the failed rule is the override with its old value, even when it came first", async () => {
+    api.failNext["PUT /rules/pr-fixer-checks"] = failure;
+    const user = userEvent.setup();
+    renderSimple();
+    await editRunKey(user, "pr:{trigger.data.number}");
+    await screen.findByRole("region", { name: "Save results" });
+    await waitFor(() => expect(within(then("Runs")).getByRole("list", { name: "Overrides" }))
+      .toHaveTextContent(`Checks settled, not green: ${RUN_KEY}`));
+    const overrides = within(within(then("Runs")).getByRole("list", { name: "Overrides" })).getAllByRole("listitem");
+    expect(overrides).toHaveLength(1);
+    expect(then("Runs")).toHaveTextContent("pr:{trigger.data.number}");
+    expect(within(entry("Checks settled, not green")).getByRole("list", { name: "Overrides" })).toHaveTextContent(`run key: ${RUN_KEY}`);
+    expect(entry("Trusted PR comment")).not.toHaveTextContent("override");
+  });
+
+  it("editing the run key sends only the run key, never an untouched budget", async () => {
+    use(foldApi((rules) => { (rules[1] as Rule & { max_attempts?: number }).max_attempts = 5; }));
+    const user = userEvent.setup();
+    renderSimple();
+    await editRunKey(user, "pr:{trigger.data.number}");
+    await waitFor(() => expect(writes().filter((c) => c.method === "PUT")).toHaveLength(4));
+    const comment = sent("PUT", "/rules/pr-fixer-comment")[0].body as Rule & { max_attempts?: number };
+    expect(comment.max_attempts).toBe(5);
+    expect(KEY_OF("pr-fixer-comment")).toBe("pr:{trigger.data.number}");
+  });
+
+  it("refuses a budget on a rule outside the attempt budget, and says why", async () => {
+    const user = userEvent.setup();
+    renderSimple({ workflowId: "review-commit" });
+    await findEntry("Review the fix");
+    await user.click(within(then("Runs")).getByRole("button", { name: "Edit runs" }));
+    const form = screen.getByRole("form", { name: "Runs" });
+    await user.type(within(form).getByLabelText("Attempts per key"), "3");
+    await user.click(within(form).getByRole("button", { name: "Save for every entry point" }));
+    expect(within(form).getByRole("alert")).toHaveTextContent("does not count toward the attempt budget");
+    expect(writes()).toHaveLength(0);
+  });
+
+  it("an entry's own failure action, run key and budget are editable for that entry alone", async () => {
+    const user = userEvent.setup();
+    renderSimple();
+    const first = await findEntry("Checks settled, not green");
+    await user.click(within(first).getByRole("button", { name: "Runs for Checks settled, not green" }));
+    const runs = screen.getByRole("form", { name: "Runs for Checks settled, not green" });
+    await user.clear(within(runs).getByLabelText("Attempts per key"));
+    await user.type(within(runs).getByLabelText("Attempts per key"), "2");
+    await user.click(within(runs).getByRole("button", { name: "Save for this entry point" }));
+    await waitFor(() => expect(sent("PUT", "/rules/pr-fixer-checks")).toHaveLength(1));
+    expect(writes()).toHaveLength(1);
+    expect(sent("PUT", "/rules/pr-fixer-checks")[0].body).toEqual({ ...FOLD_RULES[0], max_attempts: 2 });
+    // now an override of the budget, shown as such
+    await waitFor(() => expect(within(then("Runs")).getByRole("list", { name: "Overrides" })).toHaveTextContent("Checks settled, not green: 2 attempts per key"));
+
+    await user.click(within(entry("Checks settled, not green")).getByRole("button", { name: "On failure for Checks settled, not green" }));
+    const fail = screen.getByRole("form", { name: "On failure for Checks settled, not green" });
+    await user.click(within(fail).getByRole("button", { name: "Remove for this entry point" }));
+    await waitFor(() => expect(sent("PUT", "/rules/pr-fixer-checks")).toHaveLength(2));
+    expect((sent("PUT", "/rules/pr-fixer-checks")[1].body as Rule).on_failure).toBeNull();
+    expect(writes()).toHaveLength(2);
+  });
+});
+
+describe("review follow-up: conditions", () => {
+  it("an entry's existing condition terms can be removed and added to, one PUT each", async () => {
+    const user = userEvent.setup();
+    renderSimple();
+    const first = await findEntry("Checks settled, not green");
+    await user.click(within(first).getByRole("button", { name: "Remove condition draft = false" }));
+    await waitFor(() => expect(sent("PUT", "/rules/pr-fixer-checks")).toHaveLength(1));
+    const guard = (FOLD_RULES[0].condition as { args: Condition[] }).args;
+    expect((sent("PUT", "/rules/pr-fixer-checks")[0].body as Rule).condition).toEqual({ op: "and", args: [guard[0], guard[2], guard[3]] });
+
+    await waitFor(() => expect(within(entry("Checks settled, not green")).getAllByRole("listitem").length).toBeGreaterThan(0));
+    await user.click(within(entry("Checks settled, not green")).getByRole("button", { name: "Add condition" }));
+    const form = screen.getByRole("form", { name: "Add condition" });
+    await user.type(within(form).getByLabelText("Variable"), "branch");
+    await user.type(within(form).getByLabelText("Value"), "main");
+    await user.click(within(form).getByRole("button", { name: "Add" }));
+    await waitFor(() => expect(sent("PUT", "/rules/pr-fixer-checks")).toHaveLength(2));
+    expect((sent("PUT", "/rules/pr-fixer-checks")[1].body as Rule).condition).toEqual({
+      op: "and",
+      args: [guard[0], guard[2], guard[3], { op: "compare", cmp: "==", left: { var: "branch" }, right: { literal: "main" } }],
+    });
+    expect(writes().every((c) => c.path === "/rules/pr-fixer-checks")).toBe(true);
+  });
+
+  it("a continuation's own terms are editable; its data.workflow_id term is never a removable row", async () => {
+    const user = userEvent.setup();
+    renderSimple({ entry: "pr-fixer-refix" });
+    const refix = await findEntry("Review asked for changes");
+    expect(within(refix).queryByRole("button", { name: /Remove condition workflow_id/ })).not.toBeInTheDocument();
+    await user.click(within(refix).getByRole("button", { name: 'Remove condition outputs.review = "request_changes"' }));
+    await waitFor(() => expect(sent("PUT", "/rules/pr-fixer-refix")).toHaveLength(1));
+    expect((sent("PUT", "/rules/pr-fixer-refix")[0].body as Rule).condition).toEqual({
+      op: "compare", cmp: "==", left: { field: "data.workflow_id" }, right: { literal: "review-commit" },
+    });
+    // still linked from review-commit
+    await waitFor(() => expect(within(entry("Review asked for changes")).getByLabelText("Continues from")).toHaveValue("review-commit"));
+  });
+
+  it("a shared condition is edited once for every entry point and keeps each continuation's predecessor term (c32)", async () => {
+    use(foldApi((rules) => {
+      const publish = rules.find((r) => r.id === "pr-fixer-publish")!;
+      rules.splice(rules.findIndex((r) => r.id === "any-failure"), 1, { ...structuredClone(publish), id: "publish-2", name: "Publish again" });
+    }));
+    const user = userEvent.setup();
+    renderSimple({ workflowId: "publish-fix" });
+    await findEntry("Publish when approved");
+    const shared = screen.getByRole("group", { name: "Shared by every entry point" });
+    const rows = within(shared).getByRole("list", { name: "Every entry point only if all of" });
+    expect(within(rows).getAllByRole("listitem").map((li) => li.textContent)).toEqual(['outputs.review="approve"']);
+
+    await user.click(within(shared).getByRole("button", { name: "Add a condition for every entry point" }));
+    const form = screen.getByRole("form", { name: "Add condition" });
+    await user.type(within(form).getByLabelText("Variable"), "branch");
+    await user.type(within(form).getByLabelText("Value"), "main");
+    await user.click(within(form).getByRole("button", { name: "Add" }));
+    await waitFor(() => expect(writes()).toHaveLength(2));
+    for (const put of writes()) {
+      const args = ((put.body as Rule).condition as { args: Condition[] }).args;
+      expect(args[0]).toEqual({ op: "compare", cmp: "==", left: { field: "data.workflow_id" }, right: { literal: "review-commit" } });
+      expect(args).toHaveLength(3);
+    }
+
+    await waitFor(() => expect(within(screen.getByRole("group", { name: "Shared by every entry point" }))
+      .getAllByRole("button", { name: /^Remove condition/ })).toHaveLength(2));
+    await user.click(within(screen.getByRole("group", { name: "Shared by every entry point" }))
+      .getByRole("button", { name: 'Remove condition outputs.review = "approve"' }));
+    await waitFor(() => expect(writes()).toHaveLength(4));
+    for (const put of writes().slice(2)) {
+      const args = ((put.body as Rule).condition as { args: Condition[] }).args;
+      expect(args).toEqual([
+        { op: "compare", cmp: "==", left: { field: "data.workflow_id" }, right: { literal: "review-commit" } },
+        { op: "compare", cmp: "==", left: { var: "branch" }, right: { literal: "main" } },
+      ]);
+    }
+  });
+});
+
+describe("review follow-up: focus returns", () => {
+  it("to the opener after cancel or save, and to the restored entry after undo", async () => {
+    const user = userEvent.setup();
+    renderSimple();
+    const first = await findEntry("Checks settled, not green");
+    const edit = within(first).getByRole("button", { name: "Edit Checks settled, not green" });
+    await user.click(edit);
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(edit).toHaveFocus());
+
+    const runs = within(then("Runs")).getByRole("button", { name: "Edit runs" });
+    await user.click(runs);
+    await user.click(within(screen.getByRole("form", { name: "Runs" })).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(runs).toHaveFocus());
+    await user.click(runs);
+    await user.click(within(screen.getByRole("form", { name: "Runs" })).getByRole("button", { name: "Save for every entry point" }));
+    await waitFor(() => expect(runs).toHaveFocus());
+
+    await user.click(within(entry("Checks settled, not green")).getByRole("button", { name: "Delete Checks settled, not green" }));
+    const undo = await screen.findByRole("button", { name: "Undo" });
+    await waitFor(() => expect(undo).toHaveFocus());
+    await user.click(undo);
+    await waitFor(() => expect(within(entry("Checks settled, not green")).getByRole("button", { name: "Collapse Checks settled, not green" })).toHaveFocus());
+  });
+});
+
+describe("review follow-up: D7 when the attach may have committed", () => {
+  /** The PUT commits but its answer is lost (503), and the reconciliation re-read (the third GET: check, check-before-write, reconcile) fails. */
+  function lostAttach() {
+    const base = fetchFor(api);
+    let reads = 0;
+    vi.stubGlobal("fetch", (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      if (method === "PUT" && url.endsWith("/rules/lone-alert")) {
+        await base(input, init);
+        return new Response(JSON.stringify({ error: { code: "bad_gateway", message: "lost", errors: [] } }), { status: 503 });
+      }
+      if (method === "GET" && url.endsWith("/rules/lone-alert") && ++reads === 3) {
+        return new Response(JSON.stringify({ error: { code: "store_down", message: "down", errors: [] } }), { status: 503 });
+      }
+      return base(input, init);
+    }) as typeof fetch);
+  }
+
+  it("re-reads the rule before calling it an orphan, and shows it attached when it is", async () => {
+    lostAttach();
+    const onCreated = vi.fn();
+    const user = userEvent.setup();
+    renderSimple({ entry: "lone-alert", onCreated });
+    const offer = await screen.findByRole("region", { name: "Lone alert has no workflow" });
+    await user.click(within(offer).getByRole("button", { name: "Create its workflow" }));
+    expect(await within(offer).findByText(/Lone alert now starts/)).toBeInTheDocument();
+    expect(onCreated).toHaveBeenCalledWith("lone-alert");
+    expect(sent("DELETE", "/workflows/lone-alert")).toHaveLength(0);
+  });
+
+  it("Attach re-reads the rule and writes from what is stored now", async () => {
+    api.failNext["PUT /rules/lone-alert"] = { status: 422, code: "invalid_rule", message: "refused" };
+    api.failNext["DELETE /workflows/lone-alert"] = failure;
+    const user = userEvent.setup();
+    renderSimple({ entry: "lone-alert" });
+    const offer = await screen.findByRole("region", { name: "Lone alert has no workflow" });
+    await user.click(within(offer).getByRole("button", { name: "Create its workflow" }));
+    await within(offer).findByRole("alert");
+    // someone renames the rule meanwhile: the attach starts from that version, not the old snapshot
+    Object.assign(api.rules.find((r) => r.id === "lone-alert")!, { name: "Lone alert (renamed)", updated_at: "2026-10-09T13:00:00Z" });
+    await user.click(within(offer).getByRole("button", { name: "Attach Lone alert to lone-alert" }));
+    expect(await within(offer).findByText(/now starts/)).toBeInTheDocument();
+    const last = sent("PUT", "/rules/lone-alert").at(-1)!.body as Rule;
+    expect(last).toMatchObject({ name: "Lone alert (renamed)", workflow: { id: "lone-alert" } });
+  });
+});
+
+describe("creating rules once the Rules tab is gone", () => {
+  it("+ Entry point sends the Rules tab's create body, with this workflow preset", async () => {
+    const fill = async (user: User) => {
+      const form = screen.getByRole("form", { name: "New rule" });
+      await user.type(within(form).getByLabelText("Name"), "PR opened");
+      await user.selectOptions(within(form).getByLabelText("Surface"), "github-app");
+      await user.selectOptions(within(form).getByLabelText("Event"), "github.pr.opened");
+      await user.click(within(form).getByRole("button", { name: "Create rule" }));
+    };
+    use(createFakeApi(NOW));
+    let user = userEvent.setup();
+    const tab = render(
+      <MemoryRouter initialEntries={["/rules/train-batch"]}>
+        <Routes><Route path="/rules/:ruleId?" element={<Rules />} /></Routes>
+      </MemoryRouter>,
+    );
+    await user.click(await screen.findByRole("button", { name: "New rule" }));
+    await fill(user);
+    await waitFor(() => expect(sent("POST", "/rules")).toHaveLength(1));
+    const fromTab = sent("POST", "/rules")[0].body as Rule;
+    tab.unmount();
+
+    use(createFakeApi(NOW));
+    user = userEvent.setup();
+    render(<MemoryRouter><SimpleView workflowId="build-image" /></MemoryRouter>);
+    await findEntry("Build and publish");
+    await user.click(screen.getByRole("button", { name: "Entry point" }));
+    await fill(user);
+    await waitFor(() => expect(sent("POST", "/rules")).toHaveLength(1));
+    expect(sent("POST", "/rules")[0].body).toEqual({ ...fromTab, workflow: { id: "build-image", inputs: {} } });
+  });
+
+  it("New rule creates the rule, then gives it a stepless workflow at once (D7) and reports its id", async () => {
+    const onCreated = vi.fn();
+    const user = userEvent.setup();
+    render(<MemoryRouter><NewRule onCreated={onCreated} onCancel={vi.fn()} /></MemoryRouter>);
+    const form = await screen.findByRole("form", { name: "New rule" });
+    await waitFor(() => expect(sent("GET", "/workflows")).toHaveLength(1));
+    await user.type(within(form).getByLabelText("Name"), "Push seen");
+    await user.selectOptions(within(form).getByLabelText("Surface"), "github-app");
+    await user.selectOptions(within(form).getByLabelText("Event"), "github.push");
+    await user.click(within(form).getByRole("button", { name: "Create rule" }));
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith("push-seen"));
+    expect(writes().map((c) => `${c.method} ${c.path}`)).toEqual(["POST /rules", "POST /workflows", "PUT /rules/push-seen"]);
+    expect(writes()[1].body).toEqual({ id: "push-seen", name: "Push seen", steps: [], edges: [] });
+    expect(api.rules.find((r) => r.id === "push-seen")?.workflow).toEqual({ id: "push-seen" });
+    expect(await screen.findByText(/Push seen now starts Push seen/)).toBeInTheDocument();
+  });
+
+  it("New rule keeps the rule and offers the fix when the automatic D7 leaves an orphan", async () => {
+    api.failNext["PUT /rules/push-seen"] = { status: 422, code: "invalid_rule", message: "refused" };
+    api.failNext["DELETE /workflows/push-seen"] = failure;
+    const onCreated = vi.fn();
+    const user = userEvent.setup();
+    render(<MemoryRouter><NewRule onCreated={onCreated} onCancel={vi.fn()} /></MemoryRouter>);
+    const form = await screen.findByRole("form", { name: "New rule" });
+    await user.type(within(form).getByLabelText("Name"), "Push seen");
+    await user.selectOptions(within(form).getByLabelText("Surface"), "github-app");
+    await user.selectOptions(within(form).getByLabelText("Event"), "github.push");
+    await user.click(within(form).getByRole("button", { name: "Create rule" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("push-seen was created but Push seen does not use it");
+    expect(onCreated).not.toHaveBeenCalled();
+    expect(api.rules.some((r) => r.id === "push-seen")).toBe(true);
+    await user.click(screen.getByRole("button", { name: "Attach Push seen to push-seen" }));
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith("push-seen"));
   });
 });

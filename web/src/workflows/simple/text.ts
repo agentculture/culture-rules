@@ -13,6 +13,8 @@ export const fieldOf = (rule: Rule, field: string): unknown => (rule as unknown 
 export type OperandKind = "field" | "var" | "literal" | "words";
 
 export interface ConditionRow {
+  /** The stored all-term this row shows (removing a row removes exactly this node). */
+  node?: Condition;
   not: boolean;
   left: string;
   leftKind: OperandKind;
@@ -78,7 +80,29 @@ function countOf(node: Condition): number {
 export function conditionRows(condition: Condition | null | undefined, skip: readonly Condition[] = []): ConditionRow[] {
   if (!condition) return [];
   const terms = (node: Condition): Condition[] => (node.op === "and" ? node.args.flatMap(terms) : [node]);
-  return terms(condition).filter((node) => !skip.includes(node)).map((node) => rowOf(node));
+  return terms(condition).filter((node) => !skip.includes(node)).map((node) => ({ ...rowOf(node), node }));
+}
+
+/** The condition with one more all-term: a bare condition becomes the first of an `and`. */
+export function withTerm(condition: Condition | null | undefined, term: Condition): Condition {
+  if (!condition) return term;
+  if (condition.op === "and") return { ...condition, args: [...condition.args, term] };
+  return { op: "and", args: [condition, term] };
+}
+
+/**
+ * The condition without exactly this all-term node (found through nested `and`s); every other
+ * node, a continuation's data.workflow_id term included, is kept as stored. An `and` left with
+ * one term becomes that term; with none, there is no condition.
+ */
+export function withoutTerm(condition: Condition | null | undefined, node: Condition): Condition | null {
+  if (!condition || condition === node) return null;
+  if (condition.op !== "and") return condition;
+  const args = condition.args
+    .map((arg) => (arg === node ? null : arg.op === "and" ? withoutTerm(arg, node) : arg))
+    .filter((arg): arg is Condition => arg !== null);
+  if (args.length === 0) return null;
+  return args.length === 1 ? args[0] : { ...condition, args };
 }
 
 /** A row as plain words, for one-line summaries ("verdict in [...]"). */
@@ -158,25 +182,77 @@ export function canonical(value: unknown): string {
 }
 
 export interface Split {
-  /** The value most entry points hold (ties: the first entry's), shown once for the workflow. */
+  /** Every entry point holds the value identically (D3-D6: shown once, no overrides). */
+  shared: boolean;
+  /**
+   * The value shown for the workflow: the shared one, or the value a shared edit just wrote
+   * (`baseline`) while some rules did not take it. Undefined when the entries simply differ.
+   */
   value: unknown;
-  /** The entry points holding something else: overrides, each with its own value. */
+  /** True when `value` is a baseline from the last shared edit rather than everyone's value. */
+  baseline: boolean;
+  /** The entry points showing their own value: those off the baseline, or all when they differ. */
   overrides: { rule: Rule; value: unknown }[];
 }
 
-/** Split one field across a workflow's entry points into its shared value and the overrides. */
-export function split(rules: readonly Rule[], field: string): Split {
-  if (rules.length === 0) return { value: undefined, overrides: [] };
-  const groups = new Map<string, Rule[]>();
-  for (const rule of rules) {
-    const key = canonical(fieldOf(rule, field));
-    groups.set(key, [...(groups.get(key) ?? []), rule]);
+/**
+ * Split one field across a workflow's entry points, "shared when identical" (D3-D6): a value
+ * is shared only when every entry holds it identically. Otherwise each entry shows its own value
+ * as an override — except that after a shared edit, the value it wrote is the baseline and only
+ * the rules that did not take it (a failed or skipped write) are overrides, with their old value.
+ */
+export function split(rules: readonly Rule[], field: string, baseline?: { value: unknown }): Split {
+  const all = rules.map((rule) => ({ rule, value: fieldOf(rule, field) }));
+  if (all.length === 0) return { shared: false, value: undefined, baseline: false, overrides: [] };
+  const first = canonical(all[0].value);
+  if (all.every((item) => canonical(item.value) === first)) {
+    return { shared: true, value: all[0].value, baseline: false, overrides: [] };
   }
-  let best = canonical(fieldOf(rules[0], field));
-  for (const [key, members] of groups) if (members.length > groups.get(best)!.length) best = key;
-  return {
-    value: fieldOf(groups.get(best)![0], field),
-    overrides: rules.filter((rule) => canonical(fieldOf(rule, field)) !== best)
-      .map((rule) => ({ rule, value: fieldOf(rule, field) })),
-  };
+  if (baseline) {
+    const wanted = canonical(baseline.value);
+    if (all.some((item) => canonical(item.value) === wanted)) {
+      return { shared: false, value: baseline.value, baseline: true, overrides: all.filter((item) => canonical(item.value) !== wanted) };
+    }
+  }
+  return { shared: false, value: undefined, baseline: false, overrides: all };
+}
+
+/** The run fields a Runs edit may change; only the ones the author changed are sent. */
+export interface RunsEdit {
+  concurrency_key?: string | null;
+  max_attempts?: number | null;
+}
+
+const outsideBudget = (rule: Rule) => fieldOf(rule, "counts_toward_budget") === false;
+
+/**
+ * Why the server would refuse this Runs edit on these rules (culture_rules/model/validate.py):
+ * a rule outside the attempt budget (`counts_toward_budget: false`) needs a run key and may not
+ * set `max_attempts`; a budget is at least 1. Null when every rule can take it.
+ */
+export function runsProblem(rules: readonly Rule[], edit: RunsEdit): string | null {
+  if (typeof edit.max_attempts === "number" && (!Number.isInteger(edit.max_attempts) || edit.max_attempts < 1)) {
+    return "An attempt budget is a whole number, at least 1.";
+  }
+  const outside = rules.filter(outsideBudget);
+  const names = outside.map((r) => r.name).join(", ");
+  if (typeof edit.max_attempts === "number" && outside.length > 0) {
+    return `${names} ${outside.length === 1 ? "does" : "do"} not count toward the attempt budget, so ${outside.length === 1 ? "it" : "they"} cannot take one. Count ${outside.length === 1 ? "it" : "them"} first.`;
+  }
+  if ("concurrency_key" in edit && edit.concurrency_key === null && outside.length > 0) {
+    return `${names} ${outside.length === 1 ? "is" : "are"} outside the attempt budget, which needs a run key.`;
+  }
+  return null;
+}
+
+/**
+ * The attempt-counting switch's edit, as the server's validation requires: opting out needs a
+ * run key and drops the rule's own `max_attempts` (a rule outside the budget cannot set one);
+ * opting back in only sets the flag. Null when the switch cannot change (no run key to opt out of).
+ */
+export function countsEdit(rule: Rule): Record<string, unknown> | null {
+  if (outsideBudget(rule)) return { counts_toward_budget: true };
+  const key = fieldOf(rule, "concurrency_key");
+  if (typeof key !== "string" || !key) return null;
+  return { counts_toward_budget: false, max_attempts: null };
 }
