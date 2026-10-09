@@ -161,7 +161,7 @@ export function ThenColumn({ workflowId, rules, onward, workflows, actors, trigg
   const failAction = failure.value as Action | null | undefined;
   const failDiffers = !failure.shared && !failure.baseline;
   // What the open form was opened on: its values, and the rules its save compares against (c27).
-  const at = useFrozen(editing !== null, { rules, ends, failure, key, attempts });
+  const at = useFrozen(editing, { rules, ends, failure, key, attempts });
   const save = (label: string, edit: Record<string, unknown>) => {
     setEditing(null);
     onFanOut(label, edit, at.rules);

@@ -199,8 +199,8 @@ function WorkflowSimple({
   const [workflowNote, setWorkflowNote] = useState<string | null>(null);
 
   // The placement and shared-condition forms keep what they were opened on (c27).
-  const placeAt = useFrozen(placing, { rules, placement: split(rules, "placement", baselines.placement) });
-  const conditionAt = useFrozen(addingShared, rules);
+  const placeAt = useFrozen(placing ? "placement" : null, { rules, placement: split(rules, "placement", baselines.placement) });
+  const conditionAt = useFrozen(addingShared ? "shared-condition" : null, rules);
   const splits = useMemo(
     () => new Map(OVERRIDE_FIELDS.map((f) => [f, split(rules, f, baselines[f])])),
     [rules, baselines],

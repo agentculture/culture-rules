@@ -1354,3 +1354,97 @@ describe("fold-fixA: D7 never deletes a workflow something uses", () => {
     expect(sent("DELETE", "/workflows/lone-alert")).toHaveLength(deletes);
   });
 });
+
+describe("fold-fixA 2: per-entry direct writes re-read first; a form freezes per form", () => {
+  function testFeed() {
+    const listeners = new Set<(changes: { collection: string; op: string; id: string }[]) => void>();
+    return {
+      subscribe: (l: (changes: { collection: string; op: string; id: string }[]) => void) => {
+        listeners.add(l);
+        return () => {
+          listeners.delete(l);
+        };
+      },
+      emit: (changes: { collection: string; op: string; id: string }[]) => listeners.forEach((l) => l(changes)),
+    };
+  }
+  /** Another writer changes rules on the server; with a feed, the change is refreshed into the view. */
+  async function elsewhere(ids: string[], change: Record<string, unknown>, feed?: ReturnType<typeof testFeed>) {
+    for (const id of ids) Object.assign(api.rules.find((r) => r.id === id)!, structuredClone(change), { updated_at: "2026-10-09T14:00:00Z" });
+    if (!feed) return;
+    const before = sent("GET", "/rules").length;
+    feed.emit([{ collection: "rules", op: "update", id: ids[0] }]);
+    await waitFor(() => expect(sent("GET", "/rules").length).toBeGreaterThan(before));
+  }
+  const newer = { ...FOLD_RULES[0].action, name: "Someone else's end" };
+
+  it("an untouched Edit save after a concurrent action change does not PUT; it says so and reloads on request", async () => {
+    const feed = testFeed();
+    const user = userEvent.setup();
+    renderSimple({ live: feed });
+    const first = await findEntry("Checks settled, not green");
+    await user.click(within(first).getByRole("button", { name: "Edit Checks settled, not green" }));
+    await elsewhere(["pr-fixer-checks"], { action: newer }, feed);
+    await user.click(within(screen.getByRole("form", { name: "Edit rule" })).getByRole("button", { name: "Save" }));
+    const alert = await within(entry("Checks settled, not green")).findByRole("alert");
+    expect(alert).toHaveTextContent("changed since you opened it");
+    expect(alert).toHaveTextContent("action");
+    expect(sent("GET", "/rules/pr-fixer-checks")).toHaveLength(1);
+    expect(sent("PUT", "/rules/pr-fixer-checks")).toHaveLength(0);
+    expect(api.rules[0].action).toEqual(newer);
+
+    await user.click(within(alert).getByRole("button", { name: "Reload the form from the stored rule" }));
+    const form = screen.getByRole("form", { name: "Edit rule" });
+    expect(within(form).getByLabelText("Action label")).toHaveValue("Someone else's end");
+    await user.clear(within(form).getByLabelText("Name"));
+    await user.type(within(form).getByLabelText("Name"), "Checks went red");
+    await user.click(within(form).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(sent("PUT", "/rules/pr-fixer-checks")).toHaveLength(1));
+    expect(sent("PUT", "/rules/pr-fixer-checks")[0].body).toMatchObject({ name: "Checks went red", action: newer });
+  });
+
+  it("removing a condition term, adding one and relating re-read first and never overwrite a newer rule", async () => {
+    const user = userEvent.setup();
+    renderSimple();
+    const first = await findEntry("Checks settled, not green");
+    await elsewhere(["pr-fixer-checks"], { max_attempts: 8 });
+
+    await user.click(within(first).getByRole("button", { name: "Remove condition draft = false" }));
+    expect(await within(entry("Checks settled, not green")).findByRole("alert")).toHaveTextContent("changed since you opened it");
+
+    await user.click(within(entry("Checks settled, not green")).getByRole("button", { name: "Add condition" }));
+    const form = screen.getByRole("form", { name: "Add condition" });
+    await user.type(within(form).getByLabelText("Variable"), "branch");
+    await user.type(within(form).getByLabelText("Value"), "main");
+    await user.click(within(form).getByRole("button", { name: "Add" }));
+
+    const order = within(entry("Checks settled, not green")).queryByLabelText("Add may run after");
+    if (!order) await user.click(within(entry("Checks settled, not green")).getByRole("button", { name: /Run order/ }));
+    await user.selectOptions(within(entry("Checks settled, not green")).getByLabelText("Add may run after"), "pr-fixer-comment");
+    await waitFor(() => expect(sent("GET", "/rules/pr-fixer-checks").length).toBeGreaterThanOrEqual(3));
+    expect(sent("PUT", "/rules/pr-fixer-checks")).toHaveLength(0);
+    expect((api.rules[0] as Rule & { max_attempts?: number }).max_attempts).toBe(8);
+  });
+
+  it("switching straight from Ends here to Runs shows the budget as it is now", async () => {
+    const feed = testFeed();
+    const user = userEvent.setup();
+    renderSimple({ live: feed });
+    await findEntry("Checks settled, not green");
+    await user.click(within(then("Ends here")).getByRole("button", { name: "Edit ends here" }));
+    await elsewhere(["pr-fixer-checks", "pr-fixer-comment", "pr-fixer-review", "pr-fixer-refix"], { max_attempts: 9 }, feed);
+    await user.click(within(then("Runs")).getByRole("button", { name: "Edit runs" }));
+    expect(within(screen.getByRole("form", { name: "Runs" })).getByLabelText("Attempts per key")).toHaveValue("9");
+  });
+
+  it("switching straight between an entry's override forms shows the rule as it is now", async () => {
+    const feed = testFeed();
+    const user = userEvent.setup();
+    renderSimple({ live: feed });
+    const first = await findEntry("Checks settled, not green");
+    await user.click(within(first).getByRole("button", { name: "On failure for Checks settled, not green" }));
+    await elsewhere(["pr-fixer-checks"], { max_attempts: 9 }, feed);
+    await user.click(within(entry("Checks settled, not green")).getByRole("button", { name: "Runs for Checks settled, not green" }));
+    expect(within(screen.getByRole("form", { name: "Runs for Checks settled, not green" })).getByLabelText("Attempts per key")).toHaveValue("9");
+  });
+});
