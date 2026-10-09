@@ -2,6 +2,7 @@ import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { VIEW_MODE_KEY } from "../workflows/views/mode";
 import Workflows from "./Workflows";
 import { getAgentState, resetAgentState } from "../agent-state/store";
 import { workflowsState } from "../workflows/agentState";
@@ -122,9 +123,14 @@ const list = () => screen.getByRole("navigation", { name: "Workflows" });
 /** The list pane's "New workflow" (it replaced the header's "+ New"). */
 const listNew = () => within(list()).getByRole("button", { name: "New workflow" });
 const rowLink = (name: string) => within(list()).getByRole("link", { name });
+/** The folded list's stored workflows (rules pointing at a missing definition are listed apart). */
+const storedRows = () => [...list().querySelectorAll<HTMLElement>(".fold-workflow[data-workflow-id]:not([data-missing]):not(.is-deleted)")];
+const rowNames = () => storedRows().map((row) => row.querySelector("h3")!.textContent);
 const nameForm = () => screen.getByRole("form", { name: "New workflow" });
 
 beforeEach(() => {
+    // These scenarios drive the Detailed (steps) view; a workflow opens in Simple by default (t5, t8).
+    localStorage.setItem(VIEW_MODE_KEY, "detailed");
   resetAgentState();
   vi.stubGlobal("ResizeObserver", MeasuringResizeObserver);
   vi.stubGlobal("DOMMatrixReadOnly", DOMMatrixStub);
@@ -144,7 +150,7 @@ describe("Workflows tab: New workflow (empty state)", () => {
     expect(cta).toHaveClass("wf-button--primary");
     // The list is there with no workflows: its New button, no rows.
     expect(listNew()).toHaveClass("rule-list__new");
-    expect(within(list()).queryAllByRole("link")).toHaveLength(0);
+    expect(storedRows()).toHaveLength(0);
     // The header's "+ New" is gone: the io group is Import / Export / repository.
     const io = screen.getByRole("button", { name: "Import" }).closest(".wf-head__end")!;
     expect(within(io as HTMLElement).queryByRole("button", { name: "New workflow" })).toBeNull();
@@ -261,11 +267,8 @@ describe("Workflows tab: New workflow with a workflow selected", () => {
     // "review-pr" is taken: the slug moves on.
     await waitFor(() => expect(where).toBe("/workflows?id=review-pr-2"));
     expect(await screen.findByRole("heading", { level: 1, name: "Review PR" })).toBeInTheDocument();
-    expect(within(list()).getAllByRole("link").map((l) => l.textContent)).toEqual([
-      "Review PR",
-      "Build image",
-      "Review PR",
-    ]);
+    // The folded list orders workflows by chain, so compare as a set.
+    expect(rowNames().sort()).toEqual(["Build image", "Review PR", "Review PR"]);
     expect(within(list()).getByRole("link", { current: true })).toHaveAttribute("href", "/workflows?id=review-pr-2");
     await waitFor(() => expect(workflowsState()).toMatchObject({ count: 3, selected: "review-pr-2", steps: [] }));
   });
@@ -357,7 +360,7 @@ describe("Workflows tab: enable / disable and delete (parity with Rules)", () =>
       "POST /api/workflows/build-image/enable",
     ]);
     expect(workflowsState()?.dirty).toBe(false);
-    expect(rowLink("Build image").closest(".rule-row")).not.toHaveClass("is-disabled");
+    expect(rowLink("Build image").closest(".fold-workflow")).not.toHaveClass("is-disabled");
   });
 
   it("a row's switch toggles that workflow, not only the selected one", async () => {
@@ -369,7 +372,7 @@ describe("Workflows tab: enable / disable and delete (parity with Rules)", () =>
     const toggle = within(list()).getByRole("switch", { name: "Build image enabled" });
     await user.click(toggle);
     await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "false"));
-    expect(rowLink("Build image").closest(".rule-row")).toHaveClass("is-disabled");
+    expect(rowLink("Build image").closest(".fold-workflow")).toHaveClass("is-disabled");
     expect(api.writes().map((c) => `${c.method} ${c.path}`)).toEqual(["POST /api/workflows/build-image/disable"]);
     // The open workflow stays open.
     expect(screen.getByRole("heading", { level: 1, name: "Review PR" })).toBeInTheDocument();
@@ -420,7 +423,7 @@ describe("Workflows tab: enable / disable and delete (parity with Rules)", () =>
     await user.click(screen.getByRole("button", { name: "Delete workflow" }));
     expect(await screen.findByRole("heading", { level: 1, name: "No workflows yet" })).toBeInTheDocument();
     expect(within(emptyState()).getByRole("button", { name: "New workflow" })).toBeInTheDocument();
-    expect(within(list()).queryAllByRole("link")).toHaveLength(0);
+    expect(storedRows()).toHaveLength(0);
   });
 });
 

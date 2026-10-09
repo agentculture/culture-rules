@@ -22,7 +22,13 @@ import {
   type WorkflowDef,
 } from "../api/workflows";
 import { setWorkflowsState } from "../workflows/agentState";
-import WorkflowCanvas, { type CanvasProps } from "../workflows/Canvas";
+import { setAgentState } from "../agent-state/store";
+import { type CanvasProps } from "../workflows/Canvas";
+import { WorkflowViews } from "../workflows/views/WorkflowViews";
+import type { ViewMode } from "../workflows/views/mode";
+import { foldModel, type FoldModel } from "../fold/model";
+import { stagesOf } from "./rules-view";
+import { NOTICE_RULE_NOT_FOUND } from "./legacy-redirects";
 import { AboutButton } from "../components/AboutButton";
 import IoControls from "../workflows/IoControls";
 import IoEditor from "../workflows/IoEditor";
@@ -44,7 +50,7 @@ import PlacementEditor from "../workflows/PlacementEditor";
 import StepEditor from "../workflows/StepEditor";
 import { useWhoami } from "../hooks/useWhoami";
 import PurgePanel, { type PurgeState } from "../workflows/PurgePanel";
-import { WorkflowList } from "../workflows/WorkflowList";
+import { WorkflowList } from "../workflows/list";
 import WorkflowNameForm from "../workflows/WorkflowNameForm";
 import { ago, slugFor } from "./rules-view";
 import { useTabReady } from "./useTabReady";
@@ -445,9 +451,20 @@ function routeLiveChanges(
 /** The Workflows tab's agent-state snapshot (null until the board has loaded). */
 function agentSnapshot(
   loaded: Loaded | null,
-  snap: { count: number; selected: string | null; stepKey: string; step: string | null; dirty: boolean; run: RunDoc | null },
+  snap: {
+    count: number;
+    selected: string | null;
+    stepKey: string;
+    step: string | null;
+    dirty: boolean;
+    run: RunDoc | null;
+    view: ViewMode;
+    model: FoldModel;
+    entry: string | null;
+  },
 ) {
   if (!loaded) return null;
+  const open = snap.model.workflows.find((w) => w.id === snap.selected);
   return {
     count: snap.count,
     selected: snap.selected,
@@ -455,7 +472,23 @@ function agentSnapshot(
     step: snap.step,
     dirty: snap.dirty,
     run: snap.run ? { id: snap.run.id, status: snap.run.status } : null,
+    view: snap.view,
+    entries: open ? open.entries.map((e) => e.rule.id) : [],
+    entry: snap.entry,
+    chains: snap.model.chains.length,
+    without_workflow: snap.model.d7Candidates.map((r) => r.id),
   };
+}
+
+/**
+ * The deprecated `rules` slice (spec c33), kept for one release: the same
+ * shape the Rules tab wrote, from the folded rules. `selected` is the entry
+ * point asked for (?entry=).
+ */
+function rulesAlias(loaded: Loaded | null, entry: string | null) {
+  if (!loaded) return null;
+  const rule = entry ? loaded.rules.find((r) => r.id === entry) : undefined;
+  return { count: loaded.rules.length, selected: rule?.id ?? null, stages: rule ? stagesOf(rule) : [] };
 }
 
 /** The open workflow: the one asked for in the query, else the first. */
@@ -575,6 +608,8 @@ function WorkflowStage({
   onChange,
   onCloseEditor,
   runForm,
+  simple,
+  onModeChange,
 }: Readonly<{
   workflow: WorkflowDef;
   loaded: Loaded | null;
@@ -589,6 +624,9 @@ function WorkflowStage({
   onChange: (wf: WorkflowDef) => void;
   onCloseEditor: () => void;
   runForm: ReactNode;
+  /** The Simple (When / Then) view of this workflow. */
+  simple: ReactNode;
+  onModeChange: (mode: ViewMode) => void;
 }>) {
   return (
     <div className="wf-stage" ref={stageRef}>
@@ -605,13 +643,15 @@ function WorkflowStage({
           onCancel={closeRename}
         />
       ) : null}
-      <WorkflowCanvas
+      <WorkflowViews
         workflow={workflow}
         machines={loaded?.machines ?? []}
         actors={loaded?.actors ?? []}
         overlay={overlay}
         selected={selected}
         {...handlers}
+        simple={simple}
+        onModeChange={onModeChange}
       />
       <StepPanels
         editing={editing}
@@ -748,7 +788,12 @@ export function Workflows() {
   const wantedId = params.get("id");
   const current = pickWorkflow(workflows, wantedId);
   const runId = params.get("run");
+  const entryId = params.get("entry");
+  const missingRule = params.get("notice") === NOTICE_RULE_NOT_FOUND ? params.get("rule") : null;
   const slotOf = useWorkflowSlots(loaded);
+  const rules = loaded?.rules;
+  const model = useMemo(() => foldModel(rules ?? [], workflows), [rules, workflows]);
+  const [view, setView] = useState<ViewMode>("simple");
 
   // A fresh draft whenever the selected workflow (or its stored copy) changes;
   // unsaved edits to the same workflow survive a reload.
@@ -802,9 +847,13 @@ export function Workflows() {
         step: selectedStep,
         dirty: draft?.dirty ?? false,
         run: run?.doc ?? null,
+        view,
+        model,
+        entry: entryId,
       }),
     );
-  }, [loaded, workflows.length, current?.id, stepKey, selectedStep, draft?.dirty, run?.doc]); // eslint-disable-line react-hooks/exhaustive-deps
+    setAgentState({ rules: rulesAlias(loaded, entryId) });
+  }, [loaded, workflows.length, current?.id, stepKey, selectedStep, draft?.dirty, run?.doc, view, model, entryId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const setQuery = (patch: Record<string, string | null>) => {
     const next = new URLSearchParams(params);
@@ -1013,6 +1062,8 @@ export function Workflows() {
 
   const now = Date.now();
 
+  const simpleView: ReactNode = undefined;
+
   let body: ReactNode = null;
   if (creating) {
     body = (
@@ -1040,6 +1091,8 @@ export function Workflows() {
         edit={edit}
         onChange={(wf) => setDraft((d) => editDraft(d, () => wf))}
         onCloseEditor={closeEditor}
+        simple={simpleView}
+        onModeChange={setView}
         runForm={
           runFormOpen && current ? (
             <RunForm
@@ -1060,6 +1113,7 @@ export function Workflows() {
   return (
     <div className="rules-board wf-layout">
       <WorkflowList
+        model={model}
         workflows={workflows}
         selectedId={creating ? null : (current?.id ?? null)}
         slotOf={slotOf}
@@ -1084,6 +1138,11 @@ export function Workflows() {
         }
       />
       <main id="main" className="wf-board" tabIndex={-1} data-live-flash={live.flash || undefined}>
+        {missingRule !== null ? (
+          <p className="wf-notice" role="status">
+            No rule “{missingRule}” any more: it may have been deleted. Rules now live in their workflows, listed here.
+          </p>
+        ) : null}
         <BoardNotices
           errors={errors}
           deleted={deleted}

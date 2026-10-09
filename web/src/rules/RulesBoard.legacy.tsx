@@ -1,3 +1,11 @@
+/*
+ * LEGACY, NOT MOUNTED (t8, editor fold). This was routes/Rules.tsx, the Rules
+ * tab, which is folded into Workflows (spec c16). App.tsx no longer routes to
+ * it; /rules links redirect (routes/legacy-redirects.ts). It is kept only as
+ * the test oracle the folded tests compare against (the Simple view must save
+ * the same rule document the Rules tab did, plan t6) until t9 ports
+ * RulesBoard.legacy.test.tsx to the folded flows; then delete both files.
+ */
 import { Fragment, useCallback, useEffect, useMemo, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ApiError } from "../api/client";
@@ -22,7 +30,7 @@ import {
 } from "../rules/relations";
 import { useRulesData } from "../rules/useRulesData";
 import "../rules/rules.css";
-import { useTabReady } from "./useTabReady";
+import { useTabReady } from "../routes/useTabReady";
 import {
   actionChips,
   ago,
@@ -31,7 +39,7 @@ import {
   triggerLabel,
   upstreamVars,
   workflowChips,
-} from "./rules-view";
+} from "../routes/rules-view";
 
 const LIVE_COLLECTIONS = ["rules", "runs", "asks", "rule_decisions"] as const;
 const HISTORY_LIMIT = 6;

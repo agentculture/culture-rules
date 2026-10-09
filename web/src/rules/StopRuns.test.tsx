@@ -2,7 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import Rules from "../routes/Rules";
+import Rules from "./RulesBoard.legacy";
 import { resetAgentState } from "../agent-state/store";
 import { setRuleEnabled, updateRule } from "../api/rules";
 import { RULES } from "../fixtures/rules-fixture";

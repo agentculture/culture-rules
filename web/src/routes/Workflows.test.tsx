@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { VIEW_MODE_KEY } from "../workflows/views/mode";
 import Workflows from "./Workflows";
 import * as client from "../api/client";
 import { getAgentState, resetAgentState } from "../agent-state/store";
@@ -91,6 +92,8 @@ describe("Workflows board (Chosen — Workflows)", () => {
   let fetchMock: ReturnType<typeof mockFetch>["fetchMock"];
 
   beforeEach(() => {
+    // These scenarios drive the Detailed (steps) view; a workflow opens in Simple by default (t5, t8).
+    localStorage.setItem(VIEW_MODE_KEY, "detailed");
     resetAgentState();
     vi.stubGlobal("ResizeObserver", MeasuringResizeObserver);
     vi.stubGlobal("DOMMatrixReadOnly", DOMMatrixStub);
@@ -382,7 +385,9 @@ describe("Workflows board (Chosen — Workflows)", () => {
     // The old <select> switcher is gone: the list on the left switches.
     expect(screen.queryByRole("combobox", { name: "Workflow" })).toBeNull();
     const list = screen.getByRole("navigation", { name: "Workflows" });
-    expect(within(list).getAllByRole("link").map((l) => l.textContent)).toEqual(["Review PR", "Build image"]);
+    // The folded list: one row per stored workflow (its h3), plus the rules that start it.
+    const rows = [...list.querySelectorAll(".fold-workflow[data-workflow-id]:not([data-missing]) h3")];
+    expect(rows.map((h) => h.textContent).sort()).toEqual(["Build image", "Review PR"]);
     expect(within(list).getByRole("link", { name: "Review PR" })).toHaveAttribute("aria-current", "true");
     await user.click(within(list).getByRole("link", { name: "Build image" }));
     expect(await screen.findByRole("heading", { level: 1, name: "Build image" })).toBeInTheDocument();
@@ -413,6 +418,8 @@ describe("Workflows tab live updates (h61 / c80)", () => {
   let api: ApiRoutes;
 
   beforeEach(() => {
+    // These scenarios drive the Detailed (steps) view; a workflow opens in Simple by default (t5, t8).
+    localStorage.setItem(VIEW_MODE_KEY, "detailed");
     resetAgentState();
     FakeEventSource.reset();
     setLiveSourceFactory(FakeEventSource.factory);
@@ -475,6 +482,8 @@ describe("Workflows: the in / out nodes and the empty canvas (t41)", () => {
   let fetchMock: ReturnType<typeof mockFetch>["fetchMock"];
 
   beforeEach(() => {
+    // These scenarios drive the Detailed (steps) view; a workflow opens in Simple by default (t5, t8).
+    localStorage.setItem(VIEW_MODE_KEY, "detailed");
     resetAgentState();
     vi.stubGlobal("ResizeObserver", MeasuringResizeObserver);
     vi.stubGlobal("DOMMatrixReadOnly", DOMMatrixStub);

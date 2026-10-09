@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { VIEW_MODE_KEY } from "../workflows/views/mode";
 import Workflows from "./Workflows";
 import { resetAgentState } from "../agent-state/store";
 import { resetWhoamiForTests } from "../hooks/useWhoami";
@@ -68,6 +69,8 @@ const showDeleted = async () => {
 
 describe("Workflows: soft-deleted view and admin purge", () => {
   beforeEach(() => {
+    // These scenarios drive the Detailed (steps) view; a workflow opens in Simple by default (t5, t8).
+    localStorage.setItem(VIEW_MODE_KEY, "detailed");
     resetAgentState();
     resetWhoamiForTests();
     vi.stubGlobal("ResizeObserver", MeasuringResizeObserver);

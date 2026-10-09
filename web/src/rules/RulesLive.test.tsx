@@ -1,7 +1,7 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import Rules from "../routes/Rules";
+import Rules from "./RulesBoard.legacy";
 import { resetAgentState } from "../agent-state/store";
 import { LIVE_DEBOUNCE_MS, setLiveSourceFactory } from "../api/live";
 import { SELECTED_RULE_ID } from "../fixtures/rules-fixture";

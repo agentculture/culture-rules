@@ -10,6 +10,12 @@
  */
 
 export type AgentStatus = "loading" | "ready";
+/**
+ * `"rules"` is deprecated (spec c33): the Rules tab is folded into Workflows,
+ * so no view reports it any more. It stays in the type for one release so an
+ * agent that still compares against it type-checks; drop it in the release
+ * after the fold.
+ */
 export type Tab = "rules" | "workflows" | "actors" | "variables" | "statistics";
 
 export interface AgentIdentity {
@@ -22,8 +28,15 @@ export interface AgentIdentity {
   role: string | null;
 }
 
+/**
+ * Deprecated alias (spec c33), kept for one release: the Workflows tab writes
+ * it from the folded rules so an agent reading `rules` keeps working. Read
+ * `workflows.entries` / `workflows.entry` instead.
+ */
 export interface AgentRulesState {
+  /** Every rule (entry points, continuations and rules with no workflow). */
   count: number;
+  /** The entry point open (?entry=), else null. */
   selected: string | null;
   /** The stages drawn for the selected rule, in order. */
   stages: string[];
@@ -43,6 +56,16 @@ export interface AgentWorkflowsState {
   dirty: boolean;
   /** The run overlaid on the canvas (?run=), from persisted run state. */
   run: { id: string; status: string } | null;
+  /** The view switch: simple (When / Then), detailed (steps) or debug (ports). */
+  view?: "simple" | "detailed" | "debug";
+  /** The open workflow's entry points and continuations (rule ids, list order). */
+  entries?: string[];
+  /** The entry point asked for (?entry=), a rule id, else null. */
+  entry?: string | null;
+  /** Chains on the list (connected by continuation links). */
+  chains?: number;
+  /** Rules with no workflow yet (D7 candidates), by id. */
+  without_workflow?: string[];
 }
 
 /** The Actors tab's slice. */
@@ -80,6 +103,7 @@ export interface AgentState {
   identity: AgentIdentity | null;
   /** Load errors the current view is showing; empty when all is well. */
   errors: string[];
+  /** Deprecated alias for one release (c33): see AgentRulesState. */
   rules?: AgentRulesState | null;
   workflows?: AgentWorkflowsState | null;
   actors?: AgentActorsState | null;
