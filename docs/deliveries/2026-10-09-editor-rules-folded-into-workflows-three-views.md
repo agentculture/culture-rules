@@ -39,7 +39,7 @@ After: Opening a workflow shows, in the Simple view, its When entry points (each
 | `t9` | delivered | The inventory ported (every row named or kept), the legacy files deleted after porting, and `e2e/fold.spec.ts`, `entry-points.spec.ts` and `entry-pickers.spec.ts`. vitest 653, Playwright 98, webglass locally. Opus build under d4, two Opus reviews. |
 | `t10` | delivered | CLAUDE.md, QWEN.md, AGENTS.override.md, AGENTS.colleague.md, .pi/SYSTEM.md, the dated amendment, README.md, web/README.md, docs/demo.md, docs/operations/pr-fixer.md, docs/run-events.md and `tests/test_docs_fold.py`. Opus build, two Opus reviews. |
 | `t11` | partial | The boundary check holds (only the two d5 strings changed under `culture_rules/`; `api/` is unchanged), 0.17.0 with its CHANGELOG entry, and every CLAUDE.md gate green locally. The PR is not open yet: it waits for this summary and the queued Codex reviews (d4). |
-| `t12` | blocked | Needs the operator's deploy go-ahead after the PR merges: live checks on rules.culture.dev and the D7 conversion of `test-jira-scrum21-to-discord`. |
+| `t12` | partial | The operator approved deploying before merge. The branch's 0.17.0 wheel went onto spark, with only `culture-rules-api` restarted; the nodes stay on 0.16.1, since the engine is unchanged. Rollback is a 0.16.1 wheel built with its web bundle. Observed live (e21): four tabs, `/rules` redirects, the PR fixer as 2 chain cards (d2), all three views with 0 errors on all 7 workflows, and old rule links landing on their entry point. D7 converted `test-jira-scrum21-to-discord` through the editor (e22) after the run-event probe passed. Not done: a live condition edit (it would change a production rule), and the rule's next run, because the rule is disabled. Nodes and `main` still need the merged release. |
 
 ## Mid-work Decisions
 
@@ -66,13 +66,14 @@ After: Opening a workflow shows, in the Simple view, its When entry points (each
 | `t11` (`d5`) | CLAUDE.md requires the CLI self-descriptions to match it; c2/c12 forbid `culture_rules`/ changes; operator chose to allow the two strings | `acceptable` |
 | `t6` | o3 lists inputs mapping, priority and exclusive group as editable with Rules-tab parity; neither the Simple view nor the old Rules tab edits them, so parity holds only vacuously (evidence e4: fail; delta b6) | `needs-follow-up` |
 | `t11` | the PR has not opened yet: the operator's goal puts /validate-delivery and /summarize-delivery first, and the d4 Codex reviews are queued until the 19:16 reset | `acceptable` |
-| `t12` | not run: needs the deploy go-ahead after merge (as planned) | `needs-follow-up` |
+| `t12` | run before merge at the operator's request; the live condition edit and the disabled rule's next run were not observed | `acceptable` |
 | `t8` (`d6`) | confirmed assumption c32 says the editor should warn before saving a trusted workflow; no plan task covered it (assumptions are not coverage targets); t10 found no warning exists; operator chose to add it now | `needs-follow-up` |
 
 ## Evidence
 
 Run at commit `4c42240` (2026-10-09T14:21Z) unless noted. The evidence records e1–e20 and deltas b1–b8 are filed, proposed, pending adjudication.
 
+- live: rules.culture.dev on 0.17.0 (spark API only) — e21 (views and redirects), e22 (D7 conversion), 2026-10-09
 - tests: `uv run pytest -n auto --cov=culture_rules` — pass (4598 passed, 9 skipped), run before the bump commit on the same tree
 - tests: `tests/engine/test_stepless_workflow.py`, `tests/server/test_openapi_contract.py`, `tests/test_docs_fold.py`, `tests/test_docs_t40.py`, `tests/rules/test_trusted_role_ids.py` — pass (46)
 - tests: `cd web && npx vitest run` — pass (653 / 653, on repeated full runs)
@@ -99,7 +100,7 @@ Run at commit `4c42240` (2026-10-09T14:21Z) unless noted. The evidence records e
 | `c15` — Every existing rule remains reachable and editable as an entry point (or continuation) of a workflow; a rule with no workflow is given its own stored workflow with no steps (D7), offered by the editor for existing rules and done automatically when an action-only rule is created. | high | `tests/engine/test_stepless_workflow.py (3 tests)` (run 2026-10-09) |
 | `c16` — Old /rules and /rules/:ruleId links redirect to the workflow (and entry point) that shows the rule, or to the place for workflow-less rules; the catch-all route lands on /workflows. | high | `web/src/routes/legacy-redirects.test.ts (7); web/src/App.test.tsx redirect tests (4); web/e2e/fold.spec.ts::old /rules links redirect` (run 2026-10-09) |
 | `c17` — CLAUDE.md, QWEN.md, AGENTS.override.md, AGENTS.colleague.md, .pi/SYSTEM.md (where relevant) and the engine-editor spec describe the four tabs in step; harness-smoke and teken doctor stay green. | high | `tests/test_docs_fold.py; tests/test_docs_t40.py; scripts/harness-smoke.py --stage config; teken cli doctor . --strict; culture-rules doctor` (run 2026-10-09) |
-| `c18` — For the live PR fixer, the Workflows tab shows 1 chain card with 4 workflows and 6 entry points, and editing an entry point's condition saves exactly 1 rule (verified by a Playwright test against the fake API and once live). | unverified | (no evidence: needs the live check, t12, and the Playwright half is counted under c25) |
+| `c18` — For the live PR fixer, the Workflows tab shows 1 chain card with 4 workflows and 6 entry points, and editing an entry point's condition saves exactly 1 rule (verified by a Playwright test against the fake API and once live). | medium | evidence e21: live counts, views and redirects observed on rules.culture.dev; the 1-PUT half comes from Playwright (`web/e2e/fold.spec.ts`, e13), not live |
 | `c19` — 0 regressions: every rules and workflows Playwright and vitest scenario that existed before passes in its folded form, and the webglass agent-state gate stays green. | medium | `docs/plans/2026-10-09-editor-fold-test-inventory.md t9 column; full vitest (653), Playwright (98), webglass G1/G2 replay` (run 2026-10-09) |
 | `c25` — An edit to a shared (identical) value writes every entry point's rule through the existing endpoint, one rule at a time; the editor shows which rules saved and which did not, keeps the failed ones marked as overrides with the old value, and offers a retry, so a partial failure is visible, never silent. | high | `web/e2e/fold.spec.ts::a fan-out with one failing PUT shows that rule as an override with its old value and a retry; web/src/workflows/simple/SimpleView.test.tsx::shows a partial failure per rule ...; web/src/fold/writes.test.ts::saves rule by rule, returns failures with the old value, and supports retry` (run 2026-10-09) |
 | `c26` — Chain links are derived only from a continuation rule's condition holding `data.workflow_id == <id>` (an all-term compare, as docs/rules/pr-fixer/rules/pr-fixer-review-commit.json does); a run-event rule without that term shows as 'continues from any workflow', and the predecessor is edited with a dedicated control that writes exactly that compare, so a condition edit cannot silently drop a link. | high | `web/src/fold/model.test.ts; web/src/fold/writes.test.ts::rewrites only the all-term workflow compare; web/src/workflows/list/list.test.tsx::uses dynamic counts and names, preserving ambiguous, unscoped and empty predecessors; SimpleView.test.tsx::rewrites exactly the data.workflow_id compare` (run 2026-10-09) |
@@ -112,7 +113,7 @@ Run at commit `4c42240` (2026-10-09T14:21Z) unless noted. The evidence records e
 
 Caps on confidence:
 
-- **c1 medium:** checked against the built bundle, not on rules.culture.dev.
+- **c1 medium:** checked against the built bundle, then observed live on spark's API only (e21). Not yet on `main` or the nodes.
 - **c9 medium:** e4 fails for three fields.
 - **c11 medium:** the Debug wires were never checked in a browser (pending l3).
 - **c19 medium:** the GitHub Actions web job has not run (pending l9).
@@ -124,7 +125,7 @@ pending approval (not yet evidence): `l1`, `l2`, `l3`, `l4`, `l5`, `l6`, `l7`, `
 ## Remaining Work / Follow-up
 
 - **t11, the PR.** The queued Codex reviews of t6, t8, t9, t10 and d6 (d4) run after the 19:16 reset. Then open the PR through cicd and get CI green, including the web job (closes c19's l9). Owner: the main agent.
-- **t12, live verification and D7 conversion.** After merge, with the operator's deploy go-ahead: check rules.culture.dev (four tabs, the PR fixer as 2 chain cards per d2, a condition edit makes 1 PUT, old `/rules` links), then run D7 on `test-jira-scrum21-to-discord`. Re-run the run-event probe right before it. Owner: the main agent; the go-ahead is the operator's.
+- **t12, after merge.** Release 0.17.0 from `main` to all four nodes (`runs pause` is not needed, since the engine is unchanged). Re-check the live counts. Converted rule: `test-jira-scrum21-to-discord` now runs through `test-scrum-21-comment-spark-tests`. Observe it when the rule is next enabled. Owner: the main agent.
 - **o3 / e4.** Decide whether priority, exclusive_group and the inputs mapping get editors (a follow-up issue), or amend c9's field list. Owner: the operator.
 - **Adjudication.** The operator confirms or rejects evidence e1–e20, deltas b1–b8 and lapses l1–l9.
 - **Server gap.** `DELETE /workflows/{id}` should refuse a workflow a rule still uses. That is an API change, out of scope under c2. Issue to file if the operator agrees.

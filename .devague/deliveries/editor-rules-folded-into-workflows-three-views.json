@@ -2,7 +2,7 @@
   "plan_slug": "editor-rules-folded-into-workflows-three-views",
   "schema_version": 2,
   "created": "2026-10-09T11:07:59Z",
-  "updated": "2026-10-09T14:23:07Z",
+  "updated": "2026-10-09T14:52:31Z",
   "deviations": [
     {
       "id": "d1",
@@ -465,6 +465,44 @@
       "status": "proposed",
       "superseded": false,
       "seq": 26
+    },
+    {
+      "id": "e21",
+      "obligation_ref": "o11",
+      "test_ref": "live rules.culture.dev, 0.17.0 wheel from rules/editor-fold-spec on spark (API only), read via #agent-state in the operator's browser",
+      "behavior_text": "observed four tabs; /rules -> /workflows; the PR fixer as a 3-workflow chain card (4 entry points) plus report-secrets (2 entry points), computed from 11 live rules; Simple, Detailed and Debug rendered with 0 errors on all 7 workflows; /rules/pr-fixer-review-commit opened review-commit at that entry point; an unknown id showed the not-found notice",
+      "contract_text": "the Workflows tab shows the PR fixer as 1 chain card, 4 workflows, 6 entry points (computed from live rules), and editing one entry point's condition issues exactly 1 PUT",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "live observation at the run commit; '1 chain card' is 2 by approved d2; the live condition edit was NOT made (it would change a production rule outside t12's criteria), so that half rests on the Playwright check (e13/fold.spec)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-09T14:52:31",
+        "commit": "8a7d276"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 27
+    },
+    {
+      "id": "e22",
+      "obligation_ref": "o8",
+      "test_ref": "live rules.culture.dev: /rules/test-jira-scrum21-to-discord -> the D7 place, 'Create its workflow'; then culture-rules rules show / workflows show",
+      "behavior_text": "the live action-only rule was offered D7 and converted through the editor: workflow test-scrum-21-comment-spark-tests created with 0 steps, 0 edges, no inputs or outputs; the rule now points at it, still disabled, action unchanged; no rule is left without a workflow. Pre-check: all 3 live run-event rules carry a data.workflow_id filter",
+      "contract_text": "every rule in the store appears as an entry point or continuation of a workflow; an action-only rule is offered a D7 workflow, and a new action-only rule gets one automatically",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "live write and read-back at the run commit; the rule is disabled, so 'its next run behaves as before' cannot be observed live and rests on tests/engine/test_stepless_workflow.py (e8)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-09T14:52:31",
+        "commit": "8a7d276"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 28
     }
   ],
   "deltas": [
