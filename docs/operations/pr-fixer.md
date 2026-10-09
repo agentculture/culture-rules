@@ -858,13 +858,7 @@ a reviewer's findings) is never "cleaned" Markdown. It is:
    urlsafe-base64 encoding. Known values are everything the process
    resolved through `grant` (the App private key, bridge tokens), its
    `CULTURE_RULES_SECRET_*` environment, and the bridge bearer tokens it
-   used. A piece that also occurs in the engine's own public wording (the
-   run-link base `<public URL>/api/runs/`, the hidden marker's prefix, the
-   headline, `PR fixer finished.`) is public already and does not count;
-   the value whole and its other pieces still do. Without this, a secret
-   holding a fragment of the public hostname hid every body behind the
-   fallback (seen live on culture-rules-tester#8). Such a secret is weak:
-   rotate it. Every check runs on the raw, entity-decoded and normalized text
+   used. Every check runs on the raw, entity-decoded and normalized text
    and on the stripped view of each, so neither markup nor angle brackets
    hide a value. Notes are checked one by one and together. A refused note is
    dropped; a refused summary or final section renders `[withheld]`;
@@ -879,7 +873,15 @@ repository) are rendered only when they have their expected shape. Run links
 and the hidden marker are built from validated engine values, never from
 the relayed text. Right before every post or edit the whole body is checked
 again: an untrusted section that holds a secret, alone or with the rest,
-becomes `[withheld]`.
+becomes `[withheld]`. For that last check the engine's own sections lose
+their fixed literals (the run-link base `<public URL>/api/runs/`, the
+headline, `PR fixer finished.`): a piece a secret shares with the engine's
+wording is not a leak. Without this, a secret that held a fragment of the
+public hostname hid every body behind the fallback (seen live on
+culture-rules-tester#8). Such a secret is weak, so rotate it. Relayed text
+and engine facts are checked exactly as before. `CULTURE_RULES_PUBLIC_URL`
+must be a plain http(s) origin (no credentials, query or fragment), else the
+default is used.
 
 **Residual risk, plainly.** These checks stop accidents and the obvious
 leaks. An agent determined to exfiltrate through an encoding of its own

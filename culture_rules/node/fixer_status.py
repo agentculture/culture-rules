@@ -37,10 +37,10 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from urllib.parse import urlsplit
 
 from culture_rules.apps.public_text import (
     WITHHELD,
-    declare_public,
     escape,
     inert_block,
     known_secret_in,
@@ -97,7 +97,37 @@ STATUS_NOTE_HINT = (
     "secret is dropped. Never put tokens, keys or passwords in a note."
 )
 """Appended to the instruction of an agent step whose run writes a status comment."""
-PUBLIC_URL = os.environ.get("CULTURE_RULES_PUBLIC_URL", "https://rules.culture.dev").rstrip("/")
+DEFAULT_PUBLIC_URL = "https://rules.culture.dev"
+
+
+def public_url(raw: Any) -> str:
+    """``raw`` as the comment's link base when it is a plain http(s) origin (a host, an
+    optional port and path; no credentials, query or fragment), else the default."""
+    if not isinstance(raw, str) or not raw.strip():
+        return DEFAULT_PUBLIC_URL
+    try:
+        parts = urlsplit(raw.strip())
+        port_ok = parts.port is None or parts.port > 0
+    except ValueError:
+        return DEFAULT_PUBLIC_URL
+    plain = (
+        parts.scheme in ("https", "http")
+        and bool(parts.hostname)
+        and port_ok
+        and not parts.username
+        and not parts.password
+        and not parts.query
+        and not parts.fragment
+        and _URL_PATH.fullmatch(parts.path or "/")
+    )
+    if not plain:
+        log.warning("CULTURE_RULES_PUBLIC_URL is not a plain http(s) origin: using the default")
+        return DEFAULT_PUBLIC_URL
+    return raw.strip().rstrip("/")
+
+
+_URL_PATH = re.compile(r"/[A-Za-z0-9._~/-]*")
+PUBLIC_URL = public_url(os.environ.get("CULTURE_RULES_PUBLIC_URL"))
 """Where runs are linked from the comment (``<url>/api/runs/<id>``)."""
 MARKER = "<!-- culture-rules:fixer-status {} -->"
 
@@ -132,11 +162,8 @@ _REVIEW_BUILTIN = "review"
 _PUSH_KIND = "github.push"
 _COMMENT_KIND = "github.comment"
 FINISHED = "PR fixer finished."  # a final section with no text of its own
+_LITERALS = (f"{PUBLIC_URL}/api/runs/", HEADLINE, FINISHED)  # _without_literals()
 
-# The engine's own wording and link base are public: a piece a known secret shares with them
-# is no leak (2026-10-09: a webhook secret held a fragment of the public hostname, and every
-# body fell back to the bare headline).
-declare_public(f"{PUBLIC_URL}/api/runs/", MARKER.format(""), HEADLINE, FINISHED)
 
 _WORD = re.compile(r"[a-z][a-z0-9_]{0,39}")
 _SHA = re.compile(r"[0-9a-f]{7,64}")
@@ -518,7 +545,17 @@ def _guard(
     if withheld(untrusted, known):
         parts = [(WITHHELD if bad else text, bad) for text, bad in parts]
     body = "\n\n".join(text for text, _ in parts)
-    return fallback() if known_secret_in(body, known) else body
+    checked = "\n\n".join(text if bad else _without_literals(text) for text, bad in parts)
+    return fallback() if known_secret_in(checked, known) else body
+
+
+def _without_literals(text: str) -> str:
+    """An engine section less the engine's own fixed wording (its link base, headline and
+    finished line): a piece a known secret shares with them is public, not a leak. Only
+    engine sections, only for the whole-body check; relayed text is checked as it is."""
+    for literal in _LITERALS:
+        text = text.replace(literal, "\n")
+    return text
 
 
 def _outcome(chain: Chain) -> str:

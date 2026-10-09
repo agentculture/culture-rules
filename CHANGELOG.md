@@ -13,7 +13,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- The status comment fell back to its bare headline whenever a known secret shared a 12-character piece with the engine's own public wording: seen live on culture-rules-tester#8, where a webhook secret held a fragment of the public hostname and so matched every run link. `public_text.declare_public()` declares the engine's link base, marker prefix, headline and finished line; a secret's piece that occurs in them no longer counts, while the value whole and its other pieces still do.
+- The status comment fell back to its bare headline whenever a known secret shared a 12-character piece with the engine's own wording. This was seen live on culture-rules-tester#8, where a webhook secret held a fragment of the public hostname and so matched every run link. The whole-body check now drops the engine's fixed literals (the run-link base, the headline, the finished line) from the engine's own sections before the known-secret check. Relayed text and engine facts are checked exactly as before.
+- `CULTURE_RULES_PUBLIC_URL` is used only when it is a plain http(s) origin: a host, an optional port and path, and no credentials, query or fragment. Otherwise the default is used, with a warning.
 
 ## [0.16.0] - 2026-10-09
 

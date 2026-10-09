@@ -286,15 +286,3 @@ def test_trailing_title_groups_are_stripped_in_linear_time():
     started = time.monotonic()
     assert status_note(many) == "done"
     assert time.monotonic() - started < 2
-
-
-def test_a_piece_found_in_declared_public_text_is_not_a_hit():
-    from culture_rules.apps import public_text
-
-    value = "zq7-hooks.example.test-" + "k8w3p0x2v9m4"
-    link = "https://hooks.example.test/api/runs/run-0123"
-    assert known_secret_in(link, [value]) is True  # undeclared: the shared piece hits
-    public_text.declare_public("https://hooks.example.test/api/runs/")
-    assert known_secret_in(link, [value]) is False
-    assert known_secret_in(f"see {value}", [value]) is True  # the value itself
-    assert known_secret_in("ends test-k8w3p0x2v9m4", [value]) is True  # a private piece

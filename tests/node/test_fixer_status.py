@@ -171,3 +171,43 @@ def test_a_secret_sharing_a_piece_with_the_run_link_still_withholds_its_own_text
     assert HOSTLIKE not in body
     assert "k8w3p0x2v9m4" not in body
     assert WITHHELD in body
+
+
+def test_relayed_text_made_of_the_engine_wording_is_still_checked():
+    # Codex: the exemption must never reach relayed text (a short secret of public words)
+    short = "fixerisworking"
+    leaked = fix_run(status="succeeded", outputs={"summary": f"the password is {short}"})
+    body = render(chain_of(leaked), known=[short])
+    assert short not in body
+    assert WITHHELD in body
+    final = plain_final(f"The password is {short}", None, [short])
+    assert short not in final
+
+
+def test_a_known_secret_in_an_engine_fact_still_falls_back():
+    # the literals are dropped only from the check, never the facts beside them
+    author = "rules-culture-dev-k8w3p0x2"
+    assert f"by {author}" in render(chain_of(comment_root(author=author)))
+    body = render(chain_of(comment_root(author=author)), known=[author])
+    assert "k8w3p0x2" not in body
+    assert body.startswith(HEADLINE)
+
+
+def test_the_public_url_must_be_a_plain_origin():
+    from culture_rules.node.fixer_status import DEFAULT_PUBLIC_URL, public_url
+
+    assert public_url("https://rules.example.test/") == "https://rules.example.test"
+    assert public_url("http://127.0.0.1:8791") == "http://127.0.0.1:8791"
+    for bad in (
+        "https://user:pw@rules.example.test",
+        "https://rules.example.test/?token=x",
+        "https://rules.example.test/#frag",
+        "ftp://rules.example.test",
+        "https://",
+        "rules.example.test",
+        "https://rules.example.test:0",
+        "https://rules.example.test/a b",
+        None,
+        "",
+    ):
+        assert public_url(bad) == DEFAULT_PUBLIC_URL, bad
