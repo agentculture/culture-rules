@@ -282,24 +282,55 @@ describe("D7 races", () => {
       .toMatchObject({ status: "skipped-changed", cleanup: "deleted" });
     expect(requests()).toEqual(["GET /rules/one", "POST /workflows", "GET /rules/one", "DELETE /workflows/wrapper"]);
   });
-  it.each(["attached", "elsewhere", "read-failed"])("reconciles lost PUT response: %s", async (outcome) => {
-    const fakeFetch = fetchFor(api);
-    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
-      const response = await fakeFetch(input, init);
-      if (init?.method === "PUT") {
-        if (outcome === "elsewhere") {
-          api.rules[0].workflow = { id: "another" };
-          api.failNext["DELETE /workflows/wrapper"] = { status: 409, code: "in_use", message: "In use" };
+  it.each([0, 500, 503])("reconciles ambiguous PUT status %s before cleanup", async (status) => {
+    for (const outcome of ["attached", "not-committed", "read-failed"]) {
+      api = createFakeApi();
+      api.rules = [rule("one")];
+      handle(api, "GET", "/rules", new URLSearchParams());
+      api.calls = [];
+      const fakeFetch = fetchFor(api);
+      vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+        const isPut = init?.method === "PUT";
+        if (isPut && outcome === "not-committed") api.failNext["PUT /rules/one"] = failure;
+        const response = await fakeFetch(input, init);
+        if (isPut) {
+          if (outcome === "read-failed") api.failNext["GET /rules/one"] = failure;
+          if (status === 0) throw new TypeError("Response lost");
+          return new Response(JSON.stringify({ error: { code: "unavailable", message: "Response lost" } }), { status });
         }
-        if (outcome === "read-failed") api.failNext["GET /rules/one"] = failure;
-        throw new TypeError("Response lost");
+        return response;
+      });
+      const result = await createD7Workflow(api.rules[0], { id: "wrapper", name: "Wrapper" });
+      const expectedCalls = ["GET /rules/one", "POST /workflows", "GET /rules/one", "PUT /rules/one", "GET /rules/one"];
+      if (outcome === "attached") {
+        expect(result).toMatchObject({ status: "saved", ruleResult: { status: "saved", rule: { workflow: { id: "wrapper" } } } });
+      } else if (outcome === "not-committed") {
+        expect(result).toMatchObject({ status: "failed", cleanup: "deleted", ruleResult: { error: { status } } });
+        expectedCalls.push("DELETE /workflows/wrapper");
+      } else {
+        expect(result).toMatchObject({ status: "failed", cleanup: "orphan", orphan: { id: "wrapper" },
+          ruleResult: { error: { status } }, cleanupError: failure });
       }
-      return response;
-    });
+      expect(requests()).toEqual(expectedCalls);
+      expect(api.workflows.some((w) => w.id === "wrapper")).toBe(outcome !== "not-committed");
+      expect(api.workflowTrash.some((w) => w.id === "wrapper")).toBe(outcome === "not-committed");
+    }
+  });
+
+  it("cleans up an unambiguous 4xx without another read", async () => {
+    api.failNext["PUT /rules/one"] = { status: 422, code: "invalid", message: "Invalid rule" };
     expect(await createD7Workflow(api.rules[0], { id: "wrapper", name: "Wrapper" }))
-      .toMatchObject(outcome === "attached"
-        ? { status: "saved", ruleResult: { status: "saved", rule: { workflow: { id: "wrapper" } } } }
-        : { status: "failed", cleanup: "orphan" });
-    expect(requests().slice(-2)).toEqual(["DELETE /workflows/wrapper", "GET /rules/one"]);
+      .toMatchObject({ status: "failed", cleanup: "deleted" });
+    expect(requests()).toEqual(["GET /rules/one", "POST /workflows", "GET /rules/one", "PUT /rules/one", "DELETE /workflows/wrapper"]);
+  });
+
+  it("fake DELETE soft-deletes a referenced workflow unless failure is injected", async () => {
+    const workflow = api.workflows[0];
+    api.rules[0].workflow = { id: workflow.id };
+    const path = `/workflows/${encodeURIComponent(workflow.id)}`;
+    api.failNext[`DELETE ${path}`] = { status: 409, code: "in_use", message: "Injected refusal" };
+    await expect(request("DELETE", path)).rejects.toMatchObject({ status: 409, code: "in_use" });
+    await expect(request("DELETE", path)).resolves.toMatchObject({ deleted: true });
+    expect(api.workflowTrash).toContainEqual(workflow);
   });
 });

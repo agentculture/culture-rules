@@ -327,9 +327,6 @@ export function handle(
     const id = decodeURIComponent(workflow[1]);
     const at = api.workflows.findIndex((w) => w.id === id);
     if (at < 0) return error(404, "not_found", path);
-    if (api.rules.some((r) => r.workflow?.id === id)) {
-      return error(409, "in_use", `${id} is in use`);
-    }
     api.workflowTrash.push(api.workflows.splice(at, 1)[0]);
     return json(200, { id, deleted: true });
   }

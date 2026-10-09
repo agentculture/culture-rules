@@ -98,7 +98,7 @@ export type D7WriteResult =
  * D7 for an existing workflow-less rule. The caller supplies a new workflow id;
  * a failed create (including an id collision) must never trigger a delete.
  * Rollback uses the API's soft delete. An orphan includes the id needed to retry
- * cleanup, plus both the attachment result and the cleanup failure.
+ * cleanup, plus both the attachment result and the reconciliation/cleanup failure.
  */
 export async function createD7Workflow(
   snapshot: Rule,
@@ -126,22 +126,25 @@ export async function createD7Workflow(
   });
   if (ruleResult.status === "saved") return { status: "saved", workflow, ruleResult };
   const result = { status: ruleResult.status, workflow, ruleResult };
+  // A lost response or server error may hide a committed attachment. Soft
+  // delete permits referenced workflows, so reconcile before attempting cleanup.
+  if (ruleResult.status === "failed" && ruleResult.phase === "write"
+    && ruleResult.error instanceof ApiError
+    && (ruleResult.error.status === 0 || (ruleResult.error.status >= 500 && ruleResult.error.status < 600))) {
+    try {
+      const current = await getRule(original.id);
+      if (current.workflow?.id === workflow.id) {
+        return { status: "saved", workflow, ruleResult: { ...ruleResult, status: "saved", rule: current } };
+      }
+    } catch (cleanupError) {
+      // Preserve the wrapper and both errors when attachment is unconfirmed.
+      return { ...result, cleanup: "orphan", orphan: workflow, cleanupError };
+    }
+  }
   try {
     await deleteWorkflowDef(workflow.id);
     return { ...result, cleanup: "deleted" };
   } catch (cleanupError) {
-    if (ruleResult.status === "failed" && ruleResult.phase === "write"
-      && ruleResult.error instanceof ApiError && ruleResult.error.status === 0
-      && cleanupError instanceof ApiError && cleanupError.status === 409 && cleanupError.code === "in_use") {
-      try {
-        const current = await getRule(original.id);
-        if (current.workflow?.id === workflow.id) {
-          return { status: "saved", workflow, ruleResult: { ...ruleResult, status: "saved", rule: current } };
-        }
-      } catch {
-        // Attachment remains unconfirmed; preserve both errors for cleanup retry.
-      }
-    }
     return { ...result, cleanup: "orphan", orphan: workflow, cleanupError };
   }
 }
