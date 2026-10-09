@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-09T09:29:21Z",
-  "updated": "2026-10-09T11:18:55Z",
+  "updated": "2026-10-09T11:45:29Z",
   "claims": [
     {
       "id": "c1",
@@ -713,6 +713,28 @@
       "skipped_check": "",
       "refs": [
         "t5"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l5",
+      "code": "grader-unverified",
+      "what": "t7 list and Chain view never checked in a real browser against Fold-List/Fold-Chain",
+      "skipped_check": "browser visual check",
+      "refs": [
+        "t7"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l6",
+      "code": "grader-unverified",
+      "what": "t6 Simple view visual check by builder's own harness screenshots, not compared against the Fold-Editor board; Playwright not run (unrouted until t8)",
+      "skipped_check": "",
+      "refs": [
+        "t6"
       ],
       "origin": "llm",
       "status": "proposed"
