@@ -2,7 +2,7 @@
   "plan_slug": "editor-rules-folded-into-workflows-three-views",
   "schema_version": 2,
   "created": "2026-10-09T11:07:59Z",
-  "updated": "2026-10-09T20:43:17Z",
+  "updated": "2026-10-09T21:04:55Z",
   "deviations": [
     {
       "id": "d1",
@@ -628,6 +628,25 @@
       "status": "approved",
       "superseded": false,
       "seq": 35
+    },
+    {
+      "id": "e29",
+      "obligation_ref": "o5",
+      "test_ref": "live rules.culture.dev after the 0.18.0 release (main 1305ed2) on all four nodes: PR fix in Detailed, read via the page DOM and console; plus web/src/workflows/{Canvas,model,layout}.test re-run on main (42/42)",
+      "behavior_text": "the served bundle is index-CKl_CH1s.js (the 0.18.0 build); Detailed shows 0 port rows, 11 bundled edges (6 with a connection count), in alone in the leftmost column and out alone in the rightmost; 0 console errors",
+      "contract_text": "Simple, Detailed and Debug render their canvas (When/Then, steps and edges, every port), as amended by d7",
+      "evidence_type": "manual",
+      "strength": "execution",
+      "strength_basis": "live page read on 2026-10-09 ~20:45Z after install, nodes 0.18.0 active with 0 ERROR lines; unit tests re-run on merged main",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-09T20:45:00Z",
+        "commit": "1305ed2"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 36
     }
   ],
   "deltas": [

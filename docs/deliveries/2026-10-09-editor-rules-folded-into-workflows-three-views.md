@@ -2,7 +2,7 @@
 
 plan: `editor-rules-folded-into-workflows-three-views` · run: `complete` (was `partial` until the t12 observations on 2026-10-09) · date: `2026-10-09`
 baseline: `devague summary skeleton`
-updated: `2026-10-09`, after PR #27 merged (t11 and t12 rows, Evidence, Remaining Work), and for d7 / PR #33 (t5 row, decisions, drift, evidence, remaining work)
+updated: `2026-10-09`, after PR #27 merged (t11 and t12 rows, Evidence, Remaining Work), and for d7 / PR #33 (t5 row, decisions, drift, evidence, remaining work); closeout on 2026-10-10: the 0.18.0 release and e29, before the closeout PR opened
 
 ## Intent
 
@@ -101,6 +101,7 @@ Run at commit `4c42240` (2026-10-09T14:21Z) unless noted. After the Codex review
 - post-merge: `gh pr view 27` merged at `6158304`; `importlib.metadata.version('culture-rules')` = 0.17.0 on spark, orin, spark2 and thor, `systemctl --user is-active culture-rules-node` active, 0 ERROR lines in 15 min; PR #28 checks all green with the SonarCloud gate OK (0 issues)
 - t12 live (2026-10-09 20:23–20:26Z, 0.17.1): e25 for o11 (condition add and remove read back through the API; PUTs per save not counted); e26 for o16 (enable/disable via the card switch); e27 for o7 (`run-74e19f870becff16570f10180734e361`, succeeded)
 - o11 recheck (2026-10-09 ~20:33–20:35Z): e28. The browser network log, read around each save, shows 1 PUT to the rule (200), a GET of that rule before it, and only GET refreshes after; the rule was restored. e25 was rejected in its favour
+- 0.18.0 release (2026-10-09 ~20:40–20:45Z, main `1305ed2`): installed on spark (API and node), orin, thor and spark2, with pause and resume around the installs; every node 0.18.0, active, 0 ERROR lines. e29 for o5 (approved): the live page serves `index-CKl_CH1s.js`; PR fix in Detailed shows 0 port rows, 11 bundled edges (6 counted), `in` leftmost and `out` rightmost, 0 console errors; the compact-view unit tests re-ran on `main` (42/42)
 - d7 (PR #33, commit `9508334`): e23 for o5 (vitest 686/686, Playwright 98/98, CI green, SonarCloud OK); e24 for o6 (outside `web/`, docs and version files, the diff changes only a test's timing bound); delta b9 (amended, from d7). The operator approved all three
 - PRs / issues: #27, #28, #32, #33; issues #29–#31; related #26 (a rule to visualize a spec on its PR)
 
@@ -152,11 +153,13 @@ Lapse ledger evidence:
 ## Remaining Work / Follow-up
 
 - **t11: done after this summary.** The Codex reviews ran, and PR #27 merged with CI green, including the web job (closes c19's l9).
-- **t12: done.** All four nodes run 0.17.1. The live condition edit, enable/disable and the converted rule's next run are observed (e28, e26, e27, all approved). The first condition check, e25, was rejected because it did not count the requests; its counted recheck, e28, replaces it. The test rule is disabled again, unchanged.
+- **t12: done.** All four nodes run 0.18.0. The live condition edit, enable/disable and the converted rule's next run are observed (e28, e26, e27, all approved). The first condition check, e25, was rejected because it did not count the requests; its counted recheck, e28, replaces it. The test rule is disabled again, unchanged.
 - **Quick-form limit (not a regression).** In the Simple view's "+ condition" form, "is" / "is not" compare only shared variables; a trigger field works only with "is one of". This matches the old Rules tab (o3 parity). Trigger-field equality in the quick form could be a small follow-up if wanted.
 - **A visual check of the released editor: done.** The operator signed in. 0.17.1 rendered all three views, the chain and the `/rules/<id>` redirect, with 0 console errors.
 - **PR #28 (0.17.1): merged** and released to all four nodes.
-- **d7, PR #33 (0.18.0).** The compact Detailed view. CI is green and the operator approved e23, e24, e26, e27 and b9; it waits for the operator to merge and decide on a release.
+- **d7, PR #33 (0.18.0): merged and released** to all four nodes, and checked live (e29). Every evidence record is settled: e1–e24 and e26–e29 approved, e25 rejected and replaced by e28. Every delta (b1–b9) and lapse (l1–l9) is approved.
+- **Process note.** PR #33's records (d7, e23–e28, b9) were filed after that PR opened, not before. The operator accepted this once, and this closeout's validate and summarize legs ran before its PR opened. Follow-up changes to a delivered plan record their deviation and evidence before the PR.
+- **Follow-ups, not part of this run:** #29 (editors for priority, exclusive_group and the inputs mapping), #30 (the store's change-stream settle), #31 (the fixer re-checks the PR state), and an optional fit-on-open for wide workflows in Detailed.
 - **o11: settled.** The recheck (e28) counted exactly 1 `PUT /api/rules/<id>` per condition save, add and remove alike, each after a re-read GET. The operator approved e28 and rejected e25.
 - **o3 / e4.** The operator chose a follow-up issue: [#29](https://github.com/agentculture/culture-rules/issues/29), editors for priority, exclusive_group and the inputs mapping. `c9` is unchanged.
 - **Adjudication: done.** The operator approved evidence e1–e22, deltas b1–b8 and lapses l1–l9.
