@@ -78,8 +78,17 @@ export async function stopRuleRuns(ruleId: string): Promise<StopRunsResult> {
   return request<StopRunsResult>("POST", `/rules/${enc(ruleId)}/stop-runs`, { apply: true });
 }
 
+export const SERVER_MANAGED_RULE_FIELDS = ["updated_at", "deleted_at", "deleted_by", "restorable_until"] as const;
+
+export async function getRule(id: string): Promise<RuleDoc> {
+  return request<RuleDoc>("GET", `/rules/${enc(id)}`);
+}
+
 export async function updateRule(rule: RuleDoc): Promise<RuleDoc> {
-  const { doc } = splitActiveRuns(await request<unknown>("PUT", `/rules/${enc(rule.id)}`, rule));
+  const body = Object.fromEntries(Object.entries(rule).filter(
+    ([key]) => !SERVER_MANAGED_RULE_FIELDS.some((field) => field === key),
+  )) as unknown as RuleDoc;
+  const { doc } = splitActiveRuns(await request<unknown>("PUT", `/rules/${enc(rule.id)}`, body));
   return asRule(doc, rule);
 }
 
