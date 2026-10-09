@@ -13,6 +13,10 @@
  *   - a workflow output reads `inputs.<n>` or `steps.<id>.outputs.<p>`
  *     (a `vars.<n>` source is shown as its reference, not a port);
  *   - a step's outputs come from its inputs (`step`);
+ *   - a wired body input still falls back to the loop's implicit values (below,
+ *     carry included) when its wire supplies nothing — a skipped source, or
+ *     one without that field (`_gathered_inputs`); those links are marked
+ *     `fallback` (apart from `conditional`, a source step that may be skipped);
  *   - inside a loop, an edge from the loop itself reads the loop's *inputs*
  *     (`_edge_source`);
  *   - a loop body step's unwired input is filled implicitly (`by-name`,
@@ -52,6 +56,11 @@ export interface DebugPort {
   /** The input is filled implicitly by its loop (a loop input of its name, or the engine's `loop.<n>`). */
   byName: boolean;
   /**
+   * A wired body input's implicit loop value (a loop input ref or the engine's `loop.<n>`), used
+   * when the wire supplies nothing — its source skipped or without that field (`_gathered_inputs`).
+   */
+  fallback: string | null;
+  /**
    * From a retry_until loop's second try on, the previous result field this input takes
    * (`config.carry`): one entry per body step that may produce the result.
    */
@@ -77,6 +86,8 @@ export interface Carried {
   ref: string;
   /** The source step has a `config.when`: it feeds the value only when it runs. */
   conditional: boolean;
+  /** The input is wired: the carried value applies only when the wire supplies nothing. */
+  behindWire: boolean;
 }
 
 export interface PortLink {
@@ -85,6 +96,8 @@ export interface PortLink {
   kind: LinkKind;
   /** A loop-result link (`carry`, or into a loop output) whose source step may be skipped. */
   conditional?: boolean;
+  /** An implicit loop value behind a wire: it applies only when the wire supplies nothing. */
+  fallback?: boolean;
 }
 
 /** A port's reference, as a definition names it. */
@@ -157,7 +170,7 @@ function toPort(
   node: string,
   side: PortSide,
   p: Pick<Port, "name" | "type" | "required">,
-  extra: Partial<Pick<DebugPort, "reads" | "byName" | "carried" | "exported">> = {},
+  extra: Partial<Pick<DebugPort, "reads" | "byName" | "fallback" | "carried" | "exported">> = {},
 ): DebugPort {
   return {
     ref: portRef(node, side, p.name),
@@ -168,6 +181,7 @@ function toPort(
     required: p.required !== false,
     reads: extra.reads ?? null,
     byName: extra.byName ?? false,
+    fallback: extra.fallback ?? null,
     carried: extra.carried ?? [],
     exported: extra.exported ?? false,
   };
@@ -185,19 +199,30 @@ function stepGroup(wf: WorkflowDef, step: Step, loop: Step | null, exported: Set
   const engine = new Set(loop ? (ENGINE_INPUTS[loop.kind] ?? []) : []);
   const carry = carryOf(loop);
   const sources = loop ? resultSteps(loop) : [];
+  // The loop's implicit value for an input (`_implicit_loop_inputs`): the engine's own, else a
+  // loop input of the same name.
+  const implicitOf = (name: string): string | null => {
+    if (engine.has(name)) return `loop.${name}`;
+    if (loop && loopInputs.has(name)) return portRef(loop.id, "in", name);
+    return null;
+  };
   const inputs = (step.inputs ?? []).map((p) => {
-    const reads = wired.get(p.name);
-    if (reads) return toPort(step.id, "in", p, { reads });
+    const wire = wired.get(p.name);
+    const implicit = implicitOf(p.name);
     const field = carry.get(p.name);
+    // `_gathered_inputs`: a wire wins when its source supplies the port; the loop's implicit
+    // values (carry included) fill it otherwise, so behind a wire they are only possible.
     const carried: Carried[] = field
       ? sources
           .filter(({ step: s }) => (s.outputs ?? []).some((o) => o.name === field))
-          .map(({ step: s, conditional }) => ({ ref: portRef(s.id, "out", field), conditional }))
+          .map(({ step: s, conditional }) => ({
+            ref: portRef(s.id, "out", field),
+            conditional,
+            behindWire: wire !== undefined,
+          }))
       : [];
-    if (engine.has(p.name)) return toPort(step.id, "in", p, { reads: `loop.${p.name}`, byName: true, carried });
-    if (loop && loopInputs.has(p.name)) {
-      return toPort(step.id, "in", p, { reads: portRef(loop.id, "in", p.name), byName: true, carried });
-    }
+    if (wire) return toPort(step.id, "in", p, { reads: wire, fallback: implicit, carried });
+    if (implicit) return toPort(step.id, "in", p, { reads: implicit, byName: true, carried });
     return toPort(step.id, "in", p, { carried });
   });
   const outputs = (step.outputs ?? []).map((p) =>
@@ -299,21 +324,35 @@ export function allLinks(wf: WorkflowDef): PortLink[] {
   const groups = flatten(debugColumns(wf).flat());
   const known = new Set(groups.flatMap((g) => [...g.inputs, ...g.outputs]).map((p) => p.ref));
   const links: PortLink[] = [];
+  const seen = new Set<string>();
+  // One link per pair of ports: the first wins (a wire over the implicit value it shadows).
+  const add = (link: PortLink) => {
+    const id = `${link.from}->${link.to}`;
+    if (seen.has(id)) return;
+    seen.add(id);
+    links.push(link);
+  };
   for (const g of groups) {
     for (const p of g.inputs) {
       if (!p.reads || !known.has(p.reads)) continue;
       let kind: LinkKind = "wire";
       if (g.kind === "outputs") kind = "output";
       else if (p.byName) kind = "by-name";
-      links.push({ from: p.reads, to: p.ref, kind });
+      add({ from: p.reads, to: p.ref, kind });
+    }
+    for (const p of g.inputs) {
+      if (p.fallback && known.has(p.fallback)) {
+        add({ from: p.fallback, to: p.ref, kind: "by-name", fallback: true });
+      }
     }
     for (const p of g.inputs) {
       for (const c of p.carried) {
-        if (known.has(c.ref)) links.push({ from: c.ref, to: p.ref, kind: "carry", conditional: c.conditional });
+        if (!known.has(c.ref)) continue;
+        add({ from: c.ref, to: p.ref, kind: "carry", conditional: c.conditional, ...(c.behindWire ? { fallback: true } : {}) });
       }
     }
     if (g.kind !== "step") continue;
-    for (const i of g.inputs) for (const o of g.outputs) links.push({ from: i.ref, to: o.ref, kind: "step" });
+    for (const i of g.inputs) for (const o of g.outputs) add({ from: i.ref, to: o.ref, kind: "step" });
     // a loop's result is its last succeeded body step's outputs (`_progress_loop`, `_loop_outputs`)
     if (!g.step || g.body.length === 0) continue;
     const loopKind = g.step.kind;
@@ -324,7 +363,7 @@ export function allLinks(wf: WorkflowDef): PortLink[] {
         const gathersAll = loopKind === "for_each" && out.name === "results";
         for (const o of inner!.outputs) {
           if (gathersAll || o.name === out.name) {
-            links.push({ from: o.ref, to: out.ref, kind: "by-name", conditional });
+            add({ from: o.ref, to: out.ref, kind: "by-name", conditional });
           }
         }
       }

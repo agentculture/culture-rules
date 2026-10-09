@@ -214,7 +214,7 @@ describe("the Debug view's port model", () => {
       expect(byRef.get("steps.agent.inputs.instruction")).toMatchObject({
         reads: "steps.fix.inputs.instruction",
         byName: true,
-        carried: [{ ref: "steps.gate.outputs.instruction", conditional: false }],
+        carried: [{ ref: "steps.gate.outputs.instruction", conditional: false, behindWire: false }],
       });
       expect([...portLinks(fixer, "steps.gate.outputs.instruction").downstream]).toContain(
         "steps.agent.inputs.instruction",
@@ -310,8 +310,8 @@ describe("the Debug view's port model", () => {
       expect(up).not.toContain("steps.early.outputs.note");
       const note = debugPorts(wf).find((p) => p.ref === "steps.early.inputs.note")!;
       expect(note.carried).toEqual([
-        { ref: "steps.base.outputs.note", conditional: false },
-        { ref: "steps.maybe.outputs.note", conditional: true },
+        { ref: "steps.base.outputs.note", conditional: false, behindWire: false },
+        { ref: "steps.maybe.outputs.note", conditional: true, behindWire: false },
       ]);
       const carry = allLinks(wf).filter((l) => l.kind === "carry");
       expect(carry).toEqual([
@@ -340,6 +340,90 @@ describe("the Debug view's port model", () => {
       expect([...portLinks(wf, "steps.loop.outputs.iterations").upstream]).not.toContain(
         "steps.only.outputs.iterations",
       );
+    });
+
+    it("a wired body input still falls back to its loop's implicit values when the wire supplies nothing", () => {
+      const wf: WorkflowDef = {
+        id: "f",
+        name: "f",
+        steps: [
+          {
+            id: "loop",
+            kind: "retry_until",
+            max_iterations: 3,
+            config: { carry: { note: "note" } },
+            inputs: [{ name: "note", type: "string" }],
+            outputs: [],
+            body: [
+              {
+                id: "maybe",
+                kind: "code",
+                config: { when: { field: "x", op: "eq", value: 1 } },
+                inputs: [],
+                outputs: [{ name: "note", type: "string" }, { name: "index", type: "integer" }],
+              },
+              {
+                id: "use",
+                kind: "code",
+                inputs: [
+                  { name: "note", type: "string" },
+                  { name: "index", type: "integer" },
+                ],
+                outputs: [{ name: "note", type: "string" }],
+              },
+            ],
+          },
+        ],
+        edges: [
+          { source: "maybe", source_port: "note", target: "use", target_port: "note" },
+          { source: "maybe", source_port: "index", target: "use", target_port: "index" },
+        ],
+        outputs: [],
+      };
+      const byRef = new Map(debugPorts(wf).map((p) => [p.ref, p]));
+      expect(byRef.get("steps.use.inputs.note")).toMatchObject({
+        reads: "steps.maybe.outputs.note",
+        byName: false,
+        fallback: "steps.loop.inputs.note",
+        // `use` always runs: the only condition is the wire supplying nothing
+        carried: [{ ref: "steps.use.outputs.note", conditional: false, behindWire: true }],
+      });
+      expect(byRef.get("steps.use.inputs.index")).toMatchObject({ reads: "steps.maybe.outputs.index", fallback: "loop.index" });
+      expect(allLinks(wf).filter((l) => l.to === "steps.use.inputs.note")).toEqual([
+        { from: "steps.maybe.outputs.note", to: "steps.use.inputs.note", kind: "wire" },
+        { from: "steps.loop.inputs.note", to: "steps.use.inputs.note", kind: "by-name", fallback: true },
+        { from: "steps.use.outputs.note", to: "steps.use.inputs.note", kind: "carry", conditional: false, fallback: true },
+      ]);
+      expect([...portLinks(wf, "steps.loop.inputs.note").downstream]).toContain("steps.use.inputs.note");
+      expect([...portLinks(wf, "steps.use.inputs.note").upstream]).toContain("steps.loop.inputs.note");
+    });
+
+    it("an unwired, unfilled input has no fallback", () => {
+      expect(debugPorts(REVIEW_PR).every((p) => p.fallback === null)).toBe(true);
+    });
+
+    it("a loop input wired to a body input of its own name is one link, the wire", () => {
+      const wf: WorkflowDef = {
+        id: "d",
+        name: "d",
+        steps: [
+          {
+            id: "loop",
+            kind: "retry_until",
+            max_iterations: 2,
+            inputs: [{ name: "repo", type: "string" }],
+            outputs: [],
+            body: [{ id: "one", kind: "code", inputs: [{ name: "repo", type: "string" }], outputs: [] }],
+          },
+        ],
+        edges: [{ source: "loop", source_port: "repo", target: "one", target_port: "repo" }],
+        outputs: [],
+      };
+      expect(allLinks(wf).filter((l) => l.to === "steps.one.inputs.repo")).toEqual([
+        { from: "steps.loop.inputs.repo", to: "steps.one.inputs.repo", kind: "wire" },
+      ]);
+      const ids = allLinks(wf).map((l) => `${l.from}->${l.to}`);
+      expect(new Set(ids).size).toBe(ids.length);
     });
   });
 });

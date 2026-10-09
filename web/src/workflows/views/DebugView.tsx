@@ -53,15 +53,22 @@ interface Wire {
   to: string;
 }
 
-/** "if gate runs": a carried value from a body step with a `config.when`. */
-const ifRuns = (c: Carried) => (c.conditional ? ` if ${c.ref.split(".")[1]} runs` : "");
+/** A value that applies only when its wire supplies nothing (`_gathered_inputs`). */
+const WIRE_MISSING = "if the wire supplies nothing";
+
+/** The conditions a carried value holds under: its step runs, and/or the wire supplies nothing. */
+const carryConditions = (c: Carried): string[] => [
+  ...(c.conditional ? [`if ${c.ref.split(".")[1]} runs`] : []),
+  ...(c.behindWire ? [WIRE_MISSING] : []),
+];
 
 function portLabel(p: DebugPort): string {
   const bits = [p.ref, p.type];
   if (!p.required) bits.push("optional");
   if (p.reads) bits.push(`reads ${p.reads}${p.byName ? " by name" : ""}`);
   else if (p.side === "in") bits.push("not wired");
-  for (const c of p.carried) bits.push(`then carried from ${c.ref}${ifRuns(c)}`);
+  if (p.fallback) bits.push(`else ${p.fallback} ${WIRE_MISSING}`);
+  for (const c of p.carried) bits.push(["then carried from", c.ref, ...carryConditions(c)].join(" "));
   if (p.exported) bits.push("exported to out");
   return bits.join(", ");
 }
@@ -96,10 +103,13 @@ function PortRow({
             {port.byName ? " · by name" : ""}
           </span>
         ) : null}
+        {port.fallback ? (
+          <span className="wf-debug-port__reads wf-debug-port__reads--fallback">else ← {port.fallback} · {WIRE_MISSING}</span>
+        ) : null}
         {port.carried.map((c) => (
           <span key={c.ref} className="wf-debug-port__reads wf-debug-port__reads--carry">
             ↻ {c.ref}
-            {c.conditional ? ` ·${ifRuns(c)}` : ""}
+            {carryConditions(c).map((when) => ` · ${when}`).join("")}
           </span>
         ))}
       </button>
@@ -272,7 +282,7 @@ function useWires(
         id: `${l.from}->${l.to}`,
         d: `M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}`,
         kind: l.kind,
-        conditional: l.conditional ?? false,
+        conditional: (l.conditional ?? false) || (l.fallback ?? false),
         from: l.from,
         to: l.to,
       });

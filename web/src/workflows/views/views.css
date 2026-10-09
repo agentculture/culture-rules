@@ -371,6 +371,10 @@
   text-overflow: ellipsis;
 }
 
+.wf-debug-port__reads--fallback {
+  color: var(--ink-soft);
+}
+
 .wf-debug-port__reads--carry {
   color: var(--accent);
 }
