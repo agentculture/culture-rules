@@ -150,7 +150,7 @@ Lapse ledger evidence:
 - **t12, what is left.** All four nodes run 0.17.0. Observe `test-jira-scrum21-to-discord` running through `test-scrum-21-comment-spark-tests` when the rule is next enabled. Owner: the main agent.
 - **A visual check of the released editor.** This needs the operator to sign in to Cloudflare Access again.
 - **PR #28 (0.17.1).** It fixes the last two SonarCloud findings. CI is green, and it waits for the operator to merge.
-- **o3 / e4.** Decide whether priority, exclusive_group and the inputs mapping get editors (a follow-up issue), or amend c9's field list. Owner: the operator.
+- **o3 / e4.** The operator chose a follow-up issue: [#29](https://github.com/agentculture/culture-rules/issues/29), editors for priority, exclusive_group and the inputs mapping. `c9` is unchanged.
 - **Adjudication: done.** The operator approved evidence e1–e22, deltas b1–b8 and lapses l1–l9.
 - **Server gap.** `DELETE /workflows/{id}` should refuse a workflow a rule still uses. That is an API change, out of scope under c2. Issue to file if the operator agrees.
 - **Fixed by the fold, not separately on `main`.** The `updated_at` 422 on rule saves. Patch `main` separately only if the fold's release is delayed. Owner: the operator.

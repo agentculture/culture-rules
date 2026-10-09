@@ -10,6 +10,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 
 - CI: the pytest step runs coverage with `COVERAGE_CORE=sysmon` (faster tracer, same line coverage)
+- SonarCloud: `web/src/main.tsx` (the React render root) is excluded; the JS security sensor timed out at 300 s on it every time `web/` changed
+- The editor-fold delivery summary links the e4 follow-up, issue #29
 
 ## [0.17.1] - 2026-10-09
 
