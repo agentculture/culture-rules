@@ -29,8 +29,9 @@ function operandText(operand: Operand): string {
  */
 function paramText(value: unknown, fallback: string): string {
   if (value === undefined || value === null) return fallback;
-  if (typeof value === "object" && !Array.isArray(value)) return JSON.stringify(value);
-  return String(value);
+  if (Array.isArray(value)) return value.join(",");
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value as string | number | boolean | bigint);
 }
 export function guardText(condition: Condition): string {
   switch (condition.op) {
