@@ -15,6 +15,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Shared when identical (D3-D6): order and limits, placement, actions and guard conditions held identically by every entry point show once and fan out rule by rule, re-reading each rule first and skipping one changed meanwhile, with per-rule results and retry
 - D7: a rule with no workflow can be given a stored workflow with no steps (two writes with rollback and orphan handling); New rule does it automatically
 - Saving one of the PR fixer's trusted workflows asks first, naming the push trust it loses (c32)
+- Edits never overwrite a concurrent change: every form keeps the rule it was opened on, and every per-entry save re-reads the rule first, refusing with a reload offer if it changed; D7 cleanup never deletes a workflow a rule uses
 - Old `/rules` and `/rules/<id>` links redirect to the rule's workflow at its entry point; agent-state reports the entry-point state and keeps rules as a deprecated alias for one release
 
 ### Changed

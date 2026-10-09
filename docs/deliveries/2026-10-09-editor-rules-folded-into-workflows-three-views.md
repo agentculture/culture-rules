@@ -55,6 +55,16 @@ After: Opening a workflow shows, in the Simple view, its When entry points (each
 - Reviews found an existing bug on `main`: every Rules-tab save sent `updated_at` and got a 422 from the strict rule PUT. t4 fixed it in `updateRule` for every caller.
 - Reviews found that `DELETE /workflows/{id}` soft-deletes a workflow even while a rule still uses it. That is a server gap, out of scope under c2, so the editor re-reads `GET /rules` before deleting.
 
+- After the 19:16 reset, the queued Codex reviews (d4) ran as three area reviews of the whole branch. They found 4 majors and 3 minors the Opus reviews had missed, and every one was fixed and accepted by Codex:
+  - forms compared against live data after a refresh; per-entry Edit and Add condition overwrote concurrent changes;
+  - D7 cleanup could delete a wrapper a rule uses;
+  - entry links within a workflow didn't switch the open entry;
+  - rules pointing at a missing workflow were unreachable;
+  - Debug dropped the engine's implicit loop fallbacks;
+  - two docs overstated things.
+
+  Merges `156e9d7`, `f8175b3` and the fixA merge.
+
 ## Drift From Plan
 
 | Plan item | Reason for divergence | Classification |
@@ -71,7 +81,7 @@ After: Opening a workflow shows, in the Simple view, its When entry points (each
 
 ## Evidence
 
-Run at commit `4c42240` (2026-10-09T14:21Z) unless noted. The evidence records e1–e20 and deltas b1–b8 are filed, proposed, pending adjudication.
+Run at commit `4c42240` (2026-10-09T14:21Z) unless noted. After the Codex review fixes, re-run on the final head: vitest 673 (twice), Playwright 98, pytest 4598, every lint gate, boundary unchanged. The evidence records e1–e20 and deltas b1–b8 are filed, proposed, pending adjudication.
 
 - live: rules.culture.dev on 0.17.0 (spark API only) — e21 (views and redirects), e22 (D7 conversion), 2026-10-09
 - tests: `uv run pytest -n auto --cov=culture_rules` — pass (4598 passed, 9 skipped), run before the bump commit on the same tree
