@@ -64,7 +64,7 @@ export interface FakeResponse {
 
 export function createFakeApi(now = Date.now()): FakeApi {
   return {
-    rules: structuredClone(RULES),
+    rules: structuredClone(RULES).map((rule) => ({ ...rule, updated_at: new Date(now).toISOString() })),
     workflows: structuredClone(WORKFLOWS),
     workflowTrash: [],
     decisions: [],
@@ -118,16 +118,22 @@ const json = (status: number, body: unknown): FakeResponse => ({ status, body })
 const error = (status: number, code: string, message: string) =>
   json(status, { error: { code, message, errors: [] } });
 
+function stampRule(api: FakeApi, rule: Rule, write = false): Rule {
+  const stored = rule as Rule & { updated_at?: string };
+  if (write || !stored.updated_at) stored.updated_at = new Date(write ? ++api.now : api.now).toISOString();
+  return stored;
+}
+
 function handleGet(api: FakeApi, path: string, query: URLSearchParams): FakeResponse {
   if (path === "/whoami") return json(200, WHOAMI);
-  if (path === "/rules") return json(200, { items: api.rules });
+  if (path === "/rules") return json(200, { items: api.rules.map((rule) => stampRule(api, rule)) });
   if (path === "/actors") return json(200, { items: ACTORS });
   if (path === "/machines") return json(200, { items: MACHINES });
   if (path === "/workflows") return json(200, { items: api.workflows });
   const rule = /^\/rules\/([^/]+)$/.exec(path);
   if (rule) {
     const found = api.rules.find((r) => r.id === decodeURIComponent(rule[1]));
-    return found ? json(200, found) : error(404, "not_found", path);
+    return found ? json(200, stampRule(api, found)) : error(404, "not_found", path);
   }
   const described = /^\/rules\/([^/]+)\/describe$/.exec(path);
   if (described) return describeRule(api, described[1]);
@@ -235,12 +241,16 @@ function handleRuleWrite(
   if (method === "POST" && (verb === "enable" || verb === "disable")) return toggleRule(api, found, verb);
   if (method === "POST" && verb === "stop-runs") return stopRuns(api, found, body);
   if (method === "PUT") {
+    const fields = ["updated_at", "deleted_at", "deleted_by", "restorable_until"];
+    const errors = fields.filter((field) => body && typeof body === "object" && field in body)
+      .map((path) => ({ path, code: "unknown_field", message: "Unknown field" }));
+    if (errors.length) return json(422, { error: { code: "validation_error", message: "Invalid rule", errors } });
     Object.assign(found, body as Rule, { id });
-    return json(200, found);
+    return json(200, stampRule(api, found, true));
   }
   if (method === "DELETE") {
     api.rules.splice(api.rules.indexOf(found), 1);
-    api.trash.push(found);
+    api.trash.push(stampRule(api, found, true));
     return json(200, { id, deleted: true });
   }
   return null;
@@ -250,13 +260,14 @@ function handleRuleWrite(
 function restoreRule(api: FakeApi, id: string): FakeResponse {
   const at = api.trash.findIndex((r) => r.id === id);
   if (at < 0) return error(404, "not_found", id);
-  api.rules.push(api.trash.splice(at, 1)[0]);
+  api.rules.push(stampRule(api, api.trash.splice(at, 1)[0], true));
   return json(200, api.rules.at(-1));
 }
 
 /** `POST /rules/{id}/enable|disable`; a disable lists the rule's active runs. */
 function toggleRule(api: FakeApi, found: Rule, verb: "enable" | "disable"): FakeResponse {
   found.enabled = verb === "enable";
+  stampRule(api, found, true);
   if (verb === "enable") return json(200, found);
   const active = api.activeRuns[found.id] ?? [];
   return json(200, { ...found, active_runs: active.slice(0, 50), active_runs_total: active.length });
@@ -325,7 +336,7 @@ export function handle(
   if (method === "POST" && path === "/rules") {
     const doc = body as Rule;
     if (api.rules.some((r) => r.id === doc.id)) return error(409, "conflict", `${doc.id} exists`);
-    api.rules.push({ enabled: true, ...doc });
+    api.rules.push(stampRule(api, { enabled: true, ...doc }, true));
     return json(201, api.rules.at(-1));
   }
   const variable = /^\/variables\/([^/]+)$/.exec(path);

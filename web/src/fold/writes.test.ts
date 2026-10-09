@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { request } from "../api/client";
 import type { Condition, Rule } from "../api/types";
-import { createFakeApi, fetchFor, type FakeApi } from "../rules/fake-api";
+import { createFakeApi, fetchFor, handle, type FakeApi } from "../rules/fake-api";
 import { createD7Workflow, saveSharedEdit, savePredecessor, type SharedRuleEdit } from "./writes";
 
 const rule = (id: string): Rule => ({
@@ -16,6 +17,8 @@ let api: FakeApi;
 beforeEach(() => {
   api = createFakeApi();
   api.rules = [rule("one"), rule("two"), rule("three")];
+  handle(api, "GET", "/rules", new URLSearchParams());
+  api.calls = [];
   vi.stubGlobal("fetch", fetchFor(api));
 });
 afterEach(() => vi.unstubAllGlobals());
@@ -71,7 +74,7 @@ describe("shared edits", () => {
     Object.assign(api.rules[0], { concurrency_key: "keep", priority: 4 });
     const snapshots = structuredClone(api.rules);
     await saveSharedEdit(snapshots, { action: { kind: "noop" } });
-    expect(api.rules).toEqual(snapshots.map((r) => ({ ...r, action: { kind: "noop" } })));
+    expect(api.rules).toEqual(snapshots.map((r) => ({ ...r, action: { kind: "noop" }, updated_at: expect.any(String) })));
   });
 
   it("re-reads each rule just before its write, including changes made during fan-out", async () => {
@@ -98,6 +101,8 @@ describe("shared edits", () => {
 
   it("encodes rule ids for both re-read and PUT", async () => {
     api.rules = [rule("entry/with space")];
+    handle(api, "GET", "/rules", new URLSearchParams());
+    api.calls = [];
     expect((await saveSharedEdit(api.rules, { action: { kind: "noop" } }))[0].status).toBe("saved");
     expect(requests()).toEqual(["GET /rules/entry%2Fwith%20space", "PUT /rules/entry%2Fwith%20space"]);
   });
@@ -108,9 +113,9 @@ describe("D7", () => {
     const snapshot = structuredClone(api.rules[0]);
     const result = await createD7Workflow(snapshot, { id: "wrapper", name: "Wrapper" });
     expect(result).toMatchObject({ status: "saved", workflow: { id: "wrapper", steps: [] } });
-    expect(api.rules[0]).toEqual({ ...snapshot, workflow: { id: "wrapper" } });
+    expect(api.rules[0]).toEqual({ ...snapshot, workflow: { id: "wrapper" }, updated_at: expect.any(String) });
     expect(api.workflows.find((w) => w.id === "wrapper")).toMatchObject({ steps: [], edges: [] });
-    expect(requests()).toEqual(["POST /workflows", "GET /rules/one", "PUT /rules/one"]);
+    expect(requests()).toEqual(["GET /rules/one", "POST /workflows", "GET /rules/one", "PUT /rules/one"]);
   });
 
   it("deletes the workflow if the rule PUT fails", async () => {
@@ -133,11 +138,13 @@ describe("D7", () => {
     expect(api.workflows.some((w) => w.id === "wrapper")).toBe(true);
   });
 
-  it("cleans up when a concurrent rule edit prevents attaching the workflow", async () => {
+  it("does not reserve a workflow id when the rule already changed", async () => {
     const snapshot = structuredClone(api.rules[0]);
     api.rules[0].name = "Changed";
     const result = await createD7Workflow(snapshot, { id: "wrapper", name: "Wrapper" });
-    expect(result).toMatchObject({ status: "skipped-changed", cleanup: "deleted" });
+    expect(result).toMatchObject({ status: "skipped-changed" });
+    expect(requests()).toEqual(["GET /rules/one"]);
+    expect(api.workflowTrash).toEqual([]);
     expect(requests()).not.toContain("PUT /rules/one");
     expect(api.workflows.some((w) => w.id === "wrapper")).toBe(false);
   });
@@ -146,15 +153,15 @@ describe("D7", () => {
     const existing = structuredClone(api.workflows[0]);
     const result = await createD7Workflow(structuredClone(api.rules[0]), existing);
     expect(result).toMatchObject({ status: "failed", phase: "create", error: { status: 409 } });
-    expect(requests()).toEqual(["POST /workflows"]);
+    expect(requests()).toEqual(["GET /rules/one", "POST /workflows"]);
     expect(api.workflows[0]).toEqual(existing);
   });
 
-  it("rolls back if the rule cannot be re-read", async () => {
+  it("does not create if the initial re-read fails", async () => {
     api.failNext["GET /rules/one"] = failure;
     const result = await createD7Workflow(api.rules[0], { id: "wrapper", name: "Wrapper" });
-    expect(result).toMatchObject({ status: "failed", cleanup: "deleted", ruleResult: { phase: "read" } });
-    expect(requests()).toEqual(["POST /workflows", "GET /rules/one", "DELETE /workflows/wrapper"]);
+    expect(result).toMatchObject({ status: "failed", ruleResult: { phase: "read" } });
+    expect(requests()).toEqual(["GET /rules/one"]);
   });
 
   it("rejects an already attached rule before creating anything", async () => {
@@ -178,7 +185,7 @@ describe("continuation predecessor", () => {
       expected.condition.args[1].args[0] = compare("new");
     }
     expect((await savePredecessor(snapshot, "new")).status).toBe("saved");
-    expect(api.rules[0]).toEqual(expected);
+    expect(api.rules[0]).toEqual({ ...expected, updated_at: expect.any(String) });
     expect(snapshot.condition).not.toEqual(expected.condition);
   });
 
@@ -206,5 +213,93 @@ describe("continuation predecessor", () => {
     api.rules[0].condition = compare("someone-else");
     expect((await savePredecessor(snapshot, "new")).status).toBe("skipped-changed");
     expect(requests()).toEqual(["GET /rules/one"]);
+  });
+});
+
+const managedFields = ["updated_at", "deleted_at", "deleted_by", "restorable_until"];
+describe("server metadata", () => {
+  it.each(managedFields)("rejects raw PUT %s", async (field) => {
+    await expect(request("PUT", "/rules/one", { ...rule("one"), [field]: "server value" }))
+      .rejects.toMatchObject({ status: 422, errors: [{ path: field, code: "unknown_field" }] });
+  });
+  it("stamps reads and writes with stable reads", async () => {
+    const first = await request<Rule>("GET", "/rules/one");
+    expect(first).toHaveProperty("updated_at", expect.any(String));
+    expect(await request("GET", "/rules/one")).toEqual(first);
+    expect(await request("GET", "/rules")).toMatchObject({ items: [first, expect.anything(), expect.anything()] });
+    const saved = await request("PUT", "/rules/one", rule("one"));
+    expect(saved).toHaveProperty("updated_at", expect.any(String));
+    expect(saved).not.toEqual(first);
+  });
+  it.each(["shared", "D7", "predecessor"])("strips metadata from %s PUT", async (kind) => {
+    Object.assign(api.rules[0], Object.fromEntries(managedFields.map((key) => [key, "server value"])));
+    api.rules[0].condition = compare("old");
+    const snapshot = structuredClone(api.rules[0]);
+    const original = structuredClone(snapshot);
+    const result = kind === "shared" ? (await saveSharedEdit([snapshot], { action: { kind: "noop" } }))[0]
+      : kind === "D7" ? await createD7Workflow(snapshot, { id: "wrapper", name: "Wrapper" })
+      : await savePredecessor(snapshot, "new");
+    expect(result.status).toBe("saved");
+    const body = api.calls.find((c) => c.method === "PUT")!.body;
+    for (const field of managedFields) expect(body).not.toHaveProperty(field);
+    expect(snapshot).toEqual(original);
+  });
+  it("uses updated_at as a change signal", async () => {
+    Object.assign(api.rules[0], { updated_at: "before" });
+    const snapshot = structuredClone(api.rules[0]);
+    Object.assign(api.rules[0], { updated_at: "after" });
+    expect((await saveSharedEdit([snapshot], { condition: null }))[0].status).toBe("skipped-changed");
+    expect(requests()).toEqual(["GET /rules/one"]);
+  });
+  it.each([...managedFields, "schema_version"])("refuses shared %s", async (field) => {
+    const results = await saveSharedEdit(api.rules, { [field]: "bad" } as SharedRuleEdit);
+    expect(results.every((r) => r.status === "failed" && r.phase === "prepare")).toBe(true);
+    expect(api.calls).toEqual([]);
+  });
+});
+describe("D7 races", () => {
+  it("cleans up if the post-create read fails", async () => {
+    const fakeFetch = fetchFor(api);
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      const response = await fakeFetch(input, init);
+      if (String(input) === "/api/workflows" && init?.method === "POST") {
+        api.failNext["GET /rules/one"] = failure;
+      }
+      return response;
+    });
+    expect(await createD7Workflow(api.rules[0], { id: "wrapper", name: "Wrapper" }))
+      .toMatchObject({ status: "failed", cleanup: "deleted", ruleResult: { phase: "read" } });
+    expect(requests()).toEqual(["GET /rules/one", "POST /workflows", "GET /rules/one", "DELETE /workflows/wrapper"]);
+  });
+  it("checks again after creation", async () => {
+    const fakeFetch = fetchFor(api);
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      const response = await fakeFetch(input, init);
+      if (String(input) === "/api/workflows" && init?.method === "POST") api.rules[0].name = "Changed";
+      return response;
+    });
+    expect(await createD7Workflow(api.rules[0], { id: "wrapper", name: "Wrapper" }))
+      .toMatchObject({ status: "skipped-changed", cleanup: "deleted" });
+    expect(requests()).toEqual(["GET /rules/one", "POST /workflows", "GET /rules/one", "DELETE /workflows/wrapper"]);
+  });
+  it.each(["attached", "elsewhere", "read-failed"])("reconciles lost PUT response: %s", async (outcome) => {
+    const fakeFetch = fetchFor(api);
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      const response = await fakeFetch(input, init);
+      if (init?.method === "PUT") {
+        if (outcome === "elsewhere") {
+          api.rules[0].workflow = { id: "another" };
+          api.failNext["DELETE /workflows/wrapper"] = { status: 409, code: "in_use", message: "In use" };
+        }
+        if (outcome === "read-failed") api.failNext["GET /rules/one"] = failure;
+        throw new TypeError("Response lost");
+      }
+      return response;
+    });
+    expect(await createD7Workflow(api.rules[0], { id: "wrapper", name: "Wrapper" }))
+      .toMatchObject(outcome === "attached"
+        ? { status: "saved", ruleResult: { status: "saved", rule: { workflow: { id: "wrapper" } } } }
+        : { status: "failed", cleanup: "orphan" });
+    expect(requests().slice(-2)).toEqual(["DELETE /workflows/wrapper", "GET /rules/one"]);
   });
 });

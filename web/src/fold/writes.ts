@@ -1,6 +1,6 @@
 /** Fold writes return data for the Simple view's overrides/retry controls. */
-import { getJson } from "../api/client";
-import { updateRule } from "../api/rules";
+import { ApiError } from "../api/client";
+import { getRule, SERVER_MANAGED_RULE_FIELDS, updateRule } from "../api/rules";
 import type { Condition, Operand, Rule } from "../api/types";
 import { createWorkflowDef, deleteWorkflowDef, type WorkflowDef } from "../api/workflows";
 
@@ -16,12 +16,13 @@ export type RuleWriteResult = RuleAttempt & (
 );
 
 /** Identity and lifecycle are per-entry fields, never shared values. */
-export type SharedRuleEdit = Partial<Omit<Rule, "id" | "name" | "description" | "enabled">> & {
+export type SharedRuleEdit = Partial<Omit<Rule, "id" | "name" | "description" | "enabled" | "schema_version" | typeof SERVER_MANAGED_RULE_FIELDS[number]>> & {
   id?: never;
   name?: never;
   description?: never;
   enabled?: never;
-};
+  schema_version?: never;
+} & Partial<Record<typeof SERVER_MANAGED_RULE_FIELDS[number], never>>;
 
 /** JSON wire equality: object order is irrelevant; array order and all fields matter. */
 function canonical(value: unknown): string {
@@ -33,16 +34,22 @@ function canonical(value: unknown): string {
   });
 }
 
-async function saveAttempt(attempt: RuleAttempt): Promise<RuleWriteResult> {
+async function checkAttempt(attempt: RuleAttempt): Promise<UnsuccessfulRuleWrite | null> {
   let current: Rule;
   try {
-    current = await getJson<Rule>(`/rules/${encodeURIComponent(attempt.ruleId)}`);
+    current = await getRule(attempt.ruleId);
   } catch (error) {
     return { ...attempt, status: "failed", phase: "read", error };
   }
   if (canonical(current) !== canonical(attempt.snapshot)) {
     return { ...attempt, status: "skipped-changed", current };
   }
+  return null;
+}
+
+async function saveAttempt(attempt: RuleAttempt): Promise<RuleWriteResult> {
+  const checked = await checkAttempt(attempt);
+  if (checked) return checked;
   // The existing endpoint has no If-Match support. This check cannot close
   // the race between GET and PUT; never claim an atomic compare-and-swap.
   try {
@@ -54,7 +61,7 @@ async function saveAttempt(attempt: RuleAttempt): Promise<RuleWriteResult> {
 
 /**
  * Replace the supplied shared fields on each snapshot, sequentially. Unedited
- * fields (including unknown server fields) ride along. Retry failed entries with
+ * fields ride along, except server-managed metadata omitted by updateRule. Retry failed entries with
  * their snapshot; a skipped entry needs review and a fresh snapshot first.
  */
 export async function saveSharedEdit(
@@ -67,11 +74,11 @@ export async function saveSharedEdit(
     snapshot: structuredClone(snapshot),
     attempted: structuredClone({ ...snapshot, ...edit }),
   }));
-  const forbidden = ["id", "name", "description", "enabled"].some((key) => key in edit);
+  const forbidden = ["id", "name", "description", "enabled", "schema_version", ...SERVER_MANAGED_RULE_FIELDS].some((key) => key in edit);
   const results: RuleWriteResult[] = [];
   for (const attempt of attempts) {
     results.push(forbidden
-      ? { ...attempt, status: "failed", phase: "prepare", error: new Error("Identity and lifecycle fields cannot be shared") }
+      ? { ...attempt, status: "failed", phase: "prepare", error: new Error("Identity, lifecycle, schema and server-managed fields cannot be shared") }
       : await saveAttempt(attempt));
   }
   return results;
@@ -81,6 +88,7 @@ type UnsuccessfulRuleWrite = Exclude<RuleWriteResult, { status: "saved" }>;
 export type D7WriteResult =
   | { status: "saved"; workflow: WorkflowDef; ruleResult: Extract<RuleWriteResult, { status: "saved" }> }
   | { status: "failed"; phase: "prepare" | "create"; error: unknown }
+  | { status: "failed" | "skipped-changed"; ruleResult: UnsuccessfulRuleWrite; workflow?: never; cleanup?: never }
   | ({ status: "failed" | "skipped-changed"; workflow: WorkflowDef; ruleResult: UnsuccessfulRuleWrite } & (
       | { cleanup: "deleted" }
       | { cleanup: "orphan"; orphan: WorkflowDef; cleanupError: unknown }
@@ -100,6 +108,12 @@ export async function createD7Workflow(
   if (original.workflow) {
     return { status: "failed", phase: "prepare", error: new Error("D7 requires a rule without a workflow") };
   }
+  const attempt = {
+    ruleId: original.id, snapshot: original,
+    attempted: { ...original, workflow: { id: wrapper.id } },
+  };
+  const checked = await checkAttempt(attempt);
+  if (checked) return { status: checked.status, ruleResult: checked };
   let workflow: WorkflowDef;
   try {
     workflow = await createWorkflowDef({ id: wrapper.id, name: wrapper.name, steps: [], edges: [] });
@@ -116,6 +130,18 @@ export async function createD7Workflow(
     await deleteWorkflowDef(workflow.id);
     return { ...result, cleanup: "deleted" };
   } catch (cleanupError) {
+    if (ruleResult.status === "failed" && ruleResult.phase === "write"
+      && ruleResult.error instanceof ApiError && ruleResult.error.status === 0
+      && cleanupError instanceof ApiError && cleanupError.status === 409 && cleanupError.code === "in_use") {
+      try {
+        const current = await getRule(original.id);
+        if (current.workflow?.id === workflow.id) {
+          return { status: "saved", workflow, ruleResult: { ...ruleResult, status: "saved", rule: current } };
+        }
+      } catch {
+        // Attachment remains unconfirmed; preserve both errors for cleanup retry.
+      }
+    }
     return { ...result, cleanup: "orphan", orphan: workflow, cleanupError };
   }
 }
