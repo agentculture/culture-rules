@@ -28,7 +28,7 @@ import { WorkflowViews } from "../workflows/views/WorkflowViews";
 import type { ViewMode } from "../workflows/views/mode";
 import { foldModel, type FoldModel } from "../fold/model";
 import { stagesOf } from "./rules-view";
-import { NOTICE_RULE_NOT_FOUND } from "./legacy-redirects";
+import { NOTICE_RULE_NOT_FOUND, NOTICE_RULES_UNAVAILABLE } from "./legacy-redirects";
 import { AboutButton } from "../components/AboutButton";
 import IoControls from "../workflows/IoControls";
 import IoEditor from "../workflows/IoEditor";
@@ -257,7 +257,12 @@ const PlusIcon = ({ size }: Readonly<{ size: number }>) => (
 );
 
 /** The head's title when no workflow is open: creating, none yet, or (sr-only) the tab name. */
-function HeadTitle({ creating, empty }: Readonly<{ creating: boolean; empty: boolean }>) {
+function HeadTitle({
+  creating,
+  empty,
+  aside = null,
+}: Readonly<{ creating: boolean; empty: boolean; aside?: string | null }>) {
+  if (aside) return <h1 className="wf-title">{aside}</h1>;
   if (creating) return <h1 className="wf-title">New workflow</h1>;
   if (empty) return <h1 className="wf-title">No workflows yet</h1>;
   return <h1 className="wf-title sr-only">Workflows</h1>;
@@ -320,9 +325,12 @@ function BoardTitle({
   empty,
   current,
   workflow,
+  aside,
   ...head
 }: Readonly<{
   creating: boolean;
+  /** The board shows something other than a workflow (New rule, the D7 place): its heading. */
+  aside: string | null;
   empty: boolean;
   current: WorkflowDef | null;
   workflow: WorkflowDef | null;
@@ -332,7 +340,7 @@ function BoardTitle({
   onRename: () => void;
   onDelete: () => void;
 }>) {
-  if (creating || !current || !workflow) return <HeadTitle creating={creating} empty={empty} />;
+  if (aside || creating || !current || !workflow) return <HeadTitle creating={creating} empty={empty} aside={aside} />;
   return <WorkflowHead name={workflow.name} current={current} {...head} />;
 }
 
@@ -782,6 +790,7 @@ export function Workflows() {
   const [renaming, setRenaming] = useState(false);
   const [creatingRule, setCreatingRule] = useState(false);
   const newButton = useRef<HTMLButtonElement>(null); // the list's "New workflow"
+  const newRuleButton = useRef<HTMLButtonElement>(null); // the list's "New rule"
   const renameButton = useRef<HTMLButtonElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   // Live: `runsTick` re-reads the recent runs, `runTick` the overlaid run.
@@ -793,9 +802,13 @@ export function Workflows() {
   const { workflows, deletedDefs } = useSplitDefs(loaded);
   const wantedId = params.get("id");
   const current = pickWorkflow(workflows, wantedId);
+  // Asked for a workflow that is not there (deleted, or a rule pointing at a missing one): say so.
+  const missingWorkflow = loaded?.listed && wantedId && current?.id !== wantedId ? wantedId : null;
   const runId = params.get("run");
   const entryId = params.get("entry");
-  const missingRule = params.get("notice") === NOTICE_RULE_NOT_FOUND ? params.get("rule") : null;
+  const notice = params.get("notice");
+  const missingRule = notice === NOTICE_RULE_NOT_FOUND ? params.get("rule") : null;
+  const unreadRule = notice === NOTICE_RULES_UNAVAILABLE ? params.get("rule") : null;
   const slotOf = useWorkflowSlots(loaded);
   const rules = loaded?.rules;
   const model = useMemo(() => foldModel(rules ?? [], workflows), [rules, workflows]);
@@ -863,6 +876,9 @@ export function Workflows() {
 
   const setQuery = (patch: Record<string, string | null>) => {
     const next = new URLSearchParams(params);
+    // The not-found notice is for the redirect that landed here, not for what the user does next.
+    next.delete("notice");
+    next.delete("rule");
     for (const [k, v] of Object.entries(patch)) {
       if (v === null) next.delete(k);
       else next.set(k, v);
@@ -1089,6 +1105,10 @@ export function Workflows() {
   ) : null;
   // The D7 place: /workflows?entry=<rule> for a rule with no workflow yet (old /rules links land here).
   const d7Rule = wantedId ? null : (model.d7Candidates.find((r) => r.id === entryId) ?? null);
+  // While New rule or the D7 place is shown, the head names it: no workflow's rename, delete or run.
+  let aside: string | null = null;
+  if (creatingRule) aside = "New rule";
+  else if (d7Rule && !creating) aside = d7Rule.name;
 
   let body: ReactNode = null;
   if (creatingRule) {
@@ -1097,9 +1117,13 @@ export function Workflows() {
         hrefFor={hrefFor}
         onCreated={(id) => {
           setCreatingRule(false);
-          opened(id);
+          setReload((n) => n + 1);
+          setQuery({ id, entry: null, run: null });
         }}
-        onCancel={() => setCreatingRule(false)}
+        onCancel={() => {
+          setCreatingRule(false);
+          requestAnimationFrame(() => newRuleButton.current?.focus());
+        }}
       />
     );
   } else if (d7Rule && !creating) {
@@ -1166,11 +1190,12 @@ export function Workflows() {
       <WorkflowList
         model={model}
         workflows={workflows}
-        selectedId={creating ? null : (current?.id ?? null)}
+        selectedId={creating || aside !== null ? null : (current?.id ?? null)}
         slotOf={slotOf}
         onToggle={(wf) => void toggleWorkflow(wf)}
         pending={togglePending}
         onNew={openNew}
+        newRuleRef={newRuleButton}
         onNewRule={() => {
           setCreating(false);
           setCreatingRule(true);
@@ -1201,6 +1226,16 @@ export function Workflows() {
             No rule “{missingRule}” any more: it may have been deleted. Rules now live in their workflows, listed here.
           </p>
         ) : null}
+        {unreadRule !== null ? (
+          <p className="wf-notice" role="status">
+            Could not look up rule “{unreadRule}” just now. Rules now live in their workflows, listed here.
+          </p>
+        ) : null}
+        {missingWorkflow !== null ? (
+          <p className="wf-notice" role="status">
+            No workflow “{missingWorkflow}”: it may have been deleted.
+          </p>
+        ) : null}
         <BoardNotices
           errors={errors}
           deleted={deleted}
@@ -1209,6 +1244,7 @@ export function Workflows() {
         />
         <div className="wf-head">
           <BoardTitle
+            aside={aside}
             creating={creating}
             empty={empty}
             current={current}
@@ -1230,7 +1266,7 @@ export function Workflows() {
             />
           </span>
           <HeadActions
-            creating={creating}
+            creating={creating || aside !== null}
             dirty={draft?.dirty === true}
             saving={saving}
             runBlock={runBlock}
@@ -1258,7 +1294,7 @@ export function Workflows() {
             </svg>
             crosses machines
           </span>
-          <RecentRuns runs={runs} runId={runId} params={params} now={now} />
+          {aside === null ? <RecentRuns runs={runs} runId={runId} params={params} now={now} /> : null}
         </div>
       </main>
     </div>

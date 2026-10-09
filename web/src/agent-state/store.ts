@@ -11,6 +11,8 @@
 
 export type AgentStatus = "loading" | "ready";
 /**
+ * @deprecated member `"rules"`: see below.
+ *
  * `"rules"` is deprecated (spec c33): the Rules tab is folded into Workflows,
  * so no view reports it any more. It stays in the type for one release so an
  * agent that still compares against it type-checks; drop it in the release
@@ -29,6 +31,8 @@ export interface AgentIdentity {
 }
 
 /**
+ * @deprecated Read `AgentState.workflows` (`entries`, `entry`) instead.
+ *
  * Deprecated alias (spec c33), kept for one release: the Workflows tab writes
  * it from the folded rules so an agent reading `rules` keeps working. Read
  * `workflows.entries` / `workflows.entry` instead.
@@ -103,7 +107,7 @@ export interface AgentState {
   identity: AgentIdentity | null;
   /** Load errors the current view is showing; empty when all is well. */
   errors: string[];
-  /** Deprecated alias for one release (c33): see AgentRulesState. */
+  /** @deprecated Alias for one release (c33): read `workflows.entries` / `workflows.entry`. */
   rules?: AgentRulesState | null;
   workflows?: AgentWorkflowsState | null;
   actors?: AgentActorsState | null;

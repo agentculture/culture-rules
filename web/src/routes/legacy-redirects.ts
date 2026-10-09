@@ -14,6 +14,12 @@
 import type { Rule } from "../api/types";
 
 export const NOTICE_RULE_NOT_FOUND = "rule-not-found";
+/** The rules could not be read: the id may be fine, so never say "deleted". */
+export const NOTICE_RULES_UNAVAILABLE = "rules-unavailable";
+
+export function rulesUnavailableRedirect(ruleId: string): Redirect {
+  return { to: `/workflows?notice=${NOTICE_RULES_UNAVAILABLE}&rule=${encodeURIComponent(ruleId)}` };
+}
 
 export interface Redirect {
   to: string;

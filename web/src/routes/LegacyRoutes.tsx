@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
 import { Navigate, useLocation, useParams } from "react-router-dom";
 import { listRules } from "../api/client";
-import { ruleRedirect, workflowPath, type Redirect } from "./legacy-redirects";
+import { ruleRedirect, rulesUnavailableRedirect, workflowPath, type Redirect } from "./legacy-redirects";
 
 /**
  * `/rules` and `/rules/:ruleId`: the Rules tab folded into Workflows (t8).
  * Reads the rules once to find where the rule now lives, then replaces the
  * history entry (an old bookmark never leaves a dead page behind). A failed
- * read still lands on /workflows, with the not-found notice for an id.
+ * read still lands on /workflows, saying the rule could not be looked up.
  */
 export function RuleRedirect() {
   const { ruleId } = useParams();
@@ -20,7 +20,7 @@ export function RuleRedirect() {
         if (!controller.signal.aborted) setTarget(ruleRedirect(ruleId, rules));
       },
       () => {
-        if (!controller.signal.aborted) setTarget(ruleRedirect(ruleId, []));
+        if (!controller.signal.aborted) setTarget(rulesUnavailableRedirect(ruleId));
       },
     );
     return () => controller.abort();

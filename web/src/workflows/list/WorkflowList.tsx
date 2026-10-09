@@ -20,6 +20,8 @@ export interface WorkflowListProps {
   onNew: () => void;
   /** "New rule": a rule with no workflow yet, given its own at once (D7). Absent: not offered. */
   onNewRule?: () => void;
+  /** The New rule button, so a cancelled rule form can return focus to it. */
+  newRuleRef?: RefObject<HTMLButtonElement>;
   /** A row's link was followed (the board closes what was open for the old selection). */
   onOpen?: (id: string) => void;
   /** The New button, so a closed name form can return focus to its opener. */
@@ -63,7 +65,7 @@ export function WorkflowList(props: Readonly<WorkflowListProps>) {
   </section>;
   return <nav className="fold-list" aria-label="Workflows">
     <button ref={newRef} type="button" className="rule-list__new" onClick={onNew}>New workflow</button>
-    {props.onNewRule ? <button type="button" className="wf-button" onClick={props.onNewRule}>New rule</button> : null}
+    {props.onNewRule ? <button ref={props.newRuleRef} type="button" className="wf-button" onClick={props.onNewRule}>New rule</button> : null}
     <p>{count(model.workflows.length, "workflow")} · {count(model.entryPoints.length, "entry point")} · was {count(model.entryPoints.length + model.continuations.length + model.d7Candidates.length, "rule")}</p>
     {!model.chains.length && <p>No workflows yet.</p>}
     {model.chains.map((item) => <article className="fold-card" key={item.workflowIds[0]} aria-label={`Chain: ${chainName(model, item)}`}>
@@ -106,7 +108,7 @@ export function WorkflowList(props: Readonly<WorkflowListProps>) {
     {model.d7Candidates.length > 0 && <section aria-label="Rules without a workflow">
       <h2>Rules without a workflow</h2>
       {model.d7Candidates.map((rule) => <div className="fold-entry" key={rule.id}>
-        <Link to={`/workflows?entry=${encodeURIComponent(rule.id)}`}>{rule.name}</Link>
+        <Link to={`/workflows?entry=${encodeURIComponent(rule.id)}`} onClick={() => onOpen?.(rule.id)}>{rule.name}</Link>
         <small>D7 candidate · can get a workflow of its own, with no steps yet</small>
       </div>)}
     </section>}

@@ -118,4 +118,35 @@ describe("Workflows, folded (t8)", () => {
     expect(await screen.findByText(/When does this happen\?/)).toBeInTheDocument();
     expect(where).toBe(`/workflows?id=${REVIEW_PR_ID}`);
   });
+
+  it("while New rule or the D7 place is shown, the head names it and offers no workflow's delete or run", async () => {
+    renderAt(`/workflows?id=${REVIEW_PR_ID}`);
+    const list = await screen.findByRole("navigation", { name: "Workflows" });
+    await userEvent.click(within(list).getByRole("button", { name: "New rule" }));
+    expect(await screen.findByRole("heading", { level: 1, name: "New rule" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete workflow" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Run" })).toBeNull();
+    expect(within(list).queryAllByRole("link", { current: true })).toHaveLength(0);
+    // Cancel gives focus back to New rule.
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(within(list).getByRole("button", { name: "New rule" })).toHaveFocus());
+  });
+
+  it("the D7 place's head is the rule, not some other workflow", async () => {
+    renderAt("/workflows?entry=clean-caches");
+    expect(await screen.findByRole("heading", { level: 1, name: "Clean caches" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete workflow" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Run" })).toBeNull();
+  });
+
+  it("a redirect that could not read the rules says so, never that the rule was deleted", async () => {
+    renderAt("/workflows?notice=rules-unavailable&rule=some-rule");
+    expect(await screen.findByText(/Could not look up rule “some-rule” just now/)).toBeInTheDocument();
+    expect(screen.queryByText(/may have been deleted/)).toBeNull();
+  });
+
+  it("a workflow id that is not there is named, not silently swapped for another", async () => {
+    renderAt("/workflows?id=gone-flow&entry=x");
+    expect(await screen.findByText(/No workflow “gone-flow”/)).toBeInTheDocument();
+  });
 });

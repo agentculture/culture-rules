@@ -52,6 +52,9 @@ useMeasuredLayout();
 async function loaded() {
   await screen.findByRole("heading", { level: 1, name: "Review PR" });
   await waitFor(() => expect(getAgentState().status).toBe("ready"));
+  // React Flow keeps step nodes out of the accessibility tree until measured: wait for one,
+  // or a busy full-suite run races the queries below.
+  await screen.findByRole("group", { name: "Review" });
 }
 
 const level = () => screen.getByTestId("zoom-level");

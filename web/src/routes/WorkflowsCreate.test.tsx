@@ -129,8 +129,8 @@ const rowNames = () => storedRows().map((row) => row.querySelector("h3")!.textCo
 const nameForm = () => screen.getByRole("form", { name: "New workflow" });
 
 beforeEach(() => {
-    // These scenarios drive the Detailed (steps) view; a workflow opens in Simple by default (t5, t8).
-    localStorage.setItem(VIEW_MODE_KEY, "detailed");
+  // These scenarios drive the Detailed (steps) view; a workflow opens in Simple by default (t5, t8).
+  localStorage.setItem(VIEW_MODE_KEY, "detailed");
   resetAgentState();
   vi.stubGlobal("ResizeObserver", MeasuringResizeObserver);
   vi.stubGlobal("DOMMatrixReadOnly", DOMMatrixStub);
