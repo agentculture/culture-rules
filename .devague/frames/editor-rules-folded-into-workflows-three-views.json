@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "drafting",
   "created": "2026-10-09T09:29:21Z",
-  "updated": "2026-10-09T09:43:13Z",
+  "updated": "2026-10-09T09:49:04Z",
   "claims": [
     {
       "id": "c1",
@@ -254,6 +254,12 @@
           "text": "Engine behaviour of a rule whose workflow has no steps equals that of the same rule without a workflow: same action, same params resolution (trigger.* refs), same run outcome; verified by an engine test before the editor builds D7.",
           "status": "proposed",
           "instruction": ""
+        },
+        {
+          "id": "h15",
+          "text": "A D7 rule's runs and run events differ from before only in workflow_id (now the wrapper's id): no rule that listens to rules.run.* events without a workflow_id filter starts firing because of it (checked against the live rule set).",
+          "status": "proposed",
+          "instruction": ""
         }
       ],
       "hard_questions": [],
@@ -421,9 +427,103 @@
       "links": [],
       "instruction": "",
       "revisions": []
+    },
+    {
+      "id": "c26",
+      "kind": "requirement",
+      "text": "Chain links are derived only from a continuation rule's condition holding data.workflow_id == <id> (an all-term compare, as docs/rules/pr-fixer/rules/pr-fixer-review-commit.json does); a run-event rule without that term shows as 'continues from any workflow', and the predecessor is edited with a dedicated control that writes exactly that compare, so a condition edit cannot silently drop a link.",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c27",
+      "kind": "requirement",
+      "text": "Before each rule write of a shared edit, the editor re-reads the rule and compares it with the snapshot the edit was made on; a rule changed meanwhile is skipped and flagged (rule PUT in culture_rules/server/app.py has no If-Match or revision check, so writes are last-wins and a fan-out would otherwise overwrite rules the user is not looking at).",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c28",
+      "kind": "requirement",
+      "text": "Identity and lifecycle fields (id, name, description, enabled) are never shared: enabling, disabling or renaming one entry point touches only its rule, and a disabled entry point stays visible, marked disabled.",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c29",
+      "kind": "requirement",
+      "text": "Every Rules-tab feature beyond the form stays reachable per entry point: history (GET /rules/{id}/history), describe (GET /rules/{id}/describe) and stop runs (POST /rules/{rule_id}/stop-runs, StopRunsNotice).",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c30",
+      "kind": "requirement",
+      "text": "D7 is two writes (create the workflow, then point the rule at it): if the second fails, the editor deletes the workflow it just created or shows it as an orphan with a fix action; deleting the last entry point of a stepless D7 workflow offers to delete that workflow too.",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c31",
+      "kind": "requirement",
+      "text": "Docs that describe the Rules tab move with the fold: README.md, web/README.md, docs/demo.md (executed walkthrough), docs/operations/pr-fixer.md, docs/run-events.md.",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c32",
+      "kind": "assumption",
+      "text": "Saving a workflow from Detailed or Debug changes its digest, so a workflow pinned as trusted (actors/trusted.py roles: pr-fix, review-commit, publish-fix) stops being trusted; this is today's behaviour, unchanged by the fold, but the editor should warn before saving a trusted workflow.",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
     }
   ],
-  "open_vagueness": [],
+  "open_vagueness": [
+    {
+      "id": "v1",
+      "text": "Live data beyond the PR fixer and the one action-only rule may hold shapes the fold has not been designed against (rules with must/may-after or supersedes across different workflows, a rule whose workflow is pinned to an old version)",
+      "kind": "unknown_nonblocking",
+      "claim_id": null,
+      "resolved": false,
+      "resolution": "",
+      "resolution_claim_id": null
+    }
+  ],
   "scope_entries": [
     {
       "id": "s1",
@@ -466,6 +566,44 @@
       "surface": "culture_rules model: Rule (trigger, condition, workflow optional, action required, relationship, placement, key/budget)",
       "finding": "Domain model: a rule's condition and workflow are optional, its action is required. So some rules have no workflow (action-only) and need a home in a Workflows-only editor.",
       "seeds": []
+    },
+    {
+      "id": "s8",
+      "surface": "challenge pass / reversibility lens: web bundle + D7 data",
+      "finding": "Clean: rollback is reinstalling the previous wheel (the bundle ships in it); D7 wrapper workflows stay valid for the old editor, which shows them as stepless workflows and their rules with a workflow. Nothing to undo in the engine.",
+      "seeds": []
+    },
+    {
+      "id": "s9",
+      "surface": "challenge pass / security lens: culture_rules/server/app.py rule and workflow PUTs",
+      "finding": "Clean: the fold uses the same endpoints and roles; a fan-out write needs the same write role per rule as a single edit. No new privilege. Residual: the multi-write is not atomic (routed to the fan-out requirements).",
+      "seeds": []
+    },
+    {
+      "id": "s10",
+      "surface": "challenge pass / adjacent-systems lens: docs/rules/pr-fixer/rules/pr-fixer-review-commit.json, culture_rules/model/refs.py, culture_rules/model/rule.py WorkflowRef",
+      "finding": "Continuations name their predecessor only inside the condition (data.workflow_id compare); trigger.* refs stay valid on a rule with a workflow (refs.py NAMESPACES), so D7 keeps action params working. Seeded the chain-derivation requirement and the run-event honesty on c15.",
+      "seeds": []
+    },
+    {
+      "id": "s11",
+      "surface": "challenge pass / overlooked-actors lens: web/src/agent-state/store.ts, docs, Rules-tab features",
+      "finding": "Agents consume the agent-state tab/rules contract (question raised); five docs describe the Rules tab; history, describe and stop-runs live only on the Rules tab today. Seeded the docs and features requirements.",
+      "seeds": []
+    },
+    {
+      "id": "s12",
+      "surface": "challenge pass / observability lens: editor saves",
+      "finding": "Not examined in depth: the editor has no client-side telemetry; partial-save visibility is covered by c25. Residual: no server-side audit beyond rule history.",
+      "seeds": []
+    },
+    {
+      "id": "s13",
+      "surface": "challenge pass / cheap probe: live rule set via the API (11 rules)",
+      "finding": "All 3 live run-event rules (pr-fixer-publish, pr-fixer-refix, pr-fixer-review-commit) filter on data.workflow_id, so a D7 wrapper's run events start none of them today; h15 holds for the live set at 2026-10-09, re-check at D7 time.",
+      "seeds": [
+        "c15"
+      ]
     }
   ],
   "lapses": [],
