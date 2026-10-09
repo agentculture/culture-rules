@@ -130,6 +130,9 @@ export function columnLayout(wf: WorkflowDef): Positions {
       if (next > (layer.get(e.targets[0]) ?? 0)) layer.set(e.targets[0], next);
     }
   }
+  // `in` alone in column 0: every step starts at column 1 at the earliest.
+  for (const n of nodes) if (n.id !== INPUTS_NODE && n.id !== OUTPUTS_NODE) layer.set(n.id, Math.max(1, layer.get(n.id) ?? 0));
+  // `out` alone in the column after the last step.
   const last = Math.max(1, ...[...layer.entries()].filter(([id]) => id !== OUTPUTS_NODE).map(([, l]) => l + 1));
   layer.set(OUTPUTS_NODE, Math.max(layer.get(OUTPUTS_NODE) ?? 0, last));
   const heights = new Map<number, number>();
@@ -162,13 +165,17 @@ export async function elkLayout(wf: WorkflowDef): Promise<Positions> {
       // Each step as early as its inputs allow (the board's Run tests sits beside Fetch diff).
       "elk.layered.layering.strategy": "LONGEST_PATH_SOURCE",
       "elk.layered.crossingMinimization.semiInteractive": "true",
+      // One layering for every card: a step wired to nothing would otherwise be laid out as its
+      // own component, at x = 0 beside `in`.
+      "elk.separateConnectedComponents": "false",
     },
     children: nodes.map((n, i) => ({
       ...n,
       layoutOptions: {
         "elk.position": `(0,${i})`,
-        ...(n.id === INPUTS_NODE ? { "elk.layered.layering.layerConstraint": "FIRST" } : {}),
-        ...(n.id === OUTPUTS_NODE ? { "elk.layered.layering.layerConstraint": "LAST" } : {}),
+        // `in` and `out` each own a column at either end, never shared with a step.
+        ...(n.id === INPUTS_NODE ? { "elk.layered.layering.layerConstraint": "FIRST_SEPARATE" } : {}),
+        ...(n.id === OUTPUTS_NODE ? { "elk.layered.layering.layerConstraint": "LAST_SEPARATE" } : {}),
       },
     })),
     edges,

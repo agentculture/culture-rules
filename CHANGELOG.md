@@ -10,6 +10,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 
 - Editor: the Detailed view is compact. A card shows its machine, enable switch and name (the `in` / `out` cards a count such as "9 inputs") and no port rows; one edge joins two connected cards, labelled with its wire count when it carries more than one, dashed if any wire hops machines and lit if any wire is. Selecting a card (click, or Enter) expands its port rows and draws its wires from its ports, so wires are still dragged from a port; while a wire is dragged, the card under the pointer expands so the drop lands on a port. Cards are laid out at their compact height. Debug keeps the full port view
+- Editor: in a workflow's layout, `in` has the first column to itself and `out` the last; no step shares either, including a step wired to nothing (Detailed view, and the layout fallback)
+- Tests: the regex-safety timing bounds are 1 s, not 0.1 s; unguarded backtracking takes 6.8 s, and 0.1 s flaked on a loaded CI runner
 
 ## [0.17.2] - 2026-10-09
 
