@@ -1,0 +1,473 @@
+{
+  "slug": "editor-rules-folded-into-workflows-three-views",
+  "title": "Editor: rules folded into workflows, three views",
+  "schema_version": 6,
+  "status": "drafting",
+  "created": "2026-10-09T09:29:21Z",
+  "updated": "2026-10-09T09:43:13Z",
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "The culture-rules editor folds Rules into Workflows: every rule is shown and edited as a workflow's When entry point or Continues-into link, the tabs become Workflows | Actors | Variables | Statistics, and a workflow opens in a Simple, Detailed or Debug view \u2014 with no engine, API or CLI change.",
+      "origin": "user",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h13",
+          "text": "After delivery the live editor has no Rules tab, every live rule is reachable from Workflows, the three-mode switch works on every workflow, and no engine/API/CLI file changed (the D7 wrapper workflows are data created through existing endpoints).",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Verify on rules.culture.dev after rollout: walk the PR fixer chain in Simple, Detailed and Debug; open an old /rules/<id> link; check git diff of the delivery stays under web/, the harness prompt files and docs.",
+      "revisions": []
+    },
+    {
+      "id": "c2",
+      "kind": "decision",
+      "text": "Editor only: no change to the engine, model, API, CLI or MCP; rules stay rule objects with their stored shape. The one stored change is D7: a workflow created (through the existing endpoints) for each rule that has none.",
+      "origin": "user",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "Editor only: rules stay engine, API, CLI and MCP objects with their stored shape; the fold changes only how the web editor shows and edits them. No migration, no API break.",
+          "kind": "decision",
+          "reason": "D7: the operator chose a real stored workflow for workflow-less rules"
+        }
+      ]
+    },
+    {
+      "id": "c3",
+      "kind": "decision",
+      "text": "The workflow view switch has three modes: Simple = the When / Then workflow (canvas Fold-Editor), Detailed = steps and control flow (canvas WF-Flow), Debug = every port, type and reference with upstream/downstream highlighting on port selection (canvas WF-Variables, WF-Variables-Port).",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c4",
+      "kind": "decision",
+      "text": "The Workflows list and the chain view are built as drawn on canvas Fold-List and Fold-Chain.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c5",
+      "kind": "decision",
+      "text": "Primary tabs become Workflows | Actors | Variables | Statistics; there is no Rules tab.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c6",
+      "kind": "audience",
+      "text": "The operator and mesh agents who author and inspect automation in the web editor at rules.culture.dev (and locally); secondarily the agents that read the harness prompt files describing the editor.",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h1",
+          "text": "The audience named is who actually opens the editor today (the operator on rules.culture.dev, and agents through the harness prompt files that describe it).",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c7",
+      "kind": "before_state",
+      "text": "A rule and the workflow it starts live on two tabs: to understand the PR fixer you read 9 rules on the Rules tab and 4 workflows on the Workflows tab and join them in your head; the workflow canvas shows one zoom-dependent picture mixing flow and data ports.",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h2",
+          "text": "Today the PR fixer is 9 rules on the Rules tab and 4 workflows on the Workflows tab, with no in-editor link from a workflow to the rules that start it (true of web/src/workflows at main).",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c8",
+      "kind": "why_it_matters",
+      "text": "Rules and workflows describe one piece of automation; showing them apart hides what starts a workflow, what it continues into and how it ends, and a single canvas picture is too busy for reading the flow yet too thin for debugging data.",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h3",
+          "text": "The operator confirmed the fold and the three views on the canvas (v11) because the split view hid what starts and continues a workflow.",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c9",
+      "kind": "after_state",
+      "text": "Opening a workflow shows, in the Simple view, its When entry points (each rule that starts it: trigger, condition, placement, attempt counting), and its Then: continues into, ends here (the chain-end action), on failure, and runs (key and budget); every field is editable there and saves to the underlying rule.",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h4",
+          "text": "Every rule field the Rules tab edits today (trigger, condition, workflow inputs mapping, action, on_failure, placement, key, budget, relationships, enabled) is editable from the Simple view, and a save produces the same rule document the Rules tab would have.",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c10",
+      "kind": "after_state",
+      "text": "The Workflows list groups workflows linked by continuations into one chain card (e.g. PR fixer: 4 workflows, 6 entry points, was 9 rules), with a Chain view drawing entry points, workflows and continuation edges.",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h5",
+          "text": "Chains are derived only from stored rules (a rule whose trigger is a run event of workflow X and whose workflow is Y links X to Y); no new stored field.",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c11",
+      "kind": "after_state",
+      "text": "A Simple / Detailed / Debug switch on the workflow toolbar changes the canvas between the When/Then summary, the steps-and-control-flow graph, and the full port/type/reference graph whose port selection highlights upstream and downstream; the chosen mode persists per viewer.",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h6",
+          "text": "Detailed renders exactly today's steps-and-edges graph; Debug renders every input/output port and reference; selecting a port highlights its upstream and downstream ports; the mode is kept per viewer in browser storage (localStorage) only.",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c12",
+      "kind": "boundary",
+      "text": "No change to culture_rules (model, engine, API, store), api/openapi.json, the CLI or the MCP tools; every edit the editor makes goes through the existing rule and workflow endpoints.",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h7",
+          "text": "git diff of the delivery touches no file under culture_rules/ except the web bundle, and api/openapi.json is unchanged (tests/server/test_openapi_contract.py passes untouched).",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c13",
+      "kind": "non_goal",
+      "text": "Merging the rule and workflow data models, or turning rules into workflow steps; D7's wrapper workflow holds no steps and the rule keeps its trigger, condition and action.",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "Merging the rule and workflow data models, or migrating stored rules into workflows.",
+          "kind": "non_goal",
+          "reason": "D7"
+        }
+      ]
+    },
+    {
+      "id": "c14",
+      "kind": "non_goal",
+      "text": "New engine semantics for shared conditions, workflow-level placement or workflow-level chain-end actions; anything 'shared' in the editor is a presentation of identical per-rule values.",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c15",
+      "kind": "requirement",
+      "text": "Every existing rule remains reachable and editable as an entry point (or continuation) of a workflow; a rule with no workflow is given its own stored workflow with no steps (D7), offered by the editor for existing rules and done automatically when an action-only rule is created.",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h8",
+          "text": "Engine behaviour of a rule whose workflow has no steps equals that of the same rule without a workflow: same action, same params resolution (trigger.* refs), same run outcome; verified by an engine test before the editor builds D7.",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": [
+        {
+          "text": "Every existing rule remains reachable and editable: rules with a workflow appear as an entry point (or continuation) of that workflow; rules without a workflow appear in a dedicated place in the Workflows tab.",
+          "kind": "requirement",
+          "reason": "D7"
+        }
+      ]
+    },
+    {
+      "id": "c16",
+      "kind": "requirement",
+      "text": "Old /rules and /rules/:ruleId links redirect to the workflow (and entry point) that shows the rule, or to the place for workflow-less rules; the catch-all route lands on /workflows.",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h9",
+          "text": "Each old /rules/:ruleId resolves to /workflows/<workflow>?entry=<rule> (or the D7 workflow) and a Playwright test covers a known id and an unknown id.",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c17",
+      "kind": "requirement",
+      "text": "CLAUDE.md, QWEN.md, AGENTS.override.md, AGENTS.colleague.md, .pi/SYSTEM.md (where relevant) and the engine-editor spec describe the four tabs in step; harness-smoke and teken doctor stay green.",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h10",
+          "text": "harness-smoke --stage config, teken cli doctor --strict and the doctor prompt checks pass with the new wording, and the engine-editor spec carries a dated amendment instead of silently changed text.",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c18",
+      "kind": "success_signal",
+      "text": "For the live PR fixer, the Workflows tab shows 1 chain card with 4 workflows and 6 entry points, and editing an entry point's condition saves exactly 1 rule (verified by a Playwright test against the fake API and once live).",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h11",
+          "text": "The count 1 chain / 4 workflows / 6 entry points is computed from the live rule set (after #22 the fixer has 9 rules: 6 entry points incl. secrets, 3 continuations), not hard-coded.",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c19",
+      "kind": "success_signal",
+      "text": "0 regressions: every rules and workflows Playwright and vitest scenario that existed before passes in its folded form, and the webglass agent-state gate stays green.",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h12",
+          "text": "The pre-fold test inventory is listed in the plan and each scenario maps to a folded test; none is deleted without a replacement.",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c20",
+      "kind": "assumption",
+      "text": "The operator's six canvas questions can be answered as editor presentation choices without engine changes.",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c21",
+      "kind": "decision",
+      "text": "D1: one entry point per workflow; an entry notes when the same event also starts another workflow.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c22",
+      "kind": "decision",
+      "text": "D2: a continuation is owned and edited as an entry point of the workflow it starts; the previous workflow's Then shows a read-only Continues-into link.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c23",
+      "kind": "decision",
+      "text": "D3-D6 (order and limits, placement, chain-end and failure actions, guard conditions): shared when identical: a value every entry point's rule holds identically shows once at workflow level, and editing it writes every entry's rule; a differing value shows per entry point, flagged as an override.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c24",
+      "kind": "decision",
+      "text": "D7: a rule with no workflow gets a real stored workflow of its own with no steps yet (its trigger and condition are the When, its action the Then), created through the existing workflow and rule endpoints, ready for steps later.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c25",
+      "kind": "requirement",
+      "text": "An edit to a shared (identical) value writes every entry point's rule through the existing endpoint, one rule at a time; the editor shows which rules saved and which did not, keeps the failed ones marked as overrides with the old value, and offers a retry, so a partial failure is visible, never silent.",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [
+        {
+          "id": "h14",
+          "text": "A Playwright test with the fake API failing one of N rule writes shows the failed rule as an override with its old value and a retry, and the other N-1 saved.",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    }
+  ],
+  "open_vagueness": [],
+  "scope_entries": [
+    {
+      "id": "s1",
+      "surface": "web/src/App.tsx, web/src/components/Header.tsx",
+      "finding": "Five routes and nav links today: /rules/:ruleId? (also the catch-all redirect target), /workflows, /actors, /variables, /statistics. Header.tsx lists Rules first.",
+      "seeds": []
+    },
+    {
+      "id": "s2",
+      "surface": "web/src/rules (16 files) and web/src/routes/Rules.tsx, rules-view.ts",
+      "finding": "The rule editor is self-contained: RuleList, Forms, TriggerPicker (437 lines), ActionPicker (854), Relationships, StopRunsNotice, useRulesData; the pickers and forms can be reused inside a workflow's When panel.",
+      "seeds": []
+    },
+    {
+      "id": "s3",
+      "surface": "web/src/workflows (Canvas.tsx, layout.ts, zoom.ts, nodes.tsx, StepEditor, IoEditor, RunForm, PlacementEditor)",
+      "finding": "The workflow editor is a React Flow canvas with zoom levels (zoom.ts) and step/IO editors; it has no notion of which rules start it today.",
+      "seeds": []
+    },
+    {
+      "id": "s4",
+      "surface": "web/e2e (rules.spec.ts, rules-pickers.spec.ts, shell.spec.ts) and web/src/**/*.test.tsx",
+      "finding": "Playwright and vitest suites address the Rules tab by name and route (/rules, navigation 'Rules'); they move with the fold. The webglass agent-state gate also runs in the CI web job.",
+      "seeds": []
+    },
+    {
+      "id": "s5",
+      "surface": "CLAUDE.md, QWEN.md, AGENTS.override.md, AGENTS.colleague.md, docs/specs/2026-10-03-culture-rules-engine-editor.md",
+      "finding": "All four harness prompt files and the engine-editor spec state exactly five tabs (Rules | Workflows | Actors | Variables | Statistics); the fold must update them in step (the harness-smoke probes depend on load-bearing phrases).",
+      "seeds": []
+    },
+    {
+      "id": "s6",
+      "surface": "design canvas Jgm3JPnAhKWpeiCxFXvNBi v11 (Fold-Editor, Fold-List, Fold-Chain, WF-Flow, WF-Variables, WF-Variables-Port)",
+      "finding": "Approved by the operator: Fold-Editor = Simple view (When entry points / Then: continues into, ends here, on failure, runs), WF-Flow = Detailed, WF-Variables(+Port) = Debug; Fold-List and Fold-Chain as drawn. Open questions drawn on the boards: shared entries for one event, continuation ownership, order/limits level, placement level, chain-end comments, shared guard conditions.",
+      "seeds": []
+    },
+    {
+      "id": "s7",
+      "surface": "culture_rules model: Rule (trigger, condition, workflow optional, action required, relationship, placement, key/budget)",
+      "finding": "Domain model: a rule's condition and workflow are optional, its action is required. So some rules have no workflow (action-only) and need a home in a Workflows-only editor.",
+      "seeds": []
+    }
+  ],
+  "lapses": [],
+  "obligations": []
+}
