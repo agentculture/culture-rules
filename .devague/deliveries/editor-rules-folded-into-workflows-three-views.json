@@ -1,0 +1,38 @@
+{
+  "plan_slug": "editor-rules-folded-into-workflows-three-views",
+  "schema_version": 2,
+  "created": "2026-10-09T11:07:59Z",
+  "updated": "2026-10-09T11:15:35Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "t1 criterion 2 amended: the two rules.run.* events differ in workflow_id AND workflow_version (None vs the stepless workflow's version 1), not workflow_id alone",
+      "task_ref": "t1",
+      "reason": "t1's engine proof (fold-t1 33c7087) found run_completions.py puts workflow.version into data.workflow_version; no engine change allowed (c2). No rule or workflow in docs/rules reads data.workflow_version, so D7 stays safe; the proof test asserts the two-field difference instead",
+      "affects": [
+        "t12"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 1
+    },
+    {
+      "id": "d2",
+      "what": "t3 criterion amended: the PR fixer fixture yields 2 chains (pr-fix, review-commit, publish-fix linked by 3 continuations; report-secrets on its own, started by 2 GitHub-event entry points), not 1 chain",
+      "task_ref": "t3",
+      "reason": "Codex t3 stopped: with c26 (links only from the data.workflow_id compare) report-secrets has no continuation link; 4 workflows, 6 entry points, 3 continuations still hold. The plan's '1 chain' miscounted",
+      "affects": [
+        "t7",
+        "t9"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 2
+    }
+  ],
+  "evidence": [],
+  "deltas": [],
+  "supersessions": []
+}
