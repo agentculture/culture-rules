@@ -115,12 +115,22 @@ Caps on confidence:
 
 - **c1 medium:** checked against the built bundle, then observed live on spark's API only (e21). Not yet on `main` or the nodes.
 - **c9 medium:** e4 fails for three fields.
-- **c11 medium:** the Debug wires were never checked in a browser (pending l3).
-- **c19 medium:** the GitHub Actions web job has not run (pending l9).
+- **c11 medium:** the Debug wires were never checked in a browser (approved lapse l3).
+- **c19 medium:** the GitHub Actions web job has not run (approved lapse l9).
 
 Lapse ledger evidence:
 
-pending approval (not yet evidence): `l1`, `l2`, `l3`, `l4`, `l5`, `l6`, `l7`, `l8`, `l9`
+| Lapse | Code | What |
+|-------|------|------|
+| `l1` | `assumption-for-measurement` | t2 fold-impact codes assigned per file with hand overrides, not verified against each test body |
+| `l2` | `assumption-for-measurement` | t2 before state derived from code and docs/rules files, not observed in a running editor |
+| `l3` | `grader-unverified` | t5 Debug view wires and visual match to WF-Variables boards never observed in a real browser (jsdom zero sizes) |
+| `l4` | `assumption-for-measurement` | t5 loop result producer taken as the last enabled body step from the definition; engine uses the last body step that actually succeeded (differs when a later step is skipped) |
+| `l5` | `grader-unverified` | t7 list and Chain view never checked in a real browser against Fold-List/Fold-Chain |
+| `l6` | `grader-unverified` | t6 Simple view visual check by builder's own harness screenshots, not compared against the Fold-Editor board; Playwright not run (unrouted until t8) |
+| `l7` | `control-absent` | t10 ran the full pytest suite, whose store rigs start temporary Mongo containers (random ports, never 27017) — Docker was used despite the no-Docker brief |
+| `l8` | `assumption-for-measurement` | t9 attributes the WorkflowsZoomDescribe flake to short time budgets without ever reproducing an assertion failure; fix raised timeouts (Testing Library 5 s, tests 20 s) |
+| `l9` | `control-absent` | t9 CI web job verified locally only (no npm ci, no playwright install --with-deps, no fresh webglass venv); vite preview /api answered 401 locally, nothing answers in CI |
 
 ## Remaining Work / Follow-up
 
