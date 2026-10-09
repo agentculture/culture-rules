@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-09T09:29:21Z",
-  "updated": "2026-10-09T11:45:29Z",
+  "updated": "2026-10-09T14:05:41Z",
   "claims": [
     {
       "id": "c1",
@@ -735,6 +735,39 @@
       "skipped_check": "",
       "refs": [
         "t6"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l7",
+      "code": "control-absent",
+      "what": "t10 ran the full pytest suite, whose store rigs start temporary Mongo containers (random ports, never 27017) \u2014 Docker was used despite the no-Docker brief",
+      "skipped_check": "",
+      "refs": [
+        "t10"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l8",
+      "code": "assumption-for-measurement",
+      "what": "t9 attributes the WorkflowsZoomDescribe flake to short time budgets without ever reproducing an assertion failure; fix raised timeouts (Testing Library 5 s, tests 20 s)",
+      "skipped_check": "",
+      "refs": [
+        "t9"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "l9",
+      "code": "control-absent",
+      "what": "t9 CI web job verified locally only (no npm ci, no playwright install --with-deps, no fresh webglass venv); vite preview /api answered 401 locally, nothing answers in CI",
+      "skipped_check": "",
+      "refs": [
+        "t9"
       ],
       "origin": "llm",
       "status": "proposed"

@@ -2,7 +2,7 @@
   "plan_slug": "editor-rules-folded-into-workflows-three-views",
   "schema_version": 2,
   "created": "2026-10-09T11:07:59Z",
-  "updated": "2026-10-09T12:34:03Z",
+  "updated": "2026-10-09T14:05:41Z",
   "deviations": [
     {
       "id": "d1",
@@ -56,6 +56,33 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 4
+    },
+    {
+      "id": "d5",
+      "what": "d5: the CLI learn text (culture_rules/cli/_commands/learn.py) and the explain catalog (culture_rules/explain/catalog.py) change their 'five tabs (Rules | ...)' description strings to the four tabs; no behaviour change; t11's boundary check allows exactly these strings",
+      "task_ref": "t11",
+      "reason": "CLAUDE.md requires the CLI self-descriptions to match it; c2/c12 forbid culture_rules/ changes; operator chose to allow the two strings",
+      "affects": [
+        "t10"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 5
+    },
+    {
+      "id": "d6",
+      "what": "d6: new small task (main agent builds, Opus reviews): saving a trusted workflow (pr-fix, review-commit, publish-fix) from Detailed or Debug asks for confirmation first, naming the trust it loses; trusted ids mirrored in a web constant with a test keeping them in step with culture_rules/actors/trusted.py",
+      "task_ref": "t8",
+      "reason": "confirmed assumption c32 says the editor should warn before saving a trusted workflow; no plan task covered it (assumptions are not coverage targets); t10 found no warning exists; operator chose to add it now",
+      "affects": [
+        "t9",
+        "t10"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "needs-follow-up",
+      "seq": 6
     }
   ],
   "evidence": [],
