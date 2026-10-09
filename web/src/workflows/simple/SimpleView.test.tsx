@@ -1426,6 +1426,22 @@ describe("fold-fixA 2: per-entry direct writes re-read first; a form freezes per
     expect((api.rules[0] as Rule & { max_attempts?: number }).max_attempts).toBe(8);
   });
 
+  it("the Add condition form keeps the rule it opened on: a refreshed condition change is a conflict, not a PUT", async () => {
+    const feed = testFeed();
+    const user = userEvent.setup();
+    renderSimple({ live: feed });
+    const first = await findEntry("Checks settled, not green");
+    await user.click(within(first).getByRole("button", { name: "Add condition" }));
+    await elsewhere(["pr-fixer-checks"], { condition: { op: "compare", cmp: "==", left: { field: "data.draft" }, right: { literal: false } } }, feed);
+    const form = screen.getByRole("form", { name: "Add condition" });
+    await user.type(within(form).getByLabelText("Variable"), "branch");
+    await user.type(within(form).getByLabelText("Value"), "main");
+    await user.click(within(form).getByRole("button", { name: "Add" }));
+    expect(await within(entry("Checks settled, not green")).findByRole("alert")).toHaveTextContent("changed since you opened it");
+    expect(sent("PUT", "/rules/pr-fixer-checks")).toHaveLength(0);
+    expect(api.rules[0].condition).toEqual({ op: "compare", cmp: "==", left: { field: "data.draft" }, right: { literal: false } });
+  });
+
   it("switching straight from Ends here to Runs shows the budget as it is now", async () => {
     const feed = testFeed();
     const user = userEvent.setup();

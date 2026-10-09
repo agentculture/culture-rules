@@ -211,6 +211,7 @@ function EntryBody({ entry, data, conditionShared, overrides, busy, historyTick,
   const type = rule.trigger.kind === "event" ? trigger.value || undefined : undefined;
   // The override forms keep the rule as it was when they opened (c27).
   const at = useFrozen(overriding, rule);
+  const addingAt = useFrozen(adding ? "add-condition" : null, rule);
   const override = (label: string, edit: Record<string, unknown>) => {
     setOverriding(null);
     onOverride(at, `${rule.name}: ${label}`, edit);
@@ -250,14 +251,15 @@ function EntryBody({ entry, data, conditionShared, overrides, busy, historyTick,
       {adding ? (
         // The Rules tab's condition form; its one new term joins this entry's own (and keeps the rest).
         <AddStageForm
-          rule={rule}
+          rule={addingAt}
           workflows={data.workflows}
           choice="condition"
           onSave={async (next) => {
-            const condition = withTerm(rule.condition, next.condition!);
+            // Built from, and guarded against, the rule as it was when the form opened (c27).
+            const condition = withTerm(addingAt.condition, next.condition!);
             // Already one of its terms: nothing to write.
-            if (condition === rule.condition) return true;
-            return guarded(rule, { ...rule, condition });
+            if (condition === addingAt.condition) return true;
+            return guarded(addingAt, { ...addingAt, condition });
           }}
           onCancel={() => setAdding(false)}
         />
