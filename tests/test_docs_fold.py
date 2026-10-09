@@ -145,3 +145,13 @@ def test_web_readme_counts_two_chains_and_documents_the_trust_question() -> None
     assert "rules unavailable" in text
     assert "liveFeed.ts" in text
     assert "RULES_SCREENSHOT=<path> sets where the Rules screenshot" not in text
+
+
+def test_cli_self_descriptions_name_the_four_tabs():
+    """d5: `learn` and the `explain` root say four tabs, in step with CLAUDE.md."""
+    root = Path(__file__).resolve().parents[1]
+    for rel in ("culture_rules/cli/_commands/learn.py", "culture_rules/explain/catalog.py"):
+        text = (root / rel).read_text(encoding="utf-8")
+        assert "four tabs" in text, rel
+        assert "five tabs" not in text, rel
+        assert "Rules | Workflows" not in text, rel
