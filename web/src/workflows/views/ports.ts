@@ -16,7 +16,7 @@
  *   - a wired body input still falls back to the loop's implicit values (below,
  *     carry included) when its wire supplies nothing — a skipped source, or
  *     one without that field (`_gathered_inputs`); those links are marked
- *     `conditional`;
+ *     `fallback` (apart from `conditional`, a source step that may be skipped);
  *   - inside a loop, an edge from the loop itself reads the loop's *inputs*
  *     (`_edge_source`);
  *   - a loop body step's unwired input is filled implicitly (`by-name`,
@@ -86,6 +86,8 @@ export interface Carried {
   ref: string;
   /** The source step has a `config.when`: it feeds the value only when it runs. */
   conditional: boolean;
+  /** The input is wired: the carried value applies only when the wire supplies nothing. */
+  behindWire: boolean;
 }
 
 export interface PortLink {
@@ -94,6 +96,8 @@ export interface PortLink {
   kind: LinkKind;
   /** A loop-result link (`carry`, or into a loop output) whose source step may be skipped. */
   conditional?: boolean;
+  /** An implicit loop value behind a wire: it applies only when the wire supplies nothing. */
+  fallback?: boolean;
 }
 
 /** A port's reference, as a definition names it. */
@@ -213,7 +217,8 @@ function stepGroup(wf: WorkflowDef, step: Step, loop: Step | null, exported: Set
           .filter(({ step: s }) => (s.outputs ?? []).some((o) => o.name === field))
           .map(({ step: s, conditional }) => ({
             ref: portRef(s.id, "out", field),
-            conditional: conditional || wire !== undefined,
+            conditional,
+            behindWire: wire !== undefined,
           }))
       : [];
     if (wire) return toPort(step.id, "in", p, { reads: wire, fallback: implicit, carried });
@@ -319,26 +324,35 @@ export function allLinks(wf: WorkflowDef): PortLink[] {
   const groups = flatten(debugColumns(wf).flat());
   const known = new Set(groups.flatMap((g) => [...g.inputs, ...g.outputs]).map((p) => p.ref));
   const links: PortLink[] = [];
+  const seen = new Set<string>();
+  // One link per pair of ports: the first wins (a wire over the implicit value it shadows).
+  const add = (link: PortLink) => {
+    const id = `${link.from}->${link.to}`;
+    if (seen.has(id)) return;
+    seen.add(id);
+    links.push(link);
+  };
   for (const g of groups) {
     for (const p of g.inputs) {
       if (!p.reads || !known.has(p.reads)) continue;
       let kind: LinkKind = "wire";
       if (g.kind === "outputs") kind = "output";
       else if (p.byName) kind = "by-name";
-      links.push({ from: p.reads, to: p.ref, kind });
+      add({ from: p.reads, to: p.ref, kind });
     }
     for (const p of g.inputs) {
       if (p.fallback && known.has(p.fallback)) {
-        links.push({ from: p.fallback, to: p.ref, kind: "by-name", conditional: true });
+        add({ from: p.fallback, to: p.ref, kind: "by-name", fallback: true });
       }
     }
     for (const p of g.inputs) {
       for (const c of p.carried) {
-        if (known.has(c.ref)) links.push({ from: c.ref, to: p.ref, kind: "carry", conditional: c.conditional });
+        if (!known.has(c.ref)) continue;
+        add({ from: c.ref, to: p.ref, kind: "carry", conditional: c.conditional, ...(c.behindWire ? { fallback: true } : {}) });
       }
     }
     if (g.kind !== "step") continue;
-    for (const i of g.inputs) for (const o of g.outputs) links.push({ from: i.ref, to: o.ref, kind: "step" });
+    for (const i of g.inputs) for (const o of g.outputs) add({ from: i.ref, to: o.ref, kind: "step" });
     // a loop's result is its last succeeded body step's outputs (`_progress_loop`, `_loop_outputs`)
     if (!g.step || g.body.length === 0) continue;
     const loopKind = g.step.kind;
@@ -349,7 +363,7 @@ export function allLinks(wf: WorkflowDef): PortLink[] {
         const gathersAll = loopKind === "for_each" && out.name === "results";
         for (const o of inner!.outputs) {
           if (gathersAll || o.name === out.name) {
-            links.push({ from: o.ref, to: out.ref, kind: "by-name", conditional });
+            add({ from: o.ref, to: out.ref, kind: "by-name", conditional });
           }
         }
       }
