@@ -13,6 +13,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Editor: in a workflow's layout, `in` has the first column to itself and `out` the last; no step shares either, including a step wired to nothing (Detailed view, and the layout fallback)
 - Tests: the regex-safety timing bounds are 1 s, not 0.1 s; unguarded backtracking takes 6.8 s, and 0.1 s flaked on a loaded CI runner
 - devague: the editor-fold plan records the redesign as deviation d7, evidence e23 (o5) and e24 (o6), and delta b9; the delivery summary carries them
+- The editor-fold delivery is complete: t12's live condition edit, enable/disable and the converted rule's next run were observed on the test rule (evidence e25–e27)
 
 ## [0.17.2] - 2026-10-09
 

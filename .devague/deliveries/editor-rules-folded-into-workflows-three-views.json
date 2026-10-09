@@ -2,7 +2,7 @@
   "plan_slug": "editor-rules-folded-into-workflows-three-views",
   "schema_version": 2,
   "created": "2026-10-09T11:07:59Z",
-  "updated": "2026-10-09T20:13:23Z",
+  "updated": "2026-10-09T20:25:48Z",
   "deviations": [
     {
       "id": "d1",
@@ -552,6 +552,63 @@
       "status": "proposed",
       "superseded": false,
       "seq": 31
+    },
+    {
+      "id": "e25",
+      "obligation_ref": "o11",
+      "test_ref": "live rules.culture.dev (0.17.1, main a10b024): Simple view '+ condition' on test-jira-scrum21-to-discord, then the condition chip's remove button; culture-rules rules show --json before/after",
+      "behavior_text": "adding 'trigger.data.t12_probe is one of [edit-check]' stored an and() of the original compare and the new in(); removing it restored the original condition; the rule then equalled its saved copy field for field (timestamps aside); 'is'/'is not' with an undefined shared variable was refused with a visible message and saved nothing",
+      "contract_text": "editing one entry point's condition issues exactly 1 rule PUT",
+      "evidence_type": "manual",
+      "strength": "execution",
+      "strength_basis": "stored result read back through the API after each save; the number of PUTs per save was not counted in the browser",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-09T20:24:46Z",
+        "commit": "a10b024"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 32
+    },
+    {
+      "id": "e26",
+      "obligation_ref": "o16",
+      "test_ref": "live rules.culture.dev: the entry card's enable switch on test-jira-scrum21-to-discord, on then off",
+      "behavior_text": "enabled went false->true->false through the editor switch; the disabled card stayed listed, marked 'disabled'; no other field of the rule changed",
+      "contract_text": "toggling one entry point affects its rule only; a disabled entry point stays listed, marked disabled",
+      "evidence_type": "manual",
+      "strength": "execution",
+      "strength_basis": "culture-rules rules show --json after each toggle, compared with the saved copy",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-09T20:24:46Z",
+        "commit": "a10b024"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 33
+    },
+    {
+      "id": "e27",
+      "obligation_ref": "o7",
+      "test_ref": "live run run-74e19f870becff16570f10180734e361 (operator's Jira SCRUM-21 comment, rule enabled for the test)",
+      "behavior_text": "jira.comment.created for SCRUM-21 fired test-jira-scrum21-to-discord; the run went through the stepless workflow test-scrum-21-comment-spark-tests and its @action step posted the configured text to Discord #spark-tests on spark (message_id returned); succeeded in 0.53 s",
+      "contract_text": "a rule with a stepless workflow fires on the same event and runs the same action with the same outcome as without a workflow",
+      "evidence_type": "manual",
+      "strength": "execution",
+      "strength_basis": "culture-rules runs show --json for the run; the action's inputs equal the rule's action params",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-09T20:24:46Z",
+        "commit": "a10b024"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 34
     }
   ],
   "deltas": [
