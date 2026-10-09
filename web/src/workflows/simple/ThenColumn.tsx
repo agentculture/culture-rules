@@ -180,6 +180,7 @@ export function ThenColumn({ workflowId, rules, onward, workflows, actors, trigg
           <SharedActionForm
             label="Ends here"
             value={endsAction}
+            mixed={!ends.shared && !ends.baseline}
             actors={actors}
             triggerType={triggerType}
             workflow={workflow}
@@ -201,6 +202,7 @@ export function ThenColumn({ workflowId, rules, onward, workflows, actors, trigg
           <SharedActionForm
             label="On failure"
             value={failAction}
+            mixed={failDiffers}
             actors={actors}
             triggerType={triggerType}
             workflow={workflow}

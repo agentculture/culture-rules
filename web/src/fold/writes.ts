@@ -1,6 +1,6 @@
 /** Fold writes return data for the Simple view's overrides/retry controls. */
 import { ApiError } from "../api/client";
-import { getRule, SERVER_MANAGED_RULE_FIELDS, updateRule } from "../api/rules";
+import { createRule, getRule, SERVER_MANAGED_RULE_FIELDS, updateRule } from "../api/rules";
 import type { Condition, Rule } from "../api/types";
 import { predecessorTerms } from "./model";
 import { createWorkflowDef, deleteWorkflowDef, type WorkflowDef } from "../api/workflows";
@@ -179,4 +179,29 @@ export async function savePredecessor(snapshot: Rule, predecessorId: string): Pr
     return { ...attempt, status: "failed", phase: "prepare", error };
   }
   return saveAttempt(attempt);
+}
+
+export type RuleCreateResult = { status: "saved"; rule: Rule } | { status: "failed"; error: unknown };
+
+/** Create a rule through the existing `POST /rules`, as the Rules tab did; returns data, never throws. */
+export async function createRuleDoc(doc: Rule): Promise<RuleCreateResult> {
+  try {
+    return { status: "saved", rule: await createRule(doc) };
+  } catch (error) {
+    return { status: "failed", error };
+  }
+}
+
+export type WorkflowDeleteResult =
+  | { status: "deleted"; workflowId: string }
+  | { status: "failed"; workflowId: string; error: unknown };
+
+/** Soft-delete a workflow (`DELETE /workflows/{id}`); returns data, never throws. */
+export async function deleteWorkflowDoc(workflowId: string): Promise<WorkflowDeleteResult> {
+  try {
+    await deleteWorkflowDef(workflowId);
+    return { status: "deleted", workflowId };
+  } catch (error) {
+    return { status: "failed", workflowId, error };
+  }
 }

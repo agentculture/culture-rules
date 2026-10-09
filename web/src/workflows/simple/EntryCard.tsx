@@ -191,7 +191,11 @@ function EntryBody({ entry, data, conditionShared, overrides, busy, historyTick,
       ) : null}
       <ConditionRows
         rows={rows}
-        onRemove={(row) => void data.save({ ...rule, condition: withoutTerm(rule.condition, row.node!) })}
+        onRemove={(row) => {
+          // The row's button goes with it: focus moves on to "+ condition".
+          addButton.current?.focus();
+          void data.save({ ...rule, condition: withoutTerm(rule.condition, row.node!) });
+        }}
       />
       {conditionShared ? <p className="fold-entry__meta">Its condition is shared by every entry point.</p> : null}
 
@@ -213,7 +217,12 @@ function EntryBody({ entry, data, conditionShared, overrides, busy, historyTick,
           rule={rule}
           workflows={data.workflows}
           choice="condition"
-          onSave={(next) => data.save({ ...rule, condition: withTerm(rule.condition, next.condition!) })}
+          onSave={async (next) => {
+            const condition = withTerm(rule.condition, next.condition!);
+            // Already one of its terms: nothing to write.
+            if (condition === rule.condition) return true;
+            return data.save({ ...rule, condition });
+          }}
           onCancel={() => setAdding(false)}
         />
       ) : null}

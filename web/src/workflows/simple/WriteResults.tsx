@@ -1,12 +1,12 @@
 import { ApiError } from "../../api/client";
 import { failureMessage } from "../../api/settle";
-import type { RuleWriteResult } from "../../fold/writes";
-import type { WriteBatch } from "./useFanout";
+import type { FoldWriteResult, WriteBatch } from "./useFanout";
 
 const errorText = (err: unknown) => (err instanceof ApiError ? err.message : failureMessage(err));
 
-function Words({ result, batch }: Readonly<{ result: RuleWriteResult; batch: WriteBatch }>) {
+function Words({ result, batch }: Readonly<{ result: FoldWriteResult; batch: WriteBatch }>) {
   if (result.status === "saved") return <span className="fold-result__words">saved</span>;
+  if (result.status === "unchanged") return <span className="fold-result__words">already so; nothing to write</span>;
   if (result.status === "skipped-changed") {
     return (
       <span className="fold-result__words">
@@ -35,14 +35,14 @@ export function WriteResults({
   onRetry,
   onDismiss,
 }: Readonly<{ batch: WriteBatch; busy: boolean; onRetry: (ruleId: string) => void; onDismiss: () => void }>) {
-  const saved = batch.results.filter((r) => r.status === "saved").length;
+  const saved = batch.results.filter((r) => r.status === "saved" || r.status === "unchanged").length;
   const total = batch.results.length;
   const allSaved = saved === total;
   return (
-    <section className={`fold-results${allSaved ? "" : " fold-results--partial"}`} aria-label="Save results">
+    <section className={`fold-results${allSaved ? "" : " fold-results--partial"}`} aria-label="Save results" aria-live="polite">
       <div className="fold-results__head">
         <span className="fold-results__title">
-          {batch.label}: {allSaved ? `saved to ${total === 1 ? "its rule" : `all ${total} rules`}` : `${saved} of ${total} rules saved`}
+          {batch.label}: {allSaved ? `done for ${total === 1 ? "its rule" : `all ${total} rules`}` : `${saved} of ${total} rules done`}
         </span>
         <button type="button" className="icon-button icon-button--small" aria-label="Dismiss save results" onClick={onDismiss}>
           ×
@@ -53,7 +53,7 @@ export function WriteResults({
           const name = result.snapshot.name;
           return (
             <li key={result.ruleId} className="fold-result" data-status={result.status}>
-              <span className={`run-dot run-dot--${result.status === "saved" ? "succeeded" : "failed"}`} aria-hidden="true" />
+              <span className={`run-dot run-dot--${result.status === "saved" || result.status === "unchanged" ? "succeeded" : "failed"}`} aria-hidden="true" />
               <span className="fold-result__name">{name}</span>
               <Words result={result} batch={batch} />
               {result.status === "failed" ? (

@@ -2,7 +2,23 @@ import { useCallback, useRef, useState } from "react";
 import type { Rule } from "../../api/types";
 import { predecessorTerms } from "../../fold/model";
 import { saveSharedEdit, savePredecessor, type RuleWriteResult, type SharedRuleEdit } from "../../fold/writes";
-import { fieldOf, valueText } from "./text";
+import { canonical, fieldOf, valueText } from "./text";
+
+/** A rule that already held what the edit would write: nothing was sent for it. */
+export interface UnchangedResult {
+  ruleId: string;
+  snapshot: Rule;
+  attempted: Rule;
+  status: "unchanged";
+}
+export type FoldWriteResult = RuleWriteResult | UnchangedResult;
+
+/** Write `edit` to one rule through the fold writes, unless the rule already holds it. */
+async function writeOne(snapshot: Rule, edit: SharedRuleEdit): Promise<FoldWriteResult> {
+  const same = Object.entries(edit).every(([field, value]) => canonical(fieldOf(snapshot, field)) === canonical(value));
+  if (same) return { ruleId: snapshot.id, snapshot, attempted: snapshot, status: "unchanged" };
+  return (await saveSharedEdit([snapshot], edit))[0];
+}
 
 /**
  * One write the Simple view made through the fold writes (web/src/fold/writes.ts):
@@ -15,11 +31,11 @@ export interface WriteBatch {
   id: number;
   /** What was saved, in words: "Ends here", "Runs", "Review asked for changes: predecessor". */
   label: string;
-  results: RuleWriteResult[];
+  results: FoldWriteResult[];
   /** The old value a rule keeps when its write did not land, in words. */
   oldText: (rule: Rule) => string;
   /** Write it again for one rule, from this snapshot. */
-  redo: (snapshot: Rule) => Promise<RuleWriteResult>;
+  redo: (snapshot: Rule) => Promise<FoldWriteResult>;
 }
 
 /** Old-value words for the fields a shared edit replaces ("pr-fixer:… , 3 attempts per key"). */
@@ -33,7 +49,7 @@ export function useFanout(onWritten: () => void) {
   const next = useRef(0);
 
   const start = useCallback(
-    async (label: string, oldText: WriteBatch["oldText"], redo: WriteBatch["redo"], write: () => Promise<RuleWriteResult[]>) => {
+    async (label: string, oldText: WriteBatch["oldText"], redo: WriteBatch["redo"], write: () => Promise<FoldWriteResult[]>) => {
       setBusy(true);
       try {
         const results = await write();
@@ -48,34 +64,30 @@ export function useFanout(onWritten: () => void) {
     [onWritten],
   );
 
-  /** A shared edit: every snapshot's rule, one at a time, re-read before each write. */
-  const fanOut = useCallback(
-    (label: string, snapshots: readonly Rule[], edit: SharedRuleEdit) =>
-      start(
-        label,
-        fieldsText(Object.keys(edit)),
-        async (snapshot) => (await saveSharedEdit([snapshot], edit))[0],
-        () => saveSharedEdit(snapshots, edit),
-      ),
-    [start],
-  );
-
   /**
    * A per-rule edit: each rule's write is computed from that rule (its own current condition,
    * say), so a retry or "apply to it as it is now" recomputes it from the rule as stored then.
    */
   const fanOutEach = useCallback(
     (label: string, fields: readonly string[], snapshots: readonly Rule[], editFor: (rule: Rule) => SharedRuleEdit) => {
-      const one = async (snapshot: Rule) => (await saveSharedEdit([snapshot], editFor(snapshot)))[0];
+      const one = (snapshot: Rule) => writeOne(snapshot, editFor(snapshot));
+      // Every input is captured before the first await, so UI changes cannot alter a batch.
       const all = snapshots.map((s) => structuredClone(s));
       return start(label, fieldsText(fields), one, async () => {
-        const results: RuleWriteResult[] = [];
+        const results: FoldWriteResult[] = [];
         for (const snapshot of all) results.push(await one(snapshot));
         return results;
       });
     },
     [start],
   );
+  /** A shared edit: every snapshot's rule, one at a time, re-read before each write. */
+  const fanOut = useCallback(
+    (label: string, snapshots: readonly Rule[], edit: SharedRuleEdit) =>
+      fanOutEach(label, Object.keys(edit), snapshots, () => edit),
+    [fanOutEach],
+  );
+
 
   /** A continuation's predecessor: exactly its data.workflow_id compare is rewritten. */
   const predecessor = useCallback(
@@ -94,7 +106,7 @@ export function useFanout(onWritten: () => void) {
     async (ruleId: string) => {
       const current = batch;
       const result = current?.results.find((r) => r.ruleId === ruleId);
-      if (!current || !result || result.status === "saved") return;
+      if (!current || !result || result.status === "saved" || result.status === "unchanged") return;
       setBusy(true);
       try {
         const redone = await current.redo(result.status === "skipped-changed" ? result.current : result.snapshot);

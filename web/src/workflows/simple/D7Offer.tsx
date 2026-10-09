@@ -4,8 +4,8 @@ import { ApiError } from "../../api/client";
 import { failureMessage } from "../../api/settle";
 import { getRule } from "../../api/rules";
 import type { Rule } from "../../api/types";
-import { deleteWorkflowDef, type WorkflowDef } from "../../api/workflows";
-import { createD7Workflow, saveSharedEdit, type RuleWriteResult } from "../../fold/writes";
+import type { WorkflowDef } from "../../api/workflows";
+import { createD7Workflow, deleteWorkflowDoc, saveSharedEdit, type RuleWriteResult } from "../../fold/writes";
 import { slugFor } from "../../routes/rules-view";
 
 const errorText = (err: unknown) => (err instanceof ApiError ? err.message : failureMessage(err));
@@ -115,12 +115,9 @@ export function D7Offer({ rule, takenIds, hrefFor, onCreated, autoStart = false 
     if (!now.rule) {
       return setState({ phase: "orphan", orphan, snapshot, message: `${orphan.id} was kept: ${rule.name} could not be re-read to check it is unused (${errorText(now.error)}).` });
     }
-    try {
-      await deleteWorkflowDef(orphan.id);
-      setState({ phase: "idle", message: `Deleted the unused workflow ${orphan.id}.` });
-    } catch (err) {
-      setState({ phase: "orphan", orphan, snapshot: now.rule, message: `${orphan.id} is still unused; deleting it failed (${errorText(err)}).` });
-    }
+    const removed = await deleteWorkflowDoc(orphan.id);
+    if (removed.status === "deleted") return setState({ phase: "idle", message: `Deleted the unused workflow ${orphan.id}.` });
+    setState({ phase: "orphan", orphan, snapshot: now.rule, message: `${orphan.id} is still unused; deleting it failed (${errorText(removed.error)}).` });
   };
 
   const started = useRef(false);

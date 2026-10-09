@@ -86,6 +86,9 @@ export function conditionRows(condition: Condition | null | undefined, skip: rea
 /** The condition with one more all-term: a bare condition becomes the first of an `and`. */
 export function withTerm(condition: Condition | null | undefined, term: Condition): Condition {
   if (!condition) return term;
+  // Already one of its all-terms: adding it again would only duplicate it.
+  const flat = (node: Condition): Condition[] => (node.op === "and" ? node.args.flatMap(flat) : [node]);
+  if (flat(condition).some((node) => canonical(node) === canonical(term))) return condition;
   if (condition.op === "and") return { ...condition, args: [...condition.args, term] };
   return { op: "and", args: [condition, term] };
 }
@@ -164,6 +167,10 @@ export function valueText(field: string, value: unknown): string {
       return attemptsText(value);
     case "counts_toward_budget":
       return value === false ? "does not count toward the attempt budget" : "counts toward the attempt budget";
+    case "condition": {
+      const rows = conditionRows(value as Condition | null | undefined).map(rowText);
+      return rows.length ? rows.join(" and ") : "no condition";
+    }
     case "workflow":
       return (value as { id?: string } | null | undefined)?.id ?? "no workflow";
     default:
@@ -242,7 +249,40 @@ const outsideBudget = (rule: Rule) => fieldOf(rule, "counts_toward_budget") === 
  * a rule outside the attempt budget (`counts_toward_budget: false`) needs a run key and may not
  * set `max_attempts`; a budget is at least 1. Null when every rule can take it.
  */
+const KEY_PLACEHOLDER = /^trigger(?:\.[A-Za-z0-9_-]+)+$/;
+
+/**
+ * Why the server would refuse this run-key template (validate.py `_concurrency_key_problem`):
+ * only `{trigger.<path>}` placeholders, balanced braces (`{{` and `}}` escape one), no format
+ * spec or conversion (`:` or `!` inside a placeholder). Null when it is valid.
+ */
+export function runKeyProblem(template: string): string | null {
+  if (!template.trim()) return "A run key must not be empty.";
+  const unescaped = template.replaceAll("{{", "").replaceAll("}}", "");
+  if (/\{[^{}]*[:!]/.test(unescaped)) return "A run key's placeholders take no format specs and conversions (: or !).";
+  let i = 0;
+  while (i < template.length) {
+    const c = template[i];
+    if (c === "{" && template[i + 1] === "{") i += 2;
+    else if (c === "}" && template[i + 1] === "}") i += 2;
+    else if (c === "}") return "A run key has unbalanced braces: a single } (write }} for a literal one).";
+    else if (c === "{") {
+      const end = template.indexOf("}", i + 1);
+      if (end < 0) return "A run key has unbalanced braces: a { is never closed.";
+      const name = template.slice(i + 1, end);
+      if (name.includes("{")) return "A run key has unbalanced braces: a { inside a placeholder.";
+      if (!KEY_PLACEHOLDER.test(name)) return `A run key takes only {trigger.<path>} placeholders, not {${name}}.`;
+      i = end + 1;
+    } else i += 1;
+  }
+  return null;
+}
+
 export function runsProblem(rules: readonly Rule[], edit: RunsEdit): string | null {
+  if (typeof edit.concurrency_key === "string") {
+    const bad = runKeyProblem(edit.concurrency_key);
+    if (bad) return bad;
+  }
   if (typeof edit.max_attempts === "number" && (!Number.isInteger(edit.max_attempts) || edit.max_attempts < 1)) {
     return "An attempt budget is a whole number, at least 1.";
   }

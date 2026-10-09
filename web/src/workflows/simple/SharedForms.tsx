@@ -62,6 +62,7 @@ export function SharedActionForm({
   label,
   scope = "every entry point",
   value,
+  mixed = false,
   actors,
   triggerType,
   workflow,
@@ -80,10 +81,15 @@ export function SharedActionForm({
   onSave: (action: Action) => void;
   onRemove?: () => void;
   onCancel: () => void;
+  /** The entry points hold different actions: nothing is written until one is picked. */
+  mixed?: boolean;
 }>) {
-  const [action, setAction] = useState<Action>(value ?? blankAction("noop"));
+  const [action, setAction] = useState<Action>((!mixed && value) || blankAction("noop"));
+  const [touched, setTouched] = useState(false);
   const [issue, setIssue] = useState<string | null>(null);
   const submit = () => {
+    // A differing or absent value is never replaced by the picker's made-up starting point.
+    if ((mixed || !value) && !touched) return onCancel();
     // Like the Rules tab: an untouched action is saved as it was; a changed one must be complete.
     const changed = JSON.stringify(action) !== JSON.stringify(value);
     const found = changed ? actionProblem(action) : null;
@@ -104,7 +110,17 @@ export function SharedActionForm({
         </button>
       ) : null}
     >
-      <ActionPicker value={action} actors={actors} triggerType={triggerType} workflow={workflow} onChange={setAction} />
+      {mixed ? <p className="fold-entry__meta">Differs per entry point. Pick what happens to set it for {scope}.</p> : null}
+      <ActionPicker
+        value={action}
+        actors={actors}
+        triggerType={triggerType}
+        workflow={workflow}
+        onChange={(next) => {
+          setAction(next);
+          setTouched(true);
+        }}
+      />
       {issue ? <GuidedNotice code={issue} /> : null}
     </SharedForm>
   );
@@ -152,7 +168,11 @@ export function RunsForm({
   const submit = () => {
     const edit: RunsEdit = {};
     if (keyMixed ? keyTouched : key.trim() !== initialKey) edit.concurrency_key = key.trim() || null;
-    if (attemptsMixed ? limitTouched : limit.trim() !== initialLimit) edit.max_attempts = limit.trim() ? Number(limit) : null;
+    if (attemptsMixed ? limitTouched : limit.trim() !== initialLimit) {
+      // Junk is refused, never read as "no limit".
+      if (limit.trim() && !/^\d+$/.test(limit.trim())) return setProblem("Attempts per key is a whole number, at least 1 (or empty for no limit).");
+      edit.max_attempts = limit.trim() ? Number(limit.trim()) : null;
+    }
     if (Object.keys(edit).length === 0) return onCancel();
     const found = runsProblem(rules, edit);
     setProblem(found);
@@ -180,9 +200,7 @@ export function RunsForm({
       <label>
         <span>Attempts per key</span>
         <input
-          type="number"
-          min={1}
-          step={1}
+          inputMode="numeric"
           value={limit}
           placeholder={attemptsMixed && !limitTouched ? mixedHint : "No limit"}
           onChange={(e) => {
@@ -206,16 +224,20 @@ export function RunsForm({
 }
 
 const KEEP = "__keep__";
+const MIXED = "__mixed__";
 
 /** "evaluates on …": one placement for every entry point (a machine, anywhere, or a kept actor/capability one). */
 export function PlacementForm({
   value,
+  mixed = false,
   machines,
   busy,
   onSave,
   onCancel,
 }: Readonly<{
   value: Placement | null | undefined;
+  /** The entry points evaluate in different places: nothing is written until one is picked. */
+  mixed?: boolean;
   machines: Machine[];
   busy: boolean;
   onSave: (placement: Placement | null) => void;
@@ -223,18 +245,19 @@ export function PlacementForm({
 }>) {
   const placed = value?.machine ?? "";
   const foreign = !placed && (value?.actor || value?.requirement?.length);
-  const [choice, setChoice] = useState(foreign ? KEEP : placed);
+  const [choice, setChoice] = useState(mixed ? MIXED : foreign ? KEEP : placed);
   const chosen = (): Placement | null => {
     if (choice === KEEP) return value ?? null;
     return choice ? { machine: choice } : null;
   };
   return (
-    <SharedForm label="Placement" busy={busy} onCancel={onCancel} onSubmit={() => onSave(chosen())}>
+    <SharedForm label="Placement" busy={busy} onCancel={onCancel} onSubmit={() => (choice === MIXED ? onCancel() : onSave(chosen()))}>
       <label>
         <span>Evaluates on</span>
         <select value={choice} onChange={(e) => setChoice(e.target.value)}>
+          {mixed ? <option value={MIXED}>Differs per entry point</option> : null}
           <option value="">Anywhere</option>
-          {foreign ? <option value={KEEP}>{value?.actor ? `via ${value.actor}` : "by capability"}</option> : null}
+          {!mixed && foreign ? <option value={KEEP}>{value?.actor ? `via ${value.actor}` : "by capability"}</option> : null}
           {machines.map((m) => (
             <option key={m.name} value={m.name}>
               {m.name}

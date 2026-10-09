@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { listActors, type Actor } from "../../api/actors";
 import { ApiError, listRules, listWorkflows } from "../../api/client";
-import { createRule } from "../../api/rules";
 import { failureMessage } from "../../api/settle";
 import type { Rule } from "../../api/types";
+import { createRuleDoc } from "../../fold/writes";
 import { NewRuleForm } from "../../rules/Forms";
 import "../../rules/rules.css";
 import { D7Offer } from "./D7Offer";
@@ -63,17 +63,21 @@ export function NewRule({ hrefFor = (id) => `/workflows?id=${encodeURIComponent(
     inFlight.current = true;
     setPending(true);
     setError(null);
-    try {
-      setCreated(await createRule(doc));
+    const result = await createRuleDoc(doc);
+    inFlight.current = false;
+    setPending(false);
+    if (result.status === "saved") {
+      setCreated(result.rule);
       return true;
-    } catch (err) {
-      setError(errorText(err));
-      return false;
-    } finally {
-      inFlight.current = false;
-      setPending(false);
     }
+    setError(errorText(result.error));
+    return false;
   };
+  // A refused create moves focus to the reason, which names what to fix.
+  const alert = useRef<HTMLParagraphElement>(null);
+  useEffect(() => {
+    if (error) alert.current?.focus();
+  }, [error]);
   const cancel = () => {
     if (!inFlight.current) onCancel();
   };
@@ -81,7 +85,7 @@ export function NewRule({ hrefFor = (id) => `/workflows?id=${encodeURIComponent(
   return (
     <section className="fold-new-rule" aria-label="New rule">
       {error ? (
-        <p className="notice notice--error" role="alert">
+        <p ref={alert} tabIndex={-1} className="notice notice--error" role="alert">
           {error}
         </p>
       ) : null}

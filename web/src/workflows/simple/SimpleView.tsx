@@ -26,9 +26,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLiveUpdates, type LiveChange } from "../../api/live";
 import type { Placement, Rule } from "../../api/types";
-import { deleteWorkflowDef, type WorkflowDef } from "../../api/workflows";
+import type { WorkflowDef } from "../../api/workflows";
 import { foldModel, predecessorTerms, type Continuation, type FoldEntry } from "../../fold/model";
-import type { SharedRuleEdit } from "../../fold/writes";
+import { deleteWorkflowDoc, type SharedRuleEdit } from "../../fold/writes";
 import { AddStageForm, NewRuleForm } from "../../rules/Forms";
 import { StopRunsNotice } from "../../rules/StopRunsNotice";
 import { useRulesData } from "../../rules/useRulesData";
@@ -114,7 +114,16 @@ const LABELS: Record<string, string> = {
 };
 const labelOf = (field: string) => LABELS[field] ?? field;
 
-export function SimpleView({
+/**
+ * The Simple view of one workflow. Keyed by the workflow id inside, so opening another workflow
+ * starts fresh (its first entry open, no earlier save results or baselines) without the caller
+ * having to remember a `key`.
+ */
+export function SimpleView(props: Readonly<SimpleViewProps>) {
+  return <WorkflowSimple key={props.workflowId} {...props} />;
+}
+
+function WorkflowSimple({
   workflowId,
   def,
   entry,
@@ -215,13 +224,13 @@ export function SimpleView({
     }
   };
   const deleteWorkflow = async () => {
-    try {
-      await deleteWorkflowDef(workflowId);
+    const result = await deleteWorkflowDoc(workflowId);
+    if (result.status === "deleted") {
       setDeleted(null);
       setWorkflowNote(`Deleted the workflow ${def?.name ?? workflowId}.`);
       onWorkflowDeleted?.(workflowId);
-    } catch (err) {
-      setWorkflowNote(`Could not delete ${workflowId}: ${err instanceof Error ? err.message : String(err)}`);
+    } else {
+      setWorkflowNote(`Could not delete ${workflowId}: ${result.error instanceof Error ? result.error.message : String(result.error)}`);
     }
   };
   // Deleting the last entry point of a stepless (D7) workflow offers to delete the workflow too (c30).
@@ -295,7 +304,7 @@ export function SimpleView({
         <section className="fold-col fold-col--when" aria-labelledby={`${workflowId}-when`}>
           <div className="fold-col__head">
             <h2 id={`${workflowId}-when`} className="fold-col__title">When</h2>
-            <button ref={createButton} type="button" className="fold-add fold-add--big" aria-pressed={creating} onClick={() => setCreating((c) => !c)}>
+            <button ref={createButton} type="button" className="fold-add fold-add--big" aria-expanded={creating} onClick={() => setCreating((c) => !c)}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true">
                 <path d="M12 5v14M5 12h14" />
               </svg>
@@ -329,6 +338,7 @@ export function SimpleView({
               {placing ? (
                 <PlacementForm
                   value={placement.value as Placement | null | undefined}
+                  mixed={!placement.shared && !placement.baseline}
                   machines={data.machines}
                   busy={fanout.busy}
                   onSave={(next) => {
@@ -344,7 +354,10 @@ export function SimpleView({
                     rows={sharedCondition}
                     label="Every entry point only if all of"
                     busy={fanout.busy}
-                    onRemove={(row) => conditionEach((rule) => withoutEqualTerm(rule.condition, row.node!, predecessorTerms(rule.condition)))}
+                    onRemove={(row) => {
+                      sharedAddButton.current?.focus();
+                      conditionEach((rule) => withoutEqualTerm(rule.condition, row.node!, predecessorTerms(rule.condition)));
+                    }}
                   />
                   <button
                     ref={sharedAddButton}

@@ -1008,3 +1008,158 @@ describe("re-review follow-up", () => {
     }
   });
 });
+
+describe("full-pass review follow-up", () => {
+  it("from the mixed state, Placement, Ends here and On failure write nothing until a value is picked", async () => {
+    use(foldApi((rules) => {
+      rules[1].placement = { machine: "thor" };
+      rules[3].action = { ...rules[3].action, name: "Other end" };
+      rules[2].on_failure = null;
+    }));
+    const user = userEvent.setup();
+    renderSimple();
+    await findEntry("Checks settled, not green");
+
+    const shared = screen.getByRole("group", { name: "Shared by every entry point" });
+    await user.click(within(shared).getByRole("button", { name: /evaluates: differs per entry point/ }));
+    const place = screen.getByRole("form", { name: "Placement" });
+    expect(within(place).getByLabelText("Evaluates on")).toHaveDisplayValue("Differs per entry point");
+    await user.click(within(place).getByRole("button", { name: "Save for every entry point" }));
+
+    await user.click(within(then("Ends here")).getByRole("button", { name: "Edit ends here" }));
+    const ends = screen.getByRole("form", { name: "Ends here" });
+    expect(ends).toHaveTextContent("Differs per entry point");
+    await user.click(within(ends).getByRole("button", { name: "Save for every entry point" }));
+
+    await user.click(within(then("On failure")).getByRole("button", { name: "Edit on failure" }));
+    const fail = screen.getByRole("form", { name: "On failure" });
+    expect(fail).toHaveTextContent("Differs per entry point");
+    await user.click(within(fail).getByRole("button", { name: "Save for every entry point" }));
+    expect(writes()).toHaveLength(0);
+
+    // an explicit pick does write
+    await user.click(within(screen.getByRole("group", { name: "Shared by every entry point" })).getByRole("button", { name: /evaluates/ }));
+    await user.selectOptions(screen.getByLabelText("Evaluates on"), "Anywhere");
+    await user.click(screen.getByRole("button", { name: "Save for every entry point" }));
+    await waitFor(() => expect(writes()).toHaveLength(4));
+    for (const put of writes()) expect((put.body as Rule).placement).toBeNull();
+  });
+
+  it("an empty failure action is not invented: an untouched save writes nothing", async () => {
+    const user = userEvent.setup();
+    renderSimple({ workflowId: "publish-fix" });
+    await findEntry("Publish when approved");
+    await user.click(within(then("On failure")).getByRole("button", { name: "Edit on failure" }));
+    await user.click(within(screen.getByRole("form", { name: "On failure" })).getByRole("button", { name: "Save for every entry point" }));
+    expect(writes()).toHaveLength(0);
+  });
+
+  it("refuses a run key the server would refuse, and junk in the budget", async () => {
+    const user = userEvent.setup();
+    renderSimple();
+    await findEntry("Checks settled, not green");
+    await user.click(within(then("Runs")).getByRole("button", { name: "Edit runs" }));
+    const form = screen.getByRole("form", { name: "Runs" });
+    await user.clear(within(form).getByLabelText("Run key"));
+    await user.type(within(form).getByLabelText("Run key"), "pr:{{vars.x}");
+    await user.click(within(form).getByRole("button", { name: "Save for every entry point" }));
+    expect(within(form).getByRole("alert")).toHaveTextContent("only {trigger.<path>} placeholders");
+    await user.clear(within(form).getByLabelText("Run key"));
+    await user.type(within(form).getByLabelText("Run key"), RUN_KEY.replaceAll("{", "{{"));
+    await user.clear(within(form).getByLabelText("Attempts per key"));
+    await user.type(within(form).getByLabelText("Attempts per key"), "lots");
+    await user.click(within(form).getByRole("button", { name: "Save for every entry point" }));
+    expect(within(form).getByRole("alert")).toHaveTextContent("whole number");
+    expect(writes()).toHaveLength(0);
+  });
+
+  it("condition results read as rows; a term already there is not added twice, and a no-op is not reported as saved", async () => {
+    use(foldApi((rules) => {
+      const publish = rules.find((r) => r.id === "pr-fixer-publish")!;
+      rules.splice(rules.findIndex((r) => r.id === "any-failure"), 1, { ...structuredClone(publish), id: "publish-2", name: "Publish again" });
+    }));
+    const user = userEvent.setup();
+    renderSimple({ workflowId: "publish-fix" });
+    await findEntry("Publish again");
+    // Publish again gains the term meanwhile, so it is skipped; applying to it as it is now changes nothing
+    const other = api.rules.find((r) => r.id === "publish-2")!;
+    (other.condition as { args: Condition[] }).args.push({ op: "compare", cmp: "==", left: { var: "branch" }, right: { literal: "main" } });
+    Object.assign(other, { updated_at: "2026-10-09T13:00:00Z" });
+    const shared = screen.getByRole("group", { name: "Shared by every entry point" });
+    await user.click(within(shared).getByRole("button", { name: "Add a condition for every entry point" }));
+    const form = screen.getByRole("form", { name: "Add condition" });
+    await user.type(within(form).getByLabelText("Variable"), "branch");
+    await user.type(within(form).getByLabelText("Value"), "main");
+    await user.click(within(form).getByRole("button", { name: "Add" }));
+    const results = await screen.findByRole("region", { name: "Save results" });
+    expect(results).toHaveAttribute("aria-live", "polite");
+    const row = await within(results).findByText("Publish again");
+    await waitFor(() => expect(row.closest("li")).toHaveAttribute("data-status", "skipped-changed"));
+    expect(row.closest("li")).toHaveTextContent('workflow_id = "review-commit"');
+    expect(row.closest("li")).not.toHaveTextContent('"op"');
+    await user.click(within(results).getByRole("button", { name: "Apply to Publish again as it is now" }));
+    await waitFor(() => expect(row.closest("li")).toHaveAttribute("data-status", "unchanged"));
+    expect(row.closest("li")).toHaveTextContent("already so");
+    expect(sent("PUT", "/rules/publish-2")).toHaveLength(0);
+  });
+
+  it("a per-entry duplicate condition term is not written", async () => {
+    const user = userEvent.setup();
+    renderSimple();
+    const first = await findEntry("Checks settled, not green");
+    await user.click(within(first).getByRole("button", { name: "Add condition" }));
+    const form = screen.getByRole("form", { name: "Add condition" });
+    // trigger.data.draft == false is already there as a field compare; add a var term twice instead
+    await user.type(within(form).getByLabelText("Variable"), "branch");
+    await user.type(within(form).getByLabelText("Value"), "main");
+    await user.click(within(form).getByRole("button", { name: "Add" }));
+    await waitFor(() => expect(sent("PUT", "/rules/pr-fixer-checks")).toHaveLength(1));
+    await waitFor(() => expect(within(entry("Checks settled, not green")).getByRole("list", { name: "Only if all of" })).toHaveTextContent("vars.branch"));
+    await user.click(within(entry("Checks settled, not green")).getByRole("button", { name: "Add condition" }));
+    const again = screen.getByRole("form", { name: "Add condition" });
+    await user.type(within(again).getByLabelText("Variable"), "branch");
+    await user.type(within(again).getByLabelText("Value"), "main");
+    await user.click(within(again).getByRole("button", { name: "Add" }));
+    await waitFor(() => expect(screen.queryByRole("form", { name: "Add condition" })).not.toBeInTheDocument());
+    expect(sent("PUT", "/rules/pr-fixer-checks")).toHaveLength(1);
+  });
+
+  it("focus returns after removing a condition row; + Entry point says it is expanded", async () => {
+    const user = userEvent.setup();
+    renderSimple();
+    const first = await findEntry("Checks settled, not green");
+    await user.click(within(first).getByRole("button", { name: "Remove condition draft = false" }));
+    expect(within(entry("Checks settled, not green")).getByRole("button", { name: "Add condition" })).toHaveFocus();
+    const add = screen.getByRole("button", { name: "Entry point" });
+    expect(add).toHaveAttribute("aria-expanded", "false");
+    expect(add).not.toHaveAttribute("aria-pressed");
+    await user.click(add);
+    expect(add).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("a different workflow starts fresh: its own first entry open, no earlier baselines", async () => {
+    api.failNext["PUT /rules/pr-fixer-comment"] = failure;
+    const user = userEvent.setup();
+    const view = render(<MemoryRouter><SimpleView workflowId="pr-fix" /></MemoryRouter>);
+    await editRunKey(user, "pr:{trigger.data.number}");
+    await screen.findByRole("region", { name: "Save results" });
+    view.rerender(<MemoryRouter><SimpleView workflowId="publish-fix" /></MemoryRouter>);
+    const first = await findEntry("Publish when approved");
+    expect(within(first).getByRole("button", { name: "Collapse Publish when approved" })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Save results" })).not.toBeInTheDocument();
+  });
+
+  it("New rule moves focus to the error when the create is refused", async () => {
+    api.failNext["POST /rules"] = { status: 422, code: "invalid_rule", message: "refused" };
+    const user = userEvent.setup();
+    render(<MemoryRouter><NewRule onCancel={vi.fn()} /></MemoryRouter>);
+    const form = await screen.findByRole("form", { name: "New rule" });
+    await user.type(within(form).getByLabelText("Name"), "Push seen");
+    await user.selectOptions(within(form).getByLabelText("Surface"), "github-app");
+    await user.selectOptions(within(form).getByLabelText("Event"), "github.push");
+    await user.click(within(form).getByRole("button", { name: "Create rule" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("refused");
+    await waitFor(() => expect(alert).toHaveFocus());
+  });
+});
