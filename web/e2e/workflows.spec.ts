@@ -275,13 +275,19 @@ test.describe("Workflows tab", () => {
     await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
     await expect(level).toHaveText(fitted!);
     // ctrl + wheel (a trackpad pinch arrives as one) zooms. The page scrolls smoothly
-    // (tokens.css): let it come to rest, then put the pointer back over the canvas.
+    // (tokens.css): let it come to rest (two polls 100ms apart read the same scrollY),
+    // then put the pointer back over the canvas.
+    let lastY = Number.NaN;
     await expect
-      .poll(async () => {
-        const y = await page.evaluate(() => window.scrollY);
-        await page.waitForTimeout(100);
-        return y === (await page.evaluate(() => window.scrollY));
-      })
+      .poll(
+        async () => {
+          const y = await page.evaluate(() => window.scrollY);
+          const settled = y === lastY;
+          lastY = y;
+          return settled;
+        },
+        { intervals: [100] },
+      )
       .toBe(true);
     const after = (await canvas.boundingBox())!;
     await page.mouse.move(after.x + 30, after.y + Math.min(after.height / 2, 80));
