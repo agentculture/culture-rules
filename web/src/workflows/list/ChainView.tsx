@@ -26,7 +26,7 @@ export function ChainView({ model, chain, selectedId, onOpen }: Readonly<ChainVi
   const unresolved = continuations.filter((entry) => !linked.includes(entry));
   return <section className="fold-chain" aria-label="Chain view">
     <p>{count(entries.length + continuations.length + (chain ? 0 : model.d7Candidates.length), "rule")} → {count(entries.length, "entry point")}, {count(continuations.length, "continuation")}, {count(ids.length, "workflow")}</p>
-    {!ids.length ? <p>No workflows yet.</p> : <section className="fold-chain__scroll" aria-label="Workflow chain diagram">
+    {!ids.length ? <p>No workflows yet.</p> : <section className="fold-chain__scroll" aria-label="Workflow chain diagram" tabIndex={0} /* NOSONAR S6845: a scrollable region must be focusable so keyboard users can scroll it (axe scrollable-region-focusable) */>
       <div className="fold-chain__canvas" style={{ width, height }}>
         <strong className="fold-chain__when">When</strong>
         <svg width={width} height={height} className="fold-chain__edges" aria-label="Directed entry and continuation edges" role="img">

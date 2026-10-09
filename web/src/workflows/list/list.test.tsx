@@ -8,6 +8,7 @@ import type { Rule, Condition } from "../../api/types";
 import type { WorkflowDef } from "../../api/workflows";
 import { foldModel } from "../../fold/model";
 import { WorkflowList } from "./WorkflowList";
+import { triggerText } from "./presentation";
 import { ChainView } from "./ChainView";
 
 function fixture<T>(directory: string): T[] {
@@ -133,6 +134,19 @@ describe("folded workflow list", () => {
 });
 
 describe("Chain view", () => {
+  it("keeps the diagram's scroll region a keyboard tab stop", () => {
+    render(<MemoryRouter><ChainView model={model} /></MemoryRouter>);
+    expect(screen.getByRole("region", { name: "Workflow chain diagram" })).toHaveAttribute("tabindex", "0");
+  });
+
+  it("reads trigger params as they always did; only a plain object reads as JSON", () => {
+    const rule = (params: Record<string, unknown>) => ({ ...rules[0], trigger: { kind: "probe", params } }) as Rule;
+    expect(triggerText(rule({ command: ["a", "b"] }))).toBe("Probe: a,b");
+    expect(triggerText(rule({ command: 3 }))).toBe("Probe: 3");
+    expect(triggerText(rule({ command: { argv: ["x"] } }))).toBe('Probe: {"argv":["x"]}');
+    expect(triggerText(rule({}))).toBe("Probe: not set");
+  });
+
   it("draws all fixture starts, workflows and directed continuations, including the return edge", () => {
     const { container } = render(<MemoryRouter><ChainView model={model} /></MemoryRouter>);
     expect(screen.getByText("9 rules → 6 entry points, 3 continuations, 4 workflows")).toBeInTheDocument();

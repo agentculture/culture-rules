@@ -22,10 +22,15 @@ function operandText(operand: Operand): string {
   if ("var" in operand) return `vars.${operand.var}`;
   return valueText(operand.literal);
 }
-/** A stored trigger param as text: strings as they are, anything else as JSON, never "[object Object]". */
+/**
+ * A stored trigger param as text, as it always read (strings, numbers, booleans and arrays
+ * through String(), so ["a","b"] reads a,b); only a plain object, which used to read
+ * "[object Object]", reads as JSON.
+ */
 function paramText(value: unknown, fallback: string): string {
   if (value === undefined || value === null) return fallback;
-  return typeof value === "string" ? value : JSON.stringify(value);
+  if (typeof value === "object" && !Array.isArray(value)) return JSON.stringify(value);
+  return String(value);
 }
 export function guardText(condition: Condition): string {
   switch (condition.op) {
