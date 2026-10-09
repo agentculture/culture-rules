@@ -19,8 +19,9 @@ else to apply, rather than applying it yourself.
 `culture-rules` is the rules engine for the AgentCulture mesh (rules →
 conditions → workflows → actions, carried out by actors). It is built: a
 Python library and CLI, an HTTP API, an MCP server, an engine node daemon,
-and a React Flow editor with five tabs, **Rules | Workflows | Actors |
-Variables | Statistics**. Runs and history appear in context, never as a tab. Describe
+and a React Flow editor with four tabs, **Workflows | Actors | Variables |
+Statistics**. There is no Rules tab: each rule is shown as an entry point of
+the workflow it starts. Runs and history appear in context, never as a tab. Describe
 it from what is on disk (`README.md`, `docs/demo.md`,
 `docs/specs/2026-10-03-culture-rules-engine-editor.md`), and report what you
 did not verify.

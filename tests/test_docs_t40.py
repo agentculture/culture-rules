@@ -1,4 +1,8 @@
-"""t40: README, demo script and the five prompt files describe the shipped four-tab design."""
+"""t40: README, demo script and the five prompt files describe the shipped editor tabs.
+
+Since the editor fold (2026-10-09) the tabs are Workflows | Actors | Variables | Statistics;
+tests/test_docs_fold.py holds the fold's own checks.
+"""
 
 from __future__ import annotations
 
@@ -39,9 +43,9 @@ def test_readme_names_both_audiences_and_the_why() -> None:
     assert WHY in text
 
 
-def test_readme_five_tabs_mcp_and_no_stale_wording() -> None:
+def test_readme_four_tabs_mcp_and_no_stale_wording() -> None:
     text = _flat("README.md")
-    assert "Rules | Workflows | Actors | Variables | Statistics" in text
+    assert "Workflows | Actors | Variables | Statistics" in text
     assert "MCP" in text
     for phrase in STALE:
         assert phrase not in text.lower(), phrase
@@ -89,11 +93,11 @@ def test_demo_reproduces_the_after_state() -> None:
 
 
 @pytest.mark.parametrize("rel", PROMPTS)
-def test_prompt_files_describe_the_five_tab_design(rel: str) -> None:
+def test_prompt_files_describe_the_four_tab_design(rel: str) -> None:
     text = _flat(rel)
     lowered = text.lower()
     assert "Statistics" in text, rel
-    assert "Rules | Workflows | Actors | Variables | Statistics" in text, rel
+    assert "Workflows | Actors | Variables | Statistics" in text, rel
     assert "mcp" in lowered, rel
     for phrase in STALE:
         assert phrase not in lowered, f"{phrase!r} in {rel}"
