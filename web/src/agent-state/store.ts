@@ -10,7 +10,25 @@
  */
 
 export type AgentStatus = "loading" | "ready";
-export type Tab = "rules" | "workflows" | "actors" | "variables" | "statistics";
+
+/** The tabs a view reports today (what `useTabReady` takes). */
+export type TabId = "workflows" | "actors" | "variables" | "statistics";
+
+/**
+ * Every value `AgentState.tab` can hold: the live tabs plus the retired
+ * `"rules"` (spec c33). Internal code types against this, not `Tab`.
+ */
+type TabValue = TabId | "rules";
+
+/**
+ * @deprecated member `"rules"`: see below.
+ *
+ * `"rules"` is deprecated (spec c33): the Rules tab is folded into Workflows,
+ * so no view reports it any more. It stays in the type for one release so an
+ * agent that still compares against it type-checks; drop it in the release
+ * after the fold. Use `TabId` for the tabs a view reports.
+ */
+export type Tab = TabValue;
 
 export interface AgentIdentity {
   status: "loading" | "signed-in" | "unauthenticated" | "unavailable";
@@ -22,12 +40,24 @@ export interface AgentIdentity {
   role: string | null;
 }
 
-export interface AgentRulesState {
+/** The shape of the deprecated `rules` alias slice; internal code types against this. */
+interface RulesAliasState {
+  /** Every rule (entry points, continuations and rules with no workflow). */
   count: number;
+  /** The entry point open (?entry=), else null. */
   selected: string | null;
   /** The stages drawn for the selected rule, in order. */
   stages: string[];
 }
+
+/**
+ * @deprecated Read `AgentState.workflows` (`entries`, `entry`) instead.
+ *
+ * Deprecated alias (spec c33), kept for one release: the Workflows tab writes
+ * it from the folded rules so an agent reading `rules` keeps working. Read
+ * `workflows.entries` / `workflows.entry` instead.
+ */
+export type AgentRulesState = RulesAliasState;
 
 /** The Workflows tab's slice (src/workflows/agentState.ts writes it). */
 export interface AgentWorkflowsState {
@@ -43,6 +73,19 @@ export interface AgentWorkflowsState {
   dirty: boolean;
   /** The run overlaid on the canvas (?run=), from persisted run state. */
   run: { id: string; status: string } | null;
+  /**
+   * The view switch: simple (When / Then), detailed (steps) or debug (ports);
+   * null while no view switch is shown (the D7 place, New rule, New workflow, an empty list).
+   */
+  view?: "simple" | "detailed" | "debug" | null;
+  /** The open workflow's entry points and continuations (rule ids, list order). */
+  entries?: string[];
+  /** The entry point asked for (?entry=), a rule id, else null. */
+  entry?: string | null;
+  /** Chains on the list (connected by continuation links). */
+  chains?: number;
+  /** Rules with no workflow yet (D7 candidates), by id. */
+  without_workflow?: string[];
 }
 
 /** The Actors tab's slice. */
@@ -76,11 +119,12 @@ export interface AgentState {
   /** The current view finished its initial load (well or badly). */
   view_ready: boolean;
   route: string;
-  tab: Tab | null;
+  tab: TabValue | null;
   identity: AgentIdentity | null;
   /** Load errors the current view is showing; empty when all is well. */
   errors: string[];
-  rules?: AgentRulesState | null;
+  /** @deprecated Alias for one release (c33): read `workflows.entries` / `workflows.entry`. */
+  rules?: RulesAliasState | null;
   workflows?: AgentWorkflowsState | null;
   actors?: AgentActorsState | null;
   statistics?: AgentStatisticsState | null;

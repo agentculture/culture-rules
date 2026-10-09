@@ -3,15 +3,17 @@ import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import AgentStateScript from "./agent-state/AgentStateScript";
 import { setAgentState } from "./agent-state/store";
 import Header from "./components/Header";
-import Rules from "./routes/Rules";
 import Workflows from "./routes/Workflows";
 import Actors from "./routes/Actors";
 import Variables from "./routes/Variables";
 import Statistics from "./routes/Statistics";
+import { RuleRedirect, WorkflowPathRedirect } from "./routes/LegacyRoutes";
 
 /**
- * The shell: header + exactly five tab routes. Every other path — including
- * /runs and /history, which are never top-level (issue #2) — lands on Rules.
+ * The shell: header + exactly four tab routes (rules are folded into
+ * Workflows, spec c16). Old /rules links redirect to where the rule lives now
+ * (routes/legacy-redirects.ts); every other path — including /runs and
+ * /history, which are never top-level (issue #2) — lands on Workflows.
  */
 export function App() {
   const location = useLocation();
@@ -26,12 +28,13 @@ export function App() {
       </a>
       <Header />
       <Routes>
-        <Route path="/rules/:ruleId?" element={<Rules />} />
+        <Route path="/rules/:ruleId?" element={<RuleRedirect />} />
         <Route path="/workflows" element={<Workflows />} />
+        <Route path="/workflows/:workflowId" element={<WorkflowPathRedirect />} />
         <Route path="/actors" element={<Actors />} />
         <Route path="/variables" element={<Variables />} />
         <Route path="/statistics" element={<Statistics />} />
-        <Route path="*" element={<Navigate to="/rules" replace />} />
+        <Route path="*" element={<Navigate to="/workflows" replace />} />
       </Routes>
       <AgentStateScript />
     </div>

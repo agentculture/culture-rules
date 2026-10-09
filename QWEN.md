@@ -14,7 +14,10 @@ conditions → workflows → actions, carried out by actors (agents, humans,
 code, services, robots, …). It ships as the PyPI distribution
 `culture-rules`, whose import package is `culture_rules`. The backend is
 Python, and the visual editor in `web/` is a Node.js + React Flow app with
-five tabs: **Rules | Workflows | Actors | Variables | Statistics**.
+four tabs: **Workflows | Actors | Variables | Statistics**.
+There is no Rules tab: each rule is shown and edited as an entry point
+of the workflow it starts, and a workflow opens in a Simple (When / Then),
+Detailed (steps) or Debug (ports and references) view.
 
 **Status: the first mile is shipped on `main` (PR #4); the second
 mile (issues #5–#7) is built on `rules/second-mile`.** guildmaster provisioned the
@@ -75,7 +78,10 @@ Further settled constraints:
 - **Explicit exported variables.** Prefer them over a global mutable bag.
 - **One pinned API contract**, `api/openapi.json`, shared by frontend and
   backend.
-- **Exactly five primary tabs: Rules | Workflows | Actors | Variables | Statistics.** Statistics is per-machine state and work. Runs, history and
+- **Exactly four primary tabs: Workflows | Actors | Variables | Statistics.**
+  There is no Rules tab: rules keep their stored shape in the engine, API,
+  CLI and MCP, and the editor shows each one as a workflow's entry point
+  (Simple view) or a continuation. Statistics is per-machine state and work. Runs, history and
   debugging appear only in context, never as a tab.
 
 ## Prompt files by harness

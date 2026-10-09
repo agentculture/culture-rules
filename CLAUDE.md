@@ -8,8 +8,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 conditions → workflows → actions, carried out by actors (agents, humans,
 code, …). It ships as one PyPI distribution, `culture-rules`, whose import
 package is `culture_rules`. Its backend is Python, and its visual editor is
-a Node.js + React Flow (`@xyflow/react`) app in `web/` with five tabs:
-**Rules | Workflows | Actors | Variables | Statistics**.
+a Node.js + React Flow (`@xyflow/react`) app in `web/` with four tabs:
+**Workflows | Actors | Variables | Statistics**. There is no Rules tab: the
+editor folds each rule into the workflow it starts, as an entry point
+(spec `docs/specs/2026-10-09-editor-rules-folded-into-workflows-three-views.md`).
 
 **Status: the first mile is built and shipped** (PR #4, merged to `main`: the
 engine, API, node, CLI, MCP server, editor and ops docs exist on disk), and
@@ -33,6 +35,24 @@ plan. What exists today:
   verbs as tools. A parity test keeps CLI and MCP identical.
 - **The web editor** in `web/`, built into the wheel as
   `culture_rules/web_dist` and served by the API. CI has a `web` job.
+  Rules are folded into Workflows; it is an editor change only, and rules
+  keep their stored shape in the engine, API, CLI and MCP:
+  - the Workflows list groups workflows linked by continuations into chain
+    cards (starts when, continues into, runs, ends with, "was N rules"),
+    with a Chain view, "Rules without a workflow", New workflow and New rule;
+  - a workflow opens in one of three views, kept per viewer in
+    localStorage: **Simple** (When / Then, the default), **Detailed** (steps
+    and edges) and **Debug** (every port, type and reference, with upstream
+    and downstream highlighting);
+  - a rule shows as an entry point (When) of its workflow, or as a
+    continuation owned by the workflow it starts; the previous workflow
+    shows a read-only "Continues into" link;
+  - a value every entry point's rule holds identically shows once; editing
+    it writes rule by rule, re-reading each rule first and skipping one
+    changed meanwhile;
+  - a rule with no workflow can be given a stored workflow with no steps
+    (D7); New rule does that at once;
+  - old `/rules` and `/rules/<id>` links redirect to the workflow.
 - **Ops docs** in `docs/operations/` (replica set, backup, rules.culture.dev)
   and the executed walkthrough in `docs/demo.md`.
 - **Second mile** (spec `docs/specs/2026-10-03-culture-rules-second-mile.md`):
@@ -98,7 +118,10 @@ Settled constraints that shape the architecture:
   Prefer **explicit exported outputs** over a global mutable bag. Mappings
   (output → action input / downstream rule input) are graphical, with
   the textual reference form inspectable but never required.
-- **Exactly five primary tabs: Rules | Workflows | Actors | Variables | Statistics.** Variables are the shared values rules read as `vars.<name>`.
+- **Exactly four primary tabs: Workflows | Actors | Variables | Statistics.**
+  There is no Rules tab: a rule is edited as an entry point of the workflow
+  it starts, in the Simple view. Variables are the shared values rules read
+  as `vars.<name>`.
   Statistics is per-machine state and work (one lane per enrolled machine).
   Runs, history, ledger and inbox are never top-level navigation. They
   appear contextually, as details of a rule or workflow. Raw YAML/JSON is an

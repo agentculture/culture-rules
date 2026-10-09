@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { VIEW_MODE_KEY } from "../workflows/views/mode";
 import Workflows from "./Workflows";
 import { getAgentState, resetAgentState } from "../agent-state/store";
 import { MACHINES, WHOAMI } from "../fixtures/rules-fixture";
@@ -51,6 +52,9 @@ useMeasuredLayout();
 async function loaded() {
   await screen.findByRole("heading", { level: 1, name: "Review PR" });
   await waitFor(() => expect(getAgentState().status).toBe("ready"));
+  // React Flow keeps step nodes out of the accessibility tree until measured: wait for one,
+  // or a busy full-suite run races the queries below.
+  await screen.findByRole("group", { name: "Review" });
 }
 
 const level = () => screen.getByTestId("zoom-level");
@@ -59,6 +63,8 @@ const scale = () =>
 
 describe("Workflows: zoom and the (i) description (d19)", () => {
   beforeEach(() => {
+    // These scenarios drive the Detailed (steps) view; a workflow opens in Simple by default (t5, t8).
+    localStorage.setItem(VIEW_MODE_KEY, "detailed");
     resetAgentState();
     vi.stubGlobal("ResizeObserver", MeasuringResizeObserver);
     vi.stubGlobal("DOMMatrixReadOnly", DOMMatrixStub);

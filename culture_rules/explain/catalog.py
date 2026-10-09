@@ -15,7 +15,8 @@ _ROOT = """\
 The rules engine for the AgentCulture mesh: rules -> conditions -> workflows ->
 actions, carried out by actors (agents, humans, code). It is a Python library
 (`culture_rules`) with a CLI, an HTTP API, an MCP server, an engine node per host,
-and a React Flow editor with five tabs: Rules | Workflows | Actors | Variables | Statistics.
+and a React Flow editor with four tabs: Workflows | Actors | Variables | Statistics
+(rules show as workflow entry points).
 
 ## Who it is for
 

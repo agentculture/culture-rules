@@ -201,7 +201,7 @@ export const createWorkflowDef = (def: WorkflowDef, signal?: AbortSignal) =>
 export const setWorkflowEnabled = (id: string, enabled: boolean, signal?: AbortSignal) =>
   request<WorkflowDef>("POST", `/workflows/${enc(id)}/${enabled ? "enable" : "disable"}`, undefined, signal);
 
-/** `DELETE /workflows/{id}`: a soft delete (409 while a rule still uses it); `restoreWorkflowDef` undoes it. */
+/** `DELETE /workflows/{id}`: a soft delete, even while a rule still uses it; `restoreWorkflowDef` undoes it. */
 export const deleteWorkflowDef = (id: string, signal?: AbortSignal) =>
   request<unknown>("DELETE", `/workflows/${enc(id)}`, undefined, signal);
 

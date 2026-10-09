@@ -1,64 +1,117 @@
 # web
 
 The culture-rules visual editor: Vite 6 + React 18 + TypeScript, with
-`@xyflow/react` 12 and `elkjs` for the graph views. It has exactly five
-top-level tabs: **Rules | Workflows | Actors | Variables | Statistics**. Runs, history,
-ledger and inbox are never top-level. They appear in context, inside a
-rule or a workflow.
+`@xyflow/react` 12 and `elkjs` for the graph views. It has exactly four
+top-level tabs: **Workflows | Actors | Variables | Statistics**. There is no
+Rules tab: rules are folded into Workflows, and each rule is shown and
+edited as an entry point of the workflow it starts (spec
+`docs/specs/2026-10-09-editor-rules-folded-into-workflows-three-views.md`).
+This is an editor change only: rules keep their stored shape and their
+endpoints. Runs, history, ledger and inbox are never top-level. They appear
+in context, inside a workflow or one of its entry points.
 
 The visual source of truth is the design canvas
 (<https://claude.ai/artifact/Jgm3JPnAhKWpeiCxFXvNBi>), row 'Chosen'.
-Every tab implements its 'Chosen' board. Any deliberate departure is
-recorded on the PR with a screenshot.
+Every tab implements its 'Chosen' board; the folded Workflows tab follows
+the canvas v11 boards Fold-List, Fold-Chain, Fold-Editor (Simple), WF-Flow
+(Detailed) and WF-Variables (Debug). Any deliberate departure is recorded
+on the PR with a screenshot.
 
 ## What is here today
 
 - **The shell:**
-  - the header (brand dot, `rules` wordmark, the five tabs, the
+  - the header (brand dot, `rules` wordmark, the four tabs, the
     signed-in avatar);
-  - routing, where every other path lands on Rules;
+  - routing, where every other path lands on Workflows;
+  - old links redirect (`src/routes/legacy-redirects.ts`): `/rules` goes to
+    `/workflows`, `/rules/<id>` to `/workflows/<its workflow>?entry=<id>`,
+    a rule with no workflow to `/workflows?entry=<id>`, an unknown id to
+    `/workflows` with a "rule not found" notice, and, when the rules cannot
+    be read, to `/workflows` with a "rules unavailable" notice that never
+    calls the rule deleted. While it looks the rule up, the redirect reports
+    the tab `workflows` (not yet ready);
   - the design layer (`src/culture-design/`);
   - the agent-state node.
-- **Rules** (`/rules/:ruleId?`) is the 'Chosen — Rules' board, editable:
-  - the rule list, with machine dots and enable switches (`POST
-    /rules/{id}/enable|disable`, rolled back when refused);
-  - switching a rule off while it has runs going shows a non-modal
-    "Stop N current runs?" notice: Approve calls `POST
-    /rules/{id}/stop-runs` and reports how many stopped, Keep running
-    leaves them going (d17);
-  - the focused rule as a relationship ghost → Trigger → Condition →
-    Workflow → Action → `+`;
-  - edit (`PUT`), delete (soft `DELETE`, with an Undo that calls
-    `restore`), and creation from "New rule" (it asks "When does this happen?") then `+`;
-  - *must run after*, *may run after* and *supersedes* as badges on both
-    rules. Drag a rule from the list (or a card) onto a slot, or use the
-    slot's picker; each card has a remove;
-  - the rule's pending human asks ("Waiting on you"): `GET
-    /asks?run_id=&status=open` for each of the rule's waiting runs,
-    answered with `POST /asks/{id}/answer`;
-  - the rule's last runs and recorded skips, newest first (`GET
-    /rules/{id}/history`): a skipped rule reads `superseded by <rule>`
-    (or "lost its group to", "waiting for") with an icon and a label;
-  - an (i) "About" button on every list row and beside the focused
-    rule's title (d19). It opens a non-modal panel anchored to the button
-    with the rule as short labelled lines (`When …`, `If …`, `and …`,
-    `Run …`, `On …`, `Then …`, `On failure …`, `Key …`), fetched from
-    `GET /rules/{id}/describe` each time it opens. The API builds the lines
-    from the config alone (no AI), so the panel shows exactly what
-    `culture-rules rules describe` prints. See "The (i) panel" below.
-  Code: `src/routes/Rules.tsx`, `src/rules/`, `src/api/rules.ts`.
-- **Workflows** (`/workflows?id=&run=`) is the 'Chosen — Workflows' board:
+- **Workflows** (`/workflows?id=&entry=&run=`; `/workflows/<id>` is the
+  same page) holds the workflows and the rules that start them:
+  - **the list** (`src/workflows/list/`): workflows linked by continuation
+    rules sit on one chain card. Each workflow reads "Starts when", its
+    entry points; "Continues into", the workflows its runs continue into;
+    "Runs", key and budget; and "Ends with", the chain-end action. The
+    counts read "N workflows · N entry points · was N rules". "See it as
+    one chain" opens the Chain view (entry points, workflows and
+    continuation edges). "Rules without a workflow" lists D7 candidates.
+    "New workflow" and "New rule" sit at the top; "Show deleted" lists
+    soft-deleted workflows to restore (or purge, for admins);
+  - **chains are derived only from stored rules** (`src/fold/model.ts`): a
+    continuation rule is linked to its predecessor by its condition's
+    `data.workflow_id == <id>` compare. A run-event rule without that term
+    is a continuation "from any workflow". The predecessor is edited with a
+    dedicated control that writes exactly that compare;
+  - **three views** per workflow, a switch on the toolbar
+    (`src/workflows/views/`). The choice is kept per viewer in
+    localStorage (`culture-rules.workflow-view`), and the editor works the
+    same when storage is blocked:
+    - **Simple** (the default, `src/workflows/simple/`): When / Then. When
+      lists the workflow's entry points, one per rule that starts it, with
+      trigger, condition, placement, attempt counting and the rule's
+      relationships (*must run after*, *may run after*, *supersedes*);
+      a continuation is owned here, by the workflow it starts. Then shows
+      "Continues into" (a read-only link; the continuation is edited on
+      the next workflow), "Ends here" (the chain-end action), "On
+      failure" and "Runs" (key and budget);
+    - **Detailed**: the steps-and-edges canvas below, unchanged;
+    - **Debug** (`src/workflows/views/DebugView.tsx`): every input and
+      output port with its type and reference. Choosing a port lights it,
+      its upstream and its downstream;
+  - **every entry point keeps what the Rules tab had**: the trigger and
+    action pickers and forms from `src/rules/`, the enable switch,
+    history (`GET /rules/{id}/history`), the (i) "About" panel (`GET
+    /rules/{id}/describe`), pending human asks ("Waiting on you"), and the
+    "Stop N current runs?" notice when a rule with runs going is switched
+    off (`POST /rules/{id}/stop-runs`, d17). Identity and lifecycle fields
+    (id, name, description, enabled) are per entry point, never shared;
+  - **shared when identical** (D3–D6): order and limits, placement, the
+    action and `on_failure`, and the guard condition show once at workflow
+    level when every entry point's rule holds them identically, and per
+    entry point, flagged as an override, when they differ. Editing a shared
+    value writes rule by rule through `PUT /rules/{id}`
+    (`src/fold/writes.ts`). Before each write the rule is re-read; a rule
+    changed since the edit began is skipped and flagged, never
+    overwritten. The results list each rule as saved, unchanged, skipped
+    or failed, and a failed one keeps its old value with a Retry;
+  - **D7**: a rule with no workflow can be given a stored workflow of its
+    own with no steps, and no outputs, so its trigger and condition become
+    the When and its action the Then. That is two writes (`POST
+    /workflows`, then `PUT /rules/{id}`): if the second fails, the new
+    workflow is deleted again or shown as an orphan with a fix. "New
+    rule" does this at once. After New rule or a D7 offer creates the
+    workflow, the board reads "Opening `<id>`…" until the reloaded list
+    holds it, then opens it. Deleting the last entry point of a stepless
+    D7 workflow offers to delete the workflow too. `DELETE
+    /workflows/{id}` soft-deletes a workflow even while a rule still uses
+    it, so the editor first reads `GET /rules` and refuses while one does;
   - New workflow (in the head next to Import, and the empty state's
-    primary action) asks only for a name, creates it with `POST
-    /workflows` (no steps; a taken id moves on to `-2`, `-3`, …) and opens
-    it on the canvas with the step `+` focused. API errors show inline in
-    the form;
+    primary action) asks only for a name and creates it with `POST
+    /workflows` (no steps; a taken id moves on to `-2`, `-3`, …) and
+    opens it at once; in Detailed with the step `+` focused. API errors
+    show inline in the form;
   - the head renames the workflow (a draft edit, written by Save),
     enables / disables it (`POST /workflows/{id}/enable|disable`) and
     deletes it softly with Undo (`DELETE /workflows/{id}`, then `POST
     /workflows/{id}/restore`); a workflow a rule still uses is kept and
-    the conflict named;
-  - the workflow as a React Flow graph laid out by elkjs (Inputs → steps
+    the conflict named. The rename works in every view, Simple included;
+  - **saving a trusted workflow asks first** (d6,
+    `src/workflows/trusted.ts`): Save on one of the PR fixer's trusted
+    workflows (`pr-fixer`, `pr-fix`, `review-commit`, `publish-fix`) opens
+    "Save a trusted workflow?". It says a saved change gives the workflow a
+    new digest the engine does not trust: its runs still start, but the
+    fixer chain will not review or push their work until the digest is
+    added to `culture_rules/actors/trusted.py` and released to every node,
+    and saving the original definition back restores the trust. "Keep
+    editing" (focused first, or Escape) closes it and returns to Save;
+    "Save anyway" saves;
+  - in Detailed, the workflow as a React Flow graph laid out by elkjs (Inputs → steps
     → Outputs), with typed ports: a drag between mismatched types is
     refused;
   - zoom (d19), from 25% to 200%: a pinch or ctrl/cmd + wheel, the
@@ -75,24 +128,27 @@ recorded on the PR with a screenshot.
     the head's panel says it shows "the saved version". The button makes
     the head's row full at 1280px beside the list, so Run may wrap under
     it there;
-  - a step panel to edit a step, its placement and its enable switch; add
-    and delete steps; save with `PUT /workflows/{id}`;
-  - Run (`POST /runs` through the rule that uses the workflow) and a run
-    overlay from the persisted run state (`GET /runs/{id}`): each step's
-    outcome and the host it ran on. Recent runs come from `GET
-    /runs?workflow_id=`;
+  - in Detailed, a step panel to edit a step, its placement and its enable
+    switch; add and delete steps; save with `PUT /workflows/{id}`;
+  - Run (`POST /runs` through the rule that uses the workflow) and, in
+    Detailed, a run overlay from the persisted run state (`GET
+    /runs/{id}`): each step's outcome and the host it ran on. Recent runs
+    come from `GET /runs?workflow_id=`;
   - Import (files → `POST /import`, dry-run plan, then Apply) and Export
     (`GET /export`, one bundle download);
   - the repository picker (`GET /repos`). Its menu imports from the
     picked repository (`POST /import {repo}`) or exports into it (`POST
     /export {repo}`, a git commit); both show the dry-run plan first and
     write only on Apply.
-  Code: `src/routes/Workflows.tsx`, `src/workflows/`,
-  `src/api/workflows.ts`.
+  Code: `src/routes/Workflows.tsx`, `src/workflows/`, `src/fold/`,
+  `src/rules/` (the reused rule forms and pickers), `src/api/workflows.ts`,
+  `src/api/rules.ts`.
 - **Actors** (`/actors?id=`) is the 'Chosen — Actors' board: a
   large-type roster with a kind filter, one row per actor, expanding
   inline to edit (`PUT /actors/{id}`), enable/disable and delete. Code:
   `src/actors/`, `src/api/actors.ts`.
+- **Variables** (`/variables`) holds the shared values rules read as
+  `vars.<name>`. Code: `src/routes/Variables.tsx`.
 - **Statistics** (`/statistics`) is the 'Chosen — Statistics' board: one
   lane per enrolled machine, offline ones included. Each lane shows load,
   the steps it runs and its queue depth (`GET /machines/status`), and
@@ -140,10 +196,12 @@ EventSource on `/api/events/stream?collections=...` (the API's SSE
 fan-out) and hands each coalesced batch of changes to the view, which
 refetches what it shows:
 
-- **Rules:** `rules` (the list), `runs` and `asks` (pending asks),
-  `runs` and `rule_decisions` (last runs and skips);
-- **Workflows:** `workflows` (the list; an unsaved draft survives) and
-  `runs` (recent runs, and the overlaid run);
+- **Workflows:** one stream for `workflows` (the list; an unsaved draft
+  survives), `rules` (a rules change re-folds the list and the entry
+  points), `runs` (recent runs, and the overlaid run), `asks` (pending
+  asks) and `rule_decisions` (an entry point's last runs and skips). The
+  Simple view opens no stream of its own: the tab hands each batch down
+  to it (`src/workflows/simple/liveFeed.ts`);
 - **Statistics:** `machines`, `runs` and `heartbeats`.
 
 A stream the browser retries itself resumes with `Last-Event-ID`; one it
@@ -160,18 +218,31 @@ The root renders one `<script type="application/json" id="agent-state">`:
 {
   "status": "loading | ready",
   "view_ready": true,
-  "route": "/rules/build-and-publish",
-  "tab": "rules",
+  "route": "/workflows",
+  "tab": "workflows",
   "identity": { "status": "signed-in", "identity": "ori", "kind": "sso", "role": "admin" },
   "errors": [],
-  "rules": { "count": 5, "selected": "build-and-publish", "stages": ["trigger", "condition", "workflow", "action"] }
+  "workflows": {
+    "count": 4, "selected": "pr-fix", "steps": ["quiet", "secrets", "threads", "sonar", "fix"], "step": null,
+    "dirty": false, "run": null, "view": "simple",
+    "entries": ["pr-fixer-checks", "pr-fixer-comment", "pr-fixer-review", "pr-fixer-review-comment", "pr-fixer-refix"], "entry": "pr-fixer-checks",
+    "chains": 2, "without_workflow": []
+  }
 }
 ```
 
 Each tab adds its own optional slice, typed in `src/agent-state/store.ts`:
-`rules`, `workflows` (`count`, `selected`, `steps`, `step`, `dirty`,
-`run`), `actors` (`count`, `shown`, `kind`, `selected`) and `statistics`
+`workflows` (`count`, `selected`, `steps`, `step`, `dirty`, `run`, plus
+`view`, `entries`, `entry`, `chains` and `without_workflow` for the folded
+rules; `view` is `null` where no view switch is shown: the D7 place, New
+rule, New workflow and an empty list), `actors` (`count`, `shown`, `kind`, `selected`) and `statistics`
 (`machines`, `offline`, `range`, `view`, `source`).
+
+The tab `rules` and the `rules` slice (`count`, `selected`, `stages`) are a
+deprecated alias kept for one release (spec c33): no view reports the tab
+`rules` any more, and the Workflows tab writes the `rules` slice from the
+folded rules (`selected` is the entry point asked for) so an agent reading
+it keeps working. Read `workflows.entries` / `workflows.entry` instead.
 
 `ready` means the view finished its first load **and** identity settled,
 even when the load failed. A failed load is listed in `errors` and
@@ -229,7 +300,15 @@ npm run check          # tokens byte-identity + chart palette validation
 
 The e2e suite serves the API by request interception (`e2e/fixtures/api.ts`
 over `src/fixtures/rules-fixture.ts`). No Python server, no store.
-`RULES_SCREENSHOT=<path>` sets where the Rules screenshot is written.
+Screenshot paths can be set per suite: `RULES_SCREENSHOT` (the Workflows
+board, `e2e/shell.spec.ts`, default `test-results/workflows-board.png`),
+`RULES_APP_SCREENSHOT` (an entry point, `e2e/entry-points.spec.ts`,
+default `test-results/entry-point.png`), `WORKFLOWS_SCREENSHOT`,
+`WORKFLOWS_LIST_SCREENSHOTS` and `WORKFLOWS_CREATE_SCREENSHOTS`
+(directories), `ACTORS_SCREENSHOT` and `STATISTICS_SCREENSHOT`. The fold's
+own suites are `e2e/fold.spec.ts` (the PR fixer against the fake API),
+`e2e/entry-points.spec.ts` and `e2e/entry-pickers.spec.ts` (the trigger
+and action pickers on an entry point).
 
 ## Build integration
 

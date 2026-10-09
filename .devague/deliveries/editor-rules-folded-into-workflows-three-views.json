@@ -1,0 +1,623 @@
+{
+  "plan_slug": "editor-rules-folded-into-workflows-three-views",
+  "schema_version": 2,
+  "created": "2026-10-09T11:07:59Z",
+  "updated": "2026-10-09T15:21:19Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "t1 criterion 2 amended: the two rules.run.* events differ in workflow_id AND workflow_version (None vs the stepless workflow's version 1), not workflow_id alone",
+      "task_ref": "t1",
+      "reason": "t1's engine proof (fold-t1 33c7087) found run_completions.py puts workflow.version into data.workflow_version; no engine change allowed (c2). No rule or workflow in docs/rules reads data.workflow_version, so D7 stays safe; the proof test asserts the two-field difference instead",
+      "affects": [
+        "t12"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 1
+    },
+    {
+      "id": "d2",
+      "what": "t3 criterion amended: the PR fixer fixture yields 2 chains (pr-fix, review-commit, publish-fix linked by 3 continuations; report-secrets on its own, started by 2 GitHub-event entry points), not 1 chain",
+      "task_ref": "t3",
+      "reason": "Codex t3 stopped: with c26 (links only from the data.workflow_id compare) report-secrets has no continuation link; 4 workflows, 6 entry points, 3 continuations still hold. The plan's '1 chain' miscounted",
+      "affects": [
+        "t7",
+        "t9"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 2
+    },
+    {
+      "id": "d3",
+      "what": "t6: enable/disable is one POST /rules/{id}/enable|disable (the Rules tab's endpoint, which the stop-runs offer reads), not one PUT; per-entry form saves go through useRulesData/updateRule (not fold/writes) so PUT bodies equal the Rules tab's; D7-orphan and emptied-workflow cleanup call deleteWorkflowDef directly",
+      "task_ref": "t6",
+      "reason": "criterion 3 says 'enable, disable and rename touch one rule (one PUT)' and the instruction says 'write through t4 only'; the Rules tab toggles via POST and stop-runs depends on that answer, and saveSharedEdit refuses name/enabled by design (c28); one rule, one write is still asserted by test",
+      "affects": [],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 3
+    },
+    {
+      "id": "d4",
+      "what": "Codex usage limit until 19:16: Codex-owned work falls back to a fresh Opus subagent (t6 third review now; t9 build; t8 review), with a Codex review of each queued after the reset",
+      "task_ref": "t9",
+      "reason": "codex exec returned 'You've hit your usage limit ... try again at 7:16 PM' during t6's third review; the handoff's fallback is an Opus subagent with a Codex review afterwards (reviewer stays a different agent instance from the builder)",
+      "affects": [
+        "t6",
+        "t8",
+        "t9"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 4
+    },
+    {
+      "id": "d5",
+      "what": "d5: the CLI learn text (culture_rules/cli/_commands/learn.py) and the explain catalog (culture_rules/explain/catalog.py) change their 'five tabs (Rules | ...)' description strings to the four tabs; no behaviour change; t11's boundary check allows exactly these strings",
+      "task_ref": "t11",
+      "reason": "CLAUDE.md requires the CLI self-descriptions to match it; c2/c12 forbid culture_rules/ changes; operator chose to allow the two strings",
+      "affects": [
+        "t10"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 5
+    },
+    {
+      "id": "d6",
+      "what": "d6: new small task (main agent builds, Opus reviews): saving a trusted workflow (pr-fix, review-commit, publish-fix) from Detailed or Debug asks for confirmation first, naming the trust it loses; trusted ids mirrored in a web constant with a test keeping them in step with culture_rules/actors/trusted.py",
+      "task_ref": "t8",
+      "reason": "confirmed assumption c32 says the editor should warn before saving a trusted workflow; no plan task covered it (assumptions are not coverage targets); t10 found no warning exists; operator chose to add it now",
+      "affects": [
+        "t9",
+        "t10"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "needs-follow-up",
+      "seq": 6
+    }
+  ],
+  "evidence": [
+    {
+      "id": "e1",
+      "obligation_ref": "o1",
+      "test_ref": "web/src/App.test.tsx::has exactly four top-level tabs, in order; web/e2e/shell.spec.ts::exactly four top-level tabs (Rules folded into Workflows) and no runs/history route",
+      "behavior_text": "asserts the Primary nav links are exactly Workflows, Actors, Variables, Statistics, that /rules no longer renders a Rules tab, and every other path lands on Workflows (vitest and Playwright on the built bundle)",
+      "contract_text": "the nav shows exactly Workflows, Actors, Variables, Statistics; no route renders a Rules tab",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "vitest + Playwright green at the run commit against the built bundle with the fake API; the seam names rules.culture.dev, which is not deployed yet (t12), so live observation is still owed",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-09T14:21:04",
+        "commit": "4c42240"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 7
+    },
+    {
+      "id": "e2",
+      "obligation_ref": "o2",
+      "test_ref": "git diff origin/main...HEAD -- culture_rules api; tests/server/test_openapi_contract.py",
+      "behavior_text": "asserts api/openapi.json is unchanged (0 lines of diff) and the served schema matches it; under culture_rules/ only learn.py and catalog.py description strings changed (approved deviation d5)",
+      "contract_text": "no file under culture_rules/ (bar the web bundle), api/openapi.json, the CLI or MCP tools changes; tests/server/test_openapi_contract.py passes untouched",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "contract test green and diff measured at the run commit; the two CLI strings are a recorded, approved exception (d5), so the obligation as worded is met only with d5",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-09T14:21:04",
+        "commit": "4c42240"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 8
+    },
+    {
+      "id": "e3",
+      "obligation_ref": "o3",
+      "test_ref": "web/src/workflows/simple/SimpleView.test.tsx::the edit form / adding a condition / a relationship / removing a relationship / enable / disable (RULES_TAB oracle); EntryPoints.test.tsx::edits name, trigger, action and placement and saves with PUT",
+      "behavior_text": "asserts the request bodies for the edit form (name, trigger, action, placement), add condition, add and remove must/may-after and supersedes relationships and enable/disable equal the bodies the old Rules tab sent (oracle verified against the legacy board by the t9 reviewer); on_failure, concurrency key and budget are editable per entry and shared",
+      "contract_text": "editing each rule field (trigger, condition, inputs mapping, action, on_failure, placement, concurrency key, budget, priority, exclusive group, must/may after, supersedes, enabled) saves a rule document equal to what the Rules tab saved for the same edit",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "vitest green at the run commit for every field the Rules tab ever edited",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-09T14:21:04",
+        "commit": "4c42240"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 9
+    },
+    {
+      "id": "e4",
+      "obligation_ref": "o3",
+      "test_ref": "grep of web/src/workflows/simple and origin/main web/src/rules for priority / exclusive_group / inputs mapping editors",
+      "behavior_text": "finds no editor for priority, exclusive_group or a workflow's inputs mapping in the Simple view, and none in the pre-fold Rules tab either (it only wrote inputs: {} when adding a workflow)",
+      "contract_text": "editing each rule field (... inputs mapping ..., priority, exclusive group ...) saves a rule document equal to what the Rules tab saved for the same edit",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "code search at the run commit: three named fields have no edit control on either surface, so this part of the obligation is unmet (parity holds only vacuously)",
+      "outcome": "fail",
+      "run": {
+        "timestamp": "2026-10-09T14:21:04",
+        "commit": "4c42240"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 10
+    },
+    {
+      "id": "e5",
+      "obligation_ref": "o4",
+      "test_ref": "web/src/workflows/list/list.test.tsx::renders the checked-in PR fixer as two cards with measured d2 counts; ::draws all fixture starts, workflows and directed continuations, including the return edge; web/e2e/fold.spec.ts::the list folds the stored PR fixer",
+      "behavior_text": "asserts the PR fixer from docs/rules/pr-fixer renders 2 chain cards (3 workflows + report-secrets), 4 workflows, 6 entry points, 3 continuations computed from the rules, and one directed edge per continuation",
+      "contract_text": "the PR fixer fixture renders 1 chain card with 4 workflows and 6 entry points, and the Chain view draws one edge per continuation rule",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "vitest + Playwright green at the run commit; '1 chain card' is amended to 2 by approved deviation d2",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-09T14:21:04",
+        "commit": "4c42240"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 11
+    },
+    {
+      "id": "e6",
+      "obligation_ref": "o5",
+      "test_ref": "web/src/workflows/views/WorkflowViews.test.tsx (8 tests); web/src/routes/WorkflowsFolded.test.tsx::a workflow opens in the Simple view ... with the switch to Detailed and Debug",
+      "behavior_text": "asserts Simple/Detailed/Debug render (When/Then, today's canvas, every port with type and reference), port selection highlights upstream and downstream, and the mode survives a remount via localStorage and still switches when storage throws",
+      "contract_text": "Simple, Detailed and Debug render their canvas (When/Then, steps and edges, every port); selecting a port in Debug highlights its upstream and downstream ports; the chosen mode survives a reload (localStorage)",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "vitest green at the run commit (jsdom; the Debug wires' visual match to the boards is lapse l3, not asserted)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-09T14:21:04",
+        "commit": "4c42240"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 12
+    },
+    {
+      "id": "e7",
+      "obligation_ref": "o6",
+      "test_ref": "git diff origin/main...HEAD; web/src/fold/writes.ts uses only the existing api client; tests/server/test_openapi_contract.py",
+      "behavior_text": "asserts no engine, model, API or MCP code change (only the d5 strings) and every editor write goes through existing endpoints (rule PUT/POST/enable/disable/stop-runs, workflow POST/PUT/DELETE)",
+      "contract_text": "no engine, model, API, CLI or MCP code changes; every editor write goes through an existing endpoint",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "diff measured and contract test green at the run commit; reviewers probed the real server (create_app + MemoryStore) for every fold write",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-09T14:21:04",
+        "commit": "4c42240"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 13
+    },
+    {
+      "id": "e8",
+      "obligation_ref": "o7",
+      "test_ref": "tests/engine/test_stepless_workflow.py (3 tests)",
+      "behavior_text": "asserts both rules fire on the same event with the same action kind, resolved trigger.* params and status, and their run events differ only in data.workflow_id and data.workflow_version; a workflow_id-filtered listener does not fire",
+      "contract_text": "both fire on the same event, resolve the same action params (trigger.* refs included), run the same action with the same outcome; their run events differ only in workflow_id",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "pytest green at the run commit through the real executor path; 'only in workflow_id' amended by approved deviation d1 to include workflow_version",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-09T14:21:04",
+        "commit": "4c42240"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 14
+    },
+    {
+      "id": "e9",
+      "obligation_ref": "o8",
+      "test_ref": "web/src/routes/WorkflowsFolded.test.tsx::every rule is listed, as an entry point or under rules without a workflow; ::the D7 place; web/src/workflows/simple/SimpleView.test.tsx::New rule creates the rule, then gives it a stepless workflow at once (D7)",
+      "behavior_text": "asserts every rule appears as an entry point, continuation or rule without a workflow; a workflow-less rule is offered D7; New rule creates the rule then its stepless workflow automatically",
+      "contract_text": "every rule in the store appears as an entry point or continuation of a workflow; an action-only rule is offered a D7 workflow, and a new action-only rule gets one automatically",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "vitest green at the run commit against the fake API",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-09T14:21:04",
+        "commit": "4c42240"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 15
+    },
+    {
+      "id": "e10",
+      "obligation_ref": "o9",
+      "test_ref": "web/src/routes/legacy-redirects.test.ts (7); web/src/App.test.tsx redirect tests (4); web/e2e/fold.spec.ts::old /rules links redirect",
+      "behavior_text": "asserts /rules/<known> -> /workflows?id=<wf>&entry=<rule> (via /workflows/<wf>), D7 rule -> /workflows?entry=, unknown -> /workflows with a not-found notice, bare /rules and the catch-all -> /workflows, and the redirect replaces history",
+      "contract_text": "a known rule id redirects to /workflows/<workflow>?entry=<rule>; an unknown id lands on /workflows with a not-found notice; the catch-all lands on /workflows",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "vitest + Playwright green at the run commit",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-09T14:21:04",
+        "commit": "4c42240"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 16
+    },
+    {
+      "id": "e11",
+      "obligation_ref": "o10",
+      "test_ref": "tests/test_docs_fold.py; tests/test_docs_t40.py; scripts/harness-smoke.py --stage config; teken cli doctor . --strict; culture-rules doctor",
+      "behavior_text": "asserts the five harness prompt files and the dated spec amendment name the four tabs in step with the load-bearing phrases; harness-smoke 6/6, teken 26/26, doctor healthy",
+      "contract_text": "CLAUDE.md, QWEN.md, AGENTS.override.md, AGENTS.colleague.md and the engine-editor spec name four tabs; harness-smoke --stage config, teken cli doctor --strict and culture-rules doctor pass",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "all gates green at the run commit",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-09T14:21:04",
+        "commit": "4c42240"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 17
+    },
+    {
+      "id": "e12",
+      "obligation_ref": "o12",
+      "test_ref": "docs/plans/2026-10-09-editor-fold-test-inventory.md t9 column; full vitest (653), Playwright (98), webglass G1/G2 replay",
+      "behavior_text": "asserts every one of 374 inventory rows names a passing folded counterpart or is kept (each named test verified to exist by the t9 reviewer); vitest 653/653 and Playwright 98/98 green; webglass ready gate and console lens green locally",
+      "contract_text": "every pre-fold rules and workflows scenario has a folded counterpart that passes; none is deleted without one; the CI web job is green",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "suites green at the run commit locally; the GitHub Actions web job has not run yet (lapse l9), so 'CI green' is still owed by the PR",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-09T14:21:04",
+        "commit": "4c42240"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 18
+    },
+    {
+      "id": "e13",
+      "obligation_ref": "o13",
+      "test_ref": "web/e2e/fold.spec.ts::a fan-out with one failing PUT shows that rule as an override with its old value and a retry; web/src/workflows/simple/SimpleView.test.tsx::shows a partial failure per rule ...; web/src/fold/writes.test.ts::saves rule by rule, returns failures with the old value, and supports retry",
+      "behavior_text": "asserts N-1 rules save, the failed rule keeps its old run key marked override with a retry that clears it, and the user sees which rule failed",
+      "contract_text": "N-1 rules save, the failed rule keeps its old value marked as an override with a retry, and the user sees which rule failed",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "Playwright + vitest green at the run commit",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-09T14:21:04",
+        "commit": "4c42240"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 19
+    },
+    {
+      "id": "e14",
+      "obligation_ref": "o14",
+      "test_ref": "web/src/fold/model.test.ts; web/src/fold/writes.test.ts::rewrites only the all-term workflow compare; web/src/workflows/list/list.test.tsx::uses dynamic counts and names, preserving ambiguous, unscoped and empty predecessors; SimpleView.test.tsx::rewrites exactly the data.workflow_id compare",
+      "behavior_text": "asserts links come only from the all-term data.workflow_id compare, a run-event rule without it reads 'from any workflow', and a predecessor change rewrites exactly that compare",
+      "contract_text": "a continuation is linked only by its data.workflow_id compare; a run-event rule without it shows 'continues from any workflow'; changing the predecessor rewrites exactly that compare and nothing else in the condition",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "vitest green at the run commit; the UI wording is 'from any workflow' (not 'continues from any workflow')",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-09T14:21:04",
+        "commit": "4c42240"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 20
+    },
+    {
+      "id": "e15",
+      "obligation_ref": "o15",
+      "test_ref": "web/e2e/fold.spec.ts::a concurrent change is re-read, skipped and flagged, never overwritten; web/src/fold/writes.test.ts::never PUTs a rule changed since the edit snapshot",
+      "behavior_text": "asserts a rule changed server-side after the snapshot is re-read (one GET), gets no PUT, keeps its stored value, is flagged skipped-changed with an apply-as-now action, and the others save",
+      "contract_text": "a rule changed after the snapshot is re-read, skipped and flagged, never overwritten; the others save",
+      "evidence_type": "integration",
+      "strength": "execution",
+      "strength_basis": "Playwright + vitest green at the run commit",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-09T14:21:04",
+        "commit": "4c42240"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 21
+    },
+    {
+      "id": "e16",
+      "obligation_ref": "o16",
+      "test_ref": "web/src/workflows/simple/SimpleView.test.tsx::renaming an entry point issues one PUT, for its rule only; ::disabling one entry point writes its rule only, and it stays listed and marked",
+      "behavior_text": "asserts a rename is one PUT for that rule only and a disable is one write (POST /rules/{id}/disable) for that rule only, the entry staying listed and marked disabled",
+      "contract_text": "toggling or renaming one entry point issues one PUT for its rule only; a disabled entry point stays listed, marked disabled",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "vitest green at the run commit; toggling is one POST, not a PUT (approved deviation d3)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-09T14:21:04",
+        "commit": "4c42240"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 22
+    },
+    {
+      "id": "e17",
+      "obligation_ref": "o17",
+      "test_ref": "web/src/workflows/simple/SimpleView.test.tsx::history reads GET /rules/{id}/history; ::describe reads GET /rules/{id}/describe; ::disabling with runs going offers to stop them; EntryPoints.test.tsx stop-runs tests",
+      "behavior_text": "asserts each entry point reaches GET /rules/{id}/history, GET /rules/{id}/describe and POST /rules/{id}/stop-runs as the Rules tab did",
+      "contract_text": "each entry point reaches GET /rules/{id}/history, GET /rules/{id}/describe and POST /rules/{rule_id}/stop-runs as the Rules tab did",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "vitest green at the run commit",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-09T14:21:04",
+        "commit": "4c42240"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 23
+    },
+    {
+      "id": "e18",
+      "obligation_ref": "o18",
+      "test_ref": "web/src/fold/writes.test.ts D7 tests (9); web/src/workflows/simple/SimpleView.test.tsx::a failed attach deletes the new workflow again; ::an orphan wrapper is flagged with a fix action; ::deleting the last entry point of a stepless workflow offers to delete the workflow too",
+      "behavior_text": "asserts a failed attach deletes the new workflow (or returns an orphan with Attach/Delete fixes after re-reading the rule), and deleting the last entry of a stepless workflow offers to delete it, checked with a fresh GET /rules",
+      "contract_text": "a failed second write deletes (or flags as orphan, with a fix action) the workflow just created; deleting the last entry point of a stepless D7 workflow offers to delete the workflow",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "vitest green at the run commit; the real-server probe confirmed the stepless body is valid and DELETE soft-deletes even when referenced (hence the fresh read)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-09T14:21:04",
+        "commit": "4c42240"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 24
+    },
+    {
+      "id": "e19",
+      "obligation_ref": "o19",
+      "test_ref": "tests/test_docs_fold.py; markdownlint-cli2 over the tree",
+      "behavior_text": "asserts README.md, web/README.md, docs/demo.md, docs/operations/pr-fixer.md and docs/run-events.md describe the folded editor; markdownlint 0 errors",
+      "contract_text": "README.md, web/README.md, docs/demo.md, docs/operations/pr-fixer.md and docs/run-events.md describe the folded editor; markdownlint passes",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "docs tests and lint green at the run commit; demo screenshots predate the fold (said in the doc)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-09T14:21:04",
+        "commit": "4c42240"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 25
+    },
+    {
+      "id": "e20",
+      "obligation_ref": "o20",
+      "test_ref": "web/src/routes/WorkflowsCreate.test.tsx::Save on a trusted workflow warns ...; ::Escape closes the question; ::opening another workflow closes the question; ::an untrusted workflow saves at once; web/src/workflows/trusted.test.ts; tests/rules/test_trusted_role_ids.py",
+      "behavior_text": "asserts Save on pr-fix / review-commit asks 'Save a trusted workflow?' explaining the lost review/push trust and sends nothing until 'Save anyway'; untrusted workflows save at once; the trusted ids stay in step with trusted.py and each trusted definition's id is its role",
+      "contract_text": "before a save that would change the digest of a workflow pinned in culture_rules/actors/trusted.py, the editor warns that the workflow will stop being trusted",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "vitest + pytest green at the run commit (deviation d6)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-09T14:21:04",
+        "commit": "4c42240"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 26
+    },
+    {
+      "id": "e21",
+      "obligation_ref": "o11",
+      "test_ref": "live rules.culture.dev, 0.17.0 wheel from rules/editor-fold-spec on spark (API only), read via #agent-state in the operator's browser",
+      "behavior_text": "observed four tabs; /rules -> /workflows; the PR fixer as a 3-workflow chain card (4 entry points) plus report-secrets (2 entry points), computed from 11 live rules; Simple, Detailed and Debug rendered with 0 errors on all 7 workflows; /rules/pr-fixer-review-commit opened review-commit at that entry point; an unknown id showed the not-found notice",
+      "contract_text": "the Workflows tab shows the PR fixer as 1 chain card, 4 workflows, 6 entry points (computed from live rules), and editing one entry point's condition issues exactly 1 PUT",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "live observation at the run commit; '1 chain card' is 2 by approved d2; the live condition edit was NOT made (it would change a production rule outside t12's criteria), so that half rests on the Playwright check (e13/fold.spec)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-09T14:52:31",
+        "commit": "8a7d276"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 27
+    },
+    {
+      "id": "e22",
+      "obligation_ref": "o8",
+      "test_ref": "live rules.culture.dev: /rules/test-jira-scrum21-to-discord -> the D7 place, 'Create its workflow'; then culture-rules rules show / workflows show",
+      "behavior_text": "the live action-only rule was offered D7 and converted through the editor: workflow test-scrum-21-comment-spark-tests created with 0 steps, 0 edges, no inputs or outputs; the rule now points at it, still disabled, action unchanged; no rule is left without a workflow. Pre-check: all 3 live run-event rules carry a data.workflow_id filter",
+      "contract_text": "every rule in the store appears as an entry point or continuation of a workflow; an action-only rule is offered a D7 workflow, and a new action-only rule gets one automatically",
+      "evidence_type": "observation",
+      "strength": "execution",
+      "strength_basis": "live write and read-back at the run commit; the rule is disabled, so 'its next run behaves as before' cannot be observed live and rests on tests/engine/test_stepless_workflow.py (e8)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-09T14:52:31",
+        "commit": "8a7d276"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 28
+    }
+  ],
+  "deltas": [
+    {
+      "id": "b1",
+      "kind": "amended",
+      "behavior_text": "the PR fixer folds into 2 chain cards (pr-fix, review-commit, publish-fix; report-secrets alone), not 1",
+      "caused_by": [
+        "d2"
+      ],
+      "evidence_refs": [
+        "e5"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b2",
+      "kind": "amended",
+      "behavior_text": "a stepless workflow's run events differ from the workflow-less rule's in data.workflow_id and data.workflow_version, not workflow_id alone",
+      "caused_by": [
+        "d1"
+      ],
+      "evidence_refs": [
+        "e8"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b3",
+      "kind": "amended",
+      "behavior_text": "two CLI description strings (learn, explain catalog) under culture_rules/ change to the four tabs",
+      "caused_by": [
+        "d5"
+      ],
+      "evidence_refs": [
+        "e2"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b4",
+      "kind": "amended",
+      "behavior_text": "enabling or disabling an entry point is one POST /rules/{id}/enable|disable, not a PUT; per-entry saves use the Rules tab's updateRule",
+      "caused_by": [
+        "d3"
+      ],
+      "evidence_refs": [
+        "e16"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b5",
+      "kind": "added",
+      "behavior_text": "saving a trusted workflow (pr-fixer, pr-fix, review-commit, publish-fix) asks 'Save a trusted workflow?' first, from any view",
+      "caused_by": [
+        "d6"
+      ],
+      "evidence_refs": [
+        "e20"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b6",
+      "kind": "amended",
+      "behavior_text": "priority, exclusive_group and a workflow's inputs mapping have no editor in the Simple view (nor had they in the Rules tab), so o3's parity for them is vacuous",
+      "caused_by": [
+        "c9"
+      ],
+      "evidence_refs": [
+        "e4"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b7",
+      "kind": "added",
+      "behavior_text": "deleting a workflow re-reads GET /rules and refuses while any rule still points at it, because the server soft-deletes a referenced workflow",
+      "caused_by": [
+        "c30"
+      ],
+      "evidence_refs": [
+        "e18"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b8",
+      "kind": "added",
+      "behavior_text": "rule saves strip server-managed fields (updated_at, deleted_at, deleted_by, restorable_until) before PUT, fixing a 422 the strict rule PUT returned for every editor save",
+      "caused_by": [
+        "c25"
+      ],
+      "evidence_refs": [
+        "e13"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    }
+  ],
+  "supersessions": []
+}
