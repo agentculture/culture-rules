@@ -13,7 +13,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- The editor-fold delivery summary records what happened after merge: t11 delivered (PR #27); t12 released to spark, orin and spark2, with thor still pending
+- The editor-fold delivery summary records what happened after merge: t11 delivered (PR #27); t12 released to all four nodes
 
 ## [0.17.0] - 2026-10-09
 
