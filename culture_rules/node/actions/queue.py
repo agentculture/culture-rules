@@ -399,7 +399,7 @@ class _Pass:
         self.config, self.context, self.deadline = config, context, deadline
         self.store = port._store
         self.queue = _QueueDoc(self.store, name, port._clock)
-        self.lookups: dict[tuple[str, int], Mapping[str, Any] | None] = {}
+        self.lookups: dict[tuple[str, int, Any], Mapping[str, Any] | None] = {}
 
     def run(self, ik: str) -> dict[str, Any]:
         for _ in range(_MAX_CAS_TRIES):
@@ -474,13 +474,16 @@ class _Pass:
     def _pr_refusal(self, req: Mapping[str, Any], ik: str) -> str | None:
         """``pr_not_open`` / ``head_moved`` from a read of the PR, else None (also when the
         read fails: the run's own guard stops a stale request). The PR is read once per pass
-        and the **facts** are kept, never a verdict: a pass retried after a lost
-        compare-and-set judges the request as it is now, so one replaced meanwhile (same
-        ``rid``, a newer head) is not dropped for its predecessor's head (Codex P2)."""
+        and request head, and the **facts** are kept, never a verdict: a pass retried after a
+        lost compare-and-set judges the request as it is now, and a request replaced
+        meanwhile with another head (same ``rid``) is read again, so it is never dropped on
+        facts older than itself (Codex P2, both rounds)."""
         actor = self.config.get("lookup_actor")
         if self.port._lookup is None or not isinstance(actor, str) or not actor:
             return None
-        pr = (req["repository"], req["number"])
+        # keyed by the request's head too: a request replaced meanwhile with another head
+        # (a push landed) is read afresh, never judged on facts older than itself
+        pr = (req["repository"], req["number"], req.get("head_sha"))
         if pr not in self.lookups:
             self.lookups[pr] = self._read_pr(req, actor, ik)
         facts = self.lookups[pr]

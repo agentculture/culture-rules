@@ -442,3 +442,28 @@ def test_a_request_replaced_during_the_pr_lookup_is_judged_on_its_new_head():
     (event,) = w.dispatches()
     assert event["data"]["head_sha"] == "c" * 40
     assert event["data"]["instruction"] == "newer"
+
+
+def test_facts_read_before_a_newer_push_never_drop_the_newer_request():
+    """Codex round 2: the lookup reads head A; a push lands and the request is replaced with
+    C before the queue write; the retried pass must read the PR again for C (facts older
+    than the request never drop it), not judge C on A's facts."""
+    w = World()
+    calls = []
+
+    class Lookup:
+        def invoke(self, input, key, deadline, *, context):
+            calls.append(key)
+            if len(calls) == 1:  # GitHub still says A; meanwhile C is pushed and queued
+                w.add(**request("o/a", 1, head="c" * 40, instruction="after the push"))
+                return InvocationResult.completed({"head_sha": "a" * 40, "state": "open"})
+            return InvocationResult.completed({"head_sha": "c" * 40, "state": "open"})
+
+    w.progress_port = QueueProgressPort(w.store, clock=w.clock, pr_lookup=Lookup())
+    w.add(**request("o/a", 1, head="a" * 40))
+    res = w.progress({**PROGRESS, "lookup_actor": "github-app"})
+    assert res.output["dropped"] == []
+    assert res.output["dispatched"] == ["o/a#1"]
+    (event,) = w.dispatches()
+    assert event["data"]["head_sha"] == "c" * 40
+    assert len(calls) == 2
