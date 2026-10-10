@@ -1,6 +1,6 @@
 # Delivery Summary — pr-fixer rule
 
-plan: `pr-fixer-rule` · run: `partial` · date: `2026-10-06`
+plan: `pr-fixer-rule` · run: `partial` · date: `2026-10-06` · updated: `2026-10-10`
 baseline: `devague summary skeleton`
 
 ## Intent
@@ -89,6 +89,11 @@ After: A same-repo PR in any agentculture repo gets a fixer run on spark2 withou
 - `d20` — pr-fixer workflow gains an agent review step: after the gate passes, a codex-reviewer agent (Codex via the culture-nodes codex bridge on spark, read-only) reviews the fix commit (start..commit diff, PR intent, threads, gate verdict) and returns approve or `request_changes`; github.push runs only when the gate passes AND the reviewer approves; `request_changes` feeds the findings into the next fix attempt within the same 3-attempt budget, otherwise the run hands back with the findings on the PR. Live fixer rules stay enabled meanwhile (operator choice). — operator: the fixer's commit must be reviewed by another agent step and pushed by the rule's code, not by a human/main-agent review; Qwen will author PRs from tomorrow and this process is the safety net
 - `d21` — split the PR fixer into rules + workflows chained by events (d22): the engine emits rules.run.succeeded / rules.run.failed events on run completion (rule, workflow, concurrency key, exported outputs, causation/correlation lineage) that triggers can match; derived events carry a hop count and firing past a cap fails closed; only fix runs count against the per-key attempt budget; the review record is keyed by repo+commit (written only by the review builtin) and github.push checks the exact commit; one hand-back comment per chain; editor trigger picker + describe support. Shape: pr-fixer-{checks,comment,review,review-comment} -> workflow pr-fix (quiet, threads, agent, gate); pr-fixer-review (on pr-fix succeeded) -> review-commit; pr-fixer-refix (review = `request_changes`) -> pr-fix with findings; pr-fixer-publish (review = approve) -> publish-fix (push, pick, replies). Disabling pr-fixer-publish gives review-only mode. Built on top of d20, after d20's review. — operator: the workflow needs splitting; chose rules+workflows (the product model's composition) over a new sub-workflow step kind, and asked to make the engine work for it, events and all
 - `d22` — manual fallback after the fixer's 3 cycles: when the PR fixer hands back after 3 attempts on the same problem (e.g. #17's d19 Sonar batch), the main agent fixes it by hand and posts a PR comment explaining why the fixer could not (budget/limit), so the hand-back is never silently overridden — operator: '4. after 3 cycles, yes, with noting a comment why' (re #17 Sonar issues the fixer timed out on twice)
+- `d23` — d21 phase 2 design changes: the review stage rule is named pr-fixer-review-commit (pr-fixer-review already names the review-submitted trigger rule), and every pr-fix/review-commit/publish-fix workflow input is optional, so a stage with a missing input starts, fails inside and hands back instead of never starting — operator approved 2026-10-08 ('2 approved'): the d21 name collided with an existing rule id, and a stage with a missing input silently ended its chain
+- `d24` — comment intent for the PR fixer: a PR comment or review comment starts a fixer run only when it begins with /fix or @rules-culture-dev at a token boundary (shared variable `fixer_comment_triggers`); comment-started runs share the PR's concurrency key and 3-attempt budget — operator approved 2026-10-08 ('Comment rule approved, in addition to 3 attempts cycle'); live, Qodo's billing notice, an operator status note and a closing comment each started a run
+- `d25` — a failed GitGuardian check is never auto-fixed: the fixer posts a PR comment listing each finding (detector, file, line, commit, incident link), never quoting the secret — operator 2026-10-08: a leaked secret needs revocation by a human, not a code edit by an agent
+- `d26` — PR fixer status comment: one comment per fix chain, edited live as stages move, with the agent's free status notes relayed by the engine (capped, @-mentions, links and token-shaped text stripped); the agent never holds a GitHub token — operator 2026-10-09: 'Fixer should comment and reflect it works'
+- `d27` — the PR fixer re-checks the PR's state before it sets up a workspace (#31): the PR-head lookup also returns `state` and `merged`, and the guarded wake ends the run `superseded` with `pr_not_open` when the PR is merged or closed; the status comment says the PR is no longer open — operator 2026-10-10: 'Add fixer to lobes-cli, I want to see it fix the sonercloud issue there, then do 31'; live case run-048498ce (culture-rules #27) failed on `git fetch` of the deleted branch after #27 merged during the quiet period
 
 - **Queue fix (no deviation record; a live defect fix):** an agent's work timer starts when it accepts, queued work has its own bound (`queue_timeout`), blocked polls back off and history stays bounded; runs left by the old engine are adopted (5183b4c, deployed). Found live on #17 and lobes-cli#302.
 - **Gate temp dir (no record):** gate commands get a workspace `TMPDIR` and pytest `--basetemp`, because the run-as name `culture-fixer` put `-f` into lobes-cli's tmp paths (42ed30e).
@@ -122,6 +127,11 @@ After: A same-repo PR in any agentculture repo gets a fixer run on spark2 withou
 | `t9` (`d20`) | operator: the fixer's commit must be reviewed by another agent step and pushed by the rule's code, not by a human/main-agent review; Qwen will author PRs from tomorrow and this process is the safety net | `needs-follow-up` |
 | `t9` (`d21`) | operator: the workflow needs splitting; chose rules+workflows (the product model's composition) over a new sub-workflow step kind, and asked to make the engine work for it, events and all | `needs-follow-up` |
 | `t22` (`d22`) | operator: '4. after 3 cycles, yes, with noting a comment why' (re #17 Sonar issues the fixer timed out on twice) | `acceptable` |
+| `t17` (`d23`) | operator approved 2026-10-08: the d21 name collided with an existing rule id, and a stage with a missing input silently ended its chain | `acceptable` |
+| `t17` (`d24`) | operator approved 2026-10-08; live, Qodo's billing notice, an operator status note and a closing comment each started a run | `acceptable` |
+| `t17` (`d25`) | operator 2026-10-08: a leaked secret needs revocation by a human, not a code edit by an agent | `needs-follow-up` |
+| `t17` (`d26`) | operator 2026-10-09: 'Fixer should comment and reflect it works' | `acceptable` |
+| `t17` (`d27`) | operator 2026-10-10 ('then do 31'); a merged PR keeps its head sha, so the wake's sha check let run-048498ce provision and fail | `acceptable` |
 | `t20`, `t21` (`d4`) | the record says t20/t21 run on culture-rules itself; they ran on a new scratch repo, agentculture/culture-rules-tester (operator chose to create it for t20); the record was not amended | `acceptable` |
 | `t9` (`d21`) | not delivered in #17: phase 1 (run events, hop limit, budget field, completion outbox, restore reconciliation) is on the unmerged `rules/pr-fixer-split` (c918008) after 5 Codex rounds; phase 2 (the split) not started; moved to a follow-up PR by the operator | `needs-follow-up` |
 | `t17` | claim c22's `pull_request opened` fallback for repos without CI was not built: a head with no checks settles `no_checks` and starts no run | `needs-follow-up` |
@@ -140,6 +150,8 @@ After: A same-repo PR in any agentculture repo gets a fixer run on spark2 withou
 - PRs: culture-rules #17 (this delivery), #18 (gate section, merged), #14 (t16 probe, closed); cultureagent #52 (merged); culture-agent-template #34 (merged); lobes-cli #300 (merged), #302 (live probe); culture-rules-tester #1-#5 (fixtures and probes); guildmaster #139 (open)
 - live runs (rules.culture.dev, read from run history): run-4144cb04 (t20 pass), run-47bd8394 (diff guard then cedd5ab), run-0f45b494 (d20 proof: gate-built 0e9d3f3 approved by Codex and pushed as the bot), run-0e5cd8d6 (`head_moved`), run-237e3abd (`rule_disabled`), t21 probe 4 (excluded repo, no run); `.devague/evidence-log-pr-fixer.md`
 - validate-delivery records: obligations `o1`-`o36`, evidence `e1`-`e77` (67 pass, 10 fail), deltas `b1`-`b12` — llm-origin, approved by the operator 2026-10-08
+- #31 (`d27`, 2026-10-10): obligation `o37` (claim c40), evidence `e78`-`e81` (all pass, sensitivity: written first and seen failing before the fix) — approved by the operator; delta `b14` (amended, backed by `e78`; replaces `b13`, rejected for its missing evidence link); tests `tests/engine/test_wait_step.py::test_guard_pr_no_longer_open_ends_superseded_pr_not_open`, `tests/node/test_github_action.py::test_pr_head_port_reports_the_pr_state_and_merged_flag`, `tests/node/test_status_board.py::test_a_chain_ended_because_the_pr_closed_says_so`; full suite 4606 passed; colleague review (Qwen 3.8, task b49bb454543a): no bugs, one docstring nit fixed (d6bf607)
+- live, 2026-10-10: lobes-cli#303 `/fix` naming SonarCloud S9073 — run-1b185c0b (pr-fix: agent 02:02:57-02:15:51, gate pass) chained to review (Codex: approve, 0 findings) and publish; the App pushed 729b8fa (two asserts in place of one)
 
 ## Delivery Claims
 
@@ -154,11 +166,13 @@ After: A same-repo PR in any agentculture repo gets a fixer run on spark2 withou
 | Queued work keeps its full work budget and bounded history | high | run-d63748f3 (full 3600 s after queuing; 9 history entries vs 1527) · 5183b4c tests |
 | Shared variables (`vars.*`) resolve in conditions and inputs, fail closed elsewhere, admin-only writes | medium | `tests/node/test_shared_variables.py`, `tests/server/test_variables_api.py` · evidence `e40`, `e59`, `e60`; not exercised live beyond the fixer's own vars |
 | The fixer drives every agentculture PR to green (the announcement, c1/c21) | low | #17 needed a hand fix (`d22`); allow-list of 3 repos (`d18`); `d21` not delivered; see Remaining Work |
+| A run whose PR merges or closes during the quiet period ends `superseded` (`pr_not_open`) before provisioning, never a failure | medium | evidence `e78`-`e81` (approved) · branch `rules/fix-31-pr-state`; not yet deployed or seen live |
+| A trusted `/fix` comment naming a Sonar issue gets it fixed, gated, Codex-reviewed and pushed | high | lobes-cli#303: run-1b185c0b → 729b8fa |
 | Restore from backup keeps chained-rule work exactly once | unverified | `d21` is not in this delivery (follow-up PR) |
 
 Lapse ledger evidence:
 
-pending approval (not yet evidence): `l1`, `l2`, `l3`, `l4`, `l5`, `l6`
+approved: `l1`-`l7` (`devague lapse --list`); `l3`, `l4`, `l6`, `l7` are grader-unverified (tests after code), which caps the d20/d21 claims above at medium
 
 ## Remaining Work / Follow-up
 
@@ -169,6 +183,8 @@ pending approval (not yet evidence): `l1`, `l2`, `l3`, `l4`, `l5`, `l6`
 - **c30 / r16** — narrow culture-fixer's tokens and move the App key off spark2's node store, or amend the claim.
 - **`t19`** — widen the gate section and `fixer_repos` repo by repo; the guildmaster provisioning hook (guildmaster#139) awaits the operator.
 - **Reviewer account** — move the Codex bridge from `spark` to a dedicated `culture-reviewer` account when the operator creates it.
-- **Adjudication** — lapses `l1`-`l6` are still proposed (the validate-delivery records are approved).
+- **Adjudication** — lapses `l1`-`l7` are approved; delta `b14` (#31) awaits the operator.
+- **#31 rollout** — after merge, deploy to the four nodes (runs paused) and watch the next PR merged mid-quiet-period end `pr_not_open`.
+- **#35 (next in priority)** — one shared, first-come-first-served queue per model server (`concurrency_pool`); the per-actor cap lets actors on the same Qwen server run in parallel, and a deep queue can fail runs `queue_timeout`.
 - **r22** — published wheels lack `web_dist`; the nodes run local wheels until publish is fixed.
 - **Branch protection** — `main` on the enrolled repos requires no approvals and no checks; recommended before more agent-authored PRs.
