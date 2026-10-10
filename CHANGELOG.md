@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.10] - 2026-10-10
+
+### Changed
+
+- PR fixer settle timeout (d38, #48, operator-approved): a checks settle that timed out no longer starts a fix on its own. `pr-fixer-checks` passes the settle's conclusion to `queue-add` as the new optional input `checks_conclusion`; at dispatch `queue.progress` reads a `timeout` request's head check suites again (the PR read's new `with_checks`, the App's `Checks: read`), leaving out `ignored_check_apps` as the settler does. Every counted suite completed green drops the request (`checks_green_on_reread`): no run, and the story's status comment ends with a short final text. A suite still running dispatches with the running suites named in the instruction; a red suite, no counted suite or an unread list dispatches as before. The live case was culture#490 (`run-d98fe21dcbe8d1ea819d49a8a1c8f4b6`), told to "fix the failing checks" with every check green. `checks_settle` exports the suite helpers the queue shares (`ignored_check_apps`, `counted_suites`, `suites_state`)
+- devague: deviation d38 (operator-approved)
+
 ## [0.18.9] - 2026-10-10
 
 ### Changed

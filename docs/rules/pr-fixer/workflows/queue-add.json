@@ -60,6 +60,12 @@
       "source_port": "retry",
       "target": "enqueue",
       "target_port": "retry"
+    },
+    {
+      "source": "inputs",
+      "source_port": "checks_conclusion",
+      "target": "enqueue",
+      "target_port": "checks_conclusion"
     }
   ],
   "enabled": true,
@@ -124,6 +130,12 @@
       "name": "retry",
       "required": false,
       "type": "boolean"
+    },
+    {
+      "description": "d38: the checks settle's conclusion (pr-fixer-checks); a timeout's checks are read again at dispatch",
+      "name": "checks_conclusion",
+      "required": false,
+      "type": "string"
     }
   ],
   "name": "Add to the fixer queue",
@@ -236,6 +248,12 @@
           "name": "retry",
           "required": false,
           "type": "boolean"
+        },
+        {
+          "description": "",
+          "name": "checks_conclusion",
+          "required": false,
+          "type": "string"
         }
       ],
       "kind": "code",

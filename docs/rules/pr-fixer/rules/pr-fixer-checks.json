@@ -140,6 +140,7 @@
     "id": "queue-add",
     "inputs": {
       "base_sha": "trigger.data.base_sha",
+      "checks_conclusion": "trigger.data.conclusion",
       "clone_url": "https://github.com/{{ trigger.data.repository }}.git",
       "head_branch": "trigger.data.head_branch",
       "head_sha": "trigger.data.head_sha",

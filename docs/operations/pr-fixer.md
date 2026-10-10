@@ -728,6 +728,18 @@ workflows own it; no agent is involved.
   request whose PR's key is still held (its chain is in review) keeps its
   place and the next one goes. Its outputs list what it dispatched and
   dropped, and every waiting request's `position` and `ahead`.
+- **A settle timeout is checked again at dispatch (d38, #48).**
+  `pr-fixer-checks` passes the settle's conclusion on as the request input
+  `checks_conclusion`. For a `timeout` (a counted suite was still running at
+  the settle deadline) `queue-progress` reads the head's check suites again
+  through the PR read (`with_checks`), leaving out `ignored_check_apps` as
+  the settler does. If every counted suite has completed green by then
+  (SonarCloud's quality gate is one of them), it drops the request
+  (`checks_green_on_reread`): no run starts and the story's status comment,
+  if it has one, ends with "the checks finished green after the settle
+  timeout". If a suite is still running, the instruction names it. A red
+  suite, no counted suite or an unread list dispatches as before; any other
+  conclusion is never read again.
 - **The cap** is that of the actor concurrency pool `qwen-spark2`
   (`config.pool`): the smallest `max_concurrency` among the enabled actors
   naming it, else `config.cap` (1).
@@ -1507,6 +1519,19 @@ The operator does this; nothing here changes the live rules.
    variable is new.
 3. The GitHub App reads branches and compares commits (`Contents: read`,
    which the push already has).
+
+### Rolling out the settle-timeout re-read (d38, #48)
+
+The operator does this.
+
+1. Ship the wheel and upgrade every node (and the API). `queue.progress`
+   runs on spark as the App and reads the check suites (`Checks: read`,
+   which the settler already has). A node of an older release ignores
+   `checks_conclusion` and dispatches a timeout as before.
+2. Import the bundle (workflows, then rules): `queue-add` gains the input
+   `checks_conclusion` and `pr-fixer-checks` passes it. `queue-add` is not a
+   trusted (digest-pinned) workflow, so no digest changes; no variable is new.
+   The import disables every rule, so re-enable the ones that were on.
 
 ### Rolling out the GitGuardian report (d25)
 

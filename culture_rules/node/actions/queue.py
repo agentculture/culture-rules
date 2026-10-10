@@ -68,7 +68,13 @@ to ``cap``), ``stale_after_s`` (default :data:`DEFAULT_STALE_AFTER_S`) and
    holding it - it keeps its place). A request whose PR spent its attempts is dropped
    (``attempt_budget_exhausted``); with ``lookup_actor`` the PR is read first and a closed
    PR (``pr_not_open``) or a moved head (``head_moved``) is dropped. A failed lookup
-   dispatches anyway: the run's own head guard stops a stale one.
+   dispatches anyway: the run's own head guard stops a stale one. d38: a request whose
+   input ``checks_conclusion`` is ``timeout`` (its checks settled by the timeout) also
+   reads its head's check suites: every counted one (``ignored_check_apps`` left out, as
+   the settler does) completed and green drops it (:data:`CHECKS_GREEN`) and gives its
+   story's status comment :data:`GREEN_TEXT`; suites still running are named in the
+   dispatched instruction; anything else (a red suite, none counted, an unread list)
+   dispatches as before.
 3. **Emit.** Each dispatched request becomes a root event (``hops`` 0, so the queue never
    adds to a chain's hop count) of type :data:`DISPATCH_TYPE`, id
    :func:`dispatch_event_id`, source :data:`QUEUE_SOURCE`, written straight into the
@@ -140,7 +146,9 @@ from culture_rules.events.emit import (
 log = logging.getLogger(__name__)
 
 __all__ = [
+    "CHECKS_GREEN",
     "DEFAULT_STALE_AFTER_S",
+    "GREEN_TEXT",
     "DISPATCH_TYPE",
     "QUEUES_COLLECTION",
     "QUEUE_ADD_BUILTIN",
@@ -173,6 +181,14 @@ _RUN_DONE = ("succeeded", "failed", "cancelled", "superseded")
 _REPO_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}$")
 _FULL_SHA_RE = re.compile(r"[0-9a-f]{40}")
 _META_INPUTS = ("retry", "prior_instruction")
+CHECKS_GREEN = "checks_green_on_reread"
+"""d38: why a request settled by the timeout is dropped when its checks are green by dispatch."""
+GREEN_TEXT = "PR fixer: the checks finished green after the settle timeout. Nothing to fix."
+"""d38: the final text of the status comment of a story dropped as :data:`CHECKS_GREEN`."""
+_RUNNING_NOTE = (
+    " (Queue at dispatch: the checks settled by the timeout, and these suites were still"
+    " running: {apps}. No other suite had failed then.)"
+)
 
 Clock = Callable[[], datetime]
 
@@ -473,10 +489,12 @@ class _Pass:
         self.store = port._store
         self.queue = _QueueDoc(self.store, name, port._clock)
         self.lookups: dict[tuple[str, int, Any], Mapping[str, Any] | None] = {}
+        self.green: list[Mapping[str, Any]] = []  # d38: this try's requests dropped as green
 
     def run(self, ik: str) -> dict[str, Any]:
         for _ in range(_MAX_CAS_TRIES):
             doc, rev, exists = self.queue.read()
+            self.green = []
             now = self.port._clock()
             ended = [a for a in doc["active"] if self._ended(a, now)]
             doc["active"] = [a for a in doc["active"] if a not in ended]
@@ -485,6 +503,7 @@ class _Pass:
             if not changed or self.queue.write(doc, rev, exists):
                 _positions(doc)
                 self._emit(doc)
+                self._end_green()
                 return {
                     "dispatched": [a["key"] for a in dispatched],
                     "dropped": dropped,
@@ -524,6 +543,8 @@ class _Pass:
             doc["waiting"].remove(req)
             if reason is not None:
                 dropped.append({"key": req["key"], "reason": reason})
+                if reason == CHECKS_GREEN:
+                    self.green.append(req)
                 continue
             act = self._dispatch(req, now)
             doc["active"].append(act)
@@ -559,6 +580,9 @@ class _Pass:
         tip = self._base_tip(req)
         if tip is not None:
             act["base_sha"] = tip  # d37: the base branch's tip now, not base.sha
+        running = self._checks(req)[1] if _settled_by_timeout(req) else []
+        if running:
+            act["checks_running"] = running  # d38: named in the instruction
         return act
 
     def _pr_refusal(self, req: Mapping[str, Any], ik: str) -> str | None:
@@ -584,7 +608,57 @@ class _Pass:
             return "pr_not_open"
         if req.get("head_sha") and facts.get("head_sha") != req["head_sha"]:
             return "head_moved"
+        if _settled_by_timeout(req) and self._checks(req)[0]:
+            return CHECKS_GREEN
         return None
+
+    def _checks(self, req: Mapping[str, Any]) -> tuple[bool, list[str]]:
+        """d38, a request settled by the timeout: ``(green, running)`` from this pass's read
+        of its head's check suites - every counted suite completed and green, else the
+        counted apps still running. ``(False, [])`` when unread or nothing is counted (no
+        counted suite is never green, as for the settler)."""
+        from culture_rules.node.checks_settle import (  # noqa: PLC0415
+            counted_suites,
+            ignored_check_apps,
+            suites_state,
+        )
+
+        facts = self.lookups.get((req["repository"], req["number"], req.get("head_sha")))
+        suites = (facts or {}).get("check_suites")
+        if not isinstance(suites, list):
+            return False, []
+        counted = counted_suites(
+            [s for s in suites if isinstance(s, Mapping)], ignored_check_apps(self.store)
+        )
+        if not counted:
+            return False, []
+        done, green = suites_state(counted)
+        running = sorted(
+            {str(s.get("app_slug")) for s in counted if s.get("status") != "completed"}
+        )
+        return done and green, running
+
+    def _end_green(self) -> None:
+        """d38: the status comment of each story dropped as green gets :data:`GREEN_TEXT`
+        (best effort: the drop itself is written)."""
+        if not self.green:
+            return
+        from culture_rules.node.status_board import StatusBoard  # noqa: PLC0415
+        from culture_rules.node.story_stop import story_root  # noqa: PLC0415
+
+        board = StatusBoard(self.store, clock=self.port._clock)
+        for req in self.green:
+            source = self.store.get(_RUNS, req.get("source_run") or "")
+            if source is None:
+                continue
+            try:
+                board.finish(
+                    story_root(self.store, source),
+                    GREEN_TEXT,
+                    where=(req["repository"], req["number"]),
+                )
+            except Exception as exc:  # noqa: BLE001 - the drop itself is done
+                log.warning("queue.progress: status of %s not ended (%s)", req.get("key"), exc)
 
     def _base_tip(self, req: Mapping[str, Any]) -> str | None:
         """d37: the base branch's live tip from this pass's read of the PR, or None (no
@@ -613,6 +687,8 @@ class _Pass:
             "actor": actor,
             "with_base_tip": True,
         }
+        if _settled_by_timeout(req):
+            lookup["with_checks"] = True  # d38: are its checks green by now?
         try:
             res = self.port._lookup.invoke(lookup, f"{ik}/{req['rid']}", self.deadline, context=ctx)
         except Exception as exc:  # noqa: BLE001 - a failed read never blocks the queue
@@ -917,7 +993,15 @@ def _dispatch_data(queue: str, act: Mapping[str, Any]) -> dict[str, Any]:
     )
     if act.get("base_sha"):
         data["base_sha"] = data["base_tip_sha"] = act["base_sha"]  # d37: the tip at dispatch
+    running = act.get("checks_running")
+    if running and isinstance(data.get("instruction"), str):
+        data["instruction"] += _RUNNING_NOTE.format(apps=", ".join(running))  # d38
     return data
+
+
+def _settled_by_timeout(req: Mapping[str, Any]) -> bool:
+    """d38: the request was queued by a checks settle that timed out."""
+    return (req.get("inputs") or {}).get("checks_conclusion") == "timeout"
 
 
 def _firing_key(rule: str, event_id: str) -> str:

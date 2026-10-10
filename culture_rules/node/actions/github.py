@@ -355,6 +355,9 @@ class GitHubPrHeadPort(GitHubCommentPort):
 
     * ``with_base_tip: true`` adds ``base_tip_sha``, the base branch's live tip (``None``
       when it could not be read: the caller falls back, never fails on it);
+    * ``with_checks: true`` (d38) adds ``check_suites``, the head commit's check suites as
+      ``[{app_slug, status, conclusion}]`` (``None`` when they could not be read: the
+      caller falls back, never fails on it);
     * ``base_sha: <sha>`` adds ``base_on_branch``: ``True`` when that commit is the PR's
       ``base.sha`` or lies between it and the base branch's tip (it descends from
       ``base.sha`` and the tip descends from it), ``False`` when it does not, ``None``
@@ -409,6 +412,8 @@ class GitHubPrHeadPort(GitHubCommentPort):
             out["base_tip_sha"] = _base_tip(app, repo, ref, deadline)
         if check is not None:
             out["base_on_branch"] = on_base_branch(app, repo, out["base_sha"], ref, check, deadline)
+        if input.get("with_checks") is True:
+            out["check_suites"] = _head_suites(app, repo, out["head_sha"], deadline)
         return InvocationResult.completed(out)
 
 
@@ -453,6 +458,16 @@ def _base_tip(app: Any, repo: str, ref: Any, deadline: datetime) -> str | None:
             return app.branch_tip(repo, ref)
     except GitHubError as exc:
         log.info("github.pr_head: base tip of %s not read (%s)", repo, exc.code)
+        return None
+
+
+def _head_suites(app: Any, repo: str, sha: str, deadline: datetime) -> list[dict[str, Any]] | None:
+    """d38: the check suites of the PR's head commit, or ``None`` when they could not be read."""
+    try:
+        with app.deadline(deadline):
+            return app.list_check_suites(repo, sha)
+    except GitHubError as exc:
+        log.info("github.pr_head: check suites of %s not read (%s)", repo, exc.code)
         return None
 
 
