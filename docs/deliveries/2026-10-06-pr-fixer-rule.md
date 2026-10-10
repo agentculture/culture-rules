@@ -143,7 +143,7 @@ After: A same-repo PR in any agentculture repo gets a fixer run on spark2 withou
 | `t17` (`d28`) | operator 2026-10-10: Qwen must not split its attention; shared pool, next in priority | `acceptable` |
 | `t17` (`d29`) | operator: 'Add to queue rule, progress queue requests rule' (amends d28) | `acceptable` |
 | `t17` (`d30`) | operator: a failed try waits in the queue behind other requests | `acceptable` |
-| `t17` (`d31`) | operator approved; built after #35 (live case culture-rules #37: merge_commit guard) | `needs-follow-up` |
+| `t17` (`d31`) | operator approved; built after #35 (live case culture-rules #37: merge_commit guard) as 0.18.6; `pr-fixer-conflict` ships disabled until rolled out | `needs-follow-up` |
 | `t17` (`d32`) | operator: 'another /fix or push update it's a new story' | `acceptable` |
 | `t17` (`d33`) | operator approved; irc-lens#62's /fix got no_changes because the note forbade Sonar work | `acceptable` |
 | `t17` (`d34`) | operator: stop by /stop or a 👎 reaction; issue #40, built after #35 | `needs-follow-up` |
@@ -170,6 +170,7 @@ After: A same-repo PR in any agentculture repo gets a fixer run on spark2 withou
 - live, 2026-10-10: lobes-cli#303 `/fix` naming SonarCloud S9073 — run-1b185c0b (pr-fix: agent 02:02:57-02:15:51, gate pass) chained to review (Codex: approve, 0 findings) and publish; the App pushed 729b8fa (two asserts in place of one)
 - #35 (`d28`-`d30`, `d32`, `d33`, `d35`, branch `rules/35-concurrency-pool`, built by an Opus subagent): obligations `o38`-`o41` (claims c6, c1, c5, c19), evidence `e82`-`e86`, deltas `b15`-`b18` — approved by the operator; full suite 4680 passed; Codex review: round 1 request_changes (3 findings), round 2 request_changes (2), round 3 approve; pr-fix digest `sha256:307e82fc96eba7a36be1781b2f550728fbf232d37d776ed878071ae7f74ae032` approved by the operator
 - live, 2026-10-10: culture-rules #37's conflict — the fixer's real merge was refused by the diff guard (`merge_commit`), a copied sync was over the reviewer's 30k-char cap, and a CHANGELOG-only sync passed the gate but cannot clear a three-way conflict; the 3-round cap ended it as designed (`d31` follows)
+- `d31` (branch `rules/d31-merge-from-base`, 0.18.6, built by an Opus subagent): obligations `o42`-`o43` (claims c5, c1), evidence `e87`-`e88`, deltas `b19`-`b20` — approved by the operator; full suite 4728 passed; Codex review: three rounds of request_changes (5, 5 and 1 findings), every high finding verified fixed; the round-3 fix (ff69227) was reviewed by the main agent, not Codex
 
 ## Delivery Claims
 
@@ -187,6 +188,7 @@ After: A same-repo PR in any agentculture repo gets a fixer run on spark2 withou
 | A run whose PR merges or closes during the quiet period ends `superseded` (`pr_not_open`) before provisioning, never a failure | medium | evidence `e78`-`e81` (approved) · branch `rules/fix-31-pr-state`; not yet deployed or seen live |
 | Fixer requests wait first-come-first-served per model-server pool, one agent at a time; retries go to the back; 3 tries per story; one status comment per story | medium | evidence `e82`, `e83`, `e86` (approved) · branch `rules/35-concurrency-pool`; not yet rolled out |
 | A trusted `/fix` comment naming a Sonar issue gets it fixed, gated, Codex-reviewed and pushed | high | lobes-cli#303: run-1b185c0b → 729b8fa |
+| The fixer may resolve a PR's conflict with its base through one bot merge; only the resolution is guarded, tested and reviewed; a CONFLICTING PR queues a fix | medium | evidence `e87`, `e88` (approved) · branch `rules/d31-merge-from-base`; not yet rolled out; `pr-fixer-conflict` disabled |
 | Restore from backup keeps chained-rule work exactly once | unverified | `d21` is not in this delivery (follow-up PR) |
 
 Lapse ledger evidence:
@@ -204,6 +206,6 @@ approved: `l1`-`l7` (`devague lapse --list`); `l3`, `l4`, `l6`, `l7` are grader-
 - **Reviewer account** — move the Codex bridge from `spark` to a dedicated `culture-reviewer` account when the operator creates it.
 - **Adjudication** — lapses `l1`-`l7` and delta `b14` (#31) are approved.
 - **#31 rollout** — after merge, deploy to the four nodes (runs paused) and watch the next PR merged mid-quiet-period end `pr_not_open`.
-- **#35 rollout (operator confirmed)** — give `qwen-fixer` `concurrency_pool: qwen-spark2`, pin the approved pr-fix digest, upgrade every node (runs paused), import the bundle and enable the new rules first (`docs/operations/pr-fixer.md`, "Rolling out the queue (#35)"). Then `d31` (merge from base), #40 (stop, `d34`), #39 (escalation), #38 (Boards).
+- **#35 rollout (operator confirmed)** — give `qwen-fixer` `concurrency_pool: qwen-spark2`, pin the approved pr-fix digest, upgrade every node (runs paused), import the bundle and enable the new rules first (`docs/operations/pr-fixer.md`, "Rolling out the queue (#35)"). Then roll out `d31` (0.18.6) and enable `pr-fixer-conflict`, #40 (stop, `d34`), #39 (escalation), #38 (Boards).
 - **r22** — published wheels lack `web_dist`; the nodes run local wheels until publish is fixed.
 - **Branch protection** — `main` on the enrolled repos requires no approvals and no checks; recommended before more agent-authored PRs.

@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-05T20:43:33Z",
-  "updated": "2026-10-10T08:42:18Z",
+  "updated": "2026-10-10T13:30:21Z",
   "claims": [
     {
       "id": "c1",
@@ -1618,7 +1618,7 @@
       "behavior": "one bot merge commit whose second parent is on the base is pushed; the guard, test gate and review judge only the resolution, never the base's commits; a second merge, a merge of a commit not on base, a merge not by the bot, or a foreign commit beside or hidden behind the merge is refused",
       "source_text": "The agent never pushes. It commits in its worktree; the engine runs the repo's tests on that commit and either pushes it to the PR head branch as the GitHub App, or hands the failure back to the agent for another attempt",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "o43",
@@ -1627,7 +1627,7 @@
       "behavior": "an open, same-repo, non-draft PR in fixer_repos that turns CONFLICTING emits one github.pr.conflicting event per head/base pair, within a bounded per-cycle request budget; pr-fixer-conflict (shipped disabled) queues a fix that merges exactly base_sha",
       "source_text": "A new PR in any AgentCulture repo is picked up by a fixer agent that drives it to green: SonarCloud gate, failing checks and unresolved review threads fixed on the PR branch, never merged",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     }
   ]
 }
