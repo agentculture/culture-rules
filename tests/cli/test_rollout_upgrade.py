@@ -34,6 +34,18 @@ NODE_STATE = (
 )
 
 
+SHARED = "/data/xdg/culture-rules/venv"  # a nondefault data dir ($XDG_DATA_HOME)
+
+
+def exec_start(program: str, *args: str) -> str:
+    """``systemctl show -p ExecStart`` as systemd prints it."""
+    argv = " ".join((program, *args))
+    return (
+        f"ExecStart={{ path={program} ; argv[]={argv} ; ignore_errors=no ; "
+        "start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }\n"
+    )
+
+
 class FakeRunner:
     """Records every argv; answers by the command's shape."""
 
@@ -41,12 +53,26 @@ class FakeRunner:
         self.calls: list[list[str]] = []
         self.version = version
         self.fail = fail
+        self.exec_start = {
+            "culture-rules-api.service": exec_start(f"{SHARED}/bin/culture-rules", "serve"),
+            "culture-rules-node.service": exec_start(
+                "/usr/bin/grant",
+                "run", "--inject", "CULTURE_RULES_TOKEN=X", "--",
+                f"{SHARED}/bin/culture-rules", "node", "run",
+            ),
+        }  # fmt: skip
+        self.on_first_call = None
 
     def __call__(self, argv, timeout):
+        if not self.calls and self.on_first_call:
+            self.on_first_call()
         self.calls.append(list(argv))
         text = " ".join(argv)
         if self.fail and self.fail in text:
             return up.Result(1, "", "boom")
+        if "ExecStart" in argv:
+            unit = next(a for a in argv if a.endswith(".service"))
+            return up.Result(0, self.exec_start.get(unit, "ExecStart=\n"))
         if "--version" in text:
             return up.Result(0, f"culture-rules {self.version}\n")
         if "show" in argv or "show" in text:
@@ -185,6 +211,8 @@ def test_a_wrong_installed_version_is_a_failure(wire, store, capsys, fake, wheel
 def test_shared_venv_never_runs_install_sh(wire, store, capsys, fake, wheel):  # noqa: F811
     put_machine(store, "spark", {"mode": "shared_venv"})
     dry = jrun(capsys, "rollout", "upgrade", "--host", "spark", "--wheel", str(wheel))
+    assert fake.calls == []  # a dry run runs nothing, not even the venv read
+    assert any("resolved from culture-rules-api.service" in line for line in dry["lines"])
     install, restart, _version, _state = dry["would"]
     assert install[:3] == ["uv", "pip", "install"]
     assert install[-4:] == ["--reinstall-package", "culture-rules", "--no-deps", str(wheel)]
@@ -195,6 +223,68 @@ def test_shared_venv_never_runs_install_sh(wire, store, capsys, fake, wheel):  #
     assert not any("install.sh" in " ".join(c) for c in fake.calls)
     assert not any(c[0] in ("ssh", "scp") for c in fake.calls)
     assert outcome(store, "spark")["ok"] is True
+
+
+def test_shared_venv_is_resolved_from_the_running_api_unit(
+    wire, store, capsys, fake, wheel  # noqa: F811
+):
+    put_machine(store, "spark", {"mode": "shared_venv"})
+    out = jrun(capsys, "rollout", "upgrade", "--host", "spark", "--wheel", str(wheel), "--apply")
+    reads = fake.calls[:2]
+    assert reads == [
+        ["systemctl", "--user", "show", "culture-rules-api.service", "-p", "ExecStart"],
+        ["systemctl", "--user", "show", "culture-rules-node.service", "-p", "ExecStart"],
+    ]
+    install = fake.calls[2]
+    assert install[install.index("--python") + 1] == f"{SHARED}/bin/python"
+    assert fake.calls[4] == [f"{SHARED}/bin/culture-rules", "--version"]
+    assert out["venv"] == SHARED
+    assert outcome(store, "spark")["venv"] == SHARED
+
+
+def test_shared_venv_refuses_when_the_node_runs_another_venv(
+    wire, store, capsys, fake, wheel  # noqa: F811
+):
+    fake.exec_start["culture-rules-node.service"] = exec_start(
+        "/home/spark/.local/share/culture-rules/venv/bin/culture-rules", "node", "run"
+    )
+    put_machine(store, "spark", {"mode": "shared_venv"})
+    rc, _, err = run(
+        capsys, "rollout", "upgrade", "--host", "spark", "--wheel", str(wheel), "--apply", "--json"
+    )
+    assert rc == 1
+    message = json.loads(err)["message"]
+    assert SHARED in message
+    assert "/home/spark/.local/share/culture-rules/venv" in message
+    assert len(fake.calls) == 2  # the two reads; nothing installed or restarted
+    assert outcome(store, "spark")["ok"] is False
+
+
+def test_shared_venv_refuses_when_the_api_unit_names_no_venv(
+    wire, store, capsys, fake, wheel  # noqa: F811
+):
+    fake.exec_start["culture-rules-api.service"] = exec_start("/usr/bin/python3", "-m", "x")
+    put_machine(store, "spark", {"mode": "shared_venv"})
+    rc, _, err = run(
+        capsys, "rollout", "upgrade", "--host", "spark", "--wheel", str(wheel), "--apply", "--json"
+    )
+    assert rc == 1
+    assert "culture-rules-api.service" in json.loads(err)["message"]
+    assert all(c[:3] == ["systemctl", "--user", "show"] for c in fake.calls)
+
+
+@pytest.mark.parametrize(
+    "text, venv",
+    [
+        (exec_start("/v/bin/culture-rules", "serve"), "/v"),
+        (exec_start("/usr/bin/grant", "run", "--", "/w/x/bin/culture-rules", "serve"), "/w/x"),
+        ("ExecStart=\n", None),
+        (exec_start("/usr/bin/env", "culture-rules", "serve"), None),
+    ],
+)
+def test_venv_from_exec_start(text, venv):
+    found = up.venv_from_exec_start(text)
+    assert (str(found) if found else None) == venv
 
 
 def test_shared_venv_runs_only_on_its_own_host(
@@ -267,3 +357,96 @@ def test_the_runner_reports_a_missing_executable(monkeypatch):
     monkeypatch.setattr(up.shutil, "which", lambda name: None)
     with pytest.raises(up.CliError, match="not on PATH"):
         up._subprocess_runner(["ssh"], 5)
+
+
+# --------------------------------------------------------------------------- #45 review r1
+
+
+@pytest.mark.parametrize("role", ["viewer", "editor"])
+@pytest.mark.parametrize("mode", ["install_sh", "shared_venv"])
+def test_a_non_admin_token_runs_nothing(
+    wire, store, capsys, fake, wheel, monkeypatch, role, mode  # noqa: F811
+):
+    from tests.cli.test_rollout_verbs import as_role
+
+    put_machine(store, "spark", {"mode": mode})
+    as_role(wire, store, monkeypatch, role)
+    rc, _, err = run(
+        capsys, "rollout", "upgrade", "--host", "spark", "--wheel", str(wheel), "--apply", "--json"
+    )
+    assert rc == 1
+    assert "HTTP 403" in json.loads(err)["message"]
+    assert fake.calls == []
+    assert store.get("rollouts", VERSION) is None
+
+
+def test_the_step_is_recorded_as_started_before_the_first_command(
+    wire, store, capsys, fake, wheel  # noqa: F811
+):
+    seen = []
+    fake.on_first_call = lambda: seen.append(outcome(store, "thor"))
+    put_machine(store, "thor", {"mode": "install_sh"})
+    jrun(capsys, "rollout", "upgrade", "--host", "thor", "--wheel", str(wheel), "--apply")
+    assert seen == [{"state": "started", "mode": "install_sh", "wheel": WHEEL_NAME}]
+    assert outcome(store, "thor")["ok"] is True
+
+
+@pytest.mark.parametrize("value", ["broker\nPYTHONPATH=/tmp/attacker", "a\rb", "a\tb", "a\x00b"])
+@pytest.mark.parametrize("field", ["events_host", "node_name", "wheelhouse", "python"])
+def test_a_stored_field_with_a_control_character_never_reaches_argv(
+    wire, store, capsys, fake, wheel, field, value  # noqa: F811
+):
+    put_machine(store, "thor", {"mode": "install_sh", field: value})  # bypasses validation
+    for extra in ((), ("--apply",)):
+        rc, _, err = run(
+            capsys, "rollout", "upgrade", "--host", "thor", "--wheel", str(wheel), *extra, "--json"
+        )
+        assert rc == 1
+        assert f"install.{field}" in json.loads(err)["message"]
+    assert fake.calls == []
+    assert store.get("rollouts", VERSION) is None
+
+
+@pytest.mark.parametrize(
+    "install",
+    [
+        {"mode": "install_sh", "extras": ["store", "x\ny"]},
+        {"mode": "install_sh", "secrets": ["OK", "BAD\n"]},
+        {"mode": "install_sh", "gate_run_as": "sudo -n -u fixer --\x00/bin/true"},
+    ],
+)
+def test_stored_lists_and_the_run_as_prefix_are_checked_too(
+    wire, store, capsys, fake, wheel, install  # noqa: F811
+):
+    put_machine(store, "thor", install)
+    rc, _, _ = run(capsys, "rollout", "upgrade", "--host", "thor", "--wheel", str(wheel), "--json")
+    assert rc == 1
+    assert fake.calls == []
+
+
+@pytest.mark.parametrize("address", ["-oProxyCommand=touch /tmp/x", "host\nother", "a b"])
+def test_an_ssh_target_that_is_not_a_plain_host_is_refused(
+    wire, store, capsys, fake, wheel, address  # noqa: F811
+):
+    put_machine(store, "thor", {"mode": "install_sh"}, address=address)
+    rc, _, err = run(
+        capsys, "rollout", "upgrade", "--host", "thor", "--wheel", str(wheel), "--json"
+    )
+    assert rc == 1
+    assert "address" in json.loads(err)["message"]
+    assert fake.calls == []
+
+
+def test_a_machine_name_with_a_control_character_never_reaches_argv(
+    wire, store, capsys, fake, wheel  # noqa: F811
+):
+    store.put(
+        "machines",
+        {"id": "thor", "name": "thor\nX=1", "platform": "linux", "install": {"mode": "install_sh"}},
+    )
+    rc, _, err = run(
+        capsys, "rollout", "upgrade", "--host", "thor", "--wheel", str(wheel), "--json"
+    )
+    assert rc == 1
+    assert ": name holds a control character" in json.loads(err)["message"]
+    assert fake.calls == []

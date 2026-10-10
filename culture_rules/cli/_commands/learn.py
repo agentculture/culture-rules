@@ -77,8 +77,9 @@ rollout plan --wheel <whl> prints the steps (writes nothing), then rollout idle,
 pause, upgrade --host <name> --wheel <whl> (install.sh over ssh, or the shared
 venv), seed, import, enable, resume and verify run one step each; pause refuses
 while runs are not terminal unless --force, import refuses before seed, enable
-refuses while a node is older than the release, and verify exits 1 listing each
-failed check.
+refuses while a node is older than the release or a rule outside the snapshot is
+enabled, upgrade --apply needs the admin role before it runs anything, and verify
+exits 1 listing each failed check.
 
 Machine-readable output
 -----------------------

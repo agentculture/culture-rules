@@ -10,8 +10,18 @@ The host's machine record (``GET /machines/{name}``) says how, in its ``install`
 * ``shared_venv`` (spark, where the API and the node share one venv and hand-edited units):
   locally, ``uv pip install --reinstall-package culture-rules --no-deps WHEEL`` into that venv
   and restart ``culture-rules-api`` and ``culture-rules-node``. ``install.sh`` never runs.
+  The venv is the one the running API unit executes: ``systemctl --user show
+  culture-rules-api.service -p ExecStart`` names ``<venv>/bin/culture-rules`` (directly, or
+  after ``grant run ... --``); the node unit must name the same venv, else the upgrade is
+  refused naming both. Nothing assumes a default data directory.
 
-Without ``--apply`` it prints the exact argv and opens no connection. Commands run through an
+Without ``--apply`` it prints the exact argv (``<venv>`` for the shared venv, which only an
+applied run reads) and runs nothing. With ``--apply`` the step is first recorded as started
+(``POST /rollouts/{version}/steps/upgrade:<host>``, admin): a token without the admin role
+is refused there, before any command runs. Every machine-record field that reaches an argv
+is checked again here, whatever the stored document holds: a control character or
+whitespace in a one-word field, a control character in the run-as prefix, or an ssh target
+that is not a plain host name refuses the upgrade (exit 1). Commands run through an
 injectable runner (:func:`set_runner`; tests install a fake) as argv lists, never a shell
 string; the remote command ssh carries is ``shlex``-quoted. The runner passes a minimal
 environment, so the API URL and token never reach ssh, scp or the host.
@@ -20,6 +30,7 @@ environment, so the API URL and token never reach ssh, scp or the host.
 from __future__ import annotations
 
 import os
+import re
 import shlex
 import shutil
 import socket
@@ -37,14 +48,21 @@ from culture_rules.cli._errors import EXIT_ENV_ERROR, EXIT_USER_ERROR, CliError
 from culture_rules.cli._nounlib import seg
 from culture_rules.cli.registry import Context
 from culture_rules.client.http import ApiError, ApiUnreachable
+from culture_rules.model.validate import has_control_char, is_install_word
 
-__all__ = ["Result", "commands", "set_runner", "upgrade"]
+__all__ = ["Result", "commands", "set_runner", "upgrade", "venv_from_exec_start"]
 
 SSH_OPTS = ("-o", "BatchMode=yes")
 VENV = ".local/share/culture-rules/venv"
 """The node venv install.sh creates, relative to the unit user's home."""
-UNITS = ("culture-rules-api.service", "culture-rules-node.service")
+API_UNIT = "culture-rules-api.service"
 NODE_UNIT = "culture-rules-node.service"
+UNITS = (API_UNIT, NODE_UNIT)
+VENV_PLACEHOLDER = Path("<venv>")
+"""Stands for the shared venv in a dry run (only an applied run reads the API unit)."""
+_PROGRAM_RE = re.compile(r"^/\S*/bin/culture-rules$")
+_WORD_FIELDS = ("node_name", "wheelhouse", "python", "events_host")
+_LIST_FIELDS = ("extras", "secrets")
 _SHOW = ("-p", "Id", "-p", "ActiveState", "-p", "ActiveEnterTimestamp")
 _ENV_KEEP = (
     "PATH",
@@ -150,8 +168,7 @@ def _install_sh_commands(
     ]
 
 
-def _shared_venv_commands(wheel: Path) -> list[Command]:
-    venv = Path.home() / VENV
+def _shared_venv_commands(wheel: Path, venv: Path) -> list[Command]:
     return [
         Command(
             "install the wheel into the shared venv",
@@ -191,8 +208,47 @@ def _install_section(machine: Mapping[str, Any], name: str) -> Mapping[str, Any]
     return install
 
 
-def commands(machine: Mapping[str, Any], wheel: Path, version: str) -> list[Command]:
-    """The commands that upgrade ``machine`` to ``wheel``, in order (nothing runs here)."""
+def _refuse_field(name: str, field: str, why: str) -> CliError:
+    return CliError(
+        EXIT_USER_ERROR,
+        f"machine {name}: {field} {why}; refusing to build a command from it",
+        f"fix the machine record (an admin): culture-rules machines update {name} --apply",
+    )
+
+
+def _check_word(name: str, field: str, value: Any) -> None:
+    if value is None:
+        return
+    if not isinstance(value, str) or not is_install_word(value):
+        raise _refuse_field(name, field, "holds a control character or whitespace")
+
+
+def check_fields(machine: Mapping[str, Any], name: str, install: Mapping[str, Any]) -> None:
+    """Defense in depth: refuse an argv built from a stored field that validation should have
+    refused (a control character or whitespace; an ssh target that could read as an option).
+    """
+    _check_word(name, "name", name)  # install.sh --node-name when node_name is unset
+    for field in _WORD_FIELDS:
+        _check_word(name, f"install.{field}", install.get(field))
+    for field in _LIST_FIELDS:
+        for i, item in enumerate(install.get(field) or ()):
+            _check_word(name, f"install.{field}[{i}]", item)
+    run_as = install.get("gate_run_as")
+    if run_as is not None and (not isinstance(run_as, str) or has_control_char(run_as)):
+        raise _refuse_field(name, "install.gate_run_as", "holds a control character")
+    port = install.get("events_port")
+    if port is not None and (isinstance(port, bool) or not isinstance(port, int)):
+        raise _refuse_field(name, "install.events_port", "is not a port number")
+    target = str(machine.get("address") or name)
+    if not is_install_word(target) or target.startswith("-"):
+        raise _refuse_field(name, "address", "is not a plain host name")
+
+
+def commands(
+    machine: Mapping[str, Any], wheel: Path, version: str, venv: Path = VENV_PLACEHOLDER
+) -> list[Command]:
+    """The commands that upgrade ``machine`` to ``wheel``, in order (nothing runs here);
+    ``venv`` is the shared venv (``<venv>`` until an applied run resolves it)."""
     name = str(machine.get("name") or machine.get("id"))
     install = _install_section(machine, name)
     if install["mode"] == rollout.SHARED_VENV:
@@ -203,9 +259,49 @@ def commands(machine: Mapping[str, Any], wheel: Path, version: str) -> list[Comm
                 f"machine {name} is shared_venv: it is upgraded locally, but this host is {here}",
                 f"run 'culture-rules rollout upgrade --host {name}' on {name}",
             )
-        return _shared_venv_commands(wheel)
+        return _shared_venv_commands(wheel, venv)
     target = str(machine.get("address") or name)
     return _install_sh_commands(name, target, install, wheel, version)
+
+
+# --------------------------------------------------------------------------- the shared venv
+
+
+def venv_from_exec_start(text: str) -> Path | None:
+    """The venv a unit runs, from ``systemctl show -p ExecStart``: the last absolute
+    ``.../bin/culture-rules`` token (a ``grant run ... --`` wrapper puts it last), whose
+    parent's parent is the venv; None when there is none."""
+    tokens = re.split(r"[\s;{}]+", text)
+    programs = [t.split("=", 1)[1] if t.startswith(("path=", "argv[]=")) else t for t in tokens]
+    found = [p for p in programs if _PROGRAM_RE.match(p)]
+    return Path(found[-1]).parent.parent if found else None
+
+
+def _unit_venv(unit: str) -> Path:
+    argv = ["systemctl", "--user", "show", unit, "-p", "ExecStart"]
+    result = _RUNNER(argv, 30.0)
+    venv = venv_from_exec_start(result.stdout) if result.returncode == 0 else None
+    if venv is None:
+        raise CliError(
+            EXIT_USER_ERROR,
+            f"cannot resolve the shared venv: {unit}'s ExecStart names no "
+            f"<venv>/bin/culture-rules (exit {result.returncode})",
+            f"check 'systemctl --user cat {unit}'; its ExecStart must run "
+            "<venv>/bin/culture-rules (directly or after 'grant run ... --')",
+        )
+    return venv
+
+
+def resolve_shared_venv() -> Path:
+    """The venv the running API unit executes; the node unit must run the same one."""
+    api, node = _unit_venv(API_UNIT), _unit_venv(NODE_UNIT)
+    if api != node:
+        raise CliError(
+            EXIT_USER_ERROR,
+            f"the shared venv differs: {API_UNIT} runs {api}, {NODE_UNIT} runs {node}",
+            "point both units at one venv (or give the host an install_sh section)",
+        )
+    return api
 
 
 # --------------------------------------------------------------------------- reading results
@@ -269,27 +365,60 @@ def _run_all(cmds: Sequence[Command], ctx: Context, mode: str) -> tuple[dict, st
 # --------------------------------------------------------------------------- the verb
 
 
-def upgrade(ctx: Context, host: str, wheel: str) -> dict[str, Any]:
+def _prepared(ctx: Context, host: str, wheel: str) -> tuple[Mapping[str, Any], str, Path]:
+    """The machine record, its name and the wheel, every field checked (nothing runs)."""
     machine = _api.call(lambda: ctx.client.request("GET", f"/machines/{seg(host)}"))
     name = str(machine.get("name") or machine.get("id") or host)
-    _install_section(machine, name)
-    path = rollout.check_wheel(wheel)
+    check_fields(machine, name, _install_section(machine, name))
+    return machine, name, rollout.check_wheel(wheel)
+
+
+def _resolved_commands(
+    ctx: Context, machine: Mapping[str, Any], path: Path, step: str, base: Mapping[str, Any]
+) -> tuple[list[Command], str | None]:
+    """The commands with the shared venv resolved (``(commands, venv)``); a venv that
+    cannot be resolved is recorded as the step's failure, then refused."""
     version = rollout.release_version()
-    cmds = commands(machine, path, version)
+    if machine["install"]["mode"] != rollout.SHARED_VENV:
+        return commands(machine, path, version), None
+    try:
+        venv = resolve_shared_venv()
+    except CliError as exc:
+        rollout.record(ctx, step, {**base, "ok": False, "failure": exc.message[:1000]})
+        raise
+    return commands(machine, path, version, venv), str(venv)
+
+
+def _dry_lines(mode: str, cmds: Sequence[Command]) -> list[str]:
+    lines = ["dry-run: would run, in order:"]
+    if mode == rollout.SHARED_VENV:
+        lines.append(
+            f"(<venv> is resolved from {API_UNIT}'s ExecStart with 'systemctl --user show', "
+            f"and {NODE_UNIT} must run the same venv; only --apply reads it)"
+        )
+    return lines + [f"{c.what}: {shlex.join(c.argv)}" for c in cmds]
+
+
+def upgrade(ctx: Context, host: str, wheel: str) -> dict[str, Any]:
+    machine, name, path = _prepared(ctx, host, wheel)
+    version = rollout.release_version()
     mode = machine["install"]["mode"]
+    planned = commands(machine, path, version)
     step = f"upgrade:{name.lower()}"
     out = rollout.envelope(
-        "upgrade",
-        ctx,
-        host=name,
-        mode=mode,
-        would=[list(c.argv) for c in cmds],
+        "upgrade", ctx, host=name, mode=mode, would=[list(c.argv) for c in planned]
     )
-    lines = [f"{c.what}: {shlex.join(c.argv)}" for c in cmds]
     if not ctx.apply:
-        return {**out, "lines": ["dry-run: would run, in order:", *lines]}
+        return {**out, "lines": _dry_lines(mode, planned)}
+    base = {"mode": mode, "wheel": path.name}
+    # recording the start is admin: a viewer or editor token is refused here, before any
+    # command runs (the API is the enforcement point; the CLI's roles are only metadata)
+    rollout.record(ctx, step, {"state": "started", **base})
+    cmds, venv = _resolved_commands(ctx, machine, path, step, base)
     results, failure = _run_all(cmds, ctx, mode)
     outcome = _outcome(mode, path, results)
+    if venv:
+        outcome["venv"] = venv
     node_state = outcome.get("ActiveState")
     if failure is None and outcome["installed_version"] != version:
         failure = f"installed version is {outcome['installed_version']}, not {version}"
@@ -307,9 +436,11 @@ def upgrade(ctx: Context, host: str, wheel: str) -> dict[str, Any]:
         )
     return {
         **out,
+        "would": [list(c.argv) for c in cmds],
+        **({"venv": venv} if venv else {}),
         "outcome": outcome,
         "lines": [
-            *lines,
+            *(f"{c.what}: {shlex.join(c.argv)}" for c in cmds),
             f"{name}: {version} installed, {NODE_UNIT} {node_state} since "
             f"{outcome.get('ActiveEnterTimestamp')}",
         ],

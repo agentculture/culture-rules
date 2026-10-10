@@ -81,6 +81,20 @@ def put_node(db, name: str, version: str | None, *, online: bool = True, install
     db.put(HEARTBEAT_COLLECTION, beat)
 
 
+def as_role(wire, db, monkeypatch, role: str) -> None:  # noqa: F811
+    """Point the CLI at the same app with a ``role`` service token instead of the admin's."""
+    from culture_rules.auth.tokens import ServiceTokens
+    from culture_rules.cli import _api
+    from culture_rules.client.http import ApiClient
+
+    token = ServiceTokens(db).issue("root", name=role, roles=[role]).token
+    monkeypatch.setattr(
+        _api,
+        "make_client",
+        lambda api_url=None: ApiClient("http://127.0.0.1:8765", token=token, transport=wire),
+    )
+
+
 def doc(store):  # noqa: F811
     return store.get("rollouts", RELEASE["version"])
 
@@ -116,6 +130,47 @@ def test_version_compare():
     assert not rollout.is_older("0.18.12", "0.18.12rc1")
     assert rollout.is_older(None, "0.18.12")
     assert rollout.is_older("unknown", "0.18.12")
+
+
+@pytest.mark.parametrize(
+    "older, newer",
+    [
+        ("1.0rc1", "1.0rc2"),
+        ("1.0rc2", "1.0"),
+        ("1.0", "1.0.post1"),
+        ("1.0rc1", "1.0.post1"),
+        ("1.0.dev3", "1.0a1"),
+        ("1.0a1", "1.0a2"),
+        ("1.0a2", "1.0b1"),
+        ("1.0b1", "1.0rc1"),
+        ("1.0.dev3", "1.0.dev4"),
+        ("1.0a1.dev1", "1.0a1"),
+        ("1.0.post1.dev1", "1.0.post1"),
+        ("1.0", "1.0+local"),
+        ("1.0+abc", "1.0+abc.1"),
+        ("1.0+abc", "1.0+5"),
+        ("1.0+5", "1.0+10"),
+        ("1.0+local", "1.0.post1"),
+        ("0.9.9", "0.10.0"),
+    ],
+)
+def test_version_order_follows_pep_440(older, newer):
+    assert rollout.version_key(older) < rollout.version_key(newer)
+    assert rollout.is_older(older, newer)
+    assert not rollout.is_older(newer, older)
+
+
+@pytest.mark.parametrize(
+    "bad", ["2.bad", "1.0-final", "", "v1.0", "1..0", "1.0rc", "1.0 ", None, 3]
+)
+def test_a_version_that_does_not_parse_is_invalid_and_older(bad):
+    assert rollout.version_key(bad) is None
+    assert rollout.is_older(bad, "1.0")
+    assert rollout.is_older(bad, "0.0.1")
+
+
+def test_an_invalid_release_makes_every_node_older():
+    assert rollout.is_older("1.0", "2.bad")
 
 
 def test_wheel_version_must_be_this_release(tmp_path):
@@ -208,8 +263,9 @@ def test_pause_snapshots_before_pausing_and_is_idempotent(wire, store, capsys): 
     out = jrun(capsys, "rollout", "pause", "--apply")
     assert out["engine"] == "paused"
     calls = wire.mutating()
-    put_first = calls.index(("PUT", "/rollouts/9.1.0"))
-    assert put_first < calls.index(("POST", "/controls/pause"))  # snapshot lands first
+    snap_first = calls.index(("POST", "/rollouts/9.1.0/snapshot"))
+    assert snap_first < calls.index(("POST", "/controls/pause"))  # snapshot lands first
+    assert ("PUT", "/rollouts/9.1.0") not in calls  # no read-merge-write
     assert doc(store)["snapshot"] == ["r1"]
     assert doc(store)["steps"]["pause"]["outcome"]["engine"] == "paused"
 
@@ -218,6 +274,40 @@ def test_pause_snapshots_before_pausing_and_is_idempotent(wire, store, capsys): 
     assert again["engine"] == "already paused"
     assert again["snapshot_kept"] is True
     assert doc(store)["snapshot"] == ["r1"]
+
+
+def test_a_second_pause_never_overwrites_the_recorded_snapshot(
+    wire, store, capsys, monkeypatch  # noqa: F811
+):
+    put_rule(store, "r1", True)
+    jrun(capsys, "rollout", "pause", "--apply")
+    put_rule(store, "r2", True)
+    # a stale reader: a concurrent pause read the document before the first one recorded
+    real, reads = rollout._rollout_doc, []
+
+    def stale_once(ctx, version):
+        reads.append(version)
+        return None if len(reads) == 1 else real(ctx, version)
+
+    monkeypatch.setattr(rollout, "_rollout_doc", stale_once)
+    out = jrun(capsys, "rollout", "pause", "--apply")
+    assert out["snapshot"] == ["r1"]
+    assert out["snapshot_kept"] is True
+    assert doc(store)["snapshot"] == ["r1"]
+
+
+def test_steps_recorded_by_interleaved_commands_are_all_kept(wire, store, capsys):  # noqa: F811
+    from culture_rules.cli.registry import Context
+    from culture_rules.client.http import ApiClient
+
+    ctx_a = Context(ApiClient("http://127.0.0.1:8765", token=wire.token, transport=wire), True)
+    ctx_b = Context(ApiClient("http://127.0.0.1:8765", token=wire.token, transport=wire), True)
+    wire.calls.clear()
+    rollout.record(ctx_a, "upgrade:thor", {"ok": True})
+    rollout.record(ctx_b, "upgrade:orin", {"ok": True})
+    rollout.record(ctx_a, "seed", {"set": []})
+    assert set(doc(store)["steps"]) == {"upgrade:thor", "upgrade:orin", "seed"}
+    assert [m for m, _, _ in wire.calls] == ["POST", "POST", "POST"]  # one atomic write each
 
 
 def test_pause_refuses_non_terminal_runs_unless_forced(wire, store, capsys):  # noqa: F811
@@ -245,6 +335,30 @@ def test_resume_reports_already_resumed_and_keeps_the_resume_time(
     again = jrun(capsys, "rollout", "resume", "--apply")
     assert again["engine"] == "already resumed"
     assert doc(store)["steps"]["resume"]["applied_at"] == first
+
+
+def test_resume_records_its_boundary_before_resuming(wire, store, capsys):  # noqa: F811
+    jrun(capsys, "rollout", "pause", "--apply")
+    wire.calls.clear()
+    jrun(capsys, "rollout", "resume", "--apply")
+    assert wire.mutating() == [
+        ("POST", "/rollouts/9.1.0/steps/resume_requested"),
+        ("POST", "/controls/resume"),
+        ("POST", "/rollouts/9.1.0/steps/resume"),
+    ]
+    steps = doc(store)["steps"]
+    assert steps["resume_requested"]["applied_at"] <= steps["resume"]["applied_at"]
+
+
+def test_resume_is_refused_with_no_engine_change_when_the_boundary_cannot_be_recorded(
+    wire, store, capsys, monkeypatch  # noqa: F811
+):
+    jrun(capsys, "rollout", "pause", "--apply")
+    as_role(wire, store, monkeypatch, "editor")
+    rc, _, _ = run(capsys, "rollout", "resume", "--apply")
+    assert rc == 1
+    assert ("POST", "/controls/resume") not in wire.mutating()
+    assert jrun(capsys, "runs", "controls")["paused"] is True
 
 
 # --------------------------------------------------------------------------- seed / import
@@ -333,6 +447,21 @@ def test_enable_refuses_while_a_new_rule_is_not_imported(wire, store, capsys):  
     assert "rollout import --apply" in err["remediation"]
 
 
+def test_enable_refuses_an_enabled_rule_outside_snapshot_plus_new_rules(
+    wire, store, capsys  # noqa: F811
+):
+    _paused_with(store, capsys, ["r1"])
+    put_rule(store, "r-new", False)
+    put_rule(store, "r-extra", True)
+    wire.calls.clear()
+    for argv in (("rollout", "enable"), ("rollout", "enable", "--apply")):
+        err = fail(capsys, *argv)
+        assert "r-extra" in err["message"]
+        assert "culture-rules rules disable r-extra --apply" in err["remediation"]
+    assert wire.mutating() == []
+    assert store.get("rules", "r1")["enabled"] is False
+
+
 def test_enable_restores_exactly_snapshot_plus_new_rules(wire, store, capsys):  # noqa: F811
     _paused_with(store, capsys, ["r1", "r2"])
     put_rule(store, "r-new", False)
@@ -403,3 +532,135 @@ def test_verify_fails_before_any_step(wire, store, capsys):  # noqa: F811
     msg = fail(capsys, "rollout", "verify")["message"]
     assert "4 of 5" in msg
     assert "no resume step recorded" in msg  # the engine is running
+
+
+def put_failed(db, rid: str, *, created: datetime, finished: datetime, error=None) -> None:
+    db.put(
+        "runs",
+        {
+            "id": rid,
+            "status": "failed",
+            "rule": {"id": "r1"},
+            "workflow": {"id": "wf"},
+            "steps": [],
+            "created_at": _iso(created),
+            "finished_at": _iso(finished),
+            "error": error,
+        },
+    )
+
+
+NO_BUILTIN = {"code": "actor_failed", "message": "no_builtin: code step"}
+
+
+def test_verify_reads_every_failed_run_since_resume(wire, store, capsys, monkeypatch):  # noqa: F811
+    _green(store, capsys, monkeypatch)
+    now = datetime.now(UTC)
+    for i in range(1_001):  # newest created, but finished a day before the resume
+        put_failed(
+            store,
+            f"noise{i:04d}",
+            created=now + timedelta(hours=1),
+            finished=now - timedelta(days=1),
+        )
+    # created days before the resume, failed after it: a created_at window misses it
+    put_failed(
+        store,
+        "old-created",
+        created=now - timedelta(days=3),
+        finished=now + timedelta(seconds=5),
+        error=NO_BUILTIN,
+    )
+    msg = fail(capsys, "rollout", "verify")["message"]
+    assert "old-created" in msg
+
+
+def test_verify_pages_until_the_listing_is_exhausted(
+    wire, store, capsys, monkeypatch  # noqa: F811
+):  # noqa: F811
+    _green(store, capsys, monkeypatch)
+    monkeypatch.setattr(rollout, "_RUNS_PAGE", 25)
+    now = datetime.now(UTC)
+    for i in range(60):
+        put_failed(store, f"f{i:03d}", created=now, finished=now + timedelta(seconds=i + 1))
+    put_failed(store, "last", created=now, finished=now + timedelta(minutes=5), error=NO_BUILTIN)
+    assert "last" in fail(capsys, "rollout", "verify")["message"]
+
+
+def test_verify_fails_closed_when_the_listing_is_incomplete(
+    wire, store, capsys, monkeypatch  # noqa: F811
+):
+    _green(store, capsys, monkeypatch)
+    monkeypatch.setattr(rollout, "_RUNS_PAGE", 10)
+    monkeypatch.setattr(rollout, "_MAX_RUN_PAGES", 2)
+    now = datetime.now(UTC)
+    for i in range(30):
+        put_failed(store, f"f{i:03d}", created=now, finished=now + timedelta(seconds=i + 1))
+    msg = fail(capsys, "rollout", "verify")["message"]
+    assert "could not read every failed run" in msg
+
+
+def test_verify_fails_closed_on_an_api_without_run_paging(
+    wire, store, capsys, monkeypatch  # noqa: F811
+):
+    _green(store, capsys, monkeypatch)
+    real = rollout._get
+
+    def old_api(ctx, path, query=None):
+        answer = real(ctx, path, query)
+        if path == "/runs":
+            answer.pop("next_cursor", None)
+        return answer
+
+    monkeypatch.setattr(rollout, "_get", old_api)
+    assert "could not read every failed run" in fail(capsys, "rollout", "verify")["message"]
+
+
+def test_verify_counts_a_failure_between_the_resume_response_and_its_recording(
+    wire, store, capsys, monkeypatch  # noqa: F811
+):
+    from culture_rules.server import rollouts as server_rollouts
+
+    class ServerClock(datetime):
+        at = datetime.now(UTC)
+
+        @classmethod
+        def now(cls, tz=None):
+            return cls.at
+
+    monkeypatch.setattr(server_rollouts, "datetime", ServerClock)
+    monkeypatch.setattr(rollout, "_release", lambda: {**RELEASE, "version": __version__})
+    put_node(store, "spark", __version__)
+    _paused_with(store, capsys, ["r1"])
+    put_rule(store, "r1", True)
+    put_rule(store, "r-new", True)
+    raced_at = ServerClock.at + timedelta(seconds=10)
+    real = wire.tc.request
+
+    def racing(method, url, **kw):
+        answer = real(method, url, **kw)
+        if (method, url) == ("POST", "/controls/resume"):
+            # the engine runs again: a run fails before the resume step is recorded
+            put_failed(store, "raced", created=raced_at, finished=raced_at, error=NO_BUILTIN)
+            ServerClock.at = raced_at + timedelta(seconds=10)
+        return answer
+
+    monkeypatch.setattr(wire.tc, "request", racing)
+    jrun(capsys, "rollout", "resume", "--apply")
+    steps = store.get("rollouts", __version__)["steps"]
+    resumed = datetime.fromisoformat(steps["resume"]["applied_at"])
+    assert resumed > raced_at  # a window opening at the resume step would miss the run
+    assert "raced" in fail(capsys, "rollout", "verify")["message"]
+
+
+def test_verify_falls_back_to_the_resume_step_of_an_older_document(
+    wire, store, capsys, monkeypatch  # noqa: F811
+):
+    _green(store, capsys, monkeypatch)
+    legacy = store.get("rollouts", __version__)
+    legacy["steps"].pop("resume_requested")
+    store.put("rollouts", legacy)
+    assert jrun(capsys, "rollout", "verify")["ok"] is True
+    later = datetime.now(UTC) + timedelta(seconds=5)
+    put_failed(store, "after", created=later, finished=later, error=NO_BUILTIN)
+    assert "after" in fail(capsys, "rollout", "verify")["message"]
