@@ -141,6 +141,7 @@ NODE_COLLECTIONS = (
     RULE_FIRES,
     RULE_DECISIONS,
     "actor_usage",
+    "queues",  # culture_rules.node.actions.queue.QUEUES_COLLECTION (#35)
     human.ASKS_COLLECTION,
     agent.BRIDGE_INVOCATIONS,
     REVIEWS_COLLECTION,

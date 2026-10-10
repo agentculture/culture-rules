@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-05T20:43:33Z",
-  "updated": "2026-10-10T02:20:44Z",
+  "updated": "2026-10-10T06:36:55Z",
   "claims": [
     {
       "id": "c1",
@@ -1572,6 +1572,42 @@
       "seam": "guarded wake (wait step head_unchanged) + PR-head lookup",
       "behavior": "a PR merged or closed during the quiet period ends the run superseded with pr_not_open before any workspace is set up; an open PR with an unchanged head proceeds; a moved head still supersedes",
       "source_text": "Workflows gain a wait step kind: it pauses the run for a duration (the quiet period) without holding a worker, persists across node restarts, and on resume checks a guard; if the PR head moved during the wait (someone pushed) the run ends without dispatching the agent, and the next checks-completed event starts a fresh one",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o38",
+      "claim_id": "c6",
+      "seam": "concurrency_pool + the fixer queue (queue.add / queue.progress / pr-fixer-dispatch)",
+      "behavior": "one fixer agent per pool at a time across hosts; requests dispatched first-come-first-served; a failed try or requested changes goes to the back as a retry; at most 3 tries per story; a trusted /fix or human push starts a new story; a closed or moved PR is dropped at dispatch; an expired dispatch never starts a run",
+      "source_text": "At most one fixer run per PR at a time, and a per-PR attempt budget stops fix/test/push cycles; because the App pushes, its own synchronize events are skipped by the existing self_authored check",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o39",
+      "claim_id": "c1",
+      "seam": "sonar.gate_issues on a passing gate",
+      "behavior": "the PR's own new-code issues are handed to the agent, to fix only when the trusted request names them; the project backlog never",
+      "source_text": "A new PR in any AgentCulture repo is picked up by a fixer agent that drives it to green: SonarCloud gate, failing checks and unresolved review threads fixed on the PR branch, never merged",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o40",
+      "claim_id": "c5",
+      "seam": "github.push lineage through the queue (lineage.enqueuer)",
+      "behavior": "a push happens only for a commit whose chain is verified back through queue-add to an enabled, trusted trigger rule; a forged dispatch event or dispatch_run is refused",
+      "source_text": "The agent never pushes. It commits in its worktree; the engine runs the repo's tests on that commit and either pushes it to the PR head branch as the GitHub App, or hands the failure back to the agent for another attempt",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o41",
+      "claim_id": "c19",
+      "seam": "the PR status comment across a queued story",
+      "behavior": "one status comment per story, updated by every try and retry, closed once when the story ends",
+      "source_text": "A same-repo PR in any agentculture repo gets a fixer run on spark2 without anyone asking: the agent fixes Sonar issues, failing checks, and review comments from the operator, Qodo and a pre-approved list of users and apps (comments from anyone else are ignored) in a worktree; the engine's tests gate each commit, the App pushes passing commits, and the operator only reviews and merges",
       "origin": "llm",
       "status": "approved"
     }

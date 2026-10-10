@@ -17,6 +17,15 @@ issues; ``new_security_hotspots_reviewed`` / ``security_hotspots_reviewed`` -> t
 still to review. Any other failing condition (coverage, duplication) is named with no
 issues: the note says what it needs.
 
+**A passing gate** (#35, d33): no condition fails, so nothing is required of the agent; the
+step lists the open issues on the PR's **own new code** (``pullRequest`` plus
+``inNewCodePeriod=true``: never the project's backlog) as ``issues`` and ``new_code_issues``
+(``scope`` ``new_code``), capped by ``max_issues``. Its note says the gate passes and to fix
+one of them only if the trusted request names it, never the rest of the backlog; with none
+listed (or a failed read) it says not to work on Sonar issues. So a bare ``/fix`` leaves Sonar
+alone, and a ``/fix`` naming a new-code issue gets it as data. On a failing gate
+``new_code_issues`` is empty and ``scope`` is ``failing_conditions``.
+
 Outputs: ``available`` (the lookup worked), ``gate`` (``OK`` / ``ERROR`` / ...), ``failing``
 (``{metric, actual, threshold}`` each), ``issues`` (``{kind, key, rule, severity, message,
 path, line}`` each, at most ``max_issues``, paged), ``total`` (what SonarCloud counts across
@@ -51,6 +60,10 @@ METRIC_KINDS: dict[str, str] = {
     "new_security_hotspots_reviewed": HOTSPOT,
     "security_hotspots_reviewed": HOTSPOT,
 }
+NEW_CODE_TYPES = ["BUG", "CODE_SMELL", "VULNERABILITY"]
+"""Issue types read on a passing gate's new code (d33)."""
+FAILING_SCOPE = "failing_conditions"
+NEW_CODE_SCOPE = "new_code"
 DEFAULT_KEY = "{owner}_{name}"
 DEFAULT_MAX = 50
 _MAX_CAP = 200
@@ -123,6 +136,8 @@ class SonarGateIssuesPort:
             for c in gate["conditions"]
             if isinstance(c, Mapping) and c.get("status") == "ERROR"
         ]
+        if not failing:
+            return self._passing(client, project, number, cap, gate["status"])
         kinds = sorted({METRIC_KINDS[f["metric"]] for f in failing if f["metric"] in METRIC_KINDS})
         issues: list[dict[str, Any]] = []
         total = 0
@@ -150,6 +165,32 @@ class SonarGateIssuesPort:
             "omitted": omitted,
             "truncated": omitted > 0,
             "note": _note(gate["status"], failing, issues, total),
+            "new_code_issues": [],
+            "scope": FAILING_SCOPE,
+        }
+
+    def _passing(
+        self, client: SonarCloud, project: str, number: int, cap: int, status: Any
+    ) -> dict[str, Any]:
+        """A passing gate (d33): the issues on the PR's own new code, never the backlog, to
+        fix only when the trusted request names one. A failed read lists none."""
+        try:
+            found, total = client.issues(project, number, NEW_CODE_TYPES, limit=cap, new_code=True)
+        except SonarError:
+            found, total = [], 0
+        listed = [_issue(i, project) for i in found]
+        total = max(total, len(listed))
+        return {
+            "available": True,
+            "gate": status,
+            "failing": [],
+            "issues": listed,
+            "new_code_issues": listed,
+            "total": total,
+            "omitted": total - len(listed),
+            "truncated": total > len(listed),
+            "note": _passing_note(status, listed, total),
+            "scope": NEW_CODE_SCOPE,
         }
 
 
@@ -183,16 +224,31 @@ def _unavailable(why: str) -> dict[str, Any]:
         "gate": None,
         "failing": [],
         "issues": [],
+        "new_code_issues": [],
+        "scope": None,
         "truncated": False,
         "note": f"SonarCloud data is unavailable: {why}. Judge Sonar from the checks only.",
     }
 
 
+def _passing_note(gate: Any, listed: list[dict[str, Any]], total: int) -> str:
+    if not listed:
+        return (
+            f"The SonarCloud quality gate passes ({gate}) and this PR's new code has no open "
+            "Sonar issue: do not work on Sonar issues."
+        )
+    shown = f"the first {len(listed)} of {total}" if total > len(listed) else f"all {total}"
+    return (
+        f"The SonarCloud quality gate passes ({gate}). The sonar_issues input lists {shown} "
+        "open Sonar issue(s) on this PR's own new code. Fix one only if the trusted request "
+        "names it (its rule, file and line, or message), and never the rest of the Sonar "
+        "backlog; otherwise do not work on Sonar issues."
+    )
+
+
 def _note(
     gate: Any, failing: list[dict[str, Any]], issues: list[dict[str, Any]], total: int
 ) -> str:
-    if not failing:
-        return f"The SonarCloud quality gate passes ({gate}): do not work on Sonar issues."
     names = ", ".join(f"{f['metric']} ({f['actual']} vs {f['threshold']})" for f in failing)
     text = f"The SonarCloud quality gate fails on: {names}. "
     if issues and total > len(issues):

@@ -46,6 +46,7 @@ def test_the_recorded_reasons_and_collection():
         "concurrency_key_unresolved",
         "hop_limit",
         "run_event_unverified",
+        "dispatch_revoked",  # #35 Codex P1
     }
     assert RULE_DECISIONS in NODE_COLLECTIONS
 

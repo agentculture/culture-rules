@@ -132,8 +132,8 @@ def fix_run(**kw) -> dict:
     run = {
         "id": RUN,
         "status": "running",
-        "rule_id": "pr-fixer-checks",
-        "rule": {"id": "pr-fixer-checks", "definition": load("rules", "pr-fixer-checks")},
+        "rule_id": "pr-fixer-dispatch",
+        "rule": {"id": "pr-fixer-dispatch", "definition": load("rules", "pr-fixer-dispatch")},
         "workflow_id": "pr-fix",
         "workflow": {"id": "pr-fix", "definition": load("workflows", "pr-fix")},
         "trigger": {

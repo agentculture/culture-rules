@@ -121,6 +121,7 @@
     "requirement": null
   },
   "priority": 0,
+  "resets_attempt_budget": false,
   "schema_version": "1.0",
   "supersedes": [],
   "trigger": {

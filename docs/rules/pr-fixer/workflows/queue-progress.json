@@ -1,0 +1,87 @@
+{
+  "description": "#35 d29: moves the fixer queue with the built-in queue.progress. Frees the slot of a dispatched pr-fix run that ended, drops a request whose PR closed or whose head moved, and, while fewer pr-fix runs are dispatched than the pool's cap (the qwen-spark2 concurrency pool, else 1), dispatches the oldest request as a rules.queue.dispatch event that pr-fixer-dispatch turns into the pr-fix run. Answers every waiting request's place in line. Non-agentic.",
+  "edges": [],
+  "enabled": true,
+  "id": "queue-progress",
+  "inputs": [],
+  "name": "Progress the fixer queue",
+  "outputs": [
+    {
+      "name": "dispatched",
+      "source": "steps.progress.outputs.dispatched",
+      "type": "array"
+    },
+    {
+      "name": "dropped",
+      "source": "steps.progress.outputs.dropped",
+      "type": "array"
+    },
+    {
+      "name": "active",
+      "source": "steps.progress.outputs.active",
+      "type": "array"
+    },
+    {
+      "name": "waiting",
+      "source": "steps.progress.outputs.waiting",
+      "type": "array"
+    }
+  ],
+  "schema_version": "1.0",
+  "steps": [
+    {
+      "body": [],
+      "config": {
+        "builtin": "queue.progress",
+        "cap": 1,
+        "dispatch_rule": "pr-fixer-dispatch",
+        "key_prefix": "pr-fixer:",
+        "lookup_actor": "github-app",
+        "pool": "qwen-spark2",
+        "queue": "pr-fixer"
+      },
+      "description": "The built-in queue.progress on queues/pr-fixer. Reads each PR it is about to dispatch as the App (state and head); a failed read dispatches anyway, the run's own head guard stops a stale one.",
+      "enabled": true,
+      "id": "progress",
+      "inputs": [],
+      "kind": "code",
+      "max_iterations": null,
+      "name": "Progress the queue",
+      "outputs": [
+        {
+          "description": "",
+          "name": "dispatched",
+          "required": true,
+          "type": "array"
+        },
+        {
+          "description": "",
+          "name": "dropped",
+          "required": true,
+          "type": "array"
+        },
+        {
+          "description": "",
+          "name": "active",
+          "required": true,
+          "type": "array"
+        },
+        {
+          "description": "",
+          "name": "waiting",
+          "required": true,
+          "type": "array"
+        }
+      ],
+      "placement": {
+        "actor": "github-app",
+        "machine": null,
+        "requirement": null
+      },
+      "retry": null,
+      "timeout_s": 120.0
+    }
+  ],
+  "variables": [],
+  "version": 1
+}

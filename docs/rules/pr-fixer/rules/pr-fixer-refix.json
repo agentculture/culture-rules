@@ -1,16 +1,10 @@
 {
   "action": {
     "idempotent": false,
-    "kind": "github.comment",
-    "name": "Comment when the chain ends here",
-    "only_at_chain_end": true,
-    "params": {
-      "actor": "github-app",
-      "body": "PR fixer built and gated {{ workflow.outputs.commit_sha }} (gate {{ workflow.outputs.verdict }}) but nothing reviews it (pr-fixer-review-commit is disabled): not pushed.",
-      "number": "trigger.data.number",
-      "repo": "trigger.data.repository",
-      "status": true
-    },
+    "kind": "noop",
+    "name": "Queued: the place in line is the run's output",
+    "only_at_chain_end": false,
+    "params": {},
     "retry": null,
     "timeout_s": null
   },
@@ -61,12 +55,12 @@
     ],
     "op": "and"
   },
-  "counts_toward_budget": true,
-  "description": "d21: fires when the review of a fix requests changes and runs pr-fix again from the same PR head, with the findings as the instruction. A fix attempt: counts toward the PR's attempt budget (3), shared with the trigger rules.",
+  "counts_toward_budget": false,
+  "description": "d21, #35 d30: fires when the review of a fix requests changes and puts the PR back in the fixer queue at the back as a retry from the same PR head, with the findings as the instruction. The dispatched pr-fix run is the attempt (it counts toward the PR's budget of 3); when the PR has used them the queue refuses the retry and the run hands back once.",
   "enabled": false,
   "exclusive_group": null,
   "id": "pr-fixer-refix",
-  "max_attempts": 3,
+  "max_attempts": null,
   "may_after": [],
   "must_after": [],
   "name": "PR fixer: fix again with the review's findings",
@@ -91,6 +85,7 @@
     "requirement": null
   },
   "priority": 0,
+  "resets_attempt_budget": false,
   "schema_version": "1.0",
   "supersedes": [],
   "trigger": {
@@ -100,7 +95,7 @@
     }
   },
   "workflow": {
-    "id": "pr-fix",
+    "id": "queue-add",
     "inputs": {
       "base_sha": "trigger.data.outputs.base_sha",
       "clone_url": "trigger.data.outputs.clone_url",
@@ -109,10 +104,10 @@
       "instruction": "trigger.data.outputs.instruction",
       "number": "trigger.data.number",
       "repo": "trigger.data.repository",
-      "task": "trigger.data.outputs.task",
-      "trusted_authors": {
-        "$var": "trusted_authors"
-      }
+      "retry": {
+        "$literal": true
+      },
+      "task": "trigger.data.outputs.task"
     },
     "version": null
   }

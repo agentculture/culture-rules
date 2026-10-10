@@ -183,7 +183,9 @@ def test_end_to_end_a_fix_comment_is_held_while_gitguardian_fails(tmp_path):
     )
     w.c.publish(envelope(1, type="github.comment.created", data=facts))
     w.run_chain(5)
-    (run,) = w.runs("pr-fixer-comment")
+    (queued,) = w.runs("pr-fixer-comment")  # #35: the comment queues the fix
+    assert queued["workflow_id"] == "queue-add"
+    (run,) = w.runs("pr-fixer-dispatch")
     assert run["status"] == "failed"
     assert run["error"]["step"] == "secrets"
     assert "secrets_found" in run["error"]["message"]
@@ -199,7 +201,7 @@ def test_end_to_end_the_fix_runs_once_gitguardian_passes(tmp_path):
     w.checks.runs = [gg_run(conclusion="success", text="")]
     w.fire(failed_apps=["github-actions"])
     assert w.runs(SECRETS_RULE) == []
-    (fix,) = w.runs("pr-fixer-checks")
+    (fix,) = w.runs("pr-fixer-dispatch")  # #35: queued by pr-fixer-checks
     assert fix["status"] == "succeeded"
     assert w.qwen.inputs  # the agent ran
 
@@ -333,11 +335,11 @@ def test_a_fix_started_before_gitguardian_failed_is_held_before_its_agent(tmp_pa
             ),
         )
     )
-    w.cycle(1)
-    (fix,) = w.runs("pr-fixer-checks")
+    w.cycle(3)  # queued, dispatched (#35), started
+    (fix,) = w.runs("pr-fixer-dispatch")
     w.checks.runs = [gg_run()]
     w.run_chain(5)
-    (fix,) = w.runs("pr-fixer-checks")
+    (fix,) = w.runs("pr-fixer-dispatch")
     assert fix["status"] == "failed"
     assert fix["error"]["step"] == "secrets"
     assert w.qwen.inputs == []

@@ -23,8 +23,9 @@ Production wiring done by :func:`run_node`:
   reviewer's verdict, :mod:`culture_rules.actors.review`), ``sonar.gate_issues`` (d21, the
   issues behind a PR's failing SonarCloud gate, :mod:`culture_rules.node.actions.sonar`),
   ``gitguardian.findings`` and ``gitguardian.hold`` (d25, a PR head's GitGuardian findings
-  and the fix-run hold while GitGuardian fails, :mod:`culture_rules.node.actions.gitguardian`)
-  and ``action`` (d12), which
+  and the fix-run hold while GitGuardian fails, :mod:`culture_rules.node.actions.gitguardian`),
+  ``queue.add`` and ``queue.progress`` (#35, d29/d30, the fixer's first-come-first-served
+  queue, :mod:`culture_rules.node.actions.queue`) and ``action`` (d12), which
   never reaches this port: the executor routes a ``builtin: action`` step exactly like a
   rule's terminal action, to the ``action:<kind>`` port through the actor router
   (:mod:`culture_rules.model.action_step`).
@@ -279,6 +280,12 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
         DiscordMessageAction,
         MessageAction,
     )
+    from culture_rules.node.actions.queue import (  # noqa: PLC0415
+        QUEUE_ADD_BUILTIN,
+        QUEUE_PROGRESS_BUILTIN,
+        QueueAddPort,
+        QueueProgressPort,
+    )
     from culture_rules.node.actions.sonar import SONAR_BUILTIN, SonarGateIssuesPort  # noqa: PLC0415
 
     message = MessageAction(store)
@@ -311,6 +318,8 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
                 SONAR_BUILTIN: SonarGateIssuesPort(),  # d21: the PR's failing gate's issues
                 FINDINGS_BUILTIN: findings,  # d25: GitGuardian's findings, for the comment
                 HOLD_BUILTIN: hold,  # d25: no fix run while GitGuardian fails on the head
+                QUEUE_ADD_BUILTIN: QueueAddPort(store),  # #35 d29: the fixer queue
+                QUEUE_PROGRESS_BUILTIN: QueueProgressPort(store, pr_lookup=head),
             }
         ),
     }

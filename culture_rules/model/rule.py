@@ -112,4 +112,11 @@ class Rule(Model):
         "not a fix attempt. Needs a concurrency_key; refused together with max_attempts.",
         default=True,
     )
+    resets_attempt_budget: bool = doc(
+        "Whether this rule firing starts a new story on its concurrency key (#35, d32): when "
+        "its trigger and condition hold for an event, the key's attempt budget is reset, once "
+        "per (key, event), before the firing is admitted - like a human push or green checks. "
+        "For a trusted request such as a /fix comment. Needs a concurrency_key.",
+        default=False,
+    )
     schema_version: str = doc("Document schema version (MAJOR.MINOR)", default=SCHEMA_VERSION)

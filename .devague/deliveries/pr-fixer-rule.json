@@ -2,7 +2,7 @@
   "plan_slug": "pr-fixer-rule",
   "schema_version": 2,
   "created": "2026-10-06T08:44:59Z",
-  "updated": "2026-10-10T02:22:01Z",
+  "updated": "2026-10-10T06:36:56Z",
   "deviations": [
     {
       "id": "d1",
@@ -384,6 +384,94 @@
       "status": "approved",
       "classification": null,
       "seq": 104
+    },
+    {
+      "id": "d28",
+      "what": "Shared, first-come-first-served queue per model server (#35): an optional actor param concurrency_pool shares one slot count across every actor naming it (cap on the pool); a waiting step takes a ticket stamped at its first 'blocked' and only the oldest live ticket is admitted; queue_timeout counts from the head of the queue, so a deep queue delays but never fails a run. The queue is visible: the engine records each waiting run's position and emits rules.queue.changed when positions move (any rule or workflow may react, non-agentic), and the PR status comment gains an 'In queue' stage before 'Agent' reading 'Nth in line (behind <repo>#<n>)', updated as the queue moves; the status board stays the comment's only writer. Actors without a pool behave as today; token budgets stay per actor.",
+      "task_ref": "t17",
+      "reason": "Operator, 2026-10-10: 'Qwen shouldn't split its attention' then 'And confirmed, shared pool, issue and next in priority'; then 'we need a proper way to signal that fixer is busy. We need to add a 'in queue' step, and a message of count in line that updates.' and 'It can be non-agentic seperate workflow, even'. Live case: irc-lens#62's run waited behind culture-rules#37's with no sign on the PR.",
+      "affects": [],
+      "origin": "user",
+      "status": "approved",
+      "classification": null,
+      "seq": 109
+    },
+    {
+      "id": "d29",
+      "what": "Amends d28: the fixer's queue is owned by two visible, non-agentic rules, not engine-internal tickets. (1) Add to queue: the four fixer trigger rules (checks settled, comment, review, review comment) no longer start pr-fix directly; their workflow appends the request (repo, PR, head, trigger data) to a durable queue for the pool and replies with its place in line. (2) Progress queue requests: on a queue add, or when a pr-fix run ends (succeeded, failed, superseded, cancelled), a workflow takes the oldest live request when the pool has a free slot and dispatches it (an event a pr-fixer-dispatch rule turns into the pr-fix run, keeping the PR's concurrency key and 3-attempt budget), then refreshes every waiting request's position. The status comment shows 'In queue: Nth in line (behind <repo>#<n>)' from the queue, the status board staying its only writer. The engine keeps only the concurrency_pool cap as a safety net; a request whose PR closed or whose head moved is dropped at dispatch.",
+      "task_ref": "t17",
+      "reason": "Operator, 2026-10-10: 'Add to queue rule, progress queue requests rule.', then chose 'Two rules own the queue': the queue is part of the product model (rules -> workflows), visible and editable in the editor, rather than hidden engine state.",
+      "affects": [],
+      "origin": "user",
+      "status": "approved",
+      "classification": null,
+      "seq": 110
+    },
+    {
+      "id": "d30",
+      "what": "Amends d29: a retry waits in the queue. A pr-fix run makes one try (agent then gate) and frees the pool's slot; a try that does not pass (gate fail or guard, or the review's request_changes) re-enters the queue at the back as a retry, carrying the gate's or the reviewer's instruction and the PR's attempt count, so the other queued requests run first and the retry runs when it reaches the head again. The PR's 3-attempt budget counts across these requeues; a third failed try hands back as today. A newer request for the same PR (a push or /fix) replaces the queued retry and keeps its place.",
+      "task_ref": "t17",
+      "reason": "Operator, 2026-10-10: 'Retry should sit in queue, so if it failed, it goes to the other items in queue, when done, returns to retry'. Live case: culture-rules #37's run held the single Qwen slot through tries 2 and 3 while irc-lens #62's run waited blocked.",
+      "affects": [],
+      "origin": "user",
+      "status": "approved",
+      "classification": null,
+      "seq": 111
+    },
+    {
+      "id": "d31",
+      "what": "Merge from base: the fixer may resolve a PR's conflict with its base branch. One merge commit by the App's commit_author whose second parent is already on the PR's base branch (reachable from the base ref at gate time) is allowed: the diff guard's merge_commit rule and github.push's foreign_author check exempt that merge's second-parent history (the base's own commits) and nothing else; every other new commit must still be the bot's. The diff guard, the test gate and the review judge only the merge's own resolution (its diff against both parents), never the base's commits. A PR that turns CONFLICTING starts a fixer request like checks settling does.",
+      "task_ref": "t17",
+      "reason": "Operator approved 2026-10-10 ('approved: the merge-from-base allowance, for when the fixer itself should resolve conflicts like #37's'). Live case: culture-rules #37 run-4f297da0 \u2014 Qwen merged origin/main and resolved the three version files correctly (f6f91ef), and the diff guard rejected it (merge_commit); the push guard would also have refused foreign_author.",
+      "affects": [],
+      "origin": "user",
+      "status": "approved",
+      "classification": null,
+      "seq": 112
+    },
+    {
+      "id": "d32",
+      "what": "A new request is a new story: the 3-try budget belongs to one request, not to the PR forever. Besides today's resets (a human push, checks settled green), a trusted /fix or @rules-culture-dev comment (or review comment) resets the PR's attempt budget when it fires, through a generic rule flag resets_attempt_budget (set on pr-fixer-comment and pr-fixer-review-comment), not a hard-coded comment check. A queued retry (d30) belongs to its story: a new request replaces it in place with a fresh budget.",
+      "task_ref": "t17",
+      "reason": "Operator, 2026-10-10: '3 try budget per attempt. So if I add another /fix or push update it's a new story'. Today _resets_budgets (node/firing.py) resets only on a human push or green checks, so a /fix after three failed tries is refused.",
+      "affects": [],
+      "origin": "user",
+      "status": "approved",
+      "classification": null,
+      "seq": 113
+    },
+    {
+      "id": "d33",
+      "what": "sonar.gate_issues on a passing gate no longer forbids Sonar work outright: it also returns the issues on the PR's own new code (never the project backlog), and its note says the gate passes and to fix a Sonar issue only when the trusted request names it, never the backlog. A bare /fix on a passing gate still leaves Sonar alone; a /fix naming a new-code issue gets it as data.",
+      "task_ref": "t17",
+      "reason": "Operator approved 2026-10-10 ('please do'). Live case: irc-lens#62's /fix asked for S9073 in tests/test_mail.py; sonar.gate_issues said 'The SonarCloud quality gate passes (OK): do not work on Sonar issues.', so Qwen made no commit (run-6a89ec0d, no_changes); on lobes-cli#303 the same note was overridden by the comment, so the outcome depended on the model.",
+      "affects": [],
+      "origin": "user",
+      "status": "approved",
+      "classification": null,
+      "seq": 114
+    },
+    {
+      "id": "d34",
+      "what": "Cancelling the fixer: a trusted author stops a PR's fixer story with a /stop comment (or @rules-culture-dev stop), or a thumbs-down reaction on the /fix comment or on the fixer's status comment. GitHub sends no webhook for reactions, so while a story is active or queued the node polls those two comments' reactions about once a minute and emits github.reaction.added. A pr-fixer-stop rule (non-agentic workflow) cancels the PR's active fixer run (no push, no hand-back), removes its queued request and retries, and ends the story ('Stopped by @user'); the next /fix or human push starts a new story. Built after #35.",
+      "task_ref": "t17",
+      "reason": "Operator, 2026-10-10: 'We need a form of cancellation, like reacting thumbs-down on the /fix request to stop the agent's work / retries'.",
+      "affects": [],
+      "origin": "user",
+      "status": "approved",
+      "classification": null,
+      "seq": 115
+    },
+    {
+      "id": "d35",
+      "what": "One status comment per story, carried through the queue: the story's status record (and its comment) is passed on from the request that started it (queue-add) through every dispatched try and requeued retry, so each try updates the same comment instead of posting a new one; the story ends the comment once (pushed, handed back, stopped). Only if the status record cannot be carried through the queue is a temporary comment per try accepted, until Boards (#38). The new pr-fix digest is approved by the operator.",
+      "task_ref": "t17",
+      "reason": "Operator, 2026-10-10: 'Status comments - no, I don't want to spam with comments. We can manage the same comment properly. We need to pass it on. If we can't, then a temporary noise is approved.' and 'pr-fix fingerprint approved'.",
+      "affects": [],
+      "origin": "user",
+      "status": "approved",
+      "classification": null,
+      "seq": 116
     }
   ],
   "evidence": [
@@ -1802,6 +1890,101 @@
       "status": "approved",
       "superseded": false,
       "seq": 108
+    },
+    {
+      "id": "e82",
+      "obligation_ref": "o38",
+      "test_ref": "tests/node/test_queue.py (30) + tests/node/test_concurrency_pool.py (8) + tests/actors/test_limits.py (35)",
+      "behavior_text": "pool cap across two hosts; FIFO dispatch even when a later request re-asks first and across hosts; one dispatch per free slot under concurrent progress; a closed or moved PR dropped; a late dispatch whose slot expired never starts a run; a claimed dispatch keeps its slot; only the intended dispatch run claims; a replaced request judged on fresh facts; a slot freed in the pool that admitted it",
+      "contract_text": "c6: at most one fixer run per PR at a time and a per-PR attempt budget (extended by d28-d30, d32)",
+      "evidence_type": "automated",
+      "strength": "sensitivity",
+      "strength_basis": "the Codex-finding tests were written first and seen failing (subagent), all passing at the named commit; full suite 4680 passed; Codex round 3 approve",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-10T06:36:48",
+        "commit": "f62ca14"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 117
+    },
+    {
+      "id": "e83",
+      "obligation_ref": "o38",
+      "test_ref": "tests/rules/test_pr_fixer_queue.py (7): two PRs fixed in arrival order; a failing try goes behind the waiting PR; a 4th try never runs and the 3rd hands back once; a trusted /fix after three failed tries starts a new story; an untrusted or plain comment does not reset; a /fix while a retry is queued replaces it in place",
+      "behavior_text": "the shipped pr-fixer bundle end to end on MemoryStore: queue order A, B, then A's retry with the gate's instruction; budget per story; d32 resets",
+      "contract_text": "c6 (d30, d32)",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "chain tests run green at the named commit; the d32 tests were written after the code and checked to fail with the flag removed (lapse-like, reported by the subagent)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-10T06:36:48",
+        "commit": "f62ca14"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 118
+    },
+    {
+      "id": "e84",
+      "obligation_ref": "o39",
+      "test_ref": "tests/apps/test_sonar_gate_issues.py (20) + the chain test test_on_a_passing_gate_the_agent_gets_the_prs_new_code_issues_to_fix_only_if_named",
+      "behavior_text": "gate OK + a new-code issue: listed with scope new_code and a note to fix only when named; clean new code; gate failing unchanged; backlog never listed; a failed read is advisory",
+      "contract_text": "c1 SonarCloud gate fixed on the PR branch (d33)",
+      "evidence_type": "automated",
+      "strength": "sensitivity",
+      "strength_basis": "passing at the named commit; the live SonarCloud API was read once (public, read-only): irc-lens#62 has 1 new-code issue against 85 in the backlog",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-10T06:36:48",
+        "commit": "f62ca14"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 119
+    },
+    {
+      "id": "e85",
+      "obligation_ref": "o40",
+      "test_ref": "tests/node/test_push_chain.py (16, incl. three forgery tests for the enqueuer link)",
+      "behavior_text": "a dispatched fix's push is accepted only when its chain verifies back through the stored dispatch event and queue-add run to an enabled trusted trigger rule; disabling the trigger rule mid-chain still refuses the push; forged dispatch events and dispatch_run are refused",
+      "contract_text": "c5 the engine pushes as the App only a gated, reviewed commit of a trusted chain",
+      "evidence_type": "automated",
+      "strength": "sensitivity",
+      "strength_basis": "passing at the named commit; Codex rounds 1-3 found no trust-path bug (round 3 approve, with an extra in-memory check that a forged dispatch_run is rejected)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-10T06:36:48",
+        "commit": "f62ca14"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 120
+    },
+    {
+      "id": "e86",
+      "obligation_ref": "o41",
+      "test_ref": "tests/rules/test_pr_fixer_status.py (11) + tests/node/test_status_board.py: test_a_retry_behind_another_pr_keeps_the_storys_one_comment, test_a_refix_reuses_the_chains_status_comment, test_a_storys_second_one_try_run_reads_as_its_second_try",
+      "behavior_text": "every try and retry of a story updates one comment; the comment is not closed while a request of the story is queued or dispatched; it closes once",
+      "contract_text": "c19 (status comment, d26, carried per story by d35)",
+      "evidence_type": "automated",
+      "strength": "sensitivity",
+      "strength_basis": "the restored and new chain tests failed first (subagent); the try-count test was written after its code; all 79 status tests run against the shipped definitions",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-10T06:36:48",
+        "commit": "f62ca14"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 121
     }
   ],
   "deltas": [
@@ -1994,6 +2177,63 @@
       ],
       "evidence_refs": [
         "e78"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b15",
+      "kind": "added",
+      "behavior_text": "fixer requests wait in a first-come-first-served queue per model-server pool (queue-add, queue-progress, pr-fixer-dispatch rules); one fixer agent per pool at a time; a failed try or requested changes goes to the back as a retry",
+      "caused_by": [
+        "d29"
+      ],
+      "evidence_refs": [
+        "e82",
+        "e83"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b16",
+      "kind": "amended",
+      "behavior_text": "the attempt budget belongs to a story: a trusted /fix or review comment resets it (rule field resets_attempt_budget), besides a human push and green checks",
+      "caused_by": [
+        "d32"
+      ],
+      "evidence_refs": [
+        "e83"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b17",
+      "kind": "amended",
+      "behavior_text": "on a passing Sonar gate the agent gets the PR's own new-code issues, to fix only when the trusted request names them, instead of being told not to work on Sonar",
+      "caused_by": [
+        "d33"
+      ],
+      "evidence_refs": [
+        "e84"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b18",
+      "kind": "amended",
+      "behavior_text": "a story's tries and retries share one status comment, closed once when the story ends",
+      "caused_by": [
+        "d35"
+      ],
+      "evidence_refs": [
+        "e86"
       ],
       "origin": "llm",
       "status": "approved",

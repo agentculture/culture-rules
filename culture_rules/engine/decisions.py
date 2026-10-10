@@ -69,6 +69,7 @@ from culture_rules.store.port import StoreOps
 __all__ = [
     "FINAL_SKIP_REASONS",
     "RATE_CAPPED",
+    "DISPATCH_REVOKED",
     "RECORDED_REASONS",
     "RULE_DECISIONS",
     "RUN_EVENT_UNVERIFIED",
@@ -87,6 +88,10 @@ RUN_EVENT_UNVERIFIED = "run_event_unverified"
 """Final skip set by the node: a ``rules.run.*`` event that does not match the run it names
 (no such finished run, or any field differs from what the engine emits for it) - a forged
 or stale copy never fires a rule (:mod:`culture_rules.node.run_events`)."""
+DISPATCH_REVOKED = "dispatch_revoked"
+"""Final skip set by the node (#35, Codex P1): a queue dispatch event whose request no longer
+holds its slot in the queue (it expired and the slot went to another request) never fires,
+whenever its consumer reaches it (:func:`culture_rules.node.actions.queue.claim_dispatch`)."""
 RECORDED_REASONS: tuple[str, ...] = (
     SUPERSEDED_BY,
     BLOCKED_BY_PREDECESSOR,
@@ -100,6 +105,7 @@ RECORDED_REASONS: tuple[str, ...] = (
     ATTEMPT_BUDGET_EXHAUSTED,
     HOP_LIMIT,
     RUN_EVENT_UNVERIFIED,
+    DISPATCH_REVOKED,
 )
 FINAL_SKIP_REASONS: tuple[str, ...] = tuple(
     r for r in RECORDED_REASONS if r != BLOCKED_BY_PREDECESSOR

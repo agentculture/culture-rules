@@ -1,0 +1,52 @@
+{
+  "action": {
+    "idempotent": false,
+    "kind": "noop",
+    "name": "Nothing: the queue's state is the run's output",
+    "only_at_chain_end": false,
+    "params": {},
+    "retry": null,
+    "timeout_s": null
+  },
+  "concurrency_key": null,
+  "condition": {
+    "cmp": "==",
+    "left": {
+      "field": "data.workflow_id"
+    },
+    "op": "compare",
+    "right": {
+      "literal": "pr-fix"
+    }
+  },
+  "counts_toward_budget": true,
+  "description": "Fires when a pr-fix run is superseded, so its slot goes to the next request. Runs queue-progress (#35 d29); no concurrency key: one queue for every PR, its document changed by compare-and-set.",
+  "enabled": false,
+  "exclusive_group": null,
+  "id": "pr-fixer-queue-progress-superseded",
+  "max_attempts": null,
+  "may_after": [],
+  "must_after": [],
+  "name": "PR fixer queue: progress when a try is superseded",
+  "on_failure": null,
+  "placement": {
+    "actor": null,
+    "machine": "spark2",
+    "requirement": null
+  },
+  "priority": 0,
+  "resets_attempt_budget": false,
+  "schema_version": "1.0",
+  "supersedes": [],
+  "trigger": {
+    "kind": "event",
+    "params": {
+      "type": "rules.run.superseded"
+    }
+  },
+  "workflow": {
+    "id": "queue-progress",
+    "inputs": {},
+    "version": null
+  }
+}
