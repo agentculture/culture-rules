@@ -203,6 +203,16 @@ def ensure_status_indexes(store: Any) -> None:
     ensure(_BRIDGE, [("run_id", 1)], name="bridge_by_run")
 
 
+def _pr_closed(run: Mapping[str, Any]) -> bool:
+    """Whether a superseded run ended because its PR is no longer open (#31): a wait
+    step's error says ``pr_not_open``, not that the head moved."""
+    for step in run.get("steps") or ():
+        error = step.get("error") if isinstance(step, Mapping) else None
+        if isinstance(error, Mapping) and error.get("code") == "pr_not_open":
+            return True
+    return False
+
+
 def _refused(code: str) -> bool:
     """GitHub refused the call (4xx but 408): it did nothing."""
     return code.startswith("http_4") and code != "http_408"
@@ -616,6 +626,8 @@ class StatusBoard:
         text = None
         if status == "cancelled":
             text = "PR fixer stopped: the run was cancelled."
+        elif status == "superseded" and _pr_closed(last):
+            text = "PR fixer stopped: the PR is no longer open (merged or closed)."
         elif status == "superseded":
             text = "PR fixer stopped: the PR head moved; a new run takes over."
         else:

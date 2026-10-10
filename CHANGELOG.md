@@ -15,6 +15,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - devague: the editor-fold plan records d8, obligation o21, evidence e30–e32 and delta b10 (approved); the delivery summary carries them. The inputs mapping (part b) remains, after which e4 is re-filed
 
+## [0.18.2] - 2026-10-10
+
+### Fixed
+
+- PR fixer (#31, d27): a run whose PR is merged or closed during the quiet period ends `superseded` with `pr_not_open` at the wake, before any workspace is set up, instead of failing on `git fetch` of the deleted branch (run-048498ce, culture-rules #27). The PR-head lookup now also returns the PR's `state` and `merged` (same read); a merged PR keeps its head sha, so the sha alone could not tell. The status comment says the PR is no longer open, not that its head moved
+- devague: the pr-fixer records d23–d26 and lapse l7 (filed live, not yet on main) land with this PR, with l1–l6 confirmed, and d27 for #31
+
 ## [0.18.1] - 2026-10-10
 
 ### Changed

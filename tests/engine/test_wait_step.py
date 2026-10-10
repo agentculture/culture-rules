@@ -40,11 +40,11 @@ def store(clock) -> MemoryStore:
 class Heads:
     """A scripted head lookup; records calls."""
 
-    def __init__(self, sha: str | Exception = SHA_A) -> None:
+    def __init__(self, sha: str | dict | Exception = SHA_A) -> None:
         self.sha = sha
         self.calls: list[tuple] = []
 
-    def __call__(self, actor: str | None, repo: str, number: int) -> str:
+    def __call__(self, actor: str | None, repo: str, number: int) -> str | dict:
         self.calls.append((actor, repo, number))
         if isinstance(self.sha, Exception):
             raise self.sha
@@ -161,6 +161,61 @@ def test_guard_moved_head_ends_superseded_and_runs_nothing_later(store, clock):
     assert record["status"] == "superseded"
     assert record["emitted"] is False
     assert record["envelope"]["type"] == "rules.run.superseded"
+
+
+@pytest.mark.parametrize(
+    ("pull", "why"),
+    [
+        ({"head_sha": SHA_A, "state": "closed", "merged": True}, "merged"),
+        ({"head_sha": SHA_A, "state": "closed", "merged": False}, "closed"),
+    ],
+    ids=["merged", "closed"],
+)
+def test_guard_pr_no_longer_open_ends_superseded_pr_not_open(store, clock, pull, why):
+    """#31 (d27): a PR merged or closed during the wait keeps its head sha, so the sha
+    check alone let the run go on to provision and fail on ``git fetch`` of a deleted
+    branch (run-048498ce, culture-rules #27). The wake now ends it ``superseded`` with
+    ``pr_not_open`` and runs nothing later."""
+    actor, heads = FakeActor(), Heads(pull)
+    ex = make(store, clock, actor, heads)
+    run = start(ex, guard_config(60))
+    ex.run_until_idle()
+    clock.advance(61)
+    ex.run_until_idle()
+    doc = ex.run(run["id"])
+    assert doc["status"] == "superseded"
+    assert actor.calls == []
+    assert step_state(doc, "after")["status"] == "cancelled"
+    error = step_state(doc, "w")["error"]
+    assert error["code"] == "pr_not_open"
+    assert why in error["message"]
+    record = store.get("run_completions", run["id"])
+    assert record["status"] == "superseded"
+
+
+def test_guard_open_pr_with_unchanged_head_proceeds(store, clock):
+    actor = FakeActor()
+    heads = Heads({"head_sha": SHA_A, "state": "open", "merged": False})
+    ex = make(store, clock, actor, heads)
+    run = start(ex, guard_config(60))
+    ex.run_until_idle()
+    clock.advance(61)
+    ex.run_until_idle()
+    assert ex.run(run["id"])["status"] == "succeeded"
+    assert len(actor.calls_for("after")) == 1
+
+
+def test_guard_open_pr_with_moved_head_still_says_head_moved(store, clock):
+    actor = FakeActor()
+    heads = Heads({"head_sha": SHA_B, "state": "open", "merged": False})
+    ex = make(store, clock, actor, heads)
+    run = start(ex, guard_config(60))
+    ex.run_until_idle()
+    clock.advance(61)
+    ex.run_until_idle()
+    doc = ex.run(run["id"])
+    assert doc["status"] == "superseded"
+    assert step_state(doc, "w")["error"]["code"] == "superseded"
 
 
 @pytest.mark.parametrize(
