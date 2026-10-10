@@ -54,7 +54,9 @@ on the PR with a screenshot.
     same when storage is blocked:
     - **Simple** (the default, `src/workflows/simple/`): When / Then. When
       lists the workflow's entry points, one per rule that starts it, with
-      trigger, condition, placement, attempt counting and the rule's
+      trigger, condition, placement, attempt counting, the rule's
+      exclusive group and priority (edited together; the group's other
+      rules are listed with the winner marked) and the rule's
       relationships (*must run after*, *may run after*, *supersedes*);
       a continuation is owned here, by the workflow it starts. Then shows
       "Continues into" (a read-only link; the continuation is edited on

@@ -53,7 +53,7 @@ export interface FakeApi {
   activeRuns: Record<string, ActiveRun[]>;
   calls: { method: string; path: string; body?: unknown }[];
   /** Make the next request to `method path` fail with this status. */
-  failNext: Record<string, { status: number; code: string; message: string }>;
+  failNext: Record<string, { status: number; code: string; message: string; errors?: { path: string; code: string; message: string }[] }>;
   now: number;
 }
 
@@ -337,6 +337,7 @@ export function handle(
   const forced = api.failNext[key];
   if (forced) {
     delete api.failNext[key];
+    if (forced.errors) return json(forced.status, { error: { code: forced.code, message: forced.message, errors: forced.errors } });
     return error(forced.status, forced.code, forced.message);
   }
   if (method === "GET") return handleGet(api, path, query);

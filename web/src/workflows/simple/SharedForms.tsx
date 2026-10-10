@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import type { Actor } from "../../api/actors";
+import type { ApiError } from "../../api/client";
 import type { Action, Machine, Placement, Rule, Workflow } from "../../api/types";
 import GuidedNotice from "../../components/GuidedNotice";
 import { useEscapeKey } from "../../hooks/useEscapeKey";
 import ActionPicker, { actionProblem, blankAction } from "../../rules/ActionPicker";
-import { runsProblem, type RunsEdit } from "./text";
+import { groupRanking, parsePriority, priorityOf, runsProblem, type GroupMember, type RunsEdit } from "./text";
 
 /** Who a save writes: every entry point's rule (a shared value) or this entry's alone (an override). */
 export type Scope = "every entry point" | "this entry point";
@@ -271,6 +272,123 @@ export function PlacementForm({
           ))}
         </select>
       </label>
+    </SharedForm>
+  );
+}
+
+export type GroupField = "exclusive_group" | "priority";
+export type GroupEdit = Partial<{ exclusive_group: string | null; priority: number }>;
+export type GroupProblems = Partial<Record<GroupField, string>>;
+
+const GROUP_FIELDS: readonly GroupField[] = ["exclusive_group", "priority"];
+
+/**
+ * A 422's messages, each at the field its path names; one naming neither field (or a bare
+ * envelope) is shown at the first field the edit changed.
+ */
+export function groupProblems(err: ApiError, edit: GroupEdit): GroupProblems {
+  const found: GroupProblems = {};
+  for (const e of err.errors) {
+    const field = GROUP_FIELDS.find((f) => e.path.split(/[.[\]/]/).includes(f));
+    if (field) found[field] = found[field] ? `${found[field]}; ${e.message}` : e.message;
+  }
+  if (Object.keys(found).length > 0) return found;
+  const first = GROUP_FIELDS.find((f) => f in edit) ?? "exclusive_group";
+  return { [first]: err.message };
+}
+
+/** The rules sharing `group`, this one at its typed priority, ranked as the engine picks. */
+function GroupMembers({ rule, group, priority, rules }: Readonly<{ rule: Rule; group: string; priority: number; rules: readonly Rule[] }>) {
+  if (!group) return null;
+  const others: GroupMember[] = rules
+    .filter((r) => r.id !== rule.id && r.exclusive_group === group)
+    .map((r) => ({ id: r.id, name: r.name, priority: priorityOf(r), enabled: r.enabled !== false }));
+  if (others.length === 0) return <p className="fold-entry__meta">No other rule is in group {group}.</p>;
+  const self = { id: rule.id, name: rule.name, priority, enabled: rule.enabled !== false };
+  const { ranked, winner, tied } = groupRanking([self, ...others]);
+  return (
+    <>
+      <ul className="fold-group" aria-label={`Rules in group ${group}`}>
+        {ranked.map((m) => (
+          <li key={m.id} className="fold-group__member">
+            <span className="fold-group__name">{m.name}</span>
+            <span className="fold-entry__meta">priority {m.priority}</span>
+            {m === self ? <span className="fold-entry__meta">(this one)</span> : null}
+            {m === winner ? <span className="fold-badge fold-badge--win">wins</span> : null}
+            {m.enabled ? null : <span className="fold-badge fold-badge--off">disabled</span>}
+          </li>
+        ))}
+      </ul>
+      {tied && winner ? (
+        <p className="fold-entry__meta">Tie at priority {winner.priority}: {winner.id} wins, first by id.</p>
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * "Group and priority": the rule's exclusive group and its priority in it, edited together.
+ * Only the fields the author changed are sent; an emptied group is sent as null (validate.py
+ * refuses an empty one), a priority must be a whole number. `onSave` answers the server's
+ * refusal per field (a 422), shown at that field with the form kept open.
+ */
+export function GroupForm({
+  label,
+  rule,
+  rules,
+  busy,
+  onSave,
+  onCancel,
+}: Readonly<{
+  label: string;
+  /** The rule as it was when the form opened (c27). */
+  rule: Rule;
+  /** Every rule, for the group's other members. */
+  rules: readonly Rule[];
+  busy: boolean;
+  onSave: (edit: GroupEdit) => Promise<GroupProblems | null>;
+  onCancel: () => void;
+}>) {
+  const initialGroup = typeof rule.exclusive_group === "string" ? rule.exclusive_group : "";
+  const initialPriority = priorityOf(rule);
+  const [group, setGroup] = useState(initialGroup);
+  const [priority, setPriority] = useState(String(initialPriority));
+  const [problems, setProblems] = useState<GroupProblems>({});
+  const id = useId();
+  const typed = parsePriority(priority);
+  const submit = async () => {
+    if (typed === null) return setProblems({ priority: "Priority is a whole number; higher wins (empty is 0)." });
+    const edit: GroupEdit = {};
+    if (group.trim() !== initialGroup) edit.exclusive_group = group.trim() || null;
+    if (typed !== initialPriority) edit.priority = typed;
+    if (Object.keys(edit).length === 0) return onCancel();
+    setProblems({});
+    const found = await onSave(edit);
+    if (found) setProblems(found);
+  };
+  const described = (field: GroupField) => ({
+    "aria-invalid": problems[field] ? true : undefined,
+    "aria-describedby": problems[field] ? `${id}-${field}` : undefined,
+  });
+  const problem = (field: GroupField) =>
+    problems[field] ? (
+      <p id={`${id}-${field}`} className="notice notice--error fold-field-problem" role="alert">
+        {problems[field]}
+      </p>
+    ) : null;
+  return (
+    <SharedForm label={label} scope="this entry point" busy={busy} onCancel={onCancel} onSubmit={() => void submit()}>
+      <label>
+        <span>Group</span>
+        <input value={group} placeholder="No group" {...described("exclusive_group")} onChange={(e) => setGroup(e.target.value)} />
+      </label>
+      {problem("exclusive_group")}
+      <label>
+        <span>Priority</span>
+        <input inputMode="numeric" value={priority} placeholder="0" {...described("priority")} onChange={(e) => setPriority(e.target.value)} />
+      </label>
+      {problem("priority")}
+      <GroupMembers rule={rule} group={group.trim()} priority={typed ?? initialPriority} rules={rules} />
     </SharedForm>
   );
 }

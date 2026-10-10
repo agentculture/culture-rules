@@ -152,6 +152,10 @@ export interface Rule {
   may_after?: string[];
   /** Rules this one replaces (the `supersedes` relationship). */
   supersedes?: string[];
+  /** Only the highest-priority matching rule of a group fires; never an empty string (validate.py). */
+  exclusive_group?: string | null;
+  /** Higher wins within an exclusive group; 0 when absent. */
+  priority?: number;
   enabled?: boolean;
 }
 

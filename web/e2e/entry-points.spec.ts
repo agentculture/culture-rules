@@ -215,6 +215,52 @@ test.describe("Entry points (the Rules tab, folded into Workflows)", () => {
     await expect(card.getByRole("list", { name: "Only if all of" })).toContainText("low");
   });
 
+  test("group and priority round-trip: edited together, saved with PUT, still there after a reload (#29)", async ({ page }) => {
+    const api = createFakeApi();
+    Object.assign(api.rules.find((r) => r.id === "train-batch")!, { exclusive_group: "deploy", priority: 1 });
+    await openAt(page, "build-and-publish", "Build and publish", api);
+    const chip = () => entry(page, "Build and publish").getByRole("button", { name: "Group and priority for Build and publish" });
+    const form = () => entry(page, "Build and publish").getByRole("form", { name: "Group and priority for Build and publish" });
+    await expect(chip()).toHaveText("no group");
+
+    await chip().click();
+    await form().getByLabel("Group", { exact: true }).fill("deploy");
+    await form().getByLabel("Priority").fill("2");
+    // The group's other rule shows before the save, ranked as the engine picks.
+    const members = form().getByRole("list", { name: "Rules in group deploy" }).getByRole("listitem");
+    await expect(members).toHaveCount(2);
+    await expect(members.first()).toContainText("Build and publish");
+    await expect(members.first()).toContainText("wins");
+    await expect(members.nth(1)).toContainText("Train batch");
+    const results = await new AxeBuilder({ page }).analyze();
+    const bad = results.violations.filter((v) => v.impact === "serious" || v.impact === "critical");
+    expect(bad.map((v) => `${v.id} — ${v.help}: ${v.nodes.map((n) => n.target).join(" ")}`)).toEqual([]);
+    await form().getByRole("button", { name: "Save for this entry point" }).click();
+    await expect(chip()).toHaveText("group deploy · priority 2");
+    const put = sent(api, "PUT", "/rules/build-and-publish");
+    expect(put).toHaveLength(1);
+    expect(put[0].body).toMatchObject({ exclusive_group: "deploy", priority: 2 });
+
+    await page.reload();
+    await untilReady(page);
+    await expect(chip()).toHaveText("group deploy · priority 2");
+    await chip().click();
+    await expect(form().getByLabel("Group", { exact: true })).toHaveValue("deploy");
+    await expect(form().getByLabel("Priority")).toHaveValue("2");
+
+    // Clearing the group saves null, never "", and that too survives a reload.
+    await form().getByLabel("Group", { exact: true }).fill("");
+    await form().getByRole("button", { name: "Save for this entry point" }).click();
+    await expect(chip()).toHaveText("no group · priority 2");
+    await page.reload();
+    await untilReady(page);
+    await expect(chip()).toHaveText("no group · priority 2");
+    const stored = api.rules.find((r) => r.id === "build-and-publish") as { exclusive_group?: string | null; priority?: number };
+    expect(stored.exclusive_group ?? null).toBeNull();
+    expect(stored.priority).toBe(2);
+    expect((await agentState(page)).errors).toEqual([]);
+  });
+
   test("axe: no serious or critical violations while editing, with asks and relationships", async ({ page }) => {
     await openAt(page, "build-and-publish", "Build and publish", withPendingAsk(createFakeApi()));
     const card = entry(page, "Build and publish");

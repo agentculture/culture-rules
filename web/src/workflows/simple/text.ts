@@ -181,6 +181,10 @@ export function valueText(field: string, value: unknown): string {
     }
     case "workflow":
       return (value as { id?: string } | null | undefined)?.id ?? "no workflow";
+    case "exclusive_group":
+      return typeof value === "string" && value ? `group ${value}` : "no group";
+    case "priority":
+      return `priority ${typeof value === "number" ? value : 0}`;
     default:
       return value === undefined ? "unset" : JSON.stringify(value);
   }
@@ -342,4 +346,43 @@ export function countsEdit(rule: Rule): Record<string, unknown> | null {
   const key = fieldOf(rule, "concurrency_key");
   if (typeof key !== "string" || !key) return null;
   return { counts_toward_budget: false, max_attempts: null };
+}
+
+/** A rule's priority as the engine reads it: 0 when absent (model/rule.py). */
+export const priorityOf = (rule: Rule): number => (typeof rule.priority === "number" ? rule.priority : 0);
+
+/** "group deploy · priority 2", "no group", or "no group · priority 3" when only the priority is set. */
+export function groupWords(rule: Rule): string {
+  const priority = priorityOf(rule);
+  if (rule.exclusive_group) return `group ${rule.exclusive_group} · priority ${priority}`;
+  return priority === 0 ? "no group" : `no group · priority ${priority}`;
+}
+
+/** A typed priority: a whole number (an empty field is the default, 0), or null for anything else. */
+export function parsePriority(text: string): number | null {
+  const t = text.trim();
+  if (!t) return 0;
+  if (!/^[-+]?\d+$/.test(t)) return null;
+  const n = Number(t);
+  return Number.isSafeInteger(n) ? n : null;
+}
+
+export interface GroupMember {
+  id: string;
+  name: string;
+  priority: number;
+  enabled: boolean;
+}
+
+/**
+ * The members of one exclusive group as the engine ranks them (engine/matching.py): highest
+ * priority first, equal priorities by lowest rule id. A disabled rule never matches, so it never
+ * wins: the winner is the first enabled member, and a tie is another enabled one at its priority.
+ */
+export function groupRanking(members: readonly GroupMember[]): { ranked: GroupMember[]; winner: GroupMember | null; tied: boolean } {
+  const ranked = [...members].sort((a, b) => b.priority - a.priority || compareKeys(a.id, b.id));
+  const enabled = ranked.filter((m) => m.enabled);
+  const winner = enabled[0] ?? null;
+  const tied = winner !== null && enabled.filter((m) => m.priority === winner.priority).length > 1;
+  return { ranked, winner, tied };
 }
