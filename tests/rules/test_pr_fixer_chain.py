@@ -144,8 +144,7 @@ def test_requested_changes_fix_again_with_the_findings_then_publish(tmp_path):
     (push_call,) = w.push.calls
     assert push_call[1]["commit_sha"] == gate_of(fixes[1])["commit_sha"]
     assert budget(w)["count"] == 2
-    # each dispatched try is a chain of its own for the status board (#35, open question)
-    assert len(w.comments()) == 2
+    assert len(w.comments()) == 1  # #35 d35: one status comment per story
 
 
 def test_three_requests_for_changes_hand_back_once_with_the_findings(tmp_path):
@@ -159,10 +158,7 @@ def test_three_requests_for_changes_hand_back_once_with_the_findings(tmp_path):
     assert last["error"]["message"].startswith("changes_requested: ")
     assert w.run_of("publish-fix") == []
     assert w.push.calls == []
-    # one status comment per dispatched try (#35, open question); one hand-back, the last
-    *earlier, body = w.comments()
-    assert len(earlier) == 2
-    assert not any("handed back" in e for e in earlier)
+    (body,) = w.comments()  # one hand-back for the story (#35 d35)
     assert body.startswith("PR fixer handed back (actor_failed): changes_requested")
     assert FINDING["detail"] in body
     assert last["id"] in body

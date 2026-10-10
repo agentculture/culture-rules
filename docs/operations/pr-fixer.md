@@ -601,10 +601,14 @@ workflows own it; no agent is involved.
   `queue-progress` runs (`culture-rules runs show <id>`). The status comment
   does not show the queue yet: a generic status board is to be specced
   separately.
-- **One status comment per try.** A `pr-fix` run started by the queue is the
-  root of its chain for the status board, so a re-fix or a retry posts a new
-  status comment; the earlier one ends "the chain ended". Before #35 a re-fix
-  wrote into the first comment.
+- **One status comment per story** (d35). The board walks a dispatched try
+  back through the queue (the same verified link the push uses) to the run
+  that queued the request: a story's first try, its retries and its re-fixes
+  share that root and so one comment. While a request of the story waits in
+  the queue the comment stays open (never "the chain ended"); the story ends
+  it once: pushed, handed back after its last try, or stopped. The Agent
+  stage reads "try N of 3", counted over the story's runs. A new `/fix` is a
+  new story: it replaces a queued retry and gets a comment of its own.
 - **Safety net.** The engine still caps the actor: give `qwen-fixer` (and
   any other actor on the same model server) `params.concurrency_pool:
   qwen-spark2` with `max_concurrency: 1`, so even a `pr-fix` run started

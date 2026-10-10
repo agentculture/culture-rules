@@ -150,7 +150,7 @@ def test_an_app_without_a_machine_has_no_live_status(w):
 
 
 def test_a_rule_without_status_writes_none(w):
-    rule = load("rules", "pr-fixer-checks")
+    rule = load("rules", "pr-fixer-dispatch")
     for key in ("action", "on_failure"):
         rule[key]["params"].pop("status")
     w.store.put("runs", fix_run(rule={"id": "x", "definition": rule}))
@@ -395,7 +395,7 @@ def test_the_action_succeeds_even_when_nothing_can_be_posted(w):
 
 
 def test_finish_outside_a_status_chain_is_none(w):
-    rule = load("rules", "pr-fixer-checks")
+    rule = load("rules", "pr-fixer-dispatch")
     for key in ("action", "on_failure"):
         rule[key]["params"].pop("status")
     assert w.finish(fix_run(rule={"id": "x", "definition": rule})) is None

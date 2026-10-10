@@ -19,7 +19,7 @@ from culture_rules.node.fixer_status import (
     render,
     status_actor,
 )
-from tests.node.status_fixtures import RUN, fix_run, load, plain
+from tests.node.status_fixtures import RUN, fix_run, load, plain, steps
 
 GHP = "ghp" + "_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"
 KNOWN = "synthetic-" + "known-secret-value-42"
@@ -244,3 +244,17 @@ def test_a_set_but_invalid_public_url_warns(caplog):
     with caplog.at_level("WARNING", logger="culture_rules.node.fixer_status"):
         assert public_url(None) == public_url("") == DEFAULT_PUBLIC_URL  # unset: silent
     assert not caplog.records
+
+
+def test_a_storys_second_one_try_run_reads_as_its_second_try():
+    """#35 d35: pr-fix makes one try per run; the story's tries are counted over its runs,
+    out of the dispatch rule's max_attempts."""
+    first = fix_run(
+        id="run-first",
+        status="succeeded",
+        steps=steps(quiet="succeeded", secrets="succeeded", agent="succeeded", gate="succeeded"),
+    )
+    second = fix_run(id="run-second", created_at="2026-10-09T12:30:00+00:00")
+    body = render(Chain(root=first, runs=[first, second]))
+    assert "- **working (try 2 of 3)** Agent (qwen-fixer)" in body
+    assert "- **working (try 1 of 3)** Agent (qwen-fixer)" in render(chain_of(fix_run()))
