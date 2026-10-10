@@ -36,3 +36,19 @@ def test_the_dispatched_tip_comes_only_from_a_genuine_dispatch_event():
     assert dispatched_base_tip(store, forged) is None
     assert dispatched_base_tip(store, {"id": "x", "rule_id": "r", "trigger": {}}) is None
     assert dispatched_base_tip(store, None) is None
+
+
+def test_only_a_queue_add_run_may_follow_a_failed_run():
+    """d37 (Codex round 2): a failed fix may be followed by a retry's queue.add only; a
+    review or publish standing on a failed run is never part of a verified story."""
+    from culture_rules.actors.lineage import LineageError, _run_links
+
+    review_on_failed = {
+        "id": "r",
+        "rule_id": "pr-fixer-review-commit",
+        "trigger": {"type": "rules.run.failed", "id": "runevt_x", "data": {"run_id": "f"}},
+        "workflow": {"definition": {"steps": [{"kind": "ai", "config": {}}]}},
+    }
+    with pytest.raises(LineageError) as err:
+        _run_links(MemoryStore(), review_on_failed, lambda run: "fix", "review", "fix")
+    assert err.value.code == "chain_unverified"

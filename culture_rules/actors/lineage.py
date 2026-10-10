@@ -56,6 +56,7 @@ __all__ = [
 
 CHAIN_UNVERIFIED = "chain_unverified"
 RUN_SUCCEEDED = "rules.run.succeeded"
+RUN_FAILED = "rules.run.failed"
 _RUNS = "runs"  # culture_rules.engine.runs.RUNS_COLLECTION (not imported: no engine cycle)
 _EVENTS = "events"  # culture_rules.events.ingest.EVENTS_COLLECTION
 QUEUE_DISPATCH = "rules.queue.dispatch"  # culture_rules.node.actions.queue.DISPATCH_TYPE
@@ -79,14 +80,20 @@ def step_state(run: Mapping[str, Any], key: str) -> dict[str, Any] | None:
     return next((s for s in run.get("steps", ()) if s.get("key") == key), None)
 
 
-def upstream(store: Any, run: Mapping[str, Any]) -> Mapping[str, Any]:
-    """The verified run whose ``rules.run.succeeded`` event started ``run`` (module doc)."""
+def upstream(store: Any, run: Mapping[str, Any], *, failed: bool = False) -> Mapping[str, Any]:
+    """The verified run whose ``rules.run.succeeded`` event started ``run`` (module doc).
+
+    ``failed`` (d37, only for a retry's ``queue.add`` link): the run whose verified
+    ``rules.run.failed`` event started it instead, and that run failed - a fixer try whose
+    agent ran out of time, put back in line by ``pr-fixer-retry-failed``. Every other link
+    (a review, a publish, a re-fix) still needs the run above it to have succeeded."""
     # node layer, lazily
     from culture_rules.node.firing import run_id_for  # noqa: PLC0415
     from culture_rules.node.run_events import verify_run_event  # noqa: PLC0415
 
     trigger = run.get("trigger")
-    if not isinstance(trigger, Mapping) or trigger.get("type") != RUN_SUCCEEDED:
+    want = RUN_FAILED if failed else RUN_SUCCEEDED
+    if not isinstance(trigger, Mapping) or trigger.get("type") != want:
         raise LineageError(CHAIN_UNVERIFIED, "the run was not started by a run succeeding")
     rule_id, event_id = run.get("rule_id"), trigger.get("id")
     if not (isinstance(rule_id, str) and isinstance(event_id, str) and rule_id and event_id):
@@ -98,7 +105,7 @@ def upstream(store: Any, run: Mapping[str, Any]) -> Mapping[str, Any]:
         raise LineageError(CHAIN_UNVERIFIED, f"its trigger is not a genuine run event: {why}")
     data = trigger.get("data") if isinstance(trigger.get("data"), Mapping) else {}
     up = store.get(_RUNS, data.get("run_id")) if isinstance(data.get("run_id"), str) else None
-    if not up or up.get("status") != "succeeded":
+    if not up or up.get("status") != ("failed" if failed else "succeeded"):
         raise LineageError(CHAIN_UNVERIFIED, "the upstream run did not succeed")
     return up
 
@@ -155,7 +162,16 @@ def _run_links(
     store: Any, current: Mapping[str, Any], role_of: Any, review_role: str, fix_role: str
 ) -> list[Mapping[str, Any]]:
     """The verified runs above ``current``, which a run event started: a review and the fix
-    it reviewed, or (for a ``queue.add`` run, a retry) the fix whose try did not pass."""
+    it reviewed, or (for a ``queue.add`` run, a retry) the fix whose try did not pass - its
+    gate's verdict (``rules.run.succeeded``), or, d37, its agent running out of time
+    (``rules.run.failed``: only a ``queue.add`` run may stand on a failed fix)."""
+    if _trigger_type(current) == RUN_FAILED:
+        if not _is_enqueuer(current):
+            raise LineageError(CHAIN_UNVERIFIED, "only a retry may follow a failed run")
+        up = upstream(store, current, failed=True)
+        if role_of(up) != fix_role:
+            raise LineageError("workflow_not_trusted", "a retry not of a pr-fix run")
+        return [up]
     up = upstream(store, current)
     role = role_of(up)
     if role == fix_role and _is_enqueuer(current):

@@ -409,3 +409,18 @@ def test_d37_katvan57_a_merge_of_the_live_base_tip_is_pushed(tmp_path):
     assert run["outputs"]["verdict"] == "pass", run["outputs"].get("gate_output")
     assert len(w.run_of("publish-fix")) == 1
     assert handed_back(w) == []
+
+
+def test_d37_a_timeout_then_a_passing_retry_is_really_pushed(tmp_path, pem):  # noqa: F811
+    """Codex round 2: the push walks the story back through the retry that followed a
+    timed-out try (a verified rules.run.failed link, only for queue.add) and publishes."""
+    w = ChainWorld(tmp_path, turns=["timeout", "commit"], real_push_pem=pem)
+    trust_app(w)
+    settle(w, 1)
+    w.run_chain()
+    first, second = fixes(w)
+    assert first["status"] == "failed"
+    (publish,) = w.run_of("publish-fix")
+    assert publish["status"] == "succeeded", publish.get("error")
+    assert w.remote_head() != w.repo.start
+    assert handed_back(w) == []

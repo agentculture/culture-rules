@@ -429,7 +429,10 @@ records that `base_sha`, but the try is given the live one:
   the queue with the try's own instruction and a note: a failed run now
   records the workflow outputs sourced from its inputs or variables (never a
   step's value, which may be what failed), so its `rules.run.failed` event
-  carries the instruction, task, clone URL and head branch. Every retry counts toward
+  carries the instruction, task, clone URL and head branch. The push's lineage
+  check accepts that link (a verified `rules.run.failed` event of a failed
+  `pr-fix` run) for a retry's `queue.add` run only; a review or a publish still
+  stands only on a run that succeeded. Every retry counts toward
   the story's 3 tries; any other failure still hands back once. Configuration
   refusals and `base_mismatch` still fail the step.
 - **Conflict watch and #44.** The watch's event id is the PR's head and its
