@@ -2,7 +2,7 @@
   "plan_slug": "pr-fixer-rule",
   "schema_version": 2,
   "created": "2026-10-06T08:44:59Z",
-  "updated": "2026-10-10T17:48:45Z",
+  "updated": "2026-10-10T18:39:31Z",
   "deviations": [
     {
       "id": "d1",
@@ -485,6 +485,19 @@
       "status": "approved",
       "classification": "needs-follow-up",
       "seq": 126
+    },
+    {
+      "id": "d37",
+      "what": "Live base tip: the fixer's base commit is the base branch's live tip resolved through the App at request time, not pulls.base.sha (GitHub sets that to the base as of the PR's last push: sometimes the fork point, sometimes a tip missing from the head's history); it is carried through queue-add, dispatch and the gate, which verifies it against the live branch, allows one merge whose second parent is an ancestor of it, fetches the base commit into the worktree when missing, and names it in the conflict rule and the d36 paragraph. An infrastructure refusal (source_unavailable) or an agent timeout goes back to the queue as a retry instead of ending the story on its first try.",
+      "task_ref": "t17",
+      "reason": "Live cases 2026-10-10 on 0.18.7: katvan#57 run-628b804e (base.sha 893352d was the fork point; Qwen made a real merge of main de755e4 and the gate refused merge_commit 'the merge's second parent is not on the base branch'); irc-lens#68 (base.sha 7fdc61ec was main's tip, absent from the head's history; gate source_unavailable 'bad object'). Both stories ended at try 1. Operator approved 2026-10-10 ('D37 approved').",
+      "affects": [
+        "t17"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "needs-follow-up",
+      "seq": 130
     }
   ],
   "evidence": [
