@@ -2,7 +2,7 @@
   "plan_slug": "rollout-cli",
   "schema_version": 2,
   "created": "2026-10-10T21:41:12Z",
-  "updated": "2026-10-10T22:21:01Z",
+  "updated": "2026-10-10T22:36:23Z",
   "deviations": [
     {
       "id": "d1",
@@ -36,6 +36,19 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 3
+    },
+    {
+      "id": "d4",
+      "what": "Codex round 2 on the rollout CLI: resume_requested is first-wins (409 step_recorded); enable refuses when a snapshot rule is absent; the shared venv is read from ExecStart over D-Bus (busctl, exact argv) instead of parsing 'systemctl show' text; and every /rollouts write refuses (exit 2) on an API that predates the endpoints, with plan reporting the API version. The release that ships the rollout CLI (0.18.12) is therefore bootstrapped once by hand ('Bootstrapping the first release' in docs/operations/rollout.md); the first rollout fully through the CLI is the next release, which changes t7",
+      "task_ref": "t7",
+      "reason": "the live API (0.18.8) has no /rollouts endpoints, so pause and upgrade cannot record anything; Codex accepted either a bootstrap path on the old API or a documented hand bootstrap, and the hand bootstrap keeps the admin check unchanged",
+      "affects": [
+        "t5"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 4
     }
   ],
   "evidence": [],
