@@ -49,6 +49,7 @@ def test_only_a_queue_add_run_may_follow_a_failed_run():
         "trigger": {"type": "rules.run.failed", "id": "runevt_x", "data": {"run_id": "f"}},
         "workflow": {"definition": {"steps": [{"kind": "ai", "config": {}}]}},
     }
+    store = MemoryStore()
     with pytest.raises(LineageError) as err:
-        _run_links(MemoryStore(), review_on_failed, lambda run: "fix", "review", "fix")
+        _run_links(store, review_on_failed, lambda run: "fix", "review", "fix")
     assert err.value.code == "chain_unverified"

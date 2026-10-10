@@ -450,6 +450,9 @@ class QueueProgressPort:
         return cap
 
 
+_KEEP_PLACE = object()  # _admission: the request keeps its place in the queue
+
+
 class _Pass:
     """One ``queue.progress`` pass over a fresh read, retried on a lost compare-and-set."""
 
@@ -515,38 +518,48 @@ class _Pass:
                 break
             if any(a["key"] == req["key"] for a in doc["active"]):
                 continue  # the PR's earlier request is still running: keep the place
-            key = _pr_key(self.config, req["repository"], req["number"])
-            reason = _stopped_request(self.store, key, req)  # d34: never a stopped story
-            if reason is not None:
-                doc["waiting"].remove(req)
-                dropped.append({"key": req["key"], "reason": reason})
+            reason = self._admission(req, now, ik)
+            if reason is _KEEP_PLACE:
                 continue
-            state = _key_state(self.store, key, now)
-            reason = "attempt_budget_exhausted" if _exhausted(state) else None
-            if reason is None and state["busy"]:
-                continue  # its chain still holds the key: a firing now would be deduplicated
-            reason = reason or self._pr_refusal(req, ik)
             doc["waiting"].remove(req)
             if reason is not None:
                 dropped.append({"key": req["key"], "reason": reason})
                 continue
-            event_id = dispatch_event_id(self.name, req["rid"])
-            act = {
-                "rid": req["rid"],
-                "key": req["key"],
-                "repository": req["repository"],
-                "number": req["number"],
-                "event_id": event_id,
-                "run_id": _run_id_for(self.rule, event_id),
-                "dispatched_at": _iso(now),
-                "request": req,
-            }
-            tip = self._base_tip(req)
-            if tip is not None:
-                act["base_sha"] = tip  # d37: the base branch's tip now, not base.sha
+            act = self._dispatch(req, now)
             doc["active"].append(act)
             dispatched.append(act)
         return dispatched, dropped
+
+    def _admission(self, req: Mapping[str, Any], now: datetime, ik: str) -> Any:
+        """Why ``req`` leaves the queue unstarted (a reason), ``None`` to dispatch it, or
+        :data:`_KEEP_PLACE` while its chain still holds the key."""
+        key = _pr_key(self.config, req["repository"], req["number"])
+        reason = _stopped_request(self.store, key, req)  # d34: never a stopped story
+        if reason is not None:
+            return reason
+        state = _key_state(self.store, key, now)
+        reason = "attempt_budget_exhausted" if _exhausted(state) else None
+        if reason is None and state["busy"]:
+            return _KEEP_PLACE  # its chain still holds the key: a firing now would be deduplicated
+        return reason or self._pr_refusal(req, ik)
+
+    def _dispatch(self, req: dict[str, Any], now: datetime) -> dict[str, Any]:
+        """The active entry that dispatches ``req`` now."""
+        event_id = dispatch_event_id(self.name, req["rid"])
+        act = {
+            "rid": req["rid"],
+            "key": req["key"],
+            "repository": req["repository"],
+            "number": req["number"],
+            "event_id": event_id,
+            "run_id": _run_id_for(self.rule, event_id),
+            "dispatched_at": _iso(now),
+            "request": req,
+        }
+        tip = self._base_tip(req)
+        if tip is not None:
+            act["base_sha"] = tip  # d37: the base branch's tip now, not base.sha
+        return act
 
     def _pr_refusal(self, req: Mapping[str, Any], ik: str) -> str | None:
         """``pr_not_open`` / ``head_moved`` from a read of the PR, else None (also when the

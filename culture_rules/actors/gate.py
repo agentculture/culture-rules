@@ -309,6 +309,8 @@ _SHELL_JOINING = frozenset({"ssh", "su", "sh", "bash", "dash", "zsh", "ksh", "fi
 _LOCAL_REF = "refs/culture-rules/gate"
 _BASE_REF = "refs/culture-rules/base"  # the PR base, bundled with a merge from base (d31)
 _CLEANUP_S = 60.0
+_HOOKS_OFF = "core.hooksPath=/dev/null"  # git -c: no hooks run, whatever the repo says
+_FSMONITOR_OFF = "core.fsmonitor=false"  # git -c: no fsmonitor helper runs
 #: The gate's workspace: no dash, so no run-as account name or ``-x`` flag look-alike can
 #: reach a repo's temp paths through it (lobes-cli#302).
 _CHECKOUT_PREFIX = "culture_rules_gate."
@@ -895,7 +897,7 @@ class _Job:
         timeout: float | None = None,
     ) -> tuple[int, bytes]:
         """``timeout`` (d36) caps this call below the job's deadline, never past it."""
-        argv = ["git", "-c", "core.hooksPath=/dev/null", "-c", "core.quotePath=false"]
+        argv = ["git", "-c", _HOOKS_OFF, "-c", "core.quotePath=false"]
         if in_repo:
             argv += ["-C", self.repo]
         with tempfile.TemporaryFile(dir=self.tmp) as out:
@@ -972,13 +974,52 @@ def _hard_git(*args: str) -> list[str]:
         *_HARD_GIT_ENV,
         "git",
         "-c",
-        "core.hooksPath=/dev/null",
+        _HOOKS_OFF,
         "-c",
-        "core.fsmonitor=false",
+        _FSMONITOR_OFF,
         "-c",
         "core.quotePath=false",
         *args,
     ]
+
+
+def _limits(config: Mapping[str, Any]) -> tuple[int, int]:
+    """The gate's ``tail_bytes`` and ``diff_max_chars`` from its step config, else
+    ``bad_config``."""
+    tail_bytes = config.get("tail_bytes", DEFAULT_TAIL_BYTES)
+    if not isinstance(tail_bytes, int) or not 0 < tail_bytes <= _MAX_TAIL_BYTES:
+        raise _Refusal("bad_config", f"tail_bytes must be 1..{_MAX_TAIL_BYTES}")
+    diff_cap = config.get("diff_max_chars", DEFAULT_DIFF_MAX_CHARS)
+    if (
+        not isinstance(diff_cap, int)
+        or isinstance(diff_cap, bool)
+        or not 0 < diff_cap <= _MAX_DIFF_CHARS
+    ):
+        raise _Refusal("bad_config", f"diff_max_chars must be 1..{_MAX_DIFF_CHARS}")
+    return tail_bytes, diff_cap
+
+
+def _blank_verdict(shas: Mapping[str, str]) -> dict[str, Any]:
+    """The verdict before any step fills it in."""
+    return {
+        "verdict": None,
+        "rule": None,
+        "violations": [],
+        "phase": None,
+        "command": None,
+        "exit_code": None,
+        "timed_out": False,
+        "output_tail": "",
+        "instruction": None,
+        "gate": None,
+        "bundle": None,
+        "diff": None,
+        "diff_chars": None,
+        "diff_truncated": None,
+        "diff_problems": None,
+        **shas,
+        "agent_commit_sha": shas["commit_sha"],
+    }
 
 
 def gate_env(tmpdir: str, addopts: str | None = None) -> list[str]:
@@ -1480,41 +1521,14 @@ class GatePort:
             raise _Refusal("bad_input", "worktree must be an absolute path")
         shas = {n: _sha_input(input, n) for n in ("base_sha", "start_sha", "commit_sha")}
         config = context.config or {}
-        tail_bytes = config.get("tail_bytes", DEFAULT_TAIL_BYTES)
-        if not isinstance(tail_bytes, int) or not 0 < tail_bytes <= _MAX_TAIL_BYTES:
-            raise _Refusal("bad_config", f"tail_bytes must be 1..{_MAX_TAIL_BYTES}")
-        diff_cap = config.get("diff_max_chars", DEFAULT_DIFF_MAX_CHARS)
-        if (
-            not isinstance(diff_cap, int)
-            or isinstance(diff_cap, bool)
-            or not 0 < diff_cap <= _MAX_DIFF_CHARS
-        ):
-            raise _Refusal("bad_config", f"diff_max_chars must be 1..{_MAX_DIFF_CHARS}")
+        tail_bytes, diff_cap = _limits(config)
         if self._run_as is None:
             raise _Refusal("gate_runner_unconfigured", self._why)
         if self._blocked:
             raise _Refusal("run_as_blocked", self._blocked)
         if self._pr_lookup is not None:
             self._check_base(shas["base_sha"], config, deadline, context)
-        verdict: dict[str, Any] = {
-            "verdict": None,
-            "rule": None,
-            "violations": [],
-            "phase": None,
-            "command": None,
-            "exit_code": None,
-            "timed_out": False,
-            "output_tail": "",
-            "instruction": None,
-            "gate": None,
-            "bundle": None,
-            "diff": None,
-            "diff_chars": None,
-            "diff_truncated": None,
-            "diff_problems": None,
-            **shas,
-            "agent_commit_sha": shas["commit_sha"],
-        }
+        verdict = _blank_verdict(shas)
         tmp = tempfile.mkdtemp(prefix="culture-rules-gate-")
         try:
             job = _Job(tmp, worktree, self._run_as, self._git, deadline, self._clock)
@@ -1522,42 +1536,69 @@ class GatePort:
             self._import(job, shas)
             spec = self._spec(job, shas["base_sha"])
             if spec is None:
-                try:
-                    built = self._build(job, shas, context)
-                except _Refusal as exc:
-                    if exc.code not in _AGENT_FIXABLE_CODES:
-                        raise
-                    violation = Violation(exc.code, "", exc.detail).to_dict()
-                    verdict.update(verdict=GUARD, rule=exc.code, violations=[violation])
-                    verdict["instruction"] = _instruction(verdict)
-                    return verdict
-                verdict["verdict"] = NO_GATE
-                verdict.update(commit_sha=built, **self._review_diff(job, shas, built, diff_cap))
-                _add_copied_base_hint(job, shas, verdict, diff_cap)  # last: best effort
-                return verdict
-            verdict["gate"] = spec.to_dict()
-            violations = self._guard(job, shas, config)
-            if violations:
-                verdict.update(
-                    verdict=GUARD,
-                    rule=violations[0].rule,
-                    violations=[v.to_dict() for v in violations],
-                )
-            else:
-                # round 3 (#5): build the published commit FIRST, then test, diff, review and
-                # bundle exactly that commit - never the agent's tip
-                built = self._build(job, shas, context)
-                verdict["commit_sha"] = built
-                self._repack(job, built)
-                self._judge(job, spec, verdict, tail_bytes)
-                if verdict["verdict"] == PASS:
-                    verdict.update(self._review_diff(job, shas, built, diff_cap))
-                    verdict["bundle"] = self._bundle(job, built, context, shas["base_sha"])
-                    _add_copied_base_hint(job, shas, verdict, diff_cap)  # last: best effort
+                return self._no_gate(job, shas, verdict, diff_cap, context)
+            self._gated(job, spec, shas, verdict, (tail_bytes, diff_cap), context)
             verdict["instruction"] = _instruction(verdict)
             return verdict
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
+
+    def _no_gate(
+        self,
+        job: _Job,
+        shas: Mapping[str, str],
+        verdict: dict[str, Any],
+        diff_cap: int,
+        context: InvocationContext,
+    ) -> dict[str, Any]:
+        """The verdict for a repository without a gate section: the gate-built commit and
+        its review diff (``no_gate``), or ``guard`` when building it raises a refusal the
+        agent can fix (a merge it may redo as the one merge from base)."""
+        try:
+            built = self._build(job, shas, context)
+        except _Refusal as exc:
+            if exc.code not in _AGENT_FIXABLE_CODES:
+                raise
+            violation = Violation(exc.code, "", exc.detail).to_dict()
+            verdict.update(verdict=GUARD, rule=exc.code, violations=[violation])
+            verdict["instruction"] = _instruction(verdict)
+            return verdict
+        verdict["verdict"] = NO_GATE
+        verdict.update(commit_sha=built, **self._review_diff(job, shas, built, diff_cap))
+        _add_copied_base_hint(job, shas, verdict, diff_cap)  # last: best effort
+        return verdict
+
+    def _gated(
+        self,
+        job: _Job,
+        spec: GateSpec,
+        shas: Mapping[str, str],
+        verdict: dict[str, Any],
+        limits: tuple[int, int],
+        context: InvocationContext,
+    ) -> None:
+        """Fill ``verdict`` for a repository with a gate section: the diff guard, then (when
+        it holds) build, test, review diff and bundle the published commit."""
+        tail_bytes, diff_cap = limits
+        verdict["gate"] = spec.to_dict()
+        violations = self._guard(job, shas, context.config or {})
+        if violations:
+            verdict.update(
+                verdict=GUARD,
+                rule=violations[0].rule,
+                violations=[v.to_dict() for v in violations],
+            )
+            return
+        # round 3 (#5): build the published commit FIRST, then test, diff, review and
+        # bundle exactly that commit - never the agent's tip
+        built = self._build(job, shas, context)
+        verdict["commit_sha"] = built
+        self._repack(job, built)
+        self._judge(job, spec, verdict, tail_bytes)
+        if verdict["verdict"] == PASS:
+            verdict.update(self._review_diff(job, shas, built, diff_cap))
+            verdict["bundle"] = self._bundle(job, built, context, shas["base_sha"])
+            _add_copied_base_hint(job, shas, verdict, diff_cap)  # last: best effort
 
     def _check_base(
         self,
@@ -1790,7 +1831,7 @@ class GatePort:
         SHA (content-addressed: whatever the remote, the commit is the one asked for),
         without tags or ``FETCH_HEAD``; a base that still cannot be had is
         ``base_unavailable`` (an ``unjudged`` verdict: a retry)."""
-        argv = ["git", "-c", "core.fsmonitor=false", "cat-file", "-e", f"{base}^{{commit}}"]
+        argv = ["git", "-c", _FSMONITOR_OFF, "cat-file", "-e", f"{base}^{{commit}}"]
         with tempfile.TemporaryFile(dir=job.tmp) as out, tempfile.TemporaryFile(dir=job.tmp) as err:
             have = job.fixer(
                 argv, out, merge_stderr=False, timeout_code="source_timeout", stderr=err
@@ -1801,9 +1842,9 @@ class GatePort:
         fetch = [
             "git",
             "-c",
-            "core.fsmonitor=false",
+            _FSMONITOR_OFF,
             "-c",
-            "core.hooksPath=/dev/null",
+            _HOOKS_OFF,
             "fetch",
             "--quiet",
             "--no-tags",
@@ -1829,7 +1870,7 @@ class GatePort:
         revs = os.path.join(job.tmp, "revs")
         Path(revs).write_text("".join(f"{s}\n" for s in dict.fromkeys(shas.values())))
         pack = os.path.join(job.tmp, _IN_PACK)
-        argv = ["git", "-c", "core.fsmonitor=false", "pack-objects", "--revs", "--stdout", "-q"]
+        argv = ["git", "-c", _FSMONITOR_OFF, "pack-objects", "--revs", "--stdout", "-q"]
         with (
             open(revs, "rb") as stdin,
             open(pack, "wb") as out,

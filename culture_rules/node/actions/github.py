@@ -387,12 +387,8 @@ class GitHubPrHeadPort(GitHubCommentPort):
         allowed, refusal = repo_refusal(conn, repo)
         if refusal:
             return InvocationResult.failed(refusal, retryable=False)
-        try:
-            number = int(input["number"])
-        except (KeyError, TypeError, ValueError):
-            return InvocationResult.failed(BAD_INPUT, retryable=False)
-        check = input.get("base_sha")
-        if check is not None and not _FULL_SHA.fullmatch(str(check)):
+        number, check = _head_request(input)
+        if number is None:
             return InvocationResult.failed(BAD_INPUT, retryable=False)
         try:
             app = self._app_within(str(actor_id), conn, allowed, deadline)
@@ -405,23 +401,44 @@ class GitHubPrHeadPort(GitHubCommentPort):
                 pull = app.get_pull(repo, number)
         except GitHubError as exc:
             return InvocationResult.failed(exc.code, retryable=exc.retryable)
-        sha = (pull.get("head") or {}).get("sha")
-        base = (pull.get("base") or {}).get("sha")
-        if not isinstance(sha, str) or not sha:
+        out = _head_facts(pull)
+        if out is None:
             return InvocationResult.failed("bad_response", retryable=True)
-        state, merged = pull.get("state"), pull.get("merged")
-        out: dict[str, Any] = {
-            "head_sha": sha,
-            "base_sha": base if isinstance(base, str) else None,
-            "state": state if isinstance(state, str) else None,
-            "merged": merged if isinstance(merged, bool) else None,
-        }
         ref = (pull.get("base") or {}).get("ref")
         if input.get("with_base_tip") is True:
             out["base_tip_sha"] = _base_tip(app, repo, ref, deadline)
         if check is not None:
             out["base_on_branch"] = on_base_branch(app, repo, out["base_sha"], ref, check, deadline)
         return InvocationResult.completed(out)
+
+
+def _head_request(input: Mapping[str, Any]) -> tuple[int | None, Any]:
+    """The PR number and the optional ``base_sha`` to check; the number is ``None`` when
+    either is malformed (``bad_input``)."""
+    try:
+        number = int(input["number"])
+    except (KeyError, TypeError, ValueError):
+        return None, None
+    check = input.get("base_sha")
+    if check is not None and not _FULL_SHA.fullmatch(str(check)):
+        return None, None
+    return number, check
+
+
+def _head_facts(pull: Mapping[str, Any]) -> dict[str, Any] | None:
+    """The PR's head, recorded base, state and merged flag from ``pull``; ``None`` when it
+    names no head commit."""
+    sha = (pull.get("head") or {}).get("sha")
+    base = (pull.get("base") or {}).get("sha")
+    if not isinstance(sha, str) or not sha:
+        return None
+    state, merged = pull.get("state"), pull.get("merged")
+    return {
+        "head_sha": sha,
+        "base_sha": base if isinstance(base, str) else None,
+        "state": state if isinstance(state, str) else None,
+        "merged": merged if isinstance(merged, bool) else None,
+    }
 
 
 _FULL_SHA = re.compile(r"[0-9a-f]{40}")
