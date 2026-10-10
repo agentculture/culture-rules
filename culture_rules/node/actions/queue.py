@@ -91,7 +91,9 @@ Outputs: ``dispatched`` and ``active`` (keys), ``dropped`` (``{key, reason}``), 
 Deviation d34 (#40): a trusted ``/stop`` or 👎 ends a PR's fixer story. Config: ``queue``
 and ``key_prefix`` (required), ``lookup_actor`` (the PR's current head is read, else the
 ``head_sha`` input is used) and ``sweep``. Inputs: ``repo``, ``number``, ``by`` (the login
-that asked) and ``head_sha``. One pass:
+that asked), ``head_sha`` and ``story`` (a 👎's story, its root run id: once that story has
+no running run and no queued request, the stop does nothing, so a late reaction never stops
+a newer story). One pass:
 
 1. **Record** the stop on the PR's concurrency key
    (:func:`~culture_rules.node.story_stop.record_stop`): from now on ``queue.add`` drops a
@@ -303,6 +305,18 @@ class QueueAddPort:
         try:
             name = _queue_name(config)
             repo, number = _subject(input)
+        except _Refused as exc:
+            return _failed(exc)
+
+        def stopped() -> str | None:
+            return _stop_refusal(self._store, config, repo, number, input, context)
+
+        # d34: a stopped story's request is dropped before its budget is judged, so its
+        # last retry never fails (and hands back) as attempt_budget_exhausted
+        if (why_not := stopped()) is not None:
+            log.info("queue.add: %s#%s not queued (%s)", repo, number, why_not)
+            return InvocationResult.completed(self._not_queued(name, f"{repo}#{number}"))
+        try:
             retry = input.get("retry") is True
             state = _key_state(self._store, _pr_key(config, repo, number), self._clock())
             inputs = {k: copy.deepcopy(v) for k, v in input.items() if k not in _META_INPUTS}
@@ -316,10 +330,6 @@ class QueueAddPort:
                 )
         except _Refused as exc:
             return _failed(exc)
-        stopped = _stop_refusal(self._store, config, repo, number, input, context)
-        if stopped is not None:
-            log.info("queue.add: %s#%s not queued (%s)", repo, number, stopped)
-            return InvocationResult.completed(self._not_queued(name, f"{repo}#{number}"))
         request = {
             "key": f"{repo}#{number}",
             "repository": repo,
@@ -330,15 +340,27 @@ class QueueAddPort:
             "inputs": inputs,
             "source_run": context.run_id,
         }
-        return InvocationResult.completed(self._add(name, request, idempotency_key))
+        return InvocationResult.completed(self._add(name, request, idempotency_key, stopped))
 
-    def _add(self, name: str, request: dict[str, Any], ik: str) -> dict[str, Any]:
+    def _add(
+        self,
+        name: str,
+        request: dict[str, Any],
+        ik: str,
+        stopped: Callable[[], str | None] = lambda: None,
+    ) -> dict[str, Any]:
         queue = _QueueDoc(self._store, name, self._clock)
         for _ in range(_MAX_CAS_TRIES):
             doc, rev, exists = queue.read()
             if ik in doc["seen"]:
                 _positions(doc)
                 return self._result(doc, request["key"], queued=True, replaced=False)
+            # d34 (Codex round 1 #3): judged again after each read of the queue. A stop
+            # records itself, then always writes the queue document, so an add that read
+            # the queue before that write loses its compare-and-set and sees the stop here.
+            if stopped() is not None:
+                _positions(doc)
+                return self._result(doc, request["key"], queued=False, replaced=False)
             now = _iso(self._clock())
             existing = next((r for r in doc["waiting"] if r["key"] == request["key"]), None)
             replaced = False
@@ -488,9 +510,13 @@ class _Pass:
                 break
             if any(a["key"] == req["key"] for a in doc["active"]):
                 continue  # the PR's earlier request is still running: keep the place
-            state = _key_state(
-                self.store, _pr_key(self.config, req["repository"], req["number"]), now
-            )
+            key = _pr_key(self.config, req["repository"], req["number"])
+            reason = _stopped_request(self.store, key, req)  # d34: never a stopped story
+            if reason is not None:
+                doc["waiting"].remove(req)
+                dropped.append({"key": req["key"], "reason": reason})
+                continue
+            state = _key_state(self.store, key, now)
             reason = "attempt_budget_exhausted" if _exhausted(state) else None
             if reason is None and state["busy"]:
                 continue  # its chain still holds the key: a firing now would be deduplicated
@@ -596,6 +622,13 @@ def _stop_refusal(
     return add_refusal(store, _pr_key(config, repo, number), head, context.run_id)
 
 
+def _stopped_request(store: Any, key: str | None, req: Mapping[str, Any]) -> str | None:
+    """``story_stopped`` when the waiting request belongs to a stopped story (d34)."""
+    from culture_rules.node.story_stop import request_refusal  # noqa: PLC0415
+
+    return request_refusal(store, key, req.get("source_run"))
+
+
 STOPPED_TEXT = "PR fixer stopped by @{by}. A new /fix or a push to the PR starts a new story."
 _LOGIN_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})(?:\[bot\])?$")
 
@@ -640,6 +673,12 @@ class QueueStopPort:
                     {"stopped": False, "key": key, "removed": 0, "cancelled": 0}
                 )
             removed: list[Mapping[str, Any]] = []
+        elif not self._live(name, key, input.get("story")):
+            # a 👎 names its story: once that story is over it never stops a newer one
+            log.info("queue.stop: %s: story %s is over, nothing to stop", key, input["story"])
+            return InvocationResult.completed(
+                {"stopped": False, "key": key, "removed": 0, "cancelled": 0}
+            )
         else:
             head = self._head(repo, number, input, config, context, deadline, idempotency_key)
             stop = record_stop(self._store, key, by=by, head_sha=head, at=self._clock())
@@ -689,17 +728,33 @@ class QueueStopPort:
         head = res.output.get("head_sha") if res.outcome == COMPLETED else None
         return head if isinstance(head, str) and head else given
 
+    def _live(self, name: str, key: str, story: Any) -> bool:
+        """Whether ``story`` (a root run id; any story when not given) still has a running
+        run on ``key`` or a request in the queue."""
+        from culture_rules.node.story_stop import story_root  # noqa: PLC0415
+
+        if not isinstance(story, str) or not story:
+            return True
+        for run in self._store.find(_RUNS, {"concurrency_key": key, "status": "running"}):
+            if story_root(self._store, run).get("id") == story:
+                return True
+        doc = self._store.get(QUEUES_COLLECTION, name) or {}
+        for entry in (*(doc.get("waiting") or ()), *(doc.get("active") or ())):
+            req = entry.get("request") if isinstance(entry.get("request"), Mapping) else entry
+            source = self._store.get(_RUNS, req.get("source_run") or "")
+            if source is not None and story_root(self._store, source).get("id") == story:
+                return True
+        return False
+
     def _unqueue(self, name: str, pr: str) -> list[Mapping[str, Any]]:
         """Remove the PR's waiting requests and unclaimed dispatches; the removed ones."""
         queue = _QueueDoc(self._store, name, self._clock)
         for _ in range(_MAX_CAS_TRIES):
             doc, rev, exists = queue.read()
-            if not exists:
-                return []
             waiting = [r for r in doc["waiting"] if r.get("key") == pr]
             revoked = [a for a in doc["active"] if a.get("key") == pr and not a.get("claimed_at")]
-            if not waiting and not revoked:
-                return []
+            # always written, even with nothing to remove: an add that read the queue before
+            # this write then loses its compare-and-set and judges the stop again
             doc["waiting"] = [r for r in doc["waiting"] if r not in waiting]
             doc["active"] = [a for a in doc["active"] if a not in revoked]
             if queue.write(doc, rev, exists):

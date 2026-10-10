@@ -55,7 +55,7 @@
     "op": "and"
   },
   "counts_toward_budget": true,
-  "description": "#40 d34: fires on a thumbs-down by an author in vars.trusted_authors on a live fixer story's /fix comment or status comment. GitHub sends no webhook for reactions: the node's reaction watch reads them about every vars.reaction_watch_interval_s (default 60 s) while the story is queued or running, and writes github.reaction.added (a type reserved for the engine). Repos in vars.fixer_repos only; vars.fixer_excluded_repos overrides it. Runs queue-stop, like pr-fixer-stop. No concurrency key.",
+  "description": "#40 d34: fires on a thumbs-down by an author in vars.trusted_authors on a live fixer story's /fix comment or status comment. GitHub sends no webhook for reactions: the node's reaction watch reads them about every vars.reaction_watch_interval_s (default 60 s) while the story is queued or running, and writes github.reaction.added (a type reserved for the engine). Repos in vars.fixer_repos only; vars.fixer_excluded_repos overrides it. Runs queue-stop, like pr-fixer-stop. No concurrency key. The reaction names its story: a story that is already over is never stopped, so a late thumbs-down never stops a newer one.",
   "enabled": false,
   "exclusive_group": null,
   "id": "pr-fixer-stop-reaction",
@@ -98,7 +98,8 @@
       "by": "trigger.data.author",
       "head_sha": "trigger.data.head_sha",
       "number": "trigger.data.number",
-      "repo": "trigger.data.repository"
+      "repo": "trigger.data.repository",
+      "story": "trigger.data.story"
     },
     "version": null
   }

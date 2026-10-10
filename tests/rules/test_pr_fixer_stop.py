@@ -15,6 +15,7 @@ from culture_rules.engine.runs import RUNS_COLLECTION
 from culture_rules.node.actions.queue import QUEUES_COLLECTION
 from tests.events.fakes import envelope
 from tests.rules.chain_world import KEY, ChainWorld, plain
+from tests.rules.test_pr_fixer_chain import _untrust_app, pem, trust_app  # noqa: F401
 from tests.rules.test_pr_fixer_queue import guard, settle
 from tests.rules.test_pr_fixer_single import TRUSTED, pr_facts
 
@@ -247,3 +248,46 @@ def test_after_a_stop_a_new_fix_starts_a_fresh_story_and_checks_on_the_same_head
     assert len(w.push.calls) == 1
     budget = w.c.base.get(RULE_ATTEMPT_BUDGETS, budget_id(KEY))
     assert budget["count"] == 1
+
+
+# --------------------------------------------------------------------------- the push guard
+
+
+def record(w: ChainWorld) -> None:
+    from culture_rules.node.story_stop import record_stop
+
+    record_stop(w.c.base, KEY, by=TRUSTED, head_sha=None, at=w.c.clock())
+
+
+def test_a_run_of_a_stopped_story_that_slipped_through_never_pushes(tmp_path, pem):  # noqa: F811
+    w = ChainWorld(tmp_path, real_push_pem=pem)
+    trust_app(w)
+    w.reviewer.on_request = lambda: record(w)  # the stop lands while Codex reviews
+    w.fire()
+    assert w.remote_head() == w.repo.start
+    (publish,) = w.run_of("publish-fix")
+    assert publish["status"] == "failed"
+    assert publish["error"]["message"] == "story_stopped"
+
+
+def test_a_stop_recorded_while_the_push_consumes_its_approval_still_stops_it(
+    tmp_path, pem, monkeypatch  # noqa: F811
+):
+    """The push judges the stop again after consuming the approval: a stop recorded before
+    that read wins (Codex round 1 #2)."""
+    from culture_rules.node.actions import github_pr
+
+    real = github_pr.consume_approval
+
+    def consume(*args, **kwargs):
+        out = real(*args, **kwargs)
+        record(w)
+        return out
+
+    monkeypatch.setattr(github_pr, "consume_approval", consume)
+    w = ChainWorld(tmp_path, real_push_pem=pem)
+    trust_app(w)
+    w.fire()
+    assert w.remote_head() == w.repo.start
+    (publish,) = w.run_of("publish-fix")
+    assert publish["error"]["message"] == "story_stopped"

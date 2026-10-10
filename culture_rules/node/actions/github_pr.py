@@ -671,6 +671,11 @@ class GitHubPushPort(GitHubCommentPort):
             refusal = consume_approval(self._store, target, record, sha, by=by)
         if refusal:
             raise _Refused(refusal)
+        # d34 (Codex round 1 #2): a stop recorded while the approval was judged and consumed
+        # still stops the push; one recorded after this last read came after its admission
+        refusal = _story_stopped(self._store, runs)
+        if refusal:
+            raise _Refused(refusal)
 
     def _rearm(self, repo: str, head_sha: str, cause: str | None, number: int, branch: str) -> None:
         """After ``base_changed``, settle the unchanged head again so a fresh run gates and

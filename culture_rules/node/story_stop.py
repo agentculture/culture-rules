@@ -1,16 +1,21 @@
 """Story stops (d34, #40): a trusted ``/stop`` or 👎 ends a PR's fixer story.
 
 The ``queue.stop`` built-in (:mod:`culture_rules.node.actions.queue`) records the stop on
-the PR's concurrency key, one document per key in :data:`STOPS_COLLECTION` (the latest
-stop wins): ``key``, ``at`` (when it was recorded), ``by`` (the login that asked) and
-``head_sha`` (the PR head it was stopped at, when known). Two readers honour it:
+the PR's concurrency key, one document per key in :data:`STOPS_COLLECTION`: ``key``,
+``at`` (when it was recorded), ``by`` (the login that asked), ``head_sha`` (the PR head it
+was stopped at, when known) and ``rev``. Stops are monotonic: :func:`record_stop` writes by
+compare-and-set and an older stop never replaces a newer one. Three readers honour it:
 
 * ``queue.add`` drops a request of the stopped story - one whose story began (its chain's
   root run was created) no later than the stop - and an automatic request for the head the
-  story was stopped at; a rule that resets the attempt budget (a trusted ``/fix``, d32) or
-  a new head starts a new story (:func:`add_refusal`).
+  story was stopped at; a story begun by a rule that resets the attempt budget (a trusted
+  ``/fix``, d32) or a new head is a new story, its retries included (:func:`add_refusal`).
+* ``queue.progress`` drops a waiting request of the stopped story at dispatch
+  (:func:`request_refusal`), so one that slipped in never runs.
 * ``github.push`` refuses ``story_stopped`` for a chain whose story began no later than
-  the stop (:func:`chain_stopped`), so a run that slipped past the cancel never pushes.
+  the stop (:func:`chain_stopped`), judged again after the approval is consumed, so a run
+  that slipped past the cancel never pushes; a push past that last read was admitted
+  before the stop.
 
 A story's beginning is its root run (:func:`~culture_rules.node.fixer_status.chain_root`):
 the run an external event started, walked back through the fixer queue. Standard-library
@@ -30,6 +35,7 @@ __all__ = [
     "add_refusal",
     "chain_stopped",
     "record_stop",
+    "request_refusal",
     "stop_of",
     "story_began_before",
     "story_root",
@@ -39,6 +45,7 @@ STOPS_COLLECTION = "story_stops"
 STORY_STOPPED = "story_stopped"
 STOPPED_AT_HEAD = "stopped_at_head"
 _RUNS = "runs"  # culture_rules.engine.runs.RUNS_COLLECTION
+_CAS_TRIES = 20
 
 
 def _doc_id(key: str) -> str:
@@ -54,17 +61,30 @@ def _parse(text: Any) -> datetime | None:
 
 def record_stop(
     store: Any, key: str, *, by: str, head_sha: str | None, at: datetime
-) -> dict[str, Any]:
-    """Record (or replace) the stop of ``key``'s story; the stored document."""
-    doc = {
-        "id": _doc_id(key),
-        "key": key,
-        "by": by,
-        "head_sha": head_sha,
-        "at": at.isoformat(),
-    }
-    store.put(STOPS_COLLECTION, doc)
-    return doc
+) -> Mapping[str, Any]:
+    """Record the stop of ``key``'s story by compare-and-set, unless a stop at least as
+    recent is stored; the stored (winning) document."""
+    from culture_rules.store.port import DuplicateKeyError, TransientStoreError  # noqa: PLC0415
+
+    doc_id = _doc_id(key)
+    fields = {"key": key, "by": by, "head_sha": head_sha, "at": at.isoformat()}
+    for _ in range(_CAS_TRIES):
+        current = store.get(STOPS_COLLECTION, doc_id)
+        if current is None:
+            try:
+                return store.insert(STOPS_COLLECTION, {"id": doc_id, **fields, "rev": 1})
+            except DuplicateKeyError:
+                continue  # another stop landed first: judge it
+        stored = _parse(current.get("at"))
+        if stored is not None and stored >= at:
+            return current
+        rev = current.get("rev")
+        res = store.update_if(
+            STOPS_COLLECTION, doc_id, {"rev": rev}, {**fields, "rev": (rev or 0) + 1}
+        )
+        if res.won:
+            return res.document or {**current, **fields}
+    raise TransientStoreError(f"story stop of {key}: too much contention")
 
 
 def stop_of(store: Any, key: str | None) -> Mapping[str, Any] | None:
@@ -96,16 +116,30 @@ def story_root(store: Any, run: Mapping[str, Any]) -> Mapping[str, Any]:
 def add_refusal(store: Any, key: str | None, head_sha: Any, run_id: str | None) -> str | None:
     """Why ``queue.add`` drops a request (module doc), or None: the run ``run_id`` adding
     it belongs to the stopped story (:data:`STORY_STOPPED`), or asks automatically for the
-    head the story was stopped at (``stopped_at_head``)."""
+    head the story was stopped at (``stopped_at_head``) - unless its story began with a
+    trusted ``/fix`` after the stop (its root's rule resets the attempt budget)."""
     stop = stop_of(store, key)
     if stop is None:
         return None
     run = store.get(_RUNS, run_id) if isinstance(run_id, str) and run_id else None
-    if run is not None and story_began_before(stop, _root(store, run).get("created_at")):
+    root = _root(store, run) if run is not None else None
+    if root is not None and story_began_before(stop, root.get("created_at")):
         return STORY_STOPPED
     stopped_head = stop.get("head_sha")
-    if stopped_head and head_sha == stopped_head and not _explicit(run):
+    if stopped_head and head_sha == stopped_head and not _explicit(root):
         return STOPPED_AT_HEAD
+    return None
+
+
+def request_refusal(store: Any, key: str | None, source_run: Any) -> str | None:
+    """:data:`STORY_STOPPED` when the queued request put in line by ``source_run`` belongs
+    to a stopped story (judged at dispatch), else None."""
+    stop = stop_of(store, key)
+    if stop is None or not isinstance(source_run, str) or not source_run:
+        return None
+    run = store.get(_RUNS, source_run)
+    if run is not None and story_began_before(stop, _root(store, run).get("created_at")):
+        return STORY_STOPPED
     return None
 
 

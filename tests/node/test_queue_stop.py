@@ -161,7 +161,7 @@ def test_a_request_of_the_stopped_story_is_not_queued_and_does_not_fail():
     res = w.add_as("retry-add", **request("o/a", 1, head="c" * 40, retry=True))
     assert res.outcome == COMPLETED
     assert res.output["queued"] is False
-    assert w.doc() is None  # nothing was ever queued
+    assert w.doc()["waiting"] == []
 
 
 def test_an_automatic_request_for_the_stopped_head_is_not_queued():
@@ -222,3 +222,103 @@ def test_stop_refuses_a_malformed_request():
     res = w.stop(config={"queue": "pr-fixer"})  # no key prefix: no key to stop
     assert res.outcome == FAILED
     assert w.store.find(STOPS_COLLECTION) == []
+
+
+# --------------------------------------------------------------------------- Codex round 1
+
+
+def test_a_retry_of_a_fix_begun_after_the_stop_is_queued_on_the_stopped_head():
+    """A new /fix on the stopped head is a new story: its retries belong to it (Codex #4)."""
+    w = StopWorld()
+    w.stop()
+    w.clock.advance(5)
+    root = run(w, "fix-add", created=0, resets=True)
+    retry = run(w, "retry-add", created=1, kind="rules.run.succeeded")
+    w.store.put(RUNS_COLLECTION, {**retry, "story_root_for_test": root["id"]})
+    from culture_rules.node import story_stop
+
+    original = story_stop._root
+    story_stop._root = lambda store, r: root if r["id"] == "retry-add" else original(store, r)
+    try:
+        res = w.add_as("retry-add", **request("o/a", 1, head="a" * 40, retry=True))
+    finally:
+        story_stop._root = original
+    assert res.output["queued"] is True
+
+
+def test_a_stopped_storys_retry_is_dropped_before_the_budget_is_judged():
+    """A stopped story's last retry never fails as attempt_budget_exhausted (Codex #6)."""
+    from culture_rules.engine.claims import RULE_ATTEMPT_BUDGETS, budget_id
+
+    w = StopWorld()
+    run(w, "retry-add", created=-30)
+    w.store.put(RULE_ATTEMPT_BUDGETS, {"id": budget_id(KEY), "key": KEY, "count": 3, "limit": 3})
+    w.stop()
+    res = w.add_as("retry-add", **request("o/a", 1, retry=True))
+    assert res.outcome == COMPLETED
+    assert res.output["queued"] is False
+
+
+def test_an_add_racing_a_stop_never_leaves_a_request_behind():
+    """The stop always moves the queue document, and queue.add judges the stop inside its
+    compare-and-set: whichever lands second sees the other (Codex #3)."""
+    w = StopWorld()
+    run(w, "story-add", created=-30)
+    real_get = w.store.get
+    fired = {"done": False}
+
+    def get(collection, doc_id):
+        # the add read the stop (none) and the queue; the stop lands before its write
+        if collection == QUEUES_COLLECTION and not fired["done"]:
+            fired["done"] = True
+            out = real_get(collection, doc_id)
+            w.stop()
+            return out
+        return real_get(collection, doc_id)
+
+    w.store.get = get
+    res = w.add_as("story-add", **request("o/a", 1, head="c" * 40))
+    w.store.get = real_get
+    assert res.output["queued"] is False
+    assert (w.doc() or {}).get("waiting", []) == []
+
+
+def test_progress_never_dispatches_a_request_of_a_stopped_story():
+    """A request that slipped into the queue is dropped at dispatch (Codex #3)."""
+    w = StopWorld()
+    run(w, "story-add", created=-30)
+    w.add_as("story-add", **request("o/a", 1))
+    from culture_rules.node.story_stop import record_stop
+
+    record_stop(w.store, KEY, by="OriNachum", head_sha="a" * 40, at=w.clock.now)
+    out = w.progress().output
+    assert out["dispatched"] == []
+    assert out["dropped"] == [{"key": "o/a#1", "reason": "story_stopped"}]
+
+
+def test_an_older_stop_never_replaces_a_newer_one():
+    """Stops are monotonic: a writer that captured an older time loses (Codex #7)."""
+    from culture_rules.node.story_stop import record_stop
+
+    w = StopWorld()
+    newer = record_stop(w.store, KEY, by="newer", head_sha="b" * 40, at=w.clock.now)
+    older = record_stop(
+        w.store, KEY, by="older", head_sha="a" * 40, at=w.clock.now - timedelta(seconds=10)
+    )
+    assert older == newer
+    assert stop_of(w.store, KEY)["by"] == "newer"
+
+
+def test_a_reaction_on_a_story_that_ended_stops_nothing():
+    """A late 👎 names its story; once that story is over it never stops a newer one
+    (Codex #5)."""
+    w = StopWorld()
+    run(w, "old-root", status="succeeded", created=-300)
+    newer = run(w, "new-root", created=-10)
+    res = w.stop(story="old-root")
+    assert res.output["stopped"] is False
+    assert stop_of(w.store, KEY) is None
+    assert w.store.get(RUNS_COLLECTION, newer["id"])["status"] == "running"
+    res = w.stop(story="new-root")
+    assert res.output["stopped"] is True
+    assert w.store.get(RUNS_COLLECTION, newer["id"])["status"] == "cancelled"

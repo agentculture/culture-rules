@@ -26,6 +26,12 @@
       "target_port": "head_sha"
     },
     {
+      "source": "inputs",
+      "source_port": "story",
+      "target": "stop",
+      "target_port": "story"
+    },
+    {
       "source": "stop",
       "source_port": "key",
       "target": "settle",
@@ -74,6 +80,12 @@
     {
       "description": "the PR head the story is stopped at (the PR is read again)",
       "name": "head_sha",
+      "required": false,
+      "type": "string"
+    },
+    {
+      "description": "a thumbs-down's story (its root run id): a story that is over is never stopped",
+      "name": "story",
       "required": false,
       "type": "string"
     }
@@ -141,6 +153,12 @@
         {
           "description": "",
           "name": "head_sha",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "story",
           "required": false,
           "type": "string"
         }

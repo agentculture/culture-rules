@@ -377,12 +377,22 @@ to fix. Either signal runs `queue-stop`, whose built-in `queue.stop`:
   story that was just starting (a chain's next run).
 
 After a stop, `queue.add` quietly drops a request of the stopped story (a
-retry or a re-fix) and an automatic request (checks settled, a review, a
-conflict) for the head the story was stopped at; nothing is queued and
-nothing is handed back. A trusted `/fix` (a rule with
-`resets_attempt_budget`) or a new head starts a new story. As a last guard
-`github.push` refuses `story_stopped` for any run of a story begun before its
-stop.
+retry or a re-fix, before its attempt budget is judged, so its last retry never
+hands back) and an automatic request (checks settled, a review, a conflict) for
+the head the story was stopped at; nothing is queued and nothing is handed
+back. A trusted `/fix` (a rule with `resets_attempt_budget`) or a new head
+starts a new story, and that story's retries and re-fixes belong to it.
+`queue.add` judges the stop inside its compare-and-set on the queue document
+(a stop always writes that document), and `queue.progress` drops a waiting
+request of a stopped story at dispatch (`story_stopped`), so no request slips
+past a stop. As a last guard `github.push` refuses `story_stopped` for any run
+of a story begun before its stop, judged again after it consumed the review's
+approval: only a push already past that last read completes. Stops are
+monotonic: an older stop never replaces a newer one.
+
+A 👎 names its story (its root run). When that story has no running run and no
+queued request any more, the stop does nothing, so a late reaction never stops
+a newer story.
 
 GitHub sends no webhook for reactions. While a story is live (its request is
 queued or dispatched, or its status comment is not final), every node that can
