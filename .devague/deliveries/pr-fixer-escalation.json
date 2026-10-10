@@ -1,0 +1,44 @@
+{
+  "plan_slug": "pr-fixer-escalation",
+  "schema_version": 2,
+  "created": "2026-10-10T21:41:12Z",
+  "updated": "2026-10-10T21:42:46Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "fixer_levels is a list of strings, one per level, each six key=value fields (\"level=1 actor=qwen-fixer reviewer=codex-reviewer pool=qwen-spark2 queue=pr-fixer enabled=true\"), parsed strictly (bad_levels fails closed), instead of a list of objects; the dispatch rule matches data.queue == pr-fixer or data.levels_var == fixer_levels (a field only queue.progress stamps on the reserved dispatch event) instead of data.queue in vars",
+      "task_ref": "t1",
+      "reason": "shared variables hold only a JSON scalar or a list of scalars (culture_rules/model/variable.py); widening them touches the model, the store, the pinned API and the web Variables tab; the condition language has no path into a list, and a separate fixer_queues variable could drift from fixer_levels and lose dispatches",
+      "affects": [],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 1
+    },
+    {
+      "id": "d2",
+      "what": "A level counts as unavailable when its actor is unknown, deleted or disabled, when the actor's daily token_budget is spent (actor_usage), or when it is in a capacity cooldown (fixer_cooldowns, id = the level's actor, {until}); a pool's concurrency cap is not a reason to skip (the request waits its turn in that level's queue)",
+      "task_ref": "t1",
+      "reason": "the plan said 'pool over budget'; a full pool is a queue position, not unavailability, so skipping on it would escalate a try just because Qwen is busy",
+      "affects": [],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 2
+    },
+    {
+      "id": "d3",
+      "what": "Once fixer_levels is seeded, the live queue runs in levels mode even with only level 1 enabled: an unavailable qwen-fixer (disabled, out of budget) hands the story back once (no_fixer_available, final status text) instead of the run failing at the agent step; a closed PR or moved head is still dropped silently",
+      "task_ref": "t1",
+      "reason": "the hand-back path the plan asked for applies to every level, level 1 included; it changes live behaviour at the rollout that seeds fixer_levels, which the rollout notes must say",
+      "affects": [],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "needs-follow-up",
+      "seq": 3
+    }
+  ],
+  "evidence": [],
+  "deltas": [],
+  "supersessions": []
+}
