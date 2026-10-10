@@ -1,0 +1,33 @@
+{
+  "plan_slug": "rollout-cli",
+  "schema_version": 2,
+  "created": "2026-10-10T21:41:12Z",
+  "updated": "2026-10-10T21:42:46Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "The rollout noun also has overview, list and show (read-only, /rollouts); seed has its own --force (overwrite variables that already exist, as seed-variables.sh), besides pause's --force over non-terminal runs; idle, plan and verify are viewer verbs and never write, so the rollout document records pause, seed, import, enable, resume and upgrade:<host> but not idle or verify (verify's output is the evidence)",
+      "task_ref": "t4",
+      "reason": "the CLI registry requires overview/list/show on every noun; seed's skip-existing is not a guard; viewer verbs cannot write the admin-only rollout document",
+      "affects": [],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 1
+    },
+    {
+      "id": "d2",
+      "what": "import and enable keep the editor role; they record their step in the rollout document only when the token may write it (admin) and otherwise report record: {recorded: false} instead of failing",
+      "task_ref": "t4",
+      "reason": "the confirmed roles say editor while PUT /rollouts is admin; the operator runs rollouts with the admin token",
+      "affects": [],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 2
+    }
+  ],
+  "evidence": [],
+  "deltas": [],
+  "supersessions": []
+}
