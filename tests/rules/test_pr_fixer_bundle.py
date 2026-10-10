@@ -2,7 +2,8 @@
 plus d25's GitGuardian report (rules ``pr-fixer-secrets`` and ``pr-fixer-secrets-late``,
 workflow ``report-secrets``).
 
-Four trigger rules (one trigger type each, d13) start a ``pr-fix`` chain on the PR's key;
+Five trigger rules (one trigger type each, d13; ``pr-fixer-conflict`` is d31) start a
+``pr-fix`` chain on the PR's key;
 three stage rules continue it on ``rules.run.succeeded``: review-commit, refix, publish.
 Everything ships disabled. Trigger rules fire only for an open, same-repo, non-draft PR of an
 allow-listed repo; a comment or review comment only when it asks (``/fix`` or an
@@ -54,6 +55,7 @@ SEED = BUNDLE / "seed-variables.sh"
 KEY = "pr-fixer:{trigger.data.repository}#{trigger.data.number}"
 TYPES = {
     "pr-fixer-checks": "github.pr.checks_settled",
+    "pr-fixer-conflict": "github.pr.conflicting",
     "pr-fixer-comment": "github.comment.created",
     "pr-fixer-review": "github.review.submitted",
     "pr-fixer-review-comment": "github.review_comment.created",
@@ -65,7 +67,7 @@ AUTHOR_RULES = ("pr-fixer-comment", "pr-fixer-review", "pr-fixer-review-comment"
 # --------------------------------------------------------------------------- the data
 
 
-def test_the_bundle_is_seventeen_disabled_rules_and_six_workflows():
+def test_the_bundle_is_eighteen_disabled_rules_and_six_workflows():
     b = bundle()
     assert sorted(w.id for w in b.workflows) == [
         "pr-fix",
@@ -299,6 +301,7 @@ EVENTS = {
     "pr-fixer-checks": lambda **o: pr_facts(
         **{"conclusion": "failure", "settled_by": "all_completed", "state": "open", **o}
     ),
+    "pr-fixer-conflict": lambda **o: pr_facts(**{"mergeable_state": "dirty", "state": "open", **o}),
     "pr-fixer-comment": lambda **o: pr_facts(
         **{"comment": "/fix", "command": "/fix", "pr_enriched": True, "state": "open", **o}
     ),

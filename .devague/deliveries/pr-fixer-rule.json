@@ -2,7 +2,7 @@
   "plan_slug": "pr-fixer-rule",
   "schema_version": 2,
   "created": "2026-10-06T08:44:59Z",
-  "updated": "2026-10-10T06:36:56Z",
+  "updated": "2026-10-10T13:30:22Z",
   "deviations": [
     {
       "id": "d1",
@@ -1985,6 +1985,44 @@
       "status": "approved",
       "superseded": false,
       "seq": 121
+    },
+    {
+      "id": "e87",
+      "obligation_ref": "o42",
+      "test_ref": "tests/actors/test_gate_squash.py::test_d31_* (16) + tests/node/test_github_pr_actions.py::test_d31_* (7)",
+      "behavior_text": "asserts the bot merge is built and pushed, the review and guard see only the resolution (clean paths vs the merge-tree, conflicted paths vs both parents), markers/binary/protected/test-removal in a resolution are guarded, and two merges, a non-base second parent, a non-bot merge and foreign commits beside or behind the merge are refused",
+      "contract_text": "c5 (the App pushes only gated bot commits), extended by d31",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "142 targeted tests green at the named commit; Codex reviewed 3 rounds (last fix ff69227 unreviewed); several push refusal tests passed before the change, so not all are sensitivity-strength",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-10T08:42:10",
+        "commit": "ff69227"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 122
+    },
+    {
+      "id": "e88",
+      "obligation_ref": "o43",
+      "test_ref": "tests/node/test_conflict_watch.py (17) + tests/node/test_fixer_status.py + tests/rules/test_pr_fixer_bundle.py",
+      "behavior_text": "asserts one github.pr.conflicting event per conflicting head/base pair for open same-repo non-draft PRs, the request budget carries over, a draft does not use up its event, the event type is reserved at ingest, the rule ships disabled and the status line names the conflict",
+      "contract_text": "c1 (a PR is driven to green), extended by d31's CONFLICTING trigger",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests green at the named commit; the conflict-watch tests were written after the code (subagent report)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-10T08:42:10",
+        "commit": "ff69227"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 123
     }
   ],
   "deltas": [
@@ -2234,6 +2272,34 @@
       ],
       "evidence_refs": [
         "e86"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b19",
+      "kind": "added",
+      "behavior_text": "the fixer may resolve a PR's conflict with its base through one bot merge commit; only the resolution is guarded, tested and reviewed",
+      "caused_by": [
+        "d31"
+      ],
+      "evidence_refs": [
+        "e87"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b20",
+      "kind": "added",
+      "behavior_text": "a PR that turns CONFLICTING queues a fixer request (conflict watch + pr-fixer-conflict, shipped disabled)",
+      "caused_by": [
+        "d31"
+      ],
+      "evidence_refs": [
+        "e88"
       ],
       "origin": "llm",
       "status": "approved",

@@ -20,6 +20,10 @@ A :class:`Node` on host ``H`` does, every cycle (:meth:`Node.run_once`):
    then **probe** - runs each due probe rule's allow-listed command on the actor's own
    machine and emits a ``kind=probe`` event on change or success
    (:mod:`culture_rules.node.probe_trigger`; same slot marker and window as schedule);
+   then **settle** and **conflict watch** - the checks settler's due SHAs
+   (:mod:`culture_rules.node.checks_settle`) and, every ``conflict_watch_interval_s``, one
+   ``github.pr.conflicting`` event per conflicting PR head and base pair of the fixer repos
+   (:mod:`culture_rules.node.conflict_watch`, d31);
    then **discord gateway** - reconciles the Discord Gateway listeners
    (:class:`~culture_rules.apps.discord_gateway.GatewaySupervisor`): for each enabled
    Discord app actor declaring ``discord.message.created`` it acquires/renews the mesh-wide
@@ -118,6 +122,7 @@ from culture_rules.node.checks_settle import (
     AppSuiteLister,
     ChecksSettler,
 )
+from culture_rules.node.conflict_watch import ConflictWatcher
 from culture_rules.node.firing import RULE_FIRES, RuleFiring
 from culture_rules.node.fixer_status import STATUS_COLLECTION
 from culture_rules.node.probe_trigger import PROBE_STATE, CommandRunner, ProbeTrigger
@@ -321,6 +326,13 @@ class Node:
             serves=lister.serves,
             clock=self._clock,
         )
+        # d31: a PR that turns CONFLICTING starts a fixer request (no webhook says so)
+        self.conflicts = ConflictWatcher(
+            store,
+            lambda repo, page, timeout: lister.list_open_pulls_page(repo, page, timeout_s=timeout),
+            lambda repo, number, timeout: lister.get_pull(repo, number, timeout_s=timeout),
+            clock=self._clock,  # no serves: the bounded listing says repo_not_allowed
+        )
         self.heartbeat: HeartbeatPublisher | None = None
         self._last_beat: datetime | None = None
         self._reporter = reporter
@@ -442,6 +454,7 @@ class Node:
             self._stage(report, self._schedule, report)
             self._stage(report, self._probe, report)
             self._stage(report, self._settle, report)
+            self._stage(report, self._watch_conflicts, report)
             self._stage(report, self._expire_holds, report)
             if self._listen_gateways:
                 self._stage(report, self._discord_gateway, report)
@@ -487,6 +500,10 @@ class Node:
 
     def _settle(self, report: CycleReport) -> None:
         self.settler.tick()
+
+    def _watch_conflicts(self, report: CycleReport) -> None:
+        del report
+        self.conflicts.tick()
 
     def _expire_holds(self, report: CycleReport) -> None:
         """Release chain holds past their TTL (d21): their pending events then fire through

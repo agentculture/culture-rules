@@ -47,7 +47,10 @@ repo allowlist and its per-actor App cache. There is deliberately no merge port.
        ``expected_head_sha``: a non-fast-forward update is refused before any network call.
        If the App actor sets ``params.commit_author`` (a git author name or email), every
        commit in ``expected_head_sha..commit_sha`` must carry it, else ``foreign_author``;
-       unset, the check is off;
+       unset, the check is off. One exemption (d31, merge from base): one merge whose second
+       parent is already on the PR's base branch (an ancestor of the base the chain's gate
+       judged, read from ``source``) exempts that second parent's history - the base's own
+       commits - and nothing else; the merge itself must carry ``commit_author`` too;
     6. the PR (read as the App) must be open, its head and base repo both ``repo`` and its
        head ref ``head_branch``; its head SHA must equal ``expected_head_sha``
        (``head_moved``). A commit equal to ``expected_head_sha`` has nothing to push, but is
@@ -160,6 +163,7 @@ DEFAULT_GIT_BASE = "https://github.com"
 _SHA_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 _REF_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
 _LOCAL_REF = "refs/culture-rules/push"
+_BASE_REF = "refs/culture-rules/base"  # the PR base, for a merge from base (d31)
 _PUSH_REFUSED = "github.push refused: %s"
 
 _GIT_TIMEOUT_S = 120.0
@@ -380,12 +384,44 @@ class _PushJob:
         if rc != 0 or out.strip() != sha:
             raise _Refused("commit_not_found")
 
-    def authors(self, base: str, sha: str) -> list[tuple[str, str]] | None:
-        """``(name, email)`` of every commit in ``base..sha``, or ``None`` if git failed."""
-        rc, out = self.git("log", "--format=%an%x00%ae", f"{base}..{sha}", "--")
+    def authors(
+        self, base: str, sha: str, exempt: str | None = None
+    ) -> list[tuple[str, str]] | None:
+        """``(name, email)`` of every commit in ``base..sha`` (but ``exempt`` and its
+        history), or ``None`` if git failed."""
+        not_in = [f"^{exempt}"] if exempt else []
+        rc, out = self.git("log", "--format=%an%x00%ae", f"{base}..{sha}", *not_in, "--")
         if rc != 0:
             return None
         return [tuple(line.split("\x00", 1)) for line in out.splitlines() if "\x00" in line]
+
+    def merge_from_base(self, expected: str, sha: str, base: Any, source: str) -> str | None:
+        """d31: the second parent of the one merge from base in ``expected..sha``, else
+        ``None`` (no merge, or not exactly the one allowed). The merge must be the only one
+        that is not ``base``'s own history, with exactly two parents: the first on the PR
+        head's line (descending from ``expected``), the second already on the base branch
+        (an ancestor of ``base``, fetched from ``source``) and not already in ``expected``.
+        Only that second parent's history is exempt from ``commit_author``."""
+        if not isinstance(base, str) or not _SHA_RE.match(base):
+            return None
+        rc, out = self.git("rev-list", "--min-parents=2", f"{expected}..{sha}", "--")
+        if rc != 0 or not out.strip():
+            return None
+        if self.git("fetch", "--no-tags", "--quiet", "--", source, f"{base}:{_BASE_REF}")[0]:
+            return None
+        rc, out = self.git("rev-list", "--min-parents=2", f"{expected}..{sha}", f"^{base}", "--")
+        own = out.split()
+        if rc != 0 or len(own) != 1:
+            return None
+        rc, out = self.git("rev-parse", f"{own[0]}^@")
+        parents = out.split()
+        if rc != 0 or len(parents) != 2:
+            return None
+        first, second = parents
+        ancestor = self.descends
+        if ancestor(expected, first) and ancestor(second, base) and not ancestor(second, expected):
+            return second
+        return None
 
     def descends(self, base: str, sha: str) -> bool:
         if self.git("cat-file", "-e", f"{base}^{{commit}}")[0] != 0:
@@ -544,7 +580,7 @@ class GitHubPushPort(GitHubCommentPort):
         job.import_commit(str(input["source"]), sha)
         if not job.descends(expected, sha):
             raise _Refused("not_fast_forward")  # before any network call
-        self._check_authors(snapshot, job, expected, sha)
+        self._check_authors(snapshot, job, expected, sha, str(input["source"]))
         app = self._app(actor_id, conn, allowed)
         if app is None:
             raise _Refused("secret_unavailable")
@@ -684,13 +720,20 @@ class GitHubPushPort(GitHubCommentPort):
         return pull
 
     @staticmethod
-    def _check_authors(doc: Mapping[str, Any] | None, job: _PushJob, base: str, sha: str) -> None:
-        """``foreign_author`` unless every new commit is by the snapshot's ``commit_author``."""
+    def _check_authors(
+        doc: Mapping[str, Any] | None, job: _PushJob, expected: str, sha: str, source: str
+    ) -> None:
+        """``foreign_author`` unless every new commit is by the snapshot's ``commit_author``;
+        a merge from base (d31, :meth:`_PushJob.merge_from_base`, against the base the
+        chain's gate judged) exempts its second parent's history, the base's own commits,
+        and nothing else."""
         want = ((doc or {}).get("params") or {}).get("commit_author")
         if not want:
             return  # off unless configured
         want = str(want).strip().lower()
-        authors = job.authors(base, sha)
+        base = final_gate(job.chain.fix_run).outputs.get("base_sha") if job.chain else None
+        exempt = job.merge_from_base(expected, sha, base, source)
+        authors = job.authors(expected, sha, exempt)
         if not authors or any(want not in (n.lower(), e.lower()) for n, e in authors):
             raise _Refused("foreign_author")
 

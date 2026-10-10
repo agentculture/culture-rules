@@ -60,6 +60,7 @@ ROOT = Path(__file__).resolve().parents[2]
 BUNDLE = ROOT / "docs" / "rules" / "pr-fixer"
 TRIGGER_RULES = (
     "pr-fixer-checks",
+    "pr-fixer-conflict",
     "pr-fixer-comment",
     "pr-fixer-review",
     "pr-fixer-review-comment",

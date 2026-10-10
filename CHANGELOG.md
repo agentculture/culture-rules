@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.6] - 2026-10-10
+
+### Added
+
+- PR fixer, merge from base (d31, operator-approved): the fixer may resolve a PR's conflict with its base branch. The gate allows exactly one merge in the agent's commits whose second parent is already on the PR's base (an ancestor of `base_sha`) and not yet in the PR head, builds it as one bot merge of the PR head and that commit (same engine-written identity and message), and bundles `base_sha` with it. The diff guard and the reviewer's `diff` judge only the merge's resolution, never the base's own commits: cleanly merged files against the clean `git merge-tree` of its two parents, conflicted files against both parents (new guard rules `conflict_unresolved` and `conflict_not_text`), under a header naming the merged commit, so a large base no longer trips the reviewer's 30k cap; the tests still run on the whole commit. `github.push`'s `foreign_author` check exempts that merge's second-parent history and nothing else; every other new commit, the merge included, must still be the bot's
+- Conflict watch (d31): the node sweeps the open, same-repo, non-draft PRs of `vars.fixer_repos` every `vars.conflict_watch_interval_s` (default 600 s; listing pages and PR reads share at most 10 requests and 10 s per node cycle) and emits one `github.pr.conflicting` event per conflicting PR head and base pair (type and `conflict_` id prefix reserved at ingest); the new, disabled rule `pr-fixer-conflict` queues a fix that merges exactly that base commit. The status comment says "Started by a conflict with the base branch"
+
 ## [0.18.5] - 2026-10-10
 
 ### Added

@@ -27,7 +27,7 @@ describe("folded workflow list", () => {
     render(<MemoryRouter><WorkflowList {...props} /></MemoryRouter>);
     const cards = screen.getAllByRole("article", { name: /^Chain:/ });
     expect(cards).toHaveLength(2);
-    expect(within(cards[0]).getByText("5 workflows linked by continuations · 6 entry points · was 15 rules")).toBeInTheDocument();
+    expect(within(cards[0]).getByText("5 workflows linked by continuations · 7 entry points · was 16 rules")).toBeInTheDocument();
     expect(within(cards[1]).getByText("1 workflow linked by continuations · 2 entry points · was 2 rules")).toBeInTheDocument();
     expect(within(cards[0]).getAllByRole("group", { name: /^Workflow:/ })).toHaveLength(5);
     expect(within(cards[1]).getAllByRole("group", { name: /^Workflow:/ })).toHaveLength(1);
@@ -76,7 +76,7 @@ describe("folded workflow list", () => {
     const section = screen.getByRole("region", { name: "Rules without a workflow" });
     for (const rule of candidates) expect(within(section).getByRole("link", { name: rule.name })).toHaveAttribute("href", `/workflows?entry=${encodeURIComponent(rule.id)}`);
     expect(within(section).getAllByText("D7 candidate · can get a workflow of its own, with no steps yet")).toHaveLength(2);
-    expect(screen.getByText("6 workflows · 8 entry points · was 19 rules")).toBeInTheDocument();
+    expect(screen.getByText("6 workflows · 9 entry points · was 20 rules")).toBeInTheDocument();
   });
 
   it("derives same-event notes across chains from the PR fixer fixture", () => {
@@ -125,8 +125,8 @@ describe("folded workflow list", () => {
     expect(screen.getByRole("heading", { level: 2 })).toHaveFocus();
     expect(screen.getByRole("button", { name: "Chain" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: "List" })).toHaveAttribute("aria-pressed", "false");
-    expect(screen.getAllByRole("group", { name: /^Entry point:/ })).toHaveLength(6);
-    expect(screen.getByText("15 rules → 6 entry points, 9 continuations, 5 workflows")).toBeInTheDocument();
+    expect(screen.getAllByRole("group", { name: /^Entry point:/ })).toHaveLength(7);
+    expect(screen.getByText("16 rules → 7 entry points, 9 continuations, 5 workflows")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "List" }));
     expect(screen.getAllByRole("article", { name: /^Chain:/ })).toHaveLength(2);
     expect(screen.getAllByRole("button", { name: "See it as one chain" })[0]).toHaveFocus();
@@ -150,8 +150,8 @@ describe("Chain view", () => {
   it("draws all fixture starts, workflows and directed continuations, including the return edge", () => {
     const { container } = render(<MemoryRouter><ChainView model={model} /></MemoryRouter>);
     // #35: the queue's workflows join the fixer's chain (queue-add, queue-progress)
-    expect(screen.getByText("17 rules → 8 entry points, 9 continuations, 6 workflows")).toBeInTheDocument();
-    expect(screen.getAllByRole("group", { name: /^Entry point:/ })).toHaveLength(8);
+    expect(screen.getByText("18 rules → 9 entry points, 9 continuations, 6 workflows")).toBeInTheDocument();
+    expect(screen.getAllByRole("group", { name: /^Entry point:/ })).toHaveLength(9);
     expect(screen.getAllByRole("group", { name: /^Workflow:/ })).toHaveLength(6);
     const edges = [...container.querySelectorAll("path[data-continuation-id]")];
     expect(edges.map((edge) => [edge.getAttribute("data-source"), edge.getAttribute("data-target")])).toEqual([
@@ -160,7 +160,7 @@ describe("Chain view", () => {
       ["pr-fix", "queue-progress"], ["queue-add", "queue-progress"],
       ["review-commit", "queue-add"], ["pr-fix", "queue-add"], ["pr-fix", "review-commit"],
     ]);
-    expect(container.querySelectorAll("path[data-entry-id]")).toHaveLength(8);
+    expect(container.querySelectorAll("path[data-entry-id]")).toHaveLength(9);
     for (const rule of rules) expect(screen.getByText(`was ${rule.id}`)).toBeInTheDocument();
   });
 

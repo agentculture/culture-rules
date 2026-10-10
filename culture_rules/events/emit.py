@@ -84,13 +84,16 @@ actions.queue`): written only by the ``queue.progress`` built-in, straight into 
 their types and ids are reserved at external ingest like the run events'."""
 CHECKS_SETTLED_TYPE = "github.pr.checks_settled"
 CHECKS_LATE_TYPE = "github.pr.checks_failed_late"
-SETTLE_TYPES = frozenset((CHECKS_SETTLED_TYPE, CHECKS_LATE_TYPE))
-SETTLE_TYPE_NAMES = (CHECKS_SETTLED_TYPE, CHECKS_LATE_TYPE)
-"""The checks settler's event types (:mod:`culture_rules.node.checks_settle`): written only
-by the settler, from its internal source; reserved at external ingest (d25)."""
+PR_CONFLICTING_TYPE = "github.pr.conflicting"
+SETTLE_TYPES = frozenset((CHECKS_SETTLED_TYPE, CHECKS_LATE_TYPE, PR_CONFLICTING_TYPE))
+SETTLE_TYPE_NAMES = (CHECKS_SETTLED_TYPE, CHECKS_LATE_TYPE, PR_CONFLICTING_TYPE)
+"""The checks settler's event types (:mod:`culture_rules.node.checks_settle`) and the
+conflict watch's (d31, :mod:`culture_rules.node.conflict_watch`): written only by the
+engine, from its internal sources; reserved at external ingest (d25)."""
 SETTLED_ID_PREFIX = "settled_"
 LATE_ID_PREFIX = "late_"
-SETTLE_ID_PREFIXES = (SETTLED_ID_PREFIX, LATE_ID_PREFIX)
+CONFLICT_ID_PREFIX = "conflict_"
+SETTLE_ID_PREFIXES = (SETTLED_ID_PREFIX, LATE_ID_PREFIX, CONFLICT_ID_PREFIX)
 TRIGGER_EVENT_KINDS = frozenset(("schedule", "probe"))
 """Kinds and types of the events the scheduler and the probe stage write straight into the
 store (:mod:`culture_rules.node.schedule`, :mod:`culture_rules.node.probe_trigger`)."""
@@ -147,7 +150,8 @@ def reserved_reason(envelope: Mapping[str, Any]) -> str | None:
 
     The run-event namespace (ids ``runevt_*``, types ``rules.run.*``), the fixer queue's
     (ids ``queue_*``, types ``rules.queue.*``, #35), the checks settler's
-    namespace (types :data:`SETTLE_TYPES`, ids ``settled_*`` / ``late_*``, d25), the
+    namespace and the conflict watch's (types :data:`SETTLE_TYPES`, ids ``settled_*`` /
+    ``late_*`` / ``conflict_*``, d25, d31), the
     schedule and probe namespace (kind or type ``schedule`` / ``probe``, sources
     :data:`TRIGGER_EVENT_SOURCES`, ids ``schedule/*`` / ``probe/*``) and the internal
     sources are written only by the engine itself (deviation d21): a copy from outside
@@ -265,7 +269,7 @@ def _settle_reserved(eid: Any, kind: Any) -> str | None:
     if kind in SETTLE_TYPE_NAMES:
         return f"type {kind} is reserved for the engine's checks settle"
     if isinstance(eid, str) and eid.startswith(SETTLE_ID_PREFIXES):
-        return "id prefixes settled_ and late_ are reserved for the engine's checks settle"
+        return "id prefixes settled_, late_ and conflict_ are reserved for the engine"
     return None
 
 

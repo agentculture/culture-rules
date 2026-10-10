@@ -385,8 +385,10 @@ class Chain:
 # --------------------------------------------------------------------------- rendering
 
 _SETTLED = "github.pr.checks_settled"
+_CONFLICT = "github.pr.conflicting"
 _TRIGGERS = {
     _SETTLED: "checks settled",
+    _CONFLICT: "a conflict with the base branch",
     "github.comment.created": "a comment",
     "github.review.submitted": "a review",
     "github.review_comment.created": "a review comment",
@@ -404,7 +406,7 @@ def _trigger_line(root: Mapping[str, Any]) -> str:
     author = _login(data.get("author"))
     if kind == _SETTLED and conclusion:
         what += f" ({conclusion})"
-    elif kind != _SETTLED and author:
+    elif kind not in (_SETTLED, _CONFLICT) and author:
         what += f" by {author}"
     sha = _sha(data.get("head_sha"))
     return f"Started by {what}" + (f" at `{sha}`" if sha else "") + "."

@@ -29,7 +29,7 @@ describe("foldModel", () => {
     // #35: the trigger rules queue the PR (queue-add); the queue moves (queue-progress) and
     // pr-fixer-dispatch starts pr-fix from the queue's dispatch event
     expect(model.workflows).toHaveLength(6);
-    expect(model.entryPoints).toHaveLength(8);
+    expect(model.entryPoints).toHaveLength(9);
     expect(model.continuations).toHaveLength(9);
     expect(model.chains.map((chain) => chain.workflowIds.slice().sort())).toEqual([
       ["pr-fix", "publish-fix", "queue-add", "queue-progress", "review-commit"], ["report-secrets"],
@@ -39,7 +39,7 @@ describe("foldModel", () => {
     expect(model.workflows.find((wf) => wf.id === "queue-add")?.entries.map((entry) => entry.rule.id))
       .toContain("pr-fixer-refix");
     expect(model.workflows.find((wf) => wf.id === "report-secrets")?.entries).toHaveLength(2);
-    expect(model.workflows.flatMap((wf) => wf.entries)).toHaveLength(17);
+    expect(model.workflows.flatMap((wf) => wf.entries)).toHaveLength(18);
     expect(model.continuations.map((entry) => [entry.rule.id, entry.fromWorkflowId, entry.workflowId]))
       .toEqual([
         ["pr-fixer-publish", "review-commit", "publish-fix"],

@@ -5,7 +5,8 @@ payload, remove it in a later commit, and the reviewed diff would hide it while 
 and the push carried the whole graph. The gate (trusted code) therefore builds ONE commit
 itself - ``git commit-tree <tip^{tree}> -p <start_sha>``, message and author from the
 agent's tip - and that commit is what is diffed, reviewed, bundled and pushed. The
-agent's own commits stay in its worktree. Merges in ``start..tip`` are refused.
+agent's own commits stay in its worktree. Merges in ``start..tip`` are refused, but for
+one (d31): a merge from base, whose second parent is on the PR's base branch.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from culture_rules.actors.gate import GUARD, NO_GATE, PASS
 from tests.actors.test_gate import (  # noqa: F401 - fixtures
     GIT_ENV,
     PASSING,
+    TESTS_PY,
     LocalRunner,
     Repo,
     clock,
@@ -173,3 +175,264 @@ def test_r3_5_the_gate_tests_exactly_the_commit_it_publishes(store, tmp_path, cl
     assert out["commit_sha"] != tip
     # the tests saw the published commit (its SHA and its engine-written author), not the tip
     assert f"HEAD={out['commit_sha']} rules-culture-dev[bot]" in out["output_tail"]
+
+
+# --------------------------------------------------------------------------- d31
+
+
+BIG = "".join(f"line {i}\n" for i in range(3000))  # a base change far over any review cap
+
+
+def merge_base_in(repo: Repo, main_files: dict, resolve: dict | None = None) -> str:
+    """The base branch moves (``main_files`` on top of the PR's base) and the agent merges
+    it into the PR head, resolving any conflict with ``resolve``; ``repo.base`` becomes the
+    moved base (the PR's base at gate time). Returns the agent's merge commit."""
+    git(repo.wt, "checkout", "-q", "--detach", repo.base)
+    moved = repo.commit("main moves", main_files)
+    git(repo.wt, "checkout", "-q", "--detach", repo.start)
+    merged = subprocess.run(
+        ["git", "merge", "-q", "--no-ff", "-m", "merge main", moved],
+        cwd=repo.wt,
+        env=GIT_ENV,
+        capture_output=True,
+    )
+    if merged.returncode != 0:  # a conflict: the agent resolves it
+        assert resolve, merged.stderr
+        for name, text in resolve.items():
+            if text is not None:  # None: commit the file as the merge left it
+                (repo.wt / name).write_text(text)
+            git(repo.wt, "add", name)
+        git(repo.wt, "commit", "-q", "--no-edit")
+    repo.base = moved
+    return git(repo.wt, "rev-parse", "HEAD")
+
+
+def test_d31_a_merge_from_base_is_built_as_one_bot_merge(store, tmp_path, clock):  # noqa: F811
+    from culture_rules.actors.gate import FIXER_COMMIT_IDENTITY
+
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    tip = merge_base_in(repo, {"src/other.py": "o = 1\n"})
+    out = judge(store, LocalRunner(), repo, tmp_path, clock)
+    assert out["verdict"] == PASS, out
+    built = out["commit_sha"]
+    assert built != tip
+    check = bundle_repo(tmp_path, out["bundle"], built)
+    # exactly one new commit of the PR's own line: a merge of the PR head and the base
+    assert git(check, "rev-parse", f"{built}^1", f"{built}^2").split() == [repo.start, repo.base]
+    assert git(check, "rev-parse", f"{built}^{{tree}}") == git(repo.wt, "rev-parse", "HEAD^{tree}")
+    who = git(check, "log", "-1", "--format=%an <%ae>", built)
+    assert who == FIXER_COMMIT_IDENTITY
+    # the bundle carries the base too, so github.push can check the merge against it
+    git(check, "fetch", "-q", out["bundle"], f"{repo.base}:refs/base")
+    # a clean merge resolves nothing: the reviewed diff holds none of the base's change
+    assert "src/other.py" not in out["diff"]
+    assert out["diff_truncated"] is False
+    assert judge(store, LocalRunner(), repo, tmp_path, clock)["commit_sha"] == built
+
+
+def test_d31_the_review_sees_only_the_resolution(store, tmp_path, clock):  # noqa: F811
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    merge_base_in(
+        repo,
+        {"src/app.py": "x = 5\n", "src/big.py": BIG},
+        resolve={"src/app.py": "x = 7\n"},
+    )
+    out = judge(store, LocalRunner(), repo, tmp_path, clock)
+    assert out["verdict"] == PASS, out
+    assert out["diff_truncated"] is False  # the base's 3000-line file is not the agent's
+    assert "src/big.py" not in out["diff"]
+    assert "+x = 7" in out["diff"]
+    assert repo.base in out["diff"]  # the reviewer is told it is a merge from that base
+
+
+def test_d31_the_bases_own_changes_are_not_guarded(store, tmp_path, clock):  # noqa: F811
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    skip = TESTS_PY + "\n\n@pytest.mark.skip\ndef test_later():\n    pass\n"
+    merge_base_in(repo, {"tests/test_x.py": skip, ".github/workflows/ci.yml": "on: push\n"})
+    out = judge(store, LocalRunner(), repo, tmp_path, clock)
+    assert out["verdict"] == PASS, out
+
+
+def test_d31_a_suppression_added_in_the_resolution_is_guarded(store, tmp_path, clock):  # noqa: F811
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    merge_base_in(
+        repo,
+        {"src/app.py": "x = 5\n"},
+        resolve={"src/app.py": "x = 7  # noqa: E501\n"},
+    )
+    out = judge(store, LocalRunner(), repo, tmp_path, clock)
+    assert out["verdict"] == GUARD
+    assert out["rule"] == "suppression_marker"
+
+
+def test_d31_dropping_the_prs_own_test_in_the_merge_is_guarded(
+    store, tmp_path, clock  # noqa: F811
+):  # noqa: F811
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    git(repo.wt, "checkout", "-q", "--detach", repo.start)
+    pr_tests = TESTS_PY + "\n\ndef test_pr_new():\n    assert True\n"
+    repo.start = repo.commit("pr adds a test", {"tests/test_x.py": pr_tests})
+    tip = merge_base_in(repo, {"src/other.py": "o = 1\n"})
+    git(repo.wt, "checkout", "-q", "--detach", tip)
+    repo.commit("take main's tests", {"tests/test_x.py": TESTS_PY})
+    out = judge(store, LocalRunner(), repo, tmp_path, clock)
+    assert out["verdict"] == GUARD
+    assert out["rule"] == "test_removed"
+
+
+def test_d31_two_merges_are_guarded(store, tmp_path, clock):  # noqa: F811
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    first = merge_base_in(repo, {"src/one.py": "a = 1\n"})
+    git(repo.wt, "checkout", "-q", "--detach", repo.base)
+    moved = repo.commit("main moves again", {"src/two.py": "b = 1\n"})
+    git(repo.wt, "checkout", "-q", "--detach", first)
+    git(repo.wt, "merge", "-q", "--no-ff", "-m", "merge main again", moved)
+    repo.base = moved
+    out = judge(store, LocalRunner(), repo, tmp_path, clock)
+    assert out["verdict"] == GUARD
+    assert out["rule"] == "merge_commit"
+
+
+def test_d31_a_merge_of_a_commit_not_on_base_is_guarded(store, tmp_path, clock):  # noqa: F811
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    merge_base_in(repo, {"src/other.py": "o = 1\n"})
+    repo.base = git(repo.wt, "rev-parse", f"{repo.base}^")  # the base did not move after all
+    out = judge(store, LocalRunner(), repo, tmp_path, clock)
+    assert out["verdict"] == GUARD
+    assert out["rule"] == "merge_commit"
+
+
+def test_d31_no_gate_builds_the_merge_too(store, tmp_path, clock):  # noqa: F811
+    repo = Repo(tmp_path, None)
+    merge_base_in(repo, {"src/other.py": "o = 1\n"})
+    out = judge(store, LocalRunner(), repo, tmp_path, clock)
+    assert out["verdict"] == NO_GATE
+    assert out["commit_sha"] != repo.start
+    assert "src/other.py" not in out["diff"]
+    assert repo.base in out["diff"]
+
+
+# --------------------------------------------------------------------------- d31, Codex #1-#2
+
+
+def test_d31_a_conflicted_protected_file_left_with_markers_is_guarded(
+    store, tmp_path, clock  # noqa: F811
+):  # noqa: F811
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    git(repo.wt, "checkout", "-q", "--detach", repo.start)
+    ci = ".github/workflows/ci.yml"
+    repo.start = repo.commit("pr edits ci", {ci: "on: pull_request\n"})
+    merge_base_in(repo, {ci: "on: push\n"}, resolve={ci: None})
+    out = judge(store, LocalRunner(), repo, tmp_path, clock)
+    assert out["verdict"] == GUARD
+    rules = {v["rule"] for v in out["violations"]}
+    assert {"protected_path", "conflict_unresolved"} <= rules
+
+
+def test_d31_conflict_markers_left_in_a_file_are_guarded(store, tmp_path, clock):  # noqa: F811
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    merge_base_in(repo, {"src/app.py": "x = 5\n"}, resolve={"src/app.py": None})
+    out = judge(store, LocalRunner(), repo, tmp_path, clock)
+    assert out["verdict"] == GUARD
+    assert out["rule"] == "conflict_unresolved"
+
+
+def test_d31_a_conflicted_test_resolved_to_one_definition_passes(
+    store, tmp_path, clock  # noqa: F811
+):  # noqa: F811
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    git(repo.wt, "checkout", "-q", "--detach", repo.start)
+    ours = TESTS_PY + "\n\ndef test_same():\n    assert 1\n"
+    repo.start = repo.commit("pr adds test_same", {"tests/test_x.py": ours})
+    theirs = TESTS_PY + "\n\ndef test_same():\n    assert 2\n"
+    resolved = TESTS_PY + "\n\ndef test_same():\n    assert 1 and 2\n"
+    merge_base_in(repo, {"tests/test_x.py": theirs}, resolve={"tests/test_x.py": resolved})
+    out = judge(store, LocalRunner(), repo, tmp_path, clock)
+    assert out["verdict"] == PASS, out["violations"]
+    assert "# conflicted tests/test_x.py" in out["diff"]
+
+
+def test_d31_dropping_one_sides_test_in_a_conflict_is_guarded(
+    store, tmp_path, clock  # noqa: F811
+):  # noqa: F811
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    git(repo.wt, "checkout", "-q", "--detach", repo.start)
+    ours = TESTS_PY + "\n\ndef test_ours():\n    assert 1\n"
+    repo.start = repo.commit("pr adds test_ours", {"tests/test_x.py": ours})
+    theirs = TESTS_PY + "\n\ndef test_theirs():\n    assert 2\n"
+    merge_base_in(repo, {"tests/test_x.py": theirs}, resolve={"tests/test_x.py": theirs})
+    out = judge(store, LocalRunner(), repo, tmp_path, clock)
+    assert out["verdict"] == GUARD
+    assert ("test_removed", "tests/test_x.py") in {
+        (v["rule"], v["path"]) for v in out["violations"]
+    }
+
+
+def test_d31_a_binary_conflict_is_guarded(store, tmp_path, clock):  # noqa: F811
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    git(repo.wt, "checkout", "-q", "--detach", repo.start)
+    (repo.wt / "logo.bin").write_bytes(b"\x00ours\x01")
+    git(repo.wt, "add", "logo.bin")
+    git(repo.wt, "commit", "-q", "-m", "pr logo")
+    repo.start = git(repo.wt, "rev-parse", "HEAD")
+    git(repo.wt, "checkout", "-q", "--detach", repo.base)
+    (repo.wt / "logo.bin").write_bytes(b"\x00theirs\x02")
+    git(repo.wt, "add", "logo.bin")
+    git(repo.wt, "commit", "-q", "-m", "main logo")
+    moved = git(repo.wt, "rev-parse", "HEAD")
+    git(repo.wt, "checkout", "-q", "--detach", repo.start)
+    subprocess.run(
+        ["git", "merge", "-q", "--no-ff", "-m", "merge main", moved],
+        cwd=repo.wt,
+        env=GIT_ENV,
+        capture_output=True,
+    )
+    git(repo.wt, "checkout", "-q", "--ours", "logo.bin")
+    git(repo.wt, "add", "logo.bin")
+    git(repo.wt, "commit", "-q", "--no-edit")
+    repo.base = moved
+    out = judge(store, LocalRunner(), repo, tmp_path, clock)
+    assert out["verdict"] == GUARD
+    assert out["rule"] == "conflict_not_text"
+
+
+# --------------------------------------------------------------------------- d31, Codex round 2
+
+
+def test_d31_moving_a_protected_file_while_resolving_a_conflict_is_guarded(
+    store, tmp_path, clock  # noqa: F811
+):  # noqa: F811
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    ci = ".github/workflows/ci.yml"
+    tip = merge_base_in(
+        repo, {"src/app.py": "x = 5\n", ci: "on: push\n"}, resolve={"src/app.py": "x = 7\n"}
+    )
+    git(repo.wt, "checkout", "-q", "--detach", tip)
+    git(repo.wt, "mv", ci, "src/ci.yml")
+    git(repo.wt, "commit", "-q", "-m", "move ci")
+    out = judge(store, LocalRunner(), repo, tmp_path, clock)
+    assert out["verdict"] == GUARD
+    assert ("protected_path", ci) in {(v["rule"], v["path"]) for v in out["violations"]}
+
+
+def test_d31_each_sides_own_markers_kept_in_a_conflict_pass(
+    store, tmp_path, clock  # noqa: F811
+):  # noqa: F811
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    git(repo.wt, "checkout", "-q", "--detach", repo.start)
+    repo.start = repo.commit("pr", {"src/app.py": "x = 2  # noqa: E501\n"})
+    theirs = "x = 5  # nosec\n"
+    both = "x = 2  # noqa: E501\ny = 5  # nosec\n"
+    merge_base_in(repo, {"src/app.py": theirs}, resolve={"src/app.py": both})
+    out = judge(store, LocalRunner(), repo, tmp_path, clock)
+    assert out["verdict"] == PASS, out["violations"]
+
+
+def test_d31_a_real_replacement_character_is_complete_review_material(
+    store, tmp_path, clock  # noqa: F811
+):  # noqa: F811
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    merge_base_in(repo, {"src/app.py": "x = 5\n"}, resolve={"src/app.py": "x = 7  # \ufffd\n"})
+    out = judge(store, LocalRunner(), repo, tmp_path, clock)
+    assert out["verdict"] == PASS
+    assert out["diff_truncated"] is False, out["diff_problems"]

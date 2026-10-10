@@ -519,6 +519,17 @@ class GitHubApp:
         self._require_allowed(repo, "pull read")
         return self._call("GET", f"/repos/{repo}/pulls/{int(number)}", None)
 
+    def list_open_pulls_page(self, repo: str, page: int) -> list[dict[str, Any]]:
+        """One page (100) of the open pull requests of ``repo`` (REST ``GET
+        /repos/{repo}/pulls?state=open``); read-only (Pull requests: read). The listing
+        carries no ``mergeable``: read each PR with :meth:`get_pull` for that (d31)."""
+        self._require_allowed(repo, "pull listing")
+        if isinstance(page, bool) or not isinstance(page, int) or page < 1:
+            raise GitHubError("bad_input", "page")
+        path = f"/repos/{repo}/pulls?state=open&per_page=100&page={page}"
+        items = self._call("GET", path, None).get("items") or []
+        return [p for p in items if isinstance(p, dict)]
+
     def list_check_suites(self, repo: str, sha: str) -> list[dict[str, Any]]:
         """Every check suite of commit ``sha`` (REST, paginated); read-only (Checks: read).
 

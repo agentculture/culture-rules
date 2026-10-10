@@ -320,6 +320,7 @@ the request reaches the head ([The fixer queue](#the-fixer-queue-35)):
 | Rule | Fires on | Runs | Budget |
 |---|---|---|---|
 | `pr-fixer-checks` | `github.pr.checks_settled`, conclusion neither `success` nor `no_checks`, GitGuardian not failed | `queue-add` | outside |
+| `pr-fixer-conflict` (d31) | `github.pr.conflicting`: the node's conflict watch found the PR CONFLICTING with its base (below) | `queue-add` | outside |
 | `pr-fixer-comment` | `github.comment.created` by a trusted author that asks (below) | `queue-add` | outside; resets it (d32) |
 | `pr-fixer-review` | `github.review.submitted` by a trusted author | `queue-add` | outside |
 | `pr-fixer-review-comment` | `github.review_comment.created` by a trusted author that asks | `queue-add` | outside; resets it (d32) |
@@ -337,6 +338,23 @@ the request reaches the head ([The fixer queue](#the-fixer-queue-35)):
 comment (see
 [GitGuardian findings](#gitguardian-findings-d25)).
 
+**Conflicts with the base (d31).** GitHub sends no webhook when a PR turns
+CONFLICTING (its base moves, its head does not). Every node that can read a repo
+through its GitHub App sweeps the open PRs of `vars.fixer_repos` (less
+`vars.fixer_excluded_repos`) at most every `vars.conflict_watch_interval_s`
+seconds (default 600): it lists the open PRs a page at a time and reads each
+same-repo, non-draft PR's `mergeable`, at most 10 GitHub requests and 10 seconds
+per node cycle (the rest wait for the next cycle; a failed listing or a
+rate-limited request drops that repo until the next sweep). A PR GitHub reports
+`mergeable: false` with `mergeable_state: dirty` emits one
+`github.pr.conflicting` event per head and base pair (a deterministic id, so a
+conflict is requested once; a new base is a new request), carrying the same PR
+facts as a checks settle. `pr-fixer-conflict` puts it in the queue. The agent
+merges exactly that `base_sha` and resolves the conflict; the gate allows that
+one merge from base (see `gate` below). GitHub computes `mergeable` lazily, so
+a fresh conflict is seen at the next sweep. The type and the `conflict_` id
+prefix are reserved at external ingest.
+
 The d21 text calls the review stage `pr-fixer-review`. That id already names
 the review-submitted trigger rule, so the stage is `pr-fixer-review-commit`,
 after its workflow.
@@ -346,13 +364,13 @@ after its workflow.
 The editor has no Rules tab: it folds each rule into the workflow it starts
 ([spec](../specs/2026-10-09-editor-rules-folded-into-workflows-three-views.md)).
 The rules above are unchanged; only the way the editor shows them is. On the
-**Workflows** tab the fixer's 17 rules and 6 workflows read as:
+**Workflows** tab the fixer's 18 rules and 6 workflows read as:
 
 - **one chain card for the fix chain**: `queue-add`, `queue-progress`,
   `pr-fix`, `review-commit` and `publish-fix`, linked by continuations, "5
-  workflows linked by continuations · 6 entry points · was 15 rules".
-  `queue-add` starts when one of its 4 entry points fires
-  (`pr-fixer-checks`, `-comment`, `-review`, `-review-comment`) and owns the
+  workflows linked by continuations · 7 entry points · was 16 rules".
+  `queue-add` starts when one of its 5 entry points fires
+  (`pr-fixer-checks`, `-conflict`, `-comment`, `-review`, `-review-comment`) and owns the
   continuations `pr-fixer-refix` and `pr-fixer-retry`. `pr-fix` starts on
   the entry point `pr-fixer-dispatch` (the queue's event), and
   `queue-progress` on `pr-fixer-queue-sweep` plus the five progress
@@ -1124,7 +1142,16 @@ above name:
      the App and refuses a `base_sha` that is not the PR's base
      (`base_mismatch`; `base_unverified` when it cannot tell), because the
      base selects the gate policy. A merge in the agent's commits is a
-     `guard` verdict (`merge_commit`). On `pass` and `no_gate` the gate then
+     `guard` verdict (`merge_commit`), but for one merge from base (d31):
+     exactly one merge whose second parent is already on the PR's base branch
+     (an ancestor of `base_sha`) and not yet in the PR head. For that one the
+     gate builds a bot merge of the PR head and that commit, bundles `base_sha`
+     with it, and the diff guard and the reviewer's `diff` judge only the
+     merge's resolution, never the base's own commits: cleanly merged files
+     against the clean merge of its two parents, conflicted files against both
+     parents (a conflict marker left is `conflict_unresolved`, a binary or
+     mode conflict `conflict_not_text`); `github.push` exempts only that
+     merge's second-parent history from `commit_author`. On `pass` and `no_gate` the gate then
      builds **one commit itself** (`git commit-tree`): the agent tip's tree on
      the PR head and nothing else of the agent's. Author and committer are the
      App bot (`commit_identity`, default the `rules-culture-dev[bot]`
