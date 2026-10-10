@@ -351,7 +351,14 @@ rate-limited request drops that repo until the next sweep). A PR GitHub reports
 `mergeable: false` with `mergeable_state: dirty` emits one
 `github.pr.conflicting` event per head and base pair (a deterministic id, so a
 conflict is requested once; a new base is a new request), carrying the same PR
-facts as a checks settle. `pr-fixer-conflict` puts it in the queue. The agent
+facts as a checks settle. Once means once *heard* (d39, #44): when no rule
+triggered by `github.pr.conflicting` has a firing or a recorded decision on the
+pair's last event, the watch emits it again as a new generation (its id hashed
+with the generation) at a later sweep, at least one interval after the last,
+but only while such a rule is enabled and the engine is not paused, and at most
+3 events per pair. So a conflict seen while `pr-fixer-conflict` was off (an
+import lands every rule disabled) or the engine was paused is requested once it
+can be heard. The check reads the store only; the request budget is unchanged. `pr-fixer-conflict` puts it in the queue. The agent
 merges the base commit the try is given (d37: the base branch's tip at
 dispatch, named by the d36 paragraph) and resolves the conflict; the gate
 allows that one merge from base (see `gate` below). GitHub computes `mergeable` lazily, so
@@ -437,8 +444,8 @@ records that `base_sha`, but the try is given the live one:
   refusals and `base_mismatch` still fail the step.
 - **Conflict watch and #44.** The watch's event id is the PR's head and its
   `base.sha`, which moves only when the head is pushed, so a base that keeps
-  moving under an unpushed head is announced once; #44 (a conflict announced
-  while the rule is off is never announced again) is unchanged.
+  moving under an unpushed head is announced once (heard once, d39: a
+  conflict announced while the rule is off is announced again once it is on).
 
 **Stopping a story (d34, #40).** A trusted author stops a PR's fixer story
 with a comment that starts with a form in `vars.fixer_stop_triggers` (default
@@ -1532,6 +1539,14 @@ The operator does this.
    `checks_conclusion` and `pr-fixer-checks` passes it. `queue-add` is not a
    trusted (digest-pinned) workflow, so no digest changes; no variable is new.
    The import disables every rule, so re-enable the ones that were on.
+
+### Rolling out the conflict redelivery (d39, #44)
+
+Ship the wheel and upgrade every node: the conflict watch runs on each node.
+No rule, workflow or variable changes, so no import and no digest change. A
+pair already announced before the upgrade (generation 0) is requested again
+after the upgrade if no rule heard it, such as katvan#57's at 14:49Z on
+2026-10-10, if it is still conflicting.
 
 ### Rolling out the GitGuardian report (d25)
 

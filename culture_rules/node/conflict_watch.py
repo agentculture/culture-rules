@@ -28,7 +28,18 @@ the first read), so a fresh conflict is seen at the next sweep.
 The event id is a hash of ``repo#number@head:base`` (:func:`conflict_event_id`), so the
 unique id of the ``events`` collection emits it once per head and base pair, across nodes
 and sweeps: the same conflict is never requested twice, and a new base (or a new head that
-is still conflicting) is a new request. The ``pr-fixer-conflict`` rule turns it into a
+is still conflicting) is a new request.
+
+Once means once **heard** (d39, #44): a pair whose last event no rule consumed - no firing
+intent and no recorded decision of any stored, not deleted rule triggered by
+:data:`~culture_rules.events.emit.PR_CONFLICTING_TYPE` (``condition_false``, ``disabled``
+and ``paused`` are never recorded) - is emitted again at a later sweep as the next
+generation (``generation`` in the id; generation 0 is the d31 id), once at least one
+interval has passed since the last, while such a rule is enabled and the engine is not
+paused, and at most :data:`MAX_GENERATIONS` events per pair. A conflict seen while
+``pr-fixer-conflict`` was disabled (a bundle import lands every rule disabled) or the engine
+paused is so requested once it can be heard. The check reads the store only, never GitHub,
+so the request budget below is unchanged. The ``pr-fixer-conflict`` rule turns it into a
 fixer request, like a checks settle does. The type and the ``conflict_`` id prefix are
 reserved at external ingest (:func:`~culture_rules.events.emit.reserved_reason`).
 
@@ -58,6 +69,7 @@ __all__ = [
     "ConflictWatcher",
     "DEFAULT_INTERVAL_S",
     "INTERVAL_VARIABLE",
+    "MAX_GENERATIONS",
     "REQUESTS_PER_TICK",
     "REQUEST_TIMEOUT_S",
     "TICK_BUDGET_S",
@@ -66,6 +78,8 @@ __all__ = [
 ]
 
 DEFAULT_INTERVAL_S = 600.0
+MAX_GENERATIONS = 3
+"""d39: the most events one head and base pair is emitted as (the first and 2 re-requests)."""
 REQUESTS_PER_TICK = 10
 """The most GitHub requests (listing pages and PR reads) one node cycle makes."""
 TICK_BUDGET_S = 10.0
@@ -80,9 +94,14 @@ CONFLICT_HOST = "conflict-watch"
 SOURCE = "culture-rules://conflict-watch"
 
 
-def conflict_event_id(repo: str, number: int, head_sha: str, base_sha: str) -> str:
-    """The deterministic id of one PR head and base pair's conflict event."""
+def conflict_event_id(
+    repo: str, number: int, head_sha: str, base_sha: str, *, generation: int = 0
+) -> str:
+    """The deterministic id of one PR head and base pair's conflict event; ``generation``
+    (d39) numbers a pair's re-requests, and generation 0 keeps the d31 id."""
     key = f"{repo.lower()}#{int(number)}@{head_sha}:{base_sha}"
+    if generation:
+        key += f"/g{int(generation)}"
     return CONFLICT_ID_PREFIX + hashlib.sha256(key.encode()).hexdigest()[:40]
 
 
@@ -217,12 +236,15 @@ class ConflictWatcher:
             "pr_numbers": [number],
             "mergeable_state": "dirty",
         }
+        event_id = self._next_id(repo, number, facts["head_sha"], facts["base_sha"], now)
+        if event_id is None:
+            return False
         envelope = derive_envelope(
             None,
             type=PR_CONFLICTING_TYPE,
             source=SOURCE,
             data=payload,
-            id=conflict_event_id(repo, number, facts["head_sha"], facts["base_sha"]),
+            id=event_id,
         )
         try:
             self._store.insert(
@@ -232,6 +254,69 @@ class ConflictWatcher:
             return False
         log.info("conflict watch: %s#%s conflicts with its base", repo, number)
         return True
+
+    # ------------------------------------------------------------------ d39 delivery
+
+    def _next_id(self, repo: str, number: int, head: str, base: str, now: datetime) -> str | None:
+        """The id to emit this pair's conflict as, or ``None`` to emit nothing (d39): the
+        first generation not stored yet, when there is none before it, or the one before it
+        was not heard, a listener is live and it is at least one interval old; ``None``
+        once :data:`MAX_GENERATIONS` are stored. Store reads only: no GitHub request."""
+        last = None
+        for gen in range(MAX_GENERATIONS):
+            event_id = conflict_event_id(repo, number, head, base, generation=gen)
+            stored = self._store.get(EVENTS_COLLECTION, event_id)
+            if stored is None:
+                return event_id if last is None or self._redeliver(last, now) else None
+            last = stored
+        return None
+
+    def _redeliver(self, last: Mapping[str, Any], now: datetime) -> bool:
+        """Whether the pair's last event (``last``, stored) is to be requested again."""
+        sent = _parse((last.get("received_at")) or "")
+        if sent is None or (now - sent).total_seconds() < self.interval_s():
+            return False
+        listeners = self._listeners()
+        if not any(r.get("enabled") is True for r in listeners) or self._paused():
+            return False  # nobody would hear it now either: wait, keep the generation
+        return not self._heard(str(last.get("id") or ""), listeners)
+
+    def _listeners(self) -> list[Mapping[str, Any]]:
+        """The stored, not deleted rules triggered by :data:`PR_CONFLICTING_TYPE`."""
+        from culture_rules.engine.runs import RULES_COLLECTION  # noqa: PLC0415
+
+        return [
+            r
+            for r in self._store.find(RULES_COLLECTION)
+            if not r.get("deleted_at")
+            and ((r.get("trigger") or {}).get("params") or {}).get("type") == PR_CONFLICTING_TYPE
+        ]
+
+    def _paused(self) -> bool:
+        from culture_rules.engine.runs import is_paused  # noqa: PLC0415
+
+        return is_paused(self._store)
+
+    def _heard(self, event_id: str, listeners: list[Mapping[str, Any]]) -> bool:
+        """Whether any listener consumed ``event_id``: a firing intent, or a recorded
+        decision (a skip such as ``deduplicated`` is the rule hearing it)."""
+        from culture_rules.engine.claims import firing_key  # noqa: PLC0415
+        from culture_rules.engine.decisions import RULE_DECISIONS  # noqa: PLC0415
+        from culture_rules.node.firing import RULE_FIRES  # noqa: PLC0415
+
+        for rule in listeners:
+            key = firing_key(str(rule.get("id")), event_id)  # = decision_key
+            if self._store.get(RULE_FIRES, key) or self._store.get(RULE_DECISIONS, key):
+                return True
+        return False
+
+
+def _parse(text: str) -> datetime | None:
+    try:
+        when = datetime.fromisoformat(text)
+    except (TypeError, ValueError):
+        return None
+    return when if when.tzinfo else when.replace(tzinfo=UTC)
 
 
 def _same_repo(pull: Mapping[str, Any]) -> bool:
