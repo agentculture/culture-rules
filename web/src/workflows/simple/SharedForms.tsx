@@ -282,6 +282,12 @@ export type GroupProblems = Partial<Record<GroupField, string>>;
 
 const GROUP_FIELDS: readonly GroupField[] = ["exclusive_group", "priority"];
 
+/** The rule field a 422 path names at the top level (a request-body `body.` prefix dropped). */
+function topField(path: string): string | undefined {
+  const tokens = path.split(/[.[\]/]/).filter(Boolean);
+  return tokens[0] === "body" ? tokens[1] : tokens[0];
+}
+
 /**
  * A 422's messages, each at the field its path names; one naming neither field (or a bare
  * envelope) is shown at the first field the edit changed.
@@ -289,7 +295,7 @@ const GROUP_FIELDS: readonly GroupField[] = ["exclusive_group", "priority"];
 export function groupProblems(err: ApiError, edit: GroupEdit): GroupProblems {
   const found: GroupProblems = {};
   for (const e of err.errors) {
-    const field = GROUP_FIELDS.find((f) => e.path.split(/[.[\]/]/).includes(f));
+    const field = GROUP_FIELDS.find((f) => topField(e.path) === f);
     if (field) found[field] = found[field] ? `${found[field]}; ${e.message}` : e.message;
   }
   if (Object.keys(found).length > 0) return found;

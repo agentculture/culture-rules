@@ -1014,7 +1014,8 @@ describe("exclusive group and priority (issue #29 a, d8)", () => {
       status: 422,
       code: "invalid",
       message: "rule build-and-publish is invalid",
-      errors: [{ path: "rules.build-and-publish.exclusive_group", code: "empty", message: "exclusive_group must not be empty" }],
+      // The path the real API sends for a rule PUT (probed against create_app: bare field names).
+      errors: [{ path: "exclusive_group", code: "empty", message: "exclusive_group must not be empty" }],
     };
     await user.click(within(form).getByRole("button", { name: "Save for this entry point" }));
     const field = await within(form).findByLabelText("Group");
