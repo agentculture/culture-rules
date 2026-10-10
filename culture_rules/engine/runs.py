@@ -311,8 +311,10 @@ _BACKOFF_MAX_EXP = 16
 
 ACTIVE = "running"
 SUPERSEDED = "superseded"
-PR_NOT_OPEN = "pr_not_open"  # a guarded wake found the PR merged or closed (#31)
-"""Run end state: a wait step's head_unchanged guard found the PR head had moved."""
+"""Run end state: a wait step's head_unchanged guard found the PR head had moved, or the
+PR no longer open (:data:`PR_NOT_OPEN` on the wait step's error)."""
+PR_NOT_OPEN = "pr_not_open"
+"""Wait-step error code: the guarded wake found the PR merged or closed (#31)."""
 SLEEPING = "sleeping"
 """Step status of a wait step parked until its ``deadline``."""
 HEAD_BLOCKED = "head_blocked"
