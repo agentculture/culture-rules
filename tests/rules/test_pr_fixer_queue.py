@@ -186,3 +186,24 @@ def test_a_request_whose_head_moved_before_its_turn_is_dropped(tmp_path):
     assert fixes(w) == []
     dropped = [d for r in w.run_of("queue-progress") for d in r["outputs"].get("dropped") or ()]
     assert dropped == [{"key": "o/r#7", "reason": "head_moved"}]
+
+
+def test_d36_every_try_is_told_the_one_merge_from_base(tmp_path):
+    """d36 (katvan#57): whatever started the story - checks, a /fix, a retry - the
+    dispatched try's instruction names the base commit and allows one real merge of it."""
+    w = ChainWorld(tmp_path, turns=[guard, "commit", "commit"])
+    settle(w, 1, number=7)
+    comment(w, 2, number=8)
+    w.run_chain()
+    runs = fixes(w)
+    assert len(runs) == 3  # the checks story, the /fix story and one retry
+    merge = f"git merge {w.repo.base}"
+    for run in runs:
+        text = run["inputs"]["instruction"]
+        assert text.count(merge) == 1, run["id"]
+        assert "Never squash, flatten" in text
+        assert run["inputs"]["base_sha"] == w.repo.base
+    texts = [r["inputs"]["instruction"] for r in runs]
+    assert [t for t in texts if t.startswith("Checks on PR")]
+    assert [t for t in texts if "/fix please" in t]
+    assert [t for t in texts if t.startswith("The diff guard rejected commit")]

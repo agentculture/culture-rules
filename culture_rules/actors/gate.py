@@ -1089,6 +1089,44 @@ _CONFLICT_MARKER = re.compile(r"^(?:<{7}|>{7})(?: |$)|^={7}$", re.MULTILINE)
 _DIFF = ("diff", "--no-ext-diff", "--no-textconv", "--no-color")
 
 
+def _churn(job: _Job, frm: str, to: str) -> int:
+    """Lines added plus deleted from ``frm`` to ``to`` (a binary change counts as one)."""
+    numstat = job.git(
+        "diff", "--no-ext-diff", "--no-textconv", "--no-renames", "-z", "--numstat", frm, to, "--"
+    ).decode("utf-8", "replace")
+    total = 0
+    for entry in numstat.split("\x00"):
+        added, _, rest = entry.partition("\t")
+        deleted, _, path = rest.partition("\t")
+        if path:
+            total += (int(added) if added.isdigit() else 1) + (
+                int(deleted) if deleted.isdigit() else 0
+            )
+    return total
+
+
+def _base_copied_in(job: _Job, start: str, built: str, base: str) -> bool:
+    """d36: ``built`` (no merge in it) has not got ``base`` in its history, yet it is far
+    closer to ``base`` than to the PR head it builds on - the base's own changes were
+    copied in as a plain commit instead of merged (the live case: katvan#57). Two
+    ``--numstat`` diffs; deterministic."""
+    if job.git_rc("merge-base", "--is-ancestor", base, built)[0] == 0:
+        return False
+    own = _churn(job, start, built)
+    return own > 0 and _churn(job, base, built) * 2 < own
+
+
+def _copied_base_hint(base: str) -> str:
+    """The review finding for :func:`_base_copied_in` (d36)."""
+    return (
+        "the commit copies the base branch's own changes in as a plain commit (the base "
+        f"commit {base} is not in its history), so they are shown as the PR's own change: "
+        f"undo that and make one real two-parent merge instead (git merge {base}), "
+        "resolving any conflict in that merge commit; the gate allows one merge from base "
+        "and the reviewer then judges only its resolution"
+    )
+
+
 def _literal(path: str) -> str:
     """``path`` as a literal pathspec argument; a path that is not UTF-8 is refused."""
     arg = path.encode("utf-8", errors="surrogateescape").decode("utf-8", "replace")
@@ -1460,7 +1498,11 @@ class GatePort:
         start = shas["start_sha"]
         second = _second_parent(job, built) if built != start else None
         if second is None:
-            return cls._diff(job, start, built, cap)
+            out = cls._diff(job, start, built, cap)
+            base = shas.get("base_sha")
+            if out["diff_chars"] > cap and base and _base_copied_in(job, start, built, base):
+                out["diff_problems"].insert(1, _copied_base_hint(base))
+            return out
         merge = _clean_merge(job, start, second)
         header = (
             f"# merge from base: {built[:12]} merges {second} (on the PR's base branch) into "

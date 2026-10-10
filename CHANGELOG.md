@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.8] - 2026-10-10
+
+### Changed
+
+- PR fixer merge from base on every path (d36, operator-approved): `pr-fixer-dispatch` appends one paragraph to every try's instruction, whatever started the story, naming the run's base commit: when the PR needs its base branch, one real two-parent `git merge <base_sha>` with every conflict resolved in that merge commit, never a squash, flatten, cherry-pick or rebase of the base, never a plain-commit copy, never a later base commit. The live case was katvan#57, where a trusted `/fix` asking to merge main got a single-parent commit tree-identical to the merge, so d31's resolution-only review never applied (a 513,944-character diff over the 30k cap). Rule text only: no workflow digest changes
+- Gate (d36): when the reviewed diff is over the reviewer's cap, the base commit is not in the built commit's history and the built commit is far closer to the base than to the PR head (its `--numstat` churn against the base under half its churn against the PR head), a review finding after the size one says the base was copied in as a plain commit and asks for one real `git merge <base_sha>` instead
+- devague: deviation d36 (operator-approved)
+
 ## [0.18.7] - 2026-10-10
 
 ### Added

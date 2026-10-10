@@ -357,6 +357,24 @@ one merge from base (see `gate` below). GitHub computes `mergeable` lazily, so
 a fresh conflict is seen at the next sweep. The type and the `conflict_` id
 prefix are reserved at external ingest.
 
+**Merging the base on every path (d36).** Not only a conflict sends the agent
+to the base: a trusted `/fix` may ask it to merge main. So `pr-fixer-dispatch`
+appends one paragraph to every try's instruction, whatever started the story
+(checks, a comment, a review, a refix or a retry): when the PR needs its base
+branch, make exactly one real two-parent `git merge <base_sha>` of the run's
+base commit and resolve every conflict in that merge commit; never squash,
+flatten, cherry-pick or rebase the base in, never copy it as a plain commit,
+never merge a later base commit, and do not merge when the PR does not need
+it. If an agent still copies the base in as a plain commit (the live case,
+katvan#57: a single-parent commit tree-identical to the merge, whose diff was
+513,944 characters), the gate notices when the reviewed diff is over the
+reviewer's cap, the base commit is not in the built commit's history and the
+built commit is far closer to the base than to the PR head (its `--numstat`
+churn against the base is under half its churn against the PR head), and
+adds a review finding after the size one that names the base commit and asks
+for one real merge instead. The paragraph is rule text: no workflow digest
+changes.
+
 **Stopping a story (d34, #40).** A trusted author stops a PR's fixer story
 with a comment that starts with a form in `vars.fixer_stop_triggers` (default
 `/stop` and `@rules-culture-dev stop`; the App's mention followed by the word
@@ -1406,6 +1424,18 @@ The operator does this; nothing here changes the live rules.
    `pr-fixer-review-comment` changed too (a stop comment never asks for a
    fix) and, like every file in the bundle, ship disabled: enable them again
    after the import.
+
+### Rolling out the merge hint (d36)
+
+The operator does this; nothing here changes the live rules.
+
+1. Ship the wheel (the gate's copied-base finding) and upgrade every node; a
+   node of an older release reviews without the finding, nothing else.
+2. Import `docs/rules/pr-fixer` (workflows first, then rules). Only
+   `pr-fixer-dispatch` changed (its `instruction` is now a template with the
+   d36 paragraph); no workflow digest changes. Like every file in the bundle
+   it ships disabled: enable every rule that was on again after the import,
+   `pr-fixer-dispatch` first among them, or no queued request starts.
 
 ### Rolling out the GitGuardian report (d25)
 

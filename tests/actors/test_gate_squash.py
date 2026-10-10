@@ -436,3 +436,55 @@ def test_d31_a_real_replacement_character_is_complete_review_material(
     out = judge(store, LocalRunner(), repo, tmp_path, clock)
     assert out["verdict"] == PASS
     assert out["diff_truncated"] is False, out["diff_problems"]
+
+
+def copy_base_in(repo: Repo, main_files: dict) -> str:
+    """The base branch moves (``main_files``) and the agent copies its changes into the PR
+    as one plain, single-parent commit - tree-identical to the merge, but no merge (the
+    live case behind d36, katvan#57). ``repo.base`` becomes the moved base."""
+    git(repo.wt, "checkout", "-q", "--detach", repo.base)
+    moved = repo.commit("main moves", main_files)
+    git(repo.wt, "checkout", "-q", "--detach", repo.start)
+    tip = repo.commit("merge main (flattened)", main_files)
+    repo.base = moved
+    return tip
+
+
+def test_d36_a_base_copied_in_as_a_plain_commit_asks_for_one_real_merge(
+    store, tmp_path, clock  # noqa: F811
+):
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    copy_base_in(repo, {"src/big.py": BIG})
+    out = judge(store, LocalRunner(), repo, tmp_path, clock)
+    assert out["diff_truncated"] is True
+    problems = out["diff_problems"]
+    assert problems[0].startswith("the diff is ")  # the size finding stays first
+    (hint,) = [p for p in problems if "plain commit" in p]
+    assert f"git merge {repo.base}" in hint
+    assert "one real" in hint
+
+
+def test_d36_a_large_change_of_the_prs_own_gets_no_merge_hint(store, tmp_path, clock):  # noqa: F811
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    git(repo.wt, "checkout", "-q", "--detach", repo.base)
+    repo.base = repo.commit("main moves", {"src/other.py": "o = 1\n"})
+    git(repo.wt, "checkout", "-q", "--detach", repo.start)
+    repo.commit("a big change of the PR's own", {"src/big.py": BIG})
+    out = judge(store, LocalRunner(), repo, tmp_path, clock)
+    assert out["diff_truncated"] is True
+    assert not [p for p in out["diff_problems"] if "plain commit" in p]
+
+
+def test_d36_a_small_plain_copy_of_the_base_gets_no_hint(store, tmp_path, clock):  # noqa: F811
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    copy_base_in(repo, {"src/other.py": "o = 1\n"})
+    out = judge(store, LocalRunner(), repo, tmp_path, clock)
+    assert out["diff_problems"] == []  # within the cap: the reviewer judges it as it is
+
+
+def test_d36_the_hint_comes_without_a_gate_section_too(store, tmp_path, clock):  # noqa: F811
+    repo = Repo(tmp_path, None)  # katvan#57's PR head had no gate section: no_gate
+    copy_base_in(repo, {"src/big.py": BIG})
+    out = judge(store, LocalRunner(), repo, tmp_path, clock)
+    assert out["verdict"] == NO_GATE
+    assert [p for p in out["diff_problems"] if f"git merge {repo.base}" in p]
