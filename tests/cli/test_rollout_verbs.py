@@ -361,6 +361,31 @@ def test_resume_is_refused_with_no_engine_change_when_the_boundary_cannot_be_rec
     assert jrun(capsys, "runs", "controls")["paused"] is True
 
 
+def test_a_second_resume_caller_keeps_the_first_boundary(
+    wire, store, capsys, monkeypatch  # noqa: F811
+):
+    """Two callers both read no resume_requested; A records it and resumes; a run fails; B's
+    record is refused (409 step_recorded) and B proceeds keeping A's boundary."""
+    jrun(capsys, "rollout", "pause", "--apply")
+    real = rollout._rollout_doc
+    stale = real(_ctx(wire), RELEASE["version"])  # read before A records
+    jrun(capsys, "rollout", "resume", "--apply")
+    first = doc(store)["steps"]["resume_requested"]
+    monkeypatch.setattr(rollout, "_rollout_doc", lambda ctx, version: stale)
+    wire.calls.clear()
+    out = jrun(capsys, "rollout", "resume", "--apply")
+    assert out["engine"] == "already resumed"
+    assert ("POST", "/rollouts/9.1.0/steps/resume_requested") in wire.mutating()
+    assert doc(store)["steps"]["resume_requested"] == first
+
+
+def _ctx(wire):  # noqa: F811
+    from culture_rules.cli.registry import Context
+    from culture_rules.client.http import ApiClient
+
+    return Context(ApiClient("http://127.0.0.1:8765", token=wire.token, transport=wire), True)
+
+
 # --------------------------------------------------------------------------- seed / import
 
 
@@ -460,6 +485,29 @@ def test_enable_refuses_an_enabled_rule_outside_snapshot_plus_new_rules(
         assert "culture-rules rules disable r-extra --apply" in err["remediation"]
     assert wire.mutating() == []
     assert store.get("rules", "r1")["enabled"] is False
+
+
+def test_enable_refuses_before_any_write_while_a_snapshot_rule_is_absent(
+    wire, store, capsys  # noqa: F811
+):
+    _paused_with(store, capsys, ["r1", "r-gone"])
+    put_rule(store, "r-new", False)
+    store.delete("rules", "r-gone")  # deleted since the pause
+    wire.calls.clear()
+    for argv in (("rollout", "enable"), ("rollout", "enable", "--apply")):
+        err = fail(capsys, *argv)
+        assert "r-gone" in err["message"]
+        assert "rules create" in err["remediation"]
+        assert "rollout import --apply" in err["remediation"]
+    assert wire.mutating() == []
+    assert store.get("rules", "r1")["enabled"] is False
+    assert "enable" not in doc(store)["steps"]
+
+
+def test_enable_output_has_no_missing_field(wire, store, capsys):  # noqa: F811
+    _paused_with(store, capsys, ["r1"])
+    put_rule(store, "r-new", False)
+    assert "missing" not in jrun(capsys, "rollout", "enable")
 
 
 def test_enable_restores_exactly_snapshot_plus_new_rules(wire, store, capsys):  # noqa: F811

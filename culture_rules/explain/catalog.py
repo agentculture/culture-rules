@@ -325,8 +325,10 @@ wins). One command per step, in order; nothing chains them and there is no `all`
    version and the node unit's `ActiveState` and `ActiveEnterTimestamp` are read.
    `shared_venv` (the API host, run there): `uv pip install --reinstall-package
    culture-rules --no-deps <whl>` into the venv the running API unit executes
-   (`systemctl --user show culture-rules-api.service -p ExecStart`; the node unit must
-   run the same venv, else exit 1 naming both), then restart `culture-rules-api` and
+   (its `ExecStart` D-Bus property via `busctl --user --json=short`, the exact
+   argv: `<venv>/bin/culture-rules` directly or after
+   `grant run [--inject VAR=NAME]... --`; the node unit must run the same venv,
+   else exit 1 naming both), then restart `culture-rules-api` and
    `culture-rules-node`; `install.sh` never runs. The dry run prints the exact argv
    (`<venv>` for the shared venv) and runs nothing; `--apply` first records the step as
    started, which needs the admin role, so another token runs nothing. A record field
@@ -341,15 +343,24 @@ wins). One command per step, in order; nothing chains them and there is no `all`
    new rules and lists every rule left disabled. Refused before pause recorded a
    snapshot, while an online node's `engine_version` is older than the release
    (PEP 440 order; unknown or unparseable counts as older), while a new rule is not
-   imported, or while a rule outside snapshot plus new rules is enabled (disable it
+   imported, while a snapshot rule no longer exists (restore it or re-import the
+   bundle), or while a rule outside snapshot plus new rules is enabled (disable it
    with `rules disable <id> --apply`; nothing changes before the refusal).
 7. `rollout resume --apply` records `resume_requested` (server time, once per
-   release), resumes the engine, then records `resume` (already resumed is reported).
+   release: the server keeps the first and answers a later one 409 `step_recorded`,
+   which resume treats as recorded), resumes the engine, then records `resume`
+   (already resumed is reported).
 8. `rollout verify` exits 0 only when every node and the API run the release, the
    engine is not paused, the enabled rules equal snapshot plus new rules and no
    run failed with `no_builtin` since `resume_requested` (else `resume`), reading
    every failed run finished since then page by page (an incomplete listing fails
    the check); otherwise it lists each failed check and exits 1.
+
+Prerequisite: the API must serve `/rollouts`. One older than the release that
+ships the rollout CLI (0.18.12) has none, and every step that writes the rollout
+document exits 2 ("the API at <url> has no /rollouts endpoints"); `rollout plan`
+reports the API's version and the missing endpoints. That release is rolled out
+once by hand: docs/operations/rollout.md, "Bootstrapping the first release".
 
 Guards exit 1 with a remediation naming the step to run first. `import` and
 `enable` are editor verbs, but recording their step writes the rollout document,

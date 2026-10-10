@@ -12,8 +12,14 @@ server merges atomically and timestamps with its own clock (no read-merge-write)
 Guards refuse with exit 1 and a remediation naming the step to run first: ``pause`` while a
 run is not terminal (``--force`` overrides; the only override), ``import`` before this
 release's ``seed`` step is recorded, ``enable`` before ``pause`` recorded a snapshot, while an
-online node runs an older engine, while one of the release's new rules is not imported, or
-while a rule outside the snapshot plus the new rules is enabled.
+online node runs an older engine, while one of the release's new rules is not imported,
+while a snapshot rule no longer exists, or while a rule outside the snapshot plus the new
+rules is enabled.
+
+An API that predates the rollout CLI has no ``/rollouts`` endpoints: every ``/rollouts``
+write there answers 404 or 405, which the verbs refuse with exit 2 naming the runbook's
+"Bootstrapping the first release" (that release is rolled out once by hand); ``plan``
+reports the API's version and whether the endpoints exist.
 
 Versions order as PEP 440 for the forms releases use (``N(.N)*``, ``aN``/``bN``/``rcN``,
 ``.postN``, ``.devN``, ``+local``); a version that does not parse is invalid and counts as
@@ -26,7 +32,7 @@ import argparse
 import json
 import re
 import shlex
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -34,7 +40,7 @@ from typing import Any
 from culture_rules import deploy_data
 from culture_rules.cli import _api
 from culture_rules.cli._build import register_noun
-from culture_rules.cli._errors import EXIT_USER_ERROR, CliError
+from culture_rules.cli._errors import EXIT_ENV_ERROR, EXIT_USER_ERROR, CliError
 from culture_rules.cli._nounlib import ID, collect_files, sections_overview, seg
 from culture_rules.cli.registry import Context, Param, Verb
 from culture_rules.client.http import ApiError
@@ -66,6 +72,11 @@ _VERSION_RE = re.compile(
 _PRE_ORDER = {"a": 0, "b": 1, "rc": 2}
 _LOW, _HIGH = (0,), (2,)  # sort below / above every present value (each is ``(1, ...)``)
 _RESUME_REQUESTED = "resume_requested"
+_STEP_RECORDED = "step_recorded"
+BOOTSTRAP_HINT = (
+    "bootstrap this release by hand: see docs/operations/rollout.md, "
+    "'Bootstrapping the first release'"
+)
 
 WHEEL = Param("wheel", help="the culture_rules-<version>-*.whl to roll out", required=True)
 BUNDLE = Param("bundle", help="bundle directory (default: the one this wheel carries)")
@@ -204,6 +215,50 @@ def _optional_get(ctx: Context, path: str) -> Any:
     return _api.call(fetch)
 
 
+def _api_url(ctx: Context) -> str:
+    return str(getattr(ctx.client, "base_url", "") or "the configured URL")
+
+
+def no_rollouts_endpoints(ctx: Context) -> CliError:
+    """The refusal for an API that predates the rollout CLI (no ``/rollouts`` routes)."""
+    return CliError(
+        EXIT_ENV_ERROR,
+        f"the API at {_api_url(ctx)} has no /rollouts endpoints (it predates the rollout CLI)",
+        BOOTSTRAP_HINT,
+    )
+
+
+def _rollouts_write(ctx: Context, write: Callable[[], Any]) -> Any:
+    """Run a ``/rollouts`` write. These routes never answer 404 or 405 for a valid body
+    (an unknown rollout is created), so either means the API has no ``/rollouts``
+    endpoints: it predates the rollout CLI and this release is bootstrapped by hand."""
+
+    def guarded() -> Any:
+        try:
+            return write()
+        except ApiError as exc:
+            if exc.status in (404, 405):
+                raise no_rollouts_endpoints(ctx) from exc
+            raise
+
+    return _api.call(guarded)
+
+
+def _rollouts_endpoints(ctx: Context) -> bool:
+    """Whether the API serves ``GET /rollouts`` (an API before the rollout CLI answers 404)."""
+
+    def probe() -> bool:
+        try:
+            ctx.client.request("GET", "/rollouts")
+        except ApiError as exc:
+            if exc.status in (404, 405):
+                return False
+            raise
+        return True
+
+    return bool(_api.call(probe))
+
+
 def _rollout_path(version: str) -> str:
     return f"/rollouts/{seg(version)}"
 
@@ -237,7 +292,7 @@ def record(ctx: Context, step: str, outcome: Mapping[str, Any]) -> dict[str, Any
     server merges it into the document in one transaction and sets ``applied_at``."""
     path = f"{_rollout_path(release_version())}/steps/{seg(step)}"
     body = {"outcome": _fit(outcome)}
-    return _api.call(lambda: ctx.client.request("POST", path, body=body))
+    return _rollouts_write(ctx, lambda: ctx.client.request("POST", path, body=body))
 
 
 def _store_snapshot(ctx: Context, snapshot: list[str]) -> tuple[list[str], bool]:
@@ -258,7 +313,7 @@ def _store_snapshot(ctx: Context, snapshot: list[str]) -> tuple[list[str], bool]
             raise
         return False
 
-    if not _api.call(post):
+    if not _rollouts_write(ctx, post):
         return snapshot, False
     return list((_rollout_doc(ctx, version) or {}).get("snapshot") or []), True
 
@@ -409,10 +464,21 @@ def _host_line(entry: Mapping[str, Any]) -> str:
     return f"{head}   (install.sh {' '.join(entry['flags'])})"
 
 
+def _bootstrap_lines(ctx: Context, endpoints: bool) -> list[str]:
+    if endpoints:
+        return []
+    return [
+        f"the API at {_api_url(ctx)} has no /rollouts endpoints (it predates the rollout "
+        f"CLI): the steps below refuse until it is upgraded; {BOOTSTRAP_HINT}"
+    ]
+
+
 def _plan(ctx: Context, wheel: str) -> dict[str, Any]:
     version, release = release_version(), _release()
+    api_version = _get(ctx, "/health").get("version")
+    endpoints = _rollouts_endpoints(ctx)
     machines = _get(ctx, "/machines").get("items", [])
-    doc = _rollout_doc(ctx, version)
+    doc = _rollout_doc(ctx, version) if endpoints else None
     if snapshot_recorded(doc):
         snapshot, source = list(doc.get("snapshot") or []), "the rollout document (pause)"
     else:
@@ -422,6 +488,8 @@ def _plan(ctx: Context, wheel: str) -> dict[str, Any]:
     new_rules, new_vars = list(release.get("new_rules") or []), release.get("new_variables") or []
     lines = [
         f"rollout plan for release {version} (wheel {Path(wheel).name}); nothing was written",
+        f"API version {api_version or 'unknown (its /health names none)'} at {_api_url(ctx)}",
+        *_bootstrap_lines(ctx, endpoints),
         "steps, one command each, in order (each is a dry run until --apply):",
         "  1. culture-rules rollout idle",
         "  2. culture-rules rollout pause --apply",
@@ -440,6 +508,8 @@ def _plan(ctx: Context, wheel: str) -> dict[str, Any]:
         "verb": "rollout plan",
         "release": version,
         "wheel": str(wheel),
+        "api_version": api_version,
+        "rollouts_endpoints": endpoints,
         "steps": ["idle", "pause", "upgrade", "seed", "import", "enable", "resume", "verify"],
         "hosts": hosts,
         "snapshot": snapshot,
@@ -518,7 +588,9 @@ def _resume(ctx: Context) -> dict[str, Any]:
 
     ``resume_requested`` is recorded (server time) before ``POST /controls/resume``, so
     verify's "since resume" window opens before the engine runs again. It is recorded once
-    per release and never moved later (a later re-run keeps the earlier, wider window).
+    per release and never moved later (a later re-run keeps the earlier, wider window): the
+    server keeps the first record and refuses a later one (409 ``step_recorded``), which a
+    concurrent or stale caller treats as "the boundary is recorded already" and proceeds.
     """
     version = release_version()
     paused = bool(_get(ctx, "/controls").get("paused"))
@@ -548,11 +620,25 @@ def _apply_resume(ctx: Context, paused: bool, steps: Mapping[str, Any]) -> str:
     if not paused and "resume" in steps:
         return "already resumed"  # the recorded boundary stays as it is
     if _RESUME_REQUESTED not in steps:
-        record(ctx, _RESUME_REQUESTED, {"engine": "paused" if paused else "running"})
+        _record_boundary(ctx, {"engine": "paused" if paused else "running"})
     already = not paused or _toggle(ctx, "resume")
     state = "already resumed" if already else "resumed"
     record(ctx, "resume", {"engine": state})
     return state
+
+
+def _record_boundary(ctx: Context, outcome: Mapping[str, Any]) -> bool:
+    """Record ``resume_requested``; True when this call recorded it. The server records it
+    once (first write wins): a 409 ``step_recorded`` means another caller recorded the
+    boundary first, and that earlier boundary is kept (this resume proceeds)."""
+    try:
+        record(ctx, _RESUME_REQUESTED, outcome)
+    except CliError as exc:
+        cause = exc.__cause__
+        if isinstance(cause, ApiError) and (cause.status, cause.code) == (409, _STEP_RECORDED):
+            return False
+        raise
+    return True
 
 
 # --------------------------------------------------------------------------- seed / import
@@ -647,6 +733,20 @@ def _enable_guards(ctx: Context, version: str) -> list[str]:
     return list((doc or {}).get("snapshot") or [])
 
 
+def _refuse_absent_snapshot_rules(absent: list[str]) -> None:
+    """Refuse (before any write, in a dry run too) while a snapshot rule no longer exists:
+    enable restores every rule the pause recorded, or nothing."""
+    if not absent:
+        return
+    raise CliError(
+        EXIT_USER_ERROR,
+        "enable refused: snapshot rule(s) recorded at pause no longer exist: " + ", ".join(absent),
+        "restore each rule (from a backup, or 'culture-rules rules create --body @rule.json "
+        "--apply'), or re-import the bundle that carries it ('culture-rules rollout import "
+        "--apply'); then re-run 'culture-rules rollout enable'",
+    )
+
+
 def _refuse_extra_enabled(extra: set[str]) -> None:
     """Refuse (before any write) while a rule outside snapshot + new rules is enabled."""
     if not extra:
@@ -664,7 +764,9 @@ def _refuse_extra_enabled(extra: set[str]) -> None:
 
 
 def _enable(ctx: Context) -> dict[str, Any]:
-    """Re-enable exactly the snapshot plus the release's new rules; list every rule left off."""
+    """Re-enable exactly the snapshot plus the release's new rules; list every rule left off.
+    Every target rule must exist: an absent new rule or snapshot rule refuses before any
+    write."""
     version = release_version()
     snapshot = _enable_guards(ctx, version)
     new_rules = [str(r) for r in _release().get("new_rules") or []]
@@ -677,39 +779,35 @@ def _enable(ctx: Context) -> dict[str, Any]:
             f"enable refused: the release's new rule(s) are not imported: {', '.join(absent_new)}",
             "run 'culture-rules rollout import --apply' first",
         )
+    _refuse_absent_snapshot_rules([r for r in snapshot if r not in ids])
     target = list(dict.fromkeys([*snapshot, *new_rules]))
     _refuse_extra_enabled(enabled - set(target))
-    missing = [r for r in target if r not in ids]  # a snapshot rule deleted since the pause
-    to_enable = [r for r in target if r in ids and r not in enabled]
+    to_enable = [r for r in target if r not in enabled]
     left = sorted(ids - enabled - set(to_enable))
     out = envelope(
         "enable",
         ctx,
         enable=to_enable,
         already_enabled=[r for r in target if r in enabled],
-        missing=missing,
         left_disabled=left,
         would=[{"method": "POST", "path": f"/rules/{seg(r)}/enable"} for r in to_enable],
     )
     if ctx.apply:
         for rid in to_enable:
             _api.call(lambda rid=rid: ctx.client.request("POST", f"/rules/{seg(rid)}/enable"))
-        outcome = {"enabled": to_enable, "left_disabled": left, "missing": missing}
+        outcome = {"enabled": to_enable, "left_disabled": left}
         out["record"] = _record_if_allowed(ctx, "enable", outcome)
     return {**out, "lines": _enable_lines(ctx.apply, out)}
 
 
 def _enable_lines(applied: bool, out: Mapping[str, Any]) -> list[str]:
     verb = "enabled" if applied else "dry-run: would enable"
-    to_enable, left, missing = out["enable"], out["left_disabled"], out["missing"]
-    lines = [
+    to_enable, left = out["enable"], out["left_disabled"]
+    return [
         f"{verb} {len(to_enable)} rule(s): {', '.join(to_enable) or '-'}",
         f"already enabled: {len(out['already_enabled'])}",
         f"left disabled ({len(left)}): {', '.join(left) or '-'}",
     ]
-    if missing:
-        lines.append(f"snapshot rule(s) no longer present: {', '.join(missing)}")
-    return lines
 
 
 # --------------------------------------------------------------------------- upgrade

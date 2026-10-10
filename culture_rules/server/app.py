@@ -1150,12 +1150,13 @@ def _register_rollouts(app: FastAPI, rollouts: Rollouts) -> None:
         response_model=Rollout,
         tags=["rollouts"],
         operation_id="record_rollout_step",
-        responses={422: ERRORS[422]},
+        responses={409: ERRORS[409], 422: ERRORS[422]},
     )
     def record_rollout_step(id: str, name: str, body: RolloutStepWrite, identity: Identity):
         """Merge one step's outcome into release ``id``'s rollout document, in one
         transaction, creating the document when absent; the server sets ``applied_at``
-        (admin, audited)."""
+        (admin, audited). ``resume_requested`` is recorded once: a later record answers 409
+        ``step_recorded`` and the first is kept."""
         return rollouts.record_step(id, name, body.model_dump(), identity)
 
     @app.post(

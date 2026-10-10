@@ -37,13 +37,28 @@ NODE_STATE = (
 SHARED = "/data/xdg/culture-rules/venv"  # a nondefault data dir ($XDG_DATA_HOME)
 
 
-def exec_start(program: str, *args: str) -> str:
-    """``systemctl show -p ExecStart`` as systemd prints it."""
-    argv = " ".join((program, *args))
-    return (
-        f"ExecStart={{ path={program} ; argv[]={argv} ; ignore_errors=no ; "
-        "start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }\n"
-    )
+def exec_start(program: str, *args: str, argv0: str | None = None) -> str:
+    """The unit's ``ExecStart`` D-Bus property as ``busctl --json=short`` prints it: one
+    ``(path, argv, ignore_errors, times..., pid, code, status)`` entry, argv kept exact."""
+    entry = [program, [argv0 or program, *args], False, 0, 0, 0, 0, 0, 0, 0]
+    return json.dumps({"type": "a(sasbttttuii)", "data": [entry]}) + "\n"
+
+
+NO_EXEC_START = json.dumps({"type": "a(sasbttttuii)", "data": []}) + "\n"
+UNIT_PATHS = {
+    "/org/freedesktop/systemd1/unit/culture_2drules_2dapi_2eservice": "culture-rules-api.service",
+    "/org/freedesktop/systemd1/unit/culture_2drules_2dnode_2eservice": (
+        "culture-rules-node.service"
+    ),
+}
+
+
+def read_argv(unit: str) -> list[str]:
+    path = next(p for p, u in UNIT_PATHS.items() if u == unit)
+    return [
+        "busctl", "--user", "--json=short", "get-property", "org.freedesktop.systemd1",
+        path, "org.freedesktop.systemd1.Service", "ExecStart",
+    ]  # fmt: skip
 
 
 class FakeRunner:
@@ -71,8 +86,8 @@ class FakeRunner:
         if self.fail and self.fail in text:
             return up.Result(1, "", "boom")
         if "ExecStart" in argv:
-            unit = next(a for a in argv if a.endswith(".service"))
-            return up.Result(0, self.exec_start.get(unit, "ExecStart=\n"))
+            unit = next(UNIT_PATHS[a] for a in argv if a in UNIT_PATHS)
+            return up.Result(0, self.exec_start.get(unit, NO_EXEC_START))
         if "--version" in text:
             return up.Result(0, f"culture-rules {self.version}\n")
         if "show" in argv or "show" in text:
@@ -232,8 +247,8 @@ def test_shared_venv_is_resolved_from_the_running_api_unit(
     out = jrun(capsys, "rollout", "upgrade", "--host", "spark", "--wheel", str(wheel), "--apply")
     reads = fake.calls[:2]
     assert reads == [
-        ["systemctl", "--user", "show", "culture-rules-api.service", "-p", "ExecStart"],
-        ["systemctl", "--user", "show", "culture-rules-node.service", "-p", "ExecStart"],
+        read_argv("culture-rules-api.service"),
+        read_argv("culture-rules-node.service"),
     ]
     install = fake.calls[2]
     assert install[install.index("--python") + 1] == f"{SHARED}/bin/python"
@@ -270,21 +285,100 @@ def test_shared_venv_refuses_when_the_api_unit_names_no_venv(
     )
     assert rc == 1
     assert "culture-rules-api.service" in json.loads(err)["message"]
-    assert all(c[:3] == ["systemctl", "--user", "show"] for c in fake.calls)
+    assert all(c[:2] == ["busctl", "--user"] for c in fake.calls)
+
+
+GRANT = "/home/spark/.local/bin/grant"
 
 
 @pytest.mark.parametrize(
     "text, venv",
     [
+        # a plain path
         (exec_start("/v/bin/culture-rules", "serve"), "/v"),
+        # the grant wrapper
         (exec_start("/usr/bin/grant", "run", "--", "/w/x/bin/culture-rules", "serve"), "/w/x"),
-        ("ExecStart=\n", None),
+        (
+            exec_start(
+                GRANT,
+                "run",
+                "--inject",
+                "CULTURE_RULES_TOKEN=X",
+                "--",
+                "/w/x/bin/culture-rules",
+                "node",
+                "run",
+            ),
+            "/w/x",
+        ),
+        (exec_start(GRANT, "run", "--inject=A=B", "--", "/w/bin/culture-rules"), "/w"),
+        # a path with a space (systemd's unit file escapes it as \x20; the bus argv is exact)
+        (exec_start("/srv/my venv/bin/culture-rules", "serve"), "/srv/my venv"),
+        (exec_start(GRANT, "run", "--", "/srv/my venv/bin/culture-rules", "serve"), "/srv/my venv"),
+        # '--' as an earlier option's value is not the separator
+        (
+            exec_start(GRANT, "run", "--inject", "--", "--", "/real/bin/culture-rules", "serve"),
+            "/real",
+        ),
+        (exec_start(GRANT, "run", "--inject=X=--", "--", "/real/bin/culture-rules"), "/real"),
+        # an unrelated executable with .../bin/culture-rules as an argument is never picked
+        (exec_start("/usr/bin/env", "/v/bin/culture-rules", "serve"), None),
+        (exec_start("/usr/bin/python3", "/v/bin/culture-rules", "serve"), None),
         (exec_start("/usr/bin/env", "culture-rules", "serve"), None),
+        # grant without run, an unknown grant option, or no command after '--'
+        (exec_start(GRANT, "exec", "--", "/v/bin/culture-rules"), None),
+        (exec_start(GRANT, "run", "--verbose", "--", "/v/bin/culture-rules"), None),
+        (exec_start(GRANT, "run", "--inject", "A=B", "--"), None),
+        # the executable is the entry's path, not a rewritten argv[0]
+        (exec_start("/usr/bin/env", "serve", argv0="/v/bin/culture-rules"), None),
+        # nothing, or not the structured form
+        (NO_EXEC_START, None),
+        ("ExecStart={ path=/v/bin/culture-rules ; argv[]=/v/bin/culture-rules serve }\n", None),
+        ("", None),
+        (json.dumps({"type": "a(sasbttttuii)", "data": [["/v/bin/culture-rules"]]}), None),
     ],
 )
 def test_venv_from_exec_start(text, venv):
     found = up.venv_from_exec_start(text)
     assert (str(found) if found else None) == venv
+
+
+def test_two_exec_start_entries_are_refused():
+    one = json.loads(exec_start("/v/bin/culture-rules", "serve"))
+    two = {**one, "data": one["data"] * 2}
+    assert up.venv_from_exec_start(json.dumps(two)) is None
+
+
+@pytest.mark.parametrize(
+    "unit, path",
+    [
+        (
+            "culture-rules-api.service",
+            "/org/freedesktop/systemd1/unit/culture_2drules_2dapi_2eservice",
+        ),
+        ("9x.service", "/org/freedesktop/systemd1/unit/_39x_2eservice"),
+    ],
+)
+def test_unit_object_path(unit, path):
+    assert up.unit_object_path(unit) == path
+
+
+def test_a_shared_venv_with_a_space_is_installed_into_as_one_argument(
+    wire, store, capsys, fake, wheel  # noqa: F811
+):
+    spaced = "/srv/my venv"
+    fake.exec_start = {
+        "culture-rules-api.service": exec_start(f"{spaced}/bin/culture-rules", "serve"),
+        "culture-rules-node.service": exec_start(
+            GRANT, "run", "--inject", "CULTURE_RULES_TOKEN=X", "--",
+            f"{spaced}/bin/culture-rules", "node", "run",
+        ),
+    }  # fmt: skip
+    put_machine(store, "spark", {"mode": "shared_venv"})
+    out = jrun(capsys, "rollout", "upgrade", "--host", "spark", "--wheel", str(wheel), "--apply")
+    install = fake.calls[2]
+    assert install[install.index("--python") + 1] == f"{spaced}/bin/python"
+    assert out["venv"] == spaced
 
 
 def test_shared_venv_runs_only_on_its_own_host(

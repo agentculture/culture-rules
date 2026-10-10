@@ -11,7 +11,9 @@ audit entry in one store transaction:
   ``rollouts.step``) merges one step ``{outcome}`` into the document, creating
   ``{version, snapshot: [], steps: {}}`` when it is absent. The server sets ``applied_at``
   from its own clock, so concurrent recorders never lose each other's steps and a step's
-  time never depends on a client clock.
+  time never depends on a client clock. A re-record replaces that step, except the steps in
+  :data:`FIRST_WINS_STEPS` (``resume_requested``, verify's window): the first wins and a
+  later record is refused (409 ``step_recorded``) inside the same transaction.
 * ``POST /rollouts/{id}/snapshot`` (:meth:`Rollouts.record_snapshot`, verb
   ``rollouts.snapshot``) sets the snapshot only while none is recorded: the first wins and a
   later call is refused (409 ``snapshot_recorded``) without touching the stored one. A
@@ -50,7 +52,9 @@ __all__ = [
     "MAX_STEPS",
     "ROLLOUTS_COLLECTION",
     "ROLLOUT_ID_RE",
+    "FIRST_WINS_STEPS",
     "STEP_NAME_RE",
+    "STEP_RECORDED",
     "Rollouts",
     "snapshot_recorded",
     "validate_rollout",
@@ -77,6 +81,10 @@ _CAMEL_HUMP_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 _TX_ATTEMPTS = 5
 SNAPSHOT_AT = "snapshot_at"
 SNAPSHOT_RECORDED = "snapshot_recorded"
+STEP_RECORDED = "step_recorded"
+FIRST_WINS_STEPS = frozenset({"resume_requested"})
+"""Steps recorded once: a later record is refused (409 ``step_recorded``), never applied.
+``resume_requested`` opens verify's window; moving it later could hide a failed run."""
 
 
 def _err(path: str, code: str, message: str) -> dict[str, str]:
@@ -308,7 +316,8 @@ class Rollouts:
     @mutating_verb("rollouts.step", "Record one rollout step (merged server-side, server time)")
     def record_step(self, rollout_id: str, name: str, body: Any, identity: str) -> Document:
         """Merge step ``name`` = ``{applied_at: <server now>, outcome}`` into the document,
-        creating it when absent; other steps and the snapshot are kept."""
+        creating it when absent; other steps and the snapshot are kept. A step in
+        :data:`FIRST_WINS_STEPS` that is recorded already is kept (409 ``step_recorded``)."""
         principal = require_identity(identity)
         check_id(rollout_id)
         outcome = validate_step(name, body)
@@ -316,6 +325,14 @@ class Rollouts:
         def merge(tx: StoreOps) -> Document:
             before = tx.get(ROLLOUTS_COLLECTION, rollout_id)
             doc = self._base(rollout_id, before)
+            if name in FIRST_WINS_STEPS and name in doc["steps"]:
+                kept = doc["steps"][name]
+                raise Conflict(
+                    f"rollouts/{rollout_id} already records step {name} "
+                    f"(applied_at {kept.get('applied_at')}); it is recorded once",
+                    [_err(f"steps.{name}", STEP_RECORDED, str(kept.get("applied_at")))],
+                    code=STEP_RECORDED,
+                )
             doc["steps"][name] = {"applied_at": self._now(), "outcome": outcome}
             if len(doc["steps"]) > MAX_STEPS:
                 message = f"at most {MAX_STEPS} steps"
