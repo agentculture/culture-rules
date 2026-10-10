@@ -164,3 +164,35 @@ def test_a_claimed_dispatch_keeps_its_slot_until_its_run_ends():
     assert run is not None and run["status"] == "running"
     c.clock.advance(5 * 3600)
     assert progress.invoke({}, "p2", deadline, context=ctx).output["dispatched"] == []
+
+
+# ---- Codex #35 P2: a slot is released where it was taken, whatever the pool is now ----------
+
+
+def test_a_slot_is_freed_in_the_pool_that_admitted_it_after_the_actor_moved_pools():
+    c, _ = pool_cluster()
+    holder = next(r for r, s in statuses(c).items() if s == "waiting")
+    actor_id = "qwen-a" if holder == "ra" else "qwen-b"
+    doc = c.base.get("actors", actor_id)
+    moved = {**doc["params"], "concurrency_pool": "elsewhere"}
+    c.base.put("actors", {**doc, "params": moved})  # moved while its work runs
+    run = c.run(holder, "evt_1")
+    host = "spark" if holder == "ra" else "thor"
+    key = idempotency_key(run["id"], "s1")
+    assert c.nodes[host].deliver(key, InvocationResult.completed({"n": 1}))
+    assert c.base.get(USAGE_COLLECTION, pool_doc_id("qwen"))["inflight"] == []
+
+
+def test_a_slot_is_freed_after_the_actor_left_its_pool():
+    c, _ = pool_cluster()
+    holder = next(r for r, s in statuses(c).items() if s == "waiting")
+    actor_id = "qwen-a" if holder == "ra" else "qwen-b"
+    doc = c.base.get("actors", actor_id)
+    params = {k: v for k, v in doc["params"].items() if k != "concurrency_pool"}
+    c.base.put("actors", {**doc, "params": params})
+    run = c.run(holder, "evt_1")
+    host = "spark" if holder == "ra" else "thor"
+    assert c.nodes[host].deliver(
+        idempotency_key(run["id"], "s1"), InvocationResult.completed({"n": 1})
+    )
+    assert c.base.get(USAGE_COLLECTION, pool_doc_id("qwen"))["inflight"] == []

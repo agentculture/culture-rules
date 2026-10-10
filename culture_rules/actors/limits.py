@@ -71,6 +71,7 @@ __all__ = [
     "parse_limit_error",
     "pool_cap",
     "pool_doc_id",
+    "pool_holding",
     "pool_of",
     "tokens_of",
 ]
@@ -129,6 +130,25 @@ def pool_cap(store: Any, pool: str, collection: str = "actors") -> int | None:
         and (cap := _cap((doc.get("params") or {}).get("max_concurrency"))) is not None
     ]
     return min(caps) if caps else None
+
+
+def pool_holding(store: Any, key: str, likely: str | None = None) -> str | None:
+    """The pool whose slot document holds ``key`` (#35, Codex P2): ``likely`` first (the
+    actor's pool now), else any pool. A slot is released where it was taken, so an actor
+    moved to another pool, or out of one, while its work ran never leaks its slot."""
+    if likely:
+        doc = store.get(USAGE_COLLECTION, pool_doc_id(likely))
+        if doc and any(s.get("key") == key for s in doc.get("inflight") or ()):
+            return likely
+    for doc in store.find(USAGE_COLLECTION):
+        pool = doc.get("pool")
+        if (
+            isinstance(pool, str)
+            and doc.get("id") == pool_doc_id(pool)
+            and any(s.get("key") == key for s in doc.get("inflight") or ())
+        ):
+            return pool
+    return None
 
 
 def limits_from_config(config: ActorConfig) -> ActorLimits:
@@ -216,10 +236,15 @@ class LimitedActor:
         """The document holding this actor's in-flight slots: its pool's, else its own."""
         return pool_doc_id(self._pool) if self._pool else self.actor
 
-    def _mutate(self, fn: Callable[[dict[str, Any]], Any], *, slots: bool = False) -> Any:
+    def _mutate(
+        self, fn: Callable[[dict[str, Any]], Any], *, slots: bool = False, pool: str | None = None
+    ) -> Any:
         """CAS loop: ``fn(fresh_doc)`` edits it and returns a result; it sets ``_abort`` on
-        the doc to write nothing. ``slots=True`` edits the pool's slot document."""
-        doc_id = self._slots_id() if slots else self.actor
+        the doc to write nothing. ``slots=True`` edits the pool's slot document (``pool``:
+        that pool's, whatever the actor's pool is now)."""
+        pool = pool or (self._pool if slots else None)
+        slots = pool is not None
+        doc_id = pool_doc_id(pool) if pool else self.actor
         for _ in range(_MAX_CAS_TRIES):
             current = self.store.get(USAGE_COLLECTION, doc_id)
             rev = current.get("rev") if current else None
@@ -228,7 +253,7 @@ class LimitedActor:
             if doc.get("_abort"):
                 return outcome
             if slots:
-                changes = {"pool": self._pool, "inflight": doc["inflight"]}
+                changes = {"pool": pool, "inflight": doc["inflight"]}
             else:
                 changes = {
                     "day": doc["day"],
@@ -322,7 +347,8 @@ class LimitedActor:
         is already done is a no-op (a repeated delivery counts its tokens once).
         """
 
-        pooled_held = self._drop_slot(key) if self._pool else False
+        holder = pool_holding(self.store, key, self._pool)
+        pooled_held = self._drop_slot(key, holder) if holder else False
 
         def fn(doc: dict[str, Any]) -> None:
             held = pooled_held or any(s["key"] == key for s in doc["inflight"])
@@ -336,8 +362,9 @@ class LimitedActor:
 
         self._mutate(fn)
 
-    def _drop_slot(self, key: str) -> bool:
-        """Free ``key``'s slot (in the pool's document for a pooled actor); True if held."""
+    def _drop_slot(self, key: str, pool: str | None = None) -> bool:
+        """Free ``key``'s slot (in ``pool``'s document, else the actor's pool's for a pooled
+        actor); True if held."""
 
         def fn(doc: dict[str, Any]) -> bool:
             if not any(s["key"] == key for s in doc["inflight"]):
@@ -346,7 +373,7 @@ class LimitedActor:
             doc["inflight"] = [s for s in doc["inflight"] if s["key"] != key]
             return True
 
-        return bool(self._mutate(fn, slots=bool(self._pool)))
+        return bool(self._mutate(fn, slots=bool(pool or self._pool), pool=pool))
 
     # ----------------------------------------------------------- the port
 

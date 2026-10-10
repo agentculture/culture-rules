@@ -27,6 +27,7 @@ from culture_rules.actors.limits import (
     ActorLimits,
     LimitedActor,
     pool_doc_id,
+    pool_holding,
     pool_of,
     tokens_of,
 )
@@ -86,12 +87,10 @@ def _slot_held(store: StoreOps, key: str) -> bool:
     actor = actor_of(store, key)
     if not actor:
         return False
-    ids = [actor] + ([pool_doc_id(p)] if (p := _pool(store, actor)) else [])
-    for doc_id in ids:
-        usage = store.get(USAGE_COLLECTION, doc_id)
-        if usage and any(s.get("key") == key for s in usage.get("inflight") or ()):
-            return True
-    return False
+    usage = store.get(USAGE_COLLECTION, actor)
+    if usage and any(s.get("key") == key for s in usage.get("inflight") or ()):
+        return True
+    return pool_holding(store, key, _pool(store, actor)) is not None
 
 
 def release_slot(
@@ -102,8 +101,9 @@ def release_slot(
     if not actor:
         return False
     pool = _pool(store, actor)
+    held_in = pool_holding(store, key, pool)  # where it was taken, whatever the pool is now
     ids = [actor] + ([pool_doc_id(pool)] if pool else [])
-    if all(store.get(USAGE_COLLECTION, doc_id) is None for doc_id in ids):
+    if held_in is None and all(store.get(USAGE_COLLECTION, doc_id) is None for doc_id in ids):
         return False
     limits = ActorLimits(concurrency_pool=pool)
     limited = LimitedActor(None, actor, limits, store, clock=clock)  # type: ignore[arg-type]

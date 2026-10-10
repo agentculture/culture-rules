@@ -153,8 +153,9 @@ actors naming a pool share one slot document, `actor_usage` id
 The pool's cap is the smallest `max_concurrency` among its enabled actors;
 a pool whose actors declare none shares a count but has no cap. Token
 budgets (`token_budget`) stay per actor. An actor without a pool keeps its
-own slots, as before. Slots an actor held before it joined a pool stay on
-its own document until they are released or expire.
+own slots, as before. A slot is released in the document that holds it,
+whatever the actor's pool is by then: an actor moved to another pool, or out
+of one, while its work runs never leaks its slot.
 
 ## 5. Let the node run the test gate as `culture-fixer` (operator, root; *planned*)
 
