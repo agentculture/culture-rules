@@ -353,10 +353,13 @@ rate-limited request drops that repo until the next sweep). A PR GitHub reports
 conflict is requested once; a new base is a new request), carrying the same PR
 facts as a checks settle. Once means once *heard* (d39, #44): when no rule
 triggered by `github.pr.conflicting` has a firing or a recorded decision on the
-pair's last event, the watch emits it again as a new generation (its id hashed
-with the generation) at a later sweep, at least one interval after the last,
-but only while such a rule is enabled and the engine is not paused, and at most
-3 events per pair. So a conflict seen while `pr-fixer-conflict` was off (an
+pair's events, and the consumer deciding each enabled such rule has evaluated
+the last one (its `event_fires` marker; an event still waiting for its first
+poll is never sent twice), the watch emits it again as a new generation (its id
+hashed with the generation) at a later sweep, at least one interval after the
+last, but only while such a rule is enabled and the engine is not paused, and
+at most 3 events per pair. A rule placed by actor or requirement is never
+re-requested. So a conflict seen while `pr-fixer-conflict` was off (an
 import lands every rule disabled) or the engine was paused is requested once it
 can be heard. The check reads the store only; the request budget is unchanged. `pr-fixer-conflict` puts it in the queue. The agent
 merges the base commit the try is given (d37: the base branch's tip at
