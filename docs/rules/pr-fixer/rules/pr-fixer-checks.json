@@ -1,16 +1,10 @@
 {
   "action": {
     "idempotent": false,
-    "kind": "github.comment",
-    "name": "Comment when the chain ends here",
-    "only_at_chain_end": true,
-    "params": {
-      "actor": "github-app",
-      "body": "PR fixer built and gated {{ workflow.outputs.commit_sha }} (gate {{ workflow.outputs.verdict }}) but nothing reviews it (pr-fixer-review-commit is disabled): not pushed.",
-      "number": "trigger.data.number",
-      "repo": "trigger.data.repository",
-      "status": true
-    },
+    "kind": "noop",
+    "name": "Queued: the place in line is the run's output",
+    "only_at_chain_end": false,
+    "params": {},
     "retry": null,
     "timeout_s": null
   },
@@ -103,12 +97,12 @@
     ],
     "op": "and"
   },
-  "counts_toward_budget": true,
-  "description": "Fires once per PR head SHA when its checks settle not green (a head with no counted check, conclusion no_checks, is left alone; so is a head GitGuardian fails on, d25: pr-fixer-secrets reports it and a human acts). Same-repo, non-draft PRs of repos in vars.fixer_repos only; vars.fixer_excluded_repos overrides it. Starts a pr-fix chain; shares the pr-fix workflow and the per-PR concurrency key and attempt budget with the other pr-fixer-* rules. Only while the PR is open.",
+  "counts_toward_budget": false,
+  "description": "Fires once per PR head SHA when its checks settle not green (a head with no counted check, conclusion no_checks, is left alone; so is a head GitGuardian fails on, d25: pr-fixer-secrets reports it and a human acts). Same-repo, non-draft PRs of repos in vars.fixer_repos only; vars.fixer_excluded_repos overrides it. Adds the PR to the fixer queue (#35, d29: workflow queue-add); pr-fixer-dispatch starts its pr-fix run when it reaches the head of the line. Shares the per-PR concurrency key with the other pr-fixer-* rules (so a human push still resets the PR's attempt budget) but is not an attempt itself. Only while the PR is open.",
   "enabled": false,
   "exclusive_group": null,
   "id": "pr-fixer-checks",
-  "max_attempts": 3,
+  "max_attempts": null,
   "may_after": [],
   "must_after": [],
   "name": "PR fixer: checks settled",
@@ -133,6 +127,7 @@
     "requirement": null
   },
   "priority": 0,
+  "resets_attempt_budget": false,
   "schema_version": "1.0",
   "supersedes": [],
   "trigger": {
@@ -142,7 +137,7 @@
     }
   },
   "workflow": {
-    "id": "pr-fix",
+    "id": "queue-add",
     "inputs": {
       "base_sha": "trigger.data.base_sha",
       "clone_url": "https://github.com/{{ trigger.data.repository }}.git",
@@ -150,10 +145,7 @@
       "head_sha": "trigger.data.head_sha",
       "instruction": "Checks on PR {{ trigger.data.repository }}#{{ trigger.data.number }} settled ({{ trigger.data.conclusion }}) at {{ trigger.data.head_sha }}. Work on the PR head branch {{ trigger.data.head_branch }} only. Fix the failing checks and the SonarCloud issues behind the failing quality gate, and address the review threads in the threads input (and no other thread). Never edit .github/workflows, never delete or skip tests and never add suppression markers. In threads_addressed, use each thread's thread_id exactly as the threads input gives it. For SonarCloud, the sonar_issues input lists only the issues behind the failing quality-gate conditions and sonar_note says what the gate needs: fix exactly those, never the rest of the Sonar backlog.",
       "number": "trigger.data.number",
-      "repo": "trigger.data.repository",
-      "trusted_authors": {
-        "$var": "trusted_authors"
-      }
+      "repo": "trigger.data.repository"
     },
     "version": null
   }

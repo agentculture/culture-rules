@@ -1,0 +1,295 @@
+{
+  "description": "#35 d29/d30: puts a PR fix request in the fixer queue (queues/pr-fixer) with the built-in queue.add and answers its place in line. A PR already waiting keeps its place: the newer request replaces its head and instruction. A retry (a try that did not pass) joins at the back; one whose PR spent its 3 attempts fails, so the rule hands back. Non-agentic: no actor, no GitHub call.",
+  "edges": [
+    {
+      "source": "inputs",
+      "source_port": "repo",
+      "target": "enqueue",
+      "target_port": "repo"
+    },
+    {
+      "source": "inputs",
+      "source_port": "number",
+      "target": "enqueue",
+      "target_port": "number"
+    },
+    {
+      "source": "inputs",
+      "source_port": "head_sha",
+      "target": "enqueue",
+      "target_port": "head_sha"
+    },
+    {
+      "source": "inputs",
+      "source_port": "head_branch",
+      "target": "enqueue",
+      "target_port": "head_branch"
+    },
+    {
+      "source": "inputs",
+      "source_port": "base_sha",
+      "target": "enqueue",
+      "target_port": "base_sha"
+    },
+    {
+      "source": "inputs",
+      "source_port": "clone_url",
+      "target": "enqueue",
+      "target_port": "clone_url"
+    },
+    {
+      "source": "inputs",
+      "source_port": "instruction",
+      "target": "enqueue",
+      "target_port": "instruction"
+    },
+    {
+      "source": "inputs",
+      "source_port": "task",
+      "target": "enqueue",
+      "target_port": "task"
+    },
+    {
+      "source": "inputs",
+      "source_port": "prior_instruction",
+      "target": "enqueue",
+      "target_port": "prior_instruction"
+    },
+    {
+      "source": "inputs",
+      "source_port": "retry",
+      "target": "enqueue",
+      "target_port": "retry"
+    }
+  ],
+  "enabled": true,
+  "id": "queue-add",
+  "inputs": [
+    {
+      "description": "owner/name",
+      "name": "repo",
+      "required": false,
+      "type": "string"
+    },
+    {
+      "description": "",
+      "name": "number",
+      "required": false,
+      "type": "integer"
+    },
+    {
+      "description": "the PR head the request is for",
+      "name": "head_sha",
+      "required": false,
+      "type": "string"
+    },
+    {
+      "description": "",
+      "name": "head_branch",
+      "required": false,
+      "type": "string"
+    },
+    {
+      "description": "",
+      "name": "base_sha",
+      "required": false,
+      "type": "string"
+    },
+    {
+      "description": "",
+      "name": "clone_url",
+      "required": false,
+      "type": "string"
+    },
+    {
+      "description": "what the agent is asked to do",
+      "name": "instruction",
+      "required": false,
+      "type": "string"
+    },
+    {
+      "description": "the original task, for a retry",
+      "name": "task",
+      "required": false,
+      "type": "string"
+    },
+    {
+      "description": "a retry's last instruction (its task when task is empty)",
+      "name": "prior_instruction",
+      "required": false,
+      "type": "string"
+    },
+    {
+      "description": "a try that did not pass, re-entering at the back (d30)",
+      "name": "retry",
+      "required": false,
+      "type": "boolean"
+    }
+  ],
+  "name": "Add to the fixer queue",
+  "outputs": [
+    {
+      "name": "queued",
+      "source": "steps.enqueue.outputs.queued",
+      "type": "boolean"
+    },
+    {
+      "name": "replaced",
+      "source": "steps.enqueue.outputs.replaced",
+      "type": "boolean"
+    },
+    {
+      "name": "key",
+      "source": "steps.enqueue.outputs.key",
+      "type": "string"
+    },
+    {
+      "name": "position",
+      "source": "steps.enqueue.outputs.position",
+      "type": "integer"
+    },
+    {
+      "name": "ahead",
+      "source": "steps.enqueue.outputs.ahead",
+      "type": "string"
+    },
+    {
+      "name": "length",
+      "source": "steps.enqueue.outputs.length",
+      "type": "integer"
+    },
+    {
+      "name": "attempt",
+      "source": "steps.enqueue.outputs.attempt",
+      "type": "integer"
+    }
+  ],
+  "schema_version": "1.0",
+  "steps": [
+    {
+      "body": [],
+      "config": {
+        "builtin": "queue.add",
+        "key_prefix": "pr-fixer:",
+        "queue": "pr-fixer"
+      },
+      "description": "The built-in queue.add: appends the request to queues/pr-fixer by compare-and-set (first come, first served across nodes), or refreshes the PR's waiting request in place.",
+      "enabled": true,
+      "id": "enqueue",
+      "inputs": [
+        {
+          "description": "",
+          "name": "repo",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "number",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "description": "",
+          "name": "head_sha",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "head_branch",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "base_sha",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "clone_url",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "instruction",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "task",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "prior_instruction",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "retry",
+          "required": false,
+          "type": "boolean"
+        }
+      ],
+      "kind": "code",
+      "max_iterations": null,
+      "name": "Add to the queue",
+      "outputs": [
+        {
+          "description": "",
+          "name": "queued",
+          "required": true,
+          "type": "boolean"
+        },
+        {
+          "description": "",
+          "name": "replaced",
+          "required": true,
+          "type": "boolean"
+        },
+        {
+          "description": "",
+          "name": "key",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "position",
+          "required": false,
+          "type": "integer"
+        },
+        {
+          "description": "",
+          "name": "ahead",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "length",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "description": "",
+          "name": "attempt",
+          "required": false,
+          "type": "integer"
+        }
+      ],
+      "placement": null,
+      "retry": null,
+      "timeout_s": 60.0
+    }
+  ],
+  "variables": [],
+  "version": 1
+}

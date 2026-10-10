@@ -70,6 +70,18 @@ describe("run-finished triggers (d21)", () => {
     expect(saved()).toEqual({ kind: "event", params: { type: "rules.run.succeeded" } });
   });
 
+  it("offers the fixer queue's dispatch event as a built-in surface (#35)", async () => {
+    const user = userEvent.setup();
+    render(<Harness start={{ kind: "event", params: { type: "rules.queue.dispatch" } }} />);
+    expect(screen.getByLabelText("Surface")).toHaveValue("@rules-queue");
+    expect(screen.getByLabelText("Event")).toHaveValue("rules.queue.dispatch");
+    await user.selectOptions(screen.getByLabelText("Surface"), "@rules-queue");
+    const options = within(screen.getByLabelText("Event"))
+      .getAllByRole("option")
+      .map((o) => o.getAttribute("value"));
+    expect(options).toEqual(["", "rules.queue.dispatch"]);
+  });
+
   it("preselects the engine surface for a stored run-event trigger", () => {
     render(<Harness start={{ kind: "event", params: { type: "rules.run.failed" } }} />);
     expect(screen.getByLabelText("Surface")).toHaveValue("@rules-engine");

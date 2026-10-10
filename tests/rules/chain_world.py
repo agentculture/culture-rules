@@ -36,6 +36,7 @@ from culture_rules.node.actions.github_pr import (
     GitHubPushPort,
     GitHubThreadsPort,
 )
+from culture_rules.node.actions.queue import QueueAddPort, QueueProgressPort
 from culture_rules.node.actions.sonar import SonarGateIssuesPort
 from culture_rules.node.runner import BuiltinCodePort
 from tests.actors.test_gate import PASSING, LocalRunner, Repo, gate_yaml, git
@@ -64,6 +65,19 @@ TRIGGER_RULES = (
     "pr-fixer-review-comment",
 )
 STAGE_RULES = ("pr-fixer-review-commit", "pr-fixer-refix", "pr-fixer-publish")
+DISPATCH_RULE = "pr-fixer-dispatch"
+"""#35 d29: turns the queue's dispatch event into the pr-fix run (the counted attempt)."""
+RETRY_RULE = "pr-fixer-retry"
+"""#35 d30: a try whose gate did not pass goes back in the queue."""
+PROGRESS_RULES = (
+    "pr-fixer-queue-progress",
+    "pr-fixer-queue-progress-fixed",
+    "pr-fixer-queue-progress-failed",
+    "pr-fixer-queue-progress-cancelled",
+    "pr-fixer-queue-progress-superseded",
+    "pr-fixer-queue-sweep",
+)
+"""#35 d29: move the queue when a request joins or a try ends (and a periodic sweep)."""
 SECRETS_RULE = "pr-fixer-secrets"
 """d25: comments GitGuardian's findings; outside the fix chain (its own key, no workflow role)."""
 SECRETS_LATE_RULE = "pr-fixer-secrets-late"
@@ -383,6 +397,10 @@ class ChainWorld:
                     ),
                     "gitguardian.hold": hold,
                     "gitguardian.findings": findings,
+                    "queue.add": QueueAddPort(base, clock=self.c.clock),  # #35 d29
+                    "queue.progress": QueueProgressPort(
+                        base, clock=self.c.clock, pr_lookup=FakeActor(default=head)
+                    ),
                 }
             ),
         }

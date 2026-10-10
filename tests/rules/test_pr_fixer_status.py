@@ -1,4 +1,5 @@
-"""d26 end to end: the shipped PR fixer chain keeps ONE status comment per chain, live.
+"""d26 end to end: the shipped PR fixer chain keeps ONE status comment per chain, live
+(since #35 a re-fix or retry dispatched from the queue is a chain of its own).
 
 ChainWorld runs the real chain on two nodes with the real ``github.comment`` port on a fake
 App (IssuesApp): the node on spark (where the App actor lives) posts the status comment once
@@ -61,28 +62,30 @@ def test_a_hand_back_lands_in_the_status_comment(tmp_path):
     assert record(w)["final"] is True
 
 
-def test_a_refix_reuses_the_chains_status_comment(tmp_path):
+def test_a_refix_through_the_queue_gets_a_status_comment_of_its_own(tmp_path):
+    """#35 d30: a re-fix goes back through the fixer queue, so its pr-fix run is started by
+    the queue's dispatch event and is a chain root of its own: the status board (unchanged
+    by #35) gives it its own comment, and the first try's comment ends where its chain
+    ended. One comment per story is left to the generic status boards (open question)."""
     w = ChainWorld(tmp_path, reviews=[changes, verdict_text])
     w.fire()
     first_fix, second_fix = w.run_of("pr-fix")
-    assert second_fix["rule_id"] == "pr-fixer-refix"
-    assert len(w.issues.posts) == 1
-    (body,) = w.comments()
-    assert body.startswith("PR fixer pushed the fix")
-    assert "Earlier: round 1: review request_changes (1 finding)." in body
-    assert record(w)["id"] == first_fix["id"]
-    edits_during_refix = [e for e in w.issues.edits if "Earlier: round 1" in e[2]]
-    assert edits_during_refix
+    assert second_fix["trigger"]["data"]["retry"] is True
+    assert len(w.issues.posts) == 2
+    first, second = w.comments()
+    assert "- **request_changes (1 finding)** Review (codex-reviewer)" in first
+    assert second.startswith("PR fixer pushed the fix")
+    roots = sorted(d["id"] for d in w.c.base.find(STATUS_COLLECTION))
+    assert roots == sorted([first_fix["id"], second_fix["id"]])
 
 
-def test_a_spent_budget_hands_back_the_findings_in_the_status_comment(tmp_path):
+def test_a_spent_budget_hands_back_the_findings_in_the_last_status_comment(tmp_path):
     w = ChainWorld(tmp_path, reviews=[changes, changes, changes])
     w.fire()
-    assert len(w.issues.posts) == 1
-    (body,) = w.comments()
+    assert len(w.issues.posts) == 3  # one per dispatched try (#35)
+    *_, body = w.comments()
     assert body.startswith("PR fixer handed back (actor_failed): changes_requested")
     assert FINDING["detail"] in body
-    assert "Earlier: round 1: review request_changes (1 finding); round 2:" in body
 
 
 def test_review_only_mode_writes_the_verdict_into_the_status_comment(tmp_path):

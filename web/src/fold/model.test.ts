@@ -26,20 +26,30 @@ describe("foldModel", () => {
   it("derives the approved PR fixer counts from checked-in JSON (d2)", () => {
     const rules = fixture<Rule>("rules");
     const model = foldModel(rules, fixture<Workflow>("workflows"));
-    expect(model.workflows).toHaveLength(4);
-    expect(model.entryPoints).toHaveLength(6);
-    expect(model.continuations).toHaveLength(3);
+    // #35: the trigger rules queue the PR (queue-add); the queue moves (queue-progress) and
+    // pr-fixer-dispatch starts pr-fix from the queue's dispatch event
+    expect(model.workflows).toHaveLength(6);
+    expect(model.entryPoints).toHaveLength(8);
+    expect(model.continuations).toHaveLength(9);
     expect(model.chains.map((chain) => chain.workflowIds.slice().sort())).toEqual([
-      ["pr-fix", "publish-fix", "review-commit"], ["report-secrets"],
+      ["pr-fix", "publish-fix", "queue-add", "queue-progress", "review-commit"], ["report-secrets"],
     ]);
     expect(model.workflows.find((wf) => wf.id === "pr-fix")?.entries.map((entry) => entry.rule.id))
+      .toEqual(["pr-fixer-dispatch"]);
+    expect(model.workflows.find((wf) => wf.id === "queue-add")?.entries.map((entry) => entry.rule.id))
       .toContain("pr-fixer-refix");
     expect(model.workflows.find((wf) => wf.id === "report-secrets")?.entries).toHaveLength(2);
-    expect(model.workflows.flatMap((wf) => wf.entries)).toHaveLength(9);
+    expect(model.workflows.flatMap((wf) => wf.entries)).toHaveLength(17);
     expect(model.continuations.map((entry) => [entry.rule.id, entry.fromWorkflowId, entry.workflowId]))
       .toEqual([
         ["pr-fixer-publish", "review-commit", "publish-fix"],
-        ["pr-fixer-refix", "review-commit", "pr-fix"],
+        ["pr-fixer-queue-progress-cancelled", "pr-fix", "queue-progress"],
+        ["pr-fixer-queue-progress-failed", "pr-fix", "queue-progress"],
+        ["pr-fixer-queue-progress-fixed", "pr-fix", "queue-progress"],
+        ["pr-fixer-queue-progress-superseded", "pr-fix", "queue-progress"],
+        ["pr-fixer-queue-progress", "queue-add", "queue-progress"],
+        ["pr-fixer-refix", "review-commit", "queue-add"],
+        ["pr-fixer-retry", "pr-fix", "queue-add"],
         ["pr-fixer-review-commit", "pr-fix", "review-commit"],
       ]);
     expect(model.workflows.flatMap((wf) => wf.entries).every((entry) => !entry.enabled)).toBe(true);

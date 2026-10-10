@@ -10,8 +10,8 @@ import { mockRulesApi } from "./rules";
 /**
  * The PR fixer as it is stored (docs/rules/pr-fixer/{rules,workflows}/*.json),
  * read from disk so the fold's counts are computed from the real rule set,
- * never hard-coded (spec h-count): 9 rules, 4 workflows, 6 entry points and
- * 3 continuations in 2 chains (deviation d2).
+ * never hard-coded (spec h-count): since #35 17 rules, 6 workflows, 8 entry
+ * points and 9 continuations in 2 chains (deviation d2 counted 9, 4, 6 and 3).
  */
 const DOCS = resolve(dirname(fileURLToPath(import.meta.url)), "../../../docs/rules/pr-fixer");
 

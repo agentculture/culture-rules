@@ -2,11 +2,11 @@
   "action": {
     "idempotent": false,
     "kind": "github.comment",
-    "name": "Comment when the chain ends here (review-only mode)",
+    "name": "Comment when the chain ends here",
     "only_at_chain_end": true,
     "params": {
       "actor": "github-app",
-      "body": "PR fixer review: {{ workflow.outputs.review }} for {{ workflow.outputs.commit_sha }} (gate {{ workflow.outputs.verdict }}); not pushed: nothing publishes it (review-only mode, or the repository has no test gate).\n\n{{ workflow.outputs.summary }}",
+      "body": "PR fixer built and gated {{ workflow.outputs.commit_sha }} (gate {{ workflow.outputs.verdict }}) but nothing reviews it (pr-fixer-review-commit is disabled): not pushed.",
       "number": "trigger.data.number",
       "repo": "trigger.data.repository",
       "status": true
@@ -20,23 +20,11 @@
       {
         "cmp": "==",
         "left": {
-          "field": "data.workflow_id"
+          "field": "data.queue"
         },
         "op": "compare",
         "right": {
-          "literal": "pr-fix"
-        }
-      },
-      {
-        "items": {
-          "literal": [
-            "pass",
-            "no_gate"
-          ]
-        },
-        "op": "in",
-        "value": {
-          "field": "data.outputs.verdict"
+          "literal": "pr-fixer"
         }
       },
       {
@@ -63,15 +51,15 @@
     ],
     "op": "and"
   },
-  "counts_toward_budget": false,
-  "description": "d21: fires when a pr-fix run succeeds (its gate passed or the repo has no gate) and has its gated commit reviewed by codex-reviewer. Not a fix attempt: outside the attempt budget, on the PR's key, which the chain holds between its stages.",
+  "counts_toward_budget": true,
+  "description": "#35 d29: fires on the fixer queue's rules.queue.dispatch event (written only by the queue.progress built-in, never from outside) and runs pr-fix with the request's inputs: one try per run (d30). A fix attempt: counts toward the PR's attempt budget (3) on the per-PR concurrency key. Repos in vars.fixer_repos only; vars.fixer_excluded_repos overrides it.",
   "enabled": false,
   "exclusive_group": null,
-  "id": "pr-fixer-review-commit",
-  "max_attempts": null,
+  "id": "pr-fixer-dispatch",
+  "max_attempts": 3,
   "may_after": [],
   "must_after": [],
-  "name": "PR fixer: review the fix",
+  "name": "PR fixer: start the fix at the head of the queue",
   "on_failure": {
     "idempotent": false,
     "kind": "github.comment",
@@ -99,27 +87,23 @@
   "trigger": {
     "kind": "event",
     "params": {
-      "type": "rules.run.succeeded"
+      "type": "rules.queue.dispatch"
     }
   },
   "workflow": {
-    "id": "review-commit",
+    "id": "pr-fix",
     "inputs": {
-      "base_sha": "trigger.data.outputs.base_sha",
-      "bundle": "trigger.data.outputs.bundle",
-      "clone_url": "trigger.data.outputs.clone_url",
-      "commit_sha": "trigger.data.outputs.commit_sha",
-      "diff": "trigger.data.outputs.diff",
-      "diff_truncated": "trigger.data.outputs.diff_truncated",
-      "gate_output": "trigger.data.outputs.gate_output",
-      "gate_verdict": "trigger.data.outputs.verdict",
-      "head_branch": "trigger.data.outputs.head_branch",
-      "head_sha": "trigger.data.outputs.start_sha",
+      "base_sha": "trigger.data.base_sha",
+      "clone_url": "trigger.data.clone_url",
+      "head_branch": "trigger.data.head_branch",
+      "head_sha": "trigger.data.head_sha",
+      "instruction": "trigger.data.instruction",
       "number": "trigger.data.number",
-      "pr_intent": "trigger.data.outputs.instruction",
       "repo": "trigger.data.repository",
-      "threads": "trigger.data.outputs.threads",
-      "threads_addressed": "trigger.data.outputs.threads_addressed"
+      "task": "trigger.data.task",
+      "trusted_authors": {
+        "$var": "trusted_authors"
+      }
     },
     "version": null
   }

@@ -311,17 +311,24 @@ than YAML, so the import works on an API without the `yaml` extra.
 
 Since d21 the fixer is **three workflows chained by run events**
 ([run events](../run-events.md)). Each stage is its own run, and each run
-fires the next through the `rules.run.succeeded` event it emits:
+fires the next through the `rules.run.succeeded` event it emits. Since #35
+(d29, d30) the fix itself waits its turn in **the fixer queue**: the trigger
+rules only put the PR in line, and `pr-fixer-dispatch` starts `pr-fix` when
+the request reaches the head ([The fixer queue](#the-fixer-queue-35)):
 
 | Rule | Fires on | Runs | Budget |
 |---|---|---|---|
-| `pr-fixer-checks` | `github.pr.checks_settled`, conclusion neither `success` nor `no_checks`, GitGuardian not failed | `pr-fix` | counts, 3 per PR |
-| `pr-fixer-comment` | `github.comment.created` by a trusted author that asks (below) | `pr-fix` | counts |
-| `pr-fixer-review` | `github.review.submitted` by a trusted author | `pr-fix` | counts |
-| `pr-fixer-review-comment` | `github.review_comment.created` by a trusted author that asks | `pr-fix` | counts |
+| `pr-fixer-checks` | `github.pr.checks_settled`, conclusion neither `success` nor `no_checks`, GitGuardian not failed | `queue-add` | outside |
+| `pr-fixer-comment` | `github.comment.created` by a trusted author that asks (below) | `queue-add` | outside; resets it (d32) |
+| `pr-fixer-review` | `github.review.submitted` by a trusted author | `queue-add` | outside |
+| `pr-fixer-review-comment` | `github.review_comment.created` by a trusted author that asks | `queue-add` | outside; resets it (d32) |
+| `pr-fixer-dispatch` | `rules.queue.dispatch` of queue `pr-fixer` (the request's turn) | `pr-fix`: one try | counts, 3 per PR |
+| `pr-fixer-retry` | `rules.run.succeeded` of `pr-fix`, gate neither `pass` nor `no_gate` | `queue-add` as a retry, with the gate's instruction | outside |
 | `pr-fixer-review-commit` | `rules.run.succeeded` of `pr-fix`, gate `pass` or `no_gate` | `review-commit` | outside |
-| `pr-fixer-refix` | `rules.run.succeeded` of `review-commit`, review `request_changes` | `pr-fix` with the findings | counts |
+| `pr-fixer-refix` | `rules.run.succeeded` of `review-commit`, review `request_changes` | `queue-add` as a retry, with the findings | outside |
 | `pr-fixer-publish` | `rules.run.succeeded` of `review-commit`, review `approve`, gate `pass` | `publish-fix` | outside |
+| `pr-fixer-queue-progress`, `-fixed`, `-failed`, `-cancelled`, `-superseded` | `queue-add` succeeded, or `pr-fix` succeeded, failed, cancelled or superseded | `queue-progress` | no key |
+| `pr-fixer-queue-sweep` | every 30 minutes | `queue-progress` | no key |
 | `pr-fixer-secrets` (d25) | `github.pr.checks_settled` with `gitguardian` in `failed_apps` | `report-secrets` | its own key; one comment per head SHA |
 | `pr-fixer-secrets-late` (d25) | `github.pr.checks_failed_late` with `gitguardian` in `failed_apps` | `report-secrets` | the same key and comment |
 
@@ -338,23 +345,26 @@ after its workflow.
 The editor has no Rules tab: it folds each rule into the workflow it starts
 ([spec](../specs/2026-10-09-editor-rules-folded-into-workflows-three-views.md)).
 The rules above are unchanged; only the way the editor shows them is. On the
-**Workflows** tab the fixer's 9 rules and 4 workflows read as:
+**Workflows** tab the fixer's 17 rules and 6 workflows read as:
 
-- **one chain card for the fix chain**: `pr-fix`, `review-commit` and
-  `publish-fix`, linked by continuations, "3 workflows linked by
-  continuations · 4 entry points · was 7 rules". `pr-fix` starts when one of
-  its 4 entry points fires (`pr-fixer-checks`, `-comment`, `-review`,
-  `-review-comment`) and owns the continuation `pr-fixer-refix`.
-  `review-commit` owns `pr-fixer-review-commit`, and `publish-fix` owns
-  `pr-fixer-publish`. Each previous workflow shows a read-only "Continues
-  into" link to the next;
+- **one chain card for the fix chain**: `queue-add`, `queue-progress`,
+  `pr-fix`, `review-commit` and `publish-fix`, linked by continuations, "5
+  workflows linked by continuations · 6 entry points · was 15 rules".
+  `queue-add` starts when one of its 4 entry points fires
+  (`pr-fixer-checks`, `-comment`, `-review`, `-review-comment`) and owns the
+  continuations `pr-fixer-refix` and `pr-fixer-retry`. `pr-fix` starts on
+  the entry point `pr-fixer-dispatch` (the queue's event), and
+  `queue-progress` on `pr-fixer-queue-sweep` plus the five progress
+  continuations. `review-commit` owns `pr-fixer-review-commit`, and
+  `publish-fix` owns `pr-fixer-publish`. Each previous workflow shows a
+  read-only "Continues into" link to the next;
 - **a chain card of its own for `report-secrets`**, with its 2 entry points
   `pr-fixer-secrets` and `pr-fixer-secrets-late`: no continuation links it
   to the fix chain. `pr-fixer-checks` and `pr-fixer-secrets` both start on
   `github.pr.checks_settled`, so the list notes on each "same event starts"
   the other workflow.
 
-Over the whole list that is "4 workflows · 6 entry points · was 9 rules";
+Over the whole list that is "6 workflows · 8 entry points · was 19 rules";
 "See it as one chain" draws the chain. These counts are what the editor
 derives from the rules it reads (`web/src/fold/model.ts`), nothing is
 stored for them. A continuation is linked only by its condition's
@@ -362,16 +372,18 @@ stored for them. A continuation is linked only by its condition's
 edit the predecessor with the "Continues from" control on the entry point,
 which writes exactly that term, rather than in the condition.
 
-Opening `pr-fix` shows the **Simple** view: When lists its entry points,
+Opening `queue-add` shows the **Simple** view: When lists its entry points,
 each with its trigger, condition, placement and whether it counts toward the
-attempt budget; Then reads "Continues into" `review-commit`, "Ends here",
-"On failure" and "Runs" (the PR's key and the budget). A value all 5 of its
+attempt budget; Then reads "Continues into" `queue-progress`, "Ends here",
+"On failure" and "Runs" (the PR's key and the budget). A value all 6 of its
 rules hold identically (the PR's key, or the placement on spark2) shows
 once; editing it writes each
 rule in turn, skipping and flagging any rule changed meanwhile. **Detailed**
-shows the steps (`quiet`, `secrets`, `threads`, `sonar`, `fix`) and
-**Debug** every port and reference. An old `/rules/pr-fixer-checks` link
-opens `/workflows/pr-fix?entry=pr-fixer-checks`.
+on `pr-fix` shows the steps (`quiet`, `secrets`, `threads`, `sonar`, `fix`)
+and **Debug** every port and reference. An old `/rules/pr-fixer-checks` link
+opens `/workflows/queue-add?entry=pr-fixer-checks`. The trigger picker offers
+the queue's event under the built-in surface **Rules engine (a queued
+request's turn)**.
 
 Editing an entry point in the Simple view writes only that rule, so no
 trusted workflow digest moves. Any save of the workflow itself does change
@@ -433,9 +445,11 @@ a status note and a closing comment (the three live cases) carry neither, so
 they start nothing. A submitted review needs no command: a trusted reviewer's
 review starts a run, as before.
 
-The three stage rules check `data.workflow_id` (the upstream run's workflow)
-and the repository allow-list again. An operator who drops a repository from
-`fixer_repos` stops its chains at the next stage.
+The stage rules (`pr-fixer-review-commit`, `-refix`, `-publish`, `-retry`)
+check `data.workflow_id` (the upstream run's workflow) and the repository
+allow-list again, and so does `pr-fixer-dispatch` on the queue's event. An
+operator who drops a repository from `fixer_repos` stops its chains at the
+next stage, a queued request included.
 
 ### Settings every rule shares
 
@@ -447,9 +461,16 @@ and the repository allow-list again. An operator who drops a repository from
   ([run events](../run-events.md), "A chain is one unit per key"). A new
   checks settle or `/fix` comment that arrives during a chain waits and fires
   once the chain ends. It never interleaves with it.
-- **Only fix runs count** toward the PR's attempt budget of 3: the four
-  trigger rules and `pr-fixer-refix`. The review and publish stages are
-  `counts_toward_budget: false`. A human push or green checks resets it.
+- **Only tries count** toward the PR's attempt budget of 3: the `pr-fix`
+  runs `pr-fixer-dispatch` starts (#35, d30: one try per run, a retry
+  included). The trigger rules, the review and publish stages and the two
+  retry rules are `counts_toward_budget: false`. A human push or green checks
+  resets it, and so does a trusted `/fix` or mention (d32: rules
+  `pr-fixer-comment` and `pr-fixer-review-comment` carry
+  `resets_attempt_budget: true`): a new request is a new story with a fresh
+  budget. When a retry finds the budget spent, `queue.add` refuses it
+  (`attempt_budget_exhausted: <the last instruction>`) and the retry rule's
+  `on_failure` hands back once.
 - **One comment per chain** (`only_at_chain_end: true` on every action and
   `on_failure`), and since d26 it is the chain's **live status comment**
   (`status: true`, see [The status comment](#the-status-comment-d26)). The
@@ -498,8 +519,13 @@ It builds and gates one commit. It never reviews or pushes it.
    the step names them in its note. The project key is `{owner}_{name}`. A failed
    lookup (no analysis, SonarCloud down) is `available: false` with a note.
    It never fails the run: Sonar data is advice, not a guard.
-5. `fix`: a `retry_until` of up to 3 tries until the gate verdict is `pass`
-   or `no_gate`. The gate's failure text is the next try's instruction.
+5. `fix`: **one try** (#35, d30): a `retry_until` with `max_iterations: 1`
+   that ends when the gate has given its verdict, whatever it is. A verdict
+   other than `pass` or `no_gate` ends the run `succeeded` with that verdict
+   and the gate's failure text as `gate_instruction`; `pr-fixer-retry` puts
+   the PR back in the queue with that text as the next try's instruction
+   (the requests already waiting go first). Runs pinned to the d21 3-try
+   definition still retry inside the run.
    - `agent`: `qwen-fixer` in mode `yolo`. Its bound inputs are the trusted
      `threads`, `sonar_issues` and `sonar_note`. The rule's instruction says
      to fix exactly those Sonar issues and never the rest of the backlog.
@@ -511,9 +537,62 @@ It builds and gates one commit. It never reviews or pushes it.
      **one commit itself** and tests, diffs and bundles exactly that commit.
 
 The run exports what the next stages need: the gate's verdict, `commit_sha`,
-`start_sha`, `diff`, `diff_truncated`, `gate_output` and `bundle`. It also
+`start_sha`, `diff`, `diff_truncated`, `gate_output`, `bundle` and
+`gate_instruction`. It also
 exports the trusted threads, the agent's `threads_addressed` and summary, the
 instruction and task, the clone URL and the head branch.
+
+### The fixer queue (#35)
+
+One shared, first-come-first-served queue per model server (deviations d28,
+d29, d30, d32 of the `pr-fixer-rule` plan). Two visible, non-agentic
+workflows own it; no agent is involved.
+
+- **`queue-add`** (the built-in `queue.add`,
+  `culture_rules/node/actions/queue.py`) puts the PR's request in the queue
+  document `queues/pr-fixer` and answers its place in line (`position`, 1 =
+  next; `ahead`, the request or running PR it waits behind; `length`;
+  `attempt`). A PR already waiting keeps its place: a newer request replaces
+  its head and instruction (`replaced: true`). A retry joins at the back and
+  never replaces a waiting request that is not a retry.
+- **`queue-progress`** (the built-in `queue.progress`, run on spark as the
+  App) moves it. It frees the slot of a dispatched `pr-fix` run that ended
+  (or that never started within 15 minutes), drops a request whose PR is
+  closed (`pr_not_open`) or whose head moved (`head_moved`) or whose PR spent
+  its attempts (`attempt_budget_exhausted`), and, while fewer `pr-fix` runs
+  are dispatched than the pool's cap, dispatches the oldest request. A
+  request whose PR's key is still held (its chain is in review) keeps its
+  place and the next one goes. Its outputs list what it dispatched and
+  dropped, and every waiting request's `position` and `ahead`.
+- **The cap** is that of the actor concurrency pool `qwen-spark2`
+  (`config.pool`): the smallest `max_concurrency` among the enabled actors
+  naming it, else `config.cap` (1).
+- **The dispatch event** `rules.queue.dispatch` is written only by
+  `queue.progress`, straight into the store, as a root event (hop count 0).
+  Ingest refuses the type `rules.queue.*`, the id prefix `queue_` and the
+  source `culture-rules://queue` from outside. `pr-fixer-dispatch` turns it
+  into the `pr-fix` run with the request's inputs, on the PR's key, as a
+  counted attempt.
+- **The push stands on the whole story.** `github.push` walks a dispatched
+  fix back to the `queue-add` run that queued it (the event's `source_run`,
+  verified against the stored event) and on through a re-fix or a retry to
+  the trigger rule that started the story. Disabling any of those rules
+  mid-chain stops the push (`rule_disabled`), as before the queue.
+- **Where to see it.** The queue document `queues/pr-fixer` (`waiting` with
+  `position` and `ahead`, `active`), and the outputs of the `queue-add` and
+  `queue-progress` runs (`culture-rules runs show <id>`). The status comment
+  does not show the queue yet: a generic status board is to be specced
+  separately.
+- **One status comment per try.** A `pr-fix` run started by the queue is the
+  root of its chain for the status board, so a re-fix or a retry posts a new
+  status comment; the earlier one ends "the chain ended". Before #35 a re-fix
+  wrote into the first comment.
+- **Safety net.** The engine still caps the actor: give `qwen-fixer` (and
+  any other actor on the same model server) `params.concurrency_pool:
+  qwen-spark2` with `max_concurrency: 1`, so even a `pr-fix` run started
+  outside the queue waits `blocked` for the server.
+- **Not backed up.** `queues` is not in the backup set; after a restore the
+  waiting PRs need a new request (`/fix`).
 
 ### Workflow `review-commit`
 
@@ -1186,6 +1265,26 @@ The order matters: nodes first, then the data.
    review-only mode, leave `pr-fixer-publish` off.
 7. **Resume** (`culture-rules runs resume`).
 8. In a later release, drop the `pr-fixer` digest from `TRUSTED_WORKFLOWS`.
+
+### Rolling out the queue (#35)
+
+The operator does this; nothing here changes the live rules.
+
+1. Ship the wheel with the queue built-ins and upgrade every node: a node
+   without `queue.add` / `queue.progress` fails those steps `no_builtin`.
+2. `pr-fix` changed (one try, `gate_instruction`), so its digest changed.
+   `culture_rules/actors/trusted.py` trusts both the d21 digest
+   (`sha256:04570dee…b6a8`, kept while runs pinned to it may still push)
+   and the #35 one
+   (`sha256:307e82fc96eba7a36be1781b2f550728fbf232d37d776ed878071ae7f74ae032`).
+   Approve the new digest before importing.
+3. Give `qwen-fixer` `params.concurrency_pool: qwen-spark2` (keep
+   `max_concurrency: 1`).
+4. Import `docs/rules/pr-fixer` (workflows first, then rules) and enable
+   the new rules (`pr-fixer-dispatch`, `pr-fixer-retry`, the five
+   `pr-fixer-queue-progress*` rules and `pr-fixer-queue-sweep`) before or
+   with the changed trigger rules, so a queued request is never left without
+   a rule to dispatch it.
 
 ### Rolling out the GitGuardian report (d25)
 

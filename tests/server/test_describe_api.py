@@ -24,6 +24,8 @@ def _seed(store: MemoryStore) -> None:
     wf = json.loads((BUNDLE / "workflows" / "pr-fix.json").read_text())
     rule = json.loads((BUNDLE / "rules" / "pr-fixer-checks.json").read_text())
     store.put("workflows", wf)
+    # #35: pr-fixer-checks now runs queue-add (pr-fixer-dispatch runs pr-fix)
+    store.put("workflows", json.loads((BUNDLE / "workflows" / "queue-add.json").read_text()))
     store.put("rules", rule)
 
 
@@ -63,9 +65,10 @@ def test_rule_describe_reads_its_workflow(viewer):
 
 def test_rule_describe_with_a_deleted_workflow_says_not_found(viewer):
     store, client = viewer
-    store.put("workflows", {**store.get("workflows", "pr-fix"), "deleted_at": "2026-10-07"})
+    gone = {**store.get("workflows", "queue-add"), "deleted_at": "2026-10-07"}
+    store.put("workflows", gone)
     lines = client.get("/rules/pr-fixer-checks/describe").json()["lines"]
-    assert "Run workflow pr-fix (not found)" in lines
+    assert "Run workflow queue-add (not found)" in lines
 
 
 @pytest.mark.parametrize("path", ["/rules/nope/describe", "/workflows/nope/describe"])
@@ -81,7 +84,7 @@ def test_rule_pinned_to_another_workflow_version_says_unavailable(viewer):
     rule = store.get("rules", "pr-fixer-checks")
     store.put("rules", {**rule, "workflow": {**rule["workflow"], "version": 7}})
     lines = client.get("/rules/pr-fixer-checks/describe").json()["lines"]
-    assert "Run workflow pr-fix v7 (version unavailable)" in lines
+    assert "Run workflow queue-add v7 (version unavailable)" in lines
 
 
 # ---------------------------------------------------------------- characterization
@@ -109,4 +112,4 @@ def test_rule_describe_without_a_workflow_reads_none(viewer, monkeypatch):
     store.put("rules", rule)
     client.get("/rules/pr-fixer-checks/describe")
     assert seen[:4] == [None, None, None, {}]
-    assert seen[4]["id"] == "pr-fix"
+    assert seen[4]["id"] == "queue-add"

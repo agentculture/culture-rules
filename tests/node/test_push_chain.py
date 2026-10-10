@@ -41,8 +41,45 @@ def test_the_publish_runs_own_push_stands_on_its_chain(chain):
     got = _chain(w.c.base, publish, params)
     assert got.fix_run["id"] == fix["id"]
     assert got.reviewer_run == review["id"]
-    assert [r["id"] for r in got.runs] == [publish["id"], review["id"], fix["id"]]
+    # #35: the fix was dispatched by the queue; the chain reaches the run that queued it
+    (queued,) = w.run_of("queue-add")
+    assert queued["rule_id"] == "pr-fixer-checks"
+    assert [r["id"] for r in got.runs] == [publish["id"], review["id"], fix["id"], queued["id"]]
     assert got.target is not None
+
+
+def _edit_dispatch(w, fix, **data):
+    event = w.c.base.get("events", fix["trigger"]["id"])
+    env = copy.deepcopy(event["envelope"])
+    env["data"].update(data)
+    w.c.base.put("events", {**event, "envelope": env})
+
+
+def test_a_dispatch_event_edited_in_the_store_is_unverified(chain):
+    w, fix, _, publish, params = chain
+    _edit_dispatch(w, fix, instruction="something else")
+    assert refused(w.c.base, publish, params) == "chain_unverified"
+
+
+def test_a_dispatch_naming_another_or_no_queue_add_run_is_unverified(chain):
+    w, fix, review, publish, params = chain
+    for source in (review["id"], "run-missing"):
+        run = copy.deepcopy(fix)
+        run["trigger"]["data"]["source_run"] = source
+        w.c.base.put(RUNS_COLLECTION, run)
+        _edit_dispatch(w, fix, source_run=source)
+        assert refused(w.c.base, publish, params) == "chain_unverified"
+
+
+def test_a_dispatch_not_from_the_queue_source_is_unverified(chain):
+    w, fix, _, publish, params = chain
+    event = w.c.base.get("events", fix["trigger"]["id"])
+    env = {**event["envelope"], "source": "somewhere-else"}
+    w.c.base.put("events", {**event, "envelope": env})
+    run = copy.deepcopy(fix)
+    run["trigger"] = copy.deepcopy(env)
+    w.c.base.put(RUNS_COLLECTION, run)
+    assert refused(w.c.base, publish, params) == "chain_unverified"
 
 
 @pytest.mark.parametrize(

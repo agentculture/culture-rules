@@ -20,8 +20,17 @@ RUN = "run-0123456789abcdef0123456789abcdef"
 APP_ID = "1"
 
 
+D21 = Path(__file__).resolve().parent / "fixtures" / "pr-fixer-d21"
+"""Frozen pre-#35 copies of ``rules/pr-fixer-checks`` and ``workflows/pr-fix``: these
+tests model a d21 fix run (a trigger rule starting pr-fix directly, three tries per run).
+Since #35 the shipped trigger rule queues the PR and pr-fix makes one try; runs pinned to
+the d21 definitions are what the status board renders while the rollout drains them."""
+
+
 def load(kind: str, name: str) -> dict:
-    return json.loads((BUNDLE / kind / f"{name}.json").read_text())
+    frozen = D21 / kind / f"{name}.json"
+    path = frozen if frozen.exists() else BUNDLE / kind / f"{name}.json"
+    return json.loads(path.read_text())
 
 
 class Clock:

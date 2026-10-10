@@ -23,8 +23,9 @@ actor-less built-in ``gate`` step; the loop ``succeeded``; the gate of its last 
 ``succeeded``. That state (in the store) is the authority on the built commit, its start
 and base, its diff and its bundle (``gate_missing`` / ``bad_config`` otherwise).
 
-:func:`fix_ancestry` - a re-fix's earlier reviews and fixes, back to the fix an external
-event started, each link verified the same way.
+:func:`fix_ancestry` - a re-fix's earlier reviews and fixes, back to the run an external
+event started, each link verified the same way; through the fixer queue (#35) it walks from a
+dispatched fix to the ``queue.add`` run that queued it (:func:`enqueuer`).
 
 :func:`rules_live` - every rule of a chain is still live and enabled (``rule_disabled``):
 disabling any fixer rule mid-chain - the initiating trigger rule included - stops the
@@ -40,6 +41,7 @@ from typing import Any
 __all__ = [
     "CHAIN_UNVERIFIED",
     "FinalGate",
+    "enqueuer",
     "fix_ancestry",
     "LineageError",
     "RUN_SUCCEEDED",
@@ -52,6 +54,9 @@ __all__ = [
 CHAIN_UNVERIFIED = "chain_unverified"
 RUN_SUCCEEDED = "rules.run.succeeded"
 _RUNS = "runs"  # culture_rules.engine.runs.RUNS_COLLECTION (not imported: no engine cycle)
+_EVENTS = "events"  # culture_rules.events.ingest.EVENTS_COLLECTION
+QUEUE_DISPATCH = "rules.queue.dispatch"  # culture_rules.node.actions.queue.DISPATCH_TYPE
+QUEUE_ADD = "queue.add"  # culture_rules.node.actions.queue.QUEUE_ADD_BUILTIN
 _RULES = "rules"
 _ADHOC = "adhoc:"
 
@@ -102,33 +107,106 @@ def fix_ancestry(
     review_role: str,
     fix_role: str,
 ) -> list[Mapping[str, Any]]:
-    """The earlier runs of ``fix``'s chain, newest first (Codex #2): a re-fix was started
-    by a review run requesting changes, itself started by an earlier fix run, and so on back
-    to the fix an external event started (the chain's initiator). Each link is verified like
-    :func:`upstream` and must be in its role (``workflow_not_trusted``). Bounded by the hop
-    cap and cycle-safe: a longer or circular lineage is ``chain_unverified``."""
+    """The earlier runs of ``fix``'s chain, newest first (Codex #2), back to the run an
+    external event started (the chain's initiator), each link verified and in its role
+    (``workflow_not_trusted``):
+
+    * a re-fix started directly by a review run requesting changes (d21): that review run,
+      then the fix it reviewed;
+    * a fix started by the fixer queue's dispatch event (#35, d29): the ``queue.add`` run
+      that put the request in line (:func:`enqueuer`), then what started that run - an
+      external event (the initiator), a review requesting changes and the fix it reviewed
+      (a re-fix through the queue), or a fix whose try did not pass (a retry, d30).
+
+    So the push checks every rule of the story, the trigger rule that queued it included.
+    Bounded by the hop cap per link and cycle-safe: a longer or circular lineage is
+    ``chain_unverified``."""
     from culture_rules.events.emit import MAX_EVENT_HOPS  # noqa: PLC0415
 
     out: list[Mapping[str, Any]] = []
     seen = {fix.get("id")}
     current = fix
-    for _ in range(MAX_EVENT_HOPS + 1):
-        trigger = current.get("trigger")
-        kind = trigger.get("type") if isinstance(trigger, Mapping) else None
-        if not (isinstance(kind, str) and kind.startswith("rules.run.")):
+    for _ in range(3 * (MAX_EVENT_HOPS + 1)):
+        kind = _trigger_type(current)
+        if kind == QUEUE_DISPATCH:
+            links = [enqueuer(store, current)]
+        elif isinstance(kind, str) and kind.startswith("rules.run."):
+            links = _run_links(store, current, role_of, review_role, fix_role)
+        else:
             return out  # started by an external event (or by hand): the initiator
-        review = upstream(store, current)
-        if role_of(review) != review_role:
-            raise LineageError("workflow_not_trusted", "a re-fix not started by a review run")
-        earlier = upstream(store, review)
-        if role_of(earlier) != fix_role:
-            raise LineageError("workflow_not_trusted", "a review not of a pr-fix run")
-        if review.get("id") in seen or earlier.get("id") in seen:
+        if any(link.get("id") in seen for link in links):
             raise LineageError(CHAIN_UNVERIFIED, "the chain's lineage loops")
-        seen.update((review.get("id"), earlier.get("id")))
-        out += [review, earlier]
-        current = earlier
+        seen.update(link.get("id") for link in links)
+        out += links
+        current = links[-1]
     raise LineageError(CHAIN_UNVERIFIED, "the chain's lineage is longer than the hop cap")
+
+
+def _trigger_type(run: Mapping[str, Any]) -> Any:
+    trigger = run.get("trigger")
+    return trigger.get("type") if isinstance(trigger, Mapping) else None
+
+
+def _run_links(
+    store: Any, current: Mapping[str, Any], role_of: Any, review_role: str, fix_role: str
+) -> list[Mapping[str, Any]]:
+    """The verified runs above ``current``, which a run event started: a review and the fix
+    it reviewed, or (for a ``queue.add`` run, a retry) the fix whose try did not pass."""
+    up = upstream(store, current)
+    role = role_of(up)
+    if role == fix_role and _is_enqueuer(current):
+        return [up]  # d30: a try that did not pass, back in the queue
+    if role != review_role:
+        raise LineageError("workflow_not_trusted", "a re-fix not started by a review run")
+    earlier = upstream(store, up)
+    if role_of(earlier) != fix_role:
+        raise LineageError("workflow_not_trusted", "a review not of a pr-fix run")
+    return [up, earlier]
+
+
+def _is_enqueuer(run: Mapping[str, Any]) -> bool:
+    """Whether ``run``'s pinned workflow is a ``queue.add`` run (a step with that built-in)."""
+    return any(
+        isinstance(s, Mapping)
+        and s.get("kind") == "code"
+        and isinstance(s.get("config"), Mapping)
+        and s["config"].get("builtin") == QUEUE_ADD
+        for s in _definition(run).get("steps") or ()
+    )
+
+
+def enqueuer(store: Any, run: Mapping[str, Any]) -> Mapping[str, Any]:
+    """The verified ``queue.add`` run whose request the fixer queue dispatched as ``run``'s
+    trigger (#35): ``run`` was started by its rule firing on that event; the event is the
+    one stored in ``events`` (written only by the engine's queue: its type, id prefix and
+    source are reserved at ingest) and came from the queue's source; it names its
+    ``source_run``, which exists, succeeded, is a ``queue.add`` run and queued this very
+    PR. Anything else is ``chain_unverified``."""
+    from culture_rules.events.emit import QUEUE_SOURCE  # noqa: PLC0415
+    from culture_rules.node.firing import run_id_for  # noqa: PLC0415
+
+    trigger = run.get("trigger")
+    event_id = trigger.get("id") if isinstance(trigger, Mapping) else None
+    rule_id = run.get("rule_id")
+    if not (isinstance(event_id, str) and isinstance(rule_id, str)):
+        raise LineageError(CHAIN_UNVERIFIED, "the run names no rule or trigger event")
+    if run.get("id") != run_id_for(rule_id, event_id):
+        raise LineageError(CHAIN_UNVERIFIED, "the run was not started by its rule's firing")
+    stored = store.get(_EVENTS, event_id)
+    envelope = stored.get("envelope") if isinstance(stored, Mapping) else None
+    if not isinstance(envelope, Mapping) or dict(envelope) != dict(trigger):
+        raise LineageError(CHAIN_UNVERIFIED, "the dispatch event is not the stored one")
+    if envelope.get("source") != QUEUE_SOURCE:
+        raise LineageError(CHAIN_UNVERIFIED, "the dispatch event is not the queue's")
+    data = envelope.get("data") if isinstance(envelope.get("data"), Mapping) else {}
+    source = data.get("source_run")
+    up = store.get(_RUNS, source) if isinstance(source, str) and source else None
+    if not up or up.get("status") != "succeeded" or not _is_enqueuer(up):
+        raise LineageError(CHAIN_UNVERIFIED, "the queued request has no succeeded queue.add run")
+    inputs = up.get("inputs") if isinstance(up.get("inputs"), Mapping) else {}
+    if inputs.get("repo") != data.get("repository") or inputs.get("number") != data.get("number"):
+        raise LineageError(CHAIN_UNVERIFIED, "the queue.add run queued another PR")
+    return up
 
 
 def _definition(run: Mapping[str, Any]) -> Mapping[str, Any]:
