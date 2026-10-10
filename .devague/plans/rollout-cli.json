@@ -3,9 +3,9 @@
   "title": "Rollout CLI",
   "frame_slug": "rollout-cli",
   "schema_version": 5,
-  "status": "drafting",
+  "status": "exported",
   "created": "2026-10-10T20:59:51Z",
-  "updated": "2026-10-10T21:00:41Z",
+  "updated": "2026-10-10T21:05:29Z",
   "targets": [
     {
       "id": "c1",
@@ -216,7 +216,7 @@
       "id": "t1",
       "summary": "Machine records carry a typed install section",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "Machine gains an optional install section {mode: install_sh|shared_venv, node_name, secrets[], gate_run_as, extras, wheelhouse, python, events_host, events_port}; strict parse refuses unknown keys; schemas/machine.schema.json regenerated and tests/model/test_schemas.py green",
         "A validator refuses a secrets entry that is not a grant name ([A-Z0-9_]+) and a gate_run_as that is not a sudo -n -u prefix",
@@ -233,7 +233,7 @@
       "id": "t2",
       "summary": "The wheel carries install.sh, the pr-fixer bundle and the release manifests",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "hatch_build force-includes deploy/node/install.sh and docs/rules/pr-fixer (workflows, rules, actors) as culture_rules/deploy_data; a test opens the built wheel and finds install.sh, the bundle and both manifests",
         "docs/rules/pr-fixer/variables.json holds every seed variable {name, value, description}; seed-variables.sh reads it and its behaviour (skip existing, --force, --apply) is unchanged",
@@ -251,7 +251,7 @@
       "id": "t3",
       "summary": "API: a rollout document and the versions verify needs",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "New collection rollouts (in _ALL_COLLECTIONS) with GET /rollouts, GET /rollouts/{id} (viewer) and PUT /rollouts/{id} (admin, audited); body {version, snapshot[], steps{name: {applied_at, outcome}}}; strict validation",
         "GET /machines/status items gain engine_version (from the heartbeat, null when unknown); GET /health gains version (the API's package version)",
@@ -268,7 +268,7 @@
       "id": "t4",
       "summary": "CLI rollout noun: plan, idle, pause, seed, import, enable, resume, verify",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "culture_rules/cli/_commands/rollout.py registers the verbs with roles (plan, idle, verify viewer; import, enable editor; pause, resume, seed admin); each is a dry run until --apply, takes --json and has an MCP tool (parity test green)",
         "pause stores the enabled-rule snapshot in the rollout document before POST /controls/pause and refuses while a run is non-terminal unless --force; pause and resume report an engine already paused or resumed instead of failing",
@@ -303,7 +303,7 @@
       "id": "t5",
       "summary": "CLI rollout upgrade --host over ssh and scp, or the shared venv on spark",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "upgrade --host NAME --wheel PATH reads the machine record; without --apply it prints the exact scp/ssh argv (or the shared-venv commands) and opens no connection; a record without install exits 1 naming the missing section",
         "With --apply, install_sh mode copies the named wheel and install.sh to a per-version directory and runs install.sh --node-name --wheel <that path> plus one --secret per grant name, --gate-run-as, --extras, --wheelhouse, --python, --events-host/port from the record, then reads the installed version and the unit's ActiveState and ActiveEnterTimestamp; shared_venv mode runs uv pip install --reinstall-package culture-rules --no-deps WHEEL into the venv and restarts culture-rules-api and culture-rules-node; install.sh never runs for shared_venv",
@@ -326,7 +326,7 @@
       "id": "t6",
       "summary": "Docs, CHANGELOG and the secrets boundary test",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "docs/operations/rollout.md documents each verb, the machine install records for spark, thor, orin, spark2 (from the hand-run scripts), and maps each lesson in #45 to the guard or field that enforces it",
         "A test drives a full dry run and an applied fake-runner rollout and asserts no stored document, output line or argv contains a secret value (only grant names); scan-secrets stays green; no tailnet URL is committed",
@@ -350,7 +350,7 @@
       "id": "t7",
       "summary": "Roll the next release out with culture-rules rollout only",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "The operator rolls the release after this one out to spark, thor, orin and spark2 with rollout verbs only; its rollout document records every step applied and rollout verify exits 0"
       ],
