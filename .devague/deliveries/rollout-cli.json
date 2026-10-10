@@ -2,7 +2,7 @@
   "plan_slug": "rollout-cli",
   "schema_version": 2,
   "created": "2026-10-10T21:41:12Z",
-  "updated": "2026-10-10T21:42:46Z",
+  "updated": "2026-10-10T22:19:12Z",
   "deviations": [
     {
       "id": "d1",
@@ -25,6 +25,17 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 2
+    },
+    {
+      "id": "d3",
+      "what": "After Codex review round 1: changing a machine's install section (add, change or remove) requires the admin role (other machine fields stay editor); the rollout document is written through new admin endpoints POST /rollouts/{id}/steps/{name} (atomic per-step merge, server-set applied_at) and POST /rollouts/{id}/snapshot (first wins, 409 snapshot_recorded); GET /runs gains optional since and cursor (paged by finish time) for verify; resume records resume_requested before resuming; upgrade records upgrade:<host> started (admin) before any command; an ssh address that starts with - or holds whitespace/control characters is refused",
+      "task_ref": "t4",
+      "reason": "Codex r1 findings: installer env injection through a newline, a viewer token could trigger upgrade, read-merge-write lost steps, verify read only 1000 failed runs, the resume boundary was recorded late; the address check closes an ssh option injection the review did not raise",
+      "affects": [],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 3
     }
   ],
   "evidence": [],
