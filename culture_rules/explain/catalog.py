@@ -44,8 +44,8 @@ stops being per-host glue only its author understands.
 - `culture-rules rules|workflows|actors|machines|runs|variables <verb>` — the engine's nouns
   over the HTTP API; `culture-rules explain <noun>` lists each noun's verbs.
 - `culture-rules rollout <step>` — roll this CLI's release out to every node, one
-  dry-run-first step per verb (`plan`, `idle`, `pause`, `seed`, `import`, `enable`,
-  `resume`, `verify`).
+  dry-run-first step per verb (`plan`, `idle`, `pause`, `upgrade --host`, `seed`,
+  `import`, `enable`, `resume`, `verify`).
 - `culture-rules serve` — run the HTTP API (needs the `server` extra).
 - `culture-rules node run` — run this host's engine node (talks to the store directly).
 - `culture-rules mcp` — serve the CLI verbs as MCP tools over stdio (needs the `mcp` extra).
@@ -244,9 +244,10 @@ _NOUN_BLURBS = {
     "runs": "Runs are executions of a rule's workflow; pause and resume gate the whole engine.",
     "rollout": (
         "Rollout rolls this CLI's own release (the wheel's `release.json` version) out to every "
-        "node, one step per verb and never more: `idle`, `pause`, `seed`, `import`, `enable`, "
-        "`resume`, `verify`; `plan --wheel` prints them all and writes nothing. Each applied "
-        "step records its outcome in the release's rollout document (`GET /rollouts/{version}`)."
+        "node, one step per verb and never more: `idle`, `pause`, `upgrade --host`, `seed`, "
+        "`import`, `enable`, `resume`, `verify`; `plan --wheel` prints them all and writes "
+        "nothing. Each applied step records its outcome in the release's rollout document "
+        "(`GET /rollouts/{version}`)."
     ),
 }
 
@@ -313,7 +314,18 @@ One command per step, in order; nothing chains them and there is no `all` verb:
    document, then pauses the engine. Refused while a run is not terminal unless
    `--force` (the only override). An engine already paused is reported, not an
    error; a snapshot already recorded by an earlier pause is kept.
-3. `rollout upgrade --host <name> --wheel <whl> --apply` per host (*planned*).
+3. `rollout upgrade --host <name> --wheel <whl> --apply` per host, as its machine
+   record's `install` section says (a record without one exits 1). `install_sh`:
+   over ssh/scp (`-o BatchMode=yes`) the wheel and `install.sh` go to
+   `culture-rules-deploy-<version>/` and `install.sh --apply` runs with the record's
+   flags (`--node-name`, `--wheel`, one `--secret` per grant name, `--gate-run-as`,
+   `--extras`, `--wheelhouse`, `--python`, `--events-host/port`); then the installed
+   version and the node unit's `ActiveState` and `ActiveEnterTimestamp` are read.
+   `shared_venv` (the API host, run there): `uv pip install --reinstall-package
+   culture-rules --no-deps <whl>` into the shared venv, then restart
+   `culture-rules-api` and `culture-rules-node`; `install.sh` never runs. The dry run
+   prints the exact argv and opens no connection; the API URL and token never cross
+   ssh. Upgrade the shared-venv host first, then the install.sh hosts.
 4. `rollout seed --apply` sets the release's seed variables (`variables.json` in
    the wheel, or `--bundle DIR`) that do not exist yet; `--force` replaces them.
 5. `rollout import --apply` imports the bundle's workflows and rules in one
@@ -342,7 +354,17 @@ _VERB_NOTES = {
     ("rules", "stop-runs"): _STOP_RUNS_NOTE,
     **{
         ("rollout", step): _ROLLOUT_NOTE
-        for step in ("plan", "idle", "pause", "seed", "import", "enable", "resume", "verify")
+        for step in (
+            "plan",
+            "idle",
+            "pause",
+            "upgrade",
+            "seed",
+            "import",
+            "enable",
+            "resume",
+            "verify",
+        )
     },
 }
 

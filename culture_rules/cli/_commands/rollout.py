@@ -58,7 +58,7 @@ def _release() -> dict[str, Any]:
     return deploy_data.release()
 
 
-def _version() -> str:
+def release_version() -> str:
     return str(_release()["version"])
 
 
@@ -72,10 +72,11 @@ def _bundle_dir(bundle: str | None) -> Path:
     manifest = root / "release.json"
     if manifest.is_file():
         other = json.loads(manifest.read_text(encoding="utf-8")).get("version")
-        if other != _version():
+        if other != release_version():
             raise CliError(
                 EXIT_USER_ERROR,
-                f"the bundle in {bundle} is release {other}, this CLI's release is {_version()}",
+                f"the bundle in {bundle} is release {other}, "
+                f"this CLI's release is {release_version()}",
                 "omit --bundle, or run the CLI from the bundle's release",
             )
     return root
@@ -106,10 +107,10 @@ def wheel_version(path: str) -> str:
 def check_wheel(path: str) -> Path:
     """``--wheel`` must exist and be this CLI's release (the operator names it explicitly)."""
     version = wheel_version(path)
-    if version != _version():
+    if version != release_version():
         raise CliError(
             EXIT_USER_ERROR,
-            f"the wheel is release {version}, but this CLI's release is {_version()}",
+            f"the wheel is release {version}, but this CLI's release is {release_version()}",
             "run the CLI from the new release's venv, or name that release's wheel",
         )
     wheel = Path(path)
@@ -199,7 +200,7 @@ def record(
     applied_at: str | None = None,
 ) -> dict[str, Any]:
     """Merge one step's outcome into this release's rollout document (read, merge, ``PUT``)."""
-    version = _version()
+    version = release_version()
     current = _rollout_doc(ctx, version) or {}
     steps = _steps(current)
     steps[step] = {"applied_at": applied_at or _now(), "outcome": _fit(outcome)}
@@ -256,10 +257,10 @@ def _toggle(ctx: Context, name: str) -> bool:
     return bool(_api.call(post))
 
 
-def _envelope(verb: str, ctx: Context, **fields: Any) -> dict[str, Any]:
+def envelope(verb: str, ctx: Context, **fields: Any) -> dict[str, Any]:
     out: dict[str, Any] = {
         "verb": f"rollout {verb}",
-        "release": _version(),
+        "release": release_version(),
         "applied": ctx.apply,
         "dry_run": not ctx.apply,
     }
@@ -288,7 +289,7 @@ def _show(ctx: Context, id: str) -> Any:
 
 def _idle(ctx: Context) -> dict[str, Any]:
     runs = active_runs(ctx)
-    lines = [f"release {_version()}: {len(runs)} run(s) not terminal"]
+    lines = [f"release {release_version()}: {len(runs)} run(s) not terminal"]
     lines += [_run_line(r) for r in runs]
     lines.append(
         "idle: pause may run (culture-rules rollout pause)"
@@ -297,7 +298,7 @@ def _idle(ctx: Context) -> dict[str, Any]:
     )
     return {
         "verb": "rollout idle",
-        "release": _version(),
+        "release": release_version(),
         "idle": not runs,
         "runs": runs,
         "lines": lines,
@@ -358,7 +359,7 @@ def _host_line(entry: Mapping[str, Any]) -> str:
 
 
 def _plan(ctx: Context, wheel: str) -> dict[str, Any]:
-    version, release = _version(), _release()
+    version, release = release_version(), _release()
     machines = _get(ctx, "/machines").get("items", [])
     doc = _rollout_doc(ctx, version)
     if doc is not None and "pause" in _steps(doc):
@@ -403,7 +404,7 @@ def _plan(ctx: Context, wheel: str) -> dict[str, Any]:
 
 def _pause(ctx: Context, force: bool = False) -> dict[str, Any]:
     """Snapshot the enabled rules into the rollout document, then pause the engine."""
-    version = _version()
+    version = release_version()
     runs = active_runs(ctx)
     if runs and not force:
         raise CliError(
@@ -416,7 +417,7 @@ def _pause(ctx: Context, force: bool = False) -> dict[str, Any]:
     kept = doc is not None and "pause" in _steps(doc)
     snapshot = list(doc.get("snapshot") or []) if kept else _enabled(_rules(ctx))
     paused = bool(_get(ctx, "/controls").get("paused"))
-    out = _envelope(
+    out = envelope(
         "pause",
         ctx,
         snapshot=snapshot,
@@ -450,10 +451,10 @@ def _pause(ctx: Context, force: bool = False) -> dict[str, Any]:
 
 
 def _resume(ctx: Context) -> dict[str, Any]:
-    version = _version()
+    version = release_version()
     paused = bool(_get(ctx, "/controls").get("paused"))
     previous = _steps(_rollout_doc(ctx, version)).get("resume")
-    out = _envelope(
+    out = envelope(
         "resume", ctx, would={"method": "POST", "path": "/controls/resume", "skip": not paused}
     )
     if not ctx.apply:
@@ -495,7 +496,7 @@ def _seed(ctx: Context, bundle: str | None = None, force: bool = False) -> dict[
         for s in to_set
     ]
     lines = [f"skip {n}: already set (--force replaces it)" for n in skipped]
-    out = _envelope("seed", ctx, set=[s["name"] for s in to_set], skipped=skipped, would=would)
+    out = envelope("seed", ctx, set=[s["name"] for s in to_set], skipped=skipped, would=would)
     if not ctx.apply:
         lines += [f"dry-run: would set {w['path'].rsplit('/', 1)[-1]}" for w in would]
         return {**out, "lines": lines}
@@ -509,7 +510,7 @@ def _seed(ctx: Context, bundle: str | None = None, force: bool = False) -> dict[
 
 def _import(ctx: Context, bundle: str | None = None) -> dict[str, Any]:
     """Import the bundle's workflows and rules in one ``POST /import`` (actors are not)."""
-    version = _version()
+    version = release_version()
     if "seed" not in _steps(_rollout_doc(ctx, version)):
         raise CliError(
             EXIT_USER_ERROR,
@@ -524,7 +525,7 @@ def _import(ctx: Context, bundle: str | None = None) -> dict[str, Any]:
     counts: dict[str, int] = {}
     for change in plan.get("changes", []):
         counts[change.get("action", "?")] = counts.get(change.get("action", "?"), 0) + 1
-    out = _envelope(
+    out = envelope(
         "import",
         ctx,
         applied=bool(plan.get("applied")),
@@ -571,7 +572,7 @@ def _enable_guards(ctx: Context, version: str) -> list[str]:
 
 def _enable(ctx: Context) -> dict[str, Any]:
     """Re-enable exactly the snapshot plus the release's new rules; list every rule left off."""
-    version = _version()
+    version = release_version()
     snapshot = _enable_guards(ctx, version)
     new_rules = [str(r) for r in _release().get("new_rules") or []]
     rules = _rules(ctx)
@@ -587,7 +588,7 @@ def _enable(ctx: Context) -> dict[str, Any]:
     missing = [r for r in target if r not in ids]  # a snapshot rule deleted since the pause
     to_enable = [r for r in target if r in ids and r not in enabled]
     left = sorted(ids - enabled - set(to_enable))
-    out = _envelope(
+    out = envelope(
         "enable",
         ctx,
         enable=to_enable,
@@ -610,6 +611,15 @@ def _enable(ctx: Context) -> dict[str, Any]:
     if missing:
         lines.append(f"snapshot rule(s) no longer present: {', '.join(missing)}")
     return {**out, "lines": lines}
+
+
+# --------------------------------------------------------------------------- upgrade
+
+
+def _upgrade(ctx: Context, host: str, wheel: str) -> dict[str, Any]:
+    from culture_rules.cli import _rollout_upgrade  # noqa: PLC0415 - it imports this module
+
+    return _rollout_upgrade.upgrade(ctx, host, wheel)
 
 
 # --------------------------------------------------------------------------- verify
@@ -716,7 +726,7 @@ def _check_no_builtin(ctx: Context, doc: Mapping[str, Any] | None) -> dict[str, 
 
 
 def _verify(ctx: Context) -> dict[str, Any]:
-    version = _version()
+    version = release_version()
     doc = _rollout_doc(ctx, version)
     checks = [
         _check_nodes(ctx, version),
@@ -793,6 +803,15 @@ VERBS: list[Verb] = [
         (),
         True,
         "editor",
+    ),
+    Verb(
+        NOUN,
+        "upgrade",
+        "Upgrade one host's node to the wheel (install.sh over ssh, or the shared venv)",
+        _upgrade,
+        (Param("host", help="the machine record to upgrade", required=True), WHEEL),
+        True,
+        "admin",
     ),
     Verb(NOUN, "resume", "Resume the engine", _resume, (), True, "admin"),
     Verb(NOUN, "verify", "Check versions, engine, enabled rules and no_builtin failures", _verify),

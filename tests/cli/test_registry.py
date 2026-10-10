@@ -153,6 +153,7 @@ def test_registry_roles_match_the_server_policy():
         ("rollout", "import"): ("POST", "/import"),
         ("rollout", "enable"): ("POST", "/rules/r1/enable"),
         ("rollout", "list"): ("GET", "/rollouts"),
+        ("rollout", "upgrade"): ("PUT", "/rollouts/0.18.12"),
     }
     by_key = {(v.noun, v.name): v for v in REGISTRY.verbs()}
     for key, (method, path) in routes.items():

@@ -74,7 +74,8 @@ rules describe <id> and workflows describe <id> print a definition in plain word
 built only from its config (When/If/Run/Then lines; numbered steps), never by AI.
 The rollout noun rolls this CLI's release out to every node, one step per verb:
 rollout plan --wheel <whl> prints the steps (writes nothing), then rollout idle,
-pause, seed, import, enable, resume and verify run one step each; pause refuses
+pause, upgrade --host <name> --wheel <whl> (install.sh over ssh, or the shared
+venv), seed, import, enable, resume and verify run one step each; pause refuses
 while runs are not terminal unless --force, import refuses before seed, enable
 refuses while a node is older than the release, and verify exits 1 listing each
 failed check.
