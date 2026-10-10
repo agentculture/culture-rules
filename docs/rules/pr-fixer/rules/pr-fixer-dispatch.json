@@ -52,7 +52,7 @@
     "op": "and"
   },
   "counts_toward_budget": true,
-  "description": "#35 d29: fires on the fixer queue's rules.queue.dispatch event (written only by the queue.progress built-in, never from outside) and runs pr-fix with the request's inputs: one try per run (d30). A fix attempt: counts toward the PR's attempt budget (3) on the per-PR concurrency key. Repos in vars.fixer_repos only; vars.fixer_excluded_repos overrides it. d36: the try's instruction is the request's, followed by one paragraph naming the run's base commit: when the PR needs its base, one real two-parent git merge of that commit, never a squash, flatten, cherry-pick or rebase (the gate allows that one merge from base, d31).",
+  "description": "#35 d29: fires on the fixer queue's rules.queue.dispatch event (written only by the queue.progress built-in, never from outside) and runs pr-fix with the request's inputs: one try per run (d30). A fix attempt: counts toward the PR's attempt budget (3) on the per-PR concurrency key. Repos in vars.fixer_repos only; vars.fixer_excluded_repos overrides it.",
   "enabled": false,
   "exclusive_group": null,
   "id": "pr-fixer-dispatch",
@@ -97,7 +97,7 @@
       "clone_url": "trigger.data.clone_url",
       "head_branch": "trigger.data.head_branch",
       "head_sha": "trigger.data.head_sha",
-      "instruction": "{{ trigger.data.instruction }}\n\nMerging the base branch (d36): if this PR needs its base branch - it conflicts with it, or the request asks to merge, sync or update from it - make exactly one real two-parent merge of the base commit {{ trigger.data.base_sha }} (git merge {{ trigger.data.base_sha }}) and resolve every conflict in that merge commit; the gate allows that one merge from base and the review then judges only its resolution. Never squash, flatten, cherry-pick or rebase the base in, never copy its changes as a plain commit, and never merge a later base commit. If the PR does not need its base branch, do not merge it.",
+      "instruction": "trigger.data.instruction",
       "number": "trigger.data.number",
       "repo": "trigger.data.repository",
       "task": "trigger.data.task",

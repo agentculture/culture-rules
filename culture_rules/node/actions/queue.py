@@ -129,7 +129,6 @@ from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from culture_rules.actors.merge_hint import without_merge_paragraph
 from culture_rules.engine.actorport import COMPLETED, InvocationContext, InvocationResult
 from culture_rules.events.emit import (
     QUEUE_EVENT_ID_PREFIX,
@@ -326,8 +325,7 @@ class QueueAddPort:
             state = _key_state(self._store, _pr_key(config, repo, number), self._clock())
             inputs = {k: copy.deepcopy(v) for k, v in input.items() if k not in _META_INPUTS}
             if retry and not inputs.get("task") and isinstance(input.get("prior_instruction"), str):
-                # d36: the dispatch appends the merge paragraph again, so the task holds none
-                inputs["task"] = without_merge_paragraph(input["prior_instruction"])
+                inputs["task"] = input["prior_instruction"]
             if retry and _exhausted(state):
                 why = str(inputs.get("instruction") or "")[:_EXPLAIN_MAX]
                 raise _Refused(

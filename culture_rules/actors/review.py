@@ -110,7 +110,7 @@ from typing import Any
 
 from culture_rules.actors import trusted as _trusted
 from culture_rules.actors.lineage import LineageError, final_gate, upstream
-from culture_rules.actors.merge_hint import without_merge_paragraph
+from culture_rules.actors.merge_hint import copied_base_ask, copied_base_in
 from culture_rules.actors.trusted import actor_refusal
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
 
@@ -843,13 +843,20 @@ def _backend(reported: Any, declared: Any) -> str | None:
 
 def _unreviewable(g: Mapping[str, Any]) -> list[dict[str, Any]]:
     """Findings for a change the reviewer cannot be shown in full (too large, or not text):
-    never reviewed, the next attempt asks for a smaller, text-only fix."""
+    never reviewed, the next attempt asks for a smaller, text-only fix - or, when the gate
+    found the base branch copied in as a plain commit (d36), for one real merge of it, since
+    the reviewer then judges only the merge's resolution and the diff need not shrink."""
     problems = g.get("diff_problems")
     if not isinstance(problems, list) or not problems:
         problems = [f"the diff is {g.get('diff_chars')} characters, over the reviewer's limit"]
+    base = copied_base_in(problems)
     ask = (
-        "The reviewer cannot be shown this change in full. Make a smaller, text-only fix: "
-        "no binary files, file mode changes, symlinks or submodule pointers."
+        copied_base_ask(base)
+        if base is not None
+        else (
+            "The reviewer cannot be shown this change in full. Make a smaller, text-only fix: "
+            "no binary files, file mode changes, symlinks or submodule pointers."
+        )
     )
     return [
         {"path": "", "line": None, "severity": "high", "detail": f"{p}. {ask}"}
@@ -1100,8 +1107,7 @@ class ReviewVerdictPort:
         g = fg.outputs
         task = fix_inputs.get("task")
         if not (isinstance(task, str) and task.strip()):
-            # d36: the next dispatch appends the merge paragraph again, so the task holds none
-            task = without_merge_paragraph(fix_inputs.get("instruction"))
+            task = fix_inputs.get("instruction")
         out = self._verdict(
             facts,
             g,
@@ -1204,7 +1210,8 @@ class ReviewVerdictPort:
         task: Any,
     ) -> dict[str, Any]:
         """A diff too large (or not text) to review: never reviewed, recorded as a request
-        for a smaller, text-only fix."""
+        for a smaller, text-only fix - or for one real merge, when the gate found the base
+        copied in (d36, :func:`_unreviewable`)."""
         findings = _unreviewable(g)
         self._record_current(facts, REQUEST_CHANGES, findings=findings)
         return {

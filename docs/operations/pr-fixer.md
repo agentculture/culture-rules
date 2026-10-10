@@ -358,30 +358,39 @@ a fresh conflict is seen at the next sweep. The type and the `conflict_` id
 prefix are reserved at external ingest.
 
 **Merging the base on every path (d36).** Not only a conflict sends the agent
-to the base: a trusted `/fix` may ask it to merge main. So `pr-fixer-dispatch`
-appends one paragraph to every try's instruction, whatever started the story
-(checks, a comment, a review, a refix or a retry): when the PR needs its base
-branch, make exactly one real two-parent `git merge <base_sha>` of the run's
-base commit and resolve every conflict in that merge commit; never squash,
-flatten, cherry-pick or rebase the base in, never copy it as a plain commit,
-never merge a later base commit, and do not merge when the PR does not need
-it. If an agent still copies the base in as a plain commit (the live case,
-katvan#57: a single-parent commit tree-identical to the merge, whose diff was
-513,944 characters), the gate looks for it when the reviewed diff is over the
-reviewer's cap: the base commit is not in the built commit's history, the
-built commit holds exactly the base's version of files the base changed since
-the PR branched (and the PR head did not), and those files make up at least
-half of the lines it changes against the PR head. Then a review finding after
-the size one names the files and the base commit, says the base looks copied
-in, and asks for one real merge instead, or to ignore it if those files are
-the PR's own change. The check is best effort and runs last, after the built
-commit, its diff and its bundle exist, only with at least 10 seconds left
-before the gate's deadline and within its own 10-second budget: a git failure
-or timeout in it finds nothing and never changes the gate's verdict or what is
-built and pushed. A try's instruction becomes the next try's `task` (a
-retry's original task, the review's request for changes); the paragraph is
-cut from it there (`culture_rules.actors.merge_hint`), so each try reads it
-once. The paragraph is rule text: no workflow digest changes.
+to the base: a trusted `/fix` may ask it to merge main. So every fixer try,
+whatever started the story (checks, a comment, a review, a refix or a retry),
+is told at the bridge call, the way the d26 status-notes hint is appended:
+the bridge actor adds one paragraph to the instruction it sends, naming the
+run's `base_sha`. When the PR needs its base branch, make exactly one real
+two-parent `git merge <base_sha>` and resolve every conflict in that merge
+commit; never squash, flatten, cherry-pick or rebase the base in, never copy
+it as a plain commit, never merge a later base commit, and do not merge when
+the PR does not need it. Only a run whose rule writes a status comment (the
+fixer's) and that was given a `base_sha` gets it; a locked brief (the
+reviewer's) never does, and neither does an instruction that already names the
+base commit (the `pr-fixer-conflict` instruction, or a `/fix` ordering that
+merge). Nothing is stored: a try's `instruction` and `task` never hold the
+paragraph, so a retry never carries it twice, and a request without an
+instruction still reaches the agent as its task. If an agent still copies the
+base in as a plain commit (the live case, katvan#57: a single-parent commit
+tree-identical to the merge, whose diff was 513,944 characters), the gate
+looks for it when the reviewed diff is over the reviewer's cap: the commit is
+not a merge from base, the base commit is not in its history, it holds exactly
+the base's version of files the base changed since the PR branched (and the PR
+head did not), and those files make up at least half of the lines it changes
+against the PR head. Then a review finding after the size one names the files
+and the base commit, and every finding of that review asks for one real merge
+of the base commit instead of a smaller change (the reviewer then judges only
+the merge's resolution, so the diff need not shrink). The check is best effort
+and runs last, after the built commit, its diff and its bundle exist, only
+with at least 10 seconds left before the gate's deadline and within its own
+10-second budget, reusing the review diff's line counts: a git failure or
+timeout in it finds nothing and never changes the gate's verdict or what is
+built and pushed. Its limit: the gate's scratch repository holds only the PR
+head, the built commit and `base_sha`, so a copy of a *later* base commit (a
+fresh fetch, then a flatten) is seen only through the files `base_sha` itself
+changed; it may get no finding. No rule and no workflow digest changes.
 
 **Stopping a story (d34, #40).** A trusted author stops a PR's fixer story
 with a comment that starts with a form in `vars.fixer_stop_triggers` (default
@@ -1437,13 +1446,13 @@ The operator does this; nothing here changes the live rules.
 
 The operator does this; nothing here changes the live rules.
 
-1. Ship the wheel (the gate's copied-base finding) and upgrade every node; a
-   node of an older release reviews without the finding, nothing else.
-2. Import `docs/rules/pr-fixer` (workflows first, then rules). Only
-   `pr-fixer-dispatch` changed (its `instruction` is now a template with the
-   d36 paragraph); no workflow digest changes. Like every file in the bundle
-   it ships disabled: enable every rule that was on again after the import,
-   `pr-fixer-dispatch` first among them, or no queued request starts.
+1. Ship the wheel and upgrade every node (and the API). The paragraph is
+   added by the bridge actor on the node that runs the try (spark2), and the
+   copied-base finding by the gate and the review there; a node of an older
+   release sends the instruction without the paragraph and reviews without
+   the finding, nothing else.
+2. No import is needed: no rule, workflow or variable changed, so no digest
+   changes and no rule is disabled.
 
 ### Rolling out the GitGuardian report (d25)
 

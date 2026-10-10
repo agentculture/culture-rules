@@ -9,7 +9,7 @@ attempt budget (``resets_attempt_budget``).
 
 from __future__ import annotations
 
-from culture_rules.actors.merge_hint import without_merge_paragraph
+from culture_rules.actors.merge_hint import MERGE_PARAGRAPH_HEAD
 from culture_rules.engine.claims import RULE_ATTEMPT_BUDGETS, budget_id
 from culture_rules.engine.runs import step_state
 from culture_rules.node.actions.queue import QUEUES_COLLECTION
@@ -102,8 +102,7 @@ def test_a_try_whose_gate_does_not_pass_goes_back_behind_the_waiting_pr(tmp_path
     assert first["outputs"]["verdict"] == "guard"
     assert retry["trigger"]["data"]["retry"] is True
     assert retry["inputs"]["instruction"].startswith("The diff guard rejected commit")
-    # the story's task: the first try's instruction without the d36 paragraph
-    assert retry["inputs"]["task"] == without_merge_paragraph(first["inputs"]["instruction"])
+    assert retry["inputs"]["task"] == first["inputs"]["instruction"]  # the story's task
     (requeue,) = w.runs("pr-fixer-retry")
     assert requeue["status"] == "succeeded"
     assert budget(w)["count"] == 2  # two tries of A's story
@@ -191,8 +190,9 @@ def test_a_request_whose_head_moved_before_its_turn_is_dropped(tmp_path):
 
 
 def test_d36_every_try_is_told_the_one_merge_from_base(tmp_path):
-    """d36 (katvan#57): whatever started the story - checks, a /fix, a retry - the
-    dispatched try's instruction names the base commit and allows one real merge of it."""
+    """d36 (katvan#57): whatever started the story - checks, a /fix, a retry - the agent is
+    told, once, that it may make one real merge of the run's base commit. The paragraph is
+    appended at the bridge call; no try's instruction or task stores it."""
     w = ChainWorld(tmp_path, turns=[guard, "commit", "commit"])
     settle(w, 1, number=7)
     comment(w, 2, number=8)
@@ -201,26 +201,27 @@ def test_d36_every_try_is_told_the_one_merge_from_base(tmp_path):
     assert len(runs) == 3  # the checks story, the /fix story and one retry
     merge = f"git merge {w.repo.base}"
     for run in runs:
-        text = run["inputs"]["instruction"]
-        assert text.count(merge) == 1, run["id"]
-        assert "Never squash, flatten" in text
         assert run["inputs"]["base_sha"] == w.repo.base
-        assert merge not in (run["inputs"].get("task") or "")  # round 2 #2: never twice
-    texts = [r["inputs"]["instruction"] for r in runs]
+        assert MERGE_PARAGRAPH_HEAD not in run["inputs"]["instruction"]  # never stored
+        assert MERGE_PARAGRAPH_HEAD not in (run["inputs"].get("task") or "")
+    assert len(w.qwen.inputs) == 3
+    for sent in w.qwen.inputs:
+        assert sent["instruction"].count(merge) == 1
+        assert sent["instruction"].count(MERGE_PARAGRAPH_HEAD) == 1
+        assert "Never squash, flatten" in sent["instruction"]
+    texts = [s["instruction"] for s in w.qwen.inputs]
     assert [t for t in texts if t.startswith("Checks on PR")]
     assert [t for t in texts if "/fix please" in t]
     assert [t for t in texts if t.startswith("The diff guard rejected commit")]
 
 
-def test_d36_the_dispatch_paragraph_is_the_one_the_queue_and_review_cut():
-    """The strip in queue.add and in the review finds the paragraph by its head: the
-    dispatch template must end with it, after a blank line."""
+def test_d36_the_dispatch_rule_passes_the_instruction_through():
+    """/code-review #2: the dispatch rule hands on the request's instruction as it is (a
+    plain reference), so a request without one still lets the agent fall back to its task."""
     import json
     from pathlib import Path
 
-    from culture_rules.actors.merge_hint import MERGE_PARAGRAPH_HEAD
-
     rule = Path(__file__).resolve().parents[2] / "docs/rules/pr-fixer/rules/pr-fixer-dispatch.json"
-    template = json.loads(rule.read_text())["workflow"]["inputs"]["instruction"]
-    assert template.startswith("{{ trigger.data.instruction }}\n\n" + MERGE_PARAGRAPH_HEAD)
-    assert without_merge_paragraph(template) == "{{ trigger.data.instruction }}"
+    inputs = json.loads(rule.read_text())["workflow"]["inputs"]
+    assert inputs["instruction"] == "trigger.data.instruction"
+    assert inputs["task"] == "trigger.data.task"

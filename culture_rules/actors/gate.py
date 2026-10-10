@@ -191,6 +191,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import IO, Any, Protocol
 
+from culture_rules.actors.merge_hint import COPIED_BASE_LEAD
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
 from culture_rules.engine.variables import variable_values
 
@@ -829,6 +830,8 @@ class _Job:
         self.repo = os.path.join(tmp, "gate.git")
         self._run_as, self._git = run_as, git
         self.deadline, self.clock = deadline, clock
+        self.numstat: dict[tuple[str, str], dict[str, tuple[str, str]]] = {}
+        """``--numstat`` per ``(from, to)`` already read, by path (d36 reuses it)."""
 
     def left(self) -> float:
         left = (self.deadline - self.clock()).total_seconds() - _MARGIN_S
@@ -995,20 +998,36 @@ _PLAIN_MODES = frozenset({"000000", "100644"})
 _MODE_WORDS = {"120000": "symlink", "160000": "submodule"}
 
 
+_DIFF_RAW = ("diff", "--no-ext-diff", "--no-textconv", "--no-renames", "-z")
+"""The machine-readable diff flags the gate reads names, numstat and modes with."""
+
+
+def _parse_numstat(out: bytes) -> dict[str, tuple[str, str]]:
+    """``git diff --numstat -z`` output as ``{path: (added, deleted)}`` (``"-"`` for a
+    binary file)."""
+    per: dict[str, tuple[str, str]] = {}
+    for entry in out.decode("utf-8", "replace").split("\x00"):
+        added, _, rest = entry.partition("\t")
+        deleted, _, path = rest.partition("\t")
+        if path:
+            per[path] = (added, deleted)
+    return per
+
+
 def _non_text_changes(job: _Job, start: str, commit: str, paths: Sequence[str] = ()) -> list[str]:
     """Changes the text diff cannot show in full (Codex review #5): binary content, any
     file mode other than a plain 100644 (an executable bit, a symlink, a submodule
     pointer) or a mode change. Each is one ``"<path>: <why>"`` line; any of them makes the
-    review material incomplete (``diff_truncated``), fail closed."""
-    base = ("diff", "--no-ext-diff", "--no-textconv", "--no-renames", "-z")
+    review material incomplete (``diff_truncated``), fail closed. The whole-range numstat
+    is kept on the job for the d36 copied-base check."""
     problems: list[str] = []
-    numstat = job.git(*base, "--numstat", start, commit, "--", *paths).decode("utf-8", "replace")
-    for entry in numstat.split("\x00"):
-        added, _, rest = entry.partition("\t")
-        deleted, _, path = rest.partition("\t")
-        if path and added == "-" and deleted == "-":
+    numstat = _parse_numstat(job.git(*_DIFF_RAW, "--numstat", start, commit, "--", *paths))
+    if not paths:
+        job.numstat[(start, commit)] = numstat
+    for path, (added, deleted) in numstat.items():
+        if added == "-" and deleted == "-":
             problems.append(f"{path}: binary change")
-    raw = job.git(*base, "--raw", "--no-abbrev", start, commit, "--", *paths)
+    raw = job.git(*_DIFF_RAW, "--raw", "--no-abbrev", start, commit, "--", *paths)
     raw = raw.decode("utf-8", "replace")
     fields = raw.split("\x00")
     for meta, path in zip(fields[0::2], fields[1::2]):
@@ -1023,8 +1042,9 @@ def _non_text_changes(job: _Job, start: str, commit: str, paths: Sequence[str] =
     return problems
 
 
-def _parents(job: _Job, sha: str) -> list[str]:
-    return job.git("rev-parse", f"{sha}^@").decode().split()
+def _parents(job: _Job, sha: str, git: Callable[..., bytes] | None = None) -> list[str]:
+    """``sha``'s parents, read with ``git`` (default: the job's, unbounded)."""
+    return (git or job.git)("rev-parse", f"{sha}^@").decode().split()
 
 
 def _second_parent(job: _Job, sha: str) -> str | None:
@@ -1093,7 +1113,6 @@ _DIFF = ("diff", "--no-ext-diff", "--no-textconv", "--no-color")
 
 _HINT_BUDGET_S = 10.0
 """Seconds the d36 copied-base check may spend; past them it gives up, finding nothing."""
-_NAMES = ("diff", "--no-ext-diff", "--no-textconv", "--no-renames", "-z")
 
 
 class _HintBudget:
@@ -1117,21 +1136,20 @@ class _HintBudget:
         return out
 
     def names(self, frm: str, to: str) -> set[str]:
-        out = self.git(*_NAMES, "--name-only", frm, to, "--").decode("utf-8", "replace")
+        out = self.git(*_DIFF_RAW, "--name-only", frm, to, "--").decode("utf-8", "replace")
         return {p for p in out.split("\x00") if p}
 
     def churn(self, frm: str, to: str) -> dict[str, int]:
-        """Lines added plus deleted per path (a binary change counts as one)."""
-        out = self.git(*_NAMES, "--numstat", frm, to, "--").decode("utf-8", "replace")
-        per: dict[str, int] = {}
-        for entry in out.split("\x00"):
-            added, _, rest = entry.partition("\t")
-            deleted, _, path = rest.partition("\t")
-            if path:
-                per[path] = (int(added) if added.isdigit() else 1) + (
-                    int(deleted) if deleted.isdigit() else 0
-                )
-        return per
+        """Lines added plus deleted per path (a binary change counts as one): the numstat
+        the review diff already read (:func:`_non_text_changes`), else read now."""
+        numstat = self.job.numstat.get((frm, to))
+        if numstat is None:
+            numstat = _parse_numstat(self.git(*_DIFF_RAW, "--numstat", frm, to, "--"))
+        return {
+            path: (int(added) if added.isdigit() else 1)
+            + (int(deleted) if deleted.isdigit() else 0)
+            for path, (added, deleted) in numstat.items()
+        }
 
 
 def _base_copied_in(job: _Job, start: str, built: str, base: str) -> list[str]:
@@ -1141,11 +1159,23 @@ def _base_copied_in(job: _Job, start: str, built: str, base: str) -> list[str]:
     A file counts when the base changed it since the PR branched, ``built`` holds exactly
     the base's version, and the PR head did not; and only when those files make up at least
     half of the lines ``built`` changes against the PR head, and ``base`` is not in
-    ``built``'s history. Best effort, within its own budget: a git failure or timeout finds
-    nothing and never changes the gate's result."""
+    ``built``'s history. A merge whose second parent is on the base branch is d31's own
+    case and is not checked; any other commit is.
+
+    Limit: the scratch repo holds only the history of the PR head, the built commit and
+    ``base`` (:meth:`GatePort._import`), so a copy of a *later* base commit (a fresh
+    ``git fetch`` then a flatten) is seen only through the files ``base`` itself changed
+    and the later commit left alone; files the base changed again, or only, after ``base``
+    are not counted, and such a copy may get no hint. Best effort, within its own budget: a
+    git failure or timeout finds nothing and never changes the gate's result."""
     git = _HintBudget(job)
     try:
-        if len(git.git("rev-parse", f"{built}^@").split()) > 1:  # a merge: d31's own case
+        parents = _parents(job, built, git.git)
+        # a merge from base is d31's own case (the review shows only its resolution)
+        if (
+            len(parents) == 2
+            and git.git_rc("merge-base", "--is-ancestor", parents[1], base)[0] == 0
+        ):
             return []
         if git.git_rc("merge-base", "--is-ancestor", base, built)[0] == 0:
             return []
@@ -1184,16 +1214,16 @@ def _add_copied_base_hint(
 
 
 def _copied_base_hint(base: str, paths: Sequence[str]) -> str:
-    """The review finding for :func:`_base_copied_in` (d36): a likely cause, not a verdict."""
+    """The review finding for :func:`_base_copied_in` (d36): a likely cause, not a verdict.
+    It starts with :data:`~culture_rules.actors.merge_hint.COPIED_BASE_LEAD`, so the review
+    asks for one real merge, not a smaller change."""
     shown = ", ".join(paths[:3]) + (f" and {len(paths) - 3} more" if len(paths) > 3 else "")
     return (
-        f"the commit takes the base branch's own version of {len(paths)} file(s) the base "
-        f"changed since the PR branched ({shown}) while the base commit {base} is not in "
-        "its history: it looks like the base was copied in as a plain commit, so the "
-        "base's changes are shown as the PR's own. If so, undo that and make one real "
-        f"two-parent merge instead (git merge {base}), resolving any conflict in that "
-        "merge commit; the gate allows one merge from base and the reviewer then judges "
-        "only its resolution. If those files are the PR's own change, ignore this"
+        f"{COPIED_BASE_LEAD}: the commit takes the base branch's own version of "
+        f"{len(paths)} file(s) the base changed since the PR branched ({shown}) while the "
+        f"base commit {base} is not in its history, so the base's changes are shown as the "
+        f"PR's own (git merge {base} would bring them in as a merge the reviewer does not "
+        "judge). If those files are the PR's own change, ignore this"
     )
 
 
