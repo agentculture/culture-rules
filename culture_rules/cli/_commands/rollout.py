@@ -12,8 +12,9 @@ server merges atomically and timestamps with its own clock (no read-merge-write)
 Guards refuse with exit 1 and a remediation naming the step to run first: ``pause`` while a
 run is not terminal (``--force`` overrides; the only override), ``import`` before this
 release's ``seed`` step is recorded, ``enable`` before ``pause`` recorded a snapshot, while an
-online node runs an older engine, while one of the release's new rules is not imported, or
-while a rule outside the snapshot plus the new rules is enabled.
+online node runs an older engine, while one of the release's new rules is not imported,
+while a snapshot rule no longer exists, or while a rule outside the snapshot plus the new
+rules is enabled.
 
 Versions order as PEP 440 for the forms releases use (``N(.N)*``, ``aN``/``bN``/``rcN``,
 ``.postN``, ``.devN``, ``+local``); a version that does not parse is invalid and counts as
@@ -664,6 +665,20 @@ def _enable_guards(ctx: Context, version: str) -> list[str]:
     return list((doc or {}).get("snapshot") or [])
 
 
+def _refuse_absent_snapshot_rules(absent: list[str]) -> None:
+    """Refuse (before any write, in a dry run too) while a snapshot rule no longer exists:
+    enable restores every rule the pause recorded, or nothing."""
+    if not absent:
+        return
+    raise CliError(
+        EXIT_USER_ERROR,
+        "enable refused: snapshot rule(s) recorded at pause no longer exist: " + ", ".join(absent),
+        "restore each rule (from a backup, or 'culture-rules rules create --body @rule.json "
+        "--apply'), or re-import the bundle that carries it ('culture-rules rollout import "
+        "--apply'); then re-run 'culture-rules rollout enable'",
+    )
+
+
 def _refuse_extra_enabled(extra: set[str]) -> None:
     """Refuse (before any write) while a rule outside snapshot + new rules is enabled."""
     if not extra:
@@ -681,7 +696,9 @@ def _refuse_extra_enabled(extra: set[str]) -> None:
 
 
 def _enable(ctx: Context) -> dict[str, Any]:
-    """Re-enable exactly the snapshot plus the release's new rules; list every rule left off."""
+    """Re-enable exactly the snapshot plus the release's new rules; list every rule left off.
+    Every target rule must exist: an absent new rule or snapshot rule refuses before any
+    write."""
     version = release_version()
     snapshot = _enable_guards(ctx, version)
     new_rules = [str(r) for r in _release().get("new_rules") or []]
@@ -694,39 +711,35 @@ def _enable(ctx: Context) -> dict[str, Any]:
             f"enable refused: the release's new rule(s) are not imported: {', '.join(absent_new)}",
             "run 'culture-rules rollout import --apply' first",
         )
+    _refuse_absent_snapshot_rules([r for r in snapshot if r not in ids])
     target = list(dict.fromkeys([*snapshot, *new_rules]))
     _refuse_extra_enabled(enabled - set(target))
-    missing = [r for r in target if r not in ids]  # a snapshot rule deleted since the pause
-    to_enable = [r for r in target if r in ids and r not in enabled]
+    to_enable = [r for r in target if r not in enabled]
     left = sorted(ids - enabled - set(to_enable))
     out = envelope(
         "enable",
         ctx,
         enable=to_enable,
         already_enabled=[r for r in target if r in enabled],
-        missing=missing,
         left_disabled=left,
         would=[{"method": "POST", "path": f"/rules/{seg(r)}/enable"} for r in to_enable],
     )
     if ctx.apply:
         for rid in to_enable:
             _api.call(lambda rid=rid: ctx.client.request("POST", f"/rules/{seg(rid)}/enable"))
-        outcome = {"enabled": to_enable, "left_disabled": left, "missing": missing}
+        outcome = {"enabled": to_enable, "left_disabled": left}
         out["record"] = _record_if_allowed(ctx, "enable", outcome)
     return {**out, "lines": _enable_lines(ctx.apply, out)}
 
 
 def _enable_lines(applied: bool, out: Mapping[str, Any]) -> list[str]:
     verb = "enabled" if applied else "dry-run: would enable"
-    to_enable, left, missing = out["enable"], out["left_disabled"], out["missing"]
-    lines = [
+    to_enable, left = out["enable"], out["left_disabled"]
+    return [
         f"{verb} {len(to_enable)} rule(s): {', '.join(to_enable) or '-'}",
         f"already enabled: {len(out['already_enabled'])}",
         f"left disabled ({len(left)}): {', '.join(left) or '-'}",
     ]
-    if missing:
-        lines.append(f"snapshot rule(s) no longer present: {', '.join(missing)}")
-    return lines
 
 
 # --------------------------------------------------------------------------- upgrade

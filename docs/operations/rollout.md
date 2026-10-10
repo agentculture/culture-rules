@@ -114,6 +114,11 @@ a whole document, but the CLI does not use it.
   `grant run ... --`). The node unit must run the same venv; otherwise, or when
   no venv can be read, the upgrade is refused naming both. No data directory is
   assumed, and the dry run prints `<venv>` in its place.
+- **`enable` refuses while a snapshot rule is absent.** A rule recorded in the
+  snapshot that no longer exists (deleted since the pause) is refused before
+  anything changes, in a dry run too. Restore it (from a backup, or `cr rules
+  create --body @rule.json --apply`) or re-import the bundle that carries it
+  (`cr rollout import --apply`), then re-run `enable`.
 - **`enable` refuses extra enabled rules.** A rule enabled outside the snapshot
   plus the new rules is refused before anything changes. Disable each one with
   `cr rules disable <id> --apply`. A rule that belongs enabled must be in the
@@ -147,7 +152,7 @@ The lessons from the hand-run rollouts (#45), and what now enforces each one:
 | Publish a release's new rules and variables with it | `release.json` and `variables.json` ship in the wheel (`culture_rules/deploy_data`); `seed` and `import` read them, no checkout needed |
 | Wait for a running chain | `pause` refuses while a run is not terminal (`--force` is the only override) |
 | Seed before import, upgrade before enable | `import` refuses until this release's `seed` step is recorded; `enable` refuses while an online node's `engine_version` is older than the release (PEP 440 order; an unparseable version counts as older) |
-| Restore exactly what was on | `enable` refuses while a rule outside the snapshot plus the new rules is enabled, before it changes anything |
+| Restore exactly what was on | `enable` refuses while a rule outside the snapshot plus the new rules is enabled, or while a snapshot rule no longer exists, before it changes anything |
 | The operator runs each step | one command per step, dry run first; `upgrade`'s dry run prints the exact argv and opens no connection |
 
 ## Limits

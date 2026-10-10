@@ -487,6 +487,29 @@ def test_enable_refuses_an_enabled_rule_outside_snapshot_plus_new_rules(
     assert store.get("rules", "r1")["enabled"] is False
 
 
+def test_enable_refuses_before_any_write_while_a_snapshot_rule_is_absent(
+    wire, store, capsys  # noqa: F811
+):
+    _paused_with(store, capsys, ["r1", "r-gone"])
+    put_rule(store, "r-new", False)
+    store.delete("rules", "r-gone")  # deleted since the pause
+    wire.calls.clear()
+    for argv in (("rollout", "enable"), ("rollout", "enable", "--apply")):
+        err = fail(capsys, *argv)
+        assert "r-gone" in err["message"]
+        assert "rules create" in err["remediation"]
+        assert "rollout import --apply" in err["remediation"]
+    assert wire.mutating() == []
+    assert store.get("rules", "r1")["enabled"] is False
+    assert "enable" not in doc(store)["steps"]
+
+
+def test_enable_output_has_no_missing_field(wire, store, capsys):  # noqa: F811
+    _paused_with(store, capsys, ["r1"])
+    put_rule(store, "r-new", False)
+    assert "missing" not in jrun(capsys, "rollout", "enable")
+
+
 def test_enable_restores_exactly_snapshot_plus_new_rules(wire, store, capsys):  # noqa: F811
     _paused_with(store, capsys, ["r1", "r2"])
     put_rule(store, "r-new", False)

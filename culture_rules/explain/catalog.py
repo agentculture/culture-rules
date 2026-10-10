@@ -341,7 +341,8 @@ wins). One command per step, in order; nothing chains them and there is no `all`
    new rules and lists every rule left disabled. Refused before pause recorded a
    snapshot, while an online node's `engine_version` is older than the release
    (PEP 440 order; unknown or unparseable counts as older), while a new rule is not
-   imported, or while a rule outside snapshot plus new rules is enabled (disable it
+   imported, while a snapshot rule no longer exists (restore it or re-import the
+   bundle), or while a rule outside snapshot plus new rules is enabled (disable it
    with `rules disable <id> --apply`; nothing changes before the refusal).
 7. `rollout resume --apply` records `resume_requested` (server time, once per
    release: the server keeps the first and answers a later one 409 `step_recorded`,
