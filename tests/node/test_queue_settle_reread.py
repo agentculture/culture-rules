@@ -66,7 +66,8 @@ def test_a_timeout_whose_checks_are_green_by_dispatch_is_dropped():
     assert res.output["dispatched"] == []
     assert res.output["dropped"] == [{"key": "o/a#1", "reason": "checks_green_on_reread"}]
     assert w.dispatches() == []
-    assert w.doc()["waiting"] == [] and w.doc()["active"] == []
+    assert w.doc()["waiting"] == []
+    assert w.doc()["active"] == []
     assert lookup.inputs[0]["with_checks"] is True
 
 
@@ -110,7 +111,8 @@ def test_a_suite_still_running_dispatches_and_the_instruction_names_it():
     (event,) = w.dispatches()
     text = event["data"]["instruction"]
     assert text.startswith("fix o/a#1")
-    assert "sonarqubecloud" in text and "github-actions" not in text
+    assert "sonarqubecloud" in text
+    assert "github-actions" not in text
     assert "still running" in text
 
 
