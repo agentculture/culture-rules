@@ -29,6 +29,7 @@ from culture_rules.apps.sonarcloud import SonarCloud
 from culture_rules.engine.runs import RUNS_COLLECTION
 from culture_rules.io.exchange import read_bundle
 from culture_rules.model.actor import Actor
+from culture_rules.node.actions.fixer_cooldown import FixerCooldownPort
 from culture_rules.node.actions.gitguardian import GitGuardianPort
 from culture_rules.node.actions.github import GitHubCommentPort
 from culture_rules.node.actions.github_pr import (
@@ -72,6 +73,8 @@ RETRY_RULE = "pr-fixer-retry"
 """#35 d30: a try whose gate did not pass goes back in the queue."""
 RETRY_FAILED_RULE = "pr-fixer-retry-failed"
 """d37: a try whose agent ran out of time goes back to the queue (not an attempt)."""
+RETRY_CAPACITY_RULE = "pr-fixer-retry-capacity"
+"""#39: a try whose agent hit its usage limit rests its level and goes back to the queue."""
 PROGRESS_RULES = (
     "pr-fixer-queue-progress",
     "pr-fixer-queue-progress-fixed",
@@ -79,6 +82,7 @@ PROGRESS_RULES = (
     "pr-fixer-queue-progress-cancelled",
     "pr-fixer-queue-progress-superseded",
     "pr-fixer-queue-progress-stopped",  # d34: after a stop
+    "pr-fixer-queue-progress-capacity",  # #39: after a capacity retry joins
     "pr-fixer-queue-sweep",
 )
 """#35 d29: move the queue when a request joins or a try ends (and a periodic sweep)."""
@@ -100,6 +104,7 @@ CHAIN_VARIABLES = {
         " enabled=false",
     ],
     "fixer_unavailable": "next",
+    "fixer_capacity_cooldown_s": 3600,  # #39 t2: a level's cooldown after capacity_exhausted
 }
 KEY = f"pr-fixer:{REPO}#7"
 
@@ -130,8 +135,14 @@ class QwenBridge:
     x 3), ``"none"`` (no commit) or a callable ``(repo) -> head`` - and records the terminal
     callback at once with the per-invocation token, as the bridge would. ``"hang"`` accepts
     the job and never completes it: the agent is still working (d34: a stop meanwhile).
-    ``"timeout"`` fails the job as the bridge does when the agent runs out of time (d37).
+    ``"timeout"`` fails the job as the bridge does when the agent runs out of time (d37);
+    ``"capacity"`` as it does when the backend's usage limit is reached (#39 t2).
     Cancel requests are recorded in ``cancelled``."""
+
+    FAILURES = {
+        "timeout": {"class": "timeout", "message": "qwen did not finish within 3600s"},
+        "capacity": {"class": "capacity_exhausted", "message": "usage limit reached, try later"},
+    }
 
     def __init__(self, base, repo: Repo, script=None) -> None:
         self.store = base
@@ -163,10 +174,10 @@ class QwenBridge:
         if turn == "hang":
             self.seq += 1
             return 202, json.dumps({"invocation_id": f"qinv-{self.seq}"}).encode()
-        if turn == "timeout":
+        if turn in self.FAILURES:
             inv = doc["callback"]["url"].rsplit("/", 2)[-2]
             self.seq += 1
-            payload = {"class": "timeout", "message": "qwen did not finish within 3600s"}
+            payload = self.FAILURES[turn]
             event = {"kind": "failed", "sequence": self.seq, "payload": payload}
             assert record_bridge_event(self.store, inv, doc["callback"]["token"], event) == (
                 "recorded"
@@ -457,6 +468,7 @@ class ChainWorld:
                     "queue.stop": QueueStopPort(  # d34
                         base, clock=self.c.clock, pr_lookup=FakeActor(default=head)
                     ),
+                    "fixer.cooldown": FixerCooldownPort(base, clock=self.c.clock),  # #39 t2
                 }
             ),
         }

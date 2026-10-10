@@ -41,6 +41,7 @@ from tests.rules.chain_world import (
     CHAIN_VARIABLES,
     DISPATCH_RULE,
     PROGRESS_RULES,
+    RETRY_CAPACITY_RULE,
     RETRY_FAILED_RULE,
     RETRY_RULE,
     SECRETS_LATE_RULE,
@@ -71,19 +72,20 @@ AUTHOR_RULES = ("pr-fixer-comment", "pr-fixer-review", "pr-fixer-review-comment"
 # --------------------------------------------------------------------------- the data
 
 
-def test_the_bundle_is_twenty_two_disabled_rules_and_seven_workflows():
+def test_the_bundle_is_twenty_four_disabled_rules_and_eight_workflows():
     b = bundle()
     assert sorted(w.id for w in b.workflows) == [
         "pr-fix",
         "publish-fix",
         "queue-add",
+        "queue-add-capacity",
         "queue-progress",
         "queue-stop",
         "report-secrets",
         "review-commit",
     ]
     reports = (SECRETS_RULE, SECRETS_LATE_RULE)
-    queue = (DISPATCH_RULE, RETRY_RULE, RETRY_FAILED_RULE, *PROGRESS_RULES)
+    queue = (DISPATCH_RULE, RETRY_RULE, RETRY_FAILED_RULE, RETRY_CAPACITY_RULE, *PROGRESS_RULES)
     assert sorted(r.id for r in b.rules) == sorted(
         TRIGGER_RULES + STAGE_RULES + reports + queue + STOP_RULES
     )
@@ -92,7 +94,8 @@ def test_the_bundle_is_twenty_two_disabled_rules_and_seven_workflows():
         assert r.placement is not None
         assert r.placement.machine == "spark2"
     by = {r.id: r for r in b.rules}
-    keyed = (*TRIGGER_RULES, *STAGE_RULES, DISPATCH_RULE, RETRY_RULE, RETRY_FAILED_RULE)
+    retries = (RETRY_RULE, RETRY_FAILED_RULE, RETRY_CAPACITY_RULE)
+    keyed = (*TRIGGER_RULES, *STAGE_RULES, DISPATCH_RULE, *retries)
     for rid in keyed:
         r = by[rid]
         assert r.concurrency_key == KEY
@@ -267,6 +270,7 @@ def test_import_with_apply_validates_and_writes_the_definitions():
         "pr-fix",
         "publish-fix",
         "queue-add",
+        "queue-add-capacity",
         "queue-progress",
         "queue-stop",
         "report-secrets",
@@ -648,11 +652,11 @@ def test_every_queue_step_reads_the_levels():
     wfs = workflow_docs()
     configs = [
         s["config"]
-        for wid in ("queue-add", "queue-progress", "queue-stop")
+        for wid in ("queue-add", "queue-add-capacity", "queue-progress", "queue-stop")
         for s in wfs[wid]["steps"]
     ]
     queue_steps = [c for c in configs if str(c.get("builtin", "")).startswith("queue.")]
-    assert len(queue_steps) == 4  # add, progress, stop and its sweep
+    assert len(queue_steps) == 5  # add (twice: a capacity retry too), progress, stop, sweep
     assert all(c["levels"] == "fixer_levels" for c in queue_steps)
     assert all(c["queue"] == "pr-fixer" for c in queue_steps)  # level 1's, and the fallback
     progress = next(c for c in queue_steps if c["builtin"] == "queue.progress")

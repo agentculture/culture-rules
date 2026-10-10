@@ -46,7 +46,9 @@ __all__ = [
     "dispatched_base_tip",
     "enqueuer",
     "fix_ancestry",
+    "is_enqueuer",
     "LineageError",
+    "RUN_FAILED",
     "RUN_SUCCEEDED",
     "final_gate",
     "rules_live",
@@ -166,7 +168,7 @@ def _run_links(
     gate's verdict (``rules.run.succeeded``), or, d37, its agent running out of time
     (``rules.run.failed``: only a ``queue.add`` run may stand on a failed fix)."""
     if _trigger_type(current) == RUN_FAILED:
-        if not _is_enqueuer(current):
+        if not is_enqueuer(current):
             raise LineageError(CHAIN_UNVERIFIED, "only a retry may follow a failed run")
         up = upstream(store, current, failed=True)
         if role_of(up) != fix_role:
@@ -174,7 +176,7 @@ def _run_links(
         return [up]
     up = upstream(store, current)
     role = role_of(up)
-    if role == fix_role and _is_enqueuer(current):
+    if role == fix_role and is_enqueuer(current):
         return [up]  # d30: a try that did not pass, back in the queue
     if role != review_role:
         raise LineageError("workflow_not_trusted", "a re-fix not started by a review run")
@@ -184,7 +186,7 @@ def _run_links(
     return [up, earlier]
 
 
-def _is_enqueuer(run: Mapping[str, Any]) -> bool:
+def is_enqueuer(run: Mapping[str, Any]) -> bool:
     """Whether ``run``'s pinned workflow is a ``queue.add`` run (a step with that built-in)."""
     return any(
         isinstance(s, Mapping)
@@ -206,7 +208,7 @@ def enqueuer(store: Any, run: Mapping[str, Any]) -> Mapping[str, Any]:
     data = envelope.get("data") if isinstance(envelope.get("data"), Mapping) else {}
     source = data.get("source_run")
     up = store.get(_RUNS, source) if isinstance(source, str) and source else None
-    if not up or up.get("status") != "succeeded" or not _is_enqueuer(up):
+    if not up or up.get("status") != "succeeded" or not is_enqueuer(up):
         raise LineageError(CHAIN_UNVERIFIED, "the queued request has no succeeded queue.add run")
     inputs = up.get("inputs") if isinstance(up.get("inputs"), Mapping) else {}
     if inputs.get("repo") != data.get("repository") or inputs.get("number") != data.get("number"):
