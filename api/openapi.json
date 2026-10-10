@@ -448,10 +448,16 @@
           "status": {
             "title": "Status",
             "type": "string"
+          },
+          "version": {
+            "description": "the culture-rules package version serving this API",
+            "title": "Version",
+            "type": "string"
           }
         },
         "required": [
-          "status"
+          "status",
+          "version"
         ],
         "title": "Health",
         "type": "object"
@@ -682,6 +688,18 @@
       },
       "MachineStatus": {
         "properties": {
+          "engine_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "engine version from the latest heartbeat; null = unknown or never beat",
+            "title": "Engine Version"
+          },
           "last_seen": {
             "anyOf": [
               {
@@ -733,7 +751,8 @@
           "last_seen",
           "load",
           "running",
-          "queue_depth"
+          "queue_depth",
+          "engine_version"
         ],
         "title": "MachineStatus",
         "type": "object"
@@ -958,6 +977,138 @@
           "items"
         ],
         "title": "RepoList",
+        "type": "object"
+      },
+      "Rollout": {
+        "additionalProperties": true,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "snapshot": {
+            "description": "ids of the rules enabled when the rollout paused",
+            "items": {
+              "type": "string"
+            },
+            "title": "Snapshot",
+            "type": "array"
+          },
+          "steps": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/RolloutStep"
+            },
+            "description": "step name ([a-z0-9:_.-]+, e.g. pause, upgrade:<host>) -> what happened",
+            "title": "Steps",
+            "type": "object"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "updated_by": {
+            "title": "Updated By",
+            "type": "string"
+          },
+          "version": {
+            "description": "the release version; must equal the rollout id",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "snapshot",
+          "steps",
+          "id",
+          "updated_by"
+        ],
+        "title": "Rollout",
+        "type": "object"
+      },
+      "RolloutList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/Rollout"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "RolloutList",
+        "type": "object"
+      },
+      "RolloutStep": {
+        "additionalProperties": false,
+        "properties": {
+          "applied_at": {
+            "description": "ISO-8601 timestamp with a UTC offset",
+            "title": "Applied At",
+            "type": "string"
+          },
+          "outcome": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "additionalProperties": true,
+                "type": "object"
+              }
+            ],
+            "description": "a short string, or a small object of scalars / flat lists of scalars",
+            "title": "Outcome"
+          }
+        },
+        "required": [
+          "applied_at",
+          "outcome"
+        ],
+        "title": "RolloutStep",
+        "type": "object"
+      },
+      "RolloutWrite": {
+        "additionalProperties": false,
+        "properties": {
+          "snapshot": {
+            "description": "ids of the rules enabled when the rollout paused",
+            "items": {
+              "type": "string"
+            },
+            "title": "Snapshot",
+            "type": "array"
+          },
+          "steps": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/RolloutStep"
+            },
+            "description": "step name ([a-z0-9:_.-]+, e.g. pause, upgrade:<host>) -> what happened",
+            "title": "Steps",
+            "type": "object"
+          },
+          "version": {
+            "description": "the release version; must equal the rollout id",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "snapshot",
+          "steps"
+        ],
+        "title": "RolloutWrite",
         "type": "object"
       },
       "RunCancel": {
@@ -4345,6 +4496,215 @@
         "summary": "List Repos",
         "tags": [
           "exchange"
+        ]
+      }
+    },
+    "/rollouts": {
+      "get": {
+        "description": "Every rollout document, ordered by id (the release version).",
+        "operationId": "list_rollouts",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RolloutList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "List Rollouts",
+        "tags": [
+          "rollouts"
+        ]
+      }
+    },
+    "/rollouts/{id}": {
+      "get": {
+        "operationId": "get_rollout",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "title": "Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rollout"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Validation failed (errors listed)"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Get Rollout",
+        "tags": [
+          "rollouts"
+        ]
+      },
+      "put": {
+        "description": "Create or replace the rollout document for release ``id`` (admin, audited).",
+        "operationId": "put_rollout",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "title": "Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RolloutWrite"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rollout"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Validation failed (errors listed)"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Put Rollout",
+        "tags": [
+          "rollouts"
         ]
       }
     },

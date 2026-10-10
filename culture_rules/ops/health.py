@@ -1,9 +1,9 @@
 """Node health status as a pure function (no web imports).
 
-``health_status(store, now, host)`` reports: whether the store is reachable and its
-schema version; this host's heartbeat age and online state; and executor lag (how long
-due work in live runs - pending steps that are ready to dispatch, aged from when they
-became ready, and retries past ``next_attempt_at`` - has been waiting; see
+``health_status(store, now, host)`` reports: the package ``version`` serving it; whether the
+store is reachable and its schema version; this host's heartbeat age and online state; and
+executor lag (how long due work in live runs - pending steps that are ready to dispatch, aged
+from when they became ready, and retries past ``next_attempt_at`` - has been waiting; see
 :func:`culture_rules.engine.runs.due_steps`). ``hooks``
 counts webhook deliveries per surface, actor and outcome and ``gateways`` reports each Discord
 gateway's lease holder, connected flag and last event time. ``chain_needs_review`` counts the
@@ -18,6 +18,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
+from culture_rules import __version__
 from culture_rules.apps.discord_gateway import GATEWAY_STATE_COLLECTION
 from culture_rules.engine.named_lease import LEASES_COLLECTION
 from culture_rules.engine.runs import RUNS_COLLECTION, due_steps
@@ -99,7 +100,11 @@ def health_status(
     """Health document for the node ``host``; JSON-serialisable.
 
     ``beat_every`` is the cluster's heartbeat cadence (offline after 3 missed beats)."""
-    out: dict[str, Any] = {"host": host, "at": now.astimezone(UTC).isoformat()}
+    out: dict[str, Any] = {
+        "host": host,
+        "at": now.astimezone(UTC).isoformat(),
+        "version": __version__,
+    }
     try:
         beat = store.get(HEARTBEAT_COLLECTION, host)
         executor = _executor(store, now)

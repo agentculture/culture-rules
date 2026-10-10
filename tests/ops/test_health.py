@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+import culture_rules
 from culture_rules.engine.actorport import InvocationResult
 from culture_rules.engine.claims import idempotency_key
 from culture_rules.engine.runs import Executor
@@ -40,6 +41,7 @@ def test_healthy_node():
     assert h["heartbeat"]["age_s"] == 4.0
     assert h["heartbeat"]["online"] is True
     assert h["executor"]["lag_s"] == 0.0
+    assert h["version"] == culture_rules.__version__
 
 
 def test_stale_or_missing_heartbeat_is_degraded():
@@ -65,6 +67,7 @@ def test_unreachable_store_is_down_and_never_raises():
     assert h["status"] == "down"
     assert h["store"]["reachable"] is False
     assert "connection refused" in h["store"]["error"]
+    assert h["version"] == culture_rules.__version__  # reported even when the store is down
 
 
 def _executor_rig(start=NOW):

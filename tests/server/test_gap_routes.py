@@ -188,7 +188,24 @@ def test_machines_status_for_a_machine_that_never_beat(store, client):
         "load": None,
         "running": [],
         "queue_depth": 0,
+        "engine_version": None,
     }
+
+
+def test_machines_status_reports_the_heartbeat_engine_version(store, client):
+    now = datetime.now(UTC)
+    for name in ("spark", "thor", "orin"):
+        store.put("machines", _machine(name))
+    beats = {"spark": "0.18.12", "thor": "unknown", "orin": None}
+    for name, version in beats.items():
+        beat = {"id": name, "machine": name, "ts": _iso(now), "load": {}}
+        if version is not None:
+            beat["engine_version"] = version
+        store.put(HEARTBEAT_COLLECTION, beat)
+    by = {m["name"]: m for m in client.get("/machines/status").json()["items"]}
+    assert by["spark"]["engine_version"] == "0.18.12"
+    assert by["thor"]["engine_version"] is None  # the heartbeat's "unknown" marker
+    assert by["orin"]["engine_version"] is None  # an older heartbeat without the field
 
 
 def test_machines_status_is_not_shadowed_by_get_machine(store, client):
