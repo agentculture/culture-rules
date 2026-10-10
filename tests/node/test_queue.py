@@ -420,3 +420,25 @@ def test_the_cap_can_come_from_an_actor_concurrency_pool():
     other = World()
     other.add(**request("o/a", 1))
     assert other.progress({**PROGRESS, "pool": "nobody"}).output["dispatched"] == ["o/a#1"]
+
+
+def test_a_request_replaced_during_the_pr_lookup_is_judged_on_its_new_head():
+    """Codex P2: progress reads head A; another host replaces the request with the PR's
+    current head C while the lookup runs (which answers C). The lost compare-and-set must
+    re-judge the fresh request against the fetched facts, never reuse a refusal of A."""
+    w = World()
+
+    class Lookup:
+        def invoke(self, input, key, deadline, *, context):
+            if w.doc()["waiting"][0]["head_sha"] == "a" * 40:
+                w.add(**request("o/a", 1, head="c" * 40, instruction="newer"))
+            return InvocationResult.completed({"head_sha": "c" * 40, "state": "open"})
+
+    w.progress_port = QueueProgressPort(w.store, clock=w.clock, pr_lookup=Lookup())
+    w.add(**request("o/a", 1, head="a" * 40))
+    res = w.progress({**PROGRESS, "lookup_actor": "github-app"})
+    assert res.output["dropped"] == []
+    assert res.output["dispatched"] == ["o/a#1"]
+    (event,) = w.dispatches()
+    assert event["data"]["head_sha"] == "c" * 40
+    assert event["data"]["instruction"] == "newer"

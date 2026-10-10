@@ -399,7 +399,7 @@ class _Pass:
         self.config, self.context, self.deadline = config, context, deadline
         self.store = port._store
         self.queue = _QueueDoc(self.store, name, port._clock)
-        self.lookups: dict[str, str | None] = {}
+        self.lookups: dict[tuple[str, int], Mapping[str, Any] | None] = {}
 
     def run(self, ik: str) -> dict[str, Any]:
         for _ in range(_MAX_CAS_TRIES):
@@ -473,12 +473,29 @@ class _Pass:
 
     def _pr_refusal(self, req: Mapping[str, Any], ik: str) -> str | None:
         """``pr_not_open`` / ``head_moved`` from a read of the PR, else None (also when the
-        read fails: the run's own guard stops a stale request). Read once per pass."""
+        read fails: the run's own guard stops a stale request). The PR is read once per pass
+        and the **facts** are kept, never a verdict: a pass retried after a lost
+        compare-and-set judges the request as it is now, so one replaced meanwhile (same
+        ``rid``, a newer head) is not dropped for its predecessor's head (Codex P2)."""
         actor = self.config.get("lookup_actor")
         if self.port._lookup is None or not isinstance(actor, str) or not actor:
             return None
-        if req["rid"] in self.lookups:
-            return self.lookups[req["rid"]]
+        pr = (req["repository"], req["number"])
+        if pr not in self.lookups:
+            self.lookups[pr] = self._read_pr(req, actor, ik)
+        facts = self.lookups[pr]
+        if facts is None:
+            return None
+        state = facts.get("state")
+        if (isinstance(state, str) and state != "open") or facts.get("merged") is True:
+            return "pr_not_open"
+        if req.get("head_sha") and facts.get("head_sha") != req["head_sha"]:
+            return "head_moved"
+        return None
+
+    def _read_pr(self, req: Mapping[str, Any], actor: str, ik: str) -> Mapping[str, Any] | None:
+        """The PR's current facts (``state``, ``merged``, ``head_sha``), or None when the
+        read failed."""
         ctx = InvocationContext(
             run_id=self.context.run_id,
             step_id=self.context.step_id,
@@ -492,17 +509,8 @@ class _Pass:
             res = self.port._lookup.invoke(lookup, f"{ik}/{req['rid']}", self.deadline, context=ctx)
         except Exception as exc:  # noqa: BLE001 - a failed read never blocks the queue
             log.warning("queue.progress: PR lookup failed (%s)", type(exc).__name__)
-            res = None
-        reason = None
-        if res is not None and res.outcome == COMPLETED:
-            out = res.output
-            state = out.get("state")
-            if (isinstance(state, str) and state != "open") or out.get("merged") is True:
-                reason = "pr_not_open"
-            elif req.get("head_sha") and out.get("head_sha") != req["head_sha"]:
-                reason = "head_moved"
-        self.lookups[req["rid"]] = reason
-        return reason
+            return None
+        return dict(res.output) if res.outcome == COMPLETED else None
 
     def _emit(self, doc: Mapping[str, Any]) -> None:
         """Write the dispatch event of every active entry that has none yet."""
