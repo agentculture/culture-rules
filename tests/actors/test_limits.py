@@ -357,8 +357,9 @@ def test_pool_slot_of_an_exception_is_dropped_and_expires_at_its_deadline():
     inner = FakeActor().on("a", ("lose_ack", {}), ("accept",))
     a, _ = pooled("qwen-a", store, inner=inner, clock=clock)
     b, _ = pooled("qwen-b", store, clock=clock)
+    context = ctx("a")
     with pytest.raises(ConnectionError):
-        a.invoke({}, "k1", DEADLINE, context=ctx("a"))
+        a.invoke({}, "k1", DEADLINE, context=context)
     assert a.usage()["in_flight"] == 0
     assert a.invoke({}, "k2", DEADLINE, context=ctx("a")).outcome == "accepted"
     assert b.invoke({}, "k3", DEADLINE, context=ctx("b")).outcome == BLOCKED
