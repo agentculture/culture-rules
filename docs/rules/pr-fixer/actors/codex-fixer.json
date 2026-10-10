@@ -1,0 +1,22 @@
+{
+  "capabilities": [],
+  "config_source": "db",
+  "description": "#39: the PR fixer's level 2. Codex through a second cultureagent codex bridge on spark, running as its own unprivileged account (culture-codex-fixer, its own codex login); sandbox workspace-write, one try at a time on the codex-spark pool. Commits locally and never pushes: the hand-off carries its commits to spark2's gate, and qwen-reviewer reviews them.",
+  "enabled": true,
+  "harness": "codex",
+  "id": "codex-fixer",
+  "kind": "agent",
+  "machine": "spark",
+  "model": null,
+  "name": "PR fixer (Codex, level 2)",
+  "params": {
+    "bridge_token": "grant:RULES_CODEX_FIXER_TOKEN",
+    "bridge_url": "http://127.0.0.1:8095",
+    "callback_url": "http://127.0.0.1:18765",
+    "concurrency_pool": "codex-spark",
+    "max_concurrency": 1,
+    "sandbox": "workspace-write"
+  },
+  "repo": null,
+  "schema_version": "1.0"
+}

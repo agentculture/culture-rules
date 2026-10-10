@@ -10,6 +10,7 @@ back once when there is none. The failed try counts toward the 3.
 
 from __future__ import annotations
 
+import copy
 from datetime import datetime, timedelta
 
 import pytest
@@ -17,7 +18,7 @@ import pytest
 from culture_rules.model.condition import evaluate
 from culture_rules.node.actions.fixer_levels import FIXER_COOLDOWNS
 from culture_rules.node.actions.queue import DISPATCH_TYPE
-from tests.rules.chain_world import CHAIN_VARIABLES, ChainWorld, rule_docs
+from tests.rules.chain_world import CHAIN_VARIABLES, CODEX_FIXER, ChainWorld, rule_docs
 from tests.rules.test_pr_fixer_queue import budget, fixes, handed_back, settle
 
 RULE = "pr-fixer-retry-capacity"
@@ -31,15 +32,9 @@ def codex_world(tmp_path, turns) -> ChainWorld:
     """The chain world with level 2 (codex-fixer on its own queue and pool) enabled."""
     w = ChainWorld(tmp_path, turns=turns)
     w.c.base.put_variable("fixer_levels", CODEX_ON, updated_by="t")
-    w.c.base.put(
-        "actors",
-        {
-            "id": "codex-fixer",
-            "name": "codex-fixer",
-            "kind": "agent",
-            "params": {"concurrency_pool": "codex-spark", "max_concurrency": 1},
-        },
-    )
+    actor = copy.deepcopy(CODEX_FIXER)  # the shipped actor (t6), on its own pool (t2)
+    actor["params"].update(concurrency_pool="codex-spark", max_concurrency=1)
+    w.c.base.put("actors", actor)
     return w
 
 

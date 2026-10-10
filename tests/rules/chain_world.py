@@ -110,21 +110,9 @@ CHAIN_VARIABLES = {
     "fixer_capacity_cooldown_s": 3600,  # #39 t2: a level's cooldown after capacity_exhausted
 }
 KEY = f"pr-fixer:{REPO}#7"
-CODEX_FIXER = {
-    "id": "codex-fixer",
-    "name": "PR fixer (Codex)",
-    "kind": "agent",
-    "harness": "codex",
-    "machine": "spark",
-    "params": {
-        "bridge_url": "http://127.0.0.1:8095",
-        "callback_url": "http://127.0.0.1:1",
-        "sandbox": "workspace-write",
-    },
-    "schema_version": "1.0",
-}
-"""#39: a stand-in for the level-2 fixer actor (its shipped document is t6's): Codex
-through a second cultureagent bridge on spark, workspace-write."""
+CODEX_FIXER = json.loads((BUNDLE / "actors" / "codex-fixer.json").read_text(encoding="utf-8"))
+"""#39: the level-2 fixer actor as the bundle ships it (t6): Codex through a second
+cultureagent bridge on spark, workspace-write, on the codex-spark pool."""
 
 
 def bundle():
