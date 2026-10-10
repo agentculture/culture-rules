@@ -2,7 +2,7 @@
   "plan_slug": "pr-fixer-rule",
   "schema_version": 2,
   "created": "2026-10-06T08:44:59Z",
-  "updated": "2026-10-10T15:01:13Z",
+  "updated": "2026-10-10T16:43:28Z",
   "deviations": [
     {
       "id": "d1",
@@ -472,6 +472,19 @@
       "status": "approved",
       "classification": null,
       "seq": 116
+    },
+    {
+      "id": "d36",
+      "what": "Merge from base on every fixer path: every fixer instruction (the /fix comment, checks, review and refix paths, not only pr-fixer-conflict) tells the agent that one real two-parent 'git merge <base_sha>' is allowed when the PR needs its base, and never to squash, flatten or rebase the base in; and when the reviewed diff is over the reviewer's cap because the base's own changes were copied in as a plain commit, the gate's refusal says so and asks for one real merge from base.",
+      "task_ref": "t17",
+      "reason": "Live case katvan#57 (2026-10-10, run-3912c9a7): a trusted /fix asked Qwen to merge main; it flattened the merge into a single-parent commit (be4d009, 'no merge commits in the pushed range') so d31's resolution-only review never applied: a 513,944-char diff over the 30k cap and request_changes (7 findings). Only pr-fixer-conflict's instruction names the one-merge allowance. Operator approved the plan 2026-10-10 ('Katvan, plan approved').",
+      "affects": [
+        "t17"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "needs-follow-up",
+      "seq": 126
     }
   ],
   "evidence": [
