@@ -1,0 +1,118 @@
+{
+  "action": {
+    "idempotent": false,
+    "kind": "noop",
+    "name": "Queued: the place in line is the run's output",
+    "only_at_chain_end": false,
+    "params": {},
+    "retry": null,
+    "timeout_s": null
+  },
+  "concurrency_key": "pr-fixer:{trigger.data.repository}#{trigger.data.number}",
+  "condition": {
+    "args": [
+      {
+        "cmp": "==",
+        "left": {
+          "field": "data.workflow_id"
+        },
+        "op": "compare",
+        "right": {
+          "literal": "pr-fix"
+        }
+      },
+      {
+        "op": "matches",
+        "pattern": "fix\\[0\\]/agent: (timeout: [\\s\\S]*|the step's deadline passed)",
+        "value": {
+          "field": "data.error_message"
+        }
+      },
+      {
+        "arg": {
+          "field": "data.outputs.instruction"
+        },
+        "op": "exists"
+      },
+      {
+        "items": {
+          "var": "fixer_repos"
+        },
+        "op": "in",
+        "value": {
+          "field": "data.repository"
+        }
+      },
+      {
+        "arg": {
+          "items": {
+            "var": "fixer_excluded_repos"
+          },
+          "op": "in",
+          "value": {
+            "field": "data.repository"
+          }
+        },
+        "op": "not"
+      }
+    ],
+    "op": "and"
+  },
+  "counts_toward_budget": false,
+  "description": "d37: fires when a pr-fix try fails because its agent ran out of time (the bridge's timeout, or the agent step's deadline), and puts the PR back in the fixer queue at the back as a retry with the try's own instruction and a note that it timed out (a failed run records the workflow outputs it has, so the instruction, task, clone URL and head branch come with it); the requests already waiting run first. Any other failure of the try still hands back. Shares the PR's key (it continues the chain, so the try's own hand-back is skipped), not an attempt itself. When the PR has used its 3 attempts the queue refuses the retry and the run hands back once.",
+  "enabled": false,
+  "exclusive_group": null,
+  "id": "pr-fixer-retry-failed",
+  "max_attempts": null,
+  "may_after": [],
+  "must_after": [],
+  "name": "PR fixer: back in the queue after a try whose agent ran out of time",
+  "on_failure": {
+    "idempotent": false,
+    "kind": "github.comment",
+    "name": "Hand back with the run link (once per chain)",
+    "only_at_chain_end": true,
+    "params": {
+      "actor": "github-app",
+      "body": "PR fixer handed back ({{ run.error.code }}): {{ run.error.message }}",
+      "number": "trigger.data.number",
+      "repo": "trigger.data.repository",
+      "status": true
+    },
+    "retry": null,
+    "timeout_s": null
+  },
+  "placement": {
+    "actor": null,
+    "machine": "spark2",
+    "requirement": null
+  },
+  "priority": 0,
+  "resets_attempt_budget": false,
+  "schema_version": "1.0",
+  "supersedes": [],
+  "trigger": {
+    "kind": "event",
+    "params": {
+      "type": "rules.run.failed"
+    }
+  },
+  "workflow": {
+    "id": "queue-add",
+    "inputs": {
+      "base_sha": "trigger.data.outputs.base_sha",
+      "clone_url": "trigger.data.outputs.clone_url",
+      "head_branch": "trigger.data.outputs.head_branch",
+      "head_sha": "trigger.data.head_sha",
+      "instruction": "{{ trigger.data.outputs.instruction }}\n\nThe previous try of this request ran out of time before it finished ({{ trigger.data.error_message }}); nothing was pushed. Start again from the PR head and make the fix in fewer, smaller steps, committing as soon as it is in place.",
+      "number": "trigger.data.number",
+      "prior_instruction": "trigger.data.outputs.instruction",
+      "repo": "trigger.data.repository",
+      "retry": {
+        "$literal": true
+      },
+      "task": "trigger.data.outputs.task"
+    },
+    "version": null
+  }
+}

@@ -38,7 +38,7 @@ def test_the_prs_own_base_passes_and_is_read_as_the_app(store, tmp_path, clock):
     assert res.outcome == "completed"
     assert res.output["verdict"] == "pass"
     ((_, given, ctx, _),) = lookup.calls
-    assert given == {"repo": "o/r", "number": 7}
+    assert given == {"repo": "o/r", "number": 7, "base_sha": repo.base}
     assert ctx.actor == "github-app"
 
 
@@ -49,6 +49,54 @@ def test_another_base_is_base_mismatch(store, tmp_path, clock):  # noqa: F811
     res = run_gate(store, repo, tmp_path, clock, lookup)
     assert res.outcome == "failed"
     assert res.error.startswith("base_mismatch")
+
+
+def test_d37_a_base_the_app_places_on_the_branch_passes(store, tmp_path, clock):  # noqa: F811
+    """The fixer's base is the branch's live tip at dispatch, not GitHub's ``base.sha``
+    (the base as of the PR's last push): the App vouches that it lies between the two."""
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    repo.commit("fix", {"src/app.py": "x = 3\n"})
+    lookup = FakeActor(
+        default=lambda inp, ctx: {
+            "head_sha": repo.start,
+            "base_sha": "a" * 40,
+            "base_on_branch": inp.get("base_sha") == repo.base,
+        }
+    )
+    res = run_gate(store, repo, tmp_path, clock, lookup)
+    assert res.outcome == "completed"
+    assert res.output["verdict"] == "pass"
+
+
+def test_d37_a_base_off_the_branch_or_older_is_base_mismatch(store, tmp_path, clock):  # noqa: F811
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    repo.commit("fix", {"src/app.py": "x = 3\n"})
+    lookup = FakeActor(
+        default=lambda inp, ctx: {
+            "head_sha": repo.start,
+            "base_sha": "a" * 40,
+            "base_on_branch": False,
+        }
+    )
+    res = run_gate(store, repo, tmp_path, clock, lookup)
+    assert res.outcome == "failed"
+    assert res.error.startswith("base_mismatch")
+
+
+def test_d37_an_unplaced_base_is_unverified_and_retryable(store, tmp_path, clock):  # noqa: F811
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    repo.commit("fix", {"src/app.py": "x = 3\n"})
+    lookup = FakeActor(
+        default=lambda inp, ctx: {
+            "head_sha": repo.start,
+            "base_sha": "a" * 40,
+            "base_on_branch": None,
+        }
+    )
+    res = run_gate(store, repo, tmp_path, clock, lookup)
+    assert res.outcome == "failed"
+    assert res.error.startswith("base_unverified")
+    assert res.retryable is True
 
 
 def test_a_base_that_cannot_be_checked_fails_closed(store, tmp_path, clock):  # noqa: F811

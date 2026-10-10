@@ -171,6 +171,7 @@ _FIRES = "rule_fires"  # culture_rules.node.firing.RULE_FIRES (the firing intent
 _EVENTS = "events"  # culture_rules.events.ingest.EVENTS_COLLECTION
 _RUN_DONE = ("succeeded", "failed", "cancelled", "superseded")
 _REPO_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}$")
+_FULL_SHA_RE = re.compile(r"[0-9a-f]{40}")
 _META_INPUTS = ("retry", "prior_instruction")
 
 Clock = Callable[[], datetime]
@@ -540,6 +541,9 @@ class _Pass:
                 "dispatched_at": _iso(now),
                 "request": req,
             }
+            tip = self._base_tip(req)
+            if tip is not None:
+                act["base_sha"] = tip  # d37: the base branch's tip now, not base.sha
             doc["active"].append(act)
             dispatched.append(act)
         return dispatched, dropped
@@ -569,9 +573,19 @@ class _Pass:
             return "head_moved"
         return None
 
+    def _base_tip(self, req: Mapping[str, Any]) -> str | None:
+        """d37: the base branch's live tip from this pass's read of the PR, or None (no
+        lookup, a failed read, or a tip GitHub did not give): the request's own base then
+        stands. GitHub's ``base.sha`` is the base as of the PR's last push - the fork point
+        of a PR not pushed since its base moved, or a commit its head does not hold - so the
+        try is given the branch's tip at dispatch, the base it can merge and the gate checks."""
+        facts = self.lookups.get((req["repository"], req["number"], req.get("head_sha")))
+        tip = (facts or {}).get("base_tip_sha")
+        return tip if isinstance(tip, str) and _FULL_SHA_RE.fullmatch(tip) else None
+
     def _read_pr(self, req: Mapping[str, Any], actor: str, ik: str) -> Mapping[str, Any] | None:
-        """The PR's current facts (``state``, ``merged``, ``head_sha``), or None when the
-        read failed."""
+        """The PR's current facts (``state``, ``merged``, ``head_sha``, d37 ``base_tip_sha``),
+        or None when the read failed."""
         ctx = InvocationContext(
             run_id=self.context.run_id,
             step_id=self.context.step_id,
@@ -580,7 +594,12 @@ class _Pass:
             actor=actor,
             config={"kind": "github.pr_head"},
         )
-        lookup = {"repo": req["repository"], "number": req["number"], "actor": actor}
+        lookup = {
+            "repo": req["repository"],
+            "number": req["number"],
+            "actor": actor,
+            "with_base_tip": True,
+        }
         try:
             res = self.port._lookup.invoke(lookup, f"{ik}/{req['rid']}", self.deadline, context=ctx)
         except Exception as exc:  # noqa: BLE001 - a failed read never blocks the queue
@@ -881,6 +900,8 @@ def _dispatch_data(queue: str, act: Mapping[str, Any]) -> dict[str, Any]:
         source_run=req.get("source_run"),
         dispatch_run=act.get("run_id"),
     )
+    if act.get("base_sha"):
+        data["base_sha"] = act["base_sha"]  # d37: the tip read at dispatch
     return data
 
 

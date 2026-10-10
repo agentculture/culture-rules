@@ -467,3 +467,46 @@ def test_facts_read_before_a_newer_push_never_drop_the_newer_request():
     (event,) = w.dispatches()
     assert event["data"]["head_sha"] == "c" * 40
     assert len(calls) == 2
+
+
+class TipLookup:
+    """An open PR at head ``a*40`` whose base branch's live tip is ``tip`` (d37)."""
+
+    def __init__(self, tip):
+        self.tip = tip
+        self.inputs = []
+
+    def invoke(self, input, key, deadline, *, context):
+        self.inputs.append(dict(input))
+        out = {"head_sha": "a" * 40, "state": "open", "base_sha": "b" * 40}
+        if input.get("with_base_tip") is True:
+            out["base_tip_sha"] = self.tip
+        return InvocationResult.completed(out)
+
+
+def test_d37_a_dispatch_carries_the_base_branchs_live_tip():
+    """GitHub's base.sha is the base as of the PR's last push; the try is given the base
+    branch's tip read at dispatch, so it can merge (and the gate check) the real base."""
+    lookup = TipLookup("c" * 40)
+    w = World(lookup=lookup)
+    w.add(**request("o/a", 1))
+    w.progress({**PROGRESS, "lookup_actor": "github-app"})
+    (event,) = w.dispatches()
+    assert event["data"]["base_sha"] == "c" * 40
+    assert lookup.inputs[0]["with_base_tip"] is True
+
+
+def test_d37_an_unread_tip_keeps_the_requests_base():
+    w = World(lookup=TipLookup(None))
+    w.add(**request("o/a", 1))
+    w.progress({**PROGRESS, "lookup_actor": "github-app"})
+    (event,) = w.dispatches()
+    assert event["data"]["base_sha"] == "b" * 40
+
+
+def test_d37_without_a_lookup_the_requests_base_is_dispatched():
+    w = World()
+    w.add(**request("o/a", 1))
+    w.progress()
+    (event,) = w.dispatches()
+    assert event["data"]["base_sha"] == "b" * 40

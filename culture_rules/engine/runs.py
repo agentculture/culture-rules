@@ -2589,12 +2589,19 @@ def _run_failure(plan: _Plan, doc: Mapping, now: datetime) -> Found:
 def _fail_run(plan: _Plan, new: dict, failure: dict, now: datetime) -> Found:
     """End ``new`` failed with ``failure`` - or, when the rule has an ``on_failure`` action,
     first cancel the unfinished steps and add its step (once; the run ends when it is done,
-    whatever its outcome, with ``failure`` as its error). ``new`` is a copy to mutate."""
+    whatever its outcome, with ``failure`` as its error). ``new`` is a copy to mutate.
+
+    d37: the failed run also records the workflow outputs it can already resolve (inputs,
+    variables and finished steps; ``None`` for the rest), so its ``rules.run.failed`` event
+    carries them (only the exported ones) and a rule can continue the work, e.g. retry a
+    fixer try whose agent timed out, with the try's own instruction."""
     if step_state(new, FAILURE_STEP) is not None:  # never a second handler (defensive)
         return None
     for s in new["steps"]:
         if s["status"] not in STEP_DONE:
             s["status"] = "cancelled"
+    if new.get("outputs") is None:
+        new["outputs"] = _workflow_outputs(plan, new)
     on_failure = plan.rule.on_failure
     if on_failure is None:
         new.update(status="failed", finished_at=_iso(now), error=failure)

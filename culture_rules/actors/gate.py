@@ -214,6 +214,7 @@ __all__ = [
     "RunAs",
     "TIMED_OUT",
     "UNAVAILABLE",
+    "UNJUDGED",
     "VERDICTS",
     "Violation",
     "diff_guard",
@@ -227,7 +228,39 @@ __all__ = [
 ]
 
 PASS, FAIL, GUARD, NO_GATE = "pass", "fail", "guard", "no_gate"
-VERDICTS: tuple[str, ...] = (PASS, FAIL, GUARD, NO_GATE)
+UNJUDGED = "unjudged"
+"""d37: the gate could not judge the try for a reason outside the agent's change (the
+worktree or the base commit could not be read, git or the run-as timed out). A verdict,
+not a failed step, so the try goes back to the queue as a retry (``pr-fixer-retry``)
+within the PR's attempt budget instead of ending the story; it never reaches review."""
+VERDICTS: tuple[str, ...] = (PASS, FAIL, GUARD, NO_GATE, UNJUDGED)
+
+_UNJUDGED_CODES = frozenset(
+    {
+        "source_unavailable",
+        "source_timeout",
+        "base_unavailable",
+        "base_fetch_timeout",
+        "git_timeout",
+        "git_unavailable",
+        "deadline_exceeded",
+        "gate_runner_unavailable",
+        "checkout_timeout",
+    }
+)
+"""d37: the refusals that are the infrastructure's, not the change's: an ``unjudged``
+verdict (a retry). Configuration refusals (``bad_config``, ``gate_runner_unconfigured``,
+``run_as_blocked``, ``run_as_failed``) and the base check (``base_mismatch``,
+``base_unverified``) still fail the step: retrying cannot fix them, or they guard the
+policy."""
+
+_AGENT_FIXABLE_CODES = frozenset({"merge_commit", "history_rewritten"})
+"""d37: refusals of the agent's commit shape raised while building it: a ``guard``
+verdict with the refusal as its finding (a retry), as the diff guard gives them when a
+gate section runs it first - never the end of the story on a repo without one."""
+
+_CLONE_URL_RE = re.compile(r"https://github\.com/[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9._-]+\.git")
+"""d37: the clone URLs the gate fetches a missing base from (the bridge's own shape)."""
 
 PROTECTED_PATHS_VARIABLE = "fixer_protected_paths"
 #: Always protected, whatever the variable says (culture-nodes' scope_guard, lifted).
@@ -970,6 +1003,37 @@ def _sha_input(input: Mapping[str, Any], name: str) -> str:
     return value
 
 
+def _unjudged(input: Mapping[str, Any], exc: _Refusal) -> dict[str, Any]:
+    """d37: the ``unjudged`` verdict for an infrastructure refusal (:data:`UNJUDGED`)."""
+    shas = {
+        n: input.get(n) if isinstance(input.get(n), str) else None
+        for n in ("base_sha", "start_sha", "commit_sha")
+    }
+    return {
+        "verdict": UNJUDGED,
+        "rule": exc.code,
+        "violations": [],
+        "phase": None,
+        "command": None,
+        "exit_code": None,
+        "timed_out": False,
+        "output_tail": exc.detail,
+        "instruction": (
+            f"The gate could not judge the previous try ({exc.message()}): the cause was "
+            "not your change. Start again from the PR head and make the fix again."
+        ),
+        "gate": None,
+        "bundle": None,
+        "diff": None,
+        "diff_chars": None,
+        "diff_truncated": None,
+        "diff_problems": None,
+        **shas,
+        "agent_commit_sha": shas["commit_sha"],
+        "commit_sha": None,
+    }
+
+
 def _instruction(verdict: dict[str, Any]) -> str | None:
     sha = verdict["commit_sha"][:12]
     keep = (
@@ -982,6 +1046,15 @@ def _instruction(verdict: dict[str, Any]) -> str | None:
         return (
             f"The test gate failed on commit {sha}: the {verdict['phase']} command `{cmd}` "
             f"{why}. {keep}\n\nLast output:\n{verdict['output_tail']}"
+        )
+    if verdict["verdict"] == GUARD and verdict["rule"] == "merge_commit":
+        detail = "; ".join(v["detail"] for v in verdict["violations"] if v.get("detail"))
+        return (
+            f"The gate refused the merge in commit {sha} ({detail or 'merge_commit'}). If "
+            "the PR needs its base branch, make exactly one real two-parent merge of the "
+            "base commit you are given (git merge <that commit>) and resolve the conflicts "
+            "in it; otherwise make no merge. Never merge a later or another commit. "
+            f"{keep}"
         )
     if verdict["verdict"] == GUARD:
         lines = "\n".join(
@@ -1392,6 +1465,8 @@ class GatePort:
         try:
             return InvocationResult.completed(self._gate(input, deadline, context))
         except _Refusal as exc:
+            if exc.code in _UNJUDGED_CODES:
+                return InvocationResult.completed(_unjudged(input, exc))
             return InvocationResult.failed(exc.message(), retryable=exc.retryable)
 
     # ------------------------------------------------------------------ the steps
@@ -1442,11 +1517,20 @@ class GatePort:
         tmp = tempfile.mkdtemp(prefix="culture-rules-gate-")
         try:
             job = _Job(tmp, worktree, self._run_as, self._git, deadline, self._clock)
+            self._ensure_base(job, shas["base_sha"], self._clone_url(context))
             self._import(job, shas)
             spec = self._spec(job, shas["base_sha"])
             if spec is None:
+                try:
+                    built = self._build(job, shas, context)
+                except _Refusal as exc:
+                    if exc.code not in _AGENT_FIXABLE_CODES:
+                        raise
+                    violation = Violation(exc.code, "", exc.detail).to_dict()
+                    verdict.update(verdict=GUARD, rule=exc.code, violations=[violation])
+                    verdict["instruction"] = _instruction(verdict)
+                    return verdict
                 verdict["verdict"] = NO_GATE
-                built = self._build(job, shas, context)
                 verdict.update(commit_sha=built, **self._review_diff(job, shas, built, diff_cap))
                 _add_copied_base_hint(job, shas, verdict, diff_cap)  # last: best effort
                 return verdict
@@ -1482,9 +1566,14 @@ class GatePort:
         context: InvocationContext,
     ) -> None:
         """Round 3 (#2): ``base_sha`` selects the gate policy (``culture.yaml`` at that
-        commit), and it comes from rule inputs; so it must be the PR's base as the App
-        reads it now (``config.app_actor``, default ``github-app``), else ``base_mismatch``.
-        A lookup that cannot be made is ``base_unverified`` (fail closed)."""
+        commit), and it comes from rule inputs; so the App (``config.app_actor``, default
+        ``github-app``) must vouch for it now, else ``base_mismatch``. d37: the fixer's
+        base is the base branch's live tip at dispatch, which GitHub's ``base.sha`` (the
+        base as of the PR's last push) is not; so ``base_sha`` passes when it is that
+        ``base.sha`` or lies between it and the branch's tip now (``base_on_branch``: a
+        base that moved again after dispatch still passes; an older commit, which could
+        carry a weaker policy, does not). A lookup that cannot be made, or a comparison
+        GitHub cannot answer, is ``base_unverified`` (fail closed)."""
         run = self._store.get("runs", context.run_id) if context.run_id else None
         inputs = (run or {}).get("inputs") or {}
         repo, number = inputs.get("repo"), inputs.get("number")
@@ -1501,18 +1590,30 @@ class GatePort:
             {"kind": "github.pr_head"},
         )
         res = self._pr_lookup.invoke(
-            {"repo": repo, "number": number}, f"gate-base:{context.run_id}", deadline, context=ctx
+            {"repo": repo, "number": number, "base_sha": base_sha},
+            f"gate-base:{context.run_id}",
+            deadline,
+            context=ctx,
         )
         if res.outcome != "completed":
             raise _Refusal("base_unverified", str(res.error), retryable=res.retryable)
-        actual = (res.output or {}).get("base_sha")
+        output = res.output or {}
+        actual = output.get("base_sha")
         if not isinstance(actual, str) or not actual:
             raise _Refusal("base_unverified", "the App reported no base for the PR")
-        if actual != base_sha:
+        if actual == base_sha or output.get("base_on_branch") is True:
+            return
+        if "base_on_branch" in output and output["base_on_branch"] is None:
             raise _Refusal(
-                "base_mismatch",
-                f"base_sha {base_sha[:12]} is not the PR's base ({str(actual)[:12]})",
+                "base_unverified",
+                f"GitHub could not place base_sha {base_sha[:12]} on the PR's base branch",
+                retryable=True,
             )
+        raise _Refusal(
+            "base_mismatch",
+            f"base_sha {base_sha[:12]} is not on the PR's base branch at or after its base "
+            f"({str(actual)[:12]})",
+        )
 
     def _build(self, job: _Job, shas: Mapping[str, str], context: InvocationContext) -> str:
         """The gate-built commit (see :meth:`_build_commit`)."""
@@ -1666,6 +1767,55 @@ class GatePort:
             "diff_truncated": bool(problems),
             "diff_problems": problems,
         }
+
+    def _clone_url(self, context: InvocationContext) -> str | None:
+        """d37: the run's ``clone_url`` input when it is a GitHub HTTPS clone URL (the
+        bridge's allowlist admits only those), else None - the worktree's ``origin`` then."""
+        run = self._store.get("runs", context.run_id) if context.run_id else None
+        url = ((run or {}).get("inputs") or {}).get("clone_url")
+        return url if isinstance(url, str) and _CLONE_URL_RE.fullmatch(url) else None
+
+    @staticmethod
+    def _ensure_base(job: _Job, base: str, url: str | None) -> None:
+        """d37: fetch ``base`` into the worktree when it lacks it. The base is the base
+        branch's tip at dispatch, which a PR head need not hold (irc-lens#68: the head was
+        pushed after the base moved). The fetch runs as the fixer user in the worktree, by
+        SHA (content-addressed: whatever the remote, the commit is the one asked for),
+        without tags or ``FETCH_HEAD``; a base that still cannot be had is
+        ``base_unavailable`` (an ``unjudged`` verdict: a retry)."""
+        argv = ["git", "-c", "core.fsmonitor=false", "cat-file", "-e", f"{base}^{{commit}}"]
+        with tempfile.TemporaryFile(dir=job.tmp) as out, tempfile.TemporaryFile(dir=job.tmp) as err:
+            have = job.fixer(
+                argv, out, merge_stderr=False, timeout_code="source_timeout", stderr=err
+            )
+        if have == 0:
+            return
+        GatePort._diagnose_run_as(job)  # a broken run-as is not a missing base
+        fetch = [
+            "git",
+            "-c",
+            "core.fsmonitor=false",
+            "-c",
+            "core.hooksPath=/dev/null",
+            "fetch",
+            "--quiet",
+            "--no-tags",
+            "--no-write-fetch-head",
+            url or "origin",
+            base,
+        ]
+        with tempfile.TemporaryFile(dir=job.tmp) as out, tempfile.TemporaryFile(dir=job.tmp) as err:
+            rc = job.fixer(
+                fetch, out, merge_stderr=False, timeout_code="base_fetch_timeout", stderr=err
+            )
+            tail = _stderr_tail(err) if rc != 0 else ""
+        if rc != 0:
+            raise _Refusal(
+                "base_unavailable",
+                f"the worktree lacks base_sha {base[:12]} and fetching it failed (exit {rc})"
+                + (f": {tail}" if tail else ""),
+                retryable=True,
+            )
 
     def _import(self, job: _Job, shas: Mapping[str, str]) -> None:
         """Stream the three commits' history out of the worktree into the scratch repo."""

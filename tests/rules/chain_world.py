@@ -70,6 +70,8 @@ DISPATCH_RULE = "pr-fixer-dispatch"
 """#35 d29: turns the queue's dispatch event into the pr-fix run (the counted attempt)."""
 RETRY_RULE = "pr-fixer-retry"
 """#35 d30: a try whose gate did not pass goes back in the queue."""
+RETRY_FAILED_RULE = "pr-fixer-retry-failed"
+"""d37: a try whose agent ran out of time goes back to the queue (not an attempt)."""
 PROGRESS_RULES = (
     "pr-fixer-queue-progress",
     "pr-fixer-queue-progress-fixed",
@@ -120,6 +122,7 @@ class QwenBridge:
     x 3), ``"none"`` (no commit) or a callable ``(repo) -> head`` - and records the terminal
     callback at once with the per-invocation token, as the bridge would. ``"hang"`` accepts
     the job and never completes it: the agent is still working (d34: a stop meanwhile).
+    ``"timeout"`` fails the job as the bridge does when the agent runs out of time (d37).
     Cancel requests are recorded in ``cancelled``."""
 
     def __init__(self, base, repo: Repo, script=None) -> None:
@@ -151,6 +154,15 @@ class QwenBridge:
         turn = self.script.pop(0) if self.script else "commit"
         if turn == "hang":
             self.seq += 1
+            return 202, json.dumps({"invocation_id": f"qinv-{self.seq}"}).encode()
+        if turn == "timeout":
+            inv = doc["callback"]["url"].rsplit("/", 2)[-2]
+            self.seq += 1
+            payload = {"class": "timeout", "message": "qwen did not finish within 3600s"}
+            event = {"kind": "failed", "sequence": self.seq, "payload": payload}
+            assert record_bridge_event(self.store, inv, doc["callback"]["token"], event) == (
+                "recorded"
+            )
             return 202, json.dumps({"invocation_id": f"qinv-{self.seq}"}).encode()
         git(self.repo.wt, "reset", "-q", "--hard", self.repo.start)
         if turn == "none":
@@ -342,9 +354,16 @@ class ChainWorld:
         self.runner = LocalRunner()
 
         def head(inp, ctx):
-            return {"head_sha": self.moved_head or self.repo.start, "base_sha": self.repo.base}
+            out = {"head_sha": self.moved_head or self.repo.start, "base_sha": self.repo.base}
+            if self.base_tip is not None:  # d37: the base branch moved past base.sha
+                out["base_tip_sha"] = self.base_tip
+                if inp.get("base_sha") is not None:
+                    out["base_on_branch"] = inp["base_sha"] in (self.repo.base, self.base_tip)
+            return out
 
         self.moved_head: str | None = None
+        self.base_tip: str | None = None
+        """d37: the base branch's live tip when it moved past the PR's ``base.sha``."""
         gate = GatePort(
             base,
             run_as=self.runner,

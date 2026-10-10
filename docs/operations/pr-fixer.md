@@ -352,8 +352,9 @@ rate-limited request drops that repo until the next sweep). A PR GitHub reports
 `github.pr.conflicting` event per head and base pair (a deterministic id, so a
 conflict is requested once; a new base is a new request), carrying the same PR
 facts as a checks settle. `pr-fixer-conflict` puts it in the queue. The agent
-merges exactly that `base_sha` and resolves the conflict; the gate allows that
-one merge from base (see `gate` below). GitHub computes `mergeable` lazily, so
+merges the base commit the try is given (d37: the base branch's tip at
+dispatch, named by the d36 paragraph) and resolves the conflict; the gate
+allows that one merge from base (see `gate` below). GitHub computes `mergeable` lazily, so
 a fresh conflict is seen at the next sweep. The type and the `conflict_` id
 prefix are reserved at external ingest.
 
@@ -391,6 +392,42 @@ built and pushed. Its limit: the gate's scratch repository holds only the PR
 head, the built commit and `base_sha`, so a copy of a *later* base commit (a
 fresh fetch, then a flatten) is seen only through the files `base_sha` itself
 changed; it may get no finding. No rule and no workflow digest changes.
+
+**The live base tip (d37).** GitHub's `base.sha` on a PR is the base *as of
+the PR's last push*, not the base branch now: for a PR not pushed since its
+base moved it is the fork point (katvan#57: `893352d`, the head's own parent,
+while `main` was 7 commits further), and for one pushed after the base moved it
+is a commit the head does not hold (irc-lens#68). Every trigger rule still
+records that `base_sha`, but the try is given the live one:
+
+- **At dispatch** `queue.progress` reads the PR with `with_base_tip` (the App's
+  `GET /repos/{repo}/branches/{base_ref}`) and the dispatch event carries the
+  branch's tip as `base_sha`; an unread tip leaves the request's own. The d36
+  paragraph names that tip, and `pr-fixer-conflict`'s instruction defers to it.
+- **At the gate** the base check asks the App whether `base_sha` lies between
+  the PR's `base.sha` and the branch's tip now (two compare calls; a base that
+  moved again after dispatch still passes, an older commit, which could carry
+  a weaker policy, does not: `base_mismatch`; no answer: `base_unverified`).
+  A worktree that lacks the base commit fetches it first, as the fixer user,
+  by SHA, from the run's `https://github.com/.../.git` clone URL (else the
+  worktree's `origin`); a base that still cannot be had is `base_unavailable`.
+- **Retries, not hand-backs.** A gate refusal that is the infrastructure's
+  (`source_unavailable`, `base_unavailable`, a git, run-as or deadline
+  timeout) is the verdict `unjudged`, so `pr-fixer-retry` puts the try back
+  in the queue with the reason. A merge or history refusal raised while
+  building a repo without a gate section is a `guard` verdict with the
+  refusal as its finding, as the diff guard already gives it when it runs. An
+  agent that runs out of time (the bridge's `timeout`, or the agent step's
+  deadline) ends its try failed, and `pr-fixer-retry-failed` puts it back in
+  the queue with the try's own instruction and a note: a failed run now
+  records the workflow outputs it has, so its `rules.run.failed` event carries
+  the instruction, task, clone URL and head branch. Every retry counts toward
+  the story's 3 tries; any other failure still hands back once. Configuration
+  refusals and `base_mismatch` still fail the step.
+- **Conflict watch and #44.** The watch's event id is the PR's head and its
+  `base.sha`, which moves only when the head is pushed, so a base that keeps
+  moving under an unpushed head is announced once; #44 (a conflict announced
+  while the rule is off is never announced again) is unchanged.
 
 **Stopping a story (d34, #40).** A trusted author stops a PR's fixer story
 with a comment that starts with a form in `vars.fixer_stop_triggers` (default
@@ -1442,17 +1479,23 @@ The operator does this; nothing here changes the live rules.
    fix) and, like every file in the bundle, ship disabled: enable them again
    after the import.
 
-### Rolling out the merge hint (d36)
+### Rolling out the merge hint and the live base tip (d36, d37)
 
 The operator does this; nothing here changes the live rules.
 
 1. Ship the wheel and upgrade every node (and the API). The paragraph is
    added by the bridge actor on the node that runs the try (spark2), and the
-   copied-base finding by the gate and the review there; a node of an older
-   release sends the instruction without the paragraph and reviews without
-   the finding, nothing else.
-2. No import is needed: no rule, workflow or variable changed, so no digest
-   changes and no rule is disabled.
+   copied-base finding by the gate and the review there; d37's live tip is
+   read by `queue.progress` and checked by the gate, and a failed run records
+   its outputs (the engine). A node of an older release dispatches the
+   request's own `base_sha` and checks it the old way.
+2. Import the bundle (workflows, then rules): d37 changes
+   `pr-fixer-conflict`'s instruction and adds `pr-fixer-retry-failed`. The
+   import disables every rule, so re-enable the ones that were on and enable
+   `pr-fixer-retry-failed`. No workflow changed, so no digest changes; no
+   variable is new.
+3. The GitHub App reads branches and compares commits (`Contents: read`,
+   which the push already has).
 
 ### Rolling out the GitGuardian report (d25)
 

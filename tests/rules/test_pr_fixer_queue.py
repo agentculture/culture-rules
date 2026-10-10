@@ -225,3 +225,119 @@ def test_d36_the_dispatch_rule_passes_the_instruction_through():
     inputs = json.loads(rule.read_text())["workflow"]["inputs"]
     assert inputs["instruction"] == "trigger.data.instruction"
     assert inputs["task"] == "trigger.data.task"
+
+
+def handed_back(w: ChainWorld) -> list[str]:
+    return [b for b in w.comments() if b.startswith("PR fixer handed back")]
+
+
+def test_d37_an_agent_timeout_goes_back_to_the_queue_and_the_next_try_pushes(tmp_path):
+    """katvan#57 try 2: the agent ran out of time and the story ended at once. Now the try
+    goes back in line with its own instruction and a note, within the story's budget."""
+    w = ChainWorld(tmp_path, turns=["timeout", "commit"])
+    settle(w, 1)
+    w.run_chain()
+    first, second = fixes(w)
+    assert first["status"] == "failed"
+    assert first["outputs"]["instruction"] == first["inputs"]["instruction"]
+    (requeue,) = w.runs("pr-fixer-retry-failed")
+    assert requeue["status"] == "succeeded"
+    assert second["trigger"]["data"]["retry"] is True
+    assert second["inputs"]["instruction"].startswith(first["inputs"]["instruction"])
+    assert "ran out of time" in second["inputs"]["instruction"]
+    assert budget(w)["count"] == 2
+    assert len(w.run_of("publish-fix")) == 1
+    assert handed_back(w) == []  # the chain went on: the first try's hand-back skipped
+
+
+def test_d37_three_timeouts_spend_the_budget_and_hand_back_once(tmp_path):
+    w = ChainWorld(tmp_path, turns=["timeout", "timeout", "timeout", "commit"])
+    settle(w, 1)
+    w.run_chain()
+    assert len(fixes(w)) == 3
+    *_, last = w.runs("pr-fixer-retry-failed")
+    assert last["status"] == "failed"
+    assert last["error"]["message"].startswith("attempt_budget_exhausted")
+    (handed,) = handed_back(w)
+    assert "attempt_budget_exhausted" in handed
+
+
+def test_d37_any_other_failure_of_a_try_still_hands_back(tmp_path):
+    """A try whose agent made no commit is not retried: it hands back as before."""
+    w = ChainWorld(tmp_path, turns=["none", "commit"])
+    settle(w, 1)
+    w.run_chain()
+    assert len(fixes(w)) == 1
+    assert w.runs("pr-fixer-retry-failed") == []
+    (handed,) = handed_back(w)
+    assert "no_changes" in handed
+
+
+def test_d37_an_unjudged_gate_verdict_is_retried_like_any_other():
+    from culture_rules.model.condition import evaluate
+    from tests.rules.chain_world import rule_docs
+
+    cond = rule_docs()["pr-fixer-retry"]["condition"]
+    data = {"workflow_id": "pr-fix", "outputs": {"verdict": "unjudged"}, "repository": "o/r"}
+    variables = {"fixer_repos": ["o/r"], "fixer_excluded_repos": []}
+    assert evaluate(cond, {"trigger": {"data": data}, "variables": variables}) is True
+
+
+def test_d37_the_timeout_retry_matches_both_kinds_of_agent_timeout_and_nothing_else():
+    from culture_rules.model.condition import evaluate
+    from tests.rules.chain_world import rule_docs
+
+    cond = rule_docs()["pr-fixer-retry-failed"]["condition"]
+    variables = {"fixer_repos": ["o/r"], "fixer_excluded_repos": []}
+
+    def fires(message):
+        data = {
+            "workflow_id": "pr-fix",
+            "error_message": message,
+            "outputs": {"instruction": "fix it"},
+            "repository": "o/r",
+        }
+        return evaluate(cond, {"trigger": {"data": data}, "variables": variables})
+
+    assert fires("fix[0]/agent: timeout: qwen did not finish within 3600s")
+    assert fires("fix[0]/agent: the step's deadline passed")
+    assert not fires("fix[0]/agent: no_changes: the agent made no commit")
+    assert not fires("fix[0]/gate: merge_commit: the merge's second parent is not on base")
+
+
+def test_d37_katvan57_a_merge_of_the_live_base_tip_is_pushed(tmp_path):
+    """katvan#57 end to end: GitHub's base.sha is the PR's fork point, the base branch
+    moved on with a conflicting change. The dispatch gives the try the live tip, the bridge
+    paragraph names it, the agent merges it for real, the gate passes it and it is pushed."""
+    import subprocess
+
+    from tests.actors.test_gate import GIT_ENV, git
+
+    w = ChainWorld(tmp_path, turns=[])
+    repo = w.repo
+    git(repo.wt, "checkout", "-q", "--detach", repo.base)
+    tip = repo.commit("main moves", {"src/app.py": "x = 5\n", "NOTES.md": "moved\n"})
+    git(repo.wt, "checkout", "-q", "--detach", repo.start)
+    w.base_tip = tip
+
+    def merge_tip(repo):
+        subprocess.run(  # a conflict on src/app.py: the agent resolves it
+            ["git", "merge", "-q", "--no-ff", "-m", "merge main", tip],
+            cwd=repo.wt,
+            env=GIT_ENV,
+            capture_output=True,
+        )
+        (repo.wt / "src/app.py").write_text("x = 9\n")
+        git(repo.wt, "add", "src/app.py", "NOTES.md")
+        git(repo.wt, "commit", "-q", "--no-edit")
+        return git(repo.wt, "rev-parse", "HEAD")
+
+    w.qwen.script = [merge_tip]
+    settle(w, 1)
+    w.run_chain()
+    (run,) = fixes(w)
+    assert run["inputs"]["base_sha"] == tip  # the live tip, not base.sha (the fork point)
+    assert f"git merge {tip}" in w.qwen.inputs[0]["instruction"]
+    assert run["outputs"]["verdict"] == "pass", run["outputs"].get("gate_output")
+    assert len(w.run_of("publish-fix")) == 1
+    assert handed_back(w) == []

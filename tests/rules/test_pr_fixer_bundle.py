@@ -39,6 +39,7 @@ from tests.rules.chain_world import (
     CHAIN_VARIABLES,
     DISPATCH_RULE,
     PROGRESS_RULES,
+    RETRY_FAILED_RULE,
     RETRY_RULE,
     SECRETS_LATE_RULE,
     SECRETS_RULE,
@@ -68,7 +69,7 @@ AUTHOR_RULES = ("pr-fixer-comment", "pr-fixer-review", "pr-fixer-review-comment"
 # --------------------------------------------------------------------------- the data
 
 
-def test_the_bundle_is_twenty_one_disabled_rules_and_seven_workflows():
+def test_the_bundle_is_twenty_two_disabled_rules_and_seven_workflows():
     b = bundle()
     assert sorted(w.id for w in b.workflows) == [
         "pr-fix",
@@ -80,7 +81,7 @@ def test_the_bundle_is_twenty_one_disabled_rules_and_seven_workflows():
         "review-commit",
     ]
     reports = (SECRETS_RULE, SECRETS_LATE_RULE)
-    queue = (DISPATCH_RULE, RETRY_RULE, *PROGRESS_RULES)
+    queue = (DISPATCH_RULE, RETRY_RULE, RETRY_FAILED_RULE, *PROGRESS_RULES)
     assert sorted(r.id for r in b.rules) == sorted(
         TRIGGER_RULES + STAGE_RULES + reports + queue + STOP_RULES
     )
@@ -89,7 +90,7 @@ def test_the_bundle_is_twenty_one_disabled_rules_and_seven_workflows():
         assert r.placement is not None
         assert r.placement.machine == "spark2"
     by = {r.id: r for r in b.rules}
-    keyed = (*TRIGGER_RULES, *STAGE_RULES, DISPATCH_RULE, RETRY_RULE)
+    keyed = (*TRIGGER_RULES, *STAGE_RULES, DISPATCH_RULE, RETRY_RULE, RETRY_FAILED_RULE)
     for rid in keyed:
         r = by[rid]
         assert r.concurrency_key == KEY

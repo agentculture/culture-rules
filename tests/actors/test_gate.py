@@ -638,11 +638,14 @@ def test_a_missing_commit_is_source_unavailable_with_gits_stderr(store, tmp_path
     result = make_port(store, LocalRunner(), tmp_path, clock).invoke(
         inputs, "k", T0 + timedelta(hours=1), context=ctx()
     )
-    assert result.outcome == "failed"
-    assert not result.retryable
-    assert result.error.startswith("source_unavailable: the worktree could not supply")
-    assert "git pack-objects exited 128: fatal:" in result.error
-    assert "\n" not in result.error
+    # d37: not the change's fault - an ``unjudged`` verdict (a retry), git's words kept
+    assert result.outcome == "completed"
+    assert result.output["verdict"] == "unjudged"
+    assert result.output["rule"] == "source_unavailable"
+    assert result.output["output_tail"].startswith("the worktree could not supply")
+    assert "git pack-objects exited 128: fatal:" in result.output["output_tail"]
+    assert "\n" not in result.output["output_tail"]
+    assert result.output["commit_sha"] is None  # nothing to review or push
 
 
 def test_the_stderr_tail_is_bounded_and_printable(tmp_path):
@@ -666,14 +669,16 @@ def test_bad_inputs_are_refused(store, tmp_path, clock):
         assert result.error.startswith("bad_input")
 
 
-def test_missing_worktree_is_a_refusal_not_a_verdict(store, tmp_path, clock):
+def test_missing_worktree_is_unjudged_never_a_judgement(store, tmp_path, clock):
+    """d37: an ``unjudged`` verdict (a retry), not pass/fail/guard: nothing is reviewed."""
     repo = Repo(tmp_path, gate_yaml([PASSING]))
     inputs = {**repo.inputs(), "worktree": str(tmp_path / "gone")}
     result = make_port(store, LocalRunner(), tmp_path, clock).invoke(
         inputs, "k", T0 + timedelta(hours=1), context=ctx()
     )
-    assert result.outcome == "failed"
-    assert result.error.split(":")[0] in ("source_unavailable", "gate_runner_unavailable")
+    assert result.outcome == "completed"
+    assert result.output["verdict"] == "unjudged"
+    assert result.output["rule"] in ("source_unavailable", "gate_runner_unavailable")
 
 
 def test_malformed_gate_section_is_refused_with_the_reason(store, tmp_path, clock):
@@ -687,14 +692,15 @@ def test_malformed_gate_section_is_refused_with_the_reason(store, tmp_path, cloc
     assert "quote it" in result.error
 
 
-def test_past_the_deadline_is_a_retryable_refusal(store, tmp_path, clock):
+def test_past_the_deadline_is_unjudged_a_retry(store, tmp_path, clock):
+    """d37: out of time is the infrastructure's, so the try goes back to the queue."""
     repo = Repo(tmp_path, gate_yaml([PASSING]))
     result = make_port(store, LocalRunner(), tmp_path, clock).invoke(
         repo.inputs(), "k", T0, context=ctx()
     )
-    assert result.outcome == "failed"
-    assert result.retryable
-    assert result.error.startswith("deadline_exceeded")
+    assert result.outcome == "completed"
+    assert result.output["verdict"] == "unjudged"
+    assert result.output["rule"] == "deadline_exceeded"
 
 
 @pytest.mark.parametrize(
