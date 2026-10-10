@@ -2,9 +2,9 @@
   "slug": "pr-fixer-escalation",
   "title": "PR fixer escalation",
   "schema_version": 6,
-  "status": "converged",
+  "status": "exported",
   "created": "2026-10-10T20:46:41Z",
-  "updated": "2026-10-10T20:59:34Z",
+  "updated": "2026-10-10T21:00:53Z",
   "claims": [
     {
       "id": "c1",
