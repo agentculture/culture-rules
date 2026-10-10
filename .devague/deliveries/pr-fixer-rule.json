@@ -2,7 +2,7 @@
   "plan_slug": "pr-fixer-rule",
   "schema_version": 2,
   "created": "2026-10-06T08:44:59Z",
-  "updated": "2026-10-10T19:41:56Z",
+  "updated": "2026-10-10T20:15:47Z",
   "deviations": [
     {
       "id": "d1",
@@ -498,6 +498,17 @@
       "status": "approved",
       "classification": "needs-follow-up",
       "seq": 130
+    },
+    {
+      "id": "d38",
+      "what": "A checks-settle timeout no longer starts a fix on its own: at dispatch, a story whose trigger conclusion is timeout re-reads the head SHA's check suites; when every counted suite is now completed and green, there are no threads to address and the Sonar gate passes, the story ends with reason checks_green_on_reread and no agent run or comment; when a suite is still running the story dispatches as before, naming the still-running suites in the instruction; a red completion is unchanged (issue #48)",
+      "task_ref": "t17",
+      "reason": "culture#490 (run-d98fe21dcbe8d1ea819d49a8a1c8f4b6): the settler emitted conclusion timeout while a suite was still pending, pr-fixer-checks treats any non-success as work, and the agent was told to fix failing checks on a PR whose checks were all green by dispatch; the operator cancelled it",
+      "affects": [],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 133
     }
   ],
   "evidence": [

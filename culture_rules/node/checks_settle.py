@@ -95,7 +95,7 @@ import logging
 import secrets
 import threading
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from concurrent.futures import Future
 from concurrent.futures import TimeoutError as FutureTimeout
 from dataclasses import dataclass, field
@@ -143,9 +143,12 @@ __all__ = [
     "WEBHOOK_SETTLE_BUDGET_S",
     "AppSuiteLister",
     "ChecksSettler",
+    "counted_suites",
+    "ignored_check_apps",
     "rearm_settle",
     "late_event_id",
     "settled_event_id",
+    "suites_state",
     "webhook_on_check",
 ]
 
@@ -400,6 +403,35 @@ def _pending_guard(rec: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def ignored_check_apps(store: StoragePort) -> frozenset[str]:
+    """The shared variable ``ignored_check_apps`` (casefolded), else
+    :data:`DEFAULT_IGNORED_APPS`: the apps whose suites a settle decision leaves out."""
+    value = _var(store, "ignored_check_apps")
+    if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+        value = list(DEFAULT_IGNORED_APPS)
+    return frozenset(v.casefold() for v in value)
+
+
+def counted_suites(
+    suites: Iterable[Mapping[str, Any]], ignored: frozenset[str]
+) -> list[Mapping[str, Any]]:
+    """The suites a settle decision counts: those of an app not in ``ignored``."""
+    return [s for s in suites if str(s.get("app_slug") or "").casefold() not in ignored]
+
+
+def suites_state(suites: Iterable[Mapping[str, Any]]) -> tuple[bool, bool]:
+    """``(done, green)`` of counted ``suites``: every one ``completed``, and every one
+    concluded ``success``, ``neutral`` or ``skipped``. Callers treat an empty list as not
+    green (``no_checks``) before asking."""
+    suites = list(suites)
+    done = all(s.get("status") == "completed" for s in suites)
+    green = all(s.get("conclusion") in _GREEN for s in suites)
+    return done, green
+
+
+_GREEN = frozenset({"success", "neutral", "skipped"})
+
+
 def _var(store: StoragePort, name: str) -> Any:
     doc = store.get_variable(name)
     return None if doc is None else doc.get("value")
@@ -480,10 +512,7 @@ class ChecksSettler:
     # ------------------------------------------------------------------ variables
 
     def ignored_apps(self) -> frozenset[str]:
-        value = _var(self._store, "ignored_check_apps")
-        if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
-            value = list(DEFAULT_IGNORED_APPS)
-        return frozenset(v.casefold() for v in value)
+        return ignored_check_apps(self._store)
 
     def timeout_s(self) -> float:
         value = _var(self._store, "checks_settle_timeout_s")
@@ -501,18 +530,12 @@ class ChecksSettler:
 
     def _check_state(self, repo: str, sha: str) -> tuple[bool, str, list[str]]:
         """``(done, conclusion, failed_apps)`` of the head's counted suites."""
-        ignored = self.ignored_apps()
-        suites = [
-            s
-            for s in self._suites(repo, sha)
-            if str(s.get("app_slug") or "").casefold() not in ignored
-        ]
+        suites = counted_suites(self._suites(repo, sha), self.ignored_apps())
         if not suites:
             # Nothing counted (only ignored apps, or no suite listed yet) is not green: keep
             # waiting for a suite to appear; the timeout settles it as ``no_checks``.
             return False, NO_CHECKS, []
-        done = all(s.get("status") == "completed" for s in suites)
-        green = all(s.get("conclusion") in {"success", "neutral", "skipped"} for s in suites)
+        done, green = suites_state(suites)
         return done, "success" if green else "failure", _failed_apps(suites)
 
     def on_check(self, data: Mapping[str, Any]) -> str:
