@@ -1,5 +1,5 @@
 {
-  "description": "d21: quiet period -> GitGuardian hold (d25: no fix while it fails on the head) -> trusted review threads and the failing SonarCloud conditions -> (bridge agent -> test gate) up to 3 times. Builds and gates one commit; never reviews or pushes it. pr-fixer-review-commit fires on its success and has it reviewed.",
+  "description": "d21, d30: quiet period -> GitGuardian hold (d25: no fix while it fails on the head) -> trusted review threads and the failing SonarCloud conditions -> one try: bridge agent -> test gate. Builds and gates one commit; never reviews or pushes it. pr-fixer-review-commit fires on its success with a passing gate and has it reviewed; a gate that does not pass ends the run with its verdict and instruction (gate_instruction), and pr-fixer-retry puts the PR back in the queue (#35).",
   "edges": [
     {
       "source": "quiet",
@@ -261,6 +261,11 @@
     {
       "name": "head_branch",
       "source": "inputs.head_branch",
+      "type": "string"
+    },
+    {
+      "name": "gate_instruction",
+      "source": "steps.gate.outputs.instruction",
       "type": "string"
     }
   ],
@@ -707,24 +712,15 @@
         }
       ],
       "config": {
-        "carry": {
-          "instruction": "instruction"
-        },
         "explain": "instruction",
         "until": {
-          "items": {
-            "literal": [
-              "pass",
-              "no_gate"
-            ]
-          },
-          "op": "in",
-          "value": {
+          "arg": {
             "field": "verdict"
-          }
+          },
+          "op": "exists"
         }
       },
-      "description": "Each try hands the gate's failure text to the next agent run as its instruction. Ends when the verdict is pass or no_gate; three tries without that fail the run with the last reason. The review is a separate rule and workflow (review-commit).",
+      "description": "One try (d30): the agent then the gate. The try ends when the gate has given its verdict, whatever it is; a try that does not pass waits in the queue for the next one.",
       "enabled": true,
       "id": "fix",
       "inputs": [
@@ -784,7 +780,7 @@
         }
       ],
       "kind": "retry_until",
-      "max_iterations": 3,
+      "max_iterations": 1,
       "name": "Agent and gate (up to 3 tries)",
       "outputs": [
         {

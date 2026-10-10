@@ -195,7 +195,10 @@ prefix (``pr-fixer:``). :mod:`culture_rules.engine.claims` keeps one
   that this consumer's keyed rules triggered by a ``github.*`` event resolve on the reset
   event, whatever the event's own type. A reset applies once per (key, event) whatever the
   order consumers reach it in (a marker per pair, see ``reset_attempt_budget``), so a
-  lagging consumer never grants an attempt without a new signal;
+  lagging consumer never grants an attempt without a new signal. A rule with
+  ``resets_attempt_budget`` (#35, d32: a trusted ``/fix`` request is a new story) resets
+  its own key the same way, once per (key, event), when it fires - its trigger and
+  condition held - before its firing is admitted;
 * **a chain is one unit per key** (d21 phase 2, :mod:`culture_rules.engine.chain_hold`).
   A keyed run whose event a live rule would continue holds its key at its end: only
   that continuation is admitted on it, it keeps the key's pending event for the chain's
@@ -261,6 +264,7 @@ from culture_rules.engine.claims import (
     resolve_concurrency_key,
 )
 from culture_rules.engine.decisions import (
+    DISPATCH_REVOKED,
     FINAL_SKIP_REASONS,
     RATE_CAPPED,
     RULE_DECISIONS,
@@ -305,6 +309,7 @@ from culture_rules.model.actor import Actor
 from culture_rules.model.rule import Rule
 from culture_rules.model.variable_refs import rule_variable_refs
 from culture_rules.model.workflow import Workflow
+from culture_rules.node.actions.queue import claim_dispatch, dispatch_live, is_dispatch
 from culture_rules.node.chain import FeedConsumer, Source, Unrecoverable, live_rules
 from culture_rules.node.run_events import RunEventOutbox, is_run_event, verify_run_event
 from culture_rules.ops.logs import log_context
@@ -839,11 +844,9 @@ class RuleFiring:
                 continue  # already fired for this event (by another host, or another path)
             self._pending[marker_id].append((decision.rule_id, event_id))
             run_id = run_id_for(decision.rule_id, event_id)
-            key = None
-            if decision.fire and by_id[decision.rule_id].concurrency_key is not None:
-                decision, key = self._admit(
-                    tx, by_id[decision.rule_id], rules, envelope, decision, run_id, intent_id, now
-                )
+            decision, key = self._gate(
+                tx, by_id[decision.rule_id], rules, envelope, decision, run_id, intent_id, now
+            )
             # A skip that matters ("superseded by A", ...) is part of the rule's history;
             # it commits (or rolls back) with this transaction, once per (rule, event). A
             # waiting record is superseded by the outcome once the predecessor settles.
@@ -879,6 +882,36 @@ class RuleFiring:
                         key,
                     ),
                 )
+
+    def _gate(
+        self,
+        tx: StoreOps,
+        rule: Rule,
+        rules: list[Rule],
+        envelope: Mapping[str, Any],
+        decision: Decision,
+        run_id: str,
+        intent_id: str,
+        now: datetime,
+    ) -> tuple[Decision, str | None]:
+        """A firing decision after the queue's slot (#35), the budget reset (d32) and the
+        concurrency key's admission; a dispatch that still fires claims its slot."""
+        key = None
+        if decision.fire and is_dispatch(envelope) and not dispatch_live(tx, envelope, run_id):
+            # #35 (Codex P1): the queue expired this dispatch and gave its slot away
+            decision = Decision(
+                rule_id=decision.rule_id,
+                fire=False,
+                reason=DISPATCH_REVOKED,
+                detail="the queue no longer holds this dispatch's slot",
+            )
+        if decision.fire and rule.resets_attempt_budget is True:
+            _reset_own_key(tx, rule, envelope)  # d32: a new story
+        if decision.fire and rule.concurrency_key is not None:
+            decision, key = self._admit(tx, rule, rules, envelope, decision, run_id, intent_id, now)
+        if decision.fire and is_dispatch(envelope):
+            claim_dispatch(tx, envelope, run_id, utc_timestamp(now))  # the slot is the run's
+        return decision, key
 
     def _rate_capped(
         self,
@@ -1134,6 +1167,15 @@ def _resolved_key(rule: Rule, envelope: Mapping[str, Any]) -> str | None:
         return resolve_concurrency_key(rule.concurrency_key or "", envelope)
     except ValueError:
         return None
+
+
+def _reset_own_key(tx: StoreOps, rule: Rule, envelope: Mapping[str, Any]) -> None:
+    """#35 d32: ``rule`` (``resets_attempt_budget``) fires on ``envelope``: reset its key's
+    attempt budget once for this event, before the firing is admitted. A key that does not
+    resolve resets nothing (the admission then skips the firing as unresolved)."""
+    key = _resolved_key(rule, envelope)
+    if key is not None:
+        reset_attempt_budget(tx, key, envelope["id"])
 
 
 def _reset_keys(rules: list[Rule], ours: set[str], envelope: Mapping[str, Any]) -> set[str]:

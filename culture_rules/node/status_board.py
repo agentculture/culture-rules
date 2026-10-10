@@ -165,6 +165,7 @@ _UNSENT = _WAITS | frozenset({"repo_not_allowed", "bad_input"})
 """Refusals before any request was sent (the App checks them before the network)."""
 
 _RUNS, _BRIDGE, _ACTORS, _ACTIVE = "runs", "bridge_invocations", "actors", "running"
+_QUEUES = "queues"  # culture_rules.node.actions.queue.QUEUES_COLLECTION (#35)
 _ID, _REV, _STATE, _FINAL, _PENDING = "id", "rev", "state", "final", "pending"
 _ACTOR, _MACHINE, _REPO, _NUMBER, _KEY = "actor", "machine", "repo", "number", "concurrency_key"
 _COMMENT_ID, _URL, _CREATED_AT, _FINAL_AT = "comment_id", "url", "created_at", "final_at"
@@ -619,7 +620,7 @@ class StatusBoard:
     def _closing(self, doc: dict[str, Any], chain: Chain) -> dict[str, Any] | None:
         """``doc`` with an engine-worded pending final when the chain ended without a
         chain-end action (cancelled, superseded, or idle); None on a lost write."""
-        if doc.get(_FINAL_TEXT) is not None or not chain.ended:
+        if doc.get(_FINAL_TEXT) is not None or not chain.ended or self._queued(chain):
             return doc
         last = chain.runs[-1]
         status = last.get("status")
@@ -638,6 +639,19 @@ class StatusBoard:
             return doc
         inputs = {_FINAL_TEXT: text, _FINAL_RUN: last.get(_ID), _FINAL_ASKED: iso(self._clock())}
         return self._set_inputs(doc[_ID], inputs, only_if_unset=True)
+
+    def _queued(self, chain: Chain) -> bool:
+        """Whether a request of this story still waits in (or was just dispatched by) the
+        fixer queue (#35 d35): its runs have all ended, but the story goes on - a retry or a
+        re-fix waits its turn - so the comment is not closed. A request replaced by a new
+        story (a ``/fix``) no longer names this story's run, and the story then closes."""
+        ids = {r.get(_ID) for r in chain.runs}
+        for queue in self._store.find(_QUEUES):
+            for entry in (*(queue.get("waiting") or ()), *(queue.get("active") or ())):
+                req = entry.get("request") if isinstance(entry.get("request"), Mapping) else entry
+                if req.get("source_run") in ids:
+                    return True
+        return False
 
     def _desired(self, doc: Mapping[str, Any], chain: Chain) -> _Desired:
         text = doc.get(_FINAL_TEXT)

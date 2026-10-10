@@ -1,16 +1,10 @@
 {
   "action": {
     "idempotent": false,
-    "kind": "github.comment",
-    "name": "Comment when the chain ends here (review-only mode)",
-    "only_at_chain_end": true,
-    "params": {
-      "actor": "github-app",
-      "body": "PR fixer review: {{ workflow.outputs.review }} for {{ workflow.outputs.commit_sha }} (gate {{ workflow.outputs.verdict }}); not pushed: nothing publishes it (review-only mode, or the repository has no test gate).\n\n{{ workflow.outputs.summary }}",
-      "number": "trigger.data.number",
-      "repo": "trigger.data.repository",
-      "status": true
-    },
+    "kind": "noop",
+    "name": "Queued: the place in line is the run's output",
+    "only_at_chain_end": false,
+    "params": {},
     "retry": null,
     "timeout_s": null
   },
@@ -28,16 +22,25 @@
         }
       },
       {
-        "items": {
-          "literal": [
-            "pass",
-            "no_gate"
-          ]
-        },
-        "op": "in",
-        "value": {
+        "arg": {
           "field": "data.outputs.verdict"
-        }
+        },
+        "op": "exists"
+      },
+      {
+        "arg": {
+          "items": {
+            "literal": [
+              "pass",
+              "no_gate"
+            ]
+          },
+          "op": "in",
+          "value": {
+            "field": "data.outputs.verdict"
+          }
+        },
+        "op": "not"
       },
       {
         "items": {
@@ -64,14 +67,14 @@
     "op": "and"
   },
   "counts_toward_budget": false,
-  "description": "d21: fires when a pr-fix run succeeds (its gate passed or the repo has no gate) and has its gated commit reviewed by codex-reviewer. Not a fix attempt: outside the attempt budget, on the PR's key, which the chain holds between its stages.",
+  "description": "#35 d30: fires when a pr-fix try ends with a gate verdict other than pass or no_gate, and puts the PR back in the fixer queue at the back as a retry, with the gate's instruction and the original task; the requests already waiting run first. Shares the PR's key (it continues the chain), not an attempt itself. When the PR has used its 3 attempts the queue refuses the retry and the run hands back once.",
   "enabled": false,
   "exclusive_group": null,
-  "id": "pr-fixer-review-commit",
+  "id": "pr-fixer-retry",
   "max_attempts": null,
   "may_after": [],
   "must_after": [],
-  "name": "PR fixer: review the fix",
+  "name": "PR fixer: back in the queue after a try that did not pass",
   "on_failure": {
     "idempotent": false,
     "kind": "github.comment",
@@ -103,23 +106,20 @@
     }
   },
   "workflow": {
-    "id": "review-commit",
+    "id": "queue-add",
     "inputs": {
       "base_sha": "trigger.data.outputs.base_sha",
-      "bundle": "trigger.data.outputs.bundle",
       "clone_url": "trigger.data.outputs.clone_url",
-      "commit_sha": "trigger.data.outputs.commit_sha",
-      "diff": "trigger.data.outputs.diff",
-      "diff_truncated": "trigger.data.outputs.diff_truncated",
-      "gate_output": "trigger.data.outputs.gate_output",
-      "gate_verdict": "trigger.data.outputs.verdict",
       "head_branch": "trigger.data.outputs.head_branch",
-      "head_sha": "trigger.data.outputs.start_sha",
+      "head_sha": "trigger.data.head_sha",
+      "instruction": "trigger.data.outputs.gate_instruction",
       "number": "trigger.data.number",
-      "pr_intent": "trigger.data.outputs.instruction",
+      "prior_instruction": "trigger.data.outputs.instruction",
       "repo": "trigger.data.repository",
-      "threads": "trigger.data.outputs.threads",
-      "threads_addressed": "trigger.data.outputs.threads_addressed"
+      "retry": {
+        "$literal": true
+      },
+      "task": "trigger.data.outputs.task"
     },
     "version": null
   }

@@ -146,15 +146,119 @@ def test_failing_hotspot_review_lists_the_hotspots_to_review():
     ]
 
 
-def test_a_passing_gate_hands_on_nothing():
+def test_a_passing_gate_with_clean_new_code_hands_on_nothing():
     fake = FakeSonar(gate(cond("new_reliability_rating", status="OK"), status="OK"))
     out = run(fake).output
     assert out["available"] is True
     assert out["gate"] == "OK"
     assert out["failing"] == []
     assert out["issues"] == []
-    assert [p for p, _q, _h in fake.requests] == ["/api/qualitygates/project_status"]
+    assert out["new_code_issues"] == []
+    assert out["scope"] == "new_code"
     assert "passes" in out["note"]
+    assert "do not work on Sonar issues" in out["note"]
+
+
+# ---- d33: on a passing gate, the PR's own new-code issues, as data ---------------------------
+
+S9073 = {
+    "key": "AZ-irc-lens-62",
+    "rule": "python:S9073",
+    "severity": "MINOR",
+    "type": "CODE_SMELL",
+    "message": "Split this composite assertion into separate assertions.",
+    "component": "agentculture_irc-lens:tests/test_mail.py",
+    "line": 113,
+    "new": True,
+}
+"""The live case (irc-lens#62, gate OK): one new-code issue on the PR."""
+
+
+def backlog(n):
+    return {**issue(f"b{n}", "CODE_SMELL", path="src/old.py"), "new": False}
+
+
+class NewCodeSonar(FakeSonar):
+    """Answers ``inNewCodePeriod=true`` with the PR's own new-code issues only."""
+
+    def __call__(self, method, url, headers, timeout):
+        status, body = super().__call__(method, url, headers, timeout)
+        parts = urlsplit(url)
+        query = {k: v[0] for k, v in parse_qs(parts.query).items()}
+        if parts.path == "/api/issues/search" and query.get("inNewCodePeriod") == "true":
+            doc = json.loads(body)
+            doc["issues"] = [i for i in doc["issues"] if i.get("new")]
+            doc["paging"] = {"total": len(doc["issues"])}
+            body = json.dumps(doc).encode()
+        return status, body
+
+
+def test_a_passing_gate_lists_the_prs_new_code_issues_to_fix_only_when_named():
+    fake = NewCodeSonar(
+        gate(cond("new_maintainability_rating", status="OK"), status="OK"),
+        issues=[S9073, backlog(1), backlog(2)],
+    )
+    out = run(fake, repo="agentculture/irc-lens", number=62).output
+    assert out["gate"] == "OK"
+    assert out["failing"] == []
+    (listed,) = out["new_code_issues"]
+    assert (listed["rule"], listed["path"], listed["line"]) == (
+        "python:S9073",
+        "tests/test_mail.py",
+        113,
+    )
+    assert listed["message"] == "Split this composite assertion into separate assertions."
+    assert out["issues"] == out["new_code_issues"]  # what the agent's sonar_issues binds
+    assert out["scope"] == "new_code"
+    note = out["note"]
+    assert "passes" in note
+    assert "only if the trusted request names it" in note
+    assert "never the rest of the Sonar backlog" in note
+    (searched,) = [q for path, q, _h in fake.requests if path == "/api/issues/search"]
+    assert searched["pullRequest"] == "62"
+    assert searched["inNewCodePeriod"] == "true"
+    assert set(searched["types"].split(",")) == {"BUG", "VULNERABILITY", "CODE_SMELL"}
+
+
+def test_the_backlog_is_never_listed_on_a_passing_gate():
+    fake = NewCodeSonar(gate(status="OK"), issues=[backlog(n) for n in range(30)])
+    out = run(fake).output
+    assert out["new_code_issues"] == []
+    assert out["issues"] == []
+    assert "do not work on Sonar issues" in out["note"]
+
+
+def test_new_code_issues_are_capped_like_issues():
+    many = [{**issue(str(n), "CODE_SMELL", line=n), "new": True} for n in range(20)]
+    out = run(NewCodeSonar(gate(status="OK"), issues=many), config={"max_issues": 5}).output
+    assert len(out["new_code_issues"]) == 5
+    assert out["total"] == 20
+    assert out["truncated"] is True
+
+
+def test_a_failing_gate_is_unchanged_and_lists_no_new_code_issues():
+    fake = NewCodeSonar(gate(cond("new_reliability_rating")), issues=[issue("1", "BUG")])
+    out = run(fake).output
+    assert [i["key"] for i in out["issues"]] == ["1"]
+    assert out["new_code_issues"] == []
+    assert out["scope"] == "failing_conditions"
+    assert "Fix exactly these and nothing else of the Sonar backlog" in out["note"]
+    (searched,) = [q for path, q, _h in fake.requests if path == "/api/issues/search"]
+    assert "inNewCodePeriod" not in searched
+
+
+def test_a_failed_new_code_read_on_a_passing_gate_is_still_a_pass():
+    class Flaky(NewCodeSonar):
+        def __call__(self, method, url, headers, timeout):
+            if "/api/issues/search" in url:
+                return 500, b"{}"
+            return super().__call__(method, url, headers, timeout)
+
+    out = run(Flaky(gate(status="OK"))).output
+    assert out["available"] is True
+    assert out["gate"] == "OK"
+    assert out["new_code_issues"] == []
+    assert "do not work on Sonar issues" in out["note"]
 
 
 @pytest.mark.parametrize(

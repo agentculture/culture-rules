@@ -36,6 +36,9 @@ from tests.node.test_node import Cluster
 from tests.rules.chain_world import (
     BUNDLE,
     CHAIN_VARIABLES,
+    DISPATCH_RULE,
+    PROGRESS_RULES,
+    RETRY_RULE,
     SECRETS_LATE_RULE,
     SECRETS_RULE,
     STAGE_RULES,
@@ -62,38 +65,57 @@ AUTHOR_RULES = ("pr-fixer-comment", "pr-fixer-review", "pr-fixer-review-comment"
 # --------------------------------------------------------------------------- the data
 
 
-def test_the_bundle_is_nine_disabled_rules_and_four_workflows():
+def test_the_bundle_is_seventeen_disabled_rules_and_six_workflows():
     b = bundle()
     assert sorted(w.id for w in b.workflows) == [
         "pr-fix",
         "publish-fix",
+        "queue-add",
+        "queue-progress",
         "report-secrets",
         "review-commit",
     ]
     reports = (SECRETS_RULE, SECRETS_LATE_RULE)
-    assert sorted(r.id for r in b.rules) == sorted(TRIGGER_RULES + STAGE_RULES + reports)
+    queue = (DISPATCH_RULE, RETRY_RULE, *PROGRESS_RULES)
+    assert sorted(r.id for r in b.rules) == sorted(TRIGGER_RULES + STAGE_RULES + reports + queue)
     for r in b.rules:
         assert r.enabled is False
-    for r in (r for r in b.rules if r.id not in reports):
-        assert r.concurrency_key == KEY
         assert r.placement is not None
         assert r.placement.machine == "spark2"
-        assert r.action.kind == "github.comment"
-        assert r.action.only_at_chain_end is True
+    by = {r.id: r for r in b.rules}
+    keyed = (*TRIGGER_RULES, *STAGE_RULES, DISPATCH_RULE, RETRY_RULE)
+    for rid in keyed:
+        r = by[rid]
+        assert r.concurrency_key == KEY
         assert r.on_failure.kind == "github.comment"
         assert r.on_failure.only_at_chain_end
         assert r.on_failure.params["body"].startswith("PR fixer handed back (")
-        # d26: the chain's status comment; the engine links the run that ended it
-        assert r.action.params["status"] is True
-        assert r.on_failure.params["status"] is True
-    by = {r.id: r for r in b.rules}
+        assert r.on_failure.params["status"] is True  # d26: the chain's status comment
+    # the stages that build, review or push end a chain with a comment (d26 status)
+    for rid in ("pr-fixer-review-commit", "pr-fixer-publish", DISPATCH_RULE):
+        assert by[rid].action.kind == "github.comment"
+        assert by[rid].action.only_at_chain_end is True
+        assert by[rid].action.params["status"] is True
+    # #35 d29: the trigger rules only queue the PR: not an attempt, nothing to say
     for rid, kind in TYPES.items():
         assert by[rid].trigger.params == {"type": kind}
-        assert by[rid].workflow.id == "pr-fix"
-        assert by[rid].max_attempts == 3
-    assert by["pr-fixer-refix"].workflow.id == "pr-fix"
-    assert by["pr-fixer-refix"].max_attempts == 3
-    assert by["pr-fixer-refix"].counts_toward_budget
+        assert by[rid].workflow.id == "queue-add"
+        assert by[rid].counts_toward_budget is False
+        assert by[rid].max_attempts is None
+        assert by[rid].action.kind == "noop"
+        assert "trusted_authors" not in by[rid].workflow.inputs
+    # the dispatch rule runs pr-fix: the counted attempt (3 per PR)
+    dispatch = by[DISPATCH_RULE]
+    assert dispatch.trigger.params == {"type": "rules.queue.dispatch"}
+    assert dispatch.workflow.id == "pr-fix"
+    assert dispatch.max_attempts == 3
+    assert dispatch.counts_toward_budget is True
+    # d30: a re-fix and a try that did not pass go back in the queue as retries
+    for rid in ("pr-fixer-refix", RETRY_RULE):
+        assert by[rid].workflow.id == "queue-add"
+        assert by[rid].workflow.inputs["retry"] == {"$literal": True}
+        assert by[rid].counts_toward_budget is False
+        assert by[rid].max_attempts is None
     for rid, wid in (
         ("pr-fixer-review-commit", "review-commit"),
         ("pr-fixer-publish", "publish-fix"),
@@ -101,8 +123,14 @@ def test_the_bundle_is_nine_disabled_rules_and_four_workflows():
         assert by[rid].workflow.id == wid
         assert by[rid].counts_toward_budget is False
         assert by[rid].max_attempts is None
-    for rid in STAGE_RULES:
+    for rid in (*STAGE_RULES, RETRY_RULE):
         assert by[rid].trigger.params == {"type": "rules.run.succeeded"}
+    # the queue moves without a key: one queue for every PR
+    for rid in PROGRESS_RULES:
+        assert by[rid].concurrency_key is None
+        assert by[rid].workflow.id == "queue-progress"
+        assert by[rid].action.kind == "noop"
+    assert by["pr-fixer-queue-sweep"].trigger.kind == "schedule"
 
 
 def test_the_files_are_in_canonical_export_form():
@@ -166,6 +194,8 @@ def test_review_commit_reviews_and_publish_fix_pushes():
 
 def test_conditions_reference_the_variables_never_a_copied_list():
     for r in bundle().rules:
+        if r.id in PROGRESS_RULES:
+            continue  # the queue as a whole: no repo to check (the dispatch rule checks it)
         refs = rule_variable_refs(r)
         assert {"fixer_repos", "fixer_excluded_repos"} <= refs, r.id
         if r.id in INTENT_RULES:
@@ -197,6 +227,8 @@ def test_import_with_apply_validates_and_writes_the_definitions():
     assert sorted(d["id"] for d in mem.find("workflows")) == [
         "pr-fix",
         "publish-fix",
+        "queue-add",
+        "queue-progress",
         "report-secrets",
         "review-commit",
     ]

@@ -9,7 +9,10 @@
   :class:`~culture_rules.actors.limits.LimitedActor`, with limits read by
   :func:`~culture_rules.actors.limits.limits_from_config` from the actor's ``params``
   (``token_budget``, ``token_budget_warn_pct``, ``max_concurrency`` - the same field names
-  as a culture.yaml agent entry).
+  as a culture.yaml agent entry - and ``concurrency_pool``). For an actor in a pool the
+  cap is the pool's (:func:`~culture_rules.actors.limits.pool_cap`, the smallest
+  ``max_concurrency`` among its enabled members), re-read on every invocation so a member
+  added, changed or disabled takes effect without a restart.
 * A rule action (kind ``"action"``) that names an actor in ``params.actor`` runs through
   the injected action port (``action:<kind>``, ``action``, ``"*"``) wrapped in a
   LimitedActor with *that* actor's limits (cached per actor id, action kind and definition
@@ -44,11 +47,18 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Callable, Mapping
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 
 from culture_rules.actors.config import ActorConfig
-from culture_rules.actors.limits import LimitedActor, limits_from_config, tokens_of
+from culture_rules.actors.limits import (
+    ActorLimits,
+    LimitedActor,
+    limits_from_config,
+    pool_cap,
+    tokens_of,
+)
 from culture_rules.engine.actorport import (
     COMPLETED,
     ActorPort,
@@ -159,12 +169,11 @@ class ActorRouter:
         revision = (doc.get("updated_at"), doc.get("schema_version"))
         key = (actor.id, str(ctx.config.get("kind")))
         cached = self._action_cache.get(key)
+        limits = self._limits(actor)
         if cached is not None and cached[0] == revision and cached[1] is inner:
+            cached[2].limits = limits
             return cached[2]
-        config = ActorConfig(key=actor.id, kind=actor.kind, extras=dict(actor.params))
-        limited = LimitedActor(
-            inner, actor.id, limits_from_config(config), self._store, clock=self._clock
-        )
+        limited = LimitedActor(inner, actor.id, limits, self._store, clock=self._clock)
         self._action_cache[key] = (revision, inner, limited)
         return limited
 
@@ -179,18 +188,24 @@ class ActorRouter:
             return None
         revision = (doc.get("updated_at"), doc.get("schema_version"))
         cached = self._cache.get(actor_id)
+        limits = self._limits(actor)
         if cached is not None and cached[0] == revision:
+            cached[1].limits = limits
             return cached[1]
-        config = ActorConfig(key=actor.id, kind=actor.kind, extras=dict(actor.params))
         limited = LimitedActor(
-            _build(factory, actor, doc),
-            actor.id,
-            limits_from_config(config),
-            self._store,
-            clock=self._clock,
+            _build(factory, actor, doc), actor.id, limits, self._store, clock=self._clock
         )
         self._cache[actor_id] = (revision, limited)
         return limited
+
+    def _limits(self, actor: Actor) -> ActorLimits:
+        """The actor's limits; in a concurrency pool, the cap is the pool's."""
+        config = ActorConfig(key=actor.id, kind=actor.kind, extras=dict(actor.params))
+        limits = limits_from_config(config)
+        if limits.concurrency_pool:
+            cap = pool_cap(self._store, limits.concurrency_pool, ACTORS_COLLECTION)
+            limits = replace(limits, max_concurrency=cap)
+        return limits
 
     def release(self, actor_id: str, key: str, result: InvocationResult) -> bool:
         """Free ``key``'s slot on ``actor_id`` (accepted work finished); False if not limited.

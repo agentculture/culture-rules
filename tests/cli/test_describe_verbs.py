@@ -21,6 +21,7 @@ BUNDLE = Path(__file__).resolve().parents[2] / "docs" / "rules" / "pr-fixer"
 @pytest.fixture
 def seeded(store):  # noqa: F811
     store.put("workflows", json.loads((BUNDLE / "workflows" / "pr-fix.json").read_text()))
+    store.put("workflows", json.loads((BUNDLE / "workflows" / "queue-add.json").read_text()))
     store.put("rules", json.loads((BUNDLE / "rules" / "pr-fixer-checks.json").read_text()))
     return store
 

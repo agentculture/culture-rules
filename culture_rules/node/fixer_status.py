@@ -9,11 +9,13 @@ writes the chain's status comment. The shipped PR fixer rules all do.
 
 **The chain.** Its **root** is the run an external event started (:func:`chain_root` walks
 the ``rules.run.succeeded`` links back, each verified with
-:func:`culture_rules.actors.lineage.upstream`); the comment is keyed by it, so a re-fix
-writes into the same comment. A run counts as started once it is past its hold
-(:func:`past_hold`: the built-in ``gitguardian.hold`` step succeeded, else its first
-``wait`` step, else at once), so a run stopped by the quiet period or the GitGuardian hold
-never posts.
+:func:`culture_rules.actors.lineage.upstream`, and through the fixer queue from a dispatched
+try to the run that queued it, :func:`~culture_rules.actors.lineage.enqueuer`, #35 d35); the
+comment is keyed by it, so a re-fix or a retry of the same story writes into the same
+comment. A one-try fix run reads "try N of M" over the story's runs. A run counts as
+started once it is past its hold (:func:`past_hold`: the built-in ``gitguardian.hold`` step
+succeeded, else its first ``wait`` step, else at once), so a run stopped by the quiet
+period or the GitGuardian hold never posts.
 
 **The comment** (:func:`render`): the final section (or :data:`HEADLINE`), what started the
 chain, the stages of the current round (hold, agent, gate, review, push) and the earlier
@@ -256,18 +258,28 @@ def run_status_actor(run: Mapping[str, Any] | None) -> str | None:
 
 def chain_root(store: Any, run: Mapping[str, Any]) -> Mapping[str, Any] | None:
     """The run an external event started, walking back the verified ``rules.run.succeeded``
-    links of ``run``'s chain; ``None`` when a link does not verify or loops."""
-    from culture_rules.actors.lineage import LineageError, upstream  # noqa: PLC0415
+    links of ``run``'s chain and, through the fixer queue (#35 d35), from a dispatched try
+    to the ``queue.add`` run that queued it (:func:`~culture_rules.actors.lineage.enqueuer`,
+    verified against the stored dispatch event): a story's tries, re-fixes and retries share
+    the root of the request that started it, so one comment. ``None`` when a link does not
+    verify or loops."""
+    from culture_rules.actors.lineage import (  # noqa: PLC0415
+        QUEUE_DISPATCH,
+        LineageError,
+        enqueuer,
+        upstream,
+    )
     from culture_rules.events.emit import MAX_EVENT_HOPS  # noqa: PLC0415
 
     current = run
-    for _ in range(MAX_EVENT_HOPS + 1):
+    for _ in range(3 * (MAX_EVENT_HOPS + 1)):
         trigger = current.get(_TRIGGER)
         kind = trigger.get("type") if isinstance(trigger, Mapping) else None
-        if not (isinstance(kind, str) and kind.startswith("rules.run.")):
+        dispatched = kind == QUEUE_DISPATCH
+        if not dispatched and not (isinstance(kind, str) and kind.startswith("rules.run.")):
             return current
         try:
-            current = upstream(store, current)
+            current = enqueuer(store, current) if dispatched else upstream(store, current)
         except LineageError:
             return None
     return None
@@ -411,7 +423,20 @@ def _hold_line(fix: Mapping[str, Any] | None) -> str:
     return "done" if past_hold(fix) else _step_word({_STATUS: "dispatching"})
 
 
-def _fix_lines(fix: Mapping[str, Any] | None) -> tuple[str, str]:
+def _story_tries(chain: Chain, fix: Mapping[str, Any]) -> tuple[int, int] | None:
+    """For a one-try fix run (#35 d30): ``(this try, the story's attempts)``, counted over
+    the story's fix runs, out of its rule's ``max_attempts``; else None."""
+    pinned = fix.get("rule") if isinstance(fix.get("rule"), Mapping) else {}
+    definition = pinned.get("definition") if isinstance(pinned.get("definition"), Mapping) else {}
+    limit = definition.get("max_attempts")
+    if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1:
+        return None
+    ids = [r.get("id") for r in chain.fixes]
+    n = ids.index(fix.get("id")) + 1 if fix.get("id") in ids else len(ids)
+    return n, max(limit, n)
+
+
+def _fix_lines(fix: Mapping[str, Any] | None, chain: Chain | None = None) -> tuple[str, str]:
     """The agent's and the gate's words for the latest try of ``fix``."""
     loop = _agent_loop(fix) if fix else None
     if fix is None or loop is None:
@@ -419,11 +444,13 @@ def _fix_lines(fix: Mapping[str, Any] | None) -> tuple[str, str]:
     name, agent, gate, tries = loop
     i = _state(fix, name).get("iteration")
     i = i if isinstance(i, int) and i >= 0 else 0
+    story = _story_tries(chain, fix) if chain is not None and tries == 1 else None
     agent_state = _state(fix, f"{name}[{i}]/{agent}")
     gate_state = _state(fix, f"{name}[{i}]/{gate}")
     agent_word = _step_word(agent_state)
     if agent_word == _WORKING:
-        agent_word += f" (try {i + 1} of {tries})"
+        n, total = story or (i + 1, tries)
+        agent_word += f" (try {n} of {total})"
     verdict = _word(_outputs(gate_state).get("verdict"))
     gate_word = f"verdict {verdict}" if verdict else _step_word(gate_state)
     return agent_word, gate_word
@@ -494,7 +521,7 @@ def stage_lines(chain: Chain) -> list[str]:
     if review is not None and fix is not None and review[_CREATED_AT] < fix[_CREATED_AT]:
         review = None  # the review of an earlier round
     publish = chain.latest(_push_step)
-    agent, gate = _fix_lines(fix)
+    agent, gate = _fix_lines(fix, chain)
     words = (_hold_line(fix), agent, gate, _review_line(review), _push_line(publish))
     labels = list(STAGES)
     labels[1] = _with_actor(labels[1], fix)

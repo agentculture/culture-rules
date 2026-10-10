@@ -76,6 +76,12 @@ def is_engine_source(source: Any) -> bool:
 
 RUN_EVENT_ID_PREFIX = "runevt_"
 RUN_EVENT_TYPE_PREFIX = "rules.run."
+QUEUE_EVENT_TYPE_PREFIX = "rules.queue."
+QUEUE_EVENT_ID_PREFIX = "queue_"
+QUEUE_SOURCE = f"{INTERNAL_SOURCE_PREFIX}queue"
+"""The fixer queue's events (#35, d29: ``rules.queue.dispatch``, :mod:`culture_rules.node.
+actions.queue`): written only by the ``queue.progress`` built-in, straight into the store;
+their types and ids are reserved at external ingest like the run events'."""
 CHECKS_SETTLED_TYPE = "github.pr.checks_settled"
 CHECKS_LATE_TYPE = "github.pr.checks_failed_late"
 SETTLE_TYPES = frozenset((CHECKS_SETTLED_TYPE, CHECKS_LATE_TYPE))
@@ -139,7 +145,8 @@ def event_hops(envelope: Mapping[str, Any]) -> int | None:
 def reserved_reason(envelope: Mapping[str, Any]) -> str | None:
     """Why ``envelope`` may not enter the store from the bus or a webhook, or ``None``.
 
-    The run-event namespace (ids ``runevt_*``, types ``rules.run.*``), the checks settler's
+    The run-event namespace (ids ``runevt_*``, types ``rules.run.*``), the fixer queue's
+    (ids ``queue_*``, types ``rules.queue.*``, #35), the checks settler's
     namespace (types :data:`SETTLE_TYPES`, ids ``settled_*`` / ``late_*``, d25), the
     schedule and probe namespace (kind or type ``schedule`` / ``probe``, sources
     :data:`TRIGGER_EVENT_SOURCES`, ids ``schedule/*`` / ``probe/*``) and the internal
@@ -165,6 +172,10 @@ def reserved_reason(envelope: Mapping[str, Any]) -> str | None:
         return f"id prefix {RUN_EVENT_ID_PREFIX} is reserved for the engine's run events"
     if isinstance(kind, str) and kind.startswith(RUN_EVENT_TYPE_PREFIX):
         return f"type {RUN_EVENT_TYPE_PREFIX}* is reserved for the engine's run events"
+    if isinstance(kind, str) and kind.startswith(QUEUE_EVENT_TYPE_PREFIX):
+        return f"type {QUEUE_EVENT_TYPE_PREFIX}* is reserved for the engine's queue"
+    if isinstance(eid, str) and eid.startswith(QUEUE_EVENT_ID_PREFIX):
+        return f"id prefix {QUEUE_EVENT_ID_PREFIX} is reserved for the engine's queue"
     if isinstance(source, str) and source.startswith(INTERNAL_SOURCE_PREFIX):
         return f"source {INTERNAL_SOURCE_PREFIX}* is reserved for the engine"
     return _settle_reserved(eid, kind) or _trigger_reserved(envelope)

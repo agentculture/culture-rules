@@ -53,7 +53,8 @@ def test_a_red_pr_is_fixed_reviewed_and_published_by_three_chained_runs(tmp_path
     (publish,) = w.run_of("publish-fix")
     for run in (fix, review, publish):
         assert run["status"] == "succeeded", (run["workflow_id"], run.get("error"))
-    assert fix["rule_id"] == "pr-fixer-checks"
+    assert fix["rule_id"] == "pr-fixer-dispatch"  # #35: started at the head of the queue
+    assert fix["trigger"]["type"] == "rules.queue.dispatch"
     assert review["rule_id"] == "pr-fixer-review-commit"
     assert publish["rule_id"] == "pr-fixer-publish"
     g = gate_of(fix)
@@ -125,7 +126,10 @@ def test_requested_changes_fix_again_with_the_findings_then_publish(tmp_path):
     w.fire()
     fixes = w.run_of("pr-fix")
     reviews = w.run_of("review-commit")
-    assert [r["rule_id"] for r in fixes] == ["pr-fixer-checks", "pr-fixer-refix"]
+    # #35 d30: the re-fix goes back through the queue; the dispatch rule starts both tries
+    assert [r["rule_id"] for r in fixes] == ["pr-fixer-dispatch", "pr-fixer-dispatch"]
+    assert [r["trigger"]["data"]["retry"] for r in fixes] == [False, True]
+    assert [r["rule_id"] for r in w.run_of("queue-add")] == ["pr-fixer-checks", "pr-fixer-refix"]
     assert len(reviews) == 2
     assert len(w.run_of("publish-fix")) == 1
     first, second = (q["instruction"] for q in w.qwen.inputs)
@@ -140,7 +144,7 @@ def test_requested_changes_fix_again_with_the_findings_then_publish(tmp_path):
     (push_call,) = w.push.calls
     assert push_call[1]["commit_sha"] == gate_of(fixes[1])["commit_sha"]
     assert budget(w)["count"] == 2
-    assert len(w.comments()) == 1
+    assert len(w.comments()) == 1  # #35 d35: one status comment per story
 
 
 def test_three_requests_for_changes_hand_back_once_with_the_findings(tmp_path):
@@ -154,7 +158,7 @@ def test_three_requests_for_changes_hand_back_once_with_the_findings(tmp_path):
     assert last["error"]["message"].startswith("changes_requested: ")
     assert w.run_of("publish-fix") == []
     assert w.push.calls == []
-    (body,) = w.comments()  # one hand-back for the chain
+    (body,) = w.comments()  # one hand-back for the story (#35 d35)
     assert body.startswith("PR fixer handed back (actor_failed): changes_requested")
     assert FINDING["detail"] in body
     assert last["id"] in body
@@ -264,9 +268,41 @@ def test_the_agent_gets_only_the_issues_behind_failing_sonar_conditions(tmp_path
     given = w.qwen.inputs[0]
     assert [i["key"] for i in given["sonar_issues"]] == ["b1"]
     assert "new_reliability_rating" in given["sonar_note"]
-    assert "never the rest of the Sonar backlog" in given["instruction"]
+    assert "Never the rest of the Sonar backlog" in given["instruction"]
     assert any("types=BUG" in u for u in w.sonar.requests)
     assert not any("CODE_SMELL" in u for u in w.sonar.requests)
+    assert not any("inNewCodePeriod" in u for u in w.sonar.requests)
+
+
+def test_on_a_passing_gate_the_agent_gets_the_prs_new_code_issues_to_fix_only_if_named(
+    tmp_path,
+):
+    """#35 d33: irc-lens#62's live case - gate OK, one new-code issue (S9073)."""
+    w = ChainWorld(tmp_path)
+    w.sonar.issues = [
+        {
+            "key": "s9073",
+            "rule": "python:S9073",
+            "type": "CODE_SMELL",
+            "message": "Split this composite assertion into separate assertions.",
+            "component": "o_r:tests/test_mail.py",
+            "line": 113,
+        }
+    ]
+    w.fire()
+    given = w.qwen.inputs[0]
+    (listed,) = given["sonar_issues"]
+    assert (listed["rule"], listed["path"], listed["line"]) == (
+        "python:S9073",
+        "tests/test_mail.py",
+        113,
+    )
+    assert "passes" in given["sonar_note"]
+    assert "only if the trusted request names it" in given["sonar_note"]
+    assert "only if the trusted request names it" in given["instruction"]
+    (search,) = [u for u in w.sonar.requests if "/api/issues/search" in u]
+    assert "inNewCodePeriod=true" in search
+    assert "pullRequest=7" in search
 
 
 def test_a_sonar_outage_never_stops_the_fix(tmp_path):
@@ -311,7 +347,9 @@ def test_a_new_trigger_during_the_review_waits_for_the_chain_and_runs_after_it(t
     w.reviewer.on_request = comment_arrives
     w.fire()
     fixes = w.run_of("pr-fix")
-    assert [r["rule_id"] for r in fixes] == ["pr-fixer-checks", "pr-fixer-comment"]
+    assert [r["rule_id"] for r in fixes] == ["pr-fixer-dispatch", "pr-fixer-dispatch"]
+    queued = [r["rule_id"] for r in w.run_of("queue-add")]
+    assert queued == ["pr-fixer-checks", "pr-fixer-comment"]
     publish = w.run_of("publish-fix")[0]
     assert publish["trigger"]["data"]["run_id"] == w.run_of("review-commit")[0]["id"]
     # the comment's fix started only after the first chain had ended (published)
@@ -559,7 +597,8 @@ def test_disabling_the_initiating_trigger_rule_after_a_refix_pushes_nothing(tmp_
 
     w.reviewer.on_request = disable_on_second_review
     w.fire()
-    assert [r["rule_id"] for r in w.run_of("pr-fix")] == ["pr-fixer-checks", "pr-fixer-refix"]
+    assert [r["rule_id"] for r in w.run_of("pr-fix")] == ["pr-fixer-dispatch"] * 2
+    assert [r["rule_id"] for r in w.run_of("queue-add")] == ["pr-fixer-checks", "pr-fixer-refix"]
     (publish,) = w.run_of("publish-fix")
     assert publish["status"] == "failed"
     assert publish["error"]["message"] == "rule_disabled"

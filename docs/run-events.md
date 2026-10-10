@@ -126,7 +126,8 @@ until the hop cap stops it.
 Three refusals guard these events:
 
 - **Reserved namespace.** Ingest from the bus and the webhook sink refuse
-  `runevt_*` ids, `rules.run.*` types, `culture-rules://` sources, and any
+  `runevt_*` ids, `rules.run.*` types, the fixer queue's `queue_*` ids and
+  `rules.queue.*` types (#35), `culture-rules://` sources, and any
   envelope that carries an `envelope` field (ambiguous with a stored event
   document). A refused envelope is never stored or evaluated. It is kept in
   `event_quarantine` with the reason and counted on the ingest result; a
@@ -286,6 +287,14 @@ fires on a fix's finished run. The field needs a `concurrency_key`, and a rule
 cannot set it to `false` together with `max_attempts`. The description's
 `Key` line then ends with `outside the attempt budget`.
 
+A rule can also **reset** its key's budget (`resets_attempt_budget: true`;
+issue #35, d32): when it fires (its trigger and condition hold), the key's counter
+is reset once for that event, before the firing is admitted, exactly like a
+human push or green checks. It needs a `concurrency_key`. The shipped
+fixer sets it on its comment and review-comment rules, so a trusted `/fix`
+starts a new story with a fresh budget. The description's `Key` line then
+ends with `resets the attempt budget`.
+
 The field is trusted configuration, not a security boundary. Whoever can save
 a rule decides whether it is counted, as they decide everything else about
 it. A value that is not a boolean is refused when the rule is read, and a
@@ -353,12 +362,16 @@ chain ends with no comment. The run's history still has it.
 
 The shipped PR fixer (`docs/rules/pr-fixer/`) is built on these events:
 
-- `pr-fixer-{checks,comment,review,review-comment}` run the `pr-fix` workflow:
-  quiet period, threads, the failing SonarCloud conditions, agent and gate;
+- `pr-fixer-{checks,comment,review,review-comment}` put the PR in the fixer
+  queue (`queue-add`, #35); `pr-fixer-dispatch` runs the `pr-fix` workflow when
+  the request's turn comes (a `rules.queue.dispatch` event): quiet period,
+  threads, the failing SonarCloud conditions, agent and gate, one try;
+- `pr-fixer-retry` puts a try whose gate did not pass back in the queue;
 - `pr-fixer-review-commit` fires on `pr-fix` succeeding and runs `review-commit`
   (outside the attempt budget);
-- `pr-fixer-refix` fires on `review = request_changes` and runs `pr-fix` again
-  with the findings (a counted fix attempt);
+- `pr-fixer-refix` fires on `review = request_changes` and puts the PR back in
+  the queue with the findings (the dispatched `pr-fix` run is the counted
+  attempt);
 - `pr-fixer-publish` fires on `review = approve` with a passing gate and runs
   `publish-fix`: push, threads and replies (outside the budget).
 

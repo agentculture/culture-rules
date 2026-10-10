@@ -1,0 +1,43 @@
+{
+  "action": {
+    "idempotent": false,
+    "kind": "noop",
+    "name": "Nothing: the queue's state is the run's output",
+    "only_at_chain_end": false,
+    "params": {},
+    "retry": null,
+    "timeout_s": null
+  },
+  "concurrency_key": null,
+  "condition": null,
+  "counts_toward_budget": true,
+  "description": "A safety sweep: frees the slot of a dispatch that never started a run (after 15 minutes) and dispatches what is due, in case an event was missed. Runs queue-progress (#35 d29); no concurrency key: one queue for every PR, its document changed by compare-and-set.",
+  "enabled": false,
+  "exclusive_group": null,
+  "id": "pr-fixer-queue-sweep",
+  "max_attempts": null,
+  "may_after": [],
+  "must_after": [],
+  "name": "PR fixer queue: sweep every 30 minutes",
+  "on_failure": null,
+  "placement": {
+    "actor": null,
+    "machine": "spark2",
+    "requirement": null
+  },
+  "priority": 0,
+  "resets_attempt_budget": false,
+  "schema_version": "1.0",
+  "supersedes": [],
+  "trigger": {
+    "kind": "schedule",
+    "params": {
+      "cron": "*/30 * * * *"
+    }
+  },
+  "workflow": {
+    "id": "queue-progress",
+    "inputs": {},
+    "version": null
+  }
+}

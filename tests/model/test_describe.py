@@ -30,7 +30,7 @@ PR_FIX_WORKFLOW = [
     "2 secrets — gitguardian.hold as github-app: stop while GitGuardian fails on the head",
     "3 threads — github.threads as github-app: unresolved threads by trusted authors",
     "4 sonar — sonar.gate_issues: the issues behind the PR's failing SonarCloud gate",
-    "5 fix — retry up to 3×, until verdict ∈ {pass, no_gate}:",
+    "5 fix — one try, until verdict exists:",
     "  5.1 agent — qwen-fixer (agent, must commit)",
     "  5.2 gate — test gate on spark2",
 ]
@@ -67,13 +67,14 @@ PR_FIXER_CHECKS = [
     "and conclusion ≠ success",
     "and conclusion ≠ no_checks",
     "and not (gitguardian ∈ failed_apps)",
-    "Run workflow pr-fix (5 steps)",
+    "Run workflow queue-add (1 step)",
     "On spark2",
-    f"Then github.comment as github-app {CHAIN_END}",
+    "Then noop",
     f"On failure github.comment as github-app {CHAIN_END}",
-    "Key pr-fixer:{repository}#{number}, ≤3 attempts",
+    "Key pr-fixer:{repository}#{number}, outside the attempt budget",
     "Disabled",
 ]
+"""#35 d29: a red settle puts the PR in the fixer queue; pr-fixer-dispatch runs pr-fix."""
 
 PR_FIXER_SECRETS = [
     "When github.pr.checks_settled",
@@ -120,9 +121,11 @@ def test_golden_pr_fixer_workflows(name, golden):
 
 
 def test_golden_pr_fixer_rules():
-    fix = _load("workflows/pr-fix.json")
     publish = _load("workflows/publish-fix.json")
-    assert render(describe_rule(_load("rules/pr-fixer-checks.json"), fix)) == PR_FIXER_CHECKS
+    queue_add = Workflow.from_dict(_load("workflows/queue-add.json"))
+    assert render(describe_rule(_load("rules/pr-fixer-checks.json"), queue_add)) == (
+        PR_FIXER_CHECKS
+    )
     assert render(describe_rule(_load("rules/pr-fixer-publish.json"), publish)) == (
         PR_FIXER_PUBLISH
     )
@@ -138,7 +141,7 @@ def test_golden_pr_fixer_rules():
 def test_every_shipped_rule_describes_and_names_its_event(name):
     doc = _load(f"rules/{name}")
     lines = render(describe_rule(doc))
-    assert lines[0] == f"When {doc['trigger']['params']['type']}"
+    assert lines[0] == f"When {trigger_text(doc['trigger'])}"
     assert f"Run workflow {doc['workflow']['id']}" in lines
 
 
@@ -162,7 +165,7 @@ def test_entries_shape():
     entries = describe_workflow(_load("workflows/pr-fix.json"))
     assert entries[4] == {
         "label": "5",
-        "text": "retry up to 3×, until verdict ∈ {pass, no_gate}:",
+        "text": "one try, until verdict exists:",
         "depth": 0,
         "step": "fix",
     }

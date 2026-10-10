@@ -51,6 +51,8 @@ BUILTIN_WORDS: dict[str, str] = {
     "github.threads_addressed": "github.threads_addressed",
     "review": "review verdict, recorded for its commit (github.push checks it)",
     "sonar.gate_issues": "sonar.gate_issues: the issues behind the PR's failing SonarCloud gate",
+    "queue.add": "queue.add{as}: put the PR in line (first come, first served)",
+    "queue.progress": "queue.progress{as}: free ended slots, start the oldest request",
 }
 
 _TO_CHANNEL = (("channel", "to {}"),)
@@ -344,6 +346,8 @@ def _key_words(r: Mapping[str, Any]) -> list[str]:
         key.append(f"≤{n} attempt" + ("" if n == 1 else "s"))
     if key and r.get("counts_toward_budget") is False:
         key.append("outside the attempt budget")
+    if key and r.get("resets_attempt_budget") is True:
+        key.append("resets the attempt budget")
     return key
 
 
@@ -390,7 +394,10 @@ def _loop_text(step: Mapping[str, Any], config: Mapping[str, Any]) -> str:
         items = config.get("items") or "items"
         what = "item" if items == "items" else f"of {items}"
         return f"for each {what}" + (f" (≤{bound})" if bound else "")
-    text = f"retry up to {bound}×" if bound else "retry"
+    if bound == 1:
+        text = "one try"
+    else:
+        text = f"retry up to {bound}×" if bound else "retry"
     if config.get("until"):
         text += f", until {condition_text(config['until'])}"
     return text
