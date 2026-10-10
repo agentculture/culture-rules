@@ -90,7 +90,8 @@ def outcome(db, name):
 
 def test_upgrade_is_admin_and_mutating():
     verb = REGISTRY.get("rollout", "upgrade")
-    assert verb.role == "admin" and verb.mutating
+    assert verb.role == "admin"
+    assert verb.mutating
     assert {p.name for p in verb.params} == {"host", "wheel"}
 
 
@@ -108,7 +109,9 @@ def test_dry_run_prints_the_exact_argv_and_runs_nothing(
     put_machine(store, "spark2", SPARK2, address="spark2.tail")
     before = snapshot(store)
     out = jrun(capsys, "rollout", "upgrade", "--host", "spark2", "--wheel", str(wheel))
-    assert fake.calls == [] and wire.mutating() == [] and snapshot(store) == before
+    assert fake.calls == []
+    assert wire.mutating() == []
+    assert snapshot(store) == before
     deploy = f"culture-rules-deploy-{VERSION}"
     mkdir, scp, install, version, state = out["would"]
     assert mkdir == ["ssh", "-o", "BatchMode=yes", "spark2.tail", f"mkdir -p {deploy}"]
@@ -131,9 +134,12 @@ def test_dry_run_prints_the_exact_argv_and_runs_nothing(
         "--apply",
     ]  # fmt: skip
     assert version[-1].endswith("venv/bin/culture-rules --version")
-    assert "ActiveEnterTimestamp" in state[-1] and "culture-rules-node.service" in state[-1]
+    assert "ActiveEnterTimestamp" in state[-1]
+    assert "culture-rules-node.service" in state[-1]
     rc, text, _ = run(capsys, "rollout", "upgrade", "--host", "spark2", "--wheel", str(wheel))
-    assert rc == 0 and "dry-run: would run" in text and "scp -o BatchMode=yes" in text
+    assert rc == 0
+    assert "dry-run: would run" in text
+    assert "scp -o BatchMode=yes" in text
 
 
 def test_apply_runs_install_sh_and_records_the_outcome(
@@ -145,9 +151,11 @@ def test_apply_runs_install_sh_and_records_the_outcome(
     assert "install.sh --node-name thor --wheel" in fake.calls[2][-1]
     assert out["outcome"]["installed_version"] == VERSION
     recorded = outcome(store, "thor")
-    assert recorded["ok"] is True and recorded["ActiveState"] == "active"
+    assert recorded["ok"] is True
+    assert recorded["ActiveState"] == "active"
     assert recorded["ActiveEnterTimestamp"] == "Sat 2026-10-11"
-    assert recorded["mode"] == "install_sh" and recorded["wheel"] == WHEEL_NAME
+    assert recorded["mode"] == "install_sh"
+    assert recorded["wheel"] == WHEEL_NAME
 
 
 def test_a_failed_command_stops_records_and_exits_nonzero(
@@ -158,7 +166,8 @@ def test_a_failed_command_stops_records_and_exits_nonzero(
     rc, _, err = run(
         capsys, "rollout", "upgrade", "--host", "thor", "--wheel", str(wheel), "--apply", "--json"
     )
-    assert rc == 2 and "run install.sh failed" in json.loads(err)["message"]
+    assert rc == 2
+    assert "run install.sh failed" in json.loads(err)["message"]
     assert len(fake.calls) == 3  # nothing after the failure
     assert outcome(store, "thor")["ok"] is False
 
@@ -169,7 +178,8 @@ def test_a_wrong_installed_version_is_a_failure(wire, store, capsys, fake, wheel
     rc, _, err = run(
         capsys, "rollout", "upgrade", "--host", "thor", "--wheel", str(wheel), "--apply", "--json"
     )
-    assert rc == 2 and "9.0.0" in json.loads(err)["message"]
+    assert rc == 2
+    assert "9.0.0" in json.loads(err)["message"]
 
 
 def test_shared_venv_never_runs_install_sh(wire, store, capsys, fake, wheel):  # noqa: F811
@@ -195,7 +205,9 @@ def test_shared_venv_runs_only_on_its_own_host(
     rc, _, err = run(
         capsys, "rollout", "upgrade", "--host", "spark", "--wheel", str(wheel), "--apply", "--json"
     )
-    assert rc == 1 and "this host is thor" in json.loads(err)["message"] and fake.calls == []
+    assert rc == 1
+    assert "this host is thor" in json.loads(err)["message"]
+    assert fake.calls == []
 
 
 def test_a_record_without_install_exits_1_naming_the_section(
@@ -205,7 +217,9 @@ def test_a_record_without_install_exits_1_naming_the_section(
     rc, _, err = run(
         capsys, "rollout", "upgrade", "--host", "orin", "--wheel", str(wheel), "--apply", "--json"
     )
-    assert rc == 1 and "no install section" in json.loads(err)["message"] and fake.calls == []
+    assert rc == 1
+    assert "no install section" in json.loads(err)["message"]
+    assert fake.calls == []
 
 
 def test_unknown_machine_or_wrong_wheel_fails_before_any_command(
@@ -217,14 +231,16 @@ def test_unknown_machine_or_wrong_wheel_fails_before_any_command(
     other = tmp_path / "culture_rules-9.0.0-py3-none-any.whl"
     other.write_bytes(b"")
     rc, _, _ = run(capsys, "rollout", "upgrade", "--host", "thor", "--wheel", str(other), "--apply")
-    assert rc == 1 and fake.calls == []
+    assert rc == 1
+    assert fake.calls == []
 
 
 def test_the_runner_never_sees_the_api_url_or_token(monkeypatch):
     monkeypatch.setenv("CULTURE_RULES_TOKEN", "secret-token-value")
     monkeypatch.setenv("CULTURE_RULES_API_URL", "http://127.0.0.1:9")
     env = up._minimal_env()
-    assert "CULTURE_RULES_TOKEN" not in env and "CULTURE_RULES_API_URL" not in env
+    assert "CULTURE_RULES_TOKEN" not in env
+    assert "CULTURE_RULES_API_URL" not in env
     seen = {}
 
     def fake_run(argv, **kw):
@@ -241,8 +257,10 @@ def test_the_runner_never_sees_the_api_url_or_token(monkeypatch):
     assert up._subprocess_runner(["ssh", "-o", "BatchMode=yes", "h", "true"], 5) == up.Result(
         0, "ok", ""
     )
-    assert seen["argv"][0] == "/usr/bin/ssh" and "shell" not in seen
-    assert "CULTURE_RULES_TOKEN" not in seen["env"] and seen["timeout"] == 5
+    assert seen["argv"][0] == "/usr/bin/ssh"
+    assert "shell" not in seen
+    assert "CULTURE_RULES_TOKEN" not in seen["env"]
+    assert seen["timeout"] == 5
 
 
 def test_the_runner_reports_a_missing_executable(monkeypatch):

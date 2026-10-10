@@ -102,7 +102,8 @@ def test_verbs_roles_and_dry_run_flags():
         assert roles[name] == ("editor", True), name
     for name in ("pause", "resume", "seed"):
         assert roles[name] == ("admin", True), name
-    assert "all" not in roles and "run" not in roles  # no verb chains steps
+    assert "all" not in roles
+    assert "run" not in roles  # no verb chains steps
 
 
 def test_version_compare():
@@ -173,10 +174,13 @@ def test_plan_writes_nothing_and_orders_hosts(wire, store, capsys, tmp_path):  #
     assert out["hosts"][2]["flags"] == ["--node-name", "thor", "--secret", "RULES_T"]
     assert out["hosts"][3]["note"].startswith("not upgradeable")
     assert out["snapshot"] == ["r1"]
-    assert out["new_rules"] == ["r-new"] and out["new_variables"] == ["fixer_x"]
-    assert wire.mutating() == [] and snapshot(store) == before
+    assert out["new_rules"] == ["r-new"]
+    assert out["new_variables"] == ["fixer_x"]
+    assert wire.mutating() == []
+    assert snapshot(store) == before
     rc, text, _ = run(capsys, "rollout", "plan", "--wheel", str(wheel))
-    assert rc == 0 and "install.sh --node-name thor --secret RULES_T" in text
+    assert rc == 0
+    assert "install.sh --node-name thor --secret RULES_T" in text
     assert fail(capsys, "rollout", "plan", "--wheel", "culture_rules-1.0.0-py3-none-any.whl")
 
 
@@ -185,7 +189,8 @@ def test_idle_lists_non_terminal_runs(wire, store, capsys):  # noqa: F811
     assert jrun(capsys, "rollout", "idle")["idle"] is True
     put_run(store, "live", "running")
     out = jrun(capsys, "rollout", "idle")
-    assert out["idle"] is False and [r["id"] for r in out["runs"]] == ["live"]
+    assert out["idle"] is False
+    assert [r["id"] for r in out["runs"]] == ["live"]
 
 
 # --------------------------------------------------------------------------- pause / resume
@@ -195,8 +200,10 @@ def test_pause_snapshots_before_pausing_and_is_idempotent(wire, store, capsys): 
     put_rule(store, "r1", True)
     put_rule(store, "r2", False)
     dry = jrun(capsys, "rollout", "pause")
-    assert dry["dry_run"] is True and dry["snapshot"] == ["r1"]
-    assert doc(store) is None and wire.mutating() == []
+    assert dry["dry_run"] is True
+    assert dry["snapshot"] == ["r1"]
+    assert doc(store) is None
+    assert wire.mutating() == []
 
     out = jrun(capsys, "rollout", "pause", "--apply")
     assert out["engine"] == "paused"
@@ -208,17 +215,21 @@ def test_pause_snapshots_before_pausing_and_is_idempotent(wire, store, capsys): 
 
     put_rule(store, "r1", False)  # e.g. an import disabled it: a re-run keeps the snapshot
     again = jrun(capsys, "rollout", "pause", "--apply")
-    assert again["engine"] == "already paused" and again["snapshot_kept"] is True
+    assert again["engine"] == "already paused"
+    assert again["snapshot_kept"] is True
     assert doc(store)["snapshot"] == ["r1"]
 
 
 def test_pause_refuses_non_terminal_runs_unless_forced(wire, store, capsys):  # noqa: F811
     put_run(store, "live", "running")
     err = fail(capsys, "rollout", "pause", "--apply")
-    assert "live" in err["message"] and "rollout idle" in err["remediation"]
-    assert wire.mutating() == [] and doc(store) is None
+    assert "live" in err["message"]
+    assert "rollout idle" in err["remediation"]
+    assert wire.mutating() == []
+    assert doc(store) is None
     out = jrun(capsys, "rollout", "pause", "--force", "--apply")
-    assert out["forced"] == ["live"] and out["engine"] == "paused"
+    assert out["forced"] == ["live"]
+    assert out["engine"] == "paused"
 
 
 def test_resume_reports_already_resumed_and_keeps_the_resume_time(
@@ -228,7 +239,8 @@ def test_resume_reports_already_resumed_and_keeps_the_resume_time(
     assert jrun(capsys, "rollout", "resume")["dry_run"] is True
     assert jrun(capsys, "runs", "controls")["paused"] is True
     out = jrun(capsys, "rollout", "resume", "--apply")
-    assert out["engine"] == "resumed" and out["controls"]["paused"] is False
+    assert out["engine"] == "resumed"
+    assert out["controls"]["paused"] is False
     first = doc(store)["steps"]["resume"]["applied_at"]
     again = jrun(capsys, "rollout", "resume", "--apply")
     assert again["engine"] == "already resumed"
@@ -241,7 +253,8 @@ def test_resume_reports_already_resumed_and_keeps_the_resume_time(
 def test_seed_skips_existing_unless_forced(wire, store, capsys, bundle):  # noqa: F811
     wire.tc.put("/variables/fixer_old", json={"value": "edited", "description": "d"})
     dry = jrun(capsys, "rollout", "seed", "--bundle", str(bundle))
-    assert dry["set"] == ["fixer_x"] and dry["skipped"] == ["fixer_old"]
+    assert dry["set"] == ["fixer_x"]
+    assert dry["skipped"] == ["fixer_old"]
     assert doc(store) is None
     jrun(capsys, "rollout", "seed", "--bundle", str(bundle), "--apply")
     names = {v["name"]: v["value"] for v in jrun(capsys, "variables", "list")["items"]}
@@ -259,25 +272,27 @@ def test_seed_refuses_a_bundle_of_another_release(wire, capsys, bundle):  # noqa
 def test_seed_reads_the_wheel_bundle_by_default(wire, capsys, monkeypatch):  # noqa: F811
     monkeypatch.setattr(rollout, "_release", lambda: {**RELEASE, "version": __version__})
     out = jrun(capsys, "rollout", "seed")
-    assert out["dry_run"] is True and len(out["set"]) == len(rollout.deploy_data.variables())
+    assert out["dry_run"] is True
+    assert len(out["set"]) == len(rollout.deploy_data.variables())
 
 
 def test_import_refuses_before_seed_then_imports_workflows_and_rules(
     wire, store, capsys, bundle  # noqa: F811
 ):
     err = fail(capsys, "rollout", "import", "--bundle", str(bundle), "--apply")
-    assert "seed" in err["message"] and "rollout seed --apply" in err["remediation"]
+    assert "seed" in err["message"]
+    assert "rollout seed --apply" in err["remediation"]
     assert wire.mutating() == []
     jrun(capsys, "rollout", "seed", "--bundle", str(bundle), "--apply")
     dry = jrun(capsys, "rollout", "import", "--bundle", str(bundle))
-    assert dry["applied"] is False and dry["would"]["files"] == [
-        "rules/r-new.json",
-        "workflows/wf.json",
-    ]
+    assert dry["applied"] is False
+    assert dry["would"]["files"] == ["rules/r-new.json", "workflows/wf.json"]
     assert store.get("rules", "r-new") is None
     out = jrun(capsys, "rollout", "import", "--bundle", str(bundle), "--apply")
-    assert out["applied"] is True and out["record"] == {"recorded": True}
-    assert store.get("rules", "r-new") is not None and store.get("workflows", "wf") is not None
+    assert out["applied"] is True
+    assert out["record"] == {"recorded": True}
+    assert store.get("rules", "r-new") is not None
+    assert store.get("workflows", "wf") is not None
     assert doc(store)["steps"]["import"]["outcome"] == {"add": 2}
 
 
@@ -305,14 +320,17 @@ def test_enable_refuses_while_an_online_node_is_older(wire, store, capsys):  # n
     put_node(store, "lab", None)
     put_node(store, "gone", "8.0.0", online=False)  # offline nodes are not checked
     err = fail(capsys, "rollout", "enable", "--apply")
-    assert "thor (9.0.0)" in err["message"] and "lab (unknown)" in err["message"]
-    assert "gone" not in err["message"] and "rollout upgrade" in err["remediation"]
+    assert "thor (9.0.0)" in err["message"]
+    assert "lab (unknown)" in err["message"]
+    assert "gone" not in err["message"]
+    assert "rollout upgrade" in err["remediation"]
 
 
 def test_enable_refuses_while_a_new_rule_is_not_imported(wire, store, capsys):  # noqa: F811
     _paused_with(store, capsys, ["r1"])
     err = fail(capsys, "rollout", "enable")
-    assert "r-new" in err["message"] and "rollout import --apply" in err["remediation"]
+    assert "r-new" in err["message"]
+    assert "rollout import --apply" in err["remediation"]
 
 
 def test_enable_restores_exactly_snapshot_plus_new_rules(wire, store, capsys):  # noqa: F811
@@ -322,7 +340,8 @@ def test_enable_restores_exactly_snapshot_plus_new_rules(wire, store, capsys):  
     put_rule(store, "r2", True)  # already back on
     wire.calls.clear()
     dry = jrun(capsys, "rollout", "enable")
-    assert dry["enable"] == ["r1", "r-new"] and dry["left_disabled"] == ["r-off"]
+    assert dry["enable"] == ["r1", "r-new"]
+    assert dry["left_disabled"] == ["r-off"]
     assert wire.mutating() == []
     out = jrun(capsys, "rollout", "enable", "--apply")
     assert out["already_enabled"] == ["r2"]
@@ -330,7 +349,8 @@ def test_enable_restores_exactly_snapshot_plus_new_rules(wire, store, capsys):  
     assert enabled == ["r-new", "r1", "r2"]
     assert doc(store)["steps"]["enable"]["outcome"]["left_disabled"] == ["r-off"]
     rc, text, _ = run(capsys, "rollout", "enable")
-    assert rc == 0 and "left disabled (1): r-off" in text
+    assert rc == 0
+    assert "left disabled (1): r-off" in text
 
 
 # --------------------------------------------------------------------------- verify
@@ -355,7 +375,8 @@ def test_verify_green(wire, store, capsys, monkeypatch):  # noqa: F811
         error={"code": "actor_failed", "message": "no_builtin: x"},
     )
     out = jrun(capsys, "rollout", "verify")
-    assert out["ok"] is True and all(c["ok"] for c in out["checks"])
+    assert out["ok"] is True
+    assert all((c["ok"] for c in out["checks"]))
 
 
 def test_verify_lists_each_failed_check(wire, store, capsys, monkeypatch):  # noqa: F811
@@ -380,4 +401,5 @@ def test_verify_lists_each_failed_check(wire, store, capsys, monkeypatch):  # no
 
 def test_verify_fails_before_any_step(wire, store, capsys):  # noqa: F811
     msg = fail(capsys, "rollout", "verify")["message"]
-    assert "4 of 5" in msg and "no resume step recorded" in msg  # the engine is running
+    assert "4 of 5" in msg
+    assert "no resume step recorded" in msg  # the engine is running

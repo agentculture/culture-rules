@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.12] - 2026-10-11
+
+### Added
+
+- `culture-rules rollout` (#45, plan `rollout-cli`): roll a release out to every node one step per command, each a dry run until `--apply`, `--json` and an MCP tool per verb. `plan --wheel` shows the steps, each host's install flags, the snapshot and the release's new rules and variables; `idle`, `pause` (stores the enabled-rule snapshot, then pauses; refused while a run is not terminal unless `--force`), `upgrade --host <name> --wheel <whl>` (`install.sh` over ssh/scp with the host's flags, or the shared venv on spark), `seed`, `import` (refused before seed), `enable` (the snapshot plus the release's new rules; refused while an online node runs an older version), `resume` and `verify` (node and API versions, not paused, enabled rules, no `no_builtin` failure since resume). Also `overview`, `list` and `show`. Runbook: `docs/operations/rollout.md`
+- Machine records gain an optional typed `install` section (`mode` install_sh or shared_venv, `node_name`, grant-name `secrets`, `gate_run_as` (a `sudo -n -u` prefix), `extras`, `wheelhouse`, `python`, `events_host`, `events_port`); records without it save unchanged
+- API: the `rollouts` collection with `GET /rollouts`, `GET /rollouts/{id}` (viewer) and `PUT /rollouts/{id}` (admin, audited, strict, no secret literals); `GET /machines/status` items gain `engine_version`; `GET /health` gains `version`
+- The wheel ships `install.sh`, the pr-fixer bundle and two manifests as `culture_rules/deploy_data`: `variables.json` (every seed variable; `seed-variables.sh` now reads it, behaviour unchanged) and `release.json` (the release's version, new rules and new variables; its version equals the package's)
+- devague: the `rollout-cli` frame, spec and plan (operator-confirmed) and deviations d1-d2
+
 ## [0.18.11] - 2026-10-10
 
 ### Fixed

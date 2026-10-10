@@ -364,7 +364,9 @@ is upgraded from a wheelhouse (`deploy/node/README.md`). A node that lacks a
 kind would otherwise fail those runs. Use `deploy/node/install.sh`
 (dry-run first, then `--apply`), restart the API on the serving hosts, and
 confirm each node's heartbeat in `GET /machines/status` before turning
-a new kind on.
+a new kind on. Since #45 the `culture-rules rollout` steps do this in order and
+record each one (`rollout.md`); `rollout enable` refuses while an online node's
+`engine_version` is older than the release.
 
 After every node runs the new wheel, run the two one-off migrations (admin, dry-run
 by default; review the dry-run output, then repeat with `--apply`):
