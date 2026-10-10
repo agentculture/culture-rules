@@ -657,6 +657,7 @@ class QueueStopPort:
     ) -> InvocationResult:
         from culture_rules.node.story_stop import stop_of  # noqa: PLC0415
 
+        begun = self._clock()  # the cutoff: taken before any read (Codex round 3)
         config = context.config or {}
         sweep = config.get("sweep") is True
         try:
@@ -689,6 +690,7 @@ class QueueStopPort:
                 by,
                 idempotency_key,
                 lambda: self._head(repo, number, input, config, context, deadline, idempotency_key),
+                begun,
             )
             removed = self._unqueue(name, f"{repo}#{number}", stop)
         cancelled = self._cancel(key, stop)
@@ -764,15 +766,16 @@ class QueueStopPort:
         return run is not None and run.get("status") in _RUN_DONE
 
     def _recorded(
-        self, key: str, by: str, ik: str, head: Callable[[], str | None]
+        self, key: str, by: str, ik: str, head: Callable[[], str | None], begun: datetime
     ) -> Mapping[str, Any]:
-        """The stop this invocation records: on its first run the time now and the PR's
-        head, kept under its idempotency key, so a replay (a lost acknowledgement) resumes
-        with the same cutoff instead of a later one (Codex round 2 #3)."""
+        """The stop this invocation records: on its first run the time it began (before the
+        liveness check and the head lookup) and the PR's head, kept under its idempotency
+        key, so a replay (a lost acknowledgement) resumes with the same cutoff instead of a
+        later one (Codex rounds 2 #3 and 3)."""
         from culture_rules.node.story_stop import record_stop, stop_op  # noqa: PLC0415
 
-        op = stop_op(self._store, ik, key=key, by=by, head=head, at=self._clock)
-        at = _parse(op.get("at")) or self._clock()
+        op = stop_op(self._store, ik, key=key, by=by, head=head, at=lambda: begun)
+        at = _parse(op.get("at")) or begun
         return record_stop(self._store, key, by=op["by"], head_sha=op.get("head_sha"), at=at)
 
     def _unqueue(self, name: str, pr: str, stop: Mapping[str, Any]) -> list[Mapping[str, Any]]:

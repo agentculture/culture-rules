@@ -384,3 +384,27 @@ def test_a_replayed_stop_keeps_its_first_cutoff():
     assert first.outcome == again.outcome == COMPLETED
     assert stop_of(w.store, KEY)["at"] == at
     assert w.store.get(RUNS_COLLECTION, newer["id"])["status"] == "running"
+
+
+def test_the_cutoff_is_taken_before_the_head_lookup():
+    """A /fix that lands while the stop reads the PR's head is a newer story: the cutoff is
+    the time the stop began, not the time the lookup answered (Codex round 3)."""
+    from culture_rules.engine.actorport import InvocationResult
+
+    holder = {}
+
+    class SlowLookup:
+        def invoke(self, payload, ik, deadline, *, context):
+            w = holder["w"]
+            w.clock.advance(5)
+            holder["new"] = run(w, "new-story", created=0)  # a /fix while the lookup runs
+            return InvocationResult.completed({"head_sha": "e" * 40, "base_sha": "b" * 40})
+
+    w = StopWorld(lookup=SlowLookup())
+    holder["w"] = w
+    old = run(w, "old-story", created=-60)
+    begun = w.clock.now.isoformat()
+    w.stop(config={**STOP, "lookup_actor": "github-app"}, story="old-story")
+    assert stop_of(w.store, KEY)["at"] == begun
+    assert w.store.get(RUNS_COLLECTION, old["id"])["status"] == "cancelled"
+    assert w.store.get(RUNS_COLLECTION, holder["new"]["id"])["status"] == "running"

@@ -105,14 +105,8 @@ def stop_op(
     found = store.get(STOPS_COLLECTION, doc_id)
     if found is not None:
         return found
-    doc = {
-        "id": doc_id,
-        "kind": "op",
-        "key": key,
-        "by": by,
-        "head_sha": head(),
-        "at": at().isoformat(),
-    }
+    cutoff = at().isoformat()  # before the head lookup: a story begun meanwhile is newer
+    doc = {"id": doc_id, "kind": "op", "key": key, "by": by, "head_sha": head(), "at": cutoff}
     try:
         return store.insert(STOPS_COLLECTION, doc)
     except DuplicateKeyError:
