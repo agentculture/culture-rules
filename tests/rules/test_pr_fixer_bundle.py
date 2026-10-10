@@ -199,9 +199,37 @@ def test_pr_fix_builds_and_gates_and_never_reviews_or_pushes():
     assert top["secrets"]["config"] == {"builtin": "gitguardian.hold", "actor": "github-app"}
     assert top["sonar"]["config"] == {"builtin": "sonar.gate_issues"}
     fix = top["fix"]
-    agent, gate = fix["body"]
-    assert agent["config"] == {"mode": "yolo", "require_commit": True}
-    assert agent["placement"]["actor"] == "qwen-fixer"
+    body = {b["id"]: b for b in fix["body"]}
+    assert list(body) == [  # #39: one agent step per level, the hand-off, select, one gate
+        "agent_qwen",
+        "agent_codex",
+        "handoff_export",
+        "handoff_import",
+        "select",
+        "gate",
+    ]
+    qwen, codex = body["agent_qwen"], body["agent_codex"]
+    assert {k: v for k, v in qwen["config"].items() if k != "when"} == {
+        "mode": "yolo",
+        "require_commit": True,
+    }
+    assert qwen["placement"]["actor"] == "qwen-fixer"
+    assert {k: v for k, v in codex["config"].items() if k != "when"} == {
+        "require_commit": True,
+        "sandbox": "workspace-write",
+    }
+    assert codex["placement"]["actor"] == "codex-fixer"
+    for sid in ("agent_codex", "handoff_export", "handoff_import"):
+        assert body[sid]["config"]["when"] == {
+            "cmp": "==",
+            "left": {"field": "fixer"},
+            "op": "compare",
+            "right": {"literal": "codex-fixer"},
+        }
+    assert body["handoff_export"]["placement"]["machine"] == "spark"
+    assert body["handoff_import"]["placement"]["machine"] == "spark2"
+    assert body["select"]["config"]["builtin"] == "select"
+    gate = body["gate"]
     assert gate["config"] == {"builtin": "gate"}
     assert gate["placement"]["machine"] == "spark2"
     text = json.dumps(wf)
@@ -209,6 +237,24 @@ def test_pr_fix_builds_and_gates_and_never_reviews_or_pushes():
         assert absent not in text
     names = {o["name"] for o in wf["outputs"]}
     assert {"commit_sha", "start_sha", "base_sha", "diff", "bundle", "verdict"} <= names
+    assert {"implementer", "reviewer"} <= names  # #39: for review-commit's routing
+
+
+PUBLISH_FIX_DIGEST = "sha256:0fa92074e1cfa67c1388f0423fc379063fd82c5886bc619c5ef4ffcc83c23680"
+"""publish-fix as shipped by d21: #39 adds no push path, so it is unchanged."""
+D30_PR_FIX_DIGEST = "sha256:307e82fc96eba7a36be1781b2f550728fbf232d37d776ed878071ae7f74ae032"
+
+
+def test_publish_fix_is_unchanged_by_the_escalation():
+    """#39 t4: no new code path pushes. publish-fix, its placement and its trust are as
+    shipped; pr-fix still holds no push, and the d30 pr-fix stays trusted (runs pinned to
+    it may still push) next to the new one, each in its own role only."""
+    assert workflow_digest(workflow_docs()["publish-fix"]) == PUBLISH_FIX_DIGEST
+    assert TRUSTED_WORKFLOWS[ROLE_PUBLISH] == frozenset({PUBLISH_FIX_DIGEST})
+    assert D30_PR_FIX_DIGEST in TRUSTED_WORKFLOWS[ROLE_FIX]
+    pr_fix = json.dumps(workflow_docs()["pr-fix"])
+    assert "github.push" not in pr_fix
+    assert '"kind": "github.' not in pr_fix
 
 
 def test_review_commit_reviews_and_publish_fix_pushes():

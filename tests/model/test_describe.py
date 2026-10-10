@@ -31,8 +31,17 @@ PR_FIX_WORKFLOW = [
     "3 threads — github.threads as github-app: unresolved threads by trusted authors",
     "4 sonar — sonar.gate_issues: the issues behind the PR's failing SonarCloud gate",
     "5 fix — one try, until verdict exists:",
-    "  5.1 agent — qwen-fixer (agent, must commit)",
-    "  5.2 gate — test gate on spark2",
+    "  5.1 agent_qwen — qwen-fixer (agent, must commit),"
+    ' when fixer missing or fixer ∈ {"", qwen-fixer}',
+    "  5.2 agent_codex — codex-fixer (agent, workspace-write, must commit),"
+    " when fixer = codex-fixer",
+    "  5.3 handoff_export — handoff.export: the fixer's commits as a size-capped pack in the"
+    " store on spark, when fixer = codex-fixer",
+    "  5.4 handoff_import — handoff.import: that pack into a fresh fixer-owned worktree on"
+    " spark2, when fixer = codex-fixer",
+    "  5.5 select — select: the outputs of the path that ran (one source for the next step)"
+    " on spark2",
+    "  5.6 gate — test gate on spark2",
 ]
 
 REPORT_SECRETS_WORKFLOW = [

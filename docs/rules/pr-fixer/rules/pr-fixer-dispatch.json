@@ -67,7 +67,7 @@
     "op": "and"
   },
   "counts_toward_budget": true,
-  "description": "#35 d29: fires on a fixer queue's rules.queue.dispatch event (queues/pr-fixer, or #39 any level queue in vars.fixer_levels: its dispatch names the levels it was resolved from) (written only by the queue.progress built-in, never from outside) and runs pr-fix with the request's inputs: one try per run (d30). A fix attempt: counts toward the PR's attempt budget (3) on the per-PR concurrency key. Repos in vars.fixer_repos only; vars.fixer_excluded_repos overrides it.",
+  "description": "#35 d29: fires on a fixer queue's rules.queue.dispatch event (queues/pr-fixer, or #39 any level queue in vars.fixer_levels: its dispatch names the levels it was resolved from) (written only by the queue.progress built-in, never from outside) and runs pr-fix with the request's inputs: one try per run (d30). A fix attempt: counts toward the PR's attempt budget (3) on the per-PR concurrency key. Repos in vars.fixer_repos only; vars.fixer_excluded_repos overrides it. #39: the dispatch's level, fixer, reviewer and try are pr-fix's inputs (without levels there is no fixer and pr-fix runs agent_qwen).",
   "enabled": false,
   "exclusive_group": null,
   "id": "pr-fixer-dispatch",
@@ -108,13 +108,17 @@
   "workflow": {
     "id": "pr-fix",
     "inputs": {
+      "attempt": "trigger.data.attempt",
       "base_sha": "trigger.data.base_sha",
       "clone_url": "trigger.data.clone_url",
+      "fixer": "trigger.data.fixer",
       "head_branch": "trigger.data.head_branch",
       "head_sha": "trigger.data.head_sha",
       "instruction": "trigger.data.instruction",
+      "level": "trigger.data.level",
       "number": "trigger.data.number",
       "repo": "trigger.data.repository",
+      "reviewer": "trigger.data.reviewer",
       "task": "trigger.data.task",
       "trusted_authors": {
         "$var": "trusted_authors"

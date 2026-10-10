@@ -68,11 +68,15 @@ TRUSTED_WORKFLOWS: dict[str, frozenset[str]] = {
     # without the hold never ran live, so it is not trusted); the first digest is that 3-try
     # version, kept while runs pinned to it may still push; the second is the #35 d30
     # one-try version (max_iterations 1, ends at the gate's verdict, exports
-    # gate_instruction) - drop the first in a later release
+    # gate_instruction) - drop the first in a later release; the third is #39's (one agent
+    # step per fixer level - agent_qwen, or agent_codex and the Codex hand-off - then select
+    # feeding the single gate; inputs fixer, reviewer, attempt, level; outputs implementer
+    # and reviewer). The d30 one stays trusted while runs pinned to it may still push.
     ROLE_FIX: frozenset(
         {
             "sha256:04570dee963d1fbf6ae55680d1ecc16c702463c858663d4fc61b557d3243b6a8",
             "sha256:307e82fc96eba7a36be1781b2f550728fbf232d37d776ed878071ae7f74ae032",
+            "sha256:721e25bea3163437e4d6808eb2e817057e4f9900d2f7123ee0a00f1880136005",
         }
     ),
     # docs/rules/pr-fixer/workflows/review-commit.json (d21)

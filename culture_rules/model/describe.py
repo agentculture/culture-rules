@@ -56,6 +56,7 @@ BUILTIN_WORDS: dict[str, str] = {
     "handoff.export": "handoff.export: the fixer's commits as a size-capped pack in the store",
     "handoff.import": "handoff.import: that pack into a fresh fixer-owned worktree",
     "fixer.cooldown": "fixer.cooldown: the failed try's level rests after capacity_exhausted",
+    "select": "select: the outputs of the path that ran (one source for the next step)",
 }
 
 _TO_CHANNEL = (("channel", "to {}"),)

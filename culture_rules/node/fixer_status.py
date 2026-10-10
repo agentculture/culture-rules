@@ -446,16 +446,23 @@ def _story_tries(chain: Chain, fix: Mapping[str, Any]) -> tuple[int, int] | None
     return n, max(limit, n)
 
 
+def _iteration(run: Mapping[str, Any], loop: str) -> int:
+    """The loop's current iteration (0 before it starts)."""
+    i = _state(run, loop).get("iteration")
+    return i if isinstance(i, int) and i >= 0 else 0
+
+
 def _fix_lines(fix: Mapping[str, Any] | None, chain: Chain | None = None) -> tuple[str, str]:
-    """The agent's and the gate's words for the latest try of ``fix``."""
+    """The agent's and the gate's words for the latest try of ``fix`` (#39: of the agent
+    step that runs it, :func:`_ran_ai`, not the first one)."""
     loop = _agent_loop(fix) if fix else None
     if fix is None or loop is None:
         return _WAITING, _WAITING
     name, agent, gate, tries = loop
-    i = _state(fix, name).get("iteration")
-    i = i if isinstance(i, int) and i >= 0 else 0
+    i = _iteration(fix, name)
     story = _story_tries(chain, fix) if chain is not None and tries == 1 else None
-    agent_state = _state(fix, f"{name}[{i}]/{agent}")
+    ran = _ran_ai(fix)
+    agent_state = _state(fix, ran[0] if ran else f"{name}[{i}]/{agent}")
     gate_state = _state(fix, f"{name}[{i}]/{gate}")
     agent_word = _step_word(agent_state)
     if agent_word == _WORKING:
@@ -499,25 +506,97 @@ def _push_line(publish: Mapping[str, Any] | None) -> str:
     return _run_word(publish)
 
 
-def _ai_actor(run: Mapping[str, Any]) -> str | None:
-    """The actor an ``ai`` step of ``run`` (top level or in a loop) is placed on."""
+_NOT_RAN = ("skipped", "pending", "cancelled", None)
+"""Step states of an ``ai`` step that did not (yet) run: #39 skips the other levels' agent
+steps by their ``when``."""
+
+
+def _placed(step: Mapping[str, Any]) -> Any:
+    placement = step.get("placement")
+    return placement.get(_ACTOR) if isinstance(placement, Mapping) else None
+
+
+def _ai_steps(run: Mapping[str, Any]) -> list[tuple[str, Mapping[str, Any]]]:
+    """``(state key, definition)`` of each ``ai`` step of ``run``: top level, or in a loop
+    (its current iteration)."""
+    found: list[tuple[str, Mapping[str, Any]]] = []
     for step in _steps(run):
-        inner = [b for b in step.get("body") or () if isinstance(b, Mapping)]
-        for candidate in (step, *inner):
-            placement = candidate.get("placement")
-            if candidate.get("kind") == "ai" and isinstance(placement, Mapping):
-                return _login(placement.get(_ACTOR))
-    return None
+        if step.get("kind") == "ai":
+            found.append((str(step.get("id")), step))
+        body = [b for b in step.get("body") or () if isinstance(b, Mapping)]
+        prefix = f"{step.get('id')}[{_iteration(run, str(step.get('id')))}]/"
+        found += [(prefix + str(b.get("id")), b) for b in body if b.get("kind") == "ai"]
+    return found
+
+
+def _ran_ai(run: Mapping[str, Any]) -> tuple[str, Mapping[str, Any]] | None:
+    """The ``ai`` step that runs ``run``'s work (#39: one agent step per level, the others
+    skipped): the first one past ``pending`` and not skipped; before any is, the one placed
+    on the actor the run was dispatched for (its ``fixer`` or ``reviewer`` input); else the
+    first one. None without an ``ai`` step."""
+    steps = _ai_steps(run)
+    if not steps:
+        return None
+    ran = next((s for s in steps if _state(run, s[0]).get(_STATUS) not in _NOT_RAN), None)
+    if ran is not None:
+        return ran
+    inputs = run.get("inputs") if isinstance(run.get("inputs"), Mapping) else {}
+    wanted = [inputs.get(k) for k in ("fixer", "reviewer")]
+    return next((s for s in steps if _placed(s[1]) in wanted and _placed(s[1])), steps[0])
+
+
+def _ai_actor(run: Mapping[str, Any]) -> str | None:
+    """The actor the ``ai`` step that runs ``run`` (:func:`_ran_ai`) is placed on."""
+    ran = _ran_ai(run)
+    return _login(_placed(ran[1])) if ran else None
+
+
+def _level(run: Mapping[str, Any]) -> int | None:
+    """#39: the fixer level a try was dispatched at (its ``level`` input), when valid."""
+    inputs = run.get("inputs") if isinstance(run.get("inputs"), Mapping) else {}
+    level = inputs.get("level")
+    ok = isinstance(level, int) and not isinstance(level, bool) and 0 < level < 100
+    return level if ok else None
+
+
+def _who(run: Mapping[str, Any]) -> str:
+    """The actor of ``run``'s agent step and, for a try dispatched at a level, the level."""
+    actor = _ai_actor(run)
+    level = _level(run)
+    return ", ".join(x for x in (actor, f"level {level}" if level else None) if x)
 
 
 def _with_actor(label: str, run: Mapping[str, Any] | None) -> str:
-    actor = _ai_actor(run) if run is not None else None
-    return f"{label} ({actor})" if actor else label
+    who = _who(run) if run is not None else ""
+    return f"{label} ({who})" if who else label
+
+
+def _tries_line(chain: Chain) -> str:
+    """#39: each try of a one-try-per-run story, with its level, its fixer and how it went
+    (the gate's verdict, else the run's state); only once there is more than one try or a
+    level to name."""
+    loops = [(r, loop) for r in chain.fixes if (loop := _agent_loop(r)) and loop[3] == 1]
+    if not loops or (len(loops) == 1 and _level(loops[0][0]) is None):
+        return ""
+    parts = []
+    for n, (fix, (name, _agent, gate, _tries)) in enumerate(loops, start=1):
+        gate_out = _outputs(_state(fix, f"{name}[{_iteration(fix, name)}]/{gate}"))
+        verdict = _word(gate_out.get("verdict"))
+        outcome = f"verdict {verdict}" if verdict else _run_word(fix)
+        parts.append(f"try {n} ({_who(fix)}): {outcome}")
+    return "Tries: " + "; ".join(parts) + "."
 
 
 def _rounds_line(chain: Chain) -> str:
-    """The earlier fix rounds of a re-fixed chain, one phrase each."""
-    reviews = [r for r in chain.runs if _review_step(r)]
+    """The earlier fix rounds of a re-fixed chain, one phrase each: the reviews made before
+    the latest try (a try whose gate did not pass has none, so the current try's review is
+    never an earlier round's)."""
+    latest = chain.latest(_agent_loop)
+    reviews = [
+        r
+        for r in chain.runs
+        if _review_step(r) and (latest is None or r[_CREATED_AT] < latest[_CREATED_AT])
+    ]
     rounds = []
     for n, review in enumerate(reviews[: max(len(chain.fixes) - 1, 0)], start=1):
         rounds.append(f"round {n}: review {_review_line(review)}")
@@ -537,8 +616,9 @@ def stage_lines(chain: Chain) -> list[str]:
     labels[1] = _with_actor(labels[1], fix)
     labels[3] = _with_actor(labels[3], review)
     lines = [f"- **{word}** {stage}" for word, stage in zip(words, labels, strict=True)]
-    earlier = _rounds_line(chain)
-    return [*lines, "", earlier] if earlier else lines
+    for extra in (_tries_line(chain), _rounds_line(chain)):
+        lines += ["", extra] if extra else []
+    return lines
 
 
 def _hhmm(text: Any) -> str:
