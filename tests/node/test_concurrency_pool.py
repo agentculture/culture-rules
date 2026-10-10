@@ -161,7 +161,8 @@ def test_a_claimed_dispatch_keeps_its_slot_until_its_run_ends():
     (act,) = c.base.get(QUEUES_COLLECTION, "q")["active"]
     assert act["claimed_at"]
     run = c.base.get(RUNS_COLLECTION, act["run_id"])
-    assert run is not None and run["status"] == "running"
+    assert run is not None
+    assert run["status"] == "running"
     c.clock.advance(5 * 3600)
     assert progress.invoke({}, "p2", deadline, context=ctx).output["dispatched"] == []
 

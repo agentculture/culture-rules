@@ -182,6 +182,21 @@ def enqueuer(store: Any, run: Mapping[str, Any]) -> Mapping[str, Any]:
     source are reserved at ingest) and came from the queue's source; it names its
     ``source_run``, which exists, succeeded, is a ``queue.add`` run and queued this very
     PR. Anything else is ``chain_unverified``."""
+    envelope = _dispatch_envelope(store, run)
+    data = envelope.get("data") if isinstance(envelope.get("data"), Mapping) else {}
+    source = data.get("source_run")
+    up = store.get(_RUNS, source) if isinstance(source, str) and source else None
+    if not up or up.get("status") != "succeeded" or not _is_enqueuer(up):
+        raise LineageError(CHAIN_UNVERIFIED, "the queued request has no succeeded queue.add run")
+    inputs = up.get("inputs") if isinstance(up.get("inputs"), Mapping) else {}
+    if inputs.get("repo") != data.get("repository") or inputs.get("number") != data.get("number"):
+        raise LineageError(CHAIN_UNVERIFIED, "the queue.add run queued another PR")
+    return up
+
+
+def _dispatch_envelope(store: Any, run: Mapping[str, Any]) -> Mapping[str, Any]:
+    """The queue's stored dispatch event that started ``run`` by its rule's firing (see
+    :func:`enqueuer`), else ``chain_unverified``."""
     from culture_rules.events.emit import QUEUE_SOURCE  # noqa: PLC0415
     from culture_rules.node.firing import run_id_for  # noqa: PLC0415
 
@@ -198,15 +213,7 @@ def enqueuer(store: Any, run: Mapping[str, Any]) -> Mapping[str, Any]:
         raise LineageError(CHAIN_UNVERIFIED, "the dispatch event is not the stored one")
     if envelope.get("source") != QUEUE_SOURCE:
         raise LineageError(CHAIN_UNVERIFIED, "the dispatch event is not the queue's")
-    data = envelope.get("data") if isinstance(envelope.get("data"), Mapping) else {}
-    source = data.get("source_run")
-    up = store.get(_RUNS, source) if isinstance(source, str) and source else None
-    if not up or up.get("status") != "succeeded" or not _is_enqueuer(up):
-        raise LineageError(CHAIN_UNVERIFIED, "the queued request has no succeeded queue.add run")
-    inputs = up.get("inputs") if isinstance(up.get("inputs"), Mapping) else {}
-    if inputs.get("repo") != data.get("repository") or inputs.get("number") != data.get("number"):
-        raise LineageError(CHAIN_UNVERIFIED, "the queue.add run queued another PR")
-    return up
+    return envelope
 
 
 def _definition(run: Mapping[str, Any]) -> Mapping[str, Any]:

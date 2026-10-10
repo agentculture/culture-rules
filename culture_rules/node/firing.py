@@ -844,23 +844,9 @@ class RuleFiring:
                 continue  # already fired for this event (by another host, or another path)
             self._pending[marker_id].append((decision.rule_id, event_id))
             run_id = run_id_for(decision.rule_id, event_id)
-            key = None
-            if decision.fire and is_dispatch(envelope) and not dispatch_live(tx, envelope, run_id):
-                # #35 (Codex P1): the queue expired this dispatch and gave its slot away
-                decision = Decision(
-                    rule_id=decision.rule_id,
-                    fire=False,
-                    reason=DISPATCH_REVOKED,
-                    detail="the queue no longer holds this dispatch's slot",
-                )
-            if decision.fire and by_id[decision.rule_id].resets_attempt_budget is True:
-                _reset_own_key(tx, by_id[decision.rule_id], envelope)  # d32: a new story
-            if decision.fire and by_id[decision.rule_id].concurrency_key is not None:
-                decision, key = self._admit(
-                    tx, by_id[decision.rule_id], rules, envelope, decision, run_id, intent_id, now
-                )
-            if decision.fire and is_dispatch(envelope):
-                claim_dispatch(tx, envelope, run_id, utc_timestamp(now))  # the slot is the run's
+            decision, key = self._gate(
+                tx, by_id[decision.rule_id], rules, envelope, decision, run_id, intent_id, now
+            )
             # A skip that matters ("superseded by A", ...) is part of the rule's history;
             # it commits (or rolls back) with this transaction, once per (rule, event). A
             # waiting record is superseded by the outcome once the predecessor settles.
@@ -896,6 +882,36 @@ class RuleFiring:
                         key,
                     ),
                 )
+
+    def _gate(
+        self,
+        tx: StoreOps,
+        rule: Rule,
+        rules: list[Rule],
+        envelope: Mapping[str, Any],
+        decision: Decision,
+        run_id: str,
+        intent_id: str,
+        now: datetime,
+    ) -> tuple[Decision, str | None]:
+        """A firing decision after the queue's slot (#35), the budget reset (d32) and the
+        concurrency key's admission; a dispatch that still fires claims its slot."""
+        key = None
+        if decision.fire and is_dispatch(envelope) and not dispatch_live(tx, envelope, run_id):
+            # #35 (Codex P1): the queue expired this dispatch and gave its slot away
+            decision = Decision(
+                rule_id=decision.rule_id,
+                fire=False,
+                reason=DISPATCH_REVOKED,
+                detail="the queue no longer holds this dispatch's slot",
+            )
+        if decision.fire and rule.resets_attempt_budget is True:
+            _reset_own_key(tx, rule, envelope)  # d32: a new story
+        if decision.fire and rule.concurrency_key is not None:
+            decision, key = self._admit(tx, rule, rules, envelope, decision, run_id, intent_id, now)
+        if decision.fire and is_dispatch(envelope):
+            claim_dispatch(tx, envelope, run_id, utc_timestamp(now))  # the slot is the run's
+        return decision, key
 
     def _rate_capped(
         self,

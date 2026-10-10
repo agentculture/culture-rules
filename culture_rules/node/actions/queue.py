@@ -193,7 +193,8 @@ def _pr_key(config: Mapping[str, Any], repo: str, number: int) -> str | None:
 def _key_state(store: Any, key: str | None, now: datetime) -> dict[str, Any]:
     if key is None:
         return {"busy": False, "count": 0, "limit": None}
-    from culture_rules.engine.claims import key_state  # noqa: PLC0415 - engine, lazily
+    # the engine, imported lazily
+    from culture_rules.engine.claims import key_state  # noqa: PLC0415
 
     return key_state(store, key, now)
 
@@ -443,7 +444,7 @@ class _Pass:
     ) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
         dispatched: list[dict[str, Any]] = []
         dropped: list[dict[str, str]] = []
-        for req in list(doc["waiting"]):
+        for req in doc["waiting"][:]:  # a copy: admitted requests leave the list
             if len(doc["active"]) >= self.cap:
                 break
             if any(a["key"] == req["key"] for a in doc["active"]):

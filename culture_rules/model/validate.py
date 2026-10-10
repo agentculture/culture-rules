@@ -536,6 +536,22 @@ def _check_rule(obj: Rule, path: str, errors: Errors) -> None:
     _schema_version(obj.schema_version, _join(path, "schema_version"), errors)
     if isinstance(obj.max_attempts, int) and obj.max_attempts < 1:
         _err(errors, _join(path, "max_attempts"), "range", "max_attempts must be >= 1")
+    _check_budget_fields(obj, path, errors)
+    if isinstance(obj.concurrency_key, str):
+        problem = _concurrency_key_problem(obj.concurrency_key)
+        if problem is not None:
+            _err(errors, _join(path, "concurrency_key"), "invalid_template", problem)
+    if obj.exclusive_group is not None:
+        _nonempty(obj, ("exclusive_group",), path, errors)
+    if isinstance(obj.condition, dict):
+        _check_rule_condition(obj.condition, path, errors)
+    for field in ("action", "on_failure"):
+        _check_action_refs(obj, field, path, errors)
+    for rel in ("must_after", "may_after", "supersedes"):
+        _check_relation(obj, rel, path, errors)
+
+
+def _check_budget_fields(obj: Rule, path: str, errors: Errors) -> None:
     if obj.counts_toward_budget is False:
         if obj.concurrency_key is None:
             _err(
@@ -558,18 +574,6 @@ def _check_rule(obj: Rule, path: str, errors: Errors) -> None:
             "requires_concurrency_key",
             "resets_attempt_budget applies only to a rule with a concurrency_key",
         )
-    if isinstance(obj.concurrency_key, str):
-        problem = _concurrency_key_problem(obj.concurrency_key)
-        if problem is not None:
-            _err(errors, _join(path, "concurrency_key"), "invalid_template", problem)
-    if obj.exclusive_group is not None:
-        _nonempty(obj, ("exclusive_group",), path, errors)
-    if isinstance(obj.condition, dict):
-        _check_rule_condition(obj.condition, path, errors)
-    for field in ("action", "on_failure"):
-        _check_action_refs(obj, field, path, errors)
-    for rel in ("must_after", "may_after", "supersedes"):
-        _check_relation(obj, rel, path, errors)
 
 
 def _check_rule_condition(condition: dict, path: str, errors: Errors) -> None:

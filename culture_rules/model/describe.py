@@ -394,7 +394,10 @@ def _loop_text(step: Mapping[str, Any], config: Mapping[str, Any]) -> str:
         items = config.get("items") or "items"
         what = "item" if items == "items" else f"of {items}"
         return f"for each {what}" + (f" (≤{bound})" if bound else "")
-    text = "one try" if bound == 1 else (f"retry up to {bound}×" if bound else "retry")
+    if bound == 1:
+        text = "one try"
+    else:
+        text = f"retry up to {bound}×" if bound else "retry"
     if config.get("until"):
         text += f", until {condition_text(config['until'])}"
     return text

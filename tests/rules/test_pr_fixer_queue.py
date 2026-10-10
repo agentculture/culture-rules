@@ -81,7 +81,8 @@ def test_two_prs_are_fixed_one_after_the_other_in_arrival_order(tmp_path):
     second = next(r for r in w.run_of("queue-add") if r["inputs"]["number"] == 8)
     assert second["outputs"]["position"] in (1, 2)
     queue = w.c.base.get(QUEUES_COLLECTION, "pr-fixer")
-    assert queue["waiting"] == [] and queue["active"] == []
+    assert queue["waiting"] == []
+    assert queue["active"] == []
     # both nodes moved the queue: one queue document, one order
     hosts = {step_state(r, "progress")["host"] for r in w.run_of("queue-progress")}
     assert hosts <= {"spark", "spark2"}
