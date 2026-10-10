@@ -66,6 +66,7 @@ _VERSION_RE = re.compile(
 _PRE_ORDER = {"a": 0, "b": 1, "rc": 2}
 _LOW, _HIGH = (0,), (2,)  # sort below / above every present value (each is ``(1, ...)``)
 _RESUME_REQUESTED = "resume_requested"
+_STEP_RECORDED = "step_recorded"
 
 WHEEL = Param("wheel", help="the culture_rules-<version>-*.whl to roll out", required=True)
 BUNDLE = Param("bundle", help="bundle directory (default: the one this wheel carries)")
@@ -518,7 +519,9 @@ def _resume(ctx: Context) -> dict[str, Any]:
 
     ``resume_requested`` is recorded (server time) before ``POST /controls/resume``, so
     verify's "since resume" window opens before the engine runs again. It is recorded once
-    per release and never moved later (a later re-run keeps the earlier, wider window).
+    per release and never moved later (a later re-run keeps the earlier, wider window): the
+    server keeps the first record and refuses a later one (409 ``step_recorded``), which a
+    concurrent or stale caller treats as "the boundary is recorded already" and proceeds.
     """
     version = release_version()
     paused = bool(_get(ctx, "/controls").get("paused"))
@@ -548,11 +551,25 @@ def _apply_resume(ctx: Context, paused: bool, steps: Mapping[str, Any]) -> str:
     if not paused and "resume" in steps:
         return "already resumed"  # the recorded boundary stays as it is
     if _RESUME_REQUESTED not in steps:
-        record(ctx, _RESUME_REQUESTED, {"engine": "paused" if paused else "running"})
+        _record_boundary(ctx, {"engine": "paused" if paused else "running"})
     already = not paused or _toggle(ctx, "resume")
     state = "already resumed" if already else "resumed"
     record(ctx, "resume", {"engine": state})
     return state
+
+
+def _record_boundary(ctx: Context, outcome: Mapping[str, Any]) -> bool:
+    """Record ``resume_requested``; True when this call recorded it. The server records it
+    once (first write wins): a 409 ``step_recorded`` means another caller recorded the
+    boundary first, and that earlier boundary is kept (this resume proceeds)."""
+    try:
+        record(ctx, _RESUME_REQUESTED, outcome)
+    except CliError as exc:
+        cause = exc.__cause__
+        if isinstance(cause, ApiError) and (cause.status, cause.code) == (409, _STEP_RECORDED):
+            return False
+        raise
+    return True
 
 
 # --------------------------------------------------------------------------- seed / import

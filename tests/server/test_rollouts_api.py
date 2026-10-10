@@ -303,3 +303,72 @@ def test_step_and_snapshot_writes_are_admin():
     r = client.post("/rollouts/0.18.12/snapshot", json=snap, headers=hdr["admin"])
     assert r.status_code == 200
     assert r.json()["updated_by"] == "admin"
+
+
+# --------------------------------------------------------------------------- the resume boundary
+
+
+def test_resume_requested_is_first_write_wins(store, client):
+    first = _step(client, "resume_requested", {"engine": "paused"})
+    assert first.status_code == 200, first.text
+    applied = first.json()["steps"]["resume_requested"]["applied_at"]
+    second = _step(client, "resume_requested", {"engine": "running"})
+    assert second.status_code == 409
+    error = second.json()["error"]
+    assert error["code"] == "step_recorded"
+    assert "resume_requested" in error["message"]
+    kept = store.get(ROLLOUTS_COLLECTION, "0.18.12")["steps"]["resume_requested"]
+    assert kept["applied_at"] == applied
+    assert kept["outcome"] == {"engine": "paused"}
+    assert len(AuditLog.entries(store, target_id="0.18.12", verb="rollouts.step")) == 1
+
+
+def test_two_resume_callers_keep_the_first_boundary(store):
+    """Caller A records the boundary; a run fails; caller B (which also read no boundary)
+    records later: the first applied_at survives, so verify still covers the failure."""
+    from datetime import UTC, datetime, timedelta
+
+    from culture_rules.server.service import Conflict
+
+    times = iter(datetime(2026, 10, 11, 12, 0, tzinfo=UTC) + timedelta(minutes=i) for i in range(5))
+    rollouts = Rollouts(store, clock=lambda: next(times))
+    rollouts.record_step("0.18.12", "resume_requested", {"outcome": {"by": "a"}}, "alice")
+    with pytest.raises(Conflict):
+        rollouts.record_step("0.18.12", "resume_requested", {"outcome": {"by": "b"}}, "bob")
+    step = store.get(ROLLOUTS_COLLECTION, "0.18.12")["steps"]["resume_requested"]
+    assert step["applied_at"] == "2026-10-11T12:00:00+00:00"
+    assert step["outcome"] == {"by": "a"}
+
+
+def test_other_steps_are_still_replaced(store, client):
+    _step(client, "resume", {"engine": "resumed"})
+    again = _step(client, "resume", {"engine": "already resumed"})
+    assert again.status_code == 200
+    assert again.json()["steps"]["resume"]["outcome"] == {"engine": "already resumed"}
+
+
+def test_concurrent_resume_requested_records_keep_exactly_one(store):
+    import threading
+
+    from culture_rules.server.service import Conflict
+
+    rollouts = Rollouts(store)
+    barrier = threading.Barrier(6)
+    outcomes: list[str] = []
+
+    def write(i: int) -> None:
+        barrier.wait()
+        try:
+            rollouts.record_step("0.18.12", "resume_requested", {"outcome": {"i": i}}, "alice")
+            outcomes.append("ok")
+        except Conflict:
+            outcomes.append("conflict")
+
+    threads = [threading.Thread(target=write, args=(i,)) for i in range(6)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert outcomes.count("ok") == 1
+    assert outcomes.count("conflict") == 5
+    assert len(AuditLog.entries(store, target_id="0.18.12", verb="rollouts.step")) == 1

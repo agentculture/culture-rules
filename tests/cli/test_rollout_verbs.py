@@ -361,6 +361,31 @@ def test_resume_is_refused_with_no_engine_change_when_the_boundary_cannot_be_rec
     assert jrun(capsys, "runs", "controls")["paused"] is True
 
 
+def test_a_second_resume_caller_keeps_the_first_boundary(
+    wire, store, capsys, monkeypatch  # noqa: F811
+):
+    """Two callers both read no resume_requested; A records it and resumes; a run fails; B's
+    record is refused (409 step_recorded) and B proceeds keeping A's boundary."""
+    jrun(capsys, "rollout", "pause", "--apply")
+    real = rollout._rollout_doc
+    stale = real(_ctx(wire), RELEASE["version"])  # read before A records
+    jrun(capsys, "rollout", "resume", "--apply")
+    first = doc(store)["steps"]["resume_requested"]
+    monkeypatch.setattr(rollout, "_rollout_doc", lambda ctx, version: stale)
+    wire.calls.clear()
+    out = jrun(capsys, "rollout", "resume", "--apply")
+    assert out["engine"] == "already resumed"
+    assert ("POST", "/rollouts/9.1.0/steps/resume_requested") in wire.mutating()
+    assert doc(store)["steps"]["resume_requested"] == first
+
+
+def _ctx(wire):  # noqa: F811
+    from culture_rules.cli.registry import Context
+    from culture_rules.client.http import ApiClient
+
+    return Context(ApiClient("http://127.0.0.1:8765", token=wire.token, transport=wire), True)
+
+
 # --------------------------------------------------------------------------- seed / import
 
 

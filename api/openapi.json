@@ -4883,7 +4883,7 @@
     },
     "/rollouts/{id}/steps/{name}": {
       "post": {
-        "description": "Merge one step's outcome into release ``id``'s rollout document, in one\ntransaction, creating the document when absent; the server sets ``applied_at``\n(admin, audited).",
+        "description": "Merge one step's outcome into release ``id``'s rollout document, in one\ntransaction, creating the document when absent; the server sets ``applied_at``\n(admin, audited). ``resume_requested`` is recorded once: a later record answers 409\n``step_recorded`` and the first is kept.",
         "operationId": "record_rollout_step",
         "parameters": [
           {
@@ -4945,6 +4945,16 @@
               }
             },
             "description": "Role not held"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Wrong state / already exists"
           },
           "422": {
             "content": {

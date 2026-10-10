@@ -97,7 +97,9 @@ server merges that one step into the document in a store transaction and stamps
 `applied_at` with its own clock, so two commands recording at once never lose
 each other's steps. `pause` records the snapshot with `POST
 /rollouts/<version>/snapshot`: the first one wins, and a later one answers 409
-`snapshot_recorded`, so a second `pause` keeps the recorded snapshot. Both
+`snapshot_recorded`, so a second `pause` keeps the recorded snapshot. A step
+re-recorded replaces that step, except `resume_requested`, which the first
+record keeps (409 `step_recorded`). Both
 endpoints are admin and audited. `PUT /rollouts/<version>` (admin) still replaces
 a whole document, but the CLI does not use it.
 
@@ -118,7 +120,9 @@ a whole document, but the CLI does not use it.
   snapshot, which `pause` records once per release.
 - **`resume` records its boundary first.** It records `resume_requested`
   (server time), then resumes the engine, then records `resume`.
-  `resume_requested` is recorded once per release.
+  `resume_requested` is recorded once per release: the server keeps the first
+  record and answers a later one 409 `step_recorded` in the same transaction, so
+  a second (or concurrent) `resume` keeps the earlier boundary and goes on.
 - **`verify` reads every failed run since that boundary.** The window opens at
   `resume_requested`, or at `resume` for a document written before that step
   existed. It pages through `GET /runs?status=failed&since=...` until

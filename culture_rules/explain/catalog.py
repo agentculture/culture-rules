@@ -344,7 +344,9 @@ wins). One command per step, in order; nothing chains them and there is no `all`
    imported, or while a rule outside snapshot plus new rules is enabled (disable it
    with `rules disable <id> --apply`; nothing changes before the refusal).
 7. `rollout resume --apply` records `resume_requested` (server time, once per
-   release), resumes the engine, then records `resume` (already resumed is reported).
+   release: the server keeps the first and answers a later one 409 `step_recorded`,
+   which resume treats as recorded), resumes the engine, then records `resume`
+   (already resumed is reported).
 8. `rollout verify` exits 0 only when every node and the API run the release, the
    engine is not paused, the enabled rules equal snapshot plus new rules and no
    run failed with `no_builtin` since `resume_requested` (else `resume`), reading
