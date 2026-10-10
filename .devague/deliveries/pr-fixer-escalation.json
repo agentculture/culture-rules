@@ -2,7 +2,7 @@
   "plan_slug": "pr-fixer-escalation",
   "schema_version": 2,
   "created": "2026-10-10T21:41:12Z",
-  "updated": "2026-10-10T22:33:42Z",
+  "updated": "2026-10-10T22:46:22Z",
   "deviations": [
     {
       "id": "d1",
@@ -58,6 +58,17 @@
       "status": "proposed",
       "classification": "acceptable",
       "seq": 5
+    },
+    {
+      "id": "d6",
+      "what": "t6: codex-fixer is not pinned in TRUSTED_ACTOR_DIGESTS (fixers are not pinned, like qwen-fixer; its digest sha256:183cd425...aa50 is listed for information) and carries no locked instruction; the hand-off run-as (CULTURE_RULES_HANDOFF_RUN_AS) and NoNewPrivileges=false are set by a node-unit systemd drop-in on spark, because install.sh rewrites node.env and has no flag for it; seeding at rollout switches levels mode on (as d3), so the operator's third step is enabling level 2",
+      "task_ref": "t6",
+      "reason": "pinning a fixer would refuse dispatch on any live mismatch while its output is reviewed anyway; the drop-in is the only setting that survives an upgrade; seed cannot hold one variable back",
+      "affects": [],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 6
     }
   ],
   "evidence": [],
