@@ -150,18 +150,27 @@ class ReactionWatcher:
 
     def _live_roots(self) -> Iterator[tuple[Mapping[str, Any], str | None]]:
         """Each live story's root run once, with its request head when queued."""
+        seen: set[Any] = set()
+        yield from self._queued_roots(seen)
+        yield from self._unfinished_roots(seen)
+
+    def _queued_roots(self, seen: set[Any]) -> Iterator[tuple[Mapping[str, Any], str | None]]:
+        """The root run of each waiting or active queue request, by its source run."""
         from culture_rules.node.fixer_status import chain_root  # noqa: PLC0415
 
-        seen: set[Any] = set()
         for queue in self._store.find(_QUEUES):
             for entry in (*(queue.get("waiting") or ()), *(queue.get("active") or ())):
                 req = entry.get("request") if isinstance(entry.get("request"), Mapping) else entry
                 source = self._store.get(_RUNS, req.get("source_run") or "")
                 root = chain_root(self._store, source) if source is not None else None
-                if root is not None and root.get("id") not in seen:
-                    seen.add(root.get("id"))
-                    head = req.get("head_sha")
-                    yield root, head if isinstance(head, str) else None
+                if root is None or root.get("id") in seen:
+                    continue
+                seen.add(root.get("id"))
+                head = req.get("head_sha")
+                yield root, head if isinstance(head, str) else None
+
+    def _unfinished_roots(self, seen: set[Any]) -> Iterator[tuple[Mapping[str, Any], str | None]]:
+        """The root run of each status comment not yet final, not already seen queued."""
         for record in self._store.find(_STATUS, {"final": False}):
             if record.get("id") in seen:
                 continue

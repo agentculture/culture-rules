@@ -634,7 +634,7 @@ def _stopped_request(store: Any, key: str | None, req: Mapping[str, Any]) -> str
 
 
 STOPPED_TEXT = "PR fixer stopped by @{by}. A new /fix or a push to the PR starts a new story."
-_LOGIN_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})(?:\[bot\])?$")
+_LOGIN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,38}(?:\[bot\])?$")
 
 
 class QueueStopPort:

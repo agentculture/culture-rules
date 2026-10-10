@@ -97,7 +97,8 @@ def test_a_trusted_stop_during_the_agent_step_cancels_the_run_within_one_tick(tm
     assert fresh(w, run)["status"] == "cancelled"
     w.run_chain()
     assert w.push.calls == []  # nothing pushed
-    assert w.run_of("review-commit") == [] and w.run_of("publish-fix") == []
+    assert w.run_of("review-commit") == []
+    assert w.run_of("publish-fix") == []
     assert handed_back(w) == []  # no hand-back comment
     assert w.qwen.cancelled  # the bridge was asked to stop the agent's job
     (stopper,) = w.runs("pr-fixer-stop")
@@ -107,7 +108,8 @@ def test_a_trusted_stop_during_the_agent_step_cancels_the_run_within_one_tick(tm
     (body,) = status_bodies(w)
     assert f"PR fixer stopped by @{TRUSTED}" in body
     queue = w.c.base.get(QUEUES_COLLECTION, "pr-fixer")
-    assert queue["waiting"] == [] and queue["active"] == []
+    assert queue["waiting"] == []
+    assert queue["active"] == []
 
 
 def test_the_apps_mention_with_stop_stops_and_never_starts_a_fix(tmp_path):
@@ -143,7 +145,8 @@ def test_a_trusted_thumbs_down_on_the_fix_comment_stops_the_story(tmp_path):
     (stopper,) = w.runs("pr-fixer-stop-reaction")
     assert stopper["status"] in ("running", "succeeded")
     w.run_chain()
-    assert w.push.calls == [] and handed_back(w) == []
+    assert w.push.calls == []
+    assert handed_back(w) == []
     (body,) = status_bodies(w)
     assert f"PR fixer stopped by @{TRUSTED}" in body
     # the story ended: no more reactions are read

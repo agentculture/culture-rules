@@ -178,6 +178,17 @@ def reserved_reason(envelope: Mapping[str, Any]) -> str | None:
     if malformed is not None:
         return f"{malformed} must be a non-empty string"  # never raise on it, never store it
     eid, kind, source = envelope.get("id"), envelope.get("type"), envelope.get("source")
+    return (
+        _engine_reserved(eid, kind, source)
+        or _settle_reserved(eid, kind)
+        or _trigger_reserved(envelope)
+    )
+
+
+def _engine_reserved(eid: Any, kind: Any, source: Any) -> str | None:
+    """The run-event, queue, internal-source and reaction-watch namespaces
+    (:func:`reserved_reason`); ``None`` when ``eid``, ``kind`` and ``source`` are outside
+    them."""
     if isinstance(eid, str) and eid.startswith(RUN_EVENT_ID_PREFIX):
         return f"id prefix {RUN_EVENT_ID_PREFIX} is reserved for the engine's run events"
     if isinstance(kind, str) and kind.startswith(RUN_EVENT_TYPE_PREFIX):
@@ -192,7 +203,7 @@ def reserved_reason(envelope: Mapping[str, Any]) -> str | None:
         return f"type {REACTION_ADDED_TYPE} is reserved for the engine's reaction watch"
     if isinstance(eid, str) and eid.startswith(REACTION_ID_PREFIX):
         return f"id prefix {REACTION_ID_PREFIX} is reserved for the engine's reaction watch"
-    return _settle_reserved(eid, kind) or _trigger_reserved(envelope)
+    return None
 
 
 CHECKED_FIELDS = ("id", "type", "kind", "source")
