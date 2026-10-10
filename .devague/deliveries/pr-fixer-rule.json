@@ -2,7 +2,7 @@
   "plan_slug": "pr-fixer-rule",
   "schema_version": 2,
   "created": "2026-10-06T08:44:59Z",
-  "updated": "2026-10-10T20:15:47Z",
+  "updated": "2026-10-10T20:27:43Z",
   "deviations": [
     {
       "id": "d1",
@@ -509,6 +509,17 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 133
+    },
+    {
+      "id": "d39",
+      "what": "Conflict watch delivery (issue #44): a conflicting head/base pair is requested until a rule hears it, not just emitted once. At each sweep, a pair whose last github.pr.conflicting event has no firing intent and no recorded decision from any rule triggered by github.pr.conflicting, was emitted at least one conflict_watch_interval_s ago, while such a rule is enabled and the engine is not paused, is emitted again as a new generation (event id hashed with the generation), at most 3 generations per pair; a pair a rule consumed is never emitted again; the per-cycle request budget is unchanged",
+      "task_ref": "t17",
+      "reason": "the d31 event id deduplicates on emission, so a conflict seen while pr-fixer-conflict was missing or disabled (between a bundle import and the re-enable, 0.18.6 rollout, katvan#57 at 14:49Z) is never requested again until the head or base moves; GitHub sends no second signal for a conflict",
+      "affects": [],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 134
     }
   ],
   "evidence": [
