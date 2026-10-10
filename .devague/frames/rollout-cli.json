@@ -2,9 +2,9 @@
   "slug": "rollout-cli",
   "title": "Rollout CLI",
   "schema_version": 6,
-  "status": "drafting",
+  "status": "exported",
   "created": "2026-10-10T20:42:40Z",
-  "updated": "2026-10-10T20:43:11Z",
+  "updated": "2026-10-10T20:59:45Z",
   "claims": [
     {
       "id": "c1",
@@ -16,13 +16,13 @@
         {
           "id": "h1",
           "text": "Every step of the hand-run rollout-0188.sh (idle, pause, spark, nodes, seed, import, enable, resume) has a rollout verb that does the same thing with --apply, and its dry run names the exact commands or API calls it would make",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         },
         {
           "id": "h2",
           "text": "No step needs a checkout of the repository: the wheel alone carries install.sh, the bundle and the release manifest",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -30,9 +30,9 @@
         {
           "id": "q1",
           "text": "Should seed values move out of seed-variables.sh into a JSON manifest (the script reading it), so the wheel and the script share one source?",
-          "resolved": false,
+          "resolved": true,
           "blocking": false,
-          "resolution": ""
+          "resolution": "Seed values move into a JSON manifest (docs/rules/pr-fixer/variables.json) shipped in the wheel; seed-variables.sh reads it (operator, 2026-10-10)"
         }
       ],
       "links": [],
@@ -44,8 +44,15 @@
       "kind": "audience",
       "text": "The operator who rolls culture-rules releases out to spark, thor, orin and spark2 (and Claude Code preparing a rollout: auto mode blocks production deploys, so the operator runs each step)",
       "origin": "llm",
-      "status": "proposed",
-      "honesty_conditions": [],
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h5",
+          "text": "Every verb is usable by the operator from a shell with the token injected by grant run, and as an MCP tool, with the same output",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
       "hard_questions": [],
       "links": [],
       "instruction": "",
@@ -56,8 +63,15 @@
       "kind": "before_state",
       "text": "Each release was rolled out from a hand-written script (rollout-0186.sh, rollout-0187.sh, rollout-0188.sh) with the hosts' install flags, the enabled-rule snapshot file and the release's new rules hard-coded; a forgotten install.sh flag silently drops a node secret, and the wrong wheel can be picked up",
       "origin": "llm",
-      "status": "proposed",
-      "honesty_conditions": [],
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h6",
+          "text": "The before state is the three committed-to-issue scripts (issue #45 comment) and the 2026-10-10 rollouts that used them",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
       "hard_questions": [],
       "links": [],
       "instruction": "",
@@ -68,8 +82,15 @@
       "kind": "after_state",
       "text": "culture-rules rollout plan --wheel <whl> prints the steps, every host with its install flags, the rules to re-enable and the release's new rules and variables; culture-rules rollout <step> runs one step: idle, pause, upgrade --host <name>, seed, import, enable, resume, verify; every step is a dry run until --apply, takes --json, and has an MCP tool",
       "origin": "llm",
-      "status": "proposed",
-      "honesty_conditions": [],
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h7",
+          "text": "rollout plan --wheel prints, without writing anything, the steps in order, each host with the install flags from its machine record, the snapshot rules and the release's new rules and variables from the wheel's manifest",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
       "hard_questions": [],
       "links": [],
       "instruction": "",
@@ -80,8 +101,15 @@
       "kind": "why_it_matters",
       "text": "Rollouts happen every release (five on 2026-10-10 alone); encoding the lessons (restore what was on, flags in one place, name the wheel, wait for idle) removes the steps that went wrong by hand",
       "origin": "llm",
-      "status": "proposed",
-      "honesty_conditions": [],
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h8",
+          "text": "Each lesson listed in issue #45 maps to a guard or a stored field the CLI enforces, named in the docs",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
       "hard_questions": [],
       "links": [],
       "instruction": "",
@@ -116,8 +144,15 @@
       "kind": "requirement",
       "text": "The machine record gains a typed install section (node_name, secrets, gate_run_as, extras, wheelhouse, python, events_host, events_port, and mode: install_sh or shared_venv); spark, whose API and node share one venv with hand-edited units, uses shared_venv: uv pip install the wheel into that venv and restart culture-rules-api and culture-rules-node, never install.sh",
       "origin": "llm",
-      "status": "proposed",
-      "honesty_conditions": [],
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h9",
+          "text": "A machine record without an install section cannot be upgraded (exit 1 naming the missing section); spark's record uses shared_venv and the CLI never runs install.sh for it",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
       "hard_questions": [],
       "links": [],
       "instruction": "",
@@ -128,8 +163,15 @@
       "kind": "requirement",
       "text": "A rollout document in the store (new collection and routes: GET viewer, writes admin) holds the release version, the enabled-rule snapshot taken at pause and each step's outcome; enable restores the snapshot plus the release's new rules and reports which rules stay disabled",
       "origin": "llm",
-      "status": "proposed",
-      "honesty_conditions": [],
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h10",
+          "text": "pause writes the snapshot before pausing; enable re-enables exactly the snapshot plus the manifest's new rules and lists every rule left disabled",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
       "hard_questions": [],
       "links": [],
       "instruction": "",
@@ -140,8 +182,15 @@
       "kind": "requirement",
       "text": "The wheel carries what a rollout needs: install.sh, the pr-fixer bundle (workflows, rules) and a release manifest naming the release's new rules and new variables with their seed values, as package data; seed and import read them from the wheel, so no checkout is needed",
       "origin": "llm",
-      "status": "proposed",
-      "honesty_conditions": [],
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h11",
+          "text": "The wheel built by CI contains install.sh, the bundle and the manifest; a test opens the built wheel and finds them",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
       "hard_questions": [],
       "links": [],
       "instruction": "",
@@ -152,12 +201,12 @@
       "kind": "requirement",
       "text": "upgrade runs ssh and scp through an injectable runner, only with --apply; it uses the wheel the operator names (--wheel), never one found on the host; afterwards it reads the host's installed version and its unit's ActiveState and ActiveEnterTimestamp",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h3",
           "text": "Without --apply, upgrade never opens an ssh connection; tests run it against a fake runner",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -171,8 +220,15 @@
       "kind": "requirement",
       "text": "verify checks every node's engine_version (GET /machines/status gains engine_version from the heartbeat) and the API's own version against the wheel, the engine not paused, enabled rules equal to the snapshot plus the release's new rules, and no run failed with no_builtin since resume",
       "origin": "llm",
-      "status": "proposed",
-      "honesty_conditions": [],
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h12",
+          "text": "verify exits 0 only when every check passes and lists each failed check otherwise",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
       "hard_questions": [],
       "links": [],
       "instruction": "",
@@ -183,12 +239,12 @@
       "kind": "requirement",
       "text": "Guards: pause refuses while a run is non-terminal (idle shows them) unless --force; import refuses before seed has run for this release; enable refuses while a node runs an older version; pause and resume are idempotent (an engine already paused or resumed is reported, not an error)",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h4",
           "text": "Each guard refuses with exit 1 and a remediation line naming the step to run first, and --force is the only override where one is allowed",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -202,8 +258,15 @@
       "kind": "boundary",
       "text": "The admin token reaches the CLI only through the environment (grant run --inject CULTURE_RULES_TOKEN=...); no secret value is stored on a machine record or a rollout document (secrets are grant names), printed, or committed; the tailnet API URL stays out of committed files",
       "origin": "llm",
-      "status": "proposed",
-      "honesty_conditions": [],
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h13",
+          "text": "A test scans the rollout code paths and the stored documents for secret values and finds only grant names; scan-secrets stays green",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
       "hard_questions": [],
       "links": [],
       "instruction": "",
@@ -214,8 +277,15 @@
       "kind": "boundary",
       "text": "Every step stays one command the operator runs and checks; nothing chains steps or runs a rollout unattended, and nodes never upgrade themselves",
       "origin": "llm",
-      "status": "proposed",
-      "honesty_conditions": [],
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h14",
+          "text": "No verb runs more than one step; there is no 'all' verb",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
       "hard_questions": [],
       "links": [],
       "instruction": "",
@@ -226,7 +296,7 @@
       "kind": "non_goal",
       "text": "Automatic rollback, upgrading the MongoDB replica set or cultureagent bridges, and a rollout view in the web editor",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [],
       "hard_questions": [],
       "links": [],
@@ -238,8 +308,15 @@
       "kind": "success_signal",
       "text": "The next release after this one is rolled out to all four nodes with culture-rules rollout commands only, no hand-written script, and rollout verify reports every check green",
       "origin": "llm",
-      "status": "proposed",
-      "honesty_conditions": [],
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h15",
+          "text": "The release after this one has its rollout recorded as a stored rollout document with every step applied and verify green",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
       "hard_questions": [],
       "links": [],
       "instruction": "",
