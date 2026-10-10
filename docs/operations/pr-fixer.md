@@ -584,7 +584,10 @@ workflows own it; no agent is involved.
   in the transaction that records the firing); a claimed slot is held until
   its run ends. A dispatch that is not claimed within 15 minutes expires and
   its slot goes to the next request; if its event is consumed later after
-  all, the rule records the skip `dispatch_revoked` and starts nothing.
+  all, the rule records the skip `dispatch_revoked` and starts nothing. Only
+  the run the event names (`dispatch_run`, `pr-fixer-dispatch`'s) claims the
+  slot: another rule on the same event fires as usual but never holds it,
+  and with `pr-fixer-dispatch` disabled the slot stays unclaimed and expires.
 - **The dispatch event** `rules.queue.dispatch` is written only by
   `queue.progress`, straight into the store, as a root event (hop count 0).
   Ingest refuses the type `rules.queue.*`, the id prefix `queue_` and the

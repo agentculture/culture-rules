@@ -845,7 +845,7 @@ class RuleFiring:
             self._pending[marker_id].append((decision.rule_id, event_id))
             run_id = run_id_for(decision.rule_id, event_id)
             key = None
-            if decision.fire and is_dispatch(envelope) and not dispatch_live(tx, envelope):
+            if decision.fire and is_dispatch(envelope) and not dispatch_live(tx, envelope, run_id):
                 # #35 (Codex P1): the queue expired this dispatch and gave its slot away
                 decision = Decision(
                     rule_id=decision.rule_id,

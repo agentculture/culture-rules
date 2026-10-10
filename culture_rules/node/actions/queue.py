@@ -75,7 +75,10 @@ to ``cap``), ``stale_after_s`` (default :data:`DEFAULT_STALE_AFTER_S`) and
    ``events`` collection after the queue write; a pass also re-writes the event of any
    active entry whose event is missing (a node that died in between). Its ``data`` is the
    request's inputs plus ``queue``, ``request_id``, ``repository``, ``number``,
-   ``head_sha``, ``retry``, ``attempt`` and ``source_run``. The ``rules.queue.*`` types
+   ``head_sha``, ``retry``, ``attempt``, ``source_run`` and ``dispatch_run`` (the run the
+   dispatch rule starts on it: only that run claims the slot; another rule on the event
+   neither claims nor is fenced, and a dispatch rule that is disabled or gone leaves the
+   slot unclaimed, so it expires). The ``rules.queue.*`` types
    and ``queue_`` ids are reserved at external ingest
    (:func:`culture_rules.events.emit.reserved_reason`).
 
@@ -549,6 +552,7 @@ def _dispatch_data(queue: str, act: Mapping[str, Any]) -> dict[str, Any]:
         retry=bool(req.get("retry")),
         attempt=req.get("attempt"),
         source_run=req.get("source_run"),
+        dispatch_run=act.get("run_id"),
     )
     return data
 
@@ -575,9 +579,21 @@ def _active_entry(ops: Any, envelope: Mapping[str, Any]) -> tuple[Any, Any, Any]
     return name, doc, act
 
 
-def dispatch_live(ops: Any, envelope: Mapping[str, Any]) -> bool:
-    """Whether the queue still holds ``envelope``'s dispatch as an active slot (read in the
-    firing's transaction): an expired dispatch is not, and must not fire."""
+def _intended(envelope: Mapping[str, Any], run_id: str) -> bool:
+    """Whether ``run_id`` is the run the queue dispatched ``envelope`` for (its
+    ``dispatch_run``: the configured dispatch rule's firing). Another rule on the same
+    event (a notification) is not: it neither holds nor claims the slot."""
+    data = envelope.get("data") if isinstance(envelope.get("data"), Mapping) else {}
+    intended = data.get("dispatch_run")
+    return not isinstance(intended, str) or not intended or intended == run_id
+
+
+def dispatch_live(ops: Any, envelope: Mapping[str, Any], run_id: str) -> bool:
+    """Whether the firing that would start ``run_id`` on ``envelope`` may go ahead (read in
+    its transaction): the intended dispatch run only while the queue still holds the slot -
+    an expired dispatch must not fire; any other rule on the event always."""
+    if not _intended(envelope, run_id):
+        return True
     return _active_entry(ops, envelope)[2] is not None
 
 
@@ -589,11 +605,13 @@ def claim_dispatch(ops: Any, envelope: Mapping[str, Any], run_id: str, at: str) 
     finds the slot gone). False when the slot is gone; True when claimed (or already)."""
     from culture_rules.store.port import TransientStoreError  # noqa: PLC0415
 
+    if not _intended(envelope, run_id):
+        return True  # not the dispatch run: it never takes the slot (Codex round 2)
     name, doc, act = _active_entry(ops, envelope)
     if act is None:
         return False
-    if act.get("claimed_at"):
-        return True
+    if act.get("claimed_at") or act.get("run_id") != run_id:
+        return bool(act.get("claimed_at"))
     active = [
         {**a, "claimed_at": at, "claimed_run": run_id} if a is act else a for a in doc["active"]
     ]
