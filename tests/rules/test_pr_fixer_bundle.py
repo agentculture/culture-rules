@@ -351,13 +351,23 @@ def test_the_review_commit_rule_maps_the_tries_reviewer():
         assert into[(sid, "reviewer")] == "inputs"
 
 
+CODEX_FIXER_DIGEST = "sha256:183cd42529d4cf2044268462ec67cf4e7c3fe9e24211c9fbfdd2f5833bcdaa50"
+"""#39 t6: the committed codex-fixer's digest, as docs/operations/pr-fixer.md lists it (not
+pinned: like qwen-fixer, everything it produces is reviewed; the digest is recorded on each
+bridge invocation)."""
+
+
 def _actor(actor_id: str) -> dict:
     (actor,) = (a for a in bundle().actors if a.id == actor_id)
     return actor.to_dict()
 
 
+FIXER_ACTORS = ("codex-fixer",)
+"""#39 t6: the fixer actors the bundle ships (qwen-fixer is registered by hand on spark2)."""
+
+
 def test_the_bundle_ships_both_reviewer_actors_and_both_are_trusted():
-    assert sorted(a.id for a in bundle().actors) == sorted(REVIEW_STEPS.values())
+    assert sorted(a.id for a in bundle().actors) == sorted([*REVIEW_STEPS.values(), *FIXER_ACTORS])
     for actor_id in REVIEW_STEPS.values():
         digest = actor_digest(_actor(actor_id))
         assert digest in TRUSTED_ACTOR_DIGESTS[actor_id], (
@@ -377,6 +387,43 @@ def test_qwen_reviewer_is_a_read_only_plan_mode_reviewer_on_the_qwen_pool():
     assert params["concurrency_pool"] == "qwen-spark2"  # one Qwen job at a time
     assert params["max_concurrency"] == 1
     assert params["bridge_token"].startswith("grant:")
+
+
+def test_codex_fixer_is_level_twos_workspace_write_codex_agent_on_spark():
+    doc = _actor("codex-fixer")
+    assert doc["kind"] == "agent"
+    assert doc["harness"] == "codex"
+    assert doc["machine"] == "spark"
+    assert doc["enabled"] is True
+    params = doc["params"]
+    assert params["sandbox"] == "workspace-write"
+    assert params["concurrency_pool"] == "codex-spark"  # the level-2 queue's cap
+    assert params["max_concurrency"] == 1
+    assert params["bridge_token"] == "grant:RULES_CODEX_FIXER_TOKEN"  # a grant name only
+    assert params["bridge_url"].startswith("http://127.0.0.1:")  # loopback: scan-secrets
+    assert params["callback_url"].startswith("http://127.0.0.1:")
+
+
+def test_codex_fixer_is_never_a_reviewer_and_takes_the_tries_instruction():
+    params = _actor("codex-fixer")["params"]
+    assert "reviewer" not in params  # a reviewer flag would let it review (verdict step)
+    assert "locked_instruction" not in params  # the only locked brief is the reviewer's
+
+
+def test_codex_fixer_sits_on_the_pool_its_seeded_level_names():
+    mem = MemoryStore()
+    seed(mem, {"fixer_levels": CHAIN_VARIABLES["fixer_levels"]})
+    ladder = load_ladder(mem, {"levels": "fixer_levels"})
+    (two,) = (lv for lv in ladder.levels if lv.actor == "codex-fixer")
+    assert two.pool == _actor("codex-fixer")["params"]["concurrency_pool"]
+
+
+def test_codex_fixer_like_qwen_fixer_is_not_pinned_its_output_is_reviewed():
+    assert "codex-fixer" not in TRUSTED_ACTOR_DIGESTS
+    assert actor_digest(_actor("codex-fixer")) == CODEX_FIXER_DIGEST, (
+        "docs/rules/pr-fixer/actors/codex-fixer.json changed its digest: update "
+        "CODEX_FIXER_DIGEST here and the digest in docs/operations/pr-fixer.md"
+    )
 
 
 def test_conditions_reference_the_variables_never_a_copied_list():

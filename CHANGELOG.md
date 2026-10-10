@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.13] - 2026-10-11
+
+### Added
+
+- PR fixer escalation (#39): fixer **levels**. The new shared variable `fixer_levels` lists the levels in order, one `key=value` string each (`level`, `actor`, `reviewer`, `pool`, `queue`, `enabled`; d1, parsed strictly, `bad_levels` fails closed), plus `fixer_unavailable` (`next` or `hand_back`). Try *n* of a story is due at the *n*-th enabled level (the last repeats); each level has its own queue on its own concurrency pool (`queues/pr-fixer` on `qwen-spark2`, `queues/pr-fixer-codex` on `codex-spark`), and `queue.progress` resolves the level at dispatch, skipping an unavailable one (actor unknown, deleted or disabled, token budget spent, or resting; a full pool is not unavailability, d2). With no level left the story is handed back once (`no_fixer_available`). The dispatch names the level, fixer, reviewer and try; `pr-fix` takes them as inputs and the status comment names each try's fixer and level. Seeded: level 1 `qwen-fixer` reviewed by `codex-reviewer`, level 2 `codex-fixer` reviewed by `qwen-reviewer`, **disabled**
+- Capacity cooldown and retry (#39): a try whose agent hits its backend's usage limit (`capacity_exhausted`) fails, and the new rule `pr-fixer-retry-capacity` runs the new workflow `queue-add-capacity`: the built-in `fixer.cooldown` rests that level (`fixer_cooldowns/<actor>`, for the new variable `fixer_capacity_cooldown_s`, default 3600 s), then `queue.add` puts the story back as a retry, so its next try takes the next available level; the new rule `pr-fixer-queue-progress-capacity` moves the queues. The failed try still counts toward the 3
+- The Codex hand-off (#39): `pr-fix` runs one agent step per level (`agent_qwen` on spark2, `agent_codex` on spark, each guarded by the try's fixer), then the built-ins `handoff.export` (spark: as the fixer account through `CULTURE_RULES_HANDOFF_RUN_AS`, packs the Codex commits, size-capped, into the `handoffs` collection) and `handoff.import` (spark2: as the gate's fixer user, verifies the pack with `index-pack --strict` and checks out exactly the agent's commit in a fresh worktree), and `select` hands the single, unchanged gate the path that ran. No ssh, no network share, no cultureagent change
+- The reviewer follows the fixer (#39): `review-commit` runs `review_codex` (a Qwen try) or `review_qwen` (a Codex try), routed by the try's reviewer; the verdict step takes the one review step that succeeded (two fail closed) and still derives reviewer and implementer from the store: never the same actor or backend, read-only, a trusted digest. `REVIEWER_BACKENDS` gains `qwen`
+- Actors (#39): `qwen-reviewer` (Qwen Code on spark2 in mode `plan`, the locked reviewer brief, sharing the `qwen-spark2` pool with `qwen-fixer`: one Qwen job at a time), pinned in `TRUSTED_ACTOR_DIGESTS`; and `codex-fixer` (Codex through a second cultureagent codex bridge on spark as `culture-codex-fixer`, sandbox `workspace-write`, pool `codex-spark`, `max_concurrency` 1, bridge token `grant:RULES_CODEX_FIXER_TOKEN`), not pinned, like `qwen-fixer`: everything a fixer produces is gated and reviewed. Committed digest `sha256:183cd42529d4cf2044268462ec67cf4e7c3fe9e24211c9fbfdd2f5833bcdaa50`
+- `docs/operations/pr-fixer.md`: the levels, the capacity cooldown, the hand-off, the reviewer rule, the current `review-commit` and describe output, "Rolling out the escalation" (what the release adds, the digests to approve, the order) and section 9, the operator's setup for the Codex level on spark: the `culture-codex-fixer` account and its `codex login`, the second Codex bridge (port 8095, its own bridge token), the grant secret names, the sudoers entry and a node-unit drop-in for `CULTURE_RULES_HANDOFF_RUN_AS` with `NoNewPrivileges=false`
+- `release.json` 0.18.13: `new_rules` `pr-fixer-retry-capacity` and `pr-fixer-queue-progress-capacity`; `new_variables` `fixer_levels`, `fixer_unavailable` and `fixer_capacity_cooldown_s`
+
+### Changed
+
+- New trusted digests needing the operator's approval: `ROLE_FIX` `sha256:721e25bea3163437e4d6808eb2e817057e4f9900d2f7123ee0a00f1880136005` (`pr-fix`, one agent step per level), `ROLE_REVIEW` `sha256:0653ba8c61a2eb0368819ac07b2a9b08ad3a8e6b023c6bfcf8ff4b93682b2bbd` (`review-commit`, the reviewer follows the fixer) and `qwen-reviewer` `sha256:5b0e1aa73c6222a757b8357fec19b2c86d937848353bfe443c4e268fffda8b1a` (the committed, loopback document; the live one, with spark2's tailnet bridge URL, needs its own digest pinned before level 2 is enabled). The earlier `pr-fix` and `review-commit` digests stay trusted while runs pinned to them may still push
+- Live behaviour change at the rollout (d3): seeding `fixer_levels` switches the live queue into levels mode even with only level 1 enabled, so an unavailable `qwen-fixer` (disabled, out of budget) hands the story back once (`no_fixer_available`) at dispatch instead of failing at the agent step; a closed PR or a moved head is still dropped silently
+- The status comment's story root follows a retry's `rules.run.failed` link (d4), so a timeout or capacity retry keeps one status comment per story
+- The verdict step checks "reviewer allowed" (flag and backend) before "read-only", and the bridge adapter locks an actor whose default mode is `plan` (`mode_locked`) (d5, proposed)
+- devague: plan `pr-fixer-escalation` (spec, plan t1-t7, deviations d1-d4 approved, d5 proposed)
+
+### Known limits
+
+- A Codex try that rewrites history fails at the hand-off export (`handoff_not_descendant`) and hands back once: no retry rule covers it
+- The hand-off's size cap is checked only after the pack is written (in the node's temp space), not while it is streamed
+- Qwen's read-only is an approval policy (mode `plan`), not a sandbox: the verdict step checks afterwards that the checkout is unchanged
+- The Claude level waits for a cultureagent Claude bridge
+
 ## [0.18.12] - 2026-10-11
 
 ### Added
