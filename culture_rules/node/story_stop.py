@@ -25,7 +25,7 @@ only.
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from datetime import datetime
 from typing import Any
 
@@ -36,6 +36,7 @@ __all__ = [
     "chain_stopped",
     "record_stop",
     "request_refusal",
+    "stop_op",
     "stop_of",
     "story_began_before",
     "story_root",
@@ -85,6 +86,37 @@ def record_stop(
         if res.won:
             return res.document or {**current, **fields}
     raise TransientStoreError(f"story stop of {key}: too much contention")
+
+
+def stop_op(
+    store: Any,
+    ik: str,
+    *,
+    key: str,
+    by: str,
+    head: Callable[[], str | None],
+    at: Callable[[], datetime],
+) -> Mapping[str, Any]:
+    """The stop operation ``ik`` (an idempotency key): ``{key, by, head_sha, at}`` as its
+    first invocation fixed them, so a replay resumes with the same cutoff and head."""
+    from culture_rules.store.port import DuplicateKeyError  # noqa: PLC0415
+
+    doc_id = "op:" + hashlib.sha256(ik.encode("utf-8")).hexdigest()[:40]
+    found = store.get(STOPS_COLLECTION, doc_id)
+    if found is not None:
+        return found
+    doc = {
+        "id": doc_id,
+        "kind": "op",
+        "key": key,
+        "by": by,
+        "head_sha": head(),
+        "at": at().isoformat(),
+    }
+    try:
+        return store.insert(STOPS_COLLECTION, doc)
+    except DuplicateKeyError:
+        return store.get(STOPS_COLLECTION, doc_id) or doc
 
 
 def stop_of(store: Any, key: str | None) -> Mapping[str, Any] | None:

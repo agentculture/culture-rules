@@ -92,15 +92,19 @@ Deviation d34 (#40): a trusted ``/stop`` or 👎 ends a PR's fixer story. Config
 and ``key_prefix`` (required), ``lookup_actor`` (the PR's current head is read, else the
 ``head_sha`` input is used) and ``sweep``. Inputs: ``repo``, ``number``, ``by`` (the login
 that asked), ``head_sha`` and ``story`` (a 👎's story, its root run id: once that story has
-no running run and no queued request, the stop does nothing, so a late reaction never stops
-a newer story). One pass:
+no running run, no waiting request and no dispatch whose run is still to end, the stop does
+nothing, so a late reaction never stops a newer story). One pass:
 
 1. **Record** the stop on the PR's concurrency key
    (:func:`~culture_rules.node.story_stop.record_stop`): from now on ``queue.add`` drops a
    request of this story, or an automatic one for the stopped head, and the push refuses
-   ``story_stopped`` (:mod:`culture_rules.node.story_stop`).
-2. **Unqueue** the PR's waiting request (its retry included) and revoke its dispatch no
-   run claimed yet (its event then never fires: ``dispatch_revoked``), by compare-and-set.
+   ``story_stopped`` (:mod:`culture_rules.node.story_stop`). Its time and head are kept
+   under the invocation's idempotency key (:func:`~culture_rules.node.story_stop.stop_op`),
+   so a replay resumes with the same cutoff.
+2. **Unqueue** the stopped story's waiting request (its retry included) and revoke its
+   dispatch no run claimed yet (its event then never fires: ``dispatch_revoked``), by
+   compare-and-set; a request admitted after the stop (a new ``/fix``) stays. The queue
+   document is written even when nothing is removed.
 3. **Cancel** the PR's running runs on the key whose story began no later than the stop,
    exactly as stopping a disabled rule's runs does (d17: cancelled, no push, no on_failure
    hand-back; the node then asks the bridge to cancel the agent's job).
@@ -651,7 +655,7 @@ class QueueStopPort:
         *,
         context: InvocationContext,
     ) -> InvocationResult:
-        from culture_rules.node.story_stop import record_stop, stop_of  # noqa: PLC0415
+        from culture_rules.node.story_stop import stop_of  # noqa: PLC0415
 
         config = context.config or {}
         sweep = config.get("sweep") is True
@@ -680,9 +684,13 @@ class QueueStopPort:
                 {"stopped": False, "key": key, "removed": 0, "cancelled": 0}
             )
         else:
-            head = self._head(repo, number, input, config, context, deadline, idempotency_key)
-            stop = record_stop(self._store, key, by=by, head_sha=head, at=self._clock())
-            removed = self._unqueue(name, f"{repo}#{number}")
+            stop = self._recorded(
+                key,
+                by,
+                idempotency_key,
+                lambda: self._head(repo, number, input, config, context, deadline, idempotency_key),
+            )
+            removed = self._unqueue(name, f"{repo}#{number}", stop)
         cancelled = self._cancel(key, stop)
         self._end_stories(repo, number, stop, removed, cancelled)
         log.info(
@@ -739,20 +747,59 @@ class QueueStopPort:
             if story_root(self._store, run).get("id") == story:
                 return True
         doc = self._store.get(QUEUES_COLLECTION, name) or {}
-        for entry in (*(doc.get("waiting") or ()), *(doc.get("active") or ())):
+        entries = [
+            *(doc.get("waiting") or ()),
+            # a dispatch whose run already ended only awaits the queue's cleanup: not live
+            *(a for a in doc.get("active") or () if not self._ended(a)),
+        ]
+        for entry in entries:
             req = entry.get("request") if isinstance(entry.get("request"), Mapping) else entry
             source = self._store.get(_RUNS, req.get("source_run") or "")
             if source is not None and story_root(self._store, source).get("id") == story:
                 return True
         return False
 
-    def _unqueue(self, name: str, pr: str) -> list[Mapping[str, Any]]:
-        """Remove the PR's waiting requests and unclaimed dispatches; the removed ones."""
+    def _ended(self, act: Mapping[str, Any]) -> bool:
+        run = self._store.get(_RUNS, act.get("run_id") or "")
+        return run is not None and run.get("status") in _RUN_DONE
+
+    def _recorded(
+        self, key: str, by: str, ik: str, head: Callable[[], str | None]
+    ) -> Mapping[str, Any]:
+        """The stop this invocation records: on its first run the time now and the PR's
+        head, kept under its idempotency key, so a replay (a lost acknowledgement) resumes
+        with the same cutoff instead of a later one (Codex round 2 #3)."""
+        from culture_rules.node.story_stop import record_stop, stop_op  # noqa: PLC0415
+
+        op = stop_op(self._store, ik, key=key, by=by, head=head, at=self._clock)
+        at = _parse(op.get("at")) or self._clock()
+        return record_stop(self._store, key, by=op["by"], head_sha=op.get("head_sha"), at=at)
+
+    def _unqueue(self, name: str, pr: str, stop: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+        """Remove the PR's waiting requests and unclaimed dispatches of the stopped story
+        (begun no later than ``stop``); the removed ones. A request admitted after the stop
+        (a new /fix) stays (Codex round 2 #2)."""
+        from culture_rules.node.story_stop import (  # noqa: PLC0415
+            story_began_before,
+            story_root,
+        )
+
+        def stopped(req: Mapping[str, Any]) -> bool:
+            source = self._store.get(_RUNS, req.get("source_run") or "")
+            began = story_root(self._store, source).get("created_at") if source else None
+            return source is None or story_began_before(stop, began)
+
         queue = _QueueDoc(self._store, name, self._clock)
         for _ in range(_MAX_CAS_TRIES):
             doc, rev, exists = queue.read()
-            waiting = [r for r in doc["waiting"] if r.get("key") == pr]
-            revoked = [a for a in doc["active"] if a.get("key") == pr and not a.get("claimed_at")]
+            waiting = [r for r in doc["waiting"] if r.get("key") == pr and stopped(r)]
+            revoked = [
+                a
+                for a in doc["active"]
+                if a.get("key") == pr
+                and not a.get("claimed_at")
+                and stopped(a.get("request") or {})
+            ]
             # always written, even with nothing to remove: an add that read the queue before
             # this write then loses its compare-and-set and judges the stop again
             doc["waiting"] = [r for r in doc["waiting"] if r not in waiting]

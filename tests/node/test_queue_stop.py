@@ -322,3 +322,65 @@ def test_a_reaction_on_a_story_that_ended_stops_nothing():
     res = w.stop(story="new-root")
     assert res.output["stopped"] is True
     assert w.store.get(RUNS_COLLECTION, newer["id"])["status"] == "cancelled"
+
+
+# --------------------------------------------------------------------------- Codex round 2
+
+
+def test_a_reaction_on_a_story_whose_dispatch_already_ended_stops_nothing():
+    """A finished dispatch still awaiting the queue's cleanup does not keep its story live
+    (Codex round 2 #1)."""
+    w = StopWorld()
+    old_root = run(w, "old-root", status="succeeded", created=-300)
+    w.add_as(old_root["id"], **request("o/a", 1))
+    w.progress()
+    act = w.doc()["active"][0]
+    w.store.put(
+        RUNS_COLLECTION,
+        {"id": act["run_id"], "status": "succeeded", "created_at": iso(w.clock, -200)},
+    )
+    res = w.stop(story="old-root")
+    assert res.output["stopped"] is False
+    assert stop_of(w.store, KEY) is None
+
+
+def test_a_request_admitted_after_the_stop_is_never_unqueued_by_it():
+    """The stop removes only its own story's requests; a /fix admitted after it stays
+    (Codex round 2 #2)."""
+    w = StopWorld()
+    run(w, "old-add", created=-60)
+    w.add_as("old-add", **request("o/a", 1))
+    from culture_rules.node.actions.queue import QueueStopPort
+
+    port = w.stop_port
+    real = port._unqueue
+
+    def unqueue(name, pr, stop):
+        # a /fix lands between the stop's record and its unqueue
+        w.clock.advance(1)
+        run(w, "new-add", created=0, resets=True)
+        w.add_as("new-add", **request("o/a", 1, head="a" * 40, instruction="new"))
+        return real(name, pr, stop)
+
+    port._unqueue = unqueue
+    res = w.stop()
+    assert res.output["removed"] == 0  # the old request was replaced in place by the new one
+    (req,) = w.doc()["waiting"]
+    assert req["source_run"] == "new-add"
+    assert isinstance(port, QueueStopPort)
+
+
+def test_a_replayed_stop_keeps_its_first_cutoff():
+    """A stop invoked again with the same idempotency key (a lost acknowledgement) resumes
+    with its first time and head, so it never cancels a story begun in between (Codex
+    round 2 #3)."""
+    w = StopWorld()
+    given = {"repo": "o/a", "number": 1, "by": "OriNachum", "head_sha": "a" * 40}
+    first = w.stop_port.invoke(given, "ik-same", DEADLINE, context=ctx(STOP, run="s"))
+    at = stop_of(w.store, KEY)["at"]
+    w.clock.advance(30)
+    newer = run(w, "new-story", created=-10)  # a /fix after the first invocation
+    again = w.stop_port.invoke(given, "ik-same", DEADLINE, context=ctx(STOP, run="s"))
+    assert first.outcome == again.outcome == COMPLETED
+    assert stop_of(w.store, KEY)["at"] == at
+    assert w.store.get(RUNS_COLLECTION, newer["id"])["status"] == "running"
