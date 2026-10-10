@@ -2,7 +2,7 @@
   "plan_slug": "rollout-cli",
   "schema_version": 2,
   "created": "2026-10-10T21:41:12Z",
-  "updated": "2026-10-10T22:19:12Z",
+  "updated": "2026-10-10T22:21:01Z",
   "deviations": [
     {
       "id": "d1",
@@ -33,7 +33,7 @@
       "reason": "Codex r1 findings: installer env injection through a newline, a viewer token could trigger upgrade, read-merge-write lost steps, verify read only 1000 failed runs, the resume boundary was recorded late; the address check closes an ssh option injection the review did not raise",
       "affects": [],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 3
     }
