@@ -8,6 +8,8 @@ completion is delivered (which frees the pool slot through the store-only releas
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 from culture_rules.actors.limits import USAGE_COLLECTION, pool_doc_id
 from culture_rules.engine.actorport import InvocationResult
 from culture_rules.engine.claims import idempotency_key
@@ -88,3 +90,77 @@ def test_an_actor_outside_the_pool_keeps_its_own_cap():
     assert statuses(c) == {"ra": "waiting", "rb": "waiting"}
     assert len(c.base.get(USAGE_COLLECTION, pool_doc_id("qwen"))["inflight"]) == 1
     assert len(c.base.get(USAGE_COLLECTION, "qwen-b")["inflight"]) == 1
+
+
+# ---- Codex #35 P1: an expired dispatch is fenced before its slot is reassigned -------------
+
+
+def dispatch_cluster():
+    """Two nodes; a rule on the queue's dispatch event runs a one-step workflow."""
+    from culture_rules.model.action import Action
+    from culture_rules.model.rule import Rule, Trigger, WorkflowRef
+
+    c = Cluster("spark", "thor")
+    inner = FakeActor().on("s1", ("accept",), ("accept",))
+    for h in ("spark", "thor"):
+        c.nodes[h] = c.node(h, actors={"*": inner})
+    c.define(workflow((step("s1", outputs=(port("n", "any", required=False),)),), id="wf-q"))
+    c.define(
+        Rule(
+            id="dispatch",
+            name="dispatch",
+            trigger=Trigger(kind="event", params={"type": "rules.queue.dispatch"}),
+            workflow=WorkflowRef(id="wf-q", inputs={}),
+            action=Action(kind="noop"),
+        )
+    )
+    c.start()
+    return c
+
+
+def test_a_late_dispatch_whose_slot_expired_never_starts_a_run():
+    from culture_rules.engine.actorport import InvocationContext as Ctx
+    from culture_rules.engine.runs import RUNS_COLLECTION
+    from culture_rules.node.actions.queue import QUEUES_COLLECTION, QueueAddPort, QueueProgressPort
+
+    c = dispatch_cluster()
+    deadline = c.clock() + timedelta(hours=1)
+    cfg = {"queue": "q", "dispatch_rule": "dispatch", "stale_after_s": 900}
+    ctx = Ctx(run_id="r", step_id="s", kind="code", host="spark", config=cfg)
+    add, progress = QueueAddPort(c.base, clock=c.clock), QueueProgressPort(c.base, clock=c.clock)
+    add.invoke({"repo": "o/a", "number": 1}, "a", deadline, context=ctx)
+    add.invoke({"repo": "o/b", "number": 2}, "b", deadline, context=ctx)
+    assert progress.invoke({}, "p1", deadline, context=ctx).output["dispatched"] == ["o/a#1"]
+    a_run = c.base.get(QUEUES_COLLECTION, "q")["active"][0]["run_id"]
+    # the nodes do not consume A's dispatch in time (a stalled feed): its slot expires
+    c.clock.advance(901)
+    second = progress.invoke({}, "p2", deadline, context=ctx)
+    assert second.output["dispatched"] == ["o/b#2"]
+    # now the nodes catch up: A's late event must not start a run beside B's
+    c.cycle()
+    c.cycle()
+    assert c.base.get(RUNS_COLLECTION, a_run) is None
+    started = [r["trigger"]["data"]["number"] for r in c.base.find(RUNS_COLLECTION)]
+    assert started == [2]
+
+
+def test_a_claimed_dispatch_keeps_its_slot_until_its_run_ends():
+    from culture_rules.engine.actorport import InvocationContext as Ctx
+    from culture_rules.engine.runs import RUNS_COLLECTION
+    from culture_rules.node.actions.queue import QUEUES_COLLECTION, QueueAddPort, QueueProgressPort
+
+    c = dispatch_cluster()
+    deadline = c.clock() + timedelta(hours=1)
+    cfg = {"queue": "q", "dispatch_rule": "dispatch", "stale_after_s": 900}
+    ctx = Ctx(run_id="r", step_id="s", kind="code", host="spark", config=cfg)
+    add, progress = QueueAddPort(c.base, clock=c.clock), QueueProgressPort(c.base, clock=c.clock)
+    add.invoke({"repo": "o/a", "number": 1}, "a", deadline, context=ctx)
+    add.invoke({"repo": "o/b", "number": 2}, "b", deadline, context=ctx)
+    progress.invoke({}, "p1", deadline, context=ctx)
+    c.cycle()  # A's dispatch fires: its firing claims the slot
+    (act,) = c.base.get(QUEUES_COLLECTION, "q")["active"]
+    assert act["claimed_at"]
+    run = c.base.get(RUNS_COLLECTION, act["run_id"])
+    assert run is not None and run["status"] == "running"
+    c.clock.advance(5 * 3600)
+    assert progress.invoke({}, "p2", deadline, context=ctx).output["dispatched"] == []

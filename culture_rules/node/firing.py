@@ -264,6 +264,7 @@ from culture_rules.engine.claims import (
     resolve_concurrency_key,
 )
 from culture_rules.engine.decisions import (
+    DISPATCH_REVOKED,
     FINAL_SKIP_REASONS,
     RATE_CAPPED,
     RULE_DECISIONS,
@@ -308,6 +309,7 @@ from culture_rules.model.actor import Actor
 from culture_rules.model.rule import Rule
 from culture_rules.model.variable_refs import rule_variable_refs
 from culture_rules.model.workflow import Workflow
+from culture_rules.node.actions.queue import claim_dispatch, dispatch_live, is_dispatch
 from culture_rules.node.chain import FeedConsumer, Source, Unrecoverable, live_rules
 from culture_rules.node.run_events import RunEventOutbox, is_run_event, verify_run_event
 from culture_rules.ops.logs import log_context
@@ -843,12 +845,22 @@ class RuleFiring:
             self._pending[marker_id].append((decision.rule_id, event_id))
             run_id = run_id_for(decision.rule_id, event_id)
             key = None
+            if decision.fire and is_dispatch(envelope) and not dispatch_live(tx, envelope):
+                # #35 (Codex P1): the queue expired this dispatch and gave its slot away
+                decision = Decision(
+                    rule_id=decision.rule_id,
+                    fire=False,
+                    reason=DISPATCH_REVOKED,
+                    detail="the queue no longer holds this dispatch's slot",
+                )
             if decision.fire and by_id[decision.rule_id].resets_attempt_budget is True:
                 _reset_own_key(tx, by_id[decision.rule_id], envelope)  # d32: a new story
             if decision.fire and by_id[decision.rule_id].concurrency_key is not None:
                 decision, key = self._admit(
                     tx, by_id[decision.rule_id], rules, envelope, decision, run_id, intent_id, now
                 )
+            if decision.fire and is_dispatch(envelope):
+                claim_dispatch(tx, envelope, run_id, utc_timestamp(now))  # the slot is the run's
             # A skip that matters ("superseded by A", ...) is part of the rule's history;
             # it commits (or rolls back) with this transaction, once per (rule, event). A
             # waiting record is superseded by the outcome once the predecessor settles.

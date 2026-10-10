@@ -578,6 +578,12 @@ workflows own it; no agent is involved.
 - **The cap** is that of the actor concurrency pool `qwen-spark2`
   (`config.pool`): the smallest `max_concurrency` among the enabled actors
   naming it, else `config.cap` (1).
+- **A dispatch is claimed or expires, never both.** `pr-fixer-dispatch`'s
+  firing claims the request's slot (a compare-and-set on the queue document,
+  in the transaction that records the firing); a claimed slot is held until
+  its run ends. A dispatch that is not claimed within 15 minutes expires and
+  its slot goes to the next request; if its event is consumed later after
+  all, the rule records the skip `dispatch_revoked` and starts nothing.
 - **The dispatch event** `rules.queue.dispatch` is written only by
   `queue.progress`, straight into the store, as a root event (hop count 0).
   Ingest refuses the type `rules.queue.*`, the id prefix `queue_` and the

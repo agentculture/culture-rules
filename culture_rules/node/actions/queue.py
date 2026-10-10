@@ -56,9 +56,12 @@ the run), ``key_prefix``, ``cap`` (slots, default 1) or ``pool`` (an actor
 to ``cap``), ``stale_after_s`` (default :data:`DEFAULT_STALE_AFTER_S`) and
 ``lookup_actor`` (the GitHub App actor the PR is read with). One pass:
 
-1. **Free ended slots.** An active entry whose run has a terminal status is removed; so is
-   one whose run never appeared within ``stale_after_s`` (the dispatch rule refused or
-   deduplicated it).
+1. **Free ended slots.** An active entry whose run has a terminal status is removed. The
+   dispatch rule's firing **claims** its entry (:func:`claim_dispatch`, a compare-and-set
+   in the trigger transaction); a claimed entry is kept until its run ends (or its start
+   failed). An unclaimed one whose firing never came within ``stale_after_s`` expires,
+   and a dispatch event whose entry is gone never fires afterwards (the skip
+   ``dispatch_revoked``): an expiry and a late claim cannot both win.
 2. **Dispatch in order.** While fewer entries are active than the cap, the oldest waiting
    request is taken, skipping one whose PR already has an active entry or whose concurrency
    key is busy (:func:`~culture_rules.engine.claims.key_state`: a live run or a chain still
@@ -111,7 +114,10 @@ __all__ = [
     "QUEUE_SOURCE",
     "QueueAddPort",
     "QueueProgressPort",
+    "claim_dispatch",
     "dispatch_event_id",
+    "dispatch_live",
+    "is_dispatch",
 ]
 
 QUEUES_COLLECTION = "queues"
@@ -124,6 +130,7 @@ _SEEN_KEEP = 256
 _MAX_CAS_TRIES = 50
 _EXPLAIN_MAX = 2000
 _RUNS = "runs"  # culture_rules.engine.runs.RUNS_COLLECTION
+_FIRES = "rule_fires"  # culture_rules.node.firing.RULE_FIRES (the firing intents)
 _EVENTS = "events"  # culture_rules.events.ingest.EVENTS_COLLECTION
 _RUN_DONE = ("succeeded", "failed", "cancelled", "superseded")
 _REPO_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}$")
@@ -414,9 +421,17 @@ class _Pass:
         raise RuntimeError(f"queues/{self.name}: too much contention")
 
     def _ended(self, act: Mapping[str, Any], now: datetime) -> bool:
+        """A slot is free once its run reached a terminal status. Before that: a dispatch
+        its firing claimed (:func:`claim_dispatch`) holds the slot until its run ends, or its
+        start failed; an unclaimed one expires after ``stale_after_s``. Expiry is a write to
+        this document, and a claim is a compare-and-set on it in the firing's transaction,
+        so exactly one of them wins: an expired dispatch can never fire later (Codex P1)."""
         run = self.store.get(_RUNS, act.get("run_id") or "")
         if run is not None:
             return run.get("status") in _RUN_DONE
+        if act.get("claimed_at"):
+            intent = self.store.get(_FIRES, _firing_key(self.rule, act["event_id"]))
+            return intent is not None and intent.get("status") == "failed"
         since = _parse(act.get("dispatched_at"))
         return since is None or now - since >= self.stale
 
@@ -525,6 +540,59 @@ def _dispatch_data(queue: str, act: Mapping[str, Any]) -> dict[str, Any]:
         source_run=req.get("source_run"),
     )
     return data
+
+
+def _firing_key(rule: str, event_id: str) -> str:
+    from culture_rules.engine.claims import firing_key  # noqa: PLC0415
+
+    return firing_key(rule, event_id)
+
+
+def is_dispatch(envelope: Mapping[str, Any]) -> bool:
+    """Whether ``envelope`` is one of the queue's dispatch events."""
+    return envelope.get("type") == DISPATCH_TYPE
+
+
+def _active_entry(ops: Any, envelope: Mapping[str, Any]) -> tuple[Any, Any, Any]:
+    data = envelope.get("data") if isinstance(envelope.get("data"), Mapping) else {}
+    name = data.get("queue")
+    doc = ops.get(QUEUES_COLLECTION, name) if isinstance(name, str) and name else None
+    act = next(
+        (a for a in (doc or {}).get("active") or () if a.get("event_id") == envelope.get("id")),
+        None,
+    )
+    return name, doc, act
+
+
+def dispatch_live(ops: Any, envelope: Mapping[str, Any]) -> bool:
+    """Whether the queue still holds ``envelope``'s dispatch as an active slot (read in the
+    firing's transaction): an expired dispatch is not, and must not fire."""
+    return _active_entry(ops, envelope)[2] is not None
+
+
+def claim_dispatch(ops: Any, envelope: Mapping[str, Any], run_id: str, at: str) -> bool:
+    """Claim ``envelope``'s active slot for the run its firing starts, by compare-and-set on
+    the queue document, inside the trigger transaction that records the firing (Codex P1):
+    from then on :class:`QueueProgressPort` keeps the slot until that run ends, and an expiry
+    racing it loses its compare-and-set (or this transaction conflicts and re-runs, then
+    finds the slot gone). False when the slot is gone; True when claimed (or already)."""
+    from culture_rules.store.port import TransientStoreError  # noqa: PLC0415
+
+    name, doc, act = _active_entry(ops, envelope)
+    if act is None:
+        return False
+    if act.get("claimed_at"):
+        return True
+    active = [
+        {**a, "claimed_at": at, "claimed_run": run_id} if a is act else a for a in doc["active"]
+    ]
+    rev = doc.get("rev")
+    res = ops.update_if(
+        QUEUES_COLLECTION, name, {"rev": rev}, {"active": active, "rev": (rev or 0) + 1}
+    )
+    if not res.won:
+        raise TransientStoreError(f"queues/{name}: a dispatch claim raced; retry")
+    return True
 
 
 def _run_id_for(rule: str, event_id: str) -> str:
