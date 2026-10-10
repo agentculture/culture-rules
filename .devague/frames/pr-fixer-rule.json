@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-05T20:43:33Z",
-  "updated": "2026-10-10T17:32:22Z",
+  "updated": "2026-10-10T17:48:45Z",
   "claims": [
     {
       "id": "c1",
@@ -1664,6 +1664,15 @@
       "source_text": "The agent never pushes. It commits in its worktree; the engine runs the repo's tests on that commit and either pushes it to the PR head branch as the GitHub App, or hands the failure back to the agent for another attempt",
       "origin": "llm",
       "status": "approved"
+    },
+    {
+      "id": "o48",
+      "claim_id": "c5",
+      "seam": "the bridge actor's merge hint (BridgeAgentActor._with_merge_hint, d36 after the /code-review on #46)",
+      "behavior": "a fixer try (its rule writes a status comment, its run has a full base_sha) gets the one-merge-from-base paragraph appended at the bridge call, never stored in any run's instruction or task; a locked brief, a non-text instruction and an instruction that already names that base commit get none; a missing instruction still falls back to task; and a copied-base finding makes the review ask for one real merge, not a smaller fix",
+      "source_text": "The agent never pushes. It commits in its worktree; the engine runs the repo's tests on that commit and either pushes it to the PR head branch as the GitHub App, or hands the failure back to the agent for another attempt",
+      "origin": "llm",
+      "status": "proposed"
     }
   ]
 }

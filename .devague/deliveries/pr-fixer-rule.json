@@ -2,7 +2,7 @@
   "plan_slug": "pr-fixer-rule",
   "schema_version": 2,
   "created": "2026-10-06T08:44:59Z",
-  "updated": "2026-10-10T17:32:22Z",
+  "updated": "2026-10-10T17:48:45Z",
   "deviations": [
     {
       "id": "d1",
@@ -2112,6 +2112,25 @@
       "status": "approved",
       "superseded": false,
       "seq": 128
+    },
+    {
+      "id": "e93",
+      "obligation_ref": "o48",
+      "test_ref": "tests/actors/test_bridge_merge_hint.py (10) + tests/actors/test_review_copied_base.py (3) + d36 tests in test_pr_fixer_queue.py / test_pr_fixer_chain.py (bridge payload) + test_gate_squash.py",
+      "behavior_text": "asserts the paragraph reaches the bridge once per try and is never stored, the skip cases, the task fallback, and the merge ask replacing the smaller-fix ask",
+      "contract_text": "c5, extended by d36 (placement amended after the operator's /code-review on #46)",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "82 d36 tests green at the named commit (full suite 4833 per the subagent); reviewed by the main agent (Codex's 3 rounds were used); tests written alongside the code",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-10T17:48:26",
+        "commit": "352a633"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 129
     }
   ],
   "deltas": [
@@ -2449,6 +2468,20 @@
       ],
       "origin": "llm",
       "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b25",
+      "kind": "amended",
+      "behavior_text": "the d36 merge paragraph moved from pr-fixer-dispatch's instruction (o46) to the bridge call: nothing stored, no rule change, so no bundle import for d36; a base copied in now gets a 'make one real merge' ask instead of 'make a smaller fix' (o47); a flattened NEWER base is a documented limit (the gate's clone holds only start, built and base)",
+      "caused_by": [
+        "d36"
+      ],
+      "evidence_refs": [
+        "e93"
+      ],
+      "origin": "llm",
+      "status": "proposed",
       "superseded": false
     }
   ],
