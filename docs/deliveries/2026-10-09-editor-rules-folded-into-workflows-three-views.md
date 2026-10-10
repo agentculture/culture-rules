@@ -51,6 +51,7 @@ After: Opening a workflow shows, in the Simple view, its When entry points (each
 - `d5` — d5: the CLI learn text (`culture_rules`/cli/`_commands`/learn.py) and the explain catalog (`culture_rules`/explain/catalog.py) change their 'five tabs (Rules | ...)' description strings to the four tabs; no behaviour change; t11's boundary check allows exactly these strings — CLAUDE.md requires the CLI self-descriptions to match it; c2/c12 forbid `culture_rules`/ changes; operator chose to allow the two strings
 - `d6` — d6: new small task (main agent builds, Opus reviews): saving a trusted workflow (pr-fix, review-commit, publish-fix) from Detailed or Debug asks for confirmation first, naming the trust it loses; trusted ids mirrored in a web constant with a test keeping them in step with `culture_rules`/actors/trusted.py — confirmed assumption c32 says the editor should warn before saving a trusted workflow; no plan task covered it (assumptions are not coverage targets); t10 found no warning exists; operator chose to add it now
 - `d7` — t5 after delivery: the Detailed view becomes compact at the operator's request (cards with no port rows, one edge per connected pair labelled with its wire count, the selected or drop-target card expands its ports, `in` and `out` each own an end column; Debug keeps the full port view) — the operator, after seeing 0.17.1 live: "Detailed view should be less descriptive. Less lines", then chose "Steps only; ports on select" and asked that "In is most left, and Out is most right". Shipped in PR #33 (0.18.0); no engine, API or CLI change
+- `d8` — t6 after delivery (#29, part a): the Simple view's entry card edits a rule's `exclusive_group` and `priority` together and lists the group's rules with the winner marked; saves go through the existing rule PUT, and a 422 shows at the field it names. The inputs mapping and the Debug view's `$var`/`$literal` ports follow as part b; `e4` is re-filed passing only after part b — the operator, 2026-10-10: "Can we do 29 just as fast?", then chose "Split: 29a now (Recommended)"
 
 - The legacy Rules board was kept, unmounted, as a test oracle between t8 and t9, then deleted once t9 hard-coded the bodies it sent (`RULES_TAB`, verified against the board by the t9 reviewer). No deviation record covers this, because it stayed inside both tasks' contracts.
 - Wave 2 started t7 before t4 merged, because t7 depends only on t3. This followed the plan's graph more closely than its wave grouping.
@@ -81,6 +82,7 @@ After: Opening a workflow shows, in the Simple view, its When entry points (each
 | `t12` | run before merge at the operator's request; the live condition edit and the converted rule's next run were observed later, on the test rule, after the 0.17.1 release (e25–e27) | `acceptable` |
 | `t8` (`d6`) | confirmed assumption c32 says the editor should warn before saving a trusted workflow; no plan task covered it (assumptions are not coverage targets); t10 found no warning exists; operator chose to add it now | `needs-follow-up` |
 | `t5` (`d7`) | the operator redesigned Detailed after release ("Detailed view should be less descriptive. Less lines"); the spec's "Detailed renders exactly today's steps-and-edges graph" no longer holds, while Debug still renders every port | `acceptable` |
+| `t6` (`d8`) | the operator split #29: group and priority now (part a), the inputs mapping and Debug ports later (part b); `c9` still fails `e4` for the inputs mapping until part b | `needs-follow-up` |
 
 ## Evidence
 
@@ -103,6 +105,7 @@ Run at commit `4c42240` (2026-10-09T14:21Z) unless noted. After the Codex review
 - o11 recheck (2026-10-09 ~20:33–20:35Z): e28. The browser network log, read around each save, shows 1 PUT to the rule (200), a GET of that rule before it, and only GET refreshes after; the rule was restored. e25 was rejected in its favour
 - 0.18.0 release (2026-10-09 ~20:40–20:45Z, main `1305ed2`): installed on spark (API and node), orin, thor and spark2, with pause and resume around the installs; every node 0.18.0, active, 0 ERROR lines. e29 for o5 (approved): the live page serves `index-CKl_CH1s.js`; PR fix in Detailed shows 0 port rows, 11 bundled edges (6 counted), `in` leftmost and `out` rightmost, 0 console errors; the compact-view unit tests re-ran on `main` (42/42)
 - d7 (PR #33, commit `9508334`): e23 for o5 (vitest 686/686, Playwright 98/98, CI green, SonarCloud OK); e24 for o6 (outside `web/`, docs and version files, the diff changes only a test's timing bound); delta b9 (amended, from d7). The operator approved all three
+- d8 (#29 part a, 2026-10-10): obligation o21 (c9, group and priority); e30 (vitest, the 9 entry-point tests and 3 `groupProblems` tests seen failing first; 698/698), e31 (Playwright round-trip, full suite 99/99), e32 (the 29a build served by `create_app` on an in-memory store and driven in a browser: priority 7 saved, the cleared group stored `null`, focus back on the chip, 0 console errors; the real API's 422 paths for a rule PUT are bare field names); delta b10 (added, from d8). Colleague review (Qwen 3.8): no functional bug; its path-matching note fixed with a test. The operator approved all five
 - PRs / issues: #27, #28, #32, #33; issues #29–#31; related #26 (a rule to visualize a spec on its PR)
 
 ## Delivery Claims
@@ -132,7 +135,7 @@ Run at commit `4c42240` (2026-10-09T14:21Z) unless noted. After the Codex review
 Caps on confidence:
 
 - **c1 medium:** checked against the built bundle, then observed live on spark's API only (e21). Not yet on `main` or the nodes.
-- **c9 medium:** e4 fails for three fields.
+- **c9 medium:** e4 fails for the inputs mapping; group and priority are now editable (o21, e30–e32), the inputs mapping waits for #29 part b.
 - **c11 medium:** the Debug wires were never checked in a browser (approved lapse l3).
 - **c19 medium:** the GitHub Actions web job has not run (approved lapse l9).
 
@@ -161,7 +164,8 @@ Lapse ledger evidence:
 - **Process note.** PR #33's records (d7, e23–e28, b9) were filed after that PR opened, not before. The operator accepted this once, and this closeout's validate and summarize legs ran before its PR opened. Follow-up changes to a delivered plan record their deviation and evidence before the PR.
 - **Follow-ups, not part of this run:** #29 (editors for priority, exclusive_group and the inputs mapping), #30 (the store's change-stream settle), #31 (the fixer re-checks the PR state), and an optional fit-on-open for wide workflows in Detailed.
 - **o11: settled.** The recheck (e28) counted exactly 1 `PUT /api/rules/<id>` per condition save, add and remove alike, each after a re-read GET. The operator approved e28 and rejected e25.
-- **o3 / e4.** The operator chose a follow-up issue: [#29](https://github.com/agentculture/culture-rules/issues/29), editors for priority, exclusive_group and the inputs mapping. `c9` is unchanged.
+- **o3 / e4.** The operator chose a follow-up issue: [#29](https://github.com/agentculture/culture-rules/issues/29), editors for priority, exclusive_group and the inputs mapping. Part a (group and priority, `d8`) is built; part b (the inputs mapping and the Debug view's `$var`/`$literal` ports) remains, after which `e4` is re-filed. `c9` is unchanged.
+- **d8 rollout.** After the 29a PR merges, deploy to the nodes (operator's go) and check the chip on the live site.
 - **Adjudication: done.** The operator approved evidence e1–e22, deltas b1–b8 and lapses l1–l9.
 - **Server gap.** `DELETE /workflows/{id}` should refuse a workflow a rule still uses. That is an API change, out of scope under c2. Issue to file if the operator agrees.
 - **Fixed by the fold, not separately on `main`.** The `updated_at` 422 on rule saves. Patch `main` separately only if the fold's release is delayed. Owner: the operator.

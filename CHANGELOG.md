@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.3] - 2026-10-10
+
+### Added
+
+- Editor (#29 part a, d8): the Simple view's entry card edits a rule's exclusive group and priority together. A chip reads 'group deploy · priority 2' (or 'no group'); its form lists the group's rules ranked as the engine picks (highest priority, then lowest id; a disabled rule never wins; ties said plainly). Saves go through the existing re-read-before-write rule PUT (a cleared group is stored as null, priority as an integer), and a 422 shows at the field its path names
+
+### Changed
+
+- devague: the editor-fold plan records d8, obligation o21, evidence e30–e32 and delta b10 (approved); the delivery summary carries them. The inputs mapping (part b) remains, after which e4 is re-filed
+
 ## [0.18.1] - 2026-10-10
 
 ### Changed

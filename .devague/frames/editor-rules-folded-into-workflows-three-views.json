@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-09T09:29:21Z",
-  "updated": "2026-10-09T15:21:19Z",
+  "updated": "2026-10-10T04:44:33Z",
   "claims": [
     {
       "id": "c1",
@@ -951,6 +951,15 @@
       "seam": "saving a trusted workflow from Detailed or Debug",
       "behavior": "before a save that would change the digest of a workflow pinned in culture_rules/actors/trusted.py, the editor warns that the workflow will stop being trusted",
       "source_text": "Saving a workflow from Detailed or Debug changes its digest, so a workflow pinned as trusted (actors/trusted.py roles: pr-fix, review-commit, publish-fix) stops being trusted; this is today's behaviour, unchanged by the fold, but the editor should warn before saving a trusted workflow.",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o21",
+      "claim_id": "c9",
+      "seam": "Simple view entry card: exclusive_group + priority",
+      "behavior": "a rule's exclusive_group and priority are edited together on its entry card (group list with the winner marked), saved through the existing re-read-before-write rule PUT (cleared group = null, priority an integer), and a 422 shows at the field it names",
+      "source_text": "Opening a workflow shows, in the Simple view, its When entry points (each rule that starts it: trigger, condition, placement, attempt counting), and its Then: continues into, ends here (the chain-end action), on failure, and runs (key and budget); every field is editable there and saves to the underlying rule.",
       "origin": "llm",
       "status": "approved"
     }
