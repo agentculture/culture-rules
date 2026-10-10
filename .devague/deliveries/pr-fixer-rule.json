@@ -2,7 +2,7 @@
   "plan_slug": "pr-fixer-rule",
   "schema_version": 2,
   "created": "2026-10-06T08:44:59Z",
-  "updated": "2026-10-10T17:31:17Z",
+  "updated": "2026-10-10T17:32:22Z",
   "deviations": [
     {
       "id": "d1",
@@ -2090,7 +2090,7 @@
         "commit": "1bf7b4f"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 127
     },
@@ -2109,7 +2109,7 @@
         "commit": "1bf7b4f"
       },
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false,
       "seq": 128
     }
@@ -2434,7 +2434,7 @@
         "e91"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false
     },
     {
@@ -2448,7 +2448,7 @@
         "e92"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "superseded": false
     }
   ],
