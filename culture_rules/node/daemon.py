@@ -151,6 +151,7 @@ NODE_COLLECTIONS = (
     "actor_usage",
     "queues",  # culture_rules.node.actions.queue.QUEUES_COLLECTION (#35)
     "handoffs",  # culture_rules.actors.handoff.HANDOFFS_COLLECTION (#39)
+    "fixer_cooldowns",  # culture_rules.node.actions.fixer_levels.FIXER_COOLDOWNS (#39)
     human.ASKS_COLLECTION,
     agent.BRIDGE_INVOCATIONS,
     REVIEWS_COLLECTION,

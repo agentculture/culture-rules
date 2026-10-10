@@ -28,7 +28,9 @@ from culture_rules.actors.trusted import (
 )
 from culture_rules.cli import main
 from culture_rules.io.exchange import bundle_files
+from culture_rules.model.condition import evaluate
 from culture_rules.model.variable_refs import rule_variable_refs
+from culture_rules.node.actions.fixer_levels import load_ladder
 from culture_rules.server.service import Definitions, Invalid
 from culture_rules.store.memory import MemoryStore
 from tests.cli.test_nouns_api import store, wire  # noqa: F401
@@ -160,6 +162,7 @@ def test_queue_stop_stops_then_sweeps_after_a_pause():
         "key_prefix": "pr-fixer:",
         "lookup_actor": "github-app",
         "queue": "pr-fixer",
+        "levels": "fixer_levels",  # #39: every level's queue too
     }
     assert steps["settle"]["kind"] == "wait"
     assert steps["sweep"]["config"] == {**steps["stop"]["config"], "sweep": True}
@@ -620,3 +623,54 @@ def test_a_comment_asking_to_stop_never_starts_a_fix(rule_id):
         mention_command="@rules-culture-dev fix",
         drop=("command",),
     )
+
+
+# --------------------------------------------------------------------------- #39 levels
+
+REPO_UNDER_TEST = "agentculture/culture-rules-tester"
+
+
+def test_fixer_levels_are_seeded_with_level_1_live_and_level_2_disabled():
+    seeded = {i["name"]: i["value"] for i in manifest()}
+    assert seeded["fixer_unavailable"] == "next"
+    mem = MemoryStore()
+    seed(mem, {k: seeded[k] for k in ("fixer_levels", "fixer_unavailable")})
+    ladder = load_ladder(mem, {"levels": "fixer_levels", "unavailable": "fixer_unavailable"})
+    one, two = ladder.levels
+    assert (one.level, one.actor, one.reviewer) == (1, "qwen-fixer", "codex-reviewer")
+    assert (one.pool, one.queue, one.enabled) == ("qwen-spark2", "pr-fixer", True)
+    assert (two.level, two.actor, two.reviewer) == (2, "codex-fixer", "qwen-reviewer")
+    assert (two.pool, two.queue, two.enabled) == ("codex-spark", "pr-fixer-codex", False)
+    assert seeded["fixer_levels"] == CHAIN_VARIABLES["fixer_levels"]
+
+
+def test_every_queue_step_reads_the_levels():
+    wfs = workflow_docs()
+    configs = [
+        s["config"]
+        for wid in ("queue-add", "queue-progress", "queue-stop")
+        for s in wfs[wid]["steps"]
+    ]
+    queue_steps = [c for c in configs if str(c.get("builtin", "")).startswith("queue.")]
+    assert len(queue_steps) == 4  # add, progress, stop and its sweep
+    assert all(c["levels"] == "fixer_levels" for c in queue_steps)
+    assert all(c["queue"] == "pr-fixer" for c in queue_steps)  # level 1's, and the fallback
+    progress = next(c for c in queue_steps if c["builtin"] == "queue.progress")
+    assert progress["unavailable"] == "fixer_unavailable"
+
+
+@pytest.mark.parametrize(
+    ("data", "fires"),
+    [
+        ({"queue": "pr-fixer"}, True),  # without fixer_levels, as before
+        ({"queue": "pr-fixer", "levels_var": "fixer_levels"}, True),
+        ({"queue": "pr-fixer-codex", "levels_var": "fixer_levels"}, True),
+        ({"queue": "pr-fixer-codex"}, False),  # another queue that has no levels
+        ({"queue": "other", "levels_var": "other_levels"}, False),
+    ],
+)
+def test_the_dispatch_rule_covers_every_level_queue(data, fires):
+    dispatch = next(r for r in bundle().rules if r.id == DISPATCH_RULE)
+    trigger = {"data": {**data, "repository": REPO_UNDER_TEST}}
+    variables = {"fixer_repos": [REPO_UNDER_TEST], "fixer_excluded_repos": []}
+    assert evaluate(dispatch.condition, {"trigger": trigger, "variables": variables}) is fires
