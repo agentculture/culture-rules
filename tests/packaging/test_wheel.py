@@ -1,4 +1,5 @@
-"""t34: the built wheel ships culture_rules/web_dist (needs npm + uv; slow, skipped without)."""
+"""t34: the built wheel ships culture_rules/web_dist; #45 t2: and culture_rules/deploy_data
+(needs npm + uv; slow, skipped without)."""
 
 from __future__ import annotations
 
@@ -14,20 +15,43 @@ ROOT = Path(__file__).resolve().parents[2]
 pytestmark = pytest.mark.slow
 
 
-@pytest.mark.skipif(
+NEEDS_BUILD = pytest.mark.skipif(
     not (shutil.which("npm") and shutil.which("uv") and (ROOT / "web" / "node_modules").is_dir()),
     reason="needs npm, uv and web/node_modules (npm ci in web/)",
 )
-def test_wheel_contains_the_web_build(tmp_path):
+
+
+@pytest.fixture(scope="module")
+def wheel_names(tmp_path_factory) -> list[str]:
     subprocess.run(["npm", "run", "build"], cwd=ROOT / "web", check=True, capture_output=True)
-    out = tmp_path / "dist"
+    out = tmp_path_factory.mktemp("dist")
     subprocess.run(
         ["uv", "build", "--wheel", "--out-dir", str(out)], cwd=ROOT, check=True, capture_output=True
     )
     (wheel,) = out.glob("culture_rules-*.whl")
-    names = zipfile.ZipFile(wheel).namelist()
-    assert "culture_rules/web_dist/index.html" in names
-    assert any(n.startswith("culture_rules/web_dist/assets/") for n in names)
+    return zipfile.ZipFile(wheel).namelist()
+
+
+@NEEDS_BUILD
+def test_wheel_contains_the_web_build(wheel_names):
+    assert "culture_rules/web_dist/index.html" in wheel_names
+    assert any(n.startswith("culture_rules/web_dist/assets/") for n in wheel_names)
+
+
+@NEEDS_BUILD
+def test_wheel_contains_install_sh_the_pr_fixer_bundle_and_both_manifests(wheel_names):
+    """#45 t2: culture_rules/deploy_data carries what the rollout CLI installs and imports."""
+    data = "culture_rules/deploy_data"
+    bundle = ROOT / "docs" / "rules" / "pr-fixer"
+    assert f"{data}/__init__.py" in wheel_names
+    assert f"{data}/install.sh" in wheel_names
+    assert f"{data}/pr-fixer/variables.json" in wheel_names
+    assert f"{data}/pr-fixer/release.json" in wheel_names
+    for kind in ("workflows", "rules", "actors"):
+        shipped = {n for n in wheel_names if n.startswith(f"{data}/pr-fixer/{kind}/")}
+        expected = {f"{data}/pr-fixer/{kind}/{p.name}" for p in (bundle / kind).glob("*.json")}
+        assert expected and shipped == expected, kind
+    assert f"{data}/pr-fixer/seed-variables.sh" not in wheel_names
 
 
 def test_build_hook_force_includes_the_build(tmp_path):
