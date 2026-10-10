@@ -788,6 +788,20 @@ def _check_machine(obj: Machine, path: str, errors: Errors) -> None:
 _GRANT_NAME_RE = re.compile(r"[A-Z0-9_]+")
 #: The run-as account in a ``sudo -n -u <user>`` prefix (a POSIX-ish user name).
 _RUN_AS_USER_RE = re.compile(r"[a-z_][a-z0-9_.-]*")
+#: A control character (U+0000-U+001F, U+007F): never in a value install.sh receives.
+_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
+#: Install fields install.sh takes as one word: no control character and no whitespace.
+_INSTALL_WORD_FIELDS = ("node_name", "wheelhouse", "python", "events_host")
+
+
+def has_control_char(value: str) -> bool:
+    """Whether ``value`` holds a control character (U+0000-U+001F or U+007F)."""
+    return _CONTROL_RE.search(value) is not None
+
+
+def is_install_word(value: str) -> bool:
+    """Whether ``value`` may reach install.sh as one word: no control character, no space."""
+    return not has_control_char(value) and not any(c.isspace() for c in value)
 
 
 def _sudo_prefix_error(value: str) -> str | None:
@@ -796,8 +810,8 @@ def _sudo_prefix_error(value: str) -> str | None:
     Mirrors install.sh's --gate-run-as checks: one line, no quotes or backslashes (the prefix
     is split on whitespace, never by a shell), and it must open with ``sudo -n -u <user>``.
     """
-    if any(c in value for c in "\n\r'\"\\"):
-        return "must be one line without quotes or backslashes"
+    if has_control_char(value) or any(c in value for c in "'\"\\"):
+        return "must be one line without control characters, quotes or backslashes"
     words = value.split()
     if len(words) < 4 or words[0].rsplit("/", 1)[-1] != "sudo" or words[1:3] != ["-n", "-u"]:
         return "must start with 'sudo -n -u <user>'"
@@ -806,8 +820,22 @@ def _sudo_prefix_error(value: str) -> str | None:
     return None
 
 
+def _check_install_words(obj: MachineInstall, path: str, errors: Errors) -> None:
+    """Every one-word install field: no control character (an env-file line break) or space."""
+    for field in _INSTALL_WORD_FIELDS:
+        value = getattr(obj, field)
+        if isinstance(value, str) and value and not is_install_word(value):
+            _err(
+                errors,
+                _join(path, field),
+                "invalid_value",
+                f"{field} must be one word without control characters or whitespace",
+            )
+
+
 def _check_machine_install(obj: MachineInstall, path: str, errors: Errors) -> None:
-    _nonempty(obj, ("node_name", "wheelhouse", "python", "events_host"), path, errors)
+    _nonempty(obj, _INSTALL_WORD_FIELDS, path, errors)
+    _check_install_words(obj, path, errors)
     if isinstance(obj.secrets, (tuple, list)):
         for i, name in enumerate(obj.secrets):
             if isinstance(name, str) and not _GRANT_NAME_RE.fullmatch(name):

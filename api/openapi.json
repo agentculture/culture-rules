@@ -994,6 +994,18 @@
             "title": "Snapshot",
             "type": "array"
           },
+          "snapshot_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "when the snapshot was recorded (server time); null = not recorded",
+            "title": "Snapshot At"
+          },
           "steps": {
             "additionalProperties": {
               "$ref": "#/components/schemas/RolloutStep"
@@ -1049,6 +1061,24 @@
         "title": "RolloutList",
         "type": "object"
       },
+      "RolloutSnapshotWrite": {
+        "additionalProperties": false,
+        "properties": {
+          "snapshot": {
+            "description": "ids of the rules enabled when the rollout paused",
+            "items": {
+              "type": "string"
+            },
+            "title": "Snapshot",
+            "type": "array"
+          }
+        },
+        "required": [
+          "snapshot"
+        ],
+        "title": "RolloutSnapshotWrite",
+        "type": "object"
+      },
       "RolloutStep": {
         "additionalProperties": false,
         "properties": {
@@ -1076,6 +1106,29 @@
           "outcome"
         ],
         "title": "RolloutStep",
+        "type": "object"
+      },
+      "RolloutStepWrite": {
+        "additionalProperties": false,
+        "properties": {
+          "outcome": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "additionalProperties": true,
+                "type": "object"
+              }
+            ],
+            "description": "a short string, or a small object of scalars / flat lists of scalars",
+            "title": "Outcome"
+          }
+        },
+        "required": [
+          "outcome"
+        ],
+        "title": "RolloutStepWrite",
         "type": "object"
       },
       "RolloutWrite": {
@@ -1120,6 +1173,35 @@
           }
         },
         "title": "RunCancel",
+        "type": "object"
+      },
+      "RunPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "with since: the next page's cursor; null on the last page",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "RunPage",
         "type": "object"
       },
       "RunStart": {
@@ -4708,6 +4790,187 @@
         ]
       }
     },
+    "/rollouts/{id}/snapshot": {
+      "post": {
+        "description": "Record release ``id``'s enabled-rule snapshot once: the first wins, and a later\ncall answers 409 ``snapshot_recorded`` naming the recorded one (admin, audited).",
+        "operationId": "record_rollout_snapshot",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "title": "Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RolloutSnapshotWrite"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rollout"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Wrong state / already exists"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Validation failed (errors listed)"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Record Rollout Snapshot",
+        "tags": [
+          "rollouts"
+        ]
+      }
+    },
+    "/rollouts/{id}/steps/{name}": {
+      "post": {
+        "description": "Merge one step's outcome into release ``id``'s rollout document, in one\ntransaction, creating the document when absent; the server sets ``applied_at``\n(admin, audited).",
+        "operationId": "record_rollout_step",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "title": "Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RolloutStepWrite"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rollout"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No valid credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Role not held"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Validation failed (errors listed)"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Record Rollout Step",
+        "tags": [
+          "rollouts"
+        ]
+      }
+    },
     "/rules": {
       "get": {
         "operationId": "list_rules",
@@ -5900,6 +6163,7 @@
     },
     "/runs": {
       "get": {
+        "description": "Runs, newest created first (``limit`` of them). With ``since`` (or ``cursor``) the\nlisting is instead every run finished since then, oldest finish first, one page of\n``limit`` at a time: ``next_cursor`` names the next page and is null on the last.",
         "operationId": "list_runs",
         "parameters": [
           {
@@ -5977,6 +6241,42 @@
               "title": "Limit",
               "type": "integer"
             }
+          },
+          {
+            "description": "only runs finished (else last updated) at or after this ISO-8601 time, oldest finish first, paged by next_cursor",
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "only runs finished (else last updated) at or after this ISO-8601 time, oldest finish first, paged by next_cursor",
+              "title": "Since"
+            }
+          },
+          {
+            "description": "next_cursor of the previous since page",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "next_cursor of the previous since page",
+              "title": "Cursor"
+            }
           }
         ],
         "responses": {
@@ -5984,7 +6284,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ItemList"
+                  "$ref": "#/components/schemas/RunPage"
                 }
               }
             },
