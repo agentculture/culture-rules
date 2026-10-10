@@ -20,10 +20,12 @@ A :class:`Node` on host ``H`` does, every cycle (:meth:`Node.run_once`):
    then **probe** - runs each due probe rule's allow-listed command on the actor's own
    machine and emits a ``kind=probe`` event on change or success
    (:mod:`culture_rules.node.probe_trigger`; same slot marker and window as schedule);
-   then **settle** and **conflict watch** - the checks settler's due SHAs
-   (:mod:`culture_rules.node.checks_settle`) and, every ``conflict_watch_interval_s``, one
+   then **settle**, **conflict watch** and **reaction watch** - the checks settler's due SHAs
+   (:mod:`culture_rules.node.checks_settle`), every ``conflict_watch_interval_s`` one
    ``github.pr.conflicting`` event per conflicting PR head and base pair of the fixer repos
-   (:mod:`culture_rules.node.conflict_watch`, d31);
+   (:mod:`culture_rules.node.conflict_watch`, d31), and every ``reaction_watch_interval_s``
+   one ``github.reaction.added`` event per 👎 on a live fixer story's ``/fix`` or status
+   comment (:mod:`culture_rules.node.reaction_watch`, d34);
    then **discord gateway** - reconciles the Discord Gateway listeners
    (:class:`~culture_rules.apps.discord_gateway.GatewaySupervisor`): for each enabled
    Discord app actor declaring ``discord.message.created`` it acquires/renews the mesh-wide
@@ -126,6 +128,7 @@ from culture_rules.node.conflict_watch import ConflictWatcher
 from culture_rules.node.firing import RULE_FIRES, RuleFiring
 from culture_rules.node.fixer_status import STATUS_COLLECTION
 from culture_rules.node.probe_trigger import PROBE_STATE, CommandRunner, ProbeTrigger
+from culture_rules.node.reaction_watch import ReactionWatcher
 from culture_rules.node.schedule import Scheduler
 from culture_rules.node.status_board import WRITERS_COLLECTION, ensure_status_indexes
 from culture_rules.ops.logs import log_context
@@ -333,6 +336,14 @@ class Node:
             lambda repo, number, timeout: lister.get_pull(repo, number, timeout_s=timeout),
             clock=self._clock,  # no serves: the bounded listing says repo_not_allowed
         )
+        # d34: a 👎 on a live story's comments stops it (no webhook says so)
+        self.reactions = ReactionWatcher(
+            store,
+            lambda repo, comment_id, timeout: lister.comment_reactions(
+                repo, comment_id, timeout_s=timeout
+            ),
+            clock=self._clock,
+        )
         self.heartbeat: HeartbeatPublisher | None = None
         self._last_beat: datetime | None = None
         self._reporter = reporter
@@ -455,6 +466,7 @@ class Node:
             self._stage(report, self._probe, report)
             self._stage(report, self._settle, report)
             self._stage(report, self._watch_conflicts, report)
+            self._stage(report, self._watch_reactions, report)
             self._stage(report, self._expire_holds, report)
             if self._listen_gateways:
                 self._stage(report, self._discord_gateway, report)
@@ -504,6 +516,10 @@ class Node:
     def _watch_conflicts(self, report: CycleReport) -> None:
         del report
         self.conflicts.tick()
+
+    def _watch_reactions(self, report: CycleReport) -> None:
+        del report
+        self.reactions.tick()
 
     def _expire_holds(self, report: CycleReport) -> None:
         """Release chain holds past their TTL (d21): their pending events then fire through

@@ -36,7 +36,7 @@ from culture_rules.node.actions.github_pr import (
     GitHubPushPort,
     GitHubThreadsPort,
 )
-from culture_rules.node.actions.queue import QueueAddPort, QueueProgressPort
+from culture_rules.node.actions.queue import QueueAddPort, QueueProgressPort, QueueStopPort
 from culture_rules.node.actions.sonar import SonarGateIssuesPort
 from culture_rules.node.runner import BuiltinCodePort
 from tests.actors.test_gate import PASSING, LocalRunner, Repo, gate_yaml, git
@@ -76,14 +76,21 @@ PROGRESS_RULES = (
     "pr-fixer-queue-progress-failed",
     "pr-fixer-queue-progress-cancelled",
     "pr-fixer-queue-progress-superseded",
+    "pr-fixer-queue-progress-stopped",  # d34: after a stop
     "pr-fixer-queue-sweep",
 )
 """#35 d29: move the queue when a request joins or a try ends (and a periodic sweep)."""
+STOP_RULES = ("pr-fixer-stop", "pr-fixer-stop-reaction")
+"""d34 (#40): a trusted /stop comment or 👎 ends the PR's story (workflow queue-stop)."""
 SECRETS_RULE = "pr-fixer-secrets"
 """d25: comments GitGuardian's findings; outside the fix chain (its own key, no workflow role)."""
 SECRETS_LATE_RULE = "pr-fixer-secrets-late"
 """d25: the same report for a GitGuardian failure that completes after the settle."""
-CHAIN_VARIABLES = {**VARIABLES, "fixer_comment_triggers": ["/fix", "@rules-culture-dev"]}
+CHAIN_VARIABLES = {
+    **VARIABLES,
+    "fixer_comment_triggers": ["/fix", "@rules-culture-dev"],
+    "fixer_stop_triggers": ["/stop", "@rules-culture-dev stop"],  # d34
+}
 KEY = f"pr-fixer:{REPO}#7"
 
 
@@ -111,7 +118,9 @@ class QwenBridge:
 
     Each request runs one scripted turn in the repo's worktree - ``"commit"`` (default: makes
     x 3), ``"none"`` (no commit) or a callable ``(repo) -> head`` - and records the terminal
-    callback at once with the per-invocation token, as the bridge would."""
+    callback at once with the per-invocation token, as the bridge would. ``"hang"`` accepts
+    the job and never completes it: the agent is still working (d34: a stop meanwhile).
+    Cancel requests are recorded in ``cancelled``."""
 
     def __init__(self, base, repo: Repo, script=None) -> None:
         self.store = base
@@ -122,6 +131,7 @@ class QwenBridge:
         self.on_request = None
         self.progress: list[str] = []
         """Progress notes (d26) each turn reports before it completes, as the bridge does."""
+        self.cancelled: list[str] = []
 
     def _report_progress(self, inv: str, token: str) -> None:
         for note in self.progress:
@@ -131,6 +141,7 @@ class QwenBridge:
 
     def __call__(self, method, url, body, headers, timeout):
         if url.endswith("/cancel"):
+            self.cancelled.append(url.rsplit("/", 2)[-2])
             return 202, b"{}"
         if self.on_request is not None:
             self.on_request()
@@ -138,6 +149,9 @@ class QwenBridge:
         given = doc["input"]
         self.inputs.append(given)
         turn = self.script.pop(0) if self.script else "commit"
+        if turn == "hang":
+            self.seq += 1
+            return 202, json.dumps({"invocation_id": f"qinv-{self.seq}"}).encode()
         git(self.repo.wt, "reset", "-q", "--hard", self.repo.start)
         if turn == "none":
             head, status = self.repo.start, "no_changes"
@@ -402,6 +416,9 @@ class ChainWorld:
                     "queue.progress": QueueProgressPort(
                         base, clock=self.c.clock, pr_lookup=FakeActor(default=head)
                     ),
+                    "queue.stop": QueueStopPort(  # d34
+                        base, clock=self.c.clock, pr_lookup=FakeActor(default=head)
+                    ),
                 }
             ),
         }
@@ -420,6 +437,14 @@ class ChainWorld:
         port = GitHubCommentPort(base, clock=self.c.clock)
         port._app = lambda actor_id, conn, allowed: self.issues
         return port
+
+    def watch_reactions(self, list_reactions) -> None:
+        """d34: each node reads 👎 reactions through ``list_reactions(repo, comment_id,
+        timeout)`` (GitHub's reaction objects) instead of the GitHub App."""
+        from culture_rules.node.reaction_watch import ReactionWatcher  # noqa: PLC0415
+
+        for node in self.c.nodes.values():
+            node.reactions = ReactionWatcher(self.c.base, list_reactions, clock=self.c.clock)
 
     # ------------------------------------------------------------------ the remote
 

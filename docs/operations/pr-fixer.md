@@ -329,7 +329,9 @@ the request reaches the head ([The fixer queue](#the-fixer-queue-35)):
 | `pr-fixer-review-commit` | `rules.run.succeeded` of `pr-fix`, gate `pass` or `no_gate` | `review-commit` | outside |
 | `pr-fixer-refix` | `rules.run.succeeded` of `review-commit`, review `request_changes` | `queue-add` as a retry, with the findings | outside |
 | `pr-fixer-publish` | `rules.run.succeeded` of `review-commit`, review `approve`, gate `pass` | `publish-fix` | outside |
-| `pr-fixer-queue-progress`, `-fixed`, `-failed`, `-cancelled`, `-superseded` | `queue-add` succeeded, or `pr-fix` succeeded, failed, cancelled or superseded | `queue-progress` | no key |
+| `pr-fixer-queue-progress`, `-fixed`, `-failed`, `-cancelled`, `-superseded`, `-stopped` | `queue-add` succeeded, `pr-fix` succeeded, failed, cancelled or superseded, or `queue-stop` succeeded | `queue-progress` | no key |
+| `pr-fixer-stop` (d34) | `github.comment.created` by a trusted author that asks to stop (below) | `queue-stop` | no key |
+| `pr-fixer-stop-reaction` (d34) | `github.reaction.added` 👎 by a trusted author: the node's reaction watch (below) | `queue-stop` | no key |
 | `pr-fixer-queue-sweep` | every 30 minutes | `queue-progress` | no key |
 | `pr-fixer-secrets` (d25) | `github.pr.checks_settled` with `gitguardian` in `failed_apps` | `report-secrets` | its own key; one comment per head SHA |
 | `pr-fixer-secrets-late` (d25) | `github.pr.checks_failed_late` with `gitguardian` in `failed_apps` | `report-secrets` | the same key and comment |
@@ -354,6 +356,45 @@ merges exactly that `base_sha` and resolves the conflict; the gate allows that
 one merge from base (see `gate` below). GitHub computes `mergeable` lazily, so
 a fresh conflict is seen at the next sweep. The type and the `conflict_` id
 prefix are reserved at external ingest.
+
+**Stopping a story (d34, #40).** A trusted author stops a PR's fixer story
+with a comment that starts with a form in `vars.fixer_stop_triggers` (default
+`/stop` and `@rules-culture-dev stop`; the App's mention followed by the word
+reaches rules as `mention_command`), or with a 👎 on the story's `/fix` comment
+or on its status comment. The fix rules never treat a stop comment as a request
+to fix. Either signal runs `queue-stop`, whose built-in `queue.stop`:
+
+- records the stop on the PR's key (collection `story_stops`: who, when, and
+  the PR head it was stopped at, read from GitHub);
+- removes the PR's waiting request and its retries from the queue, and
+  revokes a dispatch no run has claimed yet;
+- cancels the PR's running fixer runs whose story began before the stop,
+  exactly as stopping a disabled rule's runs does (d17): no push, no
+  hand-back, and the node asks the bridge to cancel the agent's job;
+- ends the story's status comment: "PR fixer stopped by @user. A new /fix or
+  a push to the PR starts a new story.";
+- two minutes later sweeps once more, cancelling a stage of the stopped
+  story that was just starting (a chain's next run).
+
+After a stop, `queue.add` quietly drops a request of the stopped story (a
+retry or a re-fix) and an automatic request (checks settled, a review, a
+conflict) for the head the story was stopped at; nothing is queued and
+nothing is handed back. A trusted `/fix` (a rule with
+`resets_attempt_budget`) or a new head starts a new story. As a last guard
+`github.push` refuses `story_stopped` for any run of a story begun before its
+stop.
+
+GitHub sends no webhook for reactions. While a story is live (its request is
+queued or dispatched, or its status comment is not final), every node that can
+read the repo through its GitHub App reads the 👎 reactions on the story's
+`/fix` comment and status comment at most every
+`vars.reaction_watch_interval_s` seconds (default 60), at most 10 requests and
+10 seconds per node cycle, and emits one `github.reaction.added` event per
+reaction (a deterministic id, so once). With no live story it makes no
+request. Only issue comments are read: a story started by a review comment is
+stopped through its status comment or `/stop`. The type and the `reaction_` id
+prefix are reserved at external ingest. `pr-fixer-stop-reaction` decides whose
+👎 counts (`vars.trusted_authors`).
 
 The d21 text calls the review stage `pr-fixer-review`. That id already names
 the review-submitted trigger rule, so the stage is `pr-fixer-review-commit`,
@@ -1337,6 +1378,24 @@ The operator does this; nothing here changes the live rules.
    `pr-fixer-queue-progress*` rules and `pr-fixer-queue-sweep`) before or
    with the changed trigger rules, so a queued request is never left without
    a rule to dispatch it.
+
+### Rolling out the stop (d34, #40)
+
+The operator does this; nothing here changes the live rules.
+
+1. Ship the wheel with `queue.stop` and the reaction watch and upgrade every
+   node: a node without `queue.stop` fails that step `no_builtin`. The
+   reaction watch reads issue-comment reactions, which the App's `Issues:
+   read` or `Pull requests: read` permission covers.
+2. Seed `fixer_stop_triggers` (`docs/rules/pr-fixer/seed-variables.sh`):
+   importing the changed rules is refused while it is undefined. No workflow
+   digest changes: `queue-stop` is non-agentic and not a trusted role.
+3. Import `docs/rules/pr-fixer` (workflows first, then rules) and enable
+   `pr-fixer-stop`, `pr-fixer-stop-reaction` and
+   `pr-fixer-queue-progress-stopped`. `pr-fixer-comment` and
+   `pr-fixer-review-comment` changed too (a stop comment never asks for a
+   fix) and, like every file in the bundle, ship disabled: enable them again
+   after the import.
 
 ### Rolling out the GitGuardian report (d25)
 

@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.7] - 2026-10-10
+
+### Added
+
+- PR fixer stop (#40, d34): a trusted author stops a PR's fixer story with a `/stop` comment (or `@rules-culture-dev stop`; forms in the new shared variable `fixer_stop_triggers`) or a thumbs-down on the story's `/fix` comment or status comment. New rules `pr-fixer-stop` and `pr-fixer-stop-reaction` run the non-agentic workflow `queue-stop`, whose built-in `queue.stop` records the stop on the PR's key, removes the PR's queued request and retries, revokes an unclaimed dispatch, cancels the PR's running fixer runs (d17: no push, no hand-back) and ends the story's status comment ("stopped by @user"); a sweep two minutes later catches a stage that was just starting. `pr-fixer-queue-progress-stopped` moves the queue after a stop. All ship disabled
+- Reaction watch (d34): GitHub sends no webhook for reactions, so while a fixer story is queued or running each node reads the thumbs-down reactions on its `/fix` and status comments (every `reaction_watch_interval_s`, default 60 s; at most 10 requests and 10 s per cycle) and emits one `github.reaction.added` event per reaction; the type and the `reaction_` id prefix are reserved at external ingest
+- GitHub webhook: issue and review comments carry their `comment_id`, and a comment starting with the App's mention carries the next word as `mention_command` (`@rules-culture-dev stop`)
+
+### Changed
+
+- After a stop, `queue.add` quietly drops a request of the stopped story and an automatic request for the head it was stopped at; a trusted `/fix` or a new head starts a new story. `github.push` refuses `story_stopped` for a run of a story begun before its stop
+- `pr-fixer-comment` and `pr-fixer-review-comment` never start a fix on a comment asking to stop
+- docs: the PR fixer guide covers stopping a story and its rollout; the editor's fold counts follow the bundle (21 rules, 7 workflows)
+
 ## [0.18.6] - 2026-10-10
 
 ### Added

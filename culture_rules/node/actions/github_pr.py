@@ -29,7 +29,9 @@ repo allowlist and its per-actor App cache. There is deliberately no merge port.
        and branch must be exactly what that fix run's last gate built and gated
        (``chain_mismatch``), the gate must have passed (``gate_not_passed``), and the rule
        of every run of the chain must still be enabled (``rule_disabled``) - for a re-fix
-       back through every earlier review and fix to the run an external event started;
+       back through every earlier review and fix to the run an external event started; no
+       trusted ``/stop`` or 👎 may have ended the chain's story since it began
+       (``story_stopped``, d34, :mod:`culture_rules.node.story_stop`);
     4. the review (d20, :func:`culture_rules.actors.review.approved_review`): the review
        record of the commit's target (repo, PR, base, start, tip), written only by the
        built-in ``review`` step and never read from a param, must approve exactly
@@ -454,6 +456,14 @@ class _PushJob:
             raise _Refused("push_rejected" if rejected else "push_failed", retryable=not rejected)
 
 
+def _story_stopped(store: Any, runs: Any) -> str | None:
+    """``story_stopped`` when a trusted stop ended the chain's story (d34,
+    :func:`~culture_rules.node.story_stop.chain_stopped`)."""
+    from culture_rules.node.story_stop import chain_stopped  # noqa: PLC0415
+
+    return chain_stopped(store, runs)
+
+
 class GitHubPushPort(GitHubCommentPort):
     """ActorPort for ``github.push`` (see the module docstring)."""
 
@@ -631,12 +641,16 @@ class GitHubPushPort(GitHubCommentPort):
     def _consume_or_refuse(
         self, input: Mapping[str, Any], context: InvocationContext, job: _PushJob, sha: str
     ) -> None:
-        """Right before the push: the rule and every rule of the chain are still live, the
+        """Right before the push: the rule and every rule of the chain are still live, no
+        ``/stop`` or 👎 ended the chain's story (``story_stopped``, d34), the
         chain's review is still the one judged (re-read: a newer result, or any other current
         record, stops it), and its approval is consumed by compare-and-set; else
         :class:`_Refused`."""
-        refusal = source_rule_refusal(self._store, context.run_id) or rules_live(
-            self._store, job.chain.runs if job.chain else ()
+        runs = job.chain.runs if job.chain else ()
+        refusal = (
+            source_rule_refusal(self._store, context.run_id)
+            or rules_live(self._store, runs)
+            or _story_stopped(self._store, runs)
         )
         if refusal:
             raise _Refused(refusal)

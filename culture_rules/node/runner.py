@@ -283,8 +283,10 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
     from culture_rules.node.actions.queue import (  # noqa: PLC0415
         QUEUE_ADD_BUILTIN,
         QUEUE_PROGRESS_BUILTIN,
+        QUEUE_STOP_BUILTIN,
         QueueAddPort,
         QueueProgressPort,
+        QueueStopPort,
     )
     from culture_rules.node.actions.sonar import SONAR_BUILTIN, SonarGateIssuesPort  # noqa: PLC0415
 
@@ -320,6 +322,7 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
                 HOLD_BUILTIN: hold,  # d25: no fix run while GitGuardian fails on the head
                 QUEUE_ADD_BUILTIN: QueueAddPort(store),  # #35 d29: the fixer queue
                 QUEUE_PROGRESS_BUILTIN: QueueProgressPort(store, pr_lookup=head),
+                QUEUE_STOP_BUILTIN: QueueStopPort(store, pr_lookup=head),  # d34: /stop, 👎
             }
         ),
     }

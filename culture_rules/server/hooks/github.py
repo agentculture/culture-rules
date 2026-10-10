@@ -165,11 +165,13 @@ def _data(event: str, action: str, payload: Mapping[str, Any]) -> dict[str, Any]
         _enrich_pr(data, payload)
     elif event == "issue_comment":
         data["comment"] = _comment_body(payload)
+        _comment_id(data, payload)
     elif event == "pull_request_review":
         data["review_state"] = _dig(payload, "review", "state")
         _enrich_pr(data, payload)
     elif event == "pull_request_review_comment":
         _review_comment_author(data, payload)
+        _comment_id(data, payload)
         _enrich_pr(data, payload)
     elif event == "check_suite":
         cs = _dig(payload, "check_suite")
@@ -186,6 +188,14 @@ def _comment_body(payload: Mapping[str, Any]) -> str | None:
     """An issue comment's body, capped; None when it has no text body."""
     body = _dig(payload, "comment", "body")
     return body[:_COMMENT_MAX] if isinstance(body, str) else None
+
+
+def _comment_id(data: dict[str, Any], payload: Mapping[str, Any]) -> None:
+    """d34: the comment's own id (a positive integer, else omitted), so the reaction watch
+    can read the 👎s on the ``/fix`` comment that started a story."""
+    comment_id = _dig(payload, "comment", "id")
+    if isinstance(comment_id, int) and not isinstance(comment_id, bool) and comment_id > 0:
+        data["comment_id"] = comment_id
 
 
 def _review_comment_author(data: dict[str, Any], payload: Mapping[str, Any]) -> None:
@@ -265,7 +275,11 @@ def comment_intent(body: Any, self_identity: Any) -> dict[str, str]:
       without ``[bot]``; an optional ``[bot]`` is part of the token), compared
       ASCII-case-insensitively and ending at a token boundary (:func:`_boundary`):
       ``@rules-culture-dev,`` counts, ``@rules-culture-devx`` and
-      ``@rules-culture-dev[bot]x`` do not.
+      ``@rules-culture-dev[bot]x`` do not;
+    * ``mention_command`` - ``@<slug> <word>`` when whitespace and then a word (ASCII
+      letters, digits, ``_``, ``-``, lowercased, ending at a token boundary) follow the
+      mention: ``@rules-culture-dev stop`` (d34). The stop rules match it against
+      ``vars.fixer_stop_triggers``, and the fix rules ignore a mention that asks to stop.
 
     Nothing later in the body ever counts, so there is no Markdown to parse. Leading
     whitespace (Unicode included) is stripped from the whole body first, then
@@ -290,7 +304,25 @@ def comment_intent(body: Any, self_identity: Any) -> dict[str, str]:
         rest = rest[len(_BOT) :]  # a present [bot] is consumed for good, then the boundary
     if _boundary(rest):
         out["mention"] = "@" + slug.lower()
+        word = _mention_word(rest)
+        if word:
+            out["mention_command"] = f"@{slug.lower()} {word}"
     return out
+
+
+_WORD_RE = re.compile(r"[a-z][a-z0-9_-]{0,31}", re.IGNORECASE | re.ASCII)
+
+
+def _mention_word(rest: str) -> str | None:
+    """The word right after a mention (d34): whitespace, then a word ending at a token
+    boundary, lowercased; else None."""
+    if not rest or not rest[0].isspace():
+        return None
+    text = rest.lstrip()
+    word = _WORD_RE.match(text)
+    if word is None or not _boundary(text[word.end() :]):
+        return None
+    return word.group(0).lower()
 
 
 def _command_end(rest: str) -> bool:

@@ -1,0 +1,280 @@
+{
+  "description": "#40 d34: ends a PR's fixer story on a trusted /stop or thumbs-down, with the built-in queue.stop: records the stop on the PR's key, removes its queued request and retries, revokes a dispatch no run claimed yet, cancels its running fixer runs (no push, no hand-back) and ends the story's status comment ('stopped by @user'). Two minutes later a sweep cancels a run of the story that started just after (a chain's next stage). Non-agentic: no actor, no agent.",
+  "edges": [
+    {
+      "source": "inputs",
+      "source_port": "repo",
+      "target": "stop",
+      "target_port": "repo"
+    },
+    {
+      "source": "inputs",
+      "source_port": "number",
+      "target": "stop",
+      "target_port": "number"
+    },
+    {
+      "source": "inputs",
+      "source_port": "by",
+      "target": "stop",
+      "target_port": "by"
+    },
+    {
+      "source": "inputs",
+      "source_port": "head_sha",
+      "target": "stop",
+      "target_port": "head_sha"
+    },
+    {
+      "source": "stop",
+      "source_port": "key",
+      "target": "settle",
+      "target_port": "after"
+    },
+    {
+      "source": "inputs",
+      "source_port": "repo",
+      "target": "sweep",
+      "target_port": "repo"
+    },
+    {
+      "source": "inputs",
+      "source_port": "number",
+      "target": "sweep",
+      "target_port": "number"
+    },
+    {
+      "source": "settle",
+      "source_port": "done",
+      "target": "sweep",
+      "target_port": "after"
+    }
+  ],
+  "enabled": true,
+  "id": "queue-stop",
+  "inputs": [
+    {
+      "description": "owner/name",
+      "name": "repo",
+      "required": false,
+      "type": "string"
+    },
+    {
+      "description": "",
+      "name": "number",
+      "required": false,
+      "type": "integer"
+    },
+    {
+      "description": "the trusted login that asked to stop",
+      "name": "by",
+      "required": false,
+      "type": "string"
+    },
+    {
+      "description": "the PR head the story is stopped at (the PR is read again)",
+      "name": "head_sha",
+      "required": false,
+      "type": "string"
+    }
+  ],
+  "name": "Stop the PR fixer",
+  "outputs": [
+    {
+      "name": "stopped",
+      "source": "steps.stop.outputs.stopped",
+      "type": "boolean"
+    },
+    {
+      "name": "key",
+      "source": "steps.stop.outputs.key",
+      "type": "string"
+    },
+    {
+      "name": "removed",
+      "source": "steps.stop.outputs.removed",
+      "type": "integer"
+    },
+    {
+      "name": "cancelled",
+      "source": "steps.stop.outputs.cancelled",
+      "type": "integer"
+    },
+    {
+      "name": "swept",
+      "source": "steps.sweep.outputs.cancelled",
+      "type": "integer"
+    }
+  ],
+  "schema_version": "1.0",
+  "steps": [
+    {
+      "body": [],
+      "config": {
+        "builtin": "queue.stop",
+        "key_prefix": "pr-fixer:",
+        "lookup_actor": "github-app",
+        "queue": "pr-fixer"
+      },
+      "description": "The built-in queue.stop: records the stop, unqueues the PR, cancels its running fixer runs and ends the story's status comment.",
+      "enabled": true,
+      "id": "stop",
+      "inputs": [
+        {
+          "description": "",
+          "name": "repo",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "number",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "description": "",
+          "name": "by",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "head_sha",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "kind": "code",
+      "max_iterations": null,
+      "name": "Stop the story",
+      "outputs": [
+        {
+          "description": "",
+          "name": "stopped",
+          "required": true,
+          "type": "boolean"
+        },
+        {
+          "description": "",
+          "name": "key",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "removed",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "description": "",
+          "name": "cancelled",
+          "required": true,
+          "type": "integer"
+        }
+      ],
+      "placement": null,
+      "retry": null,
+      "timeout_s": 60.0
+    },
+    {
+      "body": [],
+      "config": {
+        "seconds": 120
+      },
+      "description": "Wait 2 minutes: a stage of the chain that was about to start when the story was stopped has started by then.",
+      "enabled": true,
+      "id": "settle",
+      "inputs": [
+        {
+          "description": "",
+          "name": "after",
+          "required": false,
+          "type": "any"
+        }
+      ],
+      "kind": "wait",
+      "max_iterations": null,
+      "name": "Let the chain settle",
+      "outputs": [
+        {
+          "description": "",
+          "name": "done",
+          "required": false,
+          "type": "any"
+        }
+      ],
+      "placement": null,
+      "retry": null,
+      "timeout_s": null
+    },
+    {
+      "body": [],
+      "config": {
+        "builtin": "queue.stop",
+        "key_prefix": "pr-fixer:",
+        "lookup_actor": "github-app",
+        "queue": "pr-fixer",
+        "sweep": true
+      },
+      "description": "queue.stop again as a sweep: records nothing, cancels a run of the stopped story that started after the first pass.",
+      "enabled": true,
+      "id": "sweep",
+      "inputs": [
+        {
+          "description": "",
+          "name": "repo",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "number",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "description": "",
+          "name": "after",
+          "required": false,
+          "type": "any"
+        }
+      ],
+      "kind": "code",
+      "max_iterations": null,
+      "name": "Sweep",
+      "outputs": [
+        {
+          "description": "",
+          "name": "stopped",
+          "required": true,
+          "type": "boolean"
+        },
+        {
+          "description": "",
+          "name": "key",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "removed",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "description": "",
+          "name": "cancelled",
+          "required": true,
+          "type": "integer"
+        }
+      ],
+      "placement": null,
+      "retry": null,
+      "timeout_s": 60.0
+    }
+  ],
+  "variables": [],
+  "version": 1
+}

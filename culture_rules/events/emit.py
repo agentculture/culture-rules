@@ -90,6 +90,11 @@ SETTLE_TYPE_NAMES = (CHECKS_SETTLED_TYPE, CHECKS_LATE_TYPE, PR_CONFLICTING_TYPE)
 """The checks settler's event types (:mod:`culture_rules.node.checks_settle`) and the
 conflict watch's (d31, :mod:`culture_rules.node.conflict_watch`): written only by the
 engine, from its internal sources; reserved at external ingest (d25)."""
+REACTION_ADDED_TYPE = "github.reaction.added"
+REACTION_ID_PREFIX = "reaction_"
+"""The reaction watch's events (d34, :mod:`culture_rules.node.reaction_watch`): GitHub sends no
+webhook for reactions, so the engine reads them and writes these itself; the type and the
+id prefix are reserved at external ingest, so no copy can stop a fixer story."""
 SETTLED_ID_PREFIX = "settled_"
 LATE_ID_PREFIX = "late_"
 CONFLICT_ID_PREFIX = "conflict_"
@@ -151,7 +156,8 @@ def reserved_reason(envelope: Mapping[str, Any]) -> str | None:
     The run-event namespace (ids ``runevt_*``, types ``rules.run.*``), the fixer queue's
     (ids ``queue_*``, types ``rules.queue.*``, #35), the checks settler's
     namespace and the conflict watch's (types :data:`SETTLE_TYPES`, ids ``settled_*`` /
-    ``late_*`` / ``conflict_*``, d25, d31), the
+    ``late_*`` / ``conflict_*``, d25, d31), the reaction watch's (type
+    :data:`REACTION_ADDED_TYPE`, ids ``reaction_*``, d34), the
     schedule and probe namespace (kind or type ``schedule`` / ``probe``, sources
     :data:`TRIGGER_EVENT_SOURCES`, ids ``schedule/*`` / ``probe/*``) and the internal
     sources are written only by the engine itself (deviation d21): a copy from outside
@@ -182,6 +188,10 @@ def reserved_reason(envelope: Mapping[str, Any]) -> str | None:
         return f"id prefix {QUEUE_EVENT_ID_PREFIX} is reserved for the engine's queue"
     if isinstance(source, str) and source.startswith(INTERNAL_SOURCE_PREFIX):
         return f"source {INTERNAL_SOURCE_PREFIX}* is reserved for the engine"
+    if kind == REACTION_ADDED_TYPE:
+        return f"type {REACTION_ADDED_TYPE} is reserved for the engine's reaction watch"
+    if isinstance(eid, str) and eid.startswith(REACTION_ID_PREFIX):
+        return f"id prefix {REACTION_ID_PREFIX} is reserved for the engine's reaction watch"
     return _settle_reserved(eid, kind) or _trigger_reserved(envelope)
 
 

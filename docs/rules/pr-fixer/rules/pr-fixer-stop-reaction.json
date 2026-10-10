@@ -1,0 +1,105 @@
+{
+  "action": {
+    "idempotent": false,
+    "kind": "noop",
+    "name": "Stopped: the run's output says what",
+    "only_at_chain_end": false,
+    "params": {},
+    "retry": null,
+    "timeout_s": null
+  },
+  "concurrency_key": null,
+  "condition": {
+    "args": [
+      {
+        "items": {
+          "var": "fixer_repos"
+        },
+        "op": "in",
+        "value": {
+          "field": "data.repository"
+        }
+      },
+      {
+        "arg": {
+          "items": {
+            "var": "fixer_excluded_repos"
+          },
+          "op": "in",
+          "value": {
+            "field": "data.repository"
+          }
+        },
+        "op": "not"
+      },
+      {
+        "items": {
+          "var": "trusted_authors"
+        },
+        "op": "in",
+        "value": {
+          "field": "data.author"
+        }
+      },
+      {
+        "cmp": "==",
+        "left": {
+          "field": "data.content"
+        },
+        "op": "compare",
+        "right": {
+          "literal": "-1"
+        }
+      }
+    ],
+    "op": "and"
+  },
+  "counts_toward_budget": true,
+  "description": "#40 d34: fires on a thumbs-down by an author in vars.trusted_authors on a live fixer story's /fix comment or status comment. GitHub sends no webhook for reactions: the node's reaction watch reads them about every vars.reaction_watch_interval_s (default 60 s) while the story is queued or running, and writes github.reaction.added (a type reserved for the engine). Repos in vars.fixer_repos only; vars.fixer_excluded_repos overrides it. Runs queue-stop, like pr-fixer-stop. No concurrency key.",
+  "enabled": false,
+  "exclusive_group": null,
+  "id": "pr-fixer-stop-reaction",
+  "max_attempts": null,
+  "may_after": [],
+  "must_after": [],
+  "name": "PR fixer: stop on a thumbs-down",
+  "on_failure": {
+    "idempotent": false,
+    "kind": "github.comment",
+    "name": "Say the stop failed (once per chain)",
+    "only_at_chain_end": true,
+    "params": {
+      "actor": "github-app",
+      "body": "PR fixer stop failed ({{ run.error.code }}): {{ run.error.message }}",
+      "number": "trigger.data.number",
+      "repo": "trigger.data.repository"
+    },
+    "retry": null,
+    "timeout_s": null
+  },
+  "placement": {
+    "actor": null,
+    "machine": "spark2",
+    "requirement": null
+  },
+  "priority": 0,
+  "resets_attempt_budget": false,
+  "schema_version": "1.0",
+  "supersedes": [],
+  "trigger": {
+    "kind": "event",
+    "params": {
+      "type": "github.reaction.added"
+    }
+  },
+  "workflow": {
+    "id": "queue-stop",
+    "inputs": {
+      "by": "trigger.data.author",
+      "head_sha": "trigger.data.head_sha",
+      "number": "trigger.data.number",
+      "repo": "trigger.data.repository"
+    },
+    "version": null
+  }
+}

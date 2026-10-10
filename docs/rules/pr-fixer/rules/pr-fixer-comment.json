@@ -116,12 +116,38 @@
           }
         ],
         "op": "or"
+      },
+      {
+        "arg": {
+          "args": [
+            {
+              "items": {
+                "var": "fixer_stop_triggers"
+              },
+              "op": "in",
+              "value": {
+                "field": "data.command"
+              }
+            },
+            {
+              "items": {
+                "var": "fixer_stop_triggers"
+              },
+              "op": "in",
+              "value": {
+                "field": "data.mention_command"
+              }
+            }
+          ],
+          "op": "or"
+        },
+        "op": "not"
       }
     ],
     "op": "and"
   },
   "counts_toward_budget": false,
-  "description": "Fires on a PR comment by an author in vars.trusted_authors (never the App itself); a comment whose PR facts could not be read (pr_enriched false) never fires. Same-repo, non-draft PRs of repos in vars.fixer_repos only; vars.fixer_excluded_repos overrides it. Adds the PR to the fixer queue (#35, d29: workflow queue-add); pr-fixer-dispatch starts its pr-fix run when it reaches the head of the line. Shares the per-PR concurrency key with the other pr-fixer-* rules (so a human push still resets the PR's attempt budget) but is not an attempt itself. The body must start with a command or mention the App in vars.fixer_comment_triggers (default /fix and @rules-culture-dev). Only while the PR is open. A trusted /fix (or mention) is a new request (d32): it resets the PR's attempt budget when it fires (resets_attempt_budget), and replaces a queued retry in place.",
+  "description": "Fires on a PR comment by an author in vars.trusted_authors (never the App itself); a comment whose PR facts could not be read (pr_enriched false) never fires. Same-repo, non-draft PRs of repos in vars.fixer_repos only; vars.fixer_excluded_repos overrides it. Adds the PR to the fixer queue (#35, d29: workflow queue-add); pr-fixer-dispatch starts its pr-fix run when it reaches the head of the line. Shares the per-PR concurrency key with the other pr-fixer-* rules (so a human push still resets the PR's attempt budget) but is not an attempt itself. The body must start with a command or mention the App in vars.fixer_comment_triggers (default /fix and @rules-culture-dev). Only while the PR is open. A trusted /fix (or mention) is a new request (d32): it resets the PR's attempt budget when it fires (resets_attempt_budget), and replaces a queued retry in place. A comment asking to stop (vars.fixer_stop_triggers, d34) never starts a fix.",
   "enabled": false,
   "exclusive_group": null,
   "id": "pr-fixer-comment",

@@ -161,6 +161,11 @@ def complete_pr_facts(pr: Any) -> dict[str, Any] | None:
     return facts if all(k in facts for k in PR_FACT_FIELDS) else None
 
 
+_REACTION_CONTENTS = frozenset(
+    ("+1", "-1", "laugh", "confused", "heart", "hooray", "rocket", "eyes")
+)
+
+
 class GitHubError(Exception):
     """A GitHub call failed. ``code`` is machine-readable; messages never hold secrets."""
 
@@ -529,6 +534,30 @@ class GitHubApp:
         path = f"/repos/{repo}/pulls?state=open&per_page=100&page={page}"
         items = self._call("GET", path, None).get("items") or []
         return [p for p in items if isinstance(p, dict)]
+
+    def list_comment_reactions(
+        self, repo: str, comment_id: int, *, content: str = "-1", max_pages: int = 3
+    ) -> list[dict[str, Any]]:
+        """The ``content`` reactions on issue comment ``comment_id`` of ``repo`` (REST ``GET
+        /repos/{repo}/issues/comments/{id}/reactions?content=``, 100 a page, at most
+        ``max_pages``), oldest first, as GitHub returns them; read-only (Issues: read). d34:
+        the reaction watch reads the 👎s (``-1``) on a fixer story's comments."""
+        self._require_allowed(repo, "reaction listing")
+        if not isinstance(comment_id, int) or isinstance(comment_id, bool) or comment_id < 1:
+            raise GitHubError("bad_input", "comment_id must be a positive integer")
+        if content not in _REACTION_CONTENTS:
+            raise GitHubError("bad_input", "content")
+        out: list[dict[str, Any]] = []
+        for page in range(1, max_pages + 1):
+            path = (
+                f"/repos/{repo}/issues/comments/{comment_id}/reactions"
+                f"?content={content}&per_page=100&page={page}"
+            )
+            items = self._call("GET", path, None).get("items") or []
+            out += [r for r in items if isinstance(r, dict)]
+            if len(items) < 100:
+                break
+        return out
 
     def list_check_suites(self, repo: str, sha: str) -> list[dict[str, Any]]:
         """Every check suite of commit ``sha`` (REST, paginated); read-only (Checks: read).
