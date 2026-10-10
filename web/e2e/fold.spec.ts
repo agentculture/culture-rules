@@ -68,10 +68,10 @@ test.describe("the fold against the fake API (PR fixer)", () => {
   test("the list folds the stored PR fixer: chains, workflows and entry points computed from its rules", async ({ page }) => {
     await mockPrFixerApi(page);
     const model = foldModel(PR_FIXER_RULES, PR_FIXER_WORKFLOWS);
-    // d2: 2 chains; since #35 6 workflows (queue-add, queue-progress), 8 entry points,
-    // 9 continuations; computed, not assumed.
+    // d2: 2 chains; since #35 6 workflows (queue-add, queue-progress); since d31 9 entry
+    // points (pr-fixer-conflict), 9 continuations; computed, not assumed.
     expect([model.chains.length, model.workflows.length, model.entryPoints.length, model.continuations.length])
-      .toEqual([2, 6, 8, 9]);
+      .toEqual([2, 6, 9, 9]);
     await page.goto("/workflows");
     await untilReady(page);
     const list = page.getByRole("navigation", { name: "Workflows" });
@@ -114,17 +114,18 @@ test.describe("the fold against the fake API (PR fixer)", () => {
 
     const results = page.getByRole("region", { name: "Save results" });
     const row = (name: string) => results.getByRole("listitem").filter({ has: page.getByText(name, { exact: true }) });
-    await expect(results.getByRole("listitem")).toHaveCount(6);
-    await expect(results.locator('[data-status="saved"]')).toHaveCount(5);
+    await expect(results.getByRole("listitem")).toHaveCount(7);
+    await expect(results.locator('[data-status="saved"]')).toHaveCount(6);
     await expect(row(COMMENT)).toHaveAttribute("data-status", "failed");
     await expect(row(COMMENT)).toContainText("store unreachable");
     await expect(row(COMMENT)).toContainText(`keeps ${old}`);
-    // The five others are stored with the new key; the failed one kept its own.
+    // The six others are stored with the new key; the failed one kept its own.
     const keys = () =>
       Object.fromEntries(api.rules.filter((r) => r.workflow?.id === "queue-add").map((r) => [r.id, stored(r).concurrency_key]));
     expect(keys()).toEqual({
       "pr-fixer-checks": "pr:{trigger.data.number}",
       "pr-fixer-comment": old,
+      "pr-fixer-conflict": "pr:{trigger.data.number}",
       "pr-fixer-refix": "pr:{trigger.data.number}",
       "pr-fixer-retry": "pr:{trigger.data.number}",
       "pr-fixer-review": "pr:{trigger.data.number}",
@@ -151,12 +152,12 @@ test.describe("the fold against the fake API (PR fixer)", () => {
     await editSharedRunKey(page, "pr:{trigger.data.number}");
 
     const results = page.getByRole("region", { name: "Save results" });
-    await expect(results.getByRole("listitem")).toHaveCount(6);
+    await expect(results.getByRole("listitem")).toHaveCount(7);
     const row = results.getByRole("listitem").filter({ has: page.getByText(REVIEW, { exact: true }) });
     await expect(row).toHaveAttribute("data-status", "skipped-changed");
     await expect(row).toContainText("changed since you opened it");
     await expect(row.getByRole("button", { name: `Apply to ${REVIEW} as it is now` })).toBeVisible();
-    await expect(results.locator('[data-status="saved"]')).toHaveCount(5);
+    await expect(results.locator('[data-status="saved"]')).toHaveCount(6);
     expect(api.calls.filter((c) => c.method === "GET" && c.path === "/rules/pr-fixer-review")).toHaveLength(1);
     expect(api.calls.filter((c) => c.method === "PUT" && c.path === "/rules/pr-fixer-review")).toHaveLength(0);
     expect(stored(review).concurrency_key).toBe(before);

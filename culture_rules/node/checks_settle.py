@@ -1029,6 +1029,10 @@ class AppSuiteLister(GitHubCommentPort):
             return self._app_for(repo).list_check_suites(repo, sha)
         return self._bounded(repo, lambda app: app.list_check_suites(repo, sha), timeout_s)
 
+    def list_open_pulls(self, repo: str) -> list[dict[str, Any]]:
+        """The open PRs of ``repo`` (read-only ``Pull requests: read``; d31's conflict watch)."""
+        return self._app_for(repo).list_open_pulls(repo)
+
     def get_pull(
         self, repo: str, number: int, *, timeout_s: float | None = None
     ) -> Mapping[str, Any]:

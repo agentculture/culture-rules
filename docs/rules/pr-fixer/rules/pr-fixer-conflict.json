@@ -1,0 +1,120 @@
+{
+  "action": {
+    "idempotent": false,
+    "kind": "noop",
+    "name": "Queued: the place in line is the run's output",
+    "only_at_chain_end": false,
+    "params": {},
+    "retry": null,
+    "timeout_s": null
+  },
+  "concurrency_key": "pr-fixer:{trigger.data.repository}#{trigger.data.number}",
+  "condition": {
+    "args": [
+      {
+        "cmp": "==",
+        "left": {
+          "field": "data.head_repo"
+        },
+        "op": "compare",
+        "right": {
+          "field": "data.base_repo"
+        }
+      },
+      {
+        "cmp": "==",
+        "left": {
+          "field": "data.draft"
+        },
+        "op": "compare",
+        "right": {
+          "literal": false
+        }
+      },
+      {
+        "cmp": "==",
+        "left": {
+          "field": "data.state"
+        },
+        "op": "compare",
+        "right": {
+          "literal": "open"
+        }
+      },
+      {
+        "items": {
+          "var": "fixer_repos"
+        },
+        "op": "in",
+        "value": {
+          "field": "data.repository"
+        }
+      },
+      {
+        "arg": {
+          "items": {
+            "var": "fixer_excluded_repos"
+          },
+          "op": "in",
+          "value": {
+            "field": "data.repository"
+          }
+        },
+        "op": "not"
+      }
+    ],
+    "op": "and"
+  },
+  "counts_toward_budget": false,
+  "description": "Fires once per PR head and base pair when the conflict watch (d31) finds the PR CONFLICTING with its base branch: GitHub sends no webhook for it, so the node reads the open PRs of vars.fixer_repos every vars.conflict_watch_interval_s (default 600 s). Same-repo, non-draft, open PRs of repos in vars.fixer_repos only; vars.fixer_excluded_repos overrides it. Adds the PR to the fixer queue (#35, d29: workflow queue-add) like pr-fixer-checks; the agent merges the base commit and resolves the conflict, and the gate allows that one merge from base and judges only its resolution. Shares the per-PR concurrency key with the other pr-fixer-* rules but is not an attempt itself. Only while the PR is open.",
+  "enabled": false,
+  "exclusive_group": null,
+  "id": "pr-fixer-conflict",
+  "max_attempts": null,
+  "may_after": [],
+  "must_after": [],
+  "name": "PR fixer: conflict with base",
+  "on_failure": {
+    "idempotent": false,
+    "kind": "github.comment",
+    "name": "Hand back with the run link (once per chain)",
+    "only_at_chain_end": true,
+    "params": {
+      "actor": "github-app",
+      "body": "PR fixer handed back ({{ run.error.code }}): {{ run.error.message }}",
+      "number": "trigger.data.number",
+      "repo": "trigger.data.repository",
+      "status": true
+    },
+    "retry": null,
+    "timeout_s": null
+  },
+  "placement": {
+    "actor": null,
+    "machine": "spark2",
+    "requirement": null
+  },
+  "priority": 0,
+  "resets_attempt_budget": false,
+  "schema_version": "1.0",
+  "supersedes": [],
+  "trigger": {
+    "kind": "event",
+    "params": {
+      "type": "github.pr.conflicting"
+    }
+  },
+  "workflow": {
+    "id": "queue-add",
+    "inputs": {
+      "base_sha": "trigger.data.base_sha",
+      "clone_url": "https://github.com/{{ trigger.data.repository }}.git",
+      "head_branch": "trigger.data.head_branch",
+      "head_sha": "trigger.data.head_sha",
+      "instruction": "PR {{ trigger.data.repository }}#{{ trigger.data.number }} conflicts with its base branch {{ trigger.data.base_branch }} at {{ trigger.data.head_sha }}. Work on the PR head branch {{ trigger.data.head_branch }} only. Merge exactly the base commit {{ trigger.data.base_sha }} into it (git merge {{ trigger.data.base_sha }}; one merge, never a rebase, never a later base commit) and resolve every conflict, keeping the intent of both sides; where both sides bump a version or add a changelog entry, keep the base's and put the PR's above it with the next version. Make no other change. Never edit .github/workflows, never delete or skip tests and never add suppression markers.",
+      "number": "trigger.data.number",
+      "repo": "trigger.data.repository"
+    },
+    "version": null
+  }
+}

@@ -45,6 +45,16 @@ def test_a_working_chain_reads_as_its_stages():
     assert body.endswith(marker_of(RUN))
 
 
+def test_a_conflict_started_chain_says_so():
+    trigger = {
+        "id": "ev",
+        "type": "github.pr.conflicting",
+        "data": {"repository": "o/r", "number": 7, "head_sha": "0123456789ab" + "0" * 28},
+    }
+    body = render(chain_of(fix_run(trigger=trigger)))
+    assert "Started by a conflict with the base branch at `0123456789ab`." in body
+
+
 def test_relayed_text_is_inert_and_engine_facts_validated():
     run = fix_run(
         status="succeeded",
