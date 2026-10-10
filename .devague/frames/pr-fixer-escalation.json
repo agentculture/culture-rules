@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-10T20:46:41Z",
-  "updated": "2026-10-10T21:00:53Z",
+  "updated": "2026-10-10T22:33:42Z",
   "claims": [
     {
       "id": "c1",
@@ -306,6 +306,18 @@
   ],
   "open_vagueness": [],
   "scope_entries": [],
-  "lapses": [],
+  "lapses": [
+    {
+      "id": "l1",
+      "code": "control-absent",
+      "what": "t5's agent ran the full suite before writing the new behavioural tests for the review-commit workflow and review.py changes, so those tests were not written first",
+      "skipped_check": "test-first (TDD) ordering",
+      "refs": [
+        "t5"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    }
+  ],
   "obligations": []
 }

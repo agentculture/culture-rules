@@ -2,7 +2,7 @@
   "plan_slug": "pr-fixer-escalation",
   "schema_version": 2,
   "created": "2026-10-10T21:41:12Z",
-  "updated": "2026-10-10T22:21:01Z",
+  "updated": "2026-10-10T22:33:42Z",
   "deviations": [
     {
       "id": "d1",
@@ -47,6 +47,17 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 4
+    },
+    {
+      "id": "d5",
+      "what": "t5 also changed two things outside its brief: the verdict step checks 'reviewer allowed' (flag and backend) before 'read-only', so two fail-closed edge cases return a different code (an unflagged non-read-only reviewer: reviewer_not_allowed; a non-read-only reviewer whose bridge reports another backend: review_invalid); and the bridge adapter (actors/agent.py) locks an actor whose default mode is 'plan' the way a read-only sandbox was already locked (another mode fails mode_locked, the request always carries mode: plan). The qwen-reviewer actor shares the qwen fixer's bridge and token (grant:RULES_QWEN_FIXER_TOKEN); its committed digest uses loopback URLs (scan-secrets), so the live document's digest must be added by the operator.",
+      "task_ref": "t5",
+      "reason": "without the reorder the qwen fixer placed as a reviewer was refused for the wrong reason; without the mode lock a step could lift a Qwen reviewer out of plan mode. Every path still fails closed.",
+      "affects": [],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 5
     }
   ],
   "evidence": [],
