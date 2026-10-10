@@ -591,6 +591,23 @@ def _admitted_count(
     return count, is_continuation(current, event)
 
 
+def key_state(store: StoreOps, key: str, now: datetime | None = None) -> dict[str, Any]:
+    """Read-only view of a resolved concurrency ``key`` for a scheduler deciding whether to
+    start work on it (the fixer queue, #35): ``busy`` (a live run or pending intent holds
+    it, or it is held for a chain's continuation - a firing now would be ``deduplicated``),
+    ``count`` (attempts counted since the last reset) and ``limit`` (the ``max_attempts``
+    of its latest reservation, ``None`` when unknown). Never writes."""
+    current = store.get(RULE_ATTEMPT_BUDGETS, budget_id(key)) or {}
+    admitted = _admitted_count(store, current, None, now)
+    count = int(current.get("count", 0) or 0) if admitted is None else admitted[0]
+    limit = current.get("limit")
+    return {
+        "busy": admitted is None,
+        "count": count,
+        "limit": limit if isinstance(limit, int) and not isinstance(limit, bool) else None,
+    }
+
+
 def _cas_budget(
     store: StoreOps,
     doc_id: str,
