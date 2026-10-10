@@ -29,8 +29,8 @@ On disk today:
 - the engine node daemon, `culture-rules node run`;
 - the HTTP API (`culture_rules/server`, the `server` extra), whose contract
   is pinned in `api/openapi.json`;
-- the CLI noun groups `rules`, `workflows`, `actors`, `machines` and `runs`,
-  plus `serve`, `node` and `mcp`;
+- the CLI noun groups `rules`, `workflows`, `actors`, `machines`, `runs` and
+  `rollout`, plus `serve`, `node` and `mcp`;
 - the MCP server, `culture-rules mcp` (the `mcp` extra), with the same verbs
   as the CLI;
 - the web editor in `web/`, shipped in the wheel as `culture_rules/web_dist`;
