@@ -2,7 +2,7 @@
   "plan_slug": "pr-fixer-rule",
   "schema_version": 2,
   "created": "2026-10-06T08:44:59Z",
-  "updated": "2026-10-10T18:39:31Z",
+  "updated": "2026-10-10T19:14:12Z",
   "deviations": [
     {
       "id": "d1",
@@ -2144,6 +2144,44 @@
       "status": "proposed",
       "superseded": false,
       "seq": 129
+    },
+    {
+      "id": "e94",
+      "obligation_ref": "o49",
+      "test_ref": "tests/node/test_pr_head_base_tip.py (10) + tests/actors/test_gate_live_base.py (6) + tests/actors/test_lineage_base.py (9) + gate-base and queue-dispatch d37 cases + tests/rules/test_pr_fixer_chain.py (katvan#57 live tip with a real push; a base that moved again)",
+      "behavior_text": "asserts the dispatched live tip becomes the try's base, gate and push accept only base.sha or the verified dispatched tip on the branch, a missing base is fetched, and the katvan#57 shape (real merge of the live tip) passes and pushes",
+      "contract_text": "c5, extended by d37",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "78 d36/d37 tests green at the named commit (full suite 4878 per the subagent); Codex rounds 1-2 request_changes fixed, round 3 pending (usage limit); the katvan#57 chain and gate live-base tests failed first, the lineage unit tests and round regression tests were written after their code",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-10T19:13:53",
+        "commit": "974dbc2"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 131
+    },
+    {
+      "id": "e95",
+      "obligation_ref": "o50",
+      "test_ref": "tests/rules/test_pr_fixer_chain.py (timeout -> retry -> real push; three timeouts -> one hand-back; no_changes still hands back; retry and retry-failed rule conditions) + gate unjudged cases + engine failed-outputs test",
+      "behavior_text": "asserts infrastructure refusals and agent timeouts requeue as the next try within the budget, never loop past 3, and no_changes still hands back",
+      "contract_text": "c6, extended by d37",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests green at the named commit; Codex round 2's high finding (failed-run link) fixed in 974dbc2, round 3 pending",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-10T19:13:53",
+        "commit": "974dbc2"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 132
     }
   ],
   "deltas": [
@@ -2492,6 +2530,34 @@
       ],
       "evidence_refs": [
         "e93"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b26",
+      "kind": "amended",
+      "behavior_text": "a fixer try's base is the base branch's live tip read at dispatch (base_tip_sha), not pulls.base.sha; gate and push accept only base.sha or that verified tip on the branch; the gate fetches a missing base; pr-fixer-conflict's instruction defers to the d36 paragraph naming the tip",
+      "caused_by": [
+        "d37"
+      ],
+      "evidence_refs": [
+        "e94"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b27",
+      "kind": "added",
+      "behavior_text": "gate verdict 'unjudged' for infrastructure refusals and a new disabled rule pr-fixer-retry-failed for agent timeouts send the try back to the queue within the 3-try budget; a failed run records its input-derived workflow outputs; lineage trusts a failed-run link only for a queue.add retry (an engine change beyond the d37 text)",
+      "caused_by": [
+        "d37"
+      ],
+      "evidence_refs": [
+        "e95"
       ],
       "origin": "llm",
       "status": "proposed",
