@@ -3,9 +3,9 @@
   "title": "PR fixer escalation",
   "frame_slug": "pr-fixer-escalation",
   "schema_version": 5,
-  "status": "drafting",
+  "status": "exported",
   "created": "2026-10-10T21:00:57Z",
-  "updated": "2026-10-10T21:01:24Z",
+  "updated": "2026-10-10T21:05:29Z",
   "targets": [
     {
       "id": "c1",
@@ -188,7 +188,7 @@
       "id": "t1",
       "summary": "Levels: fixer_levels and per-level queues resolved at dispatch",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "A shared variable fixer_levels (ordered {level, actor, reviewer, pool, queue, enabled}) and fixer_unavailable (next|hand_back) are seeded in variables.json; level 1 is qwen-fixer/codex-reviewer/qwen-spark2/pr-fixer",
         "queue.progress computes the try as the key's count plus one at dispatch, picks that try's level, skips a level whose actor is disabled or deleted, whose pool is over budget or which is in a capacity cooldown, and writes fixer, reviewer, level and attempt into the dispatch event; with no level left it hands back once (fixer_unavailable hand_back) or keeps waiting never; a story never gets a 4th try",
@@ -212,7 +212,7 @@
       "id": "t2",
       "summary": "Codex capacity cooldown",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "A try whose agent step fails capacity_exhausted records a cooldown for its level (default 1 h, variable fixer_capacity_cooldown_s) and the story's retry goes to the next level; the failed try counts toward the 3"
       ],
@@ -229,7 +229,7 @@
       "id": "t3",
       "summary": "Codex hand-off: export on spark, import on spark2",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "Built-in handoff.export (placed on spark) packs start_sha..head_after from the Codex fixer's worktree through a run-as seam, refuses over a size cap (handoff_too_large) and stores it in a handoffs collection; handoff.import (placed on spark2) fetches the base as culture-fixer, indexes the pack with --fix-thin and creates a fixer-owned worktree whose HEAD is exactly head_after",
         "Tests prove the gate judges the same SHA the fixer made, a pack over the cap fails the try with handoff_too_large, and a corrupt pack fails closed"
@@ -245,7 +245,7 @@
       "id": "t4",
       "summary": "pr-fix: one agent step per level plus the hand-off",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "pr-fix's fix body runs agent_qwen (when fixer == qwen-fixer) or agent_codex then handoff export/import (when fixer == codex-fixer), then the single gate fed from one source step; outputs implementer and reviewer; pr-fixer-dispatch maps fixer, reviewer and attempt; new ROLE_FIX digest added, old kept",
         "The status comment names each try's level and fixer (fixer_status takes the agent step that ran, not the first); one hand-back per story",
@@ -269,7 +269,7 @@
       "id": "t5",
       "summary": "review-commit: the reviewer follows the fixer",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "review-commit runs review_codex (when reviewer == codex-reviewer) or review_qwen (when reviewer == qwen-reviewer); the verdict step reads review_steps, takes the one that succeeded and still derives reviewer and implementer from the store, refusing the same actor or backend; REVIEWER_BACKENDS gains qwen",
         "A qwen-reviewer actor (read-only, plan mode, pool qwen-spark2) is added to docs/rules/pr-fixer/actors and its digest pinned in TRUSTED_ACTOR_DIGESTS; new ROLE_REVIEW digest, old kept"
@@ -288,7 +288,7 @@
       "id": "t6",
       "summary": "Actors, docs and the operator's setup",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "codex-fixer actor JSON (machine spark, pool codex-spark, max_concurrency 1, workspace-write) in the bundle; docs/operations/pr-fixer.md documents the levels, the hand-off, the reviewer rule, and the operator's setup: the culture-codex-fixer account, its codex login, the second Codex bridge, grant secrets and the sudoers entry; the rollout lists new rules, variables and digests; CHANGELOG and version bump"
       ],
@@ -305,7 +305,7 @@
       "id": "t7",
       "summary": "A live story escalates from Qwen to Codex",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "After the operator's setup and rollout, a live story whose Qwen try does not pass gets a Codex try reviewed by Qwen and is published or handed back once; its status comment names Qwen for try 1 and Codex for try 2"
       ],
