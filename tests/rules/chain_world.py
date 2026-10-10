@@ -92,6 +92,14 @@ CHAIN_VARIABLES = {
     **VARIABLES,
     "fixer_comment_triggers": ["/fix", "@rules-culture-dev"],
     "fixer_stop_triggers": ["/stop", "@rules-culture-dev stop"],  # d34
+    # #39: the escalation levels as shipped (level 2, Codex, seeded disabled)
+    "fixer_levels": [
+        "level=1 actor=qwen-fixer reviewer=codex-reviewer pool=qwen-spark2 queue=pr-fixer"
+        " enabled=true",
+        "level=2 actor=codex-fixer reviewer=qwen-reviewer pool=codex-spark queue=pr-fixer-codex"
+        " enabled=false",
+    ],
+    "fixer_unavailable": "next",
 }
 KEY = f"pr-fixer:{REPO}#7"
 

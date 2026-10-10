@@ -63,5 +63,18 @@
       "pyproject.toml"
     ],
     "description": "Paths the gate's diff guard refuses (on top of the .github/workflows/** floor)"
+  },
+  {
+    "name": "fixer_levels",
+    "value": [
+      "level=1 actor=qwen-fixer reviewer=codex-reviewer pool=qwen-spark2 queue=pr-fixer enabled=true",
+      "level=2 actor=codex-fixer reviewer=qwen-reviewer pool=codex-spark queue=pr-fixer-codex enabled=false"
+    ],
+    "description": "#39: the fixer's escalation levels in order, one per string: level, actor (the fixer), reviewer, pool (its concurrency pool: the level queue's cap), queue (the level's own queue) and enabled. Try n takes the n-th enabled level (the last one repeats); edit a field in place to enable a level"
+  },
+  {
+    "name": "fixer_unavailable",
+    "value": "next",
+    "description": "#39: what a try does when its level is unavailable (actor disabled or deleted, token budget spent, capacity cooldown): next (the next available level after it) or hand_back (end the story with one hand-back)"
   }
 ]

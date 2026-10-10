@@ -125,10 +125,11 @@
       "config": {
         "builtin": "queue.stop",
         "key_prefix": "pr-fixer:",
+        "levels": "fixer_levels",
         "lookup_actor": "github-app",
         "queue": "pr-fixer"
       },
-      "description": "The built-in queue.stop: records the stop, unqueues the PR, cancels its running fixer runs and ends the story's status comment.",
+      "description": "The built-in queue.stop: records the stop, unqueues the PR from queues/pr-fixer and every level's queue in vars.fixer_levels, cancels its running fixer runs and ends the story's status comment.",
       "enabled": true,
       "id": "stop",
       "inputs": [
@@ -232,6 +233,7 @@
       "config": {
         "builtin": "queue.stop",
         "key_prefix": "pr-fixer:",
+        "levels": "fixer_levels",
         "lookup_actor": "github-app",
         "queue": "pr-fixer",
         "sweep": true

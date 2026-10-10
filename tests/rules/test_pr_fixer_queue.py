@@ -187,7 +187,8 @@ def test_a_request_whose_head_moved_before_its_turn_is_dropped(tmp_path):
     w.run_chain(10)
     assert fixes(w) == []
     dropped = [d for r in w.run_of("queue-progress") for d in r["outputs"].get("dropped") or ()]
-    assert dropped == [{"key": "o/r#7", "reason": "head_moved"}]
+    # #39: with fixer_levels each drop names the level queue it left
+    assert dropped == [{"key": "o/r#7", "reason": "head_moved", "queue": "pr-fixer"}]
 
 
 def test_d36_every_try_is_told_the_one_merge_from_base(tmp_path):
