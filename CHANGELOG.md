@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.9] - 2026-10-10
+
+### Changed
+
+- devague: the operator approved d36's follow-up records after the /code-review on #46 (obligation o48, evidence e93, delta b25) and d37's records (obligations o49-o50, evidence e94-e95, deltas b26-b27); the delivery summary marks them approved
+
 ## [0.18.8] - 2026-10-10
 
 ### Changed
