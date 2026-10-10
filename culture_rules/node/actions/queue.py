@@ -488,7 +488,7 @@ class _Pass:
         self.config, self.context, self.deadline = config, context, deadline
         self.store = port._store
         self.queue = _QueueDoc(self.store, name, port._clock)
-        self.lookups: dict[tuple[str, int, Any], Mapping[str, Any] | None] = {}
+        self.lookups: dict[tuple[str, int, Any, bool], Mapping[str, Any] | None] = {}
         self.green: list[Mapping[str, Any]] = []  # d38: this try's requests dropped as green
 
     def run(self, ik: str) -> dict[str, Any]:
@@ -596,8 +596,10 @@ class _Pass:
         if self.port._lookup is None or not isinstance(actor, str) or not actor:
             return None
         # keyed by the request's head too: a request replaced meanwhile with another head
-        # (a push landed) is read afresh, never judged on facts older than itself
-        pr = (req["repository"], req["number"], req.get("head_sha"))
+        # (a push landed) is read afresh, never judged on facts older than itself; and by
+        # whether it reads the checks (d38), so a replacement settled by the timeout is
+        # never judged on a read without them
+        pr = _lookup_key(req)
         if pr not in self.lookups:
             self.lookups[pr] = self._read_pr(req, actor, ik)
         facts = self.lookups[pr]
@@ -615,15 +617,16 @@ class _Pass:
     def _checks(self, req: Mapping[str, Any]) -> tuple[bool, list[str]]:
         """d38, a request settled by the timeout: ``(green, running)`` from this pass's read
         of its head's check suites - every counted suite completed and green, else the
-        counted apps still running. ``(False, [])`` when unread or nothing is counted (no
-        counted suite is never green, as for the settler)."""
+        counted apps still running while none has completed red (a red one dispatches as
+        before, unnamed). ``(False, [])`` when unread or nothing is counted (no counted
+        suite is never green, as for the settler)."""
         from culture_rules.node.checks_settle import (  # noqa: PLC0415
             counted_suites,
             ignored_check_apps,
             suites_state,
         )
 
-        facts = self.lookups.get((req["repository"], req["number"], req.get("head_sha")))
+        facts = self.lookups.get(_lookup_key(req))
         suites = (facts or {}).get("check_suites")
         if not isinstance(suites, list):
             return False, []
@@ -633,9 +636,10 @@ class _Pass:
         if not counted:
             return False, []
         done, green = suites_state(counted)
-        running = sorted(
-            {str(s.get("app_slug")) for s in counted if s.get("status") != "completed"}
-        )
+        finished = [s for s in counted if s.get("status") == "completed"]
+        if not suites_state(finished)[1]:
+            return False, []  # a suite completed red: a real failure, the instruction stands
+        running = sorted({str(s.get("app_slug")) for s in counted if s not in finished})
         return done and green, running
 
     def _end_green(self) -> None:
@@ -666,7 +670,7 @@ class _Pass:
         stands. GitHub's ``base.sha`` is the base as of the PR's last push - the fork point
         of a PR not pushed since its base moved, or a commit its head does not hold - so the
         try is given the branch's tip at dispatch, the base it can merge and the gate checks."""
-        facts = self.lookups.get((req["repository"], req["number"], req.get("head_sha")))
+        facts = self.lookups.get(_lookup_key(req))
         tip = (facts or {}).get("base_tip_sha")
         return tip if isinstance(tip, str) and _FULL_SHA_RE.fullmatch(tip) else None
 
@@ -997,6 +1001,11 @@ def _dispatch_data(queue: str, act: Mapping[str, Any]) -> dict[str, Any]:
     if running and isinstance(data.get("instruction"), str):
         data["instruction"] += _RUNNING_NOTE.format(apps=", ".join(running))  # d38
     return data
+
+
+def _lookup_key(req: Mapping[str, Any]) -> tuple[str, int, Any, bool]:
+    """A pass's PR-read cache key: the PR, the request's head and whether it reads checks."""
+    return (req["repository"], req["number"], req.get("head_sha"), _settled_by_timeout(req))
 
 
 def _settled_by_timeout(req: Mapping[str, Any]) -> bool:

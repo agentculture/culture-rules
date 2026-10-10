@@ -291,3 +291,84 @@ def test_queue_add_carries_checks_conclusion_into_the_request():
         "target": "enqueue",
         "target_port": "checks_conclusion",
     } in wf["edges"]
+
+
+def test_a_red_suite_beside_a_running_one_names_nothing():
+    """Codex r1: "no other suite had failed" must never be said beside a failure."""
+    lookup = ChecksLookup(
+        [
+            suite("github-actions", conclusion="failure"),
+            suite("sonarqubecloud", status="in_progress", conclusion=None),
+        ]
+    )
+    w = World(lookup=lookup)
+    w.add(**timed_out())
+    assert w.progress(LOOKUP).output["dispatched"] == ["o/a#1"]
+    (event,) = w.dispatches()
+    assert event["data"]["instruction"] == "fix o/a#1"
+
+
+def test_a_replacement_settled_by_the_timeout_is_read_with_its_checks():
+    """Codex r1: a non-timeout request replaced by a timeout one for the same head during
+    the PR read is judged on a read that includes the checks, never the cached one."""
+
+    class Replacing(ChecksLookup):
+        def invoke(self, input, key, deadline, *, context):
+            res = super().invoke(input, key, deadline, context=context)
+            if len(self.inputs) == 1:
+                w.add(**timed_out())  # same PR and head: replaces it in place, CAS lost
+            return res
+
+    lookup = Replacing([suite("github-actions")])
+    w = World(lookup=lookup)
+    w.add(**request("o/a", 1))
+    res = w.progress(LOOKUP)
+    assert res.output["dropped"] == [{"key": "o/a#1", "reason": "checks_green_on_reread"}]
+    assert [i.get("with_checks") for i in lookup.inputs] == [None, True]
+
+
+def test_a_green_drop_that_loses_its_write_ends_no_status(monkeypatch):
+    """A pass that judged a request green but lost the compare-and-set to a replacement
+    (here a red settle) ends nothing: the retry dispatches the replacement."""
+    ended = []
+
+    class Board:
+        def __init__(self, store, *, clock=None):
+            pass
+
+        def finish(self, run, text, *, where=None):
+            ended.append(run["id"])
+
+    monkeypatch.setattr("culture_rules.node.status_board.StatusBoard", Board)
+
+    class Replacing(ChecksLookup):
+        def invoke(self, input, key, deadline, *, context):
+            res = super().invoke(input, key, deadline, context=context)
+            if len(self.inputs) == 1:
+                w.add(**request("o/a", 1, checks_conclusion="failure"))
+            return res
+
+    w = World(lookup=Replacing([suite("github-actions")]))
+    w.store.put("runs", {"id": "r1", "status": "succeeded"})
+    w.add(**timed_out())
+    res = w.progress(LOOKUP)
+    assert res.output["dispatched"] == ["o/a#1"]
+    assert res.output["dropped"] == []
+    assert ended == []
+
+
+def test_a_rewritten_dispatch_event_carries_the_note_exactly_once():
+    from culture_rules.events.ingest import EVENTS_COLLECTION
+
+    lookup = ChecksLookup(
+        [suite("github-actions"), suite("sonarqubecloud", status="in_progress", conclusion=None)]
+    )
+    w = World(lookup=lookup)
+    w.add(**timed_out())
+    w.progress(LOOKUP)
+    (first,) = w.dispatches()
+    w.store.delete(EVENTS_COLLECTION, first["id"])  # a node died before writing it
+    w.progress(LOOKUP)
+    (again,) = w.dispatches()
+    assert again["data"]["instruction"] == first["data"]["instruction"]
+    assert again["data"]["instruction"].count("still running") == 1
