@@ -355,6 +355,11 @@ bridge requires ``mode``."""
 READ_ONLY_SANDBOX = "read-only"
 """An actor whose ``sandbox`` default is this one cannot be widened by a step or an input
 (``sandbox_locked``): the PR fixer's reviewer must never be able to write or commit."""
+READ_ONLY_MODE = "plan"
+"""#39: an actor whose ``mode`` default is this one (Qwen Code's plan mode, the qwen
+reviewer's) cannot be moved to another mode by a step or an input (``mode_locked``). The
+mode is an approval policy, not a sandbox: the reviewer's verdict step still checks that
+the checkout is unchanged."""
 BRIDGE_CORE_INPUTS = frozenset({"instruction", "repo", "head_branch", "head_sha", "model", "async"})
 """Input keys a bridge reads itself; every other key is appended to the agent's prompt as
 JSON, which the bridge cuts at its ``max_bound_input_chars`` (60000 by default)."""
@@ -739,14 +744,25 @@ def _address(
     return address, None
 
 
-def _sandbox_refusal(input: Mapping[str, Any], config: Mapping[str, Any]) -> str | None:
-    """A read-only actor refuses an input or step config asking for another sandbox."""
-    for where, source in (("an input", input), ("the step config", config)):
-        if "sandbox" in source and source["sandbox"] != READ_ONLY_SANDBOX:
-            return (
-                f"sandbox_locked: the actor is {READ_ONLY_SANDBOX}; "
-                f"{where} asks for sandbox {source['sandbox']!r}"
-            )
+def _locks(defaults: Mapping[str, Any]) -> dict[str, str]:
+    """The bridge settings an actor's defaults pin: a ``read-only`` sandbox, a ``plan``
+    mode (#39)."""
+    pinned = {"sandbox": READ_ONLY_SANDBOX, "mode": READ_ONLY_MODE}
+    return {k: v for k, v in pinned.items() if defaults.get(k) == v}
+
+
+def _lock_refusal(
+    input: Mapping[str, Any], config: Mapping[str, Any], locks: Mapping[str, str]
+) -> str | None:
+    """A locked actor refuses an input or step config asking for another sandbox or mode
+    (``sandbox_locked`` / ``mode_locked``)."""
+    for name, value in locks.items():
+        for where, source in (("an input", input), ("the step config", config)):
+            if name in source and source[name] != value:
+                return (
+                    f"{name}_locked: the actor is {value}; "
+                    f"{where} asks for {name} {source[name]!r}"
+                )
     return None
 
 
@@ -834,16 +850,15 @@ class BridgeAgentActor:
         out.update(address)
         if not _SHA_RE.match(out["head_sha"]):
             return None, f"head_sha {out['head_sha']!r} is not a commit SHA"
-        locked = self._defaults.get("sandbox") == READ_ONLY_SANDBOX
-        problem = _sandbox_refusal(input, config) if locked else None
+        locks = _locks(self._defaults)
+        problem = _lock_refusal(input, config, locks)
         if problem:
             return None, problem
         for name in PASSTHROUGH_CONFIG:
             value = config.get(name, self._defaults.get(name))
             if value is not None:
                 out.setdefault(name, value)
-        if locked:
-            out["sandbox"] = READ_ONLY_SANDBOX
+        out.update(locks)
         out["instruction"] = instruction
         return out, None
 

@@ -298,11 +298,14 @@ def test_a_workflow_edited_to_skip_the_review_still_pushes_nothing(tmp_path):
 
 
 def test_a_reviewer_on_the_implementers_backend_is_refused(tmp_path, trust_actor):
+    """#39: qwen is a reviewer backend now (qwen-reviewer reviews a Codex try), but never
+    a Qwen try: the reviewer's backend must differ from the implementer's."""
     w = World(tmp_path, reviews=[{"backend": "qwen"}])
-    w.c.base.put("actors", trust_actor({**reviewer_actor(), "harness": "qwen"}))
+    actor = reviewer_actor()
+    actor.update(harness="qwen", params={**actor["params"], "mode": "plan"})
+    w.c.base.put("actors", trust_actor(actor))
     doc = w.fire()
-    # a reviewer on the fixer's backend is not an allowed reviewer at all
-    assert "fix[0]/verdict: reviewer_not_allowed" in doc["error"]["message"]
+    assert "fix[0]/verdict: reviewer_is_implementer" in doc["error"]["message"]
     assert w.push.calls == []
     assert step_state(doc, FAILURE_STEP) is not None
 

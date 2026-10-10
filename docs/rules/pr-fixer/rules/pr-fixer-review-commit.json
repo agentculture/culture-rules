@@ -64,7 +64,7 @@
     "op": "and"
   },
   "counts_toward_budget": false,
-  "description": "d21: fires when a pr-fix run succeeds (its gate passed or the repo has no gate) and has its gated commit reviewed by codex-reviewer. Not a fix attempt: outside the attempt budget, on the PR's key, which the chain holds between its stages.",
+  "description": "d21: fires when a pr-fix run succeeds (its gate passed or the repo has no gate) and has its gated commit reviewed by its try's reviewer (#39: codex-reviewer for a Qwen try, qwen-reviewer for a Codex try; the verdict step derives both from the store). Not a fix attempt: outside the attempt budget, on the PR's key, which the chain holds between its stages.",
   "enabled": false,
   "exclusive_group": null,
   "id": "pr-fixer-review-commit",
@@ -118,6 +118,7 @@
       "number": "trigger.data.number",
       "pr_intent": "trigger.data.outputs.instruction",
       "repo": "trigger.data.repository",
+      "reviewer": "trigger.data.outputs.reviewer",
       "threads": "trigger.data.outputs.threads",
       "threads_addressed": "trigger.data.outputs.threads_addressed"
     },

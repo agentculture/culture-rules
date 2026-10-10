@@ -3,7 +3,8 @@
 spark (the App actor, the reviewer) and spark2 (the fixer machine: agent, gate, push) share
 one store. The shipped bundle (docs/rules/pr-fixer) is imported with its rules enabled; a
 red checks settle starts the chain: ``pr-fix`` (quiet, GitGuardian hold, threads, Sonar,
-agent, gate) -> ``review-commit`` (Codex, the verdict) -> ``publish-fix`` (push, replies) or
+agent, gate) -> ``review-commit`` (the try's reviewer: Codex for a Qwen try, Qwen for a Codex
+try (#39); the verdict) -> ``publish-fix`` (push, replies) or
 ``pr-fix`` again with the findings. Real gate, real review builtin, real run events and holds; the
 qwen and codex bridges are transport doubles behind the real bridge adapter, so callbacks,
 ``require_commit`` and the locked brief run for real. The push is a recorder by default, or
@@ -398,6 +399,7 @@ class ChainWorld:
         tmp_path: Path,
         *,
         reviews=None,
+        qwen_reviews=None,
         turns=None,
         real_push_pem: str | None = None,
         disabled: tuple[str, ...] = (),
@@ -426,6 +428,8 @@ class ChainWorld:
             env={**GIT_ENV, "HOME": str(tmp_path), "TMPDIR": str(tmp_path / "fixer-tmp")}
         )
         self.reviewer = ReviewerBridge(base, reviews)
+        self.qwen_reviewer = ReviewerBridge(base, qwen_reviews, backend="qwen")
+        """#39: the qwen bridge on spark2 behind qwen-reviewer (it reviews a Codex try)."""
         self.sonar = SonarAPI()
         self.runner = LocalRunner()
 
@@ -540,6 +544,8 @@ class ChainWorld:
         def agent_for(actor):
             if actor.id == "codex-reviewer":
                 return reviewer_adapter(base, actor, self.reviewer, self.c.clock)
+            if actor.id == "qwen-reviewer":
+                return reviewer_adapter(base, actor, self.qwen_reviewer, self.c.clock)
             if actor.id == "codex-fixer":
                 return qwen_adapter(base, self.codex, self.c.clock, CODEX_FIXER)
             return qwen_adapter(base, self.qwen, self.c.clock)

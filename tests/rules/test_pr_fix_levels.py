@@ -163,8 +163,9 @@ def test_the_dispatch_maps_the_level_fields():
 
 def test_a_story_whose_qwen_try_fails_its_gate_gets_a_codex_try(tmp_path):
     """Level 2 enabled: try 1 (Qwen) fails its gate's diff guard, so the retry is dispatched
-    at level 2 and pr-fix runs agent_codex through the hand-off; the story keeps one status
-    comment naming each try's level and fixer."""
+    at level 2 and pr-fix runs agent_codex through the hand-off; qwen-reviewer reviews the
+    Codex commit (t5) and it is published; the story keeps one status comment naming each
+    try's level and fixer, and never hands back."""
     from tests.rules.chain_world import CHAIN_VARIABLES
     from tests.rules.test_pr_fixer_queue import guard
     from tests.rules.test_pr_fixer_single import seed
@@ -191,4 +192,14 @@ def test_a_story_whose_qwen_try_fails_its_gate_gets_a_codex_try(tmp_path):
     (body,) = w.comments()
     assert "try 1 (qwen-fixer, level 1): verdict " in body
     assert "try 2 (codex-fixer, level 2): " in body
-    assert body.count("handed back") <= 1
+    assert "handed back" not in body
+    (review,) = w.run_of("review-commit")
+    assert review["trigger"]["data"]["run_id"] == second["id"]
+    assert step_state(review, "review_codex")["status"] == SKIPPED
+    assert step_state(review, "review_qwen")["status"] == SUCCEEDED
+    assert review["outputs"]["review"] == "approve"
+    assert w.reviewer.inputs == []  # codex-reviewer never reviewed the Codex try
+    assert len(w.qwen_reviewer.inputs) == 1
+    (publish,) = w.run_of("publish-fix")
+    assert publish["status"] == SUCCEEDED
+    assert len(w.push.calls) == 1

@@ -49,10 +49,13 @@ REPORT_SECRETS_WORKFLOW = [
     " values",
 ]
 
-REVIEW_COMMIT_WORKFLOW = [
-    "1 review — codex-reviewer (agent, read-only), when gate_verdict ∈ {pass, no_gate}"
-    " and diff_truncated = false",
-    "2 verdict — review verdict, recorded for its commit (github.push checks it)",
+REVIEW_COMMIT_WORKFLOW = [  # #39: the try's reviewer, one step each
+    "1 review_codex — codex-reviewer (agent, read-only), when gate_verdict ∈ {pass, no_gate}"
+    " and diff_truncated = false and (reviewer missing or reviewer ∈"
+    ' {null, "", codex-reviewer})',
+    "2 review_qwen — qwen-reviewer (agent, read-only), when gate_verdict ∈ {pass, no_gate}"
+    " and diff_truncated = false and reviewer = qwen-reviewer",
+    "3 verdict — review verdict, recorded for its commit (github.push checks it)",
 ]
 
 PUBLISH_FIX_WORKFLOW = [
