@@ -412,6 +412,32 @@ def test_a_cancelled_chain_is_closed_after_the_floor(w):
     assert w.record()["final"] is True
 
 
+def test_a_chain_superseded_by_a_head_move_says_the_head_moved(w):
+    started(w)
+    set_run(w.store, status="superseded", finished_at="2026-10-09T12:00:01+00:00")
+    w.later()
+    w.tick()
+    assert w.shown().startswith("PR fixer stopped: the PR head moved; a new run takes over.")
+
+
+def test_a_chain_ended_because_the_pr_closed_says_so(w):
+    """#31 (d27): a run the wake ended with ``pr_not_open`` is not a head move: no new run
+    takes over, so the comment says the PR is no longer open."""
+    started(w)
+    run = w.store.get("runs", RUN)
+    quiet = {"key": "quiet", "status": "cancelled"}
+    quiet["error"] = {"code": "pr_not_open", "message": "the PR is merged"}
+    set_run(
+        w.store,
+        status="superseded",
+        finished_at="2026-10-09T12:00:01+00:00",
+        steps=[quiet, *run["steps"][1:]],
+    )
+    w.later()
+    w.tick()
+    assert w.shown().startswith("PR fixer stopped: the PR is no longer open (merged or closed).")
+
+
 def test_a_chain_idle_after_its_last_run_is_closed(w):
     started(w)
     set_run(w.store, status="succeeded", finished_at="2026-10-09T12:00:01+00:00")

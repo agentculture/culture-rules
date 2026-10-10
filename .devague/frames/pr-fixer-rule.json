@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-05T20:43:33Z",
-  "updated": "2026-10-08T09:37:20Z",
+  "updated": "2026-10-10T02:20:44Z",
   "claims": [
     {
       "id": "c1",
@@ -1166,7 +1166,7 @@
         "run-d6e5dabdf5ec61e8a47a912091a37e0f"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l2",
@@ -1178,7 +1178,7 @@
         "web/e2e/workflows.spec.ts"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l3",
@@ -1190,7 +1190,7 @@
         "rules/pr-fixer-split@eaa047b"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l4",
@@ -1202,7 +1202,7 @@
         "rules/pr-fixer-review@22c71af"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l5",
@@ -1214,7 +1214,7 @@
         "35d8bea"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l6",
@@ -1226,7 +1226,19 @@
         "rules/pr-fixer-review@1e22648"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
+    },
+    {
+      "id": "l7",
+      "code": "grader-unverified",
+      "what": "d21 phase 2 part C (per-commit review records, push chain verification) was not test-first: the code was rewritten before the d20 tests were updated and test_push_chain.py was written after _chain",
+      "skipped_check": "red-first tests for the chain verification and per-commit records",
+      "refs": [
+        "d21",
+        "rules/pr-fixer-split@d414449"
+      ],
+      "origin": "llm",
+      "status": "approved"
     }
   ],
   "obligations": [
@@ -1551,6 +1563,15 @@
       "seam": "run-link PR comment",
       "behavior": "each push is announced by the App's own PR comment linking the run; no mesh message",
       "source_text": "The author side of a fixer push is rules.culture.dev, as used today: the App's own PR comment announces each push; no separate mesh message to the PR's author agent",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o37",
+      "claim_id": "c40",
+      "seam": "guarded wake (wait step head_unchanged) + PR-head lookup",
+      "behavior": "a PR merged or closed during the quiet period ends the run superseded with pr_not_open before any workspace is set up; an open PR with an unchanged head proceeds; a moved head still supersedes",
+      "source_text": "Workflows gain a wait step kind: it pauses the run for a duration (the quiet period) without holding a worker, persists across node restarts, and on resume checks a guard; if the PR head moved during the wait (someone pushed) the run ends without dispatching the agent, and the next checks-completed event starts a fresh one",
       "origin": "llm",
       "status": "approved"
     }
