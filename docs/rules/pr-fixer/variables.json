@@ -76,5 +76,10 @@
     "name": "fixer_unavailable",
     "value": "next",
     "description": "#39: what a try does when its level is unavailable (actor disabled or deleted, token budget spent, capacity cooldown): next (the next available level after it) or hand_back (end the story with one hand-back)"
+  },
+  {
+    "name": "fixer_capacity_cooldown_s",
+    "value": 3600,
+    "description": "#39: seconds a fixer level rests after one of its tries hit the backend's usage limit (capacity_exhausted); meanwhile queue.progress skips it as vars.fixer_unavailable says"
   }
 ]

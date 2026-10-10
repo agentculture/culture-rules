@@ -258,15 +258,18 @@ def run_status_actor(run: Mapping[str, Any] | None) -> str | None:
 
 def chain_root(store: Any, run: Mapping[str, Any]) -> Mapping[str, Any] | None:
     """The run an external event started, walking back the verified ``rules.run.succeeded``
-    links of ``run``'s chain and, through the fixer queue (#35 d35), from a dispatched try
-    to the ``queue.add`` run that queued it (:func:`~culture_rules.actors.lineage.enqueuer`,
-    verified against the stored dispatch event): a story's tries, re-fixes and retries share
-    the root of the request that started it, so one comment. ``None`` when a link does not
-    verify or loops."""
+    links of ``run``'s chain (and the ``rules.run.failed`` link of a retry's ``queue.add``
+    run to the try that failed, d37 and #39, as the push's lineage does) and, through the
+    fixer queue (#35 d35), from a dispatched try to the ``queue.add`` run that queued it
+    (:func:`~culture_rules.actors.lineage.enqueuer`, verified against the stored dispatch
+    event): a story's tries, re-fixes and retries share the root of the request that
+    started it, so one comment. ``None`` when a link does not verify or loops."""
     from culture_rules.actors.lineage import (  # noqa: PLC0415
         QUEUE_DISPATCH,
+        RUN_FAILED,
         LineageError,
         enqueuer,
+        is_enqueuer,
         upstream,
     )
     from culture_rules.events.emit import MAX_EVENT_HOPS  # noqa: PLC0415
@@ -278,8 +281,13 @@ def chain_root(store: Any, run: Mapping[str, Any]) -> Mapping[str, Any] | None:
         dispatched = kind == QUEUE_DISPATCH
         if not dispatched and not (isinstance(kind, str) and kind.startswith("rules.run.")):
             return current
+        # d37, #39: a retry's queue.add run may stand on a failed try (as at the push)
+        failed = kind == RUN_FAILED and is_enqueuer(current)
         try:
-            current = enqueuer(store, current) if dispatched else upstream(store, current)
+            if dispatched:
+                current = enqueuer(store, current)
+            else:
+                current = upstream(store, current, failed=failed)
         except LineageError:
             return None
     return None

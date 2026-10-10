@@ -1,0 +1,392 @@
+{
+  "description": "#39: a fixer try whose agent hit its backend's usage limit (capacity_exhausted). The built-in fixer.cooldown first rests that try's level: it upserts fixer_cooldowns/<the level's actor> until the try's end plus vars.fixer_capacity_cooldown_s (default 3600 s), the actor read from the failed run's own agent step (never from an input), and only for an actor of vars.fixer_levels. Then the built-in queue.add puts the story back in line as a retry, so queue.progress gives its next try the next available level. The failed try still counts toward the story's 3; one whose PR spent them fails here and the rule hands back once. Non-agentic: no actor, no GitHub call.",
+  "edges": [
+    {
+      "source": "inputs",
+      "source_port": "repo",
+      "target": "cooldown",
+      "target_port": "repo"
+    },
+    {
+      "source": "inputs",
+      "source_port": "number",
+      "target": "cooldown",
+      "target_port": "number"
+    },
+    {
+      "source": "inputs",
+      "source_port": "repo",
+      "target": "enqueue",
+      "target_port": "repo"
+    },
+    {
+      "source": "inputs",
+      "source_port": "number",
+      "target": "enqueue",
+      "target_port": "number"
+    },
+    {
+      "source": "inputs",
+      "source_port": "head_sha",
+      "target": "enqueue",
+      "target_port": "head_sha"
+    },
+    {
+      "source": "inputs",
+      "source_port": "head_branch",
+      "target": "enqueue",
+      "target_port": "head_branch"
+    },
+    {
+      "source": "inputs",
+      "source_port": "base_sha",
+      "target": "enqueue",
+      "target_port": "base_sha"
+    },
+    {
+      "source": "inputs",
+      "source_port": "clone_url",
+      "target": "enqueue",
+      "target_port": "clone_url"
+    },
+    {
+      "source": "inputs",
+      "source_port": "instruction",
+      "target": "enqueue",
+      "target_port": "instruction"
+    },
+    {
+      "source": "inputs",
+      "source_port": "task",
+      "target": "enqueue",
+      "target_port": "task"
+    },
+    {
+      "source": "inputs",
+      "source_port": "prior_instruction",
+      "target": "enqueue",
+      "target_port": "prior_instruction"
+    },
+    {
+      "source": "cooldown",
+      "source_port": "retry",
+      "target": "enqueue",
+      "target_port": "retry"
+    }
+  ],
+  "enabled": true,
+  "id": "queue-add-capacity",
+  "inputs": [
+    {
+      "description": "owner/name",
+      "name": "repo",
+      "required": false,
+      "type": "string"
+    },
+    {
+      "description": "",
+      "name": "number",
+      "required": false,
+      "type": "integer"
+    },
+    {
+      "description": "the PR head the request is for",
+      "name": "head_sha",
+      "required": false,
+      "type": "string"
+    },
+    {
+      "description": "",
+      "name": "head_branch",
+      "required": false,
+      "type": "string"
+    },
+    {
+      "description": "",
+      "name": "base_sha",
+      "required": false,
+      "type": "string"
+    },
+    {
+      "description": "",
+      "name": "clone_url",
+      "required": false,
+      "type": "string"
+    },
+    {
+      "description": "what the agent is asked to do",
+      "name": "instruction",
+      "required": false,
+      "type": "string"
+    },
+    {
+      "description": "the original task, for a retry",
+      "name": "task",
+      "required": false,
+      "type": "string"
+    },
+    {
+      "description": "a retry's last instruction (its task when task is empty)",
+      "name": "prior_instruction",
+      "required": false,
+      "type": "string"
+    }
+  ],
+  "name": "Back in the fixer queue after capacity_exhausted",
+  "outputs": [
+    {
+      "name": "queued",
+      "source": "steps.enqueue.outputs.queued",
+      "type": "boolean"
+    },
+    {
+      "name": "replaced",
+      "source": "steps.enqueue.outputs.replaced",
+      "type": "boolean"
+    },
+    {
+      "name": "key",
+      "source": "steps.enqueue.outputs.key",
+      "type": "string"
+    },
+    {
+      "name": "position",
+      "source": "steps.enqueue.outputs.position",
+      "type": "integer"
+    },
+    {
+      "name": "ahead",
+      "source": "steps.enqueue.outputs.ahead",
+      "type": "string"
+    },
+    {
+      "name": "length",
+      "source": "steps.enqueue.outputs.length",
+      "type": "integer"
+    },
+    {
+      "name": "attempt",
+      "source": "steps.enqueue.outputs.attempt",
+      "type": "integer"
+    },
+    {
+      "name": "queue",
+      "source": "steps.enqueue.outputs.queue",
+      "type": "string"
+    },
+    {
+      "name": "cooldown_actor",
+      "source": "steps.cooldown.outputs.actor",
+      "type": "string"
+    },
+    {
+      "name": "cooldown_until",
+      "source": "steps.cooldown.outputs.until",
+      "type": "string"
+    }
+  ],
+  "schema_version": "1.0",
+  "steps": [
+    {
+      "body": [],
+      "config": {
+        "builtin": "fixer.cooldown",
+        "cooldown": "fixer_capacity_cooldown_s",
+        "levels": "fixer_levels"
+      },
+      "description": "The built-in fixer.cooldown: finds the failed try from this run's verified rules.run.failed event, takes the actor of its agent step that failed capacity_exhausted, and (for a level actor of vars.fixer_levels) upserts its cooldown; a later cooldown is never shortened.",
+      "enabled": true,
+      "id": "cooldown",
+      "inputs": [
+        {
+          "description": "",
+          "name": "repo",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "number",
+          "required": true,
+          "type": "integer"
+        }
+      ],
+      "kind": "code",
+      "max_iterations": null,
+      "name": "Rest the level that ran out of capacity",
+      "outputs": [
+        {
+          "description": "always true: the request added next is a retry",
+          "name": "retry",
+          "required": true,
+          "type": "boolean"
+        },
+        {
+          "description": "",
+          "name": "recorded",
+          "required": true,
+          "type": "boolean"
+        },
+        {
+          "description": "",
+          "name": "actor",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "level",
+          "required": false,
+          "type": "integer"
+        },
+        {
+          "description": "",
+          "name": "until",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "why",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "placement": null,
+      "retry": null,
+      "timeout_s": 60.0
+    },
+    {
+      "body": [],
+      "config": {
+        "builtin": "queue.add",
+        "key_prefix": "pr-fixer:",
+        "levels": "fixer_levels",
+        "queue": "pr-fixer"
+      },
+      "description": "The built-in queue.add: appends the request by compare-and-set (first come, first served across nodes) to the queue of its try's level in vars.fixer_levels (queues/pr-fixer without levels), or refreshes the PR's waiting request in place.",
+      "enabled": true,
+      "id": "enqueue",
+      "inputs": [
+        {
+          "description": "",
+          "name": "repo",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "number",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "description": "",
+          "name": "head_sha",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "head_branch",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "base_sha",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "clone_url",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "instruction",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "task",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "prior_instruction",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "retry",
+          "required": false,
+          "type": "boolean"
+        }
+      ],
+      "kind": "code",
+      "max_iterations": null,
+      "name": "Add to the queue",
+      "outputs": [
+        {
+          "description": "",
+          "name": "queued",
+          "required": true,
+          "type": "boolean"
+        },
+        {
+          "description": "",
+          "name": "replaced",
+          "required": true,
+          "type": "boolean"
+        },
+        {
+          "description": "",
+          "name": "key",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "position",
+          "required": false,
+          "type": "integer"
+        },
+        {
+          "description": "",
+          "name": "ahead",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "length",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "description": "",
+          "name": "attempt",
+          "required": false,
+          "type": "integer"
+        },
+        {
+          "description": "",
+          "name": "queue",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "placement": null,
+      "retry": null,
+      "timeout_s": 60.0
+    }
+  ],
+  "variables": [],
+  "version": 1
+}

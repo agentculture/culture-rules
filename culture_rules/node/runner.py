@@ -264,6 +264,10 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
         HandoffImportPort,
     )
     from culture_rules.actors.review import REVIEW_BUILTIN, ReviewVerdictPort  # noqa: PLC0415
+    from culture_rules.node.actions.fixer_cooldown import (  # noqa: PLC0415
+        FIXER_COOLDOWN_BUILTIN,
+        FixerCooldownPort,
+    )
     from culture_rules.node.actions.gitguardian import (  # noqa: PLC0415
         FINDINGS_BUILTIN,
         HOLD_BUILTIN,
@@ -333,6 +337,7 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
                 QUEUE_STOP_BUILTIN: QueueStopPort(store, pr_lookup=head),  # d34: /stop, 👎
                 EXPORT_BUILTIN: HandoffExportPort.from_env(store),  # #39: Codex commits out
                 IMPORT_BUILTIN: HandoffImportPort.from_env(store),  # #39: ... into spark2
+                FIXER_COOLDOWN_BUILTIN: FixerCooldownPort(store),  # #39: capacity_exhausted
             }
         ),
     }

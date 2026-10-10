@@ -65,6 +65,7 @@ __all__ = [
     "Level",
     "LevelsError",
     "load_ladder",
+    "parse_until",
 ]
 
 FIXER_COOLDOWNS = "fixer_cooldowns"
@@ -131,7 +132,8 @@ def _level(entry: Any, i: int) -> Level:
     )
 
 
-def _parse_until(value: Any) -> datetime | None:
+def parse_until(value: Any) -> datetime | None:
+    """A cooldown's ``until`` as an aware time; None when missing, malformed or naive."""
     try:
         moment = datetime.fromisoformat(value) if isinstance(value, str) else None
     except ValueError:
@@ -195,7 +197,7 @@ class Ladder:
         if self._over_budget(lvl.actor, actor, now):
             return "over_budget"
         cooldown = self.store.get(FIXER_COOLDOWNS, lvl.actor) or {}
-        until = _parse_until(cooldown.get("until"))
+        until = parse_until(cooldown.get("until"))
         if until is not None and until > now:
             return "capacity_cooldown"
         return None

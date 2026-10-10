@@ -1,0 +1,52 @@
+{
+  "action": {
+    "idempotent": false,
+    "kind": "noop",
+    "name": "Nothing: the queue's state is the run's output",
+    "only_at_chain_end": false,
+    "params": {},
+    "retry": null,
+    "timeout_s": null
+  },
+  "concurrency_key": null,
+  "condition": {
+    "cmp": "==",
+    "left": {
+      "field": "data.workflow_id"
+    },
+    "op": "compare",
+    "right": {
+      "literal": "queue-add-capacity"
+    }
+  },
+  "counts_toward_budget": true,
+  "description": "#39: fires when a queue-add-capacity run succeeds (a try that hit capacity_exhausted is back in line, its level resting). Runs queue-progress like pr-fixer-queue-progress does for queue-add; no concurrency key: one queue per level, each document changed by compare-and-set.",
+  "enabled": false,
+  "exclusive_group": null,
+  "id": "pr-fixer-queue-progress-capacity",
+  "max_attempts": null,
+  "may_after": [],
+  "must_after": [],
+  "name": "PR fixer queue: progress when a capacity retry joins",
+  "on_failure": null,
+  "placement": {
+    "actor": null,
+    "machine": "spark2",
+    "requirement": null
+  },
+  "priority": 0,
+  "resets_attempt_budget": false,
+  "schema_version": "1.0",
+  "supersedes": [],
+  "trigger": {
+    "kind": "event",
+    "params": {
+      "type": "rules.run.succeeded"
+    }
+  },
+  "workflow": {
+    "id": "queue-progress",
+    "inputs": {},
+    "version": null
+  }
+}
