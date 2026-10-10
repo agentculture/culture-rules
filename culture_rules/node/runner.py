@@ -25,7 +25,9 @@ Production wiring done by :func:`run_node`:
   ``gitguardian.findings`` and ``gitguardian.hold`` (d25, a PR head's GitGuardian findings
   and the fix-run hold while GitGuardian fails, :mod:`culture_rules.node.actions.gitguardian`),
   ``queue.add`` and ``queue.progress`` (#35, d29/d30, the fixer's first-come-first-served
-  queue, :mod:`culture_rules.node.actions.queue`) and ``action`` (d12), which
+  queue, :mod:`culture_rules.node.actions.queue`), ``handoff.export`` and ``handoff.import``
+  (#39, the Codex fixer's commits carried from spark to spark2's gate through the store,
+  :mod:`culture_rules.actors.handoff`) and ``action`` (d12), which
   never reaches this port: the executor routes a ``builtin: action`` step exactly like a
   rule's terminal action, to the ``action:<kind>`` port through the actor router
   (:mod:`culture_rules.model.action_step`).
@@ -255,6 +257,12 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
     """
     del host
     from culture_rules.actors.gate import GatePort  # noqa: PLC0415
+    from culture_rules.actors.handoff import (  # noqa: PLC0415
+        EXPORT_BUILTIN,
+        IMPORT_BUILTIN,
+        HandoffExportPort,
+        HandoffImportPort,
+    )
     from culture_rules.actors.review import REVIEW_BUILTIN, ReviewVerdictPort  # noqa: PLC0415
     from culture_rules.node.actions.gitguardian import (  # noqa: PLC0415
         FINDINGS_BUILTIN,
@@ -323,6 +331,8 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
                 QUEUE_ADD_BUILTIN: QueueAddPort(store),  # #35 d29: the fixer queue
                 QUEUE_PROGRESS_BUILTIN: QueueProgressPort(store, pr_lookup=head),
                 QUEUE_STOP_BUILTIN: QueueStopPort(store, pr_lookup=head),  # d34: /stop, 👎
+                EXPORT_BUILTIN: HandoffExportPort.from_env(store),  # #39: Codex commits out
+                IMPORT_BUILTIN: HandoffImportPort.from_env(store),  # #39: ... into spark2
             }
         ),
     }
