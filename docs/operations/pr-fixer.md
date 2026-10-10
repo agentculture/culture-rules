@@ -374,10 +374,14 @@ the PR branched (and the PR head did not), and those files make up at least
 half of the lines it changes against the PR head. Then a review finding after
 the size one names the files and the base commit, says the base looks copied
 in, and asks for one real merge instead, or to ignore it if those files are
-the PR's own change. The check is best effort within its own 10-second
-budget: a git failure or timeout in it finds nothing and never changes the
-gate's verdict or what is built and pushed. The paragraph is rule text: no
-workflow digest changes.
+the PR's own change. The check is best effort and runs last, after the built
+commit, its diff and its bundle exist, only with at least 10 seconds left
+before the gate's deadline and within its own 10-second budget: a git failure
+or timeout in it finds nothing and never changes the gate's verdict or what is
+built and pushed. A try's instruction becomes the next try's `task` (a
+retry's original task, the review's request for changes); the paragraph is
+cut from it there (`culture_rules.actors.merge_hint`), so each try reads it
+once. The paragraph is rule text: no workflow digest changes.
 
 **Stopping a story (d34, #40).** A trusted author stops a PR's fixer story
 with a comment that starts with a form in `vars.fixer_stop_triggers` (default

@@ -1160,6 +1160,26 @@ def _base_copied_in(job: _Job, start: str, built: str, base: str) -> list[str]:
     return sorted(took) if total and copied * 2 >= total else []
 
 
+def _add_copied_base_hint(
+    job: _Job, shas: Mapping[str, str], verdict: dict[str, Any], cap: int
+) -> None:
+    """d36: add :func:`_copied_base_hint` to an oversized ``verdict`` after everything the
+    gate must produce (the built commit, its diff and bundle), so the check's time and its
+    failures can only cost the hint: a commit that is a merge, a diff within the cap, no
+    base or under :data:`_HINT_BUDGET_S` seconds left before the deadline, no hint."""
+    built, base = verdict.get("commit_sha"), shas.get("base_sha")
+    if not built or not base or (verdict.get("diff_chars") or 0) <= cap:
+        return
+    try:
+        if job.left() < _HINT_BUDGET_S or _second_parent(job, built) is not None:
+            return
+    except _Refusal:
+        return
+    copied = _base_copied_in(job, shas["start_sha"], built, base)
+    if copied:
+        verdict["diff_problems"].insert(1, _copied_base_hint(base, copied))
+
+
 def _copied_base_hint(base: str, paths: Sequence[str]) -> str:
     """The review finding for :func:`_base_copied_in` (d36): a likely cause, not a verdict."""
     shown = ", ".join(paths[:3]) + (f" and {len(paths) - 3} more" if len(paths) > 3 else "")
@@ -1395,6 +1415,7 @@ class GatePort:
                 verdict["verdict"] = NO_GATE
                 built = self._build(job, shas, context)
                 verdict.update(commit_sha=built, **self._review_diff(job, shas, built, diff_cap))
+                _add_copied_base_hint(job, shas, verdict, diff_cap)  # last: best effort
                 return verdict
             verdict["gate"] = spec.to_dict()
             violations = self._guard(job, shas, config)
@@ -1414,6 +1435,7 @@ class GatePort:
                 if verdict["verdict"] == PASS:
                     verdict.update(self._review_diff(job, shas, built, diff_cap))
                     verdict["bundle"] = self._bundle(job, built, context, shas["base_sha"])
+                    _add_copied_base_hint(job, shas, verdict, diff_cap)  # last: best effort
             verdict["instruction"] = _instruction(verdict)
             return verdict
         finally:
@@ -1545,14 +1567,7 @@ class GatePort:
         start = shas["start_sha"]
         second = _second_parent(job, built) if built != start else None
         if second is None:
-            out = cls._diff(job, start, built, cap)
-            base = shas.get("base_sha")
-            copied = (
-                _base_copied_in(job, start, built, base) if out["diff_chars"] > cap and base else []
-            )
-            if copied:
-                out["diff_problems"].insert(1, _copied_base_hint(base, copied))
-            return out
+            return cls._diff(job, start, built, cap)
         merge = _clean_merge(job, start, second)
         header = (
             f"# merge from base: {built[:12]} merges {second} (on the PR's base branch) into "

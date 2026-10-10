@@ -110,6 +110,7 @@ from typing import Any
 
 from culture_rules.actors import trusted as _trusted
 from culture_rules.actors.lineage import LineageError, final_gate, upstream
+from culture_rules.actors.merge_hint import without_merge_paragraph
 from culture_rules.actors.trusted import actor_refusal
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
 
@@ -1099,7 +1100,8 @@ class ReviewVerdictPort:
         g = fg.outputs
         task = fix_inputs.get("task")
         if not (isinstance(task, str) and task.strip()):
-            task = fix_inputs.get("instruction")
+            # d36: the next dispatch appends the merge paragraph again, so the task holds none
+            task = without_merge_paragraph(fix_inputs.get("instruction"))
         out = self._verdict(
             facts,
             g,

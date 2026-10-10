@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import pytest
 
+from culture_rules.actors.merge_hint import without_merge_paragraph
 from culture_rules.actors.review import current_review, review_target, run_reviews
 from culture_rules.engine.claims import RULE_ATTEMPT_BUDGETS, budget_id
 from culture_rules.engine.runs import ACTION_STEP, FAILURE_STEP, step_state
@@ -139,7 +140,10 @@ def test_requested_changes_fix_again_with_the_findings_then_publish(tmp_path):
     assert "The original task:" in second
     assert "o/r#7" in second
     # the original task travels on (the agent also got the d26 status-notes hint)
-    assert first == fixes[1]["inputs"]["task"] + STATUS_NOTE_HINT
+    # (d36: the task is the first instruction without its merge paragraph)
+    assert (
+        without_merge_paragraph(first.removesuffix(STATUS_NOTE_HINT)) == fixes[1]["inputs"]["task"]
+    )
     assert second.endswith(STATUS_NOTE_HINT)
     (push_call,) = w.push.calls
     assert push_call[1]["commit_sha"] == gate_of(fixes[1])["commit_sha"]
@@ -603,3 +607,19 @@ def test_disabling_the_initiating_trigger_rule_after_a_refix_pushes_nothing(tmp_
     assert publish["status"] == "failed"
     assert publish["error"]["message"] == "rule_disabled"
     assert w.remote_head() == w.repo.start
+
+
+def test_d36_a_refix_reads_the_merge_paragraph_once(tmp_path):
+    """Codex round 2 #2 (d36): the original task travels into the request for changes
+    without the paragraph, and the next dispatch appends it once."""
+    from culture_rules.actors.merge_hint import MERGE_PARAGRAPH_HEAD
+
+    w = ChainWorld(tmp_path, reviews=[changes, changes, verdict_text])
+    w.fire()
+    fixes = w.run_of("pr-fix")
+    assert len(fixes) == 3
+    for run in fixes:
+        assert run["inputs"]["instruction"].count(MERGE_PARAGRAPH_HEAD) == 1, run["id"]
+        assert MERGE_PARAGRAPH_HEAD not in (run["inputs"].get("task") or "")
+    for sent in w.qwen.inputs:
+        assert sent["instruction"].count(MERGE_PARAGRAPH_HEAD) == 1

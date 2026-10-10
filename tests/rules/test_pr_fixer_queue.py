@@ -9,6 +9,7 @@ attempt budget (``resets_attempt_budget``).
 
 from __future__ import annotations
 
+from culture_rules.actors.merge_hint import without_merge_paragraph
 from culture_rules.engine.claims import RULE_ATTEMPT_BUDGETS, budget_id
 from culture_rules.engine.runs import step_state
 from culture_rules.node.actions.queue import QUEUES_COLLECTION
@@ -101,7 +102,8 @@ def test_a_try_whose_gate_does_not_pass_goes_back_behind_the_waiting_pr(tmp_path
     assert first["outputs"]["verdict"] == "guard"
     assert retry["trigger"]["data"]["retry"] is True
     assert retry["inputs"]["instruction"].startswith("The diff guard rejected commit")
-    assert retry["inputs"]["task"] == first["inputs"]["instruction"]  # the story's task
+    # the story's task: the first try's instruction without the d36 paragraph
+    assert retry["inputs"]["task"] == without_merge_paragraph(first["inputs"]["instruction"])
     (requeue,) = w.runs("pr-fixer-retry")
     assert requeue["status"] == "succeeded"
     assert budget(w)["count"] == 2  # two tries of A's story
@@ -203,7 +205,22 @@ def test_d36_every_try_is_told_the_one_merge_from_base(tmp_path):
         assert text.count(merge) == 1, run["id"]
         assert "Never squash, flatten" in text
         assert run["inputs"]["base_sha"] == w.repo.base
+        assert merge not in (run["inputs"].get("task") or "")  # round 2 #2: never twice
     texts = [r["inputs"]["instruction"] for r in runs]
     assert [t for t in texts if t.startswith("Checks on PR")]
     assert [t for t in texts if "/fix please" in t]
     assert [t for t in texts if t.startswith("The diff guard rejected commit")]
+
+
+def test_d36_the_dispatch_paragraph_is_the_one_the_queue_and_review_cut():
+    """The strip in queue.add and in the review finds the paragraph by its head: the
+    dispatch template must end with it, after a blank line."""
+    import json
+    from pathlib import Path
+
+    from culture_rules.actors.merge_hint import MERGE_PARAGRAPH_HEAD
+
+    rule = Path(__file__).resolve().parents[2] / "docs/rules/pr-fixer/rules/pr-fixer-dispatch.json"
+    template = json.loads(rule.read_text())["workflow"]["inputs"]["instruction"]
+    assert template.startswith("{{ trigger.data.instruction }}\n\n" + MERGE_PARAGRAPH_HEAD)
+    assert without_merge_paragraph(template) == "{{ trigger.data.instruction }}"

@@ -525,3 +525,40 @@ def test_d36_a_failing_check_keeps_the_gates_result(
     assert out["diff_truncated"] is True
     assert out["diff_problems"][0].startswith("the diff is ")
     assert not [p for p in out["diff_problems"] if "plain commit" in p]
+
+
+def test_d36_a_check_that_runs_out_the_deadline_keeps_verdict_and_bundle(
+    store, tmp_path, clock, monkeypatch  # noqa: F811
+):  # noqa: F811
+    """Codex round 2 #1: the check runs last, after the bundle, so even one that eats the
+    job's whole deadline costs only the hint."""
+    from culture_rules.actors import gate
+
+    real = gate._HintBudget.git_rc
+
+    def slow(self, *args):
+        clock.advance(7200)  # past the job's deadline (an hour)
+        return real(self, *args)
+
+    monkeypatch.setattr(gate._HintBudget, "git_rc", slow)
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    copy_base_in(repo, {"src/big.py": BIG})
+    out = judge(store, LocalRunner(), repo, tmp_path, clock)
+    assert out["verdict"] == PASS, out
+    assert out["bundle"]
+    assert not [p for p in out["diff_problems"] if "plain commit" in p]
+
+
+def test_d36_no_check_without_time_to_spare(store, tmp_path, clock, monkeypatch):  # noqa: F811
+    from culture_rules.actors import gate
+
+    def never(self, *args):
+        raise AssertionError("the check ran with too little time left")
+
+    monkeypatch.setattr(gate, "_HINT_BUDGET_S", 7200.0)  # more than the job has left
+    monkeypatch.setattr(gate._HintBudget, "git_rc", never)
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    copy_base_in(repo, {"src/big.py": BIG})
+    out = judge(store, LocalRunner(), repo, tmp_path, clock)
+    assert out["verdict"] == PASS, out
+    assert out["bundle"]
