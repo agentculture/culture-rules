@@ -144,6 +144,18 @@ checks the per-invocation token itself):
 
 The qwen bridge refuses a run without `mode`.
 
+**One model server, one slot count (`concurrency_pool`, #35).** An actor's
+`max_concurrency` caps that actor alone, so two actors on the same Qwen
+server could still work in parallel. Give every actor that uses one model
+server the same `params.concurrency_pool` (for example `qwen-spark2`). The
+actors naming a pool share one slot document, `actor_usage` id
+`pool:<name>`, updated by compare-and-set, so the cap holds across nodes.
+The pool's cap is the smallest `max_concurrency` among its enabled actors;
+a pool whose actors declare none shares a count but has no cap. Token
+budgets (`token_budget`) stay per actor. An actor without a pool keeps its
+own slots, as before. Slots an actor held before it joined a pool stay on
+its own document until they are released or expire.
+
 ## 5. Let the node run the test gate as `culture-fixer` (operator, root; *planned*)
 
 The fixer workflow's `gate` step (`kind: code`, `config.builtin: gate`,
@@ -998,8 +1010,9 @@ above name:
    - `agent`: an `ai` step on actor `qwen-fixer` in mode `yolo`. Its `threads`
      input (the bridge's `threads` field) holds only the trusted threads, each
      `{thread_id, comment_id, path, line, author, body}`.
-     While `qwen-fixer` is at its concurrency cap, the step waits `blocked` in
-     the actor's queue. Its 3900 s working budget starts only when the bridge
+     While `qwen-fixer` is at its concurrency cap (its pool's cap, when it
+     names a `concurrency_pool`), the step waits `blocked` in the actor's
+     queue. Its 3900 s working budget starts only when the bridge
      accepts the work. The wait is bounded at twice that budget (130 minutes);
      past it the step fails `queue_timeout`.
    - `gate`: the built-in `gate` on spark2. It reads the agent's `worktree`,

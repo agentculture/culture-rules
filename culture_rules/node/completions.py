@@ -9,9 +9,11 @@ is freed however the completion arrives, not only at the step's deadline.
 
 :func:`release_slot` is store-only: it finds the step's actor from the step claim and the
 run's pinned workflow (:func:`actor_of`) and releases the key on that actor's
-``actor_usage`` document, marking it done only for a *completed* result (a failed attempt's
-retry must be admitted like new work). It is idempotent: a key already released and done
-is left alone, so its tokens are counted once. Standard-library only.
+``actor_usage`` document (the pool's ``pool:<name>`` document for an actor in a
+``concurrency_pool``; its tokens still go to the actor's own), marking it done only for
+a *completed* result (a failed attempt's retry must be admitted like new work). It is
+idempotent: a key already released and done is left alone, so its tokens are counted
+once. Standard-library only.
 """
 
 from __future__ import annotations
@@ -20,7 +22,14 @@ from collections.abc import Callable, Iterator, Mapping
 from datetime import datetime
 from typing import Any
 
-from culture_rules.actors.limits import USAGE_COLLECTION, ActorLimits, LimitedActor, tokens_of
+from culture_rules.actors.limits import (
+    USAGE_COLLECTION,
+    ActorLimits,
+    LimitedActor,
+    pool_doc_id,
+    pool_of,
+    tokens_of,
+)
 from culture_rules.engine.actorport import COMPLETED, FAILED, InvocationResult
 from culture_rules.engine.claims import CLAIMS_COLLECTION
 from culture_rules.engine.runs import RUNS_COLLECTION, STEP_DONE
@@ -69,10 +78,20 @@ def step_attempt(store: StoreOps, key: str) -> int | None:
     return step.get("attempt") if step is not None else None
 
 
+def _pool(store: StoreOps, actor: str) -> str | None:
+    return pool_of(store.get("actors", actor))
+
+
 def _slot_held(store: StoreOps, key: str) -> bool:
     actor = actor_of(store, key)
-    usage = store.get(USAGE_COLLECTION, actor) if actor else None
-    return bool(usage) and any(s.get("key") == key for s in usage.get("inflight") or ())
+    if not actor:
+        return False
+    ids = [actor] + ([pool_doc_id(p)] if (p := _pool(store, actor)) else [])
+    for doc_id in ids:
+        usage = store.get(USAGE_COLLECTION, doc_id)
+        if usage and any(s.get("key") == key for s in usage.get("inflight") or ()):
+            return True
+    return False
 
 
 def release_slot(
@@ -80,9 +99,14 @@ def release_slot(
 ) -> bool:
     """Free ``key``'s slot on its step's actor; False when no limited actor holds usage."""
     actor = actor_of(store, key)
-    if not actor or store.get(USAGE_COLLECTION, actor) is None:
+    if not actor:
         return False
-    limited = LimitedActor(None, actor, ActorLimits(), store, clock=clock)  # type: ignore[arg-type]
+    pool = _pool(store, actor)
+    ids = [actor] + ([pool_doc_id(pool)] if pool else [])
+    if all(store.get(USAGE_COLLECTION, doc_id) is None for doc_id in ids):
+        return False
+    limits = ActorLimits(concurrency_pool=pool)
+    limited = LimitedActor(None, actor, limits, store, clock=clock)  # type: ignore[arg-type]
     limited.release(key, tokens=tokens_of(result), completed=result.outcome == COMPLETED)
     return True
 

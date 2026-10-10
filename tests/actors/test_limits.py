@@ -14,6 +14,8 @@ from culture_rules.actors.limits import (
     LimitedActor,
     limits_from_config,
     parse_limit_error,
+    pool_cap,
+    pool_doc_id,
 )
 from culture_rules.engine.actorport import (
     BLOCKED,
@@ -283,3 +285,132 @@ def test_tokens_spent_by_a_failed_attempt_are_counted():
     actor.invoke({}, "K", DEADLINE, context=ctx())
     assert actor.usage()["tokens"] == 50
     assert inner.calls == ["K", "K"]
+
+
+# ------------------------------------------------- #35 concurrency_pool (d28/d29 safety net)
+
+
+def pooled(actor_id: str, store, *, cap=1, budget=None, inner=None, clock=None):
+    inner = inner or FakeActor().on("a", ("accept",), ("accept",)).on("b", ("accept",))
+    limits = ActorLimits(token_budget=budget, max_concurrency=cap, concurrency_pool="qwen")
+    return LimitedActor(inner, actor_id, limits, store, clock=clock or Clock()), inner
+
+
+def test_concurrency_pool_is_read_from_config_and_invalid_values_degrade():
+    cfg = ActorConfig(key="x", extras={"max_concurrency": 1, "concurrency_pool": "qwen-spark2"})
+    assert limits_from_config(cfg).concurrency_pool == "qwen-spark2"
+    for bad in ("", "  ", 3, True, None):
+        cfg = ActorConfig(key="x", extras={"concurrency_pool": bad})
+        assert limits_from_config(cfg).concurrency_pool is None
+
+
+def test_two_actors_in_one_pool_share_one_slot():
+    store = MemoryStore()
+    a, _ = pooled("qwen-a", store)
+    b, inner_b = pooled("qwen-b", store)
+    assert a.invoke({}, "k1", DEADLINE, context=ctx("a")).outcome == "accepted"
+    assert b.invoke({}, "k2", DEADLINE, context=ctx("b")).outcome == BLOCKED
+    assert inner_b.effects["k2"] == 0
+    slots = store.get(USAGE_COLLECTION, pool_doc_id("qwen"))
+    assert [s["key"] for s in slots["inflight"]] == ["k1"]
+    assert slots["pool"] == "qwen"
+    a.release("k1", tokens=7, completed=True)
+    assert store.get(USAGE_COLLECTION, pool_doc_id("qwen"))["inflight"] == []
+    assert b.invoke({}, "k2", DEADLINE, context=ctx("b")).outcome == "accepted"
+
+
+def test_pool_holds_across_hosts_sharing_a_store():
+    store = MemoryStore()
+    a, _ = pooled("qwen-a", store.peer())
+    b, _ = pooled("qwen-b", store.peer())
+    assert a.invoke({}, "k1", DEADLINE, context=ctx("a")).outcome == "accepted"
+    assert b.invoke({}, "k2", DEADLINE, context=ctx("b")).outcome == BLOCKED
+
+
+def test_token_budgets_stay_per_actor_in_a_pool():
+    store = MemoryStore()
+    a, _ = pooled("qwen-a", store, cap=None, budget=10)
+    b, _ = pooled("qwen-b", store, cap=None, budget=10)
+    a.invoke({}, "k1", DEADLINE, context=ctx("a"))
+    a.release("k1", tokens=10, completed=True)
+    assert store.get(USAGE_COLLECTION, "qwen-a")["tokens"] == 10
+    assert a.invoke({}, "k3", DEADLINE, context=ctx("x")).outcome == FAILED  # a is over
+    assert b.invoke({}, "k4", DEADLINE, context=ctx("x")).outcome == COMPLETED  # b is not
+    assert store.get(USAGE_COLLECTION, "qwen-b")["tokens"] == 0
+    assert a.usage()["concurrency_pool"] == "qwen"
+
+
+def test_pool_replays_a_completed_key_and_counts_its_tokens_once():
+    store = MemoryStore()
+    inner = FakeActor(default=lambda i, c: {"tokens": 5})
+    a, _ = pooled("qwen-a", store, inner=inner)
+    assert a.invoke({}, "k1", DEADLINE, context=ctx("x")).outcome == COMPLETED
+    assert a.invoke({}, "k1", DEADLINE, context=ctx("x")).outcome == COMPLETED
+    assert inner.effects["k1"] == 1
+    assert store.get(USAGE_COLLECTION, "qwen-a")["tokens"] == 5
+    a.release("k1", tokens=5, completed=True)  # a repeated delivery counts nothing twice
+    assert store.get(USAGE_COLLECTION, "qwen-a")["tokens"] == 5
+
+
+def test_pool_slot_of_an_exception_is_dropped_and_expires_at_its_deadline():
+    store, clock = MemoryStore(), Clock()
+    inner = FakeActor().on("a", ("lose_ack", {}), ("accept",))
+    a, _ = pooled("qwen-a", store, inner=inner, clock=clock)
+    b, _ = pooled("qwen-b", store, clock=clock)
+    with pytest.raises(ConnectionError):
+        a.invoke({}, "k1", DEADLINE, context=ctx("a"))
+    assert a.usage()["in_flight"] == 0
+    assert a.invoke({}, "k2", DEADLINE, context=ctx("a")).outcome == "accepted"
+    assert b.invoke({}, "k3", DEADLINE, context=ctx("b")).outcome == BLOCKED
+    clock.now = DEADLINE.replace(minute=1)
+    later = DEADLINE.replace(hour=14)
+    assert b.invoke({}, "k3", later, context=ctx("b")).outcome == "accepted"
+
+
+def test_concurrent_pool_invocations_never_exceed_the_pool_cap():
+    store = MemoryStore()
+    actors = [
+        LimitedActor(
+            FakeActor().on("a", ("accept",)),
+            f"qwen-{i % 3}",
+            ActorLimits(max_concurrency=2, concurrency_pool="qwen"),
+            store.peer(),
+            clock=Clock(),
+        )
+        for i in range(8)
+    ]
+
+    def go(i):
+        return actors[i].invoke({}, f"k{i}", DEADLINE, context=ctx("a")).outcome
+
+    with ThreadPoolExecutor(8) as pool:
+        outcomes = list(pool.map(go, range(8)))
+    assert outcomes.count("accepted") == 2
+    assert outcomes.count(BLOCKED) == 6
+
+
+def _actor_doc(id_, **params):
+    return {"id": id_, "name": id_, "kind": "agent", "enabled": True, "params": params}
+
+
+def test_pool_cap_is_the_smallest_max_concurrency_among_enabled_members():
+    store = MemoryStore()
+    store.put("actors", _actor_doc("a", concurrency_pool="qwen", max_concurrency=2))
+    store.put("actors", _actor_doc("b", concurrency_pool="qwen", max_concurrency=1))
+    store.put("actors", _actor_doc("c", concurrency_pool="qwen"))  # no cap of its own
+    store.put("actors", _actor_doc("d", concurrency_pool="other", max_concurrency=5))
+    assert pool_cap(store, "qwen") == 1
+    assert pool_cap(store, "other") == 5
+    assert pool_cap(store, "nobody") is None
+    store.put(
+        "actors", {**_actor_doc("b", concurrency_pool="qwen", max_concurrency=1), "enabled": False}
+    )
+    assert pool_cap(store, "qwen") == 2
+    store.put(
+        "actors",
+        {
+            **_actor_doc("a", concurrency_pool="qwen", max_concurrency=2),
+            "deleted_at": "2026-10-10T00:00:00Z",
+        },
+    )
+    assert pool_cap(store, "qwen") is None

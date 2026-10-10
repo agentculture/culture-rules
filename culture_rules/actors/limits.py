@@ -29,6 +29,17 @@ check, and its tokens are not counted twice. A failed attempt frees its slot and
 tokens it used, but is not remembered, so its retry is admitted like new work - it waits
 at the concurrency cap, is refused over budget, and its tokens are counted.
 
+Concurrency pools (#35, d28/d29): an actor whose ``concurrency_pool`` names a pool (a
+non-empty string) keeps its in-flight slots in the pool's shared document,
+``actor_usage`` id ``pool:<name>`` (:func:`pool_doc_id`), so every actor naming that pool
+counts against one slot count across hosts - one model server, one queue. The pool's cap is
+the smallest ``max_concurrency`` among the pool's enabled actors (:func:`pool_cap`,
+resolved by :class:`~culture_rules.node.actors.ActorRouter` per invocation): no extra
+setting, and the strictest member wins, so adding a member can only tighten the server's
+cap. A pool whose members declare no cap shares a count but is unlimited. Token budgets and
+the completed-key memory stay on the actor's own document. An actor without a pool behaves
+exactly as before (one document holds its slots, tokens and done keys).
+
 Standard library only.
 """
 
@@ -51,16 +62,22 @@ from culture_rules.engine.actorport import (
 
 __all__ = [
     "DEFAULT_WARN_PCT",
+    "POOL_PREFIX",
     "OVER_BUDGET",
     "USAGE_COLLECTION",
     "ActorLimits",
     "LimitedActor",
     "limits_from_config",
     "parse_limit_error",
+    "pool_cap",
+    "pool_doc_id",
+    "pool_of",
     "tokens_of",
 ]
 
 USAGE_COLLECTION = "actor_usage"
+POOL_PREFIX = "pool:"
+"""Id prefix of a concurrency pool's shared slot document in :data:`USAGE_COLLECTION`."""
 OVER_BUDGET = "over_budget"
 DEFAULT_WARN_PCT = 80  # culture AgentConfig.token_budget_warn_pct default
 _DONE_KEEP = 256  # completed keys remembered per actor (lost-ack replays)
@@ -78,10 +95,47 @@ class ActorLimits:
     token_budget: int | None = None
     token_budget_warn_pct: int = DEFAULT_WARN_PCT
     max_concurrency: int | None = None
+    concurrency_pool: str | None = None
+
+
+def pool_doc_id(pool: str) -> str:
+    """The ``actor_usage`` id of pool ``pool``'s shared slot document."""
+    return f"{POOL_PREFIX}{pool}"
+
+
+def _pool_name(value: Any) -> str | None:
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def _cap(value: Any) -> int | None:
+    return value if _is_int(value) and value > 0 else None
+
+
+def pool_of(actor_doc: Mapping[str, Any] | None) -> str | None:
+    """The ``concurrency_pool`` a stored actor document names (None: no pool)."""
+    params = (actor_doc or {}).get("params") or {}
+    return _pool_name(params.get("concurrency_pool")) if isinstance(params, Mapping) else None
+
+
+def pool_cap(store: Any, pool: str, collection: str = "actors") -> int | None:
+    """The cap of ``pool``: the smallest ``max_concurrency`` among the enabled, not deleted
+    actors naming it; None when none of them declares one (shared count, no cap)."""
+    caps = [
+        cap
+        for doc in store.find(collection)
+        if doc.get("enabled", True) is not False
+        and not doc.get("deleted_at")
+        and pool_of(doc) == pool
+        and (cap := _cap((doc.get("params") or {}).get("max_concurrency"))) is not None
+    ]
+    return min(caps) if caps else None
 
 
 def limits_from_config(config: ActorConfig) -> ActorLimits:
-    """Read limits from an actor's culture.yaml entry, degrading invalid values."""
+    """Read limits from an actor's culture.yaml entry, degrading invalid values.
+
+    ``max_concurrency`` here is the actor's own; for an actor in a pool the router replaces
+    it with :func:`pool_cap`."""
     extras: Mapping[str, Any] = config.extras
     budget = extras.get("token_budget")
     if not (_is_int(budget) and budget > 0):
@@ -89,10 +143,12 @@ def limits_from_config(config: ActorConfig) -> ActorLimits:
     pct = extras.get("token_budget_warn_pct", DEFAULT_WARN_PCT)
     if not (_is_int(pct) and 1 <= pct <= 100):
         pct = DEFAULT_WARN_PCT
-    cap = extras.get("max_concurrency")
-    if not (_is_int(cap) and cap > 0):
-        cap = None
-    return ActorLimits(token_budget=budget, token_budget_warn_pct=pct, max_concurrency=cap)
+    return ActorLimits(
+        token_budget=budget,
+        token_budget_warn_pct=pct,
+        max_concurrency=_cap(extras.get("max_concurrency")),
+        concurrency_pool=_pool_name(extras.get("concurrency_pool")),
+    )
 
 
 def parse_limit_error(error: str | None) -> dict[str, Any]:
@@ -152,42 +208,55 @@ class LimitedActor:
         base.setdefault("done", [])
         return base
 
-    def _mutate(self, fn: Callable[[dict[str, Any]], Any]) -> Any:
-        """CAS loop: ``fn(fresh_doc)`` edits it and returns a result, or None to abort."""
+    @property
+    def _pool(self) -> str | None:
+        return self.limits.concurrency_pool
+
+    def _slots_id(self) -> str:
+        """The document holding this actor's in-flight slots: its pool's, else its own."""
+        return pool_doc_id(self._pool) if self._pool else self.actor
+
+    def _mutate(self, fn: Callable[[dict[str, Any]], Any], *, slots: bool = False) -> Any:
+        """CAS loop: ``fn(fresh_doc)`` edits it and returns a result; it sets ``_abort`` on
+        the doc to write nothing. ``slots=True`` edits the pool's slot document."""
+        doc_id = self._slots_id() if slots else self.actor
         for _ in range(_MAX_CAS_TRIES):
-            current = self.store.get(USAGE_COLLECTION, self.actor)
+            current = self.store.get(USAGE_COLLECTION, doc_id)
             rev = current.get("rev") if current else None
             doc = self._fresh(current)
             outcome = fn(doc)
             if doc.get("_abort"):
                 return outcome
-            changes = {
-                "day": doc["day"],
-                "tokens": doc["tokens"],
-                "inflight": doc["inflight"],
-                "done": doc["done"][-_DONE_KEEP:],
-                "actor": self.actor,
-                "rev": (rev or 0) + 1,
-            }
-            res = self.store.update_if(
-                USAGE_COLLECTION, self.actor, {"rev": rev}, changes, upsert=True
-            )
+            if slots:
+                changes = {"pool": self._pool, "inflight": doc["inflight"]}
+            else:
+                changes = {
+                    "day": doc["day"],
+                    "tokens": doc["tokens"],
+                    "inflight": doc["inflight"],
+                    "done": doc["done"][-_DONE_KEEP:],
+                    "actor": self.actor,
+                }
+            changes["rev"] = (rev or 0) + 1
+            res = self.store.update_if(USAGE_COLLECTION, doc_id, {"rev": rev}, changes, upsert=True)
             if res.won:
                 return outcome
-        raise RuntimeError(f"actor_usage/{self.actor}: too much contention")
+        raise RuntimeError(f"actor_usage/{doc_id}: too much contention")
 
     def usage(self) -> dict[str, Any]:
         """Today's usage: tokens, in_flight, limits and the warn/over flags."""
         doc = self._fresh(self.store.get(USAGE_COLLECTION, self.actor))
+        slots = self._fresh(self.store.get(USAGE_COLLECTION, self._slots_id()))
         budget = self.limits.token_budget
         tokens = doc["tokens"]
         return {
             "actor": self.actor,
             "day": doc["day"],
             "tokens": tokens,
-            "in_flight": len(doc["inflight"]),
+            "in_flight": len(slots["inflight"]),
             "token_budget": budget,
             "max_concurrency": self.limits.max_concurrency,
+            "concurrency_pool": self._pool,
             "budget_warning": bool(
                 budget and tokens * 100 >= budget * self.limits.token_budget_warn_pct
             ),
@@ -197,6 +266,9 @@ class LimitedActor:
     # ------------------------------------------------------------ admission
 
     def _admit(self, key: str, deadline: datetime) -> tuple[str, dict[str, Any]]:
+        if self._pool:
+            return self._admit_pooled(key, deadline)
+
         def fn(doc: dict[str, Any]) -> tuple[str, dict[str, Any]]:
             held = {s["key"] for s in doc["inflight"]}
             if key in doc["done"] or key in held:
@@ -215,6 +287,32 @@ class LimitedActor:
 
         return self._mutate(fn)
 
+    def _admit_pooled(self, key: str, deadline: datetime) -> tuple[str, dict[str, Any]]:
+        """Admission in a pool: done keys and the budget on the actor's own document, the
+        slot taken by compare-and-set on the pool's document."""
+        own = self._fresh(self.store.get(USAGE_COLLECTION, self.actor))
+        if key in own["done"]:
+            return "replay_done", own
+        pool = self._fresh(self.store.get(USAGE_COLLECTION, self._slots_id()))
+        if any(s["key"] == key for s in pool["inflight"]):
+            return "replay_held", own
+        budget = self.limits.token_budget
+        if budget is not None and own["tokens"] >= budget:
+            return OVER_BUDGET, own
+
+        def take(doc: dict[str, Any]) -> str:
+            if any(s["key"] == key for s in doc["inflight"]):
+                doc["_abort"] = True
+                return "replay_held"
+            cap = self.limits.max_concurrency
+            if cap is not None and len(doc["inflight"]) >= cap:
+                doc["_abort"] = True
+                return "blocked"
+            doc["inflight"].append({"key": key, "until": _iso(deadline), "actor": self.actor})
+            return "admit"
+
+        return self._mutate(take, slots=True), own
+
     def release(self, key: str, *, tokens: int = 0, completed: bool = False) -> None:
         """Free ``key``'s slot and add ``tokens`` used (for work that finished later).
 
@@ -224,8 +322,10 @@ class LimitedActor:
         is already done is a no-op (a repeated delivery counts its tokens once).
         """
 
+        pooled_held = self._drop_slot(key) if self._pool else False
+
         def fn(doc: dict[str, Any]) -> None:
-            held = any(s["key"] == key for s in doc["inflight"])
+            held = pooled_held or any(s["key"] == key for s in doc["inflight"])
             if not held and key in doc["done"]:
                 doc["_abort"] = True
                 return
@@ -236,11 +336,17 @@ class LimitedActor:
 
         self._mutate(fn)
 
-    def _drop_slot(self, key: str) -> None:
-        def fn(doc: dict[str, Any]) -> None:
-            doc["inflight"] = [s for s in doc["inflight"] if s["key"] != key]
+    def _drop_slot(self, key: str) -> bool:
+        """Free ``key``'s slot (in the pool's document for a pooled actor); True if held."""
 
-        self._mutate(fn)
+        def fn(doc: dict[str, Any]) -> bool:
+            if not any(s["key"] == key for s in doc["inflight"]):
+                doc["_abort"] = True
+                return False
+            doc["inflight"] = [s for s in doc["inflight"] if s["key"] != key]
+            return True
+
+        return bool(self._mutate(fn, slots=bool(self._pool)))
 
     # ----------------------------------------------------------- the port
 
