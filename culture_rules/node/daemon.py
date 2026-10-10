@@ -331,8 +331,7 @@ class Node:
             store,
             lambda repo, page, timeout: lister.list_open_pulls_page(repo, page, timeout_s=timeout),
             lambda repo, number, timeout: lister.get_pull(repo, number, timeout_s=timeout),
-            serves=lister.serves,
-            clock=self._clock,
+            clock=self._clock,  # no serves: the bounded listing says repo_not_allowed
         )
         self.heartbeat: HeartbeatPublisher | None = None
         self._last_beat: datetime | None = None

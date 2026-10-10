@@ -231,3 +231,22 @@ def test_a_rate_limited_read_drops_the_repos_queue_until_the_next_sweep():
     assert watcher.tick() == 0  # nothing queued until the interval comes round
     clock.now += timedelta(seconds=DEFAULT_INTERVAL_S + 1)
     assert watcher.tick() == 3
+
+
+def test_a_slow_serves_check_never_eats_the_listings_timeout():
+    elapsed = [0.0]
+
+    def serves(repo):
+        elapsed[0] += TICK_BUDGET_S + 1  # a cold secret resolve
+        return True
+
+    store, gh, _clock, watcher = world([pull()], serves=serves, monotonic=lambda: elapsed[0])
+    assert watcher.tick() == 0
+    assert gh.pages == []  # no time left after it: the listing waits for the next cycle
+
+
+def test_a_repo_this_node_cannot_read_is_dropped_quietly():
+    store, gh, _clock, watcher = world([pull()])
+    gh.fail_list = True  # e.g. repo_not_allowed from the bounded listing
+    assert watcher.tick() == 0
+    assert gh.reads == []

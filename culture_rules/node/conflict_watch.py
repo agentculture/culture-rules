@@ -5,7 +5,9 @@ not, so no check completes and nothing settles. :meth:`ConflictWatcher.tick` (ru
 node cycle) therefore looks, at most once every ``conflict_watch_interval_s`` seconds (a
 variable; default :data:`DEFAULT_INTERVAL_S`), at the open PRs of each repository in the
 shared variable ``fixer_repos`` (less ``fixer_excluded_repos``) that this node can read
-through its GitHub App actor (the ``serves`` seam, as for the checks settle). A sweep lists
+through its GitHub App actor: the node finds that out inside the bounded listing itself
+(``repo_not_allowed``), so even a cold secret resolve stays within the budget below; an
+optional ``serves`` seam skips a repository before any request. A sweep lists
 the open PRs one page at a time (``list_page``, 100 a page) and queues the same-repo,
 non-draft ones, then reads each (``get_pull``) for GitHub's ``mergeable``. Listing pages and
 reads share one budget per node cycle: at most :data:`REQUESTS_PER_TICK` requests within
@@ -145,27 +147,34 @@ class ConflictWatcher:
         started = self._monotonic()
         emitted = requests = 0
         while (self._queue or self._pages) and requests < REQUESTS_PER_TICK:
-            left = TICK_BUDGET_S - (self._monotonic() - started)
-            if left <= 0:
-                break
-            timeout = min(REQUEST_TIMEOUT_S, left)
             if self._queue:
+                left = TICK_BUDGET_S - (self._monotonic() - started)
+                if left <= 0:
+                    break
                 repo, number = self._queue.popleft()
                 requests += 1
-                emitted += self._read(repo, number, timeout, now)
+                emitted += self._read(repo, number, min(REQUEST_TIMEOUT_S, left), now)
                 continue
-            repo, page = self._pages.popleft()
+            repo, page = self._pages[0]
             if page == 1 and self._serves is not None and not self._serves(repo):
+                self._pages.popleft()
                 continue  # not this node's repo: no request made
+            left = TICK_BUDGET_S - (self._monotonic() - started)  # after any serves()
+            if left <= 0:
+                break
+            self._pages.popleft()
             requests += 1
-            self._list_page(repo, page, timeout)
+            self._list_page(repo, page, min(REQUEST_TIMEOUT_S, left))
         return emitted
 
     def _list_page(self, repo: str, page: int, timeout: float) -> None:
         try:
             pulls = self._list(repo, page, timeout)
         except GitHubError as exc:
-            log.info("conflict watch: listing %s failed (%s)", repo, exc.code)
+            # repo_not_allowed: this node has no App for the repo (the node wires no
+            # ``serves``: the bounded listing finds that out, secret resolve included)
+            level = logging.DEBUG if exc.code == "repo_not_allowed" else logging.INFO
+            log.log(level, "conflict watch: listing %s failed (%s)", repo, exc.code)
             self._drop(repo)
             return
         for listed in pulls:
