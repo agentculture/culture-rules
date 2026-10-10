@@ -1145,6 +1145,8 @@ def _base_copied_in(job: _Job, start: str, built: str, base: str) -> list[str]:
     nothing and never changes the gate's result."""
     git = _HintBudget(job)
     try:
+        if len(git.git("rev-parse", f"{built}^@").split()) > 1:  # a merge: d31's own case
+            return []
         if git.git_rc("merge-base", "--is-ancestor", base, built)[0] == 0:
             return []
         fork = git.git("merge-base", start, base).decode().strip()
@@ -1165,13 +1167,14 @@ def _add_copied_base_hint(
 ) -> None:
     """d36: add :func:`_copied_base_hint` to an oversized ``verdict`` after everything the
     gate must produce (the built commit, its diff and bundle), so the check's time and its
-    failures can only cost the hint: a commit that is a merge, a diff within the cap, no
-    base or under :data:`_HINT_BUDGET_S` seconds left before the deadline, no hint."""
+    failures can only cost the hint: a diff within the cap, no base or under
+    :data:`_HINT_BUDGET_S` seconds left before the deadline, no hint (and a merge, checked
+    within the budget, none either)."""
     built, base = verdict.get("commit_sha"), shas.get("base_sha")
     if not built or not base or (verdict.get("diff_chars") or 0) <= cap:
         return
     try:
-        if job.left() < _HINT_BUDGET_S or _second_parent(job, built) is not None:
+        if job.left() < _HINT_BUDGET_S:
             return
     except _Refusal:
         return

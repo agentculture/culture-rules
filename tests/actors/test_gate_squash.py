@@ -562,3 +562,27 @@ def test_d36_no_check_without_time_to_spare(store, tmp_path, clock, monkeypatch)
     out = judge(store, LocalRunner(), repo, tmp_path, clock)
     assert out["verdict"] == PASS, out
     assert out["bundle"]
+
+
+def test_d36_every_git_call_of_the_check_is_in_its_budget(
+    store, tmp_path, clock, monkeypatch  # noqa: F811
+):  # noqa: F811
+    """Codex round 3: the merge-parent lookup too goes through the check's own budget, so
+    a slow first call (here: past it) ends the check with no hint."""
+    from culture_rules.actors import gate
+
+    calls = []
+
+    def slow(self, *args):
+        calls.append(args[0])
+        clock.advance(gate._HINT_BUDGET_S + 1)
+        raise gate._Refusal("git_timeout", retryable=True)
+
+    monkeypatch.setattr(gate._HintBudget, "git_rc", slow)
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    copy_base_in(repo, {"src/big.py": BIG})
+    out = judge(store, LocalRunner(), repo, tmp_path, clock)
+    assert calls == ["rev-parse"]  # the parent lookup is the check's first call
+    assert out["verdict"] == PASS, out
+    assert out["bundle"]
+    assert not [p for p in out["diff_problems"] if "plain commit" in p]
