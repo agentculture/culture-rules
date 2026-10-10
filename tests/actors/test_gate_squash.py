@@ -15,6 +15,7 @@ import subprocess
 from pathlib import Path
 
 from culture_rules.actors.gate import GUARD, NO_GATE, PASS
+from culture_rules.actors.merge_hint import COPIED_BASE_LEAD
 from tests.actors.test_gate import (  # noqa: F401 - fixtures
     GIT_ENV,
     PASSING,
@@ -436,3 +437,184 @@ def test_d31_a_real_replacement_character_is_complete_review_material(
     out = judge(store, LocalRunner(), repo, tmp_path, clock)
     assert out["verdict"] == PASS
     assert out["diff_truncated"] is False, out["diff_problems"]
+
+
+def copy_base_in(repo: Repo, main_files: dict) -> str:
+    """The base branch moves (``main_files``) and the agent copies its changes into the PR
+    as one plain, single-parent commit - tree-identical to the merge, but no merge (the
+    live case behind d36, katvan#57). ``repo.base`` becomes the moved base."""
+    git(repo.wt, "checkout", "-q", "--detach", repo.base)
+    moved = repo.commit("main moves", main_files)
+    git(repo.wt, "checkout", "-q", "--detach", repo.start)
+    tip = repo.commit("merge main (flattened)", main_files)
+    repo.base = moved
+    return tip
+
+
+def test_d36_a_base_copied_in_as_a_plain_commit_asks_for_one_real_merge(
+    store, tmp_path, clock  # noqa: F811
+):
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    copy_base_in(repo, {"src/big.py": BIG})
+    out = judge(store, LocalRunner(), repo, tmp_path, clock)
+    assert out["diff_truncated"] is True
+    problems = out["diff_problems"]
+    assert problems[0].startswith("the diff is ")  # the size finding stays first
+    (hint,) = [p for p in problems if "plain commit" in p]
+    assert hint.startswith(COPIED_BASE_LEAD)  # the review's cue to ask for one real merge
+    assert f"git merge {repo.base}" in hint
+    assert "src/big.py" in hint  # the file it took from the base
+    assert "If those files are the PR's own change, ignore this" in hint  # a cause, not a verdict
+
+
+def test_d36_a_large_change_of_the_prs_own_gets_no_merge_hint(store, tmp_path, clock):  # noqa: F811
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    git(repo.wt, "checkout", "-q", "--detach", repo.base)
+    repo.base = repo.commit("main moves", {"src/other.py": "o = 1\n"})
+    git(repo.wt, "checkout", "-q", "--detach", repo.start)
+    repo.commit("a big change of the PR's own", {"src/big.py": BIG})
+    out = judge(store, LocalRunner(), repo, tmp_path, clock)
+    assert out["diff_truncated"] is True
+    assert not [p for p in out["diff_problems"] if "plain commit" in p]
+
+
+def test_d36_a_small_plain_copy_of_the_base_gets_no_hint(store, tmp_path, clock):  # noqa: F811
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    copy_base_in(repo, {"src/other.py": "o = 1\n"})
+    out = judge(store, LocalRunner(), repo, tmp_path, clock)
+    assert out["diff_problems"] == []  # within the cap: the reviewer judges it as it is
+
+
+def test_d36_the_hint_comes_without_a_gate_section_too(store, tmp_path, clock):  # noqa: F811
+    repo = Repo(tmp_path, None)  # katvan#57's PR head had no gate section: no_gate
+    copy_base_in(repo, {"src/big.py": BIG})
+    out = judge(store, LocalRunner(), repo, tmp_path, clock)
+    assert out["verdict"] == NO_GATE
+    assert [p for p in out["diff_problems"] if f"git merge {repo.base}" in p]
+
+
+def test_d36_reverting_the_prs_own_change_gets_no_hint(store, tmp_path, clock):  # noqa: F811
+    """Codex round 1 #1: closer to the base is not a copy - the PR added a big file, the
+    base moved elsewhere, and the fix removes the PR's own addition."""
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    git(repo.wt, "checkout", "-q", "--detach", repo.start)
+    repo.start = repo.commit("the PR adds a big file", {"src/big.py": BIG})
+    git(repo.wt, "checkout", "-q", "--detach", repo.base)
+    repo.base = repo.commit("main moves", {"src/other.py": "o = 1\n"})
+    git(repo.wt, "checkout", "-q", "--detach", repo.start)
+    repo.commit("the fix drops the big file", {"src/big.py": None})
+    out = judge(store, LocalRunner(), repo, tmp_path, clock)
+    assert out["diff_truncated"] is True
+    assert not [p for p in out["diff_problems"] if "plain commit" in p]
+
+
+def test_d36_a_failing_check_keeps_the_gates_result(
+    store, tmp_path, clock, monkeypatch  # noqa: F811
+):  # noqa: F811
+    """Codex round 1 #2: the check is best effort - a git timeout inside it finds nothing
+    and the oversized-diff result stands as it was."""
+    from culture_rules.actors import gate
+
+    def times_out(self, *args):
+        raise gate._Refusal("git_timeout", retryable=True)
+
+    monkeypatch.setattr(gate._HintBudget, "git_rc", times_out)
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    copy_base_in(repo, {"src/big.py": BIG})
+    out = judge(store, LocalRunner(), repo, tmp_path, clock)
+    assert out["verdict"] == PASS, out
+    assert out["diff_truncated"] is True
+    assert out["diff_problems"][0].startswith("the diff is ")
+    assert not [p for p in out["diff_problems"] if "plain commit" in p]
+
+
+def test_d36_a_check_that_runs_out_the_deadline_keeps_verdict_and_bundle(
+    store, tmp_path, clock, monkeypatch  # noqa: F811
+):  # noqa: F811
+    """Codex round 2 #1: the check runs last, after the bundle, so even one that eats the
+    job's whole deadline costs only the hint."""
+    from culture_rules.actors import gate
+
+    real = gate._HintBudget.git_rc
+
+    def slow(self, *args):
+        clock.advance(7200)  # past the job's deadline (an hour)
+        return real(self, *args)
+
+    monkeypatch.setattr(gate._HintBudget, "git_rc", slow)
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    copy_base_in(repo, {"src/big.py": BIG})
+    out = judge(store, LocalRunner(), repo, tmp_path, clock)
+    assert out["verdict"] == PASS, out
+    assert out["bundle"]
+    assert not [p for p in out["diff_problems"] if "plain commit" in p]
+
+
+def test_d36_no_check_without_time_to_spare(store, tmp_path, clock, monkeypatch):  # noqa: F811
+    from culture_rules.actors import gate
+
+    def never(self, *args):
+        raise AssertionError("the check ran with too little time left")
+
+    monkeypatch.setattr(gate, "_HINT_BUDGET_S", 7200.0)  # more than the job has left
+    monkeypatch.setattr(gate._HintBudget, "git_rc", never)
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    copy_base_in(repo, {"src/big.py": BIG})
+    out = judge(store, LocalRunner(), repo, tmp_path, clock)
+    assert out["verdict"] == PASS, out
+    assert out["bundle"]
+
+
+def test_d36_every_git_call_of_the_check_is_in_its_budget(
+    store, tmp_path, clock, monkeypatch  # noqa: F811
+):  # noqa: F811
+    """Codex round 3: the merge-parent lookup too goes through the check's own budget, so
+    a slow first call (here: past it) ends the check with no hint."""
+    from culture_rules.actors import gate
+
+    calls = []
+
+    def slow(self, *args):
+        calls.append(args[0])
+        clock.advance(gate._HINT_BUDGET_S + 1)
+        raise gate._Refusal("git_timeout", retryable=True)
+
+    monkeypatch.setattr(gate._HintBudget, "git_rc", slow)
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    copy_base_in(repo, {"src/big.py": BIG})
+    out = judge(store, LocalRunner(), repo, tmp_path, clock)
+    assert calls == ["rev-parse"]  # the parent lookup is the check's first call
+    assert out["verdict"] == PASS, out
+    assert out["bundle"]
+    assert not [p for p in out["diff_problems"] if "plain commit" in p]
+
+
+def test_d36_the_check_reuses_the_review_diffs_numstat(
+    store, tmp_path, clock, monkeypatch  # noqa: F811
+):  # noqa: F811
+    """/code-review #6: the review diff already read the range's numstat; the check's line
+    count reuses it instead of a second pass over the oversized diff."""
+    from culture_rules.actors import gate
+
+    real = gate._HintBudget.git_rc
+    calls: list[tuple[str, ...]] = []
+
+    def recorded(self, *args):
+        calls.append(args)
+        return real(self, *args)
+
+    monkeypatch.setattr(gate._HintBudget, "git_rc", recorded)
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    copy_base_in(repo, {"src/big.py": BIG})
+    out = judge(store, LocalRunner(), repo, tmp_path, clock)
+    assert [p for p in out["diff_problems"] if p.startswith(COPIED_BASE_LEAD)]
+    assert calls  # the check ran
+    assert not [c for c in calls if "--numstat" in c]
+
+
+def test_d36_one_set_of_raw_diff_flags():
+    """/code-review #7: the check and the non-text scan read diffs with the same flags."""
+    from culture_rules.actors import gate
+
+    assert gate._DIFF_RAW == ("diff", "--no-ext-diff", "--no-textconv", "--no-renames", "-z")
+    assert not hasattr(gate, "_NAMES")

@@ -2,7 +2,7 @@
   "plan_slug": "pr-fixer-rule",
   "schema_version": 2,
   "created": "2026-10-06T08:44:59Z",
-  "updated": "2026-10-10T15:01:13Z",
+  "updated": "2026-10-10T19:14:12Z",
   "deviations": [
     {
       "id": "d1",
@@ -472,6 +472,32 @@
       "status": "approved",
       "classification": null,
       "seq": 116
+    },
+    {
+      "id": "d36",
+      "what": "Merge from base on every fixer path: every fixer instruction (the /fix comment, checks, review and refix paths, not only pr-fixer-conflict) tells the agent that one real two-parent 'git merge <base_sha>' is allowed when the PR needs its base, and never to squash, flatten or rebase the base in; and when the reviewed diff is over the reviewer's cap because the base's own changes were copied in as a plain commit, the gate's refusal says so and asks for one real merge from base.",
+      "task_ref": "t17",
+      "reason": "Live case katvan#57 (2026-10-10, run-3912c9a7): a trusted /fix asked Qwen to merge main; it flattened the merge into a single-parent commit (be4d009, 'no merge commits in the pushed range') so d31's resolution-only review never applied: a 513,944-char diff over the 30k cap and request_changes (7 findings). Only pr-fixer-conflict's instruction names the one-merge allowance. Operator approved the plan 2026-10-10 ('Katvan, plan approved').",
+      "affects": [
+        "t17"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "needs-follow-up",
+      "seq": 126
+    },
+    {
+      "id": "d37",
+      "what": "Live base tip: the fixer's base commit is the base branch's live tip resolved through the App at request time, not pulls.base.sha (GitHub sets that to the base as of the PR's last push: sometimes the fork point, sometimes a tip missing from the head's history); it is carried through queue-add, dispatch and the gate, which verifies it against the live branch, allows one merge whose second parent is an ancestor of it, fetches the base commit into the worktree when missing, and names it in the conflict rule and the d36 paragraph. An infrastructure refusal (source_unavailable) or an agent timeout goes back to the queue as a retry instead of ending the story on its first try.",
+      "task_ref": "t17",
+      "reason": "Live cases 2026-10-10 on 0.18.7: katvan#57 run-628b804e (base.sha 893352d was the fork point; Qwen made a real merge of main de755e4 and the gate refused merge_commit 'the merge's second parent is not on the base branch'); irc-lens#68 (base.sha 7fdc61ec was main's tip, absent from the head's history; gate source_unavailable 'bad object'). Both stories ended at try 1. Operator approved 2026-10-10 ('D37 approved').",
+      "affects": [
+        "t17"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "needs-follow-up",
+      "seq": 130
     }
   ],
   "evidence": [
@@ -2061,6 +2087,101 @@
       "status": "approved",
       "superseded": false,
       "seq": 125
+    },
+    {
+      "id": "e91",
+      "obligation_ref": "o46",
+      "test_ref": "tests/rules/test_pr_fixer_queue.py (every try told once; dispatch template heading) + tests/rules/test_pr_fixer_chain.py (a refix reads the paragraph once)",
+      "behavior_text": "asserts the dispatch instruction carries the merge-from-base paragraph naming base_sha once per try and that queue.add / review strip it from the next try's task",
+      "contract_text": "c5, extended by d36",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "67 targeted tests green at the named commit (full suite 4818 per the subagent); Codex approved round 3, the round-3 low fix 1bf7b4f reviewed by the main agent",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-10T17:30:57",
+        "commit": "1bf7b4f"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 127
+    },
+    {
+      "id": "e92",
+      "obligation_ref": "o47",
+      "test_ref": "tests/actors/test_gate_squash.py::test_d36_* (9: copy caught, no hint on a genuine large change, a small copy or a revert, without a gate section, three time-budget cases)",
+      "behavior_text": "asserts the copied-base finding appears for a flattened base over the cap and not for genuine changes or reverts, with and without a gate section, and that a slow or failing check only loses the hint",
+      "contract_text": "c5, extended by d36",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests green at the named commit; the no-gate test and the round regression tests were written after their code (checked against the previous code); the hint is advisory per Codex",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-10T17:30:57",
+        "commit": "1bf7b4f"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 128
+    },
+    {
+      "id": "e93",
+      "obligation_ref": "o48",
+      "test_ref": "tests/actors/test_bridge_merge_hint.py (10) + tests/actors/test_review_copied_base.py (3) + d36 tests in test_pr_fixer_queue.py / test_pr_fixer_chain.py (bridge payload) + test_gate_squash.py",
+      "behavior_text": "asserts the paragraph reaches the bridge once per try and is never stored, the skip cases, the task fallback, and the merge ask replacing the smaller-fix ask",
+      "contract_text": "c5, extended by d36 (placement amended after the operator's /code-review on #46)",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "82 d36 tests green at the named commit (full suite 4833 per the subagent); reviewed by the main agent (Codex's 3 rounds were used); tests written alongside the code",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-10T17:48:26",
+        "commit": "352a633"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 129
+    },
+    {
+      "id": "e94",
+      "obligation_ref": "o49",
+      "test_ref": "tests/node/test_pr_head_base_tip.py (10) + tests/actors/test_gate_live_base.py (6) + tests/actors/test_lineage_base.py (9) + gate-base and queue-dispatch d37 cases + tests/rules/test_pr_fixer_chain.py (katvan#57 live tip with a real push; a base that moved again)",
+      "behavior_text": "asserts the dispatched live tip becomes the try's base, gate and push accept only base.sha or the verified dispatched tip on the branch, a missing base is fetched, and the katvan#57 shape (real merge of the live tip) passes and pushes",
+      "contract_text": "c5, extended by d37",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "78 d36/d37 tests green at the named commit (full suite 4878 per the subagent); Codex rounds 1-2 request_changes fixed, round 3 pending (usage limit); the katvan#57 chain and gate live-base tests failed first, the lineage unit tests and round regression tests were written after their code",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-10T19:13:53",
+        "commit": "974dbc2"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 131
+    },
+    {
+      "id": "e95",
+      "obligation_ref": "o50",
+      "test_ref": "tests/rules/test_pr_fixer_chain.py (timeout -> retry -> real push; three timeouts -> one hand-back; no_changes still hands back; retry and retry-failed rule conditions) + gate unjudged cases + engine failed-outputs test",
+      "behavior_text": "asserts infrastructure refusals and agent timeouts requeue as the next try within the budget, never loop past 3, and no_changes still hands back",
+      "contract_text": "c6, extended by d37",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests green at the named commit; Codex round 2's high finding (failed-run link) fixed in 974dbc2, round 3 pending",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-10T19:13:53",
+        "commit": "974dbc2"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 132
     }
   ],
   "deltas": [
@@ -2370,6 +2491,76 @@
       ],
       "origin": "llm",
       "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b23",
+      "kind": "added",
+      "behavior_text": "every fixer try is told the one-merge-from-base allowance (real git merge of base_sha; never flatten, squash, cherry-pick or rebase), once per try",
+      "caused_by": [
+        "d36"
+      ],
+      "evidence_refs": [
+        "e91"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b24",
+      "kind": "added",
+      "behavior_text": "an oversized fix that copies the base in as a plain commit gets a review finding naming the copied files and asking for one real merge from base (advisory)",
+      "caused_by": [
+        "d36"
+      ],
+      "evidence_refs": [
+        "e92"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b25",
+      "kind": "amended",
+      "behavior_text": "the d36 merge paragraph moved from pr-fixer-dispatch's instruction (o46) to the bridge call: nothing stored, no rule change, so no bundle import for d36; a base copied in now gets a 'make one real merge' ask instead of 'make a smaller fix' (o47); a flattened NEWER base is a documented limit (the gate's clone holds only start, built and base)",
+      "caused_by": [
+        "d36"
+      ],
+      "evidence_refs": [
+        "e93"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b26",
+      "kind": "amended",
+      "behavior_text": "a fixer try's base is the base branch's live tip read at dispatch (base_tip_sha), not pulls.base.sha; gate and push accept only base.sha or that verified tip on the branch; the gate fetches a missing base; pr-fixer-conflict's instruction defers to the d36 paragraph naming the tip",
+      "caused_by": [
+        "d37"
+      ],
+      "evidence_refs": [
+        "e94"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b27",
+      "kind": "added",
+      "behavior_text": "gate verdict 'unjudged' for infrastructure refusals and a new disabled rule pr-fixer-retry-failed for agent timeouts send the try back to the queue within the 3-try budget; a failed run records its input-derived workflow outputs; lineage trusts a failed-run link only for a queue.add retry (an engine change beyond the d37 text)",
+      "caused_by": [
+        "d37"
+      ],
+      "evidence_refs": [
+        "e95"
+      ],
+      "origin": "llm",
+      "status": "proposed",
       "superseded": false
     }
   ],

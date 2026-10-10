@@ -2589,12 +2589,20 @@ def _run_failure(plan: _Plan, doc: Mapping, now: datetime) -> Found:
 def _fail_run(plan: _Plan, new: dict, failure: dict, now: datetime) -> Found:
     """End ``new`` failed with ``failure`` - or, when the rule has an ``on_failure`` action,
     first cancel the unfinished steps and add its step (once; the run ends when it is done,
-    whatever its outcome, with ``failure`` as its error). ``new`` is a copy to mutate."""
+    whatever its outcome, with ``failure`` as its error). ``new`` is a copy to mutate.
+
+    d37: the failed run also records the workflow outputs that come straight from its
+    inputs or variables (validated when the run started; never a step's value, which may
+    be what failed - Codex round 1 #3), so its ``rules.run.failed`` event carries them
+    (only the exported ones) and a rule can continue the work, e.g. retry a fixer try
+    whose agent timed out, with the try's own instruction."""
     if step_state(new, FAILURE_STEP) is not None:  # never a second handler (defensive)
         return None
     for s in new["steps"]:
         if s["status"] not in STEP_DONE:
             s["status"] = "cancelled"
+    if new.get("outputs") is None:
+        new["outputs"] = _input_outputs(plan, new)
     on_failure = plan.rule.on_failure
     if on_failure is None:
         new.update(status="failed", finished_at=_iso(now), error=failure)
@@ -2745,6 +2753,16 @@ def _workflow_outputs(plan: _Plan, doc: Mapping) -> dict[str, Any]:
             value = _latest_output(doc, plan, parts[1]).get(parts[3])
         out[o.name] = value
     return out
+
+
+def _input_outputs(plan: _Plan, doc: Mapping) -> dict[str, Any]:
+    """d37: the workflow outputs a failed run can vouch for - those sourced from its own
+    inputs or variables, already checked when it started; a step's output is left out."""
+    wf = plan.workflow
+    if wf is None:
+        return {}
+    known = {o.name for o in wf.outputs if (o.source or "").split(".")[0] in ("inputs", "vars")}
+    return {k: v for k, v in _workflow_outputs(plan, doc).items() if k in known}
 
 
 def _finish(plan: _Plan, doc: Mapping, now: datetime) -> Found:

@@ -66,7 +66,7 @@
     "op": "and"
   },
   "counts_toward_budget": false,
-  "description": "Fires once per PR head and base pair when the conflict watch (d31) finds the PR CONFLICTING with its base branch: GitHub sends no webhook for it, so the node reads the open PRs of vars.fixer_repos every vars.conflict_watch_interval_s (default 600 s). Same-repo, non-draft, open PRs of repos in vars.fixer_repos only; vars.fixer_excluded_repos overrides it. Adds the PR to the fixer queue (#35, d29: workflow queue-add) like pr-fixer-checks; the agent merges the base commit and resolves the conflict, and the gate allows that one merge from base and judges only its resolution. Shares the per-PR concurrency key with the other pr-fixer-* rules but is not an attempt itself. Only while the PR is open.",
+  "description": "Fires once per PR head and base pair when the conflict watch (d31) finds the PR CONFLICTING with its base branch: GitHub sends no webhook for it, so the node reads the open PRs of vars.fixer_repos every vars.conflict_watch_interval_s (default 600 s). Same-repo, non-draft, open PRs of repos in vars.fixer_repos only; vars.fixer_excluded_repos overrides it. Adds the PR to the fixer queue (#35, d29: workflow queue-add) like pr-fixer-checks; the agent merges the base branch's tip at dispatch (d37: the merge paragraph names it) and resolves the conflict, and the gate allows that one merge from base and judges only its resolution. Shares the per-PR concurrency key with the other pr-fixer-* rules but is not an attempt itself. Only while the PR is open.",
   "enabled": false,
   "exclusive_group": null,
   "id": "pr-fixer-conflict",
@@ -111,7 +111,7 @@
       "clone_url": "https://github.com/{{ trigger.data.repository }}.git",
       "head_branch": "trigger.data.head_branch",
       "head_sha": "trigger.data.head_sha",
-      "instruction": "PR {{ trigger.data.repository }}#{{ trigger.data.number }} conflicts with its base branch {{ trigger.data.base_branch }} at {{ trigger.data.head_sha }}. Work on the PR head branch {{ trigger.data.head_branch }} only. Merge exactly the base commit {{ trigger.data.base_sha }} into it (git merge {{ trigger.data.base_sha }}; one merge, never a rebase, never a later base commit) and resolve every conflict, keeping the intent of both sides; where both sides bump a version or add a changelog entry, keep the base's and put the PR's above it with the next version. Make no other change. Never edit .github/workflows, never delete or skip tests and never add suppression markers.",
+      "instruction": "PR {{ trigger.data.repository }}#{{ trigger.data.number }} conflicts with its base branch {{ trigger.data.base_branch }} at {{ trigger.data.head_sha }}. Work on the PR head branch {{ trigger.data.head_branch }} only. Merge the base branch into it as exactly one real two-parent merge of the base commit named in the merge paragraph below (the base branch's tip when this try was dispatched; one merge, never a rebase, never another commit) and resolve every conflict, keeping the intent of both sides; where both sides bump a version or add a changelog entry, keep the base's and put the PR's above it with the next version. Make no other change. Never edit .github/workflows, never delete or skip tests and never add suppression markers.",
       "number": "trigger.data.number",
       "repo": "trigger.data.repository"
     },

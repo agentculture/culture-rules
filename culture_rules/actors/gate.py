@@ -187,10 +187,11 @@ import time
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import IO, Any, Protocol
 
+from culture_rules.actors.merge_hint import COPIED_BASE_LEAD
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
 from culture_rules.engine.variables import variable_values
 
@@ -213,6 +214,7 @@ __all__ = [
     "RunAs",
     "TIMED_OUT",
     "UNAVAILABLE",
+    "UNJUDGED",
     "VERDICTS",
     "Violation",
     "diff_guard",
@@ -226,7 +228,40 @@ __all__ = [
 ]
 
 PASS, FAIL, GUARD, NO_GATE = "pass", "fail", "guard", "no_gate"
-VERDICTS: tuple[str, ...] = (PASS, FAIL, GUARD, NO_GATE)
+UNJUDGED = "unjudged"
+"""d37: the gate could not judge the try for a reason outside the agent's change (the
+worktree or the base commit could not be read, git or the run-as timed out). A verdict,
+not a failed step, so the try goes back to the queue as a retry (``pr-fixer-retry``)
+within the PR's attempt budget instead of ending the story; it never reaches review."""
+VERDICTS: tuple[str, ...] = (PASS, FAIL, GUARD, NO_GATE, UNJUDGED)
+
+_UNJUDGED_CODES = frozenset(
+    {
+        "source_unavailable",
+        "source_timeout",
+        "base_unavailable",
+        "base_fetch_timeout",
+        "git_timeout",
+        "git_unavailable",
+        "deadline_exceeded",
+        "gate_runner_unavailable",
+        "checkout_timeout",
+    }
+)
+"""d37: the refusals that are the infrastructure's, not the change's: an ``unjudged``
+verdict (a retry). Configuration refusals (``bad_config``, ``gate_runner_unconfigured``,
+``run_as_blocked``, ``run_as_failed``) and the base check (``base_mismatch``, and a
+``base_unverified`` GitHub will not answer later) still fail the step: retrying cannot fix
+them. A ``base_unverified`` that is retryable (GitHub did not answer now) is ``unjudged``
+too (Codex round 1 #4): fail closed - nothing is judged, built or reviewed - but a retry."""
+
+_AGENT_FIXABLE_CODES = frozenset({"merge_commit", "history_rewritten"})
+"""d37: refusals of the agent's commit shape raised while building it: a ``guard``
+verdict with the refusal as its finding (a retry), as the diff guard gives them when a
+gate section runs it first - never the end of the story on a repo without one."""
+
+_CLONE_URL_RE = re.compile(r"https://github\.com/[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9._-]+\.git")
+"""d37: the clone URLs the gate fetches a missing base from (the bridge's own shape)."""
 
 PROTECTED_PATHS_VARIABLE = "fixer_protected_paths"
 #: Always protected, whatever the variable says (culture-nodes' scope_guard, lifted).
@@ -274,6 +309,8 @@ _SHELL_JOINING = frozenset({"ssh", "su", "sh", "bash", "dash", "zsh", "ksh", "fi
 _LOCAL_REF = "refs/culture-rules/gate"
 _BASE_REF = "refs/culture-rules/base"  # the PR base, bundled with a merge from base (d31)
 _CLEANUP_S = 60.0
+_HOOKS_OFF = "core.hooksPath=/dev/null"  # git -c: no hooks run, whatever the repo says
+_FSMONITOR_OFF = "core.fsmonitor=false"  # git -c: no fsmonitor helper runs
 #: The gate's workspace: no dash, so no run-as account name or ``-x`` flag look-alike can
 #: reach a repo's temp paths through it (lobes-cli#302).
 _CHECKOUT_PREFIX = "culture_rules_gate."
@@ -829,6 +866,8 @@ class _Job:
         self.repo = os.path.join(tmp, "gate.git")
         self._run_as, self._git = run_as, git
         self.deadline, self.clock = deadline, clock
+        self.numstat: dict[tuple[str, str], dict[str, tuple[str, str]]] = {}
+        """``--numstat`` per ``(from, to)`` already read, by path (d36 reuses it)."""
 
     def left(self) -> float:
         left = (self.deadline - self.clock()).total_seconds() - _MARGIN_S
@@ -855,14 +894,16 @@ class _Job:
         stdin: IO[bytes] | None = None,
         in_repo: bool = True,
         env: Mapping[str, str] | None = None,
+        timeout: float | None = None,
     ) -> tuple[int, bytes]:
-        argv = ["git", "-c", "core.hooksPath=/dev/null", "-c", "core.quotePath=false"]
+        """``timeout`` (d36) caps this call below the job's deadline, never past it."""
+        argv = ["git", "-c", _HOOKS_OFF, "-c", "core.quotePath=false"]
         if in_repo:
             argv += ["-C", self.repo]
         with tempfile.TemporaryFile(dir=self.tmp) as out:
             rc = self._git(
                 [*argv, *args],
-                timeout=self.left(),
+                timeout=self.left() if timeout is None else min(self.left(), timeout),
                 stdout=out,
                 stdin=stdin,
                 env={**_git_env(self.tmp), **(env or {})},
@@ -933,13 +974,52 @@ def _hard_git(*args: str) -> list[str]:
         *_HARD_GIT_ENV,
         "git",
         "-c",
-        "core.hooksPath=/dev/null",
+        _HOOKS_OFF,
         "-c",
-        "core.fsmonitor=false",
+        _FSMONITOR_OFF,
         "-c",
         "core.quotePath=false",
         *args,
     ]
+
+
+def _limits(config: Mapping[str, Any]) -> tuple[int, int]:
+    """The gate's ``tail_bytes`` and ``diff_max_chars`` from its step config, else
+    ``bad_config``."""
+    tail_bytes = config.get("tail_bytes", DEFAULT_TAIL_BYTES)
+    if not isinstance(tail_bytes, int) or not 0 < tail_bytes <= _MAX_TAIL_BYTES:
+        raise _Refusal("bad_config", f"tail_bytes must be 1..{_MAX_TAIL_BYTES}")
+    diff_cap = config.get("diff_max_chars", DEFAULT_DIFF_MAX_CHARS)
+    if (
+        not isinstance(diff_cap, int)
+        or isinstance(diff_cap, bool)
+        or not 0 < diff_cap <= _MAX_DIFF_CHARS
+    ):
+        raise _Refusal("bad_config", f"diff_max_chars must be 1..{_MAX_DIFF_CHARS}")
+    return tail_bytes, diff_cap
+
+
+def _blank_verdict(shas: Mapping[str, str]) -> dict[str, Any]:
+    """The verdict before any step fills it in."""
+    return {
+        "verdict": None,
+        "rule": None,
+        "violations": [],
+        "phase": None,
+        "command": None,
+        "exit_code": None,
+        "timed_out": False,
+        "output_tail": "",
+        "instruction": None,
+        "gate": None,
+        "bundle": None,
+        "diff": None,
+        "diff_chars": None,
+        "diff_truncated": None,
+        "diff_problems": None,
+        **shas,
+        "agent_commit_sha": shas["commit_sha"],
+    }
 
 
 def gate_env(tmpdir: str, addopts: str | None = None) -> list[str]:
@@ -965,6 +1045,37 @@ def _sha_input(input: Mapping[str, Any], name: str) -> str:
     return value
 
 
+def _unjudged(input: Mapping[str, Any], exc: _Refusal) -> dict[str, Any]:
+    """d37: the ``unjudged`` verdict for an infrastructure refusal (:data:`UNJUDGED`)."""
+    shas = {
+        n: input.get(n) if isinstance(input.get(n), str) else None
+        for n in ("base_sha", "start_sha", "commit_sha")
+    }
+    return {
+        "verdict": UNJUDGED,
+        "rule": exc.code,
+        "violations": [],
+        "phase": None,
+        "command": None,
+        "exit_code": None,
+        "timed_out": False,
+        "output_tail": exc.detail,
+        "instruction": (
+            f"The gate could not judge the previous try ({exc.message()}): the cause was "
+            "not your change. Start again from the PR head and make the fix again."
+        ),
+        "gate": None,
+        "bundle": None,
+        "diff": None,
+        "diff_chars": None,
+        "diff_truncated": None,
+        "diff_problems": None,
+        **shas,
+        "agent_commit_sha": shas["commit_sha"],
+        "commit_sha": None,
+    }
+
+
 def _instruction(verdict: dict[str, Any]) -> str | None:
     sha = verdict["commit_sha"][:12]
     keep = (
@@ -977,6 +1088,15 @@ def _instruction(verdict: dict[str, Any]) -> str | None:
         return (
             f"The test gate failed on commit {sha}: the {verdict['phase']} command `{cmd}` "
             f"{why}. {keep}\n\nLast output:\n{verdict['output_tail']}"
+        )
+    if verdict["verdict"] == GUARD and verdict["rule"] == "merge_commit":
+        detail = "; ".join(v["detail"] for v in verdict["violations"] if v.get("detail"))
+        return (
+            f"The gate refused the merge in commit {sha} ({detail or 'merge_commit'}). If "
+            "the PR needs its base branch, make exactly one real two-parent merge of the "
+            "base commit you are given (git merge <that commit>) and resolve the conflicts "
+            "in it; otherwise make no merge. Never merge a later or another commit. "
+            f"{keep}"
         )
     if verdict["verdict"] == GUARD:
         lines = "\n".join(
@@ -993,20 +1113,36 @@ _PLAIN_MODES = frozenset({"000000", "100644"})
 _MODE_WORDS = {"120000": "symlink", "160000": "submodule"}
 
 
+_DIFF_RAW = ("diff", "--no-ext-diff", "--no-textconv", "--no-renames", "-z")
+"""The machine-readable diff flags the gate reads names, numstat and modes with."""
+
+
+def _parse_numstat(out: bytes) -> dict[str, tuple[str, str]]:
+    """``git diff --numstat -z`` output as ``{path: (added, deleted)}`` (``"-"`` for a
+    binary file)."""
+    per: dict[str, tuple[str, str]] = {}
+    for entry in out.decode("utf-8", "replace").split("\x00"):
+        added, _, rest = entry.partition("\t")
+        deleted, _, path = rest.partition("\t")
+        if path:
+            per[path] = (added, deleted)
+    return per
+
+
 def _non_text_changes(job: _Job, start: str, commit: str, paths: Sequence[str] = ()) -> list[str]:
     """Changes the text diff cannot show in full (Codex review #5): binary content, any
     file mode other than a plain 100644 (an executable bit, a symlink, a submodule
     pointer) or a mode change. Each is one ``"<path>: <why>"`` line; any of them makes the
-    review material incomplete (``diff_truncated``), fail closed."""
-    base = ("diff", "--no-ext-diff", "--no-textconv", "--no-renames", "-z")
+    review material incomplete (``diff_truncated``), fail closed. The whole-range numstat
+    is kept on the job for the d36 copied-base check."""
     problems: list[str] = []
-    numstat = job.git(*base, "--numstat", start, commit, "--", *paths).decode("utf-8", "replace")
-    for entry in numstat.split("\x00"):
-        added, _, rest = entry.partition("\t")
-        deleted, _, path = rest.partition("\t")
-        if path and added == "-" and deleted == "-":
+    numstat = _parse_numstat(job.git(*_DIFF_RAW, "--numstat", start, commit, "--", *paths))
+    if not paths:
+        job.numstat[(start, commit)] = numstat
+    for path, (added, deleted) in numstat.items():
+        if added == "-" and deleted == "-":
             problems.append(f"{path}: binary change")
-    raw = job.git(*base, "--raw", "--no-abbrev", start, commit, "--", *paths)
+    raw = job.git(*_DIFF_RAW, "--raw", "--no-abbrev", start, commit, "--", *paths)
     raw = raw.decode("utf-8", "replace")
     fields = raw.split("\x00")
     for meta, path in zip(fields[0::2], fields[1::2]):
@@ -1021,8 +1157,9 @@ def _non_text_changes(job: _Job, start: str, commit: str, paths: Sequence[str] =
     return problems
 
 
-def _parents(job: _Job, sha: str) -> list[str]:
-    return job.git("rev-parse", f"{sha}^@").decode().split()
+def _parents(job: _Job, sha: str, git: Callable[..., bytes] | None = None) -> list[str]:
+    """``sha``'s parents, read with ``git`` (default: the job's, unbounded)."""
+    return (git or job.git)("rev-parse", f"{sha}^@").decode().split()
 
 
 def _second_parent(job: _Job, sha: str) -> str | None:
@@ -1087,6 +1224,122 @@ def _clean_merge(job: _Job, start: str, second: str) -> _Merge:
 
 _CONFLICT_MARKER = re.compile(r"^(?:<{7}|>{7})(?: |$)|^={7}$", re.MULTILINE)
 _DIFF = ("diff", "--no-ext-diff", "--no-textconv", "--no-color")
+
+
+_HINT_BUDGET_S = 10.0
+"""Seconds the d36 copied-base check may spend; past them it gives up, finding nothing."""
+
+
+class _HintBudget:
+    """git on the scratch repo within the d36 check's own budget (:data:`_HINT_BUDGET_S`),
+    never past the job's deadline; a call past it raises ``_Refusal`` like any other."""
+
+    def __init__(self, job: _Job) -> None:
+        self.job = job
+        self.until = job.clock() + timedelta(seconds=_HINT_BUDGET_S)
+
+    def git_rc(self, *args: str) -> tuple[int, bytes]:
+        left = (self.until - self.job.clock()).total_seconds()
+        if left <= 0:
+            raise _Refusal("hint_budget_exceeded")
+        return self.job.git_rc(*args, timeout=left)
+
+    def git(self, *args: str) -> bytes:
+        rc, out = self.git_rc(*args)
+        if rc != 0:
+            raise _Refusal("git_failed", f"git {args[0]} exited {rc}")
+        return out
+
+    def names(self, frm: str, to: str) -> set[str]:
+        out = self.git(*_DIFF_RAW, "--name-only", frm, to, "--").decode("utf-8", "replace")
+        return {p for p in out.split("\x00") if p}
+
+    def churn(self, frm: str, to: str) -> dict[str, int]:
+        """Lines added plus deleted per path (a binary change counts as one): the numstat
+        the review diff already read (:func:`_non_text_changes`), else read now."""
+        numstat = self.job.numstat.get((frm, to))
+        if numstat is None:
+            numstat = _parse_numstat(self.git(*_DIFF_RAW, "--numstat", frm, to, "--"))
+        return {
+            path: (int(added) if added.isdigit() else 1)
+            + (int(deleted) if deleted.isdigit() else 0)
+            for path, (added, deleted) in numstat.items()
+        }
+
+
+def _base_copied_in(job: _Job, start: str, built: str, base: str) -> list[str]:
+    """d36: the files ``built`` (no merge in it) appears to have copied from ``base`` as a
+    plain commit instead of merging it (the live case: katvan#57), or ``[]``.
+
+    A file counts when the base changed it since the PR branched, ``built`` holds exactly
+    the base's version, and the PR head did not; and only when those files make up at least
+    half of the lines ``built`` changes against the PR head, and ``base`` is not in
+    ``built``'s history. A merge whose second parent is on the base branch is d31's own
+    case and is not checked; any other commit is.
+
+    Limit: the scratch repo holds only the history of the PR head, the built commit and
+    ``base`` (:meth:`GatePort._import`), so a copy of a *later* base commit (a fresh
+    ``git fetch`` then a flatten) is seen only through the files ``base`` itself changed
+    and the later commit left alone; files the base changed again, or only, after ``base``
+    are not counted, and such a copy may get no hint. Best effort, within its own budget: a
+    git failure or timeout finds nothing and never changes the gate's result."""
+    git = _HintBudget(job)
+    try:
+        parents = _parents(job, built, git.git)
+        # a merge from base is d31's own case (the review shows only its resolution)
+        if (
+            len(parents) == 2
+            and git.git_rc("merge-base", "--is-ancestor", parents[1], base)[0] == 0
+        ):
+            return []
+        if git.git_rc("merge-base", "--is-ancestor", base, built)[0] == 0:
+            return []
+        fork = git.git("merge-base", start, base).decode().strip()
+        took = git.names(fork, base) - git.names(base, built)  # built has base's version
+        took &= git.names(start, base)  # ... which the PR head had not
+        if not took:
+            return []
+        own = git.churn(start, built)
+        copied = sum(own.get(path, 0) for path in took)
+        total = sum(own.values())
+    except _Refusal:
+        return []
+    return sorted(took) if total and copied * 2 >= total else []
+
+
+def _add_copied_base_hint(
+    job: _Job, shas: Mapping[str, str], verdict: dict[str, Any], cap: int
+) -> None:
+    """d36: add :func:`_copied_base_hint` to an oversized ``verdict`` after everything the
+    gate must produce (the built commit, its diff and bundle), so the check's time and its
+    failures can only cost the hint: a diff within the cap, no base or under
+    :data:`_HINT_BUDGET_S` seconds left before the deadline, no hint (and a merge, checked
+    within the budget, none either)."""
+    built, base = verdict.get("commit_sha"), shas.get("base_sha")
+    if not built or not base or (verdict.get("diff_chars") or 0) <= cap:
+        return
+    try:
+        if job.left() < _HINT_BUDGET_S:
+            return
+    except _Refusal:
+        return
+    copied = _base_copied_in(job, shas["start_sha"], built, base)
+    if copied:
+        verdict["diff_problems"].insert(1, _copied_base_hint(base, copied))
+
+
+def _copied_base_hint(base: str, paths: Sequence[str]) -> str:
+    """The review finding for :func:`_base_copied_in` (d36): a likely cause, not a verdict.
+    It starts with :data:`~culture_rules.actors.merge_hint.COPIED_BASE_LEAD`, so the review
+    asks for one real merge, not a smaller change."""
+    shown = ", ".join(paths[:3]) + (f" and {len(paths) - 3} more" if len(paths) > 3 else "")
+    return (
+        f"{COPIED_BASE_LEAD}: the commit takes the base branch's own version of "
+        f"{len(paths)} file(s) the base changed since the PR branched ({shown}) while the "
+        f"base commit {base} is not in its history, so the base's changes are shown as the "
+        f"PR's own (git merge {base} would bring them in as a merge the reviewer does not "
+        "judge). If those files are the PR's own change, ignore this"
+    )
 
 
 def _literal(path: str) -> str:
@@ -1254,6 +1507,8 @@ class GatePort:
         try:
             return InvocationResult.completed(self._gate(input, deadline, context))
         except _Refusal as exc:
+            if exc.code in _UNJUDGED_CODES or (exc.code == "base_unverified" and exc.retryable):
+                return InvocationResult.completed(_unjudged(input, exc))
             return InvocationResult.failed(exc.message(), retryable=exc.retryable)
 
     # ------------------------------------------------------------------ the steps
@@ -1266,73 +1521,84 @@ class GatePort:
             raise _Refusal("bad_input", "worktree must be an absolute path")
         shas = {n: _sha_input(input, n) for n in ("base_sha", "start_sha", "commit_sha")}
         config = context.config or {}
-        tail_bytes = config.get("tail_bytes", DEFAULT_TAIL_BYTES)
-        if not isinstance(tail_bytes, int) or not 0 < tail_bytes <= _MAX_TAIL_BYTES:
-            raise _Refusal("bad_config", f"tail_bytes must be 1..{_MAX_TAIL_BYTES}")
-        diff_cap = config.get("diff_max_chars", DEFAULT_DIFF_MAX_CHARS)
-        if (
-            not isinstance(diff_cap, int)
-            or isinstance(diff_cap, bool)
-            or not 0 < diff_cap <= _MAX_DIFF_CHARS
-        ):
-            raise _Refusal("bad_config", f"diff_max_chars must be 1..{_MAX_DIFF_CHARS}")
+        tail_bytes, diff_cap = _limits(config)
         if self._run_as is None:
             raise _Refusal("gate_runner_unconfigured", self._why)
         if self._blocked:
             raise _Refusal("run_as_blocked", self._blocked)
         if self._pr_lookup is not None:
             self._check_base(shas["base_sha"], config, deadline, context)
-        verdict: dict[str, Any] = {
-            "verdict": None,
-            "rule": None,
-            "violations": [],
-            "phase": None,
-            "command": None,
-            "exit_code": None,
-            "timed_out": False,
-            "output_tail": "",
-            "instruction": None,
-            "gate": None,
-            "bundle": None,
-            "diff": None,
-            "diff_chars": None,
-            "diff_truncated": None,
-            "diff_problems": None,
-            **shas,
-            "agent_commit_sha": shas["commit_sha"],
-        }
+        verdict = _blank_verdict(shas)
         tmp = tempfile.mkdtemp(prefix="culture-rules-gate-")
         try:
             job = _Job(tmp, worktree, self._run_as, self._git, deadline, self._clock)
+            self._ensure_base(job, shas["base_sha"], self._clone_url(context))
             self._import(job, shas)
             spec = self._spec(job, shas["base_sha"])
             if spec is None:
-                verdict["verdict"] = NO_GATE
-                built = self._build(job, shas, context)
-                verdict.update(commit_sha=built, **self._review_diff(job, shas, built, diff_cap))
-                return verdict
-            verdict["gate"] = spec.to_dict()
-            violations = self._guard(job, shas, config)
-            if violations:
-                verdict.update(
-                    verdict=GUARD,
-                    rule=violations[0].rule,
-                    violations=[v.to_dict() for v in violations],
-                )
-            else:
-                # round 3 (#5): build the published commit FIRST, then test, diff, review and
-                # bundle exactly that commit - never the agent's tip
-                built = self._build(job, shas, context)
-                verdict["commit_sha"] = built
-                self._repack(job, built)
-                self._judge(job, spec, verdict, tail_bytes)
-                if verdict["verdict"] == PASS:
-                    verdict.update(self._review_diff(job, shas, built, diff_cap))
-                    verdict["bundle"] = self._bundle(job, built, context, shas["base_sha"])
+                return self._no_gate(job, shas, verdict, diff_cap, context)
+            self._gated(job, spec, shas, verdict, (tail_bytes, diff_cap), context)
             verdict["instruction"] = _instruction(verdict)
             return verdict
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
+
+    def _no_gate(
+        self,
+        job: _Job,
+        shas: Mapping[str, str],
+        verdict: dict[str, Any],
+        diff_cap: int,
+        context: InvocationContext,
+    ) -> dict[str, Any]:
+        """The verdict for a repository without a gate section: the gate-built commit and
+        its review diff (``no_gate``), or ``guard`` when building it raises a refusal the
+        agent can fix (a merge it may redo as the one merge from base)."""
+        try:
+            built = self._build(job, shas, context)
+        except _Refusal as exc:
+            if exc.code not in _AGENT_FIXABLE_CODES:
+                raise
+            violation = Violation(exc.code, "", exc.detail).to_dict()
+            verdict.update(verdict=GUARD, rule=exc.code, violations=[violation])
+            verdict["instruction"] = _instruction(verdict)
+            return verdict
+        verdict["verdict"] = NO_GATE
+        verdict.update(commit_sha=built, **self._review_diff(job, shas, built, diff_cap))
+        _add_copied_base_hint(job, shas, verdict, diff_cap)  # last: best effort
+        return verdict
+
+    def _gated(
+        self,
+        job: _Job,
+        spec: GateSpec,
+        shas: Mapping[str, str],
+        verdict: dict[str, Any],
+        limits: tuple[int, int],
+        context: InvocationContext,
+    ) -> None:
+        """Fill ``verdict`` for a repository with a gate section: the diff guard, then (when
+        it holds) build, test, review diff and bundle the published commit."""
+        tail_bytes, diff_cap = limits
+        verdict["gate"] = spec.to_dict()
+        violations = self._guard(job, shas, context.config or {})
+        if violations:
+            verdict.update(
+                verdict=GUARD,
+                rule=violations[0].rule,
+                violations=[v.to_dict() for v in violations],
+            )
+            return
+        # round 3 (#5): build the published commit FIRST, then test, diff, review and
+        # bundle exactly that commit - never the agent's tip
+        built = self._build(job, shas, context)
+        verdict["commit_sha"] = built
+        self._repack(job, built)
+        self._judge(job, spec, verdict, tail_bytes)
+        if verdict["verdict"] == PASS:
+            verdict.update(self._review_diff(job, shas, built, diff_cap))
+            verdict["bundle"] = self._bundle(job, built, context, shas["base_sha"])
+            _add_copied_base_hint(job, shas, verdict, diff_cap)  # last: best effort
 
     def _check_base(
         self,
@@ -1342,14 +1608,27 @@ class GatePort:
         context: InvocationContext,
     ) -> None:
         """Round 3 (#2): ``base_sha`` selects the gate policy (``culture.yaml`` at that
-        commit), and it comes from rule inputs; so it must be the PR's base as the App
-        reads it now (``config.app_actor``, default ``github-app``), else ``base_mismatch``.
-        A lookup that cannot be made is ``base_unverified`` (fail closed)."""
+        commit), and it comes from rule inputs; so the App (``config.app_actor``, default
+        ``github-app``) must vouch for it now, else ``base_mismatch``. d37: the fixer's
+        base is the base branch's tip the queue read at dispatch, which GitHub's
+        ``base.sha`` (the base as of the PR's last push) is not; so ``base_sha`` also
+        passes when it is that dispatched tip (from the run's verified dispatch event, which
+        rule inputs cannot name) and the tip still lies between ``base.sha`` and the
+        branch's tip (:func:`~culture_rules.actors.lineage.base_refusal`). Any other commit,
+        on the branch or not, is ``base_mismatch``: an older one could carry a weaker
+        policy. A lookup that cannot be made, or a comparison GitHub cannot answer, is
+        ``base_unverified`` (fail closed; retryable when GitHub may answer later)."""
+        from culture_rules.actors.lineage import (  # noqa: PLC0415
+            base_refusal,
+            dispatched_base_tip,
+        )
+
         run = self._store.get("runs", context.run_id) if context.run_id else None
         inputs = (run or {}).get("inputs") or {}
         repo, number = inputs.get("repo"), inputs.get("number")
         if not isinstance(repo, str) or not isinstance(number, int):
             raise _Refusal("base_unverified", "the run has no repo and PR number to check")
+        dispatched = dispatched_base_tip(self._store, run)
         actor = config.get("app_actor", "github-app")
         ctx = InvocationContext(
             context.run_id,
@@ -1360,18 +1639,28 @@ class GatePort:
             actor,
             {"kind": "github.pr_head"},
         )
-        res = self._pr_lookup.invoke(
-            {"repo": repo, "number": number}, f"gate-base:{context.run_id}", deadline, context=ctx
-        )
+        lookup: dict[str, Any] = {"repo": repo, "number": number}
+        if dispatched is not None and base_sha == dispatched:
+            lookup["base_sha"] = base_sha  # place the dispatched tip on the branch
+        res = self._pr_lookup.invoke(lookup, f"gate-base:{context.run_id}", deadline, context=ctx)
         if res.outcome != "completed":
             raise _Refusal("base_unverified", str(res.error), retryable=res.retryable)
-        actual = (res.output or {}).get("base_sha")
+        output = res.output or {}
+        actual = output.get("base_sha")
         if not isinstance(actual, str) or not actual:
             raise _Refusal("base_unverified", "the App reported no base for the PR")
-        if actual != base_sha:
+        refusal = base_refusal(base_sha, actual, dispatched, output.get("base_on_branch"))
+        if refusal == "base_unverified":
+            raise _Refusal(
+                "base_unverified",
+                f"GitHub could not place base_sha {base_sha[:12]} on the PR's base branch",
+                retryable=True,
+            )
+        if refusal:
             raise _Refusal(
                 "base_mismatch",
-                f"base_sha {base_sha[:12]} is not the PR's base ({str(actual)[:12]})",
+                f"base_sha {base_sha[:12]} is neither the PR's base ({str(actual)[:12]}) nor "
+                "the base branch's tip the queue dispatched this try with",
             )
 
     def _build(self, job: _Job, shas: Mapping[str, str], context: InvocationContext) -> str:
@@ -1527,12 +1816,61 @@ class GatePort:
             "diff_problems": problems,
         }
 
+    def _clone_url(self, context: InvocationContext) -> str | None:
+        """d37: the run's ``clone_url`` input when it is a GitHub HTTPS clone URL (the
+        bridge's allowlist admits only those), else None - the worktree's ``origin`` then."""
+        run = self._store.get("runs", context.run_id) if context.run_id else None
+        url = ((run or {}).get("inputs") or {}).get("clone_url")
+        return url if isinstance(url, str) and _CLONE_URL_RE.fullmatch(url) else None
+
+    @staticmethod
+    def _ensure_base(job: _Job, base: str, url: str | None) -> None:
+        """d37: fetch ``base`` into the worktree when it lacks it. The base is the base
+        branch's tip at dispatch, which a PR head need not hold (irc-lens#68: the head was
+        pushed after the base moved). The fetch runs as the fixer user in the worktree, by
+        SHA (content-addressed: whatever the remote, the commit is the one asked for),
+        without tags or ``FETCH_HEAD``; a base that still cannot be had is
+        ``base_unavailable`` (an ``unjudged`` verdict: a retry)."""
+        argv = ["git", "-c", _FSMONITOR_OFF, "cat-file", "-e", f"{base}^{{commit}}"]
+        with tempfile.TemporaryFile(dir=job.tmp) as out, tempfile.TemporaryFile(dir=job.tmp) as err:
+            have = job.fixer(
+                argv, out, merge_stderr=False, timeout_code="source_timeout", stderr=err
+            )
+        if have == 0:
+            return
+        GatePort._diagnose_run_as(job)  # a broken run-as is not a missing base
+        fetch = [
+            "git",
+            "-c",
+            _FSMONITOR_OFF,
+            "-c",
+            _HOOKS_OFF,
+            "fetch",
+            "--quiet",
+            "--no-tags",
+            "--no-write-fetch-head",
+            url or "origin",
+            base,
+        ]
+        with tempfile.TemporaryFile(dir=job.tmp) as out, tempfile.TemporaryFile(dir=job.tmp) as err:
+            rc = job.fixer(
+                fetch, out, merge_stderr=False, timeout_code="base_fetch_timeout", stderr=err
+            )
+            tail = _stderr_tail(err) if rc != 0 else ""
+        if rc != 0:
+            raise _Refusal(
+                "base_unavailable",
+                f"the worktree lacks base_sha {base[:12]} and fetching it failed (exit {rc})"
+                + (f": {tail}" if tail else ""),
+                retryable=True,
+            )
+
     def _import(self, job: _Job, shas: Mapping[str, str]) -> None:
         """Stream the three commits' history out of the worktree into the scratch repo."""
         revs = os.path.join(job.tmp, "revs")
         Path(revs).write_text("".join(f"{s}\n" for s in dict.fromkeys(shas.values())))
         pack = os.path.join(job.tmp, _IN_PACK)
-        argv = ["git", "-c", "core.fsmonitor=false", "pack-objects", "--revs", "--stdout", "-q"]
+        argv = ["git", "-c", _FSMONITOR_OFF, "pack-objects", "--revs", "--stdout", "-q"]
         with (
             open(revs, "rb") as stdin,
             open(pack, "wb") as out,

@@ -31,6 +31,7 @@ import re
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from concurrent.futures import Future
@@ -523,6 +524,32 @@ class GitHubApp:
         """The pull request ``number`` of ``repo`` (REST ``GET /repos/{repo}/pulls/{n}``)."""
         self._require_allowed(repo, "pull read")
         return self._call("GET", f"/repos/{repo}/pulls/{int(number)}", None)
+
+    def branch_tip(self, repo: str, branch: str) -> str:
+        """The commit branch ``branch`` of ``repo`` points at now (REST ``GET
+        /repos/{repo}/branches/{branch}``; read-only, Contents: read). d37: a PR's
+        ``base.sha`` is the base as of the PR's last push, not the branch's tip."""
+        self._require_allowed(repo, "branch read")
+        if not isinstance(branch, str) or not branch:
+            raise GitHubError("bad_input", "branch")
+        quoted = urllib.parse.quote(branch, safe="")
+        sha = _get(self._call("GET", f"/repos/{repo}/branches/{quoted}", None), "commit", "sha")
+        if not _is_full_sha(sha):
+            raise GitHubError("bad_response", "branch tip", retryable=True)
+        return sha
+
+    def compare_status(self, repo: str, base: str, head: str) -> str:
+        """GitHub's ``status`` of ``head`` against ``base`` (REST ``GET
+        /repos/{repo}/compare/{base}...{head}``): ``ahead`` or ``identical`` when ``base``
+        is an ancestor of (or is) ``head``; ``behind`` or ``diverged`` otherwise (d37)."""
+        self._require_allowed(repo, "compare")
+        if not all(isinstance(r, str) and r for r in (base, head)):
+            raise GitHubError("bad_input", "compare refs")
+        refs = "...".join(urllib.parse.quote(r, safe="") for r in (base, head))
+        status = self._call("GET", f"/repos/{repo}/compare/{refs}?per_page=1", None).get("status")
+        if status not in ("ahead", "identical", "behind", "diverged"):
+            raise GitHubError("bad_response", "compare status", retryable=True)
+        return status
 
     def list_open_pulls_page(self, repo: str, page: int) -> list[dict[str, Any]]:
         """One page (100) of the open pull requests of ``repo`` (REST ``GET

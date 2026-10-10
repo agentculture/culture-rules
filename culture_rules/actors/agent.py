@@ -898,7 +898,7 @@ class BridgeAgentActor:
         payload, digest, problem = self._checked_input(input, context.config or {})
         if problem:
             return InvocationResult.failed(problem, retryable=False)
-        payload = self._with_status_hint(payload, context)
+        payload = self._with_status_hint(self._with_merge_hint(payload, context), context)
         required = bool((context.config or {}).get(REQUIRE_COMMIT, False))
         if not self.callback_url:
             return InvocationResult.failed("the bridge actor has no callback_url", retryable=False)
@@ -947,6 +947,28 @@ class BridgeAgentActor:
             self._settle(doc_id, _REJECTED, error=str(exc))
             return InvocationResult.failed(str(exc))
         return self._response(doc_id, status, raw, required)
+
+    def _with_merge_hint(
+        self, payload: dict[str, Any] | None, context: InvocationContext
+    ) -> dict[str, Any]:
+        """d36: a fixer try (a run whose rule writes a status comment and that was given a
+        ``base_sha``) is told it may make one real merge of that base commit
+        (:func:`~culture_rules.actors.merge_hint.with_merge_paragraph`, appended to its
+        instruction, never stored). An instruction that already names the base commit, and
+        a locked brief, are never changed."""
+        from culture_rules.actors.merge_hint import with_merge_paragraph  # noqa: PLC0415
+        from culture_rules.node.fixer_status import run_status_actor  # noqa: PLC0415
+
+        payload = payload or {}
+        if self._defaults.get("locked_instruction") is not None or not context.run_id:
+            return payload
+        run = self._store.get("runs", context.run_id)
+        if run_status_actor(run) is None:
+            return payload
+        inputs = (run or {}).get("inputs")
+        base = inputs.get("base_sha") if isinstance(inputs, Mapping) else None
+        told = with_merge_paragraph(payload.get("instruction"), base)
+        return payload if told is payload.get("instruction") else {**payload, "instruction": told}
 
     def _with_status_hint(
         self, payload: dict[str, Any] | None, context: InvocationContext

@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-05T20:43:33Z",
-  "updated": "2026-10-10T15:01:12Z",
+  "updated": "2026-10-10T19:14:01Z",
   "claims": [
     {
       "id": "c1",
@@ -1646,6 +1646,51 @@
       "source_text": "At most one fixer run per PR at a time, and a per-PR attempt budget stops fix/test/push cycles; because the App pushes, its own synchronize events are skipped by the existing self_authored check",
       "origin": "llm",
       "status": "approved"
+    },
+    {
+      "id": "o46",
+      "claim_id": "c5",
+      "seam": "the pr-fixer-dispatch instruction (d36)",
+      "behavior": "every fixer try, whatever started it (/fix, checks, review, refix, retry, conflict), is told exactly once that one real two-parent 'git merge <base_sha>' is allowed when the PR needs its base and that squashing, flattening, cherry-picking, rebasing or copying the base in is not; the paragraph never repeats across retries",
+      "source_text": "The agent never pushes. It commits in its worktree; the engine runs the repo's tests on that commit and either pushes it to the PR head branch as the GitHub App, or hands the failure back to the agent for another attempt",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o47",
+      "claim_id": "c5",
+      "seam": "the gate's copied-base hint (d36)",
+      "behavior": "when the reviewed diff is over the reviewer's cap and the built commit is not a merge and holds the base's own versions of files the base changed since the fork as at least half of its changed lines, the refusal adds a finding naming those files and the base commit and asks for one real merge; best effort within its own time budget, never changing the verdict, commit or bundle",
+      "source_text": "The agent never pushes. It commits in its worktree; the engine runs the repo's tests on that commit and either pushes it to the PR head branch as the GitHub App, or hands the failure back to the agent for another attempt",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o48",
+      "claim_id": "c5",
+      "seam": "the bridge actor's merge hint (BridgeAgentActor._with_merge_hint, d36 after the /code-review on #46)",
+      "behavior": "a fixer try (its rule writes a status comment, its run has a full base_sha) gets the one-merge-from-base paragraph appended at the bridge call, never stored in any run's instruction or task; a locked brief, a non-text instruction and an instruction that already names that base commit get none; a missing instruction still falls back to task; and a copied-base finding makes the review ask for one real merge, not a smaller fix",
+      "source_text": "The agent never pushes. It commits in its worktree; the engine runs the repo's tests on that commit and either pushes it to the PR head branch as the GitHub App, or hands the failure back to the agent for another attempt",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o49",
+      "claim_id": "c5",
+      "seam": "the fixer's base commit (d37: queue.progress dispatch base_tip_sha, lineage.base_refusal at the gate and the push, the gate's base fetch)",
+      "behavior": "a try's base_sha is the base branch's live tip read through the App at dispatch (only the queue writes base_tip_sha); the gate and the push accept only the PR's base.sha or the run's verified dispatched tip while GitHub's compare places it on the branch, refusing any other commit; a base missing from the worktree is fetched by SHA, else base_unavailable; a real merge of that tip passes the d31 gate (katvan#57 shape)",
+      "source_text": "The agent never pushes. It commits in its worktree; the engine runs the repo's tests on that commit and either pushes it to the PR head branch as the GitHub App, or hands the failure back to the agent for another attempt",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o50",
+      "claim_id": "c6",
+      "seam": "retries after infrastructure refusals and agent timeouts (d37: gate verdict unjudged, pr-fixer-retry, pr-fixer-retry-failed)",
+      "behavior": "source_unavailable, base fetch failure, git/gate timeouts and other infrastructure refusals, and an agent timeout, go back to the queue as the story's next try within the 3-try budget instead of ending the story at try 1; a policy refusal on a no-gate merge is retried with a one-real-merge instruction; no_changes and configuration errors still hand back; a failed run's link is trusted only for a queue.add retry",
+      "source_text": "At most one fixer run per PR at a time, and a per-PR attempt budget stops fix/test/push cycles; because the App pushes, its own synchronize events are skipped by the existing self_authored check",
+      "origin": "llm",
+      "status": "proposed"
     }
   ]
 }

@@ -171,6 +171,7 @@ _FIRES = "rule_fires"  # culture_rules.node.firing.RULE_FIRES (the firing intent
 _EVENTS = "events"  # culture_rules.events.ingest.EVENTS_COLLECTION
 _RUN_DONE = ("succeeded", "failed", "cancelled", "superseded")
 _REPO_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}$")
+_FULL_SHA_RE = re.compile(r"[0-9a-f]{40}")
 _META_INPUTS = ("retry", "prior_instruction")
 
 Clock = Callable[[], datetime]
@@ -449,6 +450,9 @@ class QueueProgressPort:
         return cap
 
 
+_KEEP_PLACE = object()  # _admission: the request keeps its place in the queue
+
+
 class _Pass:
     """One ``queue.progress`` pass over a fresh read, retried on a lost compare-and-set."""
 
@@ -514,35 +518,48 @@ class _Pass:
                 break
             if any(a["key"] == req["key"] for a in doc["active"]):
                 continue  # the PR's earlier request is still running: keep the place
-            key = _pr_key(self.config, req["repository"], req["number"])
-            reason = _stopped_request(self.store, key, req)  # d34: never a stopped story
-            if reason is not None:
-                doc["waiting"].remove(req)
-                dropped.append({"key": req["key"], "reason": reason})
+            reason = self._admission(req, now, ik)
+            if reason is _KEEP_PLACE:
                 continue
-            state = _key_state(self.store, key, now)
-            reason = "attempt_budget_exhausted" if _exhausted(state) else None
-            if reason is None and state["busy"]:
-                continue  # its chain still holds the key: a firing now would be deduplicated
-            reason = reason or self._pr_refusal(req, ik)
             doc["waiting"].remove(req)
             if reason is not None:
                 dropped.append({"key": req["key"], "reason": reason})
                 continue
-            event_id = dispatch_event_id(self.name, req["rid"])
-            act = {
-                "rid": req["rid"],
-                "key": req["key"],
-                "repository": req["repository"],
-                "number": req["number"],
-                "event_id": event_id,
-                "run_id": _run_id_for(self.rule, event_id),
-                "dispatched_at": _iso(now),
-                "request": req,
-            }
+            act = self._dispatch(req, now)
             doc["active"].append(act)
             dispatched.append(act)
         return dispatched, dropped
+
+    def _admission(self, req: Mapping[str, Any], now: datetime, ik: str) -> Any:
+        """Why ``req`` leaves the queue unstarted (a reason), ``None`` to dispatch it, or
+        :data:`_KEEP_PLACE` while its chain still holds the key."""
+        key = _pr_key(self.config, req["repository"], req["number"])
+        reason = _stopped_request(self.store, key, req)  # d34: never a stopped story
+        if reason is not None:
+            return reason
+        state = _key_state(self.store, key, now)
+        reason = "attempt_budget_exhausted" if _exhausted(state) else None
+        if reason is None and state["busy"]:
+            return _KEEP_PLACE  # its chain still holds the key: a firing now would be deduplicated
+        return reason or self._pr_refusal(req, ik)
+
+    def _dispatch(self, req: dict[str, Any], now: datetime) -> dict[str, Any]:
+        """The active entry that dispatches ``req`` now."""
+        event_id = dispatch_event_id(self.name, req["rid"])
+        act = {
+            "rid": req["rid"],
+            "key": req["key"],
+            "repository": req["repository"],
+            "number": req["number"],
+            "event_id": event_id,
+            "run_id": _run_id_for(self.rule, event_id),
+            "dispatched_at": _iso(now),
+            "request": req,
+        }
+        tip = self._base_tip(req)
+        if tip is not None:
+            act["base_sha"] = tip  # d37: the base branch's tip now, not base.sha
+        return act
 
     def _pr_refusal(self, req: Mapping[str, Any], ik: str) -> str | None:
         """``pr_not_open`` / ``head_moved`` from a read of the PR, else None (also when the
@@ -569,9 +586,19 @@ class _Pass:
             return "head_moved"
         return None
 
+    def _base_tip(self, req: Mapping[str, Any]) -> str | None:
+        """d37: the base branch's live tip from this pass's read of the PR, or None (no
+        lookup, a failed read, or a tip GitHub did not give): the request's own base then
+        stands. GitHub's ``base.sha`` is the base as of the PR's last push - the fork point
+        of a PR not pushed since its base moved, or a commit its head does not hold - so the
+        try is given the branch's tip at dispatch, the base it can merge and the gate checks."""
+        facts = self.lookups.get((req["repository"], req["number"], req.get("head_sha")))
+        tip = (facts or {}).get("base_tip_sha")
+        return tip if isinstance(tip, str) and _FULL_SHA_RE.fullmatch(tip) else None
+
     def _read_pr(self, req: Mapping[str, Any], actor: str, ik: str) -> Mapping[str, Any] | None:
-        """The PR's current facts (``state``, ``merged``, ``head_sha``), or None when the
-        read failed."""
+        """The PR's current facts (``state``, ``merged``, ``head_sha``, d37 ``base_tip_sha``),
+        or None when the read failed."""
         ctx = InvocationContext(
             run_id=self.context.run_id,
             step_id=self.context.step_id,
@@ -580,7 +607,12 @@ class _Pass:
             actor=actor,
             config={"kind": "github.pr_head"},
         )
-        lookup = {"repo": req["repository"], "number": req["number"], "actor": actor}
+        lookup = {
+            "repo": req["repository"],
+            "number": req["number"],
+            "actor": actor,
+            "with_base_tip": True,
+        }
         try:
             res = self.port._lookup.invoke(lookup, f"{ik}/{req['rid']}", self.deadline, context=ctx)
         except Exception as exc:  # noqa: BLE001 - a failed read never blocks the queue
@@ -869,7 +901,9 @@ class QueueStopPort:
 
 def _dispatch_data(queue: str, act: Mapping[str, Any]) -> dict[str, Any]:
     req = act.get("request") or {}
-    data = {k: v for k, v in (req.get("inputs") or {}).items() if k != "repo"}
+    # d37: ``base_tip_sha`` is the queue's own (the App's read of the base branch), never
+    # a request input, so it can vouch for the base the try is given (lineage)
+    data = {k: v for k, v in (req.get("inputs") or {}).items() if k not in ("repo", "base_tip_sha")}
     data.update(
         queue=queue,
         request_id=act["rid"],
@@ -881,6 +915,8 @@ def _dispatch_data(queue: str, act: Mapping[str, Any]) -> dict[str, Any]:
         source_run=req.get("source_run"),
         dispatch_run=act.get("run_id"),
     )
+    if act.get("base_sha"):
+        data["base_sha"] = data["base_tip_sha"] = act["base_sha"]  # d37: the tip at dispatch
     return data
 
 

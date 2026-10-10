@@ -49,7 +49,13 @@ from culture_rules.engine.actorport import InvocationContext, InvocationResult
 from culture_rules.node.actors import ACTORS_COLLECTION
 from culture_rules.store.port import DuplicateKeyError
 
-__all__ = ["ONCE_COLLECTION", "RESOLVE_WORKERS", "GitHubCommentPort", "GitHubPrHeadPort"]
+__all__ = [
+    "ONCE_COLLECTION",
+    "RESOLVE_WORKERS",
+    "GitHubCommentPort",
+    "GitHubPrHeadPort",
+    "on_base_branch",
+]
 
 log = logging.getLogger(__name__)
 
@@ -343,6 +349,18 @@ class GitHubPrHeadPort(GitHubCommentPort):
     ``base_sha`` with it; the guard ends a wake on a PR that is no longer open, #31 - a
     merged PR keeps its head sha). It reads, so retrying is harmless.
 
+    d37: ``base_sha`` above is GitHub's ``base.sha``, the base *as of the PR's last push*
+    (the fork point of a PR not pushed since its base moved, or a commit the head does not
+    hold), never a promise about the branch now. Two optional inputs read more:
+
+    * ``with_base_tip: true`` adds ``base_tip_sha``, the base branch's live tip (``None``
+      when it could not be read: the caller falls back, never fails on it);
+    * ``base_sha: <sha>`` adds ``base_on_branch``: ``True`` when that commit is the PR's
+      ``base.sha`` or lies between it and the base branch's tip (it descends from
+      ``base.sha`` and the tip descends from it), ``False`` when it does not, ``None``
+      when GitHub could not say. A commit older than the PR's recorded base is not
+      accepted: the base picks the gate policy, and an older one could weaken it.
+
     The executor calls it synchronously inside its tick, so the whole lookup honours the
     invocation ``deadline``: a cold private-key resolve runs on a capped worker
     (:meth:`~GitHubCommentPort._app_within`, cached once it finishes) and every HTTP call
@@ -369,9 +387,8 @@ class GitHubPrHeadPort(GitHubCommentPort):
         allowed, refusal = repo_refusal(conn, repo)
         if refusal:
             return InvocationResult.failed(refusal, retryable=False)
-        try:
-            number = int(input["number"])
-        except (KeyError, TypeError, ValueError):
+        number, check = _head_request(input)
+        if number is None:
             return InvocationResult.failed(BAD_INPUT, retryable=False)
         try:
             app = self._app_within(str(actor_id), conn, allowed, deadline)
@@ -384,16 +401,87 @@ class GitHubPrHeadPort(GitHubCommentPort):
                 pull = app.get_pull(repo, number)
         except GitHubError as exc:
             return InvocationResult.failed(exc.code, retryable=exc.retryable)
-        sha = (pull.get("head") or {}).get("sha")
-        base = (pull.get("base") or {}).get("sha")
-        if not isinstance(sha, str) or not sha:
+        out = _head_facts(pull)
+        if out is None:
             return InvocationResult.failed("bad_response", retryable=True)
-        state, merged = pull.get("state"), pull.get("merged")
-        return InvocationResult.completed(
-            {
-                "head_sha": sha,
-                "base_sha": base if isinstance(base, str) else None,
-                "state": state if isinstance(state, str) else None,
-                "merged": merged if isinstance(merged, bool) else None,
-            }
-        )
+        ref = (pull.get("base") or {}).get("ref")
+        if input.get("with_base_tip") is True:
+            out["base_tip_sha"] = _base_tip(app, repo, ref, deadline)
+        if check is not None:
+            out["base_on_branch"] = on_base_branch(app, repo, out["base_sha"], ref, check, deadline)
+        return InvocationResult.completed(out)
+
+
+def _head_request(input: Mapping[str, Any]) -> tuple[int | None, Any]:
+    """The PR number and the optional ``base_sha`` to check; the number is ``None`` when
+    either is malformed (``bad_input``)."""
+    try:
+        number = int(input["number"])
+    except (KeyError, TypeError, ValueError):
+        return None, None
+    check = input.get("base_sha")
+    if check is not None and not _FULL_SHA.fullmatch(str(check)):
+        return None, None
+    return number, check
+
+
+def _head_facts(pull: Mapping[str, Any]) -> dict[str, Any] | None:
+    """The PR's head, recorded base, state and merged flag from ``pull``; ``None`` when it
+    names no head commit."""
+    sha = (pull.get("head") or {}).get("sha")
+    base = (pull.get("base") or {}).get("sha")
+    if not isinstance(sha, str) or not sha:
+        return None
+    state, merged = pull.get("state"), pull.get("merged")
+    return {
+        "head_sha": sha,
+        "base_sha": base if isinstance(base, str) else None,
+        "state": state if isinstance(state, str) else None,
+        "merged": merged if isinstance(merged, bool) else None,
+    }
+
+
+_FULL_SHA = re.compile(r"[0-9a-f]{40}")
+
+
+def _base_tip(app: Any, repo: str, ref: Any, deadline: datetime) -> str | None:
+    """d37: the base branch's live tip, or ``None`` when it could not be read."""
+    if not isinstance(ref, str) or not ref:
+        return None
+    try:
+        with app.deadline(deadline):
+            return app.branch_tip(repo, ref)
+    except GitHubError as exc:
+        log.info("github.pr_head: base tip of %s not read (%s)", repo, exc.code)
+        return None
+
+
+def on_base_branch(
+    app: Any,
+    repo: str,
+    pull_base: str | None,
+    ref: Any,
+    sha: str,
+    deadline: datetime | None = None,
+) -> bool | None:
+    """d37: whether ``sha`` lies between the PR's recorded base and its base branch's tip
+    (both inclusive); ``None`` when GitHub could not answer. ``deadline`` bounds the two
+    compare calls (omit it inside a caller's own :meth:`GitHubApp.deadline`)."""
+    if sha == pull_base:
+        return True
+    if not isinstance(pull_base, str) or not isinstance(ref, str) or not ref:
+        return None
+    try:
+        if deadline is None:
+            return _compare_on_branch(app, repo, pull_base, ref, sha)
+        with app.deadline(deadline):
+            return _compare_on_branch(app, repo, pull_base, ref, sha)
+    except GitHubError as exc:
+        log.info("github: base of %s not compared (%s)", repo, exc.code)
+        return None
+
+
+def _compare_on_branch(app: Any, repo: str, pull_base: str, ref: str, sha: str) -> bool:
+    if app.compare_status(repo, pull_base, sha) not in ("ahead", "identical"):
+        return False
+    return app.compare_status(repo, sha, ref) in ("ahead", "identical")

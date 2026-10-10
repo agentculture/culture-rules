@@ -34,6 +34,7 @@ chain's push. Standard-library only.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
@@ -41,6 +42,8 @@ from typing import Any
 __all__ = [
     "CHAIN_UNVERIFIED",
     "FinalGate",
+    "base_refusal",
+    "dispatched_base_tip",
     "enqueuer",
     "fix_ancestry",
     "LineageError",
@@ -53,12 +56,14 @@ __all__ = [
 
 CHAIN_UNVERIFIED = "chain_unverified"
 RUN_SUCCEEDED = "rules.run.succeeded"
+RUN_FAILED = "rules.run.failed"
 _RUNS = "runs"  # culture_rules.engine.runs.RUNS_COLLECTION (not imported: no engine cycle)
 _EVENTS = "events"  # culture_rules.events.ingest.EVENTS_COLLECTION
 QUEUE_DISPATCH = "rules.queue.dispatch"  # culture_rules.node.actions.queue.DISPATCH_TYPE
 QUEUE_ADD = "queue.add"  # culture_rules.node.actions.queue.QUEUE_ADD_BUILTIN
 _RULES = "rules"
 _ADHOC = "adhoc:"
+_FULL_SHA = re.compile(r"[0-9a-f]{40}")
 
 
 class LineageError(Exception):
@@ -75,14 +80,20 @@ def step_state(run: Mapping[str, Any], key: str) -> dict[str, Any] | None:
     return next((s for s in run.get("steps", ()) if s.get("key") == key), None)
 
 
-def upstream(store: Any, run: Mapping[str, Any]) -> Mapping[str, Any]:
-    """The verified run whose ``rules.run.succeeded`` event started ``run`` (module doc)."""
+def upstream(store: Any, run: Mapping[str, Any], *, failed: bool = False) -> Mapping[str, Any]:
+    """The verified run whose ``rules.run.succeeded`` event started ``run`` (module doc).
+
+    ``failed`` (d37, only for a retry's ``queue.add`` link): the run whose verified
+    ``rules.run.failed`` event started it instead, and that run failed - a fixer try whose
+    agent ran out of time, put back in line by ``pr-fixer-retry-failed``. Every other link
+    (a review, a publish, a re-fix) still needs the run above it to have succeeded."""
     # node layer, lazily
     from culture_rules.node.firing import run_id_for  # noqa: PLC0415
     from culture_rules.node.run_events import verify_run_event  # noqa: PLC0415
 
     trigger = run.get("trigger")
-    if not isinstance(trigger, Mapping) or trigger.get("type") != RUN_SUCCEEDED:
+    want = RUN_FAILED if failed else RUN_SUCCEEDED
+    if not isinstance(trigger, Mapping) or trigger.get("type") != want:
         raise LineageError(CHAIN_UNVERIFIED, "the run was not started by a run succeeding")
     rule_id, event_id = run.get("rule_id"), trigger.get("id")
     if not (isinstance(rule_id, str) and isinstance(event_id, str) and rule_id and event_id):
@@ -94,7 +105,7 @@ def upstream(store: Any, run: Mapping[str, Any]) -> Mapping[str, Any]:
         raise LineageError(CHAIN_UNVERIFIED, f"its trigger is not a genuine run event: {why}")
     data = trigger.get("data") if isinstance(trigger.get("data"), Mapping) else {}
     up = store.get(_RUNS, data.get("run_id")) if isinstance(data.get("run_id"), str) else None
-    if not up or up.get("status") != "succeeded":
+    if not up or up.get("status") != ("failed" if failed else "succeeded"):
         raise LineageError(CHAIN_UNVERIFIED, "the upstream run did not succeed")
     return up
 
@@ -151,7 +162,16 @@ def _run_links(
     store: Any, current: Mapping[str, Any], role_of: Any, review_role: str, fix_role: str
 ) -> list[Mapping[str, Any]]:
     """The verified runs above ``current``, which a run event started: a review and the fix
-    it reviewed, or (for a ``queue.add`` run, a retry) the fix whose try did not pass."""
+    it reviewed, or (for a ``queue.add`` run, a retry) the fix whose try did not pass - its
+    gate's verdict (``rules.run.succeeded``), or, d37, its agent running out of time
+    (``rules.run.failed``: only a ``queue.add`` run may stand on a failed fix)."""
+    if _trigger_type(current) == RUN_FAILED:
+        if not _is_enqueuer(current):
+            raise LineageError(CHAIN_UNVERIFIED, "only a retry may follow a failed run")
+        up = upstream(store, current, failed=True)
+        if role_of(up) != fix_role:
+            raise LineageError("workflow_not_trusted", "a retry not of a pr-fix run")
+        return [up]
     up = upstream(store, current)
     role = role_of(up)
     if role == fix_role and _is_enqueuer(current):
@@ -214,6 +234,42 @@ def _dispatch_envelope(store: Any, run: Mapping[str, Any]) -> Mapping[str, Any]:
     if envelope.get("source") != QUEUE_SOURCE:
         raise LineageError(CHAIN_UNVERIFIED, "the dispatch event is not the queue's")
     return envelope
+
+
+def dispatched_base_tip(store: Any, run: Mapping[str, Any] | None) -> str | None:
+    """d37: the base branch's tip the fixer queue read through the App when it dispatched
+    ``run`` (``base_tip_sha`` of its genuine, stored dispatch event, which only
+    ``queue.progress`` writes and only from the App's read), else None: a run not started
+    by a verified dispatch, or one the queue could not read a tip for. Rule inputs cannot
+    name it, so it can vouch for a ``base_sha`` that is not the PR's ``base.sha``."""
+    if not isinstance(run, Mapping):
+        return None
+    try:
+        envelope = _dispatch_envelope(store, run)
+    except LineageError:
+        return None
+    data = envelope.get("data")
+    tip = data.get("base_tip_sha") if isinstance(data, Mapping) else None
+    return tip if isinstance(tip, str) and _FULL_SHA.fullmatch(tip) else None
+
+
+def base_refusal(
+    base_sha: Any, pull_base: Any, dispatched_tip: str | None, on_branch: bool | None
+) -> str | None:
+    """d37: whether ``base_sha`` may pick the gate policy and stand for the base a fix
+    was judged against. None (yes) when it is the PR's ``base.sha`` as the App reads it
+    now, or when it is the tip the queue dispatched the run with (:func:`dispatched_base_tip`)
+    and that tip still lies between ``base.sha`` and the branch's tip (``on_branch``).
+    ``base_mismatch`` otherwise - a commit merely on the branch is not enough: an older
+    one, or one between the dispatched tip and ``base.sha``, could carry a weaker policy -
+    and ``base_unverified`` when GitHub could not place the dispatched tip."""
+    if isinstance(pull_base, str) and pull_base and base_sha == pull_base:
+        return None
+    if dispatched_tip is None or base_sha != dispatched_tip:
+        return "base_mismatch"
+    if on_branch is True:
+        return None
+    return "base_unverified" if on_branch is None else "base_mismatch"
 
 
 def _definition(run: Mapping[str, Any]) -> Mapping[str, Any]:
