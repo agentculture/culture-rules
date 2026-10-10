@@ -15,6 +15,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- CI (operator, #43): the `test` job's new step `SonarCloud unresolved issues` (`scripts/sonar-pr-issues.py`) fails a pull request while SonarCloud lists any OPEN or CONFIRMED issue on it, after waiting for the analysis of the PR's head commit; ACCEPTED and FALSE_POSITIVE issues pass. A code smell no longer slips through a green quality gate
 - After a stop, `queue.add` quietly drops a request of the stopped story (judged before its budget, and again inside its compare-and-set) and an automatic request for the head it was stopped at; a trusted `/fix` or a new head starts a new story, retries included. `queue.progress` drops a stopped story's request at dispatch, and `github.push` refuses `story_stopped` for a run of a story begun before its stop, judged again after consuming the approval. A thumbs-down only stops the story it names while that story is live; stops are monotonic
 - `pr-fixer-comment` and `pr-fixer-review-comment` never start a fix on a comment asking to stop
 - docs: the PR fixer guide covers stopping a story and its rollout; the editor's fold counts follow the bundle (21 rules, 7 workflows)
