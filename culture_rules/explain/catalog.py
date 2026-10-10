@@ -325,8 +325,10 @@ wins). One command per step, in order; nothing chains them and there is no `all`
    version and the node unit's `ActiveState` and `ActiveEnterTimestamp` are read.
    `shared_venv` (the API host, run there): `uv pip install --reinstall-package
    culture-rules --no-deps <whl>` into the venv the running API unit executes
-   (`systemctl --user show culture-rules-api.service -p ExecStart`; the node unit must
-   run the same venv, else exit 1 naming both), then restart `culture-rules-api` and
+   (its `ExecStart` D-Bus property via `busctl --user --json=short`, the exact
+   argv: `<venv>/bin/culture-rules` directly or after
+   `grant run [--inject VAR=NAME]... --`; the node unit must run the same venv,
+   else exit 1 naming both), then restart `culture-rules-api` and
    `culture-rules-node`; `install.sh` never runs. The dry run prints the exact argv
    (`<venv>` for the shared venv) and runs nothing; `--apply` first records the step as
    started, which needs the admin role, so another token runs nothing. A record field

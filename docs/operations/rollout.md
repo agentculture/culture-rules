@@ -109,9 +109,14 @@ a whole document, but the CLI does not use it.
   `upgrade:<host>` as started before it runs anything, and a token without the
   admin role is refused there (exit 1, nothing run). A dry run runs nothing.
 - **The shared venv is resolved from the running units.** On the shared-venv
-  host, `upgrade --apply` reads `systemctl --user show culture-rules-api.service
-  -p ExecStart` and takes the venv of its `<venv>/bin/culture-rules` (also behind
-  `grant run ... --`). The node unit must run the same venv; otherwise, or when
+  host, `upgrade --apply` reads the API unit's `ExecStart` D-Bus property (`busctl
+  --user --json=short get-property ... ExecStart`), which is the exact argv:
+  `systemctl show` joins the arguments with bare spaces, so a venv path with a
+  space would be ambiguous there. The executable must be
+  `<venv>/bin/culture-rules`, or `grant` running `grant run [--inject VAR=NAME]...
+  -- <venv>/bin/culture-rules ...`; any other executable (`env`, `python`) is
+  refused even when an argument names `.../bin/culture-rules`. The unit must
+  have one `ExecStart`. The node unit must run the same venv; otherwise, or when
   no venv can be read, the upgrade is refused naming both. No data directory is
   assumed, and the dry run prints `<venv>` in its place.
 - **`enable` refuses while a snapshot rule is absent.** A rule recorded in the

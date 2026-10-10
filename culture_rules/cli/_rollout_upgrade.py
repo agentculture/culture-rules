@@ -10,9 +10,10 @@ The host's machine record (``GET /machines/{name}``) says how, in its ``install`
 * ``shared_venv`` (spark, where the API and the node share one venv and hand-edited units):
   locally, ``uv pip install --reinstall-package culture-rules --no-deps WHEEL`` into that venv
   and restart ``culture-rules-api`` and ``culture-rules-node``. ``install.sh`` never runs.
-  The venv is the one the running API unit executes: ``systemctl --user show
-  culture-rules-api.service -p ExecStart`` names ``<venv>/bin/culture-rules`` (directly, or
-  after ``grant run ... --``); the node unit must name the same venv, else the upgrade is
+  The venv is the one the running API unit executes: its ``ExecStart`` D-Bus property
+  (``busctl --user --json=short get-property``, the exact argv) runs
+  ``<venv>/bin/culture-rules`` directly, or as ``grant run [--inject VAR=NAME]... --
+  <venv>/bin/culture-rules``; the node unit must run the same venv, else the upgrade is
   refused naming both. Nothing assumes a default data directory.
 
 Without ``--apply`` it prints the exact argv (``<venv>`` for the shared venv, which only an
@@ -29,6 +30,7 @@ environment, so the API URL and token never reach ssh, scp or the host.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shlex
@@ -38,7 +40,7 @@ import subprocess  # nosec B404 - argv lists only, never a shell
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from culture_rules import deploy_data
@@ -50,7 +52,14 @@ from culture_rules.cli.registry import Context
 from culture_rules.client.http import ApiError, ApiUnreachable
 from culture_rules.model.validate import has_control_char, is_install_word
 
-__all__ = ["Result", "commands", "set_runner", "upgrade", "venv_from_exec_start"]
+__all__ = [
+    "Result",
+    "commands",
+    "set_runner",
+    "unit_object_path",
+    "upgrade",
+    "venv_from_exec_start",
+]
 
 SSH_OPTS = ("-o", "BatchMode=yes")
 VENV = ".local/share/culture-rules/venv"
@@ -60,7 +69,7 @@ NODE_UNIT = "culture-rules-node.service"
 UNITS = (API_UNIT, NODE_UNIT)
 VENV_PLACEHOLDER = Path("<venv>")
 """Stands for the shared venv in a dry run (only an applied run reads the API unit)."""
-_PROGRAM_RE = re.compile(r"^/\S*/bin/culture-rules$")
+_PROGRAM_RE = re.compile(r"^/[^\x00-\x1f\x7f]*/bin/culture-rules$")
 _WORD_FIELDS = ("node_name", "wheelhouse", "python", "events_host")
 _LIST_FIELDS = ("extras", "secrets")
 _SHOW = ("-p", "Id", "-p", "ActiveState", "-p", "ActiveEnterTimestamp")
@@ -267,27 +276,104 @@ def commands(
 # --------------------------------------------------------------------------- the shared venv
 
 
+def unit_object_path(unit: str) -> str:
+    """The systemd D-Bus object path of ``unit`` (``sd_bus_path_encode``: every byte that is
+    not an ASCII letter, or a digit after the first, becomes ``_`` and two hex digits)."""
+    label = "".join(
+        ch if ch.isascii() and (ch.isalpha() or (ch.isdigit() and i)) else f"_{ord(ch):02x}"
+        for i, ch in enumerate(unit)
+    )
+    return f"/org/freedesktop/systemd1/unit/{label or '_'}"
+
+
+def _exec_start_entry(text: str) -> tuple[str, list[str]] | None:
+    """``(path, argv)`` of the one ``ExecStart`` entry in ``busctl --json=short`` output
+    (``{"type": "a(sasbttttuii)", "data": [[path, argv, ...]]}``); None otherwise."""
+    try:
+        data = json.loads(text).get("data")
+    except (ValueError, AttributeError):
+        return None
+    if not isinstance(data, list) or len(data) != 1:
+        return None  # no ExecStart, or several (which one runs the API is not one answer)
+    entry = data[0]
+    if not isinstance(entry, list) or len(entry) < 2:
+        return None
+    path, argv = entry[0], entry[1]
+    if not isinstance(path, str) or not isinstance(argv, list) or not argv:
+        return None
+    if not all(isinstance(a, str) for a in argv):
+        return None
+    return path, argv
+
+
+def _grant_run_program(argv: Sequence[str]) -> str | None:
+    """The command ``grant run [--inject VAR=NAME]... -- PROGRAM ...`` runs: the argument
+    after the separator ``--``. Option values are skipped (a value ``--`` is not the
+    separator); any other option, or no ``--``, is not the supported wrapper (None)."""
+    if len(argv) < 2 or argv[1] != "run":
+        return None
+    i = 2
+    while i < len(argv):
+        arg = argv[i]
+        if arg == "--":
+            return argv[i + 1] if i + 1 < len(argv) else None
+        if arg == "--inject":
+            i += 2
+        elif arg.startswith("--inject="):
+            i += 1
+        else:
+            return None
+    return None
+
+
 def venv_from_exec_start(text: str) -> Path | None:
-    """The venv a unit runs, from ``systemctl show -p ExecStart``: the last absolute
-    ``.../bin/culture-rules`` token (a ``grant run ... --`` wrapper puts it last), whose
-    parent's parent is the venv; None when there is none."""
-    tokens = re.split(r"[\s;{}]+", text)
-    programs = [t.split("=", 1)[1] if t.startswith(("path=", "argv[]=")) else t for t in tokens]
-    found = [p for p in programs if _PROGRAM_RE.match(p)]
-    return Path(found[-1]).parent.parent if found else None
+    """The venv a unit runs, from its ``ExecStart`` D-Bus property (``busctl --json=short``).
+
+    Why the bus property and not ``systemctl show -p ExecStart``: ``show`` prints
+    ``argv[]=`` as the arguments joined by bare spaces (systemd 255), so ``/srv/my venv``
+    and two arguments read alike, and the unit file's own line needs systemd's escaping,
+    specifiers and drop-in resets decoded. The bus property is the parsed command itself:
+    the executable ``path`` and an exact ``argv`` list.
+
+    The executable is the entry's ``path``. If it is ``<venv>/bin/culture-rules``, that is
+    the venv. If its basename is ``grant``, the argv must be the supported wrapper
+    ``grant run [--inject VAR=NAME]... -- <venv>/bin/culture-rules ...``. Anything else
+    (``env``, ``python``, an argument that merely names ``.../bin/culture-rules``) is None,
+    which refuses the upgrade.
+    """
+    entry = _exec_start_entry(text)
+    if entry is None:
+        return None
+    path, argv = entry
+    program: str | None = path
+    if PurePosixPath(path).name == "grant":
+        program = _grant_run_program(argv)
+    if program is None or not _PROGRAM_RE.match(program):
+        return None
+    return Path(program).parent.parent
 
 
 def _unit_venv(unit: str) -> Path:
-    argv = ["systemctl", "--user", "show", unit, "-p", "ExecStart"]
+    argv = [
+        "busctl",
+        "--user",
+        "--json=short",
+        "get-property",
+        "org.freedesktop.systemd1",
+        unit_object_path(unit),
+        "org.freedesktop.systemd1.Service",
+        "ExecStart",
+    ]
     result = _RUNNER(argv, 30.0)
     venv = venv_from_exec_start(result.stdout) if result.returncode == 0 else None
     if venv is None:
         raise CliError(
             EXIT_USER_ERROR,
-            f"cannot resolve the shared venv: {unit}'s ExecStart names no "
+            f"cannot resolve the shared venv: {unit}'s ExecStart does not run "
             f"<venv>/bin/culture-rules (exit {result.returncode})",
-            f"check 'systemctl --user cat {unit}'; its ExecStart must run "
-            "<venv>/bin/culture-rules (directly or after 'grant run ... --')",
+            f"check 'systemctl --user cat {unit}'; its one ExecStart must run "
+            "<venv>/bin/culture-rules directly or as 'grant run [--inject VAR=NAME]... -- "
+            "<venv>/bin/culture-rules ...'",
         )
     return venv
 
@@ -393,7 +479,7 @@ def _dry_lines(mode: str, cmds: Sequence[Command]) -> list[str]:
     lines = ["dry-run: would run, in order:"]
     if mode == rollout.SHARED_VENV:
         lines.append(
-            f"(<venv> is resolved from {API_UNIT}'s ExecStart with 'systemctl --user show', "
+            f"(<venv> is resolved from {API_UNIT}'s ExecStart D-Bus property with 'busctl', "
             f"and {NODE_UNIT} must run the same venv; only --apply reads it)"
         )
     return lines + [f"{c.what}: {shlex.join(c.argv)}" for c in cmds]
