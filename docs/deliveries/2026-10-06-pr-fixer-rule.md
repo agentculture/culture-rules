@@ -146,7 +146,7 @@ After: A same-repo PR in any agentculture repo gets a fixer run on spark2 withou
 | `t17` (`d31`) | operator approved; built after #35 (live case culture-rules #37: merge_commit guard) as 0.18.6; `pr-fixer-conflict` ships disabled until rolled out | `needs-follow-up` |
 | `t17` (`d32`) | operator: 'another /fix or push update it's a new story' | `acceptable` |
 | `t17` (`d33`) | operator approved; irc-lens#62's /fix got no_changes because the note forbade Sonar work | `acceptable` |
-| `t17` (`d34`) | operator: stop by /stop or a 👎 reaction; issue #40, built after #35 | `needs-follow-up` |
+| `t17` (`d34`) | operator: stop by /stop or a 👎 reaction; issue #40, built as 0.18.7; one stop rule became two (`pr-fixer-stop`, `pr-fixer-stop-reaction`; a rule has one trigger) plus `pr-fixer-queue-progress-stopped` (`b22`); not yet rolled out | `needs-follow-up` |
 | `t17` (`d35`) | operator: 'I don't want to spam with comments ... pass it on'; pr-fix digest approved | `acceptable` |
 | `t20`, `t21` (`d4`) | the record says t20/t21 run on culture-rules itself; they ran on a new scratch repo, agentculture/culture-rules-tester (operator chose to create it for t20); the record was not amended | `acceptable` |
 | `t9` (`d21`) | not delivered in #17: phase 1 (run events, hop limit, budget field, completion outbox, restore reconciliation) is on the unmerged `rules/pr-fixer-split` (c918008) after 5 Codex rounds; phase 2 (the split) not started; moved to a follow-up PR by the operator | `needs-follow-up` |
@@ -171,6 +171,7 @@ After: A same-repo PR in any agentculture repo gets a fixer run on spark2 withou
 - #35 (`d28`-`d30`, `d32`, `d33`, `d35`, branch `rules/35-concurrency-pool`, built by an Opus subagent): obligations `o38`-`o41` (claims c6, c1, c5, c19), evidence `e82`-`e86`, deltas `b15`-`b18` — approved by the operator; full suite 4680 passed; Codex review: round 1 request_changes (3 findings), round 2 request_changes (2), round 3 approve; pr-fix digest `sha256:307e82fc96eba7a36be1781b2f550728fbf232d37d776ed878071ae7f74ae032` approved by the operator
 - live, 2026-10-10: culture-rules #37's conflict — the fixer's real merge was refused by the diff guard (`merge_commit`), a copied sync was over the reviewer's 30k-char cap, and a CHANGELOG-only sync passed the gate but cannot clear a three-way conflict; the 3-round cap ended it as designed (`d31` follows)
 - `d31` (branch `rules/d31-merge-from-base`, 0.18.6, built by an Opus subagent): obligations `o42`-`o43` (claims c5, c1), evidence `e87`-`e88`, deltas `b19`-`b20` — approved by the operator; full suite 4728 passed; Codex review: three rounds of request_changes (5, 5 and 1 findings), every high finding verified fixed; the round-3 fix (ff69227) was reviewed by the main agent, not Codex
+- `d34` (#40, branch `rules/40-stop`, 0.18.7, built by an Opus subagent): obligations `o44`-`o45` (claim c6), evidence `e89`-`e90`, deltas `b21`-`b22` — approved by the operator; full suite 4796 passed; Codex review: three rounds of request_changes (7, 3 and 1 findings), all fixed except round-1 #1 (a forged `/stop` on the event bus), pushed back because `/fix` already rests on the same trust boundary; the round-3 fix (c2f0104) was reviewed by the main agent, not Codex
 
 ## Delivery Claims
 
@@ -189,6 +190,7 @@ After: A same-repo PR in any agentculture repo gets a fixer run on spark2 withou
 | Fixer requests wait first-come-first-served per model-server pool, one agent at a time; retries go to the back; 3 tries per story; one status comment per story | medium | evidence `e82`, `e83`, `e86` (approved) · branch `rules/35-concurrency-pool`; not yet rolled out |
 | A trusted `/fix` comment naming a Sonar issue gets it fixed, gated, Codex-reviewed and pushed | high | lobes-cli#303: run-1b185c0b → 729b8fa |
 | The fixer may resolve a PR's conflict with its base through one bot merge; only the resolution is guarded, tested and reviewed; a CONFLICTING PR queues a fix | medium | evidence `e87`, `e88` (approved) · branch `rules/d31-merge-from-base`; not yet rolled out; `pr-fixer-conflict` disabled |
+| A trusted `/stop` or 👎 stops a PR's fixer story: no push, no hand-back, queue entries removed, status comment closed | medium | evidence `e89`, `e90` (approved) · branch `rules/40-stop`; not yet rolled out |
 | Restore from backup keeps chained-rule work exactly once | unverified | `d21` is not in this delivery (follow-up PR) |
 
 Lapse ledger evidence:

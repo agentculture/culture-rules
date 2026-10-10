@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-05T20:43:33Z",
-  "updated": "2026-10-10T14:57:51Z",
+  "updated": "2026-10-10T15:01:12Z",
   "claims": [
     {
       "id": "c1",
@@ -1636,7 +1636,7 @@
       "behavior": "a trusted /stop (or @rules-culture-dev stop) or a trusted thumbs-down on the /fix or status comment cancels the story's running run (no push, no hand-back), removes its queued request and retries, ends its one status comment 'stopped by @user', and touches no newer story; an untrusted author does nothing; the next trusted /fix or a new head starts a fresh story",
       "source_text": "At most one fixer run per PR at a time, and a per-PR attempt budget stops fix/test/push cycles; because the App pushes, its own synchronize events are skipped by the existing self_authored check",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "o45",
@@ -1645,7 +1645,7 @@
       "behavior": "reactions are read only while a PR has a live fixer story, at most 10 requests and 10 s per node cycle, every reaction_watch_interval_s (default 60 s); each thumbs-down emits one github.reaction.added; none is read for a PR with no live story",
       "source_text": "At most one fixer run per PR at a time, and a per-PR attempt budget stops fix/test/push cycles; because the App pushes, its own synchronize events are skipped by the existing self_authored check",
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     }
   ]
 }
