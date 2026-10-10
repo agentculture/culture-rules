@@ -250,9 +250,10 @@ _UNJUDGED_CODES = frozenset(
 )
 """d37: the refusals that are the infrastructure's, not the change's: an ``unjudged``
 verdict (a retry). Configuration refusals (``bad_config``, ``gate_runner_unconfigured``,
-``run_as_blocked``, ``run_as_failed``) and the base check (``base_mismatch``,
-``base_unverified``) still fail the step: retrying cannot fix them, or they guard the
-policy."""
+``run_as_blocked``, ``run_as_failed``) and the base check (``base_mismatch``, and a
+``base_unverified`` GitHub will not answer later) still fail the step: retrying cannot fix
+them. A ``base_unverified`` that is retryable (GitHub did not answer now) is ``unjudged``
+too (Codex round 1 #4): fail closed - nothing is judged, built or reviewed - but a retry."""
 
 _AGENT_FIXABLE_CODES = frozenset({"merge_commit", "history_rewritten"})
 """d37: refusals of the agent's commit shape raised while building it: a ``guard``
@@ -1465,7 +1466,7 @@ class GatePort:
         try:
             return InvocationResult.completed(self._gate(input, deadline, context))
         except _Refusal as exc:
-            if exc.code in _UNJUDGED_CODES:
+            if exc.code in _UNJUDGED_CODES or (exc.code == "base_unverified" and exc.retryable):
                 return InvocationResult.completed(_unjudged(input, exc))
             return InvocationResult.failed(exc.message(), retryable=exc.retryable)
 
@@ -1568,17 +1569,25 @@ class GatePort:
         """Round 3 (#2): ``base_sha`` selects the gate policy (``culture.yaml`` at that
         commit), and it comes from rule inputs; so the App (``config.app_actor``, default
         ``github-app``) must vouch for it now, else ``base_mismatch``. d37: the fixer's
-        base is the base branch's live tip at dispatch, which GitHub's ``base.sha`` (the
-        base as of the PR's last push) is not; so ``base_sha`` passes when it is that
-        ``base.sha`` or lies between it and the branch's tip now (``base_on_branch``: a
-        base that moved again after dispatch still passes; an older commit, which could
-        carry a weaker policy, does not). A lookup that cannot be made, or a comparison
-        GitHub cannot answer, is ``base_unverified`` (fail closed)."""
+        base is the base branch's tip the queue read at dispatch, which GitHub's
+        ``base.sha`` (the base as of the PR's last push) is not; so ``base_sha`` also
+        passes when it is that dispatched tip (from the run's verified dispatch event, which
+        rule inputs cannot name) and the tip still lies between ``base.sha`` and the
+        branch's tip (:func:`~culture_rules.actors.lineage.base_refusal`). Any other commit,
+        on the branch or not, is ``base_mismatch``: an older one could carry a weaker
+        policy. A lookup that cannot be made, or a comparison GitHub cannot answer, is
+        ``base_unverified`` (fail closed; retryable when GitHub may answer later)."""
+        from culture_rules.actors.lineage import (  # noqa: PLC0415
+            base_refusal,
+            dispatched_base_tip,
+        )
+
         run = self._store.get("runs", context.run_id) if context.run_id else None
         inputs = (run or {}).get("inputs") or {}
         repo, number = inputs.get("repo"), inputs.get("number")
         if not isinstance(repo, str) or not isinstance(number, int):
             raise _Refusal("base_unverified", "the run has no repo and PR number to check")
+        dispatched = dispatched_base_tip(self._store, run)
         actor = config.get("app_actor", "github-app")
         ctx = InvocationContext(
             context.run_id,
@@ -1589,31 +1598,29 @@ class GatePort:
             actor,
             {"kind": "github.pr_head"},
         )
-        res = self._pr_lookup.invoke(
-            {"repo": repo, "number": number, "base_sha": base_sha},
-            f"gate-base:{context.run_id}",
-            deadline,
-            context=ctx,
-        )
+        lookup: dict[str, Any] = {"repo": repo, "number": number}
+        if dispatched is not None and base_sha == dispatched:
+            lookup["base_sha"] = base_sha  # place the dispatched tip on the branch
+        res = self._pr_lookup.invoke(lookup, f"gate-base:{context.run_id}", deadline, context=ctx)
         if res.outcome != "completed":
             raise _Refusal("base_unverified", str(res.error), retryable=res.retryable)
         output = res.output or {}
         actual = output.get("base_sha")
         if not isinstance(actual, str) or not actual:
             raise _Refusal("base_unverified", "the App reported no base for the PR")
-        if actual == base_sha or output.get("base_on_branch") is True:
-            return
-        if "base_on_branch" in output and output["base_on_branch"] is None:
+        refusal = base_refusal(base_sha, actual, dispatched, output.get("base_on_branch"))
+        if refusal == "base_unverified":
             raise _Refusal(
                 "base_unverified",
                 f"GitHub could not place base_sha {base_sha[:12]} on the PR's base branch",
                 retryable=True,
             )
-        raise _Refusal(
-            "base_mismatch",
-            f"base_sha {base_sha[:12]} is not on the PR's base branch at or after its base "
-            f"({str(actual)[:12]})",
-        )
+        if refusal:
+            raise _Refusal(
+                "base_mismatch",
+                f"base_sha {base_sha[:12]} is neither the PR's base ({str(actual)[:12]}) nor "
+                "the base branch's tip the queue dispatched this try with",
+            )
 
     def _build(self, job: _Job, shas: Mapping[str, str], context: InvocationContext) -> str:
         """The gate-built commit (see :meth:`_build_commit`)."""

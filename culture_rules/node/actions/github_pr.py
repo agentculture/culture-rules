@@ -622,7 +622,10 @@ class GitHubPushPort(GitHubCommentPort):
         # moved or was retargeted since then means it is not the policy this commit passed.
         # The head's settle is re-armed (round 5), so a fresh run gates the new base.
         reviewed = self._store.get(REVIEWS_COLLECTION, job.review_record or "") or {}
-        if not isinstance(base.get("sha"), str) or base.get("sha") != reviewed.get("base_sha"):
+        refusal = self._base_refusal(app, repo, base, reviewed.get("base_sha"), job)
+        if refusal == "base_unverified":
+            raise _Refused("base_unverified", retryable=True)
+        if refusal:
             self._rearm(repo, expected, job.review_record, int(input["number"]), branch)
             raise _Refused("base_changed")
         url = f"{self._git_base}/{repo}.git"
@@ -637,6 +640,33 @@ class GitHubPushPort(GitHubCommentPort):
         job.push(url, sha, branch, token)
         log.info("github.push: %s %s fast-forwarded", repo, branch)
         return InvocationResult.completed({**out, "pushed": True})
+
+    def _base_refusal(
+        self,
+        app: GitHubApp,
+        repo: str,
+        base: Mapping[str, Any],
+        reviewed_base: Any,
+        job: _PushJob,
+    ) -> str | None:
+        """Round 4 (#2) with d37: the base the review recorded must still be the PR's
+        ``base.sha``, or the base branch's tip the queue dispatched the fix with (its run's
+        verified dispatch event) while that tip still lies between ``base.sha`` and the
+        branch's tip (:func:`~culture_rules.actors.lineage.base_refusal`; the same rule as
+        the gate's base check, so no other commit on the branch, with a weaker policy, can
+        stand in). Returns the refusal code, or None."""
+        from culture_rules.actors.lineage import (  # noqa: PLC0415
+            base_refusal,
+            dispatched_base_tip,
+        )
+        from culture_rules.node.actions.github import on_base_branch  # noqa: PLC0415
+
+        pull_base = base.get("sha")
+        tip = dispatched_base_tip(self._store, job.chain.fix_run) if job.chain else None
+        on_branch = None
+        if tip is not None and reviewed_base == tip and pull_base != tip:
+            on_branch = on_base_branch(app, repo, pull_base, base.get("ref"), tip)
+        return base_refusal(reviewed_base, pull_base, tip, on_branch)
 
     def _consume_or_refuse(
         self, input: Mapping[str, Any], context: InvocationContext, job: _PushJob, sha: str

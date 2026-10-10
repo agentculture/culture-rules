@@ -402,26 +402,34 @@ records that `base_sha`, but the try is given the live one:
 
 - **At dispatch** `queue.progress` reads the PR with `with_base_tip` (the App's
   `GET /repos/{repo}/branches/{base_ref}`) and the dispatch event carries the
-  branch's tip as `base_sha`; an unread tip leaves the request's own. The d36
-  paragraph names that tip, and `pr-fixer-conflict`'s instruction defers to it.
-- **At the gate** the base check asks the App whether `base_sha` lies between
-  the PR's `base.sha` and the branch's tip now (two compare calls; a base that
-  moved again after dispatch still passes, an older commit, which could carry
-  a weaker policy, does not: `base_mismatch`; no answer: `base_unverified`).
-  A worktree that lacks the base commit fetches it first, as the fixer user,
-  by SHA, from the run's `https://github.com/.../.git` clone URL (else the
-  worktree's `origin`); a base that still cannot be had is `base_unavailable`.
+  branch's tip as `base_sha` and as `base_tip_sha`, a field only the queue
+  writes (a request input of that name is dropped); an unread tip leaves the
+  request's own `base_sha` and no `base_tip_sha`. The d36 paragraph names that
+  tip, and `pr-fixer-conflict`'s instruction defers to it.
+- **At the gate and at the push** one rule decides which base may pick the
+  policy and stand for the fix (`lineage.base_refusal`): the PR's `base.sha` as
+  the App reads it now, or the `base_tip_sha` of the run's verified dispatch
+  event while the App places it between `base.sha` and the branch's tip (two
+  compare calls; a branch that moved again after dispatch still passes). Any
+  other commit is `base_mismatch` at the gate and `base_changed` at the push,
+  even one on the branch: an older or intermediate commit could carry a weaker
+  policy. No answer from GitHub is `base_unverified`. A worktree that lacks the
+  base commit fetches it first, as the fixer user, by SHA, from the run's
+  `https://github.com/.../.git` clone URL (else the worktree's `origin`); a
+  base that still cannot be had is `base_unavailable`.
 - **Retries, not hand-backs.** A gate refusal that is the infrastructure's
   (`source_unavailable`, `base_unavailable`, a git, run-as or deadline
-  timeout) is the verdict `unjudged`, so `pr-fixer-retry` puts the try back
-  in the queue with the reason. A merge or history refusal raised while
+  timeout, a `base_unverified` GitHub may answer later) is the verdict
+  `unjudged`, so `pr-fixer-retry` puts the try back in the queue with the
+  reason; nothing is judged, built or reviewed on it. A merge or history refusal raised while
   building a repo without a gate section is a `guard` verdict with the
   refusal as its finding, as the diff guard already gives it when it runs. An
   agent that runs out of time (the bridge's `timeout`, or the agent step's
   deadline) ends its try failed, and `pr-fixer-retry-failed` puts it back in
   the queue with the try's own instruction and a note: a failed run now
-  records the workflow outputs it has, so its `rules.run.failed` event carries
-  the instruction, task, clone URL and head branch. Every retry counts toward
+  records the workflow outputs sourced from its inputs or variables (never a
+  step's value, which may be what failed), so its `rules.run.failed` event
+  carries the instruction, task, clone URL and head branch. Every retry counts toward
   the story's 3 tries; any other failure still hands back once. Configuration
   refusals and `base_mismatch` still fail the step.
 - **Conflict watch and #44.** The watch's event id is the PR's head and its

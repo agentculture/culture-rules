@@ -493,7 +493,17 @@ def test_d37_a_dispatch_carries_the_base_branchs_live_tip():
     w.progress({**PROGRESS, "lookup_actor": "github-app"})
     (event,) = w.dispatches()
     assert event["data"]["base_sha"] == "c" * 40
+    assert event["data"]["base_tip_sha"] == "c" * 40  # the queue's own, for the gate and push
     assert lookup.inputs[0]["with_base_tip"] is True
+
+
+def test_d37_a_request_cannot_name_the_dispatched_tip():
+    """base_tip_sha vouches for a base other than base.sha: only the queue writes it."""
+    w = World(lookup=TipLookup(None))
+    w.add(**request("o/a", 1, base_tip_sha="e" * 40))
+    w.progress({**PROGRESS, "lookup_actor": "github-app"})
+    (event,) = w.dispatches()
+    assert "base_tip_sha" not in event["data"]
 
 
 def test_d37_an_unread_tip_keeps_the_requests_base():

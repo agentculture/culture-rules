@@ -15,6 +15,7 @@ from culture_rules.engine.runs import step_state
 from culture_rules.node.actions.queue import QUEUES_COLLECTION
 from tests.events.fakes import envelope
 from tests.rules.chain_world import KEY, ChainWorld
+from tests.rules.test_pr_fixer_chain import _untrust_app, pem, trust_app  # noqa: F401
 from tests.rules.test_pr_fixer_single import TRUSTED, pr_facts
 
 KEY8 = KEY.replace("#7", "#8")
@@ -303,6 +304,73 @@ def test_d37_the_timeout_retry_matches_both_kinds_of_agent_timeout_and_nothing_e
     assert fires("fix[0]/agent: the step's deadline passed")
     assert not fires("fix[0]/agent: no_changes: the agent made no commit")
     assert not fires("fix[0]/gate: merge_commit: the merge's second parent is not on base")
+
+
+def moved_base_world(tmp_path, **kw):
+    """A world whose base branch moved past the PR's base.sha with a conflicting change,
+    and an agent that merges the moved tip for real and resolves it (katvan#57)."""
+    import subprocess
+
+    from tests.actors.test_gate import GIT_ENV, git
+
+    w = ChainWorld(tmp_path, turns=[], **kw)
+    repo = w.repo
+    git(repo.wt, "checkout", "-q", "--detach", repo.base)
+    tip = repo.commit("main moves", {"src/app.py": "x = 5\n", "NOTES.md": "moved\n"})
+    git(repo.wt, "checkout", "-q", "--detach", repo.start)
+    w.base_tip = tip
+
+    def merge_tip(repo):
+        subprocess.run(  # a conflict on src/app.py: the agent resolves it
+            ["git", "merge", "-q", "--no-ff", "-m", "merge main", tip],
+            cwd=repo.wt,
+            env=GIT_ENV,
+            capture_output=True,
+        )
+        (repo.wt / "src/app.py").write_text("x = 9\n")
+        git(repo.wt, "add", "src/app.py", "NOTES.md")
+        git(repo.wt, "commit", "-q", "--no-edit")
+        return git(repo.wt, "rev-parse", "HEAD")
+
+    w.qwen.script = [merge_tip]
+    return w, tip
+
+
+def test_d37_katvan57_the_real_push_publishes_a_fix_judged_on_the_dispatched_tip(
+    tmp_path, pem  # noqa: F811
+):
+    """Codex round 1 #1: the push's own base check accepts the dispatched tip too."""
+    w, tip = moved_base_world(tmp_path, real_push_pem=pem)
+    trust_app(w)
+    settle(w, 1)
+    w.run_chain()
+    (publish,) = w.run_of("publish-fix")
+    assert publish["status"] == "succeeded", publish.get("error")
+    assert w.remote_head() != w.repo.start  # the built merge reached the PR branch
+    assert any("/compare/" in path for _, path in w.github.calls)
+    assert handed_back(w) == []
+
+
+def test_d37_a_base_that_moved_again_before_the_push_still_publishes(tmp_path, pem):  # noqa: F811
+    """The branch moved again after dispatch: the dispatched tip still lies on it."""
+    from tests.actors.test_gate import git
+
+    w, tip = moved_base_world(tmp_path, real_push_pem=pem)
+    trust_app(w)
+    real = w.qwen.script[0]
+
+    def merge_then_main_moves(repo):
+        head = real(repo)
+        git(repo.wt, "checkout", "-q", "--detach", tip)
+        w.base_tip = repo.commit("main moves again", {"OTHER.md": "again\n"})
+        git(repo.wt, "checkout", "-q", "--detach", head)
+        return head
+
+    w.qwen.script = [merge_then_main_moves]
+    settle(w, 1)
+    w.run_chain()
+    (publish,) = w.run_of("publish-fix")
+    assert publish["status"] == "succeeded", publish.get("error")
 
 
 def test_d37_katvan57_a_merge_of_the_live_base_tip_is_pushed(tmp_path):

@@ -49,7 +49,13 @@ from culture_rules.engine.actorport import InvocationContext, InvocationResult
 from culture_rules.node.actors import ACTORS_COLLECTION
 from culture_rules.store.port import DuplicateKeyError
 
-__all__ = ["ONCE_COLLECTION", "RESOLVE_WORKERS", "GitHubCommentPort", "GitHubPrHeadPort"]
+__all__ = [
+    "ONCE_COLLECTION",
+    "RESOLVE_WORKERS",
+    "GitHubCommentPort",
+    "GitHubPrHeadPort",
+    "on_base_branch",
+]
 
 log = logging.getLogger(__name__)
 
@@ -414,9 +420,7 @@ class GitHubPrHeadPort(GitHubCommentPort):
         if input.get("with_base_tip") is True:
             out["base_tip_sha"] = _base_tip(app, repo, ref, deadline)
         if check is not None:
-            out["base_on_branch"] = _on_base_branch(
-                app, repo, out["base_sha"], ref, check, deadline
-            )
+            out["base_on_branch"] = on_base_branch(app, repo, out["base_sha"], ref, check, deadline)
         return InvocationResult.completed(out)
 
 
@@ -435,20 +439,32 @@ def _base_tip(app: Any, repo: str, ref: Any, deadline: datetime) -> str | None:
         return None
 
 
-def _on_base_branch(
-    app: Any, repo: str, pull_base: str | None, ref: Any, sha: str, deadline: datetime
+def on_base_branch(
+    app: Any,
+    repo: str,
+    pull_base: str | None,
+    ref: Any,
+    sha: str,
+    deadline: datetime | None = None,
 ) -> bool | None:
     """d37: whether ``sha`` lies between the PR's recorded base and its base branch's tip
-    (both inclusive); ``None`` when GitHub could not answer."""
+    (both inclusive); ``None`` when GitHub could not answer. ``deadline`` bounds the two
+    compare calls (omit it inside a caller's own :meth:`GitHubApp.deadline`)."""
     if sha == pull_base:
         return True
     if not isinstance(pull_base, str) or not isinstance(ref, str) or not ref:
         return None
     try:
+        if deadline is None:
+            return _compare_on_branch(app, repo, pull_base, ref, sha)
         with app.deadline(deadline):
-            if app.compare_status(repo, pull_base, sha) not in ("ahead", "identical"):
-                return False
-            return app.compare_status(repo, sha, ref) in ("ahead", "identical")
+            return _compare_on_branch(app, repo, pull_base, ref, sha)
     except GitHubError as exc:
-        log.info("github.pr_head: base of %s not compared (%s)", repo, exc.code)
+        log.info("github: base of %s not compared (%s)", repo, exc.code)
         return None
+
+
+def _compare_on_branch(app: Any, repo: str, pull_base: str, ref: str, sha: str) -> bool:
+    if app.compare_status(repo, pull_base, sha) not in ("ahead", "identical"):
+        return False
+    return app.compare_status(repo, sha, ref) in ("ahead", "identical")

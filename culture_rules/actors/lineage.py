@@ -34,6 +34,7 @@ chain's push. Standard-library only.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
@@ -41,6 +42,8 @@ from typing import Any
 __all__ = [
     "CHAIN_UNVERIFIED",
     "FinalGate",
+    "base_refusal",
+    "dispatched_base_tip",
     "enqueuer",
     "fix_ancestry",
     "LineageError",
@@ -59,6 +62,7 @@ QUEUE_DISPATCH = "rules.queue.dispatch"  # culture_rules.node.actions.queue.DISP
 QUEUE_ADD = "queue.add"  # culture_rules.node.actions.queue.QUEUE_ADD_BUILTIN
 _RULES = "rules"
 _ADHOC = "adhoc:"
+_FULL_SHA = re.compile(r"[0-9a-f]{40}")
 
 
 class LineageError(Exception):
@@ -214,6 +218,42 @@ def _dispatch_envelope(store: Any, run: Mapping[str, Any]) -> Mapping[str, Any]:
     if envelope.get("source") != QUEUE_SOURCE:
         raise LineageError(CHAIN_UNVERIFIED, "the dispatch event is not the queue's")
     return envelope
+
+
+def dispatched_base_tip(store: Any, run: Mapping[str, Any] | None) -> str | None:
+    """d37: the base branch's tip the fixer queue read through the App when it dispatched
+    ``run`` (``base_tip_sha`` of its genuine, stored dispatch event, which only
+    ``queue.progress`` writes and only from the App's read), else None: a run not started
+    by a verified dispatch, or one the queue could not read a tip for. Rule inputs cannot
+    name it, so it can vouch for a ``base_sha`` that is not the PR's ``base.sha``."""
+    if not isinstance(run, Mapping):
+        return None
+    try:
+        envelope = _dispatch_envelope(store, run)
+    except LineageError:
+        return None
+    data = envelope.get("data")
+    tip = data.get("base_tip_sha") if isinstance(data, Mapping) else None
+    return tip if isinstance(tip, str) and _FULL_SHA.fullmatch(tip) else None
+
+
+def base_refusal(
+    base_sha: Any, pull_base: Any, dispatched_tip: str | None, on_branch: bool | None
+) -> str | None:
+    """d37: whether ``base_sha`` may pick the gate policy and stand for the base a fix
+    was judged against. None (yes) when it is the PR's ``base.sha`` as the App reads it
+    now, or when it is the tip the queue dispatched the run with (:func:`dispatched_base_tip`)
+    and that tip still lies between ``base.sha`` and the branch's tip (``on_branch``).
+    ``base_mismatch`` otherwise - a commit merely on the branch is not enough: an older
+    one, or one between the dispatched tip and ``base.sha``, could carry a weaker policy -
+    and ``base_unverified`` when GitHub could not place the dispatched tip."""
+    if isinstance(pull_base, str) and pull_base and base_sha == pull_base:
+        return None
+    if dispatched_tip is None or base_sha != dispatched_tip:
+        return "base_mismatch"
+    if on_branch is True:
+        return None
+    return "base_unverified" if on_branch is None else "base_mismatch"
 
 
 def _definition(run: Mapping[str, Any]) -> Mapping[str, Any]:

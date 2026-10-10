@@ -226,6 +226,9 @@ def test_a_mistyped_workflow_output_hands_back_exactly_once(store, clock):
     assert doc["status"] == "failed"
     assert doc["error"]["code"] == "output_type_mismatch"
     assert doc["error"]["step"] is None
+    # d37 (Codex round 1 #3): a failed run records only input-sourced outputs, never the
+    # rejected value of a step
+    assert doc["outputs"] == {}
     (h,) = handlers(doc)
     assert h["status"] == "succeeded"
     (inp,) = calls(actor, FAILURE_STEP)
@@ -317,3 +320,22 @@ def test_a_handler_whose_lease_and_deadline_lapse_ends_the_run_without_a_second_
     (h,) = handlers(doc)
     assert h["status"] == "failed"
     assert len(calls(actor, FAILURE_STEP)) == 1
+
+
+def test_d37_a_failed_run_records_its_input_sourced_outputs_only(store, clock):
+    from culture_rules.model.workflow import Output, Variable  # noqa: PLC0415
+
+    wf = replace(
+        one_step(),
+        variables=(Variable(name="task", type="string", default="fix it"),),
+        outputs=(
+            Output(name="task", type="string", source="vars.task"),
+            Output(name="n", type="string", source="steps.s1.outputs.n"),
+        ),
+    )
+    actor = FakeActor().on("s1", ("fail", "boom", False))
+    ex, doc = run(store, clock, actor, failing_rule(), wf)
+    drive(ex, clock)
+    doc = ex.run(doc["id"])
+    assert doc["status"] == "failed"
+    assert doc["outputs"] == {"task": "fix it"}  # never the failed step's (absent) value

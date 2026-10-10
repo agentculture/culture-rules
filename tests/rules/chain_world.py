@@ -39,7 +39,7 @@ from culture_rules.node.actions.github_pr import (
 from culture_rules.node.actions.queue import QueueAddPort, QueueProgressPort, QueueStopPort
 from culture_rules.node.actions.sonar import SonarGateIssuesPort
 from culture_rules.node.runner import BuiltinCodePort
-from tests.actors.test_gate import PASSING, LocalRunner, Repo, gate_yaml, git
+from tests.actors.test_gate import GIT_ENV, PASSING, LocalRunner, Repo, gate_yaml, git
 from tests.engine.run_helpers import FakeActor, enrol_online, machine
 from tests.events.fakes import envelope
 from tests.node.test_node import Cluster
@@ -317,6 +317,13 @@ class GitHubDouble:
                 "base": {"ref": "main", "sha": self.world.repo.base, "repo": {"full_name": REPO}},
             }
             return 200, json.dumps(doc).encode()
+        if path == f"/repos/{REPO}/branches/main":  # d37: the base branch's live tip
+            tip = self.world.base_tip or self.world.repo.base
+            return 200, json.dumps({"name": "main", "commit": {"sha": tip}}).encode()
+        if path.startswith(f"/repos/{REPO}/compare/"):  # d37: ancestry, from the repo
+            base, head = path.rsplit("/", 1)[1].split("?", 1)[0].split("...")
+            head = (self.world.base_tip or self.world.repo.base) if head == "main" else head
+            return 200, json.dumps({"status": self.world.compare(base, head)}).encode()
         return 404, b"{}"
 
 
@@ -357,8 +364,12 @@ class ChainWorld:
             out = {"head_sha": self.moved_head or self.repo.start, "base_sha": self.repo.base}
             if self.base_tip is not None:  # d37: the base branch moved past base.sha
                 out["base_tip_sha"] = self.base_tip
-                if inp.get("base_sha") is not None:
-                    out["base_on_branch"] = inp["base_sha"] in (self.repo.base, self.base_tip)
+                if inp.get("base_sha") is not None:  # between base.sha and the tip, as GitHub
+                    sha, ok = inp["base_sha"], ("ahead", "identical")
+                    out["base_on_branch"] = (
+                        self.compare(self.repo.base, sha) in ok
+                        and self.compare(sha, self.base_tip) in ok
+                    )
             return out
 
         self.moved_head: str | None = None
@@ -490,6 +501,26 @@ class ChainWorld:
         )
         self.c.publish(envelope(1, type="github.pr.checks_settled", data=facts))
         self.run_chain()
+
+    def compare(self, base: str, head: str) -> str:
+        """GitHub's compare ``status`` of ``head`` against ``base`` in the worktree (d37)."""
+
+        def ancestor(a: str, b: str) -> bool:
+            return (
+                subprocess.run(
+                    ["git", "merge-base", "--is-ancestor", a, b],
+                    cwd=self.repo.wt,
+                    env=GIT_ENV,
+                    capture_output=True,
+                ).returncode
+                == 0
+            )
+
+        if base == head:
+            return "identical"
+        if ancestor(base, head):
+            return "ahead"
+        return "behind" if ancestor(head, base) else "diverged"
 
     def run_chain(self, rounds: int = 40) -> None:
         for _ in range(rounds):

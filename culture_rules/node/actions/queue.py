@@ -888,7 +888,9 @@ class QueueStopPort:
 
 def _dispatch_data(queue: str, act: Mapping[str, Any]) -> dict[str, Any]:
     req = act.get("request") or {}
-    data = {k: v for k, v in (req.get("inputs") or {}).items() if k != "repo"}
+    # d37: ``base_tip_sha`` is the queue's own (the App's read of the base branch), never
+    # a request input, so it can vouch for the base the try is given (lineage)
+    data = {k: v for k, v in (req.get("inputs") or {}).items() if k not in ("repo", "base_tip_sha")}
     data.update(
         queue=queue,
         request_id=act["rid"],
@@ -901,7 +903,7 @@ def _dispatch_data(queue: str, act: Mapping[str, Any]) -> dict[str, Any]:
         dispatch_run=act.get("run_id"),
     )
     if act.get("base_sha"):
-        data["base_sha"] = act["base_sha"]  # d37: the tip read at dispatch
+        data["base_sha"] = data["base_tip_sha"] = act["base_sha"]  # d37: the tip at dispatch
     return data
 
 
