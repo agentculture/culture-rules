@@ -2,7 +2,7 @@
   "plan_slug": "pr-fixer-escalation",
   "schema_version": 2,
   "created": "2026-10-10T21:41:12Z",
-  "updated": "2026-10-10T22:01:38Z",
+  "updated": "2026-10-10T22:21:01Z",
   "deviations": [
     {
       "id": "d1",
@@ -44,7 +44,7 @@
       "reason": "an existing d37 bug: a retry's queue.add started by rules.run.failed became its own story root, opening a second status comment and losing t2's hand-back text (confirmed on the unchanged code)",
       "affects": [],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 4
     }
