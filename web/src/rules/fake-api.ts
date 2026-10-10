@@ -53,7 +53,7 @@ export interface FakeApi {
   activeRuns: Record<string, ActiveRun[]>;
   calls: { method: string; path: string; body?: unknown }[];
   /** Make the next request to `method path` fail with this status. */
-  failNext: Record<string, { status: number; code: string; message: string }>;
+  failNext: Record<string, { status: number; code: string; message: string; errors?: { path: string; code: string; message: string }[] }>;
   now: number;
 }
 
@@ -333,13 +333,23 @@ export function handle(
   body?: unknown,
 ): FakeResponse {
   api.calls.push({ method, path, body });
-  const key = `${method} ${path}`;
-  const forced = api.failNext[key];
-  if (forced) {
-    delete api.failNext[key];
-    return error(forced.status, forced.code, forced.message);
-  }
+  const forced = takeForcedFailure(api, `${method} ${path}`);
+  if (forced) return forced;
   if (method === "GET") return handleGet(api, path, query);
+  return handleWrite(api, method, path, body);
+}
+
+/** A failure queued for this call by `failNext`, used up once it answers. */
+function takeForcedFailure(api: FakeApi, key: string): FakeResponse | undefined {
+  const forced = api.failNext[key];
+  if (!forced) return undefined;
+  delete api.failNext[key];
+  if (forced.errors) return json(forced.status, { error: { code: forced.code, message: forced.message, errors: forced.errors } });
+  return error(forced.status, forced.code, forced.message);
+}
+
+/** Every method but GET, routed by path. */
+function handleWrite(api: FakeApi, method: string, path: string, body: unknown): FakeResponse {
   if (method === "POST" && path === "/workflows") return createWorkflow(api, body);
   const workflow = /^\/workflows\/([^/]+)$/.exec(path);
   if (method === "DELETE" && workflow) return deleteWorkflow(api, decodeURIComponent(workflow[1]), path);

@@ -1,4 +1,5 @@
 import { Fragment, useState } from "react";
+import { ApiError } from "../../api/client";
 import type { Action, Rule, Workflow } from "../../api/types";
 import { AboutButton } from "../../components/AboutButton";
 import { Switch } from "../../culture-design/stages";
@@ -12,8 +13,9 @@ import { relationEdits } from "./relationEdits";
 import { useFocusReturn } from "./focus";
 import { useFrozen } from "./freeze";
 import { getRule } from "../../api/rules";
-import { RunsForm, SharedActionForm } from "./SharedForms";
-import { canonical, conditionRows, countsEdit, fieldOf, placementWords, rowText, triggerParts, withTerm, withoutTerm, type ConditionRow, type RunsEdit } from "./text";
+import { GroupForm, groupProblems, RunsForm, SharedActionForm, type GroupEdit, type GroupProblems } from "./SharedForms";
+import type { FoldWriteResult } from "./useFanout";
+import { canonical, conditionRows, countsEdit, fieldOf, groupWords, placementWords, rowText, triggerParts, withTerm, withoutTerm, type ConditionRow, type RunsEdit } from "./text";
 
 /** The stored fields that differ between two versions of a rule (server bookkeeping aside). */
 function changedFields(before: Rule, after: Rule): string[] {
@@ -45,7 +47,7 @@ export interface EntryCardProps {
   onPredecessor: (rule: Rule, workflowId: string) => void;
   onDelete: (rule: Rule) => void;
   /** Write one field set to this entry's rule alone (an override), through the fold writes. */
-  onOverride: (rule: Rule, label: string, edit: Record<string, unknown>) => void;
+  onOverride: (rule: Rule, label: string, edit: Record<string, unknown>) => Promise<FoldWriteResult[]>;
 }
 
 const BoltIcon = () => (
@@ -210,9 +212,12 @@ function BudgetFoot({ rule, busy, onCounts }: Readonly<{ rule: Rule; busy: boole
   );
 }
 
-type Overriding = "failure" | "runs" | null;
+type Overriding = "failure" | "runs" | "group" | null;
 
-/** "Only for this entry point": the on-failure and run-key overrides, each with its form. */
+/**
+ * "Only for this entry point": the on-failure and run-key overrides, and the rule's exclusive
+ * group and priority (issue #29), each with its form.
+ */
 function OverrideTools({
   entry,
   data,
@@ -223,6 +228,7 @@ function OverrideTools({
   const [overriding, setOverriding] = useState<Overriding>(null);
   const failureButton = useFocusReturn<HTMLButtonElement>(overriding === "failure");
   const runsButton = useFocusReturn<HTMLButtonElement>(overriding === "runs");
+  const groupButton = useFocusReturn<HTMLButtonElement>(overriding === "group");
   const trigger = triggerParts(rule.trigger);
   const workflow = data.workflows.find((w) => w.id === entry.workflowId);
   const type = rule.trigger.kind === "event" ? trigger.value || undefined : undefined;
@@ -230,7 +236,16 @@ function OverrideTools({
   const at = useFrozen(overriding, rule);
   const override = (label: string, edit: Record<string, unknown>) => {
     setOverriding(null);
-    onOverride(at, `${rule.name}: ${label}`, edit);
+    void onOverride(at, `${rule.name}: ${label}`, edit);
+  };
+  // The group form stays open on a 422, with the server's words at the field it names; any
+  // other outcome closes it and the save results say what happened.
+  const saveGroup = async (edit: GroupEdit): Promise<GroupProblems | null> => {
+    const [result] = await onOverride(at, `${rule.name}: group and priority`, { ...edit });
+    const refused = result?.status === "failed" && result.phase === "write" ? result.error : null;
+    if (refused instanceof ApiError && refused.status === 422) return groupProblems(refused, edit);
+    setOverriding(null);
+    return null;
   };
   const toggle = (which: Exclude<Overriding, null>) => () => setOverriding((o) => (o === which ? null : which));
   return (
@@ -257,6 +272,16 @@ function OverrideTools({
         >
           Run key and budget
         </button>
+        <button
+          ref={groupButton}
+          type="button"
+          className="fold-chip-button"
+          aria-expanded={overriding === "group"}
+          aria-label={`Group and priority for ${rule.name}`}
+          onClick={toggle("group")}
+        >
+          {groupWords(rule)}
+        </button>
       </div>
       {overriding === "failure" ? (
         <SharedActionForm
@@ -281,6 +306,16 @@ function OverrideTools({
           attempts={fieldOf(at, "max_attempts")}
           busy={busy}
           onSave={(edit: RunsEdit) => override("runs", { ...edit })}
+          onCancel={() => setOverriding(null)}
+        />
+      ) : null}
+      {overriding === "group" ? (
+        <GroupForm
+          label={`Group and priority for ${rule.name}`}
+          rule={at}
+          rules={data.rules}
+          busy={busy}
+          onSave={saveGroup}
           onCancel={() => setOverriding(null)}
         />
       ) : null}

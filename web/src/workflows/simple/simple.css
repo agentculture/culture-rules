@@ -140,6 +140,11 @@
   border: 1px dashed var(--fold-warn);
 }
 
+.fold-badge--win {
+  background: var(--accent-tint);
+  color: var(--accent);
+}
+
 .fold-add {
   align-self: flex-start;
   display: inline-flex;
@@ -401,6 +406,27 @@
   gap: 4px;
 }
 
+/* The group form's members, ranked as the engine picks (issue #29). */
+.fold-group {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fold-group__member {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.fold-group__name {
+  font-weight: 600;
+}
+
 .fold-entry__budget {
   display: inline-flex;
   align-items: center;
@@ -425,6 +451,9 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+  /* A wrapped row of 30px chips sits 14px below the one above, so each chip's 44px hit area
+     (d4, hit-area.css) reaches 7px out and stays clear of its neighbour's. */
+  row-gap: 14px;
 }
 
 .fold-spacer {

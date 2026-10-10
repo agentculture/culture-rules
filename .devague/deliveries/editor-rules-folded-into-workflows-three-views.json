@@ -2,7 +2,7 @@
   "plan_slug": "editor-rules-folded-into-workflows-three-views",
   "schema_version": 2,
   "created": "2026-10-09T11:07:59Z",
-  "updated": "2026-10-09T21:04:55Z",
+  "updated": "2026-10-10T04:44:33Z",
   "deviations": [
     {
       "id": "d1",
@@ -94,6 +94,19 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 29
+    },
+    {
+      "id": "d8",
+      "what": "t6 after delivery (issue #29, part a): the Simple view's entry card edits a rule's exclusive_group and priority together and lists the other rules in the same group with the winner marked; saves go through the existing rule PUT, and a 422 from the server shows at the field. The workflow inputs mapping and the Debug view's $var/$literal ports follow as part b; e4 (c9) is re-filed passing only after part b.",
+      "task_ref": "t6",
+      "reason": "Operator, 2026-10-10: 'Can we do 29 just as fast?', then chose 'Split: 29a now (Recommended)': priority and exclusive_group first as a small PR, the inputs mapping and Debug view as 29b.",
+      "affects": [
+        "c9"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": null,
+      "seq": 37
     }
   ],
   "evidence": [
@@ -647,6 +660,63 @@
       "status": "approved",
       "superseded": false,
       "seq": 36
+    },
+    {
+      "id": "e30",
+      "obligation_ref": "o21",
+      "test_ref": "web/src/workflows/simple/EntryPoints.test.tsx: describe 'exclusive group and priority (issue #29 a, d8)' (9 tests) + web/src/workflows/simple/groupProblems.test.ts (3 tests)",
+      "behavior_text": "PUT body for priority alone, group alone, both, cleared group as null; non-integer priority refused at the field; group list and winner, tie wording; a 422 at the named field (real API path format) and at the edited field when no path names one; a nested path never mis-placed",
+      "contract_text": "c9 (the Simple view edits every field of a workflow's entry points), for exclusive_group and priority (d8, #29 part a)",
+      "evidence_type": "automated",
+      "strength": "sensitivity",
+      "strength_basis": "each test seen failing before its code (subagent for the 9; main agent for the nested-path case), all passing at the named commit; vitest 698/698",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-10T02:54:21",
+        "commit": "5e3cd6b"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 38
+    },
+    {
+      "id": "e31",
+      "obligation_ref": "o21",
+      "test_ref": "web/e2e/entry-points.spec.ts: group and priority round-trip: edited together, saved with PUT, still there after a reload (#29)",
+      "behavior_text": "edit group and priority, PUT checked, reload shows both; clearing the group stores null and keeps the priority; axe scan with the form open",
+      "contract_text": "c9 (the Simple view edits every field of a workflow's entry points), for exclusive_group and priority (d8, #29 part a)",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "Playwright against the fake API, passing; full Playwright suite 99/99 (subagent run)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-10T02:54:21",
+        "commit": "5e3cd6b"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 39
+    },
+    {
+      "id": "e32",
+      "obligation_ref": "o21",
+      "test_ref": "local check: the 29a build served by create_app on an in-memory store (127.0.0.1:8799), driven in a browser",
+      "behavior_text": "chip 'group deploy \u00b7 priority 2'; the form lists deploy-b (5, wins) and deploy-a (this one); typing 7 re-ranks to deploy-a wins; save stores priority 7 on the real API with deploy-b untouched; clearing the group stores exclusive_group null (not '') and keeps priority 7; focus returns to the chip; 0 console errors or warnings; the real API's 422 paths for a rule PUT are bare (exclusive_group/empty, priority/type), probed with create_app",
+      "contract_text": "c9 (the Simple view edits every field of a workflow's entry points), for exclusive_group and priority (d8, #29 part a)",
+      "evidence_type": "observation",
+      "strength": "fidelity",
+      "strength_basis": "the real server code (not the fake API) answered every save; not the deployed rules.culture.dev, which still runs 0.18.0",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-10T02:54:21",
+        "commit": "5e3cd6b"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 40
     }
   ],
   "deltas": [
@@ -771,6 +841,20 @@
       ],
       "evidence_refs": [
         "e23"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b10",
+      "kind": "added",
+      "behavior_text": "the Simple view's entry card edits exclusive_group and priority together, listing the group's rules with the engine's winner (highest priority, then lowest id; disabled never wins)",
+      "caused_by": [
+        "d8"
+      ],
+      "evidence_refs": [
+        "e30"
       ],
       "origin": "llm",
       "status": "approved",

@@ -386,10 +386,10 @@ function WorkflowSimple({
     void fanout.fanOutEach("Condition", ["condition"], snapshots, (rule) => ({ condition: next(rule) }) as SharedRuleEdit);
   /** One entry's own value: a one-rule write through the fold writes, so it becomes an override. */
   const override = (rule: Rule, label: string, edit: Record<string, unknown>) =>
-    void fanout.fanOut(label, [rule], edit as SharedRuleEdit);
+    fanout.fanOut(label, [rule], edit as SharedRuleEdit);
   const counts = (rule: Rule) => {
     const edit = countsEdit(rule);
-    if (edit) override(rule, `${rule.name}: attempt counting`, edit);
+    if (edit) void override(rule, `${rule.name}: attempt counting`, edit);
   };
   const predecessor = (rule: Rule, id: string) => void fanout.predecessor(`${rule.name}: continues from`, rule, id);
 

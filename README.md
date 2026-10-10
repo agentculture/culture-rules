@@ -57,7 +57,8 @@ in context, inside a workflow or one of its entry points.
   opens in one of three views, kept per viewer in the browser:
   - **Simple** (the default): When / Then. Each rule that starts the
     workflow is an entry point under When (trigger, condition, placement,
-    attempt counting, history, About, enable). Then shows what it continues
+    attempt counting, exclusive group and priority, history, About,
+    enable). Then shows what it continues
     into, "Ends here" (the chain-end action), "On failure" and "Runs" (key
     and budget). A value every entry point holds identically shows once;
     editing it saves rule by rule and reports each result, with a retry for

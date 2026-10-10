@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetAgentState } from "../../agent-state/store";
+import type { Rule } from "../../api/types";
 import { LIVE_DEBOUNCE_MS, setLiveSourceFactory } from "../../api/live";
 import { SELECTED_RULE_ID } from "../../fixtures/rules-fixture";
 import { createFakeApi, fetchFor, withActiveRuns, withPendingAsk, type FakeApi } from "../../rules/fake-api";
@@ -855,5 +856,186 @@ describe("a stop in flight never clobbers a newer offer (was StopRuns)", () => {
     hold.releaseAll();
     expect(await screen.findByRole("alert")).toHaveTextContent("rule train-batch is enabled");
     expect(screen.queryByText(/current runs\?/)).not.toBeInTheDocument();
+  });
+});
+
+describe("exclusive group and priority (issue #29 a, d8)", () => {
+  type Grouped = { exclusive_group?: string | null; priority?: number };
+  const group = (id: string, exclusive_group: string | null | undefined, priority?: number) =>
+    Object.assign(api.rules.find((r) => r.id === id)!, { exclusive_group, priority } as Grouped);
+  /** What a PUT of the rule as stored now would carry: server-managed fields stripped. */
+  const stored = (id: string) => {
+    const { updated_at: _u, ...rest } = structuredClone(api.rules.find((r) => r.id === id)!) as Rule & { updated_at?: string };
+    return rest;
+  };
+  async function openGroup(user: User, name: string) {
+    const card = await opened(name);
+    await user.click(within(card).getByRole("button", { name: `Group and priority for ${name}` }));
+    return within(card).getByRole("form", { name: `Group and priority for ${name}` });
+  }
+  const put = () => sent("PUT", `/rules/${SELECTED_RULE_ID}`);
+
+  it("shows the group and priority compactly, and nothing set as 'no group'", async () => {
+    group(SELECTED_RULE_ID, "deploy", 2);
+    renderEntry();
+    const card = await opened("Build and publish");
+    expect(within(card).getByRole("button", { name: "Group and priority for Build and publish" })).toHaveTextContent("group deploy · priority 2");
+    await userEvent.setup().click(within(card).getByRole("button", { name: "Collapse Build and publish" }));
+    await userEvent.setup().click(within(entry("Train batch")).getByRole("button", { name: "Expand Train batch" }));
+    const train = await opened("Train batch");
+    expect(within(train).getByRole("button", { name: "Group and priority for Train batch" })).toHaveTextContent("no group");
+  });
+
+  it("editing the priority alone saves it as an integer and changes nothing else", async () => {
+    group(SELECTED_RULE_ID, "deploy", 2);
+    const before = stored(SELECTED_RULE_ID);
+    const user = userEvent.setup();
+    renderEntry();
+    const form = await openGroup(user, "Build and publish");
+    const priority = within(form).getByLabelText("Priority");
+    await user.clear(priority);
+    await user.type(priority, "5");
+    await user.click(within(form).getByRole("button", { name: "Save for this entry point" }));
+    await waitFor(() => expect(put()).toHaveLength(1));
+    expect(put()[0].body).toEqual({ ...before, priority: 5 });
+    expect(typeof (put()[0].body as Grouped).priority).toBe("number");
+    // The re-read before the write is kept (c27).
+    expect(sent("GET", `/rules/${SELECTED_RULE_ID}`).length).toBeGreaterThan(0);
+    await waitFor(() => expect(screen.queryByRole("form", { name: "Group and priority for Build and publish" })).not.toBeInTheDocument());
+    await waitFor(() =>
+      expect(within(entry("Build and publish")).getByRole("button", { name: "Group and priority for Build and publish" })).toHaveTextContent("group deploy · priority 5"),
+    );
+  });
+
+  it("editing the group alone saves it trimmed and leaves the priority unsent", async () => {
+    const before = stored(SELECTED_RULE_ID);
+    const user = userEvent.setup();
+    renderEntry();
+    const form = await openGroup(user, "Build and publish");
+    await user.type(within(form).getByLabelText("Group"), "  deploy ");
+    await user.click(within(form).getByRole("button", { name: "Save for this entry point" }));
+    await waitFor(() => expect(put()).toHaveLength(1));
+    expect(put()[0].body).toEqual({ ...before, exclusive_group: "deploy" });
+    expect(put()[0].body).not.toHaveProperty("priority");
+  });
+
+  it("editing both saves both; clearing the group saves null, never an empty string", async () => {
+    group(SELECTED_RULE_ID, "deploy", 2);
+    const before = stored(SELECTED_RULE_ID);
+    const user = userEvent.setup();
+    renderEntry();
+    let form = await openGroup(user, "Build and publish");
+    const name = within(form).getByLabelText("Group");
+    await user.clear(name);
+    await user.type(name, "release");
+    const priority = within(form).getByLabelText("Priority");
+    await user.clear(priority);
+    await user.type(priority, "-1");
+    await user.click(within(form).getByRole("button", { name: "Save for this entry point" }));
+    await waitFor(() => expect(put()).toHaveLength(1));
+    expect(put()[0].body).toEqual({ ...before, exclusive_group: "release", priority: -1 });
+
+    const now = stored(SELECTED_RULE_ID);
+    // Reopened once the re-read list shows the save, so the form starts from the stored rule.
+    await waitFor(() =>
+      expect(within(entry("Build and publish")).getByRole("button", { name: "Group and priority for Build and publish" })).toHaveTextContent("group release · priority -1"),
+    );
+    form = await openGroup(user, "Build and publish");
+    await user.clear(within(form).getByLabelText("Group"));
+    await user.click(within(form).getByRole("button", { name: "Save for this entry point" }));
+    await waitFor(() => expect(put()).toHaveLength(2));
+    const body = put()[1].body as Grouped;
+    expect(body.exclusive_group).not.toBe("");
+    expect(body.exclusive_group ?? null).toBeNull();
+    expect(body).toEqual({ ...now, exclusive_group: null });
+  });
+
+  it("refuses a priority that is not a whole number at the field, and sends nothing", async () => {
+    const user = userEvent.setup();
+    renderEntry();
+    const form = await openGroup(user, "Build and publish");
+    const priority = within(form).getByLabelText("Priority");
+    await user.clear(priority);
+    await user.type(priority, "1.5");
+    await user.click(within(form).getByRole("button", { name: "Save for this entry point" }));
+    expect(priority).toHaveAttribute("aria-invalid", "true");
+    expect(priority).toHaveAccessibleDescription(/whole number/);
+    expect(put()).toHaveLength(0);
+  });
+
+  it("lists the other rules of the group with their priorities and marks the winner", async () => {
+    group(SELECTED_RULE_ID, "deploy", 2);
+    group("train-batch", "deploy", 1);
+    group("triage-bugs", "elsewhere", 9);
+    const user = userEvent.setup();
+    renderEntry();
+    const form = await openGroup(user, "Build and publish");
+    const list = within(form).getByRole("list", { name: "Rules in group deploy" });
+    const items = within(list).getAllByRole("listitem");
+    expect(items).toHaveLength(2);
+    expect(items[0]).toHaveTextContent("Build and publish");
+    expect(items[0]).toHaveTextContent("priority 2");
+    expect(items[0]).toHaveTextContent("wins");
+    expect(items[1]).toHaveTextContent("Train batch");
+    expect(items[1]).toHaveTextContent("priority 1");
+    expect(items[1]).not.toHaveTextContent("wins");
+    expect(list).not.toHaveTextContent("Triage bugs");
+    expect(within(form).queryByText(/tie/i)).not.toBeInTheDocument();
+
+    // The list follows the typed priority before anything is saved.
+    const priority = within(form).getByLabelText("Priority");
+    await user.clear(priority);
+    await user.type(priority, "0");
+    const now = within(within(form).getByRole("list", { name: "Rules in group deploy" })).getAllByRole("listitem");
+    expect(now[0]).toHaveTextContent("Train batch");
+    expect(now[0]).toHaveTextContent("wins");
+  });
+
+  it("says plainly when the top priority is a tie, and which rule the engine picks", async () => {
+    group(SELECTED_RULE_ID, "deploy", 2);
+    group("train-batch", "deploy", 2);
+    const user = userEvent.setup();
+    renderEntry("train-batch");
+    const form = await openGroup(user, "Train batch");
+    const items = within(within(form).getByRole("list", { name: "Rules in group deploy" })).getAllByRole("listitem");
+    // Equal priorities: the engine picks the lowest rule id (engine/matching.py).
+    expect(items[0]).toHaveTextContent("Build and publish");
+    expect(items[0]).toHaveTextContent("wins");
+    expect(within(form).getByText(/Tie at priority 2/)).toHaveTextContent("build-and-publish wins, first by id");
+  });
+
+  it("a 422 from the save shows the server's message at the field it names", async () => {
+    group(SELECTED_RULE_ID, "deploy", 2);
+    const user = userEvent.setup();
+    renderEntry();
+    const form = await openGroup(user, "Build and publish");
+    await user.type(within(form).getByLabelText("Group"), "x");
+    api.failNext[`PUT /rules/${SELECTED_RULE_ID}`] = {
+      status: 422,
+      code: "invalid",
+      message: "rule build-and-publish is invalid",
+      // The path the real API sends for a rule PUT (probed against create_app: bare field names).
+      errors: [{ path: "exclusive_group", code: "empty", message: "exclusive_group must not be empty" }],
+    };
+    await user.click(within(form).getByRole("button", { name: "Save for this entry point" }));
+    const field = await within(form).findByLabelText("Group");
+    await waitFor(() => expect(field).toHaveAttribute("aria-invalid", "true"));
+    expect(field).toHaveAccessibleDescription("exclusive_group must not be empty");
+    expect(within(form).getByLabelText("Priority")).not.toHaveAttribute("aria-invalid", "true");
+    // The form stays open with what was typed.
+    expect(field).toHaveValue("deployx");
+  });
+
+  it("a 422 without a field path shows its message at the field that was edited", async () => {
+    const user = userEvent.setup();
+    renderEntry();
+    const form = await openGroup(user, "Build and publish");
+    const priority = within(form).getByLabelText("Priority");
+    await user.clear(priority);
+    await user.type(priority, "4");
+    api.failNext[`PUT /rules/${SELECTED_RULE_ID}`] = { status: 422, code: "invalid", message: "priority out of range" };
+    await user.click(within(form).getByRole("button", { name: "Save for this entry point" }));
+    await waitFor(() => expect(priority).toHaveAttribute("aria-invalid", "true"));
+    expect(priority).toHaveAccessibleDescription("priority out of range");
   });
 });
