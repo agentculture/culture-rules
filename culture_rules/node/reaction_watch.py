@@ -156,18 +156,26 @@ class ReactionWatcher:
 
     def _queued_roots(self, seen: set[Any]) -> Iterator[tuple[Mapping[str, Any], str | None]]:
         """The root run of each waiting or active queue request, by its source run."""
-        from culture_rules.node.fixer_status import chain_root  # noqa: PLC0415
+        for req in self._queued_requests():
+            root = self._root_of(req)
+            if root is None or root.get("id") in seen:
+                continue
+            seen.add(root.get("id"))
+            head = req.get("head_sha")
+            yield root, head if isinstance(head, str) else None
 
+    def _queued_requests(self) -> Iterator[Mapping[str, Any]]:
+        """Every waiting or active request of every queue (an active entry wraps its own)."""
         for queue in self._store.find(_QUEUES):
             for entry in (*(queue.get("waiting") or ()), *(queue.get("active") or ())):
-                req = entry.get("request") if isinstance(entry.get("request"), Mapping) else entry
-                source = self._store.get(_RUNS, req.get("source_run") or "")
-                root = chain_root(self._store, source) if source is not None else None
-                if root is None or root.get("id") in seen:
-                    continue
-                seen.add(root.get("id"))
-                head = req.get("head_sha")
-                yield root, head if isinstance(head, str) else None
+                yield entry.get("request") if isinstance(entry.get("request"), Mapping) else entry
+
+    def _root_of(self, req: Mapping[str, Any]) -> Mapping[str, Any] | None:
+        """The root run of the chain ``req`` came from, or ``None``."""
+        from culture_rules.node.fixer_status import chain_root  # noqa: PLC0415
+
+        source = self._store.get(_RUNS, req.get("source_run") or "")
+        return chain_root(self._store, source) if source is not None else None
 
     def _unfinished_roots(self, seen: set[Any]) -> Iterator[tuple[Mapping[str, Any], str | None]]:
         """The root run of each status comment not yet final, not already seen queued."""
