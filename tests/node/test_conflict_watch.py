@@ -12,6 +12,8 @@ from culture_rules.events.emit import PR_CONFLICTING_TYPE, reserved_reason
 from culture_rules.events.ingest import EVENTS_COLLECTION
 from culture_rules.node.conflict_watch import (
     DEFAULT_INTERVAL_S,
+    READS_PER_TICK,
+    TICK_BUDGET_S,
     ConflictWatcher,
     conflict_event_id,
 )
@@ -49,24 +51,30 @@ class FakeGitHub:
         self.pulls = {p["number"]: p for p in pulls}
         self.reads = []
         self.fail_list = False
+        self.fail_read = None
 
     def list_pulls(self, repo):
         if self.fail_list:
             raise GitHubError("http_502", retryable=True)
-        return [{"number": n} for n in self.pulls]
+        return list(self.pulls.values())  # the listing: no mergeable, but draft and repos
 
     def get_pull(self, repo, number):
         self.reads.append((repo, number))
+        if self.fail_read:
+            raise GitHubError(self.fail_read, retryable=True)
         return self.pulls[number]
 
 
-def world(pulls, repos=(REPO,), serves=None, **variables):
+def world(pulls, repos=(REPO,), serves=None, monotonic=None, **variables):
     store = MemoryStore()
     store.put_variable("fixer_repos", list(repos), updated_by="test")
     for name, value in variables.items():
         store.put_variable(name, value, updated_by="test")
     gh, clock = FakeGitHub(pulls), Clock()
-    watcher = ConflictWatcher(store, gh.list_pulls, gh.get_pull, serves=serves, clock=clock)
+    extra = {"monotonic": monotonic} if monotonic else {}
+    watcher = ConflictWatcher(
+        store, gh.list_pulls, gh.get_pull, serves=serves, clock=clock, **extra
+    )
     return store, gh, clock, watcher
 
 
@@ -161,3 +169,51 @@ def test_the_conflict_namespace_is_reserved_at_external_ingest():
     assert reserved_reason(forged) is not None
     squat = {"id": conflict_event_id(REPO, 3, HEAD, BASE), "type": "x", "source": "outside"}
     assert reserved_reason(squat) is not None
+
+
+# --------------------------------------------------------------------------- Codex #3-#5
+
+
+def test_a_draft_conflict_is_requested_once_it_is_ready():
+    store, gh, clock, watcher = world([pull(draft=True)])
+    assert watcher.tick() == 0
+    assert gh.reads == []  # a draft is never read, so its event is never consumed
+    gh.pulls[3] = pull()
+    clock.now += timedelta(seconds=DEFAULT_INTERVAL_S + 1)
+    assert watcher.tick() == 1
+    assert events(store)[0]["data"]["draft"] is False
+
+
+def test_a_fork_pr_is_never_read():
+    fork = pull()
+    fork["head"]["repo"] = {"full_name": "fork/widgets"}
+    store, gh, _clock, watcher = world([fork])
+    assert watcher.tick() == 0
+    assert gh.reads == []
+
+
+def test_one_cycle_reads_a_bounded_batch_and_the_rest_carry_over():
+    many = [pull(n) for n in range(1, READS_PER_TICK + 6)]
+    store, gh, _clock, watcher = world(many)
+    assert watcher.tick() == READS_PER_TICK
+    assert len(gh.reads) == READS_PER_TICK
+    assert watcher.tick() == 5  # the next cycle drains the rest, with no new listing
+    assert len(events(store)) == READS_PER_TICK + 5
+
+
+def test_one_cycle_stops_at_its_time_budget():
+    ticks = iter([0.0, 0.0, TICK_BUDGET_S + 1] + [TICK_BUDGET_S + 1] * 10)
+    store, gh, _clock, watcher = world([pull(1), pull(2)], monotonic=lambda: next(ticks))
+    assert watcher.tick() == 1
+    assert gh.reads == [(REPO, 1)]
+
+
+def test_a_rate_limited_read_drops_the_repos_queue_until_the_next_sweep():
+    store, gh, clock, watcher = world([pull(1), pull(2), pull(4)])
+    gh.fail_read = "http_403"
+    assert watcher.tick() == 0
+    assert gh.reads == [(REPO, 1)]
+    gh.fail_read = None
+    assert watcher.tick() == 0  # nothing queued until the interval comes round
+    clock.now += timedelta(seconds=DEFAULT_INTERVAL_S + 1)
+    assert watcher.tick() == 3

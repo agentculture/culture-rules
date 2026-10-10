@@ -342,7 +342,9 @@ comment (see
 CONFLICTING (its base moves, its head does not). Every node that can read a repo
 through its GitHub App sweeps the open PRs of `vars.fixer_repos` (less
 `vars.fixer_excluded_repos`) at most every `vars.conflict_watch_interval_s`
-seconds (default 600) and reads each PR's `mergeable`. A PR GitHub reports
+seconds (default 600) and reads each same-repo, non-draft PR's `mergeable`, at
+most 10 reads and 10 seconds per node cycle (the rest wait for the next cycle;
+a rate-limited read drops that repo until the next sweep). A PR GitHub reports
 `mergeable: false` with `mergeable_state: dirty` emits one
 `github.pr.conflicting` event per head and base pair (a deterministic id, so a
 conflict is requested once; a new base is a new request), carrying the same PR
@@ -1144,9 +1146,11 @@ above name:
      (an ancestor of `base_sha`) and not yet in the PR head. For that one the
      gate builds a bot merge of the PR head and that commit, bundles `base_sha`
      with it, and the diff guard and the reviewer's `diff` judge only the
-     merge's resolution (the tip against the clean merge of its two parents),
-     never the base's own commits; `github.push` exempts only that merge's
-     second-parent history from `commit_author`. On `pass` and `no_gate` the gate then
+     merge's resolution, never the base's own commits: cleanly merged files
+     against the clean merge of its two parents, conflicted files against both
+     parents (a conflict marker left is `conflict_unresolved`, a binary or
+     mode conflict `conflict_not_text`); `github.push` exempts only that
+     merge's second-parent history from `commit_author`. On `pass` and `no_gate` the gate then
      builds **one commit itself** (`git commit-tree`): the agent tip's tree on
      the PR head and nothing else of the agent's. Author and committer are the
      App bot (`commit_identity`, default the `rules-culture-dev[bot]`

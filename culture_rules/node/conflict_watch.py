@@ -6,9 +6,15 @@ node cycle) therefore looks, at most once every ``conflict_watch_interval_s`` se
 variable; default :data:`DEFAULT_INTERVAL_S`), at the open PRs of each repository in the
 shared variable ``fixer_repos`` (less ``fixer_excluded_repos``) that this node can read
 through its GitHub App actor (the ``serves`` seam, as for the checks settle). It lists the
-open PRs (``list_pulls``) and reads each one (``get_pull``) for GitHub's ``mergeable``; a PR
-GitHub reports ``mergeable: false`` with ``mergeable_state: "dirty"`` (a conflict with its
-base) emits :data:`~culture_rules.events.emit.PR_CONFLICTING_TYPE` carrying the PR facts
+open PRs (``list_pulls``, every page up to the App's cap) and queues the same-repo,
+non-draft ones; each cycle then reads at most :data:`READS_PER_TICK` of them (``get_pull``,
+for GitHub's ``mergeable``) within :data:`TICK_BUDGET_S` seconds, so a slow or failing
+GitHub never holds the node's cycle, and the queue carries over to the next cycle (a new
+listing waits until it is empty). A read refused for rate (``http_403`` / ``http_429``)
+drops the rest of that repository's queue until the next sweep. A PR GitHub reports
+``mergeable: false`` with ``mergeable_state: "dirty"`` (a conflict with its base), still
+same-repo and not a draft, emits :data:`~culture_rules.events.emit.PR_CONFLICTING_TYPE`
+carrying the PR facts
 (:func:`~culture_rules.apps.github.complete_pr_facts`: ``head_sha``, ``head_branch``,
 ``head_repo``, ``base_repo``, ``base_branch``, ``base_sha``, ``draft``, ``pr_author``,
 ``state``) plus ``repository``, ``number``, ``pr_numbers`` and ``mergeable_state``. A PR
@@ -30,6 +36,8 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import time
+from collections import deque
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from typing import Any
@@ -46,11 +54,18 @@ __all__ = [
     "ConflictWatcher",
     "DEFAULT_INTERVAL_S",
     "INTERVAL_VARIABLE",
+    "READS_PER_TICK",
+    "TICK_BUDGET_S",
     "SOURCE",
     "conflict_event_id",
 ]
 
 DEFAULT_INTERVAL_S = 600.0
+READS_PER_TICK = 10
+"""The most PRs one node cycle reads (each is one GitHub request)."""
+TICK_BUDGET_S = 10.0
+"""The longest one cycle's reads may run; the rest wait for the next cycle."""
+_RATE_LIMITED = frozenset({"http_403", "http_429"})
 INTERVAL_VARIABLE = "conflict_watch_interval_s"
 CONFLICT_HOST = "conflict-watch"
 SOURCE = "culture-rules://conflict-watch"
@@ -86,13 +101,16 @@ class ConflictWatcher:
         *,
         serves: Callable[[str], bool] | None = None,
         clock: Callable[[], datetime] | None = None,
+        monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         self._store = store
         self._list = list_pulls
         self._get = get_pull
         self._serves = serves
         self._clock = clock or (lambda: datetime.now(UTC))
+        self._monotonic = monotonic
         self._last: datetime | None = None
+        self._queue: deque[tuple[str, int]] = deque()
 
     def interval_s(self) -> float:
         value = _var(self._store, INTERVAL_VARIABLE)
@@ -101,36 +119,49 @@ class ConflictWatcher:
         return float(value)
 
     def tick(self) -> int:
-        """One sweep when it is due; returns the number of events emitted."""
+        """List the repos when a sweep is due and the queue is empty, then read a bounded
+        batch of queued PRs; returns the number of events emitted."""
         now = self._clock()
-        if self._last is not None and (now - self._last).total_seconds() < self.interval_s():
-            return 0
-        self._last = now
+        due = self._last is None or (now - self._last).total_seconds() >= self.interval_s()
+        if not self._queue and due:
+            self._last = now
+            self._fill()
+        return self._drain(now)
+
+    def _fill(self) -> None:
         excluded = {r.lower() for r in _repos(self._store, "fixer_excluded_repos")}
-        emitted = 0
         for repo in _repos(self._store, "fixer_repos"):
             if repo.lower() in excluded:
                 continue
             if self._serves is not None and not self._serves(repo):
                 continue
-            emitted += self._sweep(repo, now)
-        return emitted
-
-    def _sweep(self, repo: str, now: datetime) -> int:
-        try:
-            pulls = self._list(repo)
-        except GitHubError as exc:
-            log.info("conflict watch: listing %s failed (%s)", repo, exc.code)
-            return 0
-        emitted = 0
-        for listed in pulls:
-            number = listed.get("number")
-            if isinstance(number, bool) or not isinstance(number, int) or number < 1:
+            try:
+                pulls = self._list(repo)
+            except GitHubError as exc:
+                log.info("conflict watch: listing %s failed (%s)", repo, exc.code)
                 continue
+            for listed in pulls:
+                number = listed.get("number")
+                if isinstance(number, bool) or not isinstance(number, int) or number < 1:
+                    continue
+                if listed.get("draft") is not False or not _same_repo(listed):
+                    continue  # never a request: skipped before any read (Codex #3)
+                self._queue.append((repo, number))
+
+    def _drain(self, now: datetime) -> int:
+        started = self._monotonic()
+        emitted = reads = 0
+        while self._queue and reads < READS_PER_TICK:
+            if self._monotonic() - started >= TICK_BUDGET_S:
+                break
+            repo, number = self._queue.popleft()
+            reads += 1
             try:
                 pull = dict(self._get(repo, number))
             except GitHubError as exc:
                 log.info("conflict watch: reading %s#%s failed (%s)", repo, number, exc.code)
+                if exc.code in _RATE_LIMITED:
+                    self._queue = deque(q for q in self._queue if q[0] != repo)
                 continue
             if self._emit(repo, number, pull, now):
                 emitted += 1
@@ -140,8 +171,10 @@ class ConflictWatcher:
         if pull.get("mergeable") is not False or pull.get("mergeable_state") != "dirty":
             return False
         facts = complete_pr_facts(dict(pull))
-        if facts is None or facts.get("state") != "open":
+        if facts is None or facts.get("state") != "open" or facts.get("draft") is not False:
             return False
+        if facts["head_repo"].lower() != facts["base_repo"].lower():
+            return False  # a fork's PR is never the fixer's: no event to consume (Codex #3)
         payload = {
             **facts,
             "repository": repo,
@@ -164,3 +197,12 @@ class ConflictWatcher:
             return False
         log.info("conflict watch: %s#%s conflicts with its base", repo, number)
         return True
+
+
+def _same_repo(pull: Mapping[str, Any]) -> bool:
+    head, base = pull.get("head"), pull.get("base")
+    names = [
+        ((side or {}).get("repo") or {}).get("full_name") if isinstance(side, Mapping) else None
+        for side in (head, base)
+    ]
+    return all(isinstance(n, str) and n for n in names) and names[0].lower() == names[1].lower()

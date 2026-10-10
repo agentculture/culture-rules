@@ -112,9 +112,16 @@ Run over ``start_sha..commit_sha`` before any test command, in this order:
     ``start_sha`` and that second parent (the agent tip's tree, the same engine-written
     identity and message), bundles ``base_sha`` with it for ``github.push``, and every
     rule below - and the reviewer's ``diff``, under a header naming the merged commit -
-    judges only the merge's own resolution: the tip against the clean merge of the two
-    parents (``git merge-tree``; a conflicted file keeps its conflict markers there), never
-    the base's own commits. The test commands still run on the whole built commit.
+    judges only the merge's own resolution, never the base's own commits: a cleanly merged
+    path against the clean merge of the two parents (``git merge-tree``), a path that merge
+    left conflicted against **both** parents (a protected path, a deleted test file or a
+    removed test against either; an added skip or suppression marker only when new against
+    both). The test commands still run on the whole built commit.
+``conflict_unresolved``
+    a conflicted path of a merge from base still holds a conflict marker line.
+``conflict_not_text``
+    a conflicted path's change cannot be shown as text (binary, a mode, a symlink, a
+    submodule): a resolution nobody could review.
 ``protected_paths_unset``
     the shared variable ``fixer_protected_paths`` is undefined or is not a list of
     non-empty strings. Fails closed: the guard never guesses a list.
@@ -986,20 +993,21 @@ _PLAIN_MODES = frozenset({"000000", "100644"})
 _MODE_WORDS = {"120000": "symlink", "160000": "submodule"}
 
 
-def _non_text_changes(job: _Job, start: str, commit: str) -> list[str]:
+def _non_text_changes(job: _Job, start: str, commit: str, paths: Sequence[str] = ()) -> list[str]:
     """Changes the text diff cannot show in full (Codex review #5): binary content, any
     file mode other than a plain 100644 (an executable bit, a symlink, a submodule
     pointer) or a mode change. Each is one ``"<path>: <why>"`` line; any of them makes the
     review material incomplete (``diff_truncated``), fail closed."""
     base = ("diff", "--no-ext-diff", "--no-textconv", "--no-renames", "-z")
     problems: list[str] = []
-    numstat = job.git(*base, "--numstat", start, commit, "--").decode("utf-8", "replace")
+    numstat = job.git(*base, "--numstat", start, commit, "--", *paths).decode("utf-8", "replace")
     for entry in numstat.split("\x00"):
         added, _, rest = entry.partition("\t")
         deleted, _, path = rest.partition("\t")
         if path and added == "-" and deleted == "-":
             problems.append(f"{path}: binary change")
-    raw = job.git(*base, "--raw", "--no-abbrev", start, commit, "--").decode("utf-8", "replace")
+    raw = job.git(*base, "--raw", "--no-abbrev", start, commit, "--", *paths)
+    raw = raw.decode("utf-8", "replace")
     fields = raw.split("\x00")
     for meta, path in zip(fields[0::2], fields[1::2]):
         parts = meta.lstrip(":").split()
@@ -1053,15 +1061,122 @@ def _merge_from_base(job: _Job, start: str, tip: str, base: str | None) -> str |
     return second
 
 
-def _clean_merge(job: _Job, start: str, second: str) -> str:
-    """The tree a clean merge of ``start`` and ``second`` gives (``git merge-tree``; a
-    conflicted file keeps its conflict markers): what is left between it and the agent's
-    tree is the merge's own resolution (d31)."""
-    rc, out = job.git_rc("merge-tree", "--write-tree", "--no-messages", start, second)
-    tree = out.decode().split("\n", 1)[0].strip()
+@dataclass(frozen=True)
+class _Merge:
+    """A merge from base (d31): the merged base commit, the tree a clean merge of the PR
+    head and it gives, and the paths that merge left conflicted."""
+
+    second: str
+    clean: str
+    conflicted: tuple[str, ...]
+
+
+def _clean_merge(job: _Job, start: str, second: str) -> _Merge:
+    """What ``git merge-tree`` makes of ``start`` and ``second``: its tree (a conflicted
+    file keeps its conflict markers there) and the conflicted paths. Between the clean
+    tree and the agent's, the cleanly merged paths show only the merge's own resolution;
+    a conflicted path is judged against both parents instead (:meth:`GatePort._guard`)."""
+    rc, out = job.git_rc(
+        "merge-tree", "--write-tree", "--name-only", "--no-messages", "-z", start, second
+    )
+    tree, *paths = out.decode("utf-8", errors="surrogateescape").split("\x00")
     if rc not in (0, 1) or not _SHA_RE.match(tree):
         raise _Refusal("git_failed", f"git merge-tree exited {rc}")
-    return tree
+    return _Merge(second, tree, tuple(dict.fromkeys(p for p in paths if p)))
+
+
+_CONFLICT_MARKER = re.compile(r"^(?:<{7}|>{7})(?: |$)|^={7}$", re.MULTILINE)
+_DIFF = ("diff", "--no-ext-diff", "--no-textconv", "--no-color")
+
+
+def _literal(path: str) -> str:
+    """``path`` as a literal pathspec argument; a path that is not UTF-8 is refused."""
+    arg = path.encode("utf-8", errors="surrogateescape").decode("utf-8", "replace")
+    if arg != path:
+        raise _Refusal("bad_path", "a changed path is not valid UTF-8")
+    return arg
+
+
+def _drop_paths(name_status: str, skip: set[str]) -> str:
+    """``--name-status -z`` output without the entries naming any path in ``skip``."""
+    kept = []
+    for status, paths in _name_status(name_status):
+        if skip.isdisjoint(paths):
+            kept.append("\x00".join([status, *paths]))
+    return "".join(f"{entry}\x00" for entry in kept)
+
+
+def _guard_diff(
+    job: _Job,
+    frm: str,
+    commit: str,
+    patterns: Sequence[str],
+    *,
+    skip: set[str] | None = None,
+    only: Sequence[str] = (),
+    renames: bool = True,
+) -> list[Violation]:
+    """The diff guard over ``frm..commit``: every path, or ``only`` these, less ``skip``."""
+    raw = job.git(
+        *_DIFF,
+        "--name-status",
+        "-z",
+        "-M" if renames else "--no-renames",
+        frm,
+        commit,
+        "--",
+        *map(_literal, only),
+    )
+    names = raw.decode("utf-8", errors="surrogateescape")
+    if skip:
+        names = _drop_paths(names, skip)
+    patches = {}
+    for path in changed_paths(names):  # one literal pathspec per file (-z names)
+        patch = job.git(*_DIFF, "--text", "--no-renames", "-U0", frm, commit, "--", _literal(path))
+        patches[path] = patch.decode("utf-8", errors="replace")
+    return diff_guard(names, patches, patterns)
+
+
+def _text_diff(job: _Job, frm: str, commit: str, paths: Sequence[str]) -> str:
+    """``frm..commit`` for ``paths`` as text, bytes that are not UTF-8 replaced (``\ufffd``
+    then marks the review material incomplete, :meth:`GatePort._diff`)."""
+    raw = job.git(*_DIFF, "--no-renames", frm, commit, "--", *map(_literal, paths))
+    return raw.decode("utf-8", errors="replace")
+
+
+_EITHER_PARENT = frozenset({"protected_path", "test_deleted", "test_removed"})
+
+
+def _guard_conflicts(
+    job: _Job,
+    parents: tuple[str, str],
+    commit: str,
+    paths: Sequence[str],
+    patterns: Sequence[str],
+) -> list[Violation]:
+    """d31: the merge's conflicted ``paths``, judged against both parents. A protected
+    path, a deleted test file or a removed test counts against **either** parent (a test
+    of either side must survive the resolution; fail closed); an added skip or suppression
+    marker only when it is new against **both** (each side keeps its own). Any path still
+    holding a conflict marker is ``conflict_unresolved``; one whose change the text diff
+    cannot show (binary, a mode, a symlink, a submodule) is ``conflict_not_text``."""
+    found: list[Violation] = []
+    seen: list[list[Violation]] = []
+    for parent in parents:
+        side = _guard_diff(job, parent, commit, patterns, only=paths, renames=False)
+        found += [v for v in side if v.rule in _EITHER_PARENT]
+        seen.append([v for v in side if v.rule not in _EITHER_PARENT])
+    both = {(v.rule, v.path) for v in seen[1]}
+    found += [v for v in seen[0] if (v.rule, v.path) in both]
+    for parent in parents:
+        for problem in _non_text_changes(job, parent, commit, [_literal(p) for p in paths]):
+            path, _, why = problem.partition(": ")
+            found.append(Violation("conflict_not_text", path, why))
+    for path in paths:
+        rc, blob = job.git_rc("cat-file", "blob", f"{commit}:{_literal(path)}")
+        if rc == 0 and _CONFLICT_MARKER.search(blob.decode("utf-8", errors="replace")):
+            found.append(Violation("conflict_unresolved", path, "a conflict marker is left"))
+    return found
 
 
 class GatePort:
@@ -1338,32 +1453,48 @@ class GatePort:
         second = _second_parent(job, built) if built != start else None
         if second is None:
             return cls._diff(job, start, built, cap)
+        merge = _clean_merge(job, start, second)
         header = (
             f"# merge from base: {built[:12]} merges {second} (on the PR's base branch) into "
             f"the PR head {start[:12]}. Below is only the merge's resolution: the commit "
-            "against the clean merge of its two parents, never the base's own commits.\n"
+            "against the clean merge of its two parents, never the base's own commits"
         )
-        return cls._diff(job, _clean_merge(job, start, second), built, cap, header=header)
+        if not merge.conflicted:
+            return cls._diff(job, merge.clean, built, cap, header=header + ".\n")
+        header += (
+            "; each conflicted file is shown against both parents after it ("
+            + ", ".join(merge.conflicted)
+            + ").\n"
+        )
+        changed = job.git(*_DIFF, "--name-only", "-z", merge.clean, built, "--").decode(
+            "utf-8", errors="surrogateescape"
+        )
+        clean = [p for p in changed.split("\x00") if p and p not in merge.conflicted]
+        parts = [header]
+        if clean:
+            parts.append(_text_diff(job, merge.clean, built, clean))
+        for path in merge.conflicted:
+            for label, parent in (("the PR head", start), ("the base", second)):
+                parts.append(f"# conflicted {path}, resolved, against {label}:\n")
+                parts.append(_text_diff(job, parent, built, [path]))
+        return cls._diff(job, merge.clean, built, cap, text="".join(parts))
 
     @staticmethod
-    def _diff(job: _Job, start: str, commit: str, cap: int, header: str = "") -> dict[str, Any]:
-        """``start..commit`` as text, read in the node-verified scratch repo (no external
-        diff, no textconv, no attributes), cut at ``cap`` characters (d20)."""
-        raw = job.git(
-            "diff",
-            "--no-ext-diff",
-            "--no-textconv",
-            "--no-color",
-            "-M",
-            start,
-            commit,
-            "--",
-        )
+    def _diff(
+        job: _Job, start: str, commit: str, cap: int, header: str = "", text: str | None = None
+    ) -> dict[str, Any]:
+        """``start..commit`` as text (or ``text``, already assembled), read in the
+        node-verified scratch repo (no external diff, no textconv, no attributes), cut at
+        ``cap`` characters (d20)."""
         problems = _non_text_changes(job, start, commit)
-        try:
-            text = raw.decode("utf-8")
-        except UnicodeDecodeError:  # replacement would hide bytes: never "complete"
-            text = raw.decode("utf-8", errors="replace")
+        if text is None:
+            raw = job.git(*_DIFF, "-M", start, commit, "--")
+            try:
+                text = raw.decode("utf-8")
+            except UnicodeDecodeError:  # replacement would hide bytes: never "complete"
+                text = raw.decode("utf-8", errors="replace")
+                problems.append("the diff is not valid UTF-8 text (bytes the reviewer cannot read)")
+        elif "\ufffd" in text:
             problems.append("the diff is not valid UTF-8 text (bytes the reviewer cannot read)")
         text = header + text
         if len(text) > cap:
@@ -1479,23 +1610,18 @@ class GatePort:
             if exc.code != "merge_commit":
                 raise
             return [Violation("merge_commit", "", exc.detail)]
-        if second is not None:  # d31: judge the resolution, never the base's own commits
-            start = _clean_merge(job, start, second)
         patterns = self._patterns(config)
         if patterns is None:
             name = config.get("protected_paths_variable", PROTECTED_PATHS_VARIABLE)
             return [Violation("protected_paths_unset", "", f"variable {name!r} is not set")]
-        diff = ("diff", "--no-ext-diff", "--no-textconv", "--no-color")
-        raw = job.git(*diff, "--name-status", "-z", "-M", start, commit, "--")
-        names = raw.decode("utf-8", errors="surrogateescape")
-        patches = {}
-        for path in changed_paths(names):  # one literal pathspec per file (-z names)
-            arg = path.encode("utf-8", errors="surrogateescape").decode("utf-8", "replace")
-            if arg != path:
-                raise _Refusal("bad_path", "a changed path is not valid UTF-8")
-            patch = job.git(*diff, "--text", "--no-renames", "-U0", start, commit, "--", path)
-            patches[path] = patch.decode("utf-8", errors="replace")
-        return diff_guard(names, patches, patterns)
+        if second is None:
+            return _guard_diff(job, start, commit, patterns)
+        # d31: judge the resolution, never the base's own commits
+        merge = _clean_merge(job, start, second)
+        found = _guard_diff(job, merge.clean, commit, patterns, skip=set(merge.conflicted))
+        if merge.conflicted:
+            found += _guard_conflicts(job, (start, second), commit, merge.conflicted, patterns)
+        return list(dict.fromkeys(found))
 
     def _workspace(self, job: _Job) -> str:
         """The fixer's own fresh ``mktemp -d`` workspace; the caller removes it.

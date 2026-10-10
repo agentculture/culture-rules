@@ -519,13 +519,14 @@ class GitHubApp:
         self._require_allowed(repo, "pull read")
         return self._call("GET", f"/repos/{repo}/pulls/{int(number)}", None)
 
-    def list_open_pulls(self, repo: str, *, max_pages: int = 3) -> list[dict[str, Any]]:
+    def list_open_pulls(self, repo: str, *, max_pages: int | None = None) -> list[dict[str, Any]]:
         """The open pull requests of ``repo`` (REST ``GET /repos/{repo}/pulls?state=open``,
-        100 a page, at most ``max_pages``); read-only (Pull requests: read). The listing
-        carries no ``mergeable``: read each PR with :meth:`get_pull` for that (d31)."""
+        100 a page, at most ``max_pages``, default the client's page cap); read-only (Pull
+        requests: read). The listing carries no ``mergeable``: read each PR with
+        :meth:`get_pull` for that (d31)."""
         self._require_allowed(repo, "pull listing")
         out: list[dict[str, Any]] = []
-        for page in range(1, max_pages + 1):
+        for page in range(1, (max_pages or _MAX_PAGES) + 1):
             path = f"/repos/{repo}/pulls?state=open&per_page=100&page={page}"
             items = self._call("GET", path, None).get("items") or []
             out += [p for p in items if isinstance(p, dict)]

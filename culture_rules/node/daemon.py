@@ -133,6 +133,9 @@ from culture_rules.store.port import Change, Document, StoragePort
 
 __all__ = ["NODE_COLLECTIONS", "CycleReport", "HeartbeatOptions", "Node", "NodeOptions"]
 
+CONFLICT_READ_S = 5.0
+"""The conflict watch's bound on one PR read, secret resolve included (d31)."""
+
 log = logging.getLogger("culture_rules.node")
 
 NODE_COLLECTIONS = (
@@ -330,7 +333,7 @@ class Node:
         self.conflicts = ConflictWatcher(
             store,
             lister.list_open_pulls,
-            lister.get_pull,
+            lambda repo, number: lister.get_pull(repo, number, timeout_s=CONFLICT_READ_S),
             serves=lister.serves,
             clock=self._clock,
         )

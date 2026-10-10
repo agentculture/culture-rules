@@ -199,7 +199,8 @@ def merge_base_in(repo: Repo, main_files: dict, resolve: dict | None = None) -> 
     if merged.returncode != 0:  # a conflict: the agent resolves it
         assert resolve, merged.stderr
         for name, text in resolve.items():
-            (repo.wt / name).write_text(text)
+            if text is not None:  # None: commit the file as the merge left it
+                (repo.wt / name).write_text(text)
             git(repo.wt, "add", name)
         git(repo.wt, "commit", "-q", "--no-edit")
     repo.base = moved
@@ -309,3 +310,87 @@ def test_d31_no_gate_builds_the_merge_too(store, tmp_path, clock):  # noqa: F811
     assert out["commit_sha"] != repo.start
     assert "src/other.py" not in out["diff"]
     assert repo.base in out["diff"]
+
+
+# --------------------------------------------------------------------------- d31, Codex #1-#2
+
+
+def test_d31_a_conflicted_protected_file_left_with_markers_is_guarded(
+    store, tmp_path, clock  # noqa: F811
+):  # noqa: F811
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    git(repo.wt, "checkout", "-q", "--detach", repo.start)
+    ci = ".github/workflows/ci.yml"
+    repo.start = repo.commit("pr edits ci", {ci: "on: pull_request\n"})
+    merge_base_in(repo, {ci: "on: push\n"}, resolve={ci: None})
+    out = judge(store, LocalRunner(), repo, tmp_path, clock)
+    assert out["verdict"] == GUARD
+    rules = {v["rule"] for v in out["violations"]}
+    assert {"protected_path", "conflict_unresolved"} <= rules
+
+
+def test_d31_conflict_markers_left_in_a_file_are_guarded(store, tmp_path, clock):  # noqa: F811
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    merge_base_in(repo, {"src/app.py": "x = 5\n"}, resolve={"src/app.py": None})
+    out = judge(store, LocalRunner(), repo, tmp_path, clock)
+    assert out["verdict"] == GUARD
+    assert out["rule"] == "conflict_unresolved"
+
+
+def test_d31_a_conflicted_test_resolved_to_one_definition_passes(
+    store, tmp_path, clock  # noqa: F811
+):  # noqa: F811
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    git(repo.wt, "checkout", "-q", "--detach", repo.start)
+    ours = TESTS_PY + "\n\ndef test_same():\n    assert 1\n"
+    repo.start = repo.commit("pr adds test_same", {"tests/test_x.py": ours})
+    theirs = TESTS_PY + "\n\ndef test_same():\n    assert 2\n"
+    resolved = TESTS_PY + "\n\ndef test_same():\n    assert 1 and 2\n"
+    merge_base_in(repo, {"tests/test_x.py": theirs}, resolve={"tests/test_x.py": resolved})
+    out = judge(store, LocalRunner(), repo, tmp_path, clock)
+    assert out["verdict"] == PASS, out["violations"]
+    assert "# conflicted tests/test_x.py" in out["diff"]
+
+
+def test_d31_dropping_one_sides_test_in_a_conflict_is_guarded(
+    store, tmp_path, clock  # noqa: F811
+):  # noqa: F811
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    git(repo.wt, "checkout", "-q", "--detach", repo.start)
+    ours = TESTS_PY + "\n\ndef test_ours():\n    assert 1\n"
+    repo.start = repo.commit("pr adds test_ours", {"tests/test_x.py": ours})
+    theirs = TESTS_PY + "\n\ndef test_theirs():\n    assert 2\n"
+    merge_base_in(repo, {"tests/test_x.py": theirs}, resolve={"tests/test_x.py": theirs})
+    out = judge(store, LocalRunner(), repo, tmp_path, clock)
+    assert out["verdict"] == GUARD
+    assert ("test_removed", "tests/test_x.py") in {
+        (v["rule"], v["path"]) for v in out["violations"]
+    }
+
+
+def test_d31_a_binary_conflict_is_guarded(store, tmp_path, clock):  # noqa: F811
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    git(repo.wt, "checkout", "-q", "--detach", repo.start)
+    (repo.wt / "logo.bin").write_bytes(b"\x00ours\x01")
+    git(repo.wt, "add", "logo.bin")
+    git(repo.wt, "commit", "-q", "-m", "pr logo")
+    repo.start = git(repo.wt, "rev-parse", "HEAD")
+    git(repo.wt, "checkout", "-q", "--detach", repo.base)
+    (repo.wt / "logo.bin").write_bytes(b"\x00theirs\x02")
+    git(repo.wt, "add", "logo.bin")
+    git(repo.wt, "commit", "-q", "-m", "main logo")
+    moved = git(repo.wt, "rev-parse", "HEAD")
+    git(repo.wt, "checkout", "-q", "--detach", repo.start)
+    subprocess.run(
+        ["git", "merge", "-q", "--no-ff", "-m", "merge main", moved],
+        cwd=repo.wt,
+        env=GIT_ENV,
+        capture_output=True,
+    )
+    git(repo.wt, "checkout", "-q", "--ours", "logo.bin")
+    git(repo.wt, "add", "logo.bin")
+    git(repo.wt, "commit", "-q", "--no-edit")
+    repo.base = moved
+    out = judge(store, LocalRunner(), repo, tmp_path, clock)
+    assert out["verdict"] == GUARD
+    assert out["rule"] == "conflict_not_text"
