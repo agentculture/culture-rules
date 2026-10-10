@@ -52,7 +52,7 @@ slug: `rollout-cli` · status: `exported` · from frame: `rollout-cli`
 - covers: c11, h3, c8, h9, h1
 - acceptance:
   - upgrade --host NAME --wheel PATH reads the machine record; without --apply it prints the exact scp/ssh argv (or the shared-venv commands) and opens no connection; a record without install exits 1 naming the missing section
-  - With --apply, `install_sh` mode copies the named wheel and install.sh to a per-version directory and runs install.sh --node-name --wheel <that path> plus one --secret per grant name, --gate-run-as, --extras, --wheelhouse, --python, --events-host/port from the record, then reads the installed version and the unit's ActiveState and ActiveEnterTimestamp; `shared_venv` mode runs uv pip install --reinstall-package culture-rules --no-deps WHEEL into the venv and restarts culture-rules-api and culture-rules-node; install.sh never runs for `shared_venv`
+  - With --apply, `install_sh` mode copies the named wheel and install.sh to a per-version directory and runs install.sh --node-name --wheel `<that path>` plus one --secret per grant name, --gate-run-as, --extras, --wheelhouse, --python, --events-host/port from the record, then reads the installed version and the unit's ActiveState and ActiveEnterTimestamp; `shared_venv` mode runs uv pip install --reinstall-package culture-rules --no-deps WHEEL into the venv and restarts culture-rules-api and culture-rules-node; install.sh never runs for `shared_venv`
   - The runner is injectable; the parity test and every unit test use a fake runner; the step outcome is written to the rollout document
 
 ### t6 — Docs, CHANGELOG and the secrets boundary test
