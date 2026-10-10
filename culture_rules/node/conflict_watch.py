@@ -48,7 +48,11 @@ generation (``generation`` in the id; generation 0 is the d31 id) only when:
   the engine is not paused (a trigger event evaluated during a pause is dropped);
 
 and at most :data:`MAX_GENERATIONS` events per pair. The listeners and the pause flag are
-read once per node cycle. A conflict seen while
+read once per node cycle. The deciding consumer's marker is read before any firing or
+decision (a marker commits with them, so read first it makes them visible). Limit: a
+listener whose placement moves to another machine within that cycle is judged on its old
+consumer's marker; the new consumer may still evaluate the original event, so such a pair
+can be requested once more. A conflict seen while
 ``pr-fixer-conflict`` was disabled (a bundle import lands every rule disabled) or the engine
 paused is so requested once it can be heard. The check reads the store only, never GitHub,
 so the request budget below is unchanged. The ``pr-fixer-conflict`` rule turns it into a
@@ -299,9 +303,13 @@ class ConflictWatcher:
         enabled = [r for r in listeners if r.get("enabled") is True]
         if not enabled or paused:
             return False  # nobody would hear it now either: wait, keep the generation
-        if any(self._heard(str(doc.get("id") or ""), listeners) for doc in stored):
-            return False  # a consumed pair is never requested again, whichever generation
-        return all(self._evaluated(str(last.get("id") or ""), rule) for rule in enabled)
+        # The markers first, then consumption (Codex r2): a marker commits with its
+        # consumer's decisions, so once it is read every firing or decision of that
+        # evaluation is visible to the reads below; read the other way round, an
+        # evaluation committing between them would look evaluated but unheard.
+        if not all(self._evaluated(str(last.get("id") or ""), rule) for rule in enabled):
+            return False  # still pending for a consumer: never sent twice
+        return not any(self._heard(str(doc.get("id") or ""), listeners) for doc in stored)
 
     def _sweep_facts(self) -> tuple[list[Mapping[str, Any]], bool]:
         """The listeners (stored, not deleted rules triggered by

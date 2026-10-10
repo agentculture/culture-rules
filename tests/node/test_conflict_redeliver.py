@@ -349,3 +349,31 @@ def test_redelivery_makes_no_extra_github_requests():
     gh.pages.clear()
     watcher.tick()
     assert len(gh.reads) + len(gh.pages) <= REQUESTS_PER_TICK
+
+
+def test_an_evaluation_committing_between_the_watchers_reads_is_never_sent_twice():
+    """Codex r2: whichever check the watcher reads first, the real trigger transaction
+    commits right after that read; the pair must not be emitted again."""
+    store, _gh, clock, watcher = world([pull()])
+    listener(store)
+    engine = Engine(store, clock)
+    watcher.tick()
+    later(clock)
+    state = {"done": False}
+
+    def after_first_read(method):
+        def wrapped(*args, **kwargs):
+            result = method(*args, **kwargs)
+            if not state["done"]:
+                state["done"] = True
+                engine.poll()  # the evaluation commits marker + intent now
+            return result
+
+        return wrapped
+
+    watcher._heard = after_first_read(watcher._heard)
+    watcher._evaluated = after_first_read(watcher._evaluated)
+    assert watcher.tick() == 0
+    assert state["done"]
+    assert fired(store) == [GEN0]
+    assert ids(store) == [GEN0]
