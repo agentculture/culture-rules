@@ -43,6 +43,7 @@ from tests.rules.chain_world import (
     SECRETS_LATE_RULE,
     SECRETS_RULE,
     STAGE_RULES,
+    STOP_RULES,
     TRIGGER_RULES,
     bundle,
     rule_docs,
@@ -67,19 +68,22 @@ AUTHOR_RULES = ("pr-fixer-comment", "pr-fixer-review", "pr-fixer-review-comment"
 # --------------------------------------------------------------------------- the data
 
 
-def test_the_bundle_is_eighteen_disabled_rules_and_six_workflows():
+def test_the_bundle_is_twenty_one_disabled_rules_and_seven_workflows():
     b = bundle()
     assert sorted(w.id for w in b.workflows) == [
         "pr-fix",
         "publish-fix",
         "queue-add",
         "queue-progress",
+        "queue-stop",
         "report-secrets",
         "review-commit",
     ]
     reports = (SECRETS_RULE, SECRETS_LATE_RULE)
     queue = (DISPATCH_RULE, RETRY_RULE, *PROGRESS_RULES)
-    assert sorted(r.id for r in b.rules) == sorted(TRIGGER_RULES + STAGE_RULES + reports + queue)
+    assert sorted(r.id for r in b.rules) == sorted(
+        TRIGGER_RULES + STAGE_RULES + reports + queue + STOP_RULES
+    )
     for r in b.rules:
         assert r.enabled is False
         assert r.placement is not None
@@ -133,6 +137,32 @@ def test_the_bundle_is_eighteen_disabled_rules_and_six_workflows():
         assert by[rid].workflow.id == "queue-progress"
         assert by[rid].action.kind == "noop"
     assert by["pr-fixer-queue-sweep"].trigger.kind == "schedule"
+    # d34: a stop has no key (it never waits behind the chain it stops) and never writes the
+    # story's status comment itself (queue.stop ends it); a failed stop says so plainly
+    for rid, kind in zip(STOP_RULES, ("github.comment.created", "github.reaction.added")):
+        r = by[rid]
+        assert r.trigger.params == {"type": kind}
+        assert r.workflow.id == "queue-stop"
+        assert r.concurrency_key is None
+        assert r.action.kind == "noop"
+        assert r.on_failure.kind == "github.comment"
+        assert "status" not in r.on_failure.params
+        assert r.on_failure.params["body"].startswith("PR fixer stop failed (")
+
+
+def test_queue_stop_stops_then_sweeps_after_a_pause():
+    wf = workflow_docs()["queue-stop"]
+    steps = {s["id"]: s for s in wf["steps"]}
+    assert list(steps) == ["stop", "settle", "sweep"]
+    assert steps["stop"]["config"] == {
+        "builtin": "queue.stop",
+        "key_prefix": "pr-fixer:",
+        "lookup_actor": "github-app",
+        "queue": "pr-fixer",
+    }
+    assert steps["settle"]["kind"] == "wait"
+    assert steps["sweep"]["config"] == {**steps["stop"]["config"], "sweep": True}
+    assert all(s.get("placement") is None for s in wf["steps"])  # no actor: non-agentic
 
 
 def test_the_files_are_in_canonical_export_form():
@@ -201,7 +231,9 @@ def test_conditions_reference_the_variables_never_a_copied_list():
         refs = rule_variable_refs(r)
         assert {"fixer_repos", "fixer_excluded_repos"} <= refs, r.id
         if r.id in INTENT_RULES:
-            assert "fixer_comment_triggers" in refs
+            assert {"fixer_comment_triggers", "fixer_stop_triggers"} <= refs
+        if r.id == "pr-fixer-stop":
+            assert "fixer_stop_triggers" in refs
         if r.workflow.id in ("pr-fix", "publish-fix"):
             assert r.workflow.inputs["trusted_authors"] == {"$var": "trusted_authors"}
 
@@ -231,6 +263,7 @@ def test_import_with_apply_validates_and_writes_the_definitions():
         "publish-fix",
         "queue-add",
         "queue-progress",
+        "queue-stop",
         "report-secrets",
         "review-commit",
     ]
@@ -467,3 +500,61 @@ def test_a_fix_comment_through_the_receiver_starts_a_run_only_while_the_pr_is_op
     c2 = cluster()
     (run,) = _replay(c2, "@rules-culture-dev please look", TRUSTED, "d-mention")
     assert run["trigger"]["data"]["mention"] == "@rules-culture-dev"
+
+
+# --------------------------------------------------------------------------- d34: stop
+
+
+def stop_fires(c: Cluster | None = None, **data) -> bool:
+    c = c or cluster()
+    facts = pr_facts(**{"comment": "/stop", "command": "/stop", "state": "open", **data})
+    c.publish(envelope(1, type="github.comment.created", data=facts))
+    reports = c.cycle()
+    assert all(not r.errors for r in reports.values()), reports
+    return c.run("pr-fixer-stop", "evt_1") is not None
+
+
+def test_a_trusted_stop_or_the_apps_mention_with_stop_fires_the_stop_rule():
+    assert stop_fires()
+    assert stop_fires(
+        command=None, mention="@rules-culture-dev", mention_command="@rules-culture-dev stop"
+    )
+    assert stop_fires(state="closed")  # a stop never needs the PR's state
+    assert stop_fires(pr_enriched=False)  # nor its facts: a failed lookup still stops
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        {"author": "mallory"},
+        {"self_authored": True},
+        {"command": "/fix"},
+        {
+            "command": None,
+            "mention": "@rules-culture-dev",
+            "mention_command": "@rules-culture-dev fix",
+        },
+        {"repository": "o/excluded"},
+        {"repository": "o/other"},
+    ],
+    ids=["untrusted", "the_app", "fix", "mention_fix", "excluded", "not_allow_listed"],
+)
+def test_the_stop_rule_ignores_everything_else(data):
+    assert not stop_fires(**data)
+
+
+@pytest.mark.parametrize("rule_id", INTENT_RULES)
+def test_a_comment_asking_to_stop_never_starts_a_fix(rule_id):
+    assert not fires(rule_id, command="/stop", drop=("mention",))
+    assert not fires(
+        rule_id,
+        mention="@rules-culture-dev",
+        mention_command="@rules-culture-dev stop",
+        drop=("command",),
+    )
+    assert fires(
+        rule_id,
+        mention="@rules-culture-dev",
+        mention_command="@rules-culture-dev fix",
+        drop=("command",),
+    )

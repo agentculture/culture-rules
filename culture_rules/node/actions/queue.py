@@ -83,7 +83,38 @@ to ``cap``), ``stale_after_s`` (default :data:`DEFAULT_STALE_AFTER_S`) and
    (:func:`culture_rules.events.emit.reserved_reason`).
 
 Outputs: ``dispatched`` and ``active`` (keys), ``dropped`` (``{key, reason}``), ``waiting``
-(``{key, position, ahead}``). Standard-library only.
+(``{key, position, ahead}``).
+
+``queue.stop``
+==============
+
+Deviation d34 (#40): a trusted ``/stop`` or 👎 ends a PR's fixer story. Config: ``queue``
+and ``key_prefix`` (required), ``lookup_actor`` (the PR's current head is read, else the
+``head_sha`` input is used) and ``sweep``. Inputs: ``repo``, ``number``, ``by`` (the login
+that asked), ``head_sha`` and ``story`` (a 👎's story, its root run id: once that story has
+no running run, no waiting request and no dispatch whose run is still to end, the stop does
+nothing, so a late reaction never stops a newer story). One pass:
+
+1. **Record** the stop on the PR's concurrency key
+   (:func:`~culture_rules.node.story_stop.record_stop`): from now on ``queue.add`` drops a
+   request of this story, or an automatic one for the stopped head, and the push refuses
+   ``story_stopped`` (:mod:`culture_rules.node.story_stop`). Its time and head are kept
+   under the invocation's idempotency key (:func:`~culture_rules.node.story_stop.stop_op`),
+   so a replay resumes with the same cutoff.
+2. **Unqueue** the stopped story's waiting request (its retry included) and revoke its
+   dispatch no run claimed yet (its event then never fires: ``dispatch_revoked``), by
+   compare-and-set; a request admitted after the stop (a new ``/fix``) stays. The queue
+   document is written even when nothing is removed.
+3. **Cancel** the PR's running runs on the key whose story began no later than the stop,
+   exactly as stopping a disabled rule's runs does (d17: cancelled, no push, no on_failure
+   hand-back; the node then asks the bridge to cancel the agent's job).
+4. **End the story**: each stopped story's status comment gets the final text
+   "PR fixer stopped by @<by>." (:meth:`~culture_rules.node.status_board.StatusBoard.finish`).
+
+``sweep: true`` records nothing: it re-runs steps 3 and 4 against the stop already
+recorded, for a run of the story that started just after the first pass (a chain's next
+stage). Outputs: ``stopped`` (a stop is recorded), ``key``, ``removed`` and ``cancelled``
+(counts). Standard-library only.
 """
 
 from __future__ import annotations
@@ -115,8 +146,10 @@ __all__ = [
     "QUEUE_ADD_BUILTIN",
     "QUEUE_PROGRESS_BUILTIN",
     "QUEUE_SOURCE",
+    "QUEUE_STOP_BUILTIN",
     "QueueAddPort",
     "QueueProgressPort",
+    "QueueStopPort",
     "claim_dispatch",
     "dispatch_event_id",
     "dispatch_live",
@@ -126,6 +159,7 @@ __all__ = [
 QUEUES_COLLECTION = "queues"
 QUEUE_ADD_BUILTIN = "queue.add"
 QUEUE_PROGRESS_BUILTIN = "queue.progress"
+QUEUE_STOP_BUILTIN = "queue.stop"
 DISPATCH_TYPE = f"{QUEUE_EVENT_TYPE_PREFIX}dispatch"
 DEFAULT_STALE_AFTER_S = 900.0
 """How long a dispatched request may wait for its run to appear before its slot is freed."""
@@ -275,6 +309,18 @@ class QueueAddPort:
         try:
             name = _queue_name(config)
             repo, number = _subject(input)
+        except _Refused as exc:
+            return _failed(exc)
+
+        def stopped() -> str | None:
+            return _stop_refusal(self._store, config, repo, number, input, context)
+
+        # d34: a stopped story's request is dropped before its budget is judged, so its
+        # last retry never fails (and hands back) as attempt_budget_exhausted
+        if (why_not := stopped()) is not None:
+            log.info("queue.add: %s#%s not queued (%s)", repo, number, why_not)
+            return InvocationResult.completed(self._not_queued(name, f"{repo}#{number}"))
+        try:
             retry = input.get("retry") is True
             state = _key_state(self._store, _pr_key(config, repo, number), self._clock())
             inputs = {k: copy.deepcopy(v) for k, v in input.items() if k not in _META_INPUTS}
@@ -298,15 +344,27 @@ class QueueAddPort:
             "inputs": inputs,
             "source_run": context.run_id,
         }
-        return InvocationResult.completed(self._add(name, request, idempotency_key))
+        return InvocationResult.completed(self._add(name, request, idempotency_key, stopped))
 
-    def _add(self, name: str, request: dict[str, Any], ik: str) -> dict[str, Any]:
+    def _add(
+        self,
+        name: str,
+        request: dict[str, Any],
+        ik: str,
+        stopped: Callable[[], str | None] = lambda: None,
+    ) -> dict[str, Any]:
         queue = _QueueDoc(self._store, name, self._clock)
         for _ in range(_MAX_CAS_TRIES):
             doc, rev, exists = queue.read()
             if ik in doc["seen"]:
                 _positions(doc)
                 return self._result(doc, request["key"], queued=True, replaced=False)
+            # d34 (Codex round 1 #3): judged again after each read of the queue. A stop
+            # records itself, then always writes the queue document, so an add that read
+            # the queue before that write loses its compare-and-set and sees the stop here.
+            if stopped() is not None:
+                _positions(doc)
+                return self._result(doc, request["key"], queued=False, replaced=False)
             now = _iso(self._clock())
             existing = next((r for r in doc["waiting"] if r["key"] == request["key"]), None)
             replaced = False
@@ -323,6 +381,13 @@ class QueueAddPort:
             if queue.write(doc, rev, exists):
                 return self._result(doc, request["key"], queued=True, replaced=replaced)
         raise RuntimeError(f"queues/{name}: too much contention")
+
+    def _not_queued(self, name: str, key: str) -> dict[str, Any]:
+        """The answer for a request a story stop drops (d34): nothing queued, no failure, so
+        no hand-back."""
+        doc, _rev, _exists = _QueueDoc(self._store, name, self._clock).read()
+        _positions(doc)
+        return self._result(doc, key, queued=False, replaced=False)
 
     @staticmethod
     def _result(doc: Mapping[str, Any], key: str, *, queued: bool, replaced: bool) -> dict:
@@ -449,9 +514,13 @@ class _Pass:
                 break
             if any(a["key"] == req["key"] for a in doc["active"]):
                 continue  # the PR's earlier request is still running: keep the place
-            state = _key_state(
-                self.store, _pr_key(self.config, req["repository"], req["number"]), now
-            )
+            key = _pr_key(self.config, req["repository"], req["number"])
+            reason = _stopped_request(self.store, key, req)  # d34: never a stopped story
+            if reason is not None:
+                doc["waiting"].remove(req)
+                dropped.append({"key": req["key"], "reason": reason})
+                continue
+            state = _key_state(self.store, key, now)
             reason = "attempt_budget_exhausted" if _exhausted(state) else None
             if reason is None and state["busy"]:
                 continue  # its chain still holds the key: a firing now would be deduplicated
@@ -539,6 +608,263 @@ class _Pass:
                 self.store.insert(_EVENTS, event_document(envelope, host=self.context.host))
             except DuplicateKeyError:
                 pass  # another host wrote it first
+
+
+def _stop_refusal(
+    store: Any,
+    config: Mapping[str, Any],
+    repo: str,
+    number: int,
+    input: Mapping[str, Any],
+    context: InvocationContext,
+) -> str | None:
+    """Why a story stop drops this request (d34,
+    :func:`~culture_rules.node.story_stop.add_refusal`), or None."""
+    from culture_rules.node.story_stop import add_refusal  # noqa: PLC0415
+
+    head = input.get("head_sha") if isinstance(input.get("head_sha"), str) else None
+    return add_refusal(store, _pr_key(config, repo, number), head, context.run_id)
+
+
+def _stopped_request(store: Any, key: str | None, req: Mapping[str, Any]) -> str | None:
+    """``story_stopped`` when the waiting request belongs to a stopped story (d34)."""
+    from culture_rules.node.story_stop import request_refusal  # noqa: PLC0415
+
+    return request_refusal(store, key, req.get("source_run"))
+
+
+STOPPED_TEXT = "PR fixer stopped by @{by}. A new /fix or a push to the PR starts a new story."
+_LOGIN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,38}(?:\[bot\])?$")
+
+
+class QueueStopPort:
+    """``queue.stop`` (module doc): end a PR's fixer story."""
+
+    supports_idempotency_key = True
+
+    def __init__(self, store: Any, *, clock: Clock | None = None, pr_lookup: Any = None) -> None:
+        self._store = store
+        self._clock = clock or (lambda: datetime.now(UTC))
+        self._lookup = pr_lookup
+
+    def invoke(
+        self,
+        input: Mapping[str, Any],
+        idempotency_key: str,
+        deadline: datetime,
+        *,
+        context: InvocationContext,
+    ) -> InvocationResult:
+        from culture_rules.node.story_stop import stop_of  # noqa: PLC0415
+
+        begun = self._clock()  # the cutoff: taken before any read (Codex round 3)
+        config = context.config or {}
+        sweep = config.get("sweep") is True
+        try:
+            name = _queue_name(config)
+            repo, number = _subject(input)
+            key = _pr_key(config, repo, number)
+            if key is None:
+                raise _Refused("bad_config", "config.key_prefix must name the PR's key prefix")
+            by = input.get("by")
+            if not sweep and (not isinstance(by, str) or not _LOGIN_RE.match(by)):
+                raise _Refused("bad_input", "by must be the GitHub login that asked")
+        except _Refused as exc:
+            return _failed(exc)
+        if sweep:
+            stop = stop_of(self._store, key)
+            if stop is None:
+                return InvocationResult.completed(
+                    {"stopped": False, "key": key, "removed": 0, "cancelled": 0}
+                )
+            removed: list[Mapping[str, Any]] = []
+        elif not self._live(name, key, input.get("story")):
+            # a 👎 names its story: once that story is over it never stops a newer one
+            log.info("queue.stop: %s: story %s is over, nothing to stop", key, input["story"])
+            return InvocationResult.completed(
+                {"stopped": False, "key": key, "removed": 0, "cancelled": 0}
+            )
+        else:
+            stop = self._recorded(
+                key,
+                by,
+                idempotency_key,
+                lambda: self._head(repo, number, input, config, context, deadline, idempotency_key),
+                begun,
+            )
+            removed = self._unqueue(name, f"{repo}#{number}", stop)
+        cancelled = self._cancel(key, stop)
+        self._end_stories(repo, number, stop, removed, cancelled)
+        log.info(
+            "queue.stop: %s stopped by %s (%d unqueued, %d cancelled)",
+            key,
+            stop.get("by"),
+            len(removed),
+            len(cancelled),
+        )
+        return InvocationResult.completed(
+            {"stopped": True, "key": key, "removed": len(removed), "cancelled": len(cancelled)}
+        )
+
+    def _head(
+        self,
+        repo: str,
+        number: int,
+        input: Mapping[str, Any],
+        config: Mapping[str, Any],
+        context: InvocationContext,
+        deadline: datetime,
+        ik: str,
+    ) -> str | None:
+        """The PR's head now (read through ``lookup_actor``), else the ``head_sha`` input."""
+        given = input.get("head_sha") if isinstance(input.get("head_sha"), str) else None
+        actor = config.get("lookup_actor")
+        if self._lookup is None or not isinstance(actor, str) or not actor:
+            return given
+        ctx = InvocationContext(
+            run_id=context.run_id,
+            step_id=context.step_id,
+            kind="action",
+            host=context.host,
+            actor=actor,
+            config={"kind": "github.pr_head"},
+        )
+        lookup = {"repo": repo, "number": number, "actor": actor}
+        try:
+            res = self._lookup.invoke(lookup, f"{ik}/head", deadline, context=ctx)
+        except Exception as exc:  # noqa: BLE001 - the stop goes ahead on the given head
+            log.warning("queue.stop: PR lookup failed (%s)", type(exc).__name__)
+            return given
+        head = res.output.get("head_sha") if res.outcome == COMPLETED else None
+        return head if isinstance(head, str) and head else given
+
+    def _live(self, name: str, key: str, story: Any) -> bool:
+        """Whether ``story`` (a root run id; any story when not given) still has a running
+        run on ``key`` or a request in the queue."""
+        from culture_rules.node.story_stop import story_root  # noqa: PLC0415
+
+        if not isinstance(story, str) or not story:
+            return True
+        for run in self._store.find(_RUNS, {"concurrency_key": key, "status": "running"}):
+            if story_root(self._store, run).get("id") == story:
+                return True
+        doc = self._store.get(QUEUES_COLLECTION, name) or {}
+        entries = [
+            *(doc.get("waiting") or ()),
+            # a dispatch whose run already ended only awaits the queue's cleanup: not live
+            *(a for a in doc.get("active") or () if not self._ended(a)),
+        ]
+        for entry in entries:
+            req = entry.get("request") if isinstance(entry.get("request"), Mapping) else entry
+            source = self._store.get(_RUNS, req.get("source_run") or "")
+            if source is not None and story_root(self._store, source).get("id") == story:
+                return True
+        return False
+
+    def _ended(self, act: Mapping[str, Any]) -> bool:
+        run = self._store.get(_RUNS, act.get("run_id") or "")
+        return run is not None and run.get("status") in _RUN_DONE
+
+    def _recorded(
+        self, key: str, by: str, ik: str, head: Callable[[], str | None], begun: datetime
+    ) -> Mapping[str, Any]:
+        """The stop this invocation records: on its first run the time it began (before the
+        liveness check and the head lookup) and the PR's head, kept under its idempotency
+        key, so a replay (a lost acknowledgement) resumes with the same cutoff instead of a
+        later one (Codex rounds 2 #3 and 3)."""
+        from culture_rules.node.story_stop import record_stop, stop_op  # noqa: PLC0415
+
+        op = stop_op(self._store, ik, key=key, by=by, head=head, at=lambda: begun)
+        at = _parse(op.get("at")) or begun
+        return record_stop(self._store, key, by=op["by"], head_sha=op.get("head_sha"), at=at)
+
+    def _unqueue(self, name: str, pr: str, stop: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+        """Remove the PR's waiting requests and unclaimed dispatches of the stopped story
+        (begun no later than ``stop``); the removed ones. A request admitted after the stop
+        (a new /fix) stays (Codex round 2 #2)."""
+        from culture_rules.node.story_stop import (  # noqa: PLC0415
+            story_began_before,
+            story_root,
+        )
+
+        def stopped(req: Mapping[str, Any]) -> bool:
+            source = self._store.get(_RUNS, req.get("source_run") or "")
+            began = story_root(self._store, source).get("created_at") if source else None
+            return source is None or story_began_before(stop, began)
+
+        queue = _QueueDoc(self._store, name, self._clock)
+        for _ in range(_MAX_CAS_TRIES):
+            doc, rev, exists = queue.read()
+            waiting = [r for r in doc["waiting"] if r.get("key") == pr and stopped(r)]
+            revoked = [
+                a
+                for a in doc["active"]
+                if a.get("key") == pr
+                and not a.get("claimed_at")
+                and stopped(a.get("request") or {})
+            ]
+            # always written, even with nothing to remove: an add that read the queue before
+            # this write then loses its compare-and-set and judges the stop again
+            doc["waiting"] = [r for r in doc["waiting"] if r not in waiting]
+            doc["active"] = [a for a in doc["active"] if a not in revoked]
+            if queue.write(doc, rev, exists):
+                return waiting + [a.get("request") or {} for a in revoked]
+        raise RuntimeError(f"queues/{name}: too much contention")
+
+    def _cancel(self, key: str, stop: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+        """Cancel the key's running runs whose story began no later than ``stop`` (d17's
+        cancel: no push, no hand-back); the cancelled runs."""
+        from culture_rules.engine.runs import Containment, RunError  # noqa: PLC0415
+        from culture_rules.node.story_stop import (  # noqa: PLC0415
+            story_began_before,
+            story_root,
+        )
+
+        containment: Containment | None = None
+        out: list[Mapping[str, Any]] = []
+        who = f"{stop.get('by')} (stop)"
+        for run in self._store.find(_RUNS, {"concurrency_key": key, "status": "running"}):
+            if not story_began_before(stop, story_root(self._store, run).get("created_at")):
+                continue  # a new story, begun after the stop
+            containment = containment or Containment(self._store, clock=self._clock)
+            try:
+                containment.cancel(run["id"], who, f"stopped by @{stop.get('by')}")
+            except RunError as exc:
+                if exc.code not in ("run_finished", "run_not_found"):
+                    raise
+                continue  # it finished meanwhile
+            out.append(run)
+        return out
+
+    def _end_stories(
+        self,
+        repo: str,
+        number: int,
+        stop: Mapping[str, Any],
+        removed: list[Mapping[str, Any]],
+        cancelled: list[Mapping[str, Any]],
+    ) -> None:
+        """Give each stopped story's status comment its final text (best effort)."""
+        from culture_rules.node.status_board import StatusBoard  # noqa: PLC0415
+        from culture_rules.node.story_stop import story_root  # noqa: PLC0415
+
+        runs = list(cancelled)
+        for req in removed:
+            source = self._store.get(_RUNS, req.get("source_run") or "")
+            if source is not None:
+                runs.append(source)
+        board = StatusBoard(self._store, clock=self._clock)
+        text = STOPPED_TEXT.format(by=stop.get("by"))
+        seen: set[Any] = set()
+        for run in runs:
+            root = story_root(self._store, run)
+            if root.get("id") in seen:
+                continue
+            seen.add(root.get("id"))
+            try:
+                board.finish(root, text, where=(repo, number))
+            except Exception as exc:  # noqa: BLE001 - the stop itself is done
+                log.warning("queue.stop: status of %s not ended (%s)", root.get("id"), exc)
 
 
 def _dispatch_data(queue: str, act: Mapping[str, Any]) -> dict[str, Any]:

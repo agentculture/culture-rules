@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-05T20:43:33Z",
-  "updated": "2026-10-10T13:30:21Z",
+  "updated": "2026-10-10T15:01:12Z",
   "claims": [
     {
       "id": "c1",
@@ -1626,6 +1626,24 @@
       "seam": "the conflict watch and pr-fixer-conflict (d31)",
       "behavior": "an open, same-repo, non-draft PR in fixer_repos that turns CONFLICTING emits one github.pr.conflicting event per head/base pair, within a bounded per-cycle request budget; pr-fixer-conflict (shipped disabled) queues a fix that merges exactly base_sha",
       "source_text": "A new PR in any AgentCulture repo is picked up by a fixer agent that drives it to green: SonarCloud gate, failing checks and unresolved review threads fixed on the PR branch, never merged",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o44",
+      "claim_id": "c6",
+      "seam": "queue.stop (pr-fixer-stop / pr-fixer-stop-reaction, workflow queue-stop) and the story_stops guards in queue.add, queue.progress and github.push (d34)",
+      "behavior": "a trusted /stop (or @rules-culture-dev stop) or a trusted thumbs-down on the /fix or status comment cancels the story's running run (no push, no hand-back), removes its queued request and retries, ends its one status comment 'stopped by @user', and touches no newer story; an untrusted author does nothing; the next trusted /fix or a new head starts a fresh story",
+      "source_text": "At most one fixer run per PR at a time, and a per-PR attempt budget stops fix/test/push cycles; because the App pushes, its own synchronize events are skipped by the existing self_authored check",
+      "origin": "llm",
+      "status": "approved"
+    },
+    {
+      "id": "o45",
+      "claim_id": "c6",
+      "seam": "the reaction watch (node, d34)",
+      "behavior": "reactions are read only while a PR has a live fixer story, at most 10 requests and 10 s per node cycle, every reaction_watch_interval_s (default 60 s); each thumbs-down emits one github.reaction.added; none is read for a PR with no live story",
+      "source_text": "At most one fixer run per PR at a time, and a per-PR attempt budget stops fix/test/push cycles; because the App pushes, its own synchronize events are skipped by the existing self_authored check",
       "origin": "llm",
       "status": "approved"
     }

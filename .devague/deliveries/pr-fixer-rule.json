@@ -2,7 +2,7 @@
   "plan_slug": "pr-fixer-rule",
   "schema_version": 2,
   "created": "2026-10-06T08:44:59Z",
-  "updated": "2026-10-10T13:30:22Z",
+  "updated": "2026-10-10T15:01:13Z",
   "deviations": [
     {
       "id": "d1",
@@ -2023,6 +2023,44 @@
       "status": "approved",
       "superseded": false,
       "seq": 123
+    },
+    {
+      "id": "e89",
+      "obligation_ref": "o44",
+      "test_ref": "tests/node/test_queue_stop.py (23) + tests/rules/test_pr_fixer_stop.py (11, chain world incl. two real-push tests)",
+      "behavior_text": "asserts a trusted /stop and a trusted thumbs-down cancel the running story with no push and no hand-back, unqueue its request and retries, close its status comment, leave a newer story alone (cutoff at stop start, replay keeps it), refuse an untrusted author, and let a /fix or new head start a fresh story",
+      "contract_text": "c6 (one run per PR, a budget that stops cycles), extended by d34 stop",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "128 targeted tests green at the named commit (full suite 4796 passed per the subagent); Codex 3 rounds, last fix c2f0104 reviewed by the main agent only; chain_world helpers written before their tests",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-10T14:57:41",
+        "commit": "c2f0104"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 124
+    },
+    {
+      "id": "e90",
+      "obligation_ref": "o45",
+      "test_ref": "tests/node/test_reaction_watch.py (10)",
+      "behavior_text": "asserts no reaction read without a live story, a bounded budget with carry-over, one event per thumbs-down with a deterministic reaction_ id, and the reserved event type at ingest",
+      "contract_text": "c6, extended by d34 reaction polling",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests green at the named commit; written before the watcher code (subagent report)",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-10T14:57:41",
+        "commit": "c2f0104"
+      },
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false,
+      "seq": 125
     }
   ],
   "deltas": [
@@ -2300,6 +2338,35 @@
       ],
       "evidence_refs": [
         "e88"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b21",
+      "kind": "added",
+      "behavior_text": "a trusted /stop or thumbs-down stops a PR's fixer story: running run cancelled without push or hand-back, queue entries removed, status comment closed 'stopped by @user'",
+      "caused_by": [
+        "d34"
+      ],
+      "evidence_refs": [
+        "e89",
+        "e90"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b22",
+      "kind": "amended",
+      "behavior_text": "d34's single pr-fixer-stop rule ships as two rules (pr-fixer-stop for comments, pr-fixer-stop-reaction for thumbs-down; a rule has one trigger) plus pr-fixer-queue-progress-stopped and the queue-stop workflow; all ship disabled",
+      "caused_by": [
+        "d34"
+      ],
+      "evidence_refs": [
+        "e89"
       ],
       "origin": "llm",
       "status": "approved",

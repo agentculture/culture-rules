@@ -69,9 +69,10 @@ test.describe("the fold against the fake API (PR fixer)", () => {
     await mockPrFixerApi(page);
     const model = foldModel(PR_FIXER_RULES, PR_FIXER_WORKFLOWS);
     // d2: 2 chains; since #35 6 workflows (queue-add, queue-progress); since d31 9 entry
-    // points (pr-fixer-conflict), 9 continuations; computed, not assumed.
+    // points (pr-fixer-conflict); since d34 7 workflows (queue-stop), 11 entry points (the
+    // two stop rules), 10 continuations; computed, not assumed.
     expect([model.chains.length, model.workflows.length, model.entryPoints.length, model.continuations.length])
-      .toEqual([2, 6, 9, 9]);
+      .toEqual([2, 7, 11, 10]);
     await page.goto("/workflows");
     await untilReady(page);
     const list = page.getByRole("navigation", { name: "Workflows" });
@@ -96,7 +97,7 @@ test.describe("the fold against the fake API (PR fixer)", () => {
     const put = api.calls.find((c) => c.method === "PUT")!;
     const terms = ((put.body as Rule).condition as { args: unknown[] }).args;
     expect(JSON.stringify(terms)).not.toContain("data.pr_enriched");
-    expect(terms).toHaveLength(8);
+    expect(terms).toHaveLength(9);
     // Settled: the saved rule is drawn (its row gone), then the network goes quiet. Only then is
     // "exactly 1" checked, so a late second PUT cannot slip past.
     await expect(card.getByRole("button", { name: /^Remove condition pr_enriched/ })).toHaveCount(0);

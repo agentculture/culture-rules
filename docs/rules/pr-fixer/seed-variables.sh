@@ -52,6 +52,8 @@ set_var fixer_excluded_repos '[]' \
   "Repositories (owner/name) the fixer never runs on, even when in fixer_repos (an override)"
 set_var fixer_comment_triggers '["/fix", "@rules-culture-dev"]' \
   "What a PR comment or review comment must carry to start a fixer run: a /command at the start of its body, or an @mention of the App (narrow it to [\"/fix\"] to ignore mentions)"
+set_var fixer_stop_triggers '["/stop", "@rules-culture-dev stop"]' \
+  "What a PR comment must start with to stop the PR's fixer story (d34): a /command, or the App's @mention followed by the word (narrow it to [\"/stop\"] to ignore mentions)"
 set_var fixer_protected_paths \
   '[".github/workflows/**", "sonar-project.properties", ".coveragerc", "setup.cfg", ".flake8", "pyproject.toml"]' \
   "Paths the gate's diff guard refuses (on top of the .github/workflows/** floor)"

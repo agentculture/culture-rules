@@ -27,25 +27,30 @@ describe("foldModel", () => {
     const rules = fixture<Rule>("rules");
     const model = foldModel(rules, fixture<Workflow>("workflows"));
     // #35: the trigger rules queue the PR (queue-add); the queue moves (queue-progress) and
-    // pr-fixer-dispatch starts pr-fix from the queue's dispatch event
-    expect(model.workflows).toHaveLength(6);
-    expect(model.entryPoints).toHaveLength(9);
-    expect(model.continuations).toHaveLength(9);
+    // pr-fixer-dispatch starts pr-fix from the queue's dispatch event; d34: a /stop or a
+    // thumbs-down runs queue-stop, after which the queue moves too
+    expect(model.workflows).toHaveLength(7);
+    expect(model.entryPoints).toHaveLength(11);
+    expect(model.continuations).toHaveLength(10);
     expect(model.chains.map((chain) => chain.workflowIds.slice().sort())).toEqual([
-      ["pr-fix", "publish-fix", "queue-add", "queue-progress", "review-commit"], ["report-secrets"],
+      ["pr-fix", "publish-fix", "queue-add", "queue-progress", "queue-stop", "review-commit"],
+      ["report-secrets"],
     ]);
     expect(model.workflows.find((wf) => wf.id === "pr-fix")?.entries.map((entry) => entry.rule.id))
       .toEqual(["pr-fixer-dispatch"]);
     expect(model.workflows.find((wf) => wf.id === "queue-add")?.entries.map((entry) => entry.rule.id))
       .toContain("pr-fixer-refix");
     expect(model.workflows.find((wf) => wf.id === "report-secrets")?.entries).toHaveLength(2);
-    expect(model.workflows.flatMap((wf) => wf.entries)).toHaveLength(18);
+    expect(model.workflows.find((wf) => wf.id === "queue-stop")?.entries.map((entry) => entry.rule.id))
+      .toEqual(["pr-fixer-stop-reaction", "pr-fixer-stop"]);
+    expect(model.workflows.flatMap((wf) => wf.entries)).toHaveLength(21);
     expect(model.continuations.map((entry) => [entry.rule.id, entry.fromWorkflowId, entry.workflowId]))
       .toEqual([
         ["pr-fixer-publish", "review-commit", "publish-fix"],
         ["pr-fixer-queue-progress-cancelled", "pr-fix", "queue-progress"],
         ["pr-fixer-queue-progress-failed", "pr-fix", "queue-progress"],
         ["pr-fixer-queue-progress-fixed", "pr-fix", "queue-progress"],
+        ["pr-fixer-queue-progress-stopped", "queue-stop", "queue-progress"],
         ["pr-fixer-queue-progress-superseded", "pr-fix", "queue-progress"],
         ["pr-fixer-queue-progress", "queue-add", "queue-progress"],
         ["pr-fixer-refix", "review-commit", "queue-add"],

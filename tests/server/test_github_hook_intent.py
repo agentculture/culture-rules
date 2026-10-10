@@ -83,10 +83,16 @@ def test_the_three_real_bodies_ask_for_nothing(name):
         ("  \n\n/FIX\nthe lint", {"command": "/fix"}),
         ("    /fix", {"command": "/fix"}),  # leading whitespace is not a token
         ("/fixed it myself", {"command": "/fixed"}),  # a fact; the variable decides
-        ("@rules-culture-dev fix the lint", {"mention": "@rules-culture-dev"}),
+        (
+            "@rules-culture-dev fix the lint",
+            {"mention": "@rules-culture-dev", "mention_command": "@rules-culture-dev fix"},
+        ),
         ("@Rules-Culture-Dev, please", {"mention": "@rules-culture-dev"}),
         ("@rules-culture-dev: fix", {"mention": "@rules-culture-dev"}),
-        ("@rules-culture-dev[bot] fix", {"mention": "@rules-culture-dev"}),
+        (
+            "@rules-culture-dev[bot] fix",
+            {"mention": "@rules-culture-dev", "mention_command": "@rules-culture-dev fix"},
+        ),
         ("\n@rules-culture-dev", {"mention": "@rules-culture-dev"}),
     ],
 )
@@ -280,4 +286,63 @@ def test_a_command_needs_whitespace_or_the_end_after_it(body):
 
 def test_unicode_whitespace_is_a_boundary():
     assert intent("/fix please") == {"command": "/fix"}
-    assert intent("@rules-culture-dev fix") == {"mention": "@rules-culture-dev"}
+    assert intent("@rules-culture-dev fix") == {
+        "mention": "@rules-culture-dev",
+        "mention_command": "@rules-culture-dev fix",
+    }
+
+
+# --------------------------------------------------------------------------- d34: stop
+
+
+@pytest.mark.parametrize(
+    "body, expected",
+    [
+        ("/stop", {"command": "/stop"}),
+        ("/STOP please", {"command": "/stop"}),
+        (
+            "@rules-culture-dev stop",
+            {"mention": "@rules-culture-dev", "mention_command": "@rules-culture-dev stop"},
+        ),
+        (
+            "@Rules-Culture-Dev[bot]  STOP now",
+            {"mention": "@rules-culture-dev", "mention_command": "@rules-culture-dev stop"},
+        ),
+        (
+            "@rules-culture-dev stop.",
+            {"mention": "@rules-culture-dev", "mention_command": "@rules-culture-dev stop"},
+        ),
+        ("@rules-culture-dev, stop", {"mention": "@rules-culture-dev"}),  # not right after it
+        (
+            "@rules-culture-dev stopping",
+            {"mention": "@rules-culture-dev", "mention_command": "@rules-culture-dev stopping"},
+        ),
+        ("@rules-culture-dev\n", {"mention": "@rules-culture-dev"}),
+        (
+            "@rules-culture-dev stopx-",
+            {"mention": "@rules-culture-dev", "mention_command": "@rules-culture-dev stopx-"},
+        ),
+        ("@rules-culture-dev stopé", {"mention": "@rules-culture-dev"}),  # no word boundary
+    ],
+)
+def test_the_word_after_the_apps_mention_is_its_mention_command(body, expected):
+    assert intent(body) == expected
+
+
+def test_an_issue_comment_and_a_review_comment_carry_their_comment_id():
+    store = MemoryStore()
+    store.put("actors", dict(APP))
+    payload = {
+        "action": "created",
+        "issue": {"number": 7, "title": "T", "html_url": "u", "pull_request": {}, "state": "open"},
+        "comment": {"id": 4242, "body": "/stop", "user": {"login": "OriNachum"}},
+        "repository": {"full_name": "o/r"},
+        "sender": {"login": "OriNachum"},
+    }
+    data = _deliver(store, "issue_comment", payload, "d-9", pull=lambda r, n: _pr())
+    assert data["comment_id"] == 4242
+    assert data["command"] == "/stop"
+    bad = {**payload, "comment": {**payload["comment"], "id": "4242"}}
+    assert "comment_id" not in _deliver(
+        store, "issue_comment", bad, "d-10", pull=lambda r, n: _pr()
+    )
