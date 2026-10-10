@@ -2,7 +2,7 @@
   "plan_slug": "pr-fixer-escalation",
   "schema_version": 2,
   "created": "2026-10-10T21:41:12Z",
-  "updated": "2026-10-10T21:42:46Z",
+  "updated": "2026-10-10T22:01:38Z",
   "deviations": [
     {
       "id": "d1",
@@ -36,6 +36,17 @@
       "status": "approved",
       "classification": "needs-follow-up",
       "seq": 3
+    },
+    {
+      "id": "d4",
+      "what": "The status comment's story root follows a retry's rules.run.failed link too (fixer_status.chain_root calls lineage.upstream(failed=True) for an enqueuer, as the push lineage does), so a timeout or capacity retry keeps one status comment per story and the queue's no_fixer_available hand-back reaches it; lineage.is_enqueuer and RUN_FAILED become public, fixer_levels.parse_until public",
+      "task_ref": "t2",
+      "reason": "an existing d37 bug: a retry's queue.add started by rules.run.failed became its own story root, opening a second status comment and losing t2's hand-back text (confirmed on the unchanged code)",
+      "affects": [],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 4
     }
   ],
   "evidence": [],
