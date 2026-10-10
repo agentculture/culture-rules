@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.4] - 2026-10-10
+
+### Added
+
+- PR fixer queue (#35, d28-d30): a shared `concurrency_pool` cap per model server (one slot count across the actors naming it, held across hosts), and the fixer's requests wait in a first-come-first-served queue owned by rules: the four trigger rules run `queue-add`, progress rules run `queue-progress`, and `pr-fixer-dispatch` starts the try. One try per run; a failed try or requested changes goes to the back of the queue as a retry; at most 3 tries per story; a closed or moved PR is dropped at dispatch; a dispatch is claimed by its intended run or expires, never both
+- Rules: `resets_attempt_budget` (d32) — a firing that starts a new story on its key; set on the comment and review-comment fixer rules, so a trusted `/fix` resets the budget
+
+### Changed
+
+- `sonar.gate_issues` (d33): on a passing gate it hands the agent the PR's own new-code issues, to fix only when the trusted request names them, never the backlog
+- PR fixer status comment (d35): one comment per story, carried through the queue and every retry, closed once when the story ends
+- github.push lineage verifies a dispatched fix back through its queue-add run to an enabled trusted trigger rule; new pr-fix digest pinned (operator-approved)
+- docs: the gate table lists lobes-cli, culture, katvan and irc-lens; the delivery summary carries d28-d35 and the #35 evidence (o38-o41, e82-e86, b15-b18, approved)
+
 ## [0.18.2] - 2026-10-10
 
 ### Fixed
