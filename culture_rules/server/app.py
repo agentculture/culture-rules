@@ -141,6 +141,12 @@ class ItemList(BaseModel):
     items: list[dict[str, Any]]
 
 
+class RunPage(ItemList):
+    next_cursor: str | None = Field(
+        default=None, description="with since: the next page's cursor; null on the last page"
+    )
+
+
 class Controls(BaseModel):
     paused: bool
     drained: list[str]
@@ -326,6 +332,22 @@ class Rollout(RolloutWrite):
     id: str
     updated_by: str
     updated_at: str | None = None
+    snapshot_at: str | None = Field(
+        default=None,
+        description="when the snapshot was recorded (server time); null = not recorded",
+    )
+
+
+class RolloutStepWrite(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    outcome: str | dict[str, Any] = Field(
+        description="a short string, or a small object of scalars / flat lists of scalars"
+    )
+
+
+class RolloutSnapshotWrite(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    snapshot: list[str] = Field(description="ids of the rules enabled when the rollout paused")
 
 
 class RolloutList(BaseModel):
@@ -546,6 +568,69 @@ def _hosts(doc: dict[str, Any]) -> list[str]:
 def _filter_runs_by_host(docs: list[dict[str, Any]], host: str | None) -> list[dict[str, Any]]:
     """Narrow run documents to a dispatch host (rule and workflow filter in the store)."""
     return [d for d in docs if host in _hosts(d)] if host else docs
+
+
+_EARLIEST = datetime(1, 1, 1, tzinfo=UTC)
+
+
+def _moment(value: Any) -> datetime | None:
+    """An ISO-8601 timestamp as an aware datetime (naive = UTC), or None."""
+    try:
+        moment = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return moment if moment.tzinfo else moment.replace(tzinfo=UTC)
+
+
+def _finished_key(doc: Mapping[str, Any]) -> tuple[datetime, str]:
+    """A run's place in the ``since`` order: when it finished (else last updated); a run
+    without a readable time sorts first, so a ``since`` filter keeps it (fail closed)."""
+    moment = _moment(doc.get("finished_at") or doc.get("updated_at"))
+    return (moment or _EARLIEST, str(doc.get("id")))
+
+
+def _page_bound(since: str | None, cursor: str | None) -> tuple[datetime, str] | None:
+    """The exclusive lower bound of a ``since`` page: the cursor's, else ``(since, "")``."""
+    if cursor:
+        at, _, rid = cursor.partition("|")
+        moment = _moment(at) if rid else None
+        if moment is None:
+            raise Invalid("invalid cursor", [{"path": "cursor", "code": "invalid_cursor"}])
+        return moment, rid
+    start = _moment(since) if since else _EARLIEST
+    if start is None:
+        message = "since must be an ISO-8601 timestamp"
+        raise Invalid(message, [{"path": "since", "code": "invalid_timestamp", "message": message}])
+    return start, ""
+
+
+def _runs_listing(
+    docs: list[dict[str, Any]], limit: int, since: str | None, cursor: str | None
+) -> dict[str, Any]:
+    """``GET /runs``'s answer: newest created first, or (with ``since``/``cursor``) a page."""
+    if since is None and cursor is None:
+        newest = sorted(docs, key=lambda d: d.get("created_at") or "", reverse=True)
+        return {"items": [_run_summary(d) for d in newest[: max(limit, 0)]], "next_cursor": None}
+    page, next_cursor = _runs_since_page(docs, since, cursor, limit)
+    return {"items": [_run_summary(d) for d in page], "next_cursor": next_cursor}
+
+
+def _runs_since_page(
+    docs: list[dict[str, Any]], since: str | None, cursor: str | None, limit: int
+) -> tuple[list[dict[str, Any]], str | None]:
+    """Runs finished at or after ``since`` (or after ``cursor``), oldest finish first, one
+    page of ``limit``; the cursor of the next page, or None when this page is the last."""
+    bound = _page_bound(since, cursor)
+    if cursor:
+        keyed = [(k, d) for d in docs if (k := _finished_key(d)) > bound]
+    else:
+        keyed = [(k, d) for d in docs if (k := _finished_key(d)) >= bound or k[0] == _EARLIEST]
+    keyed.sort(key=lambda pair: pair[0])
+    page = keyed[: max(limit, 1)]
+    if len(keyed) <= len(page):
+        return [d for _, d in page], None
+    last = page[-1][0]
+    return [d for _, d in page], f"{last[0].isoformat()}|{last[1]}"
 
 
 def create_app(
@@ -1060,6 +1145,31 @@ def _register_rollouts(app: FastAPI, rollouts: Rollouts) -> None:
         """Create or replace the rollout document for release ``id`` (admin, audited)."""
         return rollouts.put(id, body.model_dump(), identity)
 
+    @app.post(
+        "/rollouts/{id}/steps/{name}",
+        response_model=Rollout,
+        tags=["rollouts"],
+        operation_id="record_rollout_step",
+        responses={422: ERRORS[422]},
+    )
+    def record_rollout_step(id: str, name: str, body: RolloutStepWrite, identity: Identity):
+        """Merge one step's outcome into release ``id``'s rollout document, in one
+        transaction, creating the document when absent; the server sets ``applied_at``
+        (admin, audited)."""
+        return rollouts.record_step(id, name, body.model_dump(), identity)
+
+    @app.post(
+        "/rollouts/{id}/snapshot",
+        response_model=Rollout,
+        tags=["rollouts"],
+        operation_id="record_rollout_snapshot",
+        responses={409: ERRORS[409], 422: ERRORS[422]},
+    )
+    def record_rollout_snapshot(id: str, body: RolloutSnapshotWrite, identity: Identity):
+        """Record release ``id``'s enabled-rule snapshot once: the first wins, and a later
+        call answers 409 ``snapshot_recorded`` naming the recorded one (admin, audited)."""
+        return rollouts.record_snapshot(id, body.model_dump(), identity)
+
 
 def _described_workflow(store: StoragePort, ref: Any) -> Mapping[str, Any] | None:
     """The workflow a rule's ``workflow`` reference names, for its description: None without
@@ -1092,7 +1202,7 @@ def _register_runs(
     executor: Executor,
     containment: Containment,
 ) -> None:
-    @app.get("/runs", response_model=ItemList, tags=["runs"], operation_id="list_runs")
+    @app.get("/runs", response_model=RunPage, tags=["runs"], operation_id="list_runs")
     def list_runs(
         status: str | None = None,
         rule_id: str | None = None,
@@ -1101,15 +1211,27 @@ def _register_runs(
             str | None, Query(description="only runs with a step dispatched to this host")
         ] = None,
         limit: int = 100,
+        since: Annotated[
+            str | None,
+            Query(
+                description="only runs finished (else last updated) at or after this ISO-8601 "
+                "time, oldest finish first, paged by next_cursor"
+            ),
+        ] = None,
+        cursor: Annotated[
+            str | None, Query(description="next_cursor of the previous since page")
+        ] = None,
     ):
+        """Runs, newest created first (``limit`` of them). With ``since`` (or ``cursor``) the
+        listing is instead every run finished since then, oldest finish first, one page of
+        ``limit`` at a time: ``next_cursor`` names the next page and is null on the last."""
         where = {
             k: v
             for k, v in (("status", status), ("rule_id", rule_id), ("workflow_id", workflow_id))
             if v
         }
         docs = _filter_runs_by_host(store.find(RUNS_COLLECTION, where or None), host)
-        docs = sorted(docs, key=lambda d: d.get("created_at") or "", reverse=True)[: max(limit, 0)]
-        return {"items": [_run_summary(d) for d in docs]}
+        return _runs_listing(docs, limit, since, cursor)
 
     @app.get(
         "/rules/{id}/history",

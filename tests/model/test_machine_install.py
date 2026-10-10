@@ -188,3 +188,31 @@ def test_install_survives_a_store_round_trip() -> None:
     assert store.get(MACHINES_COLLECTION, "orin")["install"]["secrets"] == list(
         FULL_INSTALL["secrets"]
     )
+
+
+# --- #45 review r1: no control character or whitespace reaches install.sh ---------------
+
+
+ADVERSARIAL = ["broker\nPYTHONPATH=/tmp/attacker", "a\rb", "a\tb", "a\x00b", "a b", "a\x7fb"]
+
+
+@pytest.mark.parametrize("value", ADVERSARIAL)
+@pytest.mark.parametrize("field", ["node_name", "events_host", "wheelhouse", "python"])
+def test_a_text_field_with_a_control_character_or_space_is_refused(field, value) -> None:
+    machine = Machine(name="thor", install=MachineInstall(mode="install_sh", **{field: value}))
+    assert (f"install.{field}", "invalid_value") in _codes(machine)
+
+
+@pytest.mark.parametrize("value", ADVERSARIAL)
+def test_an_extra_or_secret_with_a_control_character_is_refused(value) -> None:
+    install = MachineInstall(mode="install_sh", extras=("store", value), secrets=("OK", value))
+    codes = _codes(Machine(name="thor", install=install))
+    assert ("install.extras[1]", "invalid_value") in codes
+    assert ("install.secrets[1]", "invalid_secret_name") in codes
+
+
+@pytest.mark.parametrize("char", ["\t", "\x00", "\x1b", "\x7f", "\x0b"])
+def test_gate_run_as_with_any_control_character_is_refused(char) -> None:
+    value = f"sudo -n -u culture-fixer --{char}/bin/true"
+    machine = Machine(name="thor", install=MachineInstall(mode="install_sh", gate_run_as=value))
+    assert ("install.gate_run_as", "invalid_run_as") in _codes(machine)

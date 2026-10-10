@@ -306,14 +306,16 @@ _ROLLOUT_NOTE = """\
 ## The rollout steps
 
 Run the CLI from the new release's venv: the release is its own `release.json`
-version, and the rollout document `/rollouts/<version>` records each applied step.
-One command per step, in order; nothing chains them and there is no `all` verb:
+version, and the rollout document `/rollouts/<version>` records each applied step
+(`POST /rollouts/<version>/steps/<step>`: merged server-side, `applied_at` from the
+server's clock; pause's snapshot via `POST /rollouts/<version>/snapshot`, first one
+wins). One command per step, in order; nothing chains them and there is no `all` verb:
 
 1. `rollout idle` lists the runs that are not terminal; pause needs none.
 2. `rollout pause --apply` stores the enabled-rule snapshot in the rollout
    document, then pauses the engine. Refused while a run is not terminal unless
    `--force` (the only override). An engine already paused is reported, not an
-   error; a snapshot already recorded by an earlier pause is kept.
+   error; a snapshot already recorded by an earlier (or concurrent) pause is kept.
 3. `rollout upgrade --host <name> --wheel <whl> --apply` per host, as its machine
    record's `install` section says (a record without one exits 1). `install_sh`:
    over ssh/scp (`-o BatchMode=yes`) the wheel and `install.sh` go to
@@ -322,10 +324,15 @@ One command per step, in order; nothing chains them and there is no `all` verb:
    `--extras`, `--wheelhouse`, `--python`, `--events-host/port`); then the installed
    version and the node unit's `ActiveState` and `ActiveEnterTimestamp` are read.
    `shared_venv` (the API host, run there): `uv pip install --reinstall-package
-   culture-rules --no-deps <whl>` into the shared venv, then restart
-   `culture-rules-api` and `culture-rules-node`; `install.sh` never runs. The dry run
-   prints the exact argv and opens no connection; the API URL and token never cross
-   ssh. Upgrade the shared-venv host first, then the install.sh hosts.
+   culture-rules --no-deps <whl>` into the venv the running API unit executes
+   (`systemctl --user show culture-rules-api.service -p ExecStart`; the node unit must
+   run the same venv, else exit 1 naming both), then restart `culture-rules-api` and
+   `culture-rules-node`; `install.sh` never runs. The dry run prints the exact argv
+   (`<venv>` for the shared venv) and runs nothing; `--apply` first records the step as
+   started, which needs the admin role, so another token runs nothing. A record field
+   with a control character or whitespace, or an `address` that is not a plain host
+   name, is refused before any argv is built. The API URL and token never cross ssh.
+   Upgrade the shared-venv host first, then the install.sh hosts.
 4. `rollout seed --apply` sets the release's seed variables (`variables.json` in
    the wheel, or `--bundle DIR`) that do not exist yet; `--force` replaces them.
 5. `rollout import --apply` imports the bundle's workflows and rules in one
@@ -333,12 +340,16 @@ One command per step, in order; nothing chains them and there is no `all` verb:
 6. `rollout enable --apply` re-enables exactly the snapshot plus `release.json`'s
    new rules and lists every rule left disabled. Refused before pause recorded a
    snapshot, while an online node's `engine_version` is older than the release
-   (unknown counts as older), or while a new rule is not imported.
-7. `rollout resume --apply` resumes the engine (already resumed is reported).
+   (PEP 440 order; unknown or unparseable counts as older), while a new rule is not
+   imported, or while a rule outside snapshot plus new rules is enabled (disable it
+   with `rules disable <id> --apply`; nothing changes before the refusal).
+7. `rollout resume --apply` records `resume_requested` (server time, once per
+   release), resumes the engine, then records `resume` (already resumed is reported).
 8. `rollout verify` exits 0 only when every node and the API run the release, the
    engine is not paused, the enabled rules equal snapshot plus new rules and no
-   run failed with `no_builtin` since resume; otherwise it lists each failed check
-   and exits 1.
+   run failed with `no_builtin` since `resume_requested` (else `resume`), reading
+   every failed run finished since then page by page (an incomplete listing fails
+   the check); otherwise it lists each failed check and exits 1.
 
 Guards exit 1 with a remediation naming the step to run first. `import` and
 `enable` are editor verbs, but recording their step writes the rollout document,

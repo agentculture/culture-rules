@@ -48,6 +48,9 @@ from culture_rules.auth.policy import required_role
         ("GET", "/rollouts", "viewer"),
         ("GET", "/rollouts/0.18.12", "viewer"),
         ("PUT", "/rollouts/0.18.12", "admin"),  # the fail-closed default
+        ("POST", "/rollouts/0.18.12/steps/pause", "admin"),  # the fail-closed default
+        ("POST", "/rollouts/0.18.12/steps/upgrade:thor", "admin"),
+        ("POST", "/rollouts/0.18.12/snapshot", "admin"),
     ],
 )
 def test_required_role(method, path, role):

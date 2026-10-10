@@ -5,12 +5,19 @@ CLI from the new release's venv, and the rollout document is keyed by that versi
 in order: ``idle``, ``pause``, ``upgrade --host`` (one per host), ``seed``, ``import``,
 ``enable``, ``resume``, ``verify``; ``plan`` prints them. No verb runs more than one step and
 nothing chains them. Every write is a dry run until ``--apply``; each applied step records its
-outcome in the rollout document (``PUT /rollouts/{version}``, read-merge-write).
+outcome in the rollout document with ``POST /rollouts/{version}/steps/{step}``, which the
+server merges atomically and timestamps with its own clock (no read-merge-write), and
+``pause`` records its snapshot with ``POST /rollouts/{version}/snapshot`` (the first wins).
 
 Guards refuse with exit 1 and a remediation naming the step to run first: ``pause`` while a
 run is not terminal (``--force`` overrides; the only override), ``import`` before this
 release's ``seed`` step is recorded, ``enable`` before ``pause`` recorded a snapshot, while an
-online node runs an older engine, or while one of the release's new rules is not imported.
+online node runs an older engine, while one of the release's new rules is not imported, or
+while a rule outside the snapshot plus the new rules is enabled.
+
+Versions order as PEP 440 for the forms releases use (``N(.N)*``, ``aN``/``bN``/``rcN``,
+``.postN``, ``.devN``, ``+local``); a version that does not parse is invalid and counts as
+older, never newer.
 """
 
 from __future__ import annotations
@@ -18,6 +25,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shlex
 from collections.abc import Iterable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
@@ -41,10 +49,23 @@ TERMINAL = frozenset({"succeeded", "failed", "cancelled", "superseded"})
 SHARED_VENV = "shared_venv"
 INSTALL_SH = "install_sh"
 _RUNS_LIMIT = 1000
+_RUNS_PAGE = 1000
+"""Failed runs per ``GET /runs?since=`` page in verify."""
+_MAX_RUN_PAGES = 1000
+"""Pages verify reads at most; past it the listing counts as incomplete (fail closed)."""
 _LIST_CAP = 64  # an outcome value list holds at most 64 items (the rollout document's bound)
 _OUTCOME_BYTES = 4096
 _NO_BUILTIN = "no_builtin"
-_VERSION_RE = re.compile(r"^(\d+(?:\.\d+)*)(.*)$")
+_VERSION_RE = re.compile(
+    r"^(?P<release>\d+(?:\.\d+)*)"
+    r"(?:(?P<pre_l>a|b|rc)(?P<pre_n>\d+))?"
+    r"(?:\.post(?P<post>\d+))?"
+    r"(?:\.dev(?P<dev>\d+))?"
+    r"(?:\+(?P<local>[a-z0-9]+(?:\.[a-z0-9]+)*))?$"
+)
+_PRE_ORDER = {"a": 0, "b": 1, "rc": 2}
+_LOW, _HIGH = (0,), (2,)  # sort below / above every present value (each is ``(1, ...)``)
+_RESUME_REQUESTED = "resume_requested"
 
 WHEEL = Param("wheel", help="the culture_rules-<version>-*.whl to roll out", required=True)
 BUNDLE = Param("bundle", help="bundle directory (default: the one this wheel carries)")
@@ -119,29 +140,47 @@ def check_wheel(path: str) -> Path:
     return wheel
 
 
-def _parse_version(value: Any) -> tuple[tuple[int, ...], str] | None:
+def _local_key(local: str | None) -> tuple:
+    if local is None:
+        return _LOW
+    # a numeric segment sorts above an alphanumeric one; numbers compare as numbers
+    parts = tuple((1, int(p), "") if p.isdigit() else (0, 0, p) for p in local.split("."))
+    return (1, parts)
+
+
+def version_key(value: Any) -> tuple | None:
+    """A PEP 440 sort key for the version forms releases use, or None when ``value`` does
+    not parse (an invalid version: never newer than anything)."""
     match = _VERSION_RE.match(value) if isinstance(value, str) else None
     if match is None:
         return None
-    nums = [int(x) for x in match.group(1).split(".")]
-    while len(nums) > 1 and nums[-1] == 0:
-        nums.pop()
-    return tuple(nums), match.group(2)
+    release = [int(x) for x in match["release"].split(".")]
+    while len(release) > 1 and release[-1] == 0:
+        release.pop()
+    pre_l, post, dev = match["pre_l"], match["post"], match["dev"]
+    if pre_l is not None:
+        pre: tuple = (1, _PRE_ORDER[pre_l], int(match["pre_n"]))
+    else:  # a dev release of a final sorts before its pre-releases; a final after them
+        pre = _LOW if dev is not None and post is None else _HIGH
+    return (
+        tuple(release),
+        pre,
+        _LOW if post is None else (1, int(post)),
+        _HIGH if dev is None else (1, int(dev)),
+        _local_key(match["local"]),
+    )
 
 
 def is_older(version: Any, release: str) -> bool:
-    """Whether a node's ``version`` is older than ``release``.
+    """Whether a node's ``version`` is older than ``release`` (PEP 440 order).
 
-    Numeric release parts compare as numbers; at equal numbers a plain release is newest and
-    a pre/dev/local suffix that differs from the release's counts as older. An unknown
-    (``None``) or unparseable version is older unless it equals the release exactly.
+    A version that does not parse (``None``, ``"unknown"``, ``"2.bad"``) is invalid and
+    counts as older; so does every version when ``release`` itself does not parse.
     """
-    mine, theirs = _parse_version(version), _parse_version(release)
+    mine, theirs = version_key(version), version_key(release)
     if mine is None or theirs is None:
-        return version != release
-    if mine[0] != theirs[0]:
-        return mine[0] < theirs[0]
-    return bool(mine[1]) and mine[1] != theirs[1]
+        return True
+    return mine < theirs
 
 
 # --------------------------------------------------------------------------- API helpers
@@ -177,8 +216,10 @@ def _steps(doc: Mapping[str, Any] | None) -> dict[str, Any]:
     return dict((doc or {}).get("steps") or {})
 
 
-def _now() -> str:
-    return datetime.now(UTC).isoformat(timespec="seconds")
+def snapshot_recorded(doc: Mapping[str, Any] | None) -> bool:
+    """Whether ``doc`` holds a recorded snapshot (the server's rule: ``snapshot_at`` set, or
+    a ``pause`` step recorded by a document written before the snapshot endpoint)."""
+    return bool(doc) and (bool(doc.get("snapshot_at")) or "pause" in _steps(doc))
 
 
 def _fit(outcome: Mapping[str, Any]) -> dict[str, Any]:
@@ -191,25 +232,35 @@ def _fit(outcome: Mapping[str, Any]) -> dict[str, Any]:
     return {k: (f"{len(v)} item(s)" if isinstance(v, list) else v) for k, v in fitted.items()}
 
 
-def record(
-    ctx: Context,
-    step: str,
-    outcome: Mapping[str, Any],
-    *,
-    snapshot: list[str] | None = None,
-    applied_at: str | None = None,
-) -> dict[str, Any]:
-    """Merge one step's outcome into this release's rollout document (read, merge, ``PUT``)."""
+def record(ctx: Context, step: str, outcome: Mapping[str, Any]) -> dict[str, Any]:
+    """Record one step's outcome: ``POST /rollouts/{version}/steps/{step}`` (admin). The
+    server merges it into the document in one transaction and sets ``applied_at``."""
+    path = f"{_rollout_path(release_version())}/steps/{seg(step)}"
+    body = {"outcome": _fit(outcome)}
+    return _api.call(lambda: ctx.client.request("POST", path, body=body))
+
+
+def _store_snapshot(ctx: Context, snapshot: list[str]) -> tuple[list[str], bool]:
+    """``POST /rollouts/{version}/snapshot``; when one is recorded already (409) it wins.
+
+    Returns ``(the recorded snapshot, whether it was already recorded)``.
+    """
     version = release_version()
-    current = _rollout_doc(ctx, version) or {}
-    steps = _steps(current)
-    steps[step] = {"applied_at": applied_at or _now(), "outcome": _fit(outcome)}
-    body = {
-        "version": version,
-        "snapshot": list(current.get("snapshot") or []) if snapshot is None else snapshot,
-        "steps": steps,
-    }
-    return _api.call(lambda: ctx.client.request("PUT", _rollout_path(version), body=body))
+
+    def post() -> bool:
+        try:
+            ctx.client.request(
+                "POST", f"{_rollout_path(version)}/snapshot", body={"snapshot": snapshot}
+            )
+        except ApiError as exc:
+            if exc.status == 409:
+                return True
+            raise
+        return False
+
+    if not _api.call(post):
+        return snapshot, False
+    return list((_rollout_doc(ctx, version) or {}).get("snapshot") or []), True
 
 
 def _record_if_allowed(ctx: Context, step: str, outcome: Mapping[str, Any]) -> dict[str, Any]:
@@ -344,7 +395,7 @@ def _host_entry(machine: Mapping[str, Any]) -> dict[str, Any]:
     if not install:
         return {"host": name, "mode": None, "note": "not upgradeable: add an install section"}
     if install.get("mode") == SHARED_VENV:
-        note = "uv pip install the wheel into the shared venv, restart the API and the node"
+        note = "uv pip install the wheel into the venv the API unit runs, restart API and node"
         return {"host": name, "mode": SHARED_VENV, "note": note}
     return {"host": name, "mode": INSTALL_SH, "flags": install_flags(name, install)}
 
@@ -362,7 +413,7 @@ def _plan(ctx: Context, wheel: str) -> dict[str, Any]:
     version, release = release_version(), _release()
     machines = _get(ctx, "/machines").get("items", [])
     doc = _rollout_doc(ctx, version)
-    if doc is not None and "pause" in _steps(doc):
+    if snapshot_recorded(doc):
         snapshot, source = list(doc.get("snapshot") or []), "the rollout document (pause)"
     else:
         snapshot, source = _enabled(_rules(ctx)), "the rules enabled now (pause takes it)"
@@ -414,8 +465,8 @@ def _pause(ctx: Context, force: bool = False) -> dict[str, Any]:
             "run 'culture-rules rollout idle' and wait until it reports idle (or pass --force)",
         )
     doc = _rollout_doc(ctx, version)
-    kept = doc is not None and "pause" in _steps(doc)
-    snapshot = list(doc.get("snapshot") or []) if kept else _enabled(_rules(ctx))
+    kept = snapshot_recorded(doc)
+    snapshot = list((doc or {}).get("snapshot") or []) if kept else _enabled(_rules(ctx))
     paused = bool(_get(ctx, "/controls").get("paused"))
     out = envelope(
         "pause",
@@ -424,36 +475,54 @@ def _pause(ctx: Context, force: bool = False) -> dict[str, Any]:
         snapshot_kept=kept,
         forced=[str(r.get("id")) for r in runs],
         would=[
-            {"method": "PUT", "path": _rollout_path(version), "snapshot": len(snapshot)},
+            {
+                "method": "POST",
+                "path": f"{_rollout_path(version)}/snapshot",
+                "snapshot": len(snapshot),
+                "skip": kept,
+            },
             {"method": "POST", "path": "/controls/pause", "skip": paused},
         ],
     )
-    lines = [
-        f"snapshot: {len(snapshot)} enabled rule(s)"
-        + (" (kept from the recorded pause step)" if kept else ""),
-        *(f"  {rid}" for rid in snapshot),
-    ]
-    if runs:
-        lines.append(f"forced past {len(runs)} run(s) not terminal")
     if not ctx.apply:
+        lines = _snapshot_lines(snapshot, kept, runs)
         lines.append(
             "dry-run: would store the snapshot, then "
             + ("report the engine already paused" if paused else "POST /controls/pause")
         )
         return {**out, "engine": "paused" if paused else "running", "lines": lines}
+    if not kept:  # the snapshot lands before the pause; a concurrent first one wins
+        snapshot, kept = _store_snapshot(ctx, snapshot)
     outcome = {"snapshot": len(snapshot), "forced": out["forced"], "engine": "pausing"}
-    record(ctx, "pause", outcome, snapshot=snapshot)  # the snapshot lands before the pause
+    record(ctx, "pause", outcome)
     already = paused or _toggle(ctx, "pause")
     state = "already paused" if already else "paused"
-    record(ctx, "pause", {**outcome, "engine": state}, snapshot=snapshot)
-    lines.append(f"engine {state}")
-    return {**out, "engine": state, "lines": lines}
+    record(ctx, "pause", {**outcome, "engine": state})
+    lines = [*_snapshot_lines(snapshot, kept, runs), f"engine {state}"]
+    return {**out, "snapshot": snapshot, "snapshot_kept": kept, "engine": state, "lines": lines}
+
+
+def _snapshot_lines(snapshot: list[str], kept: bool, runs: list[dict[str, Any]]) -> list[str]:
+    lines = [
+        f"snapshot: {len(snapshot)} enabled rule(s)"
+        + (" (kept: this release's snapshot is already recorded)" if kept else ""),
+        *(f"  {rid}" for rid in snapshot),
+    ]
+    if runs:
+        lines.append(f"forced past {len(runs)} run(s) not terminal")
+    return lines
 
 
 def _resume(ctx: Context) -> dict[str, Any]:
+    """Record the resume boundary, resume the engine, then record the resume step.
+
+    ``resume_requested`` is recorded (server time) before ``POST /controls/resume``, so
+    verify's "since resume" window opens before the engine runs again. It is recorded once
+    per release and never moved later (a later re-run keeps the earlier, wider window).
+    """
     version = release_version()
     paused = bool(_get(ctx, "/controls").get("paused"))
-    previous = _steps(_rollout_doc(ctx, version)).get("resume")
+    steps = _steps(_rollout_doc(ctx, version))
     out = envelope(
         "resume", ctx, would={"method": "POST", "path": "/controls/resume", "skip": not paused}
     )
@@ -462,13 +531,9 @@ def _resume(ctx: Context) -> dict[str, Any]:
         return {
             **out,
             "engine": "paused" if paused else "running",
-            "lines": [f"dry-run: would {what} and record the resume step"],
+            "lines": [f"dry-run: would record {_RESUME_REQUESTED}, {what} and record resume"],
         }
-    already = not paused or _toggle(ctx, "resume")
-    state = "already resumed" if already else "resumed"
-    # an engine already resumed keeps the recorded resume time (verify's "since resume")
-    keep = previous.get("applied_at") if already and isinstance(previous, Mapping) else None
-    record(ctx, "resume", {"engine": state}, applied_at=keep)
+    state = _apply_resume(ctx, paused, steps)
     controls = _get(ctx, "/controls")
     return {
         **out,
@@ -476,6 +541,18 @@ def _resume(ctx: Context) -> dict[str, Any]:
         "controls": controls,
         "lines": [f"engine {state}", f"controls: {json.dumps(controls)}"],
     }
+
+
+def _apply_resume(ctx: Context, paused: bool, steps: Mapping[str, Any]) -> str:
+    """Record ``resume_requested`` (once), resume, record ``resume``; the engine's state."""
+    if not paused and "resume" in steps:
+        return "already resumed"  # the recorded boundary stays as it is
+    if _RESUME_REQUESTED not in steps:
+        record(ctx, _RESUME_REQUESTED, {"engine": "paused" if paused else "running"})
+    already = not paused or _toggle(ctx, "resume")
+    state = "already resumed" if already else "resumed"
+    record(ctx, "resume", {"engine": state})
+    return state
 
 
 # --------------------------------------------------------------------------- seed / import
@@ -549,7 +626,7 @@ def _import(ctx: Context, bundle: str | None = None) -> dict[str, Any]:
 def _enable_guards(ctx: Context, version: str) -> list[str]:
     """The snapshot recorded at pause; refuses while a node is behind or no pause recorded."""
     doc = _rollout_doc(ctx, version)
-    if "pause" not in _steps(doc):
+    if not snapshot_recorded(doc):
         raise CliError(
             EXIT_USER_ERROR,
             f"enable refused: release {version} has no snapshot (its pause step is not recorded)",
@@ -570,6 +647,22 @@ def _enable_guards(ctx: Context, version: str) -> list[str]:
     return list((doc or {}).get("snapshot") or [])
 
 
+def _refuse_extra_enabled(extra: set[str]) -> None:
+    """Refuse (before any write) while a rule outside snapshot + new rules is enabled."""
+    if not extra:
+        return
+    ordered = sorted(extra)
+    raise CliError(
+        EXIT_USER_ERROR,
+        "enable refused: rule(s) outside the snapshot plus the release's new rules are "
+        f"enabled: {', '.join(ordered)}",
+        "disable each: "
+        + "; ".join(f"culture-rules rules disable {shlex.quote(r)} --apply" for r in ordered)
+        + ". If one belongs enabled, it must be in the snapshot, which 'rollout pause "
+        "--apply' records once per release; then re-run 'culture-rules rollout enable'",
+    )
+
+
 def _enable(ctx: Context) -> dict[str, Any]:
     """Re-enable exactly the snapshot plus the release's new rules; list every rule left off."""
     version = release_version()
@@ -585,6 +678,7 @@ def _enable(ctx: Context) -> dict[str, Any]:
             "run 'culture-rules rollout import --apply' first",
         )
     target = list(dict.fromkeys([*snapshot, *new_rules]))
+    _refuse_extra_enabled(enabled - set(target))
     missing = [r for r in target if r not in ids]  # a snapshot rule deleted since the pause
     to_enable = [r for r in target if r in ids and r not in enabled]
     left = sorted(ids - enabled - set(to_enable))
@@ -597,12 +691,17 @@ def _enable(ctx: Context) -> dict[str, Any]:
         left_disabled=left,
         would=[{"method": "POST", "path": f"/rules/{seg(r)}/enable"} for r in to_enable],
     )
-    verb = "enabled" if ctx.apply else "dry-run: would enable"
     if ctx.apply:
         for rid in to_enable:
             _api.call(lambda rid=rid: ctx.client.request("POST", f"/rules/{seg(rid)}/enable"))
         outcome = {"enabled": to_enable, "left_disabled": left, "missing": missing}
         out["record"] = _record_if_allowed(ctx, "enable", outcome)
+    return {**out, "lines": _enable_lines(ctx.apply, out)}
+
+
+def _enable_lines(applied: bool, out: Mapping[str, Any]) -> list[str]:
+    verb = "enabled" if applied else "dry-run: would enable"
+    to_enable, left, missing = out["enable"], out["left_disabled"], out["missing"]
     lines = [
         f"{verb} {len(to_enable)} rule(s): {', '.join(to_enable) or '-'}",
         f"already enabled: {len(out['already_enabled'])}",
@@ -610,7 +709,7 @@ def _enable(ctx: Context) -> dict[str, Any]:
     ]
     if missing:
         lines.append(f"snapshot rule(s) no longer present: {', '.join(missing)}")
-    return {**out, "lines": lines}
+    return lines
 
 
 # --------------------------------------------------------------------------- upgrade
@@ -672,7 +771,7 @@ def _check_engine(ctx: Context) -> dict[str, Any]:
 
 def _check_rules(ctx: Context, doc: Mapping[str, Any] | None) -> dict[str, Any]:
     fix = "culture-rules rollout enable --apply"
-    if "pause" not in _steps(doc):
+    if not snapshot_recorded(doc):
         return _check("rules", False, "no snapshot recorded (pause step missing)", fix)
     want = set((doc or {}).get("snapshot") or []) | set(_release().get("new_rules") or [])
     have = set(_enabled(_rules(ctx)))
@@ -699,23 +798,60 @@ def _mentions_no_builtin(error: Any) -> bool:
     return error.get("code") == _NO_BUILTIN or _NO_BUILTIN in str(error.get("message") or "")
 
 
-def _check_no_builtin(ctx: Context, doc: Mapping[str, Any] | None) -> dict[str, Any]:
-    resume = _steps(doc).get("resume") or {}
-    since = _parse_ts(resume.get("applied_at")) if isinstance(resume, Mapping) else None
-    if since is None:
-        return _check(
-            "no_builtin", False, "no resume step recorded", "culture-rules rollout resume --apply"
-        )
-    failed = _get(ctx, "/runs", {"status": "failed", "limit": _RUNS_LIMIT}).get("items", [])
+def _resume_boundary(doc: Mapping[str, Any] | None) -> datetime | None:
+    """When verify's window opens: ``resume_requested`` (recorded before the engine resumed),
+    else (documents written before it) the ``resume`` step."""
+    steps = _steps(doc)
+    for name in (_RESUME_REQUESTED, "resume"):
+        step = steps.get(name)
+        if isinstance(step, Mapping):
+            return _parse_ts(step.get("applied_at"))
+    return None
+
+
+def _failed_since(ctx: Context, since: datetime) -> tuple[list[dict[str, Any]], bool]:
+    """Every failed run finished since ``since``, paging ``GET /runs?since=`` until
+    exhausted: ``(runs, complete)``. An answer without ``next_cursor`` (an API that does
+    not page) or a listing past :data:`_MAX_RUN_PAGES` pages is incomplete."""
+    runs: list[dict[str, Any]] = []
+    query: dict[str, Any] = {"status": "failed", "since": since.isoformat(), "limit": _RUNS_PAGE}
+    for _ in range(_MAX_RUN_PAGES):
+        page = _get(ctx, "/runs", query)
+        runs += page.get("items", [])
+        if "next_cursor" not in page:
+            return runs, False
+        cursor = page["next_cursor"]
+        if not cursor:
+            return runs, True
+        query = {**query, "cursor": cursor}
+    return runs, False
+
+
+def _no_builtin_hits(ctx: Context, runs: Iterable[Mapping[str, Any]]) -> list[str]:
     hits = []
-    for run in failed:
-        at = _parse_ts(run.get("finished_at") or run.get("created_at"))
-        if at is None or at < since:
-            continue
+    for run in runs:
         full = _get(ctx, f"/runs/{seg(str(run['id']))}")
         errors = [full.get("error"), *(s.get("error") for s in full.get("steps") or ())]
         if any(_mentions_no_builtin(e) for e in errors):
             hits.append(str(run["id"]))
+    return hits
+
+
+def _check_no_builtin(ctx: Context, doc: Mapping[str, Any] | None) -> dict[str, Any]:
+    since = _resume_boundary(doc)
+    if since is None:
+        return _check(
+            "no_builtin", False, "no resume step recorded", "culture-rules rollout resume --apply"
+        )
+    failed, complete = _failed_since(ctx, since)
+    if not complete:
+        return _check(
+            "no_builtin",
+            False,
+            f"could not read every failed run since resume ({len(failed)} read)",
+            "upgrade the API so GET /runs pages with since and cursor, then re-run verify",
+        )
+    hits = _no_builtin_hits(ctx, failed)
     detail = f"run(s) failed with no_builtin: {', '.join(hits)}" if hits else "none since resume"
     return _check(
         "no_builtin",
