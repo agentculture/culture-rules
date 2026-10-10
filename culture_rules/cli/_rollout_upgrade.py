@@ -19,7 +19,9 @@ The host's machine record (``GET /machines/{name}``) says how, in its ``install`
 Without ``--apply`` it prints the exact argv (``<venv>`` for the shared venv, which only an
 applied run reads) and runs nothing. With ``--apply`` the step is first recorded as started
 (``POST /rollouts/{version}/steps/upgrade:<host>``, admin): a token without the admin role
-is refused there, before any command runs. Every machine-record field that reaches an argv
+is refused there, before any command runs; an API without ``/rollouts`` endpoints (one that
+predates the rollout CLI) answers 404 or 405 there and the upgrade exits 2 naming the
+runbook's bootstrap, also before any command runs. Every machine-record field that reaches an argv
 is checked again here, whatever the stored document holds: a control character or
 whitespace in a one-word field, a control character in the run-as prefix, or an ssh target
 that is not a plain host name refuses the upgrade (exit 1). Commands run through an

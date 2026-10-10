@@ -356,6 +356,12 @@ wins). One command per step, in order; nothing chains them and there is no `all`
    every failed run finished since then page by page (an incomplete listing fails
    the check); otherwise it lists each failed check and exits 1.
 
+Prerequisite: the API must serve `/rollouts`. One older than the release that
+ships the rollout CLI (0.18.12) has none, and every step that writes the rollout
+document exits 2 ("the API at <url> has no /rollouts endpoints"); `rollout plan`
+reports the API's version and the missing endpoints. That release is rolled out
+once by hand: docs/operations/rollout.md, "Bootstrapping the first release".
+
 Guards exit 1 with a remediation naming the step to run first. `import` and
 `enable` are editor verbs, but recording their step writes the rollout document,
 which is admin: with an editor token the step runs and reports it was not

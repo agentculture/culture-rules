@@ -16,6 +16,11 @@ online node runs an older engine, while one of the release's new rules is not im
 while a snapshot rule no longer exists, or while a rule outside the snapshot plus the new
 rules is enabled.
 
+An API that predates the rollout CLI has no ``/rollouts`` endpoints: every ``/rollouts``
+write there answers 404 or 405, which the verbs refuse with exit 2 naming the runbook's
+"Bootstrapping the first release" (that release is rolled out once by hand); ``plan``
+reports the API's version and whether the endpoints exist.
+
 Versions order as PEP 440 for the forms releases use (``N(.N)*``, ``aN``/``bN``/``rcN``,
 ``.postN``, ``.devN``, ``+local``); a version that does not parse is invalid and counts as
 older, never newer.
@@ -27,7 +32,7 @@ import argparse
 import json
 import re
 import shlex
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -35,7 +40,7 @@ from typing import Any
 from culture_rules import deploy_data
 from culture_rules.cli import _api
 from culture_rules.cli._build import register_noun
-from culture_rules.cli._errors import EXIT_USER_ERROR, CliError
+from culture_rules.cli._errors import EXIT_ENV_ERROR, EXIT_USER_ERROR, CliError
 from culture_rules.cli._nounlib import ID, collect_files, sections_overview, seg
 from culture_rules.cli.registry import Context, Param, Verb
 from culture_rules.client.http import ApiError
@@ -68,6 +73,10 @@ _PRE_ORDER = {"a": 0, "b": 1, "rc": 2}
 _LOW, _HIGH = (0,), (2,)  # sort below / above every present value (each is ``(1, ...)``)
 _RESUME_REQUESTED = "resume_requested"
 _STEP_RECORDED = "step_recorded"
+BOOTSTRAP_HINT = (
+    "bootstrap this release by hand: see docs/operations/rollout.md, "
+    "'Bootstrapping the first release'"
+)
 
 WHEEL = Param("wheel", help="the culture_rules-<version>-*.whl to roll out", required=True)
 BUNDLE = Param("bundle", help="bundle directory (default: the one this wheel carries)")
@@ -206,6 +215,50 @@ def _optional_get(ctx: Context, path: str) -> Any:
     return _api.call(fetch)
 
 
+def _api_url(ctx: Context) -> str:
+    return str(getattr(ctx.client, "base_url", "") or "the configured URL")
+
+
+def no_rollouts_endpoints(ctx: Context) -> CliError:
+    """The refusal for an API that predates the rollout CLI (no ``/rollouts`` routes)."""
+    return CliError(
+        EXIT_ENV_ERROR,
+        f"the API at {_api_url(ctx)} has no /rollouts endpoints (it predates the rollout CLI)",
+        BOOTSTRAP_HINT,
+    )
+
+
+def _rollouts_write(ctx: Context, write: Callable[[], Any]) -> Any:
+    """Run a ``/rollouts`` write. These routes never answer 404 or 405 for a valid body
+    (an unknown rollout is created), so either means the API has no ``/rollouts``
+    endpoints: it predates the rollout CLI and this release is bootstrapped by hand."""
+
+    def guarded() -> Any:
+        try:
+            return write()
+        except ApiError as exc:
+            if exc.status in (404, 405):
+                raise no_rollouts_endpoints(ctx) from exc
+            raise
+
+    return _api.call(guarded)
+
+
+def _rollouts_endpoints(ctx: Context) -> bool:
+    """Whether the API serves ``GET /rollouts`` (an API before the rollout CLI answers 404)."""
+
+    def probe() -> bool:
+        try:
+            ctx.client.request("GET", "/rollouts")
+        except ApiError as exc:
+            if exc.status in (404, 405):
+                return False
+            raise
+        return True
+
+    return bool(_api.call(probe))
+
+
 def _rollout_path(version: str) -> str:
     return f"/rollouts/{seg(version)}"
 
@@ -239,7 +292,7 @@ def record(ctx: Context, step: str, outcome: Mapping[str, Any]) -> dict[str, Any
     server merges it into the document in one transaction and sets ``applied_at``."""
     path = f"{_rollout_path(release_version())}/steps/{seg(step)}"
     body = {"outcome": _fit(outcome)}
-    return _api.call(lambda: ctx.client.request("POST", path, body=body))
+    return _rollouts_write(ctx, lambda: ctx.client.request("POST", path, body=body))
 
 
 def _store_snapshot(ctx: Context, snapshot: list[str]) -> tuple[list[str], bool]:
@@ -260,7 +313,7 @@ def _store_snapshot(ctx: Context, snapshot: list[str]) -> tuple[list[str], bool]
             raise
         return False
 
-    if not _api.call(post):
+    if not _rollouts_write(ctx, post):
         return snapshot, False
     return list((_rollout_doc(ctx, version) or {}).get("snapshot") or []), True
 
@@ -411,10 +464,21 @@ def _host_line(entry: Mapping[str, Any]) -> str:
     return f"{head}   (install.sh {' '.join(entry['flags'])})"
 
 
+def _bootstrap_lines(ctx: Context, endpoints: bool) -> list[str]:
+    if endpoints:
+        return []
+    return [
+        f"the API at {_api_url(ctx)} has no /rollouts endpoints (it predates the rollout "
+        f"CLI): the steps below refuse until it is upgraded; {BOOTSTRAP_HINT}"
+    ]
+
+
 def _plan(ctx: Context, wheel: str) -> dict[str, Any]:
     version, release = release_version(), _release()
+    api_version = _get(ctx, "/health").get("version")
+    endpoints = _rollouts_endpoints(ctx)
     machines = _get(ctx, "/machines").get("items", [])
-    doc = _rollout_doc(ctx, version)
+    doc = _rollout_doc(ctx, version) if endpoints else None
     if snapshot_recorded(doc):
         snapshot, source = list(doc.get("snapshot") or []), "the rollout document (pause)"
     else:
@@ -424,6 +488,8 @@ def _plan(ctx: Context, wheel: str) -> dict[str, Any]:
     new_rules, new_vars = list(release.get("new_rules") or []), release.get("new_variables") or []
     lines = [
         f"rollout plan for release {version} (wheel {Path(wheel).name}); nothing was written",
+        f"API version {api_version or 'unknown (its /health names none)'} at {_api_url(ctx)}",
+        *_bootstrap_lines(ctx, endpoints),
         "steps, one command each, in order (each is a dry run until --apply):",
         "  1. culture-rules rollout idle",
         "  2. culture-rules rollout pause --apply",
@@ -442,6 +508,8 @@ def _plan(ctx: Context, wheel: str) -> dict[str, Any]:
         "verb": "rollout plan",
         "release": version,
         "wheel": str(wheel),
+        "api_version": api_version,
+        "rollouts_endpoints": endpoints,
         "steps": ["idle", "pause", "upgrade", "seed", "import", "enable", "resume", "verify"],
         "hosts": hosts,
         "snapshot": snapshot,

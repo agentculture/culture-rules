@@ -30,6 +30,41 @@ operator's runbook.
 - **Auto mode blocks production deploys** in Claude Code, so the operator runs each
   step; nothing chains steps and there is no `all` verb.
 
+## Bootstrapping the first release
+
+The rollout CLI needs the API's `/rollouts` endpoints, and an API older than the
+release that ships the CLI (0.18.12) has none. Against such an API every rollout
+step that writes the rollout document (`pause`'s snapshot, each step record,
+`upgrade`'s start record) refuses with exit 2: "the API at `<url>` has no
+/rollouts endpoints (it predates the rollout CLI)". `upgrade` still proves the
+admin role before anything runs, so on an old API it runs nothing. `cr rollout
+plan --wheel "$WHEEL"` prints the API's version (from `/health`; an old API names
+none) and says when the endpoints are missing.
+
+So 0.18.12 is rolled out once by hand, with a script in the style of the earlier
+ones (`rollout-0186.sh` to `rollout-0188.sh` on #45), each step dry-run first:
+
+1. List the enabled rules into a file (`cr rules list --json`, keeping the ids
+   whose `enabled` is true), then pause the engine: `cr runs pause --apply`.
+2. Upgrade spark's shared venv first (`uv pip install --reinstall-package
+   culture-rules --no-deps "$WHEEL"` into the venv the API unit runs, then
+   restart `culture-rules-api` and `culture-rules-node`), then thor, orin and
+   spark2 with `install.sh --apply`, `--wheel` and the flags in the
+   [install records table](#the-machine-install-records).
+3. Seed the new variables (`bash docs/rules/pr-fixer/seed-variables.sh --apply`).
+4. Import the bundle (`docs/rules/pr-fixer`, or `pr-fixer/` in the installed
+   wheel): `cr workflows import <bundle> --apply`, then `cr rules import <bundle>
+   --apply`.
+5. Re-enable each rule in the recorded list, plus the release's new rules
+   (`release.json`): `cr rules enable <id> --apply`.
+6. Resume: `cr runs resume --apply`.
+
+Then set each machine's `install` section (below). The bootstrap writes no
+rollout document, so check it by hand rather than with `rollout verify`:
+each node's `engine_version` (`GET /machines/status`), `cr runs controls` and
+the enabled rules. Every later
+release uses the rollout CLI.
+
 ## The machine install records
 
 `rollout upgrade` reads each host's flags from its machine record's `install`
