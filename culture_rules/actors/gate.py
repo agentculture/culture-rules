@@ -187,7 +187,7 @@ import time
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import IO, Any, Protocol
 
@@ -855,14 +855,16 @@ class _Job:
         stdin: IO[bytes] | None = None,
         in_repo: bool = True,
         env: Mapping[str, str] | None = None,
+        timeout: float | None = None,
     ) -> tuple[int, bytes]:
+        """``timeout`` (d36) caps this call below the job's deadline, never past it."""
         argv = ["git", "-c", "core.hooksPath=/dev/null", "-c", "core.quotePath=false"]
         if in_repo:
             argv += ["-C", self.repo]
         with tempfile.TemporaryFile(dir=self.tmp) as out:
             rc = self._git(
                 [*argv, *args],
-                timeout=self.left(),
+                timeout=self.left() if timeout is None else min(self.left(), timeout),
                 stdout=out,
                 stdin=stdin,
                 env={**_git_env(self.tmp), **(env or {})},
@@ -1089,41 +1091,86 @@ _CONFLICT_MARKER = re.compile(r"^(?:<{7}|>{7})(?: |$)|^={7}$", re.MULTILINE)
 _DIFF = ("diff", "--no-ext-diff", "--no-textconv", "--no-color")
 
 
-def _churn(job: _Job, frm: str, to: str) -> int:
-    """Lines added plus deleted from ``frm`` to ``to`` (a binary change counts as one)."""
-    numstat = job.git(
-        "diff", "--no-ext-diff", "--no-textconv", "--no-renames", "-z", "--numstat", frm, to, "--"
-    ).decode("utf-8", "replace")
-    total = 0
-    for entry in numstat.split("\x00"):
-        added, _, rest = entry.partition("\t")
-        deleted, _, path = rest.partition("\t")
-        if path:
-            total += (int(added) if added.isdigit() else 1) + (
-                int(deleted) if deleted.isdigit() else 0
-            )
-    return total
+_HINT_BUDGET_S = 10.0
+"""Seconds the d36 copied-base check may spend; past them it gives up, finding nothing."""
+_NAMES = ("diff", "--no-ext-diff", "--no-textconv", "--no-renames", "-z")
 
 
-def _base_copied_in(job: _Job, start: str, built: str, base: str) -> bool:
-    """d36: ``built`` (no merge in it) has not got ``base`` in its history, yet it is far
-    closer to ``base`` than to the PR head it builds on - the base's own changes were
-    copied in as a plain commit instead of merged (the live case: katvan#57). Two
-    ``--numstat`` diffs; deterministic."""
-    if job.git_rc("merge-base", "--is-ancestor", base, built)[0] == 0:
-        return False
-    own = _churn(job, start, built)
-    return own > 0 and _churn(job, base, built) * 2 < own
+class _HintBudget:
+    """git on the scratch repo within the d36 check's own budget (:data:`_HINT_BUDGET_S`),
+    never past the job's deadline; a call past it raises ``_Refusal`` like any other."""
+
+    def __init__(self, job: _Job) -> None:
+        self.job = job
+        self.until = job.clock() + timedelta(seconds=_HINT_BUDGET_S)
+
+    def git_rc(self, *args: str) -> tuple[int, bytes]:
+        left = (self.until - self.job.clock()).total_seconds()
+        if left <= 0:
+            raise _Refusal("hint_budget_exceeded")
+        return self.job.git_rc(*args, timeout=left)
+
+    def git(self, *args: str) -> bytes:
+        rc, out = self.git_rc(*args)
+        if rc != 0:
+            raise _Refusal("git_failed", f"git {args[0]} exited {rc}")
+        return out
+
+    def names(self, frm: str, to: str) -> set[str]:
+        out = self.git(*_NAMES, "--name-only", frm, to, "--").decode("utf-8", "replace")
+        return {p for p in out.split("\x00") if p}
+
+    def churn(self, frm: str, to: str) -> dict[str, int]:
+        """Lines added plus deleted per path (a binary change counts as one)."""
+        out = self.git(*_NAMES, "--numstat", frm, to, "--").decode("utf-8", "replace")
+        per: dict[str, int] = {}
+        for entry in out.split("\x00"):
+            added, _, rest = entry.partition("\t")
+            deleted, _, path = rest.partition("\t")
+            if path:
+                per[path] = (int(added) if added.isdigit() else 1) + (
+                    int(deleted) if deleted.isdigit() else 0
+                )
+        return per
 
 
-def _copied_base_hint(base: str) -> str:
-    """The review finding for :func:`_base_copied_in` (d36)."""
+def _base_copied_in(job: _Job, start: str, built: str, base: str) -> list[str]:
+    """d36: the files ``built`` (no merge in it) appears to have copied from ``base`` as a
+    plain commit instead of merging it (the live case: katvan#57), or ``[]``.
+
+    A file counts when the base changed it since the PR branched, ``built`` holds exactly
+    the base's version, and the PR head did not; and only when those files make up at least
+    half of the lines ``built`` changes against the PR head, and ``base`` is not in
+    ``built``'s history. Best effort, within its own budget: a git failure or timeout finds
+    nothing and never changes the gate's result."""
+    git = _HintBudget(job)
+    try:
+        if git.git_rc("merge-base", "--is-ancestor", base, built)[0] == 0:
+            return []
+        fork = git.git("merge-base", start, base).decode().strip()
+        took = git.names(fork, base) - git.names(base, built)  # built has base's version
+        took &= git.names(start, base)  # ... which the PR head had not
+        if not took:
+            return []
+        own = git.churn(start, built)
+        copied = sum(own.get(path, 0) for path in took)
+        total = sum(own.values())
+    except _Refusal:
+        return []
+    return sorted(took) if total and copied * 2 >= total else []
+
+
+def _copied_base_hint(base: str, paths: Sequence[str]) -> str:
+    """The review finding for :func:`_base_copied_in` (d36): a likely cause, not a verdict."""
+    shown = ", ".join(paths[:3]) + (f" and {len(paths) - 3} more" if len(paths) > 3 else "")
     return (
-        "the commit copies the base branch's own changes in as a plain commit (the base "
-        f"commit {base} is not in its history), so they are shown as the PR's own change: "
-        f"undo that and make one real two-parent merge instead (git merge {base}), "
-        "resolving any conflict in that merge commit; the gate allows one merge from base "
-        "and the reviewer then judges only its resolution"
+        f"the commit takes the base branch's own version of {len(paths)} file(s) the base "
+        f"changed since the PR branched ({shown}) while the base commit {base} is not in "
+        "its history: it looks like the base was copied in as a plain commit, so the "
+        "base's changes are shown as the PR's own. If so, undo that and make one real "
+        f"two-parent merge instead (git merge {base}), resolving any conflict in that "
+        "merge commit; the gate allows one merge from base and the reviewer then judges "
+        "only its resolution. If those files are the PR's own change, ignore this"
     )
 
 
@@ -1500,8 +1547,11 @@ class GatePort:
         if second is None:
             out = cls._diff(job, start, built, cap)
             base = shas.get("base_sha")
-            if out["diff_chars"] > cap and base and _base_copied_in(job, start, built, base):
-                out["diff_problems"].insert(1, _copied_base_hint(base))
+            copied = (
+                _base_copied_in(job, start, built, base) if out["diff_chars"] > cap and base else []
+            )
+            if copied:
+                out["diff_problems"].insert(1, _copied_base_hint(base, copied))
             return out
         merge = _clean_merge(job, start, second)
         header = (

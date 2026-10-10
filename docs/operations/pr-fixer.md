@@ -367,13 +367,17 @@ flatten, cherry-pick or rebase the base in, never copy it as a plain commit,
 never merge a later base commit, and do not merge when the PR does not need
 it. If an agent still copies the base in as a plain commit (the live case,
 katvan#57: a single-parent commit tree-identical to the merge, whose diff was
-513,944 characters), the gate notices when the reviewed diff is over the
-reviewer's cap, the base commit is not in the built commit's history and the
-built commit is far closer to the base than to the PR head (its `--numstat`
-churn against the base is under half its churn against the PR head), and
-adds a review finding after the size one that names the base commit and asks
-for one real merge instead. The paragraph is rule text: no workflow digest
-changes.
+513,944 characters), the gate looks for it when the reviewed diff is over the
+reviewer's cap: the base commit is not in the built commit's history, the
+built commit holds exactly the base's version of files the base changed since
+the PR branched (and the PR head did not), and those files make up at least
+half of the lines it changes against the PR head. Then a review finding after
+the size one names the files and the base commit, says the base looks copied
+in, and asks for one real merge instead, or to ignore it if those files are
+the PR's own change. The check is best effort within its own 10-second
+budget: a git failure or timeout in it finds nothing and never changes the
+gate's verdict or what is built and pushed. The paragraph is rule text: no
+workflow digest changes.
 
 **Stopping a story (d34, #40).** A trusted author stops a PR's fixer story
 with a comment that starts with a form in `vars.fixer_stop_triggers` (default

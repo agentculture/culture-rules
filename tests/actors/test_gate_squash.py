@@ -462,6 +462,8 @@ def test_d36_a_base_copied_in_as_a_plain_commit_asks_for_one_real_merge(
     (hint,) = [p for p in problems if "plain commit" in p]
     assert f"git merge {repo.base}" in hint
     assert "one real" in hint
+    assert "src/big.py" in hint  # the file it took from the base
+    assert "If those files are the PR's own change, ignore this" in hint  # a cause, not a verdict
 
 
 def test_d36_a_large_change_of_the_prs_own_gets_no_merge_hint(store, tmp_path, clock):  # noqa: F811
@@ -488,3 +490,38 @@ def test_d36_the_hint_comes_without_a_gate_section_too(store, tmp_path, clock): 
     out = judge(store, LocalRunner(), repo, tmp_path, clock)
     assert out["verdict"] == NO_GATE
     assert [p for p in out["diff_problems"] if f"git merge {repo.base}" in p]
+
+
+def test_d36_reverting_the_prs_own_change_gets_no_hint(store, tmp_path, clock):  # noqa: F811
+    """Codex round 1 #1: closer to the base is not a copy - the PR added a big file, the
+    base moved elsewhere, and the fix removes the PR's own addition."""
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    git(repo.wt, "checkout", "-q", "--detach", repo.start)
+    repo.start = repo.commit("the PR adds a big file", {"src/big.py": BIG})
+    git(repo.wt, "checkout", "-q", "--detach", repo.base)
+    repo.base = repo.commit("main moves", {"src/other.py": "o = 1\n"})
+    git(repo.wt, "checkout", "-q", "--detach", repo.start)
+    repo.commit("the fix drops the big file", {"src/big.py": None})
+    out = judge(store, LocalRunner(), repo, tmp_path, clock)
+    assert out["diff_truncated"] is True
+    assert not [p for p in out["diff_problems"] if "plain commit" in p]
+
+
+def test_d36_a_failing_check_keeps_the_gates_result(
+    store, tmp_path, clock, monkeypatch  # noqa: F811
+):  # noqa: F811
+    """Codex round 1 #2: the check is best effort - a git timeout inside it finds nothing
+    and the oversized-diff result stands as it was."""
+    from culture_rules.actors import gate
+
+    def times_out(self, *args):
+        raise gate._Refusal("git_timeout", retryable=True)
+
+    monkeypatch.setattr(gate._HintBudget, "git_rc", times_out)
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    copy_base_in(repo, {"src/big.py": BIG})
+    out = judge(store, LocalRunner(), repo, tmp_path, clock)
+    assert out["verdict"] == PASS, out
+    assert out["diff_truncated"] is True
+    assert out["diff_problems"][0].startswith("the diff is ")
+    assert not [p for p in out["diff_problems"] if "plain commit" in p]
