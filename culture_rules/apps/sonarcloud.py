@@ -7,7 +7,8 @@ of one project:
 * :meth:`SonarCloud.quality_gate` - ``GET /api/qualitygates/project_status``: the PR's gate
   status and its conditions;
 * :meth:`SonarCloud.issues` - ``GET /api/issues/search``: the PR's open issues of the given
-  types (``BUG``, ``VULNERABILITY``, ``CODE_SMELL``), paged, up to a cap;
+  types (``BUG``, ``VULNERABILITY``, ``CODE_SMELL``), paged, up to a cap; optionally only
+  those on the PR's new code (``inNewCodePeriod=true``);
 * :meth:`SonarCloud.hotspots` - ``GET /api/hotspots/search``: its hotspots still to review,
   paged, up to a cap.
 
@@ -126,9 +127,19 @@ class SonarCloud:
         return {"status": status.get("status"), "conditions": conditions}
 
     def issues(
-        self, project: str, pull_request: int, types: list[str], *, limit: int
+        self,
+        project: str,
+        pull_request: int,
+        types: list[str],
+        *,
+        limit: int,
+        new_code: bool = False,
     ) -> tuple[list[Mapping[str, Any]], int]:
-        """The PR's open issues of ``types`` (at most ``limit``) and how many there are."""
+        """The PR's open issues of ``types`` (at most ``limit``) and how many there are.
+
+        ``new_code`` also asks for the PR's new code only (``inNewCodePeriod=true``, #35
+        d33): never the project's backlog. A PR analysis already reports only its own
+        issues; the flag says so twice."""
         out: list[Mapping[str, Any]] = []
         total, page = 0, 1
         while len(out) < limit:
@@ -139,6 +150,7 @@ class SonarCloud:
                     "pullRequest": str(pull_request),
                     "types": ",".join(sorted(types)),
                     "resolved": "false",
+                    **({"inNewCodePeriod": "true"} if new_code else {}),
                     "ps": str(_PAGE),
                     "p": str(page),
                 },

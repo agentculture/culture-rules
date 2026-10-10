@@ -272,9 +272,41 @@ def test_the_agent_gets_only_the_issues_behind_failing_sonar_conditions(tmp_path
     given = w.qwen.inputs[0]
     assert [i["key"] for i in given["sonar_issues"]] == ["b1"]
     assert "new_reliability_rating" in given["sonar_note"]
-    assert "never the rest of the Sonar backlog" in given["instruction"]
+    assert "Never the rest of the Sonar backlog" in given["instruction"]
     assert any("types=BUG" in u for u in w.sonar.requests)
     assert not any("CODE_SMELL" in u for u in w.sonar.requests)
+    assert not any("inNewCodePeriod" in u for u in w.sonar.requests)
+
+
+def test_on_a_passing_gate_the_agent_gets_the_prs_new_code_issues_to_fix_only_if_named(
+    tmp_path,
+):
+    """#35 d33: irc-lens#62's live case - gate OK, one new-code issue (S9073)."""
+    w = ChainWorld(tmp_path)
+    w.sonar.issues = [
+        {
+            "key": "s9073",
+            "rule": "python:S9073",
+            "type": "CODE_SMELL",
+            "message": "Split this composite assertion into separate assertions.",
+            "component": "o_r:tests/test_mail.py",
+            "line": 113,
+        }
+    ]
+    w.fire()
+    given = w.qwen.inputs[0]
+    (listed,) = given["sonar_issues"]
+    assert (listed["rule"], listed["path"], listed["line"]) == (
+        "python:S9073",
+        "tests/test_mail.py",
+        113,
+    )
+    assert "passes" in given["sonar_note"]
+    assert "only if the trusted request names it" in given["sonar_note"]
+    assert "only if the trusted request names it" in given["instruction"]
+    (search,) = [u for u in w.sonar.requests if "/api/issues/search" in u]
+    assert "inNewCodePeriod=true" in search
+    assert "pullRequest=7" in search
 
 
 def test_a_sonar_outage_never_stops_the_fix(tmp_path):

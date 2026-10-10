@@ -519,6 +519,15 @@ It builds and gates one commit. It never reviews or pushes it.
    the step names them in its note. The project key is `{owner}_{name}`. A failed
    lookup (no analysis, SonarCloud down) is `available: false` with a note.
    It never fails the run: Sonar data is advice, not a guard.
+
+   On a **passing** gate (#35, d33) nothing is required, but the step lists
+   the open issues on the PR's own new code (`pullRequest` plus
+   `inNewCodePeriod=true`, never the project's backlog) as `issues` and
+   `new_code_issues`, capped the same way. Its note says the gate passes and
+   to fix one only if the trusted request names it: a bare `/fix` leaves
+   Sonar alone, a `/fix` naming the issue (irc-lens#62's S9073 at
+   `tests/test_mail.py:113`, say) gets it as data. With none listed, or a
+   failed read, the note says not to work on Sonar issues.
 5. `fix`: **one try** (#35, d30): a `retry_until` with `max_iterations: 1`
    that ends when the gate has given its verdict, whatever it is. A verdict
    other than `pass` or `no_gate` ends the run `succeeded` with that verdict
@@ -528,7 +537,9 @@ It builds and gates one commit. It never reviews or pushes it.
    definition still retry inside the run.
    - `agent`: `qwen-fixer` in mode `yolo`. Its bound inputs are the trusted
      `threads`, `sonar_issues` and `sonar_note`. The rule's instruction says
-     to fix exactly those Sonar issues and never the rest of the backlog.
+     to follow `sonar_note`: on a failing gate fix exactly the listed issues, on
+     a passing gate a listed new-code issue only when the trusted request names
+     it, and never the rest of the backlog.
      `require_commit: true`: a turn that leaves no commit (bridge status
      `no_changes` or `uncommitted`, or the head unmoved) fails the step at
      once with `no_changes`. The attempt then ends with no gate and no
