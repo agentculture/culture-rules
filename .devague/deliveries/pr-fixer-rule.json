@@ -2,7 +2,7 @@
   "plan_slug": "pr-fixer-rule",
   "schema_version": 2,
   "created": "2026-10-06T08:44:59Z",
-  "updated": "2026-10-08T09:37:25Z",
+  "updated": "2026-10-10T01:58:26Z",
   "deviations": [
     {
       "id": "d1",
@@ -319,6 +319,71 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 22
+    },
+    {
+      "id": "d23",
+      "what": "d21 phase 2 design changes: the review stage rule is named pr-fixer-review-commit (pr-fixer-review already names the review-submitted trigger rule), and every pr-fix/review-commit/publish-fix workflow input is optional, so a stage with a missing input starts, fails inside and hands back instead of never starting and leaving the chain with no comment",
+      "task_ref": "t17",
+      "reason": "operator approved 2026-10-08 ('2 approved'): the d21 text's name collided with an existing rule id, and live debugging showed a stage with a missing input silently ended its chain",
+      "affects": [
+        "t9"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 100
+    },
+    {
+      "id": "d24",
+      "what": "comment intent for the PR fixer: a PR comment or review comment starts a fixer run only when the comment begins with /fix (followed by whitespace or the end) or with @rules-culture-dev (optionally [bot]) at a token boundary; nothing later in the body counts; the accepted forms live in the shared variable fixer_comment_triggers (default both). Comment-started runs still share the PR's concurrency key and count toward the same 3-attempt budget as every other fix run",
+      "task_ref": "t17",
+      "reason": "operator approved 2026-10-08 ('Comment rule approved, in addition to 3 attempts cycle'); live, Qodo's billing notice, an operator status note and a closing comment each started a run",
+      "affects": [
+        "t2"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 101
+    },
+    {
+      "id": "d25",
+      "what": "A failed GitGuardian check is never auto-fixed: the fixer posts a PR comment listing each finding (detector/secret type, file, line, commit, GitGuardian incident link), never quoting the secret value",
+      "task_ref": "t17",
+      "reason": "Operator 2026-10-08: 'I want gitguardian check to post a comment on the PR with what finding, which files, etc.' A leaked secret needs revocation by a human, not a code edit by an agent; the comment gives the author what they need to act",
+      "affects": [
+        "t12",
+        "t5"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "needs-follow-up",
+      "seq": 102
+    },
+    {
+      "id": "d26",
+      "what": "PR fixer status comment: on start the App posts one status comment per fix chain and edits it live as stages move (agent working, gate, review, push or hand-back, final summary); the agent may write free status notes (e.g. STATUS: lines) that the engine relays into that comment as the App, capped in length and rate, with @-mentions, links and token-shaped text stripped; the agent never holds a GitHub token",
+      "task_ref": "t17",
+      "reason": "Operator 2026-10-09: 'Fixer should comment and reflect it works'; 'Post it starts, and reflects on that thread its update (Can be given the agent agency to update as it likes)'; chose one comment edited live, and free agent notes relayed by the engine",
+      "affects": [
+        "t5",
+        "t9"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 103
+    },
+    {
+      "id": "d27",
+      "what": "PR fixer re-checks the PR's state before it sets up a workspace (issue #31): the head lookup also returns the PR's state and merged flag, and the guarded wake ends the run superseded with reason pr_not_open when the PR is merged or closed, instead of failing on git fetch of a deleted branch. The status board says the PR is no longer open. The push step's own pr_not_open refusal (already on main) is unchanged.",
+      "task_ref": "t17",
+      "reason": "Operator, 2026-10-10: 'Add fixer to lobes-cli, I want to see it fix the sonercloud issue there, then do 31'. Live case: run-048498ce (culture-rules #27, 2026-10-09 17:54Z) failed with 'git fetch origin rules/editor-fold-spec ... couldn't find remote ref' after #27 merged during the quiet period.",
+      "affects": [],
+      "origin": "user",
+      "status": "approved",
+      "classification": null,
+      "seq": 104
     }
   ],
   "evidence": [

@@ -339,8 +339,9 @@ class GitHubPrHeadPort(GitHubCommentPort):
     """Read-only port behind a wait step's ``head_unchanged`` guard: a PR's current head SHA.
 
     Input ``{repo, number}`` (the repo must be in the actor's allowlist); completes with
-    ``{"head_sha": ..., "base_sha": ...}`` (the gate checks its ``base_sha`` with it). It
-    reads, so retrying is harmless.
+    ``{"head_sha": ..., "base_sha": ..., "state": ..., "merged": ...}`` (the gate checks its
+    ``base_sha`` with it; the guard ends a wake on a PR that is no longer open, #31 - a
+    merged PR keeps its head sha). It reads, so retrying is harmless.
 
     The executor calls it synchronously inside its tick, so the whole lookup honours the
     invocation ``deadline``: a cold private-key resolve runs on a capped worker
@@ -387,6 +388,12 @@ class GitHubPrHeadPort(GitHubCommentPort):
         base = (pull.get("base") or {}).get("sha")
         if not isinstance(sha, str) or not sha:
             return InvocationResult.failed("bad_response", retryable=True)
+        state, merged = pull.get("state"), pull.get("merged")
         return InvocationResult.completed(
-            {"head_sha": sha, "base_sha": base if isinstance(base, str) else None}
+            {
+                "head_sha": sha,
+                "base_sha": base if isinstance(base, str) else None,
+                "state": state if isinstance(state, str) else None,
+                "merged": merged if isinstance(merged, bool) else None,
+            }
         )

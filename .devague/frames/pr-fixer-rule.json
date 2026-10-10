@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-05T20:43:33Z",
-  "updated": "2026-10-08T09:37:20Z",
+  "updated": "2026-10-08T16:59:49Z",
   "claims": [
     {
       "id": "c1",
@@ -1166,7 +1166,7 @@
         "run-d6e5dabdf5ec61e8a47a912091a37e0f"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l2",
@@ -1178,7 +1178,7 @@
         "web/e2e/workflows.spec.ts"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l3",
@@ -1190,7 +1190,7 @@
         "rules/pr-fixer-split@eaa047b"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l4",
@@ -1202,7 +1202,7 @@
         "rules/pr-fixer-review@22c71af"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l5",
@@ -1214,7 +1214,7 @@
         "35d8bea"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
     },
     {
       "id": "l6",
@@ -1226,7 +1226,19 @@
         "rules/pr-fixer-review@1e22648"
       ],
       "origin": "llm",
-      "status": "proposed"
+      "status": "approved"
+    },
+    {
+      "id": "l7",
+      "code": "grader-unverified",
+      "what": "d21 phase 2 part C (per-commit review records, push chain verification) was not test-first: the code was rewritten before the d20 tests were updated and test_push_chain.py was written after _chain",
+      "skipped_check": "red-first tests for the chain verification and per-commit records",
+      "refs": [
+        "d21",
+        "rules/pr-fixer-split@d414449"
+      ],
+      "origin": "llm",
+      "status": "approved"
     }
   ],
   "obligations": [

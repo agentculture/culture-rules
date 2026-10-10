@@ -187,16 +187,17 @@ def test_a_disabled_actor_drops_its_cached_app(pem):
 
 
 class HeadFake(Fake):
-    def __init__(self, sha="c" * 40, status=200):
+    def __init__(self, sha="c" * 40, status=200, extra=None):
         super().__init__(status)
         self.sha = sha
+        self.extra = extra or {}
 
     def __call__(self, method, url, headers, body, timeout):
         if "/pulls/" in url:
             self.calls.append(url)
             if self.status != 200:
                 return self.status, b"{}"
-            return 200, json.dumps({"head": {"sha": self.sha}}).encode()
+            return 200, json.dumps({"head": {"sha": self.sha}, **self.extra}).encode()
         return super().__call__(method, url, headers, body, timeout)
 
 
@@ -209,8 +210,38 @@ def test_pr_head_port_reads_the_head_sha(pem):
     port = GitHubPrHeadPort(store, transport=fake, secrets=lambda ref: pem)
     res = port.invoke({"repo": "acme/widgets", "number": 3}, "k", DEADLINE, context=ctx())
     assert res.outcome == "completed"
-    assert dict(res.output) == {"head_sha": "c" * 40, "base_sha": None}
+    assert dict(res.output) == {
+        "head_sha": "c" * 40,
+        "base_sha": None,
+        "state": None,
+        "merged": None,
+    }
     assert fake.calls[-1].endswith("/repos/acme/widgets/pulls/3")
+
+
+@pytest.mark.parametrize(
+    ("extra", "state", "merged"),
+    [
+        ({"state": "open", "merged": False}, "open", False),
+        ({"state": "closed", "merged": True}, "closed", True),
+        ({"state": "closed", "merged": False}, "closed", False),
+    ],
+    ids=["open", "merged", "closed"],
+)
+def test_pr_head_port_reports_the_pr_state_and_merged_flag(pem, extra, state, merged):
+    """#31: the same read tells the guard whether the PR is still open (a merged PR keeps
+    its head sha, so the sha alone cannot tell)."""
+    from culture_rules.node.actions.github import GitHubPrHeadPort
+
+    store = MemoryStore()
+    store.put("actors", actor_doc())
+    fake = HeadFake(extra=extra)
+    port = GitHubPrHeadPort(store, transport=fake, secrets=lambda ref: pem)
+    res = port.invoke({"repo": "acme/widgets", "number": 3}, "k", DEADLINE, context=ctx())
+    assert res.outcome == "completed"
+    assert res.output["head_sha"] == "c" * 40
+    assert (res.output["state"], res.output["merged"]) == (state, merged)
+    assert [c for c in fake.calls if "/pulls/" in c] == [fake.calls[-1]]  # one PR read
 
 
 def test_pr_head_port_refuses_unlisted_repo_and_surfaces_errors(pem):
@@ -276,7 +307,12 @@ def test_pr_head_port_honours_the_deadline_through_a_cold_secret_resolve(pem):
             break
         assert res.error in ("deadline_exceeded", "lookup_busy")
         time.sleep(0.02)
-    assert dict(res.output) == {"head_sha": "c" * 40, "base_sha": None}
+    assert dict(res.output) == {
+        "head_sha": "c" * 40,
+        "base_sha": None,
+        "state": None,
+        "merged": None,
+    }
     assert secrets.calls == 1
 
 
@@ -431,9 +467,10 @@ def test_pr_head_port_reports_a_string_base_sha_only(pem):
             return super().__call__(method, url, headers, body, timeout)
 
     port, _ = _head_port(pem, fake=BaseFake("d" * 40))
-    assert dict(_ask(port).output) == {"head_sha": "c" * 40, "base_sha": "d" * 40}
+    out = _ask(port).output
+    assert (out["head_sha"], out["base_sha"]) == ("c" * 40, "d" * 40)
     port, _ = _head_port(pem, fake=BaseFake(5))
-    assert dict(_ask(port).output) == {"head_sha": "c" * 40, "base_sha": None}
+    assert _ask(port).output["base_sha"] is None
 
 
 def test_pr_head_port_http_error_keeps_its_code_and_retryability(pem):

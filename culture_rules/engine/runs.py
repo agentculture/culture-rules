@@ -250,6 +250,7 @@ __all__ = [
     "CONTROLS_COLLECTION",
     "DEFAULT_TIMEOUT_S",
     "HEAD_LOOKUP_PORT",
+    "PR_NOT_OPEN",
     "QUEUE_LIMIT_FACTOR",
     "QUEUE_TIMEOUT",
     "RUNS_COLLECTION",
@@ -310,6 +311,7 @@ _BACKOFF_MAX_EXP = 16
 
 ACTIVE = "running"
 SUPERSEDED = "superseded"
+PR_NOT_OPEN = "pr_not_open"  # a guarded wake found the PR merged or closed (#31)
 """Run end state: a wait step's head_unchanged guard found the PR head had moved."""
 SLEEPING = "sleeping"
 """Step status of a wait step parked until its ``deadline``."""
@@ -1179,7 +1181,7 @@ class Executor:
         elif outcome is None:
             nst.update(status="succeeded", outputs={}, error=None)
             _record(new, now, self.host, "wait_done", st["key"])
-        elif code == SUPERSEDED:
+        elif code in (SUPERSEDED, PR_NOT_OPEN):
             _supersede_wake(new, nst, outcome, now, self.host, st["key"])
         else:
             nst.update(status="failed", error=outcome)
@@ -1267,7 +1269,7 @@ class Executor:
             return _error("head_lookup_failed", "guard has no repo and PR number to look up")
         actor = guard.get("actor") or _action_actor(plan.rule.action)
         try:
-            current = self._lookup_head(doc, step, actor, repo, number)
+            pull = self._lookup_head(doc, step, actor, repo, number)
         except _HeadBlocked as exc:
             return _error(HEAD_BLOCKED, str(exc))
         except _HeadRetry as exc:
@@ -1275,6 +1277,10 @@ class Executor:
         except Exception as exc:  # noqa: BLE001 - any lookup failure is fail-safe
             log.warning("head lookup failed for %s#%s: %s", repo, number, type(exc).__name__)
             return _error("head_lookup_failed", f"could not read the PR head: {exc}")
+        closed = _pr_not_open(pull)
+        if closed is not None:
+            return _error(PR_NOT_OPEN, f"the PR is {closed}: nothing to fix")
+        current = pull.get("head_sha") if isinstance(pull, Mapping) else pull
         if not isinstance(current, str) or not current:
             return _error("head_lookup_failed", "the head lookup returned no sha")
         if current != expected:
@@ -1283,7 +1289,9 @@ class Executor:
 
     def _lookup_head(
         self, doc: Mapping, step: Step | None, actor: str | None, repo: str, number: int
-    ) -> str | None:
+    ) -> str | Mapping[str, Any] | None:
+        """The PR as the port read it (``head_sha``, ``state``, ``merged``); an injected
+        ``head_lookup`` may return the bare head sha instead."""
         if self._head_lookup is not None:
             return self._head_lookup(actor, repo, number)
         ctx = InvocationContext(
@@ -1314,7 +1322,7 @@ class Executor:
             raise _HeadRetry(res.error)
         if res.outcome != COMPLETED:
             raise RuntimeError(res.error or res.outcome)
-        return res.output.get("head_sha")
+        return res.output
 
     def _cas(self, before: Mapping[str, Any], after: Mapping[str, Any]) -> bool:
         """Write ``after`` over ``before`` by compare-and-set on ``rev``. A transition that
@@ -1742,10 +1750,22 @@ def _due_wake(st: Mapping, now: datetime) -> datetime | None:
     return wake
 
 
+def _pr_not_open(pull: Any) -> str | None:
+    """``merged`` or ``closed`` when the looked-up PR is no longer open, else None (open, or
+    a lookup that does not say: the sha check still applies)."""
+    if not isinstance(pull, Mapping):
+        return None
+    state = pull.get("state")
+    if not isinstance(state, str) or state == "open":
+        return None
+    return "merged" if pull.get("merged") is True else "closed"
+
+
 def _supersede_wake(
     new: dict, nst: dict, outcome: Mapping, now: datetime, host: str, key: str
 ) -> None:
-    """End the run ``superseded``: the guarded wake's PR head moved during the wait."""
+    """End the run ``superseded``: the guarded wake's PR head moved during the wait, or the
+    PR is no longer open (``pr_not_open``, on the wait step's error)."""
     nst.update(status="cancelled", error=outcome)
     for s in new["steps"]:
         if s["status"] not in STEP_DONE:
