@@ -104,6 +104,17 @@ Run over ``start_sha..commit_sha`` before any test command, in this order:
 
 ``history_rewritten``
     ``commit_sha`` does not descend from ``start_sha``.
+``merge_commit``
+    ``start_sha..commit_sha`` holds a merge, but for one (d31, merge from base): exactly
+    one merge outside ``base_sha``'s own history, with two parents, the first on the PR
+    head's line and the second already on the base branch (an ancestor of ``base_sha``)
+    and not yet in ``start_sha``. For that merge the gate builds a merge commit of
+    ``start_sha`` and that second parent (the agent tip's tree, the same engine-written
+    identity and message), bundles ``base_sha`` with it for ``github.push``, and every
+    rule below - and the reviewer's ``diff``, under a header naming the merged commit -
+    judges only the merge's own resolution: the tip against the clean merge of the two
+    parents (``git merge-tree``; a conflicted file keeps its conflict markers there), never
+    the base's own commits. The test commands still run on the whole built commit.
 ``protected_paths_unset``
     the shared variable ``fixer_protected_paths`` is undefined or is not a list of
     non-empty strings. Fails closed: the guard never guesses a list.
@@ -254,6 +265,7 @@ _SHA_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 #: Prefix words that would join argv into a shell command line.
 _SHELL_JOINING = frozenset({"ssh", "su", "sh", "bash", "dash", "zsh", "ksh", "fish", "csh"})
 _LOCAL_REF = "refs/culture-rules/gate"
+_BASE_REF = "refs/culture-rules/base"  # the PR base, bundled with a merge from base (d31)
 _CLEANUP_S = 60.0
 #: The gate's workspace: no dash, so no run-as account name or ``-x`` flag look-alike can
 #: reach a repo's temp paths through it (lobes-cli#302).
@@ -1001,6 +1013,57 @@ def _non_text_changes(job: _Job, start: str, commit: str) -> list[str]:
     return problems
 
 
+def _parents(job: _Job, sha: str) -> list[str]:
+    return job.git("rev-parse", f"{sha}^@").decode().split()
+
+
+def _second_parent(job: _Job, sha: str) -> str | None:
+    parents = _parents(job, sha)
+    return parents[1] if len(parents) == 2 else None
+
+
+def _merge_from_base(job: _Job, start: str, tip: str, base: str | None) -> str | None:
+    """d31: the one merge ``start..tip`` may hold, a merge from the PR's base branch.
+
+    ``None`` when ``start..tip`` holds no merge. Otherwise it must hold exactly one merge
+    that is not the base's own history (``^base``), with exactly two parents: the first on
+    the PR head's line (descending from ``start``), the second already on the base branch
+    (an ancestor of ``base``, the PR's base at gate time) and not already in ``start``.
+    Returns that second parent; anything else raises ``merge_commit``."""
+    if not job.git("rev-list", "--min-parents=2", f"{start}..{tip}", "--").strip():
+        return None
+    if not base:
+        raise _Refusal("merge_commit", "start_sha..commit_sha holds a merge")
+    own = job.git("rev-list", "--min-parents=2", f"{start}..{tip}", f"^{base}", "--").split()
+    if len(own) != 1:
+        raise _Refusal(
+            "merge_commit",
+            f"start_sha..commit_sha holds {len(own)} merges; only one merge from base is allowed",
+        )
+    parents = _parents(job, own[0].decode())
+    if len(parents) != 2:
+        raise _Refusal("merge_commit", "the merge does not have exactly two parents")
+    first, second = parents
+    if job.git_rc("merge-base", "--is-ancestor", start, first)[0] != 0:
+        raise _Refusal("merge_commit", "the merge's first parent is not on the PR head's line")
+    if job.git_rc("merge-base", "--is-ancestor", second, base)[0] != 0:
+        raise _Refusal("merge_commit", "the merge's second parent is not on the base branch")
+    if job.git_rc("merge-base", "--is-ancestor", second, start)[0] == 0:
+        raise _Refusal("merge_commit", "the merge brings nothing new from the base branch")
+    return second
+
+
+def _clean_merge(job: _Job, start: str, second: str) -> str:
+    """The tree a clean merge of ``start`` and ``second`` gives (``git merge-tree``; a
+    conflicted file keeps its conflict markers): what is left between it and the agent's
+    tree is the merge's own resolution (d31)."""
+    rc, out = job.git_rc("merge-tree", "--write-tree", "--no-messages", start, second)
+    tree = out.decode().split("\n", 1)[0].strip()
+    if rc not in (0, 1) or not _SHA_RE.match(tree):
+        raise _Refusal("git_failed", f"git merge-tree exited {rc}")
+    return tree
+
+
 class GatePort:
     """ActorPort for the built-in ``gate`` code step (see the module docstring)."""
 
@@ -1123,9 +1186,7 @@ class GatePort:
             if spec is None:
                 verdict["verdict"] = NO_GATE
                 built = self._build(job, shas, context)
-                verdict.update(
-                    commit_sha=built, **self._diff(job, shas["start_sha"], built, diff_cap)
-                )
+                verdict.update(commit_sha=built, **self._review_diff(job, shas, built, diff_cap))
                 return verdict
             verdict["gate"] = spec.to_dict()
             violations = self._guard(job, shas, config)
@@ -1143,8 +1204,8 @@ class GatePort:
                 self._repack(job, built)
                 self._judge(job, spec, verdict, tail_bytes)
                 if verdict["verdict"] == PASS:
-                    verdict.update(self._diff(job, shas["start_sha"], built, diff_cap))
-                    verdict["bundle"] = self._bundle(job, built, context)
+                    verdict.update(self._review_diff(job, shas, built, diff_cap))
+                    verdict["bundle"] = self._bundle(job, built, context, shas["base_sha"])
             verdict["instruction"] = _instruction(verdict)
             return verdict
         finally:
@@ -1197,7 +1258,9 @@ class GatePort:
         if parsed is None:
             raise _Refusal("bad_config", "commit_identity must look like 'Name <email>'")
         message = self._message(context)
-        return self._build_commit(job, shas["start_sha"], shas["commit_sha"], parsed, message)
+        return self._build_commit(
+            job, shas["start_sha"], shas["commit_sha"], parsed, message, base=shas["base_sha"]
+        )
 
     @staticmethod
     def _repack(job: _Job, sha: str) -> None:
@@ -1225,21 +1288,28 @@ class GatePort:
 
     @staticmethod
     def _build_commit(
-        job: _Job, start: str, tip: str, identity: tuple[str, str], message: str
+        job: _Job,
+        start: str,
+        tip: str,
+        identity: tuple[str, str],
+        message: str,
+        *,
+        base: str | None = None,
     ) -> str:
         """ONE commit made by the gate: the agent tip's **tree** on ``start`` and nothing
         else of the agent's. Author and committer are ``identity``, the message is
         ``message`` (engine-written), both dates are the PR head's committer date, so a
         re-run builds the same SHA and no agent-written byte (message, names, emails, dates)
         reaches the pushed commit. The agent's own commits never leave this machine. No
-        agent commit (``tip == start``) pushes nothing new. Merges and odd ancestry are
-        refused."""
+        agent commit (``tip == start``) pushes nothing new. Odd ancestry is refused, and so
+        is every merge but a merge from ``base`` (d31, :func:`_merge_from_base`): that one
+        builds a merge of ``start`` and the merged base commit instead."""
         if tip == start:
             return start
         if job.git_rc("merge-base", "--is-ancestor", start, tip)[0] != 0:
             raise _Refusal("history_rewritten", "commit_sha does not descend from start_sha")
-        if job.git("rev-list", "--min-parents=2", f"{start}..{tip}", "--").strip():
-            raise _Refusal("merge_commit", "start_sha..commit_sha holds a merge")
+        second = _merge_from_base(job, start, tip, base)
+        parents = ["-p", start] + (["-p", second] if second else [])
         date = job.git("log", "-1", "--date=raw", "--format=%cd", start, "--").decode().strip()
         name, email = identity
         env = {
@@ -1254,11 +1324,29 @@ class GatePort:
         msg = os.path.join(job.tmp, "message")
         Path(msg).write_bytes(message.encode("utf-8") + b"\n")
         with open(msg, "rb") as stdin:
-            built = job.git("commit-tree", tree, "-p", start, "-F", "-", stdin=stdin, env=env)
+            built = job.git("commit-tree", tree, *parents, "-F", "-", stdin=stdin, env=env)
         return built.decode().strip()
 
+    @classmethod
+    def _review_diff(
+        cls, job: _Job, shas: Mapping[str, str], built: str, cap: int
+    ) -> dict[str, Any]:
+        """The change the reviewer judges: ``start..built``, or for a merge from base (d31)
+        only its resolution - the built commit against the clean merge of its two parents,
+        never the base's own commits - under a header naming the merged base commit."""
+        start = shas["start_sha"]
+        second = _second_parent(job, built) if built != start else None
+        if second is None:
+            return cls._diff(job, start, built, cap)
+        header = (
+            f"# merge from base: {built[:12]} merges {second} (on the PR's base branch) into "
+            f"the PR head {start[:12]}. Below is only the merge's resolution: the commit "
+            "against the clean merge of its two parents, never the base's own commits.\n"
+        )
+        return cls._diff(job, _clean_merge(job, start, second), built, cap, header=header)
+
     @staticmethod
-    def _diff(job: _Job, start: str, commit: str, cap: int) -> dict[str, Any]:
+    def _diff(job: _Job, start: str, commit: str, cap: int, header: str = "") -> dict[str, Any]:
         """``start..commit`` as text, read in the node-verified scratch repo (no external
         diff, no textconv, no attributes), cut at ``cap`` characters (d20)."""
         raw = job.git(
@@ -1277,6 +1365,7 @@ class GatePort:
         except UnicodeDecodeError:  # replacement would hide bytes: never "complete"
             text = raw.decode("utf-8", errors="replace")
             problems.append("the diff is not valid UTF-8 text (bytes the reviewer cannot read)")
+        text = header + text
         if len(text) > cap:
             problems.insert(
                 0, f"the diff is {len(text)} characters, over the {cap} the reviewer reads"
@@ -1384,8 +1473,14 @@ class GatePort:
             return [Violation("history_rewritten", "", "commit_sha does not descend from start")]
         if rc != 0:
             raise _Refusal("git_failed", f"merge-base exited {rc}")
-        if job.git("rev-list", "--min-parents=2", f"{start}..{commit}", "--").strip():
-            return [Violation("merge_commit", "", "start_sha..commit_sha holds a merge")]
+        try:
+            second = _merge_from_base(job, start, commit, shas.get("base_sha"))
+        except _Refusal as exc:
+            if exc.code != "merge_commit":
+                raise
+            return [Violation("merge_commit", "", exc.detail)]
+        if second is not None:  # d31: judge the resolution, never the base's own commits
+            start = _clean_merge(job, start, second)
         patterns = self._patterns(config)
         if patterns is None:
             name = config.get("protected_paths_variable", PROTECTED_PATHS_VARIABLE)
@@ -1492,8 +1587,12 @@ class GatePort:
                     return
         verdict["verdict"] = PASS
 
-    def _bundle(self, job: _Job, sha: str, context: InvocationContext) -> str:
-        """A full bundle of ``sha`` for ``github.push`` in the node-owned bundle dir."""
+    def _bundle(
+        self, job: _Job, sha: str, context: InvocationContext, base: str | None = None
+    ) -> str:
+        """A full bundle of ``sha`` for ``github.push`` in the node-owned bundle dir; with a
+        merge from base (d31) it also carries ``base``, so the push can check the merge's
+        second parent is on the base branch."""
         directory = self._bundle_dir
         directory.mkdir(mode=0o700, parents=True, exist_ok=True)
         now = time.time()
@@ -1507,6 +1606,10 @@ class GatePort:
         safe_run = re.sub(r"[^A-Za-z0-9_.-]", "_", context.run_id)[:80]
         final = directory / f"{safe_run}-{sha[:12]}.bundle"
         partial = os.path.join(job.tmp, "out.bundle")
-        job.git("bundle", "create", "--quiet", partial, _LOCAL_REF)
+        refs = [_LOCAL_REF]
+        if base and _second_parent(job, sha) is not None:
+            job.git("update-ref", _BASE_REF, base)
+            refs.append(_BASE_REF)
+        job.git("bundle", "create", "--quiet", partial, *refs)
         shutil.move(partial, final)
         return str(final)

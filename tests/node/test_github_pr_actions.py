@@ -732,6 +732,178 @@ def test_foreign_author_is_refused_when_a_commit_author_is_configured(pem, world
     assert world.remote_head() == world.a
 
 
+BOT = "rules-culture-dev[bot]"
+
+
+def as_author(name, *args, cwd):
+    env = {"GIT_AUTHOR_NAME": name, "GIT_AUTHOR_EMAIL": f"{name}@example.invalid"}
+    subprocess.run(
+        ["git", "-c", f"user.name={name}", "-c", f"user.email={name}@example.invalid", *args],
+        cwd=cwd,
+        env={**os.environ, "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1", **env},
+        check=True,
+        capture_output=True,
+    )
+    return git("rev-parse", "HEAD", cwd=cwd)
+
+
+def main_moves(world, name="m1"):
+    """Someone else (author ``other``) commits ``name`` on main, from ``a0``; returns it."""
+    seed = world.seed
+    git(
+        "checkout",
+        "-q",
+        "-B",
+        "main",
+        git("rev-parse", "main", cwd=seed) if name != "m1" else world.a0,
+        cwd=seed,
+    )
+    (seed / name).write_text(name)
+    git("add", name, cwd=seed)
+    sha = as_author("other", "commit", "-q", "-m", name, cwd=seed)
+    git("push", "-q", str(world.remote), "main:refs/heads/main", cwd=seed)
+    git("checkout", "-q", "fix", cwd=seed)
+    return sha
+
+
+def bot_merge(world, sha, author=BOT):
+    """The agent's worktree, at A, merges ``sha`` (the base) as ``author``; returns the merge."""
+    git("fetch", "-q", "origin", "main", cwd=world.agent)
+    return as_author(
+        author, "merge", "-q", "--no-ff", "-m", f"merge {sha[:7]}", sha, cwd=world.agent
+    )
+
+
+class BasedPushPort(GatedPushPort):
+    """A run whose gate gated against ``gate_base`` (a real commit): the merge-from-base
+    tests (d31) need the base to exist in git."""
+
+    gate_base = None
+
+    def invoke(self, input, key, deadline, *, context):
+        gated(self._store, input, context.run_id)
+        run = self._store.get("runs", context.run_id)
+        for s in run["steps"]:
+            if s.get("key") == "fix[0]/gate":
+                s["outputs"]["base_sha"] = self.gate_base
+        self._store.put("runs", run)
+        return GitHubPushPort.invoke(self, input, key, deadline, context=context)
+
+
+def merge_push(pem, world, tip, base, source=None):
+    """Push ``tip`` (from ``source``, default the agent's worktree) for a run whose gate,
+    review and PR all name ``base`` as the PR's base."""
+    from culture_rules.actors.review import record_review
+
+    git("checkout", "-q", "--detach", tip, cwd=world.agent)
+    store = make_store(commit_author=BOT)
+    fields = {
+        "commit_sha": tip,
+        "reviewed_commit": tip,
+        "verdict": "approve",
+        "reviewer_actor": "codex-reviewer",
+        "reviewer_backend": "codex",
+        "implementer_actor": "qwen-fixer",
+        "implementer_backend": "qwen",
+        "repo": REPO,
+        "number": 3,
+        "start_sha": world.a,
+        "base_sha": base,
+    }
+    record_review(store, "run-1", iteration=0, attempt=1, fields=fields)
+    port = BasedPushPort(
+        store,
+        transport=FakeGitHub(world, base_sha=base),
+        secrets=lambda ref: pem,
+        git=RecordingGit(),
+        git_base=f"file://{world.base}",
+    )
+    port.gate_base = base
+    params = push_params(world, commit_sha=tip, source=source or str(world.agent))
+    return port.invoke(params, "k", DEADLINE, context=ctx())
+
+
+@pytest.fixture
+def merge_world(tmp_path):
+    w = World(tmp_path)
+    git("reset", "-q", "--hard", w.a, cwd=w.agent)  # the agent's own commit B is not used
+    return w
+
+
+def test_d31_a_bot_merge_from_base_is_pushed(pem, merge_world, tmp_path):
+    world = merge_world
+    m1 = main_moves(world)
+    tip = bot_merge(world, m1)
+    assert merge_push(pem, world, tip, m1).outcome == "completed"
+    assert world.remote_head() == tip
+
+
+def test_d31_the_merge_pushes_from_a_bundle_carrying_the_base(pem, merge_world, tmp_path):
+    world = merge_world
+    m1 = main_moves(world)
+    tip = bot_merge(world, m1)
+    git("update-ref", "refs/culture-rules/base", m1, cwd=world.agent)
+    bundle = tmp_path / "gate.bundle"
+    git("bundle", "create", "-q", str(bundle), "HEAD", "refs/culture-rules/base", cwd=world.agent)
+    res = merge_push(pem, world, tip, m1, source=str(bundle))
+    assert res.outcome == "completed", res.error
+    assert world.remote_head() == tip
+
+
+def test_d31_a_merge_whose_second_parent_is_not_on_base_is_refused(pem, merge_world):
+    world = merge_world
+    m1 = main_moves(world)
+    tip = bot_merge(world, m1)
+    res = merge_push(pem, world, tip, world.a0)  # the base never moved to m1
+    assert res.error == "foreign_author"
+    assert world.remote_head() == world.a
+
+
+def test_d31_two_merges_are_refused(pem, merge_world):
+    world = merge_world
+    m1 = main_moves(world)
+    bot_merge(world, m1)
+    m2 = main_moves(world, "m2")
+    tip = bot_merge(world, m2)
+    res = merge_push(pem, world, tip, m2)
+    assert res.error == "foreign_author"
+    assert world.remote_head() == world.a
+
+
+def test_d31_a_merge_not_by_the_bot_is_refused(pem, merge_world):
+    world = merge_world
+    m1 = main_moves(world)
+    tip = bot_merge(world, m1, author="someone")
+    res = merge_push(pem, world, tip, m1)
+    assert res.error == "foreign_author"
+
+
+def test_d31_a_foreign_commit_beside_the_merge_is_refused(pem, merge_world):
+    world = merge_world
+    m1 = main_moves(world)
+    bot_merge(world, m1)
+    (world.agent / "extra").write_text("x")
+    git("add", "extra", cwd=world.agent)
+    tip = as_author("someone", "commit", "-q", "-m", "extra", cwd=world.agent)
+    res = merge_push(pem, world, tip, m1)
+    assert res.error == "foreign_author"
+
+
+def test_d31_a_foreign_commit_hidden_on_the_merged_side_is_refused(pem, merge_world):
+    """The merged commit sits on base's history but is not on base: nothing is exempt."""
+    world = merge_world
+    m1 = main_moves(world)
+    git("fetch", "-q", "origin", "main", cwd=world.agent)
+    git("checkout", "-q", "--detach", m1, cwd=world.agent)
+    (world.agent / "hidden").write_text("x")
+    git("add", "hidden", cwd=world.agent)
+    hidden = as_author("someone", "commit", "-q", "-m", "hidden", cwd=world.agent)
+    git("checkout", "-q", "--detach", world.a, cwd=world.agent)
+    tip = as_author(BOT, "merge", "-q", "--no-ff", "-m", "merge", hidden, cwd=world.agent)
+    res = merge_push(pem, world, tip, m1)
+    assert res.error == "foreign_author"
+
+
 def test_configured_author_matches_by_name_or_email(pem, world):
     for author in ("t", "T@Example.invalid"):
         store = make_store(commit_author=author)
