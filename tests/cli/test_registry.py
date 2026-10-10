@@ -13,7 +13,7 @@ from culture_rules.cli.registry import ROLES, DuplicateVerb, Registry, Verb
 from culture_rules.cli.verbs import REGISTRY
 from culture_rules.explain import known_paths
 
-NOUNS = {"rules", "workflows", "actors", "machines", "runs"}
+NOUNS = {"rules", "workflows", "actors", "machines", "runs", "rollout"}
 ROOT = Path(__file__).resolve().parents[2] / "culture_rules"
 
 
@@ -147,6 +147,13 @@ def test_registry_roles_match_the_server_policy():
         ("rules", "run"): ("POST", "/runs"),
         ("machines", "drain"): ("POST", "/machines/m1/drain"),
         ("runs", "pause"): ("POST", "/controls/pause"),
+        ("rollout", "pause"): ("POST", "/controls/pause"),
+        ("rollout", "resume"): ("POST", "/controls/resume"),
+        ("rollout", "seed"): ("PUT", "/variables/x"),
+        ("rollout", "import"): ("POST", "/import"),
+        ("rollout", "enable"): ("POST", "/rules/r1/enable"),
+        ("rollout", "list"): ("GET", "/rollouts"),
+        ("rollout", "upgrade"): ("PUT", "/rollouts/0.18.12"),
     }
     by_key = {(v.noun, v.name): v for v in REGISTRY.verbs()}
     for key, (method, path) in routes.items():
