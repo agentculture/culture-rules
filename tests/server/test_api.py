@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
+import culture_rules
 from culture_rules.engine.audit import AUDIT_COLLECTION
 from culture_rules.store.memory import MemoryStore
 from tests.server.conftest import ALICE, dev_app, rule_body, workflow_body
@@ -16,6 +17,7 @@ def test_health_reports_node_status(client):
     assert body["store"]["reachable"] is True
     assert "heartbeat" in body
     assert "executor" in body
+    assert body["version"] == culture_rules.__version__  # the API's package version
 
 
 def test_rule_crud_roundtrip(client):

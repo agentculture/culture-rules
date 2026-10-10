@@ -281,6 +281,8 @@ export interface MachineStatus {
   load: { cpu: number | null; gpu: number | null; mem: number | null } | null;
   running: { step: string; workflow: string; run_id?: string }[];
   queue_depth: number;
+  /** Engine version from the latest heartbeat; null = unknown or never beat. */
+  engine_version?: string | null;
 }
 
 /** `GET /repos` items: a definitions repository the server is configured with. */

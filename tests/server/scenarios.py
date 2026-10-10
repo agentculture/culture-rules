@@ -6,6 +6,7 @@ import json
 from collections.abc import Callable
 from typing import Any
 
+import culture_rules.server.rollouts  # noqa: F401 - registers rollouts.put
 import culture_rules.server.service  # noqa: F401 - registers the definitions.* verbs
 from tests.engine.run_helpers import rule
 
@@ -61,3 +62,13 @@ def _export_repo(life: Any, store: Any) -> Callable[[], Any]:
 
 
 SERVER_AUDIT_SCENARIOS["definitions.export_repo"] = _export_repo
+
+
+def _put_rollout(life: Any, store: Any) -> Callable[[], Any]:
+    from culture_rules.server.rollouts import Rollouts  # noqa: PLC0415
+
+    doc = {"version": "0.18.12", "snapshot": ["r9"], "steps": {}}
+    return lambda: Rollouts(store).put("0.18.12", doc, "alice")
+
+
+SERVER_AUDIT_SCENARIOS["rollouts.put"] = _put_rollout

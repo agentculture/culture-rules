@@ -52,6 +52,7 @@ from culture_rules.server import events, humans, static
 from culture_rules.server import status as read_models
 from culture_rules.server.caching import NO_STORE, NoStoreByDefault
 from culture_rules.server.repos import RepoTarget, repos_from_env
+from culture_rules.server.rollouts import ROLLOUTS_COLLECTION, Rollouts
 from culture_rules.server.service import (
     DEFINITION_KINDS,
     Conflict,
@@ -100,6 +101,7 @@ _ALL_COLLECTIONS = tuple(
             *RUN_COLLECTIONS,
             RULE_DECISIONS,
             QUARANTINE_COLLECTION,
+            ROLLOUTS_COLLECTION,
         )
         + events.STREAMABLE
     )
@@ -132,6 +134,7 @@ class Health(BaseModel):
 
     model_config = ConfigDict(extra="allow")
     status: str
+    version: str = Field(description="the culture-rules package version serving this API")
 
 
 class ItemList(BaseModel):
@@ -292,10 +295,41 @@ class MachineStatus(BaseModel):
     load: MachineLoad | None = Field(description="null while offline or never reported")
     running: list[RunningStep]
     queue_depth: int = Field(description="pending steps of active runs bound to this machine")
+    engine_version: str | None = Field(
+        description="engine version from the latest heartbeat; null = unknown or never beat"
+    )
 
 
 class MachineStatusList(BaseModel):
     items: list[MachineStatus]
+
+
+class RolloutStep(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    applied_at: str = Field(description="ISO-8601 timestamp with a UTC offset")
+    outcome: str | dict[str, Any] = Field(
+        description="a short string, or a small object of scalars / flat lists of scalars"
+    )
+
+
+class RolloutWrite(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    version: str = Field(description="the release version; must equal the rollout id")
+    snapshot: list[str] = Field(description="ids of the rules enabled when the rollout paused")
+    steps: dict[str, RolloutStep] = Field(
+        description="step name ([a-z0-9:_.-]+, e.g. pause, upgrade:<host>) -> what happened"
+    )
+
+
+class Rollout(RolloutWrite):
+    model_config = ConfigDict(extra="allow")
+    id: str
+    updated_by: str
+    updated_at: str | None = None
+
+
+class RolloutList(BaseModel):
+    items: list[Rollout]
 
 
 class AskAnswer(BaseModel):
@@ -577,6 +611,7 @@ def create_app(
     _register_ops(app, store, node)
     _register_migrations(app, store, defs)
     _register_variables(app, Variables(store))
+    _register_rollouts(app, Rollouts(store, audit))
     for kind in DEFINITION_KINDS:
         _register_kind(app, kind, defs, life, store, audit)
     _register_runs(app, store, defs, executor, containment)
@@ -992,6 +1027,38 @@ def _register_variables(app: FastAPI, variables: Variables) -> None:
     def variable_refs(name: str):
         """Live rules whose condition or workflow inputs reference the variable."""
         return {"items": variables.refs(name)}
+
+
+def _register_rollouts(app: FastAPI, rollouts: Rollouts) -> None:
+    """Rollout documents; reads are viewer, the write is admin (the route matrix's default)."""
+
+    @app.get(
+        "/rollouts", response_model=RolloutList, tags=["rollouts"], operation_id="list_rollouts"
+    )
+    def list_rollouts():
+        """Every rollout document, ordered by id (the release version)."""
+        return {"items": rollouts.list()}
+
+    @app.get(
+        "/rollouts/{id}",
+        response_model=Rollout,
+        tags=["rollouts"],
+        operation_id="get_rollout",
+        responses={404: ERRORS[404], 422: ERRORS[422]},
+    )
+    def get_rollout(id: str):
+        return rollouts.get(id)
+
+    @app.put(
+        "/rollouts/{id}",
+        response_model=Rollout,
+        tags=["rollouts"],
+        operation_id="put_rollout",
+        responses={422: ERRORS[422]},
+    )
+    def put_rollout(id: str, body: RolloutWrite, identity: Identity):
+        """Create or replace the rollout document for release ``id`` (admin, audited)."""
+        return rollouts.put(id, body.model_dump(), identity)
 
 
 def _described_workflow(store: StoragePort, ref: Any) -> Mapping[str, Any] | None:
