@@ -58,6 +58,18 @@
       "description": "Disabled machines receive no placements",
       "default": true
     },
+    "install": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MachineInstall"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "How the node here is installed (rollout); absent on records that predate it",
+      "default": null
+    },
     "schema_version": {
       "type": "string",
       "description": "Document schema version (MAJOR.MINOR)",
@@ -67,5 +79,120 @@
   "required": [
     "name"
   ],
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "MachineInstall": {
+      "type": "object",
+      "description": "How the node on this machine is installed; mirrors deploy/node/install.sh's flags.",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "install_sh",
+            "shared_venv"
+          ],
+          "description": "install_sh | shared_venv (API and node in one venv)"
+        },
+        "node_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "install.sh --node-name; defaults to the machine name",
+          "default": null
+        },
+        "secrets": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Grant secret NAMES ([A-Z0-9_]+) passed as install.sh --secret; never values",
+          "default": []
+        },
+        "gate_run_as": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "install.sh --gate-run-as: a 'sudo -n -u <user> ...' run-as prefix",
+          "default": null
+        },
+        "extras": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "install.sh --extras (joined with ',')",
+          "default": null
+        },
+        "wheelhouse": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "install.sh --wheelhouse (offline install dir)",
+          "default": null
+        },
+        "python": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "install.sh --python (venv Python version)",
+          "default": null
+        },
+        "events_host": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "install.sh --events-host",
+          "default": null
+        },
+        "events_port": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "install.sh --events-port (1-65535)",
+          "default": null
+        }
+      },
+      "required": [
+        "mode"
+      ],
+      "additionalProperties": false
+    }
+  }
 }

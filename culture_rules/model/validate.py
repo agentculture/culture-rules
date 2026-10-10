@@ -37,7 +37,7 @@ from culture_rules.model.actor import Actor
 from culture_rules.model.app_actor import app_param_errors
 from culture_rules.model.common import SCHEMA_VERSION, RetryPolicy
 from culture_rules.model.graph import find_cycle
-from culture_rules.model.machine import Machine
+from culture_rules.model.machine import Machine, MachineInstall
 from culture_rules.model.placement import PLACEMENT_FORMS, Placement
 from culture_rules.model.refs import (
     LITERAL_KEY,
@@ -784,6 +784,52 @@ def _check_machine(obj: Machine, path: str, errors: Errors) -> None:
     _schema_version(obj.schema_version, _join(path, "schema_version"), errors)
 
 
+#: A grant secret name, as install.sh's --secret takes it (never a value).
+_GRANT_NAME_RE = re.compile(r"[A-Z0-9_]+")
+#: The run-as account in a ``sudo -n -u <user>`` prefix (a POSIX-ish user name).
+_RUN_AS_USER_RE = re.compile(r"[a-z_][a-z0-9_.-]*")
+
+
+def _sudo_prefix_error(value: str) -> str | None:
+    """Why ``value`` is not a ``sudo -n -u <user> [...]`` run-as prefix, or ``None``.
+
+    Mirrors install.sh's --gate-run-as checks: one line, no quotes or backslashes (the prefix
+    is split on whitespace, never by a shell), and it must open with ``sudo -n -u <user>``.
+    """
+    if any(c in value for c in "\n\r'\"\\"):
+        return "must be one line without quotes or backslashes"
+    words = value.split()
+    if len(words) < 4 or words[0].rsplit("/", 1)[-1] != "sudo" or words[1:3] != ["-n", "-u"]:
+        return "must start with 'sudo -n -u <user>'"
+    if not _RUN_AS_USER_RE.fullmatch(words[3]):
+        return f"{words[3]!r} is not a user name"
+    return None
+
+
+def _check_machine_install(obj: MachineInstall, path: str, errors: Errors) -> None:
+    _nonempty(obj, ("node_name", "wheelhouse", "python", "events_host"), path, errors)
+    if isinstance(obj.secrets, (tuple, list)):
+        for i, name in enumerate(obj.secrets):
+            if isinstance(name, str) and not _GRANT_NAME_RE.fullmatch(name):
+                _err(
+                    errors,
+                    _join(_join(path, "secrets"), i),
+                    "invalid_secret_name",
+                    "a secret is a grant secret name ([A-Z0-9_]+), never a value",
+                )
+    if isinstance(obj.gate_run_as, str):
+        why = _sudo_prefix_error(obj.gate_run_as)
+        if why:
+            _err(errors, _join(path, "gate_run_as"), "invalid_run_as", f"gate_run_as {why}")
+    if isinstance(obj.extras, (tuple, list)):
+        for i, extra in enumerate(obj.extras):
+            if isinstance(extra, str) and not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", extra):
+                _err(errors, _join(_join(path, "extras"), i), "invalid_value", "not an extra")
+    port = obj.events_port
+    if isinstance(port, int) and not isinstance(port, bool) and not 1 <= port <= 65535:
+        _err(errors, _join(path, "events_port"), "range", "events_port must be 1-65535")
+
+
 def _items(seq: Any, cls: type) -> list[tuple[int, Any]]:
     """(index, item) pairs of ``seq`` whose items are instances of ``cls``."""
     if not isinstance(seq, (tuple, list)):
@@ -945,4 +991,5 @@ _SEMANTIC: dict[type, Callable[[Any, str, Errors], None]] = {
     Edge: _check_edge,
     Actor: _check_actor,
     Machine: _check_machine,
+    MachineInstall: _check_machine_install,
 }
