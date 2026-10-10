@@ -79,9 +79,15 @@ TRUSTED_WORKFLOWS: dict[str, frozenset[str]] = {
             "sha256:721e25bea3163437e4d6808eb2e817057e4f9900d2f7123ee0a00f1880136005",
         }
     ),
-    # docs/rules/pr-fixer/workflows/review-commit.json (d21)
+    # docs/rules/pr-fixer/workflows/review-commit.json: the first is d21's (one review step on
+    # codex-reviewer), kept while runs pinned to it may still record a review; the second is
+    # #39's (review_codex or review_qwen, routed by the try's reviewer input, and a verdict
+    # step that reads review_steps and takes the one that succeeded)
     ROLE_REVIEW: frozenset(
-        {"sha256:79064f76264a469fc83ef2ed7e2b2d9e2979fbf58f339428319ac3c2a7b158e6"}
+        {
+            "sha256:79064f76264a469fc83ef2ed7e2b2d9e2979fbf58f339428319ac3c2a7b158e6",
+            "sha256:0653ba8c61a2eb0368819ac07b2a9b08ad3a8e6b023c6bfcf8ff4b93682b2bbd",
+        }
     ),
     # docs/rules/pr-fixer/workflows/publish-fix.json (d21)
     ROLE_PUBLISH: frozenset(
@@ -163,6 +169,12 @@ TRUSTED_ACTOR_DIGESTS: dict[str, frozenset[str]] = {
     # docs/rules/pr-fixer/actors/codex-reviewer.json (d20 round 3)
     "codex-reviewer": frozenset(
         {"sha256:dc26a418ca33b5e604542a03569c0ff31ad7b86b04140d56776ece4e72b3a339"}
+    ),
+    # docs/rules/pr-fixer/actors/qwen-reviewer.json (#39): reviews a Codex try. Qwen Code on
+    # spark2 in mode plan; its bridge_url and callback_url are the committed (loopback)
+    # values, so a live actor with other endpoints needs its own digest here
+    "qwen-reviewer": frozenset(
+        {"sha256:5b0e1aa73c6222a757b8357fec19b2c86d937848353bfe443c4e268fffda8b1a"}
     ),
     # the live rules-culture-dev App actor as of 2026-10-07 (App 5183824, installation
     # 167755039, key grant:RULES_GITHUB_APP_PRIVATE_KEY, surface github, machine spark, NO

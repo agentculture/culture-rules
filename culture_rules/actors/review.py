@@ -1,8 +1,10 @@
 """The PR fixer's agent review (d20, d21): a built-in ``review`` code step and push's check.
 
 After the test gate passes, a reviewer agent (``codex-reviewer``: Codex through the
-cultureagent codex bridge, sandbox ``read-only``) reviews the fix commit. This module reads
-what it said, deterministically, and records the result where ``github.push`` checks it.
+cultureagent codex bridge, sandbox ``read-only``; since #39, for a Codex try,
+``qwen-reviewer``: Qwen Code through the qwen bridge, mode ``plan``) reviews the fix commit.
+This module reads what it said, deterministically, and records the result where
+``github.push`` checks it.
 
 The reviewer's verdict
 ======================
@@ -43,7 +45,10 @@ It runs in one of two trusted workflows, told apart by the pinned workflow's rol
 Either way it takes nothing that matters for safety from wired inputs: it reads run
 documents in the store - the gate's outputs (the built-in, actor-less gate), the reviewer
 step's inputs and outputs (an ``ai`` step; ids in ``config.gate_step`` /
-``config.review_step``, defaults ``gate`` / ``review``) - and the actors from the pinned
+``config.review_step``, defaults ``gate`` / ``review``; or, since #39,
+``config.review_steps``, one review step per reviewer, of which exactly the one that
+succeeded is the review - none is ``review_missing``, two fail closed ``review_invalid``) -
+and the actors from the pinned
 workflows' placements and the ``actors`` collection. The implementer is never named by
 config: it is the one ``ai`` step of the gate's try that succeeded with ``head_after``
 equal to the gate's ``agent_commit_sha``. The reviewer must be an actor with
@@ -60,8 +65,9 @@ its ``instruction`` on a first fix.
   of it, so ``review`` is ``request_changes`` with one finding asking for a smaller fix;
 * otherwise the reviewer step must have run on exactly the gate's ``commit_sha``,
   ``start_sha`` and ``diff``, as an actor and backend other than the implementer's, with
-  sandbox ``read-only``, changing nothing (bridge status ``no_changes``, no commits, not
-  dirty, head unmoved), and its summary must parse.
+  sandbox ``read-only`` (and on qwen mode ``plan``: :data:`READ_ONLY_MODES`), changing
+  nothing (bridge status ``no_changes``, no commits, not dirty, head unmoved), and its
+  summary must parse.
 
 Outputs: ``verdict`` (the gate's), ``review`` (``approve`` / ``request_changes`` /
 ``not_run``), ``findings``, ``reviewed_commit`` and ``instruction`` (the next attempt's:
@@ -154,9 +160,18 @@ SEVERITIES = ("critical", "high", "medium", "low", "info")
 BLOCKING = frozenset({"critical", "high"})
 MAX_FINDINGS = 50
 READ_ONLY = "read-only"
-REVIEWER_BACKENDS = frozenset({"codex"})
+REVIEWER_BACKENDS = frozenset({"codex", "qwen"})
 """Backends a reviewer may run on (Codex review #2): with ``params.reviewer: true`` on the
-actor, trusted actor config rather than anything in the workflow."""
+actor, trusted actor config rather than anything in the workflow. #39 adds ``qwen``: a Codex
+try is reviewed by ``qwen-reviewer``; the reviewer's backend must still differ from the
+implementer's (``reviewer_is_implementer``)."""
+READ_ONLY_MODES = {"qwen": "plan"}
+"""Per backend, the session mode a reviewer on it must be pinned to besides its read-only
+sandbox (#39). Qwen Code's ``plan`` mode is an **approval policy**, not a sandbox: the qwen
+bridge runs Qwen Code's tools in-process as the bridge's own account and only refuses edits
+by policy, so it confines nothing the way Codex's ``--sandbox read-only`` tries to. The
+after-the-fact check still applies to every reviewer: no commits, nothing dirty, head
+unmoved (:func:`_changed_checkout`, ``reviewer_not_read_only``)."""
 NO_CHANGES = "no_changes"
 _PASSING_GATE = ("pass", "no_gate")
 
@@ -735,15 +750,45 @@ def _refusal_of(
 # --------------------------------------------------------------------------- the step
 
 
+def _review_ids(config: Mapping[str, Any]) -> tuple[str, ...] | None:
+    """The review step ids: ``review_steps`` (#39, a list of distinct ids) or the single
+    ``review_step`` (default ``review``); ``None`` when malformed or both are given."""
+    if "review_steps" in config:
+        many = config["review_steps"]
+        ids = tuple(many) if isinstance(many, list) and "review_step" not in config else ()
+    else:
+        ids = (config.get("review_step", "review"),)
+    if not ids or not all(isinstance(n, str) and n for n in ids) or len(set(ids)) != len(ids):
+        return None
+    return ids
+
+
 def _step_names(config: Mapping[str, Any]) -> dict[str, Any]:
-    """The verdict step's ``gate_step`` and ``review_step`` (defaults ``gate``/``review``)."""
-    names = {
-        role: config.get(f"{role}_step", default)
-        for role, default in (("gate", "gate"), ("review", "review"))
-    }
-    if not all(isinstance(n, str) and n for n in names.values()):
-        raise ReviewError("bad_config", "gate_step and review_step must name steps")
-    return names
+    """The verdict step's ``gate_step`` (default ``gate``) and its review step ids as
+    ``reviews`` (:func:`_review_ids`)."""
+    gate, reviews = config.get("gate_step", "gate"), _review_ids(config)
+    if not (isinstance(gate, str) and gate) or reviews is None:
+        raise ReviewError(
+            "bad_config", "gate_step and review_step (or review_steps) must name steps"
+        )
+    return {"gate": gate, "reviews": reviews}
+
+
+def _the_review(
+    run: Mapping[str, Any], reviews: tuple[str, ...], key: Any, definition: Any
+) -> tuple[Mapping[str, Any] | None, Mapping[str, Any]]:
+    """Of the review steps ``reviews`` (state key ``key(id)``, pinned definition
+    ``definition(id)``), the one that succeeded: ``(state, definition)``. None succeeded:
+    ``(None, {})``, and the review is missing. Two or more: ``review_invalid`` - a try has
+    one reviewer, so the verdict never picks between reviews (#39)."""
+    done = []
+    for sid in reviews:
+        st = _state(run, key(sid))
+        if st and st.get("status") == "succeeded":
+            done.append((st, definition(sid) or {}))
+    if len(done) > 1:
+        raise ReviewError("review_invalid", "more than one review step reviewed this commit")
+    return done[0] if done else (None, {})
 
 
 def _gate_shas(g: Mapping[str, Any]) -> tuple[str, str]:
@@ -777,12 +822,21 @@ def _builtin_gate(gate_def: Mapping[str, Any]) -> bool:
 
 
 def _read_only_reviewer(reviewer: Mapping[str, Any], review_def: Mapping[str, Any]) -> bool:
-    """The reviewer actor is read-only and the review step asks for no other sandbox."""
-    step_sandbox = ((review_def or {}).get("config") or {}).get("sandbox")
-    return not (
-        (reviewer.get("params") or {}).get("sandbox") != READ_ONLY
-        or step_sandbox not in (None, READ_ONLY)
+    """The reviewer actor is read-only and the review step asks for no other sandbox; on a
+    backend in :data:`READ_ONLY_MODES` (qwen) the actor is also pinned to that mode and the
+    step asks for no other one. The backend is the actor's declared harness (the bridge's
+    report is checked against it)."""
+    params = reviewer.get("params") or {}
+    step_config = (review_def or {}).get("config") or {}
+    sandboxed = params.get("sandbox") == READ_ONLY and step_config.get("sandbox") in (
+        None,
+        READ_ONLY,
     )
+    harness = reviewer.get("harness")
+    mode = READ_ONLY_MODES.get(harness.strip().casefold() if isinstance(harness, str) else "")
+    if mode is None:
+        return sandboxed
+    return sandboxed and params.get("mode") == mode and step_config.get("mode") in (None, mode)
 
 
 def _allowed_reviewer(reviewer: Mapping[str, Any], backend: str | None) -> bool:
@@ -957,17 +1011,18 @@ class ReviewVerdictPort:
         parent: str,
         i: int,
         body: Mapping[str, Any],
-        review_step: str | None,
+        review_step: str | tuple[str, ...] | None,
         g: Mapping[str, Any],
     ) -> tuple[Mapping[str, Any], Mapping[str, Any]]:
         """The agent step that actually made the gated commit (Codex review #2): of the
-        gate's try's ai steps other than the review, the one that succeeded with
+        gate's try's ai steps other than the review steps, the one that succeeded with
         ``head_after`` == the gate's ``agent_commit_sha``. Never a name from the workflow
         config; none or more than one is ``review_invalid``."""
         tip = g.get("agent_commit_sha")
+        skip = (review_step,) if isinstance(review_step, str) else tuple(review_step or ())
         found = []
         for sid, definition in body.items():
-            if sid == review_step or definition.get("kind") != "ai":
+            if sid in skip or definition.get("kind") != "ai":
                 continue
             st = _state(run, f"{parent}[{i}]/{sid}")
             if (
@@ -1073,10 +1128,9 @@ class ReviewVerdictPort:
             task=input.get("task"),
             reviewer=lambda: (
                 run,
-                _state(run, f"{parent}[{i}]/{names['review']}"),
-                body.get(names["review"]) or {},
+                *_the_review(run, names["reviews"], lambda s: f"{parent}[{i}]/{s}", body.get),
             ),
-            implementer=lambda: self._implementer(run, parent, i, body, names["review"], g),
+            implementer=lambda: self._implementer(run, parent, i, body, names["reviews"], g),
             chain=False,
         )
 
@@ -1088,7 +1142,9 @@ class ReviewVerdictPort:
         facts: dict[str, Any],
     ) -> dict[str, Any]:
         """d21: a ``review-commit`` run judges the commit of the ``pr-fix`` run whose
-        success started it, walked from the store by verified lineage, never wired in."""
+        success started it, walked from the store by verified lineage, never wired in. #39:
+        its review is whichever of ``review_steps`` succeeded; which reviewer that was, and
+        who implemented the commit, still come from the store, never the routing input."""
         if _LOOP_KEY_RE.match(context.step_id or ""):
             raise ReviewError("bad_config", "the chain's review step is a top-level step")
         try:
@@ -1115,8 +1171,7 @@ class ReviewVerdictPort:
             task=task,
             reviewer=lambda: (
                 run,
-                _state(run, names["review"]),
-                _top_step(run, names["review"]),
+                *_the_review(run, names["reviews"], str, lambda s: _top_step(run, s)),
             ),
             implementer=lambda: self._implementer(fix, fg.parent, fg.iteration, fg.body, None, g),
             chain=True,
@@ -1265,8 +1320,6 @@ class ReviewVerdictPort:
         facts.update(reviewer_actor=reviewer_id, implementer_actor=implementer_id)
         reviewer = self._actor(reviewer_id, "reviewer")
         implementer_doc = self._actor(implementer_id, "implementer")
-        if not _read_only_reviewer(reviewer, review_def):
-            raise ReviewError("reviewer_not_read_only", f"{reviewer_id} is not read-only")
         r = review.get("outputs") or {}
         reviewer_backend = _backend(r.get("backend"), reviewer.get("harness"))
         if not _allowed_reviewer(reviewer, reviewer_backend):
@@ -1275,6 +1328,8 @@ class ReviewVerdictPort:
                 f"{reviewer_id} is not an actor flagged as a reviewer with backend in "
                 f"{sorted(REVIEWER_BACKENDS)}",
             )
+        if not _read_only_reviewer(reviewer, review_def):
+            raise ReviewError("reviewer_not_read_only", f"{reviewer_id} is not read-only")
         implementer_backend = _backend(
             (impl_state.get("outputs") or {}).get("backend"), implementer_doc.get("harness")
         )

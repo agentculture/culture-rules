@@ -23,7 +23,9 @@ from culture_rules.actors.trusted import (
     ROLE_FIX,
     ROLE_PUBLISH,
     ROLE_REVIEW,
+    TRUSTED_ACTOR_DIGESTS,
     TRUSTED_WORKFLOWS,
+    actor_digest,
     workflow_digest,
 )
 from culture_rules.cli import main
@@ -257,14 +259,20 @@ def test_publish_fix_is_unchanged_by_the_escalation():
     assert '"kind": "github.' not in pr_fix
 
 
+REVIEW_CODEX, REVIEW_QWEN = "review_codex", "review_qwen"
+REVIEW_STEPS = {REVIEW_CODEX: "codex-reviewer", REVIEW_QWEN: "qwen-reviewer"}
+"""#39: one review step per reviewer, routed by the try's reviewer."""
+
+
 def test_review_commit_reviews_and_publish_fix_pushes():
     review = workflow_docs()["review-commit"]
     steps = {s["id"]: s for s in review["steps"]}
-    assert list(steps) == ["review", "verdict"]
-    assert steps["review"]["placement"]["actor"] == "codex-reviewer"
-    assert steps["review"]["config"]["sandbox"] == "read-only"
-    assert "instruction" not in {p["name"] for p in steps["review"]["inputs"]}
-    assert steps["verdict"]["config"] == {"builtin": "review"}
+    assert list(steps) == [*REVIEW_STEPS, "verdict"]
+    for sid, actor in REVIEW_STEPS.items():
+        assert steps[sid]["placement"]["actor"] == actor
+        assert steps[sid]["config"]["sandbox"] == "read-only"
+        assert "instruction" not in {p["name"] for p in steps[sid]["inputs"]}
+    assert steps["verdict"]["config"] == {"builtin": "review", "review_steps": list(REVIEW_STEPS)}
     kinds = [s.get("config", {}).get("action", {}).get("kind") for s in review["steps"]]
     assert "github.push" not in kinds
     publish = workflow_docs()["publish-fix"]
@@ -275,6 +283,100 @@ def test_review_commit_reviews_and_publish_fix_pushes():
     assert params["gate_verdict"] == "inputs.verdict"
     assert not [k for k in params if "review" in k]  # enforced from the store, never wired
     assert steps["push"]["placement"]["machine"] == "spark2"
+
+
+D21_REVIEW_COMMIT_DIGEST = "sha256:79064f76264a469fc83ef2ed7e2b2d9e2979fbf58f339428319ac3c2a7b158e6"
+"""review-commit as shipped by d21 (one review step): still trusted while runs pinned to it
+may still record a review."""
+
+
+def test_the_d21_review_commit_stays_trusted_next_to_the_new_one():
+    assert D21_REVIEW_COMMIT_DIGEST in TRUSTED_WORKFLOWS[ROLE_REVIEW]
+    assert workflow_digest(workflow_docs()["review-commit"]) != D21_REVIEW_COMMIT_DIGEST
+    assert len(TRUSTED_WORKFLOWS[ROLE_REVIEW]) == 2
+
+
+def _routes(reviewer) -> list[str]:
+    """The review steps whose ``when`` holds for a passing gate, a whole diff and the try's
+    ``reviewer`` (``...`` when the input is absent)."""
+    values = {"gate_verdict": "pass", "diff_truncated": False}
+    if reviewer is not ...:
+        values["reviewer"] = reviewer
+    steps = workflow_docs()["review-commit"]["steps"]
+    return [
+        s["id"]
+        for s in steps
+        if s["id"] in REVIEW_STEPS
+        and evaluate(s["config"]["when"], {"trigger": values, "variables": values})
+    ]
+
+
+@pytest.mark.parametrize(
+    ("reviewer", "routes"),
+    [
+        (..., [REVIEW_CODEX]),  # no fixer_levels: as before #39
+        (None, [REVIEW_CODEX]),
+        ("", [REVIEW_CODEX]),
+        ("codex-reviewer", [REVIEW_CODEX]),
+        ("qwen-reviewer", [REVIEW_QWEN]),
+        ("claude-reviewer", []),  # an unknown reviewer runs no review: review_missing
+    ],
+)
+def test_the_tries_reviewer_routes_exactly_one_review_step(reviewer, routes):
+    assert _routes(reviewer) == routes
+
+
+@pytest.mark.parametrize("sid", list(REVIEW_STEPS))
+@pytest.mark.parametrize(
+    "values",
+    [
+        {"gate_verdict": "fail", "diff_truncated": False},
+        {"gate_verdict": "pass", "diff_truncated": True},
+    ],
+)
+def test_no_review_step_runs_on_a_failed_gate_or_a_cut_diff(sid, values):
+    (step,) = (s for s in workflow_docs()["review-commit"]["steps"] if s["id"] == sid)
+    for reviewer in REVIEW_STEPS.values():
+        scope = {**values, "reviewer": reviewer}
+        assert not evaluate(step["config"]["when"], {"trigger": scope, "variables": scope})
+
+
+def test_the_review_commit_rule_maps_the_tries_reviewer():
+    inputs = rule_docs()["pr-fixer-review-commit"]["workflow"]["inputs"]
+    assert inputs["reviewer"] == "trigger.data.outputs.reviewer"
+    wf = workflow_docs()["review-commit"]
+    assert "reviewer" in {p["name"] for p in wf["inputs"]}
+    into = {(e["target"], e["target_port"]): e["source"] for e in wf["edges"]}
+    for sid in REVIEW_STEPS:
+        assert into[(sid, "reviewer")] == "inputs"
+
+
+def _actor(actor_id: str) -> dict:
+    (actor,) = (a for a in bundle().actors if a.id == actor_id)
+    return actor.to_dict()
+
+
+def test_the_bundle_ships_both_reviewer_actors_and_both_are_trusted():
+    assert sorted(a.id for a in bundle().actors) == sorted(REVIEW_STEPS.values())
+    for actor_id in REVIEW_STEPS.values():
+        digest = actor_digest(_actor(actor_id))
+        assert digest in TRUSTED_ACTOR_DIGESTS[actor_id], (
+            f"docs/rules/pr-fixer/actors/{actor_id}.json now hashes to {digest}: if intended, "
+            f"add it to TRUSTED_ACTOR_DIGESTS[{actor_id!r}] in culture_rules/actors/trusted.py"
+        )
+
+
+def test_qwen_reviewer_is_a_read_only_plan_mode_reviewer_on_the_qwen_pool():
+    doc = _actor("qwen-reviewer")
+    assert (doc["kind"], doc["harness"], doc["machine"]) == ("agent", "qwen", "spark2")
+    params = doc["params"]
+    assert params["mode"] == "plan"  # Qwen's read-only: an approval policy, not a sandbox
+    assert params["sandbox"] == "read-only"
+    assert params["reviewer"] is True
+    assert params["locked_instruction"] == "pr-fixer-review"
+    assert params["concurrency_pool"] == "qwen-spark2"  # one Qwen job at a time
+    assert params["max_concurrency"] == 1
+    assert params["bridge_token"].startswith("grant:")
 
 
 def test_conditions_reference_the_variables_never_a_copied_list():
