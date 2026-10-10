@@ -150,6 +150,11 @@
       "description": "Whether this rule's runs count toward its concurrency key's attempt budget (and are refused once it is spent). False: the rule still shares the key's one active run and coalescing, but its admitted runs are not counted and the budget never refuses it - for a follow-up rule in an event chain (a review on a fix's finished run) that is not a fix attempt. Needs a concurrency_key; refused together with max_attempts.",
       "default": true
     },
+    "resets_attempt_budget": {
+      "type": "boolean",
+      "description": "Whether this rule firing starts a new story on its concurrency key (#35, d32): when its trigger and condition hold for an event, the key's attempt budget is reset, once per (key, event), before the firing is admitted - like a human push or green checks. For a trusted request such as a /fix comment. Needs a concurrency_key.",
+      "default": false
+    },
     "schema_version": {
       "type": "string",
       "description": "Document schema version (MAJOR.MINOR)",

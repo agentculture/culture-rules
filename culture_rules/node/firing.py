@@ -195,7 +195,10 @@ prefix (``pr-fixer:``). :mod:`culture_rules.engine.claims` keeps one
   that this consumer's keyed rules triggered by a ``github.*`` event resolve on the reset
   event, whatever the event's own type. A reset applies once per (key, event) whatever the
   order consumers reach it in (a marker per pair, see ``reset_attempt_budget``), so a
-  lagging consumer never grants an attempt without a new signal;
+  lagging consumer never grants an attempt without a new signal. A rule with
+  ``resets_attempt_budget`` (#35, d32: a trusted ``/fix`` request is a new story) resets
+  its own key the same way, once per (key, event), when it fires - its trigger and
+  condition held - before its firing is admitted;
 * **a chain is one unit per key** (d21 phase 2, :mod:`culture_rules.engine.chain_hold`).
   A keyed run whose event a live rule would continue holds its key at its end: only
   that continuation is admitted on it, it keeps the key's pending event for the chain's
@@ -840,6 +843,8 @@ class RuleFiring:
             self._pending[marker_id].append((decision.rule_id, event_id))
             run_id = run_id_for(decision.rule_id, event_id)
             key = None
+            if decision.fire and by_id[decision.rule_id].resets_attempt_budget is True:
+                _reset_own_key(tx, by_id[decision.rule_id], envelope)  # d32: a new story
             if decision.fire and by_id[decision.rule_id].concurrency_key is not None:
                 decision, key = self._admit(
                     tx, by_id[decision.rule_id], rules, envelope, decision, run_id, intent_id, now
@@ -1134,6 +1139,15 @@ def _resolved_key(rule: Rule, envelope: Mapping[str, Any]) -> str | None:
         return resolve_concurrency_key(rule.concurrency_key or "", envelope)
     except ValueError:
         return None
+
+
+def _reset_own_key(tx: StoreOps, rule: Rule, envelope: Mapping[str, Any]) -> None:
+    """#35 d32: ``rule`` (``resets_attempt_budget``) fires on ``envelope``: reset its key's
+    attempt budget once for this event, before the firing is admitted. A key that does not
+    resolve resets nothing (the admission then skips the firing as unresolved)."""
+    key = _resolved_key(rule, envelope)
+    if key is not None:
+        reset_attempt_budget(tx, key, envelope["id"])
 
 
 def _reset_keys(rules: list[Rule], ours: set[str], envelope: Mapping[str, Any]) -> set[str]:

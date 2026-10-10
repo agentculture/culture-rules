@@ -551,6 +551,13 @@ def _check_rule(obj: Rule, path: str, errors: Errors) -> None:
                 "conflict",
                 "a rule outside the attempt budget cannot set max_attempts",
             )
+    if obj.resets_attempt_budget is True and obj.concurrency_key is None:
+        _err(
+            errors,
+            _join(path, "resets_attempt_budget"),
+            "requires_concurrency_key",
+            "resets_attempt_budget applies only to a rule with a concurrency_key",
+        )
     if isinstance(obj.concurrency_key, str):
         problem = _concurrency_key_problem(obj.concurrency_key)
         if problem is not None:

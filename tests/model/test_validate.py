@@ -549,6 +549,20 @@ def test_counts_toward_budget_false_needs_a_key_and_no_max_attempts() -> None:
     assert ("counts_toward_budget", "conflict") in {(e.path, e.code) for e in both}
 
 
+# --- resets_attempt_budget (#35 d32) ------------------------------------------
+
+
+def test_resets_attempt_budget_defaults_false_round_trips_and_needs_a_key() -> None:
+    assert make_rule().resets_attempt_budget is False
+    rule = make_rule(concurrency_key="k:{trigger.data.n}", resets_attempt_budget=True)
+    assert Rule.from_dict(rule.to_dict()).resets_attempt_budget is True
+    assert validate(rule) == []
+    unkeyed = validate(make_rule(resets_attempt_budget=True))
+    assert ("resets_attempt_budget", "requires_concurrency_key") in {
+        (e.path, e.code) for e in unkeyed
+    }
+
+
 def test_counts_toward_budget_must_be_a_boolean() -> None:
     doc = make_rule().to_dict()
     doc["counts_toward_budget"] = "no"
