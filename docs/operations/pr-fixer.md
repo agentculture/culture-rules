@@ -310,6 +310,19 @@ The fixer is committed data in `docs/rules/pr-fixer/`, in the import format
 (`rules/<id>.json`, `workflows/<id>.json`, `actors/<id>.json`). JSON rather
 than YAML, so the import works on an API without the `yaml` extra.
 
+Two manifests sit beside the definitions (#45):
+
+- `variables.json` holds every seed variable as `{name, value, description}`.
+  It is the one source of the seed values: `seed-variables.sh` reads it.
+- `release.json` is `{version, new_rules, new_variables}`: the release the
+  bundle belongs to and the rule ids and variable names it adds. Its
+  `version` equals `pyproject.toml`'s, and a test checks that. Each release
+  bumps both together and lists what it adds (empty lists when it adds
+  nothing).
+
+The wheel ships the bundle, both manifests and `deploy/node/install.sh` as
+`culture_rules/deploy_data` (read through `culture_rules.deploy_data`).
+
 Since d21 the fixer is **three workflows chained by run events**
 ([run events](../run-events.md)). Each stage is its own run, and each run
 fires the next through the `rules.run.succeeded` event it emits. Since #35
