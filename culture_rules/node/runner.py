@@ -296,6 +296,7 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
         QueueProgressPort,
         QueueStopPort,
     )
+    from culture_rules.node.actions.select import SELECT_BUILTIN, SelectPort  # noqa: PLC0415
     from culture_rules.node.actions.sonar import SONAR_BUILTIN, SonarGateIssuesPort  # noqa: PLC0415
 
     message = MessageAction(store)
@@ -333,6 +334,7 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
                 QUEUE_STOP_BUILTIN: QueueStopPort(store, pr_lookup=head),  # d34: /stop, 👎
                 EXPORT_BUILTIN: HandoffExportPort.from_env(store),  # #39: Codex commits out
                 IMPORT_BUILTIN: HandoffImportPort.from_env(store),  # #39: ... into spark2
+                SELECT_BUILTIN: SelectPort(),  # #39: the gate's one source, whichever path ran
             }
         ),
     }

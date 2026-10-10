@@ -58,8 +58,8 @@ def test_a_hand_back_lands_in_the_status_comment(tmp_path):
     w.fire()
     assert len(w.issues.posts) == 1
     (body,) = w.comments()
-    assert body.startswith("PR fixer handed back (loop_body_failed): fix[0]/agent: no_changes")
-    assert "- **failed** Agent (qwen-fixer)" in body
+    assert body.startswith("PR fixer handed back (loop_body_failed): fix[0]/agent_qwen: no_changes")
+    assert "- **failed** Agent (qwen-fixer, level 1)" in body  # #39: the shipped level 1
     assert record(w)["final"] is True
 
 

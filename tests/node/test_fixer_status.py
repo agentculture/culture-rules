@@ -268,3 +268,91 @@ def test_a_storys_second_one_try_run_reads_as_its_second_try():
     body = render(Chain(root=first, runs=[first, second]))
     assert "- **working (try 2 of 3)** Agent (qwen-fixer)" in body
     assert "- **working (try 1 of 3)** Agent (qwen-fixer)" in render(chain_of(fix_run()))
+
+
+# --------------------------------------------------------------------------- #39 levels
+
+
+def codex_try(**kw) -> dict:
+    """A story's try 2 at level 2: agent_qwen skipped by its ``when``, agent_codex working."""
+    fields = {
+        "id": "run-codex",
+        "created_at": "2026-10-09T12:30:00+00:00",
+        "inputs": {"fixer": "codex-fixer", "reviewer": "qwen-reviewer", "level": 2, "attempt": 2},
+        "steps": steps(
+            quiet="succeeded", secrets="succeeded", agent="skipped", agent_codex="waiting"
+        ),
+    }
+    return fix_run(**{**fields, **kw})
+
+
+def qwen_try(**kw) -> dict:
+    gate = {"key": "fix[0]/gate", "status": "succeeded", "outputs": {"verdict": "fail"}}
+    states = steps(quiet="succeeded", secrets="succeeded", agent="succeeded")
+    fields = {
+        "id": "run-qwen",
+        "status": "succeeded",
+        "inputs": {"fixer": "qwen-fixer", "reviewer": "codex-reviewer", "level": 1, "attempt": 1},
+        "steps": [s if s["key"] != "fix[0]/gate" else gate for s in states],
+    }
+    return fix_run(**{**fields, **kw})
+
+
+def test_the_agent_stage_names_the_level_and_fixer_that_runs_the_try():
+    first, second = qwen_try(), codex_try()
+    body = render(Chain(root=first, runs=[first, second]))
+    assert "- **working (try 2 of 3)** Agent (codex-fixer, level 2)" in body
+    assert "Agent (qwen-fixer" not in body.split("Tries:")[0]  # not the first ai step
+
+
+def test_each_try_is_named_with_its_level_and_fixer():
+    first, second = qwen_try(), codex_try()
+    body = render(Chain(root=first, runs=[first, second]))
+    assert (
+        "Tries: try 1 (qwen-fixer, level 1): verdict fail; try 2 (codex-fixer, level 2): working."
+        in body
+    )
+
+
+def test_before_its_when_is_read_the_try_names_the_dispatched_fixer():
+    run = codex_try(steps=steps(quiet="succeeded", secrets="succeeded"))  # both agents pending
+    assert "Agent (codex-fixer, level 2)" in render(chain_of(run))
+
+
+def test_a_try_without_a_level_reads_as_before():
+    body = render(chain_of(fix_run()))
+    assert "- **working (try 1 of 3)** Agent (qwen-fixer)" in body
+    assert "Tries:" not in body  # one try, no level: nothing more to name
+
+
+def test_a_handed_back_story_has_one_final_section():
+    first = qwen_try()
+    second = codex_try(status="failed", error={"code": "loop_body_failed"})
+    final = Final("PR fixer handed back (loop_body_failed): fix[0]/agent_codex: no_changes", RUN)
+    body = plain(render(Chain(root=first, runs=[first, second]), final))
+    assert body.count("handed back") == 1
+    assert "try 2 (codex-fixer, level 2): failed (loop_body_failed)" in body
+
+
+def test_a_malformed_level_or_fixer_is_never_rendered():
+    run = codex_try(inputs={"fixer": "codex-fixer", "level": "2 <b>"})
+    body = render(chain_of(run))
+    assert "<b>" not in body
+    assert "Agent (codex-fixer)" in body
+
+
+def test_the_review_of_the_current_try_is_never_an_earlier_round():
+    """A try that failed its gate has no review: the review of the next try is that try's,
+    not an earlier round's (#39: a Qwen try, then a Codex try reviewed)."""
+    review = {
+        "id": "run-review",
+        "status": "failed",
+        "error": {"code": "actor_failed"},
+        "workflow": {"id": "review-commit", "definition": load("workflows", "review-commit")},
+        "created_at": "2026-10-09T12:40:00+00:00",
+        "steps": [],
+    }
+    first, second = qwen_try(), codex_try(status="succeeded")
+    body = render(Chain(root=first, runs=[first, second, review]))
+    assert "- **failed (actor_failed)** Review" in body
+    assert "Earlier:" not in body

@@ -23,7 +23,7 @@
       },
       {
         "op": "matches",
-        "pattern": "fix\\[0\\]/agent: (timeout: [\\s\\S]*|the step's deadline passed)",
+        "pattern": "fix\\[0\\]/agent(_qwen|_codex)?: (timeout: [\\s\\S]*|the step's deadline passed)",
         "value": {
           "field": "data.error_message"
         }
@@ -59,7 +59,7 @@
     "op": "and"
   },
   "counts_toward_budget": false,
-  "description": "d37: fires when a pr-fix try fails because its agent ran out of time (the bridge's timeout, or the agent step's deadline), and puts the PR back in the fixer queue at the back as a retry with the try's own instruction and a note that it timed out (a failed run records the workflow outputs it has, so the instruction, task, clone URL and head branch come with it); the requests already waiting run first. Any other failure of the try still hands back. Shares the PR's key (it continues the chain, so the try's own hand-back is skipped), not an attempt itself. When the PR has used its 3 attempts the queue refuses the retry and the run hands back once.",
+  "description": "d37: fires when a pr-fix try fails because its agent (#39: agent_qwen or agent_codex; agent in a run pinned to the d30 pr-fix) ran out of time (the bridge's timeout, or the agent step's deadline), and puts the PR back in the fixer queue at the back as a retry with the try's own instruction and a note that it timed out (a failed run records the workflow outputs it has, so the instruction, task, clone URL and head branch come with it); the requests already waiting run first. Any other failure of the try still hands back. Shares the PR's key (it continues the chain, so the try's own hand-back is skipped), not an attempt itself. When the PR has used its 3 attempts the queue refuses the retry and the run hands back once.",
   "enabled": false,
   "exclusive_group": null,
   "id": "pr-fixer-retry-failed",

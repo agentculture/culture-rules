@@ -119,10 +119,17 @@ class Issues:
         return [*self.others, *mine]
 
 
+FIX_BODY = ("agent_qwen", "agent_codex", "handoff_export", "handoff_import", "select", "gate")
+"""#39: the shipped pr-fix's try: one agent step per level, the hand-off, select, the gate."""
+
+
 def steps(**status) -> list[dict]:
-    """Step states of a pr-fix run: ``quiet``, ``secrets``, ``fix`` and its first try."""
+    """Step states of a pr-fix run: ``quiet``, ``secrets``, ``fix`` and its first try
+    (``agent`` stands for ``agent_qwen``, the level-1 path)."""
+    if "agent" in status:
+        status["agent_qwen"] = status.pop("agent")
     out = []
-    for key in ("quiet", "secrets", "threads", "sonar", "fix", "fix[0]/agent", "fix[0]/gate"):
+    for key in ("quiet", "secrets", "threads", "sonar", "fix", *(f"fix[0]/{b}" for b in FIX_BODY)):
         out.append({"key": key, "status": status.get(key.replace("fix[0]/", ""), "pending")})
     return out
 
