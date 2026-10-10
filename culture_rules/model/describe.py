@@ -53,6 +53,8 @@ BUILTIN_WORDS: dict[str, str] = {
     "sonar.gate_issues": "sonar.gate_issues: the issues behind the PR's failing SonarCloud gate",
     "queue.add": "queue.add{as}: put the PR in line (first come, first served)",
     "queue.progress": "queue.progress{as}: free ended slots, start the oldest request",
+    "handoff.export": "handoff.export: the fixer's commits as a size-capped pack in the store",
+    "handoff.import": "handoff.import: that pack into a fresh fixer-owned worktree",
 }
 
 _TO_CHANNEL = (("channel", "to {}"),)

@@ -150,6 +150,7 @@ NODE_COLLECTIONS = (
     RULE_DECISIONS,
     "actor_usage",
     "queues",  # culture_rules.node.actions.queue.QUEUES_COLLECTION (#35)
+    "handoffs",  # culture_rules.actors.handoff.HANDOFFS_COLLECTION (#39)
     human.ASKS_COLLECTION,
     agent.BRIDGE_INVOCATIONS,
     REVIEWS_COLLECTION,
