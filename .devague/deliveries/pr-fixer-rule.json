@@ -2,7 +2,7 @@
   "plan_slug": "pr-fixer-rule",
   "schema_version": 2,
   "created": "2026-10-06T08:44:59Z",
-  "updated": "2026-10-10T16:43:28Z",
+  "updated": "2026-10-10T17:31:17Z",
   "deviations": [
     {
       "id": "d1",
@@ -2074,6 +2074,44 @@
       "status": "approved",
       "superseded": false,
       "seq": 125
+    },
+    {
+      "id": "e91",
+      "obligation_ref": "o46",
+      "test_ref": "tests/rules/test_pr_fixer_queue.py (every try told once; dispatch template heading) + tests/rules/test_pr_fixer_chain.py (a refix reads the paragraph once)",
+      "behavior_text": "asserts the dispatch instruction carries the merge-from-base paragraph naming base_sha once per try and that queue.add / review strip it from the next try's task",
+      "contract_text": "c5, extended by d36",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "67 targeted tests green at the named commit (full suite 4818 per the subagent); Codex approved round 3, the round-3 low fix 1bf7b4f reviewed by the main agent",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-10T17:30:57",
+        "commit": "1bf7b4f"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 127
+    },
+    {
+      "id": "e92",
+      "obligation_ref": "o47",
+      "test_ref": "tests/actors/test_gate_squash.py::test_d36_* (9: copy caught, no hint on a genuine large change, a small copy or a revert, without a gate section, three time-budget cases)",
+      "behavior_text": "asserts the copied-base finding appears for a flattened base over the cap and not for genuine changes or reverts, with and without a gate section, and that a slow or failing check only loses the hint",
+      "contract_text": "c5, extended by d36",
+      "evidence_type": "automated",
+      "strength": "execution",
+      "strength_basis": "tests green at the named commit; the no-gate test and the round regression tests were written after their code (checked against the previous code); the hint is advisory per Codex",
+      "outcome": "pass",
+      "run": {
+        "timestamp": "2026-10-10T17:30:57",
+        "commit": "1bf7b4f"
+      },
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false,
+      "seq": 128
     }
   ],
   "deltas": [
@@ -2383,6 +2421,34 @@
       ],
       "origin": "llm",
       "status": "approved",
+      "superseded": false
+    },
+    {
+      "id": "b23",
+      "kind": "added",
+      "behavior_text": "every fixer try is told the one-merge-from-base allowance (real git merge of base_sha; never flatten, squash, cherry-pick or rebase), once per try",
+      "caused_by": [
+        "d36"
+      ],
+      "evidence_refs": [
+        "e91"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "superseded": false
+    },
+    {
+      "id": "b24",
+      "kind": "added",
+      "behavior_text": "an oversized fix that copies the base in as a plain commit gets a review finding naming the copied files and asking for one real merge from base (advisory)",
+      "caused_by": [
+        "d36"
+      ],
+      "evidence_refs": [
+        "e92"
+      ],
+      "origin": "llm",
+      "status": "proposed",
       "superseded": false
     }
   ],

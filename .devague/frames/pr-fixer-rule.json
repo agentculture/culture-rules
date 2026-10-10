@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-05T20:43:33Z",
-  "updated": "2026-10-10T15:01:12Z",
+  "updated": "2026-10-10T17:31:06Z",
   "claims": [
     {
       "id": "c1",
@@ -1646,6 +1646,24 @@
       "source_text": "At most one fixer run per PR at a time, and a per-PR attempt budget stops fix/test/push cycles; because the App pushes, its own synchronize events are skipped by the existing self_authored check",
       "origin": "llm",
       "status": "approved"
+    },
+    {
+      "id": "o46",
+      "claim_id": "c5",
+      "seam": "the pr-fixer-dispatch instruction (d36)",
+      "behavior": "every fixer try, whatever started it (/fix, checks, review, refix, retry, conflict), is told exactly once that one real two-parent 'git merge <base_sha>' is allowed when the PR needs its base and that squashing, flattening, cherry-picking, rebasing or copying the base in is not; the paragraph never repeats across retries",
+      "source_text": "The agent never pushes. It commits in its worktree; the engine runs the repo's tests on that commit and either pushes it to the PR head branch as the GitHub App, or hands the failure back to the agent for another attempt",
+      "origin": "llm",
+      "status": "proposed"
+    },
+    {
+      "id": "o47",
+      "claim_id": "c5",
+      "seam": "the gate's copied-base hint (d36)",
+      "behavior": "when the reviewed diff is over the reviewer's cap and the built commit is not a merge and holds the base's own versions of files the base changed since the fork as at least half of its changed lines, the refusal adds a finding naming those files and the base commit and asks for one real merge; best effort within its own time budget, never changing the verdict, commit or bundle",
+      "source_text": "The agent never pushes. It commits in its worktree; the engine runs the repo's tests on that commit and either pushes it to the PR head branch as the GitHub App, or hands the failure back to the agent for another attempt",
+      "origin": "llm",
+      "status": "proposed"
     }
   ]
 }
