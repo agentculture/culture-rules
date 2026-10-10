@@ -394,3 +394,45 @@ def test_d31_a_binary_conflict_is_guarded(store, tmp_path, clock):  # noqa: F811
     out = judge(store, LocalRunner(), repo, tmp_path, clock)
     assert out["verdict"] == GUARD
     assert out["rule"] == "conflict_not_text"
+
+
+# --------------------------------------------------------------------------- d31, Codex round 2
+
+
+def test_d31_moving_a_protected_file_while_resolving_a_conflict_is_guarded(
+    store, tmp_path, clock  # noqa: F811
+):  # noqa: F811
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    ci = ".github/workflows/ci.yml"
+    tip = merge_base_in(
+        repo, {"src/app.py": "x = 5\n", ci: "on: push\n"}, resolve={"src/app.py": "x = 7\n"}
+    )
+    git(repo.wt, "checkout", "-q", "--detach", tip)
+    git(repo.wt, "mv", ci, "src/ci.yml")
+    git(repo.wt, "commit", "-q", "-m", "move ci")
+    out = judge(store, LocalRunner(), repo, tmp_path, clock)
+    assert out["verdict"] == GUARD
+    assert ("protected_path", ci) in {(v["rule"], v["path"]) for v in out["violations"]}
+
+
+def test_d31_each_sides_own_markers_kept_in_a_conflict_pass(
+    store, tmp_path, clock  # noqa: F811
+):  # noqa: F811
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    git(repo.wt, "checkout", "-q", "--detach", repo.start)
+    repo.start = repo.commit("pr", {"src/app.py": "x = 2  # noqa: E501\n"})
+    theirs = "x = 5  # nosec\n"
+    both = "x = 2  # noqa: E501\ny = 5  # nosec\n"
+    merge_base_in(repo, {"src/app.py": theirs}, resolve={"src/app.py": both})
+    out = judge(store, LocalRunner(), repo, tmp_path, clock)
+    assert out["verdict"] == PASS, out["violations"]
+
+
+def test_d31_a_real_replacement_character_is_complete_review_material(
+    store, tmp_path, clock  # noqa: F811
+):  # noqa: F811
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    merge_base_in(repo, {"src/app.py": "x = 5\n"}, resolve={"src/app.py": "x = 7  # \ufffd\n"})
+    out = judge(store, LocalRunner(), repo, tmp_path, clock)
+    assert out["verdict"] == PASS
+    assert out["diff_truncated"] is False, out["diff_problems"]

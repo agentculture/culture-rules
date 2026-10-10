@@ -1137,11 +1137,19 @@ def _guard_diff(
     return diff_guard(names, patches, patterns)
 
 
-def _text_diff(job: _Job, frm: str, commit: str, paths: Sequence[str]) -> str:
-    """``frm..commit`` for ``paths`` as text, bytes that are not UTF-8 replaced (``\ufffd``
-    then marks the review material incomplete, :meth:`GatePort._diff`)."""
+def _text_diff(job: _Job, frm: str, commit: str, paths: Sequence[str]) -> tuple[str, bool]:
+    """``frm..commit`` for ``paths`` as text, and whether it was valid UTF-8 (bytes that
+    are not are replaced, and the review material is then incomplete)."""
     raw = job.git(*_DIFF, "--no-renames", frm, commit, "--", *map(_literal, paths))
-    return raw.decode("utf-8", errors="replace")
+    try:
+        return raw.decode("utf-8"), True
+    except UnicodeDecodeError:
+        return raw.decode("utf-8", errors="replace"), False
+
+
+def _marker_key(v: Violation) -> tuple[str, str, str]:
+    """A marker violation's identity: rule, path and the marker's label (``noqa``, ...)."""
+    return v.rule, v.path, v.detail.split(":", 1)[0]
 
 
 _EITHER_PARENT = frozenset({"protected_path", "test_deleted", "test_removed"})
@@ -1166,8 +1174,8 @@ def _guard_conflicts(
         side = _guard_diff(job, parent, commit, patterns, only=paths, renames=False)
         found += [v for v in side if v.rule in _EITHER_PARENT]
         seen.append([v for v in side if v.rule not in _EITHER_PARENT])
-    both = {(v.rule, v.path) for v in seen[1]}
-    found += [v for v in seen[0] if (v.rule, v.path) in both]
+    both = {_marker_key(v) for v in seen[1]}
+    found += [v for v in seen[0] if _marker_key(v) in both]
     for parent in parents:
         for problem in _non_text_changes(job, parent, commit, [_literal(p) for p in paths]):
             path, _, why = problem.partition(": ")
@@ -1466,22 +1474,33 @@ class GatePort:
             + ", ".join(merge.conflicted)
             + ").\n"
         )
-        changed = job.git(*_DIFF, "--name-only", "-z", merge.clean, built, "--").decode(
-            "utf-8", errors="surrogateescape"
-        )
+        # --no-renames: both ends of a rename are listed, so neither is left out (round 2 #2)
+        changed = job.git(
+            *_DIFF, "--name-only", "--no-renames", "-z", merge.clean, built, "--"
+        ).decode("utf-8", errors="surrogateescape")
         clean = [p for p in changed.split("\x00") if p and p not in merge.conflicted]
-        parts = [header]
-        if clean:
-            parts.append(_text_diff(job, merge.clean, built, clean))
+        parts, utf8 = [header], True
+        pieces = [(None, merge.clean, clean)] if clean else []
         for path in merge.conflicted:
             for label, parent in (("the PR head", start), ("the base", second)):
-                parts.append(f"# conflicted {path}, resolved, against {label}:\n")
-                parts.append(_text_diff(job, parent, built, [path]))
-        return cls._diff(job, merge.clean, built, cap, text="".join(parts))
+                pieces.append(
+                    (f"# conflicted {path}, resolved, against {label}:\n", parent, [path])
+                )
+        for title, frm, paths in pieces:
+            text, ok = _text_diff(job, frm, built, paths)
+            parts += [title or "", text]
+            utf8 = utf8 and ok
+        return cls._diff(job, merge.clean, built, cap, text="".join(parts), utf8=utf8)
 
     @staticmethod
     def _diff(
-        job: _Job, start: str, commit: str, cap: int, header: str = "", text: str | None = None
+        job: _Job,
+        start: str,
+        commit: str,
+        cap: int,
+        header: str = "",
+        text: str | None = None,
+        utf8: bool = True,
     ) -> dict[str, Any]:
         """``start..commit`` as text (or ``text``, already assembled), read in the
         node-verified scratch repo (no external diff, no textconv, no attributes), cut at
@@ -1494,7 +1513,7 @@ class GatePort:
             except UnicodeDecodeError:  # replacement would hide bytes: never "complete"
                 text = raw.decode("utf-8", errors="replace")
                 problems.append("the diff is not valid UTF-8 text (bytes the reviewer cannot read)")
-        elif "\ufffd" in text:
+        elif not utf8:
             problems.append("the diff is not valid UTF-8 text (bytes the reviewer cannot read)")
         text = header + text
         if len(text) > cap:
@@ -1618,7 +1637,11 @@ class GatePort:
             return _guard_diff(job, start, commit, patterns)
         # d31: judge the resolution, never the base's own commits
         merge = _clean_merge(job, start, second)
-        found = _guard_diff(job, merge.clean, commit, patterns, skip=set(merge.conflicted))
+        # no rename detection here: a rename pairing a clean path with a conflicted one
+        # would hide one end (Codex round 2 #1); each path is judged on its own side
+        found = _guard_diff(
+            job, merge.clean, commit, patterns, skip=set(merge.conflicted), renames=False
+        )
         if merge.conflicted:
             found += _guard_conflicts(job, (start, second), commit, merge.conflicted, patterns)
         return list(dict.fromkeys(found))

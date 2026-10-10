@@ -342,9 +342,10 @@ comment (see
 CONFLICTING (its base moves, its head does not). Every node that can read a repo
 through its GitHub App sweeps the open PRs of `vars.fixer_repos` (less
 `vars.fixer_excluded_repos`) at most every `vars.conflict_watch_interval_s`
-seconds (default 600) and reads each same-repo, non-draft PR's `mergeable`, at
-most 10 reads and 10 seconds per node cycle (the rest wait for the next cycle;
-a rate-limited read drops that repo until the next sweep). A PR GitHub reports
+seconds (default 600): it lists the open PRs a page at a time and reads each
+same-repo, non-draft PR's `mergeable`, at most 10 GitHub requests and 10 seconds
+per node cycle (the rest wait for the next cycle; a failed listing or a
+rate-limited request drops that repo until the next sweep). A PR GitHub reports
 `mergeable: false` with `mergeable_state: dirty` emits one
 `github.pr.conflicting` event per head and base pair (a deterministic id, so a
 conflict is requested once; a new base is a new request), carrying the same PR

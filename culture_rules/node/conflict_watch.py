@@ -5,13 +5,15 @@ not, so no check completes and nothing settles. :meth:`ConflictWatcher.tick` (ru
 node cycle) therefore looks, at most once every ``conflict_watch_interval_s`` seconds (a
 variable; default :data:`DEFAULT_INTERVAL_S`), at the open PRs of each repository in the
 shared variable ``fixer_repos`` (less ``fixer_excluded_repos``) that this node can read
-through its GitHub App actor (the ``serves`` seam, as for the checks settle). It lists the
-open PRs (``list_pulls``, every page up to the App's cap) and queues the same-repo,
-non-draft ones; each cycle then reads at most :data:`READS_PER_TICK` of them (``get_pull``,
-for GitHub's ``mergeable``) within :data:`TICK_BUDGET_S` seconds, so a slow or failing
-GitHub never holds the node's cycle, and the queue carries over to the next cycle (a new
-listing waits until it is empty). A read refused for rate (``http_403`` / ``http_429``)
-drops the rest of that repository's queue until the next sweep. A PR GitHub reports
+through its GitHub App actor (the ``serves`` seam, as for the checks settle). A sweep lists
+the open PRs one page at a time (``list_page``, 100 a page) and queues the same-repo,
+non-draft ones, then reads each (``get_pull``) for GitHub's ``mergeable``. Listing pages and
+reads share one budget per node cycle: at most :data:`REQUESTS_PER_TICK` requests within
+:data:`TICK_BUDGET_S` seconds, each bounded by the time left (at most
+:data:`REQUEST_TIMEOUT_S`), so a slow or failing GitHub never holds the node's cycle. What
+is left - pages and PRs alike - carries over to the next cycle, and a new sweep starts only
+once the last one is done. A request refused for rate (``http_403`` / ``http_429``) drops
+the rest of that repository's sweep until the next one. A PR GitHub reports
 ``mergeable: false`` with ``mergeable_state: "dirty"`` (a conflict with its base), still
 same-repo and not a draft, emits :data:`~culture_rules.events.emit.PR_CONFLICTING_TYPE`
 carrying the PR facts
@@ -54,17 +56,22 @@ __all__ = [
     "ConflictWatcher",
     "DEFAULT_INTERVAL_S",
     "INTERVAL_VARIABLE",
-    "READS_PER_TICK",
+    "REQUESTS_PER_TICK",
+    "REQUEST_TIMEOUT_S",
     "TICK_BUDGET_S",
     "SOURCE",
     "conflict_event_id",
 ]
 
 DEFAULT_INTERVAL_S = 600.0
-READS_PER_TICK = 10
-"""The most PRs one node cycle reads (each is one GitHub request)."""
+REQUESTS_PER_TICK = 10
+"""The most GitHub requests (listing pages and PR reads) one node cycle makes."""
 TICK_BUDGET_S = 10.0
-"""The longest one cycle's reads may run; the rest wait for the next cycle."""
+"""The longest one cycle's requests may run; the rest wait for the next cycle."""
+REQUEST_TIMEOUT_S = 5.0
+"""The bound on one request, secret resolve included (less when the budget is nearly spent)."""
+_PAGE_SIZE = 100
+_MAX_PAGES = 50
 _RATE_LIMITED = frozenset({"http_403", "http_429"})
 INTERVAL_VARIABLE = "conflict_watch_interval_s"
 CONFLICT_HOST = "conflict-watch"
@@ -90,27 +97,29 @@ def _repos(store: StoragePort, name: str) -> list[str]:
 
 
 class ConflictWatcher:
-    """See the module docstring. ``list_pulls(repo)`` and ``get_pull(repo, number)`` read
-    through the repo's App; ``serves(repo)`` says whether this node can."""
+    """See the module docstring. ``list_page(repo, page, timeout_s)`` and
+    ``get_pull(repo, number, timeout_s)`` read through the repo's App, each bounded by
+    ``timeout_s``; ``serves(repo)`` says whether this node can."""
 
     def __init__(
         self,
         store: StoragePort,
-        list_pulls: Callable[[str], list[Mapping[str, Any]]],
-        get_pull: Callable[[str, int], Mapping[str, Any]],
+        list_page: Callable[[str, int, float], list[Mapping[str, Any]]],
+        get_pull: Callable[[str, int, float], Mapping[str, Any]],
         *,
         serves: Callable[[str], bool] | None = None,
         clock: Callable[[], datetime] | None = None,
         monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         self._store = store
-        self._list = list_pulls
+        self._list = list_page
         self._get = get_pull
         self._serves = serves
         self._clock = clock or (lambda: datetime.now(UTC))
         self._monotonic = monotonic
         self._last: datetime | None = None
-        self._queue: deque[tuple[str, int]] = deque()
+        self._pages: deque[tuple[str, int]] = deque()  # (repo, page) still to list
+        self._queue: deque[tuple[str, int]] = deque()  # (repo, number) still to read
 
     def interval_s(self) -> float:
         value = _var(self._store, INTERVAL_VARIABLE)
@@ -119,53 +128,70 @@ class ConflictWatcher:
         return float(value)
 
     def tick(self) -> int:
-        """List the repos when a sweep is due and the queue is empty, then read a bounded
-        batch of queued PRs; returns the number of events emitted."""
+        """Start a sweep when one is due and the last is done, then spend this cycle's
+        budget on it (PR reads first, then listing pages); returns the events emitted."""
         now = self._clock()
         due = self._last is None or (now - self._last).total_seconds() >= self.interval_s()
-        if not self._queue and due:
+        if not (self._queue or self._pages) and due:
             self._last = now
-            self._fill()
-        return self._drain(now)
+            self._pages.extend((repo, 1) for repo in self._repos())
+        return self._spend(now)
 
-    def _fill(self) -> None:
+    def _repos(self) -> list[str]:
         excluded = {r.lower() for r in _repos(self._store, "fixer_excluded_repos")}
-        for repo in _repos(self._store, "fixer_repos"):
-            if repo.lower() in excluded:
-                continue
-            if self._serves is not None and not self._serves(repo):
-                continue
-            try:
-                pulls = self._list(repo)
-            except GitHubError as exc:
-                log.info("conflict watch: listing %s failed (%s)", repo, exc.code)
-                continue
-            for listed in pulls:
-                number = listed.get("number")
-                if isinstance(number, bool) or not isinstance(number, int) or number < 1:
-                    continue
-                if listed.get("draft") is not False or not _same_repo(listed):
-                    continue  # never a request: skipped before any read (Codex #3)
-                self._queue.append((repo, number))
+        return [r for r in _repos(self._store, "fixer_repos") if r.lower() not in excluded]
 
-    def _drain(self, now: datetime) -> int:
+    def _spend(self, now: datetime) -> int:
         started = self._monotonic()
-        emitted = reads = 0
-        while self._queue and reads < READS_PER_TICK:
-            if self._monotonic() - started >= TICK_BUDGET_S:
+        emitted = requests = 0
+        while (self._queue or self._pages) and requests < REQUESTS_PER_TICK:
+            left = TICK_BUDGET_S - (self._monotonic() - started)
+            if left <= 0:
                 break
-            repo, number = self._queue.popleft()
-            reads += 1
-            try:
-                pull = dict(self._get(repo, number))
-            except GitHubError as exc:
-                log.info("conflict watch: reading %s#%s failed (%s)", repo, number, exc.code)
-                if exc.code in _RATE_LIMITED:
-                    self._queue = deque(q for q in self._queue if q[0] != repo)
+            timeout = min(REQUEST_TIMEOUT_S, left)
+            if self._queue:
+                repo, number = self._queue.popleft()
+                requests += 1
+                emitted += self._read(repo, number, timeout, now)
                 continue
-            if self._emit(repo, number, pull, now):
-                emitted += 1
+            repo, page = self._pages.popleft()
+            if page == 1 and self._serves is not None and not self._serves(repo):
+                continue  # not this node's repo: no request made
+            requests += 1
+            self._list_page(repo, page, timeout)
         return emitted
+
+    def _list_page(self, repo: str, page: int, timeout: float) -> None:
+        try:
+            pulls = self._list(repo, page, timeout)
+        except GitHubError as exc:
+            log.info("conflict watch: listing %s failed (%s)", repo, exc.code)
+            self._drop(repo)
+            return
+        for listed in pulls:
+            number = listed.get("number")
+            if isinstance(number, bool) or not isinstance(number, int) or number < 1:
+                continue
+            if listed.get("draft") is not False or not _same_repo(listed):
+                continue  # never a request: skipped before any read (Codex #3)
+            self._queue.append((repo, number))
+        if len(pulls) >= _PAGE_SIZE and page < _MAX_PAGES:
+            self._pages.append((repo, page + 1))
+
+    def _read(self, repo: str, number: int, timeout: float, now: datetime) -> int:
+        try:
+            pull = dict(self._get(repo, number, timeout))
+        except GitHubError as exc:
+            log.info("conflict watch: reading %s#%s failed (%s)", repo, number, exc.code)
+            if exc.code in _RATE_LIMITED:
+                self._drop(repo)
+            return 0
+        return int(self._emit(repo, number, pull, now))
+
+    def _drop(self, repo: str) -> None:
+        """Forget the rest of ``repo``'s sweep (a failed listing, a rate limit)."""
+        self._queue = deque(q for q in self._queue if q[0] != repo)
+        self._pages = deque(p for p in self._pages if p[0] != repo)
 
     def _emit(self, repo: str, number: int, pull: Mapping[str, Any], now: datetime) -> bool:
         if pull.get("mergeable") is not False or pull.get("mergeable_state") != "dirty":
