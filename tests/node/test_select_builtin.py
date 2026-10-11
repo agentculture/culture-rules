@@ -6,7 +6,9 @@ fed from one source step, ``select``, never from two edges into one port.
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 
@@ -22,6 +24,7 @@ CONFIG = {
     "optional": ["summary"],
 }
 DEADLINE = datetime(2030, 1, 1, tzinfo=UTC)
+PR_FIX = Path(__file__).resolve().parents[2] / "docs/rules/pr-fixer/workflows/pr-fix.json"
 A, B = "a" * 40, "b" * 40
 
 
@@ -103,3 +106,30 @@ def test_a_bad_config_fails_closed(config):
 def test_default_ports_register_select():
     code = default_ports(MemoryStore(), "spark2")["code"]
     assert SELECT_BUILTIN in code._builtins
+
+
+def _shipped_select() -> tuple[dict, set[str]]:
+    """pr-fix's own select step: its config and the input names it declares."""
+    (fix,) = (s for s in json.loads(PR_FIX.read_text())["steps"] if s["id"] == "fix")
+    (step,) = (b for b in fix["body"] if b["id"] == "select")
+    return step["config"], {p["name"] for p in step["inputs"]}
+
+
+def test_the_shipped_pr_fix_labels_a_claude_commit_claude_fixer():
+    """#56: the Claude path has its own hand-off, feeding select's claude source, so its
+    commit is labelled claude-fixer - never codex-fixer."""
+    config, declared = _shipped_select()
+    inputs = {"claude_worktree": "/c", "claude_start_sha": A, "claude_commit_sha": B}
+    assert set(inputs) <= declared
+    res = invoke({**inputs, "claude_summary": "made x 3"}, config)
+    assert res.outcome == "completed", res.error
+    assert res.output["source"] == "claude-fixer"
+    assert res.output["summary"] == "made x 3"
+
+
+@pytest.mark.parametrize("prefix", ["qwen", "codex", "claude"])
+def test_each_shipped_pr_fix_path_declares_its_inputs(prefix):
+    config, declared = _shipped_select()
+    names = (*config["ports"], *config["optional"])
+    assert {f"{prefix}_{n}" for n in names} <= declared
+    assert config["sources"][prefix] == f"{prefix}-fixer"
