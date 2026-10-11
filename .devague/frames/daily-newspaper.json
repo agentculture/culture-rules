@@ -2,9 +2,9 @@
   "slug": "daily-newspaper",
   "title": "Daily newspaper",
   "schema_version": 6,
-  "status": "drafting",
+  "status": "exported",
   "created": "2026-10-11T04:20:53Z",
-  "updated": "2026-10-11T04:21:29Z",
+  "updated": "2026-10-11T04:27:26Z",
   "claims": [
     {
       "id": "c1",
@@ -12,10 +12,17 @@
       "text": "Every morning at 06:30 Asia/Jerusalem, culture-rules searches the web for the operator's chosen sections, has Qwen summarise what it found, and delivers one dated newspaper by email (from a culture.dev sender) and as an EPUB queued for the operator's Xteink reader",
       "origin": "user",
       "status": "confirmed",
-      "honesty_conditions": [],
+      "honesty_conditions": [
+        {
+          "id": "h10",
+          "text": "A behavioural test drives the whole workflow on fakes (Brave, cortex, Resend, xteink) from a 06:30 Asia/Jerusalem slot to one sent email and one queued item",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
       "hard_questions": [],
       "links": [],
-      "instruction": "",
+      "instruction": "Build in this order: actors and action kinds, builtins, the bundle, then the editor; the behavioural test drives the whole workflow on fakes",
       "revisions": []
     },
     {
@@ -107,24 +114,24 @@
       "kind": "requirement",
       "text": "An 'email' app surface and an email.send action: the actor's connection holds the Resend key reference, the sender domain (one of culture.dev, jetson-ai-lab.org), the sender local part (default no-reply) and a recipient allowlist checked before any secret is read; the action takes to, subject, html and/or text and optional attachments, forwards the engine's idempotency key as Resend's Idempotency-Key, and returns the message id",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h1",
           "text": "A recipient outside the actor's allowlist is refused before the Resend key is read, and the refusal names no secret",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         },
         {
           "id": "h2",
           "text": "A retried send with the same engine idempotency key does not send a second email (Resend Idempotency-Key)",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
       "hard_questions": [],
       "links": [],
-      "instruction": "",
+      "instruction": "Model on node/actions/jira.py and apps/jira.py: add 'email' to APP_SURFACES (model/app_actor.py) with connection checks (domain enum, local part, allowlist, key ref), apps/resend.py (URL constant, injectable transport), node/actions/email.py, the kind in model/action_kinds.py, runner.py, describe.py ACTION_WORDS",
       "revisions": []
     },
     {
@@ -132,18 +139,18 @@
       "kind": "requirement",
       "text": "A 'search' app surface and a search.web action: query, count, freshness, country and lang go to Brave's web search with the key from grant; results come back normalised (title, url, snippet, age, source) and capped, and the action calls no other host",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h3",
           "text": "Search results are capped in count and size, so a large response can't overflow the run document or the summary input",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
       "hard_questions": [],
       "links": [],
-      "instruction": "",
+      "instruction": "apps/brave.py (URL constant) and node/actions/search.py; normalise results into a list of objects and cap count and per-field length; the step declares an array output port",
       "revisions": []
     },
     {
@@ -151,12 +158,12 @@
       "kind": "requirement",
       "text": "An llm.complete action on an agent actor that carries an OpenAI-compatible base URL and model (cortex): the system prompt is a locked newspaper brief in code, the user content is the section's search results, no tools field is ever sent, max tokens are capped, and it returns the text, model and token usage; it takes a concurrency_pool like the bridge actors",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h4",
           "text": "The llm.complete request body never contains a tools field, and its output is the model's text only",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -164,13 +171,13 @@
         {
           "id": "q1",
           "text": "What does the summary do when cortex is down or the pool is busy past the send window: send the issue with search results only, or skip the day?",
-          "resolved": false,
+          "resolved": true,
           "blocking": false,
-          "resolution": ""
+          "resolution": "Send the issue on time without summaries: each section's search results (titles, snippets, links) and a one-line note that summaries were unavailable (operator)"
         }
       ],
       "links": [],
-      "instruction": "",
+      "instruction": "node/actions/llm.py plus a small OpenAI-compatible client (stdlib urllib); the actor's params hold base_url, model, the key reference if any, concurrency_pool; the locked brief lives in code like LOCKED_INSTRUCTIONS; on an unreachable server return a retryable failure the workflow maps to 'send without summaries' (q1)",
       "revisions": []
     },
     {
@@ -178,11 +185,18 @@
       "kind": "requirement",
       "text": "A newspaper.sections builtin parses newspaper_sections (each section: name, queries, must and must-not terms, freshness, count, site include and exclude) and fails the run naming the first invalid field",
       "origin": "llm",
-      "status": "proposed",
-      "honesty_conditions": [],
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h11",
+          "text": "A malformed newspaper_sections (bad JSON, a missing name, an unknown key, an empty queries list) fails the run before any search, naming the field",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
       "hard_questions": [],
       "links": [],
-      "instruction": "",
+      "instruction": "A code builtin in node/actions/newspaper.py; validate with explicit field checks (no third-party schema library)",
       "revisions": []
     },
     {
@@ -190,18 +204,18 @@
       "kind": "requirement",
       "text": "A newspaper.render builtin turns the sections, their results and summaries into one dated issue as HTML for the email and as a valid EPUB (semantic XHTML, one chapter per section, a table of contents, no remote images) for the reader, deterministically, within a size cap",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h7",
           "text": "The generated EPUB opens in a standard validator-equivalent check (mimetype first and stored, container.xml, OPF, nav or NCX) and xteink accepts it",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
       "hard_questions": [],
       "links": [],
-      "instruction": "",
+      "instruction": "Stdlib zipfile: mimetype first and stored, META-INF/container.xml, content.opf, nav.xhtml and toc.ncx, one XHTML chapter per section; HTML email from the same model; escape every field",
       "revisions": []
     },
     {
@@ -209,19 +223,26 @@
       "kind": "requirement",
       "text": "A library.push action uploads the EPUB to xteink (POST /api/library, multipart, kind article, title 'Daily newspaper <date>') and queues the returned item for the configured device (POST /api/devices/<id>/queue); the base URL and the xtk_ key reference live on its actor",
       "origin": "llm",
-      "status": "proposed",
-      "honesty_conditions": [],
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h12",
+          "text": "The upload sends kind=article and the dated title, and the queue call uses the item id the upload returned; a refused upload queues nothing",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
       "hard_questions": [
         {
           "id": "q2",
           "text": "Should the email carry the EPUB as an attachment too, or only the HTML body?",
-          "resolved": false,
+          "resolved": true,
           "blocking": false,
-          "resolution": ""
+          "resolution": "HTML only: the email is the HTML issue, and the EPUB reaches the reader only through xteink (operator)"
         }
       ],
       "links": [],
-      "instruction": "",
+      "instruction": "node/actions/library.py with a stdlib multipart encoder; base_url and the xtk_ key reference on the actor; queue only after a 2xx upload",
       "revisions": []
     },
     {
@@ -229,18 +250,18 @@
       "kind": "requirement",
       "text": "One issue per local date: the workflow records the date it delivered in the store and a run for an already delivered date sends nothing",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h8",
           "text": "A second run for the same local date sends no email and uploads nothing",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
       "hard_questions": [],
       "links": [],
-      "instruction": "",
+      "instruction": "A newspaper_issues store collection keyed by local date, written after delivery and checked first; the local date comes from the slot and the rule's tz",
       "revisions": []
     },
     {
@@ -248,11 +269,18 @@
       "kind": "requirement",
       "text": "The bundle docs/rules/newspaper ships the actors, the workflow, the rule (schedule 30 6 * * *, tz Asia/Jerusalem) and the variables, disabled, with docs/operations/newspaper.md covering the operator's setup",
       "origin": "llm",
-      "status": "proposed",
-      "honesty_conditions": [],
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h13",
+          "text": "The bundle imports with every rule disabled, and its rule fires at 06:30 Asia/Jerusalem across a DST change",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
       "hard_questions": [],
       "links": [],
-      "instruction": "",
+      "instruction": "docs/rules/newspaper/{actors,workflows,rules} plus variables.json and a seed script, modelled on docs/rules/pr-fixer; tests modelled on tests/rules/test_pr_fixer_bundle.py",
       "revisions": []
     },
     {
@@ -260,11 +288,18 @@
       "kind": "requirement",
       "text": "The editor offers the email and search surfaces in the actor form (the sender domain as a drop-down) and parameter forms for email.send, search.web, llm.complete and library.push in the action picker",
       "origin": "llm",
-      "status": "proposed",
-      "honesty_conditions": [],
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h14",
+          "text": "The sender-domain drop-down offers exactly culture.dev and jetson-ai-lab.org, and saving an actor with another domain is refused by the API",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
       "hard_questions": [],
       "links": [],
-      "instruction": "",
+      "instruction": "web/src/actors/app-config.ts (surfaces, connection fields, an enum field type), AppConfigForm.tsx, web/src/api/types.ts, ActionPicker.tsx param forms; vitest for each",
       "revisions": []
     },
     {
@@ -272,12 +307,12 @@
       "kind": "boundary",
       "text": "No secret value and no recipient address is committed: keys are grant references, addresses and device ids are variables or actor config, and the Resend, Brave, cortex and xteink URLs live as Python constants or actor config, never in committed JSON (scan-secrets rejects non-localhost URLs there)",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h9",
           "text": "scan-secrets and the committed bundle contain no secret value, no recipient address and no non-localhost URL",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -291,18 +326,18 @@
       "kind": "boundary",
       "text": "A summary uses only what the search returned: every item links its source, a section with no results says so, and nothing is filled in",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h5",
           "text": "Every summarised item in the issue carries a link that appears in that section's search results",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         },
         {
           "id": "h6",
           "text": "A section with no results renders an explicit 'no results' line, never generated filler",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -316,8 +351,15 @@
       "kind": "boundary",
       "text": "llm.complete never goes through the coding-agent bridge and never sends tools or a repository",
       "origin": "llm",
-      "status": "proposed",
-      "honesty_conditions": [],
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h15",
+          "text": "No bridge actor and no agent step appears in the newspaper workflow; its summary step is llm.complete on an actor with no repo",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
       "hard_questions": [],
       "links": [],
       "instruction": "",
@@ -328,8 +370,15 @@
       "kind": "boundary",
       "text": "The PR fixer's behaviour is unchanged; the newspaper only shares the qwen-spark2 pool with it",
       "origin": "llm",
-      "status": "proposed",
-      "honesty_conditions": [],
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h16",
+          "text": "The PR fixer's bundle, digests and tests are unchanged by this release",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
       "hard_questions": [],
       "links": [],
       "instruction": "",
@@ -340,7 +389,7 @@
       "kind": "non_goal",
       "text": "No webglass backend, no fetching of result pages, no catch-up of missed days, no email provider other than Resend, and no ebooks-cli integration in this release",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [],
       "hard_questions": [],
       "links": [],
@@ -352,8 +401,15 @@
       "kind": "success_signal",
       "text": "On a normal day, by 06:45 Asia/Jerusalem the issue is in the operator's inbox and queued on the device, and its run shows in Statistics",
       "origin": "llm",
-      "status": "proposed",
-      "honesty_conditions": [],
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h17",
+          "text": "The run records its sent message id and the queued library item id as outputs, visible on the run",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
       "hard_questions": [],
       "links": [],
       "instruction": "",
@@ -364,7 +420,7 @@
       "kind": "assumption",
       "text": "The operator supplies the first sections, the recipient, the device id, the xteink base URL and the cortex base URL when the variables and actors are seeded",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [],
       "hard_questions": [],
       "links": [],
@@ -376,8 +432,15 @@
       "kind": "audience",
       "text": "The operator, reading a short daily digest of chosen topics in the inbox or offline on the Xteink reader",
       "origin": "llm",
-      "status": "proposed",
-      "honesty_conditions": [],
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h18",
+          "text": "The operator is the only recipient: the recipient allowlist on the shipped actor is empty until the operator seeds it",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
       "hard_questions": [],
       "links": [],
       "instruction": "",
@@ -388,8 +451,15 @@
       "kind": "before_state",
       "text": "Following the topics means searching by hand each day; culture-rules can neither send email nor search the web, and nothing reaches the reader without a manual upload",
       "origin": "llm",
-      "status": "proposed",
-      "honesty_conditions": [],
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h19",
+          "text": "The before state is true today: no action kind sends email or searches the web (action_kinds.py), and xteink gets books only by upload",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
       "hard_questions": [],
       "links": [],
       "instruction": "",
@@ -400,8 +470,15 @@
       "kind": "after_state",
       "text": "A scheduled rule produces one sourced digest a day and delivers it to the inbox and the reader with no manual step; the topics change by editing one variable",
       "origin": "llm",
-      "status": "proposed",
-      "honesty_conditions": [],
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h20",
+          "text": "After seeding, changing newspaper_sections changes the next issue's sections with no code or bundle change",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
       "hard_questions": [],
       "links": [],
       "instruction": "",
