@@ -98,11 +98,13 @@ def test_sections_rendered_count():
 
 
 def test_deterministic_bytes():
-    assert ok([SUMMARISED])["epub_base64"] == ok([SUMMARISED])["epub_base64"]
+    first, second = ok([SUMMARISED]), ok([SUMMARISED])
+    assert first["epub_base64"] == second["epub_base64"]
 
 
 def test_deterministic_html():
-    assert ok([SUMMARISED])["html"] == ok([SUMMARISED])["html"]
+    first, second = ok([SUMMARISED]), ok([SUMMARISED])
+    assert first["html"] == second["html"]
 
 
 # ------------------------------------------------------------------ EPUB structure (h7)

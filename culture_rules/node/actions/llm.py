@@ -266,7 +266,7 @@ def _parse(raw: bytes, fallback_model: str) -> dict[str, Any]:
         raise _Refused(BAD_RESPONSE, "response too large")
     try:
         data = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, ValueError) as exc:
+    except ValueError as exc:  # UnicodeDecodeError is a ValueError
         raise _Refused(BAD_RESPONSE, "response is not JSON") from exc
     choices = data.get("choices") if isinstance(data, dict) else None
     first = choices[0] if isinstance(choices, list) and choices else None

@@ -57,7 +57,6 @@ and then queues it. Environment proxies are ignored. Nothing is logged. Standard
 from __future__ import annotations
 
 import base64
-import binascii
 import http.client
 import json
 import re
@@ -253,7 +252,7 @@ def _content(value: Any) -> bytes:
         raise _Refused("too_large", f"content exceeds {MAX_BYTES} bytes")
     try:
         data = base64.b64decode(value, validate=True)
-    except (binascii.Error, ValueError) as exc:
+    except ValueError as exc:  # binascii.Error is a ValueError
         raise _Refused(_INVALID_REQUEST, "content_base64 is not valid base64") from exc
     if not data:
         raise _Refused(_INVALID_REQUEST, "content_base64 decodes to nothing")

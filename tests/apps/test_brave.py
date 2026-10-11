@@ -170,8 +170,9 @@ def test_count_above_brave_max_is_clamped():
 @pytest.mark.parametrize("count", [0, -1, True, "5", 2.5])
 def test_bad_count_is_refused_without_a_call(count):
     fake = Fake()
+    brave_client = client(fake)
     with pytest.raises(BraveError) as info:
-        client(fake).search(Q, count=count)
+        brave_client.search(Q, count=count)
     assert info.value.code == "bad_count"
     assert info.value.retryable is False
     assert fake.calls == []
