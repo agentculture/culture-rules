@@ -2,7 +2,7 @@
   "plan_slug": "daily-newspaper",
   "schema_version": 2,
   "created": "2026-10-11T05:14:10Z",
-  "updated": "2026-10-11T05:46:05Z",
+  "updated": "2026-10-11T06:03:41Z",
   "deviations": [
     {
       "id": "d1",
@@ -42,6 +42,20 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 3
+    },
+    {
+      "id": "d4",
+      "what": "Codex round 2 on #53: the first email fence records email_attempt and freezes the full request (subject, html, to, sender from the email actor named in the gate's config); a retry within 23 h replays the frozen request with the same key; after 23 h the email is marked uncertain and never resent (the run reports email_uncertain; the push still happens); email.send takes an optional sender checked against the actor's domain; llm.complete resolves headers before computing the remaining time; LimitedActor replays a completed result before refuse_before_admit, with no admission or slot",
+      "task_ref": "t6",
+      "reason": "Resend keeps idempotency keys for 24 h and rejects a reused key with a different body; the deadline and replay paths had ordering gaps. The 'not resent after 23 h' policy needs the operator's confirmation",
+      "affects": [
+        "t2",
+        "t4"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 4
     }
   ],
   "evidence": [],
