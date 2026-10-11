@@ -150,12 +150,12 @@ def _check_api_key(conn: Mapping, out: list[Problem]) -> None:
 def _check_recipients(conn: Mapping, out: list[Problem]) -> None:
     value = conn.get("recipients")
     path = "connection.recipients"
+    # the allow-list may be empty (h18: the shipped actor sends to nobody until the operator
+    # seeds it); the email port refuses every recipient then
     if value is None:
         out.append((path, _REQUIRED, "recipients (the allow-list) is required"))
     elif not isinstance(value, (list, tuple)):
         out.append((path, "invalid_type", "recipients must be a list of addresses"))
-    elif not value:
-        out.append((path, _REQUIRED, "recipients must list at least one address"))
     else:
         for i, item in enumerate(value):
             if not is_email_address(item):

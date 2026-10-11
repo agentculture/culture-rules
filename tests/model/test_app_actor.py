@@ -288,10 +288,16 @@ def test_email_good_recipient_not_flagged() -> None:
     assert (f"{EMAIL_PATH}.recipients[0]", INVALID) not in errs
 
 
-@pytest.mark.parametrize("recipients", [None, [], OPERATOR])
-def test_email_recipients_must_be_a_non_empty_list(recipients) -> None:
+@pytest.mark.parametrize("recipients", [None, OPERATOR])
+def test_email_recipients_must_be_a_list(recipients) -> None:
     errs = email_codes(recipients=recipients)
     assert {code for path, code in errs if path == f"{EMAIL_PATH}.recipients"} != set()
+
+
+def test_an_empty_recipient_allowlist_is_valid() -> None:
+    """h18: the shipped actor's allow-list is empty until the operator seeds it."""
+    errs = email_codes(recipients=[])
+    assert [e for e in errs if e[0].startswith(f"{EMAIL_PATH}.recipients")] == []
 
 
 @pytest.mark.parametrize("surface", [EMAIL, SEARCH])
