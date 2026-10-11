@@ -33,7 +33,8 @@ the run stops before any search (c12, h11).
 
 Input ``section`` (one section, normalised or raw: it is validated the same way, at path
 ``section``; inside the per-section ``for_each`` loop it arrives as the implicit ``item``
-port, read when ``section`` is absent; the derived ``query`` key is ignored) and ``results`` (search.web's list). Output ``results``: :func:`filter_results` -
+port, read when ``section`` is absent; the derived ``query`` key is ignored) and ``results``
+(search.web's list). Output ``results``: :func:`filter_results` -
 only ``http``/``https`` URLs, deduplicated by URL (first wins), the must/must-not terms and
 the site lists applied, capped at the section's ``count``. The workflow runs it in the
 per-section loop, between ``search.web`` and ``llm.complete``, so the model sees only what

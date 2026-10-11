@@ -258,6 +258,7 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
     del host
     from culture_rules.actors.gate import GatePort  # noqa: PLC0415
     from culture_rules.actors.review import REVIEW_BUILTIN, ReviewVerdictPort  # noqa: PLC0415
+    from culture_rules.node.actions.email import EmailSendPort  # noqa: PLC0415
     from culture_rules.node.actions.gitguardian import (  # noqa: PLC0415
         FINDINGS_BUILTIN,
         HOLD_BUILTIN,
@@ -275,7 +276,6 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
         GitHubReviewReplyPort,
         GitHubThreadsPort,
     )
-    from culture_rules.node.actions.email import EmailSendPort  # noqa: PLC0415
     from culture_rules.node.actions.http import HttpCallPort  # noqa: PLC0415
     from culture_rules.node.actions.jira import JiraCommentPort  # noqa: PLC0415
     from culture_rules.node.actions.library import LibraryPushPort  # noqa: PLC0415
