@@ -1522,9 +1522,9 @@ above name:
      merge's second-parent history from `commit_author`. When both parents
      moved the project's version from their merge base (both sides bumped),
      the merge may set a new version: a protected root `pyproject.toml` or
-     `uv.lock` that differs from each parent only on the project's own
-     version line is not a `protected_path` violation (#59). Any other change
-     to them still is. On `pass` and `no_gate` the gate then
+     `uv.lock` that parses to the same TOML as each parent but for the
+     project's own version is not a `protected_path` violation (#59). Any
+     other change to them, or a file that does not parse, still is. On `pass` and `no_gate` the gate then
      builds **one commit itself** (`git commit-tree`): the agent tip's tree on
      the PR head and nothing else of the agent's. Author and committer are the
      App bot (`commit_identity`, default the `rules-culture-dev[bot]`

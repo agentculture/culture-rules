@@ -14,6 +14,8 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from culture_rules.actors.gate import GUARD, NO_GATE, PASS
 from culture_rules.actors.merge_hint import COPIED_BASE_LEAD
 from culture_rules.store.memory import MemoryStore
@@ -728,3 +730,36 @@ def test_59_a_plain_commit_still_may_not_bump_the_version(store, tmp_path, clock
     repo.commit("bump", {"pyproject.toml": pyproject("0.3.0")})
     out = judge(store, LocalRunner(), repo, tmp_path, clock)
     assert (out["verdict"], out["rule"]) == (GUARD, "protected_path")
+
+
+def test_59_a_version_line_inside_a_toml_string_is_not_the_version():  # Codex r1 P1
+    """A '[project] version' look-alike inside a multiline string is tool data, not the
+    project's version: changing it is a real change, never waived."""
+    from culture_rules.actors.gate import same_but_version
+
+    def doc(fake: str, real: str = "0.2") -> str:
+        return (
+            f"[project]\nname = \"demo\"\nversion = '{real}'\n[tool.runner]\n"
+            f"command = '''\n[project]\nversion = \"{fake}\"\n'''\n"
+        )
+
+    assert same_but_version("pyproject.toml", doc("safe"), doc("evil"), "demo") is False
+    assert same_but_version("pyproject.toml", doc("safe"), doc("safe", real="0.3"), "demo") is True
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "same"),
+    [
+        (pyproject("0.2.0"), pyproject("0.3.0"), True),
+        (pyproject("0.2.0"), pyproject("0.3.0", '"x"'), False),
+        (pyproject("0.2.0"), pyproject("0.2.0") + "[tool.x]\na = 1\n", False),
+        (pyproject("0.2.0"), "not = [toml", False),
+        (uv_lock("0.2.0"), uv_lock("0.3.0"), True),
+        (uv_lock("0.2.0"), uv_lock("0.3.0", other="2.0.0"), False),
+    ],
+)
+def test_59_same_but_version(old, new, same):
+    from culture_rules.actors.gate import same_but_version
+
+    path = "uv.lock" if "[[package]]" in old else "pyproject.toml"
+    assert same_but_version(path, old, new, "demo") is same

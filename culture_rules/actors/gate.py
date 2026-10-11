@@ -132,10 +132,11 @@ Run over ``start_sha..commit_sha`` before any test command, in this order:
     segments, a pattern without a ``/`` matches a basename at any depth, a leading ``/``
     anchors at the root, and a pattern that names a directory covers everything under it.
     One waiver (#59): in a merge from base where **both** parents moved the project's
-    version from their merge base, a root ``pyproject.toml`` or ``uv.lock`` that differs
-    from each parent only on the project's own version line (``[project]``'s ``version``;
-    the ``version`` of the ``[[package]]`` named like the project) is not a violation, so
-    the merge can settle the version collision. Any other change to them is guarded.
+    version from their merge base, a root ``pyproject.toml`` or ``uv.lock`` that parses to
+    the same TOML as each parent but for the project's own version (``project.version``;
+    the ``version`` of the one ``[[package]]`` named like the project) is not a violation,
+    so the merge can settle the version collision. Any other change to them, or a file
+    that does not parse, is guarded.
 ``test_deleted``
     a test file (``test_*.py``, ``*_test.py``, ``*.test.ts``, ``*.spec.js``,
     ``__tests__/``, ``*_test.go``, ...) was deleted, or renamed to a non-test path.
@@ -1450,9 +1451,7 @@ def _guard_conflicts(
 
 #: The version files a merge from base may bump when both sides bumped the version (#59).
 VERSION_FILES: tuple[str, ...] = ("pyproject.toml", "uv.lock")
-_TABLE = re.compile(r"^\s*\[\[?\s*([^\]]+?)\s*\]\]?\s*(?:#.*)?$")
-_KEY_VALUE = re.compile(r'^\s*(name|version)\s*=\s*"([^"\n]*)"\s*(?:#.*)?$')
-_MASK = 'version = "<version>"'
+_PLACEHOLDER = object()
 
 
 def _normalized_name(name: str) -> str:
@@ -1473,38 +1472,42 @@ def _project(pyproject: str | None) -> tuple[str, str] | None:
     return None
 
 
-def _tables(lines: list[str]) -> list[tuple[str, dict[str, list[int]]]]:
-    """Each TOML table (``[x]`` or ``[[x]]``) with the rows of its ``name`` and ``version``
-    string keys."""
-    tables: list[tuple[str, dict[str, list[int]]]] = []
-    for i, line in enumerate(lines):
-        if table := _TABLE.match(line):
-            tables.append((table.group(1), {}))
-        elif tables and (kv := _KEY_VALUE.match(line)):
-            tables[-1][1].setdefault(kv.group(1), []).append(i)
-    return tables
-
-
-def _is_own_table(path: str, table: str, names: list[str], name: str) -> bool:
+def _without_version(path: str, doc: dict[str, Any], name: str) -> dict[str, Any] | None:
+    """The parsed ``doc`` with the project's own version replaced by a placeholder, or None
+    when that field is not exactly one plain string (#59, Codex r1: parsed TOML, so a
+    look-alike inside a string is data, never the version)."""
     if path == "pyproject.toml":
-        return table == "project"
-    return table == "package" and [_normalized_name(n) for n in names] == [name]
-
-
-def mask_version(path: str, text: str, name: str) -> str | None:
-    """``text`` with the project's own version line replaced by a placeholder: the
-    ``version`` of ``[project]`` in ``pyproject.toml``, of the ``[[package]]`` named ``name``
-    in ``uv.lock``. None unless exactly one such line exists (#59)."""
-    lines = text.split("\n")
-    hits: list[int] = []
-    for table, rows in _tables(lines):
-        names = [_KEY_VALUE.match(lines[i]).group(2) for i in rows.get("name", [])]
-        if _is_own_table(path, table, names, name):
-            hits += rows.get("version", [])
-    if len(hits) != 1:
+        project = doc.get("project")
+        if not isinstance(project, dict) or not isinstance(project.get("version"), str):
+            return None
+        return {**doc, "project": {**project, "version": _PLACEHOLDER}}
+    packages = doc.get("package")
+    if not isinstance(packages, list):
         return None
-    lines[hits[0]] = _MASK
-    return "\n".join(lines)
+    own = [
+        i
+        for i, p in enumerate(packages)
+        if isinstance(p, dict)
+        and isinstance(p.get("name"), str)
+        and _normalized_name(p["name"]) == name
+    ]
+    if len(own) != 1 or not isinstance(packages[own[0]].get("version"), str):
+        return None
+    masked = list(packages)
+    masked[own[0]] = {**packages[own[0]], "version": _PLACEHOLDER}
+    return {**doc, "package": masked}
+
+
+def same_but_version(path: str, old: str, new: str, name: str) -> bool:
+    """Whether two versions of a root ``pyproject.toml`` or ``uv.lock`` parse to the same
+    TOML document but for the project's own version (#59). Unparsable or ambiguous files
+    fail closed (False)."""
+    try:
+        before, after = tomllib.loads(old), tomllib.loads(new)
+    except tomllib.TOMLDecodeError:
+        return False
+    a, b = _without_version(path, before, name), _without_version(path, after, name)
+    return a is not None and b is not None and a == b
 
 
 def _blob(job: _Job, sha: str, path: str) -> str | None:
@@ -1518,8 +1521,8 @@ def _waive_version_bump(
     """#59: a merge from base may move the project's own version when **both** parents moved
     it from their merge base (a version collision the merge has to settle). A
     ``protected_path`` violation on a root :data:`VERSION_FILES` file is waived when that
-    file differs from **each** parent only on the project's own version line; any other
-    change to it is still guarded."""
+    file parses to the same TOML as **each** parent but for the project's own version; any
+    other change to it is still guarded."""
     hits = {v.path for v in found if v.rule == "protected_path" and v.path in VERSION_FILES}
     if not hits:
         return found
@@ -1536,10 +1539,9 @@ def _waive_version_bump(
     waived = set()
     for path in hits:
         new = _blob(job, commit, path)
-        masked = mask_version(path, new, name) if new is not None else None
         olds = [_blob(job, sha, path) for sha in parents]
-        if masked is not None and all(
-            old is not None and mask_version(path, old, name) == masked for old in olds
+        if new is not None and all(
+            old is not None and same_but_version(path, old, new, name) for old in olds
         ):
             waived.add(path)
     return [v for v in found if not (v.rule == "protected_path" and v.path in waived)]
