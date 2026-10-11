@@ -2,7 +2,7 @@
   "plan_slug": "rollout-cli",
   "schema_version": 2,
   "created": "2026-10-10T21:41:12Z",
-  "updated": "2026-10-11T15:15:12Z",
+  "updated": "2026-10-11T15:56:37Z",
   "deviations": [
     {
       "id": "d1",
@@ -81,7 +81,7 @@
       "reason": "Both CLI rollouts on 2026-10-11 recorded upgrade:spark as failed: the API took 70-80 s to stop on SIGTERM, past the 60 s command timeout, though the upgrade succeeded and verify passed (#60)",
       "affects": [],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 7
     }
