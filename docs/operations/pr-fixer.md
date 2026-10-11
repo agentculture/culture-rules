@@ -1958,8 +1958,9 @@ The order: **the rollout, then the Claude setup, then the flip.**
    steps 1-7 (account, Claude login, bridge on 8096, grants, the hand-off's
    sudoers line, the actor). None of it changes what the live fixer does.
 4. **The flip** (section 10, step 8), after cultureagent's live check of
-   the claude bridge and once the live `qwen-reviewer` digest is trusted
-   (it reviews every Claude try): `culture-rules variables set fixer_levels`
+   the claude bridge and once `qwen-reviewer` is registered live with
+   `qwen-fixer`'s endpoints (it reviews every Claude try; 0.20.0 trusts that
+   digest): `culture-rules variables set fixer_levels`
    with level 1 `enabled=true`. Then the first `/fix` on a tester PR is the live check
    (section 10, step 9).
 
@@ -2724,14 +2725,14 @@ Two prerequisites:
 - **cultureagent's own live check of the claude bridge** (its
   `claude-bridge` plan, t6): an invocation for a scratch repository with a
   failing test comes back completed with an App-bot commit.
-- **The live `qwen-reviewer` digest is trusted.** `qwen-reviewer` reviews
-  every Claude try, and 0.20.0 pins only its committed (loopback) document.
-  A live document with spark2's tailnet bridge URL hashes differently, and
-  the verdict step refuses it (`actor_not_trusted`) until that digest is in
-  `TRUSTED_ACTOR_DIGESTS["qwen-reviewer"]` in a released and rolled-out wheel
-  (see [Rolling out the escalation](#rolling-out-the-escalation-39-01813)
-  for how to compute it). Without it every Claude try is gated but its
-  review fails.
+- **`qwen-reviewer` is registered live.** It reviews every Claude try.
+  spark2's Qwen bridge listens only on spark2's tailnet address, so register
+  `docs/rules/pr-fixer/actors/qwen-reviewer.json` with `bridge_url` and
+  `callback_url` set to the values the live `qwen-fixer` uses (its
+  `culture-rules actors show qwen-fixer`). 0.20.0 trusts that document's
+  digest (`sha256:94ea1151…6618`) next to the committed loopback one; any
+  other endpoints hash differently and the verdict step refuses them
+  (`actor_not_trusted`).
 
 Only then set
 `fixer_levels` live with level 1 enabled and the other two strings

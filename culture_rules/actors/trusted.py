@@ -178,8 +178,15 @@ TRUSTED_ACTOR_DIGESTS: dict[str, frozenset[str]] = {
     # docs/rules/pr-fixer/actors/qwen-reviewer.json (#39): reviews a Codex try. Qwen Code on
     # spark2 in mode plan; its bridge_url and callback_url are the committed (loopback)
     # values, so a live actor with other endpoints needs its own digest here
+    # #56: it also reviews every Claude try. spark2's Qwen bridge listens only on its
+    # tailnet address, so the live actor carries spark2's tailnet bridge_url and the
+    # API's callback_url (the values qwen-fixer runs with); only that digest is pinned
+    # here, never the address.
     "qwen-reviewer": frozenset(
-        {"sha256:5b0e1aa73c6222a757b8357fec19b2c86d937848353bfe443c4e268fffda8b1a"}
+        {
+            "sha256:5b0e1aa73c6222a757b8357fec19b2c86d937848353bfe443c4e268fffda8b1a",
+            "sha256:94ea1151c1ff1f1f6b47fcd6b331ca86c3f3ccedc6e15e6fb7b6d25ad07d6618",
+        }
     ),
     # the live rules-culture-dev App actor as of 2026-10-07 (App 5183824, installation
     # 167755039, key grant:RULES_GITHUB_APP_PRIVATE_KEY, surface github, machine spark, NO

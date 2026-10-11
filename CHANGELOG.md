@@ -29,8 +29,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Known limits
 
-- Live, the Claude level needs the operator's hand-turns first (section 10): the `culture-claude-fixer` account and its Claude login, the claude bridge on 8096 (cultureagent 0.15.0) and its live check, the grants, the sudoers line, the registered actor, and a trusted digest for the live `qwen-reviewer`, which reviews every Claude try
-- Two descriptions in `docs/rules/pr-fixer` predate the three-level ladder: `queue-add`'s calls `queues/pr-fixer` "level 1's", and `codex-fixer`'s name and description say "level 2". Prose only (neither is part of a digest); the levels follow `fixer_levels`
+- Live, the Claude level needs the operator's hand-turns first (section 10): the `culture-claude-fixer` account and its Claude login, the claude bridge on 8096 (cultureagent 0.15.0) and its live check, the grants, the sudoers line, the registered actor, and `qwen-reviewer` registered live with `qwen-fixer`'s endpoints (spark2's Qwen bridge listens only on the tailnet); 0.20.0 pins that document's digest (`sha256:94ea1151…6618`) next to the committed loopback one
 
 ## [0.19.3] - 2026-10-11
 

@@ -963,3 +963,15 @@ def test_the_dispatch_rule_covers_every_level_queue(data, fires):
     trigger = {"data": {**data, "repository": REPO_UNDER_TEST}}
     variables = {"fixer_repos": [REPO_UNDER_TEST], "fixer_excluded_repos": []}
     assert evaluate(dispatch.condition, {"trigger": trigger, "variables": variables}) is fires
+
+
+def test_the_live_qwen_reviewer_on_spark2s_tailnet_is_trusted():
+    """#56: qwen-reviewer reviews every Claude try, and spark2's Qwen bridge listens only on
+    its tailnet address, so the live actor's digest (tailnet bridge_url, the API's
+    callback_url) is pinned next to the committed loopback one. The address itself is
+    never committed: only its digest."""
+    from culture_rules.actors.trusted import TRUSTED_ACTOR_DIGESTS
+
+    pinned = TRUSTED_ACTOR_DIGESTS["qwen-reviewer"]
+    assert "sha256:94ea1151c1ff1f1f6b47fcd6b331ca86c3f3ccedc6e15e6fb7b6d25ad07d6618" in pinned
+    assert len(pinned) == 2
