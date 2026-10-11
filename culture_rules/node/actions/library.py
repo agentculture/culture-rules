@@ -46,8 +46,12 @@ already synced the item between the lost acknowledgement and the retry, xteink q
 again and the device downloads the same book once more - benign for a reader. A completed
 result is also replayed in-process for the same key.
 
-The timeout comes from the attempt deadline (capped at :data:`MAX_TIMEOUT`); environment
-proxies are ignored. Nothing is logged. Standard-library only.
+Each call's timeout is what remains of the attempt deadline when it starts (capped at
+:data:`MAX_TIMEOUT`): the queue call recomputes it after the upload, so a slow upload cannot
+carry the queue call past the deadline. With no time left before either call the attempt
+fails ``deadline_passed``, retryable. That is safe after an upload: the retry uploads the
+same bytes again, which xteink deduplicates by sha256 (``created: false``, the same item),
+and then queues it. Environment proxies are ignored. Nothing is logged. Standard-library only.
 """
 
 from __future__ import annotations
@@ -345,6 +349,14 @@ class LibraryPushPort:
             self._ledger[idempotency_key] = result
         return result
 
+    def _remaining(self, deadline: datetime, when: str) -> float:
+        """Seconds left of the attempt (capped at :data:`MAX_TIMEOUT`), checked before each
+        call; none left fails ``deadline_passed``, retryable (module doc)."""
+        timeout = min((deadline - self._clock()).total_seconds(), MAX_TIMEOUT)
+        if timeout <= 0:
+            raise _Refused("deadline_passed", f"attempt deadline passed {when}", retryable=True)
+        return timeout
+
     def _key(self, ref: Any) -> str:
         if not is_secret_ref(ref):
             raise _Refused(_INVALID_ACTOR, "api_key must be a grant:<NAME> reference")
@@ -363,9 +375,7 @@ class LibraryPushPort:
         data = _content(input.get("content_base64"))
         title = _text(input, "title")
         author = _text(input, "author", DEFAULT_AUTHOR)
-        timeout = min((deadline - self._clock()).total_seconds(), MAX_TIMEOUT)
-        if timeout <= 0:
-            raise _Refused("deadline_passed", "attempt deadline already passed", retryable=True)
+        timeout = self._remaining(deadline, "before the upload")
         auth = {"Authorization": "Bearer " + self._key(params.get("api_key"))}
         content_type, body = encode_multipart(
             [("title", title), ("author", author), ("kind", KIND)],
@@ -382,6 +392,7 @@ class LibraryPushPort:
         queue_url = f"{base}/api/devices/{quote(device, safe='')}/queue"
         queue_body = json.dumps({"item_id": item_id}).encode("utf-8")
         headers = {**auth, "Content-Type": "application/json"}
+        timeout = self._remaining(deadline, f"after the upload (item {item_id} uploaded)")
         status, raw = self._send(queue_url, headers, queue_body, timeout)
         if not 200 <= status < 300:
             raise _status_failure("queue_failed", status, raw, f" (item {item_id} uploaded)")

@@ -574,3 +574,57 @@ class _Body:
 
     def close(self):
         pass
+
+
+# ------------------------------------------------------------------ the queue's own timeout
+
+
+class SlowUpload(FakeTransport):
+    """The upload takes ``upload_s`` seconds of the ``clock``'s time (PR #54 review)."""
+
+    def __init__(self, clock, upload_s, *responses):
+        super().__init__(*responses)
+        self.clock, self.upload_s = clock, upload_s
+
+    def __call__(self, method, url, headers, body, timeout):
+        reply = super().__call__(method, url, headers, body, timeout)
+        if url == UPLOAD_URL:
+            self.clock.now += timedelta(seconds=self.upload_s)
+        return reply
+
+
+class MovingClock:
+    def __init__(self):
+        self.now = NOW
+
+    def __call__(self):
+        return self.now
+
+
+def _slow_push(upload_s):
+    clock = MovingClock()
+    transport = SlowUpload(clock, upload_s, UPLOAD_OK, QUEUE_OK)
+    port = LibraryPushPort(
+        _store(), transport=transport, secret_runner=lambda _name: KEY_VALUE, clock=clock
+    )
+    return _invoke(port), transport
+
+
+def test_the_queue_timeout_is_what_remains_after_the_upload():
+    _, transport = _slow_push(250)  # the deadline is 300 s away
+    assert transport.calls[1].timeout == pytest.approx(50.0)
+
+
+def test_an_upload_that_uses_up_the_deadline_queues_nothing():
+    _, transport = _slow_push(300)
+    assert len(transport.calls) == 1
+
+
+def test_an_upload_that_uses_up_the_deadline_fails_retryably():
+    result, _ = _slow_push(300)
+    assert (result.outcome, result.retryable) == (FAILED, True)
+
+
+def test_an_upload_that_uses_up_the_deadline_names_the_deadline():
+    result, _ = _slow_push(300)
+    assert result.error.startswith("deadline_passed")

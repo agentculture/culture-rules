@@ -45,6 +45,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Code review (PR #54)
 
 - `docs/rules/pr-fixer/release.json` (0.19.0) again names 0.18.13's new rules (`pr-fixer-retry-capacity`, `pr-fixer-queue-progress-capacity`) and variables (`fixer_levels`, `fixer_unavailable`, `fixer_capacity_cooldown_s`). 0.18.13 was never rolled out live, so a rollout to 0.19.0 must still enable and seed them. `release.json` names everything new since the last release rolled out live (`docs/operations/rollout.md`)
+- `library.push` recomputes its timeout from the attempt deadline right before the queue call, so a slow upload no longer carries the queue call past the deadline; with no time left it fails `deadline_passed`, retryable (the retried upload is deduplicated by sha256)
 
 ### Known limits
 
