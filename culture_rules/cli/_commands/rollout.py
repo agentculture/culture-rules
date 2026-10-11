@@ -586,9 +586,7 @@ def _snapshot_lines(snapshot: list[str], kept: bool, runs: list[dict[str, Any]])
     return lines
 
 
-def _resume_blocker(
-    ctx: Context, version: str, doc: Mapping[str, Any] | None, paused: bool
-) -> str | None:
+def _resume_blocker(ctx: Context, doc: Mapping[str, Any] | None, paused: bool) -> str | None:
     """Why resuming would run the engine with rules ``enable`` restores still off (#62), or
     None. Only a paused engine is checked: resuming a running one changes nothing. The check
     is on the rules themselves, not on a recorded ``enable`` step, so an ``enable`` recorded
@@ -625,7 +623,7 @@ def _resume(ctx: Context, force: bool = False) -> dict[str, Any]:
     paused = bool(_get(ctx, CONTROLS_PATH).get("paused"))
     doc = _rollout_doc(ctx, version)
     steps = _steps(doc)
-    blocker = _resume_blocker(ctx, version, doc, paused)
+    blocker = _resume_blocker(ctx, doc, paused)
     if blocker and not force:
         raise CliError(
             EXIT_USER_ERROR,

@@ -430,7 +430,8 @@ def test_resume_after_a_refused_enable_is_refused_too(wire, store, capsys):  # n
     put_rule(store, "r-new", False)
     fail(capsys, "rollout", "enable", "--apply")
     msg = fail(capsys, "rollout", "resume", "--apply")["message"]
-    assert "r1" in msg and "r-new" in msg
+    assert "r1" in msg
+    assert "r-new" in msg
     assert jrun(capsys, "runs", "controls")["paused"] is True
 
 
