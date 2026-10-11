@@ -792,7 +792,8 @@ def test_a_rerun_an_hour_after_resend_was_down_delivers_the_date():
     resend_down(world)
     run = rerun(world, timedelta(hours=1))
     expected = (MSG_1, str(ITEM), True)
-    assert (run[OUTPUTS][MESSAGE_ID], run[OUTPUTS][ITEM_ID], run[OUTPUTS][EMAIL_SENT]) == expected
+    delivered = (run[OUTPUTS][MESSAGE_ID], run[OUTPUTS][ITEM_ID], run[OUTPUTS][EMAIL_SENT])
+    assert delivered == expected
     assert world.base.get(ISSUES_COLLECTION, ISSUE_DATE)["state"] == "delivered"
 
 
