@@ -2,7 +2,7 @@
   "plan_slug": "pr-fixer-escalation",
   "schema_version": 2,
   "created": "2026-10-10T21:41:12Z",
-  "updated": "2026-10-11T04:33:58Z",
+  "updated": "2026-10-11T04:55:54Z",
   "deviations": [
     {
       "id": "d1",
@@ -95,6 +95,19 @@
       "status": "proposed",
       "classification": "acceptable",
       "seq": 8
+    },
+    {
+      "id": "d9",
+      "what": "Codex round 3 on #52: a replayed /fix after a level move removes nothing (the routing add reports whether it wrote); an export of the same commits renews retention and keeps the claim and receipt, other commits replace only an unclaimed hand-off (handoff_conflict otherwise); the prune deletes in a transaction conditioned on the rev it read; a replay settles only on a valid rival worktree. Codex's legacy-document findings (5, 6) were pushed back by the operator: hand-offs exist only from 0.18.13",
+      "task_ref": "t3",
+      "reason": "Codex round 3 reproduced four races (one high); the operator approved a fourth Codex round to verify the fixes",
+      "affects": [
+        "t1"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 9
     }
   ],
   "evidence": [],
