@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-11T04:20:53Z",
-  "updated": "2026-10-11T04:28:50Z",
+  "updated": "2026-10-11T04:56:17Z",
   "claims": [
     {
       "id": "c1",
@@ -619,6 +619,20 @@
       ]
     }
   ],
-  "lapses": [],
+  "lapses": [
+    {
+      "id": "l1",
+      "code": "control-absent",
+      "what": "Wave-1 agents t3, t4 and t5 wrote their tests before the code but did not run them red first (they could only fail on import), so the red step of test-first was not observed",
+      "skipped_check": "a red run of the new tests before the implementation",
+      "refs": [
+        "t3",
+        "t4",
+        "t5"
+      ],
+      "origin": "llm",
+      "status": "proposed"
+    }
+  ],
   "obligations": []
 }
