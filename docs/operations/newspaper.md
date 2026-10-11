@@ -159,8 +159,8 @@ grant set XTEINK_PUSH_API_KEY - --hidden
 
 **Inject the keys into spark's node.** `RESEND_API_KEY` and `BRAVE_API_KEY`
 are hidden, so the node must start with them injected (inject all four, for
-uniformity). Spark's node unit is hand-edited
-(`~/.config/systemd/user/culture-rules-node.service`). Add these to its
+uniformity). Spark's node unit is hand-edited: open the user unit
+`culture-rules-node.service` with `systemctl --user edit --full culture-rules-node`. Add these to its
 `ExecStart`, after the existing `grant run --inject ...` options and before `--`:
 
 ```text
