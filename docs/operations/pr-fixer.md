@@ -868,7 +868,11 @@ retry goes to its next level's queue. A PR keeps one waiting request across
 the level queues. `queue.progress` resolves the level again **at dispatch**,
 and the dispatch event (written only by the queue) names the `level`,
 `fixer`, `reviewer` and `attempt`; `pr-fixer-dispatch` hands them to
-`pr-fix` as inputs.
+`pr-fix` as inputs. A request whose try another level takes **moves** to
+that level's queue: the pass drops it from its own queue and writes it to
+the other in one store transaction, its own compare-and-set first, so a
+`/fix` landing meanwhile rolls the move back and the pass moves the newer
+request instead. The PR's request is never in no queue.
 
 A level is **unavailable** when its actor is unknown, deleted or disabled,
 when the actor's daily `token_budget` is spent, or while the level is in a
@@ -930,7 +934,13 @@ network share, no cultureagent change):
    fetches the start (and base) by SHA from the trusted clone URL, verifies
    the pack's size and sha256 and indexes it with `index-pack --strict`,
    and checks out exactly the agent's commit. Any refusal leaves no
-   worktree. On success the document is deleted.
+   worktree. On success it writes an import receipt into the document
+   (`imported`: the step's idempotency key and the worktree) before it
+   returns, and keeps the pack until the export's one-day prune. A replay
+   of the same step (a node that died before recording the result) gets the
+   same worktree back while its `HEAD` is the agent's commit with nothing
+   else in it, else a fresh one rebuilt from the pack; another step
+   importing the same hand-off is refused `handoff_already_imported`.
 4. `select` hands the gate that worktree; the gate is unchanged and judges
    exactly the commit Codex made (git object ids are content hashes).
 
@@ -941,6 +951,8 @@ Known limits:
   story hands back once; no retry rule covers it.
 - **The size cap is checked after the pack is written** (in the node's
   temp space), not while it is streamed.
+- **An imported pack stays in the store for up to a day** (until the next
+  export's prune), so a replay can rebuild its worktree.
 - **Qwen's read-only is an approval policy**, not a sandbox (see
   [Workflow `review-commit`](#workflow-review-commit)).
 
