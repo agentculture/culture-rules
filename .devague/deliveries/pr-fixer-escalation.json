@@ -2,7 +2,7 @@
   "plan_slug": "pr-fixer-escalation",
   "schema_version": 2,
   "created": "2026-10-10T21:41:12Z",
-  "updated": "2026-10-11T04:15:14Z",
+  "updated": "2026-10-11T04:33:58Z",
   "deviations": [
     {
       "id": "d1",
@@ -82,6 +82,19 @@
       "status": "proposed",
       "classification": "acceptable",
       "seq": 7
+    },
+    {
+      "id": "d8",
+      "what": "Codex round 2 on #52: queue.add's level routing (the add and every removal from other level queues, plus the stop check) commits in one transaction with bounded retries (queue_contention after 10); hand-offs carry a rev and expires_at, an import claims the hand-off by CAS before building, reports success only after its receipt CAS wins (handoff_receipt_lost otherwise, workspace removed), and expired hand-offs are pruned by a Mongo TTL index and an id-only bounded query on export and import",
+      "task_ref": "t3",
+      "reason": "Codex reproduced a /fix lost when its routing raced a move (high), two importers overwriting a receipt, a lost receipt reported as success, and a prune that loaded every retained pack (medium)",
+      "affects": [
+        "t1"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 8
     }
   ],
   "evidence": [],
