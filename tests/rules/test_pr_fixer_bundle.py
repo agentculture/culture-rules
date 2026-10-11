@@ -351,7 +351,7 @@ def test_the_review_commit_rule_maps_the_tries_reviewer():
         assert into[(sid, "reviewer")] == "inputs"
 
 
-CODEX_FIXER_DIGEST = "sha256:183cd42529d4cf2044268462ec67cf4e7c3fe9e24211c9fbfdd2f5833bcdaa50"
+CODEX_FIXER_DIGEST = "sha256:35c050a2d423e7e2c075ae6b7bf2358dc92041af1f6e79dc1dd73a6e71f77e8e"
 """#39 t6: the committed codex-fixer's digest, as docs/operations/pr-fixer.md lists it (not
 pinned: like qwen-fixer, everything it produces is reviewed; the digest is recorded on each
 bridge invocation)."""
@@ -362,7 +362,7 @@ def _actor(actor_id: str) -> dict:
     return actor.to_dict()
 
 
-FIXER_ACTORS = ("codex-fixer",)
+FIXER_ACTORS = ("claude-fixer", "codex-fixer")
 """#39 t6: the fixer actors the bundle ships (qwen-fixer is registered by hand on spark2)."""
 
 
@@ -400,8 +400,8 @@ def test_codex_fixer_is_level_twos_workspace_write_codex_agent_on_spark():
     assert params["concurrency_pool"] == "codex-spark"  # the level-2 queue's cap
     assert params["max_concurrency"] == 1
     assert params["bridge_token"] == "grant:RULES_CODEX_FIXER_TOKEN"  # a grant name only
-    assert params["bridge_url"].startswith("http://127.0.0.1:")  # loopback: scan-secrets
-    assert params["callback_url"].startswith("http://127.0.0.1:")
+    assert params["bridge_url"] == "http://127.0.0.1:8097"  # 8095 is weather-web on spark
+    assert params["callback_url"] == "http://127.0.0.1:18765"
 
 
 def test_codex_fixer_is_never_a_reviewer_and_takes_the_tries_instruction():
@@ -424,6 +424,41 @@ def test_codex_fixer_like_qwen_fixer_is_not_pinned_its_output_is_reviewed():
         "docs/rules/pr-fixer/actors/codex-fixer.json changed its digest: update "
         "CODEX_FIXER_DIGEST here and the digest in docs/operations/pr-fixer.md"
     )
+
+
+CLAUDE_FIXER_DIGEST = "sha256:2d03fa3066d563411afe580572aa297bfcdc49dc375bd10e1398a72423713c1d"
+"""#56 t2: the committed claude-fixer's digest (not pinned: its output is reviewed)."""
+
+
+def test_claude_fixer_is_level_ones_workspace_write_claude_agent_on_spark():
+    doc = _actor("claude-fixer")
+    assert doc["kind"] == "agent"
+    assert doc["harness"] == "claude"
+    assert doc["machine"] == "spark"
+    assert doc["enabled"] is True
+    params = doc["params"]
+    assert params["sandbox"] == "workspace-write"
+    assert params["concurrency_pool"] == "claude-spark"
+    assert params["max_concurrency"] == 1
+    assert params["bridge_token"] == "grant:RULES_CLAUDE_FIXER_TOKEN"  # a grant name only
+    assert params["bridge_url"] == "http://127.0.0.1:8096"
+    assert params["callback_url"] == "http://127.0.0.1:18765"
+
+
+def test_claude_fixer_is_never_a_reviewer_and_takes_the_tries_instruction():
+    params = _actor("claude-fixer")["params"]
+    assert "reviewer" not in params
+    assert "locked_instruction" not in params
+
+
+def test_claude_fixer_is_not_pinned_its_output_is_reviewed():
+    assert "claude-fixer" not in TRUSTED_ACTOR_DIGESTS
+    assert actor_digest(_actor("claude-fixer")) == CLAUDE_FIXER_DIGEST
+
+
+def test_the_two_fixers_use_distinct_bridge_ports():
+    urls = {_actor(a)["params"]["bridge_url"] for a in FIXER_ACTORS}
+    assert len(urls) == len(FIXER_ACTORS)
 
 
 def test_conditions_reference_the_variables_never_a_copied_list():

@@ -1,0 +1,22 @@
+{
+  "capabilities": [],
+  "config_source": "db",
+  "description": "#56: the PR fixer's level 1. Claude Code through the cultureagent claude bridge (0.15.0) on spark, running as its own unprivileged account (culture-claude-fixer, its own claude login); sandbox workspace-write, one try at a time on the claude-spark pool. Commits locally and never pushes: the hand-off carries its commits to spark2's gate, and qwen-reviewer reviews them.",
+  "enabled": true,
+  "harness": "claude",
+  "id": "claude-fixer",
+  "kind": "agent",
+  "machine": "spark",
+  "model": null,
+  "name": "PR fixer (Claude Code, level 1)",
+  "params": {
+    "bridge_token": "grant:RULES_CLAUDE_FIXER_TOKEN",
+    "bridge_url": "http://127.0.0.1:8096",
+    "callback_url": "http://127.0.0.1:18765",
+    "concurrency_pool": "claude-spark",
+    "max_concurrency": 1,
+    "sandbox": "workspace-write"
+  },
+  "repo": null,
+  "schema_version": "1.0"
+}
