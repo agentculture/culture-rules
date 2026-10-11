@@ -10,11 +10,12 @@ server merges atomically and timestamps with its own clock (no read-merge-write)
 ``pause`` records its snapshot with ``POST /rollouts/{version}/snapshot`` (the first wins).
 
 Guards refuse with exit 1 and a remediation naming the step to run first: ``pause`` while a
-run is not terminal (``--force`` overrides; the only override), ``import`` before this
-release's ``seed`` step is recorded, ``enable`` before ``pause`` recorded a snapshot, while an
-online node runs an older engine, while one of the release's new rules is not imported,
-while a snapshot rule no longer exists, or while a rule outside the snapshot plus the new
-rules is enabled.
+run is not terminal (``--force`` overrides), ``resume`` before this release's ``enable`` step
+is recorded (``--force`` overrides, and the resume step records ``forced``; #62), ``import``
+before this release's ``seed`` step is recorded, ``enable`` before ``pause`` recorded a
+snapshot, while an online node runs an older engine, while one of the release's new rules
+is not imported, while a snapshot rule no longer exists, or while a rule outside the
+snapshot plus the new rules is enabled.
 
 An API that predates the rollout CLI has no ``/rollouts`` endpoints: every ``/rollouts``
 write there answers 404 or 405, which the verbs refuse with exit 2 naming the runbook's
@@ -585,8 +586,30 @@ def _snapshot_lines(snapshot: list[str], kept: bool, runs: list[dict[str, Any]])
     return lines
 
 
-def _resume(ctx: Context) -> dict[str, Any]:
+def _refuse_resume_before_enable(
+    ctx: Context, version: str, doc: Mapping[str, Any] | None, paused: bool
+) -> None:
+    """Refuse (in a dry run too) while this release's enable step is not recorded (#62):
+    resuming then runs the engine with the imported rules still disabled. A rollout already
+    resumed is reported as it is."""
+    steps = _steps(doc)
+    if "enable" in steps or (not paused and "resume" in steps):
+        return
+    if doc is None and not _rollouts_endpoints(ctx):
+        raise no_rollouts_endpoints(ctx)
+    raise CliError(
+        EXIT_USER_ERROR,
+        f"resume refused: release {version}'s enable step is not recorded",
+        "run 'culture-rules rollout enable --apply' first (it re-enables the snapshot plus "
+        "the release's new rules); to resume without enabling them, pass --force",
+    )
+
+
+def _resume(ctx: Context, force: bool = False) -> dict[str, Any]:
     """Record the resume boundary, resume the engine, then record the resume step.
+
+    Refuses until this release's ``enable`` step is recorded (``--force`` resumes anyway and
+    the resume step records ``forced``).
 
     ``resume_requested`` is recorded (server time) before ``POST /controls/resume``, so
     verify's "since resume" window opens before the engine runs again. It is recorded once
@@ -596,9 +619,16 @@ def _resume(ctx: Context) -> dict[str, Any]:
     """
     version = release_version()
     paused = bool(_get(ctx, CONTROLS_PATH).get("paused"))
-    steps = _steps(_rollout_doc(ctx, version))
+    doc = _rollout_doc(ctx, version)
+    steps = _steps(doc)
+    forced = force and "enable" not in steps
+    if not force:
+        _refuse_resume_before_enable(ctx, version, doc, paused)
     out = envelope(
-        "resume", ctx, would={"method": "POST", "path": "/controls/resume", "skip": not paused}
+        "resume",
+        ctx,
+        forced=forced,
+        would={"method": "POST", "path": "/controls/resume", "skip": not paused},
     )
     if not ctx.apply:
         what = "POST /controls/resume" if paused else "report the engine already resumed"
@@ -607,7 +637,7 @@ def _resume(ctx: Context) -> dict[str, Any]:
             "engine": "paused" if paused else "running",
             "lines": [f"dry-run: would record {_RESUME_REQUESTED}, {what} and record resume"],
         }
-    state = _apply_resume(ctx, paused, steps)
+    state = _apply_resume(ctx, paused, steps, forced)
     controls = _get(ctx, CONTROLS_PATH)
     return {
         **out,
@@ -617,7 +647,7 @@ def _resume(ctx: Context) -> dict[str, Any]:
     }
 
 
-def _apply_resume(ctx: Context, paused: bool, steps: Mapping[str, Any]) -> str:
+def _apply_resume(ctx: Context, paused: bool, steps: Mapping[str, Any], forced: bool) -> str:
     """Record ``resume_requested`` (once), resume, record ``resume``; the engine's state."""
     if not paused and "resume" in steps:
         return "already resumed"  # the recorded boundary stays as it is
@@ -625,7 +655,7 @@ def _apply_resume(ctx: Context, paused: bool, steps: Mapping[str, Any]) -> str:
         _record_boundary(ctx, {"engine": "paused" if paused else "running"})
     already = not paused or _toggle(ctx, "resume")
     state = "already resumed" if already else "resumed"
-    record(ctx, "resume", {"engine": state})
+    record(ctx, "resume", {"engine": state, "forced": True} if forced else {"engine": state})
     return state
 
 
@@ -1049,7 +1079,15 @@ VERBS: list[Verb] = [
         True,
         "admin",
     ),
-    Verb(NOUN, "resume", "Resume the engine", _resume, (), True, "admin"),
+    Verb(
+        NOUN,
+        "resume",
+        "Resume the engine (after enable)",
+        _resume,
+        (Param("force", "boolean", "resume even though the enable step is not recorded"),),
+        True,
+        "admin",
+    ),
     Verb(NOUN, "verify", "Check versions, engine, enabled rules and no_builtin failures", _verify),
 ]
 

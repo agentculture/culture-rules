@@ -2,7 +2,7 @@
   "plan_slug": "rollout-cli",
   "schema_version": 2,
   "created": "2026-10-10T21:41:12Z",
-  "updated": "2026-10-11T15:56:37Z",
+  "updated": "2026-10-11T16:52:56Z",
   "deviations": [
     {
       "id": "d1",
@@ -84,6 +84,17 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 7
+    },
+    {
+      "id": "d8",
+      "what": "Follow-up 0.19.3 (#62): rollout resume --apply refuses (exit 1) unless this release's rollout document records the enable step; its dry run reports the same refusal; --force resumes anyway (for an aborted rollout the operator chooses to leave without enabling)",
+      "task_ref": "t5",
+      "reason": "The operator approved it on 2026-10-11 after the 0.19.2 rollout resumed with the 24 re-imported pr-fixer rules disabled for ~9 s: a scripted step loop ran resume after a correctly refused enable. The CLI holds the order itself, as import already does after seed.",
+      "affects": [],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 8
     }
   ],
   "evidence": [],

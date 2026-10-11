@@ -146,7 +146,7 @@ def test_rollout_writes_are_dry_run_without_apply(wire, store, capsys):
         ["rollout", "seed"],
         ["rollout", "import"],
         ["rollout", "enable"],
-        ["rollout", "resume"],
+        ["rollout", "resume", "--force"],  # resume's guard needs the enable step (#62)
     ):
         rc, out, err = run(capsys, *argv, "--json")
         assert rc == 0, (argv, err)

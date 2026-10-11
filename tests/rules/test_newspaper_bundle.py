@@ -112,7 +112,7 @@ def test_the_rule_ships_disabled_at_0630_jerusalem():
     r = rule()
     assert r.enabled is False
     assert r.trigger.kind == "schedule"
-    assert r.trigger.params == {"cron": "30 6 * * *", "tz": "Asia/Jerusalem"}
+    assert r.trigger.params == {"cron": "0 5 * * *", "tz": "Asia/Jerusalem"}
     assert r.workflow.id == WORKFLOW
     assert r.action.kind == "noop"
 

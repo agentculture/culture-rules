@@ -146,7 +146,7 @@ cr rollout upgrade --host spark2 --wheel "$WHEEL" --apply
 cr rollout seed --apply                    # new variables from the wheel's variables.json
 cr rollout import --apply                  # the bundle's workflows and rules
 cr rollout enable --apply                  # the snapshot plus the release's new rules
-cr rollout resume --apply
+cr rollout resume --apply                  # refused until enable is recorded
 cr rollout verify                          # exit 0 only when every check passes
 ```
 
@@ -199,6 +199,14 @@ a whole document, but the CLI does not use it.
   `resume_requested` is recorded once per release: the server keeps the first
   record and answers a later one 409 `step_recorded` in the same transaction, so
   a second (or concurrent) `resume` keeps the earlier boundary and goes on.
+- **`resume` refuses before `enable`.** Until this release's `enable` step is
+  recorded, `resume` refuses (exit 1, in a dry run too) and changes nothing:
+  `import` re-imports the bundle's rules disabled, so resuming then would run
+  the engine with them off. On 0.19.2 a scripted loop ran `resume` after a
+  correctly refused `enable`, and the pr-fixer rules were off for about 9 s
+  (#62). `--force` resumes anyway, for a rollout you choose to leave without
+  enabling, and the `resume` step records `forced: true`. An `enable` run with an
+  editor token is not recorded, so run it as admin.
 - **`verify` reads every failed run since that boundary.** The window opens at
   `resume_requested`, or at `resume` for a document written before that step
   existed. It pages through `GET /runs?status=failed&since=...` until
@@ -221,8 +229,9 @@ The lessons from the hand-run rollouts (#45), and what now enforces each one:
 | Keep each host's install flags in one place | the machine record's `install` section; `upgrade` refuses a record without one |
 | Name the wheel | `--wheel` is required and its version must equal the release; the scp target is a per-version directory and `install.sh` gets `--wheel` with that path |
 | Publish a release's new rules and variables with it | `release.json` and `variables.json` ship in the wheel (`culture_rules/deploy_data`); `seed` and `import` read them, no checkout needed |
-| Wait for a running chain | `pause` refuses while a run is not terminal (`--force` is the only override) |
+| Wait for a running chain | `pause` refuses while a run is not terminal (`--force` overrides) |
 | Seed before import, upgrade before enable | `import` refuses until this release's `seed` step is recorded; `enable` refuses while an online node's `engine_version` is older than the release (PEP 440 order; an unparseable version counts as older) |
+| Enable before resuming (#62) | `resume` refuses until this release's `enable` step is recorded (`--force` overrides and is recorded) |
 | Restore exactly what was on | `enable` refuses while a rule outside the snapshot plus the new rules is enabled, or while a snapshot rule no longer exists, before it changes anything |
 | The operator runs each step | one command per step, dry run first; `upgrade`'s dry run prints the exact argv and opens no connection |
 

@@ -11,14 +11,14 @@
   "concurrency_key": null,
   "condition": null,
   "counts_toward_budget": true,
-  "description": "#53: every morning at 06:30 Asia/Jerusalem (DST-aware), runs the daily-newspaper workflow over the newspaper_sections variable, to newspaper_to and the newspaper_device reader. Ships disabled: enable it after seeding the variables, the actors' base URLs, the allowlist and the grants (docs/operations/newspaper.md). A missed slot is not caught up.",
+  "description": "#53: every morning at 05:00 Asia/Jerusalem (DST-aware), runs the daily-newspaper workflow over the newspaper_sections variable, to newspaper_to and the newspaper_device reader. Ships disabled: enable it after seeding the variables, the actors' base URLs, the allowlist and the grants (docs/operations/newspaper.md). A missed slot is not caught up.",
   "enabled": false,
   "exclusive_group": null,
   "id": "daily-newspaper",
   "max_attempts": null,
   "may_after": [],
   "must_after": [],
-  "name": "Daily newspaper at 06:30 Asia/Jerusalem",
+  "name": "Daily newspaper at 05:00 Asia/Jerusalem",
   "on_failure": null,
   "placement": {
     "actor": null,
@@ -32,7 +32,7 @@
   "trigger": {
     "kind": "schedule",
     "params": {
-      "cron": "30 6 * * *",
+      "cron": "0 5 * * *",
       "tz": "Asia/Jerusalem"
     }
   },

@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.3] - 2026-10-11
+
+### Fixed
+
+- `rollout resume` (#62) refuses, with exit 1 and in a dry run too, until this release's `enable` step is recorded, and changes nothing: `import` re-imports the bundle's rules disabled, so resuming before `enable` runs the engine with them off. On the 0.19.2 rollout a scripted loop ran `resume` after a correctly refused `enable` (a node still reported the old engine), and the pr-fixer rules were off for about 9 s. `--force` resumes anyway, for a rollout the operator chooses to leave without enabling, and the `resume` step then records `forced: true`. A rollout already resumed is still reported as it is
+
+### Changed
+
+- The daily newspaper's rule `daily-newspaper` runs at 05:00 Asia/Jerusalem (`0 5 * * *`), not 06:30: the operator moved it live on 2026-10-11, and the bundle, its tests and `docs/operations/newspaper.md` follow, so a re-import keeps it (daily-newspaper d7)
+- `docs/rules/pr-fixer/release.json` is 0.19.3, with no new rules or variables
+
 ## [0.19.2] - 2026-10-11
 
 ### Fixed

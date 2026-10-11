@@ -1,10 +1,10 @@
 # The daily newspaper (#53)
 
-Every morning at 06:30 Asia/Jerusalem, culture-rules searches the web for
+Every morning at 05:00 Asia/Jerusalem, culture-rules searches the web for
 the sections you choose and has Qwen (cortex) summarise what it found. It
 then delivers one dated issue in two ways: by email from the
 `newsletter-no-reply` sender on `culture.dev`, and as an EPUB queued on your
-Xteink reader. The issue's date is the local date of the 06:30 slot, and the
+Xteink reader. The issue's date is the local date of the 05:00 slot, and the
 schedule follows DST.
 
 The newspaper is committed data in `docs/rules/newspaper/`, in the import
@@ -17,7 +17,7 @@ format, and it ships **disabled**:
 | `actors/newspaper-llm.json` | agent actor: the OpenAI-compatible lobes gateway, model `cortex-spark2`, pool `qwen-spark2`, `max_concurrency: 1` |
 | `actors/newspaper-library.json` | service actor: the xteink library API |
 | `workflows/daily-newspaper.json` | the workflow (below) |
-| `rules/daily-newspaper.json` | schedule `30 6 * * *`, tz `Asia/Jerusalem`, placed on spark, disabled |
+| `rules/daily-newspaper.json` | schedule `0 5 * * *`, tz `Asia/Jerusalem`, placed on spark, disabled |
 | `variables.json` | the three variables with example values and descriptions |
 | `seed-variables.sh` | seeds the variables from `variables.json` (dry run by default) |
 
@@ -304,13 +304,13 @@ allowlist must both name the address.
 culture-rules rules enable daily-newspaper --apply
 ```
 
-The rule is placed on spark, and its slot fires once at 06:30 local time.
+The rule is placed on spark, and its slot fires once at 05:00 local time.
 A day missed because spark's node was not running is skipped, never caught
 up.
 
 ## 6. Check the first run
 
-After 06:30, look for the run, its outputs and the delivery record:
+After 05:00, look for the run, its outputs and the delivery record:
 
 ```bash
 culture-rules runs list --rule-id daily-newspaper --limit 3
