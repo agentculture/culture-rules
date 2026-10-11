@@ -1,9 +1,11 @@
 """Built-in ``select``: one step's outputs from whichever of a workflow's paths ran (#39 t4).
 
-pr-fix runs one agent path per try: ``agent_qwen``, or ``agent_codex`` and the Codex
-hand-off, each guarded by ``when``. The gate must read its ``worktree``, ``start_sha`` and
-``commit_sha`` from **one** source step: two edges into one port would leave the value to
-edge order (the last edge with a value wins), which is fragile. ``select`` is that source.
+pr-fix runs one agent path per try: ``agent_qwen``; ``agent_claude`` and the Claude hand-off
+(#56); or ``agent_codex`` and the Codex hand-off, each guarded by ``when`` (sources ``qwen``,
+``claude`` and ``codex``, each labelled with its fixer actor). The gate must read its
+``worktree``, ``start_sha`` and ``commit_sha`` from **one** source step: two edges into one
+port would leave the value to edge order (the last edge with a value wins), which is
+fragile. ``select`` is that source.
 
 Config: ``sources`` - ``{prefix: label}``, one entry per path (a prefix is a short
 identifier; the label names the path, for pr-fix the fixer actor); ``ports`` - the names
