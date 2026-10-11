@@ -2,9 +2,9 @@
   "slug": "claude-fixer-level",
   "title": "Claude fixer level",
   "schema_version": 6,
-  "status": "drafting",
+  "status": "exported",
   "created": "2026-10-11T19:09:06Z",
-  "updated": "2026-10-11T19:09:37Z",
+  "updated": "2026-10-11T20:07:58Z",
   "claims": [
     {
       "id": "c1",
@@ -16,7 +16,7 @@
         {
           "id": "h1",
           "text": "A chain test (tests/rules chain world) runs a story through all three levels on fakes: try 1 on claude-fixer reviewed by qwen-reviewer, try 2 on qwen-fixer reviewed by codex-reviewer, try 3 on codex-fixer reviewed by qwen-reviewer",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -35,7 +35,7 @@
         {
           "id": "h2",
           "text": "test_fixer_levels_are_seeded asserts the seeded three-level ladder exactly (actors, reviewers, pools, queues) and CHAIN_VARIABLES equals variables.json",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -54,7 +54,7 @@
         {
           "id": "h3",
           "text": "A queue test shows a request lands in pr-fixer-claude for level 1 and in pr-fixer for level 2, and an undefined variable still falls back to pr-fixer",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -73,7 +73,7 @@
         {
           "id": "h4",
           "text": "The seeded level 1 is enabled=false and a ladder test shows try 1 then goes to qwen-fixer; flipping it to true makes try 1 claude-fixer",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -92,7 +92,7 @@
         {
           "id": "h5",
           "text": "A review-routing test shows a claude-fixer try is reviewed by qwen-reviewer and the reviewer-is-not-implementer check passes (backends claude vs qwen)",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -111,7 +111,7 @@
         {
           "id": "h6",
           "text": "The handoff test for the Claude path runs the export as culture-claude-fixer (the step's run_as) and the import on spark2 as the gate account",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -125,12 +125,12 @@
       "kind": "requirement",
       "text": "pr-fix.json gains agent_claude (placement actor claude-fixer, sandbox workspace-write, require_commit, when fixer == claude-fixer) and its own handoff_export_claude / handoff_import_claude steps feeding select as source claude -> claude-fixer, so the implementer label stays exact; the new pr-fix digest is added to ROLE_FIX in culture_rules/actors/trusted.py with the old ones kept",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h7",
           "text": "test_pr_fix_builds_and_gates asserts the body steps and each step's when; a select test shows a Claude commit is labelled claude-fixer, never codex-fixer; the new digest is in ROLE_FIX and the earlier three still are",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -144,12 +144,12 @@
       "kind": "requirement",
       "text": "handoff.export takes the account to run as from the step's config (run_as), so the Claude path runs as culture-claude-fixer and the Codex path as culture-codex-fixer; the node's single CULTURE_RULES_HANDOFF_RUN_AS stays the default for steps that name none",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h8",
           "text": "handoff.export tests: a step run_as wins over CULTURE_RULES_HANDOFF_RUN_AS, a step without one keeps the env default, and a run_as outside an allowlisted form is refused",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -163,12 +163,12 @@
       "kind": "requirement",
       "text": "docs/rules/pr-fixer/actors/claude-fixer.json: harness claude (equal to the bridge's reported backend), machine spark, bridge_url http://127.0.0.1:8096 (8095 is codex-fixer's bridge), callback_url http://127.0.0.1:18765, bridge_token grant:RULES_CLAUDE_FIXER_TOKEN, sandbox workspace-write, concurrency_pool claude-spark, max_concurrency 1; not digest-pinned, like codex-fixer",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h9",
           "text": "A bundle test asserts claude-fixer.json's fields (harness claude, port 8096, loopback URLs, grant name, pool) and that it is not digest-pinned; scan-secrets passes",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -182,12 +182,12 @@
       "kind": "requirement",
       "text": "pr-fixer-retry-failed's step pattern names agent_claude too (agent(_qwen|_codex|_claude)?), so a Claude timeout is retried; the capacity cooldown already matches agent_*",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h10",
           "text": "A retry test shows a fix[0]/agent_claude timeout is retried like agent_qwen's and agent_codex's",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -201,12 +201,12 @@
       "kind": "requirement",
       "text": "docs/operations/pr-fixer.md gains 'Operator setup for the Claude level' (account, claude login, the bridge unit on 8096, grants CLAUDE_FIXER_BRIDGE_TOKEN and RULES_CLAUDE_FIXER_TOKEN, the sudoers grant for the export, the fixer_levels flip after t6) and the level sections describe three levels",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h11",
           "text": "The operator doc's Claude setup is ordered and complete (account, login, unit on 8096, grants, sudoers, the flip) and markdownlint and the describe test pass",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -220,12 +220,12 @@
       "kind": "boundary",
       "text": "No engine change to the queue, ladder, cooldown, review or reviewer-is-not-implementer code: they are level-count and backend agnostic (REVIEWER_BACKENDS stays codex, qwen since Claude never reviews)",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h12",
           "text": "git diff shows no change under culture_rules/actors/review.py, node/actions/fixer_levels.py, queue.py or fixer_cooldown.py",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -239,7 +239,7 @@
       "kind": "non_goal",
       "text": "Claude as a reviewer, and enabling the Claude level live, are not in this release; t6 and the live flip follow",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [],
       "hard_questions": [],
       "links": [],
@@ -251,12 +251,12 @@
       "kind": "success_signal",
       "text": "After 0.20.0, t6 and the flip, a /fix on a tester PR runs try 1 on claude-fixer, the hand-off carries its commit to spark2's gate, qwen-reviewer reviews it against the original task, and the App pushes",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "honesty_conditions": [
         {
           "id": "h13",
           "text": "Checked live after t6 and the flip, in the last plan task: the first story's run shows agent_claude, the hand-off ids, qwen-reviewer's verdict and the App's push",
-          "status": "proposed",
+          "status": "confirmed",
           "instruction": ""
         }
       ],
@@ -270,8 +270,15 @@
       "kind": "before_state",
       "text": "Today the ladder is qwen-fixer (level 1) then codex-fixer (level 2, disabled), and pr-fix.json has exactly two agent paths",
       "origin": "llm",
-      "status": "proposed",
-      "honesty_conditions": [],
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h14",
+          "text": "The before state is read from origin/main 0.19.3: pr-fix.json's select has exactly two sources and the seeded fixer_levels has two levels (quoted in the scope findings)",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
       "hard_questions": [],
       "links": [],
       "instruction": "",
@@ -282,8 +289,15 @@
       "kind": "after_state",
       "text": "pr-fix.json has three agent paths with per-account hand-offs, claude-fixer ships as an actor, and the seeded ladder is Claude (disabled until t6), Qwen, Codex",
       "origin": "llm",
-      "status": "proposed",
-      "honesty_conditions": [],
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h15",
+          "text": "The after state is what the tests in h1-h11 assert on the release's tree, nothing beyond them",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
       "hard_questions": [],
       "links": [],
       "instruction": "",
@@ -294,8 +308,34 @@
       "kind": "why_it_matters",
       "text": "The operator wants fixes in faster: Claude makes the direct fix first, with Qwen as an independent reviewer",
       "origin": "llm",
-      "status": "proposed",
-      "honesty_conditions": [],
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h16",
+          "text": "Faster fixes are not claimed by this release: the success signal (c14) is checked live after t6 and the flip, and the release says the Claude level ships disabled",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c18",
+      "kind": "audience",
+      "text": "The operator, who wants fixes in faster with Claude first, and the PR fixer's maintainers who keep the ladder, hand-off and reviewer pairing honest",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h17",
+          "text": "docs/operations/pr-fixer.md's Claude setup section is written for the operator (ordered steps they run), and the level/hand-off sections for maintainers; the PR names both",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
       "hard_questions": [],
       "links": [],
       "instruction": "",
