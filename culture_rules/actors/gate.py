@@ -194,7 +194,9 @@ import tomllib
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime
+from datetime import time as clock_time
+from datetime import timedelta
 from pathlib import Path
 from typing import IO, Any, Protocol
 
@@ -1508,6 +1510,10 @@ def _typed(value: Any) -> Any:
         return ("table", tuple(sorted((k, _typed(v)) for k, v in value.items())))
     if isinstance(value, list):
         return ("array", tuple(_typed(v) for v in value))
+    if isinstance(value, float):  # the exact bits: -0.0 is not 0.0 (Codex r3)
+        return ("float", value.hex())
+    if isinstance(value, (datetime, date, clock_time)):  # the written offset, not the instant (r3)
+        return (type(value).__name__, value.isoformat())
     return (type(value).__name__, value)
 
 

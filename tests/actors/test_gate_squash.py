@@ -764,6 +764,22 @@ def test_59_a_version_line_inside_a_toml_string_is_not_the_version():  # Codex r
             pyproject("0.3.0") + "[tool.x]\na = 1\n",
             False,
         ),
+        # Codex r3: signed zero and datetime offsets are observable, never blurred
+        (
+            pyproject("0.2.0") + "[tool.x]\na = -0.0\n",
+            pyproject("0.3.0") + "[tool.x]\na = 0.0\n",
+            False,
+        ),
+        (
+            pyproject("0.2.0") + "[tool.x]\nt = 2026-10-11T12:00:00Z\n",
+            pyproject("0.3.0") + "[tool.x]\nt = 2026-10-11T14:00:00+02:00\n",
+            False,
+        ),
+        (
+            pyproject("0.2.0") + "[tool.x]\nt = 2026-10-11T12:00:00Z\nf = 1.5\n",
+            pyproject("0.3.0") + "[tool.x]\nt = 2026-10-11T12:00:00Z\nf = 1.5\n",
+            True,
+        ),
     ],
 )
 def test_59_same_but_version(old, new, same):
