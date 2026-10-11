@@ -5,8 +5,9 @@ actor capability names the actor in ``params.actor`` (an actor id, or a referenc
 this module says which params exist, their types and which are required.
 
 Actor policy: ``discord.message``, ``github.comment``, ``github.push``, ``github.review_reply``,
-``jira.comment``, ``http.call`` and ``machine.command`` always need ``params.actor`` (the
-credentialed or executing party).
+``jira.comment``, ``http.call``, ``machine.command``, ``email.send``, ``search.web``,
+``llm.complete`` and ``library.push`` always need ``params.actor`` (the credentialed or
+executing party).
 ``message`` sends on the Culture mesh and takes no actor; a stored ``message`` that still names
 a Discord app actor (the form before ``discord.message`` existed) keeps posting through it.
 ``discord.message`` posts to a Discord channel through a Discord app actor; ``guild`` records
@@ -19,6 +20,12 @@ Any param value may be a reference (``trigger.data.number``), a ``{"$ref": ...}`
 never with force (and, with ``gate_verdict`` wired in, only after a test gate ``pass``);
 ``github.review_reply`` replies in a PR review thread and optionally resolves it. There is
 deliberately **no merge kind**: merging stays a human gate.
+
+The daily-newspaper kinds (#53): ``email.send`` sends through an ``email`` app actor to
+addresses on its recipient allowlist; ``search.web`` queries through a ``search`` app actor;
+``llm.complete`` asks an agent actor's OpenAI-compatible endpoint (never with tools);
+``library.push`` uploads ``content_base64`` (an EPUB) to xteink and queues it for
+``device_id``.
 Standard-library only.
 """
 
@@ -55,6 +62,7 @@ def _k(name: str, summary: str, **params: ParamSpec) -> ActionKind:
 
 _S = ParamSpec("str")
 _RS = ParamSpec("str", True)
+_I = ParamSpec("int")
 
 _KINDS = (
     _k("noop", "Do nothing (placeholder, tests)"),
@@ -122,6 +130,42 @@ _KINDS = (
         actor=_RS,
         command=_RS,
         args=ParamSpec("dict"),
+    ),
+    _k(
+        "email.send",
+        "Send an email through an email app actor (Resend)",
+        actor=_RS,
+        to=ParamSpec("list", True),  # each must be on the actor's recipient allowlist
+        subject=_RS,
+        html=_S,  # at least one of html/text: the port checks it
+        text=_S,
+    ),
+    _k(
+        "search.web",
+        "Search the web through a search app actor (Brave)",
+        actor=_RS,
+        query=_RS,
+        count=_I,
+        freshness=_S,
+        country=_S,
+        lang=_S,
+    ),
+    _k(
+        "llm.complete",
+        "Complete a locked brief with an OpenAI-compatible model on an agent actor (no tools)",
+        actor=_RS,
+        content=ParamSpec("any", True),
+        max_tokens=_I,
+        temperature=ParamSpec("any"),
+    ),
+    _k(
+        "library.push",
+        "Upload an EPUB to the xteink library and queue it for a device",
+        actor=_RS,
+        content_base64=_RS,
+        title=_RS,
+        author=_S,
+        device_id=_S,
     ),
 )
 

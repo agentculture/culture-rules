@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import importlib.util
 
+import pytest
+
 from culture_rules.engine.actorport import FAILED
 from culture_rules.engine.runs import ACTION_STEP, step_state
 from culture_rules.machines.probe import ProbeResult
@@ -26,11 +28,26 @@ BEATS = HeartbeatOptions(
 )
 
 
+# #53 t8 registers these ports; remove this set then.
+PENDING_PORTS_T8 = frozenset({"email.send", "search.web", "llm.complete", "library.push"})
+
+
 def test_every_action_kind_has_a_registered_port() -> None:
     ports = runner.default_ports(MemoryStore(), "spark")
-    for kind in ACTION_KINDS:
+    for kind in set(ACTION_KINDS) - PENDING_PORTS_T8:
         assert f"action:{kind}" in ports, kind
     assert "action:mesh.message" in ports  # legacy alias of message
+
+
+def test_pending_ports_are_catalogued() -> None:
+    assert PENDING_PORTS_T8 <= set(ACTION_KINDS)
+
+
+@pytest.mark.parametrize("kind", sorted(PENDING_PORTS_T8))
+def test_pending_port_exemption_is_still_needed(kind: str) -> None:
+    """Fails once t8 registers the port: drop the kind from ``PENDING_PORTS_T8`` then."""
+    ports = runner.default_ports(MemoryStore(), "spark")
+    assert f"action:{kind}" not in ports, f"{kind} is registered now: remove the exemption"
 
 
 def _run_rule(action, actor):

@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from culture_rules.model.describe import (
+    ACTION_WORDS,
     condition_text,
     describe_rule,
     describe_workflow,
@@ -18,6 +19,7 @@ from culture_rules.model.describe import (
 from culture_rules.model.rule import Rule
 from culture_rules.model.workflow import Workflow
 
+EMAIL_SEND = "email.send"
 BUNDLE = Path(__file__).resolve().parents[2] / "docs" / "rules" / "pr-fixer"
 
 
@@ -323,6 +325,26 @@ def test_loop_with_several_body_steps_nests_and_one_step_inlines():
             {"kind": "github.push", "params": {"actor": "{{ x }}"}},
             "github.push (only on an approving review of exactly that commit)",
         ),
+        (
+            {"kind": EMAIL_SEND, "params": {"actor": "mail", "subject": "Daily"}},
+            'email.send as mail "Daily"',
+        ),
+        (
+            {"kind": EMAIL_SEND, "params": {"actor": "mail", "subject": "{{ x }}"}},
+            "email.send as mail",
+        ),
+        (
+            {"kind": "search.web", "params": {"actor": "brave", "query": "jetson"}},
+            'search.web as brave "jetson"',
+        ),
+        (
+            {"kind": "llm.complete", "params": {"actor": "cortex", "content": "long"}},
+            "llm.complete as cortex",
+        ),
+        (
+            {"kind": "library.push", "params": {"actor": "xteink", "device_id": "d1"}},
+            "library.push as xteink to device d1",
+        ),
         ({"kind": "future.kind", "params": {"actor": "a"}}, "future.kind as a"),
     ],
 )
@@ -603,3 +625,8 @@ def test_a_status_comment_action_says_so():
 
     action = {"kind": "github.comment", "params": {"actor": "github-app", "status": True}}
     assert action_text(action) == "github.comment as github-app (as its chain's status comment)"
+
+
+def test_action_words_cover_the_newspaper_kinds():
+    for kind in (EMAIL_SEND, "search.web", "llm.complete", "library.push"):
+        assert kind in ACTION_WORDS, kind
