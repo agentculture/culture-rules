@@ -25,10 +25,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The verdict step checks "reviewer allowed" (flag and backend) before "read-only", and the bridge adapter locks an actor whose default mode is `plan` (`mode_locked`) (d5, proposed)
 - devague: plan `pr-fixer-escalation` (spec, plan t1-t7, deviations d1-d4 approved, d5 proposed)
 
+### Review hardening (Codex round 1)
+
+- `queue.progress` writes a request's move to another level's queue and its own queue's compare-and-set in one store transaction, the compare-and-set first: a `/fix` that lands between them rolls the move back (its idempotency key included), and the retried pass moves the newer request. Before, the retry found its move key already seen, added nothing and dropped the source request, so the PR ended in no queue (`tests/node/test_queue_move_race.py`)
+- `handoff.import` writes an import receipt (`imported`: idempotency key, worktree, time) into the hand-off document before returning and keeps the pack until the export's one-day prune, instead of deleting it. A replay with the same idempotency key (a lost acknowledgement) returns the receipt's worktree while it is still exactly `head_after` and clean, else rebuilds one from the pack; another step importing the same hand-off is refused `handoff_already_imported`
+
 ### Known limits
 
 - A Codex try that rewrites history fails at the hand-off export (`handoff_not_descendant`) and hands back once: no retry rule covers it
 - The hand-off's size cap is checked only after the pack is written (in the node's temp space), not while it is streamed
+- An imported hand-off pack stays in the `handoffs` collection for up to a day (the export's prune), so a replay can rebuild its worktree
 - Qwen's read-only is an approval policy (mode `plan`), not a sandbox: the verdict step checks afterwards that the checkout is unchanged
 - The Claude level waits for a cultureagent Claude bridge
 

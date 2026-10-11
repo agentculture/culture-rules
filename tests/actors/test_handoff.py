@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import shutil
 from datetime import timedelta
 from pathlib import Path
 
@@ -108,7 +109,7 @@ def export(store, world, head, *, ctx=EXPORT_CTX, start=None):  # noqa: F811
     return port.invoke(inputs, "k", DEADLINE, context=ctx)
 
 
-def import_(store, world, out, head, *, url=None, url_ok=None):  # noqa: F811
+def import_(store, world, out, head, *, url=None, url_ok=None, key="k"):  # noqa: F811
     port = HandoffImportPort(
         store,
         run_as=world.runner,
@@ -122,7 +123,7 @@ def import_(store, world, out, head, *, url=None, url_ok=None):  # noqa: F811
         "head_after": head,
         "clone_url": url or world.url,
     }
-    return port.invoke(inputs, "k", DEADLINE, context=IMPORT_CTX)
+    return port.invoke(inputs, key, DEADLINE, context=IMPORT_CTX)
 
 
 def round_trip(store, world, head):  # noqa: F811
@@ -148,10 +149,72 @@ def test_round_trip_imported_head_is_the_fixers_commit(store, world):  # noqa: F
     assert git(Path(out["worktree"]), "status", "--porcelain") == ""
 
 
-def test_the_import_deletes_the_handoff(store, world):  # noqa: F811
+def test_the_import_keeps_the_pack_with_a_receipt(store, world):  # noqa: F811
+    """Codex round 1 #2: the pack outlives a successful import (the export's TTL prunes
+    it), with a receipt naming the invocation and the worktree it built."""
     head = world.fix()
-    round_trip(store, world, head)
-    assert store.find(HANDOFFS_COLLECTION) == []
+    out = round_trip(store, world, head)
+    (doc,) = store.find(HANDOFFS_COLLECTION)
+    assert doc["imported"]["idempotency_key"] == "k"
+    assert doc["imported"]["worktree"] == out["worktree"]
+    assert doc["pack"]
+
+
+# ----------------------------------------------- a lost acknowledgement (Codex round 1 #2)
+
+
+def imported_once(store, world):  # noqa: F811
+    """An export and a successful import whose result the engine then lost."""
+    head = world.fix()
+    exported = export(store, world, head).output
+    first = import_(store, world, exported, head)
+    assert first.outcome == "completed", first.error
+    return head, exported, dict(first.output)
+
+
+def test_a_replay_after_a_lost_acknowledgement_succeeds_again(store, world):  # noqa: F811
+    head, exported, first = imported_once(store, world)
+    again = import_(store, world, exported, head)
+    assert again.outcome == "completed", again.error
+    assert dict(again.output) == first
+
+
+def test_a_replay_reuses_the_intact_worktree(store, world):  # noqa: F811
+    head, exported, first = imported_once(store, world)
+    again = import_(store, world, exported, head)
+    assert again.outcome == "completed", again.error
+    assert world.workspaces() == [Path(first["worktree"]).parent]
+
+
+def test_a_replay_whose_worktree_is_gone_rebuilds_it_from_the_pack(store, world):  # noqa: F811
+    head, exported, first = imported_once(store, world)
+    shutil.rmtree(Path(first["worktree"]).parent)
+    again = import_(store, world, exported, head)
+    assert again.outcome == "completed", again.error
+    assert git(Path(again.output["worktree"]), "rev-parse", "HEAD") == head
+
+
+def test_a_replay_whose_worktree_changed_rebuilds_a_clean_one(store, world):  # noqa: F811
+    head, exported, first = imported_once(store, world)
+    (Path(first["worktree"]) / "stray.txt").write_text("not the fixer's\n")
+    again = import_(store, world, exported, head)
+    assert again.output["worktree"] != first["worktree"]
+    assert git(Path(again.output["worktree"]), "status", "--porcelain") == ""
+
+
+def test_a_rebuilt_worktree_is_the_receipts(store, world):  # noqa: F811
+    head, exported, first = imported_once(store, world)
+    shutil.rmtree(Path(first["worktree"]).parent)
+    again = import_(store, world, exported, head)
+    doc = store.get(HANDOFFS_COLLECTION, exported["handoff_id"])
+    assert doc["imported"]["worktree"] == again.output["worktree"]
+
+
+def test_another_invocation_after_an_import_is_refused(store, world):  # noqa: F811
+    head, exported, _first = imported_once(store, world)
+    res = import_(store, world, exported, head, key="another-step")
+    assert res.outcome == "failed"
+    assert res.error.startswith("handoff_already_imported")
 
 
 def test_the_export_stores_a_verifiable_capped_pack(store, world):  # noqa: F811

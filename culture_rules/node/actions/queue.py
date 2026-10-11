@@ -112,10 +112,12 @@ on ``capacity_exhausted``), each level has its own queue on its own pool. Withou
   and resolves the level that takes it, skipping an unavailable level as the variable named
   by ``config.unavailable`` says (``next``, the default, or ``hand_back``). A request whose
   level is this queue's is dispatched; one whose level is another queue's **moves** there
-  (written to the other queue first, idempotently, then dropped here; passes repeat while
-  requests move); one no level can take is dropped as :data:`NO_FIXER` and its story's
-  status comment ends with :data:`HANDBACK_TEXT` - the story's one hand-back (a closed PR
-  or a moved head is dropped as before, without one). A full queue still lets a request
+  (dropped here and written to the other queue in one store transaction, after this
+  queue's compare-and-set confirms the request is unchanged, so a concurrent ``/fix`` never
+  leaves the PR in no queue; passes repeat while requests move); one no level can take is
+  dropped as :data:`NO_FIXER` and its story's status comment ends with
+  :data:`HANDBACK_TEXT` - the story's one hand-back (a closed PR or a moved head is dropped
+  as before, without one). A full queue still lets a request
   move or hand back, so an unavailable level never parks it. A PR dispatched from one level
   queue is not dispatched from another meanwhile, and a 4th try is never dispatched (even
   before the key knows its limit). The dispatch event's ``data`` adds ``level``, ``fixer``,
@@ -243,6 +245,10 @@ _RUNNING_NOTE = (
 )
 
 Clock = Callable[[], datetime]
+
+
+class _SourceChanged(Exception):
+    """#39: a queue changed after a pass read it, so the moves it decided are not written."""
 
 
 class _Refused(Exception):
@@ -690,6 +696,7 @@ class _Pass:
         self.ladder: Ladder | None = None  # #39: set by _Levels
         self.siblings: list[str] = []  # #39: the other level queues
         self.moved: list[dict[str, Any]] = []  # #39: requests moved to another level's queue
+        self.pending_moves: list[tuple[dict[str, Any], _Move]] = []  # #39: this try's moves
         self.busy_elsewhere: set[str] = set()  # #39: PRs dispatched from another level queue
         self.choices: dict[str, tuple[Level, int]] = {}  # #39: rid -> (level, try)
         self.handbacks: dict[str, tuple[int, int, list[str]]] = {}  # #39: rid -> why
@@ -698,13 +705,14 @@ class _Pass:
         for _ in range(_MAX_CAS_TRIES):
             doc, rev, exists = self.queue.read()
             self.endings, self.moved, self.choices, self.handbacks = [], [], {}, {}
+            self.pending_moves = []
             self.busy_elsewhere = self._active_elsewhere()
             now = self.port._clock()
             ended = [a for a in doc["active"] if self._ended(a, now)]
             doc["active"] = [a for a in doc["active"] if a not in ended]
             dispatched, dropped = self._admit(doc, now, ik)
-            changed = bool(ended or dispatched or dropped or self.moved)
-            if not changed or self.queue.write(doc, rev, exists):
+            changed = bool(ended or dispatched or dropped or self.pending_moves)
+            if not changed or self._write(doc, rev, exists):
                 _positions(doc)
                 self._emit(doc)
                 self._end_stories()
@@ -749,7 +757,7 @@ class _Pass:
                 continue
             doc["waiting"].remove(req)
             if isinstance(reason, _Move):
-                self._move(req, reason, ik)
+                self.pending_moves.append((req, reason))  # written with this queue's write
             elif reason is not None:
                 dropped.append({"key": req["key"], "reason": reason})
                 self._ending(req, reason)
@@ -835,23 +843,53 @@ class _Pass:
             attempt=attempt, limit=limit, why="; ".join(why) or "no level is available"
         )
 
-    def _move(self, req: Mapping[str, Any], move: _Move, ik: str) -> None:
-        """#39: put ``req`` in the queue of the level that takes its try, before this queue's
-        write drops it here (idempotent under ``move:<queue>:<rid>``: a pass retried after a
-        lost compare-and-set moves it once)."""
+    def _write(self, doc: dict[str, Any], rev: Any, exists: bool) -> bool:
+        """This queue's compare-and-set write; with moves (#39), one transaction with them."""
+        if not self.pending_moves:
+            return self.queue.write(doc, rev, exists)
+        from culture_rules.store.port import TransientStoreError  # noqa: PLC0415
+
+        try:
+            with self.store.transaction() as tx:
+                moved = self._move_all(tx, doc, rev, exists)
+        except (_SourceChanged, TransientStoreError):
+            return False  # the pass is judged again on a fresh read
+        self.moved = moved
+        return True
+
+    def _move_all(
+        self, tx: Any, doc: dict[str, Any], rev: Any, exists: bool
+    ) -> list[dict[str, Any]]:
+        """#39 (Codex round 1 #1): drop the moved requests here and put each in the queue of
+        the level that takes its try, in **one transaction**. This queue's compare-and-set
+        comes first and validates that nothing in it changed since the pass read it - so a
+        moved request is the one still waiting here, not one a concurrent ``/fix`` replaced
+        meanwhile - and the destination writes commit only with it. A lost compare-and-set
+        (or a write conflict) rolls everything back, including the destination's idempotency
+        key, so the retried pass moves the request as it is then. Without the transaction a
+        ``/fix`` landing between the destination write and this write could update the
+        request here and remove the copy there; the retry then found its move key already
+        seen, added nothing and dropped the request here: the PR was in no queue. The move
+        stays idempotent under ``move:<queue>:<rid>`` (a request's ``rid`` leaves this queue
+        with the commit, so the key never names another move)."""
         assert self.ladder is not None  # nosec B101 - only called with levels
-        request = {k: copy.deepcopy(req.get(k)) for k in _REQUEST_FIELDS}
-        request.update(attempt=move.attempt, moved_from=self.name)
-        adder = QueueAddPort(self.store, clock=self.port._clock)
-        out = adder.route(
-            self.ladder,
-            move.level.queue,
-            request,
-            f"move:{self.name}:{req['rid']}",
-            exclude=self.name,
-            target=move.level.queue,
-        )
-        self.moved.append({"key": req["key"], "from": self.name, "to": out["queue"]})
+        if not _QueueDoc(tx, self.name, self.port._clock).write(doc, rev, exists):
+            raise _SourceChanged(self.name)
+        adder = QueueAddPort(tx, clock=self.port._clock)
+        moved: list[dict[str, Any]] = []
+        for req, move in self.pending_moves:
+            request = {k: copy.deepcopy(req.get(k)) for k in _REQUEST_FIELDS}
+            request.update(attempt=move.attempt, moved_from=self.name)
+            out = adder.route(
+                self.ladder,
+                move.level.queue,
+                request,
+                f"move:{self.name}:{req['rid']}",
+                exclude=self.name,
+                target=move.level.queue,
+            )
+            moved.append({"key": req["key"], "from": self.name, "to": out["queue"]})
+        return moved
 
     def _dispatch(self, req: dict[str, Any], now: datetime) -> dict[str, Any]:
         """The active entry that dispatches ``req`` now."""

@@ -44,11 +44,16 @@ the pack on a descriptor the node opened (``handoff_corrupt``), a check that
 ``head_after`` is now a commit (``handoff_corrupt``) descending from ``start_sha``
 (``handoff_not_descendant``) and a detached checkout whose ``HEAD`` is exactly
 ``head_after`` (``handoff_checkout_failed``). Any refusal removes the workspace: there is
-no ``worktree`` output, so the gate never judges a half-built tree. On success the
-handoff document is deleted and the step outputs ``worktree``, ``start_sha`` and
-``commit_sha`` (the gate's inputs) plus ``head_before`` and ``head_after`` (the agent
-step's own names). The gate then judges exactly the commit the Codex fixer made: git
-object ids are content hashes, and ``index-pack --strict`` verifies every one.
+no ``worktree`` output, so the gate never judges a half-built tree. On success an import
+receipt (``imported: {idempotency_key, worktree, at}``) is written into the handoff
+document before the step outputs ``worktree``, ``start_sha`` and ``commit_sha`` (the gate's
+inputs) plus ``head_before`` and ``head_after`` (the agent step's own names). The pack is
+kept until the export's TTL prune: a replay with the same idempotency key (a lost
+acknowledgement) passes the same checks, then returns the receipt's worktree while its
+``HEAD`` is still ``head_after`` with nothing else in it, else removes it and rebuilds one
+from the pack; another invocation is refused ``handoff_already_imported``. The gate then
+judges exactly the commit the Codex fixer made: git object ids are content hashes, and
+``index-pack --strict`` verifies every one.
 """
 
 from __future__ import annotations
@@ -178,6 +183,19 @@ def _expired(created_at: Any, cutoff: datetime) -> bool:
         return True
 
 
+def _own_worktree(path: str) -> bool:
+    """Whether ``path`` has the shape of a worktree an import built:
+    ``<tmp>/culture_rules_handoff.*/repo``, absolute and normalised."""
+    return (
+        os.path.isabs(path)
+        and "\n" not in path
+        and "\x00" not in path
+        and os.path.normpath(path) == path
+        and os.path.basename(path) == _REPO_DIR
+        and os.path.basename(os.path.dirname(path)).startswith(_WORKSPACE_PREFIX)
+    )
+
+
 class _Call:
     """One invocation's run-as commands, each bounded by the step's deadline."""
 
@@ -288,18 +306,18 @@ class _Port:
     def invoke(
         self,
         input: Mapping[str, Any],
-        _idempotency_key: str,
+        idempotency_key: str,
         deadline: datetime,
         *,
         context: InvocationContext,
     ) -> InvocationResult:
         try:
-            return InvocationResult.completed(self._step(input, deadline, context))
+            return InvocationResult.completed(self._step(input, deadline, context, idempotency_key))
         except _Refusal as exc:
             return InvocationResult.failed(exc.message(), retryable=exc.retryable)
 
     def _step(
-        self, input: Mapping[str, Any], deadline: datetime, context: InvocationContext
+        self, input: Mapping[str, Any], deadline: datetime, context: InvocationContext, ik: str
     ) -> dict[str, Any]:
         raise NotImplementedError  # pragma: no cover
 
@@ -327,8 +345,9 @@ class HandoffExportPort(_Port):
         return cls(store, run_as=run_as, unconfigured_reason=why, blocked_reason=blocked)
 
     def _step(
-        self, input: Mapping[str, Any], deadline: datetime, context: InvocationContext
+        self, input: Mapping[str, Any], deadline: datetime, context: InvocationContext, ik: str
     ) -> dict[str, Any]:
+        del ik  # a re-run replaces its own document (the id is derived from the step)
         worktree = _abs_path(input, "worktree")
         start, head = _sha_input(input, "start_sha"), _sha_input(input, "head_after")
         cap = _max_bytes(context.config or {})
@@ -452,26 +471,26 @@ class HandoffImportPort(_Port):
         return doc_id, start, head, base, url
 
     def _step(
-        self, input: Mapping[str, Any], deadline: datetime, context: InvocationContext
+        self, input: Mapping[str, Any], deadline: datetime, context: InvocationContext, ik: str
     ) -> dict[str, Any]:
         del context  # the import reads only its inputs and the stored handoff
         doc_id, start, head, base, url = self._inputs(input)
         runner = self._runner()
-        pack = self._verified_pack(doc_id, start, head)
+        doc, pack = self._verified_pack(doc_id, start, head)
+        receipt = doc.get("imported") if isinstance(doc.get("imported"), Mapping) else None
+        if receipt is not None and receipt.get("idempotency_key") != ik:
+            raise _Refusal(
+                "handoff_already_imported", f"handoff {doc_id} was imported by another step"
+            )
         tmp = tempfile.mkdtemp(prefix="culture-rules-handoff-")
         try:
             call = _Call(runner, tmp, deadline, self._clock)
-            pack_path = os.path.join(tmp, "in.pack")
-            Path(pack_path).write_bytes(pack)
-            workspace = self._workspace(call)
-            try:
-                worktree = self._fill(call, workspace, url, (start, base, head), pack_path)
-            except _Refusal:
-                call.remove(workspace)
-                raise
+            worktree = self._intact(call, receipt, head)
+            if worktree is None:
+                worktree = self._build(call, tmp, pack, url, (start, base, head))
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
-        self._store.delete(HANDOFFS_COLLECTION, doc_id)
+        self._record(doc, ik, worktree)
         return {
             "worktree": worktree,
             "start_sha": start,
@@ -480,8 +499,58 @@ class HandoffImportPort(_Port):
             "head_after": head,
         }
 
-    def _verified_pack(self, doc_id: str, start: str, head: str) -> bytes:
-        """The stored pack, when the document names these commits and its bytes are intact."""
+    def _build(
+        self,
+        call: _Call,
+        tmp: str,
+        pack: bytes,
+        url: str,
+        shas: tuple[str, str | None, str],
+    ) -> str:
+        """A fresh worktree at ``head_after`` from the pack (removed again on a refusal)."""
+        pack_path = os.path.join(tmp, "in.pack")
+        Path(pack_path).write_bytes(pack)
+        workspace = self._workspace(call)
+        try:
+            return self._fill(call, workspace, url, shas, pack_path)
+        except _Refusal:
+            call.remove(workspace)
+            raise
+
+    @staticmethod
+    def _intact(call: _Call, receipt: Mapping[str, Any] | None, head: str) -> str | None:
+        """Codex round 1 #2: the worktree a receipt names, when this invocation already
+        built it (a replay after a lost acknowledgement) and it is still exactly
+        ``head_after`` with nothing else in it; None otherwise, and a changed one is removed
+        (the replay builds a fresh one from the retained pack)."""
+        path = (receipt or {}).get("worktree")
+        if not isinstance(path, str) or not _own_worktree(path):
+            return None
+        rc, out, _ = call.run(_hard_git("-C", path, "rev-parse", "--verify", _HEAD_COMMIT), cwd="/")
+        if rc == 0 and out.decode("utf-8", errors="replace").strip() == head:
+            status = ("status", "--porcelain", "--untracked-files=all", "--ignored")
+            rc, out, _ = call.run(_hard_git("-C", path, *status), cwd="/")
+            if rc == 0 and not out.strip():
+                return path
+        call.remove(os.path.dirname(path))
+        return None
+
+    def _record(self, doc: Mapping[str, Any], ik: str, worktree: str) -> None:
+        """Codex round 1 #2: the import receipt, written into the handoff document before the
+        result is returned. The pack stays (the export's TTL prunes it), so a replay with the
+        same idempotency key returns this worktree, or rebuilds it, instead of failing
+        ``handoff_missing``. Best effort: a document replaced or pruned meanwhile keeps its
+        own state."""
+        receipt = {"idempotency_key": ik, "worktree": worktree, "at": self._clock().isoformat()}
+        res = self._store.update_if(
+            HANDOFFS_COLLECTION, doc["id"], {"sha256": doc.get("sha256")}, {"imported": receipt}
+        )
+        if not res.won:
+            log.warning("handoff: the import receipt of %s was not recorded", doc["id"])
+
+    def _verified_pack(self, doc_id: str, start: str, head: str) -> tuple[Mapping[str, Any], bytes]:
+        """The stored document and its pack, when the document names these commits and its
+        bytes are intact."""
         doc = self._store.get(HANDOFFS_COLLECTION, doc_id)
         if doc is None:
             raise _Refusal("handoff_missing", f"no handoff {doc_id}")
@@ -493,7 +562,7 @@ class HandoffImportPort(_Port):
             raise _Refusal(_HANDOFF_CORRUPT, "the stored pack is not base64") from exc
         if len(pack) != doc.get("size") or hashlib.sha256(pack).hexdigest() != doc.get("sha256"):
             raise _Refusal(_HANDOFF_CORRUPT, "the stored pack's size or sha256 does not match")
-        return pack
+        return doc, pack
 
     @staticmethod
     def _workspace(call: _Call) -> str:
