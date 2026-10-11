@@ -2,7 +2,7 @@
   "plan_slug": "daily-newspaper",
   "schema_version": 2,
   "created": "2026-10-11T05:14:10Z",
-  "updated": "2026-10-11T06:03:41Z",
+  "updated": "2026-10-11T06:25:40Z",
   "deviations": [
     {
       "id": "d1",
@@ -53,9 +53,22 @@
         "t4"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 4
+    },
+    {
+      "id": "d5",
+      "what": "Codex round 3 on #53: before_email outputs send_until (the first attempt plus 23 h); email.send takes not_after and refuses at or past it (email_window_passed, non-retryable) just before every request, after the secret is resolved; the email step tolerates its failure (on_error skip) and the push fence treats an attempt past its window as uncertain, while any other email failure inside the window still fails the run",
+      "task_ref": "t6",
+      "reason": "a resumed email retry more than 24 h later bypassed the fence's check and sent twice (P1); the operator approved a fourth Codex round to verify",
+      "affects": [
+        "t2"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 5
     }
   ],
   "evidence": [],
