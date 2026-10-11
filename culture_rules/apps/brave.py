@@ -98,7 +98,9 @@ def _http_url(value: Any) -> str | None:
         return None
     try:
         parts = urllib.parse.urlsplit(value)
-        host, _port = parts.hostname, parts.port
+        if parts.port is not None and parts.port < 1:  # .port raises on a malformed port
+            return None
+        host = parts.hostname
     except ValueError:
         return None
     if parts.scheme not in ("http", "https") or not host:
