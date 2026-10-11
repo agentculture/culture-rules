@@ -81,7 +81,7 @@ plan. What exists today:
     plus the `newspaper.*` builtins;
   - the step option `config.on_error: "skip"`, which turns a failed step
     `skipped`;
-  - the bundle `docs/rules/newspaper` (06:30 Asia/Jerusalem, ships disabled).
+  - the bundle `docs/rules/newspaper` (05:00 Asia/Jerusalem, ships disabled).
 
 Approved deviations from the plan: **d1** `Rule.placement` (where a rule's
 trigger and condition evaluate), **d2** the `grant` tool replaces shushu for

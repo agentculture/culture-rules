@@ -54,3 +54,25 @@ def test_main_without_extra_reports_environment_error(monkeypatch, capsys):
     monkeypatch.setattr(server, "run_stdio", boom)
     assert entry.main() == 2
     assert "mcp" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("value", ["false", "true", 0, 1, "yes"])
+@pytest.mark.parametrize("tool", ["rollout_resume", "rollout_pause", "rollout_seed"])
+def test_a_boolean_argument_must_be_a_json_boolean(tool, value):
+    """Codex r1 on 0.19.3: MCP input validation is off, so a truthy string such as "false"
+    passed for ``force`` bypassed resume's enable guard (#62). Refused before any request."""
+    c = FakeClient()
+    with pytest.raises(tools.ToolError, match="force must match the declared type"):
+        tools.call_tool(tool, {"force": value, "apply": True}, c)
+    assert c.calls == []
+
+
+def test_integer_and_string_arguments_must_have_their_declared_type():
+    """Review of #63: the same check covers integer and string params, never bool-as-int."""
+    integer = next((v, p.name) for v in REGISTRY.verbs() for p in v.params if p.type == "integer")
+    string = next((v, p.name) for v in REGISTRY.verbs() for p in v.params if p.type == "string")
+    for (verb, param), bad in ((integer, "5"), (integer, True), (string, 5)):
+        c = FakeClient()
+        with pytest.raises(tools.ToolError, match=f"{param} must match the declared type"):
+            tools.call_tool(verb.tool_name, {param: bad}, c)
+        assert c.calls == []

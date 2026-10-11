@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.3] - 2026-10-11
+
+### Fixed
+
+- `rollout resume` (#62) of a paused engine refuses, with exit 1 and in a dry run too, while any rule `enable` restores (the snapshot plus the release's new rules) is disabled or no snapshot is recorded, and changes nothing: `import` re-imports the bundle's rules disabled, so resuming before `enable` runs the engine with them off. On the 0.19.2 rollout a scripted loop ran `resume` after a correctly refused `enable` (a node still reported the old engine), and the pr-fixer rules were off for about 9 s. The check reads the rules, not the recorded `enable` step (review of #63): an `enable` recorded before a later `import` does not count, and an editor's `enable` (its step unrecorded) does. A running engine is not checked, so `verify`'s "run rollout resume" hint still works. `--force` resumes anyway, and the `resume` step records `forced: true` only when it overrode the check
+- MCP tools refuse a boolean, integer or string argument that is not of its declared JSON type (Codex r1, review of #63): input validation is off, so a string such as `"false"` for `force` was truthy and turned a guard off (`rollout_resume`'s new guard, `rollout_pause`'s idle guard, `rollout_seed`'s keep-existing), and `true` passed as an integer. `apply` was already exact
+
+### Changed
+
+- The daily newspaper's rule `daily-newspaper` runs at 05:00 Asia/Jerusalem (`0 5 * * *`), not 06:30: the operator moved it live on 2026-10-11, and the bundle, its tests and `docs/operations/newspaper.md` follow, so a re-import keeps it (daily-newspaper d7)
+- `docs/rules/pr-fixer/release.json` is 0.19.3, with no new rules or variables
+
 ## [0.19.2] - 2026-10-11
 
 ### Fixed

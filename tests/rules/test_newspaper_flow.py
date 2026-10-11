@@ -4,7 +4,7 @@ One node (spark) runs the shipped bundle (docs/rules/newspaper) with its rule en
 operator's seeding applied (the recipient on the email actor's allowlist and in
 ``newspaper_to``, the device id in ``newspaper_device``) and the real ports - email.send,
 search.web, llm.complete, library.push and the newspaper builtins - on transport doubles of
-Resend, Brave, the cortex gateway and xteink. The scheduler fires the 06:30 Asia/Jerusalem
+Resend, Brave, the cortex gateway and xteink. The scheduler fires the 05:00 Asia/Jerusalem
 slot; the run searches each section, summarises it, renders the issue, sends one email and
 queues one item, and records the date.
 """
@@ -61,7 +61,7 @@ SECTIONS = [
     {"name": "Edge AI", "queries": ["edge ai", "jetson"], "freshness": "pw", "count": 3},
     {"name": "Robots", "queries": ["humanoid robot"]},
 ]
-TODAY = datetime(2026, 10, 11, 3, 25, tzinfo=UTC)  # 06:25 in Jerusalem (IDT, UTC+3)
+TODAY = datetime(2026, 10, 11, 1, 55, tzinfo=UTC)  # 04:55 in Jerusalem (IDT, UTC+3)
 SUBJECT = "Daily newspaper 2026-10-11"
 OUTPUTS = "outputs"
 MSG_1 = "msg-1"
@@ -277,11 +277,11 @@ def finished(world: World) -> dict:
 # --------------------------------------------------------------------------- the morning
 
 
-def test_the_0630_slot_sends_one_email_and_queues_one_item():  # h13
+def test_the_0500_slot_sends_one_email_and_queues_one_item():  # h13
     world = World()
     world.run_until(TODAY + timedelta(minutes=20))
     run = finished(world)
-    assert run[TRIGGER]["data"]["slot"] == "2026-10-11T03:30:00+00:00"
+    assert run[TRIGGER]["data"]["slot"] == "2026-10-11T02:00:00+00:00"
     assert len(world.resend.sent) == 1
     assert len(world.xteink.uploads) == 1
     assert world.xteink.queued == [(f"/api/devices/{DEVICE}/queue", {ITEM_ID: ITEM})]
@@ -355,7 +355,7 @@ def test_the_epub_is_the_dated_article_upload():
 
 
 def test_a_second_run_for_the_same_date_sends_nothing():  # h8
-    world = World(cron="30,45 6 * * *")
+    world = World(cron="0,15 5 * * *")
     world.run_until(TODAY + timedelta(minutes=40))
     first, second = world.runs()
     assert second[STATUS] == "succeeded"
@@ -365,7 +365,7 @@ def test_a_second_run_for_the_same_date_sends_nothing():  # h8
 
 
 def test_the_repeat_run_spends_no_search_and_no_summary():
-    world = World(cron="30,45 6 * * *")
+    world = World(cron="0,15 5 * * *")
     world.run_until(TODAY + timedelta(minutes=40))
     assert len(world.brave.queries) == 2
     assert len(world.cortex.requests) == 2
@@ -418,13 +418,13 @@ def test_cortex_down_is_recorded_on_the_skipped_summary_steps():
 
 
 def test_slots_across_the_dst_change_map_to_their_local_dates():
-    start = datetime(2026, 10, 24, 3, 0, tzinfo=UTC)  # IDT ends 2026-10-25 02:00 local
+    start = datetime(2026, 10, 24, 1, 30, tzinfo=UTC)  # IDT ends 2026-10-25 02:00 local
     world = World(start)
-    world.run_until(datetime(2026, 10, 25, 5, 0, tzinfo=UTC), step_s=300)
+    world.run_until(datetime(2026, 10, 25, 3, 30, tzinfo=UTC), step_s=300)
     runs = world.runs()
     assert [r[TRIGGER]["data"]["slot"] for r in runs] == [
-        "2026-10-24T03:30:00+00:00",  # 06:30 IDT (UTC+3)
-        "2026-10-25T04:30:00+00:00",  # 06:30 IST (UTC+2)
+        "2026-10-24T02:00:00+00:00",  # 05:00 IDT (UTC+3)
+        "2026-10-25T03:00:00+00:00",  # 05:00 IST (UTC+2)
     ]
     assert [r[OUTPUTS]["date"] for r in runs] == ["2026-10-24", "2026-10-25"]
     subjects = [mail["json"]["subject"] for mail in world.resend.sent]
@@ -447,12 +447,12 @@ def test_the_epub_round_trips_from_the_render():
 # --------------------------------------------------------------------------- partial delivery
 
 
-TWICE = "30 6,8 * * *"  # a second slot two hours on: past the first run's one-hour lease
-SECOND_SLOT = datetime(2026, 10, 11, 5, 30, tzinfo=UTC)
+TWICE = "0 5,7 * * *"  # a second slot two hours on: past the first run's one-hour lease
+SECOND_SLOT = datetime(2026, 10, 11, 4, 0, tzinfo=UTC)
 
 
 def partial_then_retry() -> World:
-    """Codex r1 #1: the 06:30 run emails, xteink is down so its push fails, and the 08:30
+    """Codex r1 #1: the 05:00 run emails, xteink is down so its push fails, and the 07:00
     run takes the date over once the first run's lease has run out."""
     world = World(cron=TWICE)
     world.xteink.down = True
@@ -510,7 +510,7 @@ def hold_the_pool(world: World) -> None:
 def test_a_busy_pool_still_sends_the_issue_by_0645():
     world = World()
     hold_the_pool(world)
-    world.run_until(TODAY + timedelta(minutes=20))  # 06:45 in Jerusalem
+    world.run_until(TODAY + timedelta(minutes=20))  # 05:15 in Jerusalem
     assert len(world.resend.sent) == 1
 
 
@@ -540,13 +540,13 @@ def test_a_busy_pool_records_the_llm_deadline_on_the_summary():
 # --------------------------------------------------------------------------- lost acknowledgements
 
 OTHER_READER = "other@example.test"
-ONCE = "30 6 11 10 *"  # only the 2026-10-11 slot
+ONCE = "0 5 11 10 *"  # only the 2026-10-11 slot
 WORKFLOW = "daily-newspaper"
-FIRST_SLOT = "2026-10-11T03:30:00+00:00"
+FIRST_SLOT = "2026-10-11T02:00:00+00:00"
 
 
 def lost_ack(world: World) -> None:
-    """The 06:30 run's email reaches Resend but every answer is lost: the run fails at the
+    """The 05:00 run's email reaches Resend but every answer is lost: the run fails at the
     email step with the date claimed, its email accepted and unrecorded."""
     world.resend.drop_acks = True
     world.run_until(TODAY + timedelta(minutes=30))
@@ -605,7 +605,7 @@ def test_a_rerun_within_the_window_recovers_the_first_message():
 
 def change_the_reader(world: World) -> None:
     """The operator moves newspaper_to to another (allowlisted) reader and renames the
-    sender after the 06:30 email was accepted but not recorded."""
+    sender after the 05:00 email was accepted but not recorded."""
     actor = world.base.get(ACTORS_COLLECTION, EMAIL)
     connection = actor[PARAMS]["connection"]
     connection["recipients"] = [READER, OTHER_READER]
@@ -653,7 +653,7 @@ ISSUE_DATE = "2026-10-11"
 
 
 def ack_lost_then_outage(world: World) -> dict:
-    """Codex r3: the 06:30 run's first email reaches Resend but its answer is lost, so the
+    """Codex r3: the 05:00 run's first email reaches Resend but its answer is lost, so the
     email step waits to retry; the node is then down for 25 hours and resumes the same run.
     Returns the run as it stood when the node went down."""
     world.resend.drop_acks = True
@@ -740,7 +740,7 @@ def test_an_empty_sections_summary_step_is_skipped_without_an_error():
 
 
 def resend_down(world: World) -> None:
-    """Resend answers 503 to all three attempts of the 06:30 run's email step."""
+    """Resend answers 503 to all three attempts of the 05:00 run's email step."""
     world.resend.fail_5xx = 3
     world.run_until(TODAY + timedelta(minutes=30))
 

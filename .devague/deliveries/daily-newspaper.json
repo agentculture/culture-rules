@@ -2,7 +2,7 @@
   "plan_slug": "daily-newspaper",
   "schema_version": 2,
   "created": "2026-10-11T05:14:10Z",
-  "updated": "2026-10-11T10:16:10Z",
+  "updated": "2026-10-11T16:52:56Z",
   "deviations": [
     {
       "id": "d1",
@@ -82,6 +82,17 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 6
+    },
+    {
+      "id": "d7",
+      "what": "The daily-newspaper rule's schedule moves from 30 6 * * * to 0 5 * * * (tz Asia/Jerusalem): the bundle, its tests and the docs say 05:00",
+      "task_ref": "t8",
+      "reason": "The operator asked on 2026-10-11 to move the daily newspaper to 05:00 Israel time; the live rule was changed then, and the committed bundle follows so a re-import keeps it.",
+      "affects": [],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 7
     }
   ],
   "evidence": [],

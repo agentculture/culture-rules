@@ -328,6 +328,7 @@ def test_resume_reports_already_resumed_and_keeps_the_resume_time(
     wire, store, capsys  # noqa: F811
 ):
     jrun(capsys, "rollout", "pause", "--apply")
+    enabled_rules(store)
     assert jrun(capsys, "rollout", "resume")["dry_run"] is True
     assert jrun(capsys, "runs", "controls")["paused"] is True
     out = jrun(capsys, "rollout", "resume", "--apply")
@@ -341,6 +342,7 @@ def test_resume_reports_already_resumed_and_keeps_the_resume_time(
 
 def test_resume_records_its_boundary_before_resuming(wire, store, capsys):  # noqa: F811
     jrun(capsys, "rollout", "pause", "--apply")
+    enabled_rules(store)
     wire.calls.clear()
     jrun(capsys, "rollout", "resume", "--apply")
     assert wire.mutating() == [
@@ -356,6 +358,7 @@ def test_resume_is_refused_with_no_engine_change_when_the_boundary_cannot_be_rec
     wire, store, capsys, monkeypatch  # noqa: F811
 ):
     jrun(capsys, "rollout", "pause", "--apply")
+    enabled_rules(store)
     as_role(wire, store, monkeypatch, "editor")
     rc, _, _ = run(capsys, "rollout", "resume", "--apply")
     assert rc == 1
@@ -369,6 +372,7 @@ def test_a_second_resume_caller_keeps_the_first_boundary(
     """Two callers both read no resume_requested; A records it and resumes; a run fails; B's
     record is refused (409 step_recorded) and B proceeds keeping A's boundary."""
     jrun(capsys, "rollout", "pause", "--apply")
+    enabled_rules(store)
     real = rollout._rollout_doc
     stale = real(_ctx(wire), RELEASE["version"])  # read before A records
     jrun(capsys, "rollout", "resume", "--apply")
@@ -386,6 +390,112 @@ def _ctx(wire):  # noqa: F811
     from culture_rules.client.http import ApiClient
 
     return Context(ApiClient("http://127.0.0.1:8765", token=wire.token, transport=wire), True)
+
+
+def enabled_rules(store) -> None:  # noqa: F811
+    """What enable restores is on: the release's new rule (the snapshot is empty here)."""
+    put_rule(store, "r-new", True)
+
+
+def test_resume_refuses_while_rules_enable_restores_are_off(wire, store, capsys):  # noqa: F811
+    """#62: on 0.19.2 a scripted loop ran resume after a refused enable, so the engine
+    resumed with the re-imported rules disabled. Resume holds the order itself."""
+    jrun(capsys, "rollout", "pause", "--apply")
+    wire.calls.clear()
+    err = fail(capsys, "rollout", "resume", "--apply")
+    assert "not enabled: r-new" in err["message"]
+    assert "rollout enable --apply" in err["remediation"]
+    assert "--force" in err["remediation"]
+    assert wire.mutating() == []
+    assert jrun(capsys, "runs", "controls")["paused"] is True
+    assert "resume_requested" not in doc(store)["steps"]
+
+
+def test_resume_dry_run_reports_the_same_refusal(wire, store, capsys):  # noqa: F811
+    jrun(capsys, "rollout", "pause", "--apply")
+    err = fail(capsys, "rollout", "resume")
+    assert "not enabled: r-new" in err["message"]
+
+
+def test_resume_refuses_while_no_snapshot_is_recorded(wire, store, capsys):  # noqa: F811
+    jrun(capsys, "runs", "pause", "--apply")  # paused by hand, outside the rollout
+    err = fail(capsys, "rollout", "resume", "--apply")
+    assert "no snapshot is recorded" in err["message"]
+
+
+def test_resume_after_a_refused_enable_is_refused_too(wire, store, capsys):  # noqa: F811
+    """The 0.19.2 shape: a node still reports the old engine, enable refuses, resume too."""
+    put_node(store, "thor", "0.0.1")
+    _paused_with(store, capsys, ["r1"])
+    put_rule(store, "r-new", False)
+    fail(capsys, "rollout", "enable", "--apply")
+    msg = fail(capsys, "rollout", "resume", "--apply")["message"]
+    assert "r1" in msg
+    assert "r-new" in msg
+    assert jrun(capsys, "runs", "controls")["paused"] is True
+
+
+def test_a_stale_enable_record_does_not_let_resume_through(wire, store, capsys):  # noqa: F811
+    """Review of #63: enable recorded, then a later pause and import re-imported the rules
+    disabled. The recorded enable step is stale; the rules decide."""
+    _paused_with(store, capsys, ["r1"])
+    put_rule(store, "r-new", False)
+    jrun(capsys, "rollout", "enable", "--apply")
+    assert "enable" in doc(store)["steps"]
+    jrun(capsys, "rollout", "resume", "--apply")
+    jrun(capsys, "rollout", "pause", "--apply")
+    put_rule(store, "r1", False)  # the re-import
+    put_rule(store, "r-new", False)
+    assert "not enabled: r1, r-new" in fail(capsys, "rollout", "resume", "--apply")["message"]
+
+
+def test_an_enable_run_by_an_editor_lets_resume_through(
+    wire, store, capsys, monkeypatch  # noqa: F811
+):
+    """Review of #63: an editor's enable enables the rules but cannot record its step."""
+    _paused_with(store, capsys, ["r1"])
+    put_rule(store, "r-new", False)
+    from culture_rules.cli import _api
+
+    admin = _api.make_client
+    as_role(wire, store, monkeypatch, "editor")
+    out = jrun(capsys, "rollout", "enable", "--apply")
+    assert out["record"]["recorded"] is False
+    monkeypatch.setattr(_api, "make_client", admin)  # resume is admin
+    resumed = jrun(capsys, "rollout", "resume", "--apply")
+    assert (resumed["engine"], resumed["forced"]) == ("resumed", False)
+
+
+def test_resume_of_a_running_engine_records_the_boundary(wire, store, capsys):  # noqa: F811
+    """Review of #63: an engine resumed by hand (never paused by the rollout) is running;
+    resume records the boundary verify's fix hint asks for, unforced."""
+    out = jrun(capsys, "rollout", "resume", "--apply")
+    assert (out["engine"], out["forced"]) == ("already resumed", False)
+    assert {"resume_requested", "resume"} <= set(doc(store)["steps"])
+
+
+def test_resume_force_resumes_without_enable_and_records_it(wire, store, capsys):  # noqa: F811
+    jrun(capsys, "rollout", "pause", "--apply")
+    dry = jrun(capsys, "rollout", "resume", "--force")
+    assert dry["dry_run"] is True
+    assert dry["forced"] is True
+    assert jrun(capsys, "runs", "controls")["paused"] is True
+    out = jrun(capsys, "rollout", "resume", "--force", "--apply")
+    assert out["engine"] == "resumed"
+    assert out["forced"] is True
+    assert doc(store)["steps"]["resume"]["outcome"] == {"engine": "resumed", "forced": True}
+
+
+def test_force_is_not_reported_when_nothing_was_held_back(wire, store, capsys):  # noqa: F811
+    """Review of #63: --force on an engine that needed no override reports forced false,
+    including on an already-resumed rollout where nothing is recorded."""
+    jrun(capsys, "rollout", "pause", "--apply")
+    enabled_rules(store)
+    out = jrun(capsys, "rollout", "resume", "--force", "--apply")
+    assert out["forced"] is False
+    assert doc(store)["steps"]["resume"]["outcome"] == {"engine": "resumed"}
+    again = jrun(capsys, "rollout", "resume", "--force", "--apply")
+    assert (again["engine"], again["forced"]) == ("already resumed", False)
 
 
 # --------------------------------------------------------------------------- seed / import
@@ -541,6 +651,7 @@ def _green(store, capsys, monkeypatch):  # noqa: F811
     _paused_with(store, capsys, ["r1"])
     put_rule(store, "r1", True)
     put_rule(store, "r-new", True)
+    jrun(capsys, "rollout", "enable", "--apply")
     jrun(capsys, "rollout", "resume", "--apply")
 
 
@@ -684,6 +795,7 @@ def test_verify_counts_a_failure_between_the_resume_response_and_its_recording(
     _paused_with(store, capsys, ["r1"])
     put_rule(store, "r1", True)
     put_rule(store, "r-new", True)
+    jrun(capsys, "rollout", "enable", "--apply")
     raced_at = ServerClock.at + timedelta(seconds=10)
     real = wire.tc.request
 
