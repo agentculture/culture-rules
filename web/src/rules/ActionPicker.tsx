@@ -3,11 +3,19 @@ import { getDiscordTargets } from "../api/actors";
 import type { Actor, DiscordTargets, HttpPolicy, RunnerActorParams } from "../api/actors";
 import type { Action, Workflow } from "../api/types";
 
-type ParamType = "str" | "int" | "bool" | "dict" | "any";
+type ParamType = "str" | "int" | "number" | "bool" | "dict" | "list" | "any";
+
+interface Choice {
+  value: string;
+  label: string;
+}
 
 interface ParamSpec {
   type: ParamType;
   required?: boolean;
+  /** A closed set of values, picked from a select whose empty option reads `choose`. */
+  options?: readonly Choice[];
+  choose?: string;
 }
 
 interface KindSpec {
@@ -17,6 +25,17 @@ interface KindSpec {
 
 const S: ParamSpec = { type: "str" };
 const RS: ParamSpec = { type: "str", required: true };
+const I: ParamSpec = { type: "int" };
+const RI: ParamSpec = { type: "int", required: true };
+
+const METHODS: readonly Choice[] = ["GET", "POST", "PUT", "PATCH", "DELETE"].map((m) => ({ value: m, label: m }));
+/** Brave's freshness windows (search.web `freshness`). */
+const FRESHNESS: readonly Choice[] = [
+  { value: "pd", label: "Past day" },
+  { value: "pw", label: "Past week" },
+  { value: "pm", label: "Past month" },
+  { value: "py", label: "Past year" },
+];
 
 /**
  * The action catalogue, mirroring culture_rules/model/action_kinds.py: the
@@ -32,14 +51,14 @@ export const ACTION_KINDS: Record<string, KindSpec> = {
   },
   "github.comment": {
     label: "Comment on GitHub",
-    params: { actor: RS, repo: RS, number: { type: "int", required: true }, body: RS },
+    params: { actor: RS, repo: RS, number: RI, body: RS },
   },
   "github.push": {
     label: "Push a fix to a GitHub PR",
     params: {
       actor: RS,
       repo: RS,
-      number: { type: "int", required: true },
+      number: RI,
       head_branch: RS,
       expected_head_sha: RS,
       commit_sha: RS,
@@ -51,8 +70,8 @@ export const ACTION_KINDS: Record<string, KindSpec> = {
     params: {
       actor: RS,
       repo: RS,
-      number: { type: "int", required: true },
-      comment_id: { type: "int", required: true },
+      number: RI,
+      comment_id: RI,
       body: RS,
       thread_id: S,
       resolve: { type: "bool" },
@@ -61,13 +80,45 @@ export const ACTION_KINDS: Record<string, KindSpec> = {
   "jira.comment": { label: "Comment on Jira", params: { actor: RS, issue: RS, body: RS } },
   "http.call": {
     label: "Call an HTTP endpoint",
-    params: { actor: RS, method: RS, url: RS, headers: { type: "dict" }, body: { type: "any" } },
+    params: {
+      actor: RS,
+      method: { ...RS, options: METHODS, choose: "Choose a method…" },
+      url: RS,
+      headers: { type: "dict" },
+      body: { type: "any" },
+    },
   },
   "machine.command": {
     label: "Run a command on a machine",
     params: { actor: RS, command: RS, args: { type: "dict" } },
   },
+  "email.send": {
+    label: "Send an email",
+    params: { actor: RS, to: { type: "list", required: true }, subject: RS, html: S, text: S },
+  },
+  "search.web": {
+    label: "Search the web",
+    params: {
+      actor: RS,
+      query: RS,
+      count: I,
+      freshness: { ...S, options: FRESHNESS, choose: "Any time" },
+      country: S,
+      lang: S,
+    },
+  },
+  "llm.complete": {
+    label: "Summarise with a language model",
+    params: { actor: RS, content: { type: "any", required: true }, max_tokens: I, temperature: { type: "number" } },
+  },
+  "library.push": {
+    label: "Send a book to the e-reader library",
+    params: { actor: RS, content_base64: RS, title: RS, author: S, device_id: S },
+  },
 };
+
+/** Params shown as a textarea: long text. */
+const MULTILINE = new Set(["body", "text", "html", "content"]);
 
 /** Legacy names the backend accepts as aliases of a catalogued kind. */
 const ALIASES: Record<string, string> = { "mesh.message": "message" };
@@ -75,7 +126,6 @@ const canonical = (kind: string) => ALIASES[kind] ?? kind;
 
 const REFERENCE = /^(trigger|workflow|vars|rule)\.[A-Za-z0-9_.]+$/;
 const CUSTOM = "__custom__";
-const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"];
 
 /** Common `trigger.data.<field>` names per trigger type prefix; anything else uses a custom path. */
 const TRIGGER_FIELDS: { prefix: string; fields: string[] }[] = [
@@ -105,14 +155,18 @@ function refOf(value: unknown): string | null {
   return null;
 }
 
-const isEmpty = (v: unknown) => v === undefined || v === null || (typeof v === "string" && v.trim() === "");
+const isEmpty = (v: unknown) =>
+  v === undefined || v === null || (typeof v === "string" && v.trim() === "") || (Array.isArray(v) && v.length === 0);
 const isDynamic = (v: unknown) => refOf(v) !== null || (typeof v === "string" && v.includes("{{"));
 
-function typeOk(type: ParamType, value: unknown): boolean {
+function typeOk({ type, options }: ParamSpec, value: unknown): boolean {
   if (isDynamic(value) || type === "any") return true;
+  if (options) return options.some((o) => o.value === value);
   if (type === "int") return typeof value === "number" && Number.isInteger(value);
+  if (type === "number") return typeof value === "number" && Number.isFinite(value);
   if (type === "str") return typeof value === "string";
   if (type === "bool") return typeof value === "boolean";
+  if (type === "list") return Array.isArray(value);
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -137,7 +191,7 @@ export function actionProblem(stored: Action): "no_actor_port" | "empty" | "inva
     if (name !== "actor" && p.required && isEmpty(params[name])) return "empty";
   }
   for (const [name, p] of Object.entries(spec.params)) {
-    if (!isEmpty(params[name]) && !typeOk(p.type, params[name])) return "invalid_value";
+    if (!isEmpty(params[name]) && !typeOk(p, params[name])) return "invalid_value";
   }
   return null;
 }
@@ -147,14 +201,28 @@ const declares = (a: Actor, kind: string) =>
   a.kind === "app" && enabled(a) && (a.params?.actions ?? []).includes(kind);
 const allowsHttp = (a: Actor) => enabled(a) && ((a.params?.http as HttpPolicy | undefined)?.allow ?? []).length > 0;
 const commandsOf = (a?: Actor) => (a?.params as RunnerActorParams | undefined)?.commands ?? {};
+const onSurface = (a: Actor, surface: string) => a.kind === "app" && enabled(a) && a.params?.surface === surface;
+const hasBaseUrl = (a: Actor) => enabled(a) && typeof a.params?.base_url === "string" && a.params.base_url !== "";
 
-/** Enabled actors able to perform `kind`: app actors by declared actions, runners by command. */
+/**
+ * Enabled actors able to perform `kind`: app actors by declared actions (email and search by
+ * surface), runners by command, an OpenAI-compatible agent (one with a `base_url`) for
+ * llm.complete and any other actor with a `base_url` (the library service) for library.push.
+ */
 export function actorsFor(kind: string, actors: Actor[]): Actor[] {
   switch (canonical(kind)) {
     case "machine.command":
       return actors.filter((a) => a.kind === "runner" && enabled(a));
     case "http.call":
       return actors.filter((a) => declares(a, "http.call") || allowsHttp(a));
+    case "email.send":
+      return actors.filter((a) => onSurface(a, "email"));
+    case "search.web":
+      return actors.filter((a) => onSurface(a, "search"));
+    case "llm.complete":
+      return actors.filter((a) => a.kind === "agent" && hasBaseUrl(a));
+    case "library.push":
+      return actors.filter((a) => a.kind !== "agent" && a.kind !== "app" && hasBaseUrl(a));
     case "noop":
       return [];
     default:
@@ -286,6 +354,40 @@ function PathEditor({
   );
 }
 
+const INTEGER = /^-?\d+$/;
+const DECIMAL = /^-?\d+(\.\d+)?$/;
+
+/** A typed literal from the text in a field: numbers once they parse, else the text as is. */
+function literalOf(type: ParamType, text: string): unknown {
+  if (text === "") return undefined;
+  if (type === "int" && INTEGER.test(text)) return Number(text);
+  if (type === "number" && DECIMAL.test(text)) return Number(text);
+  return text;
+}
+
+const splitList = (text: string) =>
+  text
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+/** A list param (email.send `to`) as comma-separated text; saved as an array of the entries. */
+function ListInput({ id, value, onChange }: Readonly<{ id: string; value: unknown; onChange: (v: unknown) => void }>) {
+  const [text, setText] = useState(() => (Array.isArray(value) ? value.join(", ") : ""));
+  return (
+    <input
+      aria-labelledby={`${id}-name`}
+      aria-describedby={`${id}-list-hint`}
+      value={text}
+      onChange={(e) => {
+        setText(e.target.value);
+        const items = splitList(e.target.value);
+        onChange(items.length ? items : undefined);
+      }}
+    />
+  );
+}
+
 /** The fixed-value input for a param: read-only for a stored object, a textarea for long text. */
 function LiteralInput({
   id,
@@ -297,12 +399,12 @@ function LiteralInput({
   onChange,
 }: Readonly<FieldProps & { id: string }>) {
   const text = typeof value === "string" || typeof value === "number" ? String(value) : "";
-  const literal = (v: string): unknown => {
-    if (v === "") return undefined;
-    return type === "int" && /^-?\d+$/.test(v) ? Number(v) : v;
-  };
+  const literal = (v: string) => literalOf(type, v);
+  const numeric = type === "int" || type === "number";
   let control;
-  if (value !== undefined && value !== null && typeof value === "object") {
+  if (type === "list") {
+    control = <ListInput id={id} value={value} onChange={onChange} />;
+  } else if (value !== undefined && value !== null && typeof value === "object") {
     control = <input aria-labelledby={`${id}-name`} value={JSON.stringify(value)} readOnly />;
   } else if (multiline) {
     control = <textarea aria-labelledby={`${id}-name`} value={text} onChange={(e) => onChange(literal(e.target.value))} />;
@@ -311,7 +413,7 @@ function LiteralInput({
       <input
         aria-labelledby={`${id}-name`}
         value={text}
-        inputMode={type === "int" ? "numeric" : undefined}
+        inputMode={numeric ? "decimal" : undefined}
         onChange={(e) => onChange(literal(e.target.value))}
       />
     );
@@ -328,6 +430,11 @@ function LiteralInput({
         ) : null}
       </span>
       {control}
+      {type === "list" ? (
+        <span id={`${id}-list-hint`} className="trigger-picker__hint">
+          Separate with commas.
+        </span>
+      ) : null}
     </label>
   );
 }
@@ -600,7 +707,35 @@ function ParamFields(props: Readonly<ParamFieldsProps>) {
   );
 }
 
-/** A single param's field: the command / args / method selects, the headers rows, or a value. */
+interface ChoiceFieldProps {
+  id: string;
+  name: string;
+  p: ParamSpec;
+  value: unknown;
+  onPick: (value: string | undefined) => void;
+}
+
+/** A param with a closed set of values (http.call `method`, search.web `freshness`) as a select. */
+function ChoiceField({ id, name, p, value, onPick }: Readonly<ChoiceFieldProps>) {
+  const current = typeof value === "string" ? value : "";
+  const options = p.options ?? [];
+  return (
+    <label>
+      <span id={id}>{cap(name)}</span>
+      <select aria-labelledby={id} value={current} onChange={(e) => onPick(e.target.value || undefined)}>
+        <option value="">{p.choose ?? "Choose…"}</option>
+        {current && !options.some((o) => o.value === current) ? <option value={current}>{current}</option> : null}
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+/** A single param's field: the command / args / choice selects, the headers rows, or a value. */
 function ParamField({
   id,
   name,
@@ -652,24 +787,8 @@ function ParamField({
       />
     ));
   }
-  if (name === "method") {
-    return (
-      <label key={name}>
-        <span id={`${id}-method`}>Method</span>
-        <select
-          aria-labelledby={`${id}-method`}
-          value={typeof params.method === "string" ? params.method : ""}
-          onChange={(e) => setParam("method", e.target.value || undefined)}
-        >
-          <option value="">Choose a method…</option>
-          {METHODS.map((m) => (
-            <option key={m} value={m}>
-              {m}
-            </option>
-          ))}
-        </select>
-      </label>
-    );
+  if (p.options) {
+    return <ChoiceField id={`${id}-${name}`} name={name} p={p} value={params[name]} onPick={(v) => setParam(name, v)} />;
   }
   if (p.type === "bool") {
     return (
@@ -694,7 +813,7 @@ function ParamField({
       testKey={name}
       refs={refs}
       required={p.required}
-      multiline={name === "body" || name === "text"}
+      multiline={MULTILINE.has(name)}
       value={params[name]}
       onChange={(v) => setParam(name, v)}
     />
