@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.11] - 2026-10-10
+
+### Fixed
+
+- PR fixer conflict watch (d39, #44, operator-approved): a conflict is requested until a rule hears it, not just emitted once. A head/base pair none of whose `github.pr.conflicting` events has a firing or a recorded decision from any rule on that type, and whose last event the deciding trigger consumer has evaluated (its fire marker; a pending event is never sent twice), is emitted again at a later sweep as a new generation (the event id hashed with the generation; generation 0 keeps the d31 id), at least one `conflict_watch_interval_s` after the last, only while such a rule is enabled and the engine is not paused, and at most 3 events per pair. A conflict seen while `pr-fixer-conflict` was off (between an import and the re-enable: katvan#57 in the 0.18.6 rollout) or the engine paused is no longer lost. The check reads the store only; the per-cycle GitHub request budget is unchanged
+- devague: deviation d39 (operator-approved)
+
 ## [0.18.10] - 2026-10-10
 
 ### Changed
