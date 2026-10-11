@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.1] - 2026-10-11
+
+### Added
+
+- Machine `install.ssh_target` (#57): `rollout upgrade`'s ssh and scp target on an `install_sh` host, ahead of the record's `address` (then its name). Set it to the host's `~/.ssh/config` alias when `address` is a tailnet IP: ssh matches `Host` entries by the name it is given, so the IP missed the alias's `User` and known host (`Host key verification failed` on orin and spark2, publickey denied on thor in the 0.18.13 rollout). `[user@]host` (letters, digits, `.`, `_`, `-`; never starting with `-`) so ssh and scp read it alike, admin-only like the rest of `install`; `upgrade` checks a fallback `address` the same way
+
+### Fixed
+
+- `rollout upgrade` on the shared-venv host (#57) also accepts the host whose `culture-rules-node.service` runs `node run --host <name>` (its `ExecStart`, read over D-Bus with `busctl` like the venv), so spark, whose OS hostname is `spark-f8a9`, can be upgraded through the CLI. The unit's arguments go through the CLI's own parser, so the host is the one the node actually runs as (the last `--host`, abbreviations included), and an argv the CLI refuses or exits early on (`-h`, a stray `--`, a missing value, an unknown option) names no host. The unit is read only with `--apply`, after the admin-only start is recorded, and a refusal is recorded as the step's failure naming the host the node unit runs as
+- `docs/rules/pr-fixer/release.json` is 0.19.1, with no new rules or variables (0.18.13's are live)
+
 ## [0.19.0] - 2026-10-11
 
 ### Added
