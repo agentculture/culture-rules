@@ -187,6 +187,7 @@ import re
 import shlex
 import shutil
 import signal
+import struct
 import subprocess  # nosec B404 - argv lists only, shell=False
 import tempfile
 import time
@@ -1510,8 +1511,8 @@ def _typed(value: Any) -> Any:
         return ("table", tuple(sorted((k, _typed(v)) for k, v in value.items())))
     if isinstance(value, list):
         return ("array", tuple(_typed(v) for v in value))
-    if isinstance(value, float):  # the exact bits: -0.0 is not 0.0 (Codex r3)
-        return ("float", value.hex())
+    if isinstance(value, float):  # the exact IEEE 754 bits: -0.0, -nan (Codex r3, r4)
+        return ("float", struct.pack(">d", value))
     if isinstance(value, (datetime, date, clock_time)):  # the written offset, not the instant (r3)
         return (type(value).__name__, value.isoformat())
     return (type(value).__name__, value)
