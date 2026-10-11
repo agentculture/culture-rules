@@ -628,3 +628,27 @@ def test_an_upload_that_uses_up_the_deadline_fails_retryably():
 def test_an_upload_that_uses_up_the_deadline_names_the_deadline():
     result, _ = _slow_push(300)
     assert result.error.startswith("deadline_passed")
+
+
+# ------------------------------------------------------------------ a bounded replay ledger
+
+
+def _pushes(monkeypatch, keys):
+    monkeypatch.setattr(library_mod, "LEDGER_SIZE", 2)
+    transport = FakeTransport(*[r for _ in range(len(keys) + 1) for r in (UPLOAD_OK, QUEUE_OK)])
+    port, _ = _port(_store(), transport)
+    for key in keys:
+        _invoke(port, key=key)
+    return port, transport
+
+
+def test_the_push_ledger_evicts_its_oldest_push(monkeypatch):
+    port, transport = _pushes(monkeypatch, ["k1", "k2", "k3"])
+    _invoke(port, key="k1")
+    assert len(transport.calls) == 8  # k1 pushed again: two more calls
+
+
+def test_the_push_ledger_still_replays_a_recent_push(monkeypatch):
+    port, transport = _pushes(monkeypatch, ["k1", "k2", "k3"])
+    _invoke(port, key="k3")
+    assert len(transport.calls) == 6

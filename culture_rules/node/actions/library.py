@@ -44,7 +44,7 @@ with the same bytes, and xteink makes both idempotent - the upload deduplicates 
 queued returns the existing entry. The one repeat that is not a no-op: if the device has
 already synced the item between the lost acknowledgement and the retry, xteink queues it
 again and the device downloads the same book once more - benign for a reader. A completed
-result is also replayed in-process for the same key.
+result is also replayed in-process for the same key (the last :data:`LEDGER_SIZE` ones).
 
 Each call's timeout is what remains of the attempt deadline when it starts (capped at
 :data:`MAX_TIMEOUT`): the queue call recomputes it after the upload, so a slow upload cannot
@@ -71,6 +71,7 @@ from urllib.parse import quote, urlsplit
 
 from culture_rules.actors.secrets import SecretError, is_secret_ref, resolve
 from culture_rules.engine.actorport import COMPLETED, InvocationContext, InvocationResult
+from culture_rules.node.actions._ledger import DEFAULT_LEDGER_SIZE, ReplayLedger
 from culture_rules.node.actions.http import RedirectRefused
 from culture_rules.node.actions.machine import load_bound_actor
 
@@ -88,6 +89,8 @@ MAX_BYTES = 50 * 1024 * 1024
 """xteink's upload limit; larger content is refused before any request."""
 MAX_TIMEOUT = 120.0
 MAX_REPLY = 1024 * 1024
+LEDGER_SIZE = DEFAULT_LEDGER_SIZE
+"""How many completed pushes the port keeps for replay (the last ones)."""
 DEFAULT_AUTHOR = "culture-rules"
 KIND = "article"
 EPUB_TYPE = "application/epub+zip"
@@ -320,7 +323,7 @@ class LibraryPushPort:
         self._transport = transport or urllib_transport
         self._secret_runner = secret_runner
         self._clock = clock or (lambda: datetime.now(UTC))
-        self._ledger: dict[str, InvocationResult] = {}
+        self._ledger = ReplayLedger(LEDGER_SIZE)
 
     def invoke(
         self,
@@ -330,8 +333,9 @@ class LibraryPushPort:
         *,
         context: InvocationContext,
     ) -> InvocationResult:
-        if idempotency_key in self._ledger:
-            return self._ledger[idempotency_key]
+        replayed = self._ledger.get(idempotency_key)
+        if replayed is not None:
+            return replayed
         actor, _doc, failure = load_bound_actor(self._store, input, context)
         if failure is not None or actor is None:
             return failure or InvocationResult.failed("actor_not_found", retryable=False)
@@ -346,7 +350,7 @@ class LibraryPushPort:
         except _Refused as exc:
             return exc.result()
         if result.outcome == COMPLETED:
-            self._ledger[idempotency_key] = result
+            self._ledger.put(idempotency_key, result)
         return result
 
     def _remaining(self, deadline: datetime, when: str) -> float:

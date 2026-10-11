@@ -693,3 +693,42 @@ def test_a_well_formed_grant_reference_is_accepted():
 
     assert check_llm_actor(Actor.from_dict(_actor(api_key=LLM_GRANT))) is None
 
+
+def _fill_ledger(monkeypatch, keys):
+    from culture_rules.node.actions import llm as llm_mod
+
+    monkeypatch.setattr(llm_mod, "LEDGER_SIZE", 2)
+    port, transport = _port()
+    for key in keys:
+        _invoke(port, key=key)
+    return port, transport
+
+
+def test_the_replay_ledger_evicts_its_oldest_completion(monkeypatch):
+    port, _ = _fill_ledger(monkeypatch, ["k1", "k2", "k3"])
+    assert port.replay("k1") is None
+
+
+def test_the_replay_ledger_keeps_its_newest_completions(monkeypatch):
+    port, _ = _fill_ledger(monkeypatch, ["k1", "k2", "k3"])
+    assert [port.replay(k) is not None for k in ("k2", "k3")] == [True, True]
+
+
+def test_a_replayed_completion_is_kept_as_recent(monkeypatch):
+    port, _ = _fill_ledger(monkeypatch, ["k1", "k2"])
+    port.replay("k1")
+    _invoke(port, key="k3")
+    assert (port.replay("k1") is not None, port.replay("k2")) == (True, None)
+
+
+def test_an_evicted_completion_is_asked_of_the_server_again(monkeypatch):
+    port, transport = _fill_ledger(monkeypatch, ["k1", "k2", "k3"])
+    _invoke(port, key="k1")
+    assert len(transport.calls) == 4
+
+
+def test_a_ledger_needs_room_for_one_result():
+    from culture_rules.node.actions._ledger import ReplayLedger
+
+    with pytest.raises(ValueError):
+        ReplayLedger(0)

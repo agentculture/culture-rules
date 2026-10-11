@@ -306,3 +306,13 @@ that was already sent and retries the push. Its slot is in the past, so its
 summary window has closed and it sends the results only. A re-run more than
 23 hours after an unacknowledged email sends no email and reports
 `email_uncertain: true` (see the email delivery guarantees above).
+
+## Known limits
+
+- **The summary replay ledger is per process.** `llm.complete` replays a
+  completed summary for the same step from memory (its last 1024
+  completions), so a summary whose acknowledgement was lost is not asked
+  again. The memory does not survive a node restart. A summary that
+  completed just before spark's node restarted, and is re-asked after its
+  `not_after`, fails `llm_deadline`: that section goes out with its results
+  only. It is a missed summary, never a wrong send.
