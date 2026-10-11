@@ -194,6 +194,26 @@ def test_each_shipped_workflow_is_trusted_in_its_role_only():
         assert all(digest not in TRUSTED_WORKFLOWS[r] for r in others)
 
 
+QWEN_WHEN = {
+    "args": [
+        {"arg": {"arg": {"field": "fixer"}, "op": "exists"}, "op": "not"},
+        {"items": {"literal": ["", "qwen-fixer"]}, "op": "in", "value": {"field": "fixer"}},
+    ],
+    "op": "or",
+}
+FIXER_PATHS = {
+    "claude-fixer": ("agent_claude", "handoff_export_claude", "handoff_import_claude"),
+    "codex-fixer": ("agent_codex", "handoff_export", "handoff_import"),
+}
+"""#56: the fixers on spark - agent step, hand-off export, hand-off import into spark2."""
+EXPORT_ACCOUNTS = {"claude-fixer": "culture-claude-fixer", "codex-fixer": "culture-codex-fixer"}
+"""#56: the account each fixer's export runs as (its step's run_as)."""
+
+
+def _fixer_is(fixer: str) -> dict:
+    return {"cmp": "==", "left": {"field": "fixer"}, "op": "compare", "right": {"literal": fixer}}
+
+
 def test_pr_fix_builds_and_gates_and_never_reviews_or_pushes():
     wf = workflow_docs()["pr-fix"]
     top = {s["id"]: s for s in wf["steps"]}
@@ -202,34 +222,46 @@ def test_pr_fix_builds_and_gates_and_never_reviews_or_pushes():
     assert top["sonar"]["config"] == {"builtin": "sonar.gate_issues"}
     fix = top["fix"]
     body = {b["id"]: b for b in fix["body"]}
-    assert list(body) == [  # #39: one agent step per level, the hand-off, select, one gate
+    assert list(body) == [  # #39, #56: one agent step per level, its hand-off, select, one gate
         "agent_qwen",
+        "agent_claude",
+        "handoff_export_claude",
+        "handoff_import_claude",
         "agent_codex",
         "handoff_export",
         "handoff_import",
         "select",
         "gate",
     ]
-    qwen, codex = body["agent_qwen"], body["agent_codex"]
+    qwen = body["agent_qwen"]
     assert {k: v for k, v in qwen["config"].items() if k != "when"} == {
         "mode": "yolo",
         "require_commit": True,
     }
     assert qwen["placement"]["actor"] == "qwen-fixer"
-    assert {k: v for k, v in codex["config"].items() if k != "when"} == {
-        "require_commit": True,
-        "sandbox": "workspace-write",
-    }
-    assert codex["placement"]["actor"] == "codex-fixer"
-    for sid in ("agent_codex", "handoff_export", "handoff_import"):
-        assert body[sid]["config"]["when"] == {
-            "cmp": "==",
-            "left": {"field": "fixer"},
-            "op": "compare",
-            "right": {"literal": "codex-fixer"},
+    assert qwen["config"]["when"] == QWEN_WHEN  # no fixer given: the qwen path still runs
+    for fixer, (agent, export, imp) in FIXER_PATHS.items():
+        when = _fixer_is(fixer)
+        assert body[agent]["config"] == {
+            "require_commit": True,
+            "sandbox": "workspace-write",
+            "when": when,
         }
-    assert body["handoff_export"]["placement"]["machine"] == "spark"
-    assert body["handoff_import"]["placement"]["machine"] == "spark2"
+        assert body[agent]["placement"]["actor"] == fixer
+        assert body[export]["config"] == {
+            "builtin": "handoff.export",
+            "run_as": EXPORT_ACCOUNTS[fixer],
+            "when": when,
+        }
+        assert body[export]["placement"]["machine"] == "spark"
+        # the import runs as the gate account (CULTURE_RULES_GATE_RUN_AS): no run_as
+        assert body[imp]["config"] == {"builtin": "handoff.import", "when": when}
+        assert body[imp]["placement"]["machine"] == "spark2"
+    assert body["select"]["config"]["sources"] == {
+        "claude": "claude-fixer",
+        "codex": "codex-fixer",
+        "qwen": "qwen-fixer",
+    }
     assert body["select"]["config"]["builtin"] == "select"
     gate = body["gate"]
     assert gate["config"] == {"builtin": "gate"}

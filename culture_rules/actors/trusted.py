@@ -71,12 +71,17 @@ TRUSTED_WORKFLOWS: dict[str, frozenset[str]] = {
     # gate_instruction) - drop the first in a later release; the third is #39's (one agent
     # step per fixer level - agent_qwen, or agent_codex and the Codex hand-off - then select
     # feeding the single gate; inputs fixer, reviewer, attempt, level; outputs implementer
-    # and reviewer). The d30 one stays trusted while runs pinned to it may still push.
+    # and reviewer). The d30 one stays trusted while runs pinned to it may still push; the
+    # fourth is #56's (a Claude level: agent_claude on spark with its own hand-off,
+    # handoff_export_claude run_as culture-claude-fixer and handoff_import_claude, feeding
+    # select's claude source; the Codex export gains run_as culture-codex-fixer). #39's
+    # stays trusted while runs pinned to it may still push.
     ROLE_FIX: frozenset(
         {
             "sha256:04570dee963d1fbf6ae55680d1ecc16c702463c858663d4fc61b557d3243b6a8",
             "sha256:307e82fc96eba7a36be1781b2f550728fbf232d37d776ed878071ae7f74ae032",
             "sha256:721e25bea3163437e4d6808eb2e817057e4f9900d2f7123ee0a00f1880136005",
+            "sha256:2255b0820f32a355eff9b20e4ab9dea506660d12b54e29130a248b8cf58a708c",
         }
     ),
     # docs/rules/pr-fixer/workflows/review-commit.json: the first is d21's (one review step on

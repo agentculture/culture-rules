@@ -1,5 +1,5 @@
 {
-  "description": "d21, d30: quiet period -> GitGuardian hold (d25: no fix while it fails on the head) -> trusted review threads and the failing SonarCloud conditions -> one try: the fixer of its level -> test gate. #39: the try's fixer (the dispatch's level; none: qwen-fixer) picks the agent step: agent_qwen on spark2, or agent_codex on spark whose commits the hand-off carries to spark2; select hands the one that ran to the single gate. Builds and gates one commit; never reviews or pushes it. pr-fixer-review-commit fires on its success with a passing gate and has it reviewed; a gate that does not pass ends the run with its verdict and instruction (gate_instruction), and pr-fixer-retry puts the PR back in the queue (#35).",
+  "description": "d21, d30: quiet period -> GitGuardian hold (d25: no fix while it fails on the head) -> trusted review threads and the failing SonarCloud conditions -> one try: the fixer of its level -> test gate. #39, #56: the try's fixer (the dispatch's level; none: qwen-fixer) picks the agent step: agent_claude (level 1) or agent_codex (level 3) on spark, each with its own hand-off carrying its commits to spark2, or agent_qwen (level 2) on spark2; select hands the one that ran to the single gate. Builds and gates one commit; never reviews or pushes it. pr-fixer-review-commit fires on its success with a passing gate and has it reviewed; a gate that does not pass ends the run with its verdict and instruction (gate_instruction), and pr-fixer-retry puts the PR back in the queue (#35).",
   "edges": [
     {
       "source": "quiet",
@@ -158,6 +158,42 @@
       "target_port": "head_after"
     },
     {
+      "source": "agent_claude",
+      "source_port": "worktree",
+      "target": "handoff_export_claude",
+      "target_port": "worktree"
+    },
+    {
+      "source": "agent_claude",
+      "source_port": "head_before",
+      "target": "handoff_export_claude",
+      "target_port": "start_sha"
+    },
+    {
+      "source": "agent_claude",
+      "source_port": "head_after",
+      "target": "handoff_export_claude",
+      "target_port": "head_after"
+    },
+    {
+      "source": "handoff_export_claude",
+      "source_port": "handoff_id",
+      "target": "handoff_import_claude",
+      "target_port": "handoff_id"
+    },
+    {
+      "source": "agent_claude",
+      "source_port": "head_before",
+      "target": "handoff_import_claude",
+      "target_port": "start_sha"
+    },
+    {
+      "source": "agent_claude",
+      "source_port": "head_after",
+      "target": "handoff_import_claude",
+      "target_port": "head_after"
+    },
+    {
       "source": "agent_qwen",
       "source_port": "worktree",
       "target": "select",
@@ -216,6 +252,36 @@
       "source_port": "threads_addressed",
       "target": "select",
       "target_port": "codex_threads_addressed"
+    },
+    {
+      "source": "handoff_import_claude",
+      "source_port": "worktree",
+      "target": "select",
+      "target_port": "claude_worktree"
+    },
+    {
+      "source": "handoff_import_claude",
+      "source_port": "start_sha",
+      "target": "select",
+      "target_port": "claude_start_sha"
+    },
+    {
+      "source": "handoff_import_claude",
+      "source_port": "commit_sha",
+      "target": "select",
+      "target_port": "claude_commit_sha"
+    },
+    {
+      "source": "agent_claude",
+      "source_port": "summary",
+      "target": "select",
+      "target_port": "claude_summary"
+    },
+    {
+      "source": "agent_claude",
+      "source_port": "threads_addressed",
+      "target": "select",
+      "target_port": "claude_threads_addressed"
     },
     {
       "source": "select",
@@ -663,7 +729,7 @@
               "op": "or"
             }
           },
-          "description": "Level 1 (#39: when the try's fixer is qwen-fixer, or none is given). The cultureagent bridge checks out head_sha in a fresh worktree on spark2 and runs the agent with the instruction and the bound inputs: the trusted, unresolved threads and the issues behind the PR's failing SonarCloud conditions. The agent commits locally and never pushes. require_commit: a turn that leaves no commit fails the step at once (no_changes), so the attempt ends before any gate or review and hands back once.",
+          "description": "Level 2 (#56; #39: when the try's fixer is qwen-fixer, or none is given: without fixer_levels every try is Qwen's). The cultureagent bridge checks out head_sha in a fresh worktree on spark2 and runs the agent with the instruction and the bound inputs: the trusted, unresolved threads and the issues behind the PR's failing SonarCloud conditions. The agent commits locally and never pushes. require_commit: a turn that leaves no commit fails the step at once (no_changes), so the attempt ends before any gate or review and hands back once.",
           "enabled": true,
           "id": "agent_qwen",
           "inputs": [
@@ -783,11 +849,310 @@
               },
               "op": "compare",
               "right": {
+                "literal": "claude-fixer"
+              }
+            }
+          },
+          "description": "Level 1 (#56: when the try's fixer is claude-fixer). The cultureagent claude bridge on spark, as its own unprivileged account (culture-claude-fixer, its own claude login), checks out head_sha in a fresh worktree and runs Claude Code with the instruction and the same bound inputs; it commits locally and never pushes. require_commit as for agent_qwen. Its commits reach spark2's gate only through its own hand-off (handoff_export_claude, handoff_import_claude), so select labels them claude-fixer.",
+          "enabled": true,
+          "id": "agent_claude",
+          "inputs": [
+            {
+              "description": "",
+              "name": "instruction",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "clone URL (the bridge's allowlist checks it)",
+              "name": "repo",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "head_branch",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "head_sha",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "the trusted, unresolved review threads",
+              "name": "threads",
+              "required": true,
+              "type": "array"
+            },
+            {
+              "description": "the issues behind the failing SonarCloud conditions",
+              "name": "sonar_issues",
+              "required": false,
+              "type": "array"
+            },
+            {
+              "description": "what the SonarCloud gate needs, in one paragraph",
+              "name": "sonar_note",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "description": "the fixer actor of this try (none: qwen-fixer)",
+              "name": "fixer",
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "kind": "ai",
+          "max_iterations": null,
+          "name": "Fix the PR (Claude bridge agent)",
+          "outputs": [
+            {
+              "description": "",
+              "name": "head_before",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "head_after",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "worktree",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "threads_addressed",
+              "required": true,
+              "type": "array"
+            },
+            {
+              "description": "",
+              "name": "summary",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "status",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "description": "the bridge's backend (implementer)",
+              "name": "backend",
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "placement": {
+            "actor": "claude-fixer",
+            "machine": null,
+            "requirement": null
+          },
+          "retry": null,
+          "timeout_s": 3900.0
+        },
+        {
+          "body": [],
+          "config": {
+            "builtin": "handoff.export",
+            "run_as": "culture-claude-fixer",
+            "when": {
+              "cmp": "==",
+              "left": {
+                "field": "fixer"
+              },
+              "op": "compare",
+              "right": {
+                "literal": "claude-fixer"
+              }
+            }
+          },
+          "description": "#56: packs the Claude fixer's commits (head_before..head_after) out of its worktree on spark, as its account (run_as culture-claude-fixer), into one size-capped store document (handoff_too_large over the cap: the try fails).",
+          "enabled": true,
+          "id": "handoff_export_claude",
+          "inputs": [
+            {
+              "description": "the fixer actor of this try (none: qwen-fixer)",
+              "name": "fixer",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "worktree",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "start_sha",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "head_after",
+              "required": true,
+              "type": "string"
+            }
+          ],
+          "kind": "code",
+          "max_iterations": null,
+          "name": "Hand-off: export the Claude commits",
+          "outputs": [
+            {
+              "description": "",
+              "name": "handoff_id",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "size",
+              "required": false,
+              "type": "integer"
+            },
+            {
+              "description": "",
+              "name": "sha256",
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "placement": {
+            "actor": null,
+            "machine": "spark",
+            "requirement": null
+          },
+          "retry": null,
+          "timeout_s": 600.0
+        },
+        {
+          "body": [],
+          "config": {
+            "builtin": "handoff.import",
+            "when": {
+              "cmp": "==",
+              "left": {
+                "field": "fixer"
+              },
+              "op": "compare",
+              "right": {
+                "literal": "claude-fixer"
+              }
+            }
+          },
+          "description": "#56: as handoff_import, as the gate's account: rebuilds a fixer-owned worktree on spark2 from that pack (the trusted clone_url and base fetched by SHA, the pack verified with index-pack --strict) whose HEAD is exactly the Claude fixer's commit; any refusal leaves no worktree.",
+          "enabled": true,
+          "id": "handoff_import_claude",
+          "inputs": [
+            {
+              "description": "the fixer actor of this try (none: qwen-fixer)",
+              "name": "fixer",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "handoff_id",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "start_sha",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "head_after",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "the run's trusted clone URL (GitHub https)",
+              "name": "clone_url",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "base_sha",
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "kind": "code",
+          "max_iterations": null,
+          "name": "Hand-off: import the Claude commits into spark2",
+          "outputs": [
+            {
+              "description": "",
+              "name": "worktree",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "start_sha",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "commit_sha",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "head_before",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "head_after",
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "placement": {
+            "actor": null,
+            "machine": "spark2",
+            "requirement": null
+          },
+          "retry": null,
+          "timeout_s": 900.0
+        },
+        {
+          "body": [],
+          "config": {
+            "require_commit": true,
+            "sandbox": "workspace-write",
+            "when": {
+              "cmp": "==",
+              "left": {
+                "field": "fixer"
+              },
+              "op": "compare",
+              "right": {
                 "literal": "codex-fixer"
               }
             }
           },
-          "description": "Level 2 (#39: when the try's fixer is codex-fixer). The cultureagent Codex bridge on spark, as its own unprivileged account, checks out head_sha in a fresh worktree and runs Codex with the instruction and the same bound inputs; it commits locally and never pushes. require_commit as for agent_qwen. Its commits reach spark2's gate only through the hand-off.",
+          "description": "Level 3 (#56; #39: when the try's fixer is codex-fixer). The cultureagent Codex bridge on spark, as its own unprivileged account (culture-codex-fixer), checks out head_sha in a fresh worktree and runs Codex with the instruction and the same bound inputs; it commits locally and never pushes. require_commit as for agent_qwen. Its commits reach spark2's gate only through its hand-off (handoff_export, handoff_import).",
           "enabled": true,
           "id": "agent_codex",
           "inputs": [
@@ -899,6 +1264,7 @@
           "body": [],
           "config": {
             "builtin": "handoff.export",
+            "run_as": "culture-codex-fixer",
             "when": {
               "cmp": "==",
               "left": {
@@ -910,7 +1276,7 @@
               }
             }
           },
-          "description": "#39: packs the Codex fixer's commits (head_before..head_after) out of its worktree on spark, as the fixer account, into one size-capped store document (handoff_too_large over the cap: the try fails).",
+          "description": "#39: packs the Codex fixer's commits (head_before..head_after) out of its worktree on spark, as its account (#56: run_as culture-codex-fixer), into one size-capped store document (handoff_too_large over the cap: the try fails).",
           "enabled": true,
           "id": "handoff_export",
           "inputs": [
@@ -1083,11 +1449,12 @@
               "commit_sha"
             ],
             "sources": {
+              "claude": "claude-fixer",
               "codex": "codex-fixer",
               "qwen": "qwen-fixer"
             }
           },
-          "description": "#39: the gate's one source: the worktree, start and commit of the agent path that ran (agent_qwen, or agent_codex through the hand-off) and which fixer that was; none or both fails closed.",
+          "description": "#39: the gate's one source: the worktree, start and commit of the agent path that ran (agent_qwen, or agent_claude or agent_codex through its own hand-off) and which fixer that was; none or more than one fails closed.",
           "enabled": true,
           "id": "select",
           "inputs": [
@@ -1118,6 +1485,36 @@
             {
               "description": "",
               "name": "qwen_threads_addressed",
+              "required": false,
+              "type": "array"
+            },
+            {
+              "description": "",
+              "name": "claude_worktree",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "claude_start_sha",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "claude_commit_sha",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "claude_summary",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "claude_threads_addressed",
               "required": false,
               "type": "array"
             },
@@ -1324,7 +1721,7 @@
           "op": "exists"
         }
       },
-      "description": "One try (d30): the agent of the try's level (#39: agent_qwen, or agent_codex and the hand-off), then the gate. The try ends when the gate has given its verdict, whatever it is; a try that does not pass waits in the queue for the next one.",
+      "description": "One try (d30): the agent of the try's level (#39, #56: agent_qwen, or agent_claude or agent_codex and its own hand-off), then the gate. The try ends when the gate has given its verdict, whatever it is; a try that does not pass waits in the queue for the next one.",
       "enabled": true,
       "id": "fix",
       "inputs": [
