@@ -25,8 +25,13 @@ content), ``max_tokens``, ``stream: false`` and, when given, ``temperature`` - n
 
 An optional ``not_after`` param (an ISO-8601 time with a UTC offset) is the latest time the
 work may start: at or past it the port fails ``llm_deadline`` (not retryable) without a
-request, and before it the request's timeout ends at it. :class:`LlmCompletePort` also
-answers :meth:`~LlmCompletePort.refuse_before_admit`, which
+request, and before it the request's timeout ends at it. Both are read on the clock *after*
+the bearer token's grant lookup, just before the request (Codex r2 #2), so a lookup that
+blocks past ``not_after`` sends nothing. A key that already completed in this process
+replays its result (:meth:`~LlmCompletePort.replay`) before any of this, also through
+:class:`~culture_rules.actors.limits.LimitedActor`, which asks it before admission: a
+completion re-asked after ``not_after`` replays, without a slot (Codex r2 #3).
+:class:`LlmCompletePort` also answers :meth:`~LlmCompletePort.refuse_before_admit`, which
 :class:`~culture_rules.actors.limits.LimitedActor` asks before it queues the work, so a
 summary waiting ``blocked`` behind a busy pool gives up at its next re-ask after
 ``not_after`` instead of waiting out the queue bound. The daily newspaper passes the
@@ -326,8 +331,9 @@ class LlmCompletePort:
         *,
         context: InvocationContext,
     ) -> InvocationResult:
-        if idempotency_key in self._ledger:
-            return self._ledger[idempotency_key]
+        replayed = self.replay(idempotency_key)
+        if replayed is not None:
+            return replayed
         refused = self.refuse_before_admit(input)
         if refused is not None:
             return refused
@@ -358,6 +364,25 @@ class LlmCompletePort:
         if when is not None and self._clock() >= when:
             raise _Refused(DEADLINE_PASSED, "not_after has passed: the work may no longer start")
         return when
+
+    def _remaining(self, input: Mapping[str, Any], deadline: datetime) -> float:
+        """Seconds left for the request, read on the clock just before it is sent: a passed
+        ``not_after`` fails ``llm_deadline``, a passed attempt deadline ``llm_unavailable``."""
+        not_after = self._not_after(input)
+        if not_after is not None:
+            deadline = min(deadline, not_after)
+        timeout = (deadline - self._clock()).total_seconds()
+        if timeout <= 0:
+            raise _Refused(UNAVAILABLE, "attempt deadline already passed", retryable=True)
+        return timeout
+
+    def replay(self, idempotency_key: str) -> InvocationResult | None:
+        """The completed result already recorded for ``idempotency_key``, else None.
+
+        :class:`~culture_rules.actors.limits.LimitedActor` asks this before
+        :meth:`refuse_before_admit`, so a completion re-asked after ``not_after`` (its
+        acknowledgement was lost) replays instead of failing ``llm_deadline`` (Codex r2 #3)."""
+        return self._ledger.get(idempotency_key)
 
     def _request(self, input: Mapping[str, Any], model: str) -> bytes:
         body: dict[str, Any] = {
@@ -400,14 +425,9 @@ class LlmCompletePort:
             raise _Refused(ACTOR_INVALID, f"{actor.id!r}: {problem}")
         model = str(actor.params.get(_MODEL) or actor.model).strip()
         data = self._request(input, model)
-        not_after = self._not_after(input)
-        if not_after is not None:
-            deadline = min(deadline, not_after)
-        timeout = (deadline - self._clock()).total_seconds()
-        if timeout <= 0:
-            raise _Refused(UNAVAILABLE, "attempt deadline already passed", retryable=True)
-        headers = self._headers(actor.params)
+        headers = self._headers(actor.params)  # may block on a grant lookup (Codex r2 #2)
         url = _completions_url(actor.params["base_url"])
+        timeout = self._remaining(input, deadline)
         try:
             status, raw = self._transport(url, data, headers, min(timeout, MAX_TIMEOUT))
         except (OSError, http.client.HTTPException) as exc:  # URLError/timeouts are OSErrors
