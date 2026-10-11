@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.0] - 2026-10-11
+
+### Added
+
+- The daily newspaper (#53): every morning at 06:30 Asia/Jerusalem a scheduled rule searches the web for the operator's sections, has Qwen (cortex) summarise each one, and delivers one dated issue by email and as an EPUB queued on the operator's Xteink reader. The operator's setup is `docs/operations/newspaper.md`; the actor guides are `docs/actors/email.md`, `search.md`, `llm.md` and `library.md`
+- App surfaces `email` and `search` (`APP_SURFACES`). An `email` actor's connection holds `api_key` (a `grant:` reference), `domain` (one of `EMAIL_DOMAINS`: `culture.dev` | `jetson-ai-lab.org`, default `culture.dev`), `local_part` (default `no-reply`) and `recipients`, the allowlist (an empty list refuses everyone). A `search` actor's connection holds `api_key`. Both connections are checked field by field on save: a literal key, another domain, or a malformed local part or recipient is refused with its path
+- Action kind `email.send` (`to`, `subject`, `html` and/or `text`): sends from `local_part@domain` through Resend. A recipient outside the actor's allowlist is refused (`recipient_not_allowed`) before the key is read, naming no secret; the engine's idempotency key goes out as Resend's `Idempotency-Key`, so a retried send sends one email. Output `{message_id}`. Attachments are not supported
+- Action kind `search.web` (`query`, `count`, `freshness`, `country`, `lang`): one Brave web search; the URL is a constant. Results come back as `{title, url, snippet, age, source}`, at most `count` (capped at 20), each field cut to a fixed length. Output `{results, query, count}`
+- Action kind `llm.complete` (`content`, `max_tokens`, `temperature`) on an `agent` actor with `params.base_url`, `params.model` and an optional `params.api_key` grant reference: one OpenAI-compatible `POST /v1/chat/completions` whose system message is the newspaper brief locked in code (`NEWSPAPER_BRIEF`) and whose body never has a `tools` field; `max_tokens` is capped at 4000. It never goes through the coding-agent bridge, and the actor's `concurrency_pool` applies. Output `{text, model, usage}`; an unreachable server, 5xx, 408 or 429 is the retryable `llm_unavailable`
+- Action kind `library.push` (`content_base64`, `title`, `author`, `device_id`) on a `service` actor with `params.base_url`, `params.api_key` (a grant reference to an `xtk_` key) and an optional `params.device_id`: uploads the EPUB to xteink (`POST /api/library`, multipart, kind `article`) and, only after a 2xx upload, queues the returned item for the device. Output `{item_id, created, queue_id}`
+- Built-ins `newspaper.sections` (parses and validates the `newspaper_sections` JSON string; a bad value fails the run naming the field, before any search), `newspaper.filter` (must and must-not terms, site lists, dedupe, cap), `newspaper.render` (the HTML email body and an EPUB with one chapter per section, a table of contents and no remote resources; a summary linking outside its section's results is withheld, and a section with no results says "No results.") and `newspaper.issue` (one issue per local date: `claim` before delivery and `record` after, in the `newspaper_issues` collection)
+- Engine: the step option `config.on_error: "skip"` (d1). A dispatched step (not a loop or wait step) that ends failed becomes `skipped`, keeps its error, and history records `failure_tolerated`; later steps run without its outputs. The newspaper's summary step uses it, so the issue goes out with "Summary unavailable." when cortex is down
+- The `docs/rules/newspaper` bundle: actors `newspaper-email` (sender `newsletter-no-reply@culture.dev`, empty allowlist), `newspaper-search`, `newspaper-llm` (model `cortex-spark2`, pool `qwen-spark2`) and `newspaper-library`; the workflow `daily-newspaper` (no bridge actor and no agent step; outputs `message_id`, `item_id` and `date`); the rule `daily-newspaper` (schedule `30 6 * * *`, tz `Asia/Jerusalem`, placed on spark, **disabled**); and the variables `newspaper_sections`, `newspaper_to` and `newspaper_device` with `seed-variables.sh`. No key, address, device id or non-loopback URL is committed
+- Editor: the Actors tab offers the `email` and `search` surfaces, with the sender domain as a drop-down of exactly `culture.dev` and `jetson-ai-lab.org`, and the action picker has parameter forms for `email.send`, `search.web`, `llm.complete` and `library.push`
+
+### Known limits
+
+- The summaries wait in the `qwen-spark2` pool, one section at a time, behind any running PR fix, so a long fix can delay the issue past 06:45; past the queue bound a section goes out without its summary
+- A run that fails after its claim holds that date's claim for an hour; a re-run for the same date within that hour sends nothing
+- The summary link check compares URLs exactly: a summary that rewrites a result's URL (a trailing slash, another scheme) is withheld, and the section shows its results instead
+
+### Changed
+
+- devague: frame, spec and plan `daily-newspaper` (operator-confirmed); deviations d1 (the `on_error` skip step option) and d2 (the builtins fitted to `for_each`, the `XTEINK_PUSH_API_KEY` grant, all four actors on spark), proposed; lapse l1 (the red step of test-first not observed for t3-t5), proposed
+
 ## [0.18.11] - 2026-10-10
 
 ### Fixed

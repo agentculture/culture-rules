@@ -71,6 +71,17 @@ plan. What exists today:
     `actors enrol-agents`, `rules migrate-typeless`, `runs backfill-ids`;
   - the editor's trigger and action pickers, Actors app and command
     editors, and the Workflows run form, step panel and in/out editors.
+- **Daily newspaper** (#53, spec `docs/specs/2026-10-11-daily-newspaper.md`,
+  setup `docs/operations/newspaper.md`, actor guides in `docs/actors/`):
+  - `email` and `search` app surfaces (sender domain `culture.dev` or
+    `jetson-ai-lab.org`, a recipient allowlist);
+  - action kinds `email.send` (Resend), `search.web` (Brave),
+    `llm.complete` (an OpenAI-compatible endpoint on an `agent` actor, with
+    a locked brief and no tools) and `library.push` (an EPUB to xteink),
+    plus the `newspaper.*` builtins;
+  - the step option `config.on_error: "skip"`, which turns a failed step
+    `skipped`;
+  - the bundle `docs/rules/newspaper` (06:30 Asia/Jerusalem, ships disabled).
 
 Approved deviations from the plan: **d1** `Rule.placement` (where a rule's
 trigger and condition evaluate), **d2** the `grant` tool replaces shushu for

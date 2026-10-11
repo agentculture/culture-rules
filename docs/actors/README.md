@@ -5,15 +5,24 @@ service, or an **app**. An app is a credentialed integration with an outside
 surface. Actors are not a stage in a rule; a rule's action names one in
 `params.actor`, and the action runs through it.
 
-This folder has one guide per **app** actor, written for a first-time setup.
-Each guide assumes you are signed in to that surface with admin rights and that
-nothing else is prepared: no secrets, no webhook, no actor.
+This folder has one guide per **app** actor, and one for each actor that
+reaches an outside service on its own (an `agent` or `service` actor with a
+`base_url`), written for a first-time setup. Each guide assumes you are signed
+in to that surface with admin rights and that nothing else is prepared: no
+secrets, no webhook, no actor.
 
 | Surface | Guide | Receives events by | Acts with |
 |---|---|---|---|
 | GitHub | [github.md](github.md) | App webhook to `POST /hooks/github` | `github.comment` |
 | Discord | [discord.md](discord.md) | Gateway listener on one engine node | `discord.message` |
 | Jira | [jira.md](jira.md) | System webhook to `POST /hooks/jira` | `jira.comment` |
+| Email (Resend) | [email.md](email.md) | nothing (send only) | `email.send` |
+| Web search (Brave) | [search.md](search.md) | nothing (read only) | `search.web` |
+| OpenAI-compatible model (`agent` actor) | [llm.md](llm.md) | nothing | `llm.complete` |
+| xteink library (`service` actor) | [library.md](library.md) | nothing | `library.push` |
+
+The last four are what the daily newspaper uses
+([docs/operations/newspaper.md](../operations/newspaper.md)).
 
 ## Before you start (all guides)
 
@@ -79,11 +88,14 @@ These rules apply in every guide.
 
 ## What every app actor has in common
 
-- **Kind and surface.** `kind: "app"` and `params.surface` is `github`, `jira`
-  or `discord`. The shape is defined in `culture_rules/model/app_actor.py`.
+- **Kind and surface.** `kind: "app"` and `params.surface` is `github`, `jira`,
+  `discord`, `email` or `search`. The shape is defined in
+  `culture_rules/model/app_actor.py`, which also checks the `email` and
+  `search` connections field by field on save.
 - **Declared events.** `params.events` is the allow-list of event types the
   actor records; anything else is ignored. `params.actions` lists what it
-  performs.
+  performs. The `email` and `search` actors receive nothing, so their
+  `events` list is empty.
 - **`machine` is the serving host.** A rule action naming the actor then runs
   there, where the secrets are injected. Only that machine's node holds a
   Discord gateway connection.
