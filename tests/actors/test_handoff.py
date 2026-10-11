@@ -478,3 +478,74 @@ def test_default_ports_register_both_handoff_builtins():
     code = default_ports(MemoryStore(), "spark")["code"]
     assert isinstance(code._builtins[EXPORT_BUILTIN], HandoffExportPort)
     assert isinstance(code._builtins[IMPORT_BUILTIN], HandoffImportPort)
+
+
+# ------------------------------------------------------------ per-step config.run_as
+
+SUDO_PREFIX = ["sudo", "-n", "-u", "culture-codex-fixer", "--"]
+
+
+class _Recorder:
+    """A fake process runner: records each argv and fails, so nothing real runs."""
+
+    def __init__(self) -> None:
+        self.argvs: list[list[str]] = []
+
+    def __call__(self, argv, **_kwargs) -> int:
+        self.argvs.append(list(argv))
+        return 1
+
+
+def _export_with(store, world, prefix, config, recorder):  # noqa: F811
+    from culture_rules.actors.gate import RunAs
+
+    port = HandoffExportPort(
+        store, run_as=RunAs(prefix, run=recorder) if prefix else None, clock=world.clock
+    )
+    ctx = InvocationContext("run-1", "fix[1]/export", "code", "spark", config=config)
+    inputs = {
+        "worktree": str(world.codex),
+        "start_sha": world.up.start,
+        "head_after": world.fix(),
+    }
+    return port.invoke(inputs, "k", DEADLINE, context=ctx)
+
+
+def test_step_run_as_replaces_the_account_in_the_prefix(store, world):  # noqa: F811
+    rec = _Recorder()
+    config = {"builtin": EXPORT_BUILTIN, "run_as": "culture-claude-fixer"}
+    _export_with(store, world, SUDO_PREFIX, config, rec)
+    assert rec.argvs[0][:5] == ["sudo", "-n", "-u", "culture-claude-fixer", "--"]
+
+
+def test_a_step_without_run_as_keeps_the_env_default(store, world):  # noqa: F811
+    rec = _Recorder()
+    _export_with(store, world, SUDO_PREFIX, {"builtin": EXPORT_BUILTIN}, rec)
+    assert rec.argvs[0][:5] == SUDO_PREFIX
+
+
+@pytest.mark.parametrize(
+    "bad", ["-u", "Root", "a b", "x;y", "a" * 33, "", "../x", 5, ["a"], "a\nb"]
+)
+def test_a_malformed_step_run_as_is_refused_before_running(store, world, bad):  # noqa: F811
+    rec = _Recorder()
+    config = {"builtin": EXPORT_BUILTIN, "run_as": bad}
+    res = _export_with(store, world, SUDO_PREFIX, config, rec)
+    assert res.error.startswith("bad_config")
+    assert rec.argvs == []
+
+
+def test_a_step_run_as_without_the_env_prefix_is_refused(store, world):  # noqa: F811
+    rec = _Recorder()
+    config = {"builtin": EXPORT_BUILTIN, "run_as": "culture-claude-fixer"}
+    res = _export_with(store, world, None, config, rec)
+    assert res.error.startswith("handoff_runner_unconfigured")
+    assert rec.argvs == []
+
+
+def test_a_step_run_as_needs_an_account_slot_in_the_prefix(store, world):  # noqa: F811
+    rec = _Recorder()
+    config = {"builtin": EXPORT_BUILTIN, "run_as": "culture-claude-fixer"}
+    res = _export_with(store, world, ["doas"], config, rec)
+    assert res.error.startswith("bad_config")
+    assert rec.argvs == []
