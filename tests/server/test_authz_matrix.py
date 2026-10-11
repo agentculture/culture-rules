@@ -337,3 +337,50 @@ def test_editor_cannot_import_runner_commands_from_a_repository(tmp_path):
     r = client.post("/import", json={"repo": "defs", "apply": True}, headers=admin)
     assert r.status_code == 200, r.text
     assert store.get("actors", "r")["params"]["commands"] == SHELL
+
+
+# --- #45 review r1: a machine's install section is host code: admin only to change ------
+
+
+def machine(install=None, **changes) -> dict:
+    body = {"name": "thor", "platform": "linux", "roles": ["engine_node"], **changes}
+    if install is not None:
+        body["install"] = install
+    return body
+
+
+THOR = {"mode": "install_sh", "node_name": "thor"}
+
+
+def _install_denied(response):
+    assert response.status_code == 403, response.text
+    assert response.json()["error"]["code"] == "install_requires_admin"
+
+
+def test_editor_cannot_create_a_machine_with_an_install_section(world):
+    store, client, hdr, _ = world
+    _install_denied(client.post("/machines", json=machine(THOR), headers=hdr["editor"]))
+    assert store.get("machines", "thor") is None
+    assert client.post("/machines", json=machine(THOR), headers=hdr["admin"]).status_code == 201
+
+
+def test_editor_cannot_change_or_remove_an_install_section(world):
+    store, client, hdr, _ = world
+    client.post("/machines", json=machine(THOR), headers=hdr["admin"])
+    evil = {**THOR, "events_host": "broker"}
+    _install_denied(client.put("/machines/thor", json=machine(evil), headers=hdr["editor"]))
+    _install_denied(client.put("/machines/thor", json=machine(), headers=hdr["editor"]))
+    assert store.get("machines", "thor")["install"].get("events_host") is None
+    assert client.put("/machines/thor", json=machine(evil), headers=hdr["admin"]).status_code == 200
+
+
+def test_editor_can_edit_other_fields_of_a_machine_with_an_unchanged_install(world):
+    store, client, hdr, _ = world
+    client.post("/machines", json=machine(THOR), headers=hdr["admin"])
+    body = machine(THOR, description="the Jetson")
+    r = client.put("/machines/thor", json=body, headers=hdr["editor"])
+    assert r.status_code == 200, r.text
+    assert store.get("machines", "thor")["description"] == "the Jetson"
+    assert client.post(
+        "/machines", json=machine(name="orin"), headers=hdr["editor"]
+    ).status_code == (201)

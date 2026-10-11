@@ -8,6 +8,8 @@ Pure reads over the store (standard-library only), recomputed on every request:
   ``null`` while the machine is offline or never beat;
 - *running* are the steps of active runs dispatched to that host and not yet finished
   (``dispatching``, ``running``, ``waiting``);
+- *engine version* is the heartbeat's ``engine_version`` (``null`` when the machine never
+  beat, its heartbeat predates the field, or it reported ``unknown``);
 - *queue depth* counts the pending steps of active runs bound to that host: placed on it by
   name (``placement.machine``), or pending a retry after running there.
 """
@@ -71,6 +73,14 @@ def _load(beat: Mapping[str, Any] | None) -> dict[str, float | None] | None:
         return None
     raw = beat.get("load") if isinstance(beat.get("load"), Mapping) else {}
     return {key: _percent(raw.get(key)) for key in ("cpu", "gpu", "mem")}
+
+
+def _engine_version(beat: Mapping[str, Any] | None) -> str | None:
+    """The engine version the heartbeat reported; ``None`` when absent or ``unknown``."""
+    version = (beat or {}).get("engine_version")
+    if not isinstance(version, str) or not version.strip() or version == "unknown":
+        return None
+    return version
 
 
 def _step_defs(steps: Any) -> Iterable[Mapping[str, Any]]:
@@ -152,6 +162,7 @@ def machine_statuses(
                 "load": _load(beat) if is_online else None,
                 "running": running.get(name, []),
                 "queue_depth": queued.get(name, 0),
+                "engine_version": _engine_version(beat),
             }
         )
     return out

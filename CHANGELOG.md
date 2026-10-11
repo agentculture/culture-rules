@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.12] - 2026-10-11
+
+### Added
+
+- `culture-rules rollout` (#45, plan `rollout-cli`): roll a release out to every node one step per command, each a dry run until `--apply`, `--json` and an MCP tool per verb. `plan --wheel` shows the steps, each host's install flags, the snapshot and the release's new rules and variables; `idle`, `pause` (stores the enabled-rule snapshot, then pauses; refused while a run is not terminal unless `--force`), `upgrade --host <name> --wheel <whl>` (`install.sh` over ssh/scp with the host's flags, or the shared venv on spark), `seed`, `import` (refused before seed), `enable` (the snapshot plus the release's new rules; refused while an online node runs an older version), `resume` and `verify` (node and API versions, not paused, enabled rules, no `no_builtin` failure since resume). Also `overview`, `list` and `show`. Runbook: `docs/operations/rollout.md`
+- Machine records gain an optional typed `install` section (`mode` install_sh or shared_venv, `node_name`, grant-name `secrets`, `gate_run_as` (a `sudo -n -u` prefix), `extras`, `wheelhouse`, `python`, `events_host`, `events_port`); records without it save unchanged
+- API: the `rollouts` collection with `GET /rollouts`, `GET /rollouts/{id}` (viewer) and `PUT /rollouts/{id}` (admin, audited, strict, no secret literals); `GET /machines/status` items gain `engine_version`; `GET /health` gains `version`
+- The wheel ships `install.sh`, the pr-fixer bundle and two manifests as `culture_rules/deploy_data`: `variables.json` (every seed variable; `seed-variables.sh` now reads it, behaviour unchanged) and `release.json` (the release's version, new rules and new variables; its version equals the package's)
+- devague: the `rollout-cli` frame, spec and plan (operator-confirmed) and deviations d1-d2 (approved), d3 (approved) and d4 (proposed)
+
+### Review hardening (Codex rounds 1-2; d3, d4)
+
+- Only an admin may add, change or remove a machine's `install` section (403 `install_requires_admin`); install fields refuse control characters and whitespace, and `upgrade` refuses an `address` that could read as an ssh option
+- Rollout steps are recorded with `POST /rollouts/{id}/steps/{name}` (merged server-side, server time) and the snapshot with `POST /rollouts/{id}/snapshot` (first wins, 409 `snapshot_recorded`); both admin and audited. `resume_requested` is first-wins too (409 `step_recorded`), so a second `resume` never moves the verify boundary
+- `upgrade --apply` records its start before running anything, so a token without the admin role is refused before any command; the shared venv is read from the API and node units' `ExecStart` over D-Bus (`busctl`), the exact argv, directly or after `grant run ... --`
+- `GET /runs` gains `since` and `cursor`; `verify` pages through every failed run since `resume_requested`
+- Versions order by PEP 440; an unparseable version counts as older
+- `enable` refuses before any write when a rule outside the snapshot plus the new rules is enabled, or when a snapshot rule no longer exists
+- Every rollout verb that writes to `/rollouts` refuses (exit 2) on an API without those endpoints, and `plan` reports the API version and whether they exist. The release that ships the CLI is bootstrapped once by hand: `docs/operations/rollout.md`, "Bootstrapping the first release" (d4)
+
 ## [0.18.11] - 2026-10-10
 
 ### Fixed

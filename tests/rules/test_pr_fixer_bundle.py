@@ -243,9 +243,10 @@ def test_conditions_reference_the_variables_never_a_copied_list():
 
 
 def _files() -> dict[str, str]:
+    """The definition files: the manifests (variables.json, release.json) are not imported."""
     return {
         p.relative_to(BUNDLE).as_posix(): p.read_text(encoding="utf-8")
-        for p in sorted(BUNDLE.rglob("*.json"))
+        for p in sorted(BUNDLE.glob("*/*.json"))
     }
 
 
@@ -285,7 +286,7 @@ def test_import_before_the_comment_triggers_are_seeded_is_refused():
 # --------------------------------------------------------------------------- the seed script
 
 
-def seed_calls(tmp_path, *args, existing=("trusted_authors",)) -> list[list[str]]:
+def seed_calls(tmp_path, *args, existing=("trusted_authors",), script=SEED) -> list[list[str]]:
     """The ``variables set`` argv the seed script runs, against a stub CLI."""
     log = tmp_path / "calls.jsonl"
     log.write_text("")
@@ -300,7 +301,7 @@ def seed_calls(tmp_path, *args, existing=("trusted_authors",)) -> list[list[str]
     )
     stub.chmod(0o755)
     env = {**os.environ, "CULTURE_RULES": str(stub)}
-    subprocess.run(["bash", str(SEED), *args], env=env, check=True, capture_output=True)
+    subprocess.run(["bash", str(script), *args], env=env, check=True, capture_output=True)
     calls = [json.loads(line) for line in log.read_text().splitlines()]
     return [c for c in calls if c[:2] == ["variables", "set"]]
 
@@ -326,6 +327,66 @@ def test_seed_script_calls_work_through_the_real_cli(tmp_path, store, wire, caps
     assert values["fixer_excluded_repos"] == []
     assert "qodo-code-review[bot]" in values["trusted_authors"]
     assert store.get_variable("fixer_comment_triggers")["description"]
+
+
+def manifest() -> list[dict]:
+    return json.loads((BUNDLE / "variables.json").read_text(encoding="utf-8"))
+
+
+def test_variables_json_holds_every_seed_variable_with_a_description():
+    items = manifest()
+    assert all(set(i) == {"name", "value", "description"} for i in items)
+    assert all(isinstance(i["description"], str) for i in items)
+    assert all(i["description"] for i in items)
+    names = [i["name"] for i in items]
+    assert len(names) == len(set(names))
+    assert set(names) == set(CHAIN_VARIABLES)  # every variable the rules reference
+
+
+def test_seed_script_writes_exactly_what_variables_json_holds(tmp_path):
+    calls = seed_calls(tmp_path, "--apply", existing=())
+    assert calls == [
+        [
+            "variables",
+            "set",
+            i["name"],
+            "--value",
+            json.dumps(i["value"]),
+            "--description",
+            i["description"],
+            "--apply",
+        ]
+        for i in manifest()
+    ]
+
+
+def test_seed_script_reads_the_manifest_beside_it(tmp_path):
+    """One source: the script carries no values of its own, it reads variables.json."""
+    copy = tmp_path / "bundle"
+    copy.mkdir()
+    (copy / "seed-variables.sh").write_text(SEED.read_text(encoding="utf-8"))
+    one = [{"name": "only_one", "value": {"a": [1, "b c"]}, "description": 'it\'s "quoted"'}]
+    (copy / "variables.json").write_text(json.dumps(one))
+    (calls,) = seed_calls(tmp_path, existing=(), script=copy / "seed-variables.sh")
+    assert calls == [
+        "variables",
+        "set",
+        "only_one",
+        "--value",
+        '{"a": [1, "b c"]}',
+        "--description",
+        'it\'s "quoted"',
+    ]
+    assert "trusted_authors" not in SEED.read_text(encoding="utf-8")  # no value in the script
+
+
+def test_seed_script_fails_on_a_broken_manifest(tmp_path):
+    copy = tmp_path / "bundle"
+    copy.mkdir()
+    (copy / "seed-variables.sh").write_text(SEED.read_text(encoding="utf-8"))
+    (copy / "variables.json").write_text('[{"name": "x"}]')
+    with pytest.raises(subprocess.CalledProcessError):
+        seed_calls(tmp_path, existing=(), script=copy / "seed-variables.sh")
 
 
 # --------------------------------------------------------------------------- firing

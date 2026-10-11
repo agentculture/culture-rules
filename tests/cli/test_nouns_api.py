@@ -134,6 +134,28 @@ def test_every_write_is_dry_run_without_apply(wire, store, capsys, tmp_path):
     assert [c for c in wire.mutating() if c != ("POST", "/import")] == []
 
 
+def test_rollout_writes_are_dry_run_without_apply(wire, store, capsys):
+    """Each rollout step's dry run (the wheel's own bundle) sends nothing mutating."""
+    jrun(capsys, "rollout", "seed", "--apply")  # import's guard needs the seed step
+    jrun(capsys, "rollout", "pause", "--apply")  # enable's guard needs the snapshot
+    wire.calls.clear()
+    before = snapshot(store) | {"rollouts": store.find("rollouts")}
+    for argv in (
+        ["rollout", "pause"],
+        ["rollout", "seed"],
+        ["rollout", "import"],
+        ["rollout", "enable"],
+        ["rollout", "resume"],
+    ):
+        rc, out, err = run(capsys, *argv, "--json")
+        assert rc == 0, (argv, err)
+        payload = json.loads(out)
+        assert payload["applied"] is False, argv
+        assert payload["dry_run"] is True, argv
+        assert snapshot(store) | {"rollouts": store.find("rollouts")} == before, argv
+    assert [c for c in wire.mutating() if c != ("POST", "/import")] == []
+
+
 def test_dry_run_is_the_default_for_every_mutating_verb_in_the_registry():
     for v in REGISTRY.verbs():
         if v.mutating:
@@ -209,7 +231,7 @@ def test_export_then_import_into_another_store(wire, capsys, tmp_path, monkeypat
 
 
 def test_overview_for_every_noun(wire, capsys):
-    for noun in ("rules", "workflows", "actors", "machines", "runs"):
+    for noun in ("rules", "workflows", "actors", "machines", "runs", "rollout"):
         out = jrun(capsys, noun, "overview")
         assert out["subject"] == f"culture-rules {noun}"
         assert out["sections"]

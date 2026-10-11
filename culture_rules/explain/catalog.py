@@ -43,6 +43,9 @@ stops being per-host glue only its author understands.
 - `culture-rules cli overview` — describe the CLI surface.
 - `culture-rules rules|workflows|actors|machines|runs|variables <verb>` — the engine's nouns
   over the HTTP API; `culture-rules explain <noun>` lists each noun's verbs.
+- `culture-rules rollout <step>` — roll this CLI's release out to every node, one
+  dry-run-first step per verb (`plan`, `idle`, `pause`, `upgrade --host`, `seed`,
+  `import`, `enable`, `resume`, `verify`).
 - `culture-rules serve` — run the HTTP API (needs the `server` extra).
 - `culture-rules node run` — run this host's engine node (talks to the store directly).
 - `culture-rules mcp` — serve the CLI verbs as MCP tools over stdio (needs the `mcp` extra).
@@ -239,6 +242,13 @@ _NOUN_BLURBS = {
         "land; a no-op writes no version)."
     ),
     "runs": "Runs are executions of a rule's workflow; pause and resume gate the whole engine.",
+    "rollout": (
+        "Rollout rolls this CLI's own release (the wheel's `release.json` version) out to every "
+        "node, one step per verb and never more: `idle`, `pause`, `upgrade --host`, `seed`, "
+        "`import`, `enable`, `resume`, `verify`; `plan --wheel` prints them all and writes "
+        "nothing. Each applied step records its outcome in the release's rollout document "
+        "(`GET /rollouts/{version}`)."
+    ),
 }
 
 
@@ -292,12 +302,92 @@ deeper (a one-step body inline). API: `GET /rules/{id}/describe`,
 `GET /workflows/{id}/describe`.
 """
 
+_ROLLOUT_NOTE = """\
+## The rollout steps
+
+Run the CLI from the new release's venv: the release is its own `release.json`
+version, and the rollout document `/rollouts/<version>` records each applied step
+(`POST /rollouts/<version>/steps/<step>`: merged server-side, `applied_at` from the
+server's clock; pause's snapshot via `POST /rollouts/<version>/snapshot`, first one
+wins). One command per step, in order; nothing chains them and there is no `all` verb:
+
+1. `rollout idle` lists the runs that are not terminal; pause needs none.
+2. `rollout pause --apply` stores the enabled-rule snapshot in the rollout
+   document, then pauses the engine. Refused while a run is not terminal unless
+   `--force` (the only override). An engine already paused is reported, not an
+   error; a snapshot already recorded by an earlier (or concurrent) pause is kept.
+3. `rollout upgrade --host <name> --wheel <whl> --apply` per host, as its machine
+   record's `install` section says (a record without one exits 1). `install_sh`:
+   over ssh/scp (`-o BatchMode=yes`) the wheel and `install.sh` go to
+   `culture-rules-deploy-<version>/` and `install.sh --apply` runs with the record's
+   flags (`--node-name`, `--wheel`, one `--secret` per grant name, `--gate-run-as`,
+   `--extras`, `--wheelhouse`, `--python`, `--events-host/port`); then the installed
+   version and the node unit's `ActiveState` and `ActiveEnterTimestamp` are read.
+   `shared_venv` (the API host, run there): `uv pip install --reinstall-package
+   culture-rules --no-deps <whl>` into the venv the running API unit executes
+   (its `ExecStart` D-Bus property via `busctl --user --json=short`, the exact
+   argv: `<venv>/bin/culture-rules` directly or after
+   `grant run [--inject VAR=NAME]... --`; the node unit must run the same venv,
+   else exit 1 naming both), then restart `culture-rules-api` and
+   `culture-rules-node`; `install.sh` never runs. The dry run prints the exact argv
+   (`<venv>` for the shared venv) and runs nothing; `--apply` first records the step as
+   started, which needs the admin role, so another token runs nothing. A record field
+   with a control character or whitespace, or an `address` that is not a plain host
+   name, is refused before any argv is built. The API URL and token never cross ssh.
+   Upgrade the shared-venv host first, then the install.sh hosts.
+4. `rollout seed --apply` sets the release's seed variables (`variables.json` in
+   the wheel, or `--bundle DIR`) that do not exist yet; `--force` replaces them.
+5. `rollout import --apply` imports the bundle's workflows and rules in one
+   `POST /import`. Refused until this release's seed step is recorded.
+6. `rollout enable --apply` re-enables exactly the snapshot plus `release.json`'s
+   new rules and lists every rule left disabled. Refused before pause recorded a
+   snapshot, while an online node's `engine_version` is older than the release
+   (PEP 440 order; unknown or unparseable counts as older), while a new rule is not
+   imported, while a snapshot rule no longer exists (restore it or re-import the
+   bundle), or while a rule outside snapshot plus new rules is enabled (disable it
+   with `rules disable <id> --apply`; nothing changes before the refusal).
+7. `rollout resume --apply` records `resume_requested` (server time, once per
+   release: the server keeps the first and answers a later one 409 `step_recorded`,
+   which resume treats as recorded), resumes the engine, then records `resume`
+   (already resumed is reported).
+8. `rollout verify` exits 0 only when every node and the API run the release, the
+   engine is not paused, the enabled rules equal snapshot plus new rules and no
+   run failed with `no_builtin` since `resume_requested` (else `resume`), reading
+   every failed run finished since then page by page (an incomplete listing fails
+   the check); otherwise it lists each failed check and exits 1.
+
+Prerequisite: the API must serve `/rollouts`. One older than the release that
+ships the rollout CLI (0.18.12) has none, and every step that writes the rollout
+document exits 2 ("the API at <url> has no /rollouts endpoints"); `rollout plan`
+reports the API's version and the missing endpoints. That release is rolled out
+once by hand: docs/operations/rollout.md, "Bootstrapping the first release".
+
+Guards exit 1 with a remediation naming the step to run first. `import` and
+`enable` are editor verbs, but recording their step writes the rollout document,
+which is admin: with an editor token the step runs and reports it was not
+recorded.
+"""
+
 _VERB_NOTES = {
     ("rules", "describe"): _DESCRIBE_NOTE,
     ("workflows", "describe"): _DESCRIBE_NOTE,
     ("rules", "disable"): _STOP_RUNS_NOTE,
     ("rules", "update"): _STOP_RUNS_NOTE,
     ("rules", "stop-runs"): _STOP_RUNS_NOTE,
+    **{
+        ("rollout", step): _ROLLOUT_NOTE
+        for step in (
+            "plan",
+            "idle",
+            "pause",
+            "upgrade",
+            "seed",
+            "import",
+            "enable",
+            "resume",
+            "verify",
+        )
+    },
 }
 
 

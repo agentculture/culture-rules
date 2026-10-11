@@ -26,7 +26,7 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient  # noqa: E402
 
 from culture_rules.auth.tokens import ServiceTokens  # noqa: E402
-from culture_rules.cli import _build_parser  # noqa: E402
+from culture_rules.cli import _build_parser, _rollout_upgrade  # noqa: E402
 from culture_rules.cli.registry import Context, Param, Verb  # noqa: E402
 from culture_rules.cli.verbs import REGISTRY  # noqa: E402
 from culture_rules.client.http import ApiClient  # noqa: E402
@@ -148,13 +148,22 @@ def recorded_requests(verb: Verb, bundle: Path) -> set[tuple[str, str]]:
     return seen
 
 
+def _no_commands(argv, timeout):
+    """The parity run's command runner: ``rollout upgrade`` must never reach a host here."""
+    raise AssertionError(f"a parity run tried to run {argv[0]}")
+
+
 @pytest.fixture(scope="module")
 def operations_by_verb(tmp_path_factory) -> dict[tuple[str, str], set[tuple[str, str]]]:
     bundle = tmp_path_factory.mktemp("bundle")
     for noun in ("rules", "workflows", "actors"):
         (bundle / noun).mkdir()
         (bundle / noun / "x.json").write_text(json.dumps({"id": "x"}))
-    return {v.path: recorded_requests(v, bundle) for v in REGISTRY.verbs()}
+    previous = _rollout_upgrade.set_runner(_no_commands)  # a fake runner (no ssh, no scp)
+    try:
+        return {v.path: recorded_requests(v, bundle) for v in REGISTRY.verbs()}
+    finally:
+        _rollout_upgrade.set_runner(previous)
 
 
 # --------------------------------------------------------------------------- the parity check
@@ -237,6 +246,8 @@ def _top_level_commands() -> set[str]:
 
 def test_recording_sees_the_routes_a_verb_really_calls(operations_by_verb):
     assert ("POST", "/machines/x/drain") in operations_by_verb[("machines", "drain")]
+    # rollout upgrade reads the machine record (404 here) before any command could run
+    assert operations_by_verb[("rollout", "upgrade")] == {("GET", "/machines/x")}
     assert ("GET", "/rules") in operations_by_verb[("rules", "list")]
 
 

@@ -72,6 +72,14 @@ its current runs: the write reports them as active_runs with a hint, and
 rules stop-runs <id> --apply cancels them (status cancelled, nothing more is pushed).
 rules describe <id> and workflows describe <id> print a definition in plain words,
 built only from its config (When/If/Run/Then lines; numbered steps), never by AI.
+The rollout noun rolls this CLI's release out to every node, one step per verb:
+rollout plan --wheel <whl> prints the steps (writes nothing), then rollout idle,
+pause, upgrade --host <name> --wheel <whl> (install.sh over ssh, or the shared
+venv), seed, import, enable, resume and verify run one step each; pause refuses
+while runs are not terminal unless --force, import refuses before seed, enable
+refuses while a node is older than the release or a rule outside the snapshot is
+enabled, upgrade --apply needs the admin role before it runs anything, and verify
+exits 1 listing each failed check.
 
 Machine-readable output
 -----------------------
