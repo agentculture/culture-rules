@@ -113,6 +113,7 @@
 - Sections live in one variable, `newspaper_sections`, holding a JSON string that a builtin parses and validates at the start of each run; a bad value fails the run with a clear error (operator, #53)
 - A day missed because no node ran at 06:30 is skipped, not caught up (operator, #53)
 - The newspaper is sent at 06:30 Asia/Jerusalem; its date is that local date (operator, #53)
+- The newspaper is sent from `newsletter-no-reply@culture.dev`: the newspaper's email actor sets the local part newsletter-no-reply on the culture.dev domain; the email surface's default local part stays no-reply (operator, #53)
 
 ## Hard questions
 

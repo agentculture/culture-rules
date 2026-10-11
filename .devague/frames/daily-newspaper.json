@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-11T04:20:53Z",
-  "updated": "2026-10-11T04:27:26Z",
+  "updated": "2026-10-11T04:28:50Z",
   "claims": [
     {
       "id": "c1",
@@ -479,6 +479,18 @@
           "instruction": ""
         }
       ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c28",
+      "kind": "decision",
+      "text": "The newspaper is sent from newsletter-no-reply@culture.dev: the newspaper's email actor sets the local part newsletter-no-reply on the culture.dev domain; the email surface's default local part stays no-reply (operator, #53)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
       "hard_questions": [],
       "links": [],
       "instruction": "",

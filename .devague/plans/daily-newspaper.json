@@ -3,9 +3,9 @@
   "title": "Daily newspaper",
   "frame_slug": "daily-newspaper",
   "schema_version": 5,
-  "status": "drafting",
+  "status": "exported",
   "created": "2026-10-11T04:27:43Z",
-  "updated": "2026-10-11T04:28:13Z",
+  "updated": "2026-10-11T04:28:50Z",
   "targets": [
     {
       "id": "c1",
@@ -279,7 +279,7 @@
       "id": "t1",
       "summary": "Model layer: the email and search app surfaces and the four action kinds",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "model/app_actor.py accepts surface email (connection: api_key grant ref, domain in {culture.dev, jetson-ai-lab.org}, local_part default no-reply, recipients list) and search (api_key grant ref); a domain outside the enum, a literal key or a malformed recipient is refused with a field path, through the API too",
         "model/action_kinds.py catalogues email.send, search.web, llm.complete and library.push with typed params and a required actor; describe.py ACTION_WORDS covers them; test_action_kinds and test_describe updated"
@@ -296,7 +296,7 @@
       "id": "t2",
       "summary": "email.send: a Resend client and port",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "apps/resend.py (URL constant, injectable transport, token hidden from repr) and node/actions/email.py; the from address is local_part@domain from the actor; a recipient outside the allowlist is refused before the key is resolved, naming no secret; the engine idempotency key is sent as Idempotency-Key and the port declares supports_idempotency_key; outputs {message_id}"
       ],
@@ -314,7 +314,7 @@
       "id": "t3",
       "summary": "search.web: a Brave client and port",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "apps/brave.py and node/actions/search.py send query, count, freshness, country and lang with X-Subscription-Token from grant, call only api.search.brave.com, and return results as a list of {title, url, snippet, age, source} capped in count and per-field length"
       ],
@@ -331,7 +331,7 @@
       "id": "t4",
       "summary": "llm.complete: an OpenAI-compatible completion port",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "node/actions/llm.py posts /v1/chat/completions to the actor's base_url with its model, the locked newspaper brief as the system message and the step's content as the user message, never a tools field, max_tokens capped; returns {text, model, usage}; an unreachable server or timeout is a distinct retryable failure code; the actor honours concurrency_pool and max_concurrency"
       ],
@@ -349,7 +349,7 @@
       "id": "t5",
       "summary": "library.push: upload the EPUB to xteink and queue it",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "node/actions/library.py sends a multipart POST /api/library (file, title, author culture-rules, kind article) with Bearer from the actor's grant ref, then POST /api/devices/<id>/queue with the returned item id; a refused upload queues nothing; outputs {item_id, created, queue_id}"
       ],
@@ -366,7 +366,7 @@
       "id": "t6",
       "summary": "Newspaper builtins: sections, render, the per-date guard",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "node/actions/newspaper.py provides newspaper.sections (validates the JSON variable and fails naming the field), newspaper.render (HTML plus EPUB with mimetype first and stored, container.xml, OPF, nav and NCX, one chapter per section, escaped fields, a size cap; a section with no results says so; a missing summary renders the results with the unavailable note) and newspaper.issue (the local date from the slot and tz; claim and record per date in a newspaper_issues collection)",
         "a link check: every link in a summary must be one of that section's result URLs, otherwise the summary is dropped for the results-only rendering"
@@ -391,7 +391,7 @@
       "id": "t7",
       "summary": "Editor: email and search surfaces, the domain drop-down, the four action forms",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "web/src/actors/app-config.ts gains the surfaces, their connection fields and an enum field type rendered as a select with exactly culture.dev and jetson-ai-lab.org; ActionPicker.tsx has param forms for email.send, search.web, llm.complete and library.push; types.ts kinds updated; vitest covers each; typecheck passes"
       ],
@@ -408,7 +408,7 @@
       "id": "t8",
       "summary": "Wiring, the bundle and the end-to-end test",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "runner.py registers the four ports and three builtins; docs/rules/newspaper ships actors (email, search, llm with pool qwen-spark2, library; recipient allowlist empty), the workflow (sections, for_each search and summarise, render, guard, email, push) and the rule (schedule 30 6 * * *, tz Asia/Jerusalem, disabled) plus variables.json and a seed script; it imports cleanly; scan-secrets passes",
         "a behavioural test drives the workflow on fakes from a 06:30 Asia/Jerusalem slot (also across DST) to one email and one queued item, a re-run for the same date sends nothing, cortex down still sends the results-only issue, and the PR fixer bundle tests are unchanged",
@@ -443,7 +443,7 @@
       "id": "t9",
       "summary": "Release: version, CHANGELOG, actor docs, the four prompt files",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "minor version bump with a CHANGELOG entry; docs/actors/email.md, search.md, llm.md, library.md and the README table; CLAUDE.md, QWEN.md, AGENTS.override.md and AGENTS.colleague.md describe the new action kinds in step; teken doctor strict and harness-smoke pass"
       ],
@@ -460,7 +460,7 @@
       "id": "t10",
       "summary": "Live: the operator seeds the variables and actors, and the first issue arrives",
       "origin": "llm",
-      "status": "proposed",
+      "status": "confirmed",
       "acceptance_criteria": [
         "After the operator's setup and rollout, the 06:30 Asia/Jerusalem run delivers the issue to the inbox and queues it on the device; its run shows the message id and item id"
       ],
