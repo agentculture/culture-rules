@@ -235,7 +235,8 @@ The lessons from the hand-run rollouts (#45), and what now enforces each one:
 - `upgrade` on the shared-venv host runs locally. It refuses unless the record's name
   is this host's short hostname, or the local `culture-rules-node.service` runs
   `node run --host <name>` (its `ExecStart`, read over D-Bus like the venv). spark's
-  OS hostname is `spark-f8a9`, so the node unit is what identifies it (#57). A
-  repeated or abbreviated `--host` is not read. The unit is read only with
+  OS hostname is `spark-f8a9`, so the node unit is what identifies it (#57). The
+  unit's arguments are parsed by the CLI's own parser, so the host is the one the
+  node runs as; an argv the CLI would refuse or exit early on names no host. The unit is read only with
   `--apply`, after the admin-only start is recorded; a refusal is recorded as
   the step's failure.

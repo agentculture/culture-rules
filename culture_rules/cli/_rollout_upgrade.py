@@ -32,6 +32,8 @@ environment, so the API URL and token never reach ssh, scp or the host.
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import os
 import re
@@ -342,23 +344,33 @@ def _program_argv(path: str, argv: list[str]) -> list[str] | None:
 
 
 def node_host_from_exec_start(text: str) -> str | None:
-    """The machine a node unit runs as: ``--host <name>`` of its ``culture-rules node run``
+    """The machine a node unit runs as: the ``--host`` of its ``culture-rules node run``
     (``busctl --json=short`` ``ExecStart``, the same parsing as :func:`venv_from_exec_start`);
     None when the unit does not run ``node run`` with a host (#57)."""
     entry = _exec_start_entry(text)
     rest = _program_argv(*entry) if entry else None
-    if rest is None or rest[1:3] != ["node", "run"]:
+    return _node_run_host(rest[1:]) if rest else None
+
+
+def _node_run_host(args: list[str]) -> str | None:
+    """``--host`` as the CLI's own parser reads ``args`` (Codex r1/r2 on #57): the last one
+    wins and an abbreviation counts, exactly as the node does; argv the CLI refuses or exits
+    early on (``-h``, a stray ``--``, a missing value, an unknown option) is None."""
+    from culture_rules.cli import _build_parser  # lazy: culture_rules.cli imports this module
+
+    sink = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
+            parsed = _build_parser().parse_args(args)
+    except (SystemExit, CliError):
         return None
-    args = rest[3:]
-    hosts: list[str | None] = []
-    for i, arg in enumerate(args):
-        option = arg.split("=", 1)[0]
-        if option == "--host":
-            hosts.append(arg[7:] if "=" in arg else (args[i + 1] if i + 1 < len(args) else None))
-        elif len(option) > 2 and "--host".startswith(option):
-            return None  # an abbreviation argparse would take as --host: not read here
-    # argparse keeps the last --host: a repeated one is ambiguous here, so refused (Codex r1)
-    return hosts[0] or None if len(hosts) == 1 else None
+    if (getattr(parsed, "command", None), getattr(parsed, "node_command", None)) != (
+        "node",
+        "run",
+    ):
+        return None
+    host = getattr(parsed, "host", None)
+    return host if isinstance(host, str) and host else None
 
 
 def _local_node_host() -> str | None:

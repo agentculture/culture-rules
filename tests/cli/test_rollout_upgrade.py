@@ -567,9 +567,17 @@ def node_exec_start(*node_args: str) -> str:
         (node_exec_start("--host=spark"), "spark"),
         (exec_start("/v/bin/culture-rules", "node", "run", "--host", "spark"), "spark"),
         (node_exec_start(), None),  # no --host
-        (node_exec_start("--host", "spark", "--host", "thor"), None),  # Codex r1 P1: ambiguous
-        (node_exec_start("--host=spark", "--host", "thor"), None),
-        (node_exec_start("--ho", "thor"), None),  # an argparse abbreviation of --host
+        # the CLI's own parser decides, as the node does (Codex r1 P1, r2): the last --host
+        # wins and an abbreviation is --host
+        (node_exec_start("--host", "spark", "--host", "thor"), "thor"),
+        (node_exec_start("--host=spark", "--host", "thor"), "thor"),
+        (node_exec_start("--ho", "thor"), "thor"),
+        # argv the node CLI refuses or exits early on never names a host (Codex r2)
+        (node_exec_start("--", "--host", "spark"), None),
+        (node_exec_start("--idle", "--host", "spark"), None),
+        (node_exec_start("-h", "--host", "spark"), None),
+        (node_exec_start("--hel", "--host", "spark"), None),
+        (node_exec_start("--host", "spark", "--bogus"), None),
         (node_exec_start("--host"), None),  # --host without a value
         (exec_start("/v/bin/culture-rules", "serve", "--host", "spark"), None),  # not node run
         (exec_start("/usr/bin/env", "/v/bin/culture-rules", "node", "run", "--host", "x"), None),
