@@ -99,6 +99,37 @@ def test_engine_idempotency_key_sent_as_header():
     assert fake.calls[-1][2]["Idempotency-Key"] == IDEM
 
 
+DURABLE = "newspaper:2026-10-11:email"
+
+
+def test_an_explicit_idempotency_key_param_overrides_the_engine_key():
+    """Codex r1 #1: a durable per-date key, the same for every run that sends the date."""
+    fake = Fake()
+    port, _ = setup(fake)
+    invoke(port, params(idempotency_key=DURABLE))
+    assert fake.calls[-1][2]["Idempotency-Key"] == DURABLE
+
+
+def test_two_runs_with_the_same_explicit_key_send_the_same_key():
+    fake = Fake()
+    port, _ = setup(fake)
+    invoke(port, params(idempotency_key=DURABLE), key="run-1:email")
+    invoke(port, params(idempotency_key=DURABLE), key="run-2:email")
+    assert {call[2]["Idempotency-Key"] for call in fake.calls} == {DURABLE}
+
+
+def test_a_bad_explicit_idempotency_key_is_bad_input_without_a_call():
+    fake = Fake()
+    port, _ = setup(fake)
+    result = invoke(port, params(idempotency_key=7))
+    assert (result.error, fake.calls) == (BAD_INPUT, [])
+
+
+def test_an_overlong_explicit_idempotency_key_is_bad_input():
+    port, _ = setup(Fake())
+    assert invoke(port, params(idempotency_key="k" * 257)).error == BAD_INPUT
+
+
 def test_from_is_local_part_at_domain_with_default():
     fake = Fake()
     port, _ = setup(fake)

@@ -49,24 +49,8 @@ with the link check. Fails non-retryably on bad input or an exceeded size cap.
 ``newspaper.issue`` (:class:`NewspaperIssuePort`)
 =================================================
 
-One issue per local date (c15, h8). Input ``slot`` (the schedule event's ISO-8601 UTC slot,
-``trigger.data.slot``), ``tz`` (IANA zone; the input or ``config.tz``) and ``phase`` (the input
-or ``config.phase``): the local date is the slot's date in ``tz`` (zoneinfo, so DST is
-right). One document per date in :data:`ISSUES_COLLECTION` (id = the date), written only by
-compare-and-set on ``rev``:
-
-* ``claim`` (before delivery). Output ``{deliver, date, reason}``: ``already_delivered``
-  (state ``delivered``: deliver false), ``claimed`` (no document, or this run's own claim:
-  deliver true), ``claimed_by_another_run`` (another run's claim younger than
-  ``config.claim_timeout_s``, default :data:`DEFAULT_CLAIM_TIMEOUT_S`: deliver false) or
-  ``taken_over`` (another run's claim older than that - its run died between the claim and
-  the record: this run claims it and delivers). The takeover is deliberately simple: a run
-  that is merely slow past the timeout could deliver twice, so the timeout is far longer than
-  a run takes.
-* ``record`` (after delivery): sets state ``delivered`` with ``message_id`` and ``item_id``
-  (inputs), ``delivered_by`` and ``delivered_at``, whoever claimed. Output
-  ``{recorded, date}``: false when another run already recorded the date; a re-invoked
-  record of the same run answers true again.
+See :mod:`culture_rules.node.actions.newspaper_issue`: one issue per local date, with the
+lease-fenced ``claim``, ``before_email``, ``before_push`` and ``record`` phases.
 """
 
 from __future__ import annotations
@@ -74,11 +58,18 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Callable, Mapping
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
+from culture_rules.node.actions.newspaper_issue import (
+    CLAIM,
+    DEFAULT_CLAIM_TIMEOUT_S,
+    ISSUES_COLLECTION,
+    RECORD,
+    NewspaperIssuePort,
+    local_date,
+)
 from culture_rules.node.actions.newspaper_render import (
     EPUB_CAP,
     HTML_CAP,
@@ -114,13 +105,7 @@ SECTIONS_BUILTIN = "newspaper.sections"
 FILTER_BUILTIN = "newspaper.filter"
 RENDER_BUILTIN = "newspaper.render"
 ISSUE_BUILTIN = "newspaper.issue"
-ISSUES_COLLECTION = "newspaper_issues"
 VARIABLE = "newspaper_sections"
-CLAIM = "claim"
-RECORD = "record"
-CLAIMED = "claimed"
-DELIVERED = "delivered"
-DEFAULT_CLAIM_TIMEOUT_S = 3600
 DEFAULT_COUNT = 5
 MAX_SECTIONS = 20
 MAX_QUERY_CHARS = 400  # Brave's own limit (culture_rules.apps.brave)
@@ -133,12 +118,8 @@ _QUERY_LEN = 400
 _TERMS_MAX = 20
 _TERM_LEN = 100
 _COUNT_MAX = 20
-_ID_LEN = 200
-_CAS_TRIES = 3
 _LABEL = r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
 _HOST_RE = re.compile(rf"^(?=.{{1,253}}$){_LABEL}(?:\.{_LABEL})*$")
-
-Clock = Callable[[], datetime]
 
 
 class SectionsError(ValueError):
@@ -302,28 +283,6 @@ def filter_results(results: Any, section: Mapping[str, Any]) -> list[dict[str, A
     return kept
 
 
-# ------------------------------------------------------------------ local date
-
-
-def local_date(slot: Any, tz: Any) -> str:
-    """The slot's date (``YYYY-MM-DD``) in the IANA zone ``tz``; ValueError names the field."""
-    if not isinstance(slot, str):
-        raise ValueError("slot: required, an ISO-8601 time")
-    try:
-        when = datetime.fromisoformat(slot)
-    except ValueError:
-        raise ValueError("slot: not an ISO-8601 time") from None
-    if when.tzinfo is None:
-        raise ValueError("slot: must carry a UTC offset")
-    if not isinstance(tz, str) or not tz:
-        raise ValueError("tz: required, an IANA zone such as Asia/Jerusalem")
-    try:
-        zone = ZoneInfo(tz)
-    except (ZoneInfoNotFoundError, ValueError):
-        raise ValueError("tz: unknown IANA zone") from None
-    return when.astimezone(zone).date().isoformat()
-
-
 # ------------------------------------------------------------------ ports
 
 
@@ -395,114 +354,3 @@ class NewspaperRenderPort:
         except RenderError as exc:
             return _bad_input(str(exc))
         return InvocationResult.completed(issue)
-
-
-def _iso(when: datetime) -> str:
-    return when.astimezone(UTC).isoformat(timespec="seconds")
-
-
-def _age_s(stamp: Any, now: datetime) -> float | None:
-    try:
-        return (now - datetime.fromisoformat(stamp)).total_seconds()
-    except (TypeError, ValueError):
-        return None
-
-
-def _delivery_id(value: Any) -> str | None:
-    if isinstance(value, bool) or not isinstance(value, (str, int)):
-        return None
-    return str(value)[:_ID_LEN]
-
-
-def _claim_timeout(config: Mapping[str, Any]) -> int:
-    value = config.get("claim_timeout_s", DEFAULT_CLAIM_TIMEOUT_S)
-    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
-        raise ValueError("claim_timeout_s: must be a positive integer (seconds)")
-    return value
-
-
-def _decide(doc: Mapping[str, Any] | None, run_id: str, now: datetime, timeout: int) -> str | None:
-    """A claim's answer from the current document, or None to (re)claim it."""
-    if doc is None:
-        return None
-    if doc.get("state") == DELIVERED:
-        return "already_delivered"
-    if doc.get("claimed_by") == run_id:
-        return CLAIMED
-    age = _age_s(doc.get("claimed_at"), now)
-    if age is not None and age < timeout:
-        return "claimed_by_another_run"
-    return None
-
-
-class NewspaperIssuePort:
-    """``newspaper.issue`` (module doc): one issue per local date."""
-
-    supports_idempotency_key = True  # claim and record are idempotent per run
-
-    def __init__(self, store: Any, *, clock: Clock | None = None) -> None:
-        self._store = store
-        self._clock = clock or (lambda: datetime.now(UTC))
-
-    def invoke(
-        self,
-        input: Mapping[str, Any],
-        _idempotency_key: str,
-        _deadline: datetime | None,
-        *,
-        context: InvocationContext,
-    ) -> InvocationResult:
-        config = context.config or {}
-        phase = input.get("phase") or config.get("phase")
-        try:
-            if phase not in (CLAIM, RECORD):
-                raise ValueError(f"phase: must be {CLAIM} or {RECORD}")
-            day = local_date(input.get("slot"), input.get("tz") or config.get("tz"))
-            timeout = _claim_timeout(config)
-        except ValueError as exc:
-            return _bad_input(f"bad_input: {exc}")
-        if phase == CLAIM:
-            return self._claim(day, context.run_id, timeout)
-        return self._record(day, context.run_id, input)
-
-    def _cas(self, day: str, doc: Mapping[str, Any] | None, changes: dict[str, Any]) -> bool:
-        rev = (doc or {}).get("rev")
-        changes = {**changes, "date": day, "rev": (rev or 0) + 1}
-        result = self._store.update_if(
-            ISSUES_COLLECTION, day, {"rev": rev}, changes, upsert=doc is None
-        )
-        return bool(result.won)
-
-    def _claim(self, day: str, run_id: str, timeout: int) -> InvocationResult:
-        for _ in range(_CAS_TRIES):
-            doc = self._store.get(ISSUES_COLLECTION, day)
-            now = self._clock()
-            reason = _decide(doc, run_id, now, timeout)
-            if reason is not None:
-                return _claimed(day, reason)
-            changes = {"state": CLAIMED, "claimed_by": run_id, "claimed_at": _iso(now)}
-            if self._cas(day, doc, changes):
-                return _claimed(day, "taken_over" if doc else CLAIMED)
-        return _claimed(day, "claimed_by_another_run")
-
-    def _record(self, day: str, run_id: str, input: Mapping[str, Any]) -> InvocationResult:
-        changes = {
-            "state": DELIVERED,
-            "delivered_by": run_id,
-            "message_id": _delivery_id(input.get("message_id")),
-            "item_id": _delivery_id(input.get("item_id")),
-        }
-        for _ in range(_CAS_TRIES):
-            doc = self._store.get(ISSUES_COLLECTION, day)
-            if doc is not None and doc.get("state") == DELIVERED:
-                mine = doc.get("delivered_by") == run_id
-                return InvocationResult.completed({"recorded": mine, "date": day})
-            stamped = {**changes, "delivered_at": _iso(self._clock())}
-            if self._cas(day, doc, stamped):
-                return InvocationResult.completed({"recorded": True, "date": day})
-        return InvocationResult.failed(f"issue_contended: {ISSUES_COLLECTION}/{day}")
-
-
-def _claimed(day: str, reason: str) -> InvocationResult:
-    deliver = reason in (CLAIMED, "taken_over")
-    return InvocationResult.completed({"deliver": deliver, "date": day, "reason": reason})

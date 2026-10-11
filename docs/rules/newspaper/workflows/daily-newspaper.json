@@ -1,5 +1,5 @@
 {
-  "description": "#53: one dated issue a day. Parse the sections, claim the local date (a date already delivered ends the run with nothing sent), search and filter each section, summarise it with cortex (a failed summary leaves the results-only rendering), render the HTML and the EPUB, email it, queue it on the Xteink reader, record the delivery. Non-agentic: no bridge actor, no agent step.",
+  "description": "#53: one dated issue a day. Parse the sections, claim the local date (a date already delivered ends the run with nothing sent), search and filter each section, summarise it with cortex until the summary window closes (a failed or late summary leaves the results-only rendering), render the HTML and the EPUB, then deliver behind lease fences: the email (once per date, with a durable per-date key and the first rendered payload), the queue on the Xteink reader, the delivery record. Non-agentic: no bridge actor, no agent step.",
   "edges": [
     {
       "source": "inputs",
@@ -57,6 +57,12 @@
     },
     {
       "source": "claim",
+      "source_port": "summaries_until",
+      "target": "summarise",
+      "target_port": "not_after"
+    },
+    {
+      "source": "claim",
       "source_port": "date",
       "target": "render",
       "target_port": "date"
@@ -87,26 +93,86 @@
     },
     {
       "source": "inputs",
-      "source_port": "to",
-      "target": "email",
-      "target_port": "to"
+      "source_port": "slot",
+      "target": "email_gate",
+      "target_port": "slot"
+    },
+    {
+      "source": "inputs",
+      "source_port": "tz",
+      "target": "email_gate",
+      "target_port": "tz"
     },
     {
       "source": "render",
       "source_port": "subject",
-      "target": "email",
+      "target": "email_gate",
       "target_port": "subject"
     },
     {
       "source": "render",
       "source_port": "html",
-      "target": "email",
+      "target": "email_gate",
       "target_port": "html"
     },
     {
       "source": "claim",
       "source_port": "deliver",
+      "target": "email_gate",
+      "target_port": "deliver"
+    },
+    {
+      "source": "inputs",
+      "source_port": "to",
       "target": "email",
+      "target_port": "to"
+    },
+    {
+      "source": "email_gate",
+      "source_port": "subject",
+      "target": "email",
+      "target_port": "subject"
+    },
+    {
+      "source": "email_gate",
+      "source_port": "html",
+      "target": "email",
+      "target_port": "html"
+    },
+    {
+      "source": "email_gate",
+      "source_port": "idempotency_key",
+      "target": "email",
+      "target_port": "idempotency_key"
+    },
+    {
+      "source": "email_gate",
+      "source_port": "send",
+      "target": "email",
+      "target_port": "send"
+    },
+    {
+      "source": "inputs",
+      "source_port": "slot",
+      "target": "push_gate",
+      "target_port": "slot"
+    },
+    {
+      "source": "inputs",
+      "source_port": "tz",
+      "target": "push_gate",
+      "target_port": "tz"
+    },
+    {
+      "source": "email",
+      "source_port": "message_id",
+      "target": "push_gate",
+      "target_port": "message_id"
+    },
+    {
+      "source": "claim",
+      "source_port": "deliver",
+      "target": "push_gate",
       "target_port": "deliver"
     },
     {
@@ -134,6 +200,12 @@
       "target_port": "deliver"
     },
     {
+      "source": "push_gate",
+      "source_port": "date",
+      "target": "push",
+      "target_port": "fenced"
+    },
+    {
       "source": "inputs",
       "source_port": "slot",
       "target": "record",
@@ -146,12 +218,6 @@
       "target_port": "tz"
     },
     {
-      "source": "email",
-      "source_port": "message_id",
-      "target": "record",
-      "target_port": "message_id"
-    },
-    {
       "source": "push",
       "source_port": "item_id",
       "target": "record",
@@ -162,6 +228,18 @@
       "source_port": "deliver",
       "target": "record",
       "target_port": "deliver"
+    },
+    {
+      "source": "push_gate",
+      "source_port": "message_id",
+      "target": "record",
+      "target_port": "message_id"
+    },
+    {
+      "source": "push",
+      "source_port": "queue_id",
+      "target": "record",
+      "target_port": "queue_id"
     }
   ],
   "enabled": true,
@@ -202,7 +280,7 @@
   "outputs": [
     {
       "name": "message_id",
-      "source": "steps.email.outputs.message_id",
+      "source": "steps.push_gate.outputs.message_id",
       "type": "string"
     },
     {
@@ -253,9 +331,10 @@
       "body": [],
       "config": {
         "builtin": "newspaper.issue",
-        "phase": "claim"
+        "phase": "claim",
+        "summary_window_s": 600
       },
-      "description": "newspaper.issue (claim): the local date of the slot in tz; deliver is false when the date was already delivered or another run holds it, and every later step is skipped.",
+      "description": "newspaper.issue (claim): the local date of the slot in tz; deliver is false when the date was already delivered or another run's lease is live, and every later step is skipped. A run whose lease ran out is taken over. summaries_until is the slot plus config.summary_window_s (600 s: 06:40), after which no summary starts.",
       "enabled": true,
       "id": "claim",
       "inputs": [
@@ -297,6 +376,12 @@
         {
           "description": "",
           "name": "reason",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "the slot plus summary_window_s: summaries give up at it",
+          "name": "summaries_until",
           "required": true,
           "type": "string"
         }
@@ -479,7 +564,8 @@
               "params": {
                 "actor": "newspaper-llm",
                 "content": "inputs.item.results",
-                "max_tokens": 2000
+                "max_tokens": 2000,
+                "not_after": "inputs.not_after"
               }
             },
             "builtin": "action",
@@ -496,7 +582,7 @@
               }
             }
           },
-          "description": "llm.complete: the locked newspaper brief, no tools.",
+          "description": "llm.complete: the locked brief, no tools; not_after: past the summary window it fails llm_deadline at once, even while queued behind the pool.",
           "enabled": true,
           "id": "summary",
           "inputs": [
@@ -511,6 +597,12 @@
               "name": "deliver",
               "required": true,
               "type": "boolean"
+            },
+            {
+              "description": "no summary starts after it (llm_deadline)",
+              "name": "not_after",
+              "required": false,
+              "type": "string"
             }
           ],
           "kind": "code",
@@ -548,7 +640,7 @@
       "config": {
         "items": "items"
       },
-      "description": "One iteration per section: llm.complete on newspaper-llm (cortex, pool qwen-spark2) with the section's filtered results. on_error skip: an unreachable gateway or a pool busy past the queue bound leaves that summary out, and the issue goes out with the results and a 'Summary unavailable.' line (q1).",
+      "description": "One iteration per section: llm.complete on newspaper-llm (cortex, pool qwen-spark2) with the section's filtered results, until summaries_until. on_error skip: an unreachable gateway, a pool busy past the window or the queue bound, or the window closing leaves that summary out, and the issue goes out with the results and a 'Summary unavailable.' line (q1).",
       "enabled": true,
       "id": "summarise",
       "inputs": [
@@ -563,6 +655,12 @@
           "name": "deliver",
           "required": true,
           "type": "boolean"
+        },
+        {
+          "description": "newspaper.issue's summaries_until",
+          "name": "not_after",
+          "required": false,
+          "type": "string"
         }
       ],
       "kind": "for_each",
@@ -672,16 +770,8 @@
     {
       "body": [],
       "config": {
-        "action": {
-          "kind": "email.send",
-          "params": {
-            "actor": "newspaper-email",
-            "html": "inputs.html",
-            "subject": "inputs.subject",
-            "to": "inputs.to"
-          }
-        },
-        "builtin": "action",
+        "builtin": "newspaper.issue",
+        "phase": "before_email",
         "when": {
           "cmp": "==",
           "left": {
@@ -693,15 +783,21 @@
           }
         }
       },
-      "description": "email.send through newspaper-email (Resend, the newsletter-no-reply sender on culture.dev); only to recipients on the actor's allowlist.",
+      "description": "newspaper.issue (before_email): the email's fence. Renews this run's lease (claim_lost fails the run if another run took the date), keeps the first rendered payload for the date and answers it with the durable key newspaper:<date>:email; send is false when the date's email is already recorded sent (a takeover after a failed push).",
       "enabled": true,
-      "id": "email",
+      "id": "email_gate",
       "inputs": [
         {
           "description": "",
-          "name": "to",
+          "name": "slot",
           "required": true,
-          "type": "array"
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "tz",
+          "required": true,
+          "type": "string"
         },
         {
           "description": "",
@@ -724,6 +820,111 @@
       ],
       "kind": "code",
       "max_iterations": null,
+      "name": "Fence the email",
+      "outputs": [
+        {
+          "description": "",
+          "name": "send",
+          "required": true,
+          "type": "boolean"
+        },
+        {
+          "description": "",
+          "name": "date",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "subject",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "html",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "idempotency_key",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "message_id",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "placement": null,
+      "retry": null,
+      "timeout_s": null
+    },
+    {
+      "body": [],
+      "config": {
+        "action": {
+          "kind": "email.send",
+          "params": {
+            "actor": "newspaper-email",
+            "html": "inputs.html",
+            "idempotency_key": "inputs.idempotency_key",
+            "subject": "inputs.subject",
+            "to": "inputs.to"
+          }
+        },
+        "builtin": "action",
+        "when": {
+          "cmp": "==",
+          "left": {
+            "field": "send"
+          },
+          "op": "compare",
+          "right": {
+            "literal": true
+          }
+        }
+      },
+      "description": "email.send through newspaper-email (Resend, the newsletter-no-reply sender on culture.dev); only to recipients on the actor's allowlist. Sends the fenced payload under the durable per-date idempotency key, so no run sends a date twice.",
+      "enabled": true,
+      "id": "email",
+      "inputs": [
+        {
+          "description": "",
+          "name": "to",
+          "required": true,
+          "type": "array"
+        },
+        {
+          "description": "",
+          "name": "subject",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "html",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "newspaper:<date>:email, the same for every run of the date",
+          "name": "idempotency_key",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "the email fence: false when the date's email is already sent",
+          "name": "send",
+          "required": true,
+          "type": "boolean"
+        }
+      ],
+      "kind": "code",
+      "max_iterations": null,
       "name": "Email the issue",
       "outputs": [
         {
@@ -740,6 +941,72 @@
         "max_attempts": 3
       },
       "timeout_s": 60.0
+    },
+    {
+      "body": [],
+      "config": {
+        "builtin": "newspaper.issue",
+        "phase": "before_push",
+        "when": {
+          "cmp": "==",
+          "left": {
+            "field": "deliver"
+          },
+          "op": "compare",
+          "right": {
+            "literal": true
+          }
+        }
+      },
+      "description": "newspaper.issue (before_push): records the sent email's message id for the date (so a takeover never emails again), then renews this run's lease before the push (claim_lost fails the run if another run took the date).",
+      "enabled": true,
+      "id": "push_gate",
+      "inputs": [
+        {
+          "description": "",
+          "name": "slot",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "tz",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "the email step's; absent when the email was already sent",
+          "name": "message_id",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "newspaper.issue's claim: false ends the run quietly",
+          "name": "deliver",
+          "required": true,
+          "type": "boolean"
+        }
+      ],
+      "kind": "code",
+      "max_iterations": null,
+      "name": "Record the email, fence the push",
+      "outputs": [
+        {
+          "description": "",
+          "name": "message_id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "date",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "placement": null,
+      "retry": null,
+      "timeout_s": null
     },
     {
       "body": [],
@@ -786,6 +1053,12 @@
           "name": "device_id",
           "required": false,
           "type": "any"
+        },
+        {
+          "description": "the push fence's date: push only after it",
+          "name": "fenced",
+          "required": true,
+          "type": "string"
         },
         {
           "description": "newspaper.issue's claim: false ends the run quietly",
@@ -841,7 +1114,7 @@
           }
         }
       },
-      "description": "newspaper.issue (record): marks the date delivered with the message and item ids, so a later run for the same date sends nothing.",
+      "description": "newspaper.issue (record): marks the date delivered with the message id, the item and queue ids, so a later run for the same date sends nothing.",
       "enabled": true,
       "id": "record",
       "inputs": [
@@ -867,6 +1140,12 @@
           "description": "",
           "name": "item_id",
           "required": true,
+          "type": "any"
+        },
+        {
+          "description": "",
+          "name": "queue_id",
+          "required": false,
           "type": "any"
         },
         {

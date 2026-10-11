@@ -139,6 +139,7 @@ _KINDS = (
         subject=_RS,
         html=_S,  # at least one of html/text: the port checks it
         text=_S,
+        idempotency_key=_S,  # replaces the engine's per-run key (a durable, per-date key)
     ),
     _k(
         "search.web",
@@ -157,6 +158,7 @@ _KINDS = (
         content=ParamSpec("any", True),
         max_tokens=_I,
         temperature=ParamSpec("any"),
+        not_after=_S,  # ISO-8601: past it the work fails llm_deadline instead of queueing
     ),
     _k(
         "library.push",
