@@ -756,6 +756,14 @@ def test_59_a_version_line_inside_a_toml_string_is_not_the_version():  # Codex r
         (pyproject("0.2.0"), "not = [toml", False),
         (uv_lock("0.2.0"), uv_lock("0.3.0"), True),
         (uv_lock("0.2.0"), uv_lock("0.3.0", other="2.0.0"), False),
+        # Codex r2 P1: true == 1 == 1.0 in Python; TOML types must not blur
+        (uv_lock("0.2.0"), uv_lock("0.3.0").replace("version = 1", "version = true"), False),
+        (uv_lock("0.2.0"), uv_lock("0.3.0").replace("version = 1", "version = 1.0"), False),
+        (
+            pyproject("0.2.0") + "[tool.x]\na = true\n",
+            pyproject("0.3.0") + "[tool.x]\na = 1\n",
+            False,
+        ),
     ],
 )
 def test_59_same_but_version(old, new, same):

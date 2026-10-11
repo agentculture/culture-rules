@@ -1498,6 +1498,19 @@ def _without_version(path: str, doc: dict[str, Any], name: str) -> dict[str, Any
     return {**doc, "package": masked}
 
 
+def _typed(value: Any) -> Any:
+    """``value`` with every scalar tagged by its type, so equality is TOML-exact: Python's
+    ``True == 1 == 1.0`` never lets a boolean, integer or float pass for another (#59,
+    Codex r2)."""
+    if value is _PLACEHOLDER:
+        return ("version",)
+    if isinstance(value, dict):
+        return ("table", tuple(sorted((k, _typed(v)) for k, v in value.items())))
+    if isinstance(value, list):
+        return ("array", tuple(_typed(v) for v in value))
+    return (type(value).__name__, value)
+
+
 def same_but_version(path: str, old: str, new: str, name: str) -> bool:
     """Whether two versions of a root ``pyproject.toml`` or ``uv.lock`` parse to the same
     TOML document but for the project's own version (#59). Unparsable or ambiguous files
@@ -1507,7 +1520,7 @@ def same_but_version(path: str, old: str, new: str, name: str) -> bool:
     except tomllib.TOMLDecodeError:
         return False
     a, b = _without_version(path, before, name), _without_version(path, after, name)
-    return a is not None and b is not None and a == b
+    return a is not None and b is not None and _typed(a) == _typed(b)
 
 
 def _blob(job: _Job, sha: str, path: str) -> str | None:
