@@ -215,3 +215,83 @@ def test_a_comment_written_as_the_chains_status_comment() -> None:
     assert ("action.params.status", "action_param_type") in _errs("github.comment", params)
     params.update(status=True, once_key="k")
     assert ("action.params.status", "action_param_conflict") in _errs("github.comment", params)
+
+
+# --- the daily-newspaper kinds (#53 t1) ----------------------------------------------------
+
+EMAIL_SEND = "email.send"
+READER = "reader@example.org"
+SEARCH_WEB = "search.web"
+LLM_COMPLETE = "llm.complete"
+LIBRARY_PUSH = "library.push"
+
+NEWSPAPER_KINDS = {
+    EMAIL_SEND: {"actor": "mail", "to": [READER], "subject": "Daily", "html": "<p/>"},
+    SEARCH_WEB: {"actor": "brave", "query": "jetson news", "count": 10, "freshness": "pd"},
+    LLM_COMPLETE: {"actor": "cortex", "content": "results", "max_tokens": 800},
+    LIBRARY_PUSH: {"actor": "xteink", "content_base64": "UEsDBA==", "title": "Daily"},
+}
+
+REQUIRED = {
+    EMAIL_SEND: ("actor", "to", "subject"),
+    SEARCH_WEB: ("actor", "query"),
+    LLM_COMPLETE: ("actor", "content"),
+    LIBRARY_PUSH: ("actor", "content_base64", "title"),
+}
+
+OPTIONAL = {
+    EMAIL_SEND: ("html", "text"),
+    SEARCH_WEB: ("count", "freshness", "country", "lang"),
+    LLM_COMPLETE: ("max_tokens", "temperature"),
+    LIBRARY_PUSH: ("author", "device_id"),
+}
+
+
+@pytest.mark.parametrize("kind", sorted(NEWSPAPER_KINDS))
+def test_newspaper_kind_catalogued(kind: str) -> None:
+    assert kind in ACTION_KINDS
+
+
+@pytest.mark.parametrize("kind", sorted(NEWSPAPER_KINDS))
+def test_newspaper_kind_valid_params(kind: str) -> None:
+    assert _errs(kind, NEWSPAPER_KINDS[kind]) == set()
+
+
+@pytest.mark.parametrize("kind", sorted(REQUIRED))
+def test_newspaper_kind_required_params(kind: str) -> None:
+    errs = _errs(kind, {})
+    for name in REQUIRED[kind]:
+        assert (f"action.params.{name}", "action_param_required") in errs
+
+
+@pytest.mark.parametrize("kind", sorted(OPTIONAL))
+def test_newspaper_kind_optional_params_declared(kind: str) -> None:
+    params = ACTION_KINDS[kind].params
+    for name in OPTIONAL[kind]:
+        assert not params[name].required, name
+
+
+@pytest.mark.parametrize(
+    ("kind", "name", "value"),
+    [
+        (EMAIL_SEND, "to", READER),
+        (EMAIL_SEND, "subject", 3),
+        (SEARCH_WEB, "count", "ten"),
+        (SEARCH_WEB, "query", ["a"]),
+        (LLM_COMPLETE, "max_tokens", 1.5),
+        (LIBRARY_PUSH, "title", {"t": 1}),
+    ],
+)
+def test_newspaper_kind_wrong_type_rejected(kind: str, name: str, value) -> None:
+    errs = _errs(kind, {**NEWSPAPER_KINDS[kind], name: value})
+    assert (f"action.params.{name}", "action_param_type") in errs
+
+
+def test_email_send_to_accepts_a_reference() -> None:
+    params = {**NEWSPAPER_KINDS[EMAIL_SEND], "to": "{{ inputs.recipients }}"}
+    assert _errs(EMAIL_SEND, params) == set()
+
+
+def test_llm_complete_content_takes_structured_results() -> None:
+    params = {**NEWSPAPER_KINDS[LLM_COMPLETE], "content": [{"title": "t", "url": "u"}]}
+    assert _errs(LLM_COMPLETE, params) == set()
