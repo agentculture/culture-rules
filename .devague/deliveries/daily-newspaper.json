@@ -2,7 +2,7 @@
   "plan_slug": "daily-newspaper",
   "schema_version": 2,
   "created": "2026-10-11T05:14:10Z",
-  "updated": "2026-10-11T05:14:10Z",
+  "updated": "2026-10-11T05:28:48Z",
   "deviations": [
     {
       "id": "d1",
@@ -11,7 +11,7 @@
       "reason": "the engine had no way for a workflow to survive a failed step, which the confirmed cortex-down decision (q1) needs",
       "affects": [],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 1
     },
@@ -24,7 +24,7 @@
         "t6"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 2
     }
