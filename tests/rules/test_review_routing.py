@@ -27,10 +27,16 @@ import pytest
 from culture_rules.actors.review import REVIEWER_BRIEF, current_review, review_target
 from culture_rules.engine.runs import step_state
 from tests.rules import chain_world
-from tests.rules.chain_world import CHAIN_VARIABLES, CODEX_FIXER, REPO, ChainWorld
+from tests.rules.chain_world import (
+    CHAIN_VARIABLES,
+    CODEX_FIXER,
+    CODEX_LEVEL,
+    QWEN_LEVEL,
+    REPO,
+    ChainWorld,
+)
 from tests.rules.test_pr_fixer_queue import handed_back, settle
 
-QWEN_LEVEL, CODEX_LEVEL = CHAIN_VARIABLES["fixer_levels"]
 SUCCEEDED, SKIPPED = "succeeded", "skipped"
 REVIEW_CODEX = "review_codex"
 REVIEW_QWEN = "review_qwen"
