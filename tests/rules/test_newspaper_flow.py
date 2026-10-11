@@ -17,6 +17,7 @@ import json
 from datetime import UTC, datetime, timedelta
 from urllib.parse import parse_qs, urlsplit
 
+from culture_rules.actors.limits import USAGE_COLLECTION, pool_doc_id
 from culture_rules.apps.resend import RESEND_EMAILS_URL
 from culture_rules.engine.runs import RUNS_COLLECTION, step_key, step_state
 from culture_rules.node.actions.email import EmailSendPort
@@ -67,6 +68,8 @@ ITEM_ID = "item_id"
 CONTENT = "content"
 TRIGGER = "trigger"
 PARAMS = "params"
+IDEM_HEADER = "Idempotency-Key"
+POOL = "qwen-spark2"
 
 
 # --------------------------------------------------------------------------- the fakes
@@ -123,9 +126,11 @@ class Resend:
     def __init__(self) -> None:
         self.sent: list[dict] = []
         self.keys: dict[str, str] = {}
+        self.calls = 0
 
     def __call__(self, method, url, headers, body, timeout):
-        key = headers.get("Idempotency-Key")
+        self.calls += 1
+        key = headers.get(IDEM_HEADER)
         if key not in self.keys:
             self.sent.append({"url": url, HEADERS: dict(headers), "json": json.loads(body)})
             self.keys[key] = f"msg-{len(self.sent)}"
@@ -138,8 +143,11 @@ class Xteink:
     def __init__(self) -> None:
         self.uploads: list[bytes] = []
         self.queued: list[tuple[str, dict]] = []
+        self.down = False
 
     def __call__(self, method, url, headers, body, timeout):
+        if self.down:
+            return 503, b'{"detail": "down"}'
         path = urlsplit(url).path
         if path == "/api/library":
             self.uploads.append(body)
@@ -264,7 +272,7 @@ def test_the_email_goes_from_newsletter_no_reply_to_the_seeded_reader():
     assert mail["json"]["from"] == SENDER
     assert mail["json"]["to"] == [READER]
     assert mail["json"]["subject"] == SUBJECT
-    assert mail[HEADERS]["Idempotency-Key"]
+    assert mail[HEADERS][IDEM_HEADER]
 
 
 def test_the_run_outputs_carry_the_message_and_item_ids():  # h17
@@ -390,3 +398,96 @@ def test_the_epub_round_trips_from_the_render():
     world.run_until(TODAY + timedelta(minutes=20))
     render = step_state(finished(world), "render")
     assert base64.b64decode(render[OUTPUTS]["epub_base64"])[:2] == b"PK"
+
+
+# --------------------------------------------------------------------------- partial delivery
+
+
+TWICE = "30 6,8 * * *"  # a second slot two hours on: past the first run's one-hour lease
+SECOND_SLOT = datetime(2026, 10, 11, 5, 30, tzinfo=UTC)
+
+
+def partial_then_retry() -> World:
+    """Codex r1 #1: the 06:30 run emails, xteink is down so its push fails, and the 08:30
+    run takes the date over once the first run's lease has run out."""
+    world = World(cron=TWICE)
+    world.xteink.down = True
+    world.run_until(SECOND_SLOT - timedelta(minutes=10))
+    world.xteink.down = False
+    world.run_until(SECOND_SLOT + timedelta(minutes=20))
+    return world
+
+
+def test_a_takeover_after_a_failed_push_sends_no_second_email():
+    world = partial_then_retry()
+    assert world.resend.calls == 1
+
+
+def test_a_takeover_after_a_failed_push_retries_only_the_push():
+    world = partial_then_retry()
+    first, second = world.runs()
+    assert (first[STATUS], second[STATUS]) == ("failed", "succeeded")
+    assert step_state(second, "email")[STATUS] == "skipped"
+    assert len(world.xteink.queued) == 1
+
+
+def test_a_takeover_after_a_failed_push_records_the_first_message():
+    world = partial_then_retry()
+    second = world.runs()[1]
+    assert second[OUTPUTS][MESSAGE_ID] == MSG_1
+    issue = world.base.get(ISSUES_COLLECTION, "2026-10-11")
+    assert (issue["state"], issue["email"][MESSAGE_ID]) == ("delivered", MSG_1)
+
+
+def test_the_email_carries_the_durable_per_date_key():
+    world = World()
+    world.run_until(TODAY + timedelta(minutes=20))
+    (mail,) = world.resend.sent
+    assert mail[HEADERS][IDEM_HEADER] == "newspaper:2026-10-11:email"
+
+
+# --------------------------------------------------------------------------- a busy pool
+
+
+def hold_the_pool(world: World) -> None:
+    """A PR fix holds the qwen-spark2 pool's only slot all morning (Codex r1 #3)."""
+    until = (TODAY + timedelta(hours=6)).isoformat()
+    world.base.put(
+        USAGE_COLLECTION,
+        {
+            "id": pool_doc_id(POOL),
+            "pool": POOL,
+            "rev": 1,
+            "inflight": [{"key": "fix-run", "until": until, "actor": "qwen-fixer"}],
+        },
+    )
+
+
+def test_a_busy_pool_still_sends_the_issue_by_0645():
+    world = World()
+    hold_the_pool(world)
+    world.run_until(TODAY + timedelta(minutes=20))  # 06:45 in Jerusalem
+    assert len(world.resend.sent) == 1
+
+
+def test_a_busy_pool_sends_the_results_only_issue():
+    world = World()
+    hold_the_pool(world)
+    world.run_until(TODAY + timedelta(minutes=20))
+    assert finished(world)[OUTPUTS][MESSAGE_ID] == MSG_1
+    assert world.html().count(SUMMARY_UNAVAILABLE) == 2
+
+
+def test_a_busy_pool_never_reaches_cortex():
+    world = World()
+    hold_the_pool(world)
+    world.run_until(TODAY + timedelta(minutes=20))
+    assert world.cortex.requests == []
+
+
+def test_a_busy_pool_records_the_llm_deadline_on_the_summary():
+    world = World()
+    hold_the_pool(world)
+    world.run_until(TODAY + timedelta(minutes=20))
+    summary = step_state(finished(world), step_key("summarise", 1, "summary"))
+    assert "llm_deadline" in summary["error"]["message"]

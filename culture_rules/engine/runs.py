@@ -174,7 +174,8 @@ Semantics
 * **Tolerated failure** (#53 t8) - a dispatched step (not a loop or wait step) whose
   ``config.on_error`` is ``"skip"`` and that ends ``failed`` (a non-retryable failure, its
   retries used up, a queue timeout, a false-typed output) is turned ``skipped`` by
-  housekeeping before anything else sees the failure, keeping its ``error``; history records
+  housekeeping before anything else sees the failure, keeping its ``error`` and clearing its
+  ``outputs`` (an output-validation failure stored the rejected values); history records
   ``failure_tolerated``. Downstream steps then run without its outputs (their ports must not
   require them) and a loop body's iteration ends normally. The daily newspaper's summary
   step uses it: an unreachable model still sends the results-only issue.
@@ -2290,13 +2291,18 @@ def _tolerates_failure(plan: _Plan, st: Mapping) -> bool:
 def _tolerate_failed(plan: _Plan, doc: Mapping, now: datetime) -> Found:
     """A failed step whose ``config.on_error`` is ``skip`` becomes ``skipped`` (its
     ``error`` kept), before a loop or the run can fail on it: downstream steps run without
-    its outputs, and a loop goes on with its next iteration."""
+    its outputs, and a loop goes on with its next iteration.
+
+    Its ``outputs`` are cleared: a step failed by output validation stored the rejected
+    values, and a ``skipped`` step's outputs would otherwise reach downstream ports and
+    loop aggregation (Codex r1 #2). The ``error`` keeps the diagnosis."""
     if doc.get("status") != ACTIVE or step_state(doc, FAILURE_STEP) is not None:
         return None
     for st in doc["steps"]:
         if _tolerates_failure(plan, st):
             new, nst = _copy_with(doc, st["key"])
             nst["status"] = "skipped"
+            nst["outputs"] = None
             return new, FAILURE_TOLERATED, st["key"]
     return None
 

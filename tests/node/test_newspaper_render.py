@@ -291,6 +291,19 @@ def test_bullet_without_a_link_drops_the_summary():
     assert LINK_NOTE in html
 
 
+def test_unlinked_prose_before_a_linked_bullet_drops_the_summary():
+    """Codex r1 #5: an unsourced paragraph must not ride along with one valid bullet."""
+    summary = f"Markets crashed today, insiders say.\n- [a]({URL_A})"
+    html = ok([sec(results=[hit(URL_A)], summary=summary)])["html"]
+    assert "insiders say" not in html
+
+
+def test_unlinked_prose_falls_back_to_the_results_with_the_note():
+    summary = f"# Heading\n- [a]({URL_A})"
+    html = ok([sec(results=[hit(URL_A, title="Alpha")], summary=summary)])["html"]
+    assert LINK_NOTE in html
+
+
 def test_summary_without_any_link_is_dropped():
     html = ok([sec(results=[hit(URL_A)], summary="All quiet today.")])["html"]
     assert "All quiet" not in html
@@ -339,6 +352,33 @@ def test_raw_html_in_a_summary_is_escaped():
     summary = f"- <img src=x onerror=alert(1)> [a]({URL_A})"
     html = ok([sec(results=[hit(URL_A)], summary=summary)])["html"]
     assert "<img" not in html
+
+
+BOLD_URL = "https://news.example/**story**"
+
+
+def test_bold_markup_inside_a_link_url_is_left_alone():
+    """Codex r1 #4: bold substitution must never rewrite a generated href."""
+    summary = f"- **Big**: [a]({BOLD_URL})"
+    html = ok([sec(results=[hit(BOLD_URL)], summary=summary)])["html"]
+    assert f'href="{BOLD_URL}"' in html
+
+
+def test_bold_markup_inside_a_link_url_keeps_every_chapter_xml():
+    summary = f"- [a]({BOLD_URL}) and **[b]({BOLD_URL})**"
+    second = sec(name="Two", results=[hit(BOLD_URL)], summary=f"- [x **y**]({BOLD_URL})")
+    archive = epub(ok([sec(results=[hit(BOLD_URL)], summary=summary), second]))
+    chapters = [n for n in archive.namelist() if n.endswith(".xhtml")]
+    parsed = [ElementTree.fromstring(archive.read(n)).tag for n in chapters]
+    assert len(parsed) == 3
+
+
+def test_bold_still_applies_to_text_and_link_labels():
+    xhtml = summary_to_xhtml(f"- **Big** [x **y**]({URL_A})")
+    assert (
+        xhtml
+        == f'<ul><li><strong>Big</strong> <a href="{URL_A}">x <strong>y</strong></a></li></ul>'
+    )
 
 
 def test_control_characters_are_stripped():

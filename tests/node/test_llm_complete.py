@@ -483,3 +483,63 @@ def test_the_default_transport_reports_a_closed_port_as_unavailable():
 def test_the_default_transport_returns_an_error_status_rather_than_raising(local_server):
     status, _ = urllib_transport(local_server + "/missing", b"{}", {}, 5.0)
     assert status == 404
+
+
+# ---- the summary deadline (Codex r1 #3) ----------------------------------------------------
+
+LLM_DEADLINE = "llm_deadline"
+
+
+def _at(seconds):
+    return (datetime.now(UTC) + timedelta(seconds=seconds)).isoformat()
+
+
+def test_a_passed_not_after_fails_non_retryably_without_a_request():
+    port, transport = _port()
+    res = _invoke(port, not_after=_at(-1))
+    assert (res.outcome, res.retryable, transport.calls) == (FAILED, False, [])
+
+
+def test_a_passed_not_after_names_the_llm_deadline():
+    port, _ = _port()
+    assert _invoke(port, not_after=_at(-1)).error.startswith(LLM_DEADLINE)
+
+
+def test_not_after_bounds_the_request_timeout():
+    port, transport = _port()
+    _invoke(port, seconds=600, not_after=_at(30))
+    assert 0 < transport.calls[0]["timeout"] <= 30
+
+
+@pytest.mark.parametrize("value", ["tomorrow", "2026-10-11T03:40:00", 7])
+def test_a_bad_not_after_is_invalid(value):
+    port, transport = _port()
+    res = _invoke(port, not_after=value)
+    assert (res.error.split(":")[0], transport.calls) == ("invalid_request", [])
+
+
+def _route_with(store, transport, not_after):
+    port = LlmCompletePort(store, transport=transport)
+    routed = ActorRouter(store, ports={"action:llm.complete": port})(_ctx())
+    params = {"actor": "llm", "content": "No items", "not_after": not_after}
+    return routed.invoke(params, "news", _deadline(), context=_ctx())
+
+
+def test_past_not_after_a_busy_pool_fails_instead_of_queueing():
+    store, transport = _pooled_store(), FakeTransport()
+    _hold_pool_slot(store)
+    res = _route_with(store, transport, _at(-1))
+    assert (res.outcome, res.retryable) == (FAILED, False)
+
+
+def test_before_not_after_a_busy_pool_still_queues():
+    store, transport = _pooled_store(), FakeTransport()
+    _hold_pool_slot(store)
+    assert _route_with(store, transport, _at(300)).outcome == BLOCKED
+
+
+def test_a_refused_deadline_takes_no_pool_slot():
+    store = _pooled_store()
+    _route_with(store, FakeTransport(), _at(-1))
+    pool = store.get(USAGE_COLLECTION, pool_doc_id(POOL))
+    assert not (pool or {}).get("inflight")

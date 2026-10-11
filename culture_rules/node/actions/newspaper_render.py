@@ -21,16 +21,20 @@ Each section renders as exactly one of:
 
 * **No results** - the section's results are empty: the line :data:`NO_RESULTS`, never the
   summary (h6: nothing is filled in).
-* **The summary** - it passes the link check: it links at least once, every link is an
-  ``http``/``https`` URL that is one of *this* section's result URLs, and every bullet carries
-  a link (c19/h5: every summarised item links its source).
+* **The summary** - it passes the link check: every non-blank line is a bullet (the locked
+  brief's format), every bullet carries a link, and every link is an ``http``/``https`` URL
+  that is one of *this* section's result URLs (c19/h5: every summarised item links its
+  source; a paragraph or heading fails the check).
 * **The results** - title linked, snippet, ``source · age`` - followed by
   :data:`SUMMARY_UNAVAILABLE` when the summary is missing, or :data:`LINK_NOTE` when it failed
   the link check (the summary is dropped).
 
 The summary is markdown-ish: ``-``/``*``/``•``/``1.`` bullets, ``[text](url)`` links,
-``**bold**``, other lines as paragraphs. It is converted to XHTML here, escaping every
-character first, so raw HTML in a summary is shown as text and never passed through.
+``**bold**``, other lines as paragraphs (:func:`summary_to_xhtml`; the link check admits
+bullets only). Each line is split into link and text tokens; a text token (and a link's
+label) is escaped and then bolded, and an anchor is built last from the escaped URL, so no
+markdown substitution ever touches a generated tag or attribute. Raw HTML in a summary is
+shown as text and never passed through.
 Every field is escaped, XML-invalid control characters are stripped, long fields are
 truncated, and only ``http``/``https`` URLs become links.
 
@@ -149,10 +153,20 @@ def http_host(url: Any) -> str | None:
     return host if parts.scheme in ("http", "https") and host else None
 
 
+def _format(text: str) -> str:
+    """Escape one plain-text token, then turn ``**bold**`` into ``<strong>``.
+
+    Only ever called on text that is not markup yet, never on generated tags or attributes,
+    so a ``**`` inside a URL can't reach an ``href`` (Codex r1 #4).
+    """
+    return _BOLD_RE.sub(r"<strong>\1</strong>", _esc(text))
+
+
 def _anchor(url: str, label: str) -> str:
+    """A link built last: the escaped URL in the attribute, the formatted label as content."""
     if http_host(url) is None:
-        return _esc(label)
-    return f'<a href="{_esc(url)}">{_esc(label)}</a>'
+        return _format(label)
+    return f'<a href="{_esc(url)}">{_format(label)}</a>'
 
 
 def summary_links(text: str) -> list[str]:
@@ -161,13 +175,14 @@ def summary_links(text: str) -> list[str]:
 
 
 def _inline(text: str) -> str:
+    """One line as XHTML: split into link and text tokens, format each token on its own."""
     out, pos = [], 0
     for match in _LINK_RE.finditer(text):
-        out.append(_esc(text[pos : match.start()]))
+        out.append(_format(text[pos : match.start()]))
         out.append(_anchor(match.group(2), match.group(1)))
         pos = match.end()
-    out.append(_esc(text[pos:]))
-    return _BOLD_RE.sub(r"<strong>\1</strong>", "".join(out))
+    out.append(_format(text[pos:]))
+    return "".join(out)
 
 
 def _lines(text: str) -> list[tuple[bool, str]]:
@@ -199,12 +214,17 @@ def summary_to_xhtml(text: str) -> str:
 
 
 def _summary_ok(summary: str, results: Sequence[Mapping[str, str]]) -> bool:
-    """The link check (module doc): sourced, and only from this section's results."""
+    """The link check (module doc): bullets only, each sourced from this section's results.
+
+    The locked brief asks for bullets and nothing else, so any non-bullet line (a paragraph,
+    a heading) fails the check: an unsourced paragraph can't ride along with one linked
+    bullet (Codex r1 #5). The section then renders its results instead.
+    """
     allowed = {r["url"] for r in results if http_host(r["url"])}
     links = summary_links(summary)
     if not links or any(url not in allowed for url in links):
         return False
-    return all(_LINK_RE.search(content) for bullet, content in _lines(summary) if bullet)
+    return all(bullet and _LINK_RE.search(content) for bullet, content in _lines(summary))
 
 
 # ------------------------------------------------------------------ input

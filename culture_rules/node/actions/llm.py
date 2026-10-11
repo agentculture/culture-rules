@@ -23,6 +23,16 @@ The request is ``POST <base_url>/v1/chat/completions`` with exactly ``model``,
 content), ``max_tokens``, ``stream: false`` and, when given, ``temperature`` - never a
 ``tools`` field. Proxies from the environment are ignored and redirects are not followed.
 
+An optional ``not_after`` param (an ISO-8601 time with a UTC offset) is the latest time the
+work may start: at or past it the port fails ``llm_deadline`` (not retryable) without a
+request, and before it the request's timeout ends at it. :class:`LlmCompletePort` also
+answers :meth:`~LlmCompletePort.refuse_before_admit`, which
+:class:`~culture_rules.actors.limits.LimitedActor` asks before it queues the work, so a
+summary waiting ``blocked`` behind a busy pool gives up at its next re-ask after
+``not_after`` instead of waiting out the queue bound. The daily newspaper passes the
+issue's ``summaries_until`` (the slot plus the summary window), so the issue goes out on
+time with the results only (Codex r1 #3).
+
 Outcome: completed ``{text, model, usage}`` (``text`` is the first choice's message content
 with a leading ``<think>`` block dropped; ``usage`` keeps the integer token counts, so the
 actor's token budget counts them). Failures (``"<code>: <detail>"``, never a body, a header
@@ -30,6 +40,7 @@ value or a secret):
 
 * ``llm_unavailable`` (retryable) - connection refused, DNS, timeout, a passed deadline,
   5xx, 408 or 429; the newspaper workflow sends without summaries on it;
+* ``llm_deadline`` (not retryable) - ``not_after`` has passed;
 * ``llm_rejected`` (not retryable) - any other non-2xx answer;
 * ``llm_bad_response`` (not retryable) - not JSON, or no string message content;
 * ``llm_content_too_large``, ``invalid_request``, ``llm_actor_invalid``,
@@ -86,6 +97,7 @@ UNAVAILABLE = "llm_unavailable"
 REJECTED = "llm_rejected"
 BAD_RESPONSE = "llm_bad_response"
 INVALID = "invalid_request"
+DEADLINE_PASSED = "llm_deadline"
 ACTOR_INVALID = "llm_actor_invalid"
 _CONTENT, _MODEL = "content", "model"
 
@@ -219,6 +231,20 @@ def _temperature(value: Any) -> float | None:
     return float(value)
 
 
+def _not_after(value: Any) -> datetime | None:
+    if value is None:
+        return None
+    when = None
+    if isinstance(value, str):
+        try:
+            when = datetime.fromisoformat(value)
+        except ValueError:
+            when = None
+    if when is None or when.tzinfo is None:
+        raise _Refused(INVALID, "not_after must be an ISO-8601 time with a UTC offset")
+    return when
+
+
 # ------------------------------------------------------------------ the response
 
 
@@ -302,6 +328,9 @@ class LlmCompletePort:
     ) -> InvocationResult:
         if idempotency_key in self._ledger:
             return self._ledger[idempotency_key]
+        refused = self.refuse_before_admit(input)
+        if refused is not None:
+            return refused
         actor, _doc, failure = load_bound_actor(self._store, input, context)
         if failure is not None or actor is None:
             return failure or InvocationResult.failed("actor_not_found", retryable=False)
@@ -312,6 +341,23 @@ class LlmCompletePort:
         if result.outcome == COMPLETED:
             self._ledger[idempotency_key] = result
         return result
+
+    def refuse_before_admit(self, input: Mapping[str, Any]) -> InvocationResult | None:
+        """The failure for work that must not start (``not_after`` passed or malformed).
+
+        :class:`~culture_rules.actors.limits.LimitedActor` asks this before it takes or waits
+        for a slot, so a passed deadline is never queued."""
+        try:
+            self._not_after(input)
+        except _Refused as exc:
+            return exc.result()
+        return None
+
+    def _not_after(self, input: Mapping[str, Any]) -> datetime | None:
+        when = _not_after(input.get("not_after"))
+        if when is not None and self._clock() >= when:
+            raise _Refused(DEADLINE_PASSED, "not_after has passed: the work may no longer start")
+        return when
 
     def _request(self, input: Mapping[str, Any], model: str) -> bytes:
         body: dict[str, Any] = {
@@ -354,6 +400,9 @@ class LlmCompletePort:
             raise _Refused(ACTOR_INVALID, f"{actor.id!r}: {problem}")
         model = str(actor.params.get(_MODEL) or actor.model).strip()
         data = self._request(input, model)
+        not_after = self._not_after(input)
+        if not_after is not None:
+            deadline = min(deadline, not_after)
         timeout = (deadline - self._clock()).total_seconds()
         if timeout <= 0:
             raise _Refused(UNAVAILABLE, "attempt deadline already passed", retryable=True)

@@ -9,8 +9,12 @@ refusal names no secret. The key is resolved from ``grant`` on the executing hos
 and kept only in memory.
 
 Resend deduplicates on ``Idempotency-Key``, so the engine's idempotency key is forwarded and
-``supports_idempotency_key`` is True: a retried send does not send a second email. The output
-is ``{message_id}`` only.
+``supports_idempotency_key`` is True: a retried send does not send a second email. The
+engine's key is per run and step. An optional ``idempotency_key`` param (a non-empty string of
+at most :data:`MAX_IDEMPOTENCY_KEY` characters, Resend's limit) replaces it: the daily
+newspaper passes ``newspaper:<date>:email`` so that a *later run* for the same date - after a
+takeover - cannot send that date's email twice (Codex r1 #1). Any other value is
+``bad_input``. The output is ``{message_id}`` only.
 """
 
 from __future__ import annotations
@@ -32,6 +36,17 @@ __all__ = ["EmailSendPort"]
 log = logging.getLogger(__name__)
 
 _BAD_INPUT = "bad_input"
+MAX_IDEMPOTENCY_KEY = 256
+
+
+def _key(input: Mapping[str, Any], engine_key: str) -> str | None:
+    """The ``idempotency_key`` param when given (None when it is unusable), else the engine's."""
+    if "idempotency_key" not in input or input["idempotency_key"] is None:
+        return engine_key
+    key = input["idempotency_key"]
+    if not isinstance(key, str) or not key.strip() or len(key) > MAX_IDEMPOTENCY_KEY:
+        return None
+    return key
 
 
 def _recipients(value: Any) -> list[str] | None:
@@ -105,8 +120,9 @@ class EmailSendPort:
         if not _all_allowed(to, conn):
             return InvocationResult.failed("recipient_not_allowed", retryable=False)
         error = _body_error(input)
-        if error:
-            return InvocationResult.failed(error, retryable=False)
+        key = _key(input, idempotency_key)
+        if error or key is None:
+            return InvocationResult.failed(error or _BAD_INPUT, retryable=False)
         try:
             token = (self._secrets or resolve_secret)(str(conn.get("api_key") or ""))
         except Exception:  # noqa: BLE001 - never echo secret text
@@ -119,7 +135,7 @@ class EmailSendPort:
                 subject=input["subject"],
                 html=input.get("html"),
                 text=input.get("text"),
-                idempotency_key=idempotency_key,
+                idempotency_key=key,
             )
         except ResendError as exc:
             log.info("email.send failed: %s", exc.code)

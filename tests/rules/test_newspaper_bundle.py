@@ -197,7 +197,24 @@ def test_the_workflow_builtins_in_order():
         "newspaper.filter",
         "newspaper.render",
         "newspaper.issue",
+        "newspaper.issue",
+        "newspaper.issue",
     ]
+
+
+def test_the_issue_phases_fence_each_side_effect():  # Codex r1 #1
+    phases = [s.config.get("phase") for s in every_step(workflow()) if s.config.get("phase")]
+    assert phases == ["claim", "before_email", "before_push", "record"]
+
+
+def test_the_email_sends_under_the_fenced_durable_key():  # Codex r1 #1
+    (email,) = [s for s in every_step(workflow()) if s.id == "email"]
+    assert action_spec(email)["params"]["idempotency_key"] == "inputs.idempotency_key"
+
+
+def test_no_summary_starts_after_the_window():  # Codex r1 #3
+    (summary,) = [s for s in every_step(workflow()) if s.id == "summary"]
+    assert action_spec(summary)["params"]["not_after"] == "inputs.not_after"
 
 
 def test_only_the_summary_tolerates_its_failure():

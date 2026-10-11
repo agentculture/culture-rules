@@ -391,10 +391,15 @@ class Issues:
         return self.store.get(ISSUES_COLLECTION, day)
 
 
+def answer(result):
+    """A claim's answer without its summary deadline (tested on its own)."""
+    return {k: v for k, v in result.output.items() if k != "summaries_until"}
+
+
 def test_first_claim_delivers_and_records_the_claim():
     world = Issues()
     result = world.call(CLAIM)
-    assert result.output == {"deliver": True, "date": DATE, "reason": "claimed"}
+    assert answer(result) == {"deliver": True, "date": DATE, "reason": "claimed"}
     assert world.doc()["state"] == "claimed"
     assert world.doc()["claimed_by"] == "r1"
 
@@ -411,7 +416,7 @@ def test_second_claim_after_delivery_sends_nothing():  # h8
     recorded = world.call("record", message_id="m1", item_id="i1")
     assert recorded.output == {"recorded": True, "date": DATE}
     again = world.call(CLAIM, run="r2")
-    assert again.output == {"deliver": False, "date": DATE, "reason": "already_delivered"}
+    assert answer(again) == {"deliver": False, "date": DATE, "reason": "already_delivered"}
 
 
 def test_record_stores_the_delivery_ids():
@@ -454,7 +459,7 @@ def test_live_claim_by_another_run_is_respected():
     world = Issues()
     world.call(CLAIM)
     result = world.call(CLAIM, run="r2")
-    assert result.output == {"deliver": False, "date": DATE, "reason": "claimed_by_another_run"}
+    assert answer(result) == {"deliver": False, "date": DATE, "reason": "claimed_by_another_run"}
 
 
 def test_stale_claim_by_another_run_is_taken_over():
@@ -493,7 +498,7 @@ def test_different_dates_are_independent():
     world.call(CLAIM)
     world.call("record", message_id="m1")
     result = world.call(CLAIM, run="r2", slot="2026-10-12T03:30:00Z")
-    assert result.output == {"deliver": True, "date": "2026-10-12", "reason": "claimed"}
+    assert answer(result) == {"deliver": True, "date": "2026-10-12", "reason": "claimed"}
 
 
 @pytest.mark.parametrize(
@@ -517,3 +522,161 @@ def test_bad_claim_timeout_config():
     result = Issues().call(CLAIM, config={"claim_timeout_s": -1})
     assert result.outcome == FAILED
     assert "claim_timeout_s" in result.error
+
+
+# ------------------------------------------------------------------ fenced delivery (Codex r1 #1)
+
+BEFORE_EMAIL = "before_email"
+BEFORE_PUSH = "before_push"
+RECORD = "record"
+HTML = "<p>issue</p>"
+SUBJECT = "Daily newspaper 2026-10-11"
+MESSAGE_ID = "message_id"
+SEND = "send"
+LOST = "claim_lost"
+EMAIL_KEY = f"newspaper:{DATE}:email"
+R2 = "r2"
+M1 = "m1"
+OTHER_HTML = "<p>other</p>"
+
+
+def emailed(world, run="r1", message=M1, html=HTML):
+    """A run that claimed, passed its email fence and recorded its sent email."""
+    world.call(CLAIM, run=run)
+    world.call(BEFORE_EMAIL, run=run, subject=SUBJECT, html=html)
+    return world.call(BEFORE_PUSH, run=run, message_id=message)
+
+
+def taken_over(world):
+    """r1 sent the email and died before the push; r2 takes the date after the lease."""
+    emailed(world)
+    world.clock.now += timedelta(hours=2)
+    world.call(CLAIM, run=R2)
+
+
+def test_the_email_fence_answers_send_with_the_durable_key():
+    world = Issues()
+    world.call(CLAIM)
+    out = world.call(BEFORE_EMAIL, subject=SUBJECT, html=HTML).output
+    assert out == {
+        SEND: True,
+        "date": DATE,
+        "subject": SUBJECT,
+        "html": HTML,
+        "idempotency_key": EMAIL_KEY,
+    }
+
+
+def test_after_a_takeover_the_sent_email_is_not_sent_again():
+    world = Issues()
+    taken_over(world)
+    out = world.call(BEFORE_EMAIL, run=R2, subject=SUBJECT, html=OTHER_HTML).output
+    assert out[SEND] is False
+
+
+def test_after_a_takeover_the_recorded_message_id_is_reported():
+    world = Issues()
+    taken_over(world)
+    out = world.call(BEFORE_EMAIL, run=R2, subject=SUBJECT, html=OTHER_HTML).output
+    assert out[MESSAGE_ID] == M1
+
+
+def test_a_takeover_reuses_the_first_payload_and_key():
+    world = Issues()
+    world.call(CLAIM)
+    world.call(BEFORE_EMAIL, subject=SUBJECT, html=HTML)  # sent, then the node died
+    world.clock.now += timedelta(hours=2)
+    world.call(CLAIM, run=R2)
+    out = world.call(BEFORE_EMAIL, run=R2, subject=SUBJECT, html=OTHER_HTML).output
+    assert (out[SEND], out["html"], out["idempotency_key"]) == (True, HTML, EMAIL_KEY)
+
+
+def test_after_a_takeover_the_push_fence_passes_with_the_recorded_message():
+    world = Issues()
+    taken_over(world)
+    world.call(BEFORE_EMAIL, run=R2, subject=SUBJECT, html=HTML)
+    assert world.call(BEFORE_PUSH, run=R2).output == {MESSAGE_ID: M1, "date": DATE}
+
+
+def test_a_slow_owner_taken_over_cannot_send_the_email():
+    world = Issues()
+    world.call(CLAIM)
+    world.clock.now += timedelta(hours=2)
+    world.call(CLAIM, run=R2)
+    result = world.call(BEFORE_EMAIL, subject=SUBJECT, html=HTML)
+    assert result.outcome == FAILED
+    assert result.error.startswith(LOST)
+
+
+def test_a_slow_owner_taken_over_cannot_push():
+    world = Issues()
+    world.call(CLAIM)
+    world.call(BEFORE_EMAIL, subject=SUBJECT, html=HTML)
+    world.clock.now += timedelta(hours=2)
+    world.call(CLAIM, run=R2)
+    result = world.call(BEFORE_PUSH, message_id=M1)
+    assert result.error.startswith(LOST)
+
+
+def test_a_slow_owner_still_records_the_email_it_sent():
+    world = Issues()
+    world.call(CLAIM)
+    world.call(BEFORE_EMAIL, subject=SUBJECT, html=HTML)
+    world.clock.now += timedelta(hours=2)
+    world.call(CLAIM, run=R2)
+    world.call(BEFORE_PUSH, message_id=M1)
+    assert world.doc()["email"][MESSAGE_ID] == M1
+
+
+def test_a_lost_claim_is_not_retryable():
+    world = Issues()
+    world.call(CLAIM)
+    world.clock.now += timedelta(hours=2)
+    world.call(CLAIM, run=R2)
+    assert world.call(BEFORE_EMAIL, subject=SUBJECT, html=HTML).retryable is False
+
+
+def test_the_fences_renew_the_lease():
+    world = Issues()
+    world.call(CLAIM)
+    world.clock.now += timedelta(minutes=50)
+    world.call(BEFORE_EMAIL, subject=SUBJECT, html=HTML)
+    world.clock.now += timedelta(minutes=50)  # 100 min after the claim, 50 after the fence
+    assert world.call(CLAIM, run=R2).output["reason"] == "claimed_by_another_run"
+
+
+def test_the_email_fence_needs_the_rendered_issue():
+    world = Issues()
+    world.call(CLAIM)
+    result = world.call(BEFORE_EMAIL, subject=SUBJECT)
+    assert result.error.startswith("bad_input")
+
+
+def test_the_push_fence_needs_a_sent_email():
+    world = Issues()
+    world.call(CLAIM)
+    world.call(BEFORE_EMAIL, subject=SUBJECT, html=HTML)
+    assert world.call(BEFORE_PUSH).error.startswith("bad_input")
+
+
+def test_record_stores_the_library_progress():
+    world = Issues()
+    emailed(world)
+    world.call(RECORD, message_id=M1, item_id=7, queue_id=11)
+    library = world.doc()["library"]
+    assert (library["item_id"], library["queue_id"]) == ("7", "11")
+
+
+def test_the_claim_gives_the_summary_deadline_from_the_slot():
+    out = Issues().call(CLAIM).output
+    assert out["summaries_until"] == "2026-10-11T03:40:00+00:00"
+
+
+def test_the_summary_window_from_config():
+    out = Issues().call(CLAIM, config={"summary_window_s": 900}).output
+    assert out["summaries_until"] == "2026-10-11T03:45:00+00:00"
+
+
+def test_bad_summary_window_config():
+    result = Issues().call(CLAIM, config={"summary_window_s": 0})
+    assert "summary_window_s" in result.error

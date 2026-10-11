@@ -385,6 +385,9 @@ class LimitedActor:
         *,
         context: InvocationContext,
     ) -> InvocationResult:
+        refused = self._refused_before_admit(input)
+        if refused is not None:
+            return refused
         verdict, doc = self._admit(idempotency_key, deadline)
         if verdict == OVER_BUDGET:
             return InvocationResult.failed(self._over_budget_error(doc), retryable=False)
@@ -410,6 +413,17 @@ class LimitedActor:
                 completed=result.outcome == COMPLETED,
             )
         return result
+
+    def _refused_before_admit(self, input: Mapping[str, Any]) -> InvocationResult | None:
+        """The inner port's own refusal of work that must not start, asked before any slot.
+
+        A port may define ``refuse_before_admit(input)`` returning a failed result (or None):
+        ``llm.complete`` refuses a passed ``not_after``, so work past its deadline fails at
+        once instead of waiting ``blocked`` at the cap. No slot is taken and no token is
+        counted."""
+        refuse = getattr(self.inner, "refuse_before_admit", None)
+        result = refuse(input) if callable(refuse) else None
+        return result if isinstance(result, InvocationResult) else None
 
     def _over_budget_error(self, doc: Mapping[str, Any]) -> str:
         used, budget = doc["tokens"], self.limits.token_budget
