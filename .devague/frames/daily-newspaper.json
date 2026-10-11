@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "drafting",
   "created": "2026-10-11T04:20:53Z",
-  "updated": "2026-10-11T04:21:08Z",
+  "updated": "2026-10-11T04:21:29Z",
   "claims": [
     {
       "id": "c1",
@@ -108,7 +108,20 @@
       "text": "An 'email' app surface and an email.send action: the actor's connection holds the Resend key reference, the sender domain (one of culture.dev, jetson-ai-lab.org), the sender local part (default no-reply) and a recipient allowlist checked before any secret is read; the action takes to, subject, html and/or text and optional attachments, forwards the engine's idempotency key as Resend's Idempotency-Key, and returns the message id",
       "origin": "llm",
       "status": "proposed",
-      "honesty_conditions": [],
+      "honesty_conditions": [
+        {
+          "id": "h1",
+          "text": "A recipient outside the actor's allowlist is refused before the Resend key is read, and the refusal names no secret",
+          "status": "proposed",
+          "instruction": ""
+        },
+        {
+          "id": "h2",
+          "text": "A retried send with the same engine idempotency key does not send a second email (Resend Idempotency-Key)",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
       "hard_questions": [],
       "links": [],
       "instruction": "",
@@ -120,7 +133,14 @@
       "text": "A 'search' app surface and a search.web action: query, count, freshness, country and lang go to Brave's web search with the key from grant; results come back normalised (title, url, snippet, age, source) and capped, and the action calls no other host",
       "origin": "llm",
       "status": "proposed",
-      "honesty_conditions": [],
+      "honesty_conditions": [
+        {
+          "id": "h3",
+          "text": "Search results are capped in count and size, so a large response can't overflow the run document or the summary input",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
       "hard_questions": [],
       "links": [],
       "instruction": "",
@@ -132,8 +152,23 @@
       "text": "An llm.complete action on an agent actor that carries an OpenAI-compatible base URL and model (cortex): the system prompt is a locked newspaper brief in code, the user content is the section's search results, no tools field is ever sent, max tokens are capped, and it returns the text, model and token usage; it takes a concurrency_pool like the bridge actors",
       "origin": "llm",
       "status": "proposed",
-      "honesty_conditions": [],
-      "hard_questions": [],
+      "honesty_conditions": [
+        {
+          "id": "h4",
+          "text": "The llm.complete request body never contains a tools field, and its output is the model's text only",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [
+        {
+          "id": "q1",
+          "text": "What does the summary do when cortex is down or the pool is busy past the send window: send the issue with search results only, or skip the day?",
+          "resolved": false,
+          "blocking": false,
+          "resolution": ""
+        }
+      ],
       "links": [],
       "instruction": "",
       "revisions": []
@@ -156,7 +191,14 @@
       "text": "A newspaper.render builtin turns the sections, their results and summaries into one dated issue as HTML for the email and as a valid EPUB (semantic XHTML, one chapter per section, a table of contents, no remote images) for the reader, deterministically, within a size cap",
       "origin": "llm",
       "status": "proposed",
-      "honesty_conditions": [],
+      "honesty_conditions": [
+        {
+          "id": "h7",
+          "text": "The generated EPUB opens in a standard validator-equivalent check (mimetype first and stored, container.xml, OPF, nav or NCX) and xteink accepts it",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
       "hard_questions": [],
       "links": [],
       "instruction": "",
@@ -169,7 +211,15 @@
       "origin": "llm",
       "status": "proposed",
       "honesty_conditions": [],
-      "hard_questions": [],
+      "hard_questions": [
+        {
+          "id": "q2",
+          "text": "Should the email carry the EPUB as an attachment too, or only the HTML body?",
+          "resolved": false,
+          "blocking": false,
+          "resolution": ""
+        }
+      ],
       "links": [],
       "instruction": "",
       "revisions": []
@@ -180,7 +230,14 @@
       "text": "One issue per local date: the workflow records the date it delivered in the store and a run for an already delivered date sends nothing",
       "origin": "llm",
       "status": "proposed",
-      "honesty_conditions": [],
+      "honesty_conditions": [
+        {
+          "id": "h8",
+          "text": "A second run for the same local date sends no email and uploads nothing",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
       "hard_questions": [],
       "links": [],
       "instruction": "",
@@ -216,7 +273,14 @@
       "text": "No secret value and no recipient address is committed: keys are grant references, addresses and device ids are variables or actor config, and the Resend, Brave, cortex and xteink URLs live as Python constants or actor config, never in committed JSON (scan-secrets rejects non-localhost URLs there)",
       "origin": "llm",
       "status": "proposed",
-      "honesty_conditions": [],
+      "honesty_conditions": [
+        {
+          "id": "h9",
+          "text": "scan-secrets and the committed bundle contain no secret value, no recipient address and no non-localhost URL",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
       "hard_questions": [],
       "links": [],
       "instruction": "",
@@ -228,7 +292,20 @@
       "text": "A summary uses only what the search returned: every item links its source, a section with no results says so, and nothing is filled in",
       "origin": "llm",
       "status": "proposed",
-      "honesty_conditions": [],
+      "honesty_conditions": [
+        {
+          "id": "h5",
+          "text": "Every summarised item in the issue carries a link that appears in that section's search results",
+          "status": "proposed",
+          "instruction": ""
+        },
+        {
+          "id": "h6",
+          "text": "A section with no results renders an explicit 'no results' line, never generated filler",
+          "status": "proposed",
+          "instruction": ""
+        }
+      ],
       "hard_questions": [],
       "links": [],
       "instruction": "",
@@ -286,6 +363,42 @@
       "id": "c24",
       "kind": "assumption",
       "text": "The operator supplies the first sections, the recipient, the device id, the xteink base URL and the cortex base URL when the variables and actors are seeded",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c25",
+      "kind": "audience",
+      "text": "The operator, reading a short daily digest of chosen topics in the inbox or offline on the Xteink reader",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c26",
+      "kind": "before_state",
+      "text": "Following the topics means searching by hand each day; culture-rules can neither send email nor search the web, and nothing reaches the reader without a manual upload",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c27",
+      "kind": "after_state",
+      "text": "A scheduled rule produces one sourced digest a day and delivers it to the inbox and the reader with no manual step; the topics change by editing one variable",
       "origin": "llm",
       "status": "proposed",
       "honesty_conditions": [],
