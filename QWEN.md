@@ -42,7 +42,13 @@ On disk today:
   Discord Gateway listener), real action kinds dispatched through the actor
   in `params.actor` (a mesh `message` is separate from `discord.message`),
   direct workflow runs, and the editor's pickers and
-  Workflows-tab editors.
+  Workflows-tab editors;
+- the daily newspaper (#53, spec `docs/specs/2026-10-11-daily-newspaper.md`,
+  setup `docs/operations/newspaper.md`): `email` and `search` app surfaces;
+  the action kinds `email.send` (Resend), `search.web` (Brave),
+  `llm.complete` (an OpenAI-compatible endpoint, a locked brief, no tools)
+  and `library.push` (an EPUB to xteink); the step option
+  `config.on_error: "skip"`; and the disabled bundle `docs/rules/newspaper`.
 
 GitHub issue #1 was the build brief, and #2 the product model and UX. The
 spec is `docs/specs/2026-10-03-culture-rules-engine-editor.md`; the operator

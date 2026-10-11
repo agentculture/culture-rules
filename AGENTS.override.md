@@ -44,7 +44,18 @@ The engine, HTTP API (contract pinned in `api/openapi.json`), node daemon,
 CLI noun groups (`rules`, `workflows`, `actors`, `machines`, `runs`, plus
 `serve`, `node` and `mcp`), MCP server, web editor and ops docs
 (`docs/operations/`) exist. `docs/demo.md` is the executed end-to-end
-walkthrough. Two GitHub issues carried the design:
+walkthrough.
+
+The **daily newspaper** (#53, spec
+`docs/specs/2026-10-11-daily-newspaper.md`, setup
+`docs/operations/newspaper.md`, actor guides in `docs/actors/`) adds `email`
+and `search` app surfaces and four action kinds: `email.send` (Resend),
+`search.web` (Brave), `llm.complete` (an OpenAI-compatible endpoint, a
+locked brief, no tools) and `library.push` (an EPUB to xteink). It also adds
+the step option `config.on_error: "skip"` and the disabled bundle
+`docs/rules/newspaper`.
+
+Two GitHub issues carried the design:
 
 - **#1** is the build brief: repo shape, packaging/CI pitfalls, and the
   neighbour repos to scope.
