@@ -67,10 +67,11 @@
   {
     "name": "fixer_levels",
     "value": [
-      "level=1 actor=qwen-fixer reviewer=codex-reviewer pool=qwen-spark2 queue=pr-fixer enabled=true",
-      "level=2 actor=codex-fixer reviewer=qwen-reviewer pool=codex-spark queue=pr-fixer-codex enabled=false"
+      "level=1 actor=claude-fixer reviewer=qwen-reviewer pool=claude-spark queue=pr-fixer-claude enabled=false",
+      "level=2 actor=qwen-fixer reviewer=codex-reviewer pool=qwen-spark2 queue=pr-fixer enabled=true",
+      "level=3 actor=codex-fixer reviewer=qwen-reviewer pool=codex-spark queue=pr-fixer-codex enabled=true"
     ],
-    "description": "#39: the fixer's escalation levels in order, one per string: level, actor (the fixer), reviewer, pool (its concurrency pool: the level queue's cap), queue (the level's own queue) and enabled. Try n takes the n-th enabled level (the last one repeats); edit a field in place to enable a level"
+    "description": "#39, #56: the fixer's three escalation levels in order (level 1 Claude ships disabled until the Claude bridge is live; level 2 Qwen; level 3 Codex), one per string: level, actor (the fixer), reviewer, pool (its concurrency pool: the level queue's cap), queue (the level's own queue) and enabled. Try n takes the n-th enabled level (the last one repeats); edit a field in place to enable a level"
   },
   {
     "name": "fixer_unavailable",

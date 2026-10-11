@@ -896,17 +896,40 @@ def test_a_comment_asking_to_stop_never_starts_a_fix(rule_id):
 REPO_UNDER_TEST = "agentculture/culture-rules-tester"
 
 
-def test_fixer_levels_are_seeded_with_level_1_live_and_level_2_disabled():
+def seeded_ladder():
     seeded = {i["name"]: i["value"] for i in manifest()}
     assert seeded["fixer_unavailable"] == "next"
     mem = MemoryStore()
     seed(mem, {k: seeded[k] for k in ("fixer_levels", "fixer_unavailable")})
-    ladder = load_ladder(mem, {"levels": "fixer_levels", "unavailable": "fixer_unavailable"})
-    one, two = ladder.levels
-    assert (one.number, one.actor, one.reviewer) == (1, "qwen-fixer", "codex-reviewer")
-    assert (one.pool, one.queue, one.enabled) == ("qwen-spark2", "pr-fixer", True)
-    assert (two.number, two.actor, two.reviewer) == (2, "codex-fixer", "qwen-reviewer")
-    assert (two.pool, two.queue, two.enabled) == ("codex-spark", "pr-fixer-codex", False)
+    return seeded, load_ladder(mem, {"levels": "fixer_levels", "unavailable": "fixer_unavailable"})
+
+
+def test_fixer_levels_are_seeded_as_three_levels_claude_off_qwen_and_codex_on():
+    _, ladder = seeded_ladder()
+    assert [(lv.number, lv.actor, lv.enabled) for lv in ladder.levels] == [
+        (1, "claude-fixer", False),
+        (2, "qwen-fixer", True),
+        (3, "codex-fixer", True),
+    ]
+
+
+def test_each_seeded_level_names_its_reviewer_pool_and_queue():
+    _, ladder = seeded_ladder()
+    assert [(lv.reviewer, lv.pool, lv.queue) for lv in ladder.levels] == [
+        ("qwen-reviewer", "claude-spark", "pr-fixer-claude"),
+        ("codex-reviewer", "qwen-spark2", "pr-fixer"),
+        ("qwen-reviewer", "codex-spark", "pr-fixer-codex"),
+    ]
+
+
+def test_no_seeded_level_is_reviewed_by_its_own_backend():
+    _, ladder = seeded_ladder()
+    backends = {"claude-fixer": "claude", "qwen-fixer": "qwen", "codex-fixer": "codex"}
+    assert [backends[lv.actor] == lv.reviewer.split("-")[0] for lv in ladder.levels] == [False] * 3
+
+
+def test_the_chain_world_seed_equals_the_shipped_seed():
+    seeded, _ = seeded_ladder()
     assert seeded["fixer_levels"] == CHAIN_VARIABLES["fixer_levels"]
 
 

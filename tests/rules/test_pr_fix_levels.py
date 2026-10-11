@@ -207,13 +207,11 @@ def test_a_story_whose_qwen_try_fails_its_gate_gets_a_codex_try(tmp_path):
     at level 2 and pr-fix runs agent_codex through the hand-off; qwen-reviewer reviews the
     Codex commit (t5) and it is published; the story keeps one status comment naming each
     try's level and fixer, and never hands back."""
-    from tests.rules.chain_world import CHAIN_VARIABLES
+    from tests.rules.chain_world import CODEX_LEVEL, QWEN_LEVEL
     from tests.rules.test_pr_fixer_queue import guard
-    from tests.rules.test_pr_fixer_single import seed
 
-    w = ChainWorld(tmp_path, turns=[guard])
-    levels = [v.replace("enabled=false", "enabled=true") for v in CHAIN_VARIABLES["fixer_levels"]]
-    seed(w.c.base, {"fixer_levels": levels})
+    levels = [QWEN_LEVEL, CODEX_LEVEL.replace("enabled=false", "enabled=true")]
+    w = ChainWorld(tmp_path, turns=[guard], levels=levels)
     w.fire()
     first, second = w.run_of("pr-fix")[:2]
     assert first["inputs"]["fixer"] == QWEN

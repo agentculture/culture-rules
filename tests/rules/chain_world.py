@@ -99,16 +99,36 @@ CHAIN_VARIABLES = {
     **VARIABLES,
     "fixer_comment_triggers": ["/fix", "@rules-culture-dev"],
     "fixer_stop_triggers": ["/stop", "@rules-culture-dev stop"],  # d34
-    # #39: the escalation levels as shipped (level 2, Codex, seeded disabled)
+    # #39, #56: the three levels as shipped (level 1, Claude, seeded disabled)
     "fixer_levels": [
-        "level=1 actor=qwen-fixer reviewer=codex-reviewer pool=qwen-spark2 queue=pr-fixer"
+        "level=1 actor=claude-fixer reviewer=qwen-reviewer pool=claude-spark"
+        " queue=pr-fixer-claude enabled=false",
+        "level=2 actor=qwen-fixer reviewer=codex-reviewer pool=qwen-spark2 queue=pr-fixer"
         " enabled=true",
-        "level=2 actor=codex-fixer reviewer=qwen-reviewer pool=codex-spark queue=pr-fixer-codex"
-        " enabled=false",
+        "level=3 actor=codex-fixer reviewer=qwen-reviewer pool=codex-spark"
+        " queue=pr-fixer-codex enabled=true",
     ],
     "fixer_unavailable": "next",
     "fixer_capacity_cooldown_s": 3600,  # #39 t2: a level's cooldown after capacity_exhausted
 }
+QWEN_LEVEL = (
+    "level=1 actor=qwen-fixer reviewer=codex-reviewer pool=qwen-spark2 queue=pr-fixer enabled=true"
+)
+CODEX_LEVEL = (
+    "level=2 actor=codex-fixer reviewer=qwen-reviewer pool=codex-spark"
+    " queue=pr-fixer-codex enabled=false"
+)
+CLAUDE_LEVEL = (
+    "level=1 actor=claude-fixer reviewer=qwen-reviewer pool=claude-spark"
+    " queue=pr-fixer-claude enabled=true"
+)
+QWEN_LEVEL_2 = QWEN_LEVEL.replace("level=1", "level=2")
+CODEX_LEVEL_3 = CODEX_LEVEL.replace("level=2", "level=3").replace("enabled=false", "enabled=true")
+DEFAULT_LEVELS = [QWEN_LEVEL, CODEX_LEVEL]
+"""The chain world's default ladder: the two-level one the chain tests were written against
+(Qwen live, Codex off); the three-level seed is CHAIN_VARIABLES and ``three_levels``."""
+THREE_LEVELS_LIVE = [CLAUDE_LEVEL, QWEN_LEVEL_2, CODEX_LEVEL_3]
+"""#56: all three seeded levels enabled (the live flip of level 1): Claude, Qwen, Codex."""
 KEY = f"pr-fixer:{REPO}#7"
 CODEX_FIXER = json.loads((BUNDLE / "actors" / "codex-fixer.json").read_text(encoding="utf-8"))
 """#39: the level-2 fixer actor as the bundle ships it (t6): Codex through a second
@@ -415,6 +435,7 @@ class ChainWorld:
         disabled: tuple[str, ...] = (),
         verdict_port: Any = None,
         comment_port: Any = None,
+        levels: list[str] | None = None,
     ) -> None:
         self.tmp = tmp_path
         self.repo = Repo(tmp_path, gate_yaml([PASSING]))
@@ -431,6 +452,8 @@ class ChainWorld:
         for doc in workflow_docs().values():
             base.put("workflows", doc)
         seed(base, CHAIN_VARIABLES)
+        if "fixer_levels" in CHAIN_VARIABLES:  # a test may drop the ladder altogether
+            seed(base, {"fixer_levels": DEFAULT_LEVELS if levels is None else levels})
         self.qwen = QwenBridge(base, self.repo, turns)
         self.codex = QwenBridge(base, CodexClone(self.repo, tmp_path / "codex"), backend="codex")
         self.claude = QwenBridge(base, CodexClone(self.repo, tmp_path / "claude"), backend="claude")
