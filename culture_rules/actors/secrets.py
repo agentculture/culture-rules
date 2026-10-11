@@ -86,12 +86,12 @@ class SecretError(Exception):
 
 def is_secret_ref(value: object) -> bool:
     """True for a well-formed ``grant:<NAME>`` reference."""
-    return isinstance(value, str) and _REF_RE.match(value) is not None
+    return isinstance(value, str) and _REF_RE.fullmatch(value) is not None
 
 
 def parse_ref(ref: str) -> tuple[str, str]:
     """Return ``("grant", NAME)`` for a reference, else raise :class:`SecretError`."""
-    match = _REF_RE.match(ref) if isinstance(ref, str) else None
+    match = _REF_RE.fullmatch(ref) if isinstance(ref, str) else None
     if match is None:
         raise SecretError("not a secret reference (expected 'grant:<NAME>')")
     return GRANT_SCHEME, match.group(1)

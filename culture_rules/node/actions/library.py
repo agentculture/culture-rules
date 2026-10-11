@@ -44,16 +44,19 @@ with the same bytes, and xteink makes both idempotent - the upload deduplicates 
 queued returns the existing entry. The one repeat that is not a no-op: if the device has
 already synced the item between the lost acknowledgement and the retry, xteink queues it
 again and the device downloads the same book once more - benign for a reader. A completed
-result is also replayed in-process for the same key.
+result is also replayed in-process for the same key (the last :data:`LEDGER_SIZE` ones).
 
-The timeout comes from the attempt deadline (capped at :data:`MAX_TIMEOUT`); environment
-proxies are ignored. Nothing is logged. Standard-library only.
+Each call's timeout is what remains of the attempt deadline when it starts (capped at
+:data:`MAX_TIMEOUT`): the queue call recomputes it after the upload, so a slow upload cannot
+carry the queue call past the deadline. With no time left before either call the attempt
+fails ``deadline_passed``, retryable. That is safe after an upload: the retry uploads the
+same bytes again, which xteink deduplicates by sha256 (``created: false``, the same item),
+and then queues it. Environment proxies are ignored. Nothing is logged. Standard-library only.
 """
 
 from __future__ import annotations
 
 import base64
-import binascii
 import http.client
 import json
 import re
@@ -67,6 +70,7 @@ from urllib.parse import quote, urlsplit
 
 from culture_rules.actors.secrets import SecretError, is_secret_ref, resolve
 from culture_rules.engine.actorport import COMPLETED, InvocationContext, InvocationResult
+from culture_rules.node.actions._ledger import DEFAULT_LEDGER_SIZE, ReplayLedger
 from culture_rules.node.actions.http import RedirectRefused
 from culture_rules.node.actions.machine import load_bound_actor
 
@@ -84,6 +88,8 @@ MAX_BYTES = 50 * 1024 * 1024
 """xteink's upload limit; larger content is refused before any request."""
 MAX_TIMEOUT = 120.0
 MAX_REPLY = 1024 * 1024
+LEDGER_SIZE = DEFAULT_LEDGER_SIZE
+"""How many completed pushes the port keeps for replay (the last ones)."""
 DEFAULT_AUTHOR = "culture-rules"
 KIND = "article"
 EPUB_TYPE = "application/epub+zip"
@@ -246,7 +252,7 @@ def _content(value: Any) -> bytes:
         raise _Refused("too_large", f"content exceeds {MAX_BYTES} bytes")
     try:
         data = base64.b64decode(value, validate=True)
-    except (binascii.Error, ValueError) as exc:
+    except ValueError as exc:  # binascii.Error is a ValueError
         raise _Refused(_INVALID_REQUEST, "content_base64 is not valid base64") from exc
     if not data:
         raise _Refused(_INVALID_REQUEST, "content_base64 decodes to nothing")
@@ -316,7 +322,7 @@ class LibraryPushPort:
         self._transport = transport or urllib_transport
         self._secret_runner = secret_runner
         self._clock = clock or (lambda: datetime.now(UTC))
-        self._ledger: dict[str, InvocationResult] = {}
+        self._ledger = ReplayLedger(LEDGER_SIZE)
 
     def invoke(
         self,
@@ -326,8 +332,9 @@ class LibraryPushPort:
         *,
         context: InvocationContext,
     ) -> InvocationResult:
-        if idempotency_key in self._ledger:
-            return self._ledger[idempotency_key]
+        replayed = self._ledger.get(idempotency_key)
+        if replayed is not None:
+            return replayed
         actor, _doc, failure = load_bound_actor(self._store, input, context)
         if failure is not None or actor is None:
             return failure or InvocationResult.failed("actor_not_found", retryable=False)
@@ -342,8 +349,16 @@ class LibraryPushPort:
         except _Refused as exc:
             return exc.result()
         if result.outcome == COMPLETED:
-            self._ledger[idempotency_key] = result
+            self._ledger.put(idempotency_key, result)
         return result
+
+    def _remaining(self, deadline: datetime, when: str) -> float:
+        """Seconds left of the attempt (capped at :data:`MAX_TIMEOUT`), checked before each
+        call; none left fails ``deadline_passed``, retryable (module doc)."""
+        timeout = min((deadline - self._clock()).total_seconds(), MAX_TIMEOUT)
+        if timeout <= 0:
+            raise _Refused("deadline_passed", f"attempt deadline passed {when}", retryable=True)
+        return timeout
 
     def _key(self, ref: Any) -> str:
         if not is_secret_ref(ref):
@@ -363,9 +378,7 @@ class LibraryPushPort:
         data = _content(input.get("content_base64"))
         title = _text(input, "title")
         author = _text(input, "author", DEFAULT_AUTHOR)
-        timeout = min((deadline - self._clock()).total_seconds(), MAX_TIMEOUT)
-        if timeout <= 0:
-            raise _Refused("deadline_passed", "attempt deadline already passed", retryable=True)
+        timeout = self._remaining(deadline, "before the upload")
         auth = {"Authorization": "Bearer " + self._key(params.get("api_key"))}
         content_type, body = encode_multipart(
             [("title", title), ("author", author), ("kind", KIND)],
@@ -382,6 +395,7 @@ class LibraryPushPort:
         queue_url = f"{base}/api/devices/{quote(device, safe='')}/queue"
         queue_body = json.dumps({"item_id": item_id}).encode("utf-8")
         headers = {**auth, "Content-Type": "application/json"}
+        timeout = self._remaining(deadline, f"after the upload (item {item_id} uploaded)")
         status, raw = self._send(queue_url, headers, queue_body, timeout)
         if not 200 <= status < 300:
             raise _status_failure("queue_failed", status, raw, f" (item {item_id} uploaded)")

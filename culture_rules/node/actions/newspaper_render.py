@@ -7,8 +7,10 @@ Input
 =====
 
 ``date`` (``YYYY-MM-DD``, the issue's local date), ``title`` (default
-:data:`DEFAULT_TITLE`), ``sections`` (1..:data:`MAX_SECTIONS`) and ``summaries_unavailable``
-(a flag: the run could not summarise, so the issue carries :data:`SUMMARIES_UNAVAILABLE`).
+:data:`DEFAULT_TITLE`) and ``sections`` (1..:data:`MAX_SECTIONS`). When at least one section
+has results and none of those sections has a summary (cortex was down, or the summary window
+closed first), the masthead carries :data:`SUMMARIES_UNAVAILABLE` once, in the email and in
+the EPUB's first chapter; an empty section needs no summary and does not count.
 Each section is ``{name, results, summary}``: ``results`` a list of ``{title, url, snippet,
 age, source}`` (search.web's shape) and ``summary`` the model's text or null. A ``for_each``
 loop yields one list per output port, so ``results`` and ``summaries`` may instead be given as
@@ -338,6 +340,12 @@ def _body(section: _Section) -> str:
     return f"<ul>{items}</ul>{_note(note)}"
 
 
+def _summaries_unavailable(sections: list[_Section]) -> bool:
+    """Whether the issue had results to summarise and not one summary (module doc)."""
+    wanted = [section for section in sections if section.results]
+    return bool(wanted) and all(section.summary is None for section in wanted)
+
+
 def _masthead(title: str, day: str, unavailable: bool) -> str:
     head = f'<h1>{_esc(title)}</h1><p class="date">{_esc(day)}</p>'
     return head + (_note(SUMMARIES_UNAVAILABLE) if unavailable else "")
@@ -469,7 +477,7 @@ def render_issue(
     day = _date(payload.get("date"))
     title = _title(payload.get("title"))
     sections = _sections(payload)
-    unavailable = bool(payload.get("summaries_unavailable"))
+    unavailable = _summaries_unavailable(sections)
     page = _html(title, day, sections, unavailable)
     page_size = len(page.encode(_ENCODING))
     if page_size > html_cap:

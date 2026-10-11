@@ -28,9 +28,12 @@ work may start: at or past it the port fails ``llm_deadline`` (not retryable) wi
 request, and before it the request's timeout ends at it. Both are read on the clock *after*
 the bearer token's grant lookup, just before the request (Codex r2 #2), so a lookup that
 blocks past ``not_after`` sends nothing. A key that already completed in this process
-replays its result (:meth:`~LlmCompletePort.replay`) before any of this, also through
+(among its last :data:`LEDGER_SIZE` completions) replays its result
+(:meth:`~LlmCompletePort.replay`) before any of this, also through
 :class:`~culture_rules.actors.limits.LimitedActor`, which asks it before admission: a
-completion re-asked after ``not_after`` replays, without a slot (Codex r2 #3).
+completion re-asked after ``not_after`` replays, without a slot (Codex r2 #3). The ledger
+is per process: after a node restart, or once evicted, a completion re-asked past its
+``not_after`` fails ``llm_deadline`` - a missed summary, never a wrong send.
 :class:`LlmCompletePort` also answers :meth:`~LlmCompletePort.refuse_before_admit`, which
 :class:`~culture_rules.actors.limits.LimitedActor` asks before it queues the work, so a
 summary waiting ``blocked`` behind a busy pool gives up at its next re-ask after
@@ -44,7 +47,9 @@ actor's token budget counts them). Failures (``"<code>: <detail>"``, never a bod
 value or a secret):
 
 * ``llm_unavailable`` (retryable) - connection refused, DNS, timeout, a passed deadline,
-  5xx, 408 or 429; the newspaper workflow sends without summaries on it;
+  5xx, 408 or 429. The newspaper's summary step tolerates any failure
+  (``config.on_error: "skip"``): that section goes out with its results and "Summary
+  unavailable.", and when no section got a summary the masthead also says so;
 * ``llm_deadline`` (not retryable) - ``not_after`` has passed;
 * ``llm_rejected`` (not retryable) - any other non-2xx answer;
 * ``llm_bad_response`` (not retryable) - not JSON, or no string message content;
@@ -65,9 +70,10 @@ from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlsplit
 
-from culture_rules.actors.secrets import GRANT_SCHEME, SecretError, resolve
+from culture_rules.actors.secrets import SecretError, is_secret_ref, resolve
 from culture_rules.engine.actorport import COMPLETED, InvocationContext, InvocationResult
 from culture_rules.model.actor import Actor
+from culture_rules.node.actions._ledger import DEFAULT_LEDGER_SIZE, ReplayLedger
 from culture_rules.node.actions.machine import load_bound_actor
 
 __all__ = [
@@ -97,6 +103,8 @@ DEFAULT_MAX_CONTENT_CHARS = 48_000
 MAX_RESPONSE_BYTES = 1024 * 1024
 MAX_TIMEOUT = 600.0
 COMPLETIONS_PATH = "/chat/completions"
+LEDGER_SIZE = DEFAULT_LEDGER_SIZE
+"""How many completed results the port keeps for :meth:`LlmCompletePort.replay`."""
 
 UNAVAILABLE = "llm_unavailable"
 REJECTED = "llm_rejected"
@@ -189,7 +197,7 @@ def check_llm_actor(actor: Actor) -> str | None:
     if not isinstance(model, str) or not model.strip():
         return "params.model must be a non-empty string"
     key = params.get("api_key")
-    if key not in (None, "") and not (isinstance(key, str) and key.startswith(GRANT_SCHEME + ":")):
+    if key not in (None, "") and not is_secret_ref(key):
         return "params.api_key must be a 'grant:<NAME>' reference"
     return None
 
@@ -258,7 +266,7 @@ def _parse(raw: bytes, fallback_model: str) -> dict[str, Any]:
         raise _Refused(BAD_RESPONSE, "response too large")
     try:
         data = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, ValueError) as exc:
+    except ValueError as exc:  # UnicodeDecodeError is a ValueError
         raise _Refused(BAD_RESPONSE, "response is not JSON") from exc
     choices = data.get("choices") if isinstance(data, dict) else None
     first = choices[0] if isinstance(choices, list) and choices else None
@@ -321,7 +329,7 @@ class LlmCompletePort:
         self._secret_runner = secret_runner
         self._max_content_chars = max_content_chars
         self._clock = clock or (lambda: datetime.now(UTC))
-        self._ledger: dict[str, InvocationResult] = {}
+        self._ledger = ReplayLedger(LEDGER_SIZE)
 
     def invoke(
         self,
@@ -345,7 +353,7 @@ class LlmCompletePort:
         except _Refused as exc:
             return exc.result()
         if result.outcome == COMPLETED:
-            self._ledger[idempotency_key] = result
+            self._ledger.put(idempotency_key, result)
         return result
 
     def refuse_before_admit(self, input: Mapping[str, Any]) -> InvocationResult | None:

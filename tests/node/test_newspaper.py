@@ -416,7 +416,7 @@ def test_second_claim_after_delivery_sends_nothing():  # h8
     world = Issues()
     world.call(CLAIM)
     recorded = world.call("record", message_id="m1", item_id="i1")
-    assert recorded.output == {"recorded": True, "date": DATE}
+    assert recorded.output["recorded"] is True
     again = world.call(CLAIM, run="r2")
     assert answer(again) == {"deliver": False, "date": DATE, "reason": "already_delivered"}
 
@@ -538,6 +538,8 @@ SEND = "send"
 LOST = "claim_lost"
 EMAIL_KEY = f"newspaper:{DATE}:email"
 UNCERTAIN = "email_uncertain"
+SENT = "email_sent"
+PUSH = "push"
 HTML_FIELD, KEY_FIELD = "html", "idempotency_key"
 R2 = "r2"
 M1 = "m1"
@@ -603,7 +605,7 @@ def test_after_a_takeover_the_push_fence_passes_with_the_recorded_message():
     taken_over(world)
     world.call(BEFORE_EMAIL, run=R2, subject=SUBJECT, html=HTML)
     out = world.call(BEFORE_PUSH, run=R2).output
-    assert out == {MESSAGE_ID: M1, "date": DATE, UNCERTAIN: False}
+    assert out == {MESSAGE_ID: M1, "date": DATE, UNCERTAIN: False, SENT: True, PUSH: True}
 
 
 def test_a_slow_owner_taken_over_cannot_send_the_email():
@@ -660,11 +662,12 @@ def test_the_email_fence_needs_the_rendered_issue():
     assert result.error.startswith("bad_input")
 
 
-def test_the_push_fence_needs_a_sent_email():
+def test_the_push_fence_without_a_sent_email_still_pushes():  # PR #54 review
     world = Issues()
     world.call(CLAIM)
     world.call(BEFORE_EMAIL, subject=SUBJECT, html=HTML)
-    assert world.call(BEFORE_PUSH).error.startswith("bad_input")
+    out = world.call(BEFORE_PUSH).output
+    assert out == {MESSAGE_ID: None, "date": DATE, UNCERTAIN: False, SENT: False, PUSH: True}
 
 
 def test_record_stores_the_library_progress():
@@ -853,7 +856,7 @@ def test_the_push_fence_passes_an_uncertain_email_and_reports_it():
     world.lost_ack()
     world.takeover(hours=25)
     out = world.call(BEFORE_PUSH, run=R2).output
-    assert out == {MESSAGE_ID: None, "date": DATE, UNCERTAIN: True}
+    assert out == {MESSAGE_ID: None, "date": DATE, UNCERTAIN: True, SENT: False, PUSH: True}
 
 
 def test_the_push_fence_reports_a_sent_email_as_certain():
@@ -945,7 +948,7 @@ def test_the_push_fence_after_a_refused_late_retry_is_uncertain():
     world.clock.now += timedelta(hours=25)
     world.send(gate)
     out = world.call(BEFORE_PUSH).output
-    assert out == {MESSAGE_ID: None, "date": DATE, UNCERTAIN: True}
+    assert out == {MESSAGE_ID: None, "date": DATE, UNCERTAIN: True, SENT: False, PUSH: True}
 
 
 def test_the_push_fence_after_a_refused_late_retry_records_the_email_uncertain():
@@ -956,10 +959,92 @@ def test_the_push_fence_after_a_refused_late_retry_records_the_email_uncertain()
     assert world.doc()[EMAIL] == {"uncertain": True, "attempted_at": FIRST_AT}
 
 
-def test_a_failed_email_inside_the_window_still_fails_the_push_fence():
-    """A refused send (say recipient_not_allowed) is never passed off as uncertain while
-    the date could still be emailed."""
+def test_a_failed_email_inside_the_window_lets_the_push_go_ahead():  # PR #54 review
+    """A failed send (say recipient_not_allowed) inside the window: the reader still gets
+    the issue, and the email is neither passed off as sent nor as uncertain."""
     world = Mail()
     world.lost_ack_gate()
     world.clock.now += timedelta(hours=22)
-    assert world.call(BEFORE_PUSH).error.startswith("bad_input: message_id")
+    out = world.call(BEFORE_PUSH).output
+    assert (out[SENT], out[UNCERTAIN], out[PUSH]) == (False, False, True)
+
+
+def test_a_failed_email_inside_the_window_is_not_recorded():
+    world = Mail()
+    world.lost_ack_gate()
+    world.clock.now += timedelta(hours=22)
+    world.call(BEFORE_PUSH)
+    assert EMAIL not in world.doc()
+
+
+# ------------------------------------------------------------------ PR #54 review: email not sent
+
+
+def pushed_without_email(world):
+    """r1's email failed inside the window; the push went ahead and r1 recorded it."""
+    world.call(CLAIM)
+    world.call(BEFORE_EMAIL, subject=SUBJECT, html=HTML)
+    world.call(BEFORE_PUSH)
+    return world.call(RECORD, item_id=7, queue_id=11)
+
+
+def test_a_record_without_a_sent_email_keeps_the_date_undelivered():
+    world = Issues()
+    pushed_without_email(world)
+    assert world.doc()["state"] == "claimed"
+
+
+def test_a_record_without_a_sent_email_stores_the_library_progress():
+    world = Issues()
+    pushed_without_email(world)
+    library = world.doc()["library"]
+    assert (library["item_id"], library["queue_id"]) == ("7", "11")
+
+
+def test_a_record_without_a_sent_email_reports_it():
+    out = pushed_without_email(Issues()).output
+    assert (out["recorded"], out[SENT], out["item_id"]) == (False, False, "7")
+
+
+def test_a_record_without_a_sent_email_releases_the_lease():
+    world = Issues()
+    pushed_without_email(world)
+    assert world.call(CLAIM, run=R2).output["reason"] == "taken_over"
+
+
+def test_after_a_push_without_email_a_rerun_skips_the_push():
+    world = Issues()
+    pushed_without_email(world)
+    world.call(CLAIM, run=R2)
+    world.call(BEFORE_EMAIL, run=R2, subject=SUBJECT, html=HTML)
+    assert world.call(BEFORE_PUSH, run=R2, message_id=M1).output[PUSH] is False
+
+
+def test_a_rerun_that_sends_the_email_records_the_date_delivered():
+    world = Issues()
+    pushed_without_email(world)
+    world.call(CLAIM, run=R2)
+    world.call(BEFORE_EMAIL, run=R2, subject=SUBJECT, html=HTML)
+    world.call(BEFORE_PUSH, run=R2, message_id=M1)
+    out = world.call(RECORD, run=R2, message_id=M1).output
+    assert (out["recorded"], out[SENT], out["item_id"]) == (True, True, "7")
+
+
+def test_a_rerun_that_sends_the_email_keeps_the_first_library_record():
+    world = Issues()
+    pushed_without_email(world)
+    world.call(CLAIM, run=R2)
+    world.call(BEFORE_PUSH, run=R2, message_id=M1)
+    world.call(RECORD, run=R2, message_id=M1)
+    doc = world.doc()
+    assert (doc["state"], doc["item_id"], doc["library"]["queue_id"]) == ("delivered", "7", "11")
+
+
+def test_a_partial_record_by_a_run_that_lost_the_date_keeps_the_new_lease():
+    world = Issues()
+    world.call(CLAIM)
+    world.call(BEFORE_EMAIL, subject=SUBJECT, html=HTML)
+    world.clock.now += timedelta(hours=2)
+    world.call(CLAIM, run=R2)
+    world.call(RECORD, item_id=7, queue_id=11)  # r1, which no longer holds the date
+    assert world.doc()["claimed_by"] == R2

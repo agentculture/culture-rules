@@ -1,5 +1,12 @@
 {
   "version": "0.19.0",
-  "new_rules": [],
-  "new_variables": []
+  "new_rules": [
+    "pr-fixer-retry-capacity",
+    "pr-fixer-queue-progress-capacity"
+  ],
+  "new_variables": [
+    "fixer_levels",
+    "fixer_unavailable",
+    "fixer_capacity_cooldown_s"
+  ]
 }

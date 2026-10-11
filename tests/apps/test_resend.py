@@ -72,8 +72,9 @@ def test_repr_hides_key():
 
 def test_missing_token_not_configured_before_network():
     fake = Fake()
+    resend_client = ResendClient(token="", transport=fake)
     with pytest.raises(ResendError) as exc:
-        send(ResendClient(token="", transport=fake))
+        send(resend_client)
     assert exc.value.code == "not_configured"
     assert fake.calls == []
 

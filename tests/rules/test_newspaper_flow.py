@@ -34,7 +34,11 @@ from culture_rules.node.actions.newspaper import (
     NewspaperRenderPort,
     NewspaperSectionsPort,
 )
-from culture_rules.node.actions.newspaper_render import SUMMARY_UNAVAILABLE
+from culture_rules.node.actions.newspaper_render import (
+    NO_RESULTS,
+    SUMMARIES_UNAVAILABLE,
+    SUMMARY_UNAVAILABLE,
+)
 from culture_rules.node.actions.search import SearchWebPort
 from culture_rules.node.actors import ACTORS_COLLECTION
 from culture_rules.node.daemon import Node
@@ -72,6 +76,8 @@ PARAMS = "params"
 IDEM_HEADER = "Idempotency-Key"
 POOL = "qwen-spark2"
 KEY_WINDOW = timedelta(hours=24)
+EMAIL_SENT = "email_sent"
+KEY = "idempotency_key"
 
 
 # --------------------------------------------------------------------------- the fakes
@@ -133,9 +139,13 @@ class Resend:
         self.keys: dict[str, tuple] = {}
         self.calls = 0
         self.drop_acks = False
+        self.fail_5xx = 0  # this many answers are 503, before anything is sent
 
     def __call__(self, method, url, headers, body, timeout):
         self.calls += 1
+        if self.fail_5xx > 0:
+            self.fail_5xx -= 1
+            return 503, b'{"name": "internal_server_error"}'
         key, now = headers.get(IDEM_HEADER), self.clock()
         live = self.keys.get(key)
         if live is None or now - live[1] >= KEY_WINDOW:
@@ -292,7 +302,13 @@ def test_the_run_outputs_carry_the_message_and_item_ids():  # h17
     world = World()
     world.run_until(TODAY + timedelta(minutes=20))
     outputs = finished(world)[OUTPUTS]
-    expected = {MESSAGE_ID: MSG_1, ITEM_ID: ITEM, "date": "2026-10-11", "email_uncertain": False}
+    expected = {
+        MESSAGE_ID: MSG_1,
+        ITEM_ID: str(ITEM),  # the delivery record's id (PR #54 review: from record)
+        "date": "2026-10-11",
+        "email_uncertain": False,
+        EMAIL_SENT: True,
+    }
     assert outputs == expected
     issue = world.base.get(ISSUES_COLLECTION, "2026-10-11")
     assert issue["state"] == "delivered"
@@ -371,6 +387,19 @@ def test_cortex_down_still_sends_the_results_only_issue():  # q1, c25
     assert html.count(SUMMARY_UNAVAILABLE) == 2
     assert '<a href="https://news.example/humanoid-robot/0">' in html
     assert run[OUTPUTS][MESSAGE_ID] == MSG_1
+
+
+def test_cortex_down_shows_the_issue_note_once():  # PR #54 review
+    world = World()
+    world.cortex.down = True
+    world.run_until(TODAY + timedelta(minutes=30))
+    assert world.html().count(SUMMARIES_UNAVAILABLE) == 1
+
+
+def test_a_summarised_issue_shows_no_issue_note():
+    world = World()
+    world.run_until(TODAY + timedelta(minutes=20))
+    assert SUMMARIES_UNAVAILABLE not in world.html()
 
 
 def test_cortex_down_is_recorded_on_the_skipped_summary_steps():
@@ -538,11 +567,11 @@ def rerun(world: World, after: timedelta) -> dict:
     return world.base.get(RUNS_COLLECTION, run["id"])
 
 
-def test_a_lost_ack_leaves_the_first_run_failed_with_one_email_sent():
+def test_a_lost_ack_still_pushes_and_reports_the_email_not_sent():  # PR #54 review
     world = World(cron=ONCE)
     lost_ack(world)
-    (first,) = world.runs()
-    assert (first[STATUS], len(world.resend.sent)) == ("failed", 1)
+    first = finished(world)
+    assert (first[OUTPUTS][EMAIL_SENT], len(world.resend.sent)) == (False, 1)
 
 
 def test_a_rerun_25_hours_after_a_lost_ack_sends_no_second_email():  # Codex r2 #1
@@ -673,3 +702,137 @@ def test_a_retry_resumed_25_hours_on_names_the_passed_window():
     ack_lost_then_outage(world)
     email = step_state(finished(world), "email")
     assert (email[STATUS], email["error"]["message"]) == ("skipped", "email_window_passed")
+
+
+# --------------------------------------------------------------------------- an empty section
+
+NOTHING = [
+    {"name": "Edge AI", "queries": ["edge ai"]},
+    {"name": "Nothing", "queries": ["humanoid robot"], "must": ["no result says this"]},
+]
+
+
+def empty_section() -> World:
+    """PR #54 review: the second section's filter keeps no result."""
+    world = World()
+    world.base.put_variable("newspaper_sections", json.dumps(NOTHING), updated_by="test")
+    world.run_until(TODAY + timedelta(minutes=20))
+    return world
+
+
+def test_an_empty_section_makes_no_llm_request():
+    world = empty_section()
+    assert len(world.cortex.requests) == 1
+
+
+def test_an_empty_section_renders_no_results():
+    world = empty_section()
+    assert NO_RESULTS in world.html()
+
+
+def test_an_empty_sections_summary_step_is_skipped_without_an_error():
+    summary = step_state(finished(empty_section()), step_key("summarise", 1, "summary"))
+    assert (summary[STATUS], summary.get("error")) == ("skipped", None)
+
+
+# --------------------------------------------------------------------------- Resend down (PR #54)
+
+
+def resend_down(world: World) -> None:
+    """Resend answers 503 to all three attempts of the 06:30 run's email step."""
+    world.resend.fail_5xx = 3
+    world.run_until(TODAY + timedelta(minutes=30))
+
+
+def test_resend_down_still_queues_the_issue_on_the_reader():
+    world = World(cron=ONCE)
+    resend_down(world)
+    assert (world.resend.calls, len(world.xteink.queued)) == (3, 1)
+
+
+def test_resend_down_ends_the_run_succeeded_with_the_email_not_sent():
+    world = World(cron=ONCE)
+    resend_down(world)
+    outputs = finished(world)[OUTPUTS]
+    assert (outputs[EMAIL_SENT], outputs["email_uncertain"]) == (False, False)
+
+
+def test_resend_down_leaves_the_date_undelivered_with_its_library_record():
+    world = World(cron=ONCE)
+    resend_down(world)
+    issue = world.base.get(ISSUES_COLLECTION, ISSUE_DATE)
+    assert (issue["state"], issue["library"][ITEM_ID]) == ("claimed", str(ITEM))
+
+
+def test_a_rerun_an_hour_after_resend_was_down_sends_one_email():
+    world = World(cron=ONCE)
+    resend_down(world)
+    rerun(world, timedelta(hours=1))
+    assert len(world.resend.sent) == 1
+
+
+def test_a_rerun_an_hour_after_resend_was_down_sends_the_frozen_request():
+    world = World(cron=ONCE)
+    resend_down(world)
+    frozen = step_state(world.runs()[0], "email_gate")[OUTPUTS]
+    rerun(world, timedelta(hours=1))
+    (mail,) = world.resend.sent
+    assert (mail["json"]["html"], mail[HEADERS][IDEM_HEADER]) == (frozen["html"], frozen[KEY])
+
+
+def test_a_rerun_an_hour_after_resend_was_down_pushes_nothing():
+    world = World(cron=ONCE)
+    resend_down(world)
+    run = rerun(world, timedelta(hours=1))
+    assert (len(world.xteink.uploads), step_state(run, "push")[STATUS]) == (1, "skipped")
+
+
+def test_a_rerun_an_hour_after_resend_was_down_delivers_the_date():
+    world = World(cron=ONCE)
+    resend_down(world)
+    run = rerun(world, timedelta(hours=1))
+    expected = (MSG_1, str(ITEM), True)
+    assert (run[OUTPUTS][MESSAGE_ID], run[OUTPUTS][ITEM_ID], run[OUTPUTS][EMAIL_SENT]) == expected
+    assert world.base.get(ISSUES_COLLECTION, ISSUE_DATE)["state"] == "delivered"
+
+
+def test_a_rerun_25_hours_after_resend_was_down_sends_nothing():
+    world = World(cron=ONCE)
+    resend_down(world)
+    rerun(world, timedelta(hours=25))
+    assert (len(world.resend.sent), len(world.xteink.uploads)) == (0, 1)
+
+
+def test_a_rerun_25_hours_after_resend_was_down_marks_the_email_uncertain():
+    world = World(cron=ONCE)
+    resend_down(world)
+    run = rerun(world, timedelta(hours=25))
+    issue = world.base.get(ISSUES_COLLECTION, ISSUE_DATE)
+    assert (run[OUTPUTS]["email_uncertain"], issue["email"]["uncertain"]) == (True, True)
+
+
+# --------------------------------------------------------------------------- no recipients
+
+
+def no_recipients() -> World:
+    """PR #54 review: the shipped ``newspaper_to`` (an empty list) was never seeded."""
+    world = World(cron=ONCE)
+    world.base.put_variable("newspaper_to", [], updated_by="test")
+    world.run_until(TODAY + timedelta(minutes=20))
+    return world
+
+
+def test_no_recipients_fails_the_run_at_the_email_fence():
+    (run,) = no_recipients().runs()
+    gate = step_state(run, "email_gate")
+    assert (run[STATUS], gate[STATUS]) == ("failed", "failed")
+
+
+def test_no_recipients_names_the_field():
+    (run,) = no_recipients().runs()
+    assert step_state(run, "email_gate")["error"]["message"].startswith("bad_input: to")
+
+
+def test_no_recipients_sends_and_queues_nothing():
+    world = no_recipients()
+    assert (world.resend.calls, len(world.xteink.uploads)) == (0, 0)

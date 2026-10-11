@@ -187,8 +187,17 @@ export function appParamsFrom(draft: AppDraft, base: ActorParams | undefined): A
 
 export type FormErrors = Record<string, string>;
 
-/** A deliberately loose address check (app_actor.py `is_email_address` is the authority). */
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+/**
+ * A deliberately loose address check (app_actor.py `is_email_address` is the authority):
+ * no whitespace, exactly one "@" with text before it, and a dot inside the domain with text
+ * on both sides. Written without a regex so it runs in linear time on any input.
+ */
+export function isEmailAddress(text: string): boolean {
+  if (/\s/.test(text)) return false;
+  const at = text.indexOf("@");
+  if (at <= 0 || at !== text.lastIndexOf("@")) return false;
+  return text.slice(at + 2, -1).includes(".");
+}
 
 /** Why one connection value would be refused, or null. */
 function connectionFieldError(field: ConnectionField, text: string): string | null {
@@ -198,7 +207,7 @@ function connectionFieldError(field: ConnectionField, text: string): string | nu
   }
   if (field.options && !field.options.includes(text)) return `Choose one of ${field.options.join(", ")}.`;
   if (field.emails) {
-    const bad = splitList(text).filter((item) => !EMAIL_RE.test(item));
+    const bad = splitList(text).filter((item) => !isEmailAddress(item));
     if (bad.length) return `Not an email address: ${bad.join(", ")}.`;
   }
   return null;

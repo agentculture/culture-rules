@@ -14,6 +14,11 @@ operator's runbook.
   step records itself in the rollout document `/rollouts/<version>`. `--wheel` must
   name that wheel (`culture_rules-<version>-...whl`); the CLI never picks one up from a
   host.
+- **`release.json` names everything new since the last live release.** Its
+  `new_rules` and `new_variables` list every rule and variable added since the last
+  release that was rolled out live, not only this release's own. So a release that
+  was skipped (never rolled out) has its rules and variables carried forward, and
+  `enable` and `seed` still reach them.
 - **The token comes only from the environment.** The admin token is the hidden grant
   secret `RULES_CULTURE_RULES_SERVICE_TOKEN`; a `grant:` reference cannot resolve it,
   so inject it:
