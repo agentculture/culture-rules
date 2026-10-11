@@ -21,7 +21,10 @@ keys (any other key is refused):
 * ``site_include`` / ``site_exclude`` - optional lists of hostnames (lower-cased; a hostname
   also matches its subdomains).
 
-Output ``sections``: the normalised list, every key present. A bad value fails the step
+Output ``sections``: the normalised list, every key present, plus ``query`` - the section's
+queries joined with Brave's ``OR`` operator (:data:`QUERY_JOIN`), the one query its
+``search.web`` step sends; a joined query over :data:`MAX_QUERY_CHARS` (Brave's limit) is
+refused at ``sections[i].queries``. A bad value fails the step
 non-retryably, ``invalid_sections: <field path>: <reason>`` (e.g. ``sections[2].queries``), so
 the run stops before any search (c12, h11).
 
@@ -29,7 +32,8 @@ the run stops before any search (c12, h11).
 ===================================================
 
 Input ``section`` (one section, normalised or raw: it is validated the same way, at path
-``section``) and ``results`` (search.web's list). Output ``results``: :func:`filter_results` -
+``section``; inside the per-section ``for_each`` loop it arrives as the implicit ``item``
+port, read when ``section`` is absent; the derived ``query`` key is ignored) and ``results`` (search.web's list). Output ``results``: :func:`filter_results` -
 only ``http``/``https`` URLs, deduplicated by URL (first wins), the must/must-not terms and
 the site lists applied, capped at the section's ``count``. The workflow runs it in the
 per-section loop, between ``search.web`` and ``llm.complete``, so the model sees only what
@@ -102,6 +106,7 @@ __all__ = [
     "local_date",
     "parse_sections",
     "validate_section",
+    "with_query",
 ]
 
 SECTIONS_BUILTIN = "newspaper.sections"
@@ -117,6 +122,9 @@ DELIVERED = "delivered"
 DEFAULT_CLAIM_TIMEOUT_S = 3600
 DEFAULT_COUNT = 5
 MAX_SECTIONS = 20
+MAX_QUERY_CHARS = 400  # Brave's own limit (culture_rules.apps.brave)
+QUERY_JOIN = " OR "
+_DERIVED = ("query",)
 FRESHNESS = ("pd", "pw", "pm", "py")
 _NAME_MAX = 80
 _QUERIES_MAX = 5
@@ -216,7 +224,7 @@ def validate_section(raw: Any, path: str) -> dict[str, Any]:
     if not isinstance(raw, Mapping):
         raise SectionsError(f"{path}: must be an object")
     for key in raw:
-        if key not in _VALIDATORS:
+        if key not in _VALIDATORS and key not in _DERIVED:
             raise SectionsError(f"{path}.{str(key)[:40]}: unknown key")
     section: dict[str, Any] = {}
     for key, check in _VALIDATORS.items():
@@ -242,6 +250,19 @@ def parse_sections(raw: Any) -> list[dict[str, Any]]:
     if not isinstance(raw, list) or not 1 <= len(raw) <= MAX_SECTIONS:
         raise SectionsError(f"sections: must be a list of 1 to {MAX_SECTIONS} sections")
     return [validate_section(item, f"sections[{n}]") for n, item in enumerate(raw)]
+
+
+def with_query(sections: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Each section plus its search ``query`` (module doc); SectionsError over the limit."""
+    out = []
+    for n, section in enumerate(sections):
+        query = QUERY_JOIN.join(section["queries"])
+        if len(query) > MAX_QUERY_CHARS:
+            raise SectionsError(
+                f"sections[{n}].queries: joined with OR, at most {MAX_QUERY_CHARS} characters"
+            )
+        out.append({**section, "query": query})
+    return out
 
 
 # ------------------------------------------------------------------ result filter
@@ -320,7 +341,7 @@ class NewspaperSectionsPort:
     ) -> InvocationResult:
         del context
         try:
-            sections = parse_sections(input.get("sections"))
+            sections = with_query(parse_sections(input.get("sections")))
         except SectionsError as exc:
             return _bad_input(f"invalid_sections: {exc}")
         return InvocationResult.completed({"sections": sections})
@@ -341,7 +362,8 @@ class NewspaperFilterPort:
     ) -> InvocationResult:
         del context
         try:
-            section = validate_section(input.get("section"), "section")
+            raw = input.get("section", input.get("item"))
+            section = validate_section(raw, "section")
         except SectionsError as exc:
             return _bad_input(f"invalid_sections: {exc}")
         results = input.get("results")
