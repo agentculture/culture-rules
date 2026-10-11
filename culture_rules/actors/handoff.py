@@ -241,6 +241,12 @@ def _no_slot(reason: str) -> _Refusal:
     )
 
 
+def _check_account(value: str) -> None:
+    """The prefix's own account must be an account name, never empty or an option."""
+    if not _ACCOUNT_RE.fullmatch(value):
+        raise _no_slot(f"the account {value!r} is not an account name")
+
+
 def _account_slot(words: list[str]) -> int:
     """The index of the account word in a sudo prefix's option section (before
     ``--``), or a refusal: the prefix must be sudo, end its options with ``--``, carry
@@ -255,10 +261,12 @@ def _account_slot(words: list[str]) -> int:
     while i < len(options):
         word = options[i]
         if word in _SUDO_SELECTORS and i + 1 < len(options):
+            _check_account(options[i + 1])
             slots.append(i + 2)  # +1 for sudo, +1 for the value after the selector
             i += 2
             continue
         if word.startswith("--user="):
+            _check_account(word.removeprefix("--user="))
             slots.append(i + 1)
         elif word not in _SUDO_FLAGS:
             raise _no_slot(f"option {word!r} is not allowed")

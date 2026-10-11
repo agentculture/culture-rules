@@ -562,6 +562,9 @@ def test_a_step_run_as_needs_an_account_slot_in_the_prefix(store, world):  # noq
         ["sudo", "-n", "-g", "grp", "-u", "old", "--"],  # an option outside the allowlist
         ["sudo", "-n", "-u", "old"],  # no command boundary
         ["runuser", "-u", "old", "--"],  # not sudo
+        ["sudo", "-n", "-u", "-H", "--"],  # an option-shaped account (Codex r2)
+        ["sudo", "-n", "--user=", "--"],  # an empty account
+        ["sudo", "-n", "-u", "--user=old", "--"],  # a selector as the account
     ],
 )
 def test_a_prefix_whose_account_is_not_exactly_one_sudo_selector_is_refused(
