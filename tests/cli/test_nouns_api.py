@@ -137,6 +137,7 @@ def test_every_write_is_dry_run_without_apply(wire, store, capsys, tmp_path):
 def test_rollout_writes_are_dry_run_without_apply(wire, store, capsys):
     """Each rollout step's dry run (the wheel's own bundle) sends nothing mutating."""
     jrun(capsys, "rollout", "seed", "--apply")  # import's guard needs the seed step
+    jrun(capsys, "rollout", "import", "--apply")  # enable's guard needs the release's new rules
     jrun(capsys, "rollout", "pause", "--apply")  # enable's guard needs the snapshot
     wire.calls.clear()
     before = snapshot(store) | {"rollouts": store.find("rollouts")}
