@@ -2,7 +2,7 @@
   "plan_slug": "pr-fixer-escalation",
   "schema_version": 2,
   "created": "2026-10-10T21:41:12Z",
-  "updated": "2026-10-11T03:53:26Z",
+  "updated": "2026-10-11T04:15:14Z",
   "deviations": [
     {
       "id": "d1",
@@ -69,6 +69,19 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 6
+    },
+    {
+      "id": "d7",
+      "what": "Codex round 1 on #52: queue.progress moves a request to another level's queue in the same store transaction as the source queue's compare-and-set (a concurrent /fix makes the transaction roll back and the pass retry), and handoff.import writes an import receipt and keeps the pack until the 24 h prune, so a replay with the same idempotency key returns the same result; a second step importing the same hand-off fails handoff_already_imported",
+      "task_ref": "t3",
+      "reason": "Codex reproduced a /fix lost between queues (high) and a successful import lost to a crash before its result was recorded (medium)",
+      "affects": [
+        "t1"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 7
     }
   ],
   "evidence": [],
