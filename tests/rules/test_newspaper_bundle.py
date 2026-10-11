@@ -42,7 +42,12 @@ EMAIL, SEARCH, LLM, LIBRARY = (
     "newspaper-library",
 )
 LOOPBACK = ("127.0.0.1", "localhost", "::1")
-ACTION = "action"
+APPLY = "--apply"
+SECTIONS_VAR = "newspaper_sections"
+TO_VAR = "newspaper_to"
+DEVICE_VAR = "newspaper_device"
+API_KEY = "api_key"
+VALUE = "value"
 
 
 def bundle():
@@ -113,7 +118,7 @@ def test_the_rule_ships_disabled_at_0630_jerusalem():
 
 def test_the_rule_maps_the_variables_and_the_slot():
     inputs = rule().workflow.inputs
-    assert rule_variable_refs(rule()) == {"newspaper_sections", "newspaper_to", "newspaper_device"}
+    assert rule_variable_refs(rule()) == {SECTIONS_VAR, TO_VAR, DEVICE_VAR}
     assert inputs["slot"] == "trigger.data.slot"
     assert inputs["tz"] == "trigger.data.tz"
 
@@ -125,13 +130,13 @@ def test_the_email_actor_sends_from_newsletter_no_reply_to_nobody_yet():  # h18,
     assert email.params["surface"] == "email"
     assert email_sender(conn) == "newsletter-no-reply@culture.dev"
     assert conn["recipients"] == []
-    assert conn["api_key"] == "grant:RESEND_API_KEY"
+    assert conn[API_KEY] == "grant:RESEND_API_KEY"
 
 
 def test_the_search_actor_uses_the_brave_grant():
     search = actors()[SEARCH]
     assert search.params["surface"] == "search"
-    assert search.params["connection"] == {"api_key": "grant:BRAVE_API_KEY"}
+    assert search.params["connection"] == {API_KEY: "grant:BRAVE_API_KEY"}
 
 
 def test_the_llm_actor_is_cortex_in_the_qwen_pool_without_a_bridge():  # c3, h15
@@ -139,7 +144,7 @@ def test_the_llm_actor_is_cortex_in_the_qwen_pool_without_a_bridge():  # c3, h15
     assert llm.kind == "agent"
     assert llm.machine == "spark"
     assert llm.params["model"] == "cortex-spark2"
-    assert llm.params["api_key"] == "grant:LOBES_GATEWAY_API_KEY"
+    assert llm.params[API_KEY] == "grant:LOBES_GATEWAY_API_KEY"
     assert llm.params["concurrency_pool"] == "qwen-spark2"
     assert llm.params["max_concurrency"] == 1
     assert "bridge_url" not in llm.params
@@ -148,7 +153,7 @@ def test_the_llm_actor_is_cortex_in_the_qwen_pool_without_a_bridge():  # c3, h15
 def test_the_library_actor_uses_a_dedicated_xteink_key_and_no_device():
     library = actors()[LIBRARY]
     assert library.kind == "service"
-    assert library.params["api_key"] == "grant:XTEINK_PUSH_API_KEY"
+    assert library.params[API_KEY] == "grant:XTEINK_PUSH_API_KEY"
     assert "device_id" not in library.params
 
 
@@ -213,16 +218,16 @@ def variables() -> dict:
 
 def test_the_variables_are_valid_and_carry_nothing_personal():
     values = variables()
-    assert set(values) == {"newspaper_sections", "newspaper_to", "newspaper_device"}
+    assert set(values) == {SECTIONS_VAR, TO_VAR, DEVICE_VAR}
     for item in values.values():
-        validate_variable_value(item["value"])
+        validate_variable_value(item[VALUE])
         assert item["description"]
-    assert values["newspaper_to"]["value"] == []
-    assert values["newspaper_device"]["value"] is None
+    assert values[TO_VAR][VALUE] == []
+    assert values[DEVICE_VAR][VALUE] is None
 
 
 def test_the_example_sections_parse():
-    assert parse_sections(variables()["newspaper_sections"]["value"])
+    assert parse_sections(variables()[SECTIONS_VAR][VALUE])
 
 
 def test_no_address_is_committed():  # c18
@@ -264,19 +269,19 @@ def seed_calls(tmp_path, *args, existing=()) -> list[list[str]]:
 
 
 def test_the_seed_script_is_a_dry_run_and_keeps_existing_values(tmp_path):
-    dry = seed_calls(tmp_path, existing=("newspaper_to",))
-    assert sorted(c[2] for c in dry) == ["newspaper_device", "newspaper_sections"]
-    assert all("--apply" not in c for c in dry)
-    forced = seed_calls(tmp_path, "--apply", "--force", existing=("newspaper_to",))
+    dry = seed_calls(tmp_path, existing=(TO_VAR,))
+    assert sorted(c[2] for c in dry) == [DEVICE_VAR, SECTIONS_VAR]
+    assert all(APPLY not in c for c in dry)
+    forced = seed_calls(tmp_path, APPLY, "--force", existing=(TO_VAR,))
     assert len(forced) == 3
-    assert all("--apply" in c for c in forced)
+    assert all(APPLY in c for c in forced)
 
 
 def test_the_seed_script_calls_work_through_the_real_cli(
     tmp_path, store, wire, capsys  # noqa: F811
 ):
-    for argv in seed_calls(tmp_path, "--apply"):
+    for argv in seed_calls(tmp_path, APPLY):
         assert main([*argv, "--json"]) == 0, capsys.readouterr()
     capsys.readouterr()
-    values = {name: store.get_variable(name)["value"] for name in variables()}
-    assert values == {name: item["value"] for name, item in variables().items()}
+    values = {name: store.get_variable(name)[VALUE] for name in variables()}
+    assert values == {name: item[VALUE] for name, item in variables().items()}

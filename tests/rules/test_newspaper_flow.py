@@ -57,7 +57,16 @@ SECTIONS = [
 ]
 TODAY = datetime(2026, 10, 11, 3, 25, tzinfo=UTC)  # 06:25 in Jerusalem (IDT, UTC+3)
 SUBJECT = "Daily newspaper 2026-10-11"
-POST = "POST"
+OUTPUTS = "outputs"
+MSG_1 = "msg-1"
+MODEL = "model"
+STATUS = "status"
+HEADERS = "headers"
+MESSAGE_ID = "message_id"
+ITEM_ID = "item_id"
+CONTENT = "content"
+TRIGGER = "trigger"
+PARAMS = "params"
 
 
 # --------------------------------------------------------------------------- the fakes
@@ -95,14 +104,14 @@ class Cortex:
 
     def __call__(self, url, data, headers, timeout):
         request = json.loads(data)
-        self.requests.append({"url": url, "json": request, "headers": dict(headers)})
+        self.requests.append({"url": url, "json": request, HEADERS: dict(headers)})
         if self.down:
             raise ConnectionRefusedError("gateway down")
-        results = json.loads(request["messages"][1]["content"])
+        results = json.loads(request["messages"][1][CONTENT])
         text = "\n".join(f"- [{r['title']}]({r['url']}): {r['snippet']}" for r in results)
         reply = {
-            "model": request["model"],
-            "choices": [{"message": {"role": "assistant", "content": text or "No results."}}],
+            MODEL: request[MODEL],
+            "choices": [{"message": {"role": "assistant", CONTENT: text or "No results."}}],
             "usage": {"prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150},
         }
         return 200, json.dumps(reply).encode()
@@ -118,7 +127,7 @@ class Resend:
     def __call__(self, method, url, headers, body, timeout):
         key = headers.get("Idempotency-Key")
         if key not in self.keys:
-            self.sent.append({"url": url, "headers": dict(headers), "json": json.loads(body)})
+            self.sent.append({"url": url, HEADERS: dict(headers), "json": json.loads(body)})
             self.keys[key] = f"msg-{len(self.sent)}"
         return 200, json.dumps({"id": self.keys[key]}).encode()
 
@@ -136,7 +145,7 @@ class Xteink:
             self.uploads.append(body)
             return 201, json.dumps({"item": {"id": ITEM}, "created": True}).encode()
         self.queued.append((path, json.loads(body)))
-        return 201, json.dumps({"id": 11, "device_id": DEVICE, "item_id": ITEM}).encode()
+        return 201, json.dumps({"id": 11, "device_id": DEVICE, ITEM_ID: ITEM}).encode()
 
 
 # --------------------------------------------------------------------------- the world
@@ -148,7 +157,7 @@ def seeded_actors() -> list[dict]:
     for actor in bundle().actors:
         doc = copy.deepcopy(actor.to_dict())
         if actor.id == EMAIL:
-            doc["params"]["connection"]["recipients"] = [READER]
+            doc[PARAMS]["connection"]["recipients"] = [READER]
         docs.append(doc)
     return docs
 
@@ -167,8 +176,8 @@ class World:
         for r in bundle().rules:
             doc = {**r.to_dict(), "enabled": True}
             if cron is not None:
-                doc["trigger"] = {**doc["trigger"], "params": {**doc["trigger"]["params"]}}
-                doc["trigger"]["params"]["cron"] = cron
+                doc[TRIGGER] = {**doc[TRIGGER], PARAMS: {**doc[TRIGGER][PARAMS]}}
+                doc[TRIGGER][PARAMS]["cron"] = cron
             self.base.put("rules", doc)
         shipped = json.loads(VARIABLES.read_text())
         values = {name: item["value"] for name, item in shipped.items()}
@@ -230,7 +239,7 @@ class World:
 
 def finished(world: World) -> dict:
     (run,) = world.runs()
-    assert run["status"] == "succeeded", (run.get("error"), run["steps"])
+    assert run[STATUS] == "succeeded", (run.get("error"), run["steps"])
     return run
 
 
@@ -241,10 +250,10 @@ def test_the_0630_slot_sends_one_email_and_queues_one_item():  # h13
     world = World()
     world.run_until(TODAY + timedelta(minutes=20))
     run = finished(world)
-    assert run["trigger"]["data"]["slot"] == "2026-10-11T03:30:00+00:00"
+    assert run[TRIGGER]["data"]["slot"] == "2026-10-11T03:30:00+00:00"
     assert len(world.resend.sent) == 1
     assert len(world.xteink.uploads) == 1
-    assert world.xteink.queued == [(f"/api/devices/{DEVICE}/queue", {"item_id": ITEM})]
+    assert world.xteink.queued == [(f"/api/devices/{DEVICE}/queue", {ITEM_ID: ITEM})]
 
 
 def test_the_email_goes_from_newsletter_no_reply_to_the_seeded_reader():
@@ -255,17 +264,17 @@ def test_the_email_goes_from_newsletter_no_reply_to_the_seeded_reader():
     assert mail["json"]["from"] == SENDER
     assert mail["json"]["to"] == [READER]
     assert mail["json"]["subject"] == SUBJECT
-    assert mail["headers"]["Idempotency-Key"]
+    assert mail[HEADERS]["Idempotency-Key"]
 
 
 def test_the_run_outputs_carry_the_message_and_item_ids():  # h17
     world = World()
     world.run_until(TODAY + timedelta(minutes=20))
-    outputs = finished(world)["outputs"]
-    assert outputs == {"message_id": "msg-1", "item_id": ITEM, "date": "2026-10-11"}
+    outputs = finished(world)[OUTPUTS]
+    assert outputs == {MESSAGE_ID: MSG_1, ITEM_ID: ITEM, "date": "2026-10-11"}
     issue = world.base.get(ISSUES_COLLECTION, "2026-10-11")
     assert issue["state"] == "delivered"
-    assert issue["message_id"] == "msg-1"
+    assert issue[MESSAGE_ID] == MSG_1
 
 
 def test_each_section_is_searched_once_with_its_queries_joined():
@@ -280,9 +289,9 @@ def test_the_summaries_come_from_cortex_with_the_locked_brief_and_no_tools():  #
     assert len(world.cortex.requests) == 2
     request = world.cortex.requests[0]["json"]
     assert "tools" not in request
-    assert request["model"] == "cortex-spark2"
+    assert request[MODEL] == "cortex-spark2"
     assert request["max_tokens"] == 2000
-    assert request["messages"][0]["content"] == NEWSPAPER_BRIEF
+    assert request["messages"][0][CONTENT] == NEWSPAPER_BRIEF
 
 
 def test_every_summarised_link_is_a_result_and_the_summary_is_shown():  # h5
@@ -310,8 +319,8 @@ def test_a_second_run_for_the_same_date_sends_nothing():  # h8
     world = World(cron="30,45 6 * * *")
     world.run_until(TODAY + timedelta(minutes=40))
     first, second = world.runs()
-    assert second["status"] == "succeeded"
-    assert step_state(second, "claim")["outputs"]["reason"] == "already_delivered"
+    assert second[STATUS] == "succeeded"
+    assert step_state(second, "claim")[OUTPUTS]["reason"] == "already_delivered"
     assert len(world.resend.sent) == 1
     assert len(world.xteink.uploads) == 1
 
@@ -323,7 +332,7 @@ def test_the_repeat_run_spends_no_search_and_no_summary():
     assert len(world.cortex.requests) == 2
     second = world.runs()[1]
     for key in ("email", "push", "record", step_key("search", 0, "search_web")):
-        assert step_state(second, key)["status"] == "skipped", key
+        assert step_state(second, key)[STATUS] == "skipped", key
 
 
 # --------------------------------------------------------------------------- cortex down
@@ -339,7 +348,7 @@ def test_cortex_down_still_sends_the_results_only_issue():  # q1, c25
     html = world.html()
     assert html.count(SUMMARY_UNAVAILABLE) == 2
     assert '<a href="https://news.example/humanoid-robot/0">' in html
-    assert run["outputs"]["message_id"] == "msg-1"
+    assert run[OUTPUTS][MESSAGE_ID] == MSG_1
 
 
 def test_cortex_down_is_recorded_on_the_skipped_summary_steps():
@@ -348,7 +357,7 @@ def test_cortex_down_is_recorded_on_the_skipped_summary_steps():
     world.run_until(TODAY + timedelta(minutes=30))
     run = finished(world)
     summary = step_state(run, step_key("summarise", 0, "summary"))
-    assert summary["status"] == "skipped"
+    assert summary[STATUS] == "skipped"
     assert "llm_unavailable" in summary["error"]["message"]
     assert len(world.cortex.requests) == 4  # two sections, two attempts each
 
@@ -361,11 +370,11 @@ def test_slots_across_the_dst_change_map_to_their_local_dates():
     world = World(start)
     world.run_until(datetime(2026, 10, 25, 5, 0, tzinfo=UTC), step_s=300)
     runs = world.runs()
-    assert [r["trigger"]["data"]["slot"] for r in runs] == [
+    assert [r[TRIGGER]["data"]["slot"] for r in runs] == [
         "2026-10-24T03:30:00+00:00",  # 06:30 IDT (UTC+3)
         "2026-10-25T04:30:00+00:00",  # 06:30 IST (UTC+2)
     ]
-    assert [r["outputs"]["date"] for r in runs] == ["2026-10-24", "2026-10-25"]
+    assert [r[OUTPUTS]["date"] for r in runs] == ["2026-10-24", "2026-10-25"]
     subjects = [mail["json"]["subject"] for mail in world.resend.sent]
     assert subjects == ["Daily newspaper 2026-10-24", "Daily newspaper 2026-10-25"]
 
@@ -373,11 +382,11 @@ def test_slots_across_the_dst_change_map_to_their_local_dates():
 def test_the_schedule_trigger_carries_the_rule_tz():
     world = World()
     world.run_until(TODAY + timedelta(minutes=20))
-    assert finished(world)["trigger"]["data"]["tz"] == "Asia/Jerusalem"
+    assert finished(world)[TRIGGER]["data"]["tz"] == "Asia/Jerusalem"
 
 
 def test_the_epub_round_trips_from_the_render():
     world = World()
     world.run_until(TODAY + timedelta(minutes=20))
     render = step_state(finished(world), "render")
-    assert base64.b64decode(render["outputs"]["epub_base64"])[:2] == b"PK"
+    assert base64.b64decode(render[OUTPUTS]["epub_base64"])[:2] == b"PK"
