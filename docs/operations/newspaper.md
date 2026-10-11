@@ -82,7 +82,9 @@ The engine turns its failure into `skipped`, keeps the error on the step,
 clears its outputs and records `failure_tolerated`. Its failures include an
 unreachable gateway after its two attempts and the summary window closing
 (`llm_deadline`). The issue still goes out on time, with that section's
-results and the line "Summary unavailable." Search and library failures
+results and the line "Summary unavailable." When no section got a summary,
+the masthead also says "Summaries were unavailable for this issue." once.
+Search and library failures
 are not tolerated: they fail the run. The `email` step also has
 `on_error: "skip"`, but only so `push_gate` can tell a passed window from
 a real failure. A failed email inside the window still fails the run there.

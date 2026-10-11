@@ -34,7 +34,7 @@ from culture_rules.node.actions.newspaper import (
     NewspaperRenderPort,
     NewspaperSectionsPort,
 )
-from culture_rules.node.actions.newspaper_render import SUMMARY_UNAVAILABLE
+from culture_rules.node.actions.newspaper_render import SUMMARIES_UNAVAILABLE, SUMMARY_UNAVAILABLE
 from culture_rules.node.actions.search import SearchWebPort
 from culture_rules.node.actors import ACTORS_COLLECTION
 from culture_rules.node.daemon import Node
@@ -371,6 +371,19 @@ def test_cortex_down_still_sends_the_results_only_issue():  # q1, c25
     assert html.count(SUMMARY_UNAVAILABLE) == 2
     assert '<a href="https://news.example/humanoid-robot/0">' in html
     assert run[OUTPUTS][MESSAGE_ID] == MSG_1
+
+
+def test_cortex_down_shows_the_issue_note_once():  # PR #54 review
+    world = World()
+    world.cortex.down = True
+    world.run_until(TODAY + timedelta(minutes=30))
+    assert world.html().count(SUMMARIES_UNAVAILABLE) == 1
+
+
+def test_a_summarised_issue_shows_no_issue_note():
+    world = World()
+    world.run_until(TODAY + timedelta(minutes=20))
+    assert SUMMARIES_UNAVAILABLE not in world.html()
 
 
 def test_cortex_down_is_recorded_on_the_skipped_summary_steps():

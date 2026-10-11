@@ -48,6 +48,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `library.push` recomputes its timeout from the attempt deadline right before the queue call, so a slow upload no longer carries the queue call past the deadline; with no time left it fails `deadline_passed`, retryable (the retried upload is deduplicated by sha256)
 - One grant-reference check: `llm.complete`'s actor check and the app actors' `api_key` check both use `culture_rules.actors.secrets.is_secret_ref`, so `grant:` and `grant:-bad` are refused as an LLM actor's `api_key` (it used to accept any `grant:` prefix). `is_secret_ref` and `parse_ref` now match the whole value, so a reference with a trailing newline is refused
 - The in-process replay ledgers of `llm.complete` and `library.push` are bounded: each keeps its last 1024 completed results (`LEDGER_SIZE`, least recently used dropped first) instead of every result for the daemon's lifetime
+- `newspaper.render` derives the masthead note "Summaries were unavailable for this issue." itself: it is shown once when at least one section has results and none of them has a summary (an empty section does not count). The `summaries_unavailable` input it read was never wired by the workflow and is gone; `llm.complete`'s docstring now says what the workflow does on `llm_unavailable`
 
 ### Known limits
 

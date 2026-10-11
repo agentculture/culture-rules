@@ -47,7 +47,9 @@ actor's token budget counts them). Failures (``"<code>: <detail>"``, never a bod
 value or a secret):
 
 * ``llm_unavailable`` (retryable) - connection refused, DNS, timeout, a passed deadline,
-  5xx, 408 or 429; the newspaper workflow sends without summaries on it;
+  5xx, 408 or 429. The newspaper's summary step tolerates any failure
+  (``config.on_error: "skip"``): that section goes out with its results and "Summary
+  unavailable.", and when no section got a summary the masthead also says so;
 * ``llm_deadline`` (not retryable) - ``not_after`` has passed;
 * ``llm_rejected`` (not retryable) - any other non-2xx answer;
 * ``llm_bad_response`` (not retryable) - not JSON, or no string message content;

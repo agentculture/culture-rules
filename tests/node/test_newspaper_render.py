@@ -241,9 +241,34 @@ def test_results_rendering_carries_snippet_source_and_age():
     assert "a.example · 2 hours ago" in html
 
 
-def test_summaries_unavailable_flag_adds_the_issue_note():
-    html = ok([sec(results=[hit(URL_A)])], summaries_unavailable=True)["html"]
-    assert SUMMARIES_UNAVAILABLE in html
+def test_every_summary_missing_shows_the_issue_note_once():  # PR #54 review
+    sections = [sec(results=[hit(URL_A)]), sec(name="Robots", results=[hit(URL_B)])]
+    assert ok(sections)["html"].count(SUMMARIES_UNAVAILABLE) == 1
+
+
+def test_every_summary_missing_puts_the_issue_note_in_the_first_chapter_only():
+    sections = [sec(results=[hit(URL_A)]), sec(name="Robots", results=[hit(URL_B)])]
+    book = epub(ok(sections))
+    chapters = [book.read(f"OEBPS/s0{n}.xhtml").decode() for n in (1, 2)]
+    assert [SUMMARIES_UNAVAILABLE in c for c in chapters] == [True, False]
+
+
+def test_one_summary_present_shows_no_issue_note():
+    sections = [SUMMARISED, sec(name="Robots", results=[hit(URL_B)])]
+    assert SUMMARIES_UNAVAILABLE not in ok(sections)["html"]
+
+
+def test_an_issue_with_no_results_anywhere_shows_no_issue_note():
+    assert SUMMARIES_UNAVAILABLE not in ok([sec(), sec(name="Robots")])["html"]
+
+
+def test_an_empty_section_does_not_count_as_a_missing_summary():
+    sections = [sec(), sec(name="Robots", results=[hit(URL_B)])]
+    assert ok(sections)["html"].count(SUMMARIES_UNAVAILABLE) == 1
+
+
+def test_a_summaries_unavailable_input_is_not_read():
+    assert SUMMARIES_UNAVAILABLE not in ok([SUMMARISED], summaries_unavailable=True)["html"]
 
 
 def test_parallel_results_and_summaries_lists():
