@@ -9,7 +9,10 @@ import type { ActorParams, AppActorParams, AppProbe, AppSurface, HttpPolicy, Run
  * actors/code.py + actors/inline_guard.py (argv templates, typed params).
  */
 
-export const APP_SURFACES: readonly AppSurface[] = ["github", "jira", "discord"];
+export const APP_SURFACES: readonly AppSurface[] = ["github", "jira", "discord", "email", "search"];
+
+/** The sender domains an email app may send from, the default first (app_actor.py `EMAIL_DOMAINS`). */
+export const EMAIL_DOMAINS: readonly string[] = ["culture.dev", "jetson-ai-lab.org"];
 
 /** Action kinds an app can declare (culture_rules/model/action_kinds.py `ACTION_KINDS`). */
 export const ACTION_KINDS: readonly { name: string; summary: string }[] = [
@@ -22,6 +25,10 @@ export const ACTION_KINDS: readonly { name: string; summary: string }[] = [
   { name: "jira.comment", summary: "Comment on a Jira issue" },
   { name: "http.call", summary: "Call an HTTP endpoint" },
   { name: "machine.command", summary: "Run a registered command on a machine" },
+  { name: "email.send", summary: "Send an email through an email app" },
+  { name: "search.web", summary: "Search the web through a search app" },
+  { name: "llm.complete", summary: "Complete a locked brief with an OpenAI-compatible model (no tools)" },
+  { name: "library.push", summary: "Upload an EPUB to the xteink library and queue it for a device" },
 ];
 
 /** Lowercase dotted event types, at least two segments (app_actor.py `EVENT_TYPE_RE`). */
@@ -44,7 +51,19 @@ export interface ConnectionField {
   label: string;
   /** A comma-separated list in the form, an array in the actor. */
   list?: boolean;
+  /** An enum: rendered as a select of exactly these values, the first one the default. */
+  options?: readonly string[];
+  /** Refused when blank. */
+  required?: boolean;
+  /** Written even when blank (a list as `[]`): the backend needs the key present. */
+  keepEmpty?: boolean;
+  /** Each list entry must be an email address. */
+  emails?: boolean;
+  /** Shown in an empty text field: the value the backend uses when it is left blank. */
+  placeholder?: string;
 }
+
+const API_KEY: ConnectionField = { key: "api_key", label: "API key", required: true };
 
 /** Per-surface connection fields, in the order the backend docstring gives them. */
 export const CONNECTION_FIELDS: Record<AppSurface, ConnectionField[]> = {
@@ -67,7 +86,21 @@ export const CONNECTION_FIELDS: Record<AppSurface, ConnectionField[]> = {
     { key: "guild_id", label: "Guild id" },
     { key: "channels", label: "Channels", list: true },
   ],
+  email: [
+    API_KEY,
+    { key: "domain", label: "Sender domain", options: EMAIL_DOMAINS },
+    { key: "local_part", label: "Sender local part", placeholder: "no-reply" },
+    { key: "recipients", label: "Recipients", list: true, keepEmpty: true, emails: true },
+  ],
+  search: [API_KEY],
 };
+
+/** A new connection for `surface`: every enum field set to its default. */
+export function connectionDefaults(surface: AppSurface | ""): Record<string, string> {
+  if (surface === "") return {};
+  const enums = CONNECTION_FIELDS[surface].filter((f) => f.options?.length);
+  return Object.fromEntries(enums.map((f) => [f.key, (f.options as readonly string[])[0]]));
+}
 
 export interface ProbeDraft {
   name: string;
@@ -129,7 +162,7 @@ export function appParamsFrom(draft: AppDraft, base: ActorParams | undefined): A
   for (const [key, value] of Object.entries(baseConnection)) if (!known.has(key)) connection[key] = value;
   for (const field of CONNECTION_FIELDS[surface]) {
     const text = (draft.connection[field.key] ?? "").trim();
-    if (text === "") continue;
+    if (text === "" && !field.keepEmpty) continue;
     connection[field.key] = field.list ? splitList(text) : text;
   }
   const probes: AppProbe[] = draft.probes.map((p) => {
@@ -154,6 +187,32 @@ export function appParamsFrom(draft: AppDraft, base: ActorParams | undefined): A
 
 export type FormErrors = Record<string, string>;
 
+/**
+ * A deliberately loose address check (app_actor.py `is_email_address` is the authority):
+ * no whitespace, exactly one "@" with text before it, and a dot inside the domain with text
+ * on both sides. Written without a regex so it runs in linear time on any input.
+ */
+export function isEmailAddress(text: string): boolean {
+  if (/\s/.test(text)) return false;
+  const at = text.indexOf("@");
+  if (at <= 0 || at !== text.lastIndexOf("@")) return false;
+  return text.slice(at + 2, -1).includes(".");
+}
+
+/** Why one connection value would be refused, or null. */
+function connectionFieldError(field: ConnectionField, text: string): string | null {
+  if (text === "") return field.required ? `${field.label} is required.` : null;
+  if (isSecretKey(field.key) && !GRANT_REF_RE.test(text)) {
+    return "Secrets are never typed here. Store it with the grant tool and enter its reference, like grant:NAME.";
+  }
+  if (field.options && !field.options.includes(text)) return `Choose one of ${field.options.join(", ")}.`;
+  if (field.emails) {
+    const bad = splitList(text).filter((item) => !isEmailAddress(item));
+    if (bad.length) return `Not an email address: ${bad.join(", ")}.`;
+  }
+  return null;
+}
+
 /** Client-side refusals for an app draft, keyed by field path. Empty means sendable. */
 export function validateApp(draft: AppDraft): FormErrors {
   const errors: FormErrors = {};
@@ -162,11 +221,8 @@ export function validateApp(draft: AppDraft): FormErrors {
     return errors;
   }
   for (const field of CONNECTION_FIELDS[draft.surface]) {
-    const text = (draft.connection[field.key] ?? "").trim();
-    if (isSecretKey(field.key) && text !== "" && !GRANT_REF_RE.test(text)) {
-      errors[`connection.${field.key}`] =
-        "Secrets are never typed here. Store it with the grant tool and enter its reference, like grant:NAME.";
-    }
+    const error = connectionFieldError(field, (draft.connection[field.key] ?? "").trim());
+    if (error) errors[`connection.${field.key}`] = error;
   }
   draft.events.forEach((event, i) => {
     if (!EVENT_TYPE_RE.test(event.trim())) {

@@ -1,0 +1,90 @@
+{
+  "plan_slug": "daily-newspaper",
+  "schema_version": 2,
+  "created": "2026-10-11T05:14:10Z",
+  "updated": "2026-10-11T10:16:10Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "t8 added a small engine feature: a step with config.on_error 'skip' that ends failed becomes skipped (its error kept, history failure_tolerated), accepted only on non-loop, non-wait steps; the newspaper's summary step uses it so the issue still goes out when cortex is down",
+      "task_ref": "t8",
+      "reason": "the engine had no way for a workflow to survive a failed step, which the confirmed cortex-down decision (q1) needs",
+      "affects": [],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 1
+    },
+    {
+      "id": "d2",
+      "what": "t8 adjusted t6's builtins to how for_each works: newspaper.filter reads the loop's implicit item port; newspaper.sections adds a derived query (the section's queries joined with OR, refused over Brave's 400 characters); render accepts per-iteration {results} objects. The library actor uses the operator's existing grant XTEINK_PUSH_API_KEY instead of a new XTEINK_NEWSPAPER_KEY, and all four actors are placed on spark because the LLM gateway and xteink are reached on spark's localhost (live test)",
+      "task_ref": "t8",
+      "reason": "a loop body cannot receive the item under another name, params cannot index a list, and a for_each output yields whole iteration objects; the grant name and placement come from the operator and the live component test",
+      "affects": [
+        "t6"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 2
+    },
+    {
+      "id": "d3",
+      "what": "Codex round 1 on #53: newspaper.issue moves to newspaper_issue.py with a lease fenced by run id (phases claim, before_email, before_push, record), per-destination progress and a stored email payload with the durable key newspaper:<date>:email (email.send gains an optional idempotency_key param); a summary window from the slot (claim config summary_window_s, default 600 s) passed to llm.complete as not_after (llm_deadline); LimitedActor asks an inner port's refuse_before_admit before taking or waiting for a pool slot; a tolerated failure clears the step's outputs; render tokenises formatting and requires bullets-only summaries with a source link on every line; Brave drops a result whose URL does not parse",
+      "task_ref": "t6",
+      "reason": "Codex found a double email after a partial delivery (P1) and five P2 issues; the pool hook is a small change in the shared limits layer",
+      "affects": [
+        "t8",
+        "t2",
+        "t4"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 3
+    },
+    {
+      "id": "d4",
+      "what": "Codex round 2 on #53: the first email fence records email_attempt and freezes the full request (subject, html, to, sender from the email actor named in the gate's config); a retry within 23 h replays the frozen request with the same key; after 23 h the email is marked uncertain and never resent (the run reports email_uncertain; the push still happens); email.send takes an optional sender checked against the actor's domain; llm.complete resolves headers before computing the remaining time; LimitedActor replays a completed result before refuse_before_admit, with no admission or slot",
+      "task_ref": "t6",
+      "reason": "Resend keeps idempotency keys for 24 h and rejects a reused key with a different body; the deadline and replay paths had ordering gaps. The 'not resent after 23 h' policy needs the operator's confirmation",
+      "affects": [
+        "t2",
+        "t4"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 4
+    },
+    {
+      "id": "d5",
+      "what": "Codex round 3 on #53: before_email outputs send_until (the first attempt plus 23 h); email.send takes not_after and refuses at or past it (email_window_passed, non-retryable) just before every request, after the secret is resolved; the email step tolerates its failure (on_error skip) and the push fence treats an attempt past its window as uncertain, while any other email failure inside the window still fails the run",
+      "task_ref": "t6",
+      "reason": "a resumed email retry more than 24 h later bypassed the fence's check and sent twice (P1); the operator approved a fourth Codex round to verify",
+      "affects": [
+        "t2"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 5
+    },
+    {
+      "id": "d6",
+      "what": "An empty newspaper_to (no recipients) skips the email and still pushes the issue to the reader: newspaper.issue's before_email accepts to [] and freezes it; the date's email is recorded skipped (no_recipients), never attempted and never uncertain; the run outputs email_sent false and no_recipients true and the date is recorded delivered with no message id. A frozen empty list keeps the date email-less even if newspaper_to is seeded later that day",
+      "task_ref": "t6",
+      "reason": "Operator decision 2026-10-11 (asked in session): an empty newspaper_to should still deliver to the e-reader; the PR #54 review had made it fail the run at email_gate, which also blocked the push",
+      "affects": [
+        "t8"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 6
+    }
+  ],
+  "evidence": [],
+  "deltas": [],
+  "supersessions": []
+}

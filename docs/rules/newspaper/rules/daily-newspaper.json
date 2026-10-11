@@ -1,0 +1,56 @@
+{
+  "action": {
+    "idempotent": false,
+    "kind": "noop",
+    "name": "Nothing: the delivery is the workflow's work",
+    "only_at_chain_end": false,
+    "params": {},
+    "retry": null,
+    "timeout_s": null
+  },
+  "concurrency_key": null,
+  "condition": null,
+  "counts_toward_budget": true,
+  "description": "#53: every morning at 06:30 Asia/Jerusalem (DST-aware), runs the daily-newspaper workflow over the newspaper_sections variable, to newspaper_to and the newspaper_device reader. Ships disabled: enable it after seeding the variables, the actors' base URLs, the allowlist and the grants (docs/operations/newspaper.md). A missed slot is not caught up.",
+  "enabled": false,
+  "exclusive_group": null,
+  "id": "daily-newspaper",
+  "max_attempts": null,
+  "may_after": [],
+  "must_after": [],
+  "name": "Daily newspaper at 06:30 Asia/Jerusalem",
+  "on_failure": null,
+  "placement": {
+    "actor": null,
+    "machine": "spark",
+    "requirement": null
+  },
+  "priority": 0,
+  "resets_attempt_budget": false,
+  "schema_version": "1.0",
+  "supersedes": [],
+  "trigger": {
+    "kind": "schedule",
+    "params": {
+      "cron": "30 6 * * *",
+      "tz": "Asia/Jerusalem"
+    }
+  },
+  "workflow": {
+    "id": "daily-newspaper",
+    "inputs": {
+      "device_id": {
+        "$var": "newspaper_device"
+      },
+      "sections": {
+        "$var": "newspaper_sections"
+      },
+      "slot": "trigger.data.slot",
+      "to": {
+        "$var": "newspaper_to"
+      },
+      "tz": "trigger.data.tz"
+    },
+    "version": null
+  }
+}

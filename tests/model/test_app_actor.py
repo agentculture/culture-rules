@@ -7,6 +7,13 @@ import copy
 import pytest
 
 from culture_rules.model.actor import ACTOR_KINDS, Actor
+from culture_rules.model.app_actor import (
+    APP_SURFACES,
+    EMAIL_DEFAULT_DOMAIN,
+    EMAIL_DEFAULT_LOCAL_PART,
+    EMAIL_DOMAINS,
+    email_sender,
+)
 from culture_rules.model.validate import validate
 
 pytest.importorskip("fastapi")
@@ -194,3 +201,156 @@ def test_non_secret_nested_structures_still_accepted(client) -> None:
 def test_empty_secret_stays_tolerated(client) -> None:
     assert client.post("/actors", json=body(webhook_secret="")).status_code == 201
     assert client.put("/actors/gh", json=body(webhook_secret=None)).status_code == 200
+
+
+# --- the email and search surfaces (#53 t1) ------------------------------------------------
+
+EMAIL_PATH = "params.connection"
+INVALID = "invalid_value"
+EMAIL_SEND = "email.send"
+DOMAIN_PATH = f"{EMAIL_PATH}.domain"
+EMAIL, SEARCH = "email", "search"
+CULTURE_DEV, JETSON = "culture.dev", "jetson-ai-lab.org"
+OUTSIDE = "example.com"
+OPERATOR = "reader@example.org"
+FAKE_LITERAL_KEY = "re_literal_value_123"  # not a real key: a literal the save must refuse
+
+
+def email_conn(**over) -> dict:
+    conn = {
+        "api_key": "grant:RESEND_API_KEY",
+        "domain": CULTURE_DEV,
+        "local_part": "newsletter-no-reply",
+        "recipients": [OPERATOR],
+    }
+    conn.update(over)
+    return {k: v for k, v in conn.items() if v is not None}
+
+
+def surface_actor(surface: str, connection: dict, **params) -> Actor:
+    merged = {"surface": surface, "connection": connection, **params}
+    return Actor(id=surface, name=surface, kind="app", params=merged)
+
+
+def email_codes(**over) -> set[tuple[str, str]]:
+    return codes(surface_actor(EMAIL, email_conn(**over), actions=[EMAIL_SEND]))
+
+
+def test_email_and_search_are_surfaces() -> None:
+    assert {EMAIL, SEARCH} <= set(APP_SURFACES)
+
+
+def test_email_constants() -> None:
+    assert EMAIL_DOMAINS == (CULTURE_DEV, JETSON)
+    assert EMAIL_DEFAULT_LOCAL_PART == "no-reply"
+    assert EMAIL_DEFAULT_DOMAIN == CULTURE_DEV
+
+
+@pytest.mark.parametrize("domain", [CULTURE_DEV, JETSON])
+def test_valid_email_actor(domain: str) -> None:
+    assert email_codes(domain=domain) == set()
+
+
+def test_email_local_part_and_domain_are_optional() -> None:
+    assert email_codes(domain=None, local_part=None) == set()
+
+
+def test_email_sender_defaults_to_no_reply_at_culture_dev() -> None:
+    assert email_sender({}) == "no-reply@culture.dev"
+
+
+def test_email_sender_uses_the_connection() -> None:
+    conn = email_conn(domain=JETSON)
+    assert email_sender(conn) == "newsletter-no-reply@jetson-ai-lab.org"
+
+
+@pytest.mark.parametrize("domain", [OUTSIDE, "culture.dev.evil.org", "CULTURE.DEV ", 3])
+def test_email_domain_outside_the_enum_refused(domain) -> None:
+    assert (DOMAIN_PATH, INVALID) in email_codes(domain=domain)
+
+
+@pytest.mark.parametrize("local", ["no reply", "a@b", "", ".lead", "trail.", "a..b", "x\n", 7])
+def test_email_bad_local_part_refused(local) -> None:
+    assert (f"{EMAIL_PATH}.local_part", INVALID) in email_codes(local_part=local)
+
+
+@pytest.mark.parametrize(
+    "recipient",
+    ["no-at-sign", "two@@at.org", "a b@c.org", "a@b", "a@c.org\r\nBcc: x@y.org", "a@c.org\n", 5],
+)
+def test_email_malformed_recipient_refused(recipient) -> None:
+    errs = email_codes(recipients=[OPERATOR, recipient])
+    assert (f"{EMAIL_PATH}.recipients[1]", INVALID) in errs
+
+
+def test_email_good_recipient_not_flagged() -> None:
+    errs = email_codes(recipients=[OPERATOR, "bad"])
+    assert (f"{EMAIL_PATH}.recipients[0]", INVALID) not in errs
+
+
+@pytest.mark.parametrize("recipients", [None, OPERATOR])
+def test_email_recipients_must_be_a_list(recipients) -> None:
+    errs = email_codes(recipients=recipients)
+    assert {code for path, code in errs if path == f"{EMAIL_PATH}.recipients"} != set()
+
+
+def test_an_empty_recipient_allowlist_is_valid() -> None:
+    """h18: the shipped actor's allow-list is empty until the operator seeds it."""
+    errs = email_codes(recipients=[])
+    assert [e for e in errs if e[0].startswith(f"{EMAIL_PATH}.recipients")] == []
+
+
+@pytest.mark.parametrize("surface", [EMAIL, SEARCH])
+def test_api_key_must_be_a_grant_ref(surface: str) -> None:
+    actor = surface_actor(surface, {**email_conn(), "api_key": FAKE_LITERAL_KEY})
+    assert (f"{EMAIL_PATH}.api_key", "secret_literal") in codes(actor)
+
+
+@pytest.mark.parametrize("surface", [EMAIL, SEARCH])
+def test_api_key_required(surface: str) -> None:
+    conn = email_conn(api_key=None) if surface == EMAIL else {}
+    assert (f"{EMAIL_PATH}.api_key", "required") in codes(surface_actor(surface, conn))
+
+
+def test_valid_search_actor() -> None:
+    conn = {"api_key": "grant:BRAVE_API_KEY"}
+    assert codes(surface_actor(SEARCH, conn, actions=["search.web"])) == set()
+
+
+def test_github_connection_still_unchecked_per_field() -> None:
+    assert validate(app_actor(connection={"anything": 1})) == []
+
+
+def email_body(**over) -> dict:
+    params = {"surface": EMAIL, "actions": ["email.send"], "connection": email_conn(**over)}
+    return {"id": "mail", "name": "Mail", "kind": "app", "params": params}
+
+
+def test_api_saves_an_email_actor(client) -> None:
+    assert client.post("/actors", json=email_body()).status_code == 201
+
+
+def test_api_refuses_a_domain_outside_the_enum(client) -> None:
+    resp = client.post("/actors", json=email_body(domain=OUTSIDE))
+    assert resp.status_code == 422
+    assert DOMAIN_PATH in resp.text
+
+
+def test_api_refuses_a_malformed_recipient(client) -> None:
+    resp = client.post("/actors", json=email_body(recipients=["not an address"]))
+    assert resp.status_code == 422
+    assert f"{EMAIL_PATH}.recipients[0]" in resp.text
+
+
+def test_api_refuses_a_literal_key_without_echoing_it(client) -> None:
+    resp = client.post("/actors", json=email_body(api_key=FAKE_LITERAL_KEY))
+    assert resp.status_code == 422
+    assert f"{EMAIL_PATH}.api_key" in resp.text
+    assert FAKE_LITERAL_KEY not in resp.text
+
+
+def test_api_refuses_a_bad_domain_on_put_too(client) -> None:
+    assert client.post("/actors", json=email_body()).status_code == 201
+    resp = client.put("/actors/mail", json=email_body(domain=OUTSIDE))
+    assert resp.status_code == 422
+    assert DOMAIN_PATH in resp.text

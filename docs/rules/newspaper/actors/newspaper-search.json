@@ -1,0 +1,24 @@
+{
+  "capabilities": [],
+  "config_source": "db",
+  "description": "#53: Brave web search for the newspaper's sections. The key is a grant reference resolved on spark.",
+  "enabled": true,
+  "harness": null,
+  "id": "newspaper-search",
+  "kind": "app",
+  "machine": "spark",
+  "model": null,
+  "name": "Daily newspaper: web search (Brave)",
+  "params": {
+    "actions": [
+      "search.web"
+    ],
+    "connection": {
+      "api_key": "grant:BRAVE_API_KEY"
+    },
+    "events": [],
+    "surface": "search"
+  },
+  "repo": null,
+  "schema_version": "1.0"
+}

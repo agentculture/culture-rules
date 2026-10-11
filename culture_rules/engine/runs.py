@@ -171,6 +171,14 @@ Semantics
   iteration), its retry and timeout the step's, ``config.action.idempotent`` counts like
   ``Action.idempotent`` (only a boolean ``true`` - a wrong type fails closed); the
   port's result becomes the step's outcome (outputs checked against its output ports).
+* **Tolerated failure** (#53 t8) - a dispatched step (not a loop or wait step) whose
+  ``config.on_error`` is ``"skip"`` and that ends ``failed`` (a non-retryable failure, its
+  retries used up, a queue timeout, a false-typed output) is turned ``skipped`` by
+  housekeeping before anything else sees the failure, keeping its ``error`` and clearing its
+  ``outputs`` (an output-validation failure stored the rejected values); history records
+  ``failure_tolerated``. Downstream steps then run without its outputs (their ports must not
+  require them) and a loop body's iteration ends normally. The daily newspaper's summary
+  step uses it: an unreachable model still sends the results-only issue.
 * **Containment** (:class:`Containment`, every verb audited) - a global pause stops new
   runs and all new dispatch (accepted work may still complete); draining a machine stops
   new placements on it while its running steps finish; cancelling a run cancels every
@@ -2264,9 +2272,45 @@ def _explained(step: Step, result: Mapping[str, Any], message: str) -> str:
     return f"{message}; last: {text}"
 
 
+ON_ERROR_SKIP = "skip"
+"""``config.on_error`` value that tolerates a step's own failure (#53 t8)."""
+FAILURE_TOLERATED = "failure_tolerated"
+"""History event of a failed step turned ``skipped`` by its ``config.on_error``."""
+
+
+def _tolerates_failure(plan: _Plan, st: Mapping) -> bool:
+    if st["status"] != "failed" or st["key"] in TERMINAL_STEPS:
+        return False
+    step = plan.step(st)
+    if step is None or step.kind in LOOP_KINDS or step.kind == "wait":
+        return False
+    config = step.config if isinstance(step.config, dict) else {}
+    return config.get("on_error") == ON_ERROR_SKIP
+
+
+def _tolerate_failed(plan: _Plan, doc: Mapping, now: datetime) -> Found:
+    """A failed step whose ``config.on_error`` is ``skip`` becomes ``skipped`` (its
+    ``error`` kept), before a loop or the run can fail on it: downstream steps run without
+    its outputs, and a loop goes on with its next iteration.
+
+    Its ``outputs`` are cleared: a step failed by output validation stored the rejected
+    values, and a ``skipped`` step's outputs would otherwise reach downstream ports and
+    loop aggregation (Codex r1 #2). The ``error`` keeps the diagnosis."""
+    if doc.get("status") != ACTIVE or step_state(doc, FAILURE_STEP) is not None:
+        return None
+    for st in doc["steps"]:
+        if _tolerates_failure(plan, st):
+            new, nst = _copy_with(doc, st["key"])
+            nst["status"] = "skipped"
+            nst["outputs"] = None
+            return new, FAILURE_TOLERATED, st["key"]
+    return None
+
+
 def _housekeep(plan: _Plan, doc: Mapping, now: datetime, host: str) -> dict | None:
     """Return ``doc`` with the first due bookkeeping transition applied, or None."""
     for fn in (
+        _tolerate_failed,
         _due_timers,
         _loop_progress,
         _run_failure,

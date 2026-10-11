@@ -385,6 +385,12 @@ class LimitedActor:
         *,
         context: InvocationContext,
     ) -> InvocationResult:
+        replayed = self._replayed(idempotency_key)
+        if replayed is not None:
+            return replayed  # completed before: no admission, no slot, no tokens (Codex r2 #3)
+        refused = self._refused_before_admit(input)
+        if refused is not None:
+            return refused
         verdict, doc = self._admit(idempotency_key, deadline)
         if verdict == OVER_BUDGET:
             return InvocationResult.failed(self._over_budget_error(doc), retryable=False)
@@ -410,6 +416,30 @@ class LimitedActor:
                 completed=result.outcome == COMPLETED,
             )
         return result
+
+    def _replayed(self, key: str) -> InvocationResult | None:
+        """The inner port's recorded completion of ``key``, asked before any admission check.
+
+        A port may define ``replay(idempotency_key)`` returning its completed result (or
+        None). A completion whose acknowledgement was lost replays even when new work could no
+        longer start (``llm.complete`` past ``not_after``) or the pool is full; its tokens were
+        counted, and its slot released, when it first completed."""
+        replay = getattr(self.inner, "replay", None)
+        result = replay(key) if callable(replay) else None
+        if isinstance(result, InvocationResult) and result.outcome == COMPLETED:
+            return result
+        return None
+
+    def _refused_before_admit(self, input: Mapping[str, Any]) -> InvocationResult | None:
+        """The inner port's own refusal of work that must not start, asked before any slot.
+
+        A port may define ``refuse_before_admit(input)`` returning a failed result (or None):
+        ``llm.complete`` refuses a passed ``not_after``, so work past its deadline fails at
+        once instead of waiting ``blocked`` at the cap. No slot is taken and no token is
+        counted."""
+        refuse = getattr(self.inner, "refuse_before_admit", None)
+        result = refuse(input) if callable(refuse) else None
+        return result if isinstance(result, InvocationResult) else None
 
     def _over_budget_error(self, doc: Mapping[str, Any]) -> str:
         used, budget = doc["tokens"], self.limits.token_budget

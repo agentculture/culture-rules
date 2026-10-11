@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { describe, expect, it } from "vitest";
@@ -74,6 +74,10 @@ describe("AppConfigForm", () => {
       "jira.comment",
       "http.call",
       "machine.command",
+      "email.send",
+      "search.web",
+      "llm.complete",
+      "library.push",
     ]) {
       expect(screen.getByRole("checkbox", { name: new RegExp(`^${kind.replace(".", "\\.")}`) })).toBeInTheDocument();
     }
@@ -93,7 +97,78 @@ describe("AppConfigForm", () => {
   });
 });
 
+describe("AppConfigForm: email and search", () => {
+  it("offers the email and search surfaces", () => {
+    render(<Harness />);
+    const options = within(screen.getByRole("combobox", { name: "Surface" }))
+      .getAllByRole("option")
+      .map((o) => o.getAttribute("value"));
+    expect(options).toEqual(["", "github", "jira", "discord", "email", "search"]);
+  });
+
+  it("shows the email connection with the sender domain as a drop-down of exactly two domains", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    await user.selectOptions(screen.getByRole("combobox", { name: "Surface" }), "email");
+    expect(screen.getByRole("textbox", { name: "API key (grant reference)" })).toHaveAttribute("placeholder", "grant:NAME");
+    expect(screen.getByRole("textbox", { name: "Sender local part" })).toHaveAttribute("placeholder", "no-reply");
+    expect(screen.getByRole("textbox", { name: "Recipients" })).toBeInTheDocument();
+    const domain = screen.getByRole("combobox", { name: "Sender domain" });
+    expect(within(domain).getAllByRole("option").map((o) => o.getAttribute("value"))).toEqual([
+      "culture.dev",
+      "jetson-ai-lab.org",
+    ]);
+    expect(domain).toHaveValue("culture.dev");
+    expect(latest.connection.domain).toBe("culture.dev");
+    await user.selectOptions(domain, "jetson-ai-lab.org");
+    expect(latest.connection.domain).toBe("jetson-ai-lab.org");
+  });
+
+  it("shows the search connection as one API key reference", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    await user.selectOptions(screen.getByRole("combobox", { name: "Surface" }), "search");
+    expect(screen.getByRole("textbox", { name: "API key (grant reference)" })).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Sender domain" })).toBeNull();
+  });
+});
+
 describe("app-config model", () => {
+  it("validates the email connection: key reference required, a known domain, addresses only", () => {
+    const base = { ...emptyAppDraft(), surface: "email" as const };
+    expect(
+      validateApp({ ...base, connection: { api_key: "grant:resend", domain: "culture.dev", recipients: "a@culture.dev" } }),
+    ).toEqual({});
+    expect(validateApp({ ...base, connection: {} })).toHaveProperty("connection.api_key");
+    const bad = validateApp({
+      ...base,
+      connection: { api_key: "re_123", domain: "example.com", recipients: "a@culture.dev, nobody" },
+    });
+    expect(Object.keys(bad).sort()).toEqual(["connection.api_key", "connection.domain", "connection.recipients"]);
+  });
+
+  it("requires the search key as a reference", () => {
+    const base = { ...emptyAppDraft(), surface: "search" as const };
+    expect(validateApp({ ...base, connection: { api_key: "grant:brave" } })).toEqual({});
+    expect(validateApp({ ...base, connection: {} })).toHaveProperty("connection.api_key");
+  });
+
+  it("writes an email connection with recipients as a list and keeps an empty allow-list", () => {
+    const draft: AppDraft = {
+      ...emptyAppDraft(),
+      surface: "email",
+      connection: { api_key: "grant:resend", domain: "jetson-ai-lab.org", recipients: "a@x.org, b@y.org" },
+      actions: ["email.send"],
+    };
+    expect(appParamsFrom(draft, undefined).connection).toEqual({
+      api_key: "grant:resend",
+      domain: "jetson-ai-lab.org",
+      recipients: ["a@x.org", "b@y.org"],
+    });
+    const empty = appParamsFrom({ ...draft, connection: { api_key: "grant:resend", recipients: "" } }, undefined);
+    expect(empty.connection).toEqual({ api_key: "grant:resend", recipients: [] });
+  });
+
   it("accepts grant refs and refuses literals on every secret-looking key", () => {
     const base = { ...emptyAppDraft(), surface: "github" as const };
     expect(validateApp({ ...base, connection: { private_key: "grant:gh-key", webhook_secret: "grant:wh" } })).toEqual({});

@@ -114,3 +114,24 @@ def test_release_json_matches_pyproject_and_names_only_what_ships():
     assert isinstance(release["new_variables"], list)
     assert set(release["new_rules"]) <= rules, set(release["new_rules"]) - rules
     assert set(release["new_variables"]) <= names, set(release["new_variables"]) - names
+
+
+# The last release rolled out live is 0.18.11 (0.18.12 is bootstrapped by hand), so this
+# release must carry 0.18.13's new rules and variables forward: a rollout from 0.18.12
+# straight to this release would otherwise never enable or seed them (PR #54 review).
+CARRIED_RULES = ("pr-fixer-retry-capacity", "pr-fixer-queue-progress-capacity")
+CARRIED_VARIABLES = ("fixer_levels", "fixer_unavailable", "fixer_capacity_cooldown_s")
+
+
+def release_manifest() -> dict:
+    return json.loads((BUNDLE / "release.json").read_text(encoding="utf-8"))
+
+
+@pytest.mark.parametrize("rule", CARRIED_RULES)
+def test_release_json_carries_forward_the_unrolled_new_rules(rule):
+    assert rule in release_manifest()["new_rules"]
+
+
+@pytest.mark.parametrize("name", CARRIED_VARIABLES)
+def test_release_json_carries_forward_the_unrolled_new_variables(name):
+    assert name in release_manifest()["new_variables"]

@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import importlib.util
+from dataclasses import replace
 
-from culture_rules.engine.actorport import FAILED
+import pytest
+
+from culture_rules.engine.actorport import FAILED, InvocationContext
 from culture_rules.engine.runs import ACTION_STEP, step_state
 from culture_rules.machines.probe import ProbeResult
 from culture_rules.model.action import Action
@@ -31,6 +34,17 @@ def test_every_action_kind_has_a_registered_port() -> None:
     for kind in ACTION_KINDS:
         assert f"action:{kind}" in ports, kind
     assert "action:mesh.message" in ports  # legacy alias of message
+
+
+@pytest.mark.parametrize(
+    "name", ["newspaper.sections", "newspaper.filter", "newspaper.render", "newspaper.issue"]
+)
+def test_the_newspaper_builtins_are_registered(name: str) -> None:
+    """#53 t8: an unknown builtin fails ``no_builtin``; a registered one reaches its port."""
+    code = runner.default_ports(MemoryStore(), "spark")["code"]
+    ctx = InvocationContext(run_id="r", step_id="s", kind="code", host="spark", config={})
+    result = code.invoke({}, "k", None, context=replace(ctx, config={"builtin": name}))
+    assert not (result.error or "").startswith("no_builtin"), result.error
 
 
 def _run_rule(action, actor):

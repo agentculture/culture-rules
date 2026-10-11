@@ -62,6 +62,15 @@ Statistics as the fourth tab, and the design canvas
 visual source of truth. CLI writes are dry-run by default; `--apply`
 commits them.
 
+The **daily newspaper** (#53, spec
+`docs/specs/2026-10-11-daily-newspaper.md`, setup
+`docs/operations/newspaper.md`, actor guides in `docs/actors/`) adds `email`
+and `search` app surfaces and four action kinds: `email.send` (Resend),
+`search.web` (Brave), `llm.complete` (an OpenAI-compatible endpoint, a
+locked brief, no tools) and `library.push` (an EPUB to xteink). It also adds
+the step option `config.on_error: "skip"` and the disabled bundle
+`docs/rules/newspaper`.
+
 `CLAUDE.md` is written for a Claude Code session working *on* the repo. It
 is not your runtime prompt, but it is the fullest write-up of the repo's
 conventions if you need more context than fits here. It covers:

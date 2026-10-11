@@ -27,26 +27,13 @@ interface TextFieldProps {
   mono?: boolean;
 }
 
-/** A text input whose error and hint are announced with it (aria-describedby) and which flags aria-invalid. */
-export function TextField({ label, ariaLabel, value, onChange, error, hint, placeholder, mono }: Readonly<TextFieldProps>) {
-  const uid = useId();
-  const describedBy = [error ? `${uid}-err` : null, hint ? `${uid}-hint` : null].filter(Boolean).join(" ") || undefined;
+const describedByOf = (uid: string, error?: string, hint?: string) =>
+  [error ? `${uid}-err` : null, hint ? `${uid}-hint` : null].filter(Boolean).join(" ") || undefined;
+
+/** A field's error and hint, with the ids its control's aria-describedby points at. */
+function FieldNotes({ uid, error, hint }: Readonly<{ uid: string; error?: string; hint?: string }>) {
   return (
-    <div className="actor-form__field">
-      {label ? <label htmlFor={`${uid}-in`}>{label}</label> : null}
-      <input
-        id={`${uid}-in`}
-        type="text"
-        value={value}
-        placeholder={placeholder}
-        aria-label={ariaLabel}
-        aria-invalid={error ? true : undefined}
-        aria-describedby={describedBy}
-        className={mono ? "mono" : undefined}
-        autoComplete="off"
-        spellCheck={false}
-        onChange={(e) => onChange(e.target.value)}
-      />
+    <>
       {error ? (
         <p id={`${uid}-err`} className="actor-form__error">
           {error}
@@ -57,6 +44,64 @@ export function TextField({ label, ariaLabel, value, onChange, error, hint, plac
           {hint}
         </p>
       ) : null}
+    </>
+  );
+}
+
+/** A text input whose error and hint are announced with it (aria-describedby) and which flags aria-invalid. */
+export function TextField({ label, ariaLabel, value, onChange, error, hint, placeholder, mono }: Readonly<TextFieldProps>) {
+  const uid = useId();
+  return (
+    <div className="actor-form__field">
+      {label ? <label htmlFor={`${uid}-in`}>{label}</label> : null}
+      <input
+        id={`${uid}-in`}
+        type="text"
+        value={value}
+        placeholder={placeholder}
+        aria-label={ariaLabel}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={describedByOf(uid, error, hint)}
+        className={mono ? "mono" : undefined}
+        autoComplete="off"
+        spellCheck={false}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      <FieldNotes uid={uid} error={error} hint={hint} />
+    </div>
+  );
+}
+
+interface SelectFieldProps {
+  label: string;
+  value: string;
+  /** Exactly the values offered, in order. */
+  options: readonly string[];
+  onChange: (value: string) => void;
+  error?: string;
+  hint?: string;
+}
+
+/** A closed choice (an enum field): a native select, keyboard operable, with its error and hint announced. */
+export function SelectField({ label, value, options, onChange, error, hint }: Readonly<SelectFieldProps>) {
+  const uid = useId();
+  return (
+    <div className="actor-form__field">
+      <label htmlFor={`${uid}-in`}>{label}</label>
+      <select
+        id={`${uid}-in`}
+        value={value}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={describedByOf(uid, error, hint)}
+        onChange={(e) => onChange(e.target.value)}
+      >
+        {options.map((o) => (
+          <option key={o} value={o}>
+            {o}
+          </option>
+        ))}
+      </select>
+      <FieldNotes uid={uid} error={error} hint={hint} />
     </div>
   );
 }

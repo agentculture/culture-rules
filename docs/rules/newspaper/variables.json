@@ -1,0 +1,14 @@
+{
+  "newspaper_device": {
+    "description": "The Xteink device id the issue is queued for (GET /api/devices); null: the newspaper-library actor's device_id, if the operator set one there",
+    "value": null
+  },
+  "newspaper_sections": {
+    "description": "The newspaper's sections, one JSON string: a list of {name, queries (1-5, joined with OR), must, must_not, freshness (pd|pw|pm|py), count (1-20), site_include, site_exclude}; parsed and validated at the start of each run",
+    "value": "[{\"name\": \"Edge AI\", \"queries\": [\"edge AI hardware news\"], \"freshness\": \"pd\", \"count\": 5}, {\"name\": \"Open models\", \"queries\": [\"open source LLM release\"], \"freshness\": \"pw\", \"count\": 5, \"must_not\": [\"sponsored\"]}]"
+  },
+  "newspaper_to": {
+    "description": "Who receives the newspaper (each must also be on the newspaper-email actor's recipients allowlist); empty: the run fails at the email fence (bad_input: to) before anything is emailed or queued",
+    "value": []
+  }
+}

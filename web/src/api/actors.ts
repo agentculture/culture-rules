@@ -9,7 +9,7 @@ import { getJson, items, request } from "./client";
 export type ActorKind = "agent" | "human" | "service" | "daemon" | "runner" | "robot" | "app";
 
 /** `app` actor surfaces (culture_rules/model/app_actor.py `APP_SURFACES`). */
-export type AppSurface = "github" | "jira" | "discord";
+export type AppSurface = "github" | "jira" | "discord" | "email" | "search";
 
 export interface AppProbe {
   name: string;
@@ -37,6 +37,20 @@ export interface DiscordConnection {
   guild_id?: string;
   channels?: string[];
 }
+/** The sender domains an `email` actor may send from (app_actor.py `EMAIL_DOMAINS`). */
+export type EmailDomain = "culture.dev" | "jetson-ai-lab.org";
+export interface EmailConnection {
+  api_key?: string;
+  /** Defaults to culture.dev. */
+  domain?: EmailDomain;
+  /** Defaults to no-reply. */
+  local_part?: string;
+  /** The recipient allow-list; empty sends to nobody. */
+  recipients?: string[];
+}
+export interface SearchConnection {
+  api_key?: string;
+}
 
 /** `Actor.params` of an `app` actor. */
 export interface AppActorParams {
@@ -46,7 +60,7 @@ export interface AppActorParams {
   probes?: AppProbe[];
   /** Action kinds it can perform. */
   actions?: string[];
-  connection: GithubConnection | JiraConnection | DiscordConnection;
+  connection: GithubConnection | JiraConnection | DiscordConnection | EmailConnection | SearchConnection;
   /** Login of the App/bot/service account, used to tag self-authored events. */
   self_identity?: string;
 }

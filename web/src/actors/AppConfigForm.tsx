@@ -4,12 +4,14 @@ import {
   ACTION_KINDS,
   APP_SURFACES,
   CONNECTION_FIELDS,
+  connectionDefaults,
   isSecretKey,
   type AppDraft,
+  type ConnectionField,
   type FormErrors,
   type HttpDraft,
 } from "./app-config";
-import { RemoveButton, Section, TextField } from "./fields";
+import { RemoveButton, SelectField, Section, TextField } from "./fields";
 import { useRowKeys } from "./useRowKeys";
 
 export interface AppConfigFormProps {
@@ -24,6 +26,34 @@ const GRANT_HINT = "A reference to a stored secret, like grant:NAME. The secret 
 function connectionHint(isSecret: boolean, isList: boolean | undefined): string | undefined {
   if (isSecret) return GRANT_HINT;
   return isList ? "Separate with commas." : undefined;
+}
+
+interface ConnectionInputProps {
+  field: ConnectionField;
+  value: string;
+  error?: string;
+  onChange: (text: string) => void;
+}
+
+/** One connection field: an enum as a select (blank shows its default), anything else as text. */
+function ConnectionInput({ field, value, error, onChange }: Readonly<ConnectionInputProps>) {
+  if (field.options) {
+    return (
+      <SelectField label={field.label} value={value || field.options[0]} options={field.options} onChange={onChange} error={error} />
+    );
+  }
+  const isSecret = isSecretKey(field.key);
+  return (
+    <TextField
+      label={isSecret ? `${field.label} (grant reference)` : field.label}
+      value={value}
+      onChange={onChange}
+      error={error}
+      hint={connectionHint(isSecret, field.list)}
+      placeholder={isSecret ? "grant:NAME" : field.placeholder}
+      mono={isSecret}
+    />
+  );
 }
 
 /**
@@ -48,7 +78,10 @@ export function AppConfigForm({ value, onChange, errors = {} }: Readonly<AppConf
           value={surface}
           aria-invalid={errors.surface ? true : undefined}
           aria-describedby={errors.surface ? `${uid}-surface-err` : undefined}
-          onChange={(e) => set({ surface: e.target.value as AppSurface | "", connection: {} })}
+          onChange={(e) => {
+            const next = e.target.value as AppSurface | "";
+            set({ surface: next, connection: connectionDefaults(next) });
+          }}
         >
           <option value="">choose a surface</option>
           {APP_SURFACES.map((s) => (
@@ -68,22 +101,15 @@ export function AppConfigForm({ value, onChange, errors = {} }: Readonly<AppConf
         <>
           <Section title="Connection">
             <div className="actor-subform__grid">
-              {CONNECTION_FIELDS[surface].map((field) => {
-                const isSecret = isSecretKey(field.key);
-                const hint = connectionHint(isSecret, field.list);
-                return (
-                  <TextField
-                    key={`${surface}-${field.key}`}
-                    label={isSecret ? `${field.label} (grant reference)` : field.label}
-                    value={value.connection[field.key] ?? ""}
-                    onChange={(text) => set({ connection: { ...value.connection, [field.key]: text } })}
-                    error={errors[`connection.${field.key}`]}
-                    hint={hint}
-                    placeholder={isSecret ? "grant:NAME" : undefined}
-                    mono={isSecret}
-                  />
-                );
-              })}
+              {CONNECTION_FIELDS[surface].map((field) => (
+                <ConnectionInput
+                  key={`${surface}-${field.key}`}
+                  field={field}
+                  value={value.connection[field.key] ?? ""}
+                  onChange={(text) => set({ connection: { ...value.connection, [field.key]: text } })}
+                  error={errors[`connection.${field.key}`]}
+                />
+              ))}
             </div>
           </Section>
 

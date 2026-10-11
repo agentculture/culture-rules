@@ -208,6 +208,9 @@ CLI. A parity test keeps the two surfaces identical.
 - [`docs/operations/pr-fixer.md`](docs/operations/pr-fixer.md): the PR
   fixer machine (spark2): the unprivileged account, the agent bridges and their
   actors.
+- [`docs/operations/newspaper.md`](docs/operations/newspaper.md): the daily
+  newspaper (#53): grants, actors, variables, import and the first run. The
+  actor guides are in [`docs/actors/`](docs/actors/README.md).
 
 ## Background
 

@@ -1,0 +1,478 @@
+{
+  "slug": "daily-newspaper",
+  "title": "Daily newspaper",
+  "frame_slug": "daily-newspaper",
+  "schema_version": 5,
+  "status": "exported",
+  "created": "2026-10-11T04:27:43Z",
+  "updated": "2026-10-11T04:28:50Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "Every morning at 06:30 Asia/Jerusalem, culture-rules searches the web for the operator's chosen sections, has Qwen summarise what it found, and delivers one dated newspaper by email (from a culture.dev sender) and as an EPUB queued for the operator's Xteink reader",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "A behavioural test drives the whole workflow on fakes (Brave, cortex, Resend, xteink) from a 06:30 Asia/Jerusalem slot to one sent email and one queued item",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "An 'email' app surface and an email.send action: the actor's connection holds the Resend key reference, the sender domain (one of culture.dev, jetson-ai-lab.org), the sender local part (default no-reply) and a recipient allowlist checked before any secret is read; the action takes to, subject, html and/or text and optional attachments, forwards the engine's idempotency key as Resend's Idempotency-Key, and returns the message id",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "A recipient outside the actor's allowlist is refused before the Resend key is read, and the refusal names no secret",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "A retried send with the same engine idempotency key does not send a second email (Resend Idempotency-Key)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "A 'search' app surface and a search.web action: query, count, freshness, country and lang go to Brave's web search with the key from grant; results come back normalised (title, url, snippet, age, source) and capped, and the action calls no other host",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "Search results are capped in count and size, so a large response can't overflow the run document or the summary input",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "An llm.complete action on an agent actor that carries an OpenAI-compatible base URL and model (cortex): the system prompt is a locked newspaper brief in code, the user content is the section's search results, no tools field is ever sent, max tokens are capped, and it returns the text, model and token usage; it takes a concurrency_pool like the bridge actors",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "The llm.complete request body never contains a tools field, and its output is the model's text only",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "A newspaper.sections builtin parses newspaper_sections (each section: name, queries, must and must-not terms, freshness, count, site include and exclude) and fails the run naming the first invalid field",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "A malformed newspaper_sections (bad JSON, a missing name, an unknown key, an empty queries list) fails the run before any search, naming the field",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c13",
+      "kind": "requirement",
+      "text": "A newspaper.render builtin turns the sections, their results and summaries into one dated issue as HTML for the email and as a valid EPUB (semantic XHTML, one chapter per section, a table of contents, no remote images) for the reader, deterministically, within a size cap",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "The generated EPUB opens in a standard validator-equivalent check (mimetype first and stored, container.xml, OPF, nav or NCX) and xteink accepts it",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c14",
+      "kind": "requirement",
+      "text": "A library.push action uploads the EPUB to xteink (POST /api/library, multipart, kind article, title 'Daily newspaper <date>') and queues the returned item for the configured device (POST /api/devices/<id>/queue); the base URL and the xtk_ key reference live on its actor",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "The upload sends kind=article and the dated title, and the queue call uses the item id the upload returned; a refused upload queues nothing",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c15",
+      "kind": "requirement",
+      "text": "One issue per local date: the workflow records the date it delivered in the store and a run for an already delivered date sends nothing",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "A second run for the same local date sends no email and uploads nothing",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c16",
+      "kind": "requirement",
+      "text": "The bundle docs/rules/newspaper ships the actors, the workflow, the rule (schedule 30 6 * * *, tz Asia/Jerusalem) and the variables, disabled, with docs/operations/newspaper.md covering the operator's setup",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "The bundle imports with every rule disabled, and its rule fires at 06:30 Asia/Jerusalem across a DST change",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c17",
+      "kind": "requirement",
+      "text": "The editor offers the email and search surfaces in the actor form (the sender domain as a drop-down) and parameter forms for email.send, search.web, llm.complete and library.push in the action picker",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h14",
+      "kind": "honesty",
+      "text": "The sender-domain drop-down offers exactly culture.dev and jetson-ai-lab.org, and saving an actor with another domain is refused by the API",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c18",
+      "kind": "boundary",
+      "text": "No secret value and no recipient address is committed: keys are grant references, addresses and device ids are variables or actor config, and the Resend, Brave, cortex and xteink URLs live as Python constants or actor config, never in committed JSON (scan-secrets rejects non-localhost URLs there)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "scan-secrets and the committed bundle contain no secret value, no recipient address and no non-localhost URL",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c19",
+      "kind": "boundary",
+      "text": "A summary uses only what the search returned: every item links its source, a section with no results says so, and nothing is filled in",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "Every summarised item in the issue carries a link that appears in that section's search results",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "A section with no results renders an explicit 'no results' line, never generated filler",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c20",
+      "kind": "boundary",
+      "text": "llm.complete never goes through the coding-agent bridge and never sends tools or a repository",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h15",
+      "kind": "honesty",
+      "text": "No bridge actor and no agent step appears in the newspaper workflow; its summary step is llm.complete on an actor with no repo",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c21",
+      "kind": "boundary",
+      "text": "The PR fixer's behaviour is unchanged; the newspaper only shares the qwen-spark2 pool with it",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h16",
+      "kind": "honesty",
+      "text": "The PR fixer's bundle, digests and tests are unchanged by this release",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c23",
+      "kind": "success_signal",
+      "text": "On a normal day, by 06:45 Asia/Jerusalem the issue is in the operator's inbox and queued on the device, and its run shows in Statistics",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h17",
+      "kind": "honesty",
+      "text": "The run records its sent message id and the queued library item id as outputs, visible on the run",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c25",
+      "kind": "audience",
+      "text": "The operator, reading a short daily digest of chosen topics in the inbox or offline on the Xteink reader",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h18",
+      "kind": "honesty",
+      "text": "The operator is the only recipient: the recipient allowlist on the shipped actor is empty until the operator seeds it",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c26",
+      "kind": "before_state",
+      "text": "Following the topics means searching by hand each day; culture-rules can neither send email nor search the web, and nothing reaches the reader without a manual upload",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h19",
+      "kind": "honesty",
+      "text": "The before state is true today: no action kind sends email or searches the web (action_kinds.py), and xteink gets books only by upload",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c27",
+      "kind": "after_state",
+      "text": "A scheduled rule produces one sourced digest a day and delivers it to the inbox and the reader with no manual step; the topics change by editing one variable",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h20",
+      "kind": "honesty",
+      "text": "After seeding, changing newspaper_sections changes the next issue's sections with no code or bundle change",
+      "deferred": false,
+      "deferred_reason": ""
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "Model layer: the email and search app surfaces and the four action kinds",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "model/app_actor.py accepts surface email (connection: api_key grant ref, domain in {culture.dev, jetson-ai-lab.org}, local_part default no-reply, recipients list) and search (api_key grant ref); a domain outside the enum, a literal key or a malformed recipient is refused with a field path, through the API too",
+        "model/action_kinds.py catalogues email.send, search.web, llm.complete and library.push with typed params and a required actor; describe.py ACTION_WORDS covers them; test_action_kinds and test_describe updated"
+      ],
+      "deps": [],
+      "covers": [
+        "h14",
+        "h19",
+        "c26"
+      ],
+      "instruction": "Only model/validation files: culture_rules/model/app_actor.py, model/action_kinds.py, model/describe.py and their tests. No ports, no runner entries, no web files."
+    },
+    {
+      "id": "t2",
+      "summary": "email.send: a Resend client and port",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "apps/resend.py (URL constant, injectable transport, token hidden from repr) and node/actions/email.py; the from address is local_part@domain from the actor; a recipient outside the allowlist is refused before the key is resolved, naming no secret; the engine idempotency key is sent as Idempotency-Key and the port declares supports_idempotency_key; outputs {message_id}"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c9",
+        "h1",
+        "h2"
+      ],
+      "instruction": "Model on apps/jira.py and node/actions/jira.py. New files only, plus their tests under tests/apps and tests/node. Do not edit runner.py."
+    },
+    {
+      "id": "t3",
+      "summary": "search.web: a Brave client and port",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "apps/brave.py and node/actions/search.py send query, count, freshness, country and lang with X-Subscription-Token from grant, call only api.search.brave.com, and return results as a list of {title, url, snippet, age, source} capped in count and per-field length"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c10",
+        "h3"
+      ],
+      "instruction": "New files only, plus tests. Do not edit runner.py."
+    },
+    {
+      "id": "t4",
+      "summary": "llm.complete: an OpenAI-compatible completion port",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "node/actions/llm.py posts /v1/chat/completions to the actor's base_url with its model, the locked newspaper brief as the system message and the step's content as the user message, never a tools field, max_tokens capped; returns {text, model, usage}; an unreachable server or timeout is a distinct retryable failure code; the actor honours concurrency_pool and max_concurrency"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c11",
+        "h4",
+        "c20"
+      ],
+      "instruction": "Stdlib urllib only. The locked brief is a constant in code (summarise only the given results, one bullet per item with its link, say 'no results' when empty). New files plus tests; do not edit runner.py."
+    },
+    {
+      "id": "t5",
+      "summary": "library.push: upload the EPUB to xteink and queue it",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "node/actions/library.py sends a multipart POST /api/library (file, title, author culture-rules, kind article) with Bearer from the actor's grant ref, then POST /api/devices/<id>/queue with the returned item id; a refused upload queues nothing; outputs {item_id, created, queue_id}"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c14",
+        "h12"
+      ],
+      "instruction": "Stdlib multipart encoder. New files plus tests; do not edit runner.py."
+    },
+    {
+      "id": "t6",
+      "summary": "Newspaper builtins: sections, render, the per-date guard",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "node/actions/newspaper.py provides newspaper.sections (validates the JSON variable and fails naming the field), newspaper.render (HTML plus EPUB with mimetype first and stored, container.xml, OPF, nav and NCX, one chapter per section, escaped fields, a size cap; a section with no results says so; a missing summary renders the results with the unavailable note) and newspaper.issue (the local date from the slot and tz; claim and record per date in a newspaper_issues collection)",
+        "a link check: every link in a summary must be one of that section's result URLs, otherwise the summary is dropped for the results-only rendering"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c12",
+        "h11",
+        "c13",
+        "h7",
+        "c15",
+        "h8",
+        "c19",
+        "h5",
+        "h6"
+      ],
+      "instruction": "Stdlib only (zipfile, html, json). New files plus tests; do not edit runner.py."
+    },
+    {
+      "id": "t7",
+      "summary": "Editor: email and search surfaces, the domain drop-down, the four action forms",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "web/src/actors/app-config.ts gains the surfaces, their connection fields and an enum field type rendered as a select with exactly culture.dev and jetson-ai-lab.org; ActionPicker.tsx has param forms for email.send, search.web, llm.complete and library.push; types.ts kinds updated; vitest covers each; typecheck passes"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c17",
+        "h14"
+      ],
+      "instruction": "web/ only."
+    },
+    {
+      "id": "t8",
+      "summary": "Wiring, the bundle and the end-to-end test",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "runner.py registers the four ports and three builtins; docs/rules/newspaper ships actors (email, search, llm with pool qwen-spark2, library; recipient allowlist empty), the workflow (sections, for_each search and summarise, render, guard, email, push) and the rule (schedule 30 6 * * *, tz Asia/Jerusalem, disabled) plus variables.json and a seed script; it imports cleanly; scan-secrets passes",
+        "a behavioural test drives the workflow on fakes from a 06:30 Asia/Jerusalem slot (also across DST) to one email and one queued item, a re-run for the same date sends nothing, cortex down still sends the results-only issue, and the PR fixer bundle tests are unchanged",
+        "docs/operations/newspaper.md covers the operator's setup: grant names, the xtk_ key, the variables, seeding and enabling"
+      ],
+      "deps": [
+        "t2",
+        "t3",
+        "t4",
+        "t5",
+        "t6"
+      ],
+      "covers": [
+        "c16",
+        "h13",
+        "h10",
+        "c1",
+        "h15",
+        "h17",
+        "h18",
+        "c18",
+        "h9",
+        "c27",
+        "h20",
+        "c25",
+        "c21",
+        "h16"
+      ],
+      "instruction": "Touches runner.py and docs/rules/newspaper, tests/rules/test_newspaper*.py, docs/operations/newspaper.md."
+    },
+    {
+      "id": "t9",
+      "summary": "Release: version, CHANGELOG, actor docs, the four prompt files",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "minor version bump with a CHANGELOG entry; docs/actors/email.md, search.md, llm.md, library.md and the README table; CLAUDE.md, QWEN.md, AGENTS.override.md and AGENTS.colleague.md describe the new action kinds in step; teken doctor strict and harness-smoke pass"
+      ],
+      "deps": [
+        "t7",
+        "t8"
+      ],
+      "covers": [
+        "c21"
+      ],
+      "instruction": "Docs and version files only."
+    },
+    {
+      "id": "t10",
+      "summary": "Live: the operator seeds the variables and actors, and the first issue arrives",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "After the operator's setup and rollout, the 06:30 Asia/Jerusalem run delivers the issue to the inbox and queues it on the device; its run shows the message id and item id"
+      ],
+      "deps": [
+        "t9"
+      ],
+      "covers": [
+        "c23"
+      ],
+      "instruction": "Operator-run setup and rollout; Claude watches the first run and files the evidence."
+    }
+  ],
+  "risks": [],
+  "obligations": []
+}

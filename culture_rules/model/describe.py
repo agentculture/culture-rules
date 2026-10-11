@@ -60,6 +60,7 @@ BUILTIN_WORDS: dict[str, str] = {
 }
 
 _TO_CHANNEL = (("channel", "to {}"),)
+_QUOTED = '"{}"'
 
 #: Per action kind: which literal params are worth a word, as ``(param, template)``.
 #: A param holding a reference or a ``{{ }}`` template is resolved at run time, so it is
@@ -78,6 +79,10 @@ ACTION_WORDS: dict[str, tuple[tuple[str, str], ...]] = {
     "jira.comment": (("issue", "on {}"),),
     "http.call": (("method", "{}"), ("url", "{}")),
     "machine.command": (("command", "`{}`"),),
+    "email.send": (("subject", _QUOTED),),
+    "search.web": (("query", _QUOTED),),
+    "llm.complete": (),
+    "library.push": (("device_id", "to device {}"),),
     "noop": (),
 }
 
