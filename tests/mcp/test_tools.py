@@ -54,3 +54,14 @@ def test_main_without_extra_reports_environment_error(monkeypatch, capsys):
     monkeypatch.setattr(server, "run_stdio", boom)
     assert entry.main() == 2
     assert "mcp" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("value", ["false", "true", 0, 1, "yes"])
+@pytest.mark.parametrize("tool", ["rollout_resume", "rollout_pause", "rollout_seed"])
+def test_a_boolean_argument_must_be_a_json_boolean(tool, value):
+    """Codex r1 on 0.19.3: MCP input validation is off, so a truthy string such as "false"
+    passed for ``force`` bypassed resume's enable guard (#62). Refused before any request."""
+    c = FakeClient()
+    with pytest.raises(tools.ToolError, match="force must be a boolean"):
+        tools.call_tool(tool, {"force": value, "apply": True}, c)
+    assert c.calls == []

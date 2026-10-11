@@ -10,6 +10,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Fixed
 
 - `rollout resume` (#62) refuses, with exit 1 and in a dry run too, until this release's `enable` step is recorded, and changes nothing: `import` re-imports the bundle's rules disabled, so resuming before `enable` runs the engine with them off. On the 0.19.2 rollout a scripted loop ran `resume` after a correctly refused `enable` (a node still reported the old engine), and the pr-fixer rules were off for about 9 s. `--force` resumes anyway, for a rollout the operator chooses to leave without enabling, and the `resume` step then records `forced: true`. A rollout already resumed is still reported as it is
+- MCP tools refuse a boolean argument that is not a JSON boolean (Codex r1): input validation is off, so a string such as `"false"` for `force` was truthy and turned a guard off (`rollout_resume`'s new enable guard, `rollout_pause`'s idle guard, `rollout_seed`'s keep-existing). `apply` was already exact
 
 ### Changed
 

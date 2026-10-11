@@ -2,8 +2,9 @@
 
 One tool per registry verb, named ``<noun>_<verb>`` with ``params_schema()`` as its input
 schema. A mutating tool only commits when ``apply`` is exactly ``true``; otherwise the same
-handler runs with ``Context(apply=False)`` and returns the dry-run envelope. Handlers go through
-the HTTP API client, so this layer never touches the store or the engine.
+handler runs with ``Context(apply=False)`` and returns the dry-run envelope. Any other boolean
+argument must be a JSON boolean (a string such as ``"false"`` is refused, never truthy).
+Handlers go through the HTTP API client, so this layer never touches the store or the engine.
 """
 
 from __future__ import annotations
@@ -58,6 +59,15 @@ def call_tool(name: str, arguments: dict[str, Any] | None, client: Any) -> Any:
     ]
     if missing:
         raise ToolError(f"{name}: missing required argument(s) {', '.join(missing)}")
+    not_boolean = [
+        p.name
+        for p in verb.params
+        if p.type == "boolean"
+        and args.get(p.name) is not None
+        and not isinstance(args[p.name], bool)
+    ]
+    if not_boolean:  # input validation is off: a truthy "false" would turn a guard off
+        raise ToolError(f"{name}: {', '.join(not_boolean)} must be a boolean (true or false)")
     any_typed = {p.name for p in verb.params if p.type == "any"}  # an explicit null is a value
     params = {k: v for k, v in args.items() if v is not None or k in any_typed}
     try:
