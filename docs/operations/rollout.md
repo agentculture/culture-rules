@@ -44,14 +44,28 @@ none) and says when the endpoints are missing.
 So 0.18.12 is rolled out once by hand, with a script in the style of the earlier
 ones (`rollout-0186.sh` to `rollout-0188.sh` on #45), each step dry-run first:
 
-1. List the enabled rules into a file (`cr rules list --json`, keeping the ids
-   whose `enabled` is true), then pause the engine: `cr runs pause --apply`.
+1. Wait until no run is live: `cr rollout idle` must report none (it is
+   read-only and works on the old API). `cr runs pause` only sets the pause
+   flag, without `rollout pause`'s live-run guard, and the upgrades restart the
+   nodes, which would interrupt a running chain. Then list the enabled rules into
+   a file (`cr rules list --json`, keeping the ids whose `enabled` is true) and
+   pause the engine: `cr runs pause --apply`.
 2. Upgrade spark's shared venv first (`uv pip install --reinstall-package
    culture-rules --no-deps "$WHEEL"` into the venv the API unit runs, then
    restart `culture-rules-api` and `culture-rules-node`), then thor, orin and
    spark2 with `install.sh --apply`, `--wheel` and the flags in the
    [install records table](#the-machine-install-records).
-3. Seed the new variables (`bash docs/rules/pr-fixer/seed-variables.sh --apply`).
+3. Seed the new variables with `seed-variables.sh`. It runs `$CULTURE_RULES`
+   (default `culture-rules`) directly, so `cr()` does not authenticate it: point
+   `CULTURE_RULES` at the release CLI's absolute path and run the script under
+   `grant`:
+
+   ```bash
+   CULTURE_RULES=/path/to/release-venv/bin/culture-rules \
+     grant run --inject CULTURE_RULES_TOKEN=RULES_CULTURE_RULES_SERVICE_TOKEN -- \
+     bash docs/rules/pr-fixer/seed-variables.sh --apply
+   ```
+
 4. Import the bundle (`docs/rules/pr-fixer`, or `pr-fixer/` in the installed
    wheel): `cr workflows import <bundle> --apply`, then `cr rules import <bundle>
    --apply`.
@@ -86,9 +100,11 @@ secret **names**, never values.
   "mode": "install_sh",
   "node_name": "spark2",
   "secrets": ["RULES_QWEN_FIXER_TOKEN", "RULES_GITHUB_APP_PRIVATE_KEY"],
-  "gate_run_as": "sudo -n -u culture-fixer -- /usr/bin/env PATH=/home/culture-fixer/.local/bin:/usr/local/bin:/usr/bin:/bin"
+  "gate_run_as": "sudo -n -u culture-fixer -- /usr/bin/env PATH=<fixer-home>/.local/bin:/usr/local/bin:/usr/bin:/bin"
 }
 ```
+
+`<fixer-home>` is the `culture-fixer` account's home directory on spark2.
 
 `extras`, `wheelhouse`, `python`, `events_host` and `events_port` are optional; a
 field left out takes `install.sh`'s default. The ssh target is the record's `address`,

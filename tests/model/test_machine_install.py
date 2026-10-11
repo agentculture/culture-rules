@@ -112,7 +112,7 @@ def test_secret_that_is_not_a_grant_name_is_refused(bad) -> None:
     [
         "sudo -n -u culture-fixer",
         "sudo -n -u culture-fixer --",
-        "sudo -n -u culture-fixer -- /usr/bin/env PATH=/home/culture-fixer/.local/bin:/usr/bin",
+        "sudo -n -u culture-fixer -- /usr/bin/env PATH=/srv/culture-fixer/.local/bin:/usr/bin",
         "/usr/bin/sudo -n -u fixer_1 --",
     ],
 )

@@ -18,7 +18,7 @@ from tests.cli.test_nouns_api import jrun, run, snapshot, store, wire  # noqa: E
 
 VERSION = "9.1.0"
 WHEEL_NAME = f"culture_rules-{VERSION}-py3-none-any.whl"
-GATE = "sudo -n -u culture-fixer -- /usr/bin/env PATH=/home/culture-fixer/.local/bin:/usr/bin"
+GATE = "sudo -n -u culture-fixer -- /usr/bin/env PATH=/srv/culture-fixer/.local/bin:/usr/bin"
 SPARK2 = {
     "mode": "install_sh",
     "secrets": ["RULES_QWEN_FIXER_TOKEN", "RULES_GITHUB_APP_PRIVATE_KEY"],
@@ -261,7 +261,7 @@ def test_shared_venv_refuses_when_the_node_runs_another_venv(
     wire, store, capsys, fake, wheel  # noqa: F811
 ):
     fake.exec_start["culture-rules-node.service"] = exec_start(
-        "/home/spark/.local/share/culture-rules/venv/bin/culture-rules", "node", "run"
+        "/srv/spark/.local/share/culture-rules/venv/bin/culture-rules", "node", "run"
     )
     put_machine(store, "spark", {"mode": "shared_venv"})
     rc, _, err = run(
@@ -270,7 +270,7 @@ def test_shared_venv_refuses_when_the_node_runs_another_venv(
     assert rc == 1
     message = json.loads(err)["message"]
     assert SHARED in message
-    assert "/home/spark/.local/share/culture-rules/venv" in message
+    assert "/srv/spark/.local/share/culture-rules/venv" in message
     assert len(fake.calls) == 2  # the two reads; nothing installed or restarted
     assert outcome(store, "spark")["ok"] is False
 
@@ -288,7 +288,7 @@ def test_shared_venv_refuses_when_the_api_unit_names_no_venv(
     assert all(c[:2] == ["busctl", "--user"] for c in fake.calls)
 
 
-GRANT = "/home/spark/.local/bin/grant"
+GRANT = "/srv/spark/.local/bin/grant"
 
 
 @pytest.mark.parametrize(
