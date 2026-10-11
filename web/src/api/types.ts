@@ -98,12 +98,17 @@ export type ActionKind =
   | "github.comment"
   | "jira.comment"
   | "http.call"
-  | "machine.command";
+  | "machine.command"
+  | "email.send"
+  | "search.web"
+  | "llm.complete"
+  | "library.push";
 
 /**
  * An action. A param may be a literal, a reference (`trigger.data.number`), a `{"$ref"}` object
  * or a `{{ }}` template. `params.actor` names the credentialed or executing actor (required
- * for discord.message, github.comment, jira.comment, http.call and machine.command). `message`
+ * for discord.message, github.comment, jira.comment, http.call, machine.command, email.send,
+ * search.web, llm.complete and library.push). `message`
  * sends on the Culture mesh; a stored `message` that still names a Discord actor is the older
  * form of `discord.message`.
  */
