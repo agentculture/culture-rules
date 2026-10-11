@@ -18,6 +18,7 @@ RCPT = "reader@example.test"
 OUTSIDER = "stranger@example.test"
 KEY_REF = "grant:RESEND_API_KEY"
 IDEM = "run-1:step-1"
+IDEM_HEADER = "Idempotency-Key"
 BAD_INPUT = "bad_input"
 NOT_FOUND = "actor_not_found"
 COMPLETED = "completed"
@@ -96,7 +97,7 @@ def test_engine_idempotency_key_sent_as_header():
     fake = Fake()
     port, _ = setup(fake)
     invoke(port)
-    assert fake.calls[-1][2]["Idempotency-Key"] == IDEM
+    assert fake.calls[-1][2][IDEM_HEADER] == IDEM
 
 
 DURABLE = "newspaper:2026-10-11:email"
@@ -107,7 +108,7 @@ def test_an_explicit_idempotency_key_param_overrides_the_engine_key():
     fake = Fake()
     port, _ = setup(fake)
     invoke(port, params(idempotency_key=DURABLE))
-    assert fake.calls[-1][2]["Idempotency-Key"] == DURABLE
+    assert fake.calls[-1][2][IDEM_HEADER] == DURABLE
 
 
 def test_two_runs_with_the_same_explicit_key_send_the_same_key():
@@ -115,7 +116,7 @@ def test_two_runs_with_the_same_explicit_key_send_the_same_key():
     port, _ = setup(fake)
     invoke(port, params(idempotency_key=DURABLE), key="run-1:email")
     invoke(port, params(idempotency_key=DURABLE), key="run-2:email")
-    assert {call[2]["Idempotency-Key"] for call in fake.calls} == {DURABLE}
+    assert {call[2][IDEM_HEADER] for call in fake.calls} == {DURABLE}
 
 
 def test_a_bad_explicit_idempotency_key_is_bad_input_without_a_call():

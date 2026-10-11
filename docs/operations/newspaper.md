@@ -32,42 +32,69 @@ step is a built-in or an action:
 
 1. `sections` (`newspaper.sections`) parses `newspaper_sections`. A bad
    value fails the run here, naming the field, before any claim or search.
-2. `claim` (`newspaper.issue`, phase claim) takes the slot's local date.
+2. `claim` (`newspaper.issue`, phase `claim`) takes the slot's local date.
    For a date already delivered, or one another run holds, it answers
    `deliver: false` and every later step is skipped. The run then succeeds
-   with nothing searched or sent.
+   with nothing searched or sent. It also answers `summaries_until`: the
+   slot plus the claim step's `config.summary_window_s` (600 seconds, so
+   06:40).
 3. `search` is a `for_each` over the sections. For each one, `search_web`
    (`search.web`) sends the section's queries joined with `OR`, with its
    `count` and `freshness`, and `filter` (`newspaper.filter`) applies its
    must and must-not terms and site lists, then dedupes and caps the results.
+   A result whose URL does not parse is dropped; the others are kept.
 4. `summarise` is a `for_each` over the filtered results. `summary`
    (`llm.complete` on `newspaper-llm`) writes one bullet per result, each
    linking its source. The brief is locked in code and the request sends no
-   tools.
+   tools. Its `not_after` is `summaries_until`: no summary starts after it.
 5. `render` (`newspaper.render`) builds the HTML email body and the EPUB.
-   A summary that links outside its section's results is withheld, and a
+   A summary is shown only when every line is a bullet that links one of
+   its section's results; otherwise the section shows its results. A
    section with no results says "No results."
-6. `email` (`email.send`) sends the HTML to `newspaper_to`.
-7. `push` (`library.push`) uploads the EPUB to xteink (kind `article`, title
+6. `email_gate` (`newspaper.issue`, phase `before_email`) fences the email.
+   It renews the run's lease on the date, stores the first rendered email
+   for the date, and answers it with the key `newspaper:<date>:email`. When
+   the date's email is already recorded sent, it answers `send: false`.
+7. `email` (`email.send`) sends the fenced email to `newspaper_to`, with
+   that key as Resend's `Idempotency-Key`.
+8. `push_gate` (`newspaper.issue`, phase `before_push`) records the email's
+   message id for the date, then renews the lease.
+9. `push` (`library.push`) uploads the EPUB to xteink (kind `article`, title
    `Daily newspaper <date>`) and queues it on the device.
-8. `record` (`newspaper.issue`, phase record) marks the date delivered with
-   the message id and the item id.
+10. `record` (`newspaper.issue`, phase `record`) marks the date delivered
+    with the message id and the item and queue ids.
 
 The run's outputs are `message_id`, `item_id` and `date`. They are shown on
 the run, and the Statistics lane shows the run.
 
 **When cortex is down.** The `summary` step has `config.on_error: "skip"`.
 The engine turns its failure into `skipped`, keeps the error on the step,
-and records `failure_tolerated`. Its failures include an unreachable gateway
-after its two attempts, and a pool busy past the queue bound (twice its
-600-second timeout). The issue still goes out on time, with that section's
+clears its outputs and records `failure_tolerated`. Its failures include an
+unreachable gateway after its two attempts and the summary window closing
+(`llm_deadline`). The issue still goes out on time, with that section's
 results and the line "Summary unavailable." Search, email and library
 failures are not tolerated: they fail the run.
 
 **Waiting for the pool.** The summaries share the `qwen-spark2` pool with
-the PR fixer, so each summary waits behind a running fix. A long fix can
-push the issue past 06:45, or, past the queue bound, leave a section without
-its summary.
+the PR fixer, so each summary waits behind a running fix, but only until
+`summaries_until`. Past it, a queued summary gives up at its next re-ask
+(within a minute), and no later summary starts. On a busy morning the issue
+goes out by 06:45 with the results only. To widen or narrow the window,
+change `summary_window_s` on the workflow's `claim` step.
+
+**One issue per date.** Each date has one document in the
+`newspaper_issues` collection. The run that claims a date holds a one-hour
+lease on it, which each fence renews. Another run takes the date over only
+after the lease runs out, and a run whose date was taken over fails its
+next fence with `claim_lost` and sends nothing more. Delivery progress is
+kept per destination: `email` (`message_id`, `at`) as soon as the email is
+known sent, and `library` (`item_id`, `queue_id`, `at`) with the delivery
+record. So if the email went out but the push failed, the next run for that
+date skips the email and retries only the push. If a node dies between the
+email and its record, the next run resends the stored email under the same
+key, and Resend answers the first message instead of sending another (its
+key window is 24 hours). The EPUB has no such key: a crash between a push
+and its record can queue the issue on the reader twice.
 
 ## 1. Grants (on spark)
 
@@ -218,9 +245,9 @@ culture-rules runs show <run id> --json
 
 A good run has `status: succeeded` and outputs `message_id`, `item_id` and
 `date`. Its `summary` steps succeeded, or show `skipped` with an
-`llm_unavailable` or `queue_timeout` error. The delivery is recorded in the
-`newspaper_issues` collection, one document per date with state
-`delivered`. The issue is in the inbox and queued on the reader.
+`llm_unavailable`, `llm_deadline` or `queue_timeout` error. The delivery is
+recorded in the `newspaper_issues` collection, one document per date with
+state `delivered`. The issue is in the inbox and queued on the reader.
 
 A run that ends quickly with `claim` answering `already_delivered` or
 `claimed_by_another_run` is the per-date guard at work. A run that failed
@@ -228,5 +255,11 @@ at `sections` names the bad field of `newspaper_sections`. A failure at
 `email` with `bad_input` or a refused recipient means `newspaper_to` or the
 allowlist is not set.
 
-If a run fails after `claim`, its claim keeps that date for an hour. A
-manual re-run for the same date within that hour sends nothing.
+A run that failed at `email_gate` or `push_gate` with `claim_lost` was
+taken over by a later run for the same date, which delivers instead.
+
+If a run fails after `claim`, its lease keeps that date for an hour from
+its last fence. A manual re-run for the same date within that hour sends
+nothing. After the hour, a re-run takes the date over: it skips an email
+that was already sent and retries the push. Its slot is in the past, so its
+summary window has closed and it sends the results only.

@@ -109,6 +109,8 @@ _EMAIL = "email"
 _PAYLOAD = "email_payload"
 _MESSAGE_ID = "message_id"
 _SUBJECT, _HTML = "subject", "html"
+_DATE, _STATE, _REV, _ITEM_ID = "date", "state", "rev", "item_id"
+_CLAIMED_AT, _CLAIMED_BY = "claimed_at", "claimed_by"
 _ID_LEN = 200
 _CAS_TRIES = 3
 
@@ -186,18 +188,18 @@ def _sent_id(doc: Mapping[str, Any] | None) -> str | None:
 
 
 def _owned(doc: Mapping[str, Any] | None, run_id: str) -> bool:
-    return doc is not None and doc.get("state") == CLAIMED and doc.get("claimed_by") == run_id
+    return doc is not None and doc.get(_STATE) == CLAIMED and doc.get(_CLAIMED_BY) == run_id
 
 
 def _decide(doc: Mapping[str, Any] | None, run_id: str, now: datetime, timeout: int) -> str | None:
     """A claim's answer from the current document, or None to (re)claim it."""
     if doc is None:
         return None
-    if doc.get("state") == DELIVERED:
+    if doc.get(_STATE) == DELIVERED:
         return "already_delivered"
-    if doc.get("claimed_by") == run_id:
+    if doc.get(_CLAIMED_BY) == run_id:
         return CLAIMED
-    age = _age_s(doc.get("claimed_at"), now)
+    age = _age_s(doc.get(_CLAIMED_AT), now)
     if age is not None and age < timeout:
         return BY_ANOTHER_RUN
     return None
@@ -270,10 +272,10 @@ class NewspaperIssuePort:
     # ------------------------------------------------------------------ store access
 
     def _cas(self, day: str, doc: Mapping[str, Any] | None, changes: dict[str, Any]) -> bool:
-        rev = (doc or {}).get("rev")
-        changes = {**changes, "date": day, "rev": (rev or 0) + 1}
+        rev = (doc or {}).get(_REV)
+        changes = {**changes, _DATE: day, _REV: (rev or 0) + 1}
         result = self._store.update_if(
-            ISSUES_COLLECTION, day, {"rev": rev}, changes, upsert=doc is None
+            ISSUES_COLLECTION, day, {_REV: rev}, changes, upsert=doc is None
         )
         return bool(result.won)
 
@@ -293,7 +295,7 @@ class NewspaperIssuePort:
             reason = _decide(doc, run_id, now, timeout)
             if reason is not None:
                 return _claimed(day, reason)
-            changes = {"state": CLAIMED, "claimed_by": run_id, "claimed_at": _iso(now)}
+            changes = {_STATE: CLAIMED, _CLAIMED_BY: run_id, _CLAIMED_AT: _iso(now)}
             if self._cas(day, doc, changes):
                 return _claimed(day, TAKEN_OVER if doc else CLAIMED)
         return _claimed(day, BY_ANOTHER_RUN)
@@ -305,13 +307,13 @@ class NewspaperIssuePort:
             if not _owned(doc, run_id):
                 raise _lost(day)
             stored = _stored_payload(doc)
-            changes: dict[str, Any] = {"claimed_at": _iso(self._clock())}
+            changes: dict[str, Any] = {_CLAIMED_AT: _iso(self._clock())}
             if stored is None:
                 changes[_PAYLOAD] = payload
             if not self._cas(day, doc, changes):
                 continue
             output: dict[str, Any] = {
-                "date": day,
+                _DATE: day,
                 "idempotency_key": email_key(day),
                 **(stored or payload),
             }
@@ -332,7 +334,7 @@ class NewspaperIssuePort:
             if doc is not None and recorded is None and message_id is not None:
                 changes[_EMAIL] = {_MESSAGE_ID: message_id, "at": _iso(self._clock())}
             if owned:
-                changes["claimed_at"] = _iso(self._clock())
+                changes[_CLAIMED_AT] = _iso(self._clock())
             if changes and not self._cas(day, doc, changes):
                 continue
             if not owned:
@@ -340,29 +342,29 @@ class NewspaperIssuePort:
             sent = recorded or message_id
             if sent is None:
                 raise _Refusal("bad_input: message_id: no email is recorded sent for the date")
-            return {_MESSAGE_ID: sent, "date": day}
+            return {_MESSAGE_ID: sent, _DATE: day}
         raise self._contended(day)
 
     def _record(self, day: str, run_id: str, input: Mapping[str, Any]) -> dict[str, Any]:
-        item_id = _delivery_id(input.get("item_id"))
+        item_id = _delivery_id(input.get(_ITEM_ID))
         changes = {
-            "state": DELIVERED,
+            _STATE: DELIVERED,
             "delivered_by": run_id,
             _MESSAGE_ID: _delivery_id(input.get(_MESSAGE_ID)),
-            "item_id": item_id,
+            _ITEM_ID: item_id,
         }
         for _ in range(_CAS_TRIES):
             doc = self._get(day)
-            if doc is not None and doc.get("state") == DELIVERED:
-                return {"recorded": doc.get("delivered_by") == run_id, "date": day}
+            if doc is not None and doc.get(_STATE) == DELIVERED:
+                return {"recorded": doc.get("delivered_by") == run_id, _DATE: day}
             at = _iso(self._clock())
-            library = {"item_id": item_id, "queue_id": _delivery_id(input.get("queue_id"))}
+            library = {_ITEM_ID: item_id, "queue_id": _delivery_id(input.get("queue_id"))}
             stamped = {**changes, "delivered_at": at, "library": {**library, "at": at}}
             if self._cas(day, doc, stamped):
-                return {"recorded": True, "date": day}
+                return {"recorded": True, _DATE: day}
         raise self._contended(day)
 
 
 def _claimed(day: str, reason: str) -> dict[str, Any]:
     deliver = reason in (CLAIMED, TAKEN_OVER)
-    return {"deliver": deliver, "date": day, "reason": reason}
+    return {"deliver": deliver, _DATE: day, "reason": reason}

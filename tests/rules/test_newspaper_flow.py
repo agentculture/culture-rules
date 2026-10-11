@@ -68,6 +68,8 @@ ITEM_ID = "item_id"
 CONTENT = "content"
 TRIGGER = "trigger"
 PARAMS = "params"
+IDEM_HEADER = "Idempotency-Key"
+POOL = "qwen-spark2"
 
 
 # --------------------------------------------------------------------------- the fakes
@@ -128,7 +130,7 @@ class Resend:
 
     def __call__(self, method, url, headers, body, timeout):
         self.calls += 1
-        key = headers.get("Idempotency-Key")
+        key = headers.get(IDEM_HEADER)
         if key not in self.keys:
             self.sent.append({"url": url, HEADERS: dict(headers), "json": json.loads(body)})
             self.keys[key] = f"msg-{len(self.sent)}"
@@ -270,7 +272,7 @@ def test_the_email_goes_from_newsletter_no_reply_to_the_seeded_reader():
     assert mail["json"]["from"] == SENDER
     assert mail["json"]["to"] == [READER]
     assert mail["json"]["subject"] == SUBJECT
-    assert mail[HEADERS]["Idempotency-Key"]
+    assert mail[HEADERS][IDEM_HEADER]
 
 
 def test_the_run_outputs_carry_the_message_and_item_ids():  # h17
@@ -441,7 +443,7 @@ def test_the_email_carries_the_durable_per_date_key():
     world = World()
     world.run_until(TODAY + timedelta(minutes=20))
     (mail,) = world.resend.sent
-    assert mail[HEADERS]["Idempotency-Key"] == "newspaper:2026-10-11:email"
+    assert mail[HEADERS][IDEM_HEADER] == "newspaper:2026-10-11:email"
 
 
 # --------------------------------------------------------------------------- a busy pool
@@ -453,8 +455,8 @@ def hold_the_pool(world: World) -> None:
     world.base.put(
         USAGE_COLLECTION,
         {
-            "id": pool_doc_id("qwen-spark2"),
-            "pool": "qwen-spark2",
+            "id": pool_doc_id(POOL),
+            "pool": POOL,
             "rev": 1,
             "inflight": [{"key": "fix-run", "until": until, "actor": "qwen-fixer"}],
         },

@@ -33,7 +33,8 @@ These are checked when the action runs; a bad one fails it with
 across every host. The pool's cap is the smallest `max_concurrency` among
 its enabled actors, so adding an actor with `max_concurrency: 1` caps the
 whole pool at one. A request waits for a slot (the step shows `blocked`); past
-the queue bound it fails with `queue_timeout`.
+the queue bound it fails with `queue_timeout`, and past its `not_after` it
+fails with `llm_deadline` at its next re-ask.
 
 ## 1. Seal the key (if the endpoint has one)
 
@@ -85,6 +86,7 @@ The `llm.complete` action takes:
 | `content` | yes | the user message: a string as is, or any JSON value, serialised with sorted keys; at most 48,000 characters |
 | `max_tokens` | no | default 1500, capped at 4000 |
 | `temperature` | no | a number from 0 to 2 |
+| `not_after` | no | an ISO-8601 time with a UTC offset: the work does not start after it, and the request's timeout ends at it |
 
 Every other param is ignored. The system message is always
 `NEWSPAPER_BRIEF` in `culture_rules/node/actions/llm.py`: summarise only the
@@ -104,11 +106,12 @@ count toward the actor's token budget.
 | Code | Meaning | Retried |
 |---|---|---|
 | `llm_unavailable` | connection refused, DNS, timeout, a passed deadline, 5xx, 408 or 429 | yes |
+| `llm_deadline` | `not_after` has passed (checked before the pool queues the work) | no |
 | `llm_rejected` | any other non-2xx answer | no |
 | `llm_bad_response` | not JSON, or no message text | no |
 | `actor_kind_mismatch` | the actor is not an `agent` | no |
 | `llm_actor_invalid` | `base_url`, `model` or `api_key` is unusable | no |
-| `invalid_request`, `llm_content_too_large` | the content is empty, not serialisable or too long | no |
+| `invalid_request`, `llm_content_too_large` | the content is empty, not serialisable or too long, or `not_after` is malformed | no |
 | `secret_unresolved` | the key could not be resolved on the node | no |
 
 A failure never echoes a response body, a header value or a secret.

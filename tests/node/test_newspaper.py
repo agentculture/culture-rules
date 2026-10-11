@@ -535,9 +535,12 @@ MESSAGE_ID = "message_id"
 SEND = "send"
 LOST = "claim_lost"
 EMAIL_KEY = f"newspaper:{DATE}:email"
+R2 = "r2"
+M1 = "m1"
+OTHER_HTML = "<p>other</p>"
 
 
-def emailed(world, run="r1", message="m1", html=HTML):
+def emailed(world, run="r1", message=M1, html=HTML):
     """A run that claimed, passed its email fence and recorded its sent email."""
     world.call(CLAIM, run=run)
     world.call(BEFORE_EMAIL, run=run, subject=SUBJECT, html=html)
@@ -548,7 +551,7 @@ def taken_over(world):
     """r1 sent the email and died before the push; r2 takes the date after the lease."""
     emailed(world)
     world.clock.now += timedelta(hours=2)
-    world.call(CLAIM, run="r2")
+    world.call(CLAIM, run=R2)
 
 
 def test_the_email_fence_answers_send_with_the_durable_key():
@@ -567,15 +570,15 @@ def test_the_email_fence_answers_send_with_the_durable_key():
 def test_after_a_takeover_the_sent_email_is_not_sent_again():
     world = Issues()
     taken_over(world)
-    out = world.call(BEFORE_EMAIL, run="r2", subject=SUBJECT, html="<p>other</p>").output
+    out = world.call(BEFORE_EMAIL, run=R2, subject=SUBJECT, html=OTHER_HTML).output
     assert out[SEND] is False
 
 
 def test_after_a_takeover_the_recorded_message_id_is_reported():
     world = Issues()
     taken_over(world)
-    out = world.call(BEFORE_EMAIL, run="r2", subject=SUBJECT, html="<p>other</p>").output
-    assert out[MESSAGE_ID] == "m1"
+    out = world.call(BEFORE_EMAIL, run=R2, subject=SUBJECT, html=OTHER_HTML).output
+    assert out[MESSAGE_ID] == M1
 
 
 def test_a_takeover_reuses_the_first_payload_and_key():
@@ -583,23 +586,23 @@ def test_a_takeover_reuses_the_first_payload_and_key():
     world.call(CLAIM)
     world.call(BEFORE_EMAIL, subject=SUBJECT, html=HTML)  # sent, then the node died
     world.clock.now += timedelta(hours=2)
-    world.call(CLAIM, run="r2")
-    out = world.call(BEFORE_EMAIL, run="r2", subject=SUBJECT, html="<p>other</p>").output
+    world.call(CLAIM, run=R2)
+    out = world.call(BEFORE_EMAIL, run=R2, subject=SUBJECT, html=OTHER_HTML).output
     assert (out[SEND], out["html"], out["idempotency_key"]) == (True, HTML, EMAIL_KEY)
 
 
 def test_after_a_takeover_the_push_fence_passes_with_the_recorded_message():
     world = Issues()
     taken_over(world)
-    world.call(BEFORE_EMAIL, run="r2", subject=SUBJECT, html=HTML)
-    assert world.call(BEFORE_PUSH, run="r2").output == {MESSAGE_ID: "m1", "date": DATE}
+    world.call(BEFORE_EMAIL, run=R2, subject=SUBJECT, html=HTML)
+    assert world.call(BEFORE_PUSH, run=R2).output == {MESSAGE_ID: M1, "date": DATE}
 
 
 def test_a_slow_owner_taken_over_cannot_send_the_email():
     world = Issues()
     world.call(CLAIM)
     world.clock.now += timedelta(hours=2)
-    world.call(CLAIM, run="r2")
+    world.call(CLAIM, run=R2)
     result = world.call(BEFORE_EMAIL, subject=SUBJECT, html=HTML)
     assert result.outcome == FAILED
     assert result.error.startswith(LOST)
@@ -610,8 +613,8 @@ def test_a_slow_owner_taken_over_cannot_push():
     world.call(CLAIM)
     world.call(BEFORE_EMAIL, subject=SUBJECT, html=HTML)
     world.clock.now += timedelta(hours=2)
-    world.call(CLAIM, run="r2")
-    result = world.call(BEFORE_PUSH, message_id="m1")
+    world.call(CLAIM, run=R2)
+    result = world.call(BEFORE_PUSH, message_id=M1)
     assert result.error.startswith(LOST)
 
 
@@ -620,16 +623,16 @@ def test_a_slow_owner_still_records_the_email_it_sent():
     world.call(CLAIM)
     world.call(BEFORE_EMAIL, subject=SUBJECT, html=HTML)
     world.clock.now += timedelta(hours=2)
-    world.call(CLAIM, run="r2")
-    world.call(BEFORE_PUSH, message_id="m1")
-    assert world.doc()["email"][MESSAGE_ID] == "m1"
+    world.call(CLAIM, run=R2)
+    world.call(BEFORE_PUSH, message_id=M1)
+    assert world.doc()["email"][MESSAGE_ID] == M1
 
 
 def test_a_lost_claim_is_not_retryable():
     world = Issues()
     world.call(CLAIM)
     world.clock.now += timedelta(hours=2)
-    world.call(CLAIM, run="r2")
+    world.call(CLAIM, run=R2)
     assert world.call(BEFORE_EMAIL, subject=SUBJECT, html=HTML).retryable is False
 
 
@@ -639,7 +642,7 @@ def test_the_fences_renew_the_lease():
     world.clock.now += timedelta(minutes=50)
     world.call(BEFORE_EMAIL, subject=SUBJECT, html=HTML)
     world.clock.now += timedelta(minutes=50)  # 100 min after the claim, 50 after the fence
-    assert world.call(CLAIM, run="r2").output["reason"] == "claimed_by_another_run"
+    assert world.call(CLAIM, run=R2).output["reason"] == "claimed_by_another_run"
 
 
 def test_the_email_fence_needs_the_rendered_issue():
@@ -659,7 +662,7 @@ def test_the_push_fence_needs_a_sent_email():
 def test_record_stores_the_library_progress():
     world = Issues()
     emailed(world)
-    world.call(RECORD, message_id="m1", item_id=7, queue_id=11)
+    world.call(RECORD, message_id=M1, item_id=7, queue_id=11)
     library = world.doc()["library"]
     assert (library["item_id"], library["queue_id"]) == ("7", "11")
 

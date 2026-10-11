@@ -99,12 +99,17 @@ The `email.send` action takes:
 | `to` | yes | a list of addresses, each on the actor's allowlist (compared case-insensitively) |
 | `subject` | yes | the subject line |
 | `html`, `text` | at least one | the body as HTML, as plain text, or both |
+| `idempotency_key` | no | replaces the engine's key: a string of at most 256 characters |
 
 Attachments are not supported. The output is `{message_id}`, Resend's id for
 the message.
 
 The engine's idempotency key for the step goes out as Resend's
-`Idempotency-Key`, so a retried send sends one email.
+`Idempotency-Key`, so a retried send sends one email. That key is per run.
+To make several runs share one, pass `idempotency_key`: the daily newspaper
+passes `newspaper:<date>:email`, so a later run for the same date cannot send
+it again. Resend keeps a key for 24 hours, and the same key with another body
+is refused.
 
 ## Failures
 
