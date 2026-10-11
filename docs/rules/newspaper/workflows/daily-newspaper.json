@@ -1,0 +1,903 @@
+{
+  "description": "#53: one dated issue a day. Parse the sections, claim the local date (a date already delivered ends the run with nothing sent), search and filter each section, summarise it with cortex (a failed summary leaves the results-only rendering), render the HTML and the EPUB, email it, queue it on the Xteink reader, record the delivery. Non-agentic: no bridge actor, no agent step.",
+  "edges": [
+    {
+      "source": "inputs",
+      "source_port": "sections",
+      "target": "sections",
+      "target_port": "sections"
+    },
+    {
+      "source": "inputs",
+      "source_port": "slot",
+      "target": "claim",
+      "target_port": "slot"
+    },
+    {
+      "source": "inputs",
+      "source_port": "tz",
+      "target": "claim",
+      "target_port": "tz"
+    },
+    {
+      "source": "sections",
+      "source_port": "sections",
+      "target": "claim",
+      "target_port": "after"
+    },
+    {
+      "source": "sections",
+      "source_port": "sections",
+      "target": "search",
+      "target_port": "items"
+    },
+    {
+      "source": "claim",
+      "source_port": "deliver",
+      "target": "search",
+      "target_port": "deliver"
+    },
+    {
+      "source": "search_web",
+      "source_port": "results",
+      "target": "filter",
+      "target_port": "results"
+    },
+    {
+      "source": "search",
+      "source_port": "results",
+      "target": "summarise",
+      "target_port": "items"
+    },
+    {
+      "source": "claim",
+      "source_port": "deliver",
+      "target": "summarise",
+      "target_port": "deliver"
+    },
+    {
+      "source": "claim",
+      "source_port": "date",
+      "target": "render",
+      "target_port": "date"
+    },
+    {
+      "source": "sections",
+      "source_port": "sections",
+      "target": "render",
+      "target_port": "sections"
+    },
+    {
+      "source": "search",
+      "source_port": "results",
+      "target": "render",
+      "target_port": "results"
+    },
+    {
+      "source": "summarise",
+      "source_port": "text",
+      "target": "render",
+      "target_port": "summaries"
+    },
+    {
+      "source": "claim",
+      "source_port": "deliver",
+      "target": "render",
+      "target_port": "deliver"
+    },
+    {
+      "source": "inputs",
+      "source_port": "to",
+      "target": "email",
+      "target_port": "to"
+    },
+    {
+      "source": "render",
+      "source_port": "subject",
+      "target": "email",
+      "target_port": "subject"
+    },
+    {
+      "source": "render",
+      "source_port": "html",
+      "target": "email",
+      "target_port": "html"
+    },
+    {
+      "source": "claim",
+      "source_port": "deliver",
+      "target": "email",
+      "target_port": "deliver"
+    },
+    {
+      "source": "render",
+      "source_port": "epub_base64",
+      "target": "push",
+      "target_port": "epub"
+    },
+    {
+      "source": "render",
+      "source_port": "subject",
+      "target": "push",
+      "target_port": "subject"
+    },
+    {
+      "source": "inputs",
+      "source_port": "device_id",
+      "target": "push",
+      "target_port": "device_id"
+    },
+    {
+      "source": "claim",
+      "source_port": "deliver",
+      "target": "push",
+      "target_port": "deliver"
+    },
+    {
+      "source": "inputs",
+      "source_port": "slot",
+      "target": "record",
+      "target_port": "slot"
+    },
+    {
+      "source": "inputs",
+      "source_port": "tz",
+      "target": "record",
+      "target_port": "tz"
+    },
+    {
+      "source": "email",
+      "source_port": "message_id",
+      "target": "record",
+      "target_port": "message_id"
+    },
+    {
+      "source": "push",
+      "source_port": "item_id",
+      "target": "record",
+      "target_port": "item_id"
+    },
+    {
+      "source": "claim",
+      "source_port": "deliver",
+      "target": "record",
+      "target_port": "deliver"
+    }
+  ],
+  "enabled": true,
+  "id": "daily-newspaper",
+  "inputs": [
+    {
+      "description": "newspaper_sections: the sections JSON",
+      "name": "sections",
+      "required": true,
+      "type": "string"
+    },
+    {
+      "description": "newspaper_to: the recipients (each on the email actor's allowlist)",
+      "name": "to",
+      "required": true,
+      "type": "array"
+    },
+    {
+      "description": "the schedule slot (ISO-8601 UTC)",
+      "name": "slot",
+      "required": true,
+      "type": "string"
+    },
+    {
+      "description": "the rule's IANA time zone: the issue's date is the slot's local date",
+      "name": "tz",
+      "required": true,
+      "type": "string"
+    },
+    {
+      "description": "newspaper_device: the reader's device id (null: the library actor's)",
+      "name": "device_id",
+      "required": false,
+      "type": "any"
+    }
+  ],
+  "name": "Daily newspaper",
+  "outputs": [
+    {
+      "name": "message_id",
+      "source": "steps.email.outputs.message_id",
+      "type": "string"
+    },
+    {
+      "name": "item_id",
+      "source": "steps.push.outputs.item_id",
+      "type": "any"
+    },
+    {
+      "name": "date",
+      "source": "steps.claim.outputs.date",
+      "type": "string"
+    }
+  ],
+  "schema_version": "1.0",
+  "steps": [
+    {
+      "body": [],
+      "config": {
+        "builtin": "newspaper.sections"
+      },
+      "description": "newspaper.sections: parses and validates the newspaper_sections variable (fails the run naming the field, before any claim or search) and adds each section's search query: its queries joined with OR.",
+      "enabled": true,
+      "id": "sections",
+      "inputs": [
+        {
+          "description": "the newspaper_sections JSON string",
+          "name": "sections",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "kind": "code",
+      "max_iterations": null,
+      "name": "Parse the sections",
+      "outputs": [
+        {
+          "description": "",
+          "name": "sections",
+          "required": true,
+          "type": "array"
+        }
+      ],
+      "placement": null,
+      "retry": null,
+      "timeout_s": null
+    },
+    {
+      "body": [],
+      "config": {
+        "builtin": "newspaper.issue",
+        "phase": "claim"
+      },
+      "description": "newspaper.issue (claim): the local date of the slot in tz; deliver is false when the date was already delivered or another run holds it, and every later step is skipped.",
+      "enabled": true,
+      "id": "claim",
+      "inputs": [
+        {
+          "description": "",
+          "name": "slot",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "tz",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "the parsed sections: claim only after they parse",
+          "name": "after",
+          "required": false,
+          "type": "array"
+        }
+      ],
+      "kind": "code",
+      "max_iterations": null,
+      "name": "Claim today's issue",
+      "outputs": [
+        {
+          "description": "",
+          "name": "deliver",
+          "required": true,
+          "type": "boolean"
+        },
+        {
+          "description": "",
+          "name": "date",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "reason",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "placement": null,
+      "retry": null,
+      "timeout_s": null
+    },
+    {
+      "body": [
+        {
+          "body": [],
+          "config": {
+            "action": {
+              "kind": "search.web",
+              "params": {
+                "actor": "newspaper-search",
+                "count": "inputs.item.count",
+                "freshness": "inputs.item.freshness",
+                "query": "inputs.item.query"
+              }
+            },
+            "builtin": "action",
+            "idempotent": true,
+            "when": {
+              "cmp": "==",
+              "left": {
+                "field": "deliver"
+              },
+              "op": "compare",
+              "right": {
+                "literal": true
+              }
+            }
+          },
+          "description": "search.web through newspaper-search.",
+          "enabled": true,
+          "id": "search_web",
+          "inputs": [
+            {
+              "description": "the section",
+              "name": "item",
+              "required": true,
+              "type": "object"
+            },
+            {
+              "description": "newspaper.issue's claim: false ends the run quietly",
+              "name": "deliver",
+              "required": true,
+              "type": "boolean"
+            }
+          ],
+          "kind": "code",
+          "max_iterations": null,
+          "name": "Brave search",
+          "outputs": [
+            {
+              "description": "",
+              "name": "results",
+              "required": true,
+              "type": "array"
+            },
+            {
+              "description": "",
+              "name": "query",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "count",
+              "required": true,
+              "type": "integer"
+            }
+          ],
+          "placement": null,
+          "retry": {
+            "backoff_multiplier": 2.0,
+            "backoff_s": 30.0,
+            "max_attempts": 3
+          },
+          "timeout_s": 60.0
+        },
+        {
+          "body": [],
+          "config": {
+            "builtin": "newspaper.filter",
+            "when": {
+              "cmp": "==",
+              "left": {
+                "field": "deliver"
+              },
+              "op": "compare",
+              "right": {
+                "literal": true
+              }
+            }
+          },
+          "description": "newspaper.filter: what the issue may show.",
+          "enabled": true,
+          "id": "filter",
+          "inputs": [
+            {
+              "description": "",
+              "name": "item",
+              "required": true,
+              "type": "object"
+            },
+            {
+              "description": "",
+              "name": "results",
+              "required": true,
+              "type": "array"
+            },
+            {
+              "description": "newspaper.issue's claim: false ends the run quietly",
+              "name": "deliver",
+              "required": true,
+              "type": "boolean"
+            }
+          ],
+          "kind": "code",
+          "max_iterations": null,
+          "name": "Filter the results",
+          "outputs": [
+            {
+              "description": "",
+              "name": "results",
+              "required": true,
+              "type": "array"
+            }
+          ],
+          "placement": null,
+          "retry": null,
+          "timeout_s": null
+        }
+      ],
+      "config": {
+        "items": "items"
+      },
+      "description": "One iteration per section: search.web with the section's query, count and freshness, then newspaper.filter (must / must-not terms, site lists, dedupe, cap). Outputs one {results} object per section.",
+      "enabled": true,
+      "id": "search",
+      "inputs": [
+        {
+          "description": "",
+          "name": "items",
+          "required": true,
+          "type": "array"
+        },
+        {
+          "description": "newspaper.issue's claim: false ends the run quietly",
+          "name": "deliver",
+          "required": true,
+          "type": "boolean"
+        }
+      ],
+      "kind": "for_each",
+      "max_iterations": 20,
+      "name": "Search each section",
+      "outputs": [
+        {
+          "description": "",
+          "name": "results",
+          "required": true,
+          "type": "array"
+        }
+      ],
+      "placement": null,
+      "retry": null,
+      "timeout_s": null
+    },
+    {
+      "body": [
+        {
+          "body": [],
+          "config": {
+            "action": {
+              "kind": "llm.complete",
+              "params": {
+                "actor": "newspaper-llm",
+                "content": "inputs.item.results",
+                "max_tokens": 2000
+              }
+            },
+            "builtin": "action",
+            "idempotent": true,
+            "on_error": "skip",
+            "when": {
+              "cmp": "==",
+              "left": {
+                "field": "deliver"
+              },
+              "op": "compare",
+              "right": {
+                "literal": true
+              }
+            }
+          },
+          "description": "llm.complete: the locked newspaper brief, no tools.",
+          "enabled": true,
+          "id": "summary",
+          "inputs": [
+            {
+              "description": "{results} of the section",
+              "name": "item",
+              "required": true,
+              "type": "object"
+            },
+            {
+              "description": "newspaper.issue's claim: false ends the run quietly",
+              "name": "deliver",
+              "required": true,
+              "type": "boolean"
+            }
+          ],
+          "kind": "code",
+          "max_iterations": null,
+          "name": "cortex summary",
+          "outputs": [
+            {
+              "description": "",
+              "name": "text",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "model",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "usage",
+              "required": false,
+              "type": "object"
+            }
+          ],
+          "placement": null,
+          "retry": {
+            "backoff_multiplier": 1.0,
+            "backoff_s": 30.0,
+            "max_attempts": 2
+          },
+          "timeout_s": 600.0
+        }
+      ],
+      "config": {
+        "items": "items"
+      },
+      "description": "One iteration per section: llm.complete on newspaper-llm (cortex, pool qwen-spark2) with the section's filtered results. on_error skip: an unreachable gateway or a pool busy past the queue bound leaves that summary out, and the issue goes out with the results and a 'Summary unavailable.' line (q1).",
+      "enabled": true,
+      "id": "summarise",
+      "inputs": [
+        {
+          "description": "",
+          "name": "items",
+          "required": true,
+          "type": "array"
+        },
+        {
+          "description": "newspaper.issue's claim: false ends the run quietly",
+          "name": "deliver",
+          "required": true,
+          "type": "boolean"
+        }
+      ],
+      "kind": "for_each",
+      "max_iterations": 20,
+      "name": "Summarise each section",
+      "outputs": [
+        {
+          "description": "",
+          "name": "text",
+          "required": true,
+          "type": "array"
+        }
+      ],
+      "placement": null,
+      "retry": null,
+      "timeout_s": null
+    },
+    {
+      "body": [],
+      "config": {
+        "builtin": "newspaper.render",
+        "when": {
+          "cmp": "==",
+          "left": {
+            "field": "deliver"
+          },
+          "op": "compare",
+          "right": {
+            "literal": true
+          }
+        }
+      },
+      "description": "newspaper.render: the dated HTML email body and the EPUB; a summary that links outside its section's results is withheld, a section with no results says so.",
+      "enabled": true,
+      "id": "render",
+      "inputs": [
+        {
+          "description": "",
+          "name": "date",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "sections",
+          "required": true,
+          "type": "array"
+        },
+        {
+          "description": "",
+          "name": "results",
+          "required": true,
+          "type": "array"
+        },
+        {
+          "description": "",
+          "name": "summaries",
+          "required": false,
+          "type": "array"
+        },
+        {
+          "description": "newspaper.issue's claim: false ends the run quietly",
+          "name": "deliver",
+          "required": true,
+          "type": "boolean"
+        }
+      ],
+      "kind": "code",
+      "max_iterations": null,
+      "name": "Render the issue",
+      "outputs": [
+        {
+          "description": "",
+          "name": "subject",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "html",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "epub_base64",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "size",
+          "required": true,
+          "type": "integer"
+        },
+        {
+          "description": "",
+          "name": "sections_rendered",
+          "required": true,
+          "type": "integer"
+        }
+      ],
+      "placement": null,
+      "retry": null,
+      "timeout_s": null
+    },
+    {
+      "body": [],
+      "config": {
+        "action": {
+          "kind": "email.send",
+          "params": {
+            "actor": "newspaper-email",
+            "html": "inputs.html",
+            "subject": "inputs.subject",
+            "to": "inputs.to"
+          }
+        },
+        "builtin": "action",
+        "when": {
+          "cmp": "==",
+          "left": {
+            "field": "deliver"
+          },
+          "op": "compare",
+          "right": {
+            "literal": true
+          }
+        }
+      },
+      "description": "email.send through newspaper-email (Resend, the newsletter-no-reply sender on culture.dev); only to recipients on the actor's allowlist.",
+      "enabled": true,
+      "id": "email",
+      "inputs": [
+        {
+          "description": "",
+          "name": "to",
+          "required": true,
+          "type": "array"
+        },
+        {
+          "description": "",
+          "name": "subject",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "html",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "newspaper.issue's claim: false ends the run quietly",
+          "name": "deliver",
+          "required": true,
+          "type": "boolean"
+        }
+      ],
+      "kind": "code",
+      "max_iterations": null,
+      "name": "Email the issue",
+      "outputs": [
+        {
+          "description": "",
+          "name": "message_id",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "placement": null,
+      "retry": {
+        "backoff_multiplier": 2.0,
+        "backoff_s": 60.0,
+        "max_attempts": 3
+      },
+      "timeout_s": 60.0
+    },
+    {
+      "body": [],
+      "config": {
+        "action": {
+          "kind": "library.push",
+          "params": {
+            "actor": "newspaper-library",
+            "content_base64": "inputs.epub",
+            "device_id": "inputs.device_id",
+            "title": "inputs.subject"
+          }
+        },
+        "builtin": "action",
+        "when": {
+          "cmp": "==",
+          "left": {
+            "field": "deliver"
+          },
+          "op": "compare",
+          "right": {
+            "literal": true
+          }
+        }
+      },
+      "description": "library.push through newspaper-library: upload the EPUB (kind article, the dated title) and queue it for the device (the input, else the actor's device_id).",
+      "enabled": true,
+      "id": "push",
+      "inputs": [
+        {
+          "description": "",
+          "name": "epub",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "subject",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "newspaper_device; null: the actor's",
+          "name": "device_id",
+          "required": false,
+          "type": "any"
+        },
+        {
+          "description": "newspaper.issue's claim: false ends the run quietly",
+          "name": "deliver",
+          "required": true,
+          "type": "boolean"
+        }
+      ],
+      "kind": "code",
+      "max_iterations": null,
+      "name": "Queue the EPUB on the reader",
+      "outputs": [
+        {
+          "description": "",
+          "name": "item_id",
+          "required": true,
+          "type": "any"
+        },
+        {
+          "description": "",
+          "name": "created",
+          "required": false,
+          "type": "boolean"
+        },
+        {
+          "description": "",
+          "name": "queue_id",
+          "required": false,
+          "type": "any"
+        }
+      ],
+      "placement": null,
+      "retry": {
+        "backoff_multiplier": 2.0,
+        "backoff_s": 60.0,
+        "max_attempts": 3
+      },
+      "timeout_s": 120.0
+    },
+    {
+      "body": [],
+      "config": {
+        "builtin": "newspaper.issue",
+        "phase": "record",
+        "when": {
+          "cmp": "==",
+          "left": {
+            "field": "deliver"
+          },
+          "op": "compare",
+          "right": {
+            "literal": true
+          }
+        }
+      },
+      "description": "newspaper.issue (record): marks the date delivered with the message and item ids, so a later run for the same date sends nothing.",
+      "enabled": true,
+      "id": "record",
+      "inputs": [
+        {
+          "description": "",
+          "name": "slot",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "tz",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "message_id",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "item_id",
+          "required": true,
+          "type": "any"
+        },
+        {
+          "description": "newspaper.issue's claim: false ends the run quietly",
+          "name": "deliver",
+          "required": true,
+          "type": "boolean"
+        }
+      ],
+      "kind": "code",
+      "max_iterations": null,
+      "name": "Record the delivery",
+      "outputs": [
+        {
+          "description": "",
+          "name": "recorded",
+          "required": true,
+          "type": "boolean"
+        },
+        {
+          "description": "",
+          "name": "date",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "placement": null,
+      "retry": null,
+      "timeout_s": null
+    }
+  ],
+  "variables": [],
+  "version": 1
+}
