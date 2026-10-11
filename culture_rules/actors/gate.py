@@ -1453,7 +1453,8 @@ def _guard_conflicts(
 # --------------------------------------------------------------------------- #59: version bumps
 
 #: The version files a merge from base may bump when both sides bumped the version (#59).
-VERSION_FILES: tuple[str, ...] = ("pyproject.toml", "uv.lock")
+PYPROJECT = "pyproject.toml"
+VERSION_FILES: tuple[str, ...] = (PYPROJECT, "uv.lock")
 _PLACEHOLDER = object()
 
 
@@ -1479,7 +1480,7 @@ def _without_version(path: str, doc: dict[str, Any], name: str) -> dict[str, Any
     """The parsed ``doc`` with the project's own version replaced by a placeholder, or None
     when that field is not exactly one plain string (#59, Codex r1: parsed TOML, so a
     look-alike inside a string is data, never the version)."""
-    if path == "pyproject.toml":
+    if path == PYPROJECT:
         project = doc.get("project")
         if not isinstance(project, dict) or not isinstance(project.get("version"), str):
             return None
@@ -1506,7 +1507,7 @@ def _typed(value: Any) -> Any:
     ``True == 1 == 1.0`` never lets a boolean, integer or float pass for another (#59,
     Codex r2)."""
     if value is _PLACEHOLDER:
-        return ("version",)
+        return ("version", None)
     if isinstance(value, dict):
         return ("table", tuple(sorted((k, _typed(v)) for k, v in value.items())))
     if isinstance(value, list):
@@ -1550,7 +1551,7 @@ def _waive_version_bump(
     if rc != 0:
         return found
     ancestor = out.decode().strip()
-    seen = [_project(_blob(job, sha, "pyproject.toml")) for sha in (ancestor, *parents)]
+    seen = [_project(_blob(job, sha, PYPROJECT)) for sha in (ancestor, *parents)]
     if any(p is None for p in seen) or len({p[0] for p in seen}) != 1:
         return found
     (name, base_v), (_, start_v), (_, second_v) = seen
