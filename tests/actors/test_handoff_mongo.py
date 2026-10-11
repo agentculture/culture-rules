@@ -4,6 +4,7 @@ carry a TTL index on their ``expires_at`` date."""
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from datetime import timedelta
 
 import pytest
@@ -54,3 +55,47 @@ def test_the_handoffs_have_a_ttl_index_on_their_expiry_on_mongo(mongo_store):
     ensure_handoff_expiry(mongo_store)
     info = mongo_store._db[HANDOFFS_COLLECTION].index_information()
     assert info[EXPIRY_INDEX]["expireAfterSeconds"] == 0
+
+
+class WriteAfterRead:
+    """A store whose first transaction, right after it reads a hand-off, lets a write from
+    outside the transaction renew that hand-off (Codex round 3 #4: an export lands between
+    the prune's read and its delete)."""
+
+    def __init__(self, inner) -> None:
+        self._inner = inner
+        self.renew = None
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+    @contextmanager
+    def transaction(self):
+        with self._inner.transaction() as tx:
+            yield _RenewAfterGet(tx, self)
+
+
+class _RenewAfterGet:
+    def __init__(self, tx, outer: WriteAfterRead) -> None:
+        self._tx, self._outer = tx, outer
+
+    def __getattr__(self, name):
+        return getattr(self._tx, name)
+
+    def get(self, collection, id):
+        doc = self._tx.get(collection, id)
+        if self._outer.renew is not None:
+            renew, self._outer.renew = self._outer.renew, None
+            renew()
+        return doc
+
+
+def test_the_prune_keeps_a_hand_off_renewed_inside_its_transaction_on_mongo(mongo_store):
+    mongo_store.put(HANDOFFS_COLLECTION, handoff("hof_old", T0 - timedelta(seconds=1)))
+    racing = WriteAfterRead(mongo_store)
+    renewed = {"rev": "renewed", "expires_at": T0 + timedelta(days=1)}
+    racing.renew = lambda: mongo_store.update_if(
+        HANDOFFS_COLLECTION, "hof_old", {"rev": "hof_old"}, renewed
+    )
+    assert prune_handoffs(racing, T0) == 0
+    assert mongo_store.get(HANDOFFS_COLLECTION, "hof_old")["rev"] == "renewed"
