@@ -1,0 +1,252 @@
+{
+  "slug": "claude-fixer-level",
+  "title": "Claude fixer level",
+  "schema_version": 6,
+  "status": "drafting",
+  "created": "2026-10-11T19:09:06Z",
+  "updated": "2026-10-11T19:09:08Z",
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "The PR fixer gains a Claude level first: Claude Code (the cultureagent claude bridge on spark) makes try 1 and Qwen reviews it, then Qwen (reviewed by Codex), then Codex (reviewed by Qwen), so fixes land faster",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c2",
+      "kind": "requirement",
+      "text": "Operator decision (culture-rules#56, 2026-10-11): the ladder is level 1 claude-fixer reviewed by qwen-reviewer, level 2 qwen-fixer reviewed by codex-reviewer, level 3 codex-fixer reviewed by qwen-reviewer, all three enabled once Claude is live; MAX_TRIES 3 gives one try per level",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c3",
+      "kind": "requirement",
+      "text": "Operator decision 2026-10-11: Claude gets a new queue pr-fixer-claude (pool claude-spark); qwen keeps pr-fixer (the queue workflows' fallback) and codex keeps pr-fixer-codex",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c4",
+      "kind": "requirement",
+      "text": "Operator decision 2026-10-11: the release ships the Claude level disabled (seeded level=1 actor=claude-fixer ... enabled=false); after the bridge's live check (cultureagent t6) passes, fixer_levels is set live to enable it",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c5",
+      "kind": "requirement",
+      "text": "Operator decision 2026-10-11: qwen-reviewer reviews Claude's tries on the shared qwen-spark2 pool (reviews serialise behind Qwen fixes on spark2)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c6",
+      "kind": "requirement",
+      "text": "Operator decision (cultureagent#54): the Claude bridge runs on spark under a dedicated culture-claude-fixer account with its own claude login; its commits reach spark2's gate through the 0.18.13 hand-off, as Codex's do",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c7",
+      "kind": "requirement",
+      "text": "pr-fix.json gains agent_claude (placement actor claude-fixer, sandbox workspace-write, require_commit, when fixer == claude-fixer) and its own handoff_export_claude / handoff_import_claude steps feeding select as source claude -> claude-fixer, so the implementer label stays exact; the new pr-fix digest is added to ROLE_FIX in culture_rules/actors/trusted.py with the old ones kept",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "handoff.export takes the account to run as from the step's config (run_as), so the Claude path runs as culture-claude-fixer and the Codex path as culture-codex-fixer; the node's single CULTURE_RULES_HANDOFF_RUN_AS stays the default for steps that name none",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "docs/rules/pr-fixer/actors/claude-fixer.json: harness claude (equal to the bridge's reported backend), machine spark, bridge_url http://127.0.0.1:8096 (8095 is codex-fixer's bridge), callback_url http://127.0.0.1:18765, bridge_token grant:RULES_CLAUDE_FIXER_TOKEN, sandbox workspace-write, concurrency_pool claude-spark, max_concurrency 1; not digest-pinned, like codex-fixer",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "pr-fixer-retry-failed's step pattern names agent_claude too (agent(_qwen|_codex|_claude)?), so a Claude timeout is retried; the capacity cooldown already matches agent_*",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "docs/operations/pr-fixer.md gains 'Operator setup for the Claude level' (account, claude login, the bridge unit on 8096, grants CLAUDE_FIXER_BRIDGE_TOKEN and RULES_CLAUDE_FIXER_TOKEN, the sudoers grant for the export, the fixer_levels flip after t6) and the level sections describe three levels",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c12",
+      "kind": "boundary",
+      "text": "No engine change to the queue, ladder, cooldown, review or reviewer-is-not-implementer code: they are level-count and backend agnostic (REVIEWER_BACKENDS stays codex, qwen since Claude never reviews)",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c13",
+      "kind": "non_goal",
+      "text": "Claude as a reviewer, and enabling the Claude level live, are not in this release; t6 and the live flip follow",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c14",
+      "kind": "success_signal",
+      "text": "After 0.20.0, t6 and the flip, a /fix on a tester PR runs try 1 on claude-fixer, the hand-off carries its commit to spark2's gate, qwen-reviewer reviews it against the original task, and the App pushes",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c15",
+      "kind": "before_state",
+      "text": "Today the ladder is qwen-fixer (level 1) then codex-fixer (level 2, disabled), and pr-fix.json has exactly two agent paths",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c16",
+      "kind": "after_state",
+      "text": "pr-fix.json has three agent paths with per-account hand-offs, claude-fixer ships as an actor, and the seeded ladder is Claude (disabled until t6), Qwen, Codex",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c17",
+      "kind": "why_it_matters",
+      "text": "The operator wants fixes in faster: Claude makes the direct fix first, with Qwen as an independent reviewer",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    }
+  ],
+  "open_vagueness": [],
+  "scope_entries": [
+    {
+      "id": "s1",
+      "surface": "docs/rules/pr-fixer/workflows/pr-fix.json + node/actions/select.py",
+      "finding": "select's sources map is the two-path assumption ({codex: codex-fixer, qwen: qwen-fixer}); select.py itself takes any number of sources, and the handoff steps feed select.codex_*, so a shared hand-off would mislabel Claude commits as codex-fixer",
+      "seeds": [
+        "c7"
+      ]
+    },
+    {
+      "id": "s2",
+      "surface": "culture_rules/actors/handoff.py:146,197",
+      "finding": "the export's run-as is one node-wide env var CULTURE_RULES_HANDOFF_RUN_AS (culture-codex-fixer); a second account needs a per-step run_as",
+      "seeds": [
+        "c8"
+      ]
+    },
+    {
+      "id": "s3",
+      "surface": "spark ports (ss -ltn) + actors/codex-fixer.json",
+      "finding": "codex-fixer's bridge is on 127.0.0.1:8095; the claude bridge moved to 8096 in cultureagent#55",
+      "seeds": [
+        "c9"
+      ]
+    },
+    {
+      "id": "s4",
+      "surface": "rules/pr-fixer-retry-failed.json:26, actors/review.py:163,1324-1345, node/actions/fixer_levels.py, queue.py:245",
+      "finding": "retry-failed names only _qwen/_codex; review, ladder and queue code are backend/level agnostic; MAX_TRIES 3",
+      "seeds": [
+        "c10",
+        "c12"
+      ]
+    }
+  ],
+  "lapses": [],
+  "obligations": []
+}
