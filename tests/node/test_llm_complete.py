@@ -26,6 +26,7 @@ LOCAL = "http://127.0.0.1:8001"
 MODEL = "qwen-test"
 COMPLETIONS = "/v1/chat/completions"
 POOL = "qwen-spark2"
+LLM_GRANT = "grant:LLM_KEY"
 
 
 def _reply(text="- [A](https://a.example/1)", model=MODEL, usage=None):
@@ -203,7 +204,7 @@ def test_no_authorization_without_an_api_key():
 
 
 def test_an_api_key_grant_is_resolved_into_a_bearer_header():
-    store = _store(_actor(api_key="grant:LLM_KEY"))
+    store = _store(_actor(api_key=LLM_GRANT))
     port, transport = _port(store, secret_runner=lambda name: f"value-of-{name}")
     _invoke(port)
     assert transport.calls[0]["headers"]["Authorization"] == "Bearer value-of-LLM_KEY"
@@ -356,7 +357,7 @@ def test_an_unresolvable_api_key_is_refused_and_not_echoed():
     def runner(_name):
         raise RuntimeError("secret-material")
 
-    port, transport = _port(_store(_actor(api_key="grant:LLM_KEY")), secret_runner=runner)
+    port, transport = _port(_store(_actor(api_key=LLM_GRANT)), secret_runner=runner)
     res = _invoke(port)
     assert (_failed(res), transport.calls) == ((FAILED, "secret_unresolved", False), [])
 
@@ -518,11 +519,22 @@ def test_a_bad_not_after_is_invalid(value):
     assert (res.error.split(":")[0], transport.calls) == ("invalid_request", [])
 
 
+NEWS_KEY = "news"
+
+
+def _summary(not_after):
+    """A newspaper summary's params: no results, and the summary window's ``not_after``."""
+    return {"actor": "llm", "content": "No items", "not_after": not_after}
+
+
+def _routed(store, port):
+    return ActorRouter(store, ports={"action:llm.complete": port})(_ctx())
+
+
 def _route_with(store, transport, not_after):
     port = LlmCompletePort(store, transport=transport)
-    routed = ActorRouter(store, ports={"action:llm.complete": port})(_ctx())
-    params = {"actor": "llm", "content": "No items", "not_after": not_after}
-    return routed.invoke(params, "news", _deadline(), context=_ctx())
+    routed = _routed(store, port)
+    return routed.invoke(_summary(not_after), NEWS_KEY, _deadline(), context=_ctx())
 
 
 def test_past_not_after_a_busy_pool_fails_instead_of_queueing():
@@ -548,7 +560,6 @@ def test_a_refused_deadline_takes_no_pool_slot():
 # ---- Codex r2 #2: the deadline is checked after the secret is resolved ----------------------
 
 T0 = datetime(2026, 10, 11, 3, 30, tzinfo=UTC)
-GRANTED_ACTOR = "grant:LLM_KEY"
 
 
 class ManualClock:
@@ -572,13 +583,12 @@ class ManualClock:
 
 
 def _clocked_port(clock, secret_seconds):
-    store = _store(_actor(api_key=GRANTED_ACTOR))
+    store = _store(_actor(api_key=LLM_GRANT))
     return _port(store, secret_runner=clock.slow_secret(secret_seconds), clock=clock)
 
 
 def _invoke_at(port, clock, not_after_s, deadline_s=120):
-    params = {"actor": "llm", "content": "No items"}
-    params["not_after"] = (clock.now + timedelta(seconds=not_after_s)).isoformat()
+    params = _summary((clock.now + timedelta(seconds=not_after_s)).isoformat())
     deadline = clock.now + timedelta(seconds=deadline_s)
     return port.invoke(params, "k-clock", deadline, context=_ctx())
 
@@ -607,20 +617,18 @@ def test_the_timeout_is_what_remains_after_the_secret_lookup():
 # ---- Codex r2 #3: a completed key replays even after not_after -----------------------------
 
 
-def _routed(store, port):
-    return ActorRouter(store, ports={"action:llm.complete": port})(_ctx())
+def _ask(store, port, params, key=NEWS_KEY):
+    return _routed(store, port).invoke(params, key, _deadline(), context=_ctx())
 
 
 def _replay_after_not_after(store):
     """Complete key ``news`` before not_after, then re-ask it 60 s after not_after."""
     clock, transport = ManualClock(), FakeTransport()
     port = LlmCompletePort(store, transport=transport, clock=clock)
-    params = {"actor": "llm", "content": "No items"}
-    params["not_after"] = (clock.now + timedelta(seconds=10)).isoformat()
-    first = _routed(store, port).invoke(params, "news", _deadline(), context=_ctx())
+    params = _summary((clock.now + timedelta(seconds=10)).isoformat())
+    first = _ask(store, port, params)
     clock.advance(70)
-    again = _routed(store, port).invoke(params, "news", _deadline(), context=_ctx())
-    return first, again, transport
+    return first, _ask(store, port, params), transport
 
 
 def test_a_completed_unpooled_invocation_replays_after_not_after():
@@ -642,12 +650,11 @@ def test_a_replay_after_not_after_sends_no_second_request():
 def _replay_into_a_busy_pool():
     store, clock = _pooled_store(), ManualClock()
     port = LlmCompletePort(store, transport=FakeTransport(), clock=clock)
-    params = {"actor": "llm", "content": "No items"}
-    params["not_after"] = (clock.now + timedelta(seconds=10)).isoformat()
-    _routed(store, port).invoke(params, "news", _deadline(), context=_ctx())
+    params = _summary((clock.now + timedelta(seconds=10)).isoformat())
+    _ask(store, port, params)
     _hold_pool_slot(store)
     clock.advance(70)
-    return store, _routed(store, port).invoke(params, "news", _deadline(), context=_ctx())
+    return store, _ask(store, port, params)
 
 
 def test_a_replay_into_a_busy_pool_still_completes():
@@ -664,6 +671,5 @@ def test_a_replay_takes_no_pool_slot():
 def test_a_new_key_after_not_after_is_still_refused():
     store, clock = _pooled_store(), ManualClock()
     port = LlmCompletePort(store, transport=FakeTransport(), clock=clock)
-    params = {"actor": "llm", "content": "No items", "not_after": clock.now.isoformat()}
-    res = _routed(store, port).invoke(params, "fresh", _deadline(), context=_ctx())
+    res = _ask(store, port, _summary(clock.now.isoformat()), key="fresh")
     assert _failed(res) == (FAILED, LLM_DEADLINE, False)

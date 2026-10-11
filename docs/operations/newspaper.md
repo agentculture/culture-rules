@@ -52,11 +52,15 @@ step is a built-in or an action:
    its section's results; otherwise the section shows its results. A
    section with no results says "No results."
 6. `email_gate` (`newspaper.issue`, phase `before_email`) fences the email.
-   It renews the run's lease on the date, stores the first rendered email
-   for the date, and answers it with the key `newspaper:<date>:email`. When
-   the date's email is already recorded sent, it answers `send: false`.
-7. `email` (`email.send`) sends the fenced email to `newspaper_to`, with
-   that key as Resend's `Idempotency-Key`.
+   It renews the run's lease on the date. On the date's first fence it
+   freezes the whole request: the recipients (`newspaper_to`), the sender
+   of `newspaper-email` (the step's `config.email_actor`), the subject and
+   the HTML. It answers that stored request with the key
+   `newspaper:<date>:email`. It answers `send: false` when the date's email
+   is already recorded sent, or is uncertain (see below).
+7. `email` (`email.send`) sends the frozen request, with that key as
+   Resend's `Idempotency-Key`. The recipients are still checked against
+   the actor's current allowlist.
 8. `push_gate` (`newspaper.issue`, phase `before_push`) records the email's
    message id for the date, then renews the lease.
 9. `push` (`library.push`) uploads the EPUB to xteink (kind `article`, title
@@ -64,7 +68,8 @@ step is a built-in or an action:
 10. `record` (`newspaper.issue`, phase `record`) marks the date delivered
     with the message id and the item and queue ids.
 
-The run's outputs are `message_id`, `item_id` and `date`. They are shown on
+The run's outputs are `message_id`, `item_id`, `date` and
+`email_uncertain`. They are shown on
 the run, and the Statistics lane shows the run.
 
 **When cortex is down.** The `summary` step has `config.on_error: "skip"`.
@@ -90,11 +95,32 @@ next fence with `claim_lost` and sends nothing more. Delivery progress is
 kept per destination: `email` (`message_id`, `at`) as soon as the email is
 known sent, and `library` (`item_id`, `queue_id`, `at`) with the delivery
 record. So if the email went out but the push failed, the next run for that
-date skips the email and retries only the push. If a node dies between the
-email and its record, the next run resends the stored email under the same
-key, and Resend answers the first message instead of sending another (its
-key window is 24 hours). The EPUB has no such key: a crash between a push
-and its record can queue the issue on the reader twice.
+date skips the email and retries only the push. The EPUB has no
+idempotency key: a crash between a push and its record can queue the issue
+on the reader twice.
+
+**Email delivery guarantees.** A date is never emailed twice. A missed
+email is preferred to a duplicate:
+
+- The first `email_gate` that answers `send: true` records
+  `email_attempt` (`at`, `key`) on the date. Later fences never move it.
+- If Resend accepted the email but its answer was lost, the email is not
+  recorded. A run within 23 hours of the first attempt resends the stored
+  request under the same key. The request is identical, recipients and
+  sender included, even if `newspaper_to` or the sender changed since.
+  Resend keeps a key for 24 hours, so it answers the first message id and
+  sends nothing.
+- An email whose acknowledgement was lost and not retried within 23 hours
+  is not resent. Resend may have forgotten the key. The fence records
+  `email: {uncertain: true, attempted_at}` and answers `send: false` and
+  `email_uncertain: true`. The push still goes ahead, and the run succeeds
+  with `email_uncertain: true` and no `message_id`. Check the inbox (or
+  Resend's log) for that date.
+- The attempt is recorded before the send. An `email` step that failed
+  before it reached Resend also ends uncertain once 23 hours have passed.
+- A frozen recipient that was since removed from the allowlist is refused
+  with `recipient_not_allowed` (not retried). It is never swapped for the
+  new `newspaper_to`.
 
 ## 1. Grants (on spark)
 
@@ -243,8 +269,8 @@ culture-rules runs list --rule-id daily-newspaper --limit 3
 culture-rules runs show <run id> --json
 ```
 
-A good run has `status: succeeded` and outputs `message_id`, `item_id` and
-`date`. Its `summary` steps succeeded, or show `skipped` with an
+A good run has `status: succeeded` and outputs `message_id`, `item_id`,
+`date` and `email_uncertain: false`. Its `summary` steps succeeded, or show `skipped` with an
 `llm_unavailable`, `llm_deadline` or `queue_timeout` error. The delivery is
 recorded in the `newspaper_issues` collection, one document per date with
 state `delivered`. The issue is in the inbox and queued on the reader.
@@ -262,4 +288,6 @@ If a run fails after `claim`, its lease keeps that date for an hour from
 its last fence. A manual re-run for the same date within that hour sends
 nothing. After the hour, a re-run takes the date over: it skips an email
 that was already sent and retries the push. Its slot is in the past, so its
-summary window has closed and it sends the results only.
+summary window has closed and it sends the results only. A re-run more than
+23 hours after an unacknowledged email sends no email and reports
+`email_uncertain: true` (see the email delivery guarantees above).

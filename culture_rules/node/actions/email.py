@@ -15,6 +15,15 @@ at most :data:`MAX_IDEMPOTENCY_KEY` characters, Resend's limit) replaces it: the
 newspaper passes ``newspaper:<date>:email`` so that a *later run* for the same date - after a
 takeover - cannot send that date's email twice (Codex r1 #1). Any other value is
 ``bad_input``. The output is ``{message_id}`` only.
+
+An optional ``sender`` param replaces the actor's from address so that a resend replays the
+*same* request (Codex r2 #4): Resend answers a reused key with a different body ``409``. The
+daily newspaper freezes the actor's sender with the rest of the date's first request. It
+must be an address at the actor's ``domain`` (case-insensitive; the domain Resend verified),
+else ``sender_not_allowed`` (not retryable) before any secret is read; a non-string is
+``bad_input``. The recipients are always checked against the actor's *current* allowlist: a
+frozen recipient that was since removed fails ``recipient_not_allowed`` and is never
+replaced.
 """
 
 from __future__ import annotations
@@ -61,6 +70,21 @@ def _recipients(value: Any) -> list[str] | None:
 def _all_allowed(to: list[str], conn: Mapping[str, Any]) -> bool:
     allowed = {str(a).lower() for a in conn.get("recipients") or ()}
     return all(addr.lower() in allowed for addr in to)
+
+
+def _sender(input: Mapping[str, Any], conn: Mapping[str, Any]) -> str:
+    """The from address: the ``sender`` param when given, else the actor's own.
+
+    Raises ``ValueError`` with the failure code: ``bad_input`` or ``sender_not_allowed``."""
+    sender = input.get("sender")
+    if sender is None:
+        return email_sender(conn)
+    if not isinstance(sender, str) or sender.count("@") != 1 or sender.startswith("@"):
+        raise ValueError(_BAD_INPUT)
+    domain = email_sender(conn).rsplit("@", 1)[1]
+    if sender.rsplit("@", 1)[1].lower() != domain.lower():
+        raise ValueError("sender_not_allowed")
+    return sender
 
 
 def _body_error(input: Mapping[str, Any]) -> str | None:
@@ -124,13 +148,17 @@ class EmailSendPort:
         if error or key is None:
             return InvocationResult.failed(error or _BAD_INPUT, retryable=False)
         try:
+            sender = _sender(input, conn)
+        except ValueError as exc:
+            return InvocationResult.failed(str(exc), retryable=False)
+        try:
             token = (self._secrets or resolve_secret)(str(conn.get("api_key") or ""))
         except Exception:  # noqa: BLE001 - never echo secret text
             return InvocationResult.failed("secret_unavailable", retryable=False)
         client = ResendClient(token=token, transport=self._transport)
         try:
             out = client.send_email(
-                sender=email_sender(conn),
+                sender=sender,
                 to=to,
                 subject=input["subject"],
                 html=input.get("html"),

@@ -41,6 +41,7 @@ EMAIL, SEARCH, LLM, LIBRARY = (
     "newspaper-llm",
     "newspaper-library",
 )
+GATE_STEP, EMAIL_STEP = "email_gate", "email"
 LOOPBACK = ("127.0.0.1", "localhost", "::1")
 APPLY = "--apply"
 SECTIONS_VAR = "newspaper_sections"
@@ -208,7 +209,7 @@ def test_the_issue_phases_fence_each_side_effect():  # Codex r1 #1
 
 
 def test_the_email_sends_under_the_fenced_durable_key():  # Codex r1 #1
-    (email,) = [s for s in every_step(workflow()) if s.id == "email"]
+    (email,) = [s for s in every_step(workflow()) if s.id == EMAIL_STEP]
     assert action_spec(email)["params"]["idempotency_key"] == "inputs.idempotency_key"
 
 
@@ -223,7 +224,21 @@ def test_only_the_summary_tolerates_its_failure():
 
 
 def test_the_workflow_exports_the_delivery_ids():  # h17
-    assert {o.name for o in workflow().outputs} == {"message_id", "item_id", "date"}
+    names = {o.name for o in workflow().outputs}
+    assert names == {"message_id", "item_id", "date", "email_uncertain"}
+
+
+def _step(step_id):
+    return next(s for s in workflow().steps if s.id == step_id)
+
+
+def test_the_email_fence_freezes_the_sender_of_the_email_actor():  # Codex r2 #4
+    assert _step(GATE_STEP).config["email_actor"] == EMAIL
+
+
+def test_the_email_step_sends_the_frozen_recipients_and_sender():
+    edges = {(e.source, e.source_port) for e in workflow().edges if e.target == EMAIL_STEP}
+    assert {(GATE_STEP, "to"), (GATE_STEP, "sender")} <= edges
 
 
 # --------------------------------------------------------------------------- the variables

@@ -116,13 +116,19 @@
       "target_port": "html"
     },
     {
+      "source": "inputs",
+      "source_port": "to",
+      "target": "email_gate",
+      "target_port": "to"
+    },
+    {
       "source": "claim",
       "source_port": "deliver",
       "target": "email_gate",
       "target_port": "deliver"
     },
     {
-      "source": "inputs",
+      "source": "email_gate",
       "source_port": "to",
       "target": "email",
       "target_port": "to"
@@ -132,6 +138,12 @@
       "source_port": "subject",
       "target": "email",
       "target_port": "subject"
+    },
+    {
+      "source": "email_gate",
+      "source_port": "sender",
+      "target": "email",
+      "target_port": "sender"
     },
     {
       "source": "email_gate",
@@ -292,6 +304,11 @@
       "name": "date",
       "source": "steps.claim.outputs.date",
       "type": "string"
+    },
+    {
+      "name": "email_uncertain",
+      "source": "steps.push_gate.outputs.email_uncertain",
+      "type": "boolean"
     }
   ],
   "schema_version": "1.0",
@@ -781,9 +798,10 @@
           "right": {
             "literal": true
           }
-        }
+        },
+        "email_actor": "newspaper-email"
       },
-      "description": "newspaper.issue (before_email): the email's fence. Renews this run's lease (claim_lost fails the run if another run took the date), keeps the first rendered payload for the date and answers it with the durable key newspaper:<date>:email; send is false when the date's email is already recorded sent (a takeover after a failed push).",
+      "description": "newspaper.issue (before_email): the email's fence. Renews this run's lease (claim_lost fails the run if another run took the date), freezes the date's first full request (recipients, the email actor's sender, subject, html) and answers it with the durable key newspaper:<date>:email. send is false when the date's email is already recorded sent (a takeover after a failed push), or when its first attempt is 23 hours old and unacknowledged: Resend's 24-hour key window may have closed, so the email is never resent and email_uncertain is reported.",
       "enabled": true,
       "id": "email_gate",
       "inputs": [
@@ -810,6 +828,12 @@
           "name": "html",
           "required": true,
           "type": "string"
+        },
+        {
+          "description": "newspaper_to: frozen with the first request for the date",
+          "name": "to",
+          "required": true,
+          "type": "array"
         },
         {
           "description": "newspaper.issue's claim: false ends the run quietly",
@@ -847,6 +871,18 @@
           "type": "string"
         },
         {
+          "description": "the frozen recipients",
+          "name": "to",
+          "required": true,
+          "type": "array"
+        },
+        {
+          "description": "the frozen from address of config.email_actor",
+          "name": "sender",
+          "required": false,
+          "type": "string"
+        },
+        {
           "description": "",
           "name": "idempotency_key",
           "required": true,
@@ -857,6 +893,12 @@
           "name": "message_id",
           "required": false,
           "type": "string"
+        },
+        {
+          "description": "the email's acknowledgement was lost and the 23-hour resend window has passed: it is not sent again",
+          "name": "email_uncertain",
+          "required": true,
+          "type": "boolean"
         }
       ],
       "placement": null,
@@ -873,7 +915,8 @@
             "html": "inputs.html",
             "idempotency_key": "inputs.idempotency_key",
             "subject": "inputs.subject",
-            "to": "inputs.to"
+            "to": "inputs.to",
+            "sender": "inputs.sender"
           }
         },
         "builtin": "action",
@@ -888,7 +931,7 @@
           }
         }
       },
-      "description": "email.send through newspaper-email (Resend, the newsletter-no-reply sender on culture.dev); only to recipients on the actor's allowlist. Sends the fenced payload under the durable per-date idempotency key, so no run sends a date twice.",
+      "description": "email.send through newspaper-email (Resend, the newsletter-no-reply sender on culture.dev); only to recipients on the actor's current allowlist. Sends the fence's frozen request (recipients, sender, subject, html) under the durable per-date idempotency key, so a resend is the identical request and Resend answers the first message id.",
       "enabled": true,
       "id": "email",
       "inputs": [
@@ -897,6 +940,12 @@
           "name": "to",
           "required": true,
           "type": "array"
+        },
+        {
+          "description": "the frozen from address (must be at the actor's domain)",
+          "name": "sender",
+          "required": false,
+          "type": "string"
         },
         {
           "description": "",
@@ -992,9 +1041,9 @@
       "name": "Record the email, fence the push",
       "outputs": [
         {
-          "description": "",
+          "description": "the date's email; null when it is uncertain",
           "name": "message_id",
-          "required": true,
+          "required": false,
           "type": "string"
         },
         {
@@ -1002,6 +1051,12 @@
           "name": "date",
           "required": true,
           "type": "string"
+        },
+        {
+          "description": "the date's email is recorded uncertain (never resent)",
+          "name": "email_uncertain",
+          "required": true,
+          "type": "boolean"
         }
       ],
       "placement": null,
@@ -1131,9 +1186,9 @@
           "type": "string"
         },
         {
-          "description": "",
+          "description": "null when the email is uncertain",
           "name": "message_id",
-          "required": true,
+          "required": false,
           "type": "string"
         },
         {

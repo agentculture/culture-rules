@@ -16,9 +16,13 @@ The document
 * ``claimed_by`` / ``claimed_at`` - the run that holds the date and its **lease**: the lease
   ends ``config.claim_timeout_s`` (default :data:`DEFAULT_CLAIM_TIMEOUT_S`) after
   ``claimed_at``, and the holder renews it (moves ``claimed_at``) at every fence;
-* ``email_payload`` - ``{subject, html}``, the first rendered email for the date, reused by
-  any later run for that date;
-* ``email`` - ``{message_id, at}``, written as soon as the email is known sent;
+* ``email_payload`` - the date's first full email request ``{subject, html, to, sender}``
+  (``to`` when the fence is given it, ``sender`` when ``config.email_actor`` names the email
+  actor), replayed exactly by any later run for that date (Codex r2 #4);
+* ``email_attempt`` - ``{at, key}``, written by the first ``before_email`` that answers
+  ``send`` true, never moved (Codex r2 #1);
+* ``email`` - ``{message_id, at}``, written as soon as the email is known sent, or
+  ``{uncertain: true, attempted_at}`` when its acknowledgement was lost past the window;
 * ``library`` - ``{item_id, queue_id, at}``, written with the delivery record;
 * ``delivered_by``, ``delivered_at``, ``message_id``, ``item_id`` - the delivery record.
 
@@ -33,32 +37,44 @@ The phases, in workflow order
   ``config.summary_window_s`` (default :data:`DEFAULT_SUMMARY_WINDOW_S`), an ISO-8601 UTC
   time: the summary steps give up at it, so the issue goes out on time with results only
   (Codex r1 #3). A re-run for a past slot is therefore past its window and sends results.
-* ``before_email`` (fence) - input ``subject`` and ``html`` (the rendered issue). It renews
-  the lease, refusing (``claim_lost``, not retryable: the run fails) when the date is no
-  longer this run's. It stores the payload when none is stored and answers ``{send, date,
-  subject, html, idempotency_key}`` with the **stored** payload and the durable key
-  ``newspaper:<date>:email`` (:func:`email_key`), the same for every run of the date; ``send``
-  is false when the email is already recorded sent (``message_id`` is then given too).
+* ``before_email`` (fence) - input ``subject`` and ``html`` (the rendered issue) and ``to``
+  (the recipients); ``config.email_actor`` names the email actor whose from address is
+  frozen. It renews the lease, refusing (``claim_lost``, not retryable: the run fails) when
+  the date is no longer this run's. It stores the request when none is stored and answers
+  ``{send, email_uncertain, date, subject, html, to, sender, idempotency_key}`` with the
+  **stored** request and the durable key ``newspaper:<date>:email`` (:func:`email_key`),
+  the same for every run of the date. ``send`` is true for the first attempt (recorded in
+  ``email_attempt``) and for a retry within :data:`EMAIL_RETRY_WINDOW_S` of it; false when
+  the email is recorded sent (``message_id`` is then given too) or uncertain - past the
+  window with no recorded message id it records ``email`` uncertain and answers
+  ``email_uncertain`` true.
 * ``before_push`` (fence) - input ``message_id`` (the email step's, absent when it was
   skipped). It records ``email`` the first time it sees a message id - even when the claim
   was lost, since the email went out either way - then renews the lease or refuses
-  ``claim_lost``. Output ``{message_id, date}``: the recorded message id.
+  ``claim_lost``. Output ``{message_id, date, email_uncertain}``: the recorded message id
+  (null, with ``email_uncertain`` true, when the email is uncertain; the push proceeds).
 * ``record`` (after delivery) - sets state ``delivered`` with ``message_id``, ``item_id``,
   ``library`` (``item_id``, ``queue_id``), ``delivered_by`` and ``delivered_at``, whoever
   claimed. Output ``{recorded, date}``: false when another run already recorded the date; a
   re-invoked record of the same run answers true again.
 
-Why a date is never emailed twice (Codex r1 #1)
-===============================================
+Why a date is never emailed twice (Codex r1 #1, r2 #1 and #4)
+==============================================================
 
 A run that sent the email and then failed (say xteink was down) leaves the date claimed with
 ``email`` recorded. A run that takes the date over after the lease sees ``email`` at its
 ``before_email`` fence, skips the email and retries only the push. Two narrow windows remain
 and are both covered:
 
-* the email went out but ``before_push`` never recorded it (the node died in between): the
-  next run sends again with the same durable key and the same stored payload, and Resend
-  answers the first message id instead of sending (its idempotency window is 24 hours);
+* the email went out but ``before_push`` never recorded it (the node died in between): a
+  run within :data:`EMAIL_RETRY_WINDOW_S` (23 hours) of the first attempt sends again with
+  the same durable key and the same stored request - recipients and sender included, so a
+  changed ``newspaper_to`` or sender cannot make Resend answer ``409`` - and Resend answers
+  the first message id instead of sending (it keeps keys for 24 hours). A later run does
+  not resend: Resend may have forgotten the key, so the date is recorded ``uncertain`` and
+  the run reports ``email_uncertain``. A missed email is preferred to a duplicate. The
+  attempt is recorded at the fence, before the send, so an email step that failed before
+  reaching Resend also ends uncertain once the window has passed;
 * a slow owner: every side effect follows a fence that renews the lease, and a takeover
   needs the lease to run out, so an owner that was taken over fails its next fence and sends
   nothing more. The lease (an hour) is far longer than an email or push step takes, and the
@@ -76,6 +92,8 @@ from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from culture_rules.engine.actorport import InvocationContext, InvocationResult
+from culture_rules.model.app_actor import email_sender
+from culture_rules.node.actors import ACTORS_COLLECTION
 
 __all__ = [
     "BEFORE_EMAIL",
@@ -84,6 +102,7 @@ __all__ = [
     "CLAIM_LOST",
     "DEFAULT_CLAIM_TIMEOUT_S",
     "DEFAULT_SUMMARY_WINDOW_S",
+    "EMAIL_RETRY_WINDOW_S",
     "ISSUES_COLLECTION",
     "PHASES",
     "RECORD",
@@ -105,10 +124,16 @@ BY_ANOTHER_RUN = "claimed_by_another_run"
 CLAIM_LOST = "claim_lost"
 DEFAULT_CLAIM_TIMEOUT_S = 3600
 DEFAULT_SUMMARY_WINDOW_S = 600
+EMAIL_RETRY_WINDOW_S = 23 * 3600  # inside Resend's 24-hour idempotency window, with margin
 _EMAIL = "email"
 _PAYLOAD = "email_payload"
+_ATTEMPT = "email_attempt"
+_UNCERTAIN = "email_uncertain"
 _MESSAGE_ID = "message_id"
-_SUBJECT, _HTML = "subject", "html"
+_SUBJECT, _HTML, _TO, _SENDER = "subject", "html", "to", "sender"
+_REQUEST_FIELDS = (_SUBJECT, _HTML, _TO, _SENDER)
+_LOST_ACK = "uncertain"  # the email's state, and its flag in the ``email`` record
+_SENT, _FIRST, _RETRY, _EXPIRED = "sent", "first", "retry", "expired"
 _DATE, _STATE, _REV, _ITEM_ID = "date", "state", "rev", "item_id"
 _CLAIMED_AT, _CLAIMED_BY = "claimed_at", "claimed_by"
 _ID_LEN = 200
@@ -205,21 +230,50 @@ def _decide(doc: Mapping[str, Any] | None, run_id: str, now: datetime, timeout: 
     return None
 
 
-def _payload(input: Mapping[str, Any]) -> dict[str, str]:
+def _request(input: Mapping[str, Any]) -> dict[str, Any]:
+    """This run's email request from the fence's input: ``subject``, ``html`` and, when
+    given, ``to`` (a non-empty list of addresses)."""
     subject, html = input.get(_SUBJECT), input.get(_HTML)
     if not isinstance(subject, str) or not subject or not isinstance(html, str) or not html:
         raise _Refusal("bad_input: subject and html: required, non-empty strings")
-    return {_SUBJECT: subject, _HTML: html}
+    request: dict[str, Any] = {_SUBJECT: subject, _HTML: html}
+    to = input.get(_TO)
+    if to is not None:
+        if not isinstance(to, list) or not to or not all(isinstance(a, str) and a for a in to):
+            raise _Refusal("bad_input: to: a non-empty list of addresses")
+        request[_TO] = list(to)
+    return request
 
 
-def _stored_payload(doc: Mapping[str, Any]) -> dict[str, str] | None:
+def _stored_request(doc: Mapping[str, Any]) -> dict[str, Any] | None:
+    """The date's frozen email request (the first fence's), or None when none is stored."""
     stored = doc.get(_PAYLOAD)
     if not isinstance(stored, Mapping):
         return None
     subject, html = stored.get(_SUBJECT), stored.get(_HTML)
-    if isinstance(subject, str) and subject and isinstance(html, str) and html:
-        return {_SUBJECT: subject, _HTML: html}
-    return None
+    if not (isinstance(subject, str) and subject and isinstance(html, str) and html):
+        return None
+    return {k: stored[k] for k in _REQUEST_FIELDS if stored.get(k) is not None}
+
+
+def _uncertain(doc: Mapping[str, Any] | None) -> bool:
+    """Whether the date's email is recorded uncertain (its acknowledgement was lost)."""
+    email = (doc or {}).get(_EMAIL)
+    return isinstance(email, Mapping) and email.get(_LOST_ACK) is True
+
+
+def _email_state(doc: Mapping[str, Any], now: datetime) -> str:
+    """Where the date's email stands at a fence (module doc, Codex r2 #1)."""
+    if _sent_id(doc) is not None:
+        return _SENT
+    if _uncertain(doc):
+        return _LOST_ACK
+    attempt = doc.get(_ATTEMPT)
+    if attempt is None:
+        return _FIRST
+    stamp = attempt.get("at") if isinstance(attempt, Mapping) else None
+    age = _age_s(stamp, now)
+    return _RETRY if age is not None and age < EMAIL_RETRY_WINDOW_S else _EXPIRED
 
 
 def _lost(day: str) -> _Refusal:
@@ -260,7 +314,7 @@ class NewspaperIssuePort:
                 output = self._claim(day, run_id, timeout)
                 output["summaries_until"] = _iso(slot + timedelta(seconds=window))
             elif phase == BEFORE_EMAIL:
-                output = self._before_email(day, run_id, _payload(input))
+                output = self._before_email(day, run_id, _request(input), config)
             elif phase == BEFORE_PUSH:
                 output = self._before_push(day, run_id, _delivery_id(input.get(_MESSAGE_ID)))
             else:
@@ -300,27 +354,46 @@ class NewspaperIssuePort:
                 return _claimed(day, TAKEN_OVER if doc else CLAIMED)
         return _claimed(day, BY_ANOTHER_RUN)
 
-    def _before_email(self, day: str, run_id: str, payload: dict[str, str]) -> dict[str, Any]:
-        """Fence the email: renew the lease, keep the first payload, report a sent email."""
+    def _sender(self, config: Mapping[str, Any]) -> str | None:
+        """The from address of ``config.email_actor`` (None when not configured)."""
+        actor_id = config.get("email_actor")
+        if actor_id is None:
+            return None
+        doc = self._store.get(ACTORS_COLLECTION, actor_id) if isinstance(actor_id, str) else None
+        conn = ((doc or {}).get("params") or {}).get("connection")
+        if not isinstance(conn, Mapping):
+            raise _Refusal(f"bad_input: email_actor: {actor_id!r} is not a stored email actor")
+        return email_sender(conn)
+
+    def _before_email(
+        self, day: str, run_id: str, request: dict[str, Any], config: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        """Fence the email: renew the lease, freeze the first request, decide whether to send."""
         for _ in range(_CAS_TRIES):
             doc = self._get(day)
             if not _owned(doc, run_id):
                 raise _lost(day)
-            stored = _stored_payload(doc)
-            changes: dict[str, Any] = {_CLAIMED_AT: _iso(self._clock())}
+            now = self._clock()
+            stored = _stored_request(doc)
+            changes: dict[str, Any] = {_CLAIMED_AT: _iso(now)}
             if stored is None:
-                changes[_PAYLOAD] = payload
+                sender = self._sender(config)
+                stored = {**request, _SENDER: sender} if sender else dict(request)
+                changes[_PAYLOAD] = stored
+            state = _email_state(doc, now)
+            changes.update(_email_changes(doc, state, day, now))
             if not self._cas(day, doc, changes):
                 continue
             output: dict[str, Any] = {
                 _DATE: day,
                 "idempotency_key": email_key(day),
-                **(stored or payload),
+                **request,
+                **stored,
+                "send": state in (_FIRST, _RETRY),
+                _UNCERTAIN: state in (_LOST_ACK, _EXPIRED),
             }
-            sent = _sent_id(doc)
-            output["send"] = sent is None
-            if sent is not None:
-                output[_MESSAGE_ID] = sent
+            if state == _SENT:
+                output[_MESSAGE_ID] = _sent_id(doc)
             return output
         raise self._contended(day)
 
@@ -340,9 +413,10 @@ class NewspaperIssuePort:
             if not owned:
                 raise _lost(day)
             sent = recorded or message_id
-            if sent is None:
+            uncertain = sent is None and _uncertain(doc)
+            if sent is None and not uncertain:
                 raise _Refusal("bad_input: message_id: no email is recorded sent for the date")
-            return {_MESSAGE_ID: sent, _DATE: day}
+            return {_MESSAGE_ID: sent, _DATE: day, _UNCERTAIN: uncertain}
         raise self._contended(day)
 
     def _record(self, day: str, run_id: str, input: Mapping[str, Any]) -> dict[str, Any]:
@@ -363,6 +437,17 @@ class NewspaperIssuePort:
             if self._cas(day, doc, stamped):
                 return {"recorded": True, _DATE: day}
         raise self._contended(day)
+
+
+def _email_changes(doc: Mapping[str, Any], state: str, day: str, now: datetime) -> dict[str, Any]:
+    """The fence's writes for the email: the first attempt's time, or the uncertain record."""
+    if state == _FIRST:
+        return {_ATTEMPT: {"at": _iso(now), "key": email_key(day)}}
+    if state == _EXPIRED:
+        attempt = doc.get(_ATTEMPT)
+        at = attempt.get("at") if isinstance(attempt, Mapping) else None
+        return {_EMAIL: {_LOST_ACK: True, "attempted_at": at}}
+    return {}
 
 
 def _claimed(day: str, reason: str) -> dict[str, Any]:

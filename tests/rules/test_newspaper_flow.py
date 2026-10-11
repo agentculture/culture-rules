@@ -36,6 +36,7 @@ from culture_rules.node.actions.newspaper import (
 )
 from culture_rules.node.actions.newspaper_render import SUMMARY_UNAVAILABLE
 from culture_rules.node.actions.search import SearchWebPort
+from culture_rules.node.actors import ACTORS_COLLECTION
 from culture_rules.node.daemon import Node
 from culture_rules.node.runner import BuiltinCodePort, NoopAction
 from culture_rules.store.memory import MemoryStore
@@ -70,6 +71,7 @@ TRIGGER = "trigger"
 PARAMS = "params"
 IDEM_HEADER = "Idempotency-Key"
 POOL = "qwen-spark2"
+KEY_WINDOW = timedelta(hours=24)
 
 
 # --------------------------------------------------------------------------- the fakes
@@ -121,20 +123,29 @@ class Cortex:
 
 
 class Resend:
-    """Resend's POST /emails: records each send, deduplicating on Idempotency-Key."""
+    """Resend's POST /emails: deduplicates on Idempotency-Key for 24 hours (then the key is
+    forgotten), answers a reused live key with a different body 409, and with ``drop_acks``
+    sends the email but loses the answer (Codex r2 #1, #4)."""
 
-    def __init__(self) -> None:
+    def __init__(self, clock) -> None:
+        self.clock = clock
         self.sent: list[dict] = []
-        self.keys: dict[str, str] = {}
+        self.keys: dict[str, tuple] = {}
         self.calls = 0
+        self.drop_acks = False
 
     def __call__(self, method, url, headers, body, timeout):
         self.calls += 1
-        key = headers.get(IDEM_HEADER)
-        if key not in self.keys:
+        key, now = headers.get(IDEM_HEADER), self.clock()
+        live = self.keys.get(key)
+        if live is None or now - live[1] >= KEY_WINDOW:
             self.sent.append({"url": url, HEADERS: dict(headers), "json": json.loads(body)})
-            self.keys[key] = f"msg-{len(self.sent)}"
-        return 200, json.dumps({"id": self.keys[key]}).encode()
+            live = self.keys[key] = (f"msg-{len(self.sent)}", now, body)
+        elif live[2] != body:
+            return 409, b'{"name": "invalid_idempotent_request"}'
+        if self.drop_acks:
+            raise TimeoutError("the answer was lost")
+        return 200, json.dumps({"id": live[0]}).encode()
 
 
 class Xteink:
@@ -195,7 +206,7 @@ class World:
         for name, value in values.items():
             self.base.put_variable(name, value, updated_by="test")
         self.brave, self.cortex = Brave(), Cortex()
-        self.resend, self.xteink = Resend(), Xteink()
+        self.resend, self.xteink = Resend(self.clock), Xteink()
         self.node = Node(
             self.base.peer(),
             "spark",
@@ -279,7 +290,8 @@ def test_the_run_outputs_carry_the_message_and_item_ids():  # h17
     world = World()
     world.run_until(TODAY + timedelta(minutes=20))
     outputs = finished(world)[OUTPUTS]
-    assert outputs == {MESSAGE_ID: MSG_1, ITEM_ID: ITEM, "date": "2026-10-11"}
+    expected = {MESSAGE_ID: MSG_1, ITEM_ID: ITEM, "date": "2026-10-11", "email_uncertain": False}
+    assert outputs == expected
     issue = world.base.get(ISSUES_COLLECTION, "2026-10-11")
     assert issue["state"] == "delivered"
     assert issue[MESSAGE_ID] == MSG_1
@@ -491,3 +503,112 @@ def test_a_busy_pool_records_the_llm_deadline_on_the_summary():
     world.run_until(TODAY + timedelta(minutes=20))
     summary = step_state(finished(world), step_key("summarise", 1, "summary"))
     assert "llm_deadline" in summary["error"]["message"]
+
+
+# --------------------------------------------------------------------------- lost acknowledgements
+
+OTHER_READER = "other@example.test"
+ONCE = "30 6 11 10 *"  # only the 2026-10-11 slot
+WORKFLOW = "daily-newspaper"
+FIRST_SLOT = "2026-10-11T03:30:00+00:00"
+
+
+def lost_ack(world: World) -> None:
+    """The 06:30 run's email reaches Resend but every answer is lost: the run fails at the
+    email step with the date claimed, its email accepted and unrecorded."""
+    world.resend.drop_acks = True
+    world.run_until(TODAY + timedelta(minutes=30))
+    world.resend.drop_acks = False
+
+
+def rerun(world: World, after: timedelta) -> dict:
+    """The operator re-runs the 2026-10-11 issue ``after`` the first slot."""
+    world.run_until(TODAY + after, step_s=600)
+    inputs = dict(
+        sections=json.dumps(SECTIONS),
+        to=[READER],
+        slot=FIRST_SLOT,
+        tz="Asia/Jerusalem",
+        device_id=DEVICE,
+    )
+    run = world.node.executor.start_workflow(WORKFLOW, inputs, "operator")
+    world.run_until(TODAY + after + timedelta(minutes=30))
+    return world.base.get(RUNS_COLLECTION, run["id"])
+
+
+def test_a_lost_ack_leaves_the_first_run_failed_with_one_email_sent():
+    world = World(cron=ONCE)
+    lost_ack(world)
+    (first,) = world.runs()
+    assert (first[STATUS], len(world.resend.sent)) == ("failed", 1)
+
+
+def test_a_rerun_25_hours_after_a_lost_ack_sends_no_second_email():  # Codex r2 #1
+    world = World(cron=ONCE)
+    lost_ack(world)
+    rerun(world, timedelta(hours=25))
+    assert len(world.resend.sent) == 1
+
+
+def test_a_rerun_25_hours_after_a_lost_ack_reports_the_email_uncertain():
+    world = World(cron=ONCE)
+    lost_ack(world)
+    run = rerun(world, timedelta(hours=25))
+    assert (run[STATUS], run[OUTPUTS]["email_uncertain"]) == ("succeeded", True)
+
+
+def test_a_rerun_25_hours_after_a_lost_ack_still_queues_the_issue():
+    world = World(cron=ONCE)
+    lost_ack(world)
+    rerun(world, timedelta(hours=25))
+    assert len(world.xteink.queued) == 1
+
+
+def test_a_rerun_within_the_window_recovers_the_first_message():
+    world = World(cron=ONCE)
+    lost_ack(world)
+    run = rerun(world, timedelta(hours=3))
+    assert (run[OUTPUTS][MESSAGE_ID], len(world.resend.sent)) == (MSG_1, 1)
+
+
+def change_the_reader(world: World) -> None:
+    """The operator moves newspaper_to to another (allowlisted) reader and renames the
+    sender after the 06:30 email was accepted but not recorded."""
+    actor = world.base.get(ACTORS_COLLECTION, EMAIL)
+    connection = actor[PARAMS]["connection"]
+    connection["recipients"] = [READER, OTHER_READER]
+    connection["local_part"] = "news"
+    world.base.put(ACTORS_COLLECTION, actor)
+    world.base.put_variable("newspaper_to", [OTHER_READER], updated_by="test")
+
+
+def changed_after_a_lost_ack() -> World:
+    world = World(cron=TWICE)
+    lost_ack(world)
+    change_the_reader(world)
+    world.run_until(SECOND_SLOT + timedelta(minutes=30))
+    return world
+
+
+def test_changed_recipients_after_a_lost_ack_recover_the_first_message():  # Codex r2 #4
+    world = changed_after_a_lost_ack()
+    second = world.runs()[1]
+    assert (second[STATUS], second[OUTPUTS][MESSAGE_ID]) == ("succeeded", MSG_1)
+
+
+def test_changed_recipients_after_a_lost_ack_send_no_second_email():
+    world = changed_after_a_lost_ack()
+    assert len(world.resend.sent) == 1
+
+
+def test_the_recovery_replays_the_frozen_recipients_and_sender():
+    world = changed_after_a_lost_ack()
+    (mail,) = world.resend.sent
+    assert (mail["json"]["to"], mail["json"]["from"]) == ([READER], SENDER)
+
+
+def test_the_fake_resend_refuses_a_reused_key_with_another_body():
+    resend = Resend(Clock(TODAY))
+    resend("POST", RESEND_EMAILS_URL, {IDEM_HEADER: "k"}, b'{"to": ["a"]}', 5)
+    status, _ = resend("POST", RESEND_EMAILS_URL, {IDEM_HEADER: "k"}, b'{"to": ["b"]}', 5)
+    assert status == 409

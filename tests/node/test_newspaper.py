@@ -14,6 +14,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from culture_rules.engine.actorport import COMPLETED, FAILED, InvocationContext
+from culture_rules.node.actions.email import EmailSendPort
 from culture_rules.node.actions.newspaper import (
     DEFAULT_COUNT,
     FILTER_BUILTIN,
@@ -29,6 +30,7 @@ from culture_rules.node.actions.newspaper import (
     local_date,
     parse_sections,
 )
+from culture_rules.node.actors import ACTORS_COLLECTION
 from culture_rules.store.memory import MemoryStore
 
 DEADLINE = datetime(2026, 10, 11, 23, tzinfo=UTC)
@@ -535,6 +537,8 @@ MESSAGE_ID = "message_id"
 SEND = "send"
 LOST = "claim_lost"
 EMAIL_KEY = f"newspaper:{DATE}:email"
+UNCERTAIN = "email_uncertain"
+HTML_FIELD, KEY_FIELD = "html", "idempotency_key"
 R2 = "r2"
 M1 = "m1"
 OTHER_HTML = "<p>other</p>"
@@ -562,8 +566,9 @@ def test_the_email_fence_answers_send_with_the_durable_key():
         SEND: True,
         "date": DATE,
         "subject": SUBJECT,
-        "html": HTML,
-        "idempotency_key": EMAIL_KEY,
+        HTML_FIELD: HTML,
+        KEY_FIELD: EMAIL_KEY,
+        UNCERTAIN: False,
     }
 
 
@@ -588,14 +593,15 @@ def test_a_takeover_reuses_the_first_payload_and_key():
     world.clock.now += timedelta(hours=2)
     world.call(CLAIM, run=R2)
     out = world.call(BEFORE_EMAIL, run=R2, subject=SUBJECT, html=OTHER_HTML).output
-    assert (out[SEND], out["html"], out["idempotency_key"]) == (True, HTML, EMAIL_KEY)
+    assert (out[SEND], out[HTML_FIELD], out[KEY_FIELD]) == (True, HTML, EMAIL_KEY)
 
 
 def test_after_a_takeover_the_push_fence_passes_with_the_recorded_message():
     world = Issues()
     taken_over(world)
     world.call(BEFORE_EMAIL, run=R2, subject=SUBJECT, html=HTML)
-    assert world.call(BEFORE_PUSH, run=R2).output == {MESSAGE_ID: M1, "date": DATE}
+    out = world.call(BEFORE_PUSH, run=R2).output
+    assert out == {MESSAGE_ID: M1, "date": DATE, UNCERTAIN: False}
 
 
 def test_a_slow_owner_taken_over_cannot_send_the_email():
@@ -625,7 +631,7 @@ def test_a_slow_owner_still_records_the_email_it_sent():
     world.clock.now += timedelta(hours=2)
     world.call(CLAIM, run=R2)
     world.call(BEFORE_PUSH, message_id=M1)
-    assert world.doc()["email"][MESSAGE_ID] == M1
+    assert world.doc()[EMAIL][MESSAGE_ID] == M1
 
 
 def test_a_lost_claim_is_not_retryable():
@@ -680,3 +686,220 @@ def test_the_summary_window_from_config():
 def test_bad_summary_window_config():
     result = Issues().call(CLAIM, config={"summary_window_s": 0})
     assert "summary_window_s" in result.error
+
+
+# ------------------------------------------------------------------ Codex r2 #1 and #4
+
+READER = "reader@example.test"
+OTHER = "other@example.test"
+EMAIL_ACTOR = "newspaper-email"
+SENDER = "newsletter-no-reply@culture.dev"
+GATE = {"email_actor": EMAIL_ACTOR}
+DAY_S = 24 * 3600
+FIRST_AT = "2026-10-11T03:30:05+00:00"
+FIRST_MESSAGE = "msg-1"
+EMAIL = "email"
+REQUEST = ("to", "sender", "subject", HTML_FIELD, KEY_FIELD)
+
+
+def email_actor(recipients=(READER,), local_part="newsletter-no-reply"):
+    connection = {
+        "api_key": "grant:RESEND_API_KEY",
+        "domain": "culture.dev",
+        "local_part": local_part,
+        "recipients": list(recipients),
+    }
+    params = {"surface": EMAIL, "connection": connection}
+    return {"id": EMAIL_ACTOR, "name": EMAIL, "kind": "app", "enabled": True, "params": params}
+
+
+class ExpiringResend:
+    """Resend's POST /emails: a key dedupes for 24 hours, a reused key with a different
+    body is 409, and ``drop_acks`` loses the answer after the email went out."""
+
+    def __init__(self, clock):
+        self.clock = clock
+        self.sent: list[dict] = []
+        self.keys: dict[str, tuple] = {}
+        self.drop_acks = False
+
+    def __call__(self, method, url, headers, body, timeout):
+        key, now = headers.get("Idempotency-Key"), self.clock()
+        live = self.keys.get(key)
+        if live is not None and (now - live[1]).total_seconds() < DAY_S:
+            if live[2] != body:
+                return 409, b'{"name": "invalid_idempotent_request"}'
+            return 200, json.dumps({"id": live[0]}).encode()
+        self.sent.append(json.loads(body))
+        self.keys[key] = (f"msg-{len(self.sent)}", now, body)
+        if self.drop_acks:
+            raise TimeoutError("the answer was lost")
+        return 200, json.dumps({"id": self.keys[key][0]}).encode()
+
+
+class Mail(Issues):
+    """Issues plus the email actor and email.send on an expiring Resend fake."""
+
+    def __init__(self, recipients=(READER,)):
+        super().__init__()
+        self.store.put(ACTORS_COLLECTION, email_actor(recipients))
+        self.resend = ExpiringResend(self.clock)
+        self.email = EmailSendPort(
+            self.store, transport=self.resend, secrets=lambda _ref: "fake-key-value"
+        )
+
+    def fence(self, run="r1", to=(READER,), html=HTML):
+        to = list(to) if isinstance(to, tuple) else to
+        return self.call(BEFORE_EMAIL, run=run, config=GATE, subject=SUBJECT, html=html, to=to)
+
+    def send(self, gate):
+        """The email step as the workflow wires it from the fence's output."""
+        out = gate.output
+        if not out[SEND]:
+            return None
+        params = {k: out.get(k) for k in REQUEST}
+        context = InvocationContext(
+            run_id="r", step_id=EMAIL, kind="action", host="spark", actor=EMAIL_ACTOR
+        )
+        return self.email.invoke(params, "engine-key", DEADLINE, context=context)
+
+    def lost_ack(self, to=(READER,)):
+        """r1 fences and sends; Resend accepts but the answer is lost and the node dies."""
+        self.call(CLAIM)
+        self.resend.drop_acks = True
+        self.send(self.fence(to=to))
+        self.resend.drop_acks = False
+
+    def takeover(self, hours, to=(READER,)):
+        self.clock.now += timedelta(hours=hours)
+        self.call(CLAIM, run=R2)
+        gate = self.fence(run=R2, to=to, html=OTHER_HTML)
+        return gate, self.send(gate)
+
+
+def test_the_email_fence_records_the_first_attempt():
+    world = Mail()
+    world.call(CLAIM)
+    world.fence()
+    attempt = world.doc()["email_attempt"]
+    assert (attempt["at"], attempt["key"]) == (FIRST_AT, EMAIL_KEY)
+
+
+def test_a_second_fence_keeps_the_first_attempt_time():
+    world = Mail()
+    world.lost_ack()
+    world.takeover(hours=2)
+    assert world.doc()["email_attempt"]["at"] == FIRST_AT
+
+
+def test_a_takeover_inside_the_window_resends_and_resend_dedupes():
+    world = Mail()
+    world.lost_ack()
+    _, sent = world.takeover(hours=2)
+    assert (sent.output[MESSAGE_ID], len(world.resend.sent)) == (FIRST_MESSAGE, 1)
+
+
+def test_a_takeover_after_25_hours_sends_nothing():
+    world = Mail()
+    world.lost_ack()
+    world.takeover(hours=25)
+    assert len(world.resend.sent) == 1
+
+
+def test_a_takeover_after_the_window_answers_send_false_and_uncertain():
+    world = Mail()
+    world.lost_ack()
+    gate, _ = world.takeover(hours=25)
+    assert (gate.output[SEND], gate.output[UNCERTAIN]) == (False, True)
+
+
+def test_an_uncertain_email_is_recorded_with_its_attempt_time():
+    world = Mail()
+    world.lost_ack()
+    world.takeover(hours=25)
+    assert world.doc()[EMAIL] == {"uncertain": True, "attempted_at": FIRST_AT}
+
+
+def test_the_window_closes_at_23_hours():
+    world = Mail()
+    world.lost_ack()
+    gate, _ = world.takeover(hours=23)
+    assert gate.output[SEND] is False
+
+
+def test_a_fresh_email_is_not_uncertain():
+    world = Mail()
+    world.call(CLAIM)
+    assert world.fence().output[UNCERTAIN] is False
+
+
+def test_the_push_fence_passes_an_uncertain_email_and_reports_it():
+    world = Mail()
+    world.lost_ack()
+    world.takeover(hours=25)
+    out = world.call(BEFORE_PUSH, run=R2).output
+    assert out == {MESSAGE_ID: None, "date": DATE, UNCERTAIN: True}
+
+
+def test_the_push_fence_reports_a_sent_email_as_certain():
+    world = Issues()
+    assert emailed(world).output[UNCERTAIN] is False
+
+
+def test_a_later_fence_of_an_uncertain_date_still_sends_nothing():
+    world = Mail()
+    world.lost_ack()
+    world.takeover(hours=25)
+    world.clock.now += timedelta(hours=2)
+    world.call(CLAIM, run="r3")
+    assert world.fence(run="r3").output[SEND] is False
+
+
+def test_the_email_fence_freezes_the_recipients_and_the_sender():
+    world = Mail()
+    world.call(CLAIM)
+    out = world.fence().output
+    assert (out["to"], out["sender"]) == ([READER], SENDER)
+
+
+def test_a_takeover_replays_the_first_recipients():
+    world = Mail(recipients=(READER, OTHER))
+    world.lost_ack()
+    gate, _ = world.takeover(hours=2, to=[OTHER])
+    assert gate.output["to"] == [READER]
+
+
+def test_changed_recipients_after_a_lost_ack_still_recover_the_first_message():
+    world = Mail(recipients=(READER, OTHER))
+    world.lost_ack()
+    _, sent = world.takeover(hours=2, to=[OTHER])
+    assert (sent.outcome, sent.output[MESSAGE_ID]) == (COMPLETED, FIRST_MESSAGE)
+
+
+def test_a_changed_sender_after_a_lost_ack_still_recovers_the_first_message():
+    world = Mail()
+    world.lost_ack()
+    world.store.put(ACTORS_COLLECTION, email_actor(local_part="news"))
+    _, sent = world.takeover(hours=2)
+    assert sent.output[MESSAGE_ID] == FIRST_MESSAGE
+
+
+def test_a_frozen_recipient_removed_from_the_allowlist_is_refused():
+    world = Mail(recipients=(READER, OTHER))
+    world.lost_ack()
+    world.store.put(ACTORS_COLLECTION, email_actor(recipients=(OTHER,)))
+    _, sent = world.takeover(hours=2, to=[OTHER])
+    assert (sent.error, sent.retryable) == ("recipient_not_allowed", False)
+
+
+def test_the_email_fence_without_its_actor_is_bad_input():
+    world = Issues()
+    world.call(CLAIM)
+    res = world.call(BEFORE_EMAIL, config={"email_actor": "missing"}, subject=SUBJECT, html=HTML)
+    assert res.error.startswith("bad_input: email_actor")
+
+
+def test_the_email_fence_refuses_recipients_that_are_not_a_list():
+    world = Mail()
+    world.call(CLAIM)
+    assert world.fence(to=READER).error.startswith("bad_input: to")
