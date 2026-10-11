@@ -715,11 +715,14 @@ class MongoStore:
         upto: Any = None,
         after: Any = None,
         limit: int,
+        fields: Collection[str] | None = None,
     ) -> list[Document]:
         """Documents matching ``where`` whose ``field`` is greater than ``after`` and at most
         ``upto`` (either bound optional), ordered by (``field``, id) and limited on the
         server (see :meth:`ensure_index`); ``field`` may be ``id``. ``limit`` is checked like
-        :meth:`find`'s: 0 answers nothing (MongoDB would read 0 as no limit)."""
+        :meth:`find`'s: 0 answers nothing (MongoDB would read 0 as no limit). With
+        ``fields``, a server-side projection: each document carries only those top-level
+        fields (and ``id``), so large ones are never transferred."""
         if not isinstance(limit, int) or isinstance(limit, bool) or limit < 0:
             raise ValueError("limit must be a non-negative int")
         if limit == 0:
@@ -732,7 +735,9 @@ class MongoStore:
             bounds["$gt"] = after
         query = {**_translate_where(where), key: bounds}
         order = [(key, 1)] if key == "_id" else [(key, 1), ("_id", 1)]
-        cursor = self._collection(collection).find(query).sort(order).limit(limit)
+        projection = None if fields is None else {("_id" if f == "id" else f): 1 for f in fields}
+        coll = self._collection(collection)
+        cursor = coll.find(query, projection).sort(order).limit(limit)
         return [_to_doc(raw) for raw in cursor]
 
     def ensure_index(

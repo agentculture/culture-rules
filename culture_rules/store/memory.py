@@ -261,11 +261,13 @@ class MemoryStore:
         upto: Any = None,
         after: Any = None,
         limit: int,
+        fields: Collection[str] | None = None,
     ) -> list[Document]:
         """Documents matching the equality filter ``where`` whose ``field`` is set, greater
         than ``after`` and at most ``upto`` (either bound optional), ordered by (``field``,
         id), at most ``limit``: the bounded "due" query and keyset pagination (``field`` may
-        be ``id``). ``limit`` is checked like :meth:`find`'s: 0 answers nothing."""
+        be ``id``). ``limit`` is checked like :meth:`find`'s: 0 answers nothing. With
+        ``fields``, each document carries only those top-level fields (and ``id``)."""
         if not isinstance(limit, int) or isinstance(limit, bool) or limit < 0:
             raise ValueError("limit must be a non-negative int")
         if limit == 0:
@@ -278,7 +280,10 @@ class MemoryStore:
             and (after is None or d[field] > after)
         ]
         found.sort(key=lambda d: (d[field], d["id"]))
-        return found[:limit]
+        if fields is None:
+            return found[:limit]
+        keep = {"id", *fields}
+        return [{k: v for k, v in d.items() if k in keep} for d in found[:limit]]
 
     def insert(self, collection: str, document: Mapping[str, Any]) -> Document:
         return self._insert(None, collection, document)
