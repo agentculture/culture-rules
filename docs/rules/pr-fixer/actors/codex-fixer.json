@@ -11,7 +11,7 @@
   "name": "PR fixer (Codex, level 2)",
   "params": {
     "bridge_token": "grant:RULES_CODEX_FIXER_TOKEN",
-    "bridge_url": "http://127.0.0.1:8095",
+    "bridge_url": "http://127.0.0.1:8097",
     "callback_url": "http://127.0.0.1:18765",
     "concurrency_pool": "codex-spark",
     "max_concurrency": 1,
