@@ -232,7 +232,7 @@ committed JSON: `scripts/scan-secrets.py` rejects a non-localhost URL there.
 | Variable | Value | Shipped |
 |---|---|---|
 | `newspaper_sections` | one JSON **string**: the list of sections | a generic two-section example |
-| `newspaper_to` | a list of recipient addresses | `[]`: the run fails at `email_gate` (`bad_input: to`); nothing is emailed or queued |
+| `newspaper_to` | a list of recipient addresses | `[]`: no email; the issue still goes to the reader, and the run reports `no_recipients: true` (d6) |
 | `newspaper_device` | the Xteink device id (`GET /api/devices` on xteink) | `null`: the library actor's `device_id`, if you set one there |
 
 Each section is an object. Its keys:
@@ -327,7 +327,11 @@ state `delivered`. The issue is in the inbox and queued on the reader.
 A run that ends quickly with `claim` answering `already_delivered` or
 `claimed_by_another_run` is the per-date guard at work. A run that failed
 at `sections` names the bad field of `newspaper_sections`. A failure at
-`email_gate` with `bad_input: to` means `newspaper_to` is empty. A run
+`email_gate` with `bad_input: to` means `newspaper_to` is not a list of
+addresses. A run that succeeded with `no_recipients: true` had an empty
+`newspaper_to`: the reader got the issue and no email was attempted. The
+recipient list is frozen with the date's first request, so seeding
+`newspaper_to` later that day does not email that date's issue. A run
 that succeeded with `email_sent: false` and an `email` step skipped with
 `recipient_not_allowed` means the allowlist does not name the address: fix
 it and re-run the date within 23 hours (see "When the email fails").

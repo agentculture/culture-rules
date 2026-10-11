@@ -308,6 +308,7 @@ def test_the_run_outputs_carry_the_message_and_item_ids():  # h17
         "date": "2026-10-11",
         "email_uncertain": False,
         EMAIL_SENT: True,
+        "no_recipients": False,  # d6
     }
     assert outputs == expected
     issue = world.base.get(ISSUES_COLLECTION, "2026-10-11")
@@ -816,24 +817,26 @@ def test_a_rerun_25_hours_after_resend_was_down_marks_the_email_uncertain():
 
 
 def no_recipients() -> World:
-    """PR #54 review: the shipped ``newspaper_to`` (an empty list) was never seeded."""
+    """The shipped ``newspaper_to`` is an empty list: the email is skipped, the reader still gets
+    the issue (d6, the operator's decision; the PR #54 review had failed the run)."""
     world = World(cron=ONCE)
     world.base.put_variable("newspaper_to", [], updated_by="test")
     world.run_until(TODAY + timedelta(minutes=20))
     return world
 
 
-def test_no_recipients_fails_the_run_at_the_email_fence():
+def test_no_recipients_skips_the_email_and_succeeds():  # d6
     (run,) = no_recipients().runs()
-    gate = step_state(run, "email_gate")
-    assert (run[STATUS], gate[STATUS]) == ("failed", "failed")
+    email = step_state(run, "email")
+    assert (run[STATUS], email[STATUS]) == ("succeeded", "skipped")
 
 
-def test_no_recipients_names_the_field():
-    (run,) = no_recipients().runs()
-    assert step_state(run, "email_gate")["error"]["message"].startswith("bad_input: to")
-
-
-def test_no_recipients_sends_and_queues_nothing():
+def test_no_recipients_still_queues_the_issue_on_the_reader():  # d6
     world = no_recipients()
-    assert (world.resend.calls, len(world.xteink.uploads)) == (0, 0)
+    assert (world.resend.calls, len(world.xteink.queued)) == (0, 1)
+
+
+def test_no_recipients_reports_it_in_the_run_outputs():  # d6
+    (run,) = no_recipients().runs()
+    reported = (run[OUTPUTS][EMAIL_SENT], run[OUTPUTS]["no_recipients"])
+    assert reported == (False, True)

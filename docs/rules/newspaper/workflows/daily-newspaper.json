@@ -326,6 +326,11 @@
       "name": "email_sent",
       "source": "steps.push_gate.outputs.email_sent",
       "type": "boolean"
+    },
+    {
+      "name": "no_recipients",
+      "source": "steps.push_gate.outputs.no_recipients",
+      "type": "boolean"
     }
   ],
   "schema_version": "1.0",
@@ -862,7 +867,7 @@
           "type": "string"
         },
         {
-          "description": "newspaper_to: frozen with the first request for the date",
+          "description": "newspaper_to: frozen with the first request for the date; an empty list skips the email (d6)",
           "name": "to",
           "required": true,
           "type": "array"
@@ -935,6 +940,12 @@
         {
           "description": "the email's acknowledgement was lost and the 23-hour resend window has passed: it is not sent again",
           "name": "email_uncertain",
+          "required": true,
+          "type": "boolean"
+        },
+        {
+          "description": "d6: the frozen recipient list is empty: send is false and the email is never attempted",
+          "name": "no_recipients",
           "required": true,
           "type": "boolean"
         }
@@ -1107,6 +1118,12 @@
         {
           "description": "the date's email is recorded sent (false: it failed inside its window and a re-run retries it, or it is uncertain)",
           "name": "email_sent",
+          "required": true,
+          "type": "boolean"
+        },
+        {
+          "description": "d6: the date's frozen recipient list is empty, so the email is skipped and the issue still goes to the reader",
+          "name": "no_recipients",
           "required": true,
           "type": "boolean"
         },

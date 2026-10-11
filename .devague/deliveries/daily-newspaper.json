@@ -2,7 +2,7 @@
   "plan_slug": "daily-newspaper",
   "schema_version": 2,
   "created": "2026-10-11T05:14:10Z",
-  "updated": "2026-10-11T06:25:40Z",
+  "updated": "2026-10-11T10:16:10Z",
   "deviations": [
     {
       "id": "d1",
@@ -66,9 +66,22 @@
         "t2"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 5
+    },
+    {
+      "id": "d6",
+      "what": "An empty newspaper_to (no recipients) skips the email and still pushes the issue to the reader: newspaper.issue's before_email accepts to [] and freezes it; the date's email is recorded skipped (no_recipients), never attempted and never uncertain; the run outputs email_sent false and no_recipients true and the date is recorded delivered with no message id. A frozen empty list keeps the date email-less even if newspaper_to is seeded later that day",
+      "task_ref": "t6",
+      "reason": "Operator decision 2026-10-11 (asked in session): an empty newspaper_to should still deliver to the e-reader; the PR #54 review had made it fail the run at email_gate, which also blocked the push",
+      "affects": [
+        "t8"
+      ],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 6
     }
   ],
   "evidence": [],

@@ -545,6 +545,7 @@ R2 = "r2"
 M1 = "m1"
 OTHER_HTML = "<p>other</p>"
 SEND_UNTIL = "send_until"
+NO_RECIPIENTS = "no_recipients"
 
 
 def emailed(world, run="r1", message=M1, html=HTML):
@@ -572,6 +573,7 @@ def test_the_email_fence_answers_send_with_the_durable_key():
         HTML_FIELD: HTML,
         KEY_FIELD: EMAIL_KEY,
         UNCERTAIN: False,
+        NO_RECIPIENTS: False,
         SEND_UNTIL: "2026-10-12T02:30:05+00:00",
     }
 
@@ -605,7 +607,14 @@ def test_after_a_takeover_the_push_fence_passes_with_the_recorded_message():
     taken_over(world)
     world.call(BEFORE_EMAIL, run=R2, subject=SUBJECT, html=HTML)
     out = world.call(BEFORE_PUSH, run=R2).output
-    assert out == {MESSAGE_ID: M1, "date": DATE, UNCERTAIN: False, SENT: True, PUSH: True}
+    assert out == {
+        MESSAGE_ID: M1,
+        "date": DATE,
+        UNCERTAIN: False,
+        SENT: True,
+        PUSH: True,
+        NO_RECIPIENTS: False,
+    }
 
 
 def test_a_slow_owner_taken_over_cannot_send_the_email():
@@ -667,7 +676,14 @@ def test_the_push_fence_without_a_sent_email_still_pushes():  # PR #54 review
     world.call(CLAIM)
     world.call(BEFORE_EMAIL, subject=SUBJECT, html=HTML)
     out = world.call(BEFORE_PUSH).output
-    assert out == {MESSAGE_ID: None, "date": DATE, UNCERTAIN: False, SENT: False, PUSH: True}
+    assert out == {
+        MESSAGE_ID: None,
+        "date": DATE,
+        UNCERTAIN: False,
+        SENT: False,
+        PUSH: True,
+        NO_RECIPIENTS: False,
+    }
 
 
 def test_record_stores_the_library_progress():
@@ -856,7 +872,14 @@ def test_the_push_fence_passes_an_uncertain_email_and_reports_it():
     world.lost_ack()
     world.takeover(hours=25)
     out = world.call(BEFORE_PUSH, run=R2).output
-    assert out == {MESSAGE_ID: None, "date": DATE, UNCERTAIN: True, SENT: False, PUSH: True}
+    assert out == {
+        MESSAGE_ID: None,
+        "date": DATE,
+        UNCERTAIN: True,
+        SENT: False,
+        PUSH: True,
+        NO_RECIPIENTS: False,
+    }
 
 
 def test_the_push_fence_reports_a_sent_email_as_certain():
@@ -948,7 +971,14 @@ def test_the_push_fence_after_a_refused_late_retry_is_uncertain():
     world.clock.now += timedelta(hours=25)
     world.send(gate)
     out = world.call(BEFORE_PUSH).output
-    assert out == {MESSAGE_ID: None, "date": DATE, UNCERTAIN: True, SENT: False, PUSH: True}
+    assert out == {
+        MESSAGE_ID: None,
+        "date": DATE,
+        UNCERTAIN: True,
+        SENT: False,
+        PUSH: True,
+        NO_RECIPIENTS: False,
+    }
 
 
 def test_the_push_fence_after_a_refused_late_retry_records_the_email_uncertain():
@@ -1048,3 +1078,64 @@ def test_a_partial_record_by_a_run_that_lost_the_date_keeps_the_new_lease():
     world.call(CLAIM, run=R2)
     world.call(RECORD, item_id=7, queue_id=11)  # r1, which no longer holds the date
     assert world.doc()["claimed_by"] == R2
+
+
+# ------------------------------------------------------------------ no recipients (d6)
+
+ITEM, QUEUE = 7, 11
+
+
+def no_recipients(world):
+    """r1 claims and fences with an empty recipient list (newspaper_to seeded [])."""
+    world.call(CLAIM)
+    return world.fence(to=[])
+
+
+def test_an_empty_recipient_list_is_not_sent():
+    gate = no_recipients(Mail()).output
+    assert (gate[SEND], gate[UNCERTAIN], gate[NO_RECIPIENTS]) == (False, False, True)
+
+
+def test_an_empty_recipient_list_records_no_attempt():
+    world = Mail()
+    no_recipients(world)
+    assert "email_attempt" not in world.doc()
+
+
+def test_an_empty_recipient_list_still_pushes():
+    world = Mail()
+    no_recipients(world)
+    out = world.call(BEFORE_PUSH).output
+    assert (out[PUSH], out[SENT], out[UNCERTAIN], out[NO_RECIPIENTS]) == (True, False, False, True)
+
+
+def test_an_empty_recipient_list_records_the_date_delivered():
+    world = Mail()
+    no_recipients(world)
+    world.call(BEFORE_PUSH)
+    out = world.call(RECORD, item_id=ITEM, queue_id=QUEUE).output
+    assert (out["recorded"], out[SENT], world.doc()["state"]) == (True, False, "delivered")
+
+
+def test_a_recipient_seeded_later_that_day_keeps_the_date_email_less():
+    world = Mail()
+    no_recipients(world)
+    world.clock.now += timedelta(hours=2)
+    world.call(CLAIM, run=R2)
+    gate = world.fence(run=R2)
+    assert (gate.output[SEND], world.send(gate), world.resend.sent) == (False, None, [])
+
+
+def test_an_empty_recipient_list_is_never_uncertain():
+    world = Mail()
+    no_recipients(world)
+    world.clock.now += timedelta(hours=25)
+    out = world.call(BEFORE_PUSH).output
+    assert (out[UNCERTAIN], "email" in world.doc()) == (False, False)
+
+
+def test_a_recipient_list_reports_recipients():
+    world = Mail()
+    world.call(CLAIM)
+    gate = world.fence().output
+    assert gate[NO_RECIPIENTS] is False

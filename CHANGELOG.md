@@ -42,6 +42,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The 23-hour resend window now bounds every send, not only the fence (P1). A run whose email step was waiting to retry after a lost acknowledgement, resumed by a node that was down for a day, retried with the fence's persisted `send: true` and could send a second email. `before_email` now answers `send_until` (the first attempt plus 23 hours), which the `email` step passes as `email.send`'s new `not_after` param. `email.send` checks it after the key is resolved, immediately before the request, on every attempt: at or past it the send fails `email_window_passed` (not retried) and makes no request. A malformed `not_after` is `bad_input`
 - The `email` step is now `config.on_error: "skip"`, so the push fence judges any email failure. With no message id and the first attempt past its window, `before_push` records `email: {uncertain: true, attempted_at}` and the push goes ahead (`email_uncertain: true`); with no message id inside the window it fails the run, so no other email failure (`recipient_not_allowed`, an `http_4xx`, retries used up) passes as delivered
 
+### An empty recipient list (d6, the operator's decision)
+
+- An empty `newspaper_to` no longer fails the run at `email_gate`: the email is skipped and the issue still goes to the reader. `newspaper.issue`'s `before_email` accepts `to: []`, freezes it and answers `send: false`, `no_recipients: true` without recording an attempt; the date is recorded delivered with no message id and is never marked uncertain. The run and `push_gate` report `no_recipients`. A recipient list frozen empty keeps that date email-less even if `newspaper_to` is seeded later the same day
+
 ### Code review (PR #54)
 
 - `docs/rules/pr-fixer/release.json` (0.19.0) again names 0.18.13's new rules (`pr-fixer-retry-capacity`, `pr-fixer-queue-progress-capacity`) and variables (`fixer_levels`, `fixer_unavailable`, `fixer_capacity_cooldown_s`). 0.18.13 was never rolled out live, so a rollout to 0.19.0 must still enable and seed them. `release.json` names everything new since the last release rolled out live (`docs/operations/rollout.md`)

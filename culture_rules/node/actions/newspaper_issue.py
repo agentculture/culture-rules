@@ -51,7 +51,9 @@ The phases, in workflow order
   ``email_attempt``) and for a retry within :data:`EMAIL_RETRY_WINDOW_S` of it; false when
   the email is recorded sent (``message_id`` is then given too) or uncertain - past the
   window with no recorded message id it records ``email`` uncertain and answers
-  ``email_uncertain`` true.
+  ``email_uncertain`` true.  An empty ``to`` (d6) is frozen like any request: ``send`` is false and
+  ``no_recipients`` true, no attempt is recorded and the email is never uncertain, so
+  ``before_push`` lets the push through and ``record`` records the date delivered.
 * ``before_push`` (fence) - input ``message_id`` (the email step's, absent when it was
   skipped). It records ``email`` the first time it sees a message id - even when the claim
   was lost, since the email went out either way - then renews the lease or refuses
@@ -152,6 +154,7 @@ _SUBJECT, _HTML, _TO, _SENDER = "subject", "html", "to", "sender"
 _REQUEST_FIELDS = (_SUBJECT, _HTML, _TO, _SENDER)
 _LOST_ACK = "uncertain"  # the email's state, and its flag in the ``email`` record
 _SENT, _FIRST, _RETRY, _EXPIRED = "sent", "first", "retry", "expired"
+_NONE = "no_recipients"  # d6: the date's frozen request has no recipients (email skipped)
 _DATE, _STATE, _REV, _ITEM_ID = "date", "state", "rev", "item_id"
 _CLAIMED_AT, _CLAIMED_BY = "claimed_at", "claimed_by"
 _ID_LEN = 200
@@ -250,15 +253,15 @@ def _decide(doc: Mapping[str, Any] | None, run_id: str, now: datetime, timeout: 
 
 def _request(input: Mapping[str, Any]) -> dict[str, Any]:
     """This run's email request from the fence's input: ``subject``, ``html`` and, when
-    given, ``to`` (a non-empty list of addresses)."""
+    given, ``to`` (a list of addresses; an empty list means no email, d6)."""
     subject, html = input.get(_SUBJECT), input.get(_HTML)
     if not isinstance(subject, str) or not subject or not isinstance(html, str) or not html:
         raise _Refusal("bad_input: subject and html: required, non-empty strings")
     request: dict[str, Any] = {_SUBJECT: subject, _HTML: html}
     to = input.get(_TO)
     if to is not None:
-        if not isinstance(to, list) or not to or not all(isinstance(a, str) and a for a in to):
-            raise _Refusal("bad_input: to: a non-empty list of addresses")
+        if not isinstance(to, list) or not all(isinstance(a, str) and a for a in to):
+            raise _Refusal("bad_input: to: a list of addresses")
         request[_TO] = list(to)
     return request
 
@@ -280,10 +283,18 @@ def _uncertain(doc: Mapping[str, Any] | None) -> bool:
     return isinstance(email, Mapping) and email.get(_LOST_ACK) is True
 
 
+def _no_recipients(doc: Mapping[str, Any]) -> bool:
+    """Whether the date's frozen request has an empty recipient list (d6)."""
+    stored = doc.get(_PAYLOAD)
+    return isinstance(stored, Mapping) and stored.get(_TO) == []
+
+
 def _email_state(doc: Mapping[str, Any], now: datetime) -> str:
     """Where the date's email stands at a fence (module doc, Codex r2 #1)."""
     if _sent_id(doc) is not None:
         return _SENT
+    if _no_recipients(doc):
+        return _NONE
     if _uncertain(doc):
         return _LOST_ACK
     attempt = doc.get(_ATTEMPT)
@@ -398,7 +409,7 @@ class NewspaperIssuePort:
                 sender = self._sender(config)
                 stored = {**request, _SENDER: sender} if sender else dict(request)
                 changes[_PAYLOAD] = stored
-            state = _email_state(doc, now)
+            state = _email_state({**doc, **changes}, now)
             changes.update(_email_changes(doc, state, day, now))
             if not self._cas(day, doc, changes):
                 continue
@@ -409,6 +420,7 @@ class NewspaperIssuePort:
                 **stored,
                 "send": state in (_FIRST, _RETRY),
                 _UNCERTAIN: state in (_LOST_ACK, _EXPIRED),
+                _NONE: state == _NONE,
             }
             if state == _SENT:
                 output[_MESSAGE_ID] = _sent_id(doc)
@@ -507,6 +519,7 @@ def _push_answer(day: str, doc: Mapping[str, Any]) -> dict[str, Any]:
         _DATE: day,
         _UNCERTAIN: sent is None and _uncertain(doc),
         _EMAIL_SENT: sent is not None,
+        _NONE: sent is None and _no_recipients(doc),
         "push": _library_item(doc) is None,
     }
 
@@ -530,7 +543,7 @@ def _record_changes(
     else:
         library = {_ITEM_ID: item_id, "queue_id": _delivery_id(input.get("queue_id")), "at": at}
     message_id = _sent_id(doc) or _delivery_id(input.get(_MESSAGE_ID))
-    if message_id is None and not _uncertain(doc):
+    if message_id is None and not _uncertain(doc) and not _no_recipients(doc):
         released = {_CLAIMED_BY: None, _CLAIMED_AT: None} if _owned(doc, run_id) else {}
         return {_LIBRARY: library, **released}
     return {
