@@ -717,6 +717,15 @@ def _check_step(obj: Step, path: str, errors: Errors) -> None:
     _check_when_explain(obj, _join(path, "config"), errors)
 
 
+def _check_on_error(obj: Step, value: Any, where: str, errors: Errors) -> None:
+    """``config.on_error`` (#53 t8): ``"skip"`` tolerates the step's own failure, on a step
+    the executor dispatches (not a loop or wait step)."""
+    if obj.kind in LOOP_KINDS or obj.kind == "wait":
+        _err(errors, where, "not_allowed", f"a {obj.kind} step takes no on_error")
+    elif value != "skip":
+        _err(errors, where, "on_error_invalid", 'on_error must be "skip"')
+
+
 def _check_when_explain(obj: Step, path: str, errors: Errors) -> None:
     """``config.when`` (d20): a condition tree over the step's inputs, on a step the executor
     dispatches (not a loop or wait step). ``config.explain``: a result field name, on a
@@ -731,6 +740,8 @@ def _check_when_explain(obj: Step, path: str, errors: Errors) -> None:
                 condition_tree.validate(config["when"])
             except condition_tree.ConditionError as exc:
                 _err(errors, where, "when_invalid", f"when must be a condition tree: {exc}")
+    if "on_error" in config:
+        _check_on_error(obj, config["on_error"], _join(path, "on_error"), errors)
     if "explain" in config:
         where = _join(path, "explain")
         if obj.kind != "retry_until":
