@@ -125,6 +125,13 @@ def test_non_http_urls_are_dropped(bad):
     assert [r["url"] for r in out] == [NEWS_URL]
 
 
+@pytest.mark.parametrize("bad", ["https://[bad", "http://example.org:port/x", "https://[::1"])
+def test_malformed_urls_are_dropped_and_the_rest_kept(bad):
+    """Codex r1 #6: urlsplit() raising on one result must not abort the whole search."""
+    out = client(Fake(results=[result(url=bad), result()])).search(Q)
+    assert [r["url"] for r in out] == [NEWS_URL]
+
+
 def test_overlong_url_is_dropped():
     long_url = "https://example.org/" + "a" * brave.MAX_URL_CHARS
     out = client(Fake(results=[result(url=long_url)])).search(Q)

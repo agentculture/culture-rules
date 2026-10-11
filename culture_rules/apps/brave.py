@@ -87,10 +87,21 @@ def _text(value: Any, cap: int) -> str:
 
 
 def _http_url(value: Any) -> str | None:
+    """``value`` when it is a well-formed ``http``/``https`` URL with a host, else None.
+
+    Result URLs are untrusted: ``urlsplit`` raises ``ValueError`` on some of them (an
+    unclosed IPv6 bracket such as ``https://[bad``), and ``.hostname``/``.port`` raise on a
+    bad port. Any such error drops that one result, so a single malformed URL never aborts
+    the whole search (Codex r1 #6).
+    """
     if not isinstance(value, str) or len(value) > MAX_URL_CHARS:
         return None
-    parts = urllib.parse.urlsplit(value)
-    if parts.scheme not in ("http", "https") or not parts.netloc:
+    try:
+        parts = urllib.parse.urlsplit(value)
+        host, _port = parts.hostname, parts.port
+    except ValueError:
+        return None
+    if parts.scheme not in ("http", "https") or not host:
         return None
     return value
 
