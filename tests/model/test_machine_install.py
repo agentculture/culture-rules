@@ -221,7 +221,9 @@ def test_gate_run_as_with_any_control_character_is_refused(char) -> None:
     assert ("install.gate_run_as", "invalid_run_as") in _codes(machine)
 
 
-@pytest.mark.parametrize("value", ["-oProxyCommand=touch /tmp/x", "-v"])
+@pytest.mark.parametrize(
+    "value", ["-oProxyCommand=touch /tmp/x", "-v", "ssh://user@thor", "fd00::123", "thor:22"]
+)
 def test_an_ssh_target_that_reads_as_an_option_is_refused(value) -> None:  # #57
     machine = Machine(name="thor", install=MachineInstall(mode="install_sh", ssh_target=value))
     assert ("install.ssh_target", "invalid_value") in _codes(machine)

@@ -567,6 +567,9 @@ def node_exec_start(*node_args: str) -> str:
         (node_exec_start("--host=spark"), "spark"),
         (exec_start("/v/bin/culture-rules", "node", "run", "--host", "spark"), "spark"),
         (node_exec_start(), None),  # no --host
+        (node_exec_start("--host", "spark", "--host", "thor"), None),  # Codex r1 P1: ambiguous
+        (node_exec_start("--host=spark", "--host", "thor"), None),
+        (node_exec_start("--ho", "thor"), None),  # an argparse abbreviation of --host
         (node_exec_start("--host"), None),  # --host without a value
         (exec_start("/v/bin/culture-rules", "serve", "--host", "spark"), None),  # not node run
         (exec_start("/usr/bin/env", "/v/bin/culture-rules", "node", "run", "--host", "x"), None),
@@ -634,3 +637,64 @@ def test_an_ssh_target_option_is_refused_before_any_command(
         capsys, "rollout", "upgrade", "--host", "orin", "--wheel", str(wheel), "--apply", "--json"
     )
     assert (rc, "ssh_target" in json.loads(err)["message"], fake.calls) == (1, True, [])
+
+
+# --------------------------------------------------------------------------- #57 Codex r1
+
+
+@pytest.mark.parametrize("role", ["viewer", "editor"])
+def test_a_non_admin_token_probes_nothing_on_another_host(
+    wire, store, capsys, fake, wheel, monkeypatch, role  # noqa: F811
+):
+    """Codex r1 P2: the node-unit probe runs only after the admin-only start is recorded."""
+    from tests.cli.test_rollout_verbs import as_role
+
+    monkeypatch.setattr(up, "_HOSTNAME", lambda: SPARK_HOSTNAME)
+    fake.exec_start[NODE] = node_exec_start("--host", "spark")
+    put_machine(store, "spark", {"mode": "shared_venv"})
+    as_role(wire, store, monkeypatch, role)
+    run(capsys, "rollout", "upgrade", "--host", "spark", "--wheel", str(wheel), "--apply")
+    assert fake.calls == []
+
+
+def test_a_dry_run_on_another_host_runs_nothing(
+    wire, store, capsys, fake, wheel, monkeypatch  # noqa: F811
+):
+    monkeypatch.setattr(up, "_HOSTNAME", lambda: SPARK_HOSTNAME)
+    put_machine(store, "spark", {"mode": "shared_venv"})
+    out = jrun(capsys, "rollout", "upgrade", "--host", "spark", "--wheel", str(wheel))
+    assert (fake.calls, any("this host" in line for line in out["lines"])) == ([], True)
+
+
+def test_a_refused_host_records_the_failure(
+    wire, store, capsys, fake, wheel, monkeypatch  # noqa: F811
+):
+    monkeypatch.setattr(up, "_HOSTNAME", lambda: SPARK_HOSTNAME)
+    fake.exec_start[NODE] = node_exec_start("--host", "thor")
+    put_machine(store, "spark", {"mode": "shared_venv"})
+    run(capsys, "rollout", "upgrade", "--host", "spark", "--wheel", str(wheel), "--apply")
+    step = outcome(store, "spark")
+    assert (step["ok"], "this host is spark-f8a9" in step["failure"]) == (False, True)
+
+
+@pytest.mark.parametrize(
+    "target", ["ssh://user@thor", "fd00::123", "thor:22", "thor/x", "a@b@c", "@thor", "thor@"]
+)
+def test_an_ssh_target_scp_would_read_differently_is_refused(
+    wire, store, capsys, fake, wheel, target  # noqa: F811
+):
+    """Codex r1 P2: ssh and scp must name the same host: [user@]host only."""
+    store.put("machines", {
+        "id": "orin", "name": "orin", "platform": "linux", "roles": ["engine_node"],
+        "install": {"mode": "install_sh", "ssh_target": target},
+    })  # fmt: skip
+    rc, _, _ = run(capsys, "rollout", "upgrade", "--host", "orin", "--wheel", str(wheel), "--json")
+    assert (rc, fake.calls) == (1, [])
+
+
+def test_a_user_at_alias_target_is_accepted(wire, store, capsys, fake, wheel):  # noqa: F811
+    put_machine(
+        store, "orin", {"mode": "install_sh", "ssh_target": "orin@orin"}, address="10.0.0.9"
+    )
+    out = jrun(capsys, "rollout", "upgrade", "--host", "orin", "--wheel", str(wheel))
+    assert out["would"][1][-1].startswith("orin@orin:")

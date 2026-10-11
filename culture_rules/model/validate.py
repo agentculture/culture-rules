@@ -805,6 +805,16 @@ _CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
 _INSTALL_WORD_FIELDS = ("node_name", "wheelhouse", "python", "events_host", "ssh_target")
 
 
+#: An ssh/scp target both read alike (#57 Codex r1): ``[user@]host`` of letters, digits, ``.``,
+#: ``_`` and ``-``, never starting with ``-``; no ``:``, ``/`` or URL (scp reads ``host:path``).
+SSH_TARGET_RE = re.compile(r"(?:[A-Za-z0-9._][A-Za-z0-9._-]*@)?[A-Za-z0-9._][A-Za-z0-9._-]*")
+
+
+def is_ssh_target(value: str) -> bool:
+    """Whether ssh and scp both read ``value`` as the same ``[user@]host``."""
+    return SSH_TARGET_RE.fullmatch(value) is not None
+
+
 def has_control_char(value: str) -> bool:
     """Whether ``value`` holds a control character (U+0000-U+001F or U+007F)."""
     return _CONTROL_RE.search(value) is not None
@@ -845,9 +855,10 @@ def _check_install_words(obj: MachineInstall, path: str, errors: Errors) -> None
 
 
 def _check_install_ssh_target(obj: MachineInstall, path: str, errors: Errors) -> None:
-    """An ssh target never starts with ``-`` (ssh would read it as an option, #57)."""
-    if isinstance(obj.ssh_target, str) and obj.ssh_target.startswith("-"):
-        _err(errors, _join(path, "ssh_target"), "invalid_value", "ssh_target may not start with -")
+    """An ssh target is ``[user@]host`` that ssh and scp read alike (#57): never an option
+    (``-...``), a URL, a port or a ``host:path``."""
+    if isinstance(obj.ssh_target, str) and obj.ssh_target and not is_ssh_target(obj.ssh_target):
+        _err(errors, _join(path, "ssh_target"), "invalid_value", "ssh_target must be [user@]host")
 
 
 def _check_install_secrets(obj: MachineInstall, path: str, errors: Errors) -> None:

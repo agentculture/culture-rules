@@ -117,7 +117,10 @@ field left out takes `install.sh`'s default. The ssh and scp target is
 `install.ssh_target`, else the record's `address`, else its name. Set
 `ssh_target` to the host's `~/.ssh/config` alias when `address` is a tailnet IP:
 ssh matches `Host` entries by the name it is given, so an IP misses the
-alias's `User` and known host (#57). `ssh_target` may not start with `-`.
+alias's `User` and known host (#57). `ssh_target` is `[user@]host` (letters,
+digits, `.`, `_`, `-`; never starting with `-`), so ssh and scp read it alike:
+no URL, port or `host:path`. `upgrade` checks an `address` it falls back to the
+same way.
 
 The install section is code the host runs, so:
 
@@ -232,4 +235,7 @@ The lessons from the hand-run rollouts (#45), and what now enforces each one:
 - `upgrade` on the shared-venv host runs locally. It refuses unless the record's name
   is this host's short hostname, or the local `culture-rules-node.service` runs
   `node run --host <name>` (its `ExecStart`, read over D-Bus like the venv). spark's
-  OS hostname is `spark-f8a9`, so the node unit is what identifies it (#57).
+  OS hostname is `spark-f8a9`, so the node unit is what identifies it (#57). A
+  repeated or abbreviated `--host` is not read. The unit is read only with
+  `--apply`, after the admin-only start is recorded; a refusal is recorded as
+  the step's failure.

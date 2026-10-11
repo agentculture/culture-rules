@@ -52,7 +52,7 @@ from culture_rules.cli._errors import EXIT_ENV_ERROR, EXIT_USER_ERROR, CliError
 from culture_rules.cli._nounlib import seg
 from culture_rules.cli.registry import Context
 from culture_rules.client.http import ApiError, ApiUnreachable
-from culture_rules.model.validate import has_control_char, is_install_word
+from culture_rules.model.validate import has_control_char, is_install_word, is_ssh_target
 
 __all__ = [
     "Result",
@@ -252,8 +252,8 @@ def check_fields(machine: Mapping[str, Any], name: str, install: Mapping[str, An
     if port is not None and (isinstance(port, bool) or not isinstance(port, int)):
         raise _refuse_field(name, "install.events_port", "is not a port number")
     field, target = _ssh_target(machine, name)
-    if not is_install_word(target) or target.startswith("-"):
-        raise _refuse_field(name, field, "is not a plain host name")
+    if not is_ssh_target(target):
+        raise _refuse_field(name, field, "is not a plain [user@]host that ssh and scp read alike")
 
 
 def commands(
@@ -264,7 +264,6 @@ def commands(
     name = str(machine.get("name") or machine.get("id"))
     install = _install_section(machine, name)
     if install["mode"] == rollout.SHARED_VENV:
-        _require_local(name)
         return _shared_venv_commands(wheel, venv)
     return _install_sh_commands(name, _ssh_target(machine, name)[1], install, wheel, version)
 
@@ -351,12 +350,15 @@ def node_host_from_exec_start(text: str) -> str | None:
     if rest is None or rest[1:3] != ["node", "run"]:
         return None
     args = rest[3:]
+    hosts: list[str | None] = []
     for i, arg in enumerate(args):
-        if arg == "--host":
-            return args[i + 1] if i + 1 < len(args) else None
-        if arg.startswith("--host="):
-            return arg.split("=", 1)[1] or None
-    return None
+        option = arg.split("=", 1)[0]
+        if option == "--host":
+            hosts.append(arg[7:] if "=" in arg else (args[i + 1] if i + 1 < len(args) else None))
+        elif len(option) > 2 and "--host".startswith(option):
+            return None  # an abbreviation argparse would take as --host: not read here
+    # argparse keeps the last --host: a repeated one is ambiguous here, so refused (Codex r1)
+    return hosts[0] or None if len(hosts) == 1 else None
 
 
 def _local_node_host() -> str | None:
@@ -364,22 +366,19 @@ def _local_node_host() -> str | None:
     return node_host_from_exec_start(result.stdout) if result.returncode == 0 else None
 
 
-def _require_local(name: str) -> None:
-    """A shared-venv machine is upgraded on itself: this host's short name is the machine's
-    name, or (#57: an OS hostname such as ``spark-f8a9``) the local node unit runs
-    ``node run --host <name>``. Nothing but that unit's ExecStart is read before refusing."""
+def not_this_host(name: str) -> str | None:
+    """Why this host is not the shared-venv machine ``name``, or None when it is: its short
+    hostname is ``name``, or (#57: an OS hostname such as ``spark-f8a9``) the local node
+    unit runs ``node run --host <name>``. Reads that unit's ExecStart only on a hostname
+    mismatch; :func:`upgrade` calls it after the admin-only start is recorded (Codex r1)."""
     here = _HOSTNAME().split(".")[0]
     if here == name:
-        return
+        return None
     node = _local_node_host()
     if node == name:
-        return
+        return None
     seen = f" (its node unit runs --host {node})" if node else ""
-    raise CliError(
-        EXIT_USER_ERROR,
-        f"machine {name} is shared_venv: it is upgraded locally, but this host is {here}{seen}",
-        f"run 'culture-rules rollout upgrade --host {name}' on {name}",
-    )
+    return f"machine {name} is shared_venv: it is upgraded locally, but this host is {here}{seen}"
 
 
 def venv_from_exec_start(text: str) -> Path | None:
@@ -545,6 +544,10 @@ def _dry_lines(mode: str, cmds: Sequence[Command]) -> list[str]:
             f"(<venv> is resolved from {API_UNIT}'s ExecStart D-Bus property with 'busctl', "
             f"and {NODE_UNIT} must run the same venv; only --apply reads it)"
         )
+        lines.append(
+            "(--apply first checks that this host is the machine: its hostname, or the local "
+            f"{NODE_UNIT}'s 'node run --host')"
+        )
     return lines + [f"{c.what}: {shlex.join(c.argv)}" for c in cmds]
 
 
@@ -563,6 +566,14 @@ def upgrade(ctx: Context, host: str, wheel: str) -> dict[str, Any]:
     # recording the start is admin: a viewer or editor token is refused here, before any
     # command runs (the API is the enforcement point; the CLI's roles are only metadata)
     rollout.record(ctx, step, {"state": "started", **base})
+    wrong_host = not_this_host(name) if mode == rollout.SHARED_VENV else None
+    if wrong_host:
+        rollout.record(ctx, step, {**base, "ok": False, "failure": wrong_host[:1000]})
+        raise CliError(
+            EXIT_USER_ERROR,
+            wrong_host,
+            f"run 'culture-rules rollout upgrade --host {name}' on {name}",
+        )
     cmds, venv = _resolved_commands(ctx, machine, path, step, base)
     results, failure = _run_all(cmds, ctx, mode)
     outcome = _outcome(mode, path, results)
