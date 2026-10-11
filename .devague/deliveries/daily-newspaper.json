@@ -2,7 +2,7 @@
   "plan_slug": "daily-newspaper",
   "schema_version": 2,
   "created": "2026-10-11T05:14:10Z",
-  "updated": "2026-10-11T05:28:48Z",
+  "updated": "2026-10-11T05:44:39Z",
   "deviations": [
     {
       "id": "d1",
@@ -27,6 +27,21 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 2
+    },
+    {
+      "id": "d3",
+      "what": "Codex round 1 on #53: newspaper.issue moves to newspaper_issue.py with a lease fenced by run id (phases claim, before_email, before_push, record), per-destination progress and a stored email payload with the durable key newspaper:<date>:email (email.send gains an optional idempotency_key param); a summary window from the slot (claim config summary_window_s, default 600 s) passed to llm.complete as not_after (llm_deadline); LimitedActor asks an inner port's refuse_before_admit before taking or waiting for a pool slot; a tolerated failure clears the step's outputs; render tokenises formatting and requires bullets-only summaries with a source link on every line; Brave drops a result whose URL does not parse",
+      "task_ref": "t6",
+      "reason": "Codex found a double email after a partial delivery (P1) and five P2 issues; the pool hook is a small change in the shared limits layer",
+      "affects": [
+        "t8",
+        "t2",
+        "t4"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 3
     }
   ],
   "evidence": [],

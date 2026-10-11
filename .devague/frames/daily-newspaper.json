@@ -4,7 +4,7 @@
   "schema_version": 6,
   "status": "exported",
   "created": "2026-10-11T04:20:53Z",
-  "updated": "2026-10-11T05:28:48Z",
+  "updated": "2026-10-11T05:44:39Z",
   "claims": [
     {
       "id": "c1",
@@ -632,6 +632,17 @@
       ],
       "origin": "llm",
       "status": "approved"
+    },
+    {
+      "id": "l2",
+      "code": "control-absent",
+      "what": "The round-1 fix for the double email (#1) was mostly written before its unit tests, and the flow tests were written after the ports changed",
+      "skipped_check": "test-first ordering for the lease-fenced delivery",
+      "refs": [
+        "t6"
+      ],
+      "origin": "llm",
+      "status": "proposed"
     }
   ],
   "obligations": []
