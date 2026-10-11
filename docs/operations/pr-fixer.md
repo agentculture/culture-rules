@@ -933,7 +933,11 @@ network share, no cultureagent change):
    stores it, base64, in the `handoffs` collection. A pack over the cap
    (default 8 MiB, at most 10 MiB) fails `handoff_too_large` and is never
    stored. Each document carries `expires_at`, a date a day after its last
-   renewal (the export, an import's claim, its receipt).
+   renewal (the export, an import's claim, its receipt). An export never
+   erases an import's claim or receipt: run again for the same commits, it
+   only renews `expires_at`; for other commits it replaces a hand-off no
+   import has claimed and otherwise fails `handoff_conflict` (not
+   retryable).
 3. `handoff_import` (spark2, `handoff.import`): as the gate's fixer user
    (`CULTURE_RULES_GATE_RUN_AS`), in a fresh `mktemp -d` workspace, it
    fetches the start (and base) by SHA from the trusted clone URL, verifies
@@ -951,7 +955,8 @@ network share, no cultureagent change):
    until the hand-off expires. A replay of the same step (a node that died
    before recording the result) gets the same worktree back while its
    `HEAD` is the agent's commit with nothing else in it, else a fresh one
-   rebuilt from the pack.
+   rebuilt from the pack. Two such replays racing settle on one worktree
+   that is intact; neither reports one that was removed.
 4. `select` hands the gate that worktree; the gate is unchanged and judges
    exactly the commit Codex made (git object ids are content hashes).
 
@@ -966,12 +971,15 @@ Known limits:
   receipt, so a replay can rebuild its worktree. On MongoDB a TTL index on
   `expires_at` (`handoffs_expiry`) deletes expired hand-offs; each export
   and import also prunes up to 100 expired ones, reading only their ids
-  (never a pack).
+  (never a pack), each deleted in a store transaction only while it is
+  unchanged since it was read.
 - **An import that runs longer than a day** past its claim could lose its
   hand-off to the expiry; it then fails `handoff_receipt_lost` rather than
   report a worktree it cannot replay.
 - **Qwen's read-only is an approval policy**, not a sandbox (see
   [Workflow `review-commit`](#workflow-review-commit)).
+- **No legacy hand-offs:** hand-off documents only exist from 0.18.13 on,
+  so there is no older document shape to migrate.
 
 ### Workflow `review-commit`
 
