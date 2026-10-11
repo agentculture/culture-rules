@@ -227,20 +227,53 @@ def _step_account(config: Mapping[str, Any]) -> str | None:
     return value
 
 
-def _swap_account(base: CommandRunner, account: str) -> RunAs:
-    """``base``'s prefix with the account after ``-u``/``--user`` replaced by ``account``."""
-    words = list(getattr(base, "prefix", ()))
-    for i, word in enumerate(words):
-        if word in ("-u", "--user") and i + 1 < len(words):
-            words[i + 1] = account
-            return RunAs(words, run=base._run)  # type: ignore[attr-defined]
-        if word.startswith("--user="):
-            words[i] = f"--user={account}"
-            return RunAs(words, run=base._run)  # type: ignore[attr-defined]
-    raise _Refusal(
+#: sudo options a run_as prefix may carry before ``--``: anything else could change
+#: whose account the command runs as, so it is refused (Codex review of #56).
+_SUDO_FLAGS = frozenset({"-n", "--non-interactive", "-H", "--set-home"})
+_SUDO_SELECTORS = frozenset({"-u", "--user"})
+
+
+def _no_slot(reason: str) -> _Refusal:
+    return _Refusal(
         "bad_config",
-        f"config.run_as needs {HANDOFF_RUN_AS_ENV} to name an account with -u or --user",
+        f"config.run_as needs {HANDOFF_RUN_AS_ENV} to be sudo with exactly one account "
+        f"(-u NAME, --user NAME or --user=NAME) before '--': {reason}",
     )
+
+
+def _account_slot(words: list[str]) -> int:
+    """The index of the account word in a sudo prefix's option section (before
+    ``--``), or a refusal: the prefix must be sudo, end its options with ``--``, carry
+    only allowlisted options and exactly one account selector."""
+    if not words or os.path.basename(words[0]) != "sudo":
+        raise _no_slot("the prefix does not start with sudo")
+    if "--" not in words:
+        raise _no_slot("the prefix has no '--' before the command")
+    options = words[1 : words.index("--")]
+    slots: list[int] = []
+    i = 0
+    while i < len(options):
+        word = options[i]
+        if word in _SUDO_SELECTORS and i + 1 < len(options):
+            slots.append(i + 2)  # +1 for sudo, +1 for the value after the selector
+            i += 2
+            continue
+        if word.startswith("--user="):
+            slots.append(i + 1)
+        elif word not in _SUDO_FLAGS:
+            raise _no_slot(f"option {word!r} is not allowed")
+        i += 1
+    if len(slots) != 1:
+        raise _no_slot(f"{len(slots)} account selectors")
+    return slots[0]
+
+
+def _swap_account(base: CommandRunner, account: str) -> RunAs:
+    """``base``'s prefix with its one sudo account replaced by ``account``."""
+    words = list(getattr(base, "prefix", ()))
+    slot = _account_slot(words)
+    words[slot] = f"--user={account}" if words[slot].startswith("--user=") else account
+    return RunAs(words, run=base._run)  # type: ignore[attr-defined]
 
 
 def _blocked(run_as: RunAs | None, env_name: str, check: Callable[[], bool | None]) -> str:

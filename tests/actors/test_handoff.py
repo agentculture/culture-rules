@@ -549,3 +549,50 @@ def test_a_step_run_as_needs_an_account_slot_in_the_prefix(store, world):  # noq
     res = _export_with(store, world, ["doas"], config, rec)
     assert res.error.startswith("bad_config")
     assert rec.argvs == []
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        ["sudo", "-n", "--", "env", "-u", "SOME_VAR"],  # -u after the command boundary
+        ["sudo", "-n", "-u", "old", "-u", "other", "--"],  # two account selectors
+        ["sudo", "-n", "-u", "old", "-uother", "--"],  # an attached selector
+        ["sudo", "-nu", "old", "--"],  # a combined short-option cluster
+        ["sudo", "-n", "--user=old", "-u", "other", "--"],  # long and short together
+        ["sudo", "-n", "-g", "grp", "-u", "old", "--"],  # an option outside the allowlist
+        ["sudo", "-n", "-u", "old"],  # no command boundary
+        ["runuser", "-u", "old", "--"],  # not sudo
+    ],
+)
+def test_a_prefix_whose_account_is_not_exactly_one_sudo_selector_is_refused(
+    store, world, prefix  # noqa: F811
+):
+    """Codex review of #56 wave 0: run_as must decide the account, or nothing runs."""
+    rec = _Recorder()
+    config = {"builtin": EXPORT_BUILTIN, "run_as": "culture-claude-fixer"}
+    res = _export_with(store, world, prefix, config, rec)
+    assert res.error.startswith("bad_config")
+    assert rec.argvs == []
+
+
+@pytest.mark.parametrize(
+    "prefix, expected",
+    [
+        (
+            ["sudo", "-n", "--user=culture-codex-fixer", "--"],
+            ["sudo", "-n", "--user=culture-claude-fixer", "--"],
+        ),
+        (
+            ["/usr/bin/sudo", "-n", "-H", "--user", "x", "--", "/usr/bin/env", "PATH=/usr/bin"],
+            ["/usr/bin/sudo", "-n", "-H", "--user", "culture-claude-fixer", "--"],
+        ),
+    ],
+)
+def test_the_single_selector_is_replaced_and_the_rest_kept(
+    store, world, prefix, expected  # noqa: F811
+):
+    rec = _Recorder()
+    config = {"builtin": EXPORT_BUILTIN, "run_as": "culture-claude-fixer"}
+    _export_with(store, world, prefix, config, rec)
+    assert rec.argvs[0][: len(expected)] == expected
+    assert rec.argvs[0][: len(prefix)][len(expected) :] == prefix[len(expected) :]
