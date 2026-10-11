@@ -1,0 +1,422 @@
+{
+  "slug": "daily-newspaper",
+  "title": "Daily newspaper",
+  "schema_version": 6,
+  "status": "drafting",
+  "created": "2026-10-11T04:20:53Z",
+  "updated": "2026-10-11T04:21:08Z",
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "Every morning at 06:30 Asia/Jerusalem, culture-rules searches the web for the operator's chosen sections, has Qwen summarise what it found, and delivers one dated newspaper by email (from a culture.dev sender) and as an EPUB queued for the operator's Xteink reader",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c2",
+      "kind": "decision",
+      "text": "Search goes directly to Brave Search (a 'search' app actor, grant:BRAVE_API_KEY); webglass may become a second backend later (operator, #53)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c3",
+      "kind": "decision",
+      "text": "Summaries are written by Qwen on cortex through a new llm.complete action that calls the Qwen server's OpenAI-compatible endpoint directly: no checkout, no tools; it shares the qwen-spark2 pool, so it waits behind a running PR fix (operator, #53)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c4",
+      "kind": "decision",
+      "text": "Email is sent through Resend with grant:RESEND_API_KEY; the sender domain is chosen from culture.dev or jetson-ai-lab.org (both verified, same key; a drop-down in the editor), default sender no-reply@culture.dev (operator, #53)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c5",
+      "kind": "decision",
+      "text": "The EPUB goes to the xteink library API over the LAN or tailnet with a dedicated xtk_ key the operator mints (create-key newspaper) and stores in grant, and is queued for the operator's device; ebooks-cli takes this over later (operator, #53)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c6",
+      "kind": "decision",
+      "text": "Sections live in one variable, newspaper_sections, holding a JSON string that a builtin parses and validates at the start of each run; a bad value fails the run with a clear error (operator, #53)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c7",
+      "kind": "decision",
+      "text": "A day missed because no node ran at 06:30 is skipped, not caught up (operator, #53)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c8",
+      "kind": "decision",
+      "text": "The newspaper is sent at 06:30 Asia/Jerusalem; its date is that local date (operator, #53)",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "An 'email' app surface and an email.send action: the actor's connection holds the Resend key reference, the sender domain (one of culture.dev, jetson-ai-lab.org), the sender local part (default no-reply) and a recipient allowlist checked before any secret is read; the action takes to, subject, html and/or text and optional attachments, forwards the engine's idempotency key as Resend's Idempotency-Key, and returns the message id",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "A 'search' app surface and a search.web action: query, count, freshness, country and lang go to Brave's web search with the key from grant; results come back normalised (title, url, snippet, age, source) and capped, and the action calls no other host",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "An llm.complete action on an agent actor that carries an OpenAI-compatible base URL and model (cortex): the system prompt is a locked newspaper brief in code, the user content is the section's search results, no tools field is ever sent, max tokens are capped, and it returns the text, model and token usage; it takes a concurrency_pool like the bridge actors",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "A newspaper.sections builtin parses newspaper_sections (each section: name, queries, must and must-not terms, freshness, count, site include and exclude) and fails the run naming the first invalid field",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c13",
+      "kind": "requirement",
+      "text": "A newspaper.render builtin turns the sections, their results and summaries into one dated issue as HTML for the email and as a valid EPUB (semantic XHTML, one chapter per section, a table of contents, no remote images) for the reader, deterministically, within a size cap",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c14",
+      "kind": "requirement",
+      "text": "A library.push action uploads the EPUB to xteink (POST /api/library, multipart, kind article, title 'Daily newspaper <date>') and queues the returned item for the configured device (POST /api/devices/<id>/queue); the base URL and the xtk_ key reference live on its actor",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c15",
+      "kind": "requirement",
+      "text": "One issue per local date: the workflow records the date it delivered in the store and a run for an already delivered date sends nothing",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c16",
+      "kind": "requirement",
+      "text": "The bundle docs/rules/newspaper ships the actors, the workflow, the rule (schedule 30 6 * * *, tz Asia/Jerusalem) and the variables, disabled, with docs/operations/newspaper.md covering the operator's setup",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c17",
+      "kind": "requirement",
+      "text": "The editor offers the email and search surfaces in the actor form (the sender domain as a drop-down) and parameter forms for email.send, search.web, llm.complete and library.push in the action picker",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c18",
+      "kind": "boundary",
+      "text": "No secret value and no recipient address is committed: keys are grant references, addresses and device ids are variables or actor config, and the Resend, Brave, cortex and xteink URLs live as Python constants or actor config, never in committed JSON (scan-secrets rejects non-localhost URLs there)",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c19",
+      "kind": "boundary",
+      "text": "A summary uses only what the search returned: every item links its source, a section with no results says so, and nothing is filled in",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c20",
+      "kind": "boundary",
+      "text": "llm.complete never goes through the coding-agent bridge and never sends tools or a repository",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c21",
+      "kind": "boundary",
+      "text": "The PR fixer's behaviour is unchanged; the newspaper only shares the qwen-spark2 pool with it",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c22",
+      "kind": "non_goal",
+      "text": "No webglass backend, no fetching of result pages, no catch-up of missed days, no email provider other than Resend, and no ebooks-cli integration in this release",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c23",
+      "kind": "success_signal",
+      "text": "On a normal day, by 06:45 Asia/Jerusalem the issue is in the operator's inbox and queued on the device, and its run shows in Statistics",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    },
+    {
+      "id": "c24",
+      "kind": "assumption",
+      "text": "The operator supplies the first sections, the recipient, the device id, the xteink base URL and the cortex base URL when the variables and actors are seeded",
+      "origin": "llm",
+      "status": "proposed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "",
+      "revisions": []
+    }
+  ],
+  "open_vagueness": [],
+  "scope_entries": [
+    {
+      "id": "s1",
+      "surface": "culture_rules/model/app_actor.py + web/src/actors/app-config.ts",
+      "finding": "APP_SURFACES is a hard-coded tuple (github, jira, discord) at app_actor.py:36, mirrored in app-config.ts:12; the per-surface connection is unvalidated and the editor's ConnectionField has no enum type, so email/search need new surfaces and the sender domain needs a new drop-down (DiscordTarget in ActionPicker.tsx is the nearest precedent)",
+      "seeds": [
+        "c9",
+        "c10",
+        "c17"
+      ]
+    },
+    {
+      "id": "s2",
+      "surface": "culture_rules/node/actions/jira.py + culture_rules/actors/secrets.py",
+      "finding": "the Jira port checks its allowlist before resolving any grant: reference, resolves secrets only at call time, and returns no secret in outputs; assert_refs_only (secrets.py:235) refuses secret literals on save. The email and search ports follow this pattern",
+      "seeds": [
+        "c9",
+        "c10",
+        "c18"
+      ]
+    },
+    {
+      "id": "s3",
+      "surface": "culture_rules/node/actions/http.py",
+      "finding": "http.call can't do it: the secret header value is the whole secret (no 'Bearer ' templating), there is no sender or recipient policy, no attachments or multipart, no parsed results, and the engine's idempotency key isn't forwarded, so dedicated kinds are justified",
+      "seeds": [
+        "c9",
+        "c10",
+        "c14"
+      ]
+    },
+    {
+      "id": "s4",
+      "surface": "scripts/scan-secrets.py",
+      "finding": "the non-localhost endpoint check applies to JSON leaves under url/host/endpoint/base_url keys; .py constants (apps/github.py:56) pass, so provider URLs stay in Python and live hosts in actor config, never in committed JSON",
+      "seeds": [
+        "c18"
+      ]
+    },
+    {
+      "id": "s5",
+      "surface": "culture_rules/node/schedule.py + engine/cron.py",
+      "finding": "cron with an IANA tz is native and fires once per slot mesh-wide, but the event carries only the UTC slot (no local date), and there is no backfill (schedule.py:40-47)",
+      "seeds": [
+        "c7",
+        "c8",
+        "c15"
+      ]
+    },
+    {
+      "id": "s6",
+      "surface": "culture_rules/actors/agent.py (BridgeAgentActor)",
+      "finding": "every bridge step requires repo, head_branch and a hex head_sha (agent.py:726-735), and the bridge exposes tools, so a summary step can't use it; hence a direct OpenAI-compatible call",
+      "seeds": [
+        "c3",
+        "c11",
+        "c20"
+      ]
+    },
+    {
+      "id": "s7",
+      "surface": "culture_rules/model/variable.py",
+      "finding": "variables hold only a scalar or a flat list of scalars (~42-70), so sections are one JSON string parsed by a builtin",
+      "seeds": [
+        "c6",
+        "c12"
+      ]
+    },
+    {
+      "id": "s8",
+      "surface": "culture_rules/model/workflow.py + engine/runs.py (for_each)",
+      "finding": "for_each runs a body per item, sequentially, with a required max_iterations and list outputs per port; it fits one search and one summary per section",
+      "seeds": [
+        "c10",
+        "c11"
+      ]
+    },
+    {
+      "id": "s9",
+      "surface": "culture_rules/actors/limits.py (concurrency_pool)",
+      "finding": "a pool's cap is the smallest max_concurrency of its enabled actors; an llm actor in qwen-spark2 waits behind a running fix (up to 3900 s), which an early-morning send accepts",
+      "seeds": [
+        "c3",
+        "c21"
+      ]
+    },
+    {
+      "id": "s10",
+      "surface": "xteink/server/routes_library.py + routes_admin.py (sibling repo)",
+      "finding": "POST /api/library takes multipart (file, title, author, kind) with Bearer xtk_, stores EPUB as-is up to 50 MiB and dedupes by sha256; POST /api/devices/{id}/queue takes {item_id}; any xtk_ key is a full operator, so the key is dedicated and revocable",
+      "seeds": [
+        "c5",
+        "c14"
+      ]
+    },
+    {
+      "id": "s11",
+      "surface": "xteink-firmware (CrossPoint fork)",
+      "finding": "renders EPUB 2 and 3 with an embedded-style toggle and JPG/PNG images; a newspaper should be plain semantic XHTML, one chapter per section",
+      "seeds": [
+        "c13"
+      ]
+    },
+    {
+      "id": "s12",
+      "surface": "ebooks-cli (sibling repo)",
+      "finding": "only a scaffold, no ingest API yet, so xteink is the target for now",
+      "seeds": [
+        "c5",
+        "c22"
+      ]
+    },
+    {
+      "id": "s13",
+      "surface": "docs/rules/pr-fixer (bundle layout) + culture_rules/io/exchange.py",
+      "finding": "bundles are actors/, workflows/, rules/ plus seeded variables, imported in that order; trusted digests gate only github.push and review, so the newspaper workflow needs none",
+      "seeds": [
+        "c16"
+      ]
+    }
+  ],
+  "lapses": [],
+  "obligations": []
+}
