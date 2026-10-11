@@ -331,3 +331,20 @@ def test_the_seed_script_calls_work_through_the_real_cli(
     capsys.readouterr()
     values = {name: store.get_variable(name)[VALUE] for name in variables()}
     assert values == {name: item[VALUE] for name, item in variables().items()}
+
+
+def test_the_summary_is_skipped_for_a_section_without_results():  # PR #54 review
+    from culture_rules.model import condition as cond
+
+    (summary,) = [s for s in every_step(workflow()) if s.id == "summary"]
+    when = summary.config["when"]
+    ctx = {"deliver": True, "item": {"results": []}}
+    assert cond.evaluate(when, {"trigger": ctx, "variables": ctx}) is False
+
+
+def test_the_summary_runs_for_a_section_with_results():
+    from culture_rules.model import condition as cond
+
+    (summary,) = [s for s in every_step(workflow()) if s.id == "summary"]
+    ctx = {"deliver": True, "item": {"results": [{"url": "https://a.example"}]}}
+    assert cond.evaluate(summary.config["when"], {"trigger": ctx, "variables": ctx}) is True

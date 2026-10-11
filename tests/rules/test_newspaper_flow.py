@@ -34,7 +34,11 @@ from culture_rules.node.actions.newspaper import (
     NewspaperRenderPort,
     NewspaperSectionsPort,
 )
-from culture_rules.node.actions.newspaper_render import SUMMARIES_UNAVAILABLE, SUMMARY_UNAVAILABLE
+from culture_rules.node.actions.newspaper_render import (
+    NO_RESULTS,
+    SUMMARIES_UNAVAILABLE,
+    SUMMARY_UNAVAILABLE,
+)
 from culture_rules.node.actions.search import SearchWebPort
 from culture_rules.node.actors import ACTORS_COLLECTION
 from culture_rules.node.daemon import Node
@@ -686,3 +690,34 @@ def test_a_retry_resumed_25_hours_on_names_the_passed_window():
     ack_lost_then_outage(world)
     email = step_state(finished(world), "email")
     assert (email[STATUS], email["error"]["message"]) == ("skipped", "email_window_passed")
+
+
+# --------------------------------------------------------------------------- an empty section
+
+NOTHING = [
+    {"name": "Edge AI", "queries": ["edge ai"]},
+    {"name": "Nothing", "queries": ["humanoid robot"], "must": ["no result says this"]},
+]
+
+
+def empty_section() -> World:
+    """PR #54 review: the second section's filter keeps no result."""
+    world = World()
+    world.base.put_variable("newspaper_sections", json.dumps(NOTHING), updated_by="test")
+    world.run_until(TODAY + timedelta(minutes=20))
+    return world
+
+
+def test_an_empty_section_makes_no_llm_request():
+    world = empty_section()
+    assert len(world.cortex.requests) == 1
+
+
+def test_an_empty_section_renders_no_results():
+    world = empty_section()
+    assert NO_RESULTS in world.html()
+
+
+def test_an_empty_sections_summary_step_is_skipped_without_an_error():
+    summary = step_state(finished(empty_section()), step_key("summarise", 1, "summary"))
+    assert (summary[STATUS], summary.get("error")) == ("skipped", None)

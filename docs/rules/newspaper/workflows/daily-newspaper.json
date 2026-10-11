@@ -595,17 +595,32 @@
             "idempotent": true,
             "on_error": "skip",
             "when": {
-              "cmp": "==",
-              "left": {
-                "field": "deliver"
-              },
-              "op": "compare",
-              "right": {
-                "literal": true
-              }
+              "op": "and",
+              "args": [
+                {
+                  "cmp": "==",
+                  "left": {
+                    "field": "deliver"
+                  },
+                  "op": "compare",
+                  "right": {
+                    "literal": true
+                  }
+                },
+                {
+                  "op": "compare",
+                  "cmp": "!=",
+                  "left": {
+                    "field": "item.results"
+                  },
+                  "right": {
+                    "literal": []
+                  }
+                }
+              ]
             }
           },
-          "description": "llm.complete: the locked brief, no tools; not_after: past the summary window it fails llm_deadline at once, even while queued behind the pool.",
+          "description": "llm.complete: the locked brief, no tools; not_after: past the summary window it fails llm_deadline at once, even while queued behind the pool. Skipped for a section whose filtered results are empty: it needs no summary and renders \"No results.\".",
           "enabled": true,
           "id": "summary",
           "inputs": [

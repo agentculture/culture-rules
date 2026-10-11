@@ -47,6 +47,8 @@ step is a built-in or an action:
    (`llm.complete` on `newspaper-llm`) writes one bullet per result, each
    linking its source. The brief is locked in code and the request sends no
    tools. Its `not_after` is `summaries_until`: no summary starts after it.
+   A section whose filtered results are empty skips its summary (its `when`
+   needs a non-empty `item.results`), so no request is made for it.
 5. `render` (`newspaper.render`) builds the HTML email body and the EPUB.
    A summary is shown only when every line is a bullet that links one of
    its section's results; otherwise the section shows its results. A
