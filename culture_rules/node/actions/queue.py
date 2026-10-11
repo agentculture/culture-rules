@@ -104,8 +104,10 @@ on ``capacity_exhausted``), each level has its own queue on its own pool. Withou
 * ``queue.add`` puts the request in the queue of the level its try (the key's count plus
   one) is due at - ``config.queue`` when no level is enabled - and keeps one waiting request
   per PR across the level queues: a retry is absorbed by a newer non-retry request waiting
-  in another level's queue; any other request removes the PR's request waiting elsewhere
-  after it is written. Its output also names the ``queue``.
+  in another level's queue; any other request removes the PR's request waiting elsewhere.
+  The add and the removals are one store transaction (re-run whole on a write conflict,
+  bounded), so a concurrent level move never sees half a routing. Its output also names the
+  ``queue``.
 * ``queue.progress`` runs one pass per queue (every level's, disabled levels' included, and
   ``config.queue``), each capped by its level's pool (its ``pool_cap``, else ``cap``).
   At dispatch it counts the try again (the key's count plus one)
@@ -186,6 +188,8 @@ from culture_rules.node.actions.fixer_levels import (
     LevelsError,
     load_ladder,
 )
+from culture_rules.store.port import TransientStoreError
+from culture_rules.store.retry import run_transaction
 
 log = logging.getLogger(__name__)
 
@@ -220,6 +224,7 @@ DEFAULT_STALE_AFTER_S = 900.0
 """How long a dispatched request may wait for its run to appear before its slot is freed."""
 _SEEN_KEEP = 256
 _MAX_CAS_TRIES = 50
+_MAX_TX_TRIES = 10  # whole-transaction re-runs of a queue.add routing (#39, Codex r2 #1)
 _EXPLAIN_MAX = 2000
 _RUNS = "runs"  # culture_rules.engine.runs.RUNS_COLLECTION
 _FIRES = "rule_fires"  # culture_rules.node.firing.RULE_FIRES (the firing intents)
@@ -430,9 +435,37 @@ class QueueAddPort:
         }
         if ladder is None:
             return InvocationResult.completed(self._add(name, request, idempotency_key, stopped))
-        return InvocationResult.completed(
-            self.route(ladder, name, request, idempotency_key, stopped)
-        )
+
+        def refusal(ops: Any) -> str | None:
+            return _stop_refusal(ops, config, repo, number, input, context)
+
+        try:
+            out = self._routed(ladder, name, request, idempotency_key, refusal)
+        except TransientStoreError as exc:
+            return InvocationResult.failed(f"queue_contention: {exc}", retryable=True)
+        return InvocationResult.completed(out)
+
+    def _routed(
+        self,
+        ladder: Ladder,
+        default: str,
+        request: dict[str, Any],
+        ik: str,
+        refusal: Callable[[Any], str | None],
+    ) -> dict[str, Any]:
+        """#39 (Codex round 2 #1): :meth:`route` as **one store transaction** - the add to
+        the due level's queue and every removal of the PR's request from the other level
+        queues commit together, or not at all - re-run whole on a write conflict (bounded:
+        :data:`_MAX_TX_TRIES`; then :class:`TransientStoreError`, a retryable failure).
+        Routed in steps, a ``queue.progress`` pass could move the request just added to
+        another level's queue before the removals ran, and they then removed the moved
+        request: the PR was in no queue. The stop check reads through the transaction too."""
+
+        def body(tx: Any) -> dict[str, Any]:
+            adder = QueueAddPort(tx, clock=self._clock)
+            return adder.route(ladder, default, request, ik, lambda: refusal(tx))
+
+        return run_transaction(self._store, body, attempts=_MAX_TX_TRIES)
 
     def route(
         self,
@@ -447,8 +480,9 @@ class QueueAddPort:
         """#39: put ``request`` in the queue of the level its try is due at (``default``
         without an enabled level). The PR has one waiting request across the level queues:
         a retry is absorbed by a newer non-retry request waiting in another level's queue,
-        and any other request replaces (removes) the PR's request waiting elsewhere, after it
-        is written (so a crash in between leaves two requests, never none). ``exclude`` is a
+        and any other request replaces (removes) the PR's request waiting elsewhere. Call it
+        on a transaction handle (:meth:`_routed`, ``queue.progress``'s move), so the add and
+        the removals commit together. ``exclude`` is a
         queue left alone (the one a request is moved out of); ``target`` the queue to use
         instead of the due level's (a move to the level that takes the try)."""
         if target is None:
@@ -847,8 +881,6 @@ class _Pass:
         """This queue's compare-and-set write; with moves (#39), one transaction with them."""
         if not self.pending_moves:
             return self.queue.write(doc, rev, exists)
-        from culture_rules.store.port import TransientStoreError  # noqa: PLC0415
-
         try:
             with self.store.transaction() as tx:
                 moved = self._move_all(tx, doc, rev, exists)

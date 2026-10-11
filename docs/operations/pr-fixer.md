@@ -872,7 +872,11 @@ and the dispatch event (written only by the queue) names the `level`,
 that level's queue: the pass drops it from its own queue and writes it to
 the other in one store transaction, its own compare-and-set first, so a
 `/fix` landing meanwhile rolls the move back and the pass moves the newer
-request instead. The PR's request is never in no queue.
+request instead. A `/fix` routes the same way: its add to the due level's
+queue and its removal of the PR's request from the other level queues are
+one store transaction (re-run whole on a write conflict, at most 10 times,
+then a retryable `queue_contention`), so a move never lands between them.
+The PR's request is never in no queue.
 
 A level is **unavailable** when its actor is unknown, deleted or disabled,
 when the actor's daily `token_budget` is spent, or while the level is in a
@@ -928,19 +932,26 @@ network share, no cultureagent change):
    agent's commit and descends from the start, packs `start..head` and
    stores it, base64, in the `handoffs` collection. A pack over the cap
    (default 8 MiB, at most 10 MiB) fails `handoff_too_large` and is never
-   stored. Documents older than a day are pruned.
+   stored. Each document carries `expires_at`, a date a day after its last
+   renewal (the export, an import's claim, its receipt).
 3. `handoff_import` (spark2, `handoff.import`): as the gate's fixer user
    (`CULTURE_RULES_GATE_RUN_AS`), in a fresh `mktemp -d` workspace, it
    fetches the start (and base) by SHA from the trusted clone URL, verifies
    the pack's size and sha256 and indexes it with `index-pack --strict`,
    and checks out exactly the agent's commit. Any refusal leaves no
-   worktree. On success it writes an import receipt into the document
-   (`imported`: the step's idempotency key and the worktree) before it
-   returns, and keeps the pack until the export's one-day prune. A replay
-   of the same step (a node that died before recording the result) gets the
-   same worktree back while its `HEAD` is the agent's commit with nothing
-   else in it, else a fresh one rebuilt from the pack; another step
-   importing the same hand-off is refused `handoff_already_imported`.
+   worktree. Before building anything it **claims** the hand-off for its
+   step (a compare-and-set naming the step's idempotency key, which also
+   renews `expires_at`), so another step importing the same hand-off is
+   refused `handoff_already_imported` before any command runs, and no prune
+   takes a hand-off an import is building from. It completes only once its
+   import receipt (`imported`: the step's idempotency key and the worktree)
+   is written into the document; if that write is lost because the
+   hand-off is gone, the step fails `handoff_receipt_lost` (not retryable)
+   and, like a lost claim, removes the worktree it built. The pack is kept
+   until the hand-off expires. A replay of the same step (a node that died
+   before recording the result) gets the same worktree back while its
+   `HEAD` is the agent's commit with nothing else in it, else a fresh one
+   rebuilt from the pack.
 4. `select` hands the gate that worktree; the gate is unchanged and judges
    exactly the commit Codex made (git object ids are content hashes).
 
@@ -951,8 +962,14 @@ Known limits:
   story hands back once; no retry rule covers it.
 - **The size cap is checked after the pack is written** (in the node's
   temp space), not while it is streamed.
-- **An imported pack stays in the store for up to a day** (until the next
-  export's prune), so a replay can rebuild its worktree.
+- **An imported pack stays in the store for about a day** after its
+  receipt, so a replay can rebuild its worktree. On MongoDB a TTL index on
+  `expires_at` (`handoffs_expiry`) deletes expired hand-offs; each export
+  and import also prunes up to 100 expired ones, reading only their ids
+  (never a pack).
+- **An import that runs longer than a day** past its claim could lose its
+  hand-off to the expiry; it then fails `handoff_receipt_lost` rather than
+  report a worktree it cannot replay.
 - **Qwen's read-only is an approval policy**, not a sandbox (see
   [Workflow `review-commit`](#workflow-review-commit)).
 
@@ -1744,7 +1761,7 @@ The operator does this. 0.18.13 adds:
 | Workflows | `queue-add-capacity` (new); `pr-fix`, `review-commit`, `queue-add`, `queue-progress`, `queue-stop` (changed) | `queue-*` are not trusted roles |
 | Variables | `fixer_levels`, `fixer_unavailable`, `fixer_capacity_cooldown_s` | listed in `new_variables`; level 2 seeded disabled |
 | Actors | `codex-fixer` (new, level 2), `qwen-reviewer` (new, reviews Codex tries) | registered by hand, not by `rollout import` |
-| Collections | `handoffs` (hand-off packs, pruned after a day), `fixer_cooldowns`, `queues/pr-fixer-codex` | not in the backup set |
+| Collections | `handoffs` (hand-off packs, expiring a day after their last renewal: TTL index `handoffs_expiry`), `fixer_cooldowns`, `queues/pr-fixer-codex` | not in the backup set |
 
 **Digests that need the operator's approval** (all in
 `culture_rules/actors/trusted.py` except the fixer's, which is not pinned):

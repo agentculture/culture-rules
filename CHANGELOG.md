@@ -28,13 +28,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Review hardening (Codex round 1)
 
 - `queue.progress` writes a request's move to another level's queue and its own queue's compare-and-set in one store transaction, the compare-and-set first: a `/fix` that lands between them rolls the move back (its idempotency key included), and the retried pass moves the newer request. Before, the retry found its move key already seen, added nothing and dropped the source request, so the PR ended in no queue (`tests/node/test_queue_move_race.py`)
-- `handoff.import` writes an import receipt (`imported`: idempotency key, worktree, time) into the hand-off document before returning and keeps the pack until the export's one-day prune, instead of deleting it. A replay with the same idempotency key (a lost acknowledgement) returns the receipt's worktree while it is still exactly `head_after` and clean, else rebuilds one from the pack; another step importing the same hand-off is refused `handoff_already_imported`
+- `handoff.import` writes an import receipt (`imported`: idempotency key, worktree, time) into the hand-off document before returning and keeps the pack (until it expires, a day after the receipt: round 2), instead of deleting it. A replay with the same idempotency key (a lost acknowledgement) returns the receipt's worktree while it is still exactly `head_after` and clean, else rebuilds one from the pack; another step importing the same hand-off is refused `handoff_already_imported`
+
+### Review hardening (Codex round 2)
+
+- `queue.add` with levels routes a request in one store transaction: the add to the due level's queue and the removal of the PR's request from the other level queues commit together, re-run whole on a write conflict (at most 10 times, then a retryable `queue_contention`). Before, a `queue.progress` pass could move the just-refreshed request to another level's queue between the two, and the removal then deleted it: the PR was in no queue (`tests/node/test_queue_fix_race.py`)
+- `handoff.import` claims the hand-off for its step before building anything (a compare-and-set on the document's new `rev`, naming the step's idempotency key, that also renews retention), so a second importer with another key is refused `handoff_already_imported` before any command runs and can no longer overwrite the first one's receipt; a claim lost after building (an export re-ran and another step claimed the replaced document) removes the built workspace
+- `handoff.import` completes only once its receipt is durably written by compare-and-set on its claim; a hand-off pruned meanwhile fails the step `handoff_receipt_lost` (not retryable) and removes the built workspace, instead of reporting a worktree a replay could not find
+- Hand-off retention: each document carries `expires_at` (a date, renewed by the export, an import's claim and its receipt) with a MongoDB TTL index (`handoffs_expiry`); exports and imports also prune at most 100 expired hand-offs through a ranged query that reads only their ids and `rev` (never a pack body: `find_range` gains a `fields` projection on both stores), each deleted after a compare-and-set mark so one an import claimed meanwhile stays (`tests/actors/test_handoff_claims.py`, `tests/actors/test_handoff_mongo.py`)
 
 ### Known limits
 
 - A Codex try that rewrites history fails at the hand-off export (`handoff_not_descendant`) and hands back once: no retry rule covers it
 - The hand-off's size cap is checked only after the pack is written (in the node's temp space), not while it is streamed
-- An imported hand-off pack stays in the `handoffs` collection for up to a day (the export's prune), so a replay can rebuild its worktree
+- An imported hand-off pack stays in the `handoffs` collection for about a day after its receipt (its `expires_at`), so a replay can rebuild its worktree; an import running longer than a day past its claim could lose its hand-off and fails `handoff_receipt_lost`
 - Qwen's read-only is an approval policy (mode `plan`), not a sandbox: the verdict step checks afterwards that the checkout is unchanged
 - The Claude level waits for a cultureagent Claude bridge
 

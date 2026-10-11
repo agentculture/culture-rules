@@ -22,10 +22,18 @@ over ``config.max_bytes`` (default :data:`DEFAULT_MAX_BYTES`, at most
 :data:`MAX_MAX_BYTES`, so the base64 document stays well under MongoDB's 16 MB) fails the
 step ``handoff_too_large`` and is never stored. Otherwise it is stored in
 :data:`HANDOFFS_COLLECTION` as ``{id, pack (base64), size, sha256, start_sha, head_after,
-run_id, step_id, created_at}`` and the step outputs ``handoff_id``, ``size`` and
-``sha256``. The id is derived from the run, the step and ``head_after``, so a re-run
-replaces its own document. Documents older than :data:`HANDOFF_TTL_S` are pruned on each
-export.
+run_id, step_id, created_at, expires_at, rev}`` and the step outputs ``handoff_id``,
+``size`` and ``sha256``. The id is derived from the run, the step and ``head_after``, so a
+re-run replaces its own document. ``rev`` changes on every write (each write to an existing
+hand-off is a compare-and-set on it); ``expires_at`` is a date :data:`HANDOFF_TTL_S` after
+the last write that renewed it (the export, an import's claim, its receipt).
+
+Retention (Codex round 2 #4): where the store has indexes (MongoDB) the hand-offs carry a
+TTL index on ``expires_at`` (:data:`EXPIRY_INDEX`), so the server deletes an expired one on
+its own. Each export and each import also prunes (:func:`prune_handoffs`): a bounded query
+(at most :data:`PRUNE_BATCH`) that selects only the ``id`` and ``rev`` of hand-offs whose
+``expires_at`` has passed - never a pack body - and deletes each after marking it
+``expired`` by compare-and-set on that ``rev``, so one an import claimed meanwhile stays.
 
 ``handoff.import`` (placed on spark2)
 =====================================
@@ -44,16 +52,26 @@ the pack on a descriptor the node opened (``handoff_corrupt``), a check that
 ``head_after`` is now a commit (``handoff_corrupt``) descending from ``start_sha``
 (``handoff_not_descendant``) and a detached checkout whose ``HEAD`` is exactly
 ``head_after`` (``handoff_checkout_failed``). Any refusal removes the workspace: there is
-no ``worktree`` output, so the gate never judges a half-built tree. On success an import
-receipt (``imported: {idempotency_key, worktree, at}``) is written into the handoff
-document before the step outputs ``worktree``, ``start_sha`` and ``commit_sha`` (the gate's
-inputs) plus ``head_before`` and ``head_after`` (the agent step's own names). The pack is
-kept until the export's TTL prune: a replay with the same idempotency key (a lost
+no ``worktree`` output, so the gate never judges a half-built tree.
+
+The import is claimed before anything is built (Codex round 2 #2/#3): a compare-and-set on
+the ``rev`` it read sets ``import_key`` (the invocation's idempotency key) and
+``import_state: importing`` and renews ``expires_at``, so no prune takes the hand-off while
+the import builds. A hand-off another invocation claimed or imported is refused
+``handoff_already_imported`` before any command runs. On success the import receipt
+(``imported: {idempotency_key, worktree, at}``, ``import_state: imported``) is written by
+compare-and-set on the claim's ``rev``, and only then does the step output ``worktree``,
+``start_sha`` and ``commit_sha`` (the gate's inputs) plus ``head_before`` and ``head_after``
+(the agent step's own names). A lost receipt write reads the hand-off again: this
+invocation's own receipt naming another worktree (a concurrent replay) is reported
+instead; a hand-off with no claim (an export re-ran and replaced it) is claimed again;
+another invocation's claim is ``handoff_already_imported`` and a hand-off gone
+``handoff_receipt_lost`` (non-retryable) - each after removing the workspace built here.
+The pack is kept until the hand-off expires: a replay with the same idempotency key (a lost
 acknowledgement) passes the same checks, then returns the receipt's worktree while its
 ``HEAD`` is still ``head_after`` with nothing else in it, else removes it and rebuilds one
-from the pack; another invocation is refused ``handoff_already_imported``. The gate then
-judges exactly the commit the Codex fixer made: git object ids are content hashes, and
-``index-pack --strict`` verifies every one.
+from the pack. The gate then judges exactly the commit the Codex fixer made: git object
+ids are content hashes, and ``index-pack --strict`` verifies every one.
 """
 
 from __future__ import annotations
@@ -66,7 +84,9 @@ import re
 import shlex
 import shutil
 import tempfile
+import uuid
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import IO, Any
@@ -92,17 +112,21 @@ log = logging.getLogger(__name__)
 
 __all__ = [
     "DEFAULT_MAX_BYTES",
+    "EXPIRY_INDEX",
     "EXPORT_BUILTIN",
     "HANDOFFS_COLLECTION",
     "HANDOFF_RUN_AS_ENV",
     "HANDOFF_TTL_S",
     "IMPORT_BUILTIN",
     "MAX_MAX_BYTES",
+    "PRUNE_BATCH",
     "WORKTREE_TTL_MIN",
     "HandoffExportPort",
     "HandoffImportPort",
+    "ensure_handoff_expiry",
     "handoff_id",
     "handoff_run_as_from_env",
+    "prune_handoffs",
 ]
 
 EXPORT_BUILTIN = "handoff.export"
@@ -123,6 +147,24 @@ _HANDOFF_CORRUPT = "handoff_corrupt"
 _NOT_DESCENDANT = "handoff_not_descendant"
 _CHECKOUT_FAILED = "handoff_checkout_failed"
 _SOURCE_UNAVAILABLE = "handoff_source_unavailable"
+_MISSING = "handoff_missing"
+_ALREADY_IMPORTED = "handoff_already_imported"
+_RECEIPT_LOST = "handoff_receipt_lost"
+_EXPIRES_AT = "expires_at"
+EXPIRY_INDEX = "handoffs_expiry"
+"""The MongoDB TTL index on ``expires_at`` (a date) that deletes an expired hand-off."""
+PRUNE_BATCH = 100
+"""At most this many expired hand-offs are pruned by one export or import."""
+_REV, _IMPORT_KEY, _IMPORT_STATE, _RECEIPT, _WORKTREE = (
+    "rev",
+    "import_key",
+    "import_state",
+    "imported",
+    "worktree",
+)
+_PRUNE_FIELDS = ("id", _REV)  # what the prune reads of an expired hand-off: never its pack
+_CLAIM_TRIES = 8
+_IMPORTING, _IMPORTED, _EXPIRED = "importing", _RECEIPT, "expired"
 
 
 def handoff_id(run_id: str, step_id: str, head_after: str) -> str:
@@ -175,12 +217,48 @@ def _max_bytes(config: Mapping[str, Any]) -> int:
     return cap
 
 
-def _expired(created_at: Any, cutoff: datetime) -> bool:
-    """Whether a document stamped ``created_at`` is older than ``cutoff`` (unreadable: yes)."""
-    try:
-        return datetime.fromisoformat(str(created_at)) < cutoff
-    except (TypeError, ValueError):
-        return True
+def _new_rev() -> str:
+    return uuid.uuid4().hex
+
+
+def ensure_handoff_expiry(store: Any) -> None:
+    """Create :data:`EXPIRY_INDEX` (a TTL index on ``expires_at``) where the store supports
+    indexes (MongoDB): the server then deletes an expired hand-off on its own."""
+    ensure = getattr(store, "ensure_index", None)
+    if callable(ensure):
+        ensure(HANDOFFS_COLLECTION, [(_EXPIRES_AT, 1)], name=EXPIRY_INDEX, ttl_seconds=0)
+
+
+def prune_handoffs(store: Any, now: datetime) -> int:
+    """Codex round 2 #4: delete up to :data:`PRUNE_BATCH` hand-offs whose ``expires_at`` has
+    passed; how many. The query selects only ``id`` and ``rev`` of the expired ones (on
+    MongoDB through the TTL index's field), never a pack body. Each is first marked
+    ``expired`` by compare-and-set on the ``rev`` it was read with, so a hand-off an import
+    claimed (or renewed) since the query is kept, and an import that reads a marked one sees
+    it missing. A store without ranged reads prunes nothing here (its TTL index, if any,
+    does)."""
+    ranged = getattr(store, "find_range", None)
+    if not callable(ranged):
+        return 0
+    expired = ranged(
+        HANDOFFS_COLLECTION,
+        None,
+        field=_EXPIRES_AT,
+        upto=now,
+        limit=PRUNE_BATCH,
+        fields=_PRUNE_FIELDS,
+    )
+    pruned = 0
+    for doc in expired:
+        mark = {_REV: _new_rev(), _IMPORT_STATE: _EXPIRED}
+        if store.update_if(HANDOFFS_COLLECTION, doc["id"], {_REV: doc.get(_REV)}, mark).won:
+            pruned += int(store.delete(HANDOFFS_COLLECTION, doc["id"]))
+    return pruned
+
+
+def _live(doc: Mapping[str, Any] | None) -> Mapping[str, Any] | None:
+    """``doc`` unless it is gone or marked ``expired`` by a prune."""
+    return None if doc is None or doc.get(_IMPORT_STATE) == _EXPIRED else doc
 
 
 def _own_worktree(path: str) -> bool:
@@ -280,6 +358,15 @@ def _descends(call: _Call, cwd: str, start: str, head: str, missing_code: str) -
         raise _Refusal(missing_code, f"git merge-base failed (exit {rc}): {tail}")
 
 
+def _taken(doc_id: str) -> _Refusal:
+    return _Refusal(_ALREADY_IMPORTED, f"handoff {doc_id} was imported by another step")
+
+
+def _receipt(doc: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    receipt = doc.get(_RECEIPT)
+    return receipt if isinstance(receipt, Mapping) else None
+
+
 class _Port:
     """What both built-ins share: the run-as seam, its refusals and the result shape."""
 
@@ -302,6 +389,11 @@ class _Port:
         ensure = getattr(store, "ensure_collections", None)
         if callable(ensure):
             ensure(HANDOFFS_COLLECTION)
+        ensure_handoff_expiry(store)
+
+    def _expiry(self) -> datetime:
+        """When a hand-off written now expires: :data:`HANDOFF_TTL_S` on (a date)."""
+        return self._clock() + timedelta(seconds=HANDOFF_TTL_S)
 
     def invoke(
         self,
@@ -348,7 +440,7 @@ class HandoffExportPort(_Port):
         self, input: Mapping[str, Any], deadline: datetime, context: InvocationContext, ik: str
     ) -> dict[str, Any]:
         del ik  # a re-run replaces its own document (the id is derived from the step)
-        worktree = _abs_path(input, "worktree")
+        worktree = _abs_path(input, _WORKTREE)
         start, head = _sha_input(input, "start_sha"), _sha_input(input, "head_after")
         cap = _max_bytes(context.config or {})
         runner = self._runner()
@@ -400,7 +492,7 @@ class HandoffExportPort(_Port):
     ) -> dict[str, Any]:
         doc_id = handoff_id(context.run_id, context.step_id, head)
         digest = hashlib.sha256(pack).hexdigest()
-        self._prune()
+        prune_handoffs(self._store, self._clock())
         self._store.put(
             HANDOFFS_COLLECTION,
             {
@@ -413,16 +505,25 @@ class HandoffExportPort(_Port):
                 "run_id": context.run_id,
                 "step_id": context.step_id,
                 "created_at": self._clock().isoformat(),
+                _EXPIRES_AT: self._expiry(),
+                _REV: _new_rev(),
             },
         )
         return {"handoff_id": doc_id, "size": len(pack), "sha256": digest}
 
-    def _prune(self) -> None:
-        """Delete handoffs older than :data:`HANDOFF_TTL_S` (an import never came)."""
-        cutoff = self._clock() - timedelta(seconds=HANDOFF_TTL_S)
-        for doc in self._store.find(HANDOFFS_COLLECTION):
-            if _expired(doc.get("created_at"), cutoff):
-                self._store.delete(HANDOFFS_COLLECTION, doc["id"])
+
+@dataclass(frozen=True)
+class _Want:
+    """The hand-off one import asks for: its document id and commits."""
+
+    doc_id: str
+    start: str
+    head: str
+
+    def guard(self, rev: Any) -> dict[str, Any]:
+        """The compare-and-set guard: the document as last read (``rev``), still naming
+        these commits."""
+        return {_REV: rev, "start_sha": self.start, "head_after": self.head}
 
 
 class HandoffImportPort(_Port):
@@ -476,28 +577,117 @@ class HandoffImportPort(_Port):
         del context  # the import reads only its inputs and the stored handoff
         doc_id, start, head, base, url = self._inputs(input)
         runner = self._runner()
+        prune_handoffs(self._store, self._clock())  # #4: retention is bounded on import too
+        want = _Want(doc_id, start, head)
         doc, pack = self._verified_pack(doc_id, start, head)
-        receipt = doc.get("imported") if isinstance(doc.get("imported"), Mapping) else None
-        if receipt is not None and receipt.get("idempotency_key") != ik:
-            raise _Refusal(
-                "handoff_already_imported", f"handoff {doc_id} was imported by another step"
-            )
+        rev, receipt = self._claim(want, doc, ik)
         tmp = tempfile.mkdtemp(prefix="culture-rules-handoff-")
         try:
             call = _Call(runner, tmp, deadline, self._clock)
             worktree = self._intact(call, receipt, head)
             if worktree is None:
                 worktree = self._build(call, tmp, pack, url, (start, base, head))
+            worktree = self._record(call, want, rev, ik, worktree)
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
-        self._record(doc, ik, worktree)
         return {
-            "worktree": worktree,
+            _WORKTREE: worktree,
             "start_sha": start,
             "commit_sha": head,
             "head_before": start,
             "head_after": head,
         }
+
+    def _claim(
+        self, want: _Want, doc: Mapping[str, Any], ik: str
+    ) -> tuple[str, Mapping[str, Any] | None]:
+        """Codex round 2 #2/#3: claim the hand-off for this invocation **before** anything
+        is built - a compare-and-set on the ``rev`` it was read with - and renew its
+        retention (``expires_at``) so no prune takes it while the import builds. Another
+        invocation's claim or receipt refuses ``handoff_already_imported``; this
+        invocation's own (a replay) is renewed. Returns the claim's ``rev`` and this
+        invocation's earlier receipt, if any."""
+        for _ in range(_CLAIM_TRIES):
+            holder = doc.get(_IMPORT_KEY)
+            if holder is not None and holder != ik:
+                raise _taken(want.doc_id)
+            rev = _new_rev()
+            changes: dict[str, Any] = {_REV: rev, _EXPIRES_AT: self._expiry()}
+            if holder is None:
+                changes.update({_IMPORT_KEY: ik, _IMPORT_STATE: _IMPORTING, _RECEIPT: None})
+            res = self._store.update_if(
+                HANDOFFS_COLLECTION, want.doc_id, want.guard(doc.get(_REV)), changes
+            )
+            if res.won:
+                return rev, _receipt(doc) if holder == ik else None
+            current = _live(self._store.get(HANDOFFS_COLLECTION, want.doc_id))
+            if current is None:
+                raise _Refusal(_MISSING, f"no handoff {want.doc_id}")
+            doc = current
+        raise _Refusal("handoff_contention", f"handoff {want.doc_id} kept changing", retryable=True)
+
+    def _record(self, call: _Call, want: _Want, rev: str, ik: str, worktree: str) -> str:
+        """Codex round 1 #2, round 2 #2/#3: write the import receipt (``imported:
+        {idempotency_key, worktree, at}``) by compare-and-set on the claim's ``rev``; the
+        step completes only once it is durably recorded. On a lost compare-and-set the
+        document is read again: this invocation's own receipt naming another worktree (a
+        concurrent replay won) is returned instead; a document without a claim (an
+        export re-ran and replaced it) is claimed again; another invocation's claim fails
+        ``handoff_already_imported`` and a document gone (pruned) ``handoff_receipt_lost``
+        (non-retryable: a replay would find nothing to import) - each after removing the
+        worktree built here. Returns the worktree the step reports."""
+        receipt = {"idempotency_key": ik, _WORKTREE: worktree, "at": self._clock().isoformat()}
+        for _ in range(_CLAIM_TRIES):
+            changes = {
+                _REV: _new_rev(),
+                _IMPORT_KEY: ik,
+                _IMPORT_STATE: _IMPORTED,
+                _RECEIPT: receipt,
+                _EXPIRES_AT: self._expiry(),
+            }
+            if self._store.update_if(
+                HANDOFFS_COLLECTION, want.doc_id, want.guard(rev), changes
+            ).won:
+                return worktree
+            doc = _live(self._store.get(HANDOFFS_COLLECTION, want.doc_id))
+            theirs = self._settled(call, want, doc, ik, worktree)
+            if theirs is not None:
+                return theirs
+            rev = doc.get(_REV) if doc is not None else rev
+        self._discard(call, worktree)
+        raise _Refusal(_RECEIPT_LOST, f"the import receipt of {want.doc_id} kept losing")
+
+    def _settled(
+        self,
+        call: _Call,
+        want: _Want,
+        doc: Mapping[str, Any] | None,
+        ik: str,
+        worktree: str,
+    ) -> str | None:
+        """After a lost receipt write: the worktree to report when this invocation's own
+        receipt already stands, None to write again; raises (removing ``worktree``) when the
+        hand-off is gone or another invocation holds it."""
+        if doc is None:
+            self._discard(call, worktree)
+            raise _Refusal(_RECEIPT_LOST, f"handoff {want.doc_id} was pruned during the import")
+        holder = doc.get(_IMPORT_KEY)
+        if holder is not None and holder != ik:
+            self._discard(call, worktree)
+            raise _taken(want.doc_id)
+        mine = _receipt(doc) if doc.get(_IMPORT_STATE) == _IMPORTED else None
+        path = (mine or {}).get(_WORKTREE)
+        if holder == ik and isinstance(path, str):
+            if path != worktree:
+                self._discard(call, worktree)
+            return path
+        return None
+
+    @staticmethod
+    def _discard(call: _Call, worktree: str) -> None:
+        """Remove the workspace of a worktree this import will not report."""
+        if _own_worktree(worktree):
+            call.remove(os.path.dirname(worktree))
 
     def _build(
         self,
@@ -523,7 +713,7 @@ class HandoffImportPort(_Port):
         built it (a replay after a lost acknowledgement) and it is still exactly
         ``head_after`` with nothing else in it; None otherwise, and a changed one is removed
         (the replay builds a fresh one from the retained pack)."""
-        path = (receipt or {}).get("worktree")
+        path = (receipt or {}).get(_WORKTREE)
         if not isinstance(path, str) or not _own_worktree(path):
             return None
         rc, out, _ = call.run(_hard_git("-C", path, "rev-parse", "--verify", _HEAD_COMMIT), cwd="/")
@@ -535,25 +725,12 @@ class HandoffImportPort(_Port):
         call.remove(os.path.dirname(path))
         return None
 
-    def _record(self, doc: Mapping[str, Any], ik: str, worktree: str) -> None:
-        """Codex round 1 #2: the import receipt, written into the handoff document before the
-        result is returned. The pack stays (the export's TTL prunes it), so a replay with the
-        same idempotency key returns this worktree, or rebuilds it, instead of failing
-        ``handoff_missing``. Best effort: a document replaced or pruned meanwhile keeps its
-        own state."""
-        receipt = {"idempotency_key": ik, "worktree": worktree, "at": self._clock().isoformat()}
-        res = self._store.update_if(
-            HANDOFFS_COLLECTION, doc["id"], {"sha256": doc.get("sha256")}, {"imported": receipt}
-        )
-        if not res.won:
-            log.warning("handoff: the import receipt of %s was not recorded", doc["id"])
-
     def _verified_pack(self, doc_id: str, start: str, head: str) -> tuple[Mapping[str, Any], bytes]:
         """The stored document and its pack, when the document names these commits and its
         bytes are intact."""
-        doc = self._store.get(HANDOFFS_COLLECTION, doc_id)
+        doc = _live(self._store.get(HANDOFFS_COLLECTION, doc_id))
         if doc is None:
-            raise _Refusal("handoff_missing", f"no handoff {doc_id}")
+            raise _Refusal(_MISSING, f"no handoff {doc_id}")
         if doc.get("start_sha") != start or doc.get("head_after") != head:
             raise _Refusal("handoff_mismatch", "the handoff names other commits than the step")
         try:
