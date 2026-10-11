@@ -16,6 +16,7 @@ from pathlib import Path
 
 from culture_rules.actors.gate import GUARD, NO_GATE, PASS
 from culture_rules.actors.merge_hint import COPIED_BASE_LEAD
+from culture_rules.store.memory import MemoryStore
 from tests.actors.test_gate import (  # noqa: F401 - fixtures
     GIT_ENV,
     PASSING,
@@ -618,3 +619,112 @@ def test_d36_one_set_of_raw_diff_flags():
 
     assert gate._DIFF_RAW == ("diff", "--no-ext-diff", "--no-textconv", "--no-renames", "-z")
     assert not hasattr(gate, "_NAMES")
+
+
+# --------------------------------------------------------------------------- #59: version bumps
+
+
+def pyproject(version: str, deps: str = "") -> str:
+    return f'[project]\nname = "demo"\nversion = "{version}"\ndependencies = [{deps}]\n'
+
+
+def uv_lock(own: str, other: str = "1.0.0") -> str:
+    return (
+        'version = 1\n\n[[package]]\nname = "dep"\nversion = "' + other + '"\n\n'
+        '[[package]]\nname = "demo"\nversion = "' + own + '"\nsource = { editable = "." }\n'
+    )
+
+
+def bumped_on_both_sides(repo: Repo, main_version: str = "0.2.0") -> None:
+    """The PR and main both bump 0.1.0 -> 0.2.0 and both add a CHANGELOG entry (the live
+    culture-rules-tester#6 shape): pyproject.toml merges cleanly, CHANGELOG.md conflicts."""
+    git(repo.wt, "checkout", "-q", "--detach", repo.base)
+    repo.base = repo.commit(
+        "versioned", {"pyproject.toml": pyproject("0.1.0"), "uv.lock": uv_lock("0.1.0")}
+    )
+    git(repo.wt, "checkout", "-q", "--detach", repo.base)
+    repo.start = repo.commit(
+        "pr bumps",
+        {
+            "pyproject.toml": pyproject("0.2.0"),
+            "uv.lock": uv_lock("0.2.0"),
+            "CHANGELOG.md": "## 0.2.0\n- the PR's feature\n",
+        },
+    )
+    repo.main_files = {
+        "pyproject.toml": pyproject(main_version),
+        "uv.lock": uv_lock(main_version),
+        "CHANGELOG.md": "## 0.2.0\n- main's feature\n",
+    }
+
+
+RESOLVED_LOG = "## 0.3.0\n- the PR's feature\n\n## 0.2.0\n- main's feature\n"
+
+
+def test_59_a_conflict_merge_may_bump_the_version_both_sides_bumped(
+    store, tmp_path, clock  # noqa: F811
+):
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    bumped_on_both_sides(repo)
+    resolve = {"CHANGELOG.md": RESOLVED_LOG, "pyproject.toml": pyproject("0.3.0")}
+    merge_base_in(repo, repo.main_files, resolve=resolve)
+    out = judge(store, LocalRunner(), repo, tmp_path, clock)
+    assert out["verdict"] == PASS, out.get("violations")
+
+
+def test_59_the_lockfile_may_follow_the_projects_own_version(clock, tmp_path):  # noqa: F811
+    locked = MemoryStore(clock=clock)
+    locked.put_variable("fixer_protected_paths", ["pyproject.toml", "uv.lock"], updated_by="t")
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    bumped_on_both_sides(repo)
+    resolve = {
+        "CHANGELOG.md": RESOLVED_LOG,
+        "pyproject.toml": pyproject("0.3.0"),
+        "uv.lock": uv_lock("0.3.0"),
+    }
+    merge_base_in(repo, repo.main_files, resolve=resolve)
+    out = judge(locked, LocalRunner(), repo, tmp_path, clock)
+    assert out["verdict"] == PASS, out.get("violations")
+
+
+def test_59_another_packages_lock_version_is_still_guarded(clock, tmp_path):  # noqa: F811
+    locked = MemoryStore(clock=clock)
+    locked.put_variable("fixer_protected_paths", ["pyproject.toml", "uv.lock"], updated_by="t")
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    bumped_on_both_sides(repo)
+    resolve = {
+        "CHANGELOG.md": RESOLVED_LOG,
+        "pyproject.toml": pyproject("0.3.0"),
+        "uv.lock": uv_lock("0.3.0", other="9.9.9"),
+    }
+    merge_base_in(repo, repo.main_files, resolve=resolve)
+    out = judge(locked, LocalRunner(), repo, tmp_path, clock)
+    assert [(v["rule"], v["path"]) for v in out["violations"]] == [("protected_path", "uv.lock")]
+
+
+def test_59_any_other_pyproject_change_is_still_guarded(store, tmp_path, clock):  # noqa: F811
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    bumped_on_both_sides(repo)
+    resolve = {"CHANGELOG.md": RESOLVED_LOG, "pyproject.toml": pyproject("0.3.0", '"evil"')}
+    merge_base_in(repo, repo.main_files, resolve=resolve)
+    out = judge(store, LocalRunner(), repo, tmp_path, clock)
+    assert (out["verdict"], out["rule"]) == (GUARD, "protected_path")
+
+
+def test_59_without_a_version_collision_the_bump_is_guarded(store, tmp_path, clock):  # noqa: F811
+    """Main left the version alone, so the merge has no version to reconcile."""
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    bumped_on_both_sides(repo, main_version="0.1.0")
+    resolve = {"CHANGELOG.md": RESOLVED_LOG, "pyproject.toml": pyproject("0.3.0")}
+    merge_base_in(repo, repo.main_files, resolve=resolve)
+    out = judge(store, LocalRunner(), repo, tmp_path, clock)
+    assert (out["verdict"], out["rule"]) == (GUARD, "protected_path")
+
+
+def test_59_a_plain_commit_still_may_not_bump_the_version(store, tmp_path, clock):  # noqa: F811
+    repo = Repo(tmp_path, gate_yaml([PASSING]))
+    bumped_on_both_sides(repo)
+    git(repo.wt, "checkout", "-q", "--detach", repo.start)
+    repo.commit("bump", {"pyproject.toml": pyproject("0.3.0")})
+    out = judge(store, LocalRunner(), repo, tmp_path, clock)
+    assert (out["verdict"], out["rule"]) == (GUARD, "protected_path")

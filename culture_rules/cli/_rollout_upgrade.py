@@ -136,6 +136,9 @@ def _subprocess_runner(argv: Sequence[str], timeout: float) -> Result:
 _RUNNER: Runner = _subprocess_runner
 _SLEEP: Callable[[float], None] = time.sleep
 _HOSTNAME: Callable[[], str] = socket.gethostname
+#: #60: the API can take over a minute to stop on SIGTERM (70-80 s seen); the restart waits
+#: past systemd's default stop timeout (90 s) with room to spare.
+RESTART_TIMEOUT_S = 240.0
 
 
 def set_runner(runner: Runner) -> Runner:
@@ -199,7 +202,11 @@ def _shared_venv_commands(wheel: Path, venv: Path) -> list[Command]:
             ),
             600.0,
         ),
-        Command("restart the API and the node", ("systemctl", "--user", "restart", *UNITS)),
+        Command(
+            "restart the API and the node",
+            ("systemctl", "--user", "restart", *UNITS),
+            RESTART_TIMEOUT_S,
+        ),
         Command(READ_VERSION, (str(venv / "bin" / "culture-rules"), "--version")),
         Command("read the units' state", ("systemctl", "--user", "show", *UNITS, *_SHOW)),
     ]

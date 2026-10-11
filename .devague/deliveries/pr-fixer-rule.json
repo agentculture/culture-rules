@@ -2,7 +2,7 @@
   "plan_slug": "pr-fixer-rule",
   "schema_version": 2,
   "created": "2026-10-06T08:44:59Z",
-  "updated": "2026-10-10T20:27:43Z",
+  "updated": "2026-10-11T15:15:20Z",
   "deviations": [
     {
       "id": "d1",
@@ -520,6 +520,17 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 134
+    },
+    {
+      "id": "d40",
+      "what": "(a) In a merge from base where both parents moved the project's version from their merge base, a protected root pyproject.toml or uv.lock that differs from each parent only on the project's own version line is not a protected_path violation; any other change to them is still guarded. (b) queue.add gives a first request its instruction as task, and pr-fixer-review-commit passes the try's task as the reviewer's pr_intent, so the reviewer judges the story's original task, never retry text",
+      "task_ref": "t13",
+      "reason": "Operator decision 2026-10-11 on #59 (both (a) and (b)): live on culture-rules-tester#6/#8 (0.18.13, levels mode) the conflict instruction's version bump was guarded on every try, and after a guard retry codex-reviewer judged the retry's 'revert these changes' text and refused a correct merge",
+      "affects": [],
+      "origin": "user",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 135
     }
   ],
   "evidence": [

@@ -706,3 +706,17 @@ def test_a_user_at_alias_target_is_accepted(wire, store, capsys, fake, wheel):  
     )
     out = jrun(capsys, "rollout", "upgrade", "--host", "orin", "--wheel", str(wheel))
     assert out["would"][1][-1].startswith("orin@orin:")
+
+
+# --------------------------------------------------------------------------- #60
+
+
+def test_the_shared_venv_restart_outlasts_a_slow_api_stop(tmp_path):
+    """#60: the API took 70-80 s to stop on SIGTERM, past the old 60 s command timeout, so a
+    good upgrade was recorded as failed. The restart waits past systemd's default stop
+    timeout (90 s) with room to spare."""
+    cmds = up.commands(
+        {"name": "spark", "install": {"mode": "shared_venv"}}, tmp_path / "w.whl", VERSION
+    )
+    (restart,) = [c for c in cmds if c.what == "restart the API and the node"]
+    assert restart.timeout >= up.RESTART_TIMEOUT_S >= 180

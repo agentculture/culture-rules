@@ -1009,6 +1009,10 @@ for a passing gate (or no gate) whose diff is the whole change:
    digest, read-only, **never the implementer's actor or backend** (a Codex
    try reviewed by Codex fails), the locked brief, the same commit and diff. A request for changes
    becomes the re-fix's instruction: the findings, then "The original task".
+   The reviewer judges the story's **original task** (`pr_intent` is the try's
+   `task`), never a guard or gate retry's text: `queue.add` gives a first
+   request its own instruction as `task`, and every retry and re-fix carries
+   it (#59).
    If the PR's attempt budget is already spent, no re-fix would be admitted,
    so the step fails `changes_requested` with the findings, and that one
    hand-back ends the chain.
@@ -1515,7 +1519,12 @@ above name:
      against the clean merge of its two parents, conflicted files against both
      parents (a conflict marker left is `conflict_unresolved`, a binary or
      mode conflict `conflict_not_text`); `github.push` exempts only that
-     merge's second-parent history from `commit_author`. On `pass` and `no_gate` the gate then
+     merge's second-parent history from `commit_author`. When both parents
+     moved the project's version from their merge base (both sides bumped),
+     the merge may set a new version: a protected root `pyproject.toml` or
+     `uv.lock` that differs from each parent only on the project's own
+     version line is not a `protected_path` violation (#59). Any other change
+     to them still is. On `pass` and `no_gate` the gate then
      builds **one commit itself** (`git commit-tree`): the agent tip's tree on
      the PR head and nothing else of the agent's. Author and committer are the
      App bot (`commit_identity`, default the `rules-culture-dev[bot]`

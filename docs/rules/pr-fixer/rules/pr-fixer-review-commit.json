@@ -116,7 +116,7 @@
       "head_branch": "trigger.data.outputs.head_branch",
       "head_sha": "trigger.data.outputs.start_sha",
       "number": "trigger.data.number",
-      "pr_intent": "trigger.data.outputs.instruction",
+      "pr_intent": "trigger.data.outputs.task",
       "repo": "trigger.data.repository",
       "reviewer": "trigger.data.outputs.reviewer",
       "threads": "trigger.data.outputs.threads",

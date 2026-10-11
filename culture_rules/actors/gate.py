@@ -131,6 +131,11 @@ Run over ``start_sha..commit_sha`` before any test command, in this order:
     are gitignore-like globs: ``*`` and ``?`` stay inside one path segment, ``**`` crosses
     segments, a pattern without a ``/`` matches a basename at any depth, a leading ``/``
     anchors at the root, and a pattern that names a directory covers everything under it.
+    One waiver (#59): in a merge from base where **both** parents moved the project's
+    version from their merge base, a root ``pyproject.toml`` or ``uv.lock`` that differs
+    from each parent only on the project's own version line (``[project]``'s ``version``;
+    the ``version`` of the ``[[package]]`` named like the project) is not a violation, so
+    the merge can settle the version collision. Any other change to them is guarded.
 ``test_deleted``
     a test file (``test_*.py``, ``*_test.py``, ``*.test.ts``, ``*.spec.js``,
     ``__tests__/``, ``*_test.go``, ...) was deleted, or renamed to a non-test path.
@@ -184,6 +189,7 @@ import signal
 import subprocess  # nosec B404 - argv lists only, shell=False
 import tempfile
 import time
+import tomllib
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
@@ -1440,6 +1446,105 @@ def _guard_conflicts(
     return found
 
 
+# --------------------------------------------------------------------------- #59: version bumps
+
+#: The version files a merge from base may bump when both sides bumped the version (#59).
+VERSION_FILES: tuple[str, ...] = ("pyproject.toml", "uv.lock")
+_TABLE = re.compile(r"^\s*\[\[?\s*([^\]]+?)\s*\]\]?\s*(?:#.*)?$")
+_KEY_VALUE = re.compile(r'^\s*(name|version)\s*=\s*"([^"\n]*)"\s*(?:#.*)?$')
+_MASK = 'version = "<version>"'
+
+
+def _normalized_name(name: str) -> str:
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def _project(pyproject: str | None) -> tuple[str, str] | None:
+    """``(name, version)`` of a ``pyproject.toml``'s ``[project]`` table, or None."""
+    try:
+        project = tomllib.loads(pyproject or "").get("project")
+    except tomllib.TOMLDecodeError:
+        return None
+    if not isinstance(project, dict):
+        return None
+    name, version = project.get("name"), project.get("version")
+    if isinstance(name, str) and isinstance(version, str):
+        return _normalized_name(name), version
+    return None
+
+
+def _tables(lines: list[str]) -> list[tuple[str, dict[str, list[int]]]]:
+    """Each TOML table (``[x]`` or ``[[x]]``) with the rows of its ``name`` and ``version``
+    string keys."""
+    tables: list[tuple[str, dict[str, list[int]]]] = []
+    for i, line in enumerate(lines):
+        if table := _TABLE.match(line):
+            tables.append((table.group(1), {}))
+        elif tables and (kv := _KEY_VALUE.match(line)):
+            tables[-1][1].setdefault(kv.group(1), []).append(i)
+    return tables
+
+
+def _is_own_table(path: str, table: str, names: list[str], name: str) -> bool:
+    if path == "pyproject.toml":
+        return table == "project"
+    return table == "package" and [_normalized_name(n) for n in names] == [name]
+
+
+def mask_version(path: str, text: str, name: str) -> str | None:
+    """``text`` with the project's own version line replaced by a placeholder: the
+    ``version`` of ``[project]`` in ``pyproject.toml``, of the ``[[package]]`` named ``name``
+    in ``uv.lock``. None unless exactly one such line exists (#59)."""
+    lines = text.split("\n")
+    hits: list[int] = []
+    for table, rows in _tables(lines):
+        names = [_KEY_VALUE.match(lines[i]).group(2) for i in rows.get("name", [])]
+        if _is_own_table(path, table, names, name):
+            hits += rows.get("version", [])
+    if len(hits) != 1:
+        return None
+    lines[hits[0]] = _MASK
+    return "\n".join(lines)
+
+
+def _blob(job: _Job, sha: str, path: str) -> str | None:
+    rc, data = job.git_rc("cat-file", "blob", f"{sha}:{_literal(path)}")
+    return data.decode("utf-8", errors="replace") if rc == 0 else None
+
+
+def _waive_version_bump(
+    job: _Job, parents: tuple[str, str], commit: str, found: list[Violation]
+) -> list[Violation]:
+    """#59: a merge from base may move the project's own version when **both** parents moved
+    it from their merge base (a version collision the merge has to settle). A
+    ``protected_path`` violation on a root :data:`VERSION_FILES` file is waived when that
+    file differs from **each** parent only on the project's own version line; any other
+    change to it is still guarded."""
+    hits = {v.path for v in found if v.rule == "protected_path" and v.path in VERSION_FILES}
+    if not hits:
+        return found
+    rc, out = job.git_rc("merge-base", *parents)
+    if rc != 0:
+        return found
+    ancestor = out.decode().strip()
+    seen = [_project(_blob(job, sha, "pyproject.toml")) for sha in (ancestor, *parents)]
+    if any(p is None for p in seen) or len({p[0] for p in seen}) != 1:
+        return found
+    (name, base_v), (_, start_v), (_, second_v) = seen
+    if start_v == base_v or second_v == base_v:
+        return found  # one side left the version alone: nothing to reconcile
+    waived = set()
+    for path in hits:
+        new = _blob(job, commit, path)
+        masked = mask_version(path, new, name) if new is not None else None
+        olds = [_blob(job, sha, path) for sha in parents]
+        if masked is not None and all(
+            old is not None and mask_version(path, old, name) == masked for old in olds
+        ):
+            waived.add(path)
+    return [v for v in found if not (v.rule == "protected_path" and v.path in waived)]
+
+
 class GatePort:
     """ActorPort for the built-in ``gate`` code step (see the module docstring)."""
 
@@ -1982,7 +2087,7 @@ class GatePort:
         )
         if merge.conflicted:
             found += _guard_conflicts(job, (start, second), commit, merge.conflicted, patterns)
-        return list(dict.fromkeys(found))
+        return _waive_version_bump(job, (start, second), commit, list(dict.fromkeys(found)))
 
     def _workspace(self, job: _Job) -> str:
         """The fixer's own fresh ``mktemp -d`` workspace; the caller removes it.
