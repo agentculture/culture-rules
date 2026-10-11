@@ -2,7 +2,7 @@
   "plan_slug": "rollout-cli",
   "schema_version": 2,
   "created": "2026-10-10T21:41:12Z",
-  "updated": "2026-10-10T22:36:23Z",
+  "updated": "2026-10-11T03:53:26Z",
   "deviations": [
     {
       "id": "d1",
@@ -46,7 +46,7 @@
         "t5"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 4
     }
