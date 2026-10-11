@@ -37,6 +37,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `llm.complete` checks `not_after` after it resolves the bearer token's grant, just before the request (P2). A lookup that blocks past `not_after` fails `llm_deadline` without a request, and the request's timeout is what remains after the lookup
 - A completed `llm.complete` replays after `not_after` (P2). `LimitedActor` asks the inner port's new `replay(idempotency_key)` before `refuse_before_admit` and before admission, so a completion re-asked after a lost acknowledgement returns its result instead of `llm_deadline`, without taking a slot, pooled or not
 
+### Review hardening (Codex round 3)
+
+- The 23-hour resend window now bounds every send, not only the fence (P1). A run whose email step was waiting to retry after a lost acknowledgement, resumed by a node that was down for a day, retried with the fence's persisted `send: true` and could send a second email. `before_email` now answers `send_until` (the first attempt plus 23 hours), which the `email` step passes as `email.send`'s new `not_after` param. `email.send` checks it after the key is resolved, immediately before the request, on every attempt: at or past it the send fails `email_window_passed` (not retried) and makes no request. A malformed `not_after` is `bad_input`
+- The `email` step is now `config.on_error: "skip"`, so the push fence judges any email failure. With no message id and the first attempt past its window, `before_push` records `email: {uncertain: true, attempted_at}` and the push goes ahead (`email_uncertain: true`); with no message id inside the window it fails the run, so no other email failure (`recipient_not_allowed`, an `http_4xx`, retries used up) passes as delivered
+
 ### Known limits
 
 - The summaries wait in the `qwen-spark2` pool, one section at a time, behind any running PR fix, until the summary window closes at 06:40; a section whose summary did not finish by then goes out with its results
