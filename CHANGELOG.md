@@ -47,7 +47,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- devague: frame, spec and plan `daily-newspaper` (operator-confirmed); deviations d1 (the `on_error` skip step option) and d2 (the builtins fitted to `for_each`, the `XTEINK_PUSH_API_KEY` grant, all four actors on spark), proposed; lapse l1 (the red step of test-first not observed for t3-t5), proposed
+- devague: frame, spec and plan `daily-newspaper` (operator-confirmed). Deviations: d1 (the `on_error` skip step option), d2 (the builtins fitted to `for_each`, the `XTEINK_PUSH_API_KEY` grant, all four actors on spark) and d3 (the Codex round-1 hardening) approved; d4 (the Codex round-2 hardening, including that an email not acknowledged within 23 h is never resent) proposed. Lapses l1 and l2 (the red step of test-first not observed) approved
 
 ## [0.18.13] - 2026-10-11
 
