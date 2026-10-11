@@ -101,6 +101,7 @@ The `email.send` action takes:
 | `html`, `text` | at least one | the body as HTML, as plain text, or both |
 | `idempotency_key` | no | replaces the engine's key: a string of at most 256 characters |
 | `sender` | no | replaces the actor's from address; must be an address at the actor's `domain` |
+| `not_after` | no | an ISO-8601 time with a UTC offset: no request goes out at or after it |
 
 Attachments are not supported. The output is `{message_id}`, Resend's id for
 the message.
@@ -114,15 +115,21 @@ is refused (`http_409`). So a resend must repeat the whole request: the
 newspaper freezes the recipients and the sender with the first request for
 the date and passes them as `to` and `sender`.
 
+`not_after` is checked on every attempt, after the key is read and just
+before the request, so a retry the engine resumes late is bounded too. The
+newspaper passes the date's first attempt plus 23 hours: after that Resend
+may have forgotten the key, and a resend could deliver a second email.
+
 ## Failures
 
 | Code | Meaning | Retried |
 |---|---|---|
 | `actor_not_found` | no enabled `email` actor with that id | no |
-| `bad_input` | `to` is not a non-empty list, the subject or body is missing, or `sender` is not an address | no |
+| `bad_input` | `to` is not a non-empty list, the subject or body is missing, `sender` is not an address, or `not_after` is not a time with a UTC offset | no |
 | `sender_not_allowed` | `sender` is not at the actor's `domain`. Checked before the key is read | no |
 | `recipient_not_allowed` | an address in `to` is not on the allowlist. Checked before the key is read; the refusal names no secret | no |
 | `secret_unavailable` | the key could not be resolved on the node (see step 3) | no |
+| `email_window_passed` | `not_after` has passed. Checked after the key is read, just before the request; nothing is sent | no |
 | `http_<status>` | Resend refused the send; 429 and 5xx are retried | depends |
 | `network_error`, `bad_response` | Resend was unreachable or answered without an id | yes |
 
