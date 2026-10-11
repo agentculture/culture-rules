@@ -9,6 +9,13 @@ spark (d8). Every fix the gate passes is then reviewed on spark by a second,
 independent agent, `codex-reviewer`, before anything is pushed (d20, section
 8).
 
+Since #39 (0.18.13) the fixer has **levels**: a try that does not pass can be
+retried by a second fixer, `codex-fixer` (Codex on spark, under its own
+account `culture-codex-fixer`), whose commits are carried to spark2's gate
+through the store and reviewed by `qwen-reviewer` (Qwen Code on spark2, plan
+mode). Level 2 ships disabled. See [Fixer levels](#fixer-levels-and-the-codex-hand-off-39)
+and the operator recipe in section 9.
+
 **Steps marked *operator* are hand-turns.** They need root on spark2 or a
 GitHub or SonarCloud login in a browser. Everything else runs as
 `culture-fixer`, which never holds root.
@@ -337,12 +344,13 @@ the request reaches the head ([The fixer queue](#the-fixer-queue-35)):
 | `pr-fixer-comment` | `github.comment.created` by a trusted author that asks (below) | `queue-add` | outside; resets it (d32) |
 | `pr-fixer-review` | `github.review.submitted` by a trusted author | `queue-add` | outside |
 | `pr-fixer-review-comment` | `github.review_comment.created` by a trusted author that asks | `queue-add` | outside; resets it (d32) |
-| `pr-fixer-dispatch` | `rules.queue.dispatch` of queue `pr-fixer` (the request's turn) | `pr-fix`: one try | counts, 3 per PR |
+| `pr-fixer-dispatch` | `rules.queue.dispatch` of queue `pr-fixer`, or (#39) of any level queue of `vars.fixer_levels` (the request's turn) | `pr-fix`: one try, with the level's fixer and reviewer | counts, 3 per PR |
 | `pr-fixer-retry` | `rules.run.succeeded` of `pr-fix`, gate neither `pass` nor `no_gate` | `queue-add` as a retry, with the gate's instruction | outside |
+| `pr-fixer-retry-capacity` (#39) | `rules.run.failed` of `pr-fix` whose agent step hit `capacity_exhausted` | `queue-add-capacity`: rests the level, then `queue.add` as a retry | outside |
 | `pr-fixer-review-commit` | `rules.run.succeeded` of `pr-fix`, gate `pass` or `no_gate` | `review-commit` | outside |
 | `pr-fixer-refix` | `rules.run.succeeded` of `review-commit`, review `request_changes` | `queue-add` as a retry, with the findings | outside |
 | `pr-fixer-publish` | `rules.run.succeeded` of `review-commit`, review `approve`, gate `pass` | `publish-fix` | outside |
-| `pr-fixer-queue-progress`, `-fixed`, `-failed`, `-cancelled`, `-superseded`, `-stopped` | `queue-add` succeeded, `pr-fix` succeeded, failed, cancelled or superseded, or `queue-stop` succeeded | `queue-progress` | no key |
+| `pr-fixer-queue-progress`, `-fixed`, `-failed`, `-cancelled`, `-superseded`, `-stopped`, `-capacity` (#39) | `queue-add` succeeded, `pr-fix` succeeded, failed, cancelled or superseded, `queue-stop` succeeded, or `queue-add-capacity` succeeded | `queue-progress` | no key |
 | `pr-fixer-stop` (d34) | `github.comment.created` by a trusted author that asks to stop (below) | `queue-stop` | no key |
 | `pr-fixer-stop-reaction` (d34) | `github.reaction.added` 👎 by a trusted author: the node's reaction watch (below) | `queue-stop` | no key |
 | `pr-fixer-queue-sweep` | every 30 minutes | `queue-progress` | no key |
@@ -711,8 +719,17 @@ It builds and gates one commit. It never reviews or pushes it.
    the PR back in the queue with that text as the next try's instruction
    (the requests already waiting go first). Runs pinned to the d21 3-try
    definition still retry inside the run.
-   - `agent`: `qwen-fixer` in mode `yolo`. Its bound inputs are the trusted
-     `threads`, `sonar_issues` and `sonar_note`. The rule's instruction says
+   - `agent_qwen` (level 1) or `agent_codex` (level 2, #39): the try's fixer
+     (the `fixer` input from the dispatch; none given: `qwen-fixer`) picks
+     the one agent step that runs; the others are skipped by their `when`.
+     `agent_qwen` is `qwen-fixer` in mode `yolo` on spark2; `agent_codex` is
+     `codex-fixer` (sandbox `workspace-write`) on spark, followed by
+     `handoff_export` (spark) and `handoff_import` (spark2), which carry its
+     commits to a fixer-owned worktree beside the gate (see
+     [the Codex hand-off](#the-codex-hand-off)). `select` then hands the gate
+     the worktree, start and commit of the path that ran (none or both fails
+     closed). Both agent steps get the trusted
+     `threads`, `sonar_issues` and `sonar_note` as bound inputs. The rule's instruction says
      to follow `sonar_note`: on a failing gate fix exactly the listed issues, on
      a passing gate a listed new-code issue only when the trusted request names
      it, and never the rest of the backlog.
@@ -727,7 +744,8 @@ The run exports what the next stages need: the gate's verdict, `commit_sha`,
 `start_sha`, `diff`, `diff_truncated`, `gate_output`, `bundle` and
 `gate_instruction`. It also
 exports the trusted threads, the agent's `threads_addressed` and summary, the
-instruction and task, the clone URL and the head branch.
+instruction and task, the clone URL and the head branch, and (#39) the try's
+`implementer` and `reviewer`.
 
 ### The fixer queue (#35)
 
@@ -765,7 +783,10 @@ workflows own it; no agent is involved.
   conclusion is never read again.
 - **The cap** is that of the actor concurrency pool `qwen-spark2`
   (`config.pool`): the smallest `max_concurrency` among the enabled actors
-  naming it, else `config.cap` (1).
+  naming it, else `config.cap` (1). With `vars.fixer_levels` (#39) each
+  level's queue is capped by its own level's pool (`codex-spark` for
+  `queues/pr-fixer-codex`); see
+  [Fixer levels](#fixer-levels-and-the-codex-hand-off-39).
 - **A dispatch is claimed or expires, never both.** `pr-fixer-dispatch`'s
   firing claims the request's slot (a compare-and-set on the queue document,
   in the transaction that records the firing); a claimed slot is held until
@@ -806,12 +827,173 @@ workflows own it; no agent is involved.
 - **Not backed up.** `queues` is not in the backup set; after a restore the
   waiting PRs need a new request (`/fix`).
 
+### Fixer levels and the Codex hand-off (#39)
+
+A story (one request and its retries and re-fixes, up to 3 tries) can move
+up a ladder of fixers. Try 1 is fixed by `qwen-fixer` and reviewed by
+`codex-reviewer`; try 2 by `codex-fixer` (Codex on spark) and reviewed by
+`qwen-reviewer`; try 3 by the next enabled level, and past the ladder's end
+the last level repeats. A new `/fix` or a human push starts a new story at
+level 1 with a fresh budget. The status comment names each try's fixer and
+level ("try 2 (codex-fixer, level 2): ...").
+
+#### The levels: `fixer_levels`, `fixer_unavailable`
+
+`vars.fixer_levels` lists the levels in order. A shared variable holds only
+scalars or a list of them, so each level is one string of six `key=value`
+fields (d1), parsed strictly: a missing, repeated or unknown field fails the
+queue step `bad_levels` and nothing is dispatched. The seed value:
+
+```text
+level=1 actor=qwen-fixer reviewer=codex-reviewer pool=qwen-spark2 queue=pr-fixer enabled=true
+level=2 actor=codex-fixer reviewer=qwen-reviewer pool=codex-spark queue=pr-fixer-codex enabled=false
+```
+
+- `actor` is the try's fixer and `reviewer` the actor that reviews its
+  commit. Changing the variable cannot run anything else: `pr-fix` and
+  `review-commit` are digest-pinned (`TRUSTED_WORKFLOWS`) and have one step
+  per known actor; a level naming an actor without a step runs no agent and
+  fails closed.
+- `queue` is the level's own queue document (`queues/pr-fixer` is level
+  1's, as before; `queues/pr-fixer-codex` is level 2's) and `pool` the actor
+  `concurrency_pool` whose cap is that queue's cap. Each level's queue moves
+  on its own pool, so a Codex try never waits for the Qwen server.
+- `enabled` takes a level on or off the ladder. Enable level 2 by editing
+  that field in place (`culture-rules variables set fixer_levels ...`, or the
+  Variables tab).
+
+`queue.add` puts a request in the queue of the level its try is due at (try
+*n*: the *n*-th enabled level, counted from the PR key's attempts), so a
+retry goes to its next level's queue. A PR keeps one waiting request across
+the level queues. `queue.progress` resolves the level again **at dispatch**,
+and the dispatch event (written only by the queue) names the `level`,
+`fixer`, `reviewer` and `attempt`; `pr-fixer-dispatch` hands them to
+`pr-fix` as inputs. A request whose try another level takes **moves** to
+that level's queue: the pass drops it from its own queue and writes it to
+the other in one store transaction, its own compare-and-set first, so a
+`/fix` landing meanwhile rolls the move back and the pass moves the newer
+request instead. A `/fix` routes the same way: its add to the due level's
+queue and its removal of the PR's request from the other level queues are
+one store transaction (re-run whole on a write conflict, at most 10 times,
+then a retryable `queue_contention`), so a move never lands between them.
+The PR's request is never in no queue.
+
+A level is **unavailable** when its actor is unknown, deleted or disabled,
+when the actor's daily `token_budget` is spent, or while the level is in a
+capacity cooldown (below). A full pool is not unavailability: the request
+waits its turn (d2). `vars.fixer_unavailable` says what an unavailable due
+level does: `next` (the default) takes the first available level after it;
+`hand_back` ends the story. With no level left the request leaves the queue
+`no_fixer_available` and the story is handed back once, with a final status
+text. Skipping a level never adds a try.
+
+**Live behaviour change when `fixer_levels` is seeded (d3).** With the
+variable undefined the queue works exactly as before #39 (one queue, no
+level). Once it is seeded the queue runs in levels mode even with only
+level 1 enabled: an unavailable `qwen-fixer` (disabled, out of budget) now
+hands the story back once (`no_fixer_available`) at dispatch, instead of
+the run failing at the agent step. A closed PR or a moved head is still
+dropped silently.
+
+#### The capacity cooldown
+
+A try whose agent hits its backend's usage limit (the bridge's
+`capacity_exhausted`, on any agent step of the fix loop) fails. The rule
+`pr-fixer-retry-capacity` (on `rules.run.failed` of `pr-fix`) runs
+`queue-add-capacity`:
+
+1. `cooldown`, the built-in `fixer.cooldown`, rests that try's level: it
+   upserts `fixer_cooldowns/<the level's actor>` with `until` = the try's
+   end plus `vars.fixer_capacity_cooldown_s` (default 3600). The actor is
+   read from the failed run's own agent step, never from an input, and only
+   an actor of `vars.fixer_levels` is rested.
+2. `enqueue`, the built-in `queue.add`, puts the story back at the back of
+   the line as a retry, with the try's own instruction and a note.
+
+`pr-fixer-queue-progress-capacity` then moves the queues, and
+`queue.progress` gives the next try the next available level. The failed try
+still counts toward the 3; a PR that spent them is refused and the rule
+hands back once. A cooldown document whose `until` is past, missing or
+malformed is no cooldown.
+
+#### The Codex hand-off
+
+The gate runs on spark2 and reads a worktree on its own machine; the Codex
+fixer works on spark. Its commits travel through the store (no ssh, no
+network share, no cultureagent change):
+
+1. `agent_codex` (spark): the second Codex bridge checks out `head_sha` in a
+   fresh worktree as `culture-codex-fixer` and runs Codex
+   (`workspace-write`). It commits locally and never pushes.
+   `require_commit` as for Qwen.
+2. `handoff_export` (spark, the built-in `handoff.export`): as the fixer
+   account, through `CULTURE_RULES_HANDOFF_RUN_AS` (unset, the step fails
+   `handoff_runner_unconfigured`), it checks the worktree's `HEAD` is the
+   agent's commit and descends from the start, packs `start..head` and
+   stores it, base64, in the `handoffs` collection. A pack over the cap
+   (default 8 MiB, at most 10 MiB) fails `handoff_too_large` and is never
+   stored. Each document carries `expires_at`, a date a day after its last
+   renewal (the export, an import's claim, its receipt). An export never
+   erases an import's claim or receipt: run again for the same commits, it
+   only renews `expires_at`; for other commits it replaces a hand-off no
+   import has claimed and otherwise fails `handoff_conflict` (not
+   retryable).
+3. `handoff_import` (spark2, `handoff.import`): as the gate's fixer user
+   (`CULTURE_RULES_GATE_RUN_AS`), in a fresh `mktemp -d` workspace, it
+   fetches the start (and base) by SHA from the trusted clone URL, verifies
+   the pack's size and sha256 and indexes it with `index-pack --strict`,
+   and checks out exactly the agent's commit. Any refusal leaves no
+   worktree. Before building anything it **claims** the hand-off for its
+   step (a compare-and-set naming the step's idempotency key, which also
+   renews `expires_at`), so another step importing the same hand-off is
+   refused `handoff_already_imported` before any command runs, and no prune
+   takes a hand-off an import is building from. It completes only once its
+   import receipt (`imported`: the step's idempotency key and the worktree)
+   is written into the document; if that write is lost because the
+   hand-off is gone, the step fails `handoff_receipt_lost` (not retryable)
+   and, like a lost claim, removes the worktree it built. The pack is kept
+   until the hand-off expires. A replay of the same step (a node that died
+   before recording the result) gets the same worktree back while its
+   `HEAD` is the agent's commit with nothing else in it, else a fresh one
+   rebuilt from the pack. Two such replays racing settle on one worktree
+   that is intact; neither reports one that was removed.
+4. `select` hands the gate that worktree; the gate is unchanged and judges
+   exactly the commit Codex made (git object ids are content hashes).
+
+Known limits:
+
+- **A Codex try that rewrites history fails at the export**
+  (`handoff_not_descendant`): the step fails, the try ends failed and the
+  story hands back once; no retry rule covers it.
+- **The size cap is checked after the pack is written** (in the node's
+  temp space), not while it is streamed.
+- **An imported pack stays in the store for about a day** after its
+  receipt, so a replay can rebuild its worktree. On MongoDB a TTL index on
+  `expires_at` (`handoffs_expiry`) deletes expired hand-offs; each export
+  and import also prunes up to 100 expired ones, reading only their ids
+  (never a pack), each deleted in a store transaction only while it is
+  unchanged since it was read.
+- **An import that runs longer than a day** past its claim could lose its
+  hand-off to the expiry; it then fails `handoff_receipt_lost` rather than
+  report a worktree it cannot replay.
+- **Qwen's read-only is an approval policy**, not a sandbox (see
+  [Workflow `review-commit`](#workflow-review-commit)).
+- **No legacy hand-offs:** hand-off documents only exist from 0.18.13 on,
+  so there is no older document shape to migrate.
+
 ### Workflow `review-commit`
 
-1. `review`: `codex-reviewer` (spark, sandbox `read-only`, locked brief).
-   It reads the pr-fix run's diff. It runs only for a passing gate (or no
-   gate) whose diff is the whole change.
-2. `verdict`: the built-in `review`. It **walks back to the `pr-fix` run**
+**The reviewer follows the fixer (#39).** The try's level names its reviewer,
+and `pr-fixer-review-commit` passes it on as the `reviewer` input. One review
+step per reviewer, each guarded by `when reviewer == <actor>`; both run only
+for a passing gate (or no gate) whose diff is the whole change:
+
+1. `review_codex`: `codex-reviewer` (spark, sandbox `read-only`, locked
+   brief) reviews a **Qwen** try (reviewer `codex-reviewer`, or none given).
+2. `review_qwen`: `qwen-reviewer` (spark2, the qwen bridge in mode `plan`,
+   `sandbox: read-only`, the same locked brief and bound inputs) reviews a
+   **Codex** try (reviewer `qwen-reviewer`).
+3. `verdict`: the built-in `review`. It **walks back to the `pr-fix` run**
    whose success started this run (`culture_rules/actors/lineage.py`), never
    through wired inputs:
    - this run's id must be its rule's firing on that run's event;
@@ -819,13 +1001,26 @@ workflows own it; no agent is involved.
    - the pr-fix run must be a trusted `pr-fix` that succeeded.
 
    Each failed check is `chain_unverified` or `workflow_not_trusted`. The
-   step then reads that run's last gate and its implementer from the store.
-   It checks the reviewer exactly as d20 does: read-only, another actor and
-   backend, the locked brief, the same commit and diff. A request for changes
+   step then reads that run's last gate and its implementer from the store,
+   and this run's reviewer from `review_steps`: the one review step that
+   succeeded (none or two fail closed). The routing input never decides who
+   reviewed. It checks the reviewer as d20 does: flagged `reviewer: true` on
+   a backend in `REVIEWER_BACKENDS` (`codex`, `qwen`), a trusted actor
+   digest, read-only, **never the implementer's actor or backend** (a Codex
+   try reviewed by Codex fails), the locked brief, the same commit and diff. A request for changes
    becomes the re-fix's instruction: the findings, then "The original task".
    If the PR's attempt budget is already spent, no re-fix would be admitted,
    so the step fails `changes_requested` with the findings, and that one
    hand-back ends the chain.
+
+**Qwen's read-only is an approval policy, not a sandbox.** Qwen Code's mode
+`plan` refuses edits and commands that change things, but nothing at the OS
+level stops a tool from writing. So the bridge adapter locks an actor whose
+default mode is `plan` (any other mode is refused, `mode_locked`; the
+request always carries `mode: plan`), and the verdict step checks after the
+review that the checkout is unchanged: no commits, nothing dirty, head
+unmoved, else `reviewer_not_read_only`. The verdict step checks "reviewer
+allowed" (the flag and the backend) before "read-only" (d5, proposed).
 
 **Review records are per commit.** Each outcome is an immutable record in
 `fixer_reviews`. One that names a whole target (repo, PR, base, start, tip)
@@ -1445,13 +1640,13 @@ To change a workflow on purpose:
 3. Ship the wheel and upgrade every node.
 4. Import the workflow (`culture-rules workflows import ... --apply`).
 
-The shipped digests (0.14.0):
+The shipped digests (0.18.13):
 
 | Role | Digest |
 |---|---|
 | `pr-fixer` | `sha256:01ece1cd…f4fc5d6` (kept for the transition) |
-| `pr-fix` | `sha256:04570dee…43b6a8` (with the d25 GitGuardian hold) |
-| `review-commit` | `sha256:79064f76…b158e6` |
+| `pr-fix` | `sha256:04570dee…43b6a8` (d21, the d25 GitGuardian hold), `sha256:307e82fc…e032` (#35, one try), `sha256:721e25be…136005` (#39, one agent step per level and the hand-off) |
+| `review-commit` | `sha256:79064f76…b158e6` (d21, one review step), `sha256:0653ba8c…2b2bbd` (#39, the reviewer follows the fixer) |
 | `publish-fix` | `sha256:0fa92074…c23680` |
 
 ### Rolling out the split (d21)
@@ -1564,6 +1759,73 @@ pair already announced before the upgrade (generation 0) is requested again
 after the upgrade if no rule heard it, such as katvan#57's at 14:49Z on
 2026-10-10, if it is still conflicting.
 
+### Rolling out the escalation (#39, 0.18.13)
+
+The operator does this. 0.18.13 adds:
+
+| Kind | What | Note |
+|---|---|---|
+| Rules | `pr-fixer-retry-capacity`, `pr-fixer-queue-progress-capacity` | listed in `release.json`'s `new_rules`; ship disabled |
+| Workflows | `queue-add-capacity` (new); `pr-fix`, `review-commit`, `queue-add`, `queue-progress`, `queue-stop` (changed) | `queue-*` are not trusted roles |
+| Variables | `fixer_levels`, `fixer_unavailable`, `fixer_capacity_cooldown_s` | listed in `new_variables`; level 2 seeded disabled |
+| Actors | `codex-fixer` (new, level 2), `qwen-reviewer` (new, reviews Codex tries) | registered by hand, not by `rollout import` |
+| Collections | `handoffs` (hand-off packs, expiring a day after their last renewal: TTL index `handoffs_expiry`), `fixer_cooldowns`, `queues/pr-fixer-codex` | not in the backup set |
+
+**Digests that need the operator's approval** (all in
+`culture_rules/actors/trusted.py` except the fixer's, which is not pinned):
+
+| What | Digest |
+|---|---|
+| `ROLE_FIX`: `pr-fix` (#39) | `sha256:721e25bea3163437e4d6808eb2e817057e4f9900d2f7123ee0a00f1880136005` |
+| `ROLE_REVIEW`: `review-commit` (#39) | `sha256:0653ba8c61a2eb0368819ac07b2a9b08ad3a8e6b023c6bfcf8ff4b93682b2bbd` |
+| `qwen-reviewer`, the committed document | `sha256:5b0e1aa73c6222a757b8357fec19b2c86d937848353bfe443c4e268fffda8b1a` |
+| `codex-fixer`, the committed document (not pinned; recorded on each invocation) | `sha256:183cd42529d4cf2044268462ec67cf4e7c3fe9e24211c9fbfdd2f5833bcdaa50` |
+
+The earlier `pr-fix` and `review-commit` digests stay trusted while runs
+pinned to them may still push or record a review.
+
+**The live actor documents differ from the committed ones.** The committed
+actors carry loopback URLs (`scripts/scan-secrets.py` rejects any other
+endpoint in a committed file). The live `qwen-reviewer` reaches the qwen
+bridge on spark2's tailnet address, so its digest differs and the verdict
+step refuses it (`actor_not_trusted`) until that digest is pinned. Compute
+each live digest from the document you registered:
+
+```bash
+culture-rules actors show qwen-reviewer --json > qwen-reviewer.json   # the bare actor document
+python -m culture_rules.actors.trusted actor < qwen-reviewer.json
+```
+
+and add it to `TRUSTED_ACTOR_DIGESTS["qwen-reviewer"]` in a release before
+level 2 is enabled (do the same for `codex-reviewer` if its live document
+ever moves off the committed one). `codex-fixer` needs no pin; its live
+digest is the committed one when its bridge and callback are the loopback
+ones shown.
+
+The order: **setup, then the rollout, then level 2.**
+
+1. **The Codex level's setup** (section 9): the `culture-codex-fixer`
+   account, its `codex login`, the second Codex bridge, the grant secrets,
+   the sudoers entry and `CULTURE_RULES_HANDOFF_RUN_AS` on spark's node.
+   Register `codex-fixer` and `qwen-reviewer`, and compute the live
+   `qwen-reviewer` digest. None of it changes what the live fixer does.
+2. **The rollout** (`culture-rules rollout plan`, then its steps in order):
+   pause, upgrade every node and the API (spark's node runs the export,
+   spark2's the import and the gate; a node of an older release fails those
+   steps `no_builtin`), seed, import, enable, resume, verify. `rollout enable`
+   turns on the two new rules with the rules that were on.
+3. **`rollout seed` adds `fixer_levels`, and that switches the live queue
+   into levels mode (d3)**, with only level 1 enabled: every try is still
+   Qwen's, but an unavailable `qwen-fixer` now hands the story back once
+   (`no_fixer_available`) instead of failing at the agent step. Seeding the
+   other two variables changes nothing on its own.
+4. **Level 2**, once the live `qwen-reviewer` digest is in a released and
+   rolled-out wheel and a manual check of the Codex bridge passes: set
+   `enabled=true` on the level-2 string of `fixer_levels` (its other fields
+   unchanged). To turn the Codex level off again, set it back to
+   `enabled=false`; requests already in `queues/pr-fixer-codex` are then
+   resolved again at dispatch.
+
 ### Rolling out the GitGuardian report (d25)
 
 d25 ships in 0.15.0, right after the split (0.14.0), whose `pr-fix` never
@@ -1633,7 +1895,14 @@ set of digests, in `culture_rules/actors/trusted.py`):
   `private_key` (the reference). `github.push` reads the actor **once**,
   checks that snapshot, and uses the same snapshot's connection and commit
   author for every GitHub and git call; any other shape is refused.
-- `qwen-fixer` is not pinned: everything it produces is reviewed.
+- `qwen-reviewer` (#39): the same fields. Its committed document
+  (`docs/rules/pr-fixer/actors/qwen-reviewer.json`, loopback URLs) is
+  pinned as `sha256:5b0e1aa7…8b1a`; a live document with other endpoints
+  (the tailnet bridge URL) hashes differently and needs its own digest (see
+  [Rolling out the escalation](#rolling-out-the-escalation-39-01813)).
+- `qwen-fixer` and `codex-fixer` (#39) are not pinned: everything a fixer
+  produces is gated and reviewed. The bridge adapter still records a
+  fixer's digest on each invocation.
 
 Names, descriptions and limits such as `max_concurrency` are not part of
 the digest. A fully malicious admin who controls actors and a bridge stays
@@ -1676,7 +1945,7 @@ actor. Drop the first digest in a later release.
 config alone. No AI writes it, and the name and description fields are not
 used. In the editor, the (i) "About" button on each workflow (list row and
 title) and on each entry point of a workflow's Simple view shows the same
-lines. For the shipped bundle (d21):
+lines. For the shipped bundle (0.18.13):
 
 ```console
 $ culture-rules rules describe pr-fixer-checks
@@ -1689,11 +1958,11 @@ and not (repository ∈ vars.fixer_excluded_repos)
 and conclusion ≠ success
 and conclusion ≠ no_checks
 and not (gitguardian ∈ failed_apps)
-Run workflow pr-fix (5 steps)
+Run workflow queue-add (1 step)
 On spark2
-Then github.comment as github-app (as its chain's status comment) (only where its chain ends)
+Then noop
 On failure github.comment as github-app (as its chain's status comment) (only where its chain ends)
-Key pr-fixer:{repository}#{number}, ≤3 attempts
+Key pr-fixer:{repository}#{number}, outside the attempt budget
 Disabled
 $ culture-rules rules describe pr-fixer-publish
 When rules.run.succeeded
@@ -1721,27 +1990,51 @@ Then github.comment as github-app (once per once_key)
 On failure github.comment as github-app (once per once_key)
 Key pr-secrets:{repository}#{number}@{head_sha}
 Disabled
+$ culture-rules rules describe pr-fixer-retry-capacity
+When rules.run.failed
+If workflow_id = pr-fix
+and error_message matches /fix\[0\]/agent[a-z0-9_]*: capacity_exhausted(: [\s\S]*)?/
+and instruction exists
+and repository ∈ vars.fixer_repos
+and not (repository ∈ vars.fixer_excluded_repos)
+Run workflow queue-add-capacity (2 steps)
+On spark2
+Then noop
+On failure github.comment as github-app (as its chain's status comment) (only where its chain ends)
+Key pr-fixer:{repository}#{number}, outside the attempt budget
+Disabled
 $ culture-rules workflows describe pr-fix
 1 quiet — wait 300 s; stop if the PR head moves (head_unchanged, as github-app)
 2 secrets — gitguardian.hold as github-app: stop while GitGuardian fails on the head
 3 threads — github.threads as github-app: unresolved threads by trusted authors
 4 sonar — sonar.gate_issues: the issues behind the PR's failing SonarCloud gate
-5 fix — retry up to 3×, until verdict ∈ {pass, no_gate}:
-  5.1 agent — qwen-fixer (agent, must commit)
-  5.2 gate — test gate on spark2
+5 fix — one try, until verdict exists:
+  5.1 agent_qwen — qwen-fixer (agent, must commit), when fixer missing or fixer ∈ {"", qwen-fixer}
+  5.2 agent_codex — codex-fixer (agent, workspace-write, must commit), when fixer = codex-fixer
+  5.3 handoff_export — handoff.export: the fixer's commits as a size-capped pack in the store on spark, when fixer = codex-fixer
+  5.4 handoff_import — handoff.import: that pack into a fresh fixer-owned worktree on spark2, when fixer = codex-fixer
+  5.5 select — select: the outputs of the path that ran (one source for the next step) on spark2
+  5.6 gate — test gate on spark2
 $ culture-rules workflows describe report-secrets
 1 findings — gitguardian.findings as github-app: the head's GitGuardian findings, no secret values
 $ culture-rules workflows describe review-commit
-1 review — codex-reviewer (agent, read-only), when gate_verdict ∈ {pass, no_gate} and diff_truncated = false
-2 verdict — review verdict, recorded for its commit (github.push checks it)
+1 review_codex — codex-reviewer (agent, read-only), when gate_verdict ∈ {pass, no_gate} and diff_truncated = false and (reviewer missing or reviewer ∈ {null, "", codex-reviewer})
+2 review_qwen — qwen-reviewer (agent, read-only), when gate_verdict ∈ {pass, no_gate} and diff_truncated = false and reviewer = qwen-reviewer
+3 verdict — review verdict, recorded for its commit (github.push checks it)
 $ culture-rules workflows describe publish-fix
 1 push — github.push as github-app on spark2 (only on a passing gate and an approving review of exactly that commit)
 2 threads — github.threads as github-app: unresolved threads by trusted authors
 3 pick — github.threads_addressed
 4 replies — for each item (≤200): github.review_reply as github-app and resolve
+$ culture-rules workflows describe queue-add-capacity
+1 cooldown — fixer.cooldown: the failed try's level rests after capacity_exhausted
+2 enqueue — queue.add: put the PR in line (first come, first served)
 ```
 
-These outputs are pinned as golden tests (`tests/model/test_describe.py`).
+The workflow outputs of `pr-fix`, `review-commit`, `publish-fix` and
+`report-secrets`, and those of the rules `pr-fixer-checks`,
+`pr-fixer-publish` and `pr-fixer-secrets`, are pinned as golden tests
+(`tests/model/test_describe.py`).
 `--json` adds the structured `entries` (`label`, `text`, `depth`, and `step`
 on a workflow entry). The vocabulary is in `culture_rules/model/describe.py`:
 one phrase per trigger kind, step kind, built-in, action kind and condition
@@ -1899,6 +2192,185 @@ culture-rules actors import docs/rules/pr-fixer --apply
 | `culture-rules actors list` | `codex-reviewer`, machine `spark` |
 | a fixer run on the scratch repository | `fix[0]/review` on spark, `fix[0]/verdict` `approve`, then the push |
 
+## 9. Operator setup for the Codex level (spark, #39)
+
+Level 2 (`codex-fixer`) is Codex through a **second** cultureagent codex
+bridge on spark, under its own unprivileged account, `culture-codex-fixer`.
+It writes (sandbox `workspace-write`) and commits locally; it never pushes.
+Its commits reach spark2's gate only through the hand-off
+([The Codex hand-off](#the-codex-hand-off)), and `qwen-reviewer` reviews
+them. All of this is *operator* hand-turns; nothing here is done by an
+agent. No secret value appears below: grant **names** only.
+
+### Account and Codex login (operator, root)
+
+Create the account the way section 1 creates `culture-fixer`: own group and
+home (mode 750), no sudo, no operator groups, lingering on.
+
+```bash
+sudo bash deploy/pr-fixer/create-user.sh --user culture-codex-fixer            # plan only
+sudo bash deploy/pr-fixer/create-user.sh --user culture-codex-fixer --apply
+```
+
+Install the Codex CLI in that account's home and log Codex in **as that
+account** (`sudo -iu culture-codex-fixer`, then `codex login`, a browser or
+device-code hand-turn). Its session lives in that account's `CODEX_HOME`,
+never the operator's, so the fixer has its own Codex quota: the reviewer
+(`codex-reviewer`, running as `spark`) and the fixer never share one. When
+the fixer's quota runs out, its try fails `capacity_exhausted` and the level
+rests ([The capacity cooldown](#the-capacity-cooldown)).
+
+### Grant secrets (operator)
+
+| grant name | Store | Injected as | Used by |
+|---|---|---|---|
+| `CODEX_FIXER_BRIDGE_TOKEN` | `culture-codex-fixer`'s | `CODEX_BRIDGE_AUTH_TOKEN` | the bridge: the bearer token it requires |
+| `RULES_CODEX_FIXER_TOKEN` | spark's node (operator account) | `CULTURE_RULES_SECRET_RULES_CODEX_FIXER_TOKEN`, read through `grant:` | the engine, calling the bridge |
+| `CODEX_FIXER_GITHUB_TOKEN` (only for private repos) | `culture-codex-fixer`'s | `GH_TOKEN` | a read-only fine-grained token, as in section 2 |
+
+Generate the bridge token once in the node's store and copy it, so the two
+match:
+
+```bash
+G="$(command -v grant)"   # sudo needs the absolute path
+$G generate RULES_CODEX_FIXER_TOKEN --hidden --bytes 32 --encoding hex
+$G run --inject T=RULES_CODEX_FIXER_TOKEN -- sh -c 'printf %s "$T"' \
+  | sudo $G set CODEX_FIXER_BRIDGE_TOKEN - --hidden --user culture-codex-fixer
+```
+
+Add `--secret RULES_CODEX_FIXER_TOKEN` to spark's node install
+(`deploy/node/install.sh`, with the flags it was installed with, next to
+`--secret RULES_CODEX_REVIEWER_TOKEN`).
+
+### The second Codex bridge (as `culture-codex-fixer`)
+
+Install cultureagent (0.14.0 or later) into the account's own venv or tool
+directory, as for the reviewer. The bridge config,
+`.config/cultureagent-bridges/codex.json` in the account's home (mode 600):
+
+```json
+{
+  "host": "127.0.0.1",
+  "port": 8095,
+  "repo_allowlist_prefixes": ["https://github.com/agentculture/"],
+  "default_sandbox": "workspace-write",
+  "max_concurrent": 1,
+  "always_async": true,
+  "commit_author": "rules-culture-dev[bot] <337624453+rules-culture-dev[bot]@users.noreply.github.com>"
+}
+```
+
+Set `codex_bin` too if the Codex CLI is not on the unit's `PATH`. It binds
+loopback on its own port (8095; the reviewer's bridge is 8094): its only
+caller is spark's own engine node. `commit_author` is the App bot, the
+identity `github.push` requires (`foreign_author` otherwise).
+
+The user unit, `.config/systemd/user/cultureagent-codex-bridge.service` in
+that home, is the reviewer's unit with this account's token name:
+
+```ini
+[Unit]
+Description=cultureagent codex bridge (PR fixer level 2, workspace-write)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+# The bridge token reaches the bridge only as environment at exec time.
+ExecStart=%h/.local/bin/grant run --inject CODEX_BRIDGE_AUTH_TOKEN=CODEX_FIXER_BRIDGE_TOKEN -- %h/.local/bin/cultureagent-codex-bridge --config %h/.config/cultureagent-bridges/codex.json
+Restart=always
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target
+```
+
+```bash
+systemctl --user daemon-reload && systemctl --user enable --now cultureagent-codex-bridge
+```
+
+### The hand-off export's run-as (operator, root)
+
+`handoff_export` runs on spark's engine node and reads the fixer's worktree
+**as `culture-codex-fixer`**, through the prefix in
+`CULTURE_RULES_HANDOFF_RUN_AS`; while it is unset the step fails
+`handoff_runner_unconfigured` and never runs git as the node user. The node
+appends `env -C <dir> -- git ...` to the prefix, so give the node's user
+exactly one sudo grant, to run `env` as that account without a password:
+
+```bash
+echo '<node-user> ALL=(culture-codex-fixer) NOPASSWD: /usr/bin/env' \
+  | sudo tee /etc/sudoers.d/culture-rules-handoff && sudo visudo -cf /etc/sudoers.d/culture-rules-handoff
+```
+
+`<node-user>` is the account spark's `culture-rules-node` user unit runs as.
+Then give the node the prefix and let sudo run. **The spark node unit must
+not set `NoNewPrivileges=yes`** (the installer's default): with the kernel's
+`no_new_privs` flag set, sudo refuses to run and the export fails
+`run_as_blocked`. `install.sh` has no flag for this prefix and rewrites
+`node.env` on every run, so use a drop-in, which an upgrade keeps:
+
+```bash
+mkdir -p "$HOME/.config/systemd/user/culture-rules-node.service.d"
+cat > "$HOME/.config/systemd/user/culture-rules-node.service.d/handoff-sudo.conf" <<'CONF'
+[Service]
+Environment="CULTURE_RULES_HANDOFF_RUN_AS=sudo -n -u culture-codex-fixer --"
+NoNewPrivileges=false
+CONF
+systemctl --user daemon-reload && systemctl --user restart culture-rules-node
+```
+
+As with the gate's grant, the node user can run anything as
+`culture-codex-fixer` (the less privileged account; the reverse does not
+exist), and the fixer's git config, templates, hooks and fsmonitor are
+ignored. The import on spark2 needs nothing new: it runs as the gate's
+fixer user through the `CULTURE_RULES_GATE_RUN_AS` set up in section 5.
+
+### The actors
+
+`codex-fixer` ships as `docs/rules/pr-fixer/actors/codex-fixer.json`:
+machine `spark`, harness `codex`, and `params` `bridge_url`
+`http://127.0.0.1:8095`, `callback_url` `http://127.0.0.1:18765` (the API's
+loopback listener on spark; change it if yours differs), `bridge_token`
+`grant:RULES_CODEX_FIXER_TOKEN`, `sandbox: workspace-write`,
+`concurrency_pool: codex-spark` (level 2's queue cap) and
+`max_concurrency: 1`. It has no `reviewer` flag and no locked brief: it
+takes the try's instruction like `qwen-fixer`.
+
+`qwen-reviewer` ships as `docs/rules/pr-fixer/actors/qwen-reviewer.json`:
+machine `spark2`, harness `qwen`, model `cortex`, mode `plan`,
+`sandbox: read-only`, `reviewer: true`, `locked_instruction:
+pr-fixer-review`, `max_bound_input_chars: 60000`, and the **qwen fixer's**
+bridge and token (`grant:RULES_QWEN_FIXER_TOKEN`), sharing the `qwen-spark2`
+pool (one Qwen job at a time on the cortex server). Its committed
+`bridge_url` is loopback; register it with the tailnet URL `qwen-fixer`
+uses and pin that document's digest (see
+[Rolling out the escalation](#rolling-out-the-escalation-39-01813)).
+
+```bash
+culture-rules actors import docs/rules/pr-fixer --apply   # then edit qwen-reviewer's bridge_url
+```
+
+An actors import writes the committed documents, so it puts `qwen-reviewer`
+back on the loopback URL: edit its `bridge_url` again after every actors
+import, or the review of a Codex try fails: spark2's qwen bridge listens on
+the tailnet address, not on loopback.
+
+### Verify
+
+| Check | Expected |
+|---|---|
+| as `culture-codex-fixer`: `git push`, `ls ~spark/.codex`, `grant list` | no push credential; permission denied; only the `CODEX_FIXER_*` names |
+| `curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8095/v1/capabilities` | `401` |
+| the same with the bearer token | `200`; `"pushes": false`; read the `confinement` sentence |
+| as the node user: `sudo -n -u culture-codex-fixer -- /usr/bin/env true` | exit 0, no password prompt |
+| `systemctl --user show culture-rules-node -p NoNewPrivileges` | `NoNewPrivileges=no` |
+| `culture-rules actors list` | `codex-fixer` (spark), `qwen-reviewer` (spark2) |
+| level 2 enabled, a story on the scratch repository whose Qwen try does not pass | try 2 on spark (`agent_codex`, `handoff_export`), `handoff_import` and the gate on spark2, `review_qwen`, then the push or one hand-back; the status comment names both levels |
+
 ## On spark2
 
 | Item | Value |
@@ -1906,6 +2378,7 @@ culture-rules actors import docs/rules/pr-fixer --apply
 | Account | `culture-fixer` (planned; created by the operator) |
 | Bridge | qwen on 8093, tailnet only |
 | Actor | `qwen-fixer` (planned) |
+| Actor (#39) | `qwen-reviewer` (the qwen bridge in mode `plan`; its live digest to be pinned) |
 
 ## On spark (d20)
 
@@ -1914,6 +2387,9 @@ culture-rules actors import docs/rules/pr-fixer --apply
 | Account | `spark` (operator decision 2026-10-08; `culture-reviewer` is the stricter option) |
 | Bridge | codex on 8094, loopback only, sandbox `read-only` (deployed) |
 | Actor | `codex-reviewer` (imported, trusted digest `sha256:dc26a418…`) |
+| Account (#39) | `culture-codex-fixer` (planned; created by the operator) |
+| Bridge (#39) | a second codex bridge on 8095, loopback only, sandbox `workspace-write` (planned) |
+| Actor (#39) | `codex-fixer` (level 2, not pinned; committed digest `sha256:183cd425…aa50`) |
 
 ## Disabling the fixer mid-run (d17)
 

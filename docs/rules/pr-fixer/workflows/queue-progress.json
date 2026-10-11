@@ -1,5 +1,5 @@
 {
-  "description": "#35 d29: moves the fixer queue with the built-in queue.progress. Frees the slot of a dispatched pr-fix run that ended, drops a request whose PR closed or whose head moved, and, while fewer pr-fix runs are dispatched than the pool's cap (the qwen-spark2 concurrency pool, else 1), dispatches the oldest request as a rules.queue.dispatch event that pr-fixer-dispatch turns into the pr-fix run. Answers every waiting request's place in line. Non-agentic.",
+  "description": "#35 d29, #39: moves the fixer queues with the built-in queue.progress. Frees the slot of a dispatched pr-fix run that ended, drops a request whose PR closed or whose head moved, and, while fewer pr-fix runs are dispatched than a queue's pool cap, dispatches its oldest request as a rules.queue.dispatch event that pr-fixer-dispatch turns into the pr-fix run. With vars.fixer_levels every level's queue moves on its own pool (pr-fixer on qwen-spark2, pr-fixer-codex on codex-spark), the try's level is resolved at dispatch (the PR's counted attempts plus one), an unavailable level is skipped as vars.fixer_unavailable says, and the dispatch event names the level, fixer, reviewer and attempt; with no level left the story is handed back once. Answers every waiting request's place in line. Non-agentic.",
   "edges": [],
   "enabled": true,
   "id": "queue-progress",
@@ -25,6 +25,11 @@
       "name": "waiting",
       "source": "steps.progress.outputs.waiting",
       "type": "array"
+    },
+    {
+      "name": "moved",
+      "source": "steps.progress.outputs.moved",
+      "type": "array"
     }
   ],
   "schema_version": "1.0",
@@ -36,11 +41,13 @@
         "cap": 1,
         "dispatch_rule": "pr-fixer-dispatch",
         "key_prefix": "pr-fixer:",
+        "levels": "fixer_levels",
         "lookup_actor": "github-app",
         "pool": "qwen-spark2",
-        "queue": "pr-fixer"
+        "queue": "pr-fixer",
+        "unavailable": "fixer_unavailable"
       },
-      "description": "The built-in queue.progress on queues/pr-fixer. Reads each PR it is about to dispatch as the App (state and head); a failed read dispatches anyway, the run's own head guard stops a stale one.",
+      "description": "The built-in queue.progress on queues/pr-fixer and, with vars.fixer_levels, every level's queue. Reads each PR it is about to dispatch as the App (state and head); a failed read dispatches anyway, the run's own head guard stops a stale one.",
       "enabled": true,
       "id": "progress",
       "inputs": [],
@@ -70,6 +77,12 @@
           "description": "",
           "name": "waiting",
           "required": true,
+          "type": "array"
+        },
+        {
+          "description": "",
+          "name": "moved",
+          "required": false,
           "type": "array"
         }
       ],

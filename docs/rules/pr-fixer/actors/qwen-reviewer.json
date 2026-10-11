@@ -1,0 +1,27 @@
+{
+  "capabilities": [],
+  "config_source": "db",
+  "description": "#39: reviews a Codex try's gated commit before github.push. Qwen Code on cortex through the cultureagent qwen bridge on spark2, mode plan (an approval policy, not a sandbox; the verdict step also checks the checkout is unchanged), the locked reviewer brief; shares the qwen-spark2 pool with qwen-fixer (one Qwen job at a time). Never commits or pushes.",
+  "enabled": true,
+  "harness": "qwen",
+  "id": "qwen-reviewer",
+  "kind": "agent",
+  "machine": "spark2",
+  "model": "cortex",
+  "name": "PR fixer reviewer (Qwen Code, plan mode)",
+  "params": {
+    "bridge_token": "grant:RULES_QWEN_FIXER_TOKEN",
+    "bridge_url": "http://127.0.0.1:8093",
+    "callback_url": "http://127.0.0.1:18765",
+    "concurrency_pool": "qwen-spark2",
+    "locked_instruction": "pr-fixer-review",
+    "max_bound_input_chars": 60000,
+    "max_concurrency": 1,
+    "mode": "plan",
+    "model": "cortex",
+    "reviewer": true,
+    "sandbox": "read-only"
+  },
+  "repo": null,
+  "schema_version": "1.0"
+}

@@ -1,0 +1,324 @@
+{
+  "slug": "pr-fixer-escalation",
+  "title": "PR fixer escalation",
+  "frame_slug": "pr-fixer-escalation",
+  "schema_version": 5,
+  "status": "exported",
+  "created": "2026-10-10T21:00:57Z",
+  "updated": "2026-10-10T21:05:29Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "PR fixer escalation: within one story, a try that does not pass is retried by a stronger fixer (Qwen, then Codex), each try reviewed by a different model, and an unavailable level falls through instead of stalling",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "No try's commit is ever reviewed by the actor or backend that wrote it, enforced at the verdict step from the store, not from routing",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "A level that is unavailable never stalls a story: it falls through or hands back once within the 3-try budget",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "Authors of PRs in vars.fixer_repos whose PR the fixer works on, and the operator who watches the fixer's stories",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "PR authors see one status comment per story naming each try's level and fixer, and at most one hand-back",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c3",
+      "kind": "before_state",
+      "text": "Every try of a story uses qwen-fixer on spark2 and every review uses codex-reviewer; a PR Qwen cannot fix burns all 3 tries on the same model and hands back",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "Today every try of the 2026-10-10 stories ran on qwen-fixer and was reviewed by codex-reviewer (live runs)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c4",
+      "kind": "after_state",
+      "text": "Try 1 is fixed by qwen-fixer and reviewed by codex-reviewer; try 2 by codex-fixer (Codex on spark, its commit carried to spark2's gate) and reviewed by qwen-reviewer; try 3 by the next enabled level; the status comment names the level and the fixer of each try",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "A story's try 2 is dispatched to codex-fixer and its commit is reviewed by qwen-reviewer, both from the store's records, not routing hints",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "A second model often fixes what the first could not; escalating within the 3-try budget raises the fix rate without more tries or more cost on easy PRs",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "Escalation never adds a try: the 3-try budget per story is unchanged",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "A shared variable fixer_levels lists the levels in order, each {level, actor, reviewer, pool, queue, enabled}, plus fixer_unavailable (next or hand_back); it can only choose among agent and review steps that exist in the trusted workflows",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "Changing fixer_levels cannot run an actor or workflow that is not in the trusted pr-fix and review-commit; a level naming an unknown step fails closed",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "queue.progress resolves a request's level at dispatch from its try (the key's count plus one), skipping a level that is unavailable (actor disabled or deleted, its pool over budget, or a capacity_exhausted cooldown) as fixer_unavailable says, and writes fixer, reviewer, level and attempt into the dispatch event; each level has its own queue and pool (pr-fixer on qwen-spark2, pr-fixer-codex on codex-spark), and queue.stop covers every queue",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "Each level's queue is first come, first served on its own pool, so a busy Qwen never delays a Codex try; /stop removes a story's request from every queue",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "pr-fix stays one workflow: one agent step per level guarded by when fixer == <actor>, a Codex hand-off that exports the fixer's commits (start..head, size-capped) from spark into the store and imports them into a fixer-owned worktree on spark2, then the single gate unchanged; new ROLE_FIX digest (the old one kept while its runs may still push)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "The gate still judges the exact commit the Codex fixer made (same SHA after the hand-off); an export over the size cap fails the try with a clear code and the story goes on",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "review-commit runs one review step per reviewer guarded by when reviewer == <actor>; the verdict step takes the single review step that succeeded and still derives reviewer and implementer from the store (never the same actor or backend, read-only, trusted digest); REVIEWER_BACKENDS gains qwen; a qwen-reviewer actor digest is pinned; new ROLE_REVIEW digest",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "codex-reviewer never reviews a Codex try and qwen-reviewer never reviews a Qwen try; the verdict step refuses otherwise",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "A Codex try that fails with capacity_exhausted records a cooldown for its level and the story goes on at the next level (the try counts toward the 3)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "After capacity_exhausted the level is skipped until its cooldown ends, and the try that hit it counts toward the 3",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c14",
+      "kind": "boundary",
+      "text": "The fixer still never pushes or merges; only publish-fix pushes as the App, from spark2; a mis-routed level fails closed at the verdict step",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "No new code path pushes; publish-fix's push placement and trust checks are unchanged",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c16",
+      "kind": "success_signal",
+      "text": "A live story whose Qwen try does not pass is retried by Codex, reviewed by Qwen, and either published or handed back once, with the status comment naming both levels",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "The status comment of that live story names Qwen for try 1 and Codex for try 2",
+      "deferred": false,
+      "deferred_reason": ""
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "Levels: fixer_levels and per-level queues resolved at dispatch",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "A shared variable fixer_levels (ordered {level, actor, reviewer, pool, queue, enabled}) and fixer_unavailable (next|hand_back) are seeded in variables.json; level 1 is qwen-fixer/codex-reviewer/qwen-spark2/pr-fixer",
+        "queue.progress computes the try as the key's count plus one at dispatch, picks that try's level, skips a level whose actor is disabled or deleted, whose pool is over budget or which is in a capacity cooldown, and writes fixer, reviewer, level and attempt into the dispatch event; with no level left it hands back once (fixer_unavailable hand_back) or keeps waiting never; a story never gets a 4th try",
+        "Each level's queue is its own queue document on its own pool, first come first served; queue.add routes a retry to its next level's queue; queue.stop and the dispatch rule cover every queue in fixer_levels"
+      ],
+      "deps": [],
+      "covers": [
+        "c8",
+        "h7",
+        "c9",
+        "h8",
+        "c5",
+        "h6",
+        "c3",
+        "h4",
+        "h2"
+      ],
+      "instruction": "culture_rules/node/actions/queue.py (_admission/_dispatch), queue-add/queue-progress/queue-stop workflows, pr-fixer-dispatch condition data.queue in vars; reuse limits.pool_cap and engine.claims key_state"
+    },
+    {
+      "id": "t2",
+      "summary": "Codex capacity cooldown",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "A try whose agent step fails capacity_exhausted records a cooldown for its level (default 1 h, variable fixer_capacity_cooldown_s) and the story's retry goes to the next level; the failed try counts toward the 3"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c12",
+        "h11"
+      ],
+      "instruction": "Extend pr-fixer-retry-failed's match or add pr-fixer-retry-capacity; the cooldown lives in actor_usage or a small store document read by queue.progress"
+    },
+    {
+      "id": "t3",
+      "summary": "Codex hand-off: export on spark, import on spark2",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "Built-in handoff.export (placed on spark) packs start_sha..head_after from the Codex fixer's worktree through a run-as seam, refuses over a size cap (handoff_too_large) and stores it in a handoffs collection; handoff.import (placed on spark2) fetches the base as culture-fixer, indexes the pack with --fix-thin and creates a fixer-owned worktree whose HEAD is exactly head_after",
+        "Tests prove the gate judges the same SHA the fixer made, a pack over the cap fails the try with handoff_too_large, and a corrupt pack fails closed"
+      ],
+      "deps": [],
+      "covers": [
+        "c10",
+        "h9"
+      ],
+      "instruction": "Model on gate.py _import (pack-objects/index-pack --strict) and its run-as seam; never ssh; the pack stays well under Mongo's 16 MB"
+    },
+    {
+      "id": "t4",
+      "summary": "pr-fix: one agent step per level plus the hand-off",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "pr-fix's fix body runs agent_qwen (when fixer == qwen-fixer) or agent_codex then handoff export/import (when fixer == codex-fixer), then the single gate fed from one source step; outputs implementer and reviewer; pr-fixer-dispatch maps fixer, reviewer and attempt; new ROLE_FIX digest added, old kept",
+        "The status comment names each try's level and fixer (fixer_status takes the agent step that ran, not the first); one hand-back per story",
+        "No new code path pushes: publish-fix and its placement and trust checks are unchanged (bundle test)"
+      ],
+      "deps": [
+        "t1",
+        "t3"
+      ],
+      "covers": [
+        "c4",
+        "h5",
+        "c2",
+        "h3",
+        "c14",
+        "h12"
+      ],
+      "instruction": "Keep lineage.final_gate's single-gate rule; avoid two edges into one port (last edge wins)"
+    },
+    {
+      "id": "t5",
+      "summary": "review-commit: the reviewer follows the fixer",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "review-commit runs review_codex (when reviewer == codex-reviewer) or review_qwen (when reviewer == qwen-reviewer); the verdict step reads review_steps, takes the one that succeeded and still derives reviewer and implementer from the store, refusing the same actor or backend; REVIEWER_BACKENDS gains qwen",
+        "A qwen-reviewer actor (read-only, plan mode, pool qwen-spark2) is added to docs/rules/pr-fixer/actors and its digest pinned in TRUSTED_ACTOR_DIGESTS; new ROLE_REVIEW digest, old kept"
+      ],
+      "deps": [
+        "t4"
+      ],
+      "covers": [
+        "c11",
+        "h10",
+        "h1"
+      ],
+      "instruction": "culture_rules/actors/review.py (_step_names, _judge_chain, REVIEWER_BACKENDS); tests/rules/test_pr_fixer_bundle.py expectations"
+    },
+    {
+      "id": "t6",
+      "summary": "Actors, docs and the operator's setup",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "codex-fixer actor JSON (machine spark, pool codex-spark, max_concurrency 1, workspace-write) in the bundle; docs/operations/pr-fixer.md documents the levels, the hand-off, the reviewer rule, and the operator's setup: the culture-codex-fixer account, its codex login, the second Codex bridge, grant secrets and the sudoers entry; the rollout lists new rules, variables and digests; CHANGELOG and version bump"
+      ],
+      "deps": [
+        "t2",
+        "t5"
+      ],
+      "covers": [
+        "c1"
+      ],
+      "instruction": "No secret values; grant names only"
+    },
+    {
+      "id": "t7",
+      "summary": "A live story escalates from Qwen to Codex",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "After the operator's setup and rollout, a live story whose Qwen try does not pass gets a Codex try reviewed by Qwen and is published or handed back once; its status comment names Qwen for try 1 and Codex for try 2"
+      ],
+      "deps": [
+        "t6"
+      ],
+      "covers": [
+        "c16",
+        "h13"
+      ],
+      "instruction": "Operator-run setup and rollout; Claude watches the story and files the evidence"
+    }
+  ],
+  "risks": [],
+  "obligations": []
+}

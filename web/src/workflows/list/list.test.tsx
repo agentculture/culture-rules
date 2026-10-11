@@ -27,12 +27,12 @@ describe("folded workflow list", () => {
     render(<MemoryRouter><WorkflowList {...props} /></MemoryRouter>);
     const cards = screen.getAllByRole("article", { name: /^Chain:/ });
     expect(cards).toHaveLength(2);
-    expect(within(cards[0]).getByText("6 workflows linked by continuations · 9 entry points · was 20 rules")).toBeInTheDocument();
+    expect(within(cards[0]).getByText("7 workflows linked by continuations · 9 entry points · was 22 rules")).toBeInTheDocument();
     expect(within(cards[1]).getByText("1 workflow linked by continuations · 2 entry points · was 2 rules")).toBeInTheDocument();
-    expect(within(cards[0]).getAllByRole("group", { name: /^Workflow:/ })).toHaveLength(6);
+    expect(within(cards[0]).getAllByRole("group", { name: /^Workflow:/ })).toHaveLength(7);
     expect(within(cards[1]).getAllByRole("group", { name: /^Workflow:/ })).toHaveLength(1);
     for (const label of ["Starts when", "Continues into", "Runs", "Ends with"]) {
-      expect(screen.getAllByText(label)).toHaveLength(7);
+      expect(screen.getAllByText(label)).toHaveLength(8);
     }
     for (const rule of rules) expect(screen.getAllByText(rule.name).length).toBeGreaterThan(0);
     expect(screen.getAllByText("Disabled").length).toBeGreaterThanOrEqual(9);
@@ -76,7 +76,7 @@ describe("folded workflow list", () => {
     const section = screen.getByRole("region", { name: "Rules without a workflow" });
     for (const rule of candidates) expect(within(section).getByRole("link", { name: rule.name })).toHaveAttribute("href", `/workflows?entry=${encodeURIComponent(rule.id)}`);
     expect(within(section).getAllByText("D7 candidate · can get a workflow of its own, with no steps yet")).toHaveLength(2);
-    expect(screen.getByText("7 workflows · 11 entry points · was 24 rules")).toBeInTheDocument();
+    expect(screen.getByText("8 workflows · 11 entry points · was 26 rules")).toBeInTheDocument();
   });
 
   it("derives same-event notes across chains from the PR fixer fixture", () => {
@@ -126,7 +126,7 @@ describe("folded workflow list", () => {
     expect(screen.getByRole("button", { name: "Chain" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: "List" })).toHaveAttribute("aria-pressed", "false");
     expect(screen.getAllByRole("group", { name: /^Entry point:/ })).toHaveLength(9);
-    expect(screen.getByText("20 rules → 9 entry points, 11 continuations, 6 workflows")).toBeInTheDocument();
+    expect(screen.getByText("22 rules → 9 entry points, 13 continuations, 7 workflows")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "List" }));
     expect(screen.getAllByRole("article", { name: /^Chain:/ })).toHaveLength(2);
     expect(screen.getAllByRole("button", { name: "See it as one chain" })[0]).toHaveFocus();
@@ -149,16 +149,18 @@ describe("Chain view", () => {
 
   it("draws all fixture starts, workflows and directed continuations, including the return edge", () => {
     const { container } = render(<MemoryRouter><ChainView model={model} /></MemoryRouter>);
-    // #35: the queue's workflows join the fixer's chain (queue-add, queue-progress); d34: queue-stop
-    expect(screen.getByText("22 rules → 11 entry points, 11 continuations, 7 workflows")).toBeInTheDocument();
+    // #35: the queue's workflows join the fixer's chain (queue-add, queue-progress); d34: queue-stop;
+    // #39: a try that hit capacity_exhausted rejoins through queue-add-capacity
+    expect(screen.getByText("24 rules → 11 entry points, 13 continuations, 8 workflows")).toBeInTheDocument();
     expect(screen.getAllByRole("group", { name: /^Entry point:/ })).toHaveLength(11);
-    expect(screen.getAllByRole("group", { name: /^Workflow:/ })).toHaveLength(7);
+    expect(screen.getAllByRole("group", { name: /^Workflow:/ })).toHaveLength(8);
     const edges = [...container.querySelectorAll("path[data-continuation-id]")];
     expect(edges.map((edge) => [edge.getAttribute("data-source"), edge.getAttribute("data-target")])).toEqual([
       ["review-commit", "publish-fix"],
-      ["pr-fix", "queue-progress"], ["pr-fix", "queue-progress"], ["pr-fix", "queue-progress"],
-      ["queue-stop", "queue-progress"], ["pr-fix", "queue-progress"], ["queue-add", "queue-progress"],
-      ["review-commit", "queue-add"], ["pr-fix", "queue-add"], ["pr-fix", "queue-add"],
+      ["pr-fix", "queue-progress"], ["queue-add-capacity", "queue-progress"], ["pr-fix", "queue-progress"],
+      ["pr-fix", "queue-progress"], ["queue-stop", "queue-progress"], ["pr-fix", "queue-progress"],
+      ["queue-add", "queue-progress"], ["review-commit", "queue-add"], ["pr-fix", "queue-add-capacity"],
+      ["pr-fix", "queue-add"], ["pr-fix", "queue-add"],
       ["pr-fix", "review-commit"],
     ]);
     expect(container.querySelectorAll("path[data-entry-id]")).toHaveLength(11);

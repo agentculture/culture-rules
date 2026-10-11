@@ -70,10 +70,11 @@ test.describe("the fold against the fake API (PR fixer)", () => {
     const model = foldModel(PR_FIXER_RULES, PR_FIXER_WORKFLOWS);
     // d2: 2 chains; since #35 6 workflows (queue-add, queue-progress); since d31 9 entry
     // points (pr-fixer-conflict); since d34 7 workflows (queue-stop), 11 entry points (the
-    // two stop rules), 10 continuations; since d37 11 (pr-fixer-retry-failed); computed, not
-    // assumed.
+    // two stop rules), 10 continuations; since d37 11 (pr-fixer-retry-failed); since #39 8
+    // workflows (queue-add-capacity), 13 continuations (its retry and progress rules);
+    // computed, not assumed.
     expect([model.chains.length, model.workflows.length, model.entryPoints.length, model.continuations.length])
-      .toEqual([2, 7, 11, 11]);
+      .toEqual([2, 8, 11, 13]);
     await page.goto("/workflows");
     await untilReady(page);
     const list = page.getByRole("navigation", { name: "Workflows" });

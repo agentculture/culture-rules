@@ -350,7 +350,7 @@ def test_a_reviewer_not_flagged_or_on_another_backend_is_not_allowed(params, har
     _actors(store, params, harness)
     code, detail = _code(store, _run(), _review_state())
     assert code == "reviewer_not_allowed"
-    assert detail == "rev is not an actor flagged as a reviewer with backend in ['codex']"
+    assert detail == "rev is not an actor flagged as a reviewer with backend in ['codex', 'qwen']"
 
 
 def test_a_reviewer_on_the_implementers_backend_is_the_implementer():
