@@ -4,7 +4,8 @@ that reads no pack bodies.
 * #2: two importers with different idempotency keys never both succeed. The import claims
   the hand-off (a compare-and-set on the document's ``rev``) before it builds anything, so
   the later one is refused ``handoff_already_imported``; one that lost its claim after
-  building (the document was replaced meanwhile) removes its own workspace.
+  building (the document was pruned and exported again meanwhile) removes its own
+  workspace.
 * #3: an import reports completion only once its receipt is durably recorded. A document
   pruned while the import builds fails the step ``handoff_receipt_lost`` (non-retryable)
   and removes the workspace; the claim renews the document's retention, so the prune never
@@ -60,6 +61,15 @@ def exported_once(store, world):  # noqa: F811
 
 
 # ---- #2: concurrent importers ------------------------------------------------------------
+
+
+def test_an_export_replay_mid_build_keeps_the_claim(store, world):  # noqa: F811
+    head, exported = exported_once(store, world)
+    during_build(world, lambda: export(store, world, head))
+    res = import_(store, world, exported, head, key="a")
+    assert res.outcome == "completed", res.error
+    doc = store.get(HANDOFFS_COLLECTION, exported["handoff_id"])
+    assert doc["imported"]["worktree"] == res.output["worktree"]
 
 
 def test_an_importer_racing_another_mid_build_is_refused(store, world):  # noqa: F811
@@ -124,13 +134,20 @@ def test_a_refused_racing_importer_builds_nothing(store, world):  # noqa: F811
     assert len(world.workspaces()) == 1
 
 
+def gone_and_exported_again(store, world, exported, head):  # noqa: F811
+    """The hand-off is deleted (pruned) and the export re-runs: a fresh one, unclaimed.
+    (An export replay over a live hand-off keeps its claim, Codex round 3 #3.)"""
+    store.delete(HANDOFFS_COLLECTION, exported["handoff_id"])
+    assert export(store, world, head).outcome == "completed"
+
+
 def test_one_that_lost_its_claim_after_building_removes_its_workspace(store, world):  # noqa: F811
-    """The export re-ran mid-build (its document replaced: the claim gone) and another
+    """The hand-off was pruned and exported again mid-build (the claim gone) and another
     importer claimed and imported it: the first one's built workspace is removed."""
     head, exported = exported_once(store, world)
 
     def replaced_then_imported():
-        assert export(store, world, head).outcome == "completed"
+        gone_and_exported_again(store, world, exported, head)
         assert import_(store, world, exported, head, key="b").outcome == "completed"
 
     during_build(world, replaced_then_imported)
@@ -141,7 +158,7 @@ def test_one_that_lost_its_claim_after_building_removes_its_workspace(store, wor
 
 def test_a_replaced_document_with_no_claim_is_reclaimed(store, world):  # noqa: F811
     head, exported = exported_once(store, world)
-    during_build(world, lambda: export(store, world, head))
+    during_build(world, lambda: gone_and_exported_again(store, world, exported, head))
     res = import_(store, world, exported, head, key="a")
     assert res.outcome == "completed", res.error
     doc = store.get(HANDOFFS_COLLECTION, exported["handoff_id"])

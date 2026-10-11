@@ -493,8 +493,8 @@ class QueueAddPort:
         ]
         if request["retry"] and (absorbed := self._absorbed(others, request["key"])):
             return absorbed
-        out = self._add(target, request, ik, stopped)
-        if out["queued"]:
+        out, wrote = self._write(target, request, ik, stopped)
+        if wrote:
             removed = sum(self._unwait(other, request["key"]) for other in others)
             out["replaced"] = out["replaced"] or removed > 0
         return {**out, "queue": target}
@@ -530,18 +530,34 @@ class QueueAddPort:
         ik: str,
         stopped: Callable[[], str | None] = lambda: None,
     ) -> dict[str, Any]:
+        return self._write(name, request, ik, stopped)[0]
+
+    def _write(
+        self,
+        name: str,
+        request: dict[str, Any],
+        ik: str,
+        stopped: Callable[[], str | None] = lambda: None,
+    ) -> tuple[dict[str, Any], bool]:
+        """Add ``request`` to queue ``name``: the answer, and whether this call wrote it
+        (inserted or refreshed the PR's request). Codex round 3 #1: a replay of an
+        idempotency key the queue has ``seen`` writes nothing and says so, so
+        :meth:`route` removes nothing elsewhere on a replay - after a level move the PR's
+        only request is in another queue, and removing it there would leave the PR in no
+        queue. A replay is safe to leave alone: the first call with the key already did
+        its removals in the same transaction as its add."""
         queue = _QueueDoc(self._store, name, self._clock)
         for _ in range(_MAX_CAS_TRIES):
             doc, rev, exists = queue.read()
             if ik in doc["seen"]:
                 _positions(doc)
-                return self._result(doc, request["key"], queued=True, replaced=False)
+                return self._result(doc, request["key"], queued=True, replaced=False), False
             # d34 (Codex round 1 #3): judged again after each read of the queue. A stop
             # records itself, then always writes the queue document, so an add that read
             # the queue before that write loses its compare-and-set and sees the stop here.
             if stopped() is not None:
                 _positions(doc)
-                return self._result(doc, request["key"], queued=False, replaced=False)
+                return self._result(doc, request["key"], queued=False, replaced=False), False
             now = _iso(self._clock())
             existing = next((r for r in doc["waiting"] if r["key"] == request["key"]), None)
             replaced = False
@@ -556,7 +572,7 @@ class QueueAddPort:
                 replaced = True
             doc["seen"].append(ik)
             if queue.write(doc, rev, exists):
-                return self._result(doc, request["key"], queued=True, replaced=replaced)
+                return self._result(doc, request["key"], queued=True, replaced=replaced), True
         raise RuntimeError(f"queues/{name}: too much contention")
 
     def _not_queued(self, name: str, key: str) -> dict[str, Any]:

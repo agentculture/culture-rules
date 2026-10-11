@@ -37,6 +37,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `handoff.import` completes only once its receipt is durably written by compare-and-set on its claim; a hand-off pruned meanwhile fails the step `handoff_receipt_lost` (not retryable) and removes the built workspace, instead of reporting a worktree a replay could not find
 - Hand-off retention: each document carries `expires_at` (a date, renewed by the export, an import's claim and its receipt) with a MongoDB TTL index (`handoffs_expiry`); exports and imports also prune at most 100 expired hand-offs through a ranged query that reads only their ids and `rev` (never a pack body: `find_range` gains a `fields` projection on both stores), each deleted after a compare-and-set mark so one an import claimed meanwhile stays (`tests/actors/test_handoff_claims.py`, `tests/actors/test_handoff_mongo.py`)
 
+### Review hardening (Codex round 3)
+
+- `queue.add` with levels: a replay of an idempotency key the queue has already seen writes nothing and now removes nothing from the other level queues either. Before, replaying a `/fix` after `queue.progress` had moved its request to another level's queue removed the moved request, and the PR was in no queue (`tests/node/test_queue_replay.py`)
+- `handoff.export` never erases an import's claim or receipt: an export of an existing hand-off with the same commits (`start_sha`, `head_after`) only renews its `rev` and `expires_at` by compare-and-set and reports the stored pack; one with other commits replaces an unclaimed hand-off by compare-and-set and is refused `handoff_conflict` (not retryable) once an import claimed it. Before, an export replay replaced the document, and a second importer could then claim and import the same hand-off
+- The hand-off prune deletes each expired hand-off in one store transaction that reads its `rev` again, instead of a compare-and-set mark followed by an unconditional delete that could remove a hand-off exported again in between; the `expired` mark is gone (a hand-off is there or not)
+- A `handoff.import` replay whose receipt write lost to another same-key replay reports that replay's worktree only while it is intact (`HEAD` at `head_after`, clean); otherwise it records the worktree it built, instead of reporting one that was removed (`tests/actors/test_handoff_round3.py`)
+
 ### Known limits
 
 - A Codex try that rewrites history fails at the hand-off export (`handoff_not_descendant`) and hands back once: no retry rule covers it

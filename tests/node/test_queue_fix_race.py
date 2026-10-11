@@ -50,22 +50,22 @@ def holders(w):
 
 
 class PausedAdd:
-    """Pauses the first ``QueueAddPort._add`` made on the ``/fix``'s thread right after it
-    returns, i.e. between the routing's ``_add`` and its ``_unwait`` calls."""
+    """Pauses the first ``QueueAddPort._write`` (the routing's add, Codex round 3 #1) made on
+    the ``/fix``'s thread right after it returns, i.e. before its ``_unwait`` calls."""
 
     def __init__(self, monkeypatch) -> None:
         self.paused, self.resume = threading.Event(), threading.Event()
         self.thread: int | None = None
-        original = queue_mod.QueueAddPort._add
+        original = queue_mod.QueueAddPort._write
 
-        def _add(port, *args, **kwargs):
+        def _write(port, *args, **kwargs):
             out = original(port, *args, **kwargs)
             if threading.get_ident() == self.thread and not self.paused.is_set():
                 self.paused.set()
                 self.resume.wait(WAIT_S)
             return out
 
-        monkeypatch.setattr(queue_mod.QueueAddPort, "_add", _add)
+        monkeypatch.setattr(queue_mod.QueueAddPort, "_write", _write)
 
 
 def race(w, monkeypatch):
