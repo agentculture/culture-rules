@@ -1,10 +1,10 @@
 """Declaration shape for actors of kind ``app`` (an external-surface integration).
 
 An ``app`` actor is the credentialed identity through which the engine receives events from,
-and acts on, one outside surface (GitHub, Jira or Discord). Everything lives in
+and acts on, one outside surface (GitHub, Jira, Discord, email or web search). Everything lives in
 ``Actor.params``; the webhook sink, the surface clients and the web Actors form read this::
 
-    surface:       "github" | "jira" | "discord"
+    surface:       "github" | "jira" | "discord" | "email" | "search"
     events:        ["github.pr.opened", ...]   dotted event types the app declares it emits
     probes:        [{"name": str, "command": str, "schedule"?: str}, ...]   optional
     actions:       ["github.comment", ...]     action kinds (model.action_kinds) it can perform
@@ -19,6 +19,13 @@ literal is refused on save with ``secret_literal`` by ``assert_refs_only``)::
               repos: [allow-list]}
     jira:    {site, email, token: "grant:N", webhook_token: "grant:N", projects: [...]}
     discord: {bot_token: "grant:N", guild_id, channels: [...]}
+    email:   {api_key: "grant:N", domain: one of EMAIL_DOMAINS (default culture.dev),
+              local_part (default no-reply), recipients: [allow-list of addresses]}
+    search:  {api_key: "grant:N"}
+
+Only the ``email`` and ``search`` connections are checked field by field here (a literal
+``api_key``, a domain outside :data:`EMAIL_DOMAINS`, a malformed local part or recipient are
+refused with their path); the other surfaces' connections are checked by their clients.
 
 Event types follow the events-cli rule: lowercase dotted segments, at least two. Standard
 library only; :func:`app_param_errors` returns ``(path, code, message)`` tuples relative to
@@ -33,9 +40,30 @@ from typing import Any
 
 from culture_rules.model.action_kinds import resolve_kind
 
-__all__ = ["APP_SURFACES", "EVENT_TYPE_RE", "app_param_errors"]
+__all__ = [
+    "APP_SURFACES",
+    "EMAIL_DEFAULT_DOMAIN",
+    "EMAIL_DEFAULT_LOCAL_PART",
+    "EMAIL_DOMAINS",
+    "EVENT_TYPE_RE",
+    "app_param_errors",
+    "email_sender",
+    "is_email_address",
+]
 
-APP_SURFACES: tuple[str, ...] = ("github", "jira", "discord")
+APP_SURFACES: tuple[str, ...] = ("github", "jira", "discord", "email", "search")
+#: The sender domains an ``email`` actor may send from (both verified with Resend).
+EMAIL_DOMAINS: tuple[str, ...] = ("culture.dev", "jetson-ai-lab.org")
+EMAIL_DEFAULT_DOMAIN = EMAIL_DOMAINS[0]
+EMAIL_DEFAULT_LOCAL_PART = "no-reply"
+# An RFC 5322 dot-atom local part (no quoting, no whitespace, no "@", no control characters)
+# and a dotted host name: deliberately narrower than the RFC, wide enough for real mailboxes.
+_LOCAL_PART_RE = re.compile(r"^(?!\.)(?!.*\.\.)[A-Za-z0-9!#$%&'*+/=?^_`{|}~.-]{1,64}(?<!\.)$")
+_LABEL = r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+_HOST_RE = re.compile(rf"^{_LABEL}(?:\.{_LABEL})+$")
+_GRANT_REF_RE = re.compile(r"^grant:[A-Za-z0-9][A-Za-z0-9._/-]*$")
+_INVALID = "invalid_value"
+_REQUIRED = "required"
 EVENT_TYPE_RE = re.compile(r"^[a-z][a-z0-9_-]*(\.[a-z][a-z0-9_-]*)+$")
 
 Problem = tuple[str, str, str]
@@ -93,6 +121,77 @@ def _check_probes(params: Mapping, out: list[Problem]) -> None:
             out.append((f"{base}.schedule", "invalid_type", "schedule must be a string"))
 
 
+def is_email_address(value: Any) -> bool:
+    """Whether ``value`` is a plausible address: one ``@``, a dot-atom local part, a host."""
+    if not isinstance(value, str) or value.count("@") != 1:
+        return False
+    local, host = value.split("@")
+    return bool(_LOCAL_PART_RE.fullmatch(local)) and bool(_HOST_RE.fullmatch(host))
+
+
+def email_sender(connection: Mapping) -> str:
+    """The from address of an ``email`` connection: ``local_part@domain``, with defaults."""
+    local = connection.get("local_part") or EMAIL_DEFAULT_LOCAL_PART
+    domain = connection.get("domain") or EMAIL_DEFAULT_DOMAIN
+    return f"{local}@{domain}"
+
+
+def _check_api_key(conn: Mapping, out: list[Problem]) -> None:
+    """``api_key`` is required and must be a ``grant:NAME`` reference (never echoed)."""
+    value = conn.get("api_key")
+    if value is None or value == "":
+        out.append(("connection.api_key", _REQUIRED, "api_key is required"))
+    elif not (isinstance(value, str) and _GRANT_REF_RE.fullmatch(value)):
+        out.append(
+            ("connection.api_key", "secret_literal", "api_key must be a 'grant:<NAME>' reference")
+        )
+
+
+def _check_recipients(conn: Mapping, out: list[Problem]) -> None:
+    value = conn.get("recipients")
+    path = "connection.recipients"
+    if value is None:
+        out.append((path, _REQUIRED, "recipients (the allow-list) is required"))
+    elif not isinstance(value, (list, tuple)):
+        out.append((path, "invalid_type", "recipients must be a list of addresses"))
+    elif not value:
+        out.append((path, _REQUIRED, "recipients must list at least one address"))
+    else:
+        for i, item in enumerate(value):
+            if not is_email_address(item):
+                out.append((f"{path}[{i}]", _INVALID, "not a valid email address"))
+
+
+def _check_email_connection(conn: Mapping, out: list[Problem]) -> None:
+    _check_api_key(conn, out)
+    domain = conn.get("domain")
+    if domain is not None and domain not in EMAIL_DOMAINS:
+        out.append(
+            ("connection.domain", _INVALID, f"domain must be one of {', '.join(EMAIL_DOMAINS)}")
+        )
+    local = conn.get("local_part")
+    if local is not None and not (isinstance(local, str) and _LOCAL_PART_RE.fullmatch(local)):
+        out.append(
+            ("connection.local_part", _INVALID, "local_part is not a valid email local part")
+        )
+    _check_recipients(conn, out)
+
+
+_CONNECTION_CHECKS = {
+    "email": _check_email_connection,
+    "search": _check_api_key,
+}
+
+
+def _check_connection(surface: Any, connection: Any, out: list[Problem]) -> None:
+    if connection is None:
+        out.append(("connection", "required", "connection is required"))
+    elif not isinstance(connection, Mapping):
+        out.append(("connection", "invalid_type", "connection must be an object"))
+    elif isinstance(surface, str) and surface in _CONNECTION_CHECKS:
+        _CONNECTION_CHECKS[surface](connection, out)
+
+
 def app_param_errors(params: Any) -> list[Problem]:
     """Problems with an ``app`` actor's ``params``, as ``(path, code, message)`` tuples."""
     out: list[Problem] = []
@@ -108,11 +207,7 @@ def app_param_errors(params: Any) -> list[Problem]:
     _str_list(params, "events", _check_event, out)
     _str_list(params, "actions", _check_action, out)
     _check_probes(params, out)
-    connection = params.get("connection")
-    if connection is None:
-        out.append(("connection", "required", "connection is required"))
-    elif not isinstance(connection, Mapping):
-        out.append(("connection", "invalid_type", "connection must be an object"))
+    _check_connection(surface, params.get("connection"), out)
     identity = params.get("self_identity")
     if identity is not None and not isinstance(identity, str):
         out.append(("self_identity", "invalid_type", "self_identity must be a string"))
