@@ -1,0 +1,35 @@
+{
+  "plan_slug": "daily-newspaper",
+  "schema_version": 2,
+  "created": "2026-10-11T05:14:10Z",
+  "updated": "2026-10-11T05:14:10Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "t8 added a small engine feature: a step with config.on_error 'skip' that ends failed becomes skipped (its error kept, history failure_tolerated), accepted only on non-loop, non-wait steps; the newspaper's summary step uses it so the issue still goes out when cortex is down",
+      "task_ref": "t8",
+      "reason": "the engine had no way for a workflow to survive a failed step, which the confirmed cortex-down decision (q1) needs",
+      "affects": [],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 1
+    },
+    {
+      "id": "d2",
+      "what": "t8 adjusted t6's builtins to how for_each works: newspaper.filter reads the loop's implicit item port; newspaper.sections adds a derived query (the section's queries joined with OR, refused over Brave's 400 characters); render accepts per-iteration {results} objects. The library actor uses the operator's existing grant XTEINK_PUSH_API_KEY instead of a new XTEINK_NEWSPAPER_KEY, and all four actors are placed on spark because the LLM gateway and xteink are reached on spark's localhost (live test)",
+      "task_ref": "t8",
+      "reason": "a loop body cannot receive the item under another name, params cannot index a list, and a for_each output yields whole iteration objects; the grant name and placement come from the operator and the live component test",
+      "affects": [
+        "t6"
+      ],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 2
+    }
+  ],
+  "evidence": [],
+  "deltas": [],
+  "supersessions": []
+}
