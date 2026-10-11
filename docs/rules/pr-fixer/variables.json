@@ -1,0 +1,85 @@
+[
+  {
+    "name": "trusted_authors",
+    "value": [
+      "OriNachum",
+      "qodo-code-review[bot]"
+    ],
+    "description": "GitHub logins whose PR comments and reviews fire the fixer; only their threads are handed to the agent"
+  },
+  {
+    "name": "ignored_check_apps",
+    "value": [
+      "claude"
+    ],
+    "description": "Check-suite app slugs the settle step ignores (the claude suite stays queued)"
+  },
+  {
+    "name": "checks_settle_timeout_s",
+    "value": 900,
+    "description": "Seconds after a head SHA's first check completion before it settles anyway (settled_by timeout)"
+  },
+  {
+    "name": "checks_settle_min_s",
+    "value": 60,
+    "description": "Minimum seconds before all_completed settles, so a slower app's suite can appear"
+  },
+  {
+    "name": "fixer_repos",
+    "value": [
+      "agentculture/culture-rules-tester"
+    ],
+    "description": "Repositories (owner/name) the fixer runs on (the allow-list); widen with: variables add fixer_repos owner/repo"
+  },
+  {
+    "name": "fixer_excluded_repos",
+    "value": [],
+    "description": "Repositories (owner/name) the fixer never runs on, even when in fixer_repos (an override)"
+  },
+  {
+    "name": "fixer_comment_triggers",
+    "value": [
+      "/fix",
+      "@rules-culture-dev"
+    ],
+    "description": "What a PR comment or review comment must carry to start a fixer run: a /command at the start of its body, or an @mention of the App (narrow it to [\"/fix\"] to ignore mentions)"
+  },
+  {
+    "name": "fixer_stop_triggers",
+    "value": [
+      "/stop",
+      "@rules-culture-dev stop"
+    ],
+    "description": "What a PR comment must start with to stop the PR's fixer story (d34): a /command, or the App's @mention followed by the word (narrow it to [\"/stop\"] to ignore mentions)"
+  },
+  {
+    "name": "fixer_protected_paths",
+    "value": [
+      ".github/workflows/**",
+      "sonar-project.properties",
+      ".coveragerc",
+      "setup.cfg",
+      ".flake8",
+      "pyproject.toml"
+    ],
+    "description": "Paths the gate's diff guard refuses (on top of the .github/workflows/** floor)"
+  },
+  {
+    "name": "fixer_levels",
+    "value": [
+      "level=1 actor=qwen-fixer reviewer=codex-reviewer pool=qwen-spark2 queue=pr-fixer enabled=true",
+      "level=2 actor=codex-fixer reviewer=qwen-reviewer pool=codex-spark queue=pr-fixer-codex enabled=false"
+    ],
+    "description": "#39: the fixer's escalation levels in order, one per string: level, actor (the fixer), reviewer, pool (its concurrency pool: the level queue's cap), queue (the level's own queue) and enabled. Try n takes the n-th enabled level (the last one repeats); edit a field in place to enable a level"
+  },
+  {
+    "name": "fixer_unavailable",
+    "value": "next",
+    "description": "#39: what a try does when its level is unavailable (actor disabled or deleted, token budget spent, capacity cooldown): next (the next available level after it) or hand_back (end the story with one hand-back)"
+  },
+  {
+    "name": "fixer_capacity_cooldown_s",
+    "value": 3600,
+    "description": "#39: seconds a fixer level rests after one of its tries hit the backend's usage limit (capacity_exhausted); meanwhile queue.progress skips it as vars.fixer_unavailable says"
+  }
+]

@@ -1,0 +1,369 @@
+{
+  "slug": "rollout-cli",
+  "title": "Rollout CLI",
+  "frame_slug": "rollout-cli",
+  "schema_version": 5,
+  "status": "exported",
+  "created": "2026-10-10T20:59:51Z",
+  "updated": "2026-10-10T21:05:29Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "culture-rules rollout: the operator rolls a release out to every node with one dry-run-first CLI noun, step by step, instead of hand-written per-release scripts",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "Every step of the hand-run rollout-0188.sh (idle, pause, spark, nodes, seed, import, enable, resume) has a rollout verb that does the same thing with --apply, and its dry run names the exact commands or API calls it would make",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "No step needs a checkout of the repository: the wheel alone carries install.sh, the bundle and the release manifest",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "The operator who rolls culture-rules releases out to spark, thor, orin and spark2 (and Claude Code preparing a rollout: auto mode blocks production deploys, so the operator runs each step)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "Every verb is usable by the operator from a shell with the token injected by grant run, and as an MCP tool, with the same output",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c3",
+      "kind": "before_state",
+      "text": "Each release was rolled out from a hand-written script (rollout-0186.sh, rollout-0187.sh, rollout-0188.sh) with the hosts' install flags, the enabled-rule snapshot file and the release's new rules hard-coded; a forgotten install.sh flag silently drops a node secret, and the wrong wheel can be picked up",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "The before state is the three committed-to-issue scripts (issue #45 comment) and the 2026-10-10 rollouts that used them",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c4",
+      "kind": "after_state",
+      "text": "culture-rules rollout plan --wheel <whl> prints the steps, every host with its install flags, the rules to re-enable and the release's new rules and variables; culture-rules rollout <step> runs one step: idle, pause, upgrade --host <name>, seed, import, enable, resume, verify; every step is a dry run until --apply, takes --json, and has an MCP tool",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "rollout plan --wheel prints, without writing anything, the steps in order, each host with the install flags from its machine record, the snapshot rules and the release's new rules and variables from the wheel's manifest",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "Rollouts happen every release (five on 2026-10-10 alone); encoding the lessons (restore what was on, flags in one place, name the wheel, wait for idle) removes the steps that went wrong by hand",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "Each lesson listed in issue #45 maps to a guard or a stored field the CLI enforces, named in the docs",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "The machine record gains a typed install section (node_name, secrets, gate_run_as, extras, wheelhouse, python, events_host, events_port, and mode: install_sh or shared_venv); spark, whose API and node share one venv with hand-edited units, uses shared_venv: uv pip install the wheel into that venv and restart culture-rules-api and culture-rules-node, never install.sh",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "A machine record without an install section cannot be upgraded (exit 1 naming the missing section); spark's record uses shared_venv and the CLI never runs install.sh for it",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "A rollout document in the store (new collection and routes: GET viewer, writes admin) holds the release version, the enabled-rule snapshot taken at pause and each step's outcome; enable restores the snapshot plus the release's new rules and reports which rules stay disabled",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "pause writes the snapshot before pausing; enable re-enables exactly the snapshot plus the manifest's new rules and lists every rule left disabled",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "The wheel carries what a rollout needs: install.sh, the pr-fixer bundle (workflows, rules) and a release manifest naming the release's new rules and new variables with their seed values, as package data; seed and import read them from the wheel, so no checkout is needed",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "The wheel built by CI contains install.sh, the bundle and the manifest; a test opens the built wheel and finds them",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "upgrade runs ssh and scp through an injectable runner, only with --apply; it uses the wheel the operator names (--wheel), never one found on the host; afterwards it reads the host's installed version and its unit's ActiveState and ActiveEnterTimestamp",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "Without --apply, upgrade never opens an ssh connection; tests run it against a fake runner",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "verify checks every node's engine_version (GET /machines/status gains engine_version from the heartbeat) and the API's own version against the wheel, the engine not paused, enabled rules equal to the snapshot plus the release's new rules, and no run failed with no_builtin since resume",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "verify exits 0 only when every check passes and lists each failed check otherwise",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c13",
+      "kind": "requirement",
+      "text": "Guards: pause refuses while a run is non-terminal (idle shows them) unless --force; import refuses before seed has run for this release; enable refuses while a node runs an older version; pause and resume are idempotent (an engine already paused or resumed is reported, not an error)",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "Each guard refuses with exit 1 and a remediation line naming the step to run first, and --force is the only override where one is allowed",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c14",
+      "kind": "boundary",
+      "text": "The admin token reaches the CLI only through the environment (grant run --inject CULTURE_RULES_TOKEN=...); no secret value is stored on a machine record or a rollout document (secrets are grant names), printed, or committed; the tailnet API URL stays out of committed files",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "A test scans the rollout code paths and the stored documents for secret values and finds only grant names; scan-secrets stays green",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c15",
+      "kind": "boundary",
+      "text": "Every step stays one command the operator runs and checks; nothing chains steps or runs a rollout unattended, and nodes never upgrade themselves",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h14",
+      "kind": "honesty",
+      "text": "No verb runs more than one step; there is no 'all' verb",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "c17",
+      "kind": "success_signal",
+      "text": "The next release after this one is rolled out to all four nodes with culture-rules rollout commands only, no hand-written script, and rollout verify reports every check green",
+      "deferred": false,
+      "deferred_reason": ""
+    },
+    {
+      "id": "h15",
+      "kind": "honesty",
+      "text": "The release after this one has its rollout recorded as a stored rollout document with every step applied and verify green",
+      "deferred": false,
+      "deferred_reason": ""
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "Machine records carry a typed install section",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "Machine gains an optional install section {mode: install_sh|shared_venv, node_name, secrets[], gate_run_as, extras, wheelhouse, python, events_host, events_port}; strict parse refuses unknown keys; schemas/machine.schema.json regenerated and tests/model/test_schemas.py green",
+        "A validator refuses a secrets entry that is not a grant name ([A-Z0-9_]+) and a gate_run_as that is not a sudo -n -u prefix",
+        "Existing machine documents without install still load and save unchanged"
+      ],
+      "deps": [],
+      "covers": [
+        "c8",
+        "h9"
+      ],
+      "instruction": "culture_rules/model/machine.py (+ a nested dataclass), model/validate.py _check_machine, regenerate schemas with uv run python -m culture_rules.model.schema --write schemas; no API route change (definition bodies are dicts)"
+    },
+    {
+      "id": "t2",
+      "summary": "The wheel carries install.sh, the pr-fixer bundle and the release manifests",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "hatch_build force-includes deploy/node/install.sh and docs/rules/pr-fixer (workflows, rules, actors) as culture_rules/deploy_data; a test opens the built wheel and finds install.sh, the bundle and both manifests",
+        "docs/rules/pr-fixer/variables.json holds every seed variable {name, value, description}; seed-variables.sh reads it and its behaviour (skip existing, --force, --apply) is unchanged",
+        "docs/rules/pr-fixer/release.json names the release version, its new rules and new variables; a test checks every name exists in the bundle or variables.json and that its version equals pyproject's"
+      ],
+      "deps": [],
+      "covers": [
+        "c10",
+        "h11",
+        "h2"
+      ],
+      "instruction": "Follow hatch_build.py's web_dist pattern; culture_rules/deploy_data/__init__.py exposes paths via importlib.resources; keep tests/packaging/test_wheel.py's skip rules"
+    },
+    {
+      "id": "t3",
+      "summary": "API: a rollout document and the versions verify needs",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "New collection rollouts (in _ALL_COLLECTIONS) with GET /rollouts, GET /rollouts/{id} (viewer) and PUT /rollouts/{id} (admin, audited); body {version, snapshot[], steps{name: {applied_at, outcome}}}; strict validation",
+        "GET /machines/status items gain engine_version (from the heartbeat, null when unknown); GET /health gains version (the API's package version)",
+        "api/openapi.json regenerated; the contract test, authz table test and web typecheck pass"
+      ],
+      "deps": [],
+      "covers": [
+        "c9",
+        "c12"
+      ],
+      "instruction": "server/app.py _register_rollouts; server/status.py; ops/health.py; auth/policy.py default makes PUT admin; scripts/export-openapi.py --write"
+    },
+    {
+      "id": "t4",
+      "summary": "CLI rollout noun: plan, idle, pause, seed, import, enable, resume, verify",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "culture_rules/cli/_commands/rollout.py registers the verbs with roles (plan, idle, verify viewer; import, enable editor; pause, resume, seed admin); each is a dry run until --apply, takes --json and has an MCP tool (parity test green)",
+        "pause stores the enabled-rule snapshot in the rollout document before POST /controls/pause and refuses while a run is non-terminal unless --force; pause and resume report an engine already paused or resumed instead of failing",
+        "seed and import read variables.json and the bundle from the wheel's deploy_data (or --bundle DIR); import refuses before this release's seed step is recorded; enable refuses while any node's engine_version is older than the release and re-enables exactly the snapshot plus release.json's new rules, listing every rule left disabled",
+        "verify exits 0 only when node versions and the API version equal the release, the engine is not paused, enabled rules equal snapshot plus new rules and no run failed with no_builtin since resume; otherwise it lists each failed check and exits 1",
+        "explain catalog blurb and verb notes, learn prose, CLAUDE.md, QWEN.md, AGENTS.override.md and AGENTS.colleague.md name the noun; tests/cli/test_registry.py NOUNS updated"
+      ],
+      "deps": [
+        "t1",
+        "t2",
+        "t3"
+      ],
+      "covers": [
+        "c1",
+        "h1",
+        "c2",
+        "h5",
+        "c4",
+        "h7",
+        "c9",
+        "h10",
+        "c12",
+        "h12",
+        "c13",
+        "h4",
+        "c15",
+        "h14"
+      ],
+      "instruction": "Template: cli/_commands/runs.py; write() from _nounlib for the dry-run envelope; the CLI talks to the API only (no store imports); no verb chains steps"
+    },
+    {
+      "id": "t5",
+      "summary": "CLI rollout upgrade --host over ssh and scp, or the shared venv on spark",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "upgrade --host NAME --wheel PATH reads the machine record; without --apply it prints the exact scp/ssh argv (or the shared-venv commands) and opens no connection; a record without install exits 1 naming the missing section",
+        "With --apply, install_sh mode copies the named wheel and install.sh to a per-version directory and runs install.sh --node-name --wheel <that path> plus one --secret per grant name, --gate-run-as, --extras, --wheelhouse, --python, --events-host/port from the record, then reads the installed version and the unit's ActiveState and ActiveEnterTimestamp; shared_venv mode runs uv pip install --reinstall-package culture-rules --no-deps WHEEL into the venv and restarts culture-rules-api and culture-rules-node; install.sh never runs for shared_venv",
+        "The runner is injectable; the parity test and every unit test use a fake runner; the step outcome is written to the rollout document"
+      ],
+      "deps": [
+        "t1",
+        "t4"
+      ],
+      "covers": [
+        "c11",
+        "h3",
+        "c8",
+        "h9",
+        "h1"
+      ],
+      "instruction": "Follow machines/probe.py's injected runner; argv lists only (no shell strings); ssh -o BatchMode=yes; # nosec B607 or shutil.which; the API URL and token never cross ssh"
+    },
+    {
+      "id": "t6",
+      "summary": "Docs, CHANGELOG and the secrets boundary test",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "docs/operations/rollout.md documents each verb, the machine install records for spark, thor, orin, spark2 (from the hand-run scripts), and maps each lesson in #45 to the guard or field that enforces it",
+        "A test drives a full dry run and an applied fake-runner rollout and asserts no stored document, output line or argv contains a secret value (only grant names); scan-secrets stays green; no tailnet URL is committed",
+        "CHANGELOG entry and version bump"
+      ],
+      "deps": [
+        "t4",
+        "t5"
+      ],
+      "covers": [
+        "c14",
+        "h13",
+        "c3",
+        "h6",
+        "c5",
+        "h8"
+      ],
+      "instruction": "Write the machine install records as JSON examples in the doc (no secrets, grant names only)"
+    },
+    {
+      "id": "t7",
+      "summary": "Roll the next release out with culture-rules rollout only",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "The operator rolls the release after this one out to spark, thor, orin and spark2 with rollout verbs only; its rollout document records every step applied and rollout verify exits 0"
+      ],
+      "deps": [
+        "t6"
+      ],
+      "covers": [
+        "c17",
+        "h15"
+      ],
+      "instruction": "Operator-run (auto mode blocks deploys): Claude prepares the machine install records (rollout dry runs first) and the operator runs each step with grant run --inject"
+    }
+  ],
+  "risks": [],
+  "obligations": []
+}

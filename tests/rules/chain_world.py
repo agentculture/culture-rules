@@ -3,7 +3,8 @@
 spark (the App actor, the reviewer) and spark2 (the fixer machine: agent, gate, push) share
 one store. The shipped bundle (docs/rules/pr-fixer) is imported with its rules enabled; a
 red checks settle starts the chain: ``pr-fix`` (quiet, GitGuardian hold, threads, Sonar,
-agent, gate) -> ``review-commit`` (Codex, the verdict) -> ``publish-fix`` (push, replies) or
+agent, gate) -> ``review-commit`` (the try's reviewer: Codex for a Qwen try, Qwen for a Codex
+try (#39); the verdict) -> ``publish-fix`` (push, replies) or
 ``pr-fix`` again with the findings. Real gate, real review builtin, real run events and holds; the
 qwen and codex bridges are transport doubles behind the real bridge adapter, so callbacks,
 ``require_commit`` and the locked brief run for real. The push is a recorder by default, or
@@ -23,12 +24,14 @@ from typing import Any
 
 from culture_rules.actors.agent import BridgeAgentActor, record_bridge_event
 from culture_rules.actors.gate import GatePort
+from culture_rules.actors.handoff import HandoffExportPort, HandoffImportPort
 from culture_rules.actors.review import ReviewVerdictPort
 from culture_rules.apps.github import GitHubError
 from culture_rules.apps.sonarcloud import SonarCloud
 from culture_rules.engine.runs import RUNS_COLLECTION
 from culture_rules.io.exchange import read_bundle
 from culture_rules.model.actor import Actor
+from culture_rules.node.actions.fixer_cooldown import FixerCooldownPort
 from culture_rules.node.actions.gitguardian import GitGuardianPort
 from culture_rules.node.actions.github import GitHubCommentPort
 from culture_rules.node.actions.github_pr import (
@@ -37,6 +40,7 @@ from culture_rules.node.actions.github_pr import (
     GitHubThreadsPort,
 )
 from culture_rules.node.actions.queue import QueueAddPort, QueueProgressPort, QueueStopPort
+from culture_rules.node.actions.select import SelectPort
 from culture_rules.node.actions.sonar import SonarGateIssuesPort
 from culture_rules.node.runner import BuiltinCodePort
 from tests.actors.test_gate import GIT_ENV, PASSING, LocalRunner, Repo, gate_yaml, git
@@ -72,6 +76,8 @@ RETRY_RULE = "pr-fixer-retry"
 """#35 d30: a try whose gate did not pass goes back in the queue."""
 RETRY_FAILED_RULE = "pr-fixer-retry-failed"
 """d37: a try whose agent ran out of time goes back to the queue (not an attempt)."""
+RETRY_CAPACITY_RULE = "pr-fixer-retry-capacity"
+"""#39: a try whose agent hit its usage limit rests its level and goes back to the queue."""
 PROGRESS_RULES = (
     "pr-fixer-queue-progress",
     "pr-fixer-queue-progress-fixed",
@@ -79,6 +85,7 @@ PROGRESS_RULES = (
     "pr-fixer-queue-progress-cancelled",
     "pr-fixer-queue-progress-superseded",
     "pr-fixer-queue-progress-stopped",  # d34: after a stop
+    "pr-fixer-queue-progress-capacity",  # #39: after a capacity retry joins
     "pr-fixer-queue-sweep",
 )
 """#35 d29: move the queue when a request joins or a try ends (and a periodic sweep)."""
@@ -92,8 +99,20 @@ CHAIN_VARIABLES = {
     **VARIABLES,
     "fixer_comment_triggers": ["/fix", "@rules-culture-dev"],
     "fixer_stop_triggers": ["/stop", "@rules-culture-dev stop"],  # d34
+    # #39: the escalation levels as shipped (level 2, Codex, seeded disabled)
+    "fixer_levels": [
+        "level=1 actor=qwen-fixer reviewer=codex-reviewer pool=qwen-spark2 queue=pr-fixer"
+        " enabled=true",
+        "level=2 actor=codex-fixer reviewer=qwen-reviewer pool=codex-spark queue=pr-fixer-codex"
+        " enabled=false",
+    ],
+    "fixer_unavailable": "next",
+    "fixer_capacity_cooldown_s": 3600,  # #39 t2: a level's cooldown after capacity_exhausted
 }
 KEY = f"pr-fixer:{REPO}#7"
+CODEX_FIXER = json.loads((BUNDLE / "actors" / "codex-fixer.json").read_text(encoding="utf-8"))
+"""#39: the level-2 fixer actor as the bundle ships it (t6): Codex through a second
+cultureagent bridge on spark, workspace-write, on the codex-spark pool."""
 
 
 def bundle():
@@ -122,12 +141,19 @@ class QwenBridge:
     x 3), ``"none"`` (no commit) or a callable ``(repo) -> head`` - and records the terminal
     callback at once with the per-invocation token, as the bridge would. ``"hang"`` accepts
     the job and never completes it: the agent is still working (d34: a stop meanwhile).
-    ``"timeout"`` fails the job as the bridge does when the agent runs out of time (d37).
+    ``"timeout"`` fails the job as the bridge does when the agent runs out of time (d37);
+    ``"capacity"`` as it does when the backend's usage limit is reached (#39 t2).
     Cancel requests are recorded in ``cancelled``."""
 
-    def __init__(self, base, repo: Repo, script=None) -> None:
+    FAILURES = {
+        "timeout": {"class": "timeout", "message": "qwen did not finish within 3600s"},
+        "capacity": {"class": "capacity_exhausted", "message": "usage limit reached, try later"},
+    }
+
+    def __init__(self, base, repo: Repo, script=None, backend: str = "qwen") -> None:
         self.store = base
         self.repo = repo
+        self.backend = backend
         self.script = list(script or [])
         self.inputs: list[dict] = []
         self.seq = 0
@@ -155,10 +181,10 @@ class QwenBridge:
         if turn == "hang":
             self.seq += 1
             return 202, json.dumps({"invocation_id": f"qinv-{self.seq}"}).encode()
-        if turn == "timeout":
+        if turn in self.FAILURES:
             inv = doc["callback"]["url"].rsplit("/", 2)[-2]
             self.seq += 1
-            payload = {"class": "timeout", "message": "qwen did not finish within 3600s"}
+            payload = self.FAILURES[turn]
             event = {"kind": "failed", "sequence": self.seq, "payload": payload}
             assert record_bridge_event(self.store, inv, doc["callback"]["token"], event) == (
                 "recorded"
@@ -173,7 +199,7 @@ class QwenBridge:
             head, status = self.repo.commit("fix x", {"src/app.py": "x = 3\n"}), "completed"
         result = {
             "schema": "cultureagent.bridge.result/v1",
-            "backend": "qwen",
+            "backend": self.backend,
             "status": status,
             "summary": "made x 3" if status == "completed" else "nothing to change",
             "head_before": self.repo.start,
@@ -194,8 +220,8 @@ class QwenBridge:
         return 202, json.dumps({"invocation_id": f"qinv-{self.seq}"}).encode()
 
 
-def qwen_adapter(base, transport, clock) -> BridgeAgentActor:
-    actor = Actor.from_dict(copy.deepcopy(AGENT_ACTOR))
+def qwen_adapter(base, transport, clock, doc=AGENT_ACTOR) -> BridgeAgentActor:
+    actor = Actor.from_dict(copy.deepcopy(doc))
     return BridgeAgentActor(
         base,
         bridge_url=actor.params["bridge_url"],
@@ -206,8 +232,34 @@ def qwen_adapter(base, transport, clock) -> BridgeAgentActor:
         actor_id=actor.id,
         transport=transport,
         clock=clock,
-        actor_doc=copy.deepcopy(AGENT_ACTOR),
+        actor_doc=copy.deepcopy(doc),
     )
+
+
+class LocalRemote:
+    """#39: the hand-off import with the PR's GitHub clone URL mapped to the local repo (the
+    world has no network); any other URL is passed on unchanged."""
+
+    supports_idempotency_key = True
+
+    def __init__(self, port: HandoffImportPort, origin: Repo) -> None:
+        self.port, self.origin = port, origin
+
+    def invoke(self, input, idempotency_key, deadline, *, context):
+        url = input.get("clone_url")
+        if url == f"https://github.com/{REPO}.git":
+            input = {**input, "clone_url": f"file://{self.origin.wt}"}
+        return self.port.invoke(input, idempotency_key, deadline, context=context)
+
+
+class CodexClone(Repo):
+    """#39: the Codex fixer's own clone of the PR on spark (never spark2's worktree)."""
+
+    def __init__(self, origin: Repo, root: Path) -> None:  # noqa: D107 - no Repo.__init__
+        root.mkdir()
+        self.wt = root / "wt"
+        git(root, "clone", "-q", str(origin.wt), str(self.wt))
+        self.base, self.start = origin.base, origin.start
 
 
 class SonarAPI:
@@ -335,6 +387,7 @@ class ChainWorld:
         tmp_path: Path,
         *,
         reviews=None,
+        qwen_reviews=None,
         turns=None,
         real_push_pem: str | None = None,
         disabled: tuple[str, ...] = (),
@@ -348,6 +401,7 @@ class ChainWorld:
         enrol_online(base, self.c.clock, machine("spark"), machine("spark2"))
         base.put("actors", copy.deepcopy(APP_ACTOR))
         base.put("actors", copy.deepcopy(AGENT_ACTOR))
+        base.put("actors", copy.deepcopy(CODEX_FIXER))
         for actor in bundle().actors:
             base.put("actors", actor.to_dict())
         for rid, doc in rule_docs().items():
@@ -356,7 +410,14 @@ class ChainWorld:
             base.put("workflows", doc)
         seed(base, CHAIN_VARIABLES)
         self.qwen = QwenBridge(base, self.repo, turns)
+        self.codex = QwenBridge(base, CodexClone(self.repo, tmp_path / "codex"), backend="codex")
+        (tmp_path / "fixer-tmp").mkdir()
+        self.handoff_runner = LocalRunner(
+            env={**GIT_ENV, "HOME": str(tmp_path), "TMPDIR": str(tmp_path / "fixer-tmp")}
+        )
         self.reviewer = ReviewerBridge(base, reviews)
+        self.qwen_reviewer = ReviewerBridge(base, qwen_reviews, backend="qwen")
+        """#39: the qwen bridge on spark2 behind qwen-reviewer (it reviews a Codex try)."""
         self.sonar = SonarAPI()
         self.runner = LocalRunner()
 
@@ -449,6 +510,21 @@ class ChainWorld:
                     "queue.stop": QueueStopPort(  # d34
                         base, clock=self.c.clock, pr_lookup=FakeActor(default=head)
                     ),
+                    "fixer.cooldown": FixerCooldownPort(base, clock=self.c.clock),  # #39 t2
+                    # #39: the Codex hand-off (a file:// clone URL here) and the gate's source
+                    "handoff.export": HandoffExportPort(
+                        base, run_as=self.handoff_runner, clock=self.c.clock
+                    ),
+                    "handoff.import": LocalRemote(
+                        HandoffImportPort(
+                            base,
+                            run_as=self.handoff_runner,
+                            clock=self.c.clock,
+                            clone_url_ok=lambda url: url.startswith("file://"),
+                        ),
+                        self.repo,
+                    ),
+                    "select": SelectPort(),
                 }
             ),
         }
@@ -456,6 +532,10 @@ class ChainWorld:
         def agent_for(actor):
             if actor.id == "codex-reviewer":
                 return reviewer_adapter(base, actor, self.reviewer, self.c.clock)
+            if actor.id == "qwen-reviewer":
+                return reviewer_adapter(base, actor, self.qwen_reviewer, self.c.clock)
+            if actor.id == "codex-fixer":
+                return qwen_adapter(base, self.codex, self.c.clock, CODEX_FIXER)
             return qwen_adapter(base, self.qwen, self.c.clock)
 
         for host in ("spark", "spark2"):

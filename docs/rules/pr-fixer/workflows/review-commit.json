@@ -1,71 +1,149 @@
 {
-  "description": "d21: an independent, read-only Codex review of the commit a pr-fix run built and gated, recorded for that exact commit. pr-fixer-publish fires on an approval, pr-fixer-refix on a request for changes.",
+  "description": "d21, #39: an independent, read-only review of the commit a pr-fix run built and gated, by the reviewer of its try's level (codex-reviewer for a Qwen try, qwen-reviewer for a Codex try), recorded for that exact commit. pr-fixer-publish fires on an approval, pr-fixer-refix on a request for changes.",
   "edges": [
     {
       "source": "inputs",
       "source_port": "clone_url",
-      "target": "review",
+      "target": "review_codex",
+      "target_port": "repo"
+    },
+    {
+      "source": "inputs",
+      "source_port": "clone_url",
+      "target": "review_qwen",
       "target_port": "repo"
     },
     {
       "source": "inputs",
       "source_port": "head_branch",
-      "target": "review",
+      "target": "review_codex",
+      "target_port": "head_branch"
+    },
+    {
+      "source": "inputs",
+      "source_port": "head_branch",
+      "target": "review_qwen",
       "target_port": "head_branch"
     },
     {
       "source": "inputs",
       "source_port": "head_sha",
-      "target": "review",
+      "target": "review_codex",
+      "target_port": "head_sha"
+    },
+    {
+      "source": "inputs",
+      "source_port": "head_sha",
+      "target": "review_qwen",
       "target_port": "head_sha"
     },
     {
       "source": "inputs",
       "source_port": "commit_sha",
-      "target": "review",
+      "target": "review_codex",
+      "target_port": "commit_sha"
+    },
+    {
+      "source": "inputs",
+      "source_port": "commit_sha",
+      "target": "review_qwen",
       "target_port": "commit_sha"
     },
     {
       "source": "inputs",
       "source_port": "diff",
-      "target": "review",
+      "target": "review_codex",
+      "target_port": "diff"
+    },
+    {
+      "source": "inputs",
+      "source_port": "diff",
+      "target": "review_qwen",
       "target_port": "diff"
     },
     {
       "source": "inputs",
       "source_port": "diff_truncated",
-      "target": "review",
+      "target": "review_codex",
+      "target_port": "diff_truncated"
+    },
+    {
+      "source": "inputs",
+      "source_port": "diff_truncated",
+      "target": "review_qwen",
       "target_port": "diff_truncated"
     },
     {
       "source": "inputs",
       "source_port": "gate_verdict",
-      "target": "review",
+      "target": "review_codex",
+      "target_port": "gate_verdict"
+    },
+    {
+      "source": "inputs",
+      "source_port": "gate_verdict",
+      "target": "review_qwen",
       "target_port": "gate_verdict"
     },
     {
       "source": "inputs",
       "source_port": "gate_output",
-      "target": "review",
+      "target": "review_codex",
+      "target_port": "gate_output"
+    },
+    {
+      "source": "inputs",
+      "source_port": "gate_output",
+      "target": "review_qwen",
       "target_port": "gate_output"
     },
     {
       "source": "inputs",
       "source_port": "pr_intent",
-      "target": "review",
+      "target": "review_codex",
+      "target_port": "pr_intent"
+    },
+    {
+      "source": "inputs",
+      "source_port": "pr_intent",
+      "target": "review_qwen",
       "target_port": "pr_intent"
     },
     {
       "source": "inputs",
       "source_port": "threads",
-      "target": "review",
+      "target": "review_codex",
       "target_port": "threads"
     },
     {
-      "source": "review",
+      "source": "inputs",
+      "source_port": "threads",
+      "target": "review_qwen",
+      "target_port": "threads"
+    },
+    {
+      "source": "review_codex",
       "source_port": "status",
       "target": "verdict",
-      "target_port": "after"
+      "target_port": "after_codex"
+    },
+    {
+      "source": "review_qwen",
+      "source_port": "status",
+      "target": "verdict",
+      "target_port": "after_qwen"
+    },
+    {
+      "source": "inputs",
+      "source_port": "reviewer",
+      "target": "review_codex",
+      "target_port": "reviewer"
+    },
+    {
+      "source": "inputs",
+      "source_port": "reviewer",
+      "target": "review_qwen",
+      "target_port": "reviewer"
     }
   ],
   "enabled": true,
@@ -160,6 +238,12 @@
       "name": "threads_addressed",
       "required": false,
       "type": "array"
+    },
+    {
+      "description": "#39: the try's reviewer actor, from pr-fix's outputs (none: codex-reviewer)",
+      "name": "reviewer",
+      "required": false,
+      "type": "string"
     }
   ],
   "name": "Review the fix",
@@ -259,14 +343,41 @@
               "right": {
                 "literal": false
               }
+            },
+            {
+              "args": [
+                {
+                  "arg": {
+                    "arg": {
+                      "field": "reviewer"
+                    },
+                    "op": "exists"
+                  },
+                  "op": "not"
+                },
+                {
+                  "items": {
+                    "literal": [
+                      null,
+                      "",
+                      "codex-reviewer"
+                    ]
+                  },
+                  "op": "in",
+                  "value": {
+                    "field": "reviewer"
+                  }
+                }
+              ],
+              "op": "or"
             }
           ],
           "op": "and"
         }
       },
-      "description": "d20: an independent reviewer (Codex through the codex bridge on spark, sandbox read-only) reviews the pr-fix run's gated commit's diff and ends with a verdict object. Its brief is locked in the codex-reviewer actor (trusted code), never this workflow. Runs only for a passing gate (or no gate) whose diff is complete text; never commits or pushes.",
+      "description": "d20, #39: reviews a Qwen try (the reviewer is codex-reviewer, or none is given). An independent reviewer (Codex through the codex bridge on spark, sandbox read-only) reviews the pr-fix run's gated commit's diff and ends with a verdict object. Its brief is locked in the reviewer actor (trusted code), never this workflow. Runs only for a passing gate (or no gate) whose diff is complete text; never commits or pushes.",
       "enabled": true,
-      "id": "review",
+      "id": "review_codex",
       "inputs": [
         {
           "description": "clone URL (the bridge checks out the PR head)",
@@ -327,11 +438,17 @@
           "name": "threads",
           "required": false,
           "type": "array"
+        },
+        {
+          "description": "#39: the try's reviewer, from pr-fix (none: codex-reviewer); routing only, the verdict step derives the reviewer from the store",
+          "name": "reviewer",
+          "required": false,
+          "type": "string"
         }
       ],
       "kind": "ai",
       "max_iterations": null,
-      "name": "Review the fix (independent agent, read-only)",
+      "name": "Review the fix (Codex, read-only)",
       "outputs": [
         {
           "description": "the verdict object, as a JSON string",
@@ -387,15 +504,193 @@
     {
       "body": [],
       "config": {
-        "builtin": "review"
+        "sandbox": "read-only",
+        "when": {
+          "args": [
+            {
+              "items": {
+                "literal": [
+                  "pass",
+                  "no_gate"
+                ]
+              },
+              "op": "in",
+              "value": {
+                "field": "gate_verdict"
+              }
+            },
+            {
+              "cmp": "==",
+              "left": {
+                "field": "diff_truncated"
+              },
+              "op": "compare",
+              "right": {
+                "literal": false
+              }
+            },
+            {
+              "cmp": "==",
+              "left": {
+                "field": "reviewer"
+              },
+              "op": "compare",
+              "right": {
+                "literal": "qwen-reviewer"
+              }
+            }
+          ],
+          "op": "and"
+        }
       },
-      "description": "Walks to the pr-fix run whose success started this run (verified run-event lineage, from the store, never wired inputs), reads its last gate and implementer and this run's reviewer, checks the reviewer was read-only, saw exactly that commit's diff and is not the implementer, parses the verdict fail-closed and records it for that commit (repo, PR, base, start, tip), where github.push finds it. request_changes becomes the re-fix's instruction; with the attempt budget spent it fails the run (changes_requested).",
+      "description": "#39: reviews a Codex try (the reviewer is qwen-reviewer). Qwen Code through the qwen bridge on spark2, in mode plan (an approval policy, not a sandbox: the verdict step also checks the checkout is unchanged), with the same locked brief and bound inputs. Runs only for a passing gate (or no gate) whose diff is complete text; never commits or pushes.",
+      "enabled": true,
+      "id": "review_qwen",
+      "inputs": [
+        {
+          "description": "clone URL (the bridge checks out the PR head)",
+          "name": "repo",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "head_branch",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "the PR head the fix starts from (gate start_sha)",
+          "name": "head_sha",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "description": "the commit under review",
+          "name": "commit_sha",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "diff",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "diff_truncated",
+          "required": false,
+          "type": "boolean"
+        },
+        {
+          "description": "",
+          "name": "gate_verdict",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "gate_output",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "the fixer's original task",
+          "name": "pr_intent",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "the trusted, unresolved threads",
+          "name": "threads",
+          "required": false,
+          "type": "array"
+        },
+        {
+          "description": "#39: the try's reviewer, from pr-fix (none: codex-reviewer); routing only, the verdict step derives the reviewer from the store",
+          "name": "reviewer",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "kind": "ai",
+      "max_iterations": null,
+      "name": "Review the fix (Qwen, plan mode)",
+      "outputs": [
+        {
+          "description": "the verdict object, as a JSON string",
+          "name": "summary",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "status",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "backend",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "head_before",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "head_after",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "commits",
+          "required": false,
+          "type": "array"
+        },
+        {
+          "description": "",
+          "name": "dirty",
+          "required": false,
+          "type": "boolean"
+        }
+      ],
+      "placement": {
+        "actor": "qwen-reviewer",
+        "machine": null,
+        "requirement": null
+      },
+      "retry": null,
+      "timeout_s": 1800.0
+    },
+    {
+      "body": [],
+      "config": {
+        "builtin": "review",
+        "review_steps": [
+          "review_codex",
+          "review_qwen"
+        ]
+      },
+      "description": "Walks to the pr-fix run whose success started this run (verified run-event lineage, from the store, never wired inputs), reads its last gate and implementer and this run's reviewer (#39: the one review step of review_steps that succeeded; two fail closed), checks the reviewer was read-only, saw exactly that commit's diff and is not the implementer, parses the verdict fail-closed and records it for that commit (repo, PR, base, start, tip), where github.push finds it. request_changes becomes the re-fix's instruction; with the attempt budget spent it fails the run (changes_requested).",
       "enabled": true,
       "id": "verdict",
       "inputs": [
         {
-          "description": "the review step (ordering only)",
-          "name": "after",
+          "description": "the Codex review step (ordering only)",
+          "name": "after_codex",
+          "required": false,
+          "type": "any"
+        },
+        {
+          "description": "the Qwen review step (ordering only)",
+          "name": "after_qwen",
           "required": false,
           "type": "any"
         }

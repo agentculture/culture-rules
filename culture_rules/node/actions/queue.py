@@ -91,6 +91,43 @@ to ``cap``), ``stale_after_s`` (default :data:`DEFAULT_STALE_AFTER_S`) and
 Outputs: ``dispatched`` and ``active`` (keys), ``dropped`` (``{key, reason}``), ``waiting``
 (``{key, position, ahead}``).
 
+Levels (#39)
+============
+
+With ``config.levels`` naming a defined shared variable (the bundle's ``fixer_levels``,
+:mod:`culture_rules.node.actions.fixer_levels`: the level format, which level a try is due
+at, when a level is unavailable, and the **capacity cooldown contract** - a document in
+:data:`FIXER_COOLDOWNS`, id the level's actor, ``until`` an ISO time - that the fixer writes
+on ``capacity_exhausted``), each level has its own queue on its own pool. Without it
+(``config.levels`` absent, or the variable undefined) everything above holds unchanged.
+
+* ``queue.add`` puts the request in the queue of the level its try (the key's count plus
+  one) is due at - ``config.queue`` when no level is enabled - and keeps one waiting request
+  per PR across the level queues: a retry is absorbed by a newer non-retry request waiting
+  in another level's queue; any other request removes the PR's request waiting elsewhere.
+  The add and the removals are one store transaction (re-run whole on a write conflict,
+  bounded), so a concurrent level move never sees half a routing. Its output also names the
+  ``queue``.
+* ``queue.progress`` runs one pass per queue (every level's, disabled levels' included, and
+  ``config.queue``), each capped by its level's pool (its ``pool_cap``, else ``cap``).
+  At dispatch it counts the try again (the key's count plus one)
+  and resolves the level that takes it, skipping an unavailable level as the variable named
+  by ``config.unavailable`` says (``next``, the default, or ``hand_back``). A request whose
+  level is this queue's is dispatched; one whose level is another queue's **moves** there
+  (dropped here and written to the other queue in one store transaction, after this
+  queue's compare-and-set confirms the request is unchanged, so a concurrent ``/fix`` never
+  leaves the PR in no queue; passes repeat while requests move); one no level can take is
+  dropped as :data:`NO_FIXER` and its story's status comment ends with
+  :data:`HANDBACK_TEXT` - the story's one hand-back (a closed PR or a moved head is dropped
+  as before, without one). A full queue still lets a request
+  move or hand back, so an unavailable level never parks it. A PR dispatched from one level
+  queue is not dispatched from another meanwhile, and a 4th try is never dispatched (even
+  before the key knows its limit). The dispatch event's ``data`` adds ``level``, ``fixer``,
+  ``reviewer``, ``attempt`` (the try at dispatch) and ``levels_var`` (the variable they came
+  from); a request's inputs can never set them. Outputs add ``moved`` (``{key, from, to}``)
+  and name the ``queue`` of each ``dropped`` and ``waiting`` entry.
+* ``queue.stop`` covers ``config.queue`` and every level's queue.
+
 ``queue.stop``
 ==============
 
@@ -132,6 +169,7 @@ import logging
 import re
 import uuid
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -142,13 +180,26 @@ from culture_rules.events.emit import (
     QUEUE_SOURCE,
     derive_envelope,
 )
+from culture_rules.node.actions.fixer_levels import (
+    FIXER_COOLDOWNS,
+    NO_FIXER,
+    Ladder,
+    Level,
+    LevelsError,
+    load_ladder,
+)
+from culture_rules.store.port import TransientStoreError
+from culture_rules.store.retry import run_transaction
 
 log = logging.getLogger(__name__)
 
 __all__ = [
     "CHECKS_GREEN",
     "DEFAULT_STALE_AFTER_S",
+    "FIXER_COOLDOWNS",
     "GREEN_TEXT",
+    "HANDBACK_TEXT",
+    "NO_FIXER",
     "DISPATCH_TYPE",
     "QUEUES_COLLECTION",
     "QUEUE_ADD_BUILTIN",
@@ -173,6 +224,7 @@ DEFAULT_STALE_AFTER_S = 900.0
 """How long a dispatched request may wait for its run to appear before its slot is freed."""
 _SEEN_KEEP = 256
 _MAX_CAS_TRIES = 50
+_MAX_TX_TRIES = 10  # whole-transaction re-runs of a queue.add routing (#39, Codex r2 #1)
 _EXPLAIN_MAX = 2000
 _RUNS = "runs"  # culture_rules.engine.runs.RUNS_COLLECTION
 _FIRES = "rule_fires"  # culture_rules.node.firing.RULE_FIRES (the firing intents)
@@ -185,12 +237,23 @@ CHECKS_GREEN = "checks_green_on_reread"
 """d38: why a request settled by the timeout is dropped when its checks are green by dispatch."""
 GREEN_TEXT = "PR fixer: the checks finished green after the settle timeout. Nothing to fix."
 """d38: the final text of the status comment of a story dropped as :data:`CHECKS_GREEN`."""
+HANDBACK_TEXT = (
+    "PR fixer handed back (no_fixer_available): no fixer level can take try {attempt} of"
+    " {limit} now ({why}). A new /fix or a push to the PR starts a new story."
+)
+"""#39: the final text of the status comment of a story whose try no level can take."""
+MAX_TRIES = 3
+"""#39: with levels, a try past this is never dispatched, even before the key knows its limit."""
 _RUNNING_NOTE = (
     " (Queue at dispatch: the checks settled by the timeout, and these suites were still"
     " running: {apps}. No other suite had failed then.)"
 )
 
 Clock = Callable[[], datetime]
+
+
+class _SourceChanged(Exception):
+    """#39: a queue changed after a pass read it, so the moves it decided are not written."""
 
 
 class _Refused(Exception):
@@ -253,6 +316,14 @@ def _key_state(store: Any, key: str | None, now: datetime) -> dict[str, Any]:
 def _exhausted(state: Mapping[str, Any]) -> bool:
     limit = state.get("limit")
     return limit is not None and state.get("count", 0) >= limit
+
+
+def _ladder(store: Any, config: Mapping[str, Any]) -> Ladder | None:
+    """#39: the step's escalation levels (:mod:`.fixer_levels`), None without them."""
+    try:
+        return load_ladder(store, config)
+    except LevelsError as exc:
+        raise _Refused("bad_levels", str(exc)) from exc
 
 
 def _positions(doc: dict[str, Any]) -> None:
@@ -326,6 +397,7 @@ class QueueAddPort:
         try:
             name = _queue_name(config)
             repo, number = _subject(input)
+            ladder = _ladder(self._store, config)
         except _Refused as exc:
             return _failed(exc)
 
@@ -361,7 +433,95 @@ class QueueAddPort:
             "inputs": inputs,
             "source_run": context.run_id,
         }
-        return InvocationResult.completed(self._add(name, request, idempotency_key, stopped))
+        if ladder is None:
+            return InvocationResult.completed(self._add(name, request, idempotency_key, stopped))
+
+        def refusal(ops: Any) -> str | None:
+            return _stop_refusal(ops, config, repo, number, input, context)
+
+        try:
+            out = self._routed(ladder, name, request, idempotency_key, refusal)
+        except TransientStoreError as exc:
+            return InvocationResult.failed(f"queue_contention: {exc}", retryable=True)
+        return InvocationResult.completed(out)
+
+    def _routed(
+        self,
+        ladder: Ladder,
+        default: str,
+        request: dict[str, Any],
+        ik: str,
+        refusal: Callable[[Any], str | None],
+    ) -> dict[str, Any]:
+        """#39 (Codex round 2 #1): :meth:`route` as **one store transaction** - the add to
+        the due level's queue and every removal of the PR's request from the other level
+        queues commit together, or not at all - re-run whole on a write conflict (bounded:
+        :data:`_MAX_TX_TRIES`; then :class:`TransientStoreError`, a retryable failure).
+        Routed in steps, a ``queue.progress`` pass could move the request just added to
+        another level's queue before the removals ran, and they then removed the moved
+        request: the PR was in no queue. The stop check reads through the transaction too."""
+
+        def body(tx: Any) -> dict[str, Any]:
+            adder = QueueAddPort(tx, clock=self._clock)
+            return adder.route(ladder, default, request, ik, lambda: refusal(tx))
+
+        return run_transaction(self._store, body, attempts=_MAX_TX_TRIES)
+
+    def route(
+        self,
+        ladder: Ladder,
+        default: str,
+        request: dict[str, Any],
+        ik: str,
+        stopped: Callable[[], str | None] = lambda: None,
+        exclude: str | None = None,
+        target: str | None = None,
+    ) -> dict[str, Any]:
+        """#39: put ``request`` in the queue of the level its try is due at (``default``
+        without an enabled level). The PR has one waiting request across the level queues:
+        a retry is absorbed by a newer non-retry request waiting in another level's queue,
+        and any other request replaces (removes) the PR's request waiting elsewhere. Call it
+        on a transaction handle (:meth:`_routed`, ``queue.progress``'s move), so the add and
+        the removals commit together. ``exclude`` is a
+        queue left alone (the one a request is moved out of); ``target`` the queue to use
+        instead of the due level's (a move to the level that takes the try)."""
+        if target is None:
+            due = ladder.due(int(request.get("attempt") or 1))
+            target = due.queue if due is not None else default
+        others = [
+            q for q in dict.fromkeys([default, *ladder.queues()]) if q not in (target, exclude)
+        ]
+        if request["retry"] and (absorbed := self._absorbed(others, request["key"])):
+            return absorbed
+        out, wrote = self._write(target, request, ik, stopped)
+        if wrote:
+            removed = sum(self._unwait(other, request["key"]) for other in others)
+            out["replaced"] = out["replaced"] or removed > 0
+        return {**out, "queue": target}
+
+    def _absorbed(self, others: list[str], key: str) -> dict[str, Any] | None:
+        """#39: the answer for a retry a newer non-retry request of its PR, waiting in one
+        of the queues ``others``, absorbs; None when there is none."""
+        for other in others:
+            doc, _rev, _exists = _QueueDoc(self._store, other, self._clock).read()
+            if any(r["key"] == key and not r.get("retry") for r in doc["waiting"]):
+                _positions(doc)
+                return {**self._result(doc, key, queued=True, replaced=False), "queue": other}
+        return None
+
+    def _unwait(self, name: str, key: str) -> int:
+        """Remove ``key``'s waiting requests from queue ``name`` (#39, a request replaced
+        across level queues); how many were removed."""
+        queue = _QueueDoc(self._store, name, self._clock)
+        for _ in range(_MAX_CAS_TRIES):
+            doc, rev, exists = queue.read()
+            gone = [r for r in doc["waiting"] if r["key"] == key]
+            if not gone:
+                return 0
+            doc["waiting"] = [r for r in doc["waiting"] if r["key"] != key]
+            if queue.write(doc, rev, exists):
+                return len(gone)
+        raise RuntimeError(f"queues/{name}: too much contention")
 
     def _add(
         self,
@@ -370,18 +530,34 @@ class QueueAddPort:
         ik: str,
         stopped: Callable[[], str | None] = lambda: None,
     ) -> dict[str, Any]:
+        return self._write(name, request, ik, stopped)[0]
+
+    def _write(
+        self,
+        name: str,
+        request: dict[str, Any],
+        ik: str,
+        stopped: Callable[[], str | None] = lambda: None,
+    ) -> tuple[dict[str, Any], bool]:
+        """Add ``request`` to queue ``name``: the answer, and whether this call wrote it
+        (inserted or refreshed the PR's request). Codex round 3 #1: a replay of an
+        idempotency key the queue has ``seen`` writes nothing and says so, so
+        :meth:`route` removes nothing elsewhere on a replay - after a level move the PR's
+        only request is in another queue, and removing it there would leave the PR in no
+        queue. A replay is safe to leave alone: the first call with the key already did
+        its removals in the same transaction as its add."""
         queue = _QueueDoc(self._store, name, self._clock)
         for _ in range(_MAX_CAS_TRIES):
             doc, rev, exists = queue.read()
             if ik in doc["seen"]:
                 _positions(doc)
-                return self._result(doc, request["key"], queued=True, replaced=False)
+                return self._result(doc, request["key"], queued=True, replaced=False), False
             # d34 (Codex round 1 #3): judged again after each read of the queue. A stop
             # records itself, then always writes the queue document, so an add that read
             # the queue before that write loses its compare-and-set and sees the stop here.
             if stopped() is not None:
                 _positions(doc)
-                return self._result(doc, request["key"], queued=False, replaced=False)
+                return self._result(doc, request["key"], queued=False, replaced=False), False
             now = _iso(self._clock())
             existing = next((r for r in doc["waiting"] if r["key"] == request["key"]), None)
             replaced = False
@@ -396,7 +572,7 @@ class QueueAddPort:
                 replaced = True
             doc["seen"].append(ik)
             if queue.write(doc, rev, exists):
-                return self._result(doc, request["key"], queued=True, replaced=replaced)
+                return self._result(doc, request["key"], queued=True, replaced=replaced), True
         raise RuntimeError(f"queues/{name}: too much contention")
 
     def _not_queued(self, name: str, key: str) -> dict[str, Any]:
@@ -449,16 +625,20 @@ class QueueProgressPort:
             stale = config.get("stale_after_s", DEFAULT_STALE_AFTER_S)
             if isinstance(stale, bool) or not isinstance(stale, (int, float)) or stale <= 0:
                 raise _Refused("bad_config", "config.stale_after_s must be a positive number")
+            ladder = _ladder(self._store, config)
         except _Refused as exc:
             return _failed(exc)
-        plan = _Pass(self, name, rule, cap, float(stale), config, context, deadline)
-        return InvocationResult.completed(plan.run(idempotency_key))
+        if ladder is None:
+            plan = _Pass(self, name, rule, cap, float(stale), config, context, deadline)
+            return InvocationResult.completed(plan.run(idempotency_key))
+        levels = _Levels(self, ladder, name, rule, float(stale), config, context, deadline)
+        return InvocationResult.completed(levels.run(idempotency_key))
 
-    def _cap(self, config: Mapping[str, Any]) -> int:
+    def _cap(self, config: Mapping[str, Any], pool: Any = None) -> int:
         cap = config.get("cap", 1)
         if not (_is_int(cap) and cap > 0):
             raise _Refused("bad_config", "config.cap must be a positive integer")
-        pool = config.get("pool")
+        pool = pool or config.get("pool")
         if isinstance(pool, str) and pool:
             from culture_rules.actors.limits import pool_cap  # noqa: PLC0415
 
@@ -466,7 +646,79 @@ class QueueProgressPort:
         return cap
 
 
+class _Levels:
+    """#39: one ``queue.progress`` invocation over every level's queue (each first come,
+    first served on its own pool's cap). A request a pass moves to another level's queue is
+    judged there in the same invocation: passes repeat while requests move (bounded)."""
+
+    def __init__(
+        self,
+        port: QueueProgressPort,
+        ladder: Ladder,
+        name: str,
+        rule: str,
+        stale_s: float,
+        config: Mapping[str, Any],
+        context: InvocationContext,
+        deadline: datetime,
+    ) -> None:
+        self.port, self.ladder, self.rule, self.stale_s = port, ladder, rule, stale_s
+        self.config, self.context, self.deadline = config, context, deadline
+        self.queues = list(dict.fromkeys([*ladder.queues(), name]))
+
+    def run(self, ik: str) -> dict[str, Any]:
+        dispatched: list[str] = []
+        dropped: list[dict[str, Any]] = []
+        moved: list[dict[str, Any]] = []
+        views: dict[str, dict[str, Any]] = {}
+        for round_no in range(len(self.queues) + 1):
+            moves = len(moved)
+            for queue in self.queues:
+                plan = self._pass(queue)
+                out = plan.run(f"{ik}/{round_no}/{queue}")
+                dispatched += out["dispatched"]
+                dropped += [{**d, "queue": queue} for d in out["dropped"]]
+                moved += plan.moved
+                views[queue] = out
+            if len(moved) == moves:
+                break
+        return {
+            "dispatched": dispatched,
+            "dropped": dropped,
+            "moved": moved,
+            "active": [key for q in self.queues for key in views[q]["active"]],
+            "waiting": [{**w, "queue": q} for q in self.queues for w in views[q]["waiting"]],
+        }
+
+    def _pass(self, queue: str) -> _Pass:
+        cap = self.port._cap(self.config, self.ladder.pool_of(queue))
+        plan = _Pass(
+            self.port, queue, self.rule, cap, self.stale_s, self.config, self.context, self.deadline
+        )
+        plan.ladder, plan.siblings = self.ladder, [q for q in self.queues if q != queue]
+        return plan
+
+
 _KEEP_PLACE = object()  # _admission: the request keeps its place in the queue
+_REQUEST_FIELDS = (
+    "key",
+    "repository",
+    "number",
+    "head_sha",
+    "retry",
+    "attempt",
+    "inputs",
+    "source_run",
+)
+"""#39: what a request carries when it moves to another level's queue (its place does not)."""
+
+
+@dataclass(frozen=True)
+class _Move:
+    """#39 ``_admission``: the request leaves for ``level``'s queue, for try ``attempt``."""
+
+    level: Level
+    attempt: int
 
 
 class _Pass:
@@ -489,21 +741,31 @@ class _Pass:
         self.store = port._store
         self.queue = _QueueDoc(self.store, name, port._clock)
         self.lookups: dict[tuple[str, int, Any, bool], Mapping[str, Any] | None] = {}
-        self.green: list[Mapping[str, Any]] = []  # d38: this try's requests dropped as green
+        # the stories this try ends, with their final text (d38 green, #39 hand-back)
+        self.endings: list[tuple[Mapping[str, Any], str]] = []
+        self.ladder: Ladder | None = None  # #39: set by _Levels
+        self.siblings: list[str] = []  # #39: the other level queues
+        self.moved: list[dict[str, Any]] = []  # #39: requests moved to another level's queue
+        self.pending_moves: list[tuple[dict[str, Any], _Move]] = []  # #39: this try's moves
+        self.busy_elsewhere: set[str] = set()  # #39: PRs dispatched from another level queue
+        self.choices: dict[str, tuple[Level, int]] = {}  # #39: rid -> (level, try)
+        self.handbacks: dict[str, tuple[int, int, list[str]]] = {}  # #39: rid -> why
 
     def run(self, ik: str) -> dict[str, Any]:
         for _ in range(_MAX_CAS_TRIES):
             doc, rev, exists = self.queue.read()
-            self.green = []
+            self.endings, self.moved, self.choices, self.handbacks = [], [], {}, {}
+            self.pending_moves = []
+            self.busy_elsewhere = self._active_elsewhere()
             now = self.port._clock()
             ended = [a for a in doc["active"] if self._ended(a, now)]
             doc["active"] = [a for a in doc["active"] if a not in ended]
             dispatched, dropped = self._admit(doc, now, ik)
-            changed = bool(ended or dispatched or dropped)
-            if not changed or self.queue.write(doc, rev, exists):
+            changed = bool(ended or dispatched or dropped or self.pending_moves)
+            if not changed or self._write(doc, rev, exists):
                 _positions(doc)
                 self._emit(doc)
-                self._end_green()
+                self._end_stories()
                 return {
                     "dispatched": [a["key"] for a in dispatched],
                     "dropped": dropped,
@@ -533,36 +795,149 @@ class _Pass:
         dispatched: list[dict[str, Any]] = []
         dropped: list[dict[str, str]] = []
         for req in doc["waiting"][:]:  # a copy: admitted requests leave the list
-            if len(doc["active"]) >= self.cap:
+            full = len(doc["active"]) >= self.cap
+            if full and self.ladder is None:
                 break
-            if any(a["key"] == req["key"] for a in doc["active"]):
+            if self._running(doc, req):
                 continue  # the PR's earlier request is still running: keep the place
-            reason = self._admission(req, now, ik)
+            # #39: with levels a full queue still lets a request leave for another level
+            # (or hand back), so an unavailable level never parks it behind a long try
+            reason = self._admission(req, now, ik, full)
             if reason is _KEEP_PLACE:
                 continue
             doc["waiting"].remove(req)
-            if reason is not None:
+            if isinstance(reason, _Move):
+                self.pending_moves.append((req, reason))  # written with this queue's write
+            elif reason is not None:
                 dropped.append({"key": req["key"], "reason": reason})
-                if reason == CHECKS_GREEN:
-                    self.green.append(req)
-                continue
-            act = self._dispatch(req, now)
-            doc["active"].append(act)
-            dispatched.append(act)
+                self._ending(req, reason)
+            else:
+                act = self._dispatch(req, now)
+                doc["active"].append(act)
+                dispatched.append(act)
         return dispatched, dropped
 
-    def _admission(self, req: Mapping[str, Any], now: datetime, ik: str) -> Any:
-        """Why ``req`` leaves the queue unstarted (a reason), ``None`` to dispatch it, or
-        :data:`_KEEP_PLACE` while its chain still holds the key."""
+    def _running(self, doc: Mapping[str, Any], req: Mapping[str, Any]) -> bool:
+        return req["key"] in self.busy_elsewhere or any(
+            a["key"] == req["key"] for a in doc["active"]
+        )
+
+    def _active_elsewhere(self) -> set[str]:
+        """#39: the PRs with a dispatched request in another level's queue whose run has not
+        ended (an ended one only awaits that queue's own pass to free it)."""
+        keys: set[str] = set()
+        for other in self.siblings:
+            doc = self.store.get(QUEUES_COLLECTION, other) or {}
+            keys.update(a.get("key") for a in doc.get("active") or () if not self._run_done(a))
+        return keys
+
+    def _run_done(self, act: Mapping[str, Any]) -> bool:
+        run = self.store.get(_RUNS, act.get("run_id") or "")
+        return run is not None and run.get("status") in _RUN_DONE
+
+    def _ending(self, req: Mapping[str, Any], reason: str) -> None:
+        """The final status text of a story a drop ends, if any (d38, #39)."""
+        if reason == CHECKS_GREEN:
+            self.endings.append((req, GREEN_TEXT))
+        elif reason == NO_FIXER:
+            self.endings.append((req, self._handback_text(req)))
+
+    def _admission(self, req: Mapping[str, Any], now: datetime, ik: str, full: bool = False) -> Any:
+        """Why ``req`` leaves the queue unstarted (a reason), ``None`` to dispatch it,
+        :data:`_KEEP_PLACE` while its chain still holds the key (or, #39, while the queue is
+        full), or a :class:`_Move` to another level's queue."""
         key = _pr_key(self.config, req["repository"], req["number"])
         reason = _stopped_request(self.store, key, req)  # d34: never a stopped story
         if reason is not None:
             return reason
         state = _key_state(self.store, key, now)
-        reason = "attempt_budget_exhausted" if _exhausted(state) else None
+        reason = "attempt_budget_exhausted" if self._spent(state) else None
         if reason is None and state["busy"]:
             return _KEEP_PLACE  # its chain still holds the key: a firing now would be deduplicated
+        if reason is None and self.ladder is not None:
+            routed = self._route(req, state, now)
+            if routed == NO_FIXER:
+                return self._pr_refusal(req, ik) or NO_FIXER  # a closed PR is not handed back
+            if routed is not None:
+                return routed
+            if full:
+                return _KEEP_PLACE
         return reason or self._pr_refusal(req, ik)
+
+    def _spent(self, state: Mapping[str, Any]) -> bool:
+        """The PR spent its attempts; #39: with levels a 4th try is never dispatched, even
+        before the key has a limit."""
+        if _exhausted(state):
+            return True
+        tries = int(state.get("count") or 0)
+        return self.ladder is not None and state.get("limit") is None and tries >= MAX_TRIES
+
+    def _route(self, req: Mapping[str, Any], state: Mapping[str, Any], now: datetime) -> Any:
+        """#39: the level that takes this try now (the key's count plus one): None when it
+        is this queue's (the choice is kept for the dispatch), a :class:`_Move` when it is
+        another queue's, :data:`NO_FIXER` when no level can take it."""
+        assert self.ladder is not None  # nosec B101 - only called with levels
+        attempt = int(state.get("count") or 0) + 1
+        level, why = self.ladder.resolve(attempt, now)
+        if level is None:
+            self.handbacks[req["rid"]] = (attempt, state.get("limit") or MAX_TRIES, why)
+            return NO_FIXER
+        if level.queue != self.name:
+            return _Move(level, attempt)
+        self.choices[req["rid"]] = (level, attempt)
+        return None
+
+    def _handback_text(self, req: Mapping[str, Any]) -> str:
+        attempt, limit, why = self.handbacks.get(req["rid"], (None, MAX_TRIES, []))
+        return HANDBACK_TEXT.format(
+            attempt=attempt, limit=limit, why="; ".join(why) or "no level is available"
+        )
+
+    def _write(self, doc: dict[str, Any], rev: Any, exists: bool) -> bool:
+        """This queue's compare-and-set write; with moves (#39), one transaction with them."""
+        if not self.pending_moves:
+            return self.queue.write(doc, rev, exists)
+        try:
+            with self.store.transaction() as tx:
+                moved = self._move_all(tx, doc, rev, exists)
+        except (_SourceChanged, TransientStoreError):
+            return False  # the pass is judged again on a fresh read
+        self.moved = moved
+        return True
+
+    def _move_all(
+        self, tx: Any, doc: dict[str, Any], rev: Any, exists: bool
+    ) -> list[dict[str, Any]]:
+        """#39 (Codex round 1 #1): drop the moved requests here and put each in the queue of
+        the level that takes its try, in **one transaction**. This queue's compare-and-set
+        comes first and validates that nothing in it changed since the pass read it - so a
+        moved request is the one still waiting here, not one a concurrent ``/fix`` replaced
+        meanwhile - and the destination writes commit only with it. A lost compare-and-set
+        (or a write conflict) rolls everything back, including the destination's idempotency
+        key, so the retried pass moves the request as it is then. Without the transaction a
+        ``/fix`` landing between the destination write and this write could update the
+        request here and remove the copy there; the retry then found its move key already
+        seen, added nothing and dropped the request here: the PR was in no queue. The move
+        stays idempotent under ``move:<queue>:<rid>`` (a request's ``rid`` leaves this queue
+        with the commit, so the key never names another move)."""
+        assert self.ladder is not None  # nosec B101 - only called with levels
+        if not _QueueDoc(tx, self.name, self.port._clock).write(doc, rev, exists):
+            raise _SourceChanged(self.name)
+        adder = QueueAddPort(tx, clock=self.port._clock)
+        moved: list[dict[str, Any]] = []
+        for req, move in self.pending_moves:
+            request = {k: copy.deepcopy(req.get(k)) for k in _REQUEST_FIELDS}
+            request.update(attempt=move.attempt, moved_from=self.name)
+            out = adder.route(
+                self.ladder,
+                move.level.queue,
+                request,
+                f"move:{self.name}:{req['rid']}",
+                exclude=self.name,
+                target=move.level.queue,
+            )
+            moved.append({"key": req["key"], "from": self.name, "to": out["queue"]})
+        return moved
 
     def _dispatch(self, req: dict[str, Any], now: datetime) -> dict[str, Any]:
         """The active entry that dispatches ``req`` now."""
@@ -583,6 +958,9 @@ class _Pass:
         running = self._checks(req)[1] if _settled_by_timeout(req) else []
         if running:
             act["checks_running"] = running  # d38: named in the instruction
+        if req["rid"] in self.choices:  # #39: the level that takes this try
+            level, attempt = self.choices[req["rid"]]
+            act.update(level.dispatch_fields(), attempt=attempt, levels_var=self.ladder.var)
         return act
 
     def _pr_refusal(self, req: Mapping[str, Any], ik: str) -> str | None:
@@ -642,23 +1020,24 @@ class _Pass:
         running = sorted({str(s.get("app_slug")) for s in counted if s not in finished})
         return done and green, running
 
-    def _end_green(self) -> None:
-        """d38: the status comment of each story dropped as green gets :data:`GREEN_TEXT`
-        (best effort: the drop itself is written)."""
-        if not self.green:
+    def _end_stories(self) -> None:
+        """The status comment of each story a drop ended gets its final text: d38
+        :data:`GREEN_TEXT`, #39 :data:`HANDBACK_TEXT` (the story's one hand-back). Best
+        effort: the drop itself is written."""
+        if not self.endings:
             return
         from culture_rules.node.status_board import StatusBoard  # noqa: PLC0415
         from culture_rules.node.story_stop import story_root  # noqa: PLC0415
 
         board = StatusBoard(self.store, clock=self.port._clock)
-        for req in self.green:
+        for req, text in self.endings:
             source = self.store.get(_RUNS, req.get("source_run") or "")
             if source is None:
                 continue
             try:
                 board.finish(
                     story_root(self.store, source),
-                    GREEN_TEXT,
+                    text,
                     where=(req["repository"], req["number"]),
                 )
             except Exception as exc:  # noqa: BLE001 - the drop itself is done
@@ -790,7 +1169,7 @@ class QueueStopPort:
                     {"stopped": False, "key": key, "removed": 0, "cancelled": 0}
                 )
             removed: list[Mapping[str, Any]] = []
-        elif not self._live(name, key, input.get("story")):
+        elif not self._live(self._queues(name, config), key, input.get("story")):
             # a 👎 names its story: once that story is over it never stops a newer one
             log.info("queue.stop: %s: story %s is over, nothing to stop", key, input["story"])
             return InvocationResult.completed(
@@ -804,7 +1183,7 @@ class QueueStopPort:
                 lambda: self._head(repo, number, input, config, context, deadline, idempotency_key),
                 begun,
             )
-            removed = self._unqueue(name, f"{repo}#{number}", stop)
+            removed = self._unqueue_all(self._queues(name, config), f"{repo}#{number}", stop)
         cancelled = self._cancel(key, stop)
         self._end_stories(repo, number, stop, removed, cancelled)
         log.info(
@@ -850,9 +1229,19 @@ class QueueStopPort:
         head = res.output.get("head_sha") if res.outcome == COMPLETED else None
         return head if isinstance(head, str) and head else given
 
-    def _live(self, name: str, key: str, story: Any) -> bool:
+    def _queues(self, name: str, config: Mapping[str, Any]) -> list[str]:
+        """The queues a stop covers: ``config.queue`` and, #39, every level's queue. A
+        malformed ``fixer_levels`` never fails a stop: ``config.queue`` is then covered, and
+        ``queue.progress`` drops a stopped story's request in any queue anyway."""
+        try:
+            ladder = load_ladder(self._store, config)
+        except LevelsError:
+            ladder = None
+        return list(dict.fromkeys([name, *(ladder.queues() if ladder else ())]))
+
+    def _live(self, names: list[str], key: str, story: Any) -> bool:
         """Whether ``story`` (a root run id; any story when not given) still has a running
-        run on ``key`` or a request in the queue."""
+        run on ``key`` or a request in one of the queues ``names``."""
         from culture_rules.node.story_stop import story_root  # noqa: PLC0415
 
         if not isinstance(story, str) or not story:
@@ -860,18 +1249,28 @@ class QueueStopPort:
         for run in self._store.find(_RUNS, {"concurrency_key": key, "status": "running"}):
             if story_root(self._store, run).get("id") == story:
                 return True
-        doc = self._store.get(QUEUES_COLLECTION, name) or {}
-        entries = [
-            *(doc.get("waiting") or ()),
-            # a dispatch whose run already ended only awaits the queue's cleanup: not live
-            *(a for a in doc.get("active") or () if not self._ended(a)),
-        ]
+        entries = [entry for name in names for entry in self._entries(name)]
         for entry in entries:
             req = entry.get("request") if isinstance(entry.get("request"), Mapping) else entry
             source = self._store.get(_RUNS, req.get("source_run") or "")
             if source is not None and story_root(self._store, source).get("id") == story:
                 return True
         return False
+
+    def _entries(self, name: str) -> list[Mapping[str, Any]]:
+        """Queue ``name``'s waiting requests and its dispatches still to end (a dispatch
+        whose run already ended only awaits the queue's cleanup: not live)."""
+        doc = self._store.get(QUEUES_COLLECTION, name) or {}
+        return [
+            *(doc.get("waiting") or ()),
+            *(a for a in doc.get("active") or () if not self._ended(a)),
+        ]
+
+    def _unqueue_all(
+        self, names: list[str], pr: str, stop: Mapping[str, Any]
+    ) -> list[Mapping[str, Any]]:
+        """:meth:`_unqueue` on each queue in ``names`` (#39: every level's queue)."""
+        return [req for name in names for req in self._unqueue(name, pr, stop)]
 
     def _ended(self, act: Mapping[str, Any]) -> bool:
         run = self._store.get(_RUNS, act.get("run_id") or "")
@@ -979,11 +1378,17 @@ class QueueStopPort:
                 log.warning("queue.stop: status of %s not ended (%s)", root.get("id"), exc)
 
 
+_LEVEL_FIELDS = ("level", "fixer", "reviewer", "attempt", "levels_var")
+"""#39: what a dispatch event names of its level; the queue's own, never a request input."""
+
+
 def _dispatch_data(queue: str, act: Mapping[str, Any]) -> dict[str, Any]:
     req = act.get("request") or {}
     # d37: ``base_tip_sha`` is the queue's own (the App's read of the base branch), never
-    # a request input, so it can vouch for the base the try is given (lineage)
-    data = {k: v for k, v in (req.get("inputs") or {}).items() if k not in ("repo", "base_tip_sha")}
+    # a request input, so it can vouch for the base the try is given (lineage); #39: so are
+    # the level fields
+    own = ("repo", "base_tip_sha", *_LEVEL_FIELDS)
+    data = {k: v for k, v in (req.get("inputs") or {}).items() if k not in own}
     data.update(
         queue=queue,
         request_id=act["rid"],
@@ -995,6 +1400,8 @@ def _dispatch_data(queue: str, act: Mapping[str, Any]) -> dict[str, Any]:
         source_run=req.get("source_run"),
         dispatch_run=act.get("run_id"),
     )
+    if act.get("levels_var"):  # #39: the level that takes this try, resolved at dispatch
+        data.update({k: act.get(k) for k in _LEVEL_FIELDS})
     if act.get("base_sha"):
         data["base_sha"] = data["base_tip_sha"] = act["base_sha"]  # d37: the tip at dispatch
     running = act.get("checks_running")

@@ -456,11 +456,12 @@ AGENT_ACTOR = {
 }
 
 
-def reviewer_actor() -> dict:
-    """The shipped codex-reviewer actor (docs/rules/pr-fixer/actors)."""
+def reviewer_actor(actor_id: str = "codex-reviewer") -> dict:
+    """A shipped reviewer actor (docs/rules/pr-fixer/actors): codex-reviewer, or (#39)
+    qwen-reviewer."""
     read = read_bundle(SHIPPED)
     assert read.errors == [], [e.to_dict() for e in read.errors]
-    (actor,) = read.bundle.actors
+    (actor,) = (a for a in read.bundle.actors if a.id == actor_id)
     return actor.to_dict()
 
 
@@ -477,10 +478,12 @@ class ReviewerBridge:
     token, exactly as the bridge would call back; the node cycle then delivers it.
     ``script`` holds one entry per review: a callable ``(commit) -> summary`` or a dict of
     bridge-result overrides (``summary`` may be such a callable; ``fail`` sends a failed
-    event). ``inputs`` are the bridge ``input`` objects it received."""
+    event). ``inputs`` are the bridge ``input`` objects it received; ``backend`` is the one
+    its results report (``qwen`` for the #39 qwen bridge behind qwen-reviewer)."""
 
-    def __init__(self, base, script=None) -> None:
+    def __init__(self, base, script=None, backend: str = "codex") -> None:
         self.store = base
+        self.backend = backend
         self.script = list(script or [])
         self.inputs: list[dict] = []
         self.urls: list[str] = []
@@ -499,7 +502,7 @@ class ReviewerBridge:
         over = entry if isinstance(entry, dict) else {"summary": entry}
         result = {
             "schema": "cultureagent.bridge.result/v1",
-            "backend": "codex",
+            "backend": self.backend,
             "status": "no_changes",
             "head_before": given.get("head_sha"),
             "head_after": given.get("head_sha"),

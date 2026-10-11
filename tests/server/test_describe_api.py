@@ -49,9 +49,9 @@ def test_workflow_describe_is_viewer_readable_and_matches_the_library(viewer):
     assert body["lines"] == PR_FIX_WORKFLOW
     assert body["entries"][5] == {
         "label": "5.1",
-        "text": "qwen-fixer (agent, must commit)",
+        "text": 'qwen-fixer (agent, must commit), when fixer missing or fixer ∈ {"", qwen-fixer}',
         "depth": 1,
-        "step": "agent",
+        "step": "agent_qwen",
     }
 
 

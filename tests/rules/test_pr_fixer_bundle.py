@@ -23,12 +23,16 @@ from culture_rules.actors.trusted import (
     ROLE_FIX,
     ROLE_PUBLISH,
     ROLE_REVIEW,
+    TRUSTED_ACTOR_DIGESTS,
     TRUSTED_WORKFLOWS,
+    actor_digest,
     workflow_digest,
 )
 from culture_rules.cli import main
 from culture_rules.io.exchange import bundle_files
+from culture_rules.model.condition import evaluate
 from culture_rules.model.variable_refs import rule_variable_refs
+from culture_rules.node.actions.fixer_levels import load_ladder
 from culture_rules.server.service import Definitions, Invalid
 from culture_rules.store.memory import MemoryStore
 from tests.cli.test_nouns_api import store, wire  # noqa: F401
@@ -39,6 +43,7 @@ from tests.rules.chain_world import (
     CHAIN_VARIABLES,
     DISPATCH_RULE,
     PROGRESS_RULES,
+    RETRY_CAPACITY_RULE,
     RETRY_FAILED_RULE,
     RETRY_RULE,
     SECRETS_LATE_RULE,
@@ -69,19 +74,20 @@ AUTHOR_RULES = ("pr-fixer-comment", "pr-fixer-review", "pr-fixer-review-comment"
 # --------------------------------------------------------------------------- the data
 
 
-def test_the_bundle_is_twenty_two_disabled_rules_and_seven_workflows():
+def test_the_bundle_is_twenty_four_disabled_rules_and_eight_workflows():
     b = bundle()
     assert sorted(w.id for w in b.workflows) == [
         "pr-fix",
         "publish-fix",
         "queue-add",
+        "queue-add-capacity",
         "queue-progress",
         "queue-stop",
         "report-secrets",
         "review-commit",
     ]
     reports = (SECRETS_RULE, SECRETS_LATE_RULE)
-    queue = (DISPATCH_RULE, RETRY_RULE, RETRY_FAILED_RULE, *PROGRESS_RULES)
+    queue = (DISPATCH_RULE, RETRY_RULE, RETRY_FAILED_RULE, RETRY_CAPACITY_RULE, *PROGRESS_RULES)
     assert sorted(r.id for r in b.rules) == sorted(
         TRIGGER_RULES + STAGE_RULES + reports + queue + STOP_RULES
     )
@@ -90,7 +96,8 @@ def test_the_bundle_is_twenty_two_disabled_rules_and_seven_workflows():
         assert r.placement is not None
         assert r.placement.machine == "spark2"
     by = {r.id: r for r in b.rules}
-    keyed = (*TRIGGER_RULES, *STAGE_RULES, DISPATCH_RULE, RETRY_RULE, RETRY_FAILED_RULE)
+    retries = (RETRY_RULE, RETRY_FAILED_RULE, RETRY_CAPACITY_RULE)
+    keyed = (*TRIGGER_RULES, *STAGE_RULES, DISPATCH_RULE, *retries)
     for rid in keyed:
         r = by[rid]
         assert r.concurrency_key == KEY
@@ -160,6 +167,7 @@ def test_queue_stop_stops_then_sweeps_after_a_pause():
         "key_prefix": "pr-fixer:",
         "lookup_actor": "github-app",
         "queue": "pr-fixer",
+        "levels": "fixer_levels",  # #39: every level's queue too
     }
     assert steps["settle"]["kind"] == "wait"
     assert steps["sweep"]["config"] == {**steps["stop"]["config"], "sweep": True}
@@ -193,9 +201,37 @@ def test_pr_fix_builds_and_gates_and_never_reviews_or_pushes():
     assert top["secrets"]["config"] == {"builtin": "gitguardian.hold", "actor": "github-app"}
     assert top["sonar"]["config"] == {"builtin": "sonar.gate_issues"}
     fix = top["fix"]
-    agent, gate = fix["body"]
-    assert agent["config"] == {"mode": "yolo", "require_commit": True}
-    assert agent["placement"]["actor"] == "qwen-fixer"
+    body = {b["id"]: b for b in fix["body"]}
+    assert list(body) == [  # #39: one agent step per level, the hand-off, select, one gate
+        "agent_qwen",
+        "agent_codex",
+        "handoff_export",
+        "handoff_import",
+        "select",
+        "gate",
+    ]
+    qwen, codex = body["agent_qwen"], body["agent_codex"]
+    assert {k: v for k, v in qwen["config"].items() if k != "when"} == {
+        "mode": "yolo",
+        "require_commit": True,
+    }
+    assert qwen["placement"]["actor"] == "qwen-fixer"
+    assert {k: v for k, v in codex["config"].items() if k != "when"} == {
+        "require_commit": True,
+        "sandbox": "workspace-write",
+    }
+    assert codex["placement"]["actor"] == "codex-fixer"
+    for sid in ("agent_codex", "handoff_export", "handoff_import"):
+        assert body[sid]["config"]["when"] == {
+            "cmp": "==",
+            "left": {"field": "fixer"},
+            "op": "compare",
+            "right": {"literal": "codex-fixer"},
+        }
+    assert body["handoff_export"]["placement"]["machine"] == "spark"
+    assert body["handoff_import"]["placement"]["machine"] == "spark2"
+    assert body["select"]["config"]["builtin"] == "select"
+    gate = body["gate"]
     assert gate["config"] == {"builtin": "gate"}
     assert gate["placement"]["machine"] == "spark2"
     text = json.dumps(wf)
@@ -203,16 +239,40 @@ def test_pr_fix_builds_and_gates_and_never_reviews_or_pushes():
         assert absent not in text
     names = {o["name"] for o in wf["outputs"]}
     assert {"commit_sha", "start_sha", "base_sha", "diff", "bundle", "verdict"} <= names
+    assert {"implementer", "reviewer"} <= names  # #39: for review-commit's routing
+
+
+PUBLISH_FIX_DIGEST = "sha256:0fa92074e1cfa67c1388f0423fc379063fd82c5886bc619c5ef4ffcc83c23680"
+"""publish-fix as shipped by d21: #39 adds no push path, so it is unchanged."""
+D30_PR_FIX_DIGEST = "sha256:307e82fc96eba7a36be1781b2f550728fbf232d37d776ed878071ae7f74ae032"
+
+
+def test_publish_fix_is_unchanged_by_the_escalation():
+    """#39 t4: no new code path pushes. publish-fix, its placement and its trust are as
+    shipped; pr-fix still holds no push, and the d30 pr-fix stays trusted (runs pinned to
+    it may still push) next to the new one, each in its own role only."""
+    assert workflow_digest(workflow_docs()["publish-fix"]) == PUBLISH_FIX_DIGEST
+    assert TRUSTED_WORKFLOWS[ROLE_PUBLISH] == frozenset({PUBLISH_FIX_DIGEST})
+    assert D30_PR_FIX_DIGEST in TRUSTED_WORKFLOWS[ROLE_FIX]
+    pr_fix = json.dumps(workflow_docs()["pr-fix"])
+    assert "github.push" not in pr_fix
+    assert '"kind": "github.' not in pr_fix
+
+
+REVIEW_CODEX, REVIEW_QWEN = "review_codex", "review_qwen"
+REVIEW_STEPS = {REVIEW_CODEX: "codex-reviewer", REVIEW_QWEN: "qwen-reviewer"}
+"""#39: one review step per reviewer, routed by the try's reviewer."""
 
 
 def test_review_commit_reviews_and_publish_fix_pushes():
     review = workflow_docs()["review-commit"]
     steps = {s["id"]: s for s in review["steps"]}
-    assert list(steps) == ["review", "verdict"]
-    assert steps["review"]["placement"]["actor"] == "codex-reviewer"
-    assert steps["review"]["config"]["sandbox"] == "read-only"
-    assert "instruction" not in {p["name"] for p in steps["review"]["inputs"]}
-    assert steps["verdict"]["config"] == {"builtin": "review"}
+    assert list(steps) == [*REVIEW_STEPS, "verdict"]
+    for sid, actor in REVIEW_STEPS.items():
+        assert steps[sid]["placement"]["actor"] == actor
+        assert steps[sid]["config"]["sandbox"] == "read-only"
+        assert "instruction" not in {p["name"] for p in steps[sid]["inputs"]}
+    assert steps["verdict"]["config"] == {"builtin": "review", "review_steps": list(REVIEW_STEPS)}
     kinds = [s.get("config", {}).get("action", {}).get("kind") for s in review["steps"]]
     assert "github.push" not in kinds
     publish = workflow_docs()["publish-fix"]
@@ -223,6 +283,147 @@ def test_review_commit_reviews_and_publish_fix_pushes():
     assert params["gate_verdict"] == "inputs.verdict"
     assert not [k for k in params if "review" in k]  # enforced from the store, never wired
     assert steps["push"]["placement"]["machine"] == "spark2"
+
+
+D21_REVIEW_COMMIT_DIGEST = "sha256:79064f76264a469fc83ef2ed7e2b2d9e2979fbf58f339428319ac3c2a7b158e6"
+"""review-commit as shipped by d21 (one review step): still trusted while runs pinned to it
+may still record a review."""
+
+
+def test_the_d21_review_commit_stays_trusted_next_to_the_new_one():
+    assert D21_REVIEW_COMMIT_DIGEST in TRUSTED_WORKFLOWS[ROLE_REVIEW]
+    assert workflow_digest(workflow_docs()["review-commit"]) != D21_REVIEW_COMMIT_DIGEST
+    assert len(TRUSTED_WORKFLOWS[ROLE_REVIEW]) == 2
+
+
+def _routes(reviewer) -> list[str]:
+    """The review steps whose ``when`` holds for a passing gate, a whole diff and the try's
+    ``reviewer`` (``...`` when the input is absent)."""
+    values = {"gate_verdict": "pass", "diff_truncated": False}
+    if reviewer is not ...:
+        values["reviewer"] = reviewer
+    steps = workflow_docs()["review-commit"]["steps"]
+    return [
+        s["id"]
+        for s in steps
+        if s["id"] in REVIEW_STEPS
+        and evaluate(s["config"]["when"], {"trigger": values, "variables": values})
+    ]
+
+
+@pytest.mark.parametrize(
+    ("reviewer", "routes"),
+    [
+        (..., [REVIEW_CODEX]),  # no fixer_levels: as before #39
+        (None, [REVIEW_CODEX]),
+        ("", [REVIEW_CODEX]),
+        ("codex-reviewer", [REVIEW_CODEX]),
+        ("qwen-reviewer", [REVIEW_QWEN]),
+        ("claude-reviewer", []),  # an unknown reviewer runs no review: review_missing
+    ],
+)
+def test_the_tries_reviewer_routes_exactly_one_review_step(reviewer, routes):
+    assert _routes(reviewer) == routes
+
+
+@pytest.mark.parametrize("sid", list(REVIEW_STEPS))
+@pytest.mark.parametrize(
+    "values",
+    [
+        {"gate_verdict": "fail", "diff_truncated": False},
+        {"gate_verdict": "pass", "diff_truncated": True},
+    ],
+)
+def test_no_review_step_runs_on_a_failed_gate_or_a_cut_diff(sid, values):
+    (step,) = (s for s in workflow_docs()["review-commit"]["steps"] if s["id"] == sid)
+    for reviewer in REVIEW_STEPS.values():
+        scope = {**values, "reviewer": reviewer}
+        assert not evaluate(step["config"]["when"], {"trigger": scope, "variables": scope})
+
+
+def test_the_review_commit_rule_maps_the_tries_reviewer():
+    inputs = rule_docs()["pr-fixer-review-commit"]["workflow"]["inputs"]
+    assert inputs["reviewer"] == "trigger.data.outputs.reviewer"
+    wf = workflow_docs()["review-commit"]
+    assert "reviewer" in {p["name"] for p in wf["inputs"]}
+    into = {(e["target"], e["target_port"]): e["source"] for e in wf["edges"]}
+    for sid in REVIEW_STEPS:
+        assert into[(sid, "reviewer")] == "inputs"
+
+
+CODEX_FIXER_DIGEST = "sha256:183cd42529d4cf2044268462ec67cf4e7c3fe9e24211c9fbfdd2f5833bcdaa50"
+"""#39 t6: the committed codex-fixer's digest, as docs/operations/pr-fixer.md lists it (not
+pinned: like qwen-fixer, everything it produces is reviewed; the digest is recorded on each
+bridge invocation)."""
+
+
+def _actor(actor_id: str) -> dict:
+    (actor,) = (a for a in bundle().actors if a.id == actor_id)
+    return actor.to_dict()
+
+
+FIXER_ACTORS = ("codex-fixer",)
+"""#39 t6: the fixer actors the bundle ships (qwen-fixer is registered by hand on spark2)."""
+
+
+def test_the_bundle_ships_both_reviewer_actors_and_both_are_trusted():
+    assert sorted(a.id for a in bundle().actors) == sorted([*REVIEW_STEPS.values(), *FIXER_ACTORS])
+    for actor_id in REVIEW_STEPS.values():
+        digest = actor_digest(_actor(actor_id))
+        assert digest in TRUSTED_ACTOR_DIGESTS[actor_id], (
+            f"docs/rules/pr-fixer/actors/{actor_id}.json now hashes to {digest}: if intended, "
+            f"add it to TRUSTED_ACTOR_DIGESTS[{actor_id!r}] in culture_rules/actors/trusted.py"
+        )
+
+
+def test_qwen_reviewer_is_a_read_only_plan_mode_reviewer_on_the_qwen_pool():
+    doc = _actor("qwen-reviewer")
+    assert (doc["kind"], doc["harness"], doc["machine"]) == ("agent", "qwen", "spark2")
+    params = doc["params"]
+    assert params["mode"] == "plan"  # Qwen's read-only: an approval policy, not a sandbox
+    assert params["sandbox"] == "read-only"
+    assert params["reviewer"] is True
+    assert params["locked_instruction"] == "pr-fixer-review"
+    assert params["concurrency_pool"] == "qwen-spark2"  # one Qwen job at a time
+    assert params["max_concurrency"] == 1
+    assert params["bridge_token"].startswith("grant:")
+
+
+def test_codex_fixer_is_level_twos_workspace_write_codex_agent_on_spark():
+    doc = _actor("codex-fixer")
+    assert doc["kind"] == "agent"
+    assert doc["harness"] == "codex"
+    assert doc["machine"] == "spark"
+    assert doc["enabled"] is True
+    params = doc["params"]
+    assert params["sandbox"] == "workspace-write"
+    assert params["concurrency_pool"] == "codex-spark"  # the level-2 queue's cap
+    assert params["max_concurrency"] == 1
+    assert params["bridge_token"] == "grant:RULES_CODEX_FIXER_TOKEN"  # a grant name only
+    assert params["bridge_url"].startswith("http://127.0.0.1:")  # loopback: scan-secrets
+    assert params["callback_url"].startswith("http://127.0.0.1:")
+
+
+def test_codex_fixer_is_never_a_reviewer_and_takes_the_tries_instruction():
+    params = _actor("codex-fixer")["params"]
+    assert "reviewer" not in params  # a reviewer flag would let it review (verdict step)
+    assert "locked_instruction" not in params  # the only locked brief is the reviewer's
+
+
+def test_codex_fixer_sits_on_the_pool_its_seeded_level_names():
+    mem = MemoryStore()
+    seed(mem, {"fixer_levels": CHAIN_VARIABLES["fixer_levels"]})
+    ladder = load_ladder(mem, {"levels": "fixer_levels"})
+    (two,) = (lv for lv in ladder.levels if lv.actor == "codex-fixer")
+    assert two.pool == _actor("codex-fixer")["params"]["concurrency_pool"]
+
+
+def test_codex_fixer_like_qwen_fixer_is_not_pinned_its_output_is_reviewed():
+    assert "codex-fixer" not in TRUSTED_ACTOR_DIGESTS
+    assert actor_digest(_actor("codex-fixer")) == CODEX_FIXER_DIGEST, (
+        "docs/rules/pr-fixer/actors/codex-fixer.json changed its digest: update "
+        "CODEX_FIXER_DIGEST here and the digest in docs/operations/pr-fixer.md"
+    )
 
 
 def test_conditions_reference_the_variables_never_a_copied_list():
@@ -243,9 +444,10 @@ def test_conditions_reference_the_variables_never_a_copied_list():
 
 
 def _files() -> dict[str, str]:
+    """The definition files: the manifests (variables.json, release.json) are not imported."""
     return {
         p.relative_to(BUNDLE).as_posix(): p.read_text(encoding="utf-8")
-        for p in sorted(BUNDLE.rglob("*.json"))
+        for p in sorted(BUNDLE.glob("*/*.json"))
     }
 
 
@@ -263,6 +465,7 @@ def test_import_with_apply_validates_and_writes_the_definitions():
         "pr-fix",
         "publish-fix",
         "queue-add",
+        "queue-add-capacity",
         "queue-progress",
         "queue-stop",
         "report-secrets",
@@ -285,7 +488,7 @@ def test_import_before_the_comment_triggers_are_seeded_is_refused():
 # --------------------------------------------------------------------------- the seed script
 
 
-def seed_calls(tmp_path, *args, existing=("trusted_authors",)) -> list[list[str]]:
+def seed_calls(tmp_path, *args, existing=("trusted_authors",), script=SEED) -> list[list[str]]:
     """The ``variables set`` argv the seed script runs, against a stub CLI."""
     log = tmp_path / "calls.jsonl"
     log.write_text("")
@@ -300,7 +503,7 @@ def seed_calls(tmp_path, *args, existing=("trusted_authors",)) -> list[list[str]
     )
     stub.chmod(0o755)
     env = {**os.environ, "CULTURE_RULES": str(stub)}
-    subprocess.run(["bash", str(SEED), *args], env=env, check=True, capture_output=True)
+    subprocess.run(["bash", str(script), *args], env=env, check=True, capture_output=True)
     calls = [json.loads(line) for line in log.read_text().splitlines()]
     return [c for c in calls if c[:2] == ["variables", "set"]]
 
@@ -326,6 +529,66 @@ def test_seed_script_calls_work_through_the_real_cli(tmp_path, store, wire, caps
     assert values["fixer_excluded_repos"] == []
     assert "qodo-code-review[bot]" in values["trusted_authors"]
     assert store.get_variable("fixer_comment_triggers")["description"]
+
+
+def manifest() -> list[dict]:
+    return json.loads((BUNDLE / "variables.json").read_text(encoding="utf-8"))
+
+
+def test_variables_json_holds_every_seed_variable_with_a_description():
+    items = manifest()
+    assert all(set(i) == {"name", "value", "description"} for i in items)
+    assert all(isinstance(i["description"], str) for i in items)
+    assert all(i["description"] for i in items)
+    names = [i["name"] for i in items]
+    assert len(names) == len(set(names))
+    assert set(names) == set(CHAIN_VARIABLES)  # every variable the rules reference
+
+
+def test_seed_script_writes_exactly_what_variables_json_holds(tmp_path):
+    calls = seed_calls(tmp_path, "--apply", existing=())
+    assert calls == [
+        [
+            "variables",
+            "set",
+            i["name"],
+            "--value",
+            json.dumps(i["value"]),
+            "--description",
+            i["description"],
+            "--apply",
+        ]
+        for i in manifest()
+    ]
+
+
+def test_seed_script_reads_the_manifest_beside_it(tmp_path):
+    """One source: the script carries no values of its own, it reads variables.json."""
+    copy = tmp_path / "bundle"
+    copy.mkdir()
+    (copy / "seed-variables.sh").write_text(SEED.read_text(encoding="utf-8"))
+    one = [{"name": "only_one", "value": {"a": [1, "b c"]}, "description": 'it\'s "quoted"'}]
+    (copy / "variables.json").write_text(json.dumps(one))
+    (calls,) = seed_calls(tmp_path, existing=(), script=copy / "seed-variables.sh")
+    assert calls == [
+        "variables",
+        "set",
+        "only_one",
+        "--value",
+        '{"a": [1, "b c"]}',
+        "--description",
+        'it\'s "quoted"',
+    ]
+    assert "trusted_authors" not in SEED.read_text(encoding="utf-8")  # no value in the script
+
+
+def test_seed_script_fails_on_a_broken_manifest(tmp_path):
+    copy = tmp_path / "bundle"
+    copy.mkdir()
+    (copy / "seed-variables.sh").write_text(SEED.read_text(encoding="utf-8"))
+    (copy / "variables.json").write_text('[{"name": "x"}]')
+    with pytest.raises(subprocess.CalledProcessError):
+        seed_calls(tmp_path, existing=(), script=copy / "seed-variables.sh")
 
 
 # --------------------------------------------------------------------------- firing
@@ -559,3 +822,54 @@ def test_a_comment_asking_to_stop_never_starts_a_fix(rule_id):
         mention_command="@rules-culture-dev fix",
         drop=("command",),
     )
+
+
+# --------------------------------------------------------------------------- #39 levels
+
+REPO_UNDER_TEST = "agentculture/culture-rules-tester"
+
+
+def test_fixer_levels_are_seeded_with_level_1_live_and_level_2_disabled():
+    seeded = {i["name"]: i["value"] for i in manifest()}
+    assert seeded["fixer_unavailable"] == "next"
+    mem = MemoryStore()
+    seed(mem, {k: seeded[k] for k in ("fixer_levels", "fixer_unavailable")})
+    ladder = load_ladder(mem, {"levels": "fixer_levels", "unavailable": "fixer_unavailable"})
+    one, two = ladder.levels
+    assert (one.number, one.actor, one.reviewer) == (1, "qwen-fixer", "codex-reviewer")
+    assert (one.pool, one.queue, one.enabled) == ("qwen-spark2", "pr-fixer", True)
+    assert (two.number, two.actor, two.reviewer) == (2, "codex-fixer", "qwen-reviewer")
+    assert (two.pool, two.queue, two.enabled) == ("codex-spark", "pr-fixer-codex", False)
+    assert seeded["fixer_levels"] == CHAIN_VARIABLES["fixer_levels"]
+
+
+def test_every_queue_step_reads_the_levels():
+    wfs = workflow_docs()
+    configs = [
+        s["config"]
+        for wid in ("queue-add", "queue-add-capacity", "queue-progress", "queue-stop")
+        for s in wfs[wid]["steps"]
+    ]
+    queue_steps = [c for c in configs if str(c.get("builtin", "")).startswith("queue.")]
+    assert len(queue_steps) == 5  # add (twice: a capacity retry too), progress, stop, sweep
+    assert all(c["levels"] == "fixer_levels" for c in queue_steps)
+    assert all(c["queue"] == "pr-fixer" for c in queue_steps)  # level 1's, and the fallback
+    progress = next(c for c in queue_steps if c["builtin"] == "queue.progress")
+    assert progress["unavailable"] == "fixer_unavailable"
+
+
+@pytest.mark.parametrize(
+    ("data", "fires"),
+    [
+        ({"queue": "pr-fixer"}, True),  # without fixer_levels, as before
+        ({"queue": "pr-fixer", "levels_var": "fixer_levels"}, True),
+        ({"queue": "pr-fixer-codex", "levels_var": "fixer_levels"}, True),
+        ({"queue": "pr-fixer-codex"}, False),  # another queue that has no levels
+        ({"queue": "other", "levels_var": "other_levels"}, False),
+    ],
+)
+def test_the_dispatch_rule_covers_every_level_queue(data, fires):
+    dispatch = next(r for r in bundle().rules if r.id == DISPATCH_RULE)
+    trigger = {"data": {**data, "repository": REPO_UNDER_TEST}}
+    variables = {"fixer_repos": [REPO_UNDER_TEST], "fixer_excluded_repos": []}
+    assert evaluate(dispatch.condition, {"trigger": trigger, "variables": variables}) is fires

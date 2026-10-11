@@ -1,5 +1,5 @@
 {
-  "description": "d21, d30: quiet period -> GitGuardian hold (d25: no fix while it fails on the head) -> trusted review threads and the failing SonarCloud conditions -> one try: bridge agent -> test gate. Builds and gates one commit; never reviews or pushes it. pr-fixer-review-commit fires on its success with a passing gate and has it reviewed; a gate that does not pass ends the run with its verdict and instruction (gate_instruction), and pr-fixer-retry puts the PR back in the queue (#35).",
+  "description": "d21, d30: quiet period -> GitGuardian hold (d25: no fix while it fails on the head) -> trusted review threads and the failing SonarCloud conditions -> one try: the fixer of its level -> test gate. #39: the try's fixer (the dispatch's level; none: qwen-fixer) picks the agent step: agent_qwen on spark2, or agent_codex on spark whose commits the hand-off carries to spark2; select hands the one that ran to the single gate. Builds and gates one commit; never reviews or pushes it. pr-fixer-review-commit fires on its success with a passing gate and has it reviewed; a gate that does not pass ends the run with its verdict and instruction (gate_instruction), and pr-fixer-retry puts the PR back in the queue (#35).",
   "edges": [
     {
       "source": "quiet",
@@ -110,20 +110,128 @@
       "target_port": "base_sha"
     },
     {
-      "source": "agent",
+      "source": "inputs",
+      "source_port": "fixer",
+      "target": "fix",
+      "target_port": "fixer"
+    },
+    {
+      "source": "inputs",
+      "source_port": "clone_url",
+      "target": "fix",
+      "target_port": "clone_url"
+    },
+    {
+      "source": "agent_codex",
+      "source_port": "worktree",
+      "target": "handoff_export",
+      "target_port": "worktree"
+    },
+    {
+      "source": "agent_codex",
+      "source_port": "head_before",
+      "target": "handoff_export",
+      "target_port": "start_sha"
+    },
+    {
+      "source": "agent_codex",
+      "source_port": "head_after",
+      "target": "handoff_export",
+      "target_port": "head_after"
+    },
+    {
+      "source": "handoff_export",
+      "source_port": "handoff_id",
+      "target": "handoff_import",
+      "target_port": "handoff_id"
+    },
+    {
+      "source": "agent_codex",
+      "source_port": "head_before",
+      "target": "handoff_import",
+      "target_port": "start_sha"
+    },
+    {
+      "source": "agent_codex",
+      "source_port": "head_after",
+      "target": "handoff_import",
+      "target_port": "head_after"
+    },
+    {
+      "source": "agent_qwen",
+      "source_port": "worktree",
+      "target": "select",
+      "target_port": "qwen_worktree"
+    },
+    {
+      "source": "agent_qwen",
+      "source_port": "head_before",
+      "target": "select",
+      "target_port": "qwen_start_sha"
+    },
+    {
+      "source": "agent_qwen",
+      "source_port": "head_after",
+      "target": "select",
+      "target_port": "qwen_commit_sha"
+    },
+    {
+      "source": "agent_qwen",
+      "source_port": "summary",
+      "target": "select",
+      "target_port": "qwen_summary"
+    },
+    {
+      "source": "agent_qwen",
+      "source_port": "threads_addressed",
+      "target": "select",
+      "target_port": "qwen_threads_addressed"
+    },
+    {
+      "source": "handoff_import",
+      "source_port": "worktree",
+      "target": "select",
+      "target_port": "codex_worktree"
+    },
+    {
+      "source": "handoff_import",
+      "source_port": "start_sha",
+      "target": "select",
+      "target_port": "codex_start_sha"
+    },
+    {
+      "source": "handoff_import",
+      "source_port": "commit_sha",
+      "target": "select",
+      "target_port": "codex_commit_sha"
+    },
+    {
+      "source": "agent_codex",
+      "source_port": "summary",
+      "target": "select",
+      "target_port": "codex_summary"
+    },
+    {
+      "source": "agent_codex",
+      "source_port": "threads_addressed",
+      "target": "select",
+      "target_port": "codex_threads_addressed"
+    },
+    {
+      "source": "select",
       "source_port": "worktree",
       "target": "gate",
       "target_port": "worktree"
     },
     {
-      "source": "agent",
-      "source_port": "head_before",
+      "source": "select",
+      "source_port": "start_sha",
       "target": "gate",
       "target_port": "start_sha"
     },
     {
-      "source": "agent",
-      "source_port": "head_after",
+      "source": "select",
+      "source_port": "commit_sha",
       "target": "gate",
       "target_port": "commit_sha"
     }
@@ -184,6 +292,30 @@
       "name": "trusted_authors",
       "required": false,
       "type": "array"
+    },
+    {
+      "description": "#39: the fixer actor of this try, from the dispatch (none: qwen-fixer)",
+      "name": "fixer",
+      "required": false,
+      "type": "string"
+    },
+    {
+      "description": "#39: the reviewer actor of this try's level, from the dispatch",
+      "name": "reviewer",
+      "required": false,
+      "type": "string"
+    },
+    {
+      "description": "the story's try this run is, from the dispatch",
+      "name": "attempt",
+      "required": false,
+      "type": "integer"
+    },
+    {
+      "description": "#39: the fixer level of this try, from the dispatch",
+      "name": "level",
+      "required": false,
+      "type": "integer"
     }
   ],
   "name": "PR fix",
@@ -235,12 +367,12 @@
     },
     {
       "name": "threads_addressed",
-      "source": "steps.agent.outputs.threads_addressed",
+      "source": "steps.select.outputs.threads_addressed",
       "type": "array"
     },
     {
       "name": "summary",
-      "source": "steps.agent.outputs.summary",
+      "source": "steps.select.outputs.summary",
       "type": "string"
     },
     {
@@ -266,6 +398,16 @@
     {
       "name": "gate_instruction",
       "source": "steps.gate.outputs.instruction",
+      "type": "string"
+    },
+    {
+      "name": "implementer",
+      "source": "steps.select.outputs.source",
+      "type": "string"
+    },
+    {
+      "name": "reviewer",
+      "source": "inputs.reviewer",
       "type": "string"
     }
   ],
@@ -493,11 +635,37 @@
           "body": [],
           "config": {
             "mode": "yolo",
-            "require_commit": true
+            "require_commit": true,
+            "when": {
+              "args": [
+                {
+                  "arg": {
+                    "arg": {
+                      "field": "fixer"
+                    },
+                    "op": "exists"
+                  },
+                  "op": "not"
+                },
+                {
+                  "items": {
+                    "literal": [
+                      "",
+                      "qwen-fixer"
+                    ]
+                  },
+                  "op": "in",
+                  "value": {
+                    "field": "fixer"
+                  }
+                }
+              ],
+              "op": "or"
+            }
           },
-          "description": "The cultureagent bridge checks out head_sha in a fresh worktree on spark2 and runs the agent with the instruction and the bound inputs: the trusted, unresolved threads and the issues behind the PR's failing SonarCloud conditions. The agent commits locally and never pushes. require_commit: a turn that leaves no commit fails the step at once (no_changes), so the attempt ends before any gate or review and hands back once.",
+          "description": "Level 1 (#39: when the try's fixer is qwen-fixer, or none is given). The cultureagent bridge checks out head_sha in a fresh worktree on spark2 and runs the agent with the instruction and the bound inputs: the trusted, unresolved threads and the issues behind the PR's failing SonarCloud conditions. The agent commits locally and never pushes. require_commit: a turn that leaves no commit fails the step at once (no_changes), so the attempt ends before any gate or review and hands back once.",
           "enabled": true,
-          "id": "agent",
+          "id": "agent_qwen",
           "inputs": [
             {
               "description": "",
@@ -540,11 +708,17 @@
               "name": "sonar_note",
               "required": false,
               "type": "string"
+            },
+            {
+              "description": "the fixer actor of this try (none: qwen-fixer)",
+              "name": "fixer",
+              "required": false,
+              "type": "string"
             }
           ],
           "kind": "ai",
           "max_iterations": null,
-          "name": "Fix the PR (bridge agent)",
+          "name": "Fix the PR (Qwen bridge agent)",
           "outputs": [
             {
               "description": "",
@@ -596,6 +770,436 @@
           },
           "retry": null,
           "timeout_s": 3900.0
+        },
+        {
+          "body": [],
+          "config": {
+            "require_commit": true,
+            "sandbox": "workspace-write",
+            "when": {
+              "cmp": "==",
+              "left": {
+                "field": "fixer"
+              },
+              "op": "compare",
+              "right": {
+                "literal": "codex-fixer"
+              }
+            }
+          },
+          "description": "Level 2 (#39: when the try's fixer is codex-fixer). The cultureagent Codex bridge on spark, as its own unprivileged account, checks out head_sha in a fresh worktree and runs Codex with the instruction and the same bound inputs; it commits locally and never pushes. require_commit as for agent_qwen. Its commits reach spark2's gate only through the hand-off.",
+          "enabled": true,
+          "id": "agent_codex",
+          "inputs": [
+            {
+              "description": "",
+              "name": "instruction",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "clone URL (the bridge's allowlist checks it)",
+              "name": "repo",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "head_branch",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "head_sha",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "the trusted, unresolved review threads",
+              "name": "threads",
+              "required": true,
+              "type": "array"
+            },
+            {
+              "description": "the issues behind the failing SonarCloud conditions",
+              "name": "sonar_issues",
+              "required": false,
+              "type": "array"
+            },
+            {
+              "description": "what the SonarCloud gate needs, in one paragraph",
+              "name": "sonar_note",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "description": "the fixer actor of this try (none: qwen-fixer)",
+              "name": "fixer",
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "kind": "ai",
+          "max_iterations": null,
+          "name": "Fix the PR (Codex bridge agent)",
+          "outputs": [
+            {
+              "description": "",
+              "name": "head_before",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "head_after",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "worktree",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "threads_addressed",
+              "required": true,
+              "type": "array"
+            },
+            {
+              "description": "",
+              "name": "summary",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "status",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "description": "the bridge's backend (implementer)",
+              "name": "backend",
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "placement": {
+            "actor": "codex-fixer",
+            "machine": null,
+            "requirement": null
+          },
+          "retry": null,
+          "timeout_s": 3900.0
+        },
+        {
+          "body": [],
+          "config": {
+            "builtin": "handoff.export",
+            "when": {
+              "cmp": "==",
+              "left": {
+                "field": "fixer"
+              },
+              "op": "compare",
+              "right": {
+                "literal": "codex-fixer"
+              }
+            }
+          },
+          "description": "#39: packs the Codex fixer's commits (head_before..head_after) out of its worktree on spark, as the fixer account, into one size-capped store document (handoff_too_large over the cap: the try fails).",
+          "enabled": true,
+          "id": "handoff_export",
+          "inputs": [
+            {
+              "description": "the fixer actor of this try (none: qwen-fixer)",
+              "name": "fixer",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "worktree",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "start_sha",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "head_after",
+              "required": true,
+              "type": "string"
+            }
+          ],
+          "kind": "code",
+          "max_iterations": null,
+          "name": "Hand-off: export the Codex commits",
+          "outputs": [
+            {
+              "description": "",
+              "name": "handoff_id",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "size",
+              "required": false,
+              "type": "integer"
+            },
+            {
+              "description": "",
+              "name": "sha256",
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "placement": {
+            "actor": null,
+            "machine": "spark",
+            "requirement": null
+          },
+          "retry": null,
+          "timeout_s": 600.0
+        },
+        {
+          "body": [],
+          "config": {
+            "builtin": "handoff.import",
+            "when": {
+              "cmp": "==",
+              "left": {
+                "field": "fixer"
+              },
+              "op": "compare",
+              "right": {
+                "literal": "codex-fixer"
+              }
+            }
+          },
+          "description": "#39: rebuilds a fixer-owned worktree on spark2 from that pack (the trusted clone_url and base fetched by SHA, the pack verified with index-pack --strict) whose HEAD is exactly the Codex fixer's commit; any refusal leaves no worktree.",
+          "enabled": true,
+          "id": "handoff_import",
+          "inputs": [
+            {
+              "description": "the fixer actor of this try (none: qwen-fixer)",
+              "name": "fixer",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "handoff_id",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "start_sha",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "head_after",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "the run's trusted clone URL (GitHub https)",
+              "name": "clone_url",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "base_sha",
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "kind": "code",
+          "max_iterations": null,
+          "name": "Hand-off: import into spark2",
+          "outputs": [
+            {
+              "description": "",
+              "name": "worktree",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "start_sha",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "commit_sha",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "head_before",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "head_after",
+              "required": false,
+              "type": "string"
+            }
+          ],
+          "placement": {
+            "actor": null,
+            "machine": "spark2",
+            "requirement": null
+          },
+          "retry": null,
+          "timeout_s": 900.0
+        },
+        {
+          "body": [],
+          "config": {
+            "builtin": "select",
+            "optional": [
+              "summary",
+              "threads_addressed"
+            ],
+            "ports": [
+              "worktree",
+              "start_sha",
+              "commit_sha"
+            ],
+            "sources": {
+              "codex": "codex-fixer",
+              "qwen": "qwen-fixer"
+            }
+          },
+          "description": "#39: the gate's one source: the worktree, start and commit of the agent path that ran (agent_qwen, or agent_codex through the hand-off) and which fixer that was; none or both fails closed.",
+          "enabled": true,
+          "id": "select",
+          "inputs": [
+            {
+              "description": "",
+              "name": "qwen_worktree",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "qwen_start_sha",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "qwen_commit_sha",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "qwen_summary",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "qwen_threads_addressed",
+              "required": false,
+              "type": "array"
+            },
+            {
+              "description": "",
+              "name": "codex_worktree",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "codex_start_sha",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "codex_commit_sha",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "codex_summary",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "codex_threads_addressed",
+              "required": false,
+              "type": "array"
+            }
+          ],
+          "kind": "code",
+          "max_iterations": null,
+          "name": "The path that ran",
+          "outputs": [
+            {
+              "description": "",
+              "name": "worktree",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "start_sha",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "commit_sha",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "summary",
+              "required": false,
+              "type": "string"
+            },
+            {
+              "description": "",
+              "name": "threads_addressed",
+              "required": false,
+              "type": "array"
+            },
+            {
+              "description": "the fixer actor whose path ran (implementer)",
+              "name": "source",
+              "required": true,
+              "type": "string"
+            }
+          ],
+          "placement": {
+            "actor": null,
+            "machine": "spark2",
+            "requirement": null
+          },
+          "retry": null,
+          "timeout_s": 60.0
         },
         {
           "body": [],
@@ -720,7 +1324,7 @@
           "op": "exists"
         }
       },
-      "description": "One try (d30): the agent then the gate. The try ends when the gate has given its verdict, whatever it is; a try that does not pass waits in the queue for the next one.",
+      "description": "One try (d30): the agent of the try's level (#39: agent_qwen, or agent_codex and the hand-off), then the gate. The try ends when the gate has given its verdict, whatever it is; a try that does not pass waits in the queue for the next one.",
       "enabled": true,
       "id": "fix",
       "inputs": [
@@ -776,6 +1380,18 @@
           "description": "",
           "name": "sonar_note",
           "required": false,
+          "type": "string"
+        },
+        {
+          "description": "the fixer actor of this try (none: qwen-fixer)",
+          "name": "fixer",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "description": "",
+          "name": "clone_url",
+          "required": true,
           "type": "string"
         }
       ],

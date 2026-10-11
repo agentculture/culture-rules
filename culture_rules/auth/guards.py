@@ -11,6 +11,10 @@
   into a runner all count. An editor may still save a runner whose registry is unchanged.
   This check compares against the stored version, so it runs inside the save transaction
   (:func:`save_check`, passed to :class:`culture_rules.server.service.Definitions`).
+- A machine's ``install`` section says what ``rollout upgrade`` runs on that host (the
+  install.sh flags, the run-as prefix, the secrets it injects), so only an admin may add,
+  change or remove it (:func:`check_machine_install`, ``install_requires_admin``). An editor
+  may still save a machine whose install section is unchanged.
 
 Applied to create, update and import alike. Standard-library only.
 """
@@ -27,10 +31,12 @@ from culture_rules.auth.principal import Principal
 from culture_rules.io import exchange
 
 __all__ = [
+    "InstallRequiresAdmin",
     "RunnerCommandsDenied",
     "check_actor_secrets",
     "check_definition",
     "check_import",
+    "check_machine_install",
     "check_runner_commands",
     "check_workflow_inline",
     "runner_commands",
@@ -58,6 +64,21 @@ class RunnerCommandsDenied(InlineScriptDenied):
         )
         self.identity = identity
         self.actor_id = actor_id
+
+
+class InstallRequiresAdmin(InlineScriptDenied):
+    """A non-admin tried to add, change or remove a machine's install section (HTTP 403)."""
+
+    code = "install_requires_admin"
+
+    def __init__(self, identity: str, machine_id: str) -> None:
+        PermissionError.__init__(
+            self,
+            f"changing a machine's install section (machines/{machine_id} install) is "
+            f"admin-only; {identity!r} is not an admin",
+        )
+        self.identity = identity
+        self.machine_id = machine_id
 
 
 def _steps(steps: Any) -> Iterable[Mapping[str, Any]]:
@@ -112,12 +133,30 @@ def check_runner_commands(
         raise RunnerCommandsDenied(principal.identity, str(after.get("id", "?")))
 
 
+def _install(doc: Any) -> Any:
+    """A stored or incoming machine's install section, JSON-normalised (None when absent)."""
+    install = doc.get("install") if isinstance(doc, Mapping) else None
+    return json.loads(json.dumps(install, sort_keys=True, default=str)) if install else None
+
+
+def check_machine_install(
+    principal: Principal, before: Mapping[str, Any] | None, after: Mapping[str, Any]
+) -> None:
+    """Raise :class:`InstallRequiresAdmin` if a non-admin changes a machine's install."""
+    if principal.has_role("admin"):
+        return
+    if _install(after) != _install(before):
+        raise InstallRequiresAdmin(principal.identity, str(after.get("id", "?")))
+
+
 def save_check(principal: Principal) -> _SaveCheck:
     """The in-transaction save check for ``principal`` (see ``service.SaveCheck``)."""
 
     def check(kind: str, before: Mapping[str, Any] | None, after: Mapping[str, Any]) -> None:
         if kind == "actors":
             check_runner_commands(principal, before, after)
+        elif kind == "machines":
+            check_machine_install(principal, before, after)
 
     return check
 

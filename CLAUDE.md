@@ -29,7 +29,7 @@ plan. What exists today:
   contract is pinned in `api/openapi.json`. Auth is Cloudflare Access on a
   loopback listener, service tokens on a LAN listener, and roles.
 - **The CLI** over the API: the noun groups `rules`, `workflows`, `actors`,
-  `machines` and `runs`, plus `serve`, `node` and `mcp`, alongside the
+  `machines`, `runs` and `rollout`, plus `serve`, `node` and `mcp`, alongside the
   identity verbs. Writes are dry-run by default, `--apply` commits.
 - **The MCP server** (`culture-rules mcp`, the `mcp` extra) serves the same
   verbs as tools. A parity test keeps CLI and MCP identical.
@@ -211,7 +211,7 @@ The CLI is cited (cite-don't-import) from teken's `python-cli` reference,
 so the runtime package has **no third-party dependencies**. teken is a dev
 dependency only. The verbs are the identity verbs (`whoami`, `learn`,
 `explain <path>`, `overview`, `doctor`, `cli overview`), the noun groups over
-the API (`rules`, `workflows`, `actors`, `machines`, `runs`), and `serve`,
+the API (`rules`, `workflows`, `actors`, `machines`, `runs`, `rollout`), and `serve`,
 `node run` and `mcp`. Every CLI verb has an MCP tool (`culture_rules/mcp`).
 
 The contract for every new verb:

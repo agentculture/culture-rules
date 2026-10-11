@@ -1,0 +1,57 @@
+{
+  "plan_slug": "rollout-cli",
+  "schema_version": 2,
+  "created": "2026-10-10T21:41:12Z",
+  "updated": "2026-10-11T03:53:26Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "The rollout noun also has overview, list and show (read-only, /rollouts); seed has its own --force (overwrite variables that already exist, as seed-variables.sh), besides pause's --force over non-terminal runs; idle, plan and verify are viewer verbs and never write, so the rollout document records pause, seed, import, enable, resume and upgrade:<host> but not idle or verify (verify's output is the evidence)",
+      "task_ref": "t4",
+      "reason": "the CLI registry requires overview/list/show on every noun; seed's skip-existing is not a guard; viewer verbs cannot write the admin-only rollout document",
+      "affects": [],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 1
+    },
+    {
+      "id": "d2",
+      "what": "import and enable keep the editor role; they record their step in the rollout document only when the token may write it (admin) and otherwise report record: {recorded: false} instead of failing",
+      "task_ref": "t4",
+      "reason": "the confirmed roles say editor while PUT /rollouts is admin; the operator runs rollouts with the admin token",
+      "affects": [],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 2
+    },
+    {
+      "id": "d3",
+      "what": "After Codex review round 1: changing a machine's install section (add, change or remove) requires the admin role (other machine fields stay editor); the rollout document is written through new admin endpoints POST /rollouts/{id}/steps/{name} (atomic per-step merge, server-set applied_at) and POST /rollouts/{id}/snapshot (first wins, 409 snapshot_recorded); GET /runs gains optional since and cursor (paged by finish time) for verify; resume records resume_requested before resuming; upgrade records upgrade:<host> started (admin) before any command; an ssh address that starts with - or holds whitespace/control characters is refused",
+      "task_ref": "t4",
+      "reason": "Codex r1 findings: installer env injection through a newline, a viewer token could trigger upgrade, read-merge-write lost steps, verify read only 1000 failed runs, the resume boundary was recorded late; the address check closes an ssh option injection the review did not raise",
+      "affects": [],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 3
+    },
+    {
+      "id": "d4",
+      "what": "Codex round 2 on the rollout CLI: resume_requested is first-wins (409 step_recorded); enable refuses when a snapshot rule is absent; the shared venv is read from ExecStart over D-Bus (busctl, exact argv) instead of parsing 'systemctl show' text; and every /rollouts write refuses (exit 2) on an API that predates the endpoints, with plan reporting the API version. The release that ships the rollout CLI (0.18.12) is therefore bootstrapped once by hand ('Bootstrapping the first release' in docs/operations/rollout.md); the first rollout fully through the CLI is the next release, which changes t7",
+      "task_ref": "t7",
+      "reason": "the live API (0.18.8) has no /rollouts endpoints, so pause and upgrade cannot record anything; Codex accepted either a bootstrap path on the old API or a documented hand bootstrap, and the hand bootstrap keeps the admin check unchanged",
+      "affects": [
+        "t5"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 4
+    }
+  ],
+  "evidence": [],
+  "deltas": [],
+  "supersessions": []
+}

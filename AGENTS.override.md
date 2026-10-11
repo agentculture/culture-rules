@@ -41,7 +41,7 @@ editing) is built on `rules/second-mile`, spec
 `docs/specs/2026-10-03-culture-rules-second-mile.md`.** guildmaster provisioned the
 repo from `culture-agent-template`, and the build followed the devague plan.
 The engine, HTTP API (contract pinned in `api/openapi.json`), node daemon,
-CLI noun groups (`rules`, `workflows`, `actors`, `machines`, `runs`, plus
+CLI noun groups (`rules`, `workflows`, `actors`, `machines`, `runs`, `rollout`, plus
 `serve`, `node` and `mcp`), MCP server, web editor and ops docs
 (`docs/operations/`) exist. `docs/demo.md` is the executed end-to-end
 walkthrough.

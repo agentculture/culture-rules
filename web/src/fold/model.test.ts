@@ -29,11 +29,12 @@ describe("foldModel", () => {
     // #35: the trigger rules queue the PR (queue-add); the queue moves (queue-progress) and
     // pr-fixer-dispatch starts pr-fix from the queue's dispatch event; d34: a /stop or a
     // thumbs-down runs queue-stop, after which the queue moves too
-    expect(model.workflows).toHaveLength(7);
+    // #39: a try that hit capacity_exhausted rests its level and rejoins (queue-add-capacity)
+    expect(model.workflows).toHaveLength(8);
     expect(model.entryPoints).toHaveLength(11);
-    expect(model.continuations).toHaveLength(11); // d37: pr-fixer-retry-failed
+    expect(model.continuations).toHaveLength(13); // d37: pr-fixer-retry-failed
     expect(model.chains.map((chain) => chain.workflowIds.slice().sort())).toEqual([
-      ["pr-fix", "publish-fix", "queue-add", "queue-progress", "queue-stop", "review-commit"],
+      ["pr-fix", "publish-fix", "queue-add", "queue-add-capacity", "queue-progress", "queue-stop", "review-commit"],
       ["report-secrets"],
     ]);
     expect(model.workflows.find((wf) => wf.id === "pr-fix")?.entries.map((entry) => entry.rule.id))
@@ -43,17 +44,19 @@ describe("foldModel", () => {
     expect(model.workflows.find((wf) => wf.id === "report-secrets")?.entries).toHaveLength(2);
     expect(model.workflows.find((wf) => wf.id === "queue-stop")?.entries.map((entry) => entry.rule.id))
       .toEqual(["pr-fixer-stop-reaction", "pr-fixer-stop"]);
-    expect(model.workflows.flatMap((wf) => wf.entries)).toHaveLength(22);
+    expect(model.workflows.flatMap((wf) => wf.entries)).toHaveLength(24);
     expect(model.continuations.map((entry) => [entry.rule.id, entry.fromWorkflowId, entry.workflowId]))
       .toEqual([
         ["pr-fixer-publish", "review-commit", "publish-fix"],
         ["pr-fixer-queue-progress-cancelled", "pr-fix", "queue-progress"],
+        ["pr-fixer-queue-progress-capacity", "queue-add-capacity", "queue-progress"],
         ["pr-fixer-queue-progress-failed", "pr-fix", "queue-progress"],
         ["pr-fixer-queue-progress-fixed", "pr-fix", "queue-progress"],
         ["pr-fixer-queue-progress-stopped", "queue-stop", "queue-progress"],
         ["pr-fixer-queue-progress-superseded", "pr-fix", "queue-progress"],
         ["pr-fixer-queue-progress", "queue-add", "queue-progress"],
         ["pr-fixer-refix", "review-commit", "queue-add"],
+        ["pr-fixer-retry-capacity", "pr-fix", "queue-add-capacity"],
         ["pr-fixer-retry-failed", "pr-fix", "queue-add"],
         ["pr-fixer-retry", "pr-fix", "queue-add"],
         ["pr-fixer-review-commit", "pr-fix", "review-commit"],

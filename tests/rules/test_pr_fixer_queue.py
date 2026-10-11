@@ -187,7 +187,8 @@ def test_a_request_whose_head_moved_before_its_turn_is_dropped(tmp_path):
     w.run_chain(10)
     assert fixes(w) == []
     dropped = [d for r in w.run_of("queue-progress") for d in r["outputs"].get("dropped") or ()]
-    assert dropped == [{"key": "o/r#7", "reason": "head_moved"}]
+    # #39: with fixer_levels each drop names the level queue it left
+    assert dropped == [{"key": "o/r#7", "reason": "head_moved", "queue": "pr-fixer"}]
 
 
 def test_d36_every_try_is_told_the_one_merge_from_base(tmp_path):
@@ -300,9 +301,14 @@ def test_d37_the_timeout_retry_matches_both_kinds_of_agent_timeout_and_nothing_e
         }
         return evaluate(cond, {"trigger": {"data": data}, "variables": variables})
 
-    assert fires("fix[0]/agent: timeout: qwen did not finish within 3600s")
-    assert fires("fix[0]/agent: the step's deadline passed")
-    assert not fires("fix[0]/agent: no_changes: the agent made no commit")
+    # #39: the agent step of either level (agent_qwen, agent_codex), or of a try pinned to
+    # the d30 pr-fix (agent) during the rollout; never the hand-off's
+    for agent in ("agent_qwen", "agent_codex", "agent"):
+        assert fires(f"fix[0]/{agent}: timeout: qwen did not finish within 3600s")
+        assert fires(f"fix[0]/{agent}: the step's deadline passed")
+        assert not fires(f"fix[0]/{agent}: no_changes: the agent made no commit")
+    assert not fires("fix[0]/agent_claude: timeout: no such level")
+    assert not fires("fix[0]/handoff_export: timeout: the export ran out of time")
     assert not fires("fix[0]/gate: merge_commit: the merge's second parent is not on base")
 
 

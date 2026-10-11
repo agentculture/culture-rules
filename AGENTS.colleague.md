@@ -39,7 +39,7 @@ code, services, robots, …). It is built and on disk:
   persisted run state (MongoDB), plus the engine node daemon
   (`culture-rules node run`);
 - a thin `culture-rules` CLI (`rules`, `workflows`, `actors`, `machines`,
-  `runs`, `serve`, `node`, `mcp`), an HTTP API with its contract pinned in
+  `runs`, `rollout`, `serve`, `node`, `mcp`), an HTTP API with its contract pinned in
   `api/openapi.json`, and an MCP server exposing the same verbs as tools;
 - a Node.js + React Flow editor in `web/` with four tabs: **Workflows |
   Actors | Variables | Statistics**. There is no Rules tab: each rule is
