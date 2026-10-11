@@ -64,7 +64,7 @@ ROLLOUTS_COLLECTION = "rollouts"
 ROLLOUT_ID_RE = re.compile(r"^[0-9A-Za-z][0-9A-Za-z.+_-]{0,63}$")
 """A release version string: ``0.18.12``, ``1.0.0rc1``, ``0.19.0.dev3``, ``0.18.12+local``."""
 STEP_NAME_RE = re.compile(r"^[a-z0-9:_.-]{1,64}$")
-RULE_ID_RE = re.compile(r"^[^\s\x00-\x1f\x7f]{1,200}$")
+RULE_ID_RE = re.compile(r"^[^\s\x00-\x08\x0e-\x1b\x7f]{1,200}$")
 OUTCOME_KEY_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
 MAX_SNAPSHOT = 10_000
 MAX_STEPS = 256
@@ -79,6 +79,7 @@ _SNAPSHOT_BODY_FIELDS = frozenset({"snapshot"})
 _KEY_SEPARATORS_RE = re.compile(r"[.:-]")
 _CAMEL_HUMP_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 _TX_ATTEMPTS = 5
+_NOT_ALLOWED = "not allowed"
 SNAPSHOT_AT = "snapshot_at"
 SNAPSHOT_RECORDED = "snapshot_recorded"
 STEP_RECORDED = "step_recorded"
@@ -156,8 +157,7 @@ def _step_errors(name: Any, step: Any) -> list[dict[str, str]]:
     if not isinstance(step, Mapping):
         return [_err(path, "invalid_step", "an object {applied_at, outcome}")]
     errors = [
-        _err(f"{path}.{k}", "unknown_field", "not allowed")
-        for k in sorted(set(step) - _STEP_FIELDS)
+        _err(f"{path}.{k}", "unknown_field", _NOT_ALLOWED) for k in sorted(set(step) - _STEP_FIELDS)
     ]
     errors += [_err(f"{path}.{k}", "missing", "required") for k in sorted(_STEP_FIELDS - set(step))]
     if "applied_at" in step:
@@ -203,7 +203,7 @@ def assert_outcome_refs_only(outcome: Any, path: str) -> None:
 def _strict_fields(body: Any, fields: frozenset[str], what: str) -> list[dict[str, str]]:
     if not isinstance(body, Mapping):
         raise Invalid(f"{what} body must be an object", [_err("", "invalid", "an object")])
-    errors = [_err(k, "unknown_field", "not allowed") for k in sorted(set(body) - fields)]
+    errors = [_err(k, "unknown_field", _NOT_ALLOWED) for k in sorted(set(body) - fields)]
     return errors + [_err(k, "missing", "required") for k in sorted(fields - set(body))]
 
 
@@ -247,7 +247,7 @@ def validate_rollout(rollout_id: str, body: Any) -> dict[str, Any]:
     check_id(rollout_id)
     if not isinstance(body, Mapping):
         raise Invalid("rollout body must be an object", [_err("", "invalid", "an object")])
-    errors = [_err(k, "unknown_field", "not allowed") for k in sorted(set(body) - _BODY_FIELDS)]
+    errors = [_err(k, "unknown_field", _NOT_ALLOWED) for k in sorted(set(body) - _BODY_FIELDS)]
     errors += [_err(k, "missing", "required") for k in sorted(_BODY_FIELDS - set(body))]
     if "version" in body and body["version"] != rollout_id:
         errors.append(_err("version", "id_mismatch", "version must equal the rollout id"))

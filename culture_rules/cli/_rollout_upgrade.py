@@ -87,6 +87,7 @@ _ENV_KEEP = (
 )
 """The only variables a command sees: never CULTURE_RULES_TOKEN or CULTURE_RULES_API_URL."""
 _API_WAIT_S = 60
+READ_VERSION = "read the version"
 
 
 @dataclass(frozen=True)
@@ -169,7 +170,7 @@ def _install_sh_commands(
             "run install.sh",
             900.0,
         ),
-        _ssh(target, shlex.join([f"{VENV}/bin/culture-rules", "--version"]), "read the version"),
+        _ssh(target, shlex.join([f"{VENV}/bin/culture-rules", "--version"]), READ_VERSION),
         _ssh(
             target,
             "XDG_RUNTIME_DIR=/run/user/$(id -u) "
@@ -197,7 +198,7 @@ def _shared_venv_commands(wheel: Path, venv: Path) -> list[Command]:
             600.0,
         ),
         Command("restart the API and the node", ("systemctl", "--user", "restart", *UNITS)),
-        Command("read the version", (str(venv / "bin" / "culture-rules"), "--version")),
+        Command(READ_VERSION, (str(venv / "bin" / "culture-rules"), "--version")),
         Command("read the units' state", ("systemctl", "--user", "show", *UNITS, *_SHOW)),
     ]
 
@@ -404,7 +405,11 @@ def _unit_states(text: str) -> dict[str, dict[str, str]]:
     """``systemctl show`` blocks (``Key=value`` lines, blank-line separated) keyed by unit Id."""
     units: dict[str, dict[str, str]] = {}
     for block in text.strip().split("\n\n"):
-        props = dict(line.split("=", 1) for line in block.splitlines() if "=" in line)
+        props = {
+            key: value
+            for key, _, value in (line.partition("=") for line in block.splitlines())
+            if _
+        }
         units[props.get("Id", NODE_UNIT)] = props
     return units
 
@@ -426,7 +431,7 @@ def _wait_for_api(ctx: Context) -> None:
 
 def _outcome(mode: str, wheel: Path, results: Mapping[str, Result]) -> dict[str, Any]:
     out: dict[str, Any] = {"mode": mode, "wheel": wheel.name}
-    version = results.get("read the version")
+    version = results.get(READ_VERSION)
     out["installed_version"] = _installed_version(version.stdout) if version else None
     state = results.get("read the node unit's state") or results.get("read the units' state")
     for unit, props in _unit_states(state.stdout if state else "").items():

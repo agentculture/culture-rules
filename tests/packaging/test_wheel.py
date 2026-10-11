@@ -50,7 +50,8 @@ def test_wheel_contains_install_sh_the_pr_fixer_bundle_and_both_manifests(wheel_
     for kind in ("workflows", "rules", "actors"):
         shipped = {n for n in wheel_names if n.startswith(f"{data}/pr-fixer/{kind}/")}
         expected = {f"{data}/pr-fixer/{kind}/{p.name}" for p in (bundle / kind).glob("*.json")}
-        assert expected and shipped == expected, kind
+        assert expected, kind
+        assert shipped == expected, kind
     assert f"{data}/pr-fixer/seed-variables.sh" not in wheel_names
 
 

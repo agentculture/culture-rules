@@ -62,8 +62,9 @@ def test_the_hook_skips_what_an_sdist_already_packages(tmp_path):
 
 
 def test_the_hook_refuses_a_tree_without_the_sources(tmp_path):
+    build_hook = hook()
     with pytest.raises(RuntimeError, match="install.sh"):
-        hook().deploy_force_include(tmp_path)
+        build_hook.deploy_force_include(tmp_path)
 
 
 # --------------------------------------------------------------------------- the helpers

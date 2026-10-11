@@ -24,6 +24,7 @@ from typing import Any
 __all__ = ["bundle_dir", "install_script", "release", "variables"]
 
 BUNDLE = "pr-fixer"
+_VARIABLES = "variables.json"
 
 
 def _packaged() -> Path:
@@ -50,10 +51,10 @@ def install_script() -> Path:
 def bundle_dir() -> Path:
     """The pr-fixer bundle: ``workflows/``, ``rules/``, ``actors/`` and the two manifests."""
     packaged = _packaged() / BUNDLE
-    if (packaged / "variables.json").is_file():
+    if (packaged / _VARIABLES).is_file():
         return packaged
     source = _source_root() / "docs" / "rules" / BUNDLE
-    if (source / "variables.json").is_file():
+    if (source / _VARIABLES).is_file():
         return source
     raise FileNotFoundError("the pr-fixer bundle is neither in the package nor in a checkout")
 
@@ -64,7 +65,7 @@ def _read(name: str) -> Any:
 
 def variables() -> list[dict[str, Any]]:
     """The seed variables, each ``{name, value, description}``, in seeding order."""
-    return _read("variables.json")
+    return _read(_VARIABLES)
 
 
 def release() -> dict[str, Any]:

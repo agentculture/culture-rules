@@ -833,29 +833,49 @@ def _check_install_words(obj: MachineInstall, path: str, errors: Errors) -> None
             )
 
 
-def _check_machine_install(obj: MachineInstall, path: str, errors: Errors) -> None:
-    _nonempty(obj, _INSTALL_WORD_FIELDS, path, errors)
-    _check_install_words(obj, path, errors)
-    if isinstance(obj.secrets, (tuple, list)):
-        for i, name in enumerate(obj.secrets):
-            if isinstance(name, str) and not _GRANT_NAME_RE.fullmatch(name):
-                _err(
-                    errors,
-                    _join(_join(path, "secrets"), i),
-                    "invalid_secret_name",
-                    "a secret is a grant secret name ([A-Z0-9_]+), never a value",
-                )
-    if isinstance(obj.gate_run_as, str):
-        why = _sudo_prefix_error(obj.gate_run_as)
-        if why:
-            _err(errors, _join(path, "gate_run_as"), "invalid_run_as", f"gate_run_as {why}")
-    if isinstance(obj.extras, (tuple, list)):
-        for i, extra in enumerate(obj.extras):
-            if isinstance(extra, str) and not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", extra):
-                _err(errors, _join(_join(path, "extras"), i), "invalid_value", "not an extra")
+def _check_install_secrets(obj: MachineInstall, path: str, errors: Errors) -> None:
+    """Every secret is a grant secret name, never a value."""
+    if not isinstance(obj.secrets, (tuple, list)):
+        return
+    for i, name in enumerate(obj.secrets):
+        if isinstance(name, str) and not _GRANT_NAME_RE.fullmatch(name):
+            _err(
+                errors,
+                _join(_join(path, "secrets"), i),
+                "invalid_secret_name",
+                "a secret is a grant secret name ([A-Z0-9_]+), never a value",
+            )
+
+
+def _check_install_run_as(obj: MachineInstall, path: str, errors: Errors) -> None:
+    if not isinstance(obj.gate_run_as, str):
+        return
+    why = _sudo_prefix_error(obj.gate_run_as)
+    if why:
+        _err(errors, _join(path, "gate_run_as"), "invalid_run_as", f"gate_run_as {why}")
+
+
+def _check_install_extras(obj: MachineInstall, path: str, errors: Errors) -> None:
+    if not isinstance(obj.extras, (tuple, list)):
+        return
+    for i, extra in enumerate(obj.extras):
+        if isinstance(extra, str) and not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", extra):
+            _err(errors, _join(_join(path, "extras"), i), "invalid_value", "not an extra")
+
+
+def _check_install_port(obj: MachineInstall, path: str, errors: Errors) -> None:
     port = obj.events_port
     if isinstance(port, int) and not isinstance(port, bool) and not 1 <= port <= 65535:
         _err(errors, _join(path, "events_port"), "range", "events_port must be 1-65535")
+
+
+def _check_machine_install(obj: MachineInstall, path: str, errors: Errors) -> None:
+    _nonempty(obj, _INSTALL_WORD_FIELDS, path, errors)
+    _check_install_words(obj, path, errors)
+    _check_install_secrets(obj, path, errors)
+    _check_install_run_as(obj, path, errors)
+    _check_install_extras(obj, path, errors)
+    _check_install_port(obj, path, errors)
 
 
 def _items(seq: Any, cls: type) -> list[tuple[int, Any]]:

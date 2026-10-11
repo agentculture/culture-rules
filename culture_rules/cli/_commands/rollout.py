@@ -54,6 +54,8 @@ TERMINAL = frozenset({"succeeded", "failed", "cancelled", "superseded"})
 """Run statuses that are final; any other status is a run still going."""
 SHARED_VENV = "shared_venv"
 INSTALL_SH = "install_sh"
+ROLLOUTS_PATH = "/rollouts"
+CONTROLS_PATH = "/controls"
 _RUNS_LIMIT = 1000
 _RUNS_PAGE = 1000
 """Failed runs per ``GET /runs?since=`` page in verify."""
@@ -249,7 +251,7 @@ def _rollouts_endpoints(ctx: Context) -> bool:
 
     def probe() -> bool:
         try:
-            ctx.client.request("GET", "/rollouts")
+            ctx.client.request("GET", ROLLOUTS_PATH)
         except ApiError as exc:
             if exc.status in (404, 405):
                 return False
@@ -382,11 +384,11 @@ def _run_line(run: Mapping[str, Any]) -> str:
 
 
 def _overview(ctx: Context) -> Any:
-    return sections_overview(NOUN, SUMMARY, ctx, "/rollouts")
+    return sections_overview(NOUN, SUMMARY, ctx, ROLLOUTS_PATH)
 
 
 def _list(ctx: Context) -> Any:
-    return _get(ctx, "/rollouts")
+    return _get(ctx, ROLLOUTS_PATH)
 
 
 def _show(ctx: Context, id: str) -> Any:
@@ -537,7 +539,7 @@ def _pause(ctx: Context, force: bool = False) -> dict[str, Any]:
     doc = _rollout_doc(ctx, version)
     kept = snapshot_recorded(doc)
     snapshot = list((doc or {}).get("snapshot") or []) if kept else _enabled(_rules(ctx))
-    paused = bool(_get(ctx, "/controls").get("paused"))
+    paused = bool(_get(ctx, CONTROLS_PATH).get("paused"))
     out = envelope(
         "pause",
         ctx,
@@ -593,7 +595,7 @@ def _resume(ctx: Context) -> dict[str, Any]:
     concurrent or stale caller treats as "the boundary is recorded already" and proceeds.
     """
     version = release_version()
-    paused = bool(_get(ctx, "/controls").get("paused"))
+    paused = bool(_get(ctx, CONTROLS_PATH).get("paused"))
     steps = _steps(_rollout_doc(ctx, version))
     out = envelope(
         "resume", ctx, would={"method": "POST", "path": "/controls/resume", "skip": not paused}
@@ -606,7 +608,7 @@ def _resume(ctx: Context) -> dict[str, Any]:
             "lines": [f"dry-run: would record {_RESUME_REQUESTED}, {what} and record resume"],
         }
     state = _apply_resume(ctx, paused, steps)
-    controls = _get(ctx, "/controls")
+    controls = _get(ctx, CONTROLS_PATH)
     return {
         **out,
         "engine": state,
@@ -858,7 +860,7 @@ def _check_api(ctx: Context, version: str) -> dict[str, Any]:
 
 
 def _check_engine(ctx: Context) -> dict[str, Any]:
-    paused = bool(_get(ctx, "/controls").get("paused"))
+    paused = bool(_get(ctx, CONTROLS_PATH).get("paused"))
     return _check(
         "engine",
         not paused,

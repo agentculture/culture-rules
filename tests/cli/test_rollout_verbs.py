@@ -177,12 +177,14 @@ def test_wheel_version_must_be_this_release(tmp_path):
     wheel = tmp_path / "culture_rules-9.1.0-py3-none-any.whl"
     wheel.write_bytes(b"")
     assert rollout.check_wheel(str(wheel)) == wheel
+    older = str(tmp_path / "culture_rules-9.0.0-py3-none-any.whl")
     with pytest.raises(rollout.CliError, match="release 9.0.0"):
-        rollout.check_wheel(str(tmp_path / "culture_rules-9.0.0-py3-none-any.whl"))
+        rollout.check_wheel(older)
     with pytest.raises(rollout.CliError, match="not a culture_rules wheel"):
         rollout.check_wheel("other-9.1.0-py3-none-any.whl")
+    missing = str(tmp_path / "x" / wheel.name)
     with pytest.raises(rollout.CliError, match="no such wheel"):
-        rollout.check_wheel(str(tmp_path / "x" / wheel.name))
+        rollout.check_wheel(missing)
 
 
 def test_install_flags_follow_the_record():

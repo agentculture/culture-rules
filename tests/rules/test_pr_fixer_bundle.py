@@ -336,7 +336,8 @@ def manifest() -> list[dict]:
 def test_variables_json_holds_every_seed_variable_with_a_description():
     items = manifest()
     assert all(set(i) == {"name", "value", "description"} for i in items)
-    assert all(isinstance(i["description"], str) and i["description"] for i in items)
+    assert all(isinstance(i["description"], str) for i in items)
+    assert all(i["description"] for i in items)
     names = [i["name"] for i in items]
     assert len(names) == len(set(names))
     assert set(names) == set(CHAIN_VARIABLES)  # every variable the rules reference
