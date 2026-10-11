@@ -171,6 +171,9 @@ a whole document, but the CLI does not use it.
 - **`upgrade --apply` proves the admin role first.** It records
   `upgrade:<host>` as started before it runs anything, and a token without the
   admin role is refused there (exit 1, nothing run). A dry run runs nothing.
+- **The shared-venv restart waits up to 240 s.** The API can take over a
+  minute to stop on SIGTERM, so the restart outlasts systemd's default stop
+  timeout (90 s) instead of recording a good upgrade as failed (#60).
 - **The shared venv is resolved from the running units.** On the shared-venv
   host, `upgrade --apply` reads the API unit's `ExecStart` D-Bus property (`busctl
   --user --json=short get-property ... ExecStart`), which is the exact argv:

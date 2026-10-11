@@ -203,3 +203,20 @@ def test_a_story_whose_qwen_try_fails_its_gate_gets_a_codex_try(tmp_path):
     (publish,) = w.run_of("publish-fix")
     assert publish["status"] == SUCCEEDED
     assert len(w.push.calls) == 1
+
+
+def test_after_a_guard_retry_the_reviewer_judges_the_original_task(tmp_path):  # #59
+    """Try 1 fails the diff guard; try 2 passes. The reviewer's pr_intent is the story's
+    original instruction, never the guard's 'revert these changes' text (live on
+    culture-rules-tester#6: a correct merge was refused for not reverting an unpushed
+    commit)."""
+    from tests.rules.test_pr_fixer_queue import guard
+
+    w = ChainWorld(tmp_path, turns=[guard])
+    w.fire()
+    first = w.run_of("pr-fix")[0]
+    (seen,) = w.reviewer.inputs
+    assert (seen["pr_intent"], "diff guard rejected" in seen["pr_intent"]) == (
+        first["inputs"]["instruction"],
+        False,
+    )

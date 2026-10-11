@@ -415,6 +415,10 @@ class QueueAddPort:
             inputs = {k: copy.deepcopy(v) for k, v in input.items() if k not in _META_INPUTS}
             if retry and not inputs.get("task") and isinstance(input.get("prior_instruction"), str):
                 inputs["task"] = input["prior_instruction"]
+            # #59: a first request's own instruction is the story's task, so every try (a
+            # guard or gate retry included) carries it and the review judges that task
+            if not retry and not inputs.get("task") and isinstance(inputs.get("instruction"), str):
+                inputs["task"] = inputs["instruction"]
             if retry and _exhausted(state):
                 why = str(inputs.get("instruction") or "")[:_EXPLAIN_MAX]
                 raise _Refused(

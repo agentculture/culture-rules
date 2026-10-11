@@ -520,3 +520,19 @@ def test_d37_without_a_lookup_the_requests_base_is_dispatched():
     w.progress()
     (event,) = w.dispatches()
     assert event["data"]["base_sha"] == "b" * 40
+
+
+def test_a_first_request_carries_its_instruction_as_the_task():  # #59
+    """The story's original task travels from try 1, so a later review judges that task and
+    never a guard or gate retry's text."""
+    w = World()
+    w.add(**request("o/a", 1, instruction="fix o/a#1"))
+    (a,) = w.doc()["waiting"]
+    assert a["inputs"]["task"] == "fix o/a#1"
+
+
+def test_a_given_task_is_kept():  # #59
+    w = World()
+    w.add(**request("o/a", 1, instruction="address the findings", task="fix o/a#1"))
+    (a,) = w.doc()["waiting"]
+    assert a["inputs"]["task"] == "fix o/a#1"

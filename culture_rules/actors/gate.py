@@ -131,6 +131,12 @@ Run over ``start_sha..commit_sha`` before any test command, in this order:
     are gitignore-like globs: ``*`` and ``?`` stay inside one path segment, ``**`` crosses
     segments, a pattern without a ``/`` matches a basename at any depth, a leading ``/``
     anchors at the root, and a pattern that names a directory covers everything under it.
+    One waiver (#59): in a merge from base where **both** parents moved the project's
+    version from their merge base, a root ``pyproject.toml`` or ``uv.lock`` that parses to
+    the same TOML as each parent but for the project's own version (``project.version``;
+    the ``version`` of the one ``[[package]]`` named like the project) is not a violation,
+    so the merge can settle the version collision. Any other change to them, or a file
+    that does not parse, is guarded.
 ``test_deleted``
     a test file (``test_*.py``, ``*_test.py``, ``*.test.ts``, ``*.spec.js``,
     ``__tests__/``, ``*_test.go``, ...) was deleted, or renamed to a non-test path.
@@ -181,13 +187,17 @@ import re
 import shlex
 import shutil
 import signal
+import struct
 import subprocess  # nosec B404 - argv lists only, shell=False
 import tempfile
 import time
+import tomllib
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime
+from datetime import time as clock_time
+from datetime import timedelta
 from pathlib import Path
 from typing import IO, Any, Protocol
 
@@ -1440,6 +1450,124 @@ def _guard_conflicts(
     return found
 
 
+# --------------------------------------------------------------------------- #59: version bumps
+
+#: The version files a merge from base may bump when both sides bumped the version (#59).
+PYPROJECT = "pyproject.toml"
+VERSION_FILES: tuple[str, ...] = (PYPROJECT, "uv.lock")
+_PLACEHOLDER = object()
+
+
+def _normalized_name(name: str) -> str:
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def _project(pyproject: str | None) -> tuple[str, str] | None:
+    """``(name, version)`` of a ``pyproject.toml``'s ``[project]`` table, or None."""
+    try:
+        project = tomllib.loads(pyproject or "").get("project")
+    except tomllib.TOMLDecodeError:
+        return None
+    if not isinstance(project, dict):
+        return None
+    name, version = project.get("name"), project.get("version")
+    if isinstance(name, str) and isinstance(version, str):
+        return _normalized_name(name), version
+    return None
+
+
+def _without_version(path: str, doc: dict[str, Any], name: str) -> dict[str, Any] | None:
+    """The parsed ``doc`` with the project's own version replaced by a placeholder, or None
+    when that field is not exactly one plain string (#59, Codex r1: parsed TOML, so a
+    look-alike inside a string is data, never the version)."""
+    if path == PYPROJECT:
+        project = doc.get("project")
+        if not isinstance(project, dict) or not isinstance(project.get("version"), str):
+            return None
+        return {**doc, "project": {**project, "version": _PLACEHOLDER}}
+    packages = doc.get("package")
+    if not isinstance(packages, list):
+        return None
+    own = [
+        i
+        for i, p in enumerate(packages)
+        if isinstance(p, dict)
+        and isinstance(p.get("name"), str)
+        and _normalized_name(p["name"]) == name
+    ]
+    if len(own) != 1 or not isinstance(packages[own[0]].get("version"), str):
+        return None
+    masked = list(packages)
+    masked[own[0]] = {**packages[own[0]], "version": _PLACEHOLDER}
+    return {**doc, "package": masked}
+
+
+def _typed(value: Any) -> Any:
+    """``value`` with every scalar tagged by its type, so equality is TOML-exact: Python's
+    ``True == 1 == 1.0`` never lets a boolean, integer or float pass for another (#59,
+    Codex r2)."""
+    if value is _PLACEHOLDER:
+        return ("version", None)
+    if isinstance(value, dict):
+        return ("table", tuple(sorted((k, _typed(v)) for k, v in value.items())))
+    if isinstance(value, list):
+        return ("array", tuple(_typed(v) for v in value))
+    if isinstance(value, float):  # the exact IEEE 754 bits: -0.0, -nan (Codex r3, r4)
+        return ("float", struct.pack(">d", value))
+    if isinstance(value, (datetime, date, clock_time)):  # the written offset, not the instant (r3)
+        return (type(value).__name__, value.isoformat())
+    return (type(value).__name__, value)
+
+
+def same_but_version(path: str, old: str, new: str, name: str) -> bool:
+    """Whether two versions of a root ``pyproject.toml`` or ``uv.lock`` parse to the same
+    TOML document but for the project's own version (#59). Unparsable or ambiguous files
+    fail closed (False)."""
+    try:
+        before, after = tomllib.loads(old), tomllib.loads(new)
+    except tomllib.TOMLDecodeError:
+        return False
+    a, b = _without_version(path, before, name), _without_version(path, after, name)
+    return a is not None and b is not None and _typed(a) == _typed(b)
+
+
+def _blob(job: _Job, sha: str, path: str) -> str | None:
+    rc, data = job.git_rc("cat-file", "blob", f"{sha}:{_literal(path)}")
+    return data.decode("utf-8", errors="replace") if rc == 0 else None
+
+
+def _waive_version_bump(
+    job: _Job, parents: tuple[str, str], commit: str, found: list[Violation]
+) -> list[Violation]:
+    """#59: a merge from base may move the project's own version when **both** parents moved
+    it from their merge base (a version collision the merge has to settle). A
+    ``protected_path`` violation on a root :data:`VERSION_FILES` file is waived when that
+    file parses to the same TOML as **each** parent but for the project's own version; any
+    other change to it is still guarded."""
+    hits = {v.path for v in found if v.rule == "protected_path" and v.path in VERSION_FILES}
+    if not hits:
+        return found
+    rc, out = job.git_rc("merge-base", *parents)
+    if rc != 0:
+        return found
+    ancestor = out.decode().strip()
+    seen = [_project(_blob(job, sha, PYPROJECT)) for sha in (ancestor, *parents)]
+    if any(p is None for p in seen) or len({p[0] for p in seen}) != 1:
+        return found
+    (name, base_v), (_, start_v), (_, second_v) = seen
+    if start_v == base_v or second_v == base_v:
+        return found  # one side left the version alone: nothing to reconcile
+    waived = set()
+    for path in hits:
+        new = _blob(job, commit, path)
+        olds = [_blob(job, sha, path) for sha in parents]
+        if new is not None and all(
+            old is not None and same_but_version(path, old, new, name) for old in olds
+        ):
+            waived.add(path)
+    return [v for v in found if not (v.rule == "protected_path" and v.path in waived)]
+
+
 class GatePort:
     """ActorPort for the built-in ``gate`` code step (see the module docstring)."""
 
@@ -1982,7 +2110,7 @@ class GatePort:
         )
         if merge.conflicted:
             found += _guard_conflicts(job, (start, second), commit, merge.conflicted, patterns)
-        return list(dict.fromkeys(found))
+        return _waive_version_bump(job, (start, second), commit, list(dict.fromkeys(found)))
 
     def _workspace(self, job: _Job) -> str:
         """The fixer's own fresh ``mktemp -d`` workspace; the caller removes it.

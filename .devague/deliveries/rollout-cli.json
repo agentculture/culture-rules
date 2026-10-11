@@ -2,7 +2,7 @@
   "plan_slug": "rollout-cli",
   "schema_version": 2,
   "created": "2026-10-10T21:41:12Z",
-  "updated": "2026-10-11T11:12:01Z",
+  "updated": "2026-10-11T15:56:37Z",
   "deviations": [
     {
       "id": "d1",
@@ -73,6 +73,17 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 6
+    },
+    {
+      "id": "d7",
+      "what": "The shared-venv restart command waits up to RESTART_TIMEOUT_S (240 s), past systemd's default 90 s stop timeout; the API's slow shutdown itself is left for a separate look",
+      "task_ref": "t5",
+      "reason": "Both CLI rollouts on 2026-10-11 recorded upgrade:spark as failed: the API took 70-80 s to stop on SIGTERM, past the 60 s command timeout, though the upgrade succeeded and verify passed (#60)",
+      "affects": [],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 7
     }
   ],
   "evidence": [],

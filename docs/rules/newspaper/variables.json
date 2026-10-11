@@ -8,7 +8,7 @@
     "value": "[{\"name\": \"Edge AI\", \"queries\": [\"edge AI hardware news\"], \"freshness\": \"pd\", \"count\": 5}, {\"name\": \"Open models\", \"queries\": [\"open source LLM release\"], \"freshness\": \"pw\", \"count\": 5, \"must_not\": [\"sponsored\"]}]"
   },
   "newspaper_to": {
-    "description": "Who receives the newspaper (each must also be on the newspaper-email actor's recipients allowlist); empty: the run fails at the email fence (bad_input: to) before anything is emailed or queued",
+    "description": "Who receives the newspaper (each must also be on the newspaper-email actor's recipients allowlist); empty: no email is sent and the issue still goes to the e-reader (d6)",
     "value": []
   }
 }
