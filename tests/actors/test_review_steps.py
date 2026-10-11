@@ -109,8 +109,9 @@ def test_no_review_step_that_succeeded_is_no_review(statuses):
 
 
 def test_two_review_steps_that_succeeded_fail_closed():
+    states = _states("succeeded", "succeeded")
     with pytest.raises(ReviewError) as exc:
-        _pick(_states("succeeded", "succeeded"))
+        _pick(states)
     assert (exc.value.code, exc.value.detail) == (
         "review_invalid",
         "more than one review step reviewed this commit",

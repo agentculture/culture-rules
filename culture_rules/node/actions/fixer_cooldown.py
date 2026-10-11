@@ -110,16 +110,28 @@ def capacity_actor(run: Mapping[str, Any]) -> str:
     definition = (run.get("workflow") or {}).get("definition") or {}
     defs = {d.get("id"): d for d in _step_defs(definition.get("steps"))}
     for state in run.get("steps") or ():
-        step = defs.get(state.get("def")) if isinstance(state, Mapping) else None
-        if step is None or step.get("kind") != "ai" or not _capacity_failed(state):
-            continue
-        placement = step.get("placement") if isinstance(step.get("placement"), Mapping) else {}
-        inputs = run.get("inputs") if isinstance(run.get("inputs"), Mapping) else {}
-        actor = placement.get("actor") or inputs.get("fixer")
-        if not isinstance(actor, str) or not _ACTOR_RE.fullmatch(actor):
-            raise _Refused("bad_actor", f"the failed agent step names no valid actor: {actor!r}")
-        return actor
+        step = _capacity_step(defs, state)
+        if step is not None:
+            return _step_actor(run, step)
     raise _Refused("not_capacity_exhausted", "no agent step of the failed try hit its limit")
+
+
+def _capacity_step(defs: Mapping[Any, Any], state: Any) -> Mapping[str, Any] | None:
+    """The ``ai`` step definition of ``state`` when that step failed on its limit."""
+    step = defs.get(state.get("def")) if isinstance(state, Mapping) else None
+    if step is None or step.get("kind") != "ai" or not _capacity_failed(state):
+        return None
+    return step
+
+
+def _step_actor(run: Mapping[str, Any], step: Mapping[str, Any]) -> str:
+    """The actor the failed step ran on: its placement, else the run's ``fixer`` input."""
+    placement = step.get("placement") if isinstance(step.get("placement"), Mapping) else {}
+    inputs = run.get("inputs") if isinstance(run.get("inputs"), Mapping) else {}
+    actor = placement.get("actor") or inputs.get("fixer")
+    if not isinstance(actor, str) or not _ACTOR_RE.fullmatch(actor):
+        raise _Refused("bad_actor", f"the failed agent step names no valid actor: {actor!r}")
+    return actor
 
 
 def _cooldown_s(store: Any, config: Mapping[str, Any]) -> int:
@@ -168,10 +180,10 @@ class FixerCooldownPort:
             return InvocationResult.completed(out)
         now = self._clock()
         until = self._ended(failed, now) + timedelta(seconds=seconds)
-        stands = self._upsert(actor, until, now, str(failed.get("id")), level.level)
+        stands = self._upsert(actor, until, now, str(failed.get("id")), level.number)
         if stands is None:
             return InvocationResult.failed("contended: the cooldown kept changing", retryable=True)
-        out.update(level=level.level, until=_iso(stands), recorded=stands > now)
+        out.update(level=level.number, until=_iso(stands), recorded=stands > now)
         if stands <= now:
             out["why"] = "already_over"
         return InvocationResult.completed(out)

@@ -86,7 +86,7 @@ class LevelsError(ValueError):
 
 @dataclass(frozen=True)
 class Level:
-    level: int
+    number: int  # the level's number in fixer_levels (Sonar S1700: not 'level')
     actor: str
     reviewer: str
     pool: str
@@ -95,7 +95,7 @@ class Level:
 
     def dispatch_fields(self) -> dict[str, Any]:
         """What a dispatch event names of its level."""
-        return {"level": self.level, "fixer": self.actor, "reviewer": self.reviewer}
+        return {"level": self.number, "fixer": self.actor, "reviewer": self.reviewer}
 
 
 _TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}")
@@ -123,7 +123,7 @@ def _level(entry: Any, i: int) -> Level:
     if fields["enabled"] not in ("true", "false"):
         raise LevelsError(f"{where}: enabled must be true or false")
     return Level(
-        level=int(fields["level"]),
+        number=int(fields["level"]),
         actor=fields["actor"],
         reviewer=fields["reviewer"],
         pool=fields["pool"],
@@ -152,7 +152,7 @@ class Ladder:
 
     def __init__(self, var: str, levels: list[Level], policy: str, store: Any) -> None:
         self.var, self.policy, self.store = var, policy, store
-        self.levels = sorted(levels, key=lambda lvl: lvl.level)
+        self.levels = sorted(levels, key=lambda lvl: lvl.number)
         self.enabled = [lvl for lvl in self.levels if lvl.enabled]
 
     def queues(self) -> list[str]:
@@ -180,7 +180,7 @@ class Ladder:
             reason = self.unavailable(lvl, now)
             if reason is None:
                 return lvl, why
-            why.append(f"level {lvl.level} ({lvl.actor}): {reason}")
+            why.append(f"level {lvl.number} ({lvl.actor}): {reason}")
             if self.policy == UNAVAILABLE_HAND_BACK:
                 break
         return None, why
@@ -226,7 +226,7 @@ def load_ladder(store: Any, config: Mapping[str, Any]) -> Ladder | None:
     if not isinstance(value, list):
         raise LevelsError(f"{var} must be a list of levels")
     levels = [_level(entry, i) for i, entry in enumerate(value)]
-    if len({lvl.level for lvl in levels}) != len(levels):
+    if len({lvl.number for lvl in levels}) != len(levels):
         raise LevelsError(f"{var}: each level number must be unique")
     return Ladder(var, levels, _policy(store, config), store)
 

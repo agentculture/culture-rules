@@ -836,9 +836,9 @@ def test_fixer_levels_are_seeded_with_level_1_live_and_level_2_disabled():
     seed(mem, {k: seeded[k] for k in ("fixer_levels", "fixer_unavailable")})
     ladder = load_ladder(mem, {"levels": "fixer_levels", "unavailable": "fixer_unavailable"})
     one, two = ladder.levels
-    assert (one.level, one.actor, one.reviewer) == (1, "qwen-fixer", "codex-reviewer")
+    assert (one.number, one.actor, one.reviewer) == (1, "qwen-fixer", "codex-reviewer")
     assert (one.pool, one.queue, one.enabled) == ("qwen-spark2", "pr-fixer", True)
-    assert (two.level, two.actor, two.reviewer) == (2, "codex-fixer", "qwen-reviewer")
+    assert (two.number, two.actor, two.reviewer) == (2, "codex-fixer", "qwen-reviewer")
     assert (two.pool, two.queue, two.enabled) == ("codex-spark", "pr-fixer-codex", False)
     assert seeded["fixer_levels"] == CHAIN_VARIABLES["fixer_levels"]
 
