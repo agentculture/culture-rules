@@ -2,7 +2,7 @@
   "plan_slug": "rollout-cli",
   "schema_version": 2,
   "created": "2026-10-10T21:41:12Z",
-  "updated": "2026-10-11T10:47:47Z",
+  "updated": "2026-10-11T11:12:01Z",
   "deviations": [
     {
       "id": "d1",
@@ -57,7 +57,7 @@
       "reason": "Two CLI defects surfaced on the first full CLI rollout (#57): shared_venv upgrade compared socket.gethostname() (spark-f8a9) with the record name spark and refused on spark; install_sh upgrade sshed to the record's address (a tailnet IP), which ~/.ssh/config's Host/User aliases do not cover (host key verification failed on orin and spark2, publickey denied on thor); address cannot become the alias because placement requires a LAN/tailnet address",
       "affects": [],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "needs-follow-up",
       "seq": 5
     },
@@ -70,7 +70,7 @@
         "t1"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 6
     }
