@@ -231,6 +231,7 @@ def _step_account(config: Mapping[str, Any]) -> str | None:
 #: whose account the command runs as, so it is refused (Codex review of #56).
 _SUDO_FLAGS = frozenset({"-n", "--non-interactive", "-H", "--set-home"})
 _SUDO_SELECTORS = frozenset({"-u", "--user"})
+_USER_EQ = "--user="
 
 
 def _no_slot(reason: str) -> _Refusal:
@@ -265,8 +266,8 @@ def _account_slot(words: list[str]) -> int:
             slots.append(i + 2)  # +1 for sudo, +1 for the value after the selector
             i += 2
             continue
-        if word.startswith("--user="):
-            _check_account(word.removeprefix("--user="))
+        if word.startswith(_USER_EQ):
+            _check_account(word.removeprefix(_USER_EQ))
             slots.append(i + 1)
         elif word not in _SUDO_FLAGS:
             raise _no_slot(f"option {word!r} is not allowed")
@@ -280,7 +281,7 @@ def _swap_account(base: CommandRunner, account: str) -> RunAs:
     """``base``'s prefix with its one sudo account replaced by ``account``."""
     words = list(getattr(base, "prefix", ()))
     slot = _account_slot(words)
-    words[slot] = f"--user={account}" if words[slot].startswith("--user=") else account
+    words[slot] = f"{_USER_EQ}{account}" if words[slot].startswith(_USER_EQ) else account
     return RunAs(words, run=base._run)  # type: ignore[attr-defined]
 
 
