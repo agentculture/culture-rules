@@ -28,7 +28,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Review hardening (Codex round 1)
 
 - `queue.progress` writes a request's move to another level's queue and its own queue's compare-and-set in one store transaction, the compare-and-set first: a `/fix` that lands between them rolls the move back (its idempotency key included), and the retried pass moves the newer request. Before, the retry found its move key already seen, added nothing and dropped the source request, so the PR ended in no queue (`tests/node/test_queue_move_race.py`)
-- `handoff.import` writes an import receipt (`imported`: idempotency key, worktree, time) into the hand-off document before returning and keeps the pack until the export's one-day prune, instead of deleting it. A replay with the same idempotency key (a lost acknowledgement) returns the receipt's worktree while it is still exactly `head_after` and clean, else rebuilds one from the pack; another step importing the same hand-off is refused `handoff_already_imported`
+- `handoff.import` writes an import receipt (`imported`: idempotency key, worktree, time) into the hand-off document before returning and keeps the pack (until it expires, a day after the receipt: round 2), instead of deleting it. A replay with the same idempotency key (a lost acknowledgement) returns the receipt's worktree while it is still exactly `head_after` and clean, else rebuilds one from the pack; another step importing the same hand-off is refused `handoff_already_imported`
 
 ### Review hardening (Codex round 2)
 

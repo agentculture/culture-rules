@@ -150,7 +150,7 @@ def test_round_trip_imported_head_is_the_fixers_commit(store, world):  # noqa: F
 
 
 def test_the_import_keeps_the_pack_with_a_receipt(store, world):  # noqa: F811
-    """Codex round 1 #2: the pack outlives a successful import (the export's TTL prunes
+    """Codex round 1 #2: the pack outlives a successful import (it expires a day after
     it), with a receipt naming the invocation and the worktree it built."""
     head = world.fix()
     out = round_trip(store, world, head)
