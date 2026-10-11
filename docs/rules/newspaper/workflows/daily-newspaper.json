@@ -258,6 +258,12 @@
       "source_port": "queue_id",
       "target": "record",
       "target_port": "queue_id"
+    },
+    {
+      "source": "push_gate",
+      "source_port": "push",
+      "target": "push",
+      "target_port": "push"
     }
   ],
   "enabled": true,
@@ -303,7 +309,7 @@
     },
     {
       "name": "item_id",
-      "source": "steps.push.outputs.item_id",
+      "source": "steps.record.outputs.item_id",
       "type": "any"
     },
     {
@@ -314,6 +320,11 @@
     {
       "name": "email_uncertain",
       "source": "steps.push_gate.outputs.email_uncertain",
+      "type": "boolean"
+    },
+    {
+      "name": "email_sent",
+      "source": "steps.push_gate.outputs.email_sent",
       "type": "boolean"
     }
   ],
@@ -1042,7 +1053,7 @@
           }
         }
       },
-      "description": "newspaper.issue (before_push): records the sent email's message id for the date (so a takeover never emails again), then renews this run's lease before the push (claim_lost fails the run if another run took the date). With no message id and the first attempt past its 23-hour window (the email step refused email_window_passed), it records the email uncertain and the push goes ahead; with no message id inside the window it fails the run.",
+      "description": "newspaper.issue (before_push): records the sent email's message id for the date (so a takeover never emails again), then renews this run's lease before the push (claim_lost fails the run if another run took the date). The push goes ahead whether or not the email was sent: with no message id and the first attempt past its 23-hour window it records the email uncertain; with no message id inside the window it answers email_sent false and records nothing, so a re-run within the window retries only the email. push is false when the library already has the date's issue.",
       "enabled": true,
       "id": "push_gate",
       "inputs": [
@@ -1092,6 +1103,18 @@
           "name": "email_uncertain",
           "required": true,
           "type": "boolean"
+        },
+        {
+          "description": "the date's email is recorded sent (false: it failed inside its window and a re-run retries it, or it is uncertain)",
+          "name": "email_sent",
+          "required": true,
+          "type": "boolean"
+        },
+        {
+          "description": "false when the library already has the date's issue (a re-run retrying only the email)",
+          "name": "push",
+          "required": true,
+          "type": "boolean"
         }
       ],
       "placement": null,
@@ -1112,17 +1135,32 @@
         },
         "builtin": "action",
         "when": {
-          "cmp": "==",
-          "left": {
-            "field": "deliver"
-          },
-          "op": "compare",
-          "right": {
-            "literal": true
-          }
+          "op": "and",
+          "args": [
+            {
+              "cmp": "==",
+              "left": {
+                "field": "deliver"
+              },
+              "op": "compare",
+              "right": {
+                "literal": true
+              }
+            },
+            {
+              "cmp": "==",
+              "left": {
+                "field": "push"
+              },
+              "op": "compare",
+              "right": {
+                "literal": true
+              }
+            }
+          ]
         }
       },
-      "description": "library.push through newspaper-library: upload the EPUB (kind article, the dated title) and queue it for the device (the input, else the actor's device_id).",
+      "description": "library.push through newspaper-library: upload the EPUB (kind article, the dated title) and queue it for the device (the input, else the actor's device_id). Skipped when the push fence answers push false: the library already has the date's issue.",
       "enabled": true,
       "id": "push",
       "inputs": [
@@ -1153,6 +1191,12 @@
         {
           "description": "newspaper.issue's claim: false ends the run quietly",
           "name": "deliver",
+          "required": true,
+          "type": "boolean"
+        },
+        {
+          "description": "the push fence's answer: false when the library already has the issue",
+          "name": "push",
           "required": true,
           "type": "boolean"
         }
@@ -1204,7 +1248,7 @@
           }
         }
       },
-      "description": "newspaper.issue (record): marks the date delivered with the message id, the item and queue ids, so a later run for the same date sends nothing.",
+      "description": "newspaper.issue (record): stores the library progress (item and queue ids), then marks the date delivered with the message id once the email is sent or uncertain, so a later run for the same date sends nothing. An email that failed inside its window leaves the date claimed with its lease released: a re-run within 23 hours retries only the email and skips the push.",
       "enabled": true,
       "id": "record",
       "inputs": [
@@ -1227,9 +1271,9 @@
           "type": "string"
         },
         {
-          "description": "",
+          "description": "null when the push was skipped: the recorded library item is kept",
           "name": "item_id",
-          "required": true,
+          "required": false,
           "type": "any"
         },
         {
@@ -1260,6 +1304,18 @@
           "name": "date",
           "required": true,
           "type": "string"
+        },
+        {
+          "description": "the library item the date is recorded with",
+          "name": "item_id",
+          "required": false,
+          "type": "any"
+        },
+        {
+          "description": "the date's email is recorded sent",
+          "name": "email_sent",
+          "required": true,
+          "type": "boolean"
         }
       ],
       "placement": null,

@@ -239,7 +239,7 @@ def test_the_email_window_comes_from_the_fence():
 
 def test_the_workflow_exports_the_delivery_ids():  # h17
     names = {o.name for o in workflow().outputs}
-    assert names == {"message_id", "item_id", "date", "email_uncertain"}
+    assert names == {"message_id", "item_id", "date", "email_uncertain", "email_sent"}
 
 
 def _step(step_id):

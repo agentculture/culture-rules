@@ -23,7 +23,8 @@ The document
   ``send`` true, never moved (Codex r2 #1);
 * ``email`` - ``{message_id, at}``, written as soon as the email is known sent, or
   ``{uncertain: true, attempted_at}`` when its acknowledgement was lost past the window;
-* ``library`` - ``{item_id, queue_id, at}``, written with the delivery record;
+* ``library`` - ``{item_id, queue_id, at}``, written by ``record`` after the push (also when
+  the email is not yet sent);
 * ``delivered_by``, ``delivered_at``, ``message_id``, ``item_id`` - the delivery record.
 
 The phases, in workflow order
@@ -55,15 +56,23 @@ The phases, in workflow order
   skipped). It records ``email`` the first time it sees a message id - even when the claim
   was lost, since the email went out either way - then renews the lease or refuses
   ``claim_lost``. With no message id and the first attempt past its window (the email step
-  failed ``email_window_passed``, or failed before it) it records ``email`` uncertain; with
-  no message id inside the window it refuses ``bad_input``, so a skipped email step
-  (``on_error: skip``) that failed for another reason never passes as delivered. Output
-  ``{message_id, date, email_uncertain}``: the recorded message id (null, with
-  ``email_uncertain`` true, when the email is uncertain; the push proceeds).
-* ``record`` (after delivery) - sets state ``delivered`` with ``message_id``, ``item_id``,
-  ``library`` (``item_id``, ``queue_id``), ``delivered_by`` and ``delivered_at``, whoever
-  claimed. Output ``{recorded, date}``: false when another run already recorded the date; a
-  re-invoked record of the same run answers true again.
+  failed ``email_window_passed``, or failed before it) it records ``email`` uncertain. With
+  no message id inside the window (the email step failed for another reason and was
+  skipped by ``on_error: skip``) it records nothing: the email is neither passed off as
+  sent nor as uncertain, and the push still goes ahead, so the reader gets the issue (PR
+  #54 review). Output ``{message_id, date, email_uncertain, email_sent, push}``:
+  the recorded message id (null when none is recorded), ``email_sent`` whether one is, and
+  ``push`` false when ``library`` is already recorded (a re-run retrying only the email).
+* ``record`` (after the push) - stores ``library`` (``item_id``, ``queue_id``; the recorded
+  one is kept when the push was skipped). Once the email is settled - a message id (recorded
+  or the input's) or uncertain - it sets state ``delivered`` with ``message_id``,
+  ``item_id``, ``delivered_by`` and ``delivered_at``, whoever claimed. An unsettled email
+  leaves the date ``claimed`` and releases this run's lease (``claimed_by`` and
+  ``claimed_at`` null), so a re-run takes the date over at once: within the window it
+  resends the frozen request under the same key and skips the push; past it the email ends
+  uncertain. Output ``{recorded, date, item_id, email_sent}``: ``recorded`` is whether this
+  run's record marked the date delivered (false when another run already had, or the email
+  is unsettled); a re-invoked record of the same run answers the same again.
 
 Why a date is never emailed twice (Codex r1 #1, r2 #1 and #4)
 ==============================================================
@@ -137,6 +146,8 @@ _PAYLOAD = "email_payload"
 _ATTEMPT = "email_attempt"
 _UNCERTAIN = "email_uncertain"
 _MESSAGE_ID = "message_id"
+_EMAIL_SENT = "email_sent"
+_LIBRARY = "library"
 _SUBJECT, _HTML, _TO, _SENDER = "subject", "html", "to", "sender"
 _REQUEST_FIELDS = (_SUBJECT, _HTML, _TO, _SENDER)
 _LOST_ACK = "uncertain"  # the email's state, and its flag in the ``email`` record
@@ -412,43 +423,23 @@ class NewspaperIssuePort:
         for _ in range(_CAS_TRIES):
             doc = self._get(day)
             owned = _owned(doc, run_id)
-            recorded = _sent_id(doc)
-            changes: dict[str, Any] = {}
-            if doc is not None and recorded is None:
-                changes.update(_push_email_changes(doc, day, message_id, self._clock()))
-            if owned:
-                changes[_CLAIMED_AT] = _iso(self._clock())
+            changes = _push_changes(doc, day, message_id, self._clock(), owned=owned)
             if changes and not self._cas(day, doc, changes):
                 continue
             if not owned:
                 raise _lost(day)
-            sent = recorded or message_id
-            uncertain = sent is None and _uncertain({**(doc or {}), **changes})
-            if sent is None and not uncertain:
-                raise _Refusal(
-                    "bad_input: message_id: no email is recorded sent for the date"
-                    " (see the email step's error)"
-                )
-            return {_MESSAGE_ID: sent, _DATE: day, _UNCERTAIN: uncertain}
+            return _push_answer(day, {**(doc or {}), **changes})
         raise self._contended(day)
 
     def _record(self, day: str, run_id: str, input: Mapping[str, Any]) -> dict[str, Any]:
-        item_id = _delivery_id(input.get(_ITEM_ID))
-        changes = {
-            _STATE: DELIVERED,
-            "delivered_by": run_id,
-            _MESSAGE_ID: _delivery_id(input.get(_MESSAGE_ID)),
-            _ITEM_ID: item_id,
-        }
         for _ in range(_CAS_TRIES):
             doc = self._get(day)
             if doc is not None and doc.get(_STATE) == DELIVERED:
-                return {"recorded": doc.get("delivered_by") == run_id, _DATE: day}
-            at = _iso(self._clock())
-            library = {_ITEM_ID: item_id, "queue_id": _delivery_id(input.get("queue_id"))}
-            stamped = {**changes, "delivered_at": at, "library": {**library, "at": at}}
-            if self._cas(day, doc, stamped):
-                return {"recorded": True, _DATE: day}
+                return _record_answer(day, doc, doc.get("delivered_by") == run_id)
+            changes = _record_changes(doc or {}, run_id, input, _iso(self._clock()))
+            if self._cas(day, doc, changes):
+                merged = {**(doc or {}), **changes}
+                return _record_answer(day, merged, merged.get(_STATE) == DELIVERED)
         raise self._contended(day)
 
 
@@ -490,6 +481,75 @@ def _push_email_changes(
     if not _uncertain(doc) and _email_state(doc, now) == _EXPIRED:
         return _email_changes(doc, _EXPIRED, day, now)
     return {}
+
+
+def _push_changes(
+    doc: Mapping[str, Any] | None, day: str, message_id: str | None, now: datetime, *, owned: bool
+) -> dict[str, Any]:
+    """``before_push``'s writes: the email's progress (whoever holds the date) and, for the
+    holder, the renewed lease."""
+    changes: dict[str, Any] = {}
+    if doc is not None and _sent_id(doc) is None:
+        changes.update(_push_email_changes(doc, day, message_id, now))
+    if owned:
+        changes[_CLAIMED_AT] = _iso(now)
+    return changes
+
+
+def _push_answer(day: str, doc: Mapping[str, Any]) -> dict[str, Any]:
+    """``before_push``'s answer from the date's document as written (PR #54 review): the
+    push goes ahead unless the library already has the issue, whether or not the email was
+    sent; ``email_sent`` false with ``email_uncertain`` false is an email that failed inside
+    its window, left unrecorded for a re-run to retry."""
+    sent = _sent_id(doc)
+    return {
+        _MESSAGE_ID: sent,
+        _DATE: day,
+        _UNCERTAIN: sent is None and _uncertain(doc),
+        _EMAIL_SENT: sent is not None,
+        "push": _library_item(doc) is None,
+    }
+
+
+def _library_item(doc: Mapping[str, Any]) -> str | None:
+    """The item id the library is recorded with for the date, or None before a push."""
+    library = doc.get(_LIBRARY)
+    return _delivery_id(library.get(_ITEM_ID)) if isinstance(library, Mapping) else None
+
+
+def _record_changes(
+    doc: Mapping[str, Any], run_id: str, input: Mapping[str, Any], at: str
+) -> dict[str, Any]:
+    """``record``'s writes: the library progress (this push's, or the one already recorded
+    when the push was skipped), then the delivery record once the email is settled (sent
+    or uncertain). An unsettled email leaves the date ``claimed`` and releases this run's
+    lease, so a re-run can take the date over at once and retry only the email."""
+    item_id = _delivery_id(input.get(_ITEM_ID))
+    if item_id is None and _library_item(doc) is not None:
+        library = doc[_LIBRARY]
+    else:
+        library = {_ITEM_ID: item_id, "queue_id": _delivery_id(input.get("queue_id")), "at": at}
+    message_id = _sent_id(doc) or _delivery_id(input.get(_MESSAGE_ID))
+    if message_id is None and not _uncertain(doc):
+        released = {_CLAIMED_BY: None, _CLAIMED_AT: None} if _owned(doc, run_id) else {}
+        return {_LIBRARY: library, **released}
+    return {
+        _STATE: DELIVERED,
+        "delivered_by": run_id,
+        "delivered_at": at,
+        _MESSAGE_ID: message_id,
+        _ITEM_ID: library.get(_ITEM_ID),
+        _LIBRARY: library,
+    }
+
+
+def _record_answer(day: str, doc: Mapping[str, Any], recorded: bool) -> dict[str, Any]:
+    return {
+        "recorded": recorded,
+        _DATE: day,
+        _ITEM_ID: _library_item(doc),
+        _EMAIL_SENT: (_sent_id(doc) or _delivery_id(doc.get(_MESSAGE_ID))) is not None,
+    }
 
 
 def _claimed(day: str, reason: str) -> dict[str, Any]:

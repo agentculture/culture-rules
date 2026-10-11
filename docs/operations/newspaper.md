@@ -67,17 +67,22 @@ step is a built-in or an action:
    before every attempt. The step has `config.on_error: "skip"`, so a
    failure goes on to `push_gate`, which decides.
 8. `push_gate` (`newspaper.issue`, phase `before_push`) records the email's
-   message id for the date, then renews the lease. With no message id it
-   fails the run, unless the first attempt is past its 23 hours: then the
-   email is recorded uncertain and the push goes ahead.
+   message id for the date, then renews the lease. The push goes ahead
+   whether or not the email was sent. With no message id past the first
+   attempt's 23 hours, the email is recorded uncertain. With no message id
+   inside them, nothing is recorded and it answers `email_sent: false`. It
+   answers `push: false` when the date's issue is already in the library.
 9. `push` (`library.push`) uploads the EPUB to xteink (kind `article`, title
-   `Daily newspaper <date>`) and queues it on the device.
-10. `record` (`newspaper.issue`, phase `record`) marks the date delivered
-    with the message id and the item and queue ids.
+   `Daily newspaper <date>`) and queues it on the device. It is skipped when
+   `push_gate` answers `push: false`.
+10. `record` (`newspaper.issue`, phase `record`) stores the item and queue
+    ids. Once the email is sent or uncertain, it marks the date delivered
+    with the message id. An email not sent inside its window leaves the date
+    open (see "When the email fails" below).
 
-The run's outputs are `message_id`, `item_id`, `date` and
-`email_uncertain`. They are shown on
-the run, and the Statistics lane shows the run.
+The run's outputs are `message_id`, `item_id`, `date`, `email_uncertain`
+and `email_sent`. They are shown on the run, and the Statistics lane shows
+the run.
 
 **When cortex is down.** The `summary` step has `config.on_error: "skip"`.
 The engine turns its failure into `skipped`, keeps the error on the step,
@@ -86,10 +91,9 @@ unreachable gateway after its two attempts and the summary window closing
 (`llm_deadline`). The issue still goes out on time, with that section's
 results and the line "Summary unavailable." When no section got a summary,
 the masthead also says "Summaries were unavailable for this issue." once.
-Search and library failures
-are not tolerated: they fail the run. The `email` step also has
-`on_error: "skip"`, but only so `push_gate` can tell a passed window from
-a real failure. A failed email inside the window still fails the run there.
+Search and library failures are not tolerated: they fail the run. The
+`email` step also has `on_error: "skip"`, so that the reader still gets the
+issue when the email fails (below).
 
 **Waiting for the pool.** The summaries share the `qwen-spark2` pool with
 the PR fixer, so each summary waits behind a running fix, but only until
@@ -104,9 +108,10 @@ lease on it, which each fence renews. Another run takes the date over only
 after the lease runs out, and a run whose date was taken over fails its
 next fence with `claim_lost` and sends nothing more. Delivery progress is
 kept per destination: `email` (`message_id`, `at`) as soon as the email is
-known sent, and `library` (`item_id`, `queue_id`, `at`) with the delivery
-record. So if the email went out but the push failed, the next run for that
-date skips the email and retries only the push. The EPUB has no
+known sent, and `library` (`item_id`, `queue_id`, `at`) once the push is
+done. So if the email went out but the push failed, the next run for that
+date skips the email and retries only the push. If the push went out but
+the email failed, a re-run retries only the email. The EPUB has no
 idempotency key: a crash between a push and its record can queue the issue
 on the reader twice.
 
@@ -134,12 +139,36 @@ email is preferred to a duplicate:
   later, retries with `not_after` already past. The step fails
   `email_window_passed` without a request, `push_gate` records the email
   uncertain, and the run succeeds with `email_uncertain: true`.
-- Any other email failure (`recipient_not_allowed`, an `http_4xx`, the
-  retries used up) is not passed as delivered. `push_gate` sees no message
-  id inside the window and fails the run. The `email` step keeps its error.
+- Any other email failure (`recipient_not_allowed`, an `http_4xx`, a
+  Resend outage that used up the retries) is not passed as delivered (see
+  "When the email fails" below). The `email` step keeps its error.
 - A frozen recipient that was since removed from the allowlist is refused
   with `recipient_not_allowed` (not retried). It is never swapped for the
   new `newspaper_to`.
+
+**When the email fails.** The reader still gets the issue. When the `email`
+step fails inside the 23 hours (say Resend answered 5xx to all three
+attempts), `push_gate` records nothing for the email and the push goes
+ahead. `record` stores the library ids but leaves the date open: not
+delivered, and with no lease, so a re-run can take it over at once. The run
+succeeds with `email_sent: false`, `email_uncertain: false` and no
+`message_id`. The `email` step shows the error.
+
+Re-run the date to retry the email: `culture-rules workflows run
+daily-newspaper --inputs-json @inputs.json --apply`. `inputs.json` holds
+the workflow's inputs: `sections`, `to` and `device_id` (the variables'
+values), `tz` (`Asia/Jerusalem`) and `slot`, the failed run's
+`trigger.data.slot` (`runs show <run id> --json`), which names the date.
+
+- Within 23 hours of the first attempt, the re-run sends the frozen
+  request under the same key, so Resend sends at most one email. It skips
+  the push, because the library already has the issue, and marks the date
+  delivered.
+- Later than that, the re-run sends nothing. The email is recorded
+  uncertain and the run reports `email_uncertain: true`.
+
+Nothing retries the email on its own: the next scheduled run is for the
+next date.
 
 ## 1. Grants (on spark)
 
@@ -203,7 +232,7 @@ committed JSON: `scripts/scan-secrets.py` rejects a non-localhost URL there.
 | Variable | Value | Shipped |
 |---|---|---|
 | `newspaper_sections` | one JSON **string**: the list of sections | a generic two-section example |
-| `newspaper_to` | a list of recipient addresses | `[]`: the email step fails and nothing is sent |
+| `newspaper_to` | a list of recipient addresses | `[]`: the run fails at `email_gate` (`bad_input: to`); nothing is emailed or queued |
 | `newspaper_device` | the Xteink device id (`GET /api/devices` on xteink) | `null`: the library actor's `device_id`, if you set one there |
 
 Each section is an object. Its keys:
@@ -289,7 +318,8 @@ culture-rules runs show <run id> --json
 ```
 
 A good run has `status: succeeded` and outputs `message_id`, `item_id`,
-`date` and `email_uncertain: false`. Its `summary` steps succeeded, or show `skipped` with an
+`date`, `email_uncertain: false` and `email_sent: true`. Its `summary`
+steps succeeded, or show `skipped` with an
 `llm_unavailable`, `llm_deadline` or `queue_timeout` error. The delivery is
 recorded in the `newspaper_issues` collection, one document per date with
 state `delivered`. The issue is in the inbox and queued on the reader.
@@ -297,8 +327,10 @@ state `delivered`. The issue is in the inbox and queued on the reader.
 A run that ends quickly with `claim` answering `already_delivered` or
 `claimed_by_another_run` is the per-date guard at work. A run that failed
 at `sections` names the bad field of `newspaper_sections`. A failure at
-`email` with `bad_input` or a refused recipient means `newspaper_to` or the
-allowlist is not set.
+`email_gate` with `bad_input: to` means `newspaper_to` is empty. A run
+that succeeded with `email_sent: false` and an `email` step skipped with
+`recipient_not_allowed` means the allowlist does not name the address: fix
+it and re-run the date within 23 hours (see "When the email fails").
 
 A run that failed at `email_gate` or `push_gate` with `claim_lost` was
 taken over by a later run for the same date, which delivers instead.
