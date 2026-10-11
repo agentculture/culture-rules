@@ -30,6 +30,7 @@ FULL_INSTALL = {
     "python": "3.12",
     "events_host": "spark.local",
     "events_port": 1883,
+    "ssh_target": "thor-alias",
 }
 
 
@@ -197,7 +198,9 @@ ADVERSARIAL = ["broker\nPYTHONPATH=/tmp/attacker", "a\rb", "a\tb", "a\x00b", "a 
 
 
 @pytest.mark.parametrize("value", ADVERSARIAL)
-@pytest.mark.parametrize("field", ["node_name", "events_host", "wheelhouse", "python"])
+@pytest.mark.parametrize(
+    "field", ["node_name", "events_host", "wheelhouse", "python", "ssh_target"]
+)
 def test_a_text_field_with_a_control_character_or_space_is_refused(field, value) -> None:
     machine = Machine(name="thor", install=MachineInstall(mode="install_sh", **{field: value}))
     assert (f"install.{field}", "invalid_value") in _codes(machine)
@@ -216,3 +219,9 @@ def test_gate_run_as_with_any_control_character_is_refused(char) -> None:
     value = f"sudo -n -u culture-fixer --{char}/bin/true"
     machine = Machine(name="thor", install=MachineInstall(mode="install_sh", gate_run_as=value))
     assert ("install.gate_run_as", "invalid_run_as") in _codes(machine)
+
+
+@pytest.mark.parametrize("value", ["-oProxyCommand=touch /tmp/x", "-v"])
+def test_an_ssh_target_that_reads_as_an_option_is_refused(value) -> None:  # #57
+    machine = Machine(name="thor", install=MachineInstall(mode="install_sh", ssh_target=value))
+    assert ("install.ssh_target", "invalid_value") in _codes(machine)

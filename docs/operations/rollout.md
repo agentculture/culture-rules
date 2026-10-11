@@ -96,14 +96,15 @@ secret **names**, never values.
 | Host | `install` section |
 |---|---|
 | spark | `{"mode": "shared_venv"}`: the API and node share one venv with hand-edited units, so `install.sh` never runs there |
-| thor | `{"mode": "install_sh", "node_name": "thor"}` |
-| orin | `{"mode": "install_sh", "node_name": "orin"}` |
+| thor | `{"mode": "install_sh", "node_name": "thor", "ssh_target": "thor"}` |
+| orin | `{"mode": "install_sh", "node_name": "orin", "ssh_target": "orin"}` |
 | spark2 | see below |
 
 ```json
 {
   "mode": "install_sh",
   "node_name": "spark2",
+  "ssh_target": "spark2",
   "secrets": ["RULES_QWEN_FIXER_TOKEN", "RULES_GITHUB_APP_PRIVATE_KEY"],
   "gate_run_as": "sudo -n -u culture-fixer -- /usr/bin/env PATH=<fixer-home>/.local/bin:/usr/local/bin:/usr/bin:/bin"
 }
@@ -112,8 +113,11 @@ secret **names**, never values.
 `<fixer-home>` is the `culture-fixer` account's home directory on spark2.
 
 `extras`, `wheelhouse`, `python`, `events_host` and `events_port` are optional; a
-field left out takes `install.sh`'s default. The ssh target is the record's `address`,
-else its name.
+field left out takes `install.sh`'s default. The ssh and scp target is
+`install.ssh_target`, else the record's `address`, else its name. Set
+`ssh_target` to the host's `~/.ssh/config` alias when `address` is a tailnet IP:
+ssh matches `Host` entries by the name it is given, so an IP misses the
+alias's `User` and known host (#57). `ssh_target` may not start with `-`.
 
 The install section is code the host runs, so:
 
@@ -225,5 +229,7 @@ The lessons from the hand-run rollouts (#45), and what now enforces each one:
   token; with an editor token they run and report the step as not recorded (d2).
   `upgrade` is different: it acts outside the API, so it records its start first
   and runs nothing without the admin role.
-- `upgrade` on the shared-venv host runs locally and refuses unless the record's name
-  is this host's short hostname.
+- `upgrade` on the shared-venv host runs locally. It refuses unless the record's name
+  is this host's short hostname, or the local `culture-rules-node.service` runs
+  `node run --host <name>` (its `ExecStart`, read over D-Bus like the venv). spark's
+  OS hostname is `spark-f8a9`, so the node unit is what identifies it (#57).

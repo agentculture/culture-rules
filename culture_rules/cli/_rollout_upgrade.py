@@ -72,7 +72,7 @@ UNITS = (API_UNIT, NODE_UNIT)
 VENV_PLACEHOLDER = Path("<venv>")
 """Stands for the shared venv in a dry run (only an applied run reads the API unit)."""
 _PROGRAM_RE = re.compile(r"^/[^\x00-\x1f\x7f]*/bin/culture-rules$")
-_WORD_FIELDS = ("node_name", "wheelhouse", "python", "events_host")
+_WORD_FIELDS = ("node_name", "wheelhouse", "python", "events_host", "ssh_target")
 _LIST_FIELDS = ("extras", "secrets")
 _SHOW = ("-p", "Id", "-p", "ActiveState", "-p", "ActiveEnterTimestamp")
 _ENV_KEEP = (
@@ -251,9 +251,9 @@ def check_fields(machine: Mapping[str, Any], name: str, install: Mapping[str, An
     port = install.get("events_port")
     if port is not None and (isinstance(port, bool) or not isinstance(port, int)):
         raise _refuse_field(name, "install.events_port", "is not a port number")
-    target = str(machine.get("address") or name)
+    field, target = _ssh_target(machine, name)
     if not is_install_word(target) or target.startswith("-"):
-        raise _refuse_field(name, "address", "is not a plain host name")
+        raise _refuse_field(name, field, "is not a plain host name")
 
 
 def commands(
@@ -264,16 +264,18 @@ def commands(
     name = str(machine.get("name") or machine.get("id"))
     install = _install_section(machine, name)
     if install["mode"] == rollout.SHARED_VENV:
-        here = _HOSTNAME().split(".")[0]
-        if here != name:
-            raise CliError(
-                EXIT_USER_ERROR,
-                f"machine {name} is shared_venv: it is upgraded locally, but this host is {here}",
-                f"run 'culture-rules rollout upgrade --host {name}' on {name}",
-            )
+        _require_local(name)
         return _shared_venv_commands(wheel, venv)
-    target = str(machine.get("address") or name)
-    return _install_sh_commands(name, target, install, wheel, version)
+    return _install_sh_commands(name, _ssh_target(machine, name)[1], install, wheel, version)
+
+
+def _ssh_target(machine: Mapping[str, Any], name: str) -> tuple[str, str]:
+    """``(field, target)``: ``install.ssh_target`` (e.g. an ~/.ssh/config alias, #57), else
+    the record's ``address``, else its name."""
+    install = machine.get("install") or {}
+    if install.get("ssh_target"):
+        return "install.ssh_target", str(install["ssh_target"])
+    return "address", str(machine.get("address") or name)
 
 
 # --------------------------------------------------------------------------- the shared venv
@@ -329,6 +331,57 @@ def _grant_run_program(argv: Sequence[str]) -> str | None:
     return None
 
 
+def _program_argv(path: str, argv: list[str]) -> list[str] | None:
+    """The argv from the ``culture-rules`` program on: the entry itself when its ``path``
+    is the program, or what ``grant run [--inject VAR=NAME]... --`` runs; else None."""
+    if PurePosixPath(path).name != "grant":
+        return argv if _PROGRAM_RE.match(path) else None
+    program = _grant_run_program(argv)
+    if program is None or not _PROGRAM_RE.match(program):
+        return None
+    return argv[len(argv) - argv[::-1].index(program) - 1 :]
+
+
+def node_host_from_exec_start(text: str) -> str | None:
+    """The machine a node unit runs as: ``--host <name>`` of its ``culture-rules node run``
+    (``busctl --json=short`` ``ExecStart``, the same parsing as :func:`venv_from_exec_start`);
+    None when the unit does not run ``node run`` with a host (#57)."""
+    entry = _exec_start_entry(text)
+    rest = _program_argv(*entry) if entry else None
+    if rest is None or rest[1:3] != ["node", "run"]:
+        return None
+    args = rest[3:]
+    for i, arg in enumerate(args):
+        if arg == "--host":
+            return args[i + 1] if i + 1 < len(args) else None
+        if arg.startswith("--host="):
+            return arg.split("=", 1)[1] or None
+    return None
+
+
+def _local_node_host() -> str | None:
+    result = _RUNNER(_exec_start_argv(NODE_UNIT), 30.0)
+    return node_host_from_exec_start(result.stdout) if result.returncode == 0 else None
+
+
+def _require_local(name: str) -> None:
+    """A shared-venv machine is upgraded on itself: this host's short name is the machine's
+    name, or (#57: an OS hostname such as ``spark-f8a9``) the local node unit runs
+    ``node run --host <name>``. Nothing but that unit's ExecStart is read before refusing."""
+    here = _HOSTNAME().split(".")[0]
+    if here == name:
+        return
+    node = _local_node_host()
+    if node == name:
+        return
+    seen = f" (its node unit runs --host {node})" if node else ""
+    raise CliError(
+        EXIT_USER_ERROR,
+        f"machine {name} is shared_venv: it is upgraded locally, but this host is {here}{seen}",
+        f"run 'culture-rules rollout upgrade --host {name}' on {name}",
+    )
+
+
 def venv_from_exec_start(text: str) -> Path | None:
     """The venv a unit runs, from its ``ExecStart`` D-Bus property (``busctl --json=short``).
 
@@ -356,8 +409,8 @@ def venv_from_exec_start(text: str) -> Path | None:
     return Path(program).parent.parent
 
 
-def _unit_venv(unit: str) -> Path:
-    argv = [
+def _exec_start_argv(unit: str) -> list[str]:
+    return [
         "busctl",
         "--user",
         "--json=short",
@@ -367,7 +420,10 @@ def _unit_venv(unit: str) -> Path:
         "org.freedesktop.systemd1.Service",
         "ExecStart",
     ]
-    result = _RUNNER(argv, 30.0)
+
+
+def _unit_venv(unit: str) -> Path:
+    result = _RUNNER(_exec_start_argv(unit), 30.0)
     venv = venv_from_exec_start(result.stdout) if result.returncode == 0 else None
     if venv is None:
         raise CliError(

@@ -391,7 +391,7 @@ def test_shared_venv_runs_only_on_its_own_host(
     )
     assert rc == 1
     assert "this host is thor" in json.loads(err)["message"]
-    assert fake.calls == []
+    assert [c for c in fake.calls if c[0] != "busctl"] == []  # only the node unit was read
 
 
 def test_a_record_without_install_exits_1_naming_the_section(
@@ -544,3 +544,93 @@ def test_a_machine_name_with_a_control_character_never_reaches_argv(
     assert rc == 1
     assert ": name holds a control character" in json.loads(err)["message"]
     assert fake.calls == []
+
+
+# --------------------------------------------------------------------------- #57: the local node
+
+
+NODE = "culture-rules-node.service"
+SPARK_HOSTNAME = "spark-f8a9"  # the OS hostname differs from the machine record's name
+
+
+def node_exec_start(*node_args: str) -> str:
+    return exec_start(
+        GRANT, "run", "--inject", "A=B", "--", f"{SHARED}/bin/culture-rules", "node", "run",
+        *node_args,
+    )  # fmt: skip
+
+
+@pytest.mark.parametrize(
+    ("text", "host"),
+    [
+        (node_exec_start("--host", "spark"), "spark"),
+        (node_exec_start("--host=spark"), "spark"),
+        (exec_start("/v/bin/culture-rules", "node", "run", "--host", "spark"), "spark"),
+        (node_exec_start(), None),  # no --host
+        (node_exec_start("--host"), None),  # --host without a value
+        (exec_start("/v/bin/culture-rules", "serve", "--host", "spark"), None),  # not node run
+        (exec_start("/usr/bin/env", "/v/bin/culture-rules", "node", "run", "--host", "x"), None),
+        (NO_EXEC_START, None),
+        ("", None),
+    ],
+)
+def test_node_host_from_exec_start(text, host):
+    assert up.node_host_from_exec_start(text) == host
+
+
+def test_shared_venv_runs_where_its_node_runs(
+    wire, store, capsys, fake, wheel, monkeypatch  # noqa: F811
+):
+    monkeypatch.setattr(up, "_HOSTNAME", lambda: SPARK_HOSTNAME)
+    fake.exec_start[NODE] = node_exec_start("--host", "spark")
+    put_machine(store, "spark", {"mode": "shared_venv"})
+    out = jrun(capsys, "rollout", "upgrade", "--host", "spark", "--wheel", str(wheel), "--apply")
+    installs = [c for c in fake.calls if c[:3] == ["uv", "pip", "install"]]
+    assert (out["host"], len(installs)) == ("spark", 1)
+
+
+def test_shared_venv_refuses_a_node_of_another_name(
+    wire, store, capsys, fake, wheel, monkeypatch  # noqa: F811
+):
+    monkeypatch.setattr(up, "_HOSTNAME", lambda: SPARK_HOSTNAME)
+    fake.exec_start[NODE] = node_exec_start("--host", "thor")
+    put_machine(store, "spark", {"mode": "shared_venv"})
+    rc, _, err = run(
+        capsys, "rollout", "upgrade", "--host", "spark", "--wheel", str(wheel), "--apply", "--json"
+    )
+    message = json.loads(err)["message"]
+    assert (rc, "this host is spark-f8a9" in message, "--host thor" in message) == (1, True, True)
+
+
+def test_a_refused_shared_venv_runs_nothing(
+    wire, store, capsys, fake, wheel, monkeypatch  # noqa: F811
+):
+    monkeypatch.setattr(up, "_HOSTNAME", lambda: SPARK_HOSTNAME)
+    fake.exec_start[NODE] = node_exec_start("--host", "thor")
+    put_machine(store, "spark", {"mode": "shared_venv"})
+    run(capsys, "rollout", "upgrade", "--host", "spark", "--wheel", str(wheel), "--apply")
+    assert [c for c in fake.calls if c[0] != "busctl"] == []
+
+
+# --------------------------------------------------------------------------- #57: the ssh target
+
+
+def test_the_ssh_target_overrides_the_address(wire, store, capsys, fake, wheel):  # noqa: F811
+    put_machine(store, "orin", {"mode": "install_sh", "ssh_target": "orin"}, address="100.81.1.1")
+    out = jrun(capsys, "rollout", "upgrade", "--host", "orin", "--wheel", str(wheel))
+    mkdir, scp, install = out["would"][:3]
+    targets = (mkdir[3], scp[-1].split(":")[0], install[3])
+    assert targets == ("orin", "orin", "orin")
+
+
+def test_an_ssh_target_option_is_refused_before_any_command(
+    wire, store, capsys, fake, wheel  # noqa: F811
+):
+    store.put("machines", {
+        "id": "orin", "name": "orin", "platform": "linux", "roles": ["engine_node"],
+        "install": {"mode": "install_sh", "ssh_target": "-oProxyCommand=x"},
+    })  # fmt: skip
+    rc, _, err = run(
+        capsys, "rollout", "upgrade", "--host", "orin", "--wheel", str(wheel), "--apply", "--json"
+    )
+    assert (rc, "ssh_target" in json.loads(err)["message"], fake.calls) == (1, True, [])

@@ -187,6 +187,18 @@
           ],
           "description": "install.sh --events-port (1-65535)",
           "default": null
+        },
+        "ssh_target": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "rollout upgrade's ssh/scp target (e.g. an ~/.ssh/config alias); defaults to the machine address, else its name",
+          "default": null
         }
       },
       "required": [

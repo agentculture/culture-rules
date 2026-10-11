@@ -802,7 +802,7 @@ _RUN_AS_USER_RE = re.compile(r"[a-z_][a-z0-9_.-]*")
 #: A control character (U+0000-U+001F, U+007F): never in a value install.sh receives.
 _CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
 #: Install fields install.sh takes as one word: no control character and no whitespace.
-_INSTALL_WORD_FIELDS = ("node_name", "wheelhouse", "python", "events_host")
+_INSTALL_WORD_FIELDS = ("node_name", "wheelhouse", "python", "events_host", "ssh_target")
 
 
 def has_control_char(value: str) -> bool:
@@ -844,6 +844,12 @@ def _check_install_words(obj: MachineInstall, path: str, errors: Errors) -> None
             )
 
 
+def _check_install_ssh_target(obj: MachineInstall, path: str, errors: Errors) -> None:
+    """An ssh target never starts with ``-`` (ssh would read it as an option, #57)."""
+    if isinstance(obj.ssh_target, str) and obj.ssh_target.startswith("-"):
+        _err(errors, _join(path, "ssh_target"), "invalid_value", "ssh_target may not start with -")
+
+
 def _check_install_secrets(obj: MachineInstall, path: str, errors: Errors) -> None:
     """Every secret is a grant secret name, never a value."""
     if not isinstance(obj.secrets, (tuple, list)):
@@ -883,6 +889,7 @@ def _check_install_port(obj: MachineInstall, path: str, errors: Errors) -> None:
 def _check_machine_install(obj: MachineInstall, path: str, errors: Errors) -> None:
     _nonempty(obj, _INSTALL_WORD_FIELDS, path, errors)
     _check_install_words(obj, path, errors)
+    _check_install_ssh_target(obj, path, errors)
     _check_install_secrets(obj, path, errors)
     _check_install_run_as(obj, path, errors)
     _check_install_extras(obj, path, errors)
