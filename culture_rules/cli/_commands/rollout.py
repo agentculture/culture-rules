@@ -9,12 +9,12 @@ outcome in the rollout document with ``POST /rollouts/{version}/steps/{step}``, 
 server merges atomically and timestamps with its own clock (no read-merge-write), and
 ``pause`` records its snapshot with ``POST /rollouts/{version}/snapshot`` (the first wins).
 
-Guards refuse with exit 1 and a remediation naming the step to run first: ``pause`` while a
-run is not terminal (``--force`` overrides), ``resume`` before this release's ``enable`` step
-is recorded (``--force`` overrides, and the resume step records ``forced``; #62), ``import``
-before this release's ``seed`` step is recorded, ``enable`` before ``pause`` recorded a
-snapshot, while an online node runs an older engine, while one of the release's new rules
-is not imported, while a snapshot rule no longer exists, or while a rule outside the
+Guards refuse with exit 1 and a remediation naming the step to run first: ``pause`` while a run
+is not terminal (``--force`` overrides), ``resume`` of a paused engine before every rule
+``enable`` restores is enabled (``--force`` overrides; the resume step records ``forced``;
+#62), ``import`` before this release's ``seed`` step is recorded, ``enable`` before ``pause``
+recorded a snapshot, while an online node runs an older engine, while one of the release's new
+rules is not imported, while a snapshot rule no longer exists, or while a rule outside the
 snapshot plus the new rules is enabled.
 
 An API that predates the rollout CLI has no ``/rollouts`` endpoints: every ``/rollouts``
@@ -586,30 +586,34 @@ def _snapshot_lines(snapshot: list[str], kept: bool, runs: list[dict[str, Any]])
     return lines
 
 
-def _refuse_resume_before_enable(
+def _resume_blocker(
     ctx: Context, version: str, doc: Mapping[str, Any] | None, paused: bool
-) -> None:
-    """Refuse (in a dry run too) while this release's enable step is not recorded (#62):
-    resuming then runs the engine with the imported rules still disabled. A rollout already
-    resumed is reported as it is."""
-    steps = _steps(doc)
-    if "enable" in steps or (not paused and "resume" in steps):
-        return
-    if doc is None and not _rollouts_endpoints(ctx):
-        raise no_rollouts_endpoints(ctx)
-    raise CliError(
-        EXIT_USER_ERROR,
-        f"resume refused: release {version}'s enable step is not recorded",
-        "run 'culture-rules rollout enable --apply' first (it re-enables the snapshot plus "
-        "the release's new rules); to resume without enabling them, pass --force",
-    )
+) -> str | None:
+    """Why resuming would run the engine with rules ``enable`` restores still off (#62), or
+    None. Only a paused engine is checked: resuming a running one changes nothing. The check
+    is on the rules themselves, not on a recorded ``enable`` step, so an ``enable`` recorded
+    before a later ``import`` (which re-imports the bundle's rules disabled) does not count,
+    and an ``enable`` an editor ran (its step unrecorded) does."""
+    if not paused:
+        return None
+    if not snapshot_recorded(doc):
+        if doc is None and not _rollouts_endpoints(ctx):
+            raise no_rollouts_endpoints(ctx)
+        return "no snapshot is recorded (its pause step is not recorded)"
+    target = [*((doc or {}).get("snapshot") or []), *(_release().get("new_rules") or [])]
+    enabled = set(_enabled(_rules(ctx)))
+    off = [str(r) for r in dict.fromkeys(target) if str(r) not in enabled]
+    if off:
+        return "rule(s) that enable restores are not enabled: " + ", ".join(off)
+    return None
 
 
 def _resume(ctx: Context, force: bool = False) -> dict[str, Any]:
     """Record the resume boundary, resume the engine, then record the resume step.
 
-    Refuses until this release's ``enable`` step is recorded (``--force`` resumes anyway and
-    the resume step records ``forced``).
+    While the engine is paused, refuses until every rule ``enable`` restores (the snapshot
+    plus the release's new rules) is enabled; ``--force`` resumes anyway and the resume step
+    records ``forced``.
 
     ``resume_requested`` is recorded (server time) before ``POST /controls/resume``, so
     verify's "since resume" window opens before the engine runs again. It is recorded once
@@ -621,9 +625,15 @@ def _resume(ctx: Context, force: bool = False) -> dict[str, Any]:
     paused = bool(_get(ctx, CONTROLS_PATH).get("paused"))
     doc = _rollout_doc(ctx, version)
     steps = _steps(doc)
-    forced = force and "enable" not in steps
-    if not force:
-        _refuse_resume_before_enable(ctx, version, doc, paused)
+    blocker = _resume_blocker(ctx, version, doc, paused)
+    if blocker and not force:
+        raise CliError(
+            EXIT_USER_ERROR,
+            f"resume refused: release {version}: {blocker}",
+            "run 'culture-rules rollout enable --apply' first (it re-enables the snapshot plus "
+            "the release's new rules); to resume without them, pass --force",
+        )
+    forced = blocker is not None
     out = envelope(
         "resume",
         ctx,
@@ -1084,7 +1094,7 @@ VERBS: list[Verb] = [
         "resume",
         "Resume the engine (after enable)",
         _resume,
-        (Param("force", "boolean", "resume even though the enable step is not recorded"),),
+        (Param("force", "boolean", "resume even though rules enable restores are still off"),),
         True,
         "admin",
     ),

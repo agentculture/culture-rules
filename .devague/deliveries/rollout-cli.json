@@ -2,7 +2,7 @@
   "plan_slug": "rollout-cli",
   "schema_version": 2,
   "created": "2026-10-10T21:41:12Z",
-  "updated": "2026-10-11T16:52:56Z",
+  "updated": "2026-10-11T17:26:47Z",
   "deviations": [
     {
       "id": "d1",
@@ -95,6 +95,17 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 8
+    },
+    {
+      "id": "d9",
+      "what": "Refines d8: rollout resume checks the rules, not the recorded enable step. While the engine is paused it refuses until every rule enable restores (snapshot plus new rules) is enabled, or when no snapshot is recorded; a running engine is not checked; --force records forced only when it overrode the check. runs resume and POST /controls/resume stay unguarded (follow-up issue)",
+      "task_ref": "t5",
+      "reason": "The operator's /code-review of PR #63: a recorded enable step can be stale (a later pause and import re-import the rules disabled), an editor's enable is not recorded, and refusing a running engine broke verify's 'run rollout resume' hint. The rules' own state is the thing #62 protects.",
+      "affects": [],
+      "origin": "llm",
+      "status": "proposed",
+      "classification": "acceptable",
+      "seq": 9
     }
   ],
   "evidence": [],

@@ -108,7 +108,7 @@ def test_it_imports_into_a_store():
     assert base.get("rules", RULE)["enabled"] is False
 
 
-def test_the_rule_ships_disabled_at_0630_jerusalem():
+def test_the_rule_ships_disabled_at_0500_jerusalem():
     r = rule()
     assert r.enabled is False
     assert r.trigger.kind == "schedule"

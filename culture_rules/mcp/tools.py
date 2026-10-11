@@ -3,7 +3,8 @@
 One tool per registry verb, named ``<noun>_<verb>`` with ``params_schema()`` as its input
 schema. A mutating tool only commits when ``apply`` is exactly ``true``; otherwise the same
 handler runs with ``Context(apply=False)`` and returns the dry-run envelope. Any other boolean
-argument must be a JSON boolean (a string such as ``"false"`` is refused, never truthy).
+argument must be a JSON boolean (a string such as ``"false"`` is refused, never truthy), and
+integer and string arguments must have their declared type.
 Handlers go through the HTTP API client, so this layer never touches the store or the engine.
 """
 
@@ -41,6 +42,19 @@ def tool_specs() -> list[dict[str, Any]]:
     return out
 
 
+_SCALARS: dict[str, tuple[type, ...]] = {"boolean": (bool,), "integer": (int,), "string": (str,)}
+
+
+def _typed_ok(kind: str, value: Any) -> bool:
+    """A scalar argument has its declared JSON type (``true`` is never an integer); None is
+    absent. ``object``, ``array`` and ``any`` keep their handlers' own parsing."""
+    if value is None or kind not in _SCALARS:
+        return True
+    if kind == "integer" and isinstance(value, bool):
+        return False
+    return isinstance(value, _SCALARS[kind])
+
+
 def call_tool(name: str, arguments: dict[str, Any] | None, client: Any) -> Any:
     """Run tool ``name`` against ``client`` (an API client) and return the handler's result."""
     verb = _by_tool_name().get(name)
@@ -59,15 +73,9 @@ def call_tool(name: str, arguments: dict[str, Any] | None, client: Any) -> Any:
     ]
     if missing:
         raise ToolError(f"{name}: missing required argument(s) {', '.join(missing)}")
-    not_boolean = [
-        p.name
-        for p in verb.params
-        if p.type == "boolean"
-        and args.get(p.name) is not None
-        and not isinstance(args[p.name], bool)
-    ]
-    if not_boolean:  # input validation is off: a truthy "false" would turn a guard off
-        raise ToolError(f"{name}: {', '.join(not_boolean)} must be a boolean (true or false)")
+    mistyped = [p.name for p in verb.params if not _typed_ok(p.type, args.get(p.name))]
+    if mistyped:  # input validation is off: a truthy "false" would turn a guard off
+        raise ToolError(f"{name}: {', '.join(mistyped)} must match the declared type")
     any_typed = {p.name for p in verb.params if p.type == "any"}  # an explicit null is a value
     params = {k: v for k, v in args.items() if v is not None or k in any_typed}
     try:
