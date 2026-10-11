@@ -32,6 +32,8 @@ environment, so the API URL and token never reach ssh, scp or the host.
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import os
 import re
@@ -52,7 +54,7 @@ from culture_rules.cli._errors import EXIT_ENV_ERROR, EXIT_USER_ERROR, CliError
 from culture_rules.cli._nounlib import seg
 from culture_rules.cli.registry import Context
 from culture_rules.client.http import ApiError, ApiUnreachable
-from culture_rules.model.validate import has_control_char, is_install_word
+from culture_rules.model.validate import has_control_char, is_install_word, is_ssh_target
 
 __all__ = [
     "Result",
@@ -72,7 +74,7 @@ UNITS = (API_UNIT, NODE_UNIT)
 VENV_PLACEHOLDER = Path("<venv>")
 """Stands for the shared venv in a dry run (only an applied run reads the API unit)."""
 _PROGRAM_RE = re.compile(r"^/[^\x00-\x1f\x7f]*/bin/culture-rules$")
-_WORD_FIELDS = ("node_name", "wheelhouse", "python", "events_host")
+_WORD_FIELDS = ("node_name", "wheelhouse", "python", "events_host", "ssh_target")
 _LIST_FIELDS = ("extras", "secrets")
 _SHOW = ("-p", "Id", "-p", "ActiveState", "-p", "ActiveEnterTimestamp")
 _ENV_KEEP = (
@@ -251,9 +253,9 @@ def check_fields(machine: Mapping[str, Any], name: str, install: Mapping[str, An
     port = install.get("events_port")
     if port is not None and (isinstance(port, bool) or not isinstance(port, int)):
         raise _refuse_field(name, "install.events_port", "is not a port number")
-    target = str(machine.get("address") or name)
-    if not is_install_word(target) or target.startswith("-"):
-        raise _refuse_field(name, "address", "is not a plain host name")
+    field, target = _ssh_target(machine, name)
+    if not is_ssh_target(target):
+        raise _refuse_field(name, field, "is not a plain [user@]host that ssh and scp read alike")
 
 
 def commands(
@@ -264,16 +266,17 @@ def commands(
     name = str(machine.get("name") or machine.get("id"))
     install = _install_section(machine, name)
     if install["mode"] == rollout.SHARED_VENV:
-        here = _HOSTNAME().split(".")[0]
-        if here != name:
-            raise CliError(
-                EXIT_USER_ERROR,
-                f"machine {name} is shared_venv: it is upgraded locally, but this host is {here}",
-                f"run 'culture-rules rollout upgrade --host {name}' on {name}",
-            )
         return _shared_venv_commands(wheel, venv)
-    target = str(machine.get("address") or name)
-    return _install_sh_commands(name, target, install, wheel, version)
+    return _install_sh_commands(name, _ssh_target(machine, name)[1], install, wheel, version)
+
+
+def _ssh_target(machine: Mapping[str, Any], name: str) -> tuple[str, str]:
+    """``(field, target)``: ``install.ssh_target`` (e.g. an ssh client config alias, #57), else
+    the record's ``address``, else its name."""
+    install = machine.get("install") or {}
+    if install.get("ssh_target"):
+        return "install.ssh_target", str(install["ssh_target"])
+    return "address", str(machine.get("address") or name)
 
 
 # --------------------------------------------------------------------------- the shared venv
@@ -329,6 +332,67 @@ def _grant_run_program(argv: Sequence[str]) -> str | None:
     return None
 
 
+def _program_argv(path: str, argv: list[str]) -> list[str] | None:
+    """The argv from the ``culture-rules`` program on: the entry itself when its ``path``
+    is the program, or what ``grant run [--inject VAR=NAME]... --`` runs; else None."""
+    if PurePosixPath(path).name != "grant":
+        return argv if _PROGRAM_RE.match(path) else None
+    program = _grant_run_program(argv)
+    if program is None or not _PROGRAM_RE.match(program):
+        return None
+    return argv[len(argv) - argv[::-1].index(program) - 1 :]
+
+
+def node_host_from_exec_start(text: str) -> str | None:
+    """The machine a node unit runs as: the ``--host`` of its ``culture-rules node run``
+    (``busctl --json=short`` ``ExecStart``, the same parsing as :func:`venv_from_exec_start`);
+    None when the unit does not run ``node run`` with a host (#57)."""
+    entry = _exec_start_entry(text)
+    rest = _program_argv(*entry) if entry else None
+    return _node_run_host(rest[1:]) if rest else None
+
+
+def _node_run_host(args: list[str]) -> str | None:
+    """``--host`` as the CLI's own parser reads ``args`` (Codex r1/r2 on #57): the last one
+    wins and an abbreviation counts, exactly as the node does; argv the CLI refuses or exits
+    early on (``-h``, a stray ``--``, a missing value, an unknown option) is None."""
+    from culture_rules.cli import _build_parser  # lazy: culture_rules.cli imports this module
+
+    sink = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
+            parsed = _build_parser().parse_args(args)
+    except (SystemExit, CliError):  # NOSONAR - another unit's argv: an exit means no host
+        return None
+    if (getattr(parsed, "command", None), getattr(parsed, "node_command", None)) != (
+        "node",
+        "run",
+    ):
+        return None
+    host = getattr(parsed, "host", None)
+    return host if isinstance(host, str) and host else None
+
+
+def _local_node_host() -> str | None:
+    result = _RUNNER(_exec_start_argv(NODE_UNIT), 30.0)
+    return node_host_from_exec_start(result.stdout) if result.returncode == 0 else None
+
+
+def not_this_host(name: str) -> str | None:
+    """Why this host is not the shared-venv machine ``name``, or None when it is: its short
+    hostname is ``name``, or (#57: an OS hostname such as ``spark-f8a9``) the local node
+    unit runs ``node run --host <name>``. Reads that unit's ExecStart only on a hostname
+    mismatch; :func:`upgrade` calls it after the admin-only start is recorded (Codex r1)."""
+    here = _HOSTNAME().split(".")[0]
+    if here == name:
+        return None
+    node = _local_node_host()
+    if node == name:
+        return None
+    seen = f" (its node unit runs --host {node})" if node else ""
+    return f"machine {name} is shared_venv: it is upgraded locally, but this host is {here}{seen}"
+
+
 def venv_from_exec_start(text: str) -> Path | None:
     """The venv a unit runs, from its ``ExecStart`` D-Bus property (``busctl --json=short``).
 
@@ -356,8 +420,8 @@ def venv_from_exec_start(text: str) -> Path | None:
     return Path(program).parent.parent
 
 
-def _unit_venv(unit: str) -> Path:
-    argv = [
+def _exec_start_argv(unit: str) -> list[str]:
+    return [
         "busctl",
         "--user",
         "--json=short",
@@ -367,7 +431,10 @@ def _unit_venv(unit: str) -> Path:
         "org.freedesktop.systemd1.Service",
         "ExecStart",
     ]
-    result = _RUNNER(argv, 30.0)
+
+
+def _unit_venv(unit: str) -> Path:
+    result = _RUNNER(_exec_start_argv(unit), 30.0)
     venv = venv_from_exec_start(result.stdout) if result.returncode == 0 else None
     if venv is None:
         raise CliError(
@@ -489,6 +556,10 @@ def _dry_lines(mode: str, cmds: Sequence[Command]) -> list[str]:
             f"(<venv> is resolved from {API_UNIT}'s ExecStart D-Bus property with 'busctl', "
             f"and {NODE_UNIT} must run the same venv; only --apply reads it)"
         )
+        lines.append(
+            "(--apply first checks that this host is the machine: its hostname, or the local "
+            f"{NODE_UNIT}'s 'node run --host')"
+        )
     return lines + [f"{c.what}: {shlex.join(c.argv)}" for c in cmds]
 
 
@@ -507,6 +578,14 @@ def upgrade(ctx: Context, host: str, wheel: str) -> dict[str, Any]:
     # recording the start is admin: a viewer or editor token is refused here, before any
     # command runs (the API is the enforcement point; the CLI's roles are only metadata)
     rollout.record(ctx, step, {"state": "started", **base})
+    wrong_host = not_this_host(name) if mode == rollout.SHARED_VENV else None
+    if wrong_host:
+        rollout.record(ctx, step, {**base, "ok": False, "failure": wrong_host[:1000]})
+        raise CliError(
+            EXIT_USER_ERROR,
+            wrong_host,
+            f"run 'culture-rules rollout upgrade --host {name}' on {name}",
+        )
     cmds, venv = _resolved_commands(ctx, machine, path, step, base)
     results, failure = _run_all(cmds, ctx, mode)
     outcome = _outcome(mode, path, results)

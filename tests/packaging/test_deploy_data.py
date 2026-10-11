@@ -116,22 +116,22 @@ def test_release_json_matches_pyproject_and_names_only_what_ships():
     assert set(release["new_variables"]) <= names, set(release["new_variables"]) - names
 
 
-# The last release rolled out live is 0.18.11 (0.18.12 is bootstrapped by hand), so this
-# release must carry 0.18.13's new rules and variables forward: a rollout from 0.18.12
-# straight to this release would otherwise never enable or seed them (PR #54 review).
-CARRIED_RULES = ("pr-fixer-retry-capacity", "pr-fixer-queue-progress-capacity")
-CARRIED_VARIABLES = ("fixer_levels", "fixer_unavailable", "fixer_capacity_cooldown_s")
+# 0.18.13 is live (2026-10-11): its rules and variables are no longer new, so this release
+# must not list them. rollout enable treats new_rules as off before the release; listing a
+# live rule again would make the snapshot check misreport it. 0.19.1 adds none (#57).
+LIVE_RULES = ("pr-fixer-retry-capacity", "pr-fixer-queue-progress-capacity")
+LIVE_VARIABLES = ("fixer_levels", "fixer_unavailable", "fixer_capacity_cooldown_s")
 
 
 def release_manifest() -> dict:
     return json.loads((BUNDLE / "release.json").read_text(encoding="utf-8"))
 
 
-@pytest.mark.parametrize("rule", CARRIED_RULES)
-def test_release_json_carries_forward_the_unrolled_new_rules(rule):
-    assert rule in release_manifest()["new_rules"]
+@pytest.mark.parametrize("rule", LIVE_RULES)
+def test_release_json_no_longer_lists_the_live_rules(rule):
+    assert rule not in release_manifest()["new_rules"]
 
 
-@pytest.mark.parametrize("name", CARRIED_VARIABLES)
-def test_release_json_carries_forward_the_unrolled_new_variables(name):
-    assert name in release_manifest()["new_variables"]
+@pytest.mark.parametrize("name", LIVE_VARIABLES)
+def test_release_json_no_longer_lists_the_live_variables(name):
+    assert name not in release_manifest()["new_variables"]

@@ -41,6 +41,11 @@ class MachineInstall(Model):
     python: str | None = doc("install.sh --python (venv Python version)", default=None)
     events_host: str | None = doc("install.sh --events-host", default=None)
     events_port: int | None = doc("install.sh --events-port (1-65535)", default=None)
+    ssh_target: str | None = doc(
+        "rollout upgrade's ssh/scp target (e.g. an ssh client config alias); defaults to the "
+        "machine address, else its name",
+        default=None,
+    )
 
 
 @dataclass(frozen=True, kw_only=True)

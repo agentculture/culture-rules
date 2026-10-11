@@ -2,7 +2,7 @@
   "plan_slug": "rollout-cli",
   "schema_version": 2,
   "created": "2026-10-10T21:41:12Z",
-  "updated": "2026-10-11T03:53:26Z",
+  "updated": "2026-10-11T11:12:01Z",
   "deviations": [
     {
       "id": "d1",
@@ -49,6 +49,30 @@
       "status": "approved",
       "classification": "acceptable",
       "seq": 4
+    },
+    {
+      "id": "d5",
+      "what": "0.18.13 (t7) went out with idle, pause, seed, import, enable, resume and verify through the released 0.18.13 'culture-rules rollout'; spark's upgrade ran through the CLI from branch rules/57-shared-venv-host (upgrade:spark recorded); orin, spark2 and thor were upgraded by hand with install.sh over their ssh aliases using the records' install flags, so their upgrade steps are not in /rollouts/0.18.13. verify passed: 4 nodes and the API on 0.18.13, 25 rules = snapshot + new rules, no no_builtin",
+      "task_ref": "t7",
+      "reason": "Two CLI defects surfaced on the first full CLI rollout (#57): shared_venv upgrade compared socket.gethostname() (spark-f8a9) with the record name spark and refused on spark; install_sh upgrade sshed to the record's address (a tailnet IP), which the ssh client config's Host/User aliases do not cover (host key verification failed on orin and spark2, publickey denied on thor); address cannot become the alias because placement requires a LAN/tailnet address",
+      "affects": [],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "needs-follow-up",
+      "seq": 5
+    },
+    {
+      "id": "d6",
+      "what": "Follow-up 0.18.14 (#57): machine install gains ssh_target (one word, admin-only, never starting with -), upgrade's ssh/scp target ahead of address; the shared-venv local-host check also accepts the local culture-rules-node.service running 'node run --host <name>' (ExecStart over D-Bus, as the venv). The four machine records get ssh_target = their ssh alias after the release",
+      "task_ref": "t5",
+      "reason": "Fixes the two #57 defects so the next release rolls out fully through the CLI",
+      "affects": [
+        "t1"
+      ],
+      "origin": "llm",
+      "status": "approved",
+      "classification": "acceptable",
+      "seq": 6
     }
   ],
   "evidence": [],
