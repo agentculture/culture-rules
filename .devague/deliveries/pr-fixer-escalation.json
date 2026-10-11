@@ -2,7 +2,7 @@
   "plan_slug": "pr-fixer-escalation",
   "schema_version": 2,
   "created": "2026-10-10T21:41:12Z",
-  "updated": "2026-10-11T04:55:54Z",
+  "updated": "2026-10-11T05:25:10Z",
   "deviations": [
     {
       "id": "d1",
@@ -79,7 +79,7 @@
         "t1"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 7
     },
@@ -92,7 +92,7 @@
         "t1"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 8
     },
@@ -105,7 +105,7 @@
         "t1"
       ],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 9
     }
