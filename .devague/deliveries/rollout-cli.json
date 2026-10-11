@@ -2,7 +2,7 @@
   "plan_slug": "rollout-cli",
   "schema_version": 2,
   "created": "2026-10-10T21:41:12Z",
-  "updated": "2026-10-11T17:26:47Z",
+  "updated": "2026-10-11T17:55:42Z",
   "deviations": [
     {
       "id": "d1",
@@ -103,7 +103,7 @@
       "reason": "The operator's /code-review of PR #63: a recorded enable step can be stale (a later pause and import re-import the rules disabled), an editor's enable is not recorded, and refusing a running engine broke verify's 'run rollout resume' hint. The rules' own state is the thing #62 protects.",
       "affects": [],
       "origin": "llm",
-      "status": "proposed",
+      "status": "approved",
       "classification": "acceptable",
       "seq": 9
     }
