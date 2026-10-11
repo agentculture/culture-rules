@@ -48,6 +48,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 
 - devague: frame, spec and plan `daily-newspaper` (operator-confirmed); deviations d1 (the `on_error` skip step option) and d2 (the builtins fitted to `for_each`, the `XTEINK_PUSH_API_KEY` grant, all four actors on spark), proposed; lapse l1 (the red step of test-first not observed for t3-t5), proposed
+
 ## [0.18.13] - 2026-10-11
 
 ### Added
