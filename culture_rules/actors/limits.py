@@ -385,6 +385,9 @@ class LimitedActor:
         *,
         context: InvocationContext,
     ) -> InvocationResult:
+        replayed = self._replayed(idempotency_key)
+        if replayed is not None:
+            return replayed  # completed before: no admission, no slot, no tokens (Codex r2 #3)
         refused = self._refused_before_admit(input)
         if refused is not None:
             return refused
@@ -413,6 +416,19 @@ class LimitedActor:
                 completed=result.outcome == COMPLETED,
             )
         return result
+
+    def _replayed(self, key: str) -> InvocationResult | None:
+        """The inner port's recorded completion of ``key``, asked before any admission check.
+
+        A port may define ``replay(idempotency_key)`` returning its completed result (or
+        None). A completion whose acknowledgement was lost replays even when new work could no
+        longer start (``llm.complete`` past ``not_after``) or the pool is full; its tokens were
+        counted, and its slot released, when it first completed."""
+        replay = getattr(self.inner, "replay", None)
+        result = replay(key) if callable(replay) else None
+        if isinstance(result, InvocationResult) and result.outcome == COMPLETED:
+            return result
+        return None
 
     def _refused_before_admit(self, input: Mapping[str, Any]) -> InvocationResult | None:
         """The inner port's own refusal of work that must not start, asked before any slot.

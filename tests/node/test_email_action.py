@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 
 from culture_rules.apps.resend import RESEND_EMAILS_URL
 from culture_rules.engine.actorport import InvocationContext
+from culture_rules.model.app_actor import email_sender
 from culture_rules.node.actions.email import EmailSendPort
 from culture_rules.store.memory import MemoryStore
 
@@ -254,3 +255,46 @@ def test_key_never_logged(caplog):
     res = invoke(port)
     assert FAKE_KEY not in caplog.text
     assert FAKE_KEY not in repr(res)
+
+
+# ---- a frozen sender (Codex r2 #4) ----------------------------------------------------------
+
+FROZEN = "newsletter-no-reply@culture.dev"
+
+
+def test_a_sender_param_at_the_actor_domain_is_the_from_address():
+    fake = Fake()
+    port, _ = setup(fake)
+    invoke(port, params(sender=FROZEN))
+    assert sent_body(fake)["from"] == FROZEN
+
+
+def test_a_sender_param_matches_the_domain_ignoring_case():
+    fake = Fake()
+    port, _ = setup(fake)
+    assert invoke(port, params(sender="News@Culture.DEV")).outcome == COMPLETED
+
+
+def test_a_sender_at_another_domain_is_refused_non_retryably():
+    port, _ = setup(Fake())
+    res = invoke(port, params(sender="ceo@elsewhere.example"))
+    assert (res.error, res.retryable) == ("sender_not_allowed", False)
+
+
+def test_a_refused_sender_reads_no_secret_and_sends_nothing():
+    fake = Fake()
+    port, resolved = setup(fake)
+    invoke(port, params(sender="ceo@elsewhere.example"))
+    assert (resolved, fake.calls) == ([], [])
+
+
+def test_a_sender_that_is_not_an_address_is_bad_input():
+    port, _ = setup(Fake())
+    assert invoke(port, params(sender=["x@culture.dev"])).error == BAD_INPUT
+
+
+def test_a_null_sender_falls_back_to_the_actor_sender():
+    fake = Fake()
+    port, _ = setup(fake)
+    invoke(port, params(sender=None))
+    assert sent_body(fake)["from"] == email_sender(actor_doc()["params"]["connection"])

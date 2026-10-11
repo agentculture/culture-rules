@@ -140,6 +140,7 @@ _KINDS = (
         html=_S,  # at least one of html/text: the port checks it
         text=_S,
         idempotency_key=_S,  # replaces the engine's per-run key (a durable, per-date key)
+        sender=_S,  # replaces the actor's from address; must be at the actor's domain
     ),
     _k(
         "search.web",
