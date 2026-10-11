@@ -224,6 +224,24 @@ def test_sections_port_missing_input():
     assert "newspaper_sections" in result.error
 
 
+def test_sections_port_adds_the_search_query():
+    # t8: search.web takes one query; a section's queries are joined with Brave's OR
+    raw = sections_json(section(queries=["edge ai", "jetson thor"]))
+    result = NewspaperSectionsPort().invoke({"sections": raw}, "k", DEADLINE, context=ctx())
+    assert result.output["sections"][0]["query"] == "edge ai OR jetson thor"
+
+
+def test_sections_port_refuses_a_joined_query_over_the_search_limit():
+    raw = sections_json(section(queries=["q" * 300, "r" * 300]))
+    result = NewspaperSectionsPort().invoke({"sections": raw}, "k", DEADLINE, context=ctx())
+    assert result.outcome == FAILED
+    assert "sections[0].queries" in result.error
+
+
+def test_parse_sections_leaves_out_the_query():
+    assert "query" not in parse_sections(sections_json(section()))[0]
+
+
 # ------------------------------------------------------------------ newspaper.filter
 
 
@@ -286,6 +304,15 @@ def test_filter_skips_non_objects():
 def test_filter_port():
     port = NewspaperFilterPort()
     payload = {"section": norm(), "results": [hit("https://a.com/1"), hit("javascript:x")]}
+    result = port.invoke(payload, "k", DEADLINE, context=ctx())
+    assert result.output == {"results": [hit("https://a.com/1")]}
+
+
+def test_filter_port_reads_the_loop_item_and_ignores_the_derived_query():
+    # t8: inside the per-section loop the section arrives as the implicit ``item`` port,
+    # carrying the ``query`` newspaper.sections added
+    port = NewspaperFilterPort()
+    payload = {"item": {**norm(), "query": "edge ai"}, "results": [hit("https://a.com/1")]}
     result = port.invoke(payload, "k", DEADLINE, context=ctx())
     assert result.output == {"results": [hit("https://a.com/1")]}
 

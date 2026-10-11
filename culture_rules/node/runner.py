@@ -25,7 +25,9 @@ Production wiring done by :func:`run_node`:
   ``gitguardian.findings`` and ``gitguardian.hold`` (d25, a PR head's GitGuardian findings
   and the fix-run hold while GitGuardian fails, :mod:`culture_rules.node.actions.gitguardian`),
   ``queue.add`` and ``queue.progress`` (#35, d29/d30, the fixer's first-come-first-served
-  queue, :mod:`culture_rules.node.actions.queue`) and ``action`` (d12), which
+  queue, :mod:`culture_rules.node.actions.queue`), ``newspaper.sections``,
+  ``newspaper.filter``, ``newspaper.render`` and ``newspaper.issue`` (#53, the daily
+  newspaper, :mod:`culture_rules.node.actions.newspaper`) and ``action`` (d12), which
   never reaches this port: the executor routes a ``builtin: action`` step exactly like a
   rule's terminal action, to the ``action:<kind>`` port through the actor router
   (:mod:`culture_rules.model.action_step`).
@@ -256,6 +258,7 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
     del host
     from culture_rules.actors.gate import GatePort  # noqa: PLC0415
     from culture_rules.actors.review import REVIEW_BUILTIN, ReviewVerdictPort  # noqa: PLC0415
+    from culture_rules.node.actions.email import EmailSendPort  # noqa: PLC0415
     from culture_rules.node.actions.gitguardian import (  # noqa: PLC0415
         FINDINGS_BUILTIN,
         HOLD_BUILTIN,
@@ -275,10 +278,22 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
     )
     from culture_rules.node.actions.http import HttpCallPort  # noqa: PLC0415
     from culture_rules.node.actions.jira import JiraCommentPort  # noqa: PLC0415
+    from culture_rules.node.actions.library import LibraryPushPort  # noqa: PLC0415
+    from culture_rules.node.actions.llm import LlmCompletePort  # noqa: PLC0415
     from culture_rules.node.actions.machine import MachineCommandPort  # noqa: PLC0415
     from culture_rules.node.actions.message import (  # noqa: PLC0415
         DiscordMessageAction,
         MessageAction,
+    )
+    from culture_rules.node.actions.newspaper import (  # noqa: PLC0415
+        FILTER_BUILTIN,
+        ISSUE_BUILTIN,
+        RENDER_BUILTIN,
+        SECTIONS_BUILTIN,
+        NewspaperFilterPort,
+        NewspaperIssuePort,
+        NewspaperRenderPort,
+        NewspaperSectionsPort,
     )
     from culture_rules.node.actions.queue import (  # noqa: PLC0415
         QUEUE_ADD_BUILTIN,
@@ -288,6 +303,7 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
         QueueProgressPort,
         QueueStopPort,
     )
+    from culture_rules.node.actions.search import SearchWebPort  # noqa: PLC0415
     from culture_rules.node.actions.sonar import SONAR_BUILTIN, SonarGateIssuesPort  # noqa: PLC0415
 
     message = MessageAction(store)
@@ -309,6 +325,10 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
         "action:github.push": push,
         "action:github.review_reply": reply,
         "action:jira.comment": JiraCommentPort(store),
+        "action:email.send": EmailSendPort(store),  # #53: Resend
+        "action:search.web": SearchWebPort(store),  # #53: Brave
+        "action:llm.complete": LlmCompletePort(store),  # #53: OpenAI-compatible, no tools
+        "action:library.push": LibraryPushPort(store),  # #53: xteink upload + queue
         "action:http.call": HttpCallPort(store),
         "action:machine.command": MachineCommandPort(store),
         "code": BuiltinCodePort(
@@ -323,6 +343,10 @@ def default_ports(store: StoragePort, host: str) -> dict[str, Any]:
                 QUEUE_ADD_BUILTIN: QueueAddPort(store),  # #35 d29: the fixer queue
                 QUEUE_PROGRESS_BUILTIN: QueueProgressPort(store, pr_lookup=head),
                 QUEUE_STOP_BUILTIN: QueueStopPort(store, pr_lookup=head),  # d34: /stop, 👎
+                SECTIONS_BUILTIN: NewspaperSectionsPort(),  # #53: the daily newspaper
+                FILTER_BUILTIN: NewspaperFilterPort(),
+                RENDER_BUILTIN: NewspaperRenderPort(),
+                ISSUE_BUILTIN: NewspaperIssuePort(store),  # one issue per local date
             }
         ),
     }

@@ -12,7 +12,9 @@ Input
 Each section is ``{name, results, summary}``: ``results`` a list of ``{title, url, snippet,
 age, source}`` (search.web's shape) and ``summary`` the model's text or null. A ``for_each``
 loop yields one list per output port, so ``results`` and ``summaries`` may instead be given as
-top-level lists parallel to ``sections``; a key on the section itself wins. A summary may also
+top-level lists parallel to ``sections``; a key on the section itself wins. An element of
+``results`` may also be a for_each result object, ``{results: [...]}`` (newspaper.filter's
+output), or ``{}`` for an iteration that produced none. A summary may also
 be ``{text: ...}`` (llm.complete's output).
 
 Each section renders as exactly one of:
@@ -266,6 +268,8 @@ def _section(raw: Any, index: int, results: Sequence[Any], summaries: Sequence[A
     if not name:
         raise _fail(f"{path}.name", "required, a non-empty string")
     found = _pick(raw, "results", results, index)
+    if isinstance(found, Mapping):  # a for_each result object: {"results": [...]} or {}
+        found = found.get("results")
     if found is None:
         found = []
     if not isinstance(found, list):

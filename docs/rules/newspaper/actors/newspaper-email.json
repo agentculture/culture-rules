@@ -1,0 +1,27 @@
+{
+  "capabilities": [],
+  "config_source": "db",
+  "description": "#53: sends the daily newspaper through Resend from the newsletter-no-reply sender on culture.dev (c28). The recipient allowlist ships EMPTY (h18): the operator adds the reader with `actors` edit before enabling the rule. The key is a grant reference resolved on spark.",
+  "enabled": true,
+  "harness": null,
+  "id": "newspaper-email",
+  "kind": "app",
+  "machine": "spark",
+  "model": null,
+  "name": "Daily newspaper: email (Resend)",
+  "params": {
+    "actions": [
+      "email.send"
+    ],
+    "connection": {
+      "api_key": "grant:RESEND_API_KEY",
+      "domain": "culture.dev",
+      "local_part": "newsletter-no-reply",
+      "recipients": []
+    },
+    "events": [],
+    "surface": "email"
+  },
+  "repo": null,
+  "schema_version": "1.0"
+}

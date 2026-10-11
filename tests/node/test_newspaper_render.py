@@ -257,6 +257,15 @@ def test_parallel_results_and_summaries_lists():
     assert NO_RESULTS in output["html"]
 
 
+def test_parallel_results_as_for_each_result_objects():
+    # t8: a for_each loop's ``results`` port is each iteration's whole output object,
+    # ``{"results": [...]}`` from newspaper.filter (an empty object for a skipped iteration)
+    sections = [{"name": "AI"}, {"name": "Robots"}, {"name": "Space"}]
+    output = ok(sections, results=[{"results": [hit(URL_A)]}, {"results": []}, {}])
+    assert URL_A in output["html"]
+    assert output["html"].count(NO_RESULTS) == 2
+
+
 # ------------------------------------------------------------------ the link check (h5)
 
 
