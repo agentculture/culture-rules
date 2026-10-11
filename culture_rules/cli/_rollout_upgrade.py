@@ -271,7 +271,7 @@ def commands(
 
 
 def _ssh_target(machine: Mapping[str, Any], name: str) -> tuple[str, str]:
-    """``(field, target)``: ``install.ssh_target`` (e.g. an ~/.ssh/config alias, #57), else
+    """``(field, target)``: ``install.ssh_target`` (e.g. an ssh client config alias, #57), else
     the record's ``address``, else its name."""
     install = machine.get("install") or {}
     if install.get("ssh_target"):
@@ -362,7 +362,7 @@ def _node_run_host(args: list[str]) -> str | None:
     try:
         with contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
             parsed = _build_parser().parse_args(args)
-    except (SystemExit, CliError):
+    except (SystemExit, CliError):  # NOSONAR - another unit's argv: an exit means no host
         return None
     if (getattr(parsed, "command", None), getattr(parsed, "node_command", None)) != (
         "node",

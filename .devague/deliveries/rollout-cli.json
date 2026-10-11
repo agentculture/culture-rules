@@ -54,7 +54,7 @@
       "id": "d5",
       "what": "0.18.13 (t7) went out with idle, pause, seed, import, enable, resume and verify through the released 0.18.13 'culture-rules rollout'; spark's upgrade ran through the CLI from branch rules/57-shared-venv-host (upgrade:spark recorded); orin, spark2 and thor were upgraded by hand with install.sh over their ssh aliases using the records' install flags, so their upgrade steps are not in /rollouts/0.18.13. verify passed: 4 nodes and the API on 0.18.13, 25 rules = snapshot + new rules, no no_builtin",
       "task_ref": "t7",
-      "reason": "Two CLI defects surfaced on the first full CLI rollout (#57): shared_venv upgrade compared socket.gethostname() (spark-f8a9) with the record name spark and refused on spark; install_sh upgrade sshed to the record's address (a tailnet IP), which ~/.ssh/config's Host/User aliases do not cover (host key verification failed on orin and spark2, publickey denied on thor); address cannot become the alias because placement requires a LAN/tailnet address",
+      "reason": "Two CLI defects surfaced on the first full CLI rollout (#57): shared_venv upgrade compared socket.gethostname() (spark-f8a9) with the record name spark and refused on spark; install_sh upgrade sshed to the record's address (a tailnet IP), which the ssh client config's Host/User aliases do not cover (host key verification failed on orin and spark2, publickey denied on thor); address cannot become the alias because placement requires a LAN/tailnet address",
       "affects": [],
       "origin": "llm",
       "status": "approved",

@@ -115,7 +115,7 @@ secret **names**, never values.
 `extras`, `wheelhouse`, `python`, `events_host` and `events_port` are optional; a
 field left out takes `install.sh`'s default. The ssh and scp target is
 `install.ssh_target`, else the record's `address`, else its name. Set
-`ssh_target` to the host's `~/.ssh/config` alias when `address` is a tailnet IP:
+`ssh_target` to the host's alias in the ssh client config when `address` is a tailnet IP:
 ssh matches `Host` entries by the name it is given, so an IP misses the
 alias's `User` and known host (#57). `ssh_target` is `[user@]host` (letters,
 digits, `.`, `_`, `-`; never starting with `-`), so ssh and scp read it alike:

@@ -9,7 +9,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- Machine `install.ssh_target` (#57): `rollout upgrade`'s ssh and scp target on an `install_sh` host, ahead of the record's `address` (then its name). Set it to the host's `~/.ssh/config` alias when `address` is a tailnet IP: ssh matches `Host` entries by the name it is given, so the IP missed the alias's `User` and known host (`Host key verification failed` on orin and spark2, publickey denied on thor in the 0.18.13 rollout). `[user@]host` (letters, digits, `.`, `_`, `-`; never starting with `-`) so ssh and scp read it alike, admin-only like the rest of `install`; `upgrade` checks a fallback `address` the same way
+- Machine `install.ssh_target` (#57): `rollout upgrade`'s ssh and scp target on an `install_sh` host, ahead of the record's `address` (then its name). Set it to the host's alias in the ssh client config when `address` is a tailnet IP: ssh matches `Host` entries by the name it is given, so the IP missed the alias's `User` and known host (`Host key verification failed` on orin and spark2, publickey denied on thor in the 0.18.13 rollout). `[user@]host` (letters, digits, `.`, `_`, `-`; never starting with `-`) so ssh and scp read it alike, admin-only like the rest of `install`; `upgrade` checks a fallback `address` the same way
 
 ### Fixed
 

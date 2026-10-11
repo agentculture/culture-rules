@@ -197,7 +197,7 @@
               "type": "null"
             }
           ],
-          "description": "rollout upgrade's ssh/scp target (e.g. an ~/.ssh/config alias); defaults to the machine address, else its name",
+          "description": "rollout upgrade's ssh/scp target (e.g. an ssh client config alias); defaults to the machine address, else its name",
           "default": null
         }
       },
