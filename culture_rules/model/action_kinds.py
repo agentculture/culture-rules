@@ -141,6 +141,7 @@ _KINDS = (
         text=_S,
         idempotency_key=_S,  # replaces the engine's per-run key (a durable, per-date key)
         sender=_S,  # replaces the actor's from address; must be at the actor's domain
+        not_after=_S,  # ISO-8601: at or past it the send fails email_window_passed, no request
     ),
     _k(
         "search.web",

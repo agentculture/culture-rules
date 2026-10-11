@@ -542,6 +542,7 @@ HTML_FIELD, KEY_FIELD = "html", "idempotency_key"
 R2 = "r2"
 M1 = "m1"
 OTHER_HTML = "<p>other</p>"
+SEND_UNTIL = "send_until"
 
 
 def emailed(world, run="r1", message=M1, html=HTML):
@@ -569,6 +570,7 @@ def test_the_email_fence_answers_send_with_the_durable_key():
         HTML_FIELD: HTML,
         KEY_FIELD: EMAIL_KEY,
         UNCERTAIN: False,
+        SEND_UNTIL: "2026-10-12T02:30:05+00:00",
     }
 
 
@@ -745,7 +747,10 @@ class Mail(Issues):
         self.store.put(ACTORS_COLLECTION, email_actor(recipients))
         self.resend = ExpiringResend(self.clock)
         self.email = EmailSendPort(
-            self.store, transport=self.resend, secrets=lambda _ref: "fake-key-value"
+            self.store,
+            transport=self.resend,
+            secrets=lambda _ref: "fake-key-value",
+            clock=self.clock,
         )
 
     def fence(self, run="r1", to=(READER,), html=HTML):
@@ -758,6 +763,7 @@ class Mail(Issues):
         if not out[SEND]:
             return None
         params = {k: out.get(k) for k in REQUEST}
+        params["not_after"] = out.get(SEND_UNTIL)
         context = InvocationContext(
             run_id="r", step_id=EMAIL, kind="action", host="spark", actor=EMAIL_ACTOR
         )
@@ -769,6 +775,15 @@ class Mail(Issues):
         self.resend.drop_acks = True
         self.send(self.fence(to=to))
         self.resend.drop_acks = False
+
+    def lost_ack_gate(self):
+        """Like :meth:`lost_ack`, returning the fence's answer the email step keeps."""
+        self.call(CLAIM)
+        self.resend.drop_acks = True
+        gate = self.fence()
+        self.send(gate)
+        self.resend.drop_acks = False
+        return gate
 
     def takeover(self, hours, to=(READER,)):
         self.clock.now += timedelta(hours=hours)
@@ -903,3 +918,48 @@ def test_the_email_fence_refuses_recipients_that_are_not_a_list():
     world = Mail()
     world.call(CLAIM)
     assert world.fence(to=READER).error.startswith("bad_input: to")
+
+
+# ------------------------------------------------------------------ Codex r3: the frozen window
+
+
+def test_the_email_fence_answers_the_first_attempt_plus_23_hours():
+    world = Mail()
+    world.lost_ack()
+    gate, _ = world.takeover(hours=2)
+    assert gate.output[SEND_UNTIL] == "2026-10-12T02:30:05+00:00"
+
+
+def test_a_same_run_retry_past_the_window_sends_nothing():
+    """The run's email step retries with the fence's answer it persisted, 25 hours on."""
+    world = Mail()
+    gate = world.lost_ack_gate()
+    world.clock.now += timedelta(hours=25)
+    retried = world.send(gate)
+    assert (retried.error, len(world.resend.sent)) == ("email_window_passed", 1)
+
+
+def test_the_push_fence_after_a_refused_late_retry_is_uncertain():
+    world = Mail()
+    gate = world.lost_ack_gate()
+    world.clock.now += timedelta(hours=25)
+    world.send(gate)
+    out = world.call(BEFORE_PUSH).output
+    assert out == {MESSAGE_ID: None, "date": DATE, UNCERTAIN: True}
+
+
+def test_the_push_fence_after_a_refused_late_retry_records_the_email_uncertain():
+    world = Mail()
+    world.lost_ack_gate()
+    world.clock.now += timedelta(hours=25)
+    world.call(BEFORE_PUSH)
+    assert world.doc()[EMAIL] == {"uncertain": True, "attempted_at": FIRST_AT}
+
+
+def test_a_failed_email_inside_the_window_still_fails_the_push_fence():
+    """A refused send (say recipient_not_allowed) is never passed off as uncertain while
+    the date could still be emailed."""
+    world = Mail()
+    world.lost_ack_gate()
+    world.clock.now += timedelta(hours=22)
+    assert world.call(BEFORE_PUSH).error.startswith("bad_input: message_id")

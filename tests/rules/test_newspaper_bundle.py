@@ -218,9 +218,23 @@ def test_no_summary_starts_after_the_window():  # Codex r1 #3
     assert action_spec(summary)["params"]["not_after"] == "inputs.not_after"
 
 
-def test_only_the_summary_tolerates_its_failure():
+def test_only_the_summary_and_the_email_tolerate_their_failure():
+    """The email's failure goes on to the push fence, which fails the run unless the first
+    attempt is past its 23-hour window (Codex r3)."""
     tolerant = [s.id for s in every_step(workflow()) if s.config.get("on_error") == "skip"]
-    assert tolerant == ["summary"]
+    assert tolerant == ["summary", EMAIL_STEP]
+
+
+def test_the_email_step_sends_until_the_fence_window_closes():  # Codex r3
+    (email,) = [s for s in every_step(workflow()) if s.id == EMAIL_STEP]
+    assert action_spec(email)["params"]["not_after"] == "inputs.not_after"
+
+
+def test_the_email_window_comes_from_the_fence():
+    edges = {
+        (e.source, e.source_port, e.target_port) for e in workflow().edges if e.target == EMAIL_STEP
+    }
+    assert (GATE_STEP, "send_until", "not_after") in edges
 
 
 def test_the_workflow_exports_the_delivery_ids():  # h17

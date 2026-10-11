@@ -24,13 +24,21 @@ else ``sender_not_allowed`` (not retryable) before any secret is read; a non-str
 ``bad_input``. The recipients are always checked against the actor's *current* allowlist: a
 frozen recipient that was since removed fails ``recipient_not_allowed`` and is never
 replaced.
+
+An optional ``not_after`` param (an ISO-8601 time with a UTC offset) is the last moment a
+request may go out (Codex r3): it is checked after the secret is resolved, immediately before
+the request, on every attempt - a retry the engine resumes late included. At or past it the
+send fails ``email_window_passed`` (not retryable) and makes no request. The daily newspaper
+passes ``send_until``, the date's first attempt plus 23 hours: past it Resend may have
+forgotten the idempotency key, so a resend could deliver a second email. A malformed value is
+``bad_input`` before any secret is read.
 """
 
 from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Mapping
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from culture_rules.actors.secrets import resolve as resolve_secret
@@ -45,6 +53,7 @@ __all__ = ["EmailSendPort"]
 log = logging.getLogger(__name__)
 
 _BAD_INPUT = "bad_input"
+WINDOW_PASSED = "email_window_passed"
 MAX_IDEMPOTENCY_KEY = 256
 
 
@@ -87,6 +96,19 @@ def _sender(input: Mapping[str, Any], conn: Mapping[str, Any]) -> str:
     return sender
 
 
+def _not_after(value: Any) -> datetime | None:
+    """``not_after`` as an aware time (None when absent). Raises ``ValueError`` (bad_input)."""
+    if value is None:
+        return None
+    try:
+        when = datetime.fromisoformat(value) if isinstance(value, str) else None
+    except ValueError:
+        when = None
+    if when is None or when.tzinfo is None:
+        raise ValueError(_BAD_INPUT)
+    return when
+
+
 def _body_error(input: Mapping[str, Any]) -> str | None:
     """Why ``subject``/``html``/``text`` are unusable, or None (at least one body part)."""
     if not isinstance(input.get("subject"), str) or not input["subject"]:
@@ -110,10 +132,12 @@ class EmailSendPort:
         *,
         transport: Transport | None = None,
         secrets: Callable[[str], str] | None = None,
+        clock: Callable[[], datetime] | None = None,
     ) -> None:
         self._store = store
         self._transport = transport
         self._secrets = secrets
+        self._clock = clock or (lambda: datetime.now(UTC))
 
     def _connection(self, actor_id: str | None) -> Mapping[str, Any] | None:
         if not actor_id:
@@ -149,12 +173,15 @@ class EmailSendPort:
             return InvocationResult.failed(error or _BAD_INPUT, retryable=False)
         try:
             sender = _sender(input, conn)
+            not_after = _not_after(input.get("not_after"))
         except ValueError as exc:
             return InvocationResult.failed(str(exc), retryable=False)
         try:
             token = (self._secrets or resolve_secret)(str(conn.get("api_key") or ""))
         except Exception:  # noqa: BLE001 - never echo secret text
             return InvocationResult.failed("secret_unavailable", retryable=False)
+        if not_after is not None and self._clock() >= not_after:
+            return InvocationResult.failed(WINDOW_PASSED, retryable=False)
         client = ResendClient(token=token, transport=self._transport)
         try:
             out = client.send_email(

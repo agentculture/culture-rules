@@ -41,9 +41,12 @@ The phases, in workflow order
   (the recipients); ``config.email_actor`` names the email actor whose from address is
   frozen. It renews the lease, refusing (``claim_lost``, not retryable: the run fails) when
   the date is no longer this run's. It stores the request when none is stored and answers
-  ``{send, email_uncertain, date, subject, html, to, sender, idempotency_key}`` with the
-  **stored** request and the durable key ``newspaper:<date>:email`` (:func:`email_key`),
-  the same for every run of the date. ``send`` is true for the first attempt (recorded in
+  ``{send, email_uncertain, date, subject, html, to, sender, idempotency_key, send_until}``
+  with the **stored** request and the durable key ``newspaper:<date>:email``
+  (:func:`email_key`), the same for every run of the date. ``send_until`` is the first
+  attempt plus :data:`EMAIL_RETRY_WINDOW_S`; the email step passes it as ``email.send``'s
+  ``not_after``, so every attempt - a retry resumed after an outage included - is bounded
+  by the window, not only the fence (Codex r3). ``send`` is true for the first attempt (recorded in
   ``email_attempt``) and for a retry within :data:`EMAIL_RETRY_WINDOW_S` of it; false when
   the email is recorded sent (``message_id`` is then given too) or uncertain - past the
   window with no recorded message id it records ``email`` uncertain and answers
@@ -51,8 +54,12 @@ The phases, in workflow order
 * ``before_push`` (fence) - input ``message_id`` (the email step's, absent when it was
   skipped). It records ``email`` the first time it sees a message id - even when the claim
   was lost, since the email went out either way - then renews the lease or refuses
-  ``claim_lost``. Output ``{message_id, date, email_uncertain}``: the recorded message id
-  (null, with ``email_uncertain`` true, when the email is uncertain; the push proceeds).
+  ``claim_lost``. With no message id and the first attempt past its window (the email step
+  failed ``email_window_passed``, or failed before it) it records ``email`` uncertain; with
+  no message id inside the window it refuses ``bad_input``, so a skipped email step
+  (``on_error: skip``) that failed for another reason never passes as delivered. Output
+  ``{message_id, date, email_uncertain}``: the recorded message id (null, with
+  ``email_uncertain`` true, when the email is uncertain; the push proceeds).
 * ``record`` (after delivery) - sets state ``delivered`` with ``message_id``, ``item_id``,
   ``library`` (``item_id``, ``queue_id``), ``delivered_by`` and ``delivered_at``, whoever
   claimed. Output ``{recorded, date}``: false when another run already recorded the date; a
@@ -394,6 +401,9 @@ class NewspaperIssuePort:
             }
             if state == _SENT:
                 output[_MESSAGE_ID] = _sent_id(doc)
+            until = _send_until(doc, state, now)
+            if until is not None:
+                output["send_until"] = until
             return output
         raise self._contended(day)
 
@@ -404,8 +414,8 @@ class NewspaperIssuePort:
             owned = _owned(doc, run_id)
             recorded = _sent_id(doc)
             changes: dict[str, Any] = {}
-            if doc is not None and recorded is None and message_id is not None:
-                changes[_EMAIL] = {_MESSAGE_ID: message_id, "at": _iso(self._clock())}
+            if doc is not None and recorded is None:
+                changes.update(_push_email_changes(doc, day, message_id, self._clock()))
             if owned:
                 changes[_CLAIMED_AT] = _iso(self._clock())
             if changes and not self._cas(day, doc, changes):
@@ -413,9 +423,12 @@ class NewspaperIssuePort:
             if not owned:
                 raise _lost(day)
             sent = recorded or message_id
-            uncertain = sent is None and _uncertain(doc)
+            uncertain = sent is None and _uncertain({**(doc or {}), **changes})
             if sent is None and not uncertain:
-                raise _Refusal("bad_input: message_id: no email is recorded sent for the date")
+                raise _Refusal(
+                    "bad_input: message_id: no email is recorded sent for the date"
+                    " (see the email step's error)"
+                )
             return {_MESSAGE_ID: sent, _DATE: day, _UNCERTAIN: uncertain}
         raise self._contended(day)
 
@@ -447,6 +460,35 @@ def _email_changes(doc: Mapping[str, Any], state: str, day: str, now: datetime) 
         attempt = doc.get(_ATTEMPT)
         at = attempt.get("at") if isinstance(attempt, Mapping) else None
         return {_EMAIL: {_LOST_ACK: True, "attempted_at": at}}
+    return {}
+
+
+def _attempt_at(doc: Mapping[str, Any]) -> datetime | None:
+    attempt = doc.get(_ATTEMPT)
+    stamp = attempt.get("at") if isinstance(attempt, Mapping) else None
+    try:
+        return datetime.fromisoformat(stamp) if isinstance(stamp, str) else None
+    except ValueError:
+        return None
+
+
+def _send_until(doc: Mapping[str, Any], state: str, now: datetime) -> str | None:
+    """The last moment the email step may send (Codex r3): the date's first attempt plus
+    :data:`EMAIL_RETRY_WINDOW_S`, frozen like the attempt (None without an attempt)."""
+    at = now if state == _FIRST else _attempt_at(doc)
+    return None if at is None else _iso(at + timedelta(seconds=EMAIL_RETRY_WINDOW_S))
+
+
+def _push_email_changes(
+    doc: Mapping[str, Any], day: str, message_id: str | None, now: datetime
+) -> dict[str, Any]:
+    """``before_push``'s write for a date whose email is not recorded sent: the step's message
+    id, or - with none, the attempt past its window (the email step refused
+    ``email_window_passed``, or failed before it) - the uncertain record (Codex r3)."""
+    if message_id is not None:
+        return {_EMAIL: {_MESSAGE_ID: message_id, "at": _iso(now)}}
+    if not _uncertain(doc) and _email_state(doc, now) == _EXPIRED:
+        return _email_changes(doc, _EXPIRED, day, now)
     return {}
 
 

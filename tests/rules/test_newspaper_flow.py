@@ -228,7 +228,9 @@ class World:
             "action:llm.complete": LlmCompletePort(
                 base, transport=self.cortex, secret_runner=fake_secret, clock=clock
             ),
-            "action:email.send": EmailSendPort(base, transport=self.resend, secrets=fake_secret),
+            "action:email.send": EmailSendPort(
+                base, transport=self.resend, secrets=fake_secret, clock=clock
+            ),
             "action:library.push": LibraryPushPort(
                 base, transport=self.xteink, secret_runner=fake_secret, clock=clock
             ),
@@ -612,3 +614,62 @@ def test_the_fake_resend_refuses_a_reused_key_with_another_body():
     resend("POST", RESEND_EMAILS_URL, {IDEM_HEADER: "k"}, b'{"to": ["a"]}', 5)
     status, _ = resend("POST", RESEND_EMAILS_URL, {IDEM_HEADER: "k"}, b'{"to": ["b"]}', 5)
     assert status == 409
+
+
+# --------------------------------------------------------------------------- resumed (Codex r3)
+
+OUTAGE = timedelta(hours=25)
+ISSUE_DATE = "2026-10-11"
+
+
+def ack_lost_then_outage(world: World) -> dict:
+    """Codex r3: the 06:30 run's first email reaches Resend but its answer is lost, so the
+    email step waits to retry; the node is then down for 25 hours and resumes the same run.
+    Returns the run as it stood when the node went down."""
+    world.resend.drop_acks = True
+    while world.resend.calls == 0:
+        world.run_until(world.clock() + timedelta(minutes=1))
+    world.resend.drop_acks = False
+    (stalled,) = world.runs()
+    world.clock.advance(OUTAGE.total_seconds())
+    world.run_until(world.clock() + timedelta(minutes=30))
+    return stalled
+
+
+def test_the_lost_ack_leaves_the_email_step_waiting_to_retry():
+    world = World(cron=ONCE)
+    stalled = ack_lost_then_outage(world)
+    assert step_state(stalled, "email")[STATUS] == "retry_wait"
+
+
+def test_a_retry_resumed_25_hours_on_sends_no_second_email():
+    world = World(cron=ONCE)
+    ack_lost_then_outage(world)
+    assert len(world.resend.sent) == 1
+
+
+def test_a_retry_resumed_25_hours_on_reports_the_email_uncertain():
+    world = World(cron=ONCE)
+    ack_lost_then_outage(world)
+    run = finished(world)
+    assert run[OUTPUTS]["email_uncertain"] is True
+
+
+def test_a_retry_resumed_25_hours_on_still_queues_the_issue():
+    world = World(cron=ONCE)
+    ack_lost_then_outage(world)
+    assert len(world.xteink.queued) == 1
+
+
+def test_a_retry_resumed_25_hours_on_records_the_email_uncertain():
+    world = World(cron=ONCE)
+    ack_lost_then_outage(world)
+    issue = world.base.get(ISSUES_COLLECTION, ISSUE_DATE)
+    assert issue["email"]["uncertain"] is True
+
+
+def test_a_retry_resumed_25_hours_on_names_the_passed_window():
+    world = World(cron=ONCE)
+    ack_lost_then_outage(world)
+    email = step_state(finished(world), "email")
+    assert (email[STATUS], email["error"]["message"]) == ("skipped", "email_window_passed")

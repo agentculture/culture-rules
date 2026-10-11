@@ -56,13 +56,18 @@ step is a built-in or an action:
    freezes the whole request: the recipients (`newspaper_to`), the sender
    of `newspaper-email` (the step's `config.email_actor`), the subject and
    the HTML. It answers that stored request with the key
-   `newspaper:<date>:email`. It answers `send: false` when the date's email
-   is already recorded sent, or is uncertain (see below).
+   `newspaper:<date>:email` and `send_until`, the date's first attempt plus
+   23 hours. It answers `send: false` when the date's email is already
+   recorded sent, or is uncertain (see below).
 7. `email` (`email.send`) sends the frozen request, with that key as
    Resend's `Idempotency-Key`. The recipients are still checked against
-   the actor's current allowlist.
+   the actor's current allowlist. Its `not_after` is `send_until`, checked
+   before every attempt. The step has `config.on_error: "skip"`, so a
+   failure goes on to `push_gate`, which decides.
 8. `push_gate` (`newspaper.issue`, phase `before_push`) records the email's
-   message id for the date, then renews the lease.
+   message id for the date, then renews the lease. With no message id it
+   fails the run, unless the first attempt is past its 23 hours: then the
+   email is recorded uncertain and the push goes ahead.
 9. `push` (`library.push`) uploads the EPUB to xteink (kind `article`, title
    `Daily newspaper <date>`) and queues it on the device.
 10. `record` (`newspaper.issue`, phase `record`) marks the date delivered
@@ -77,8 +82,10 @@ The engine turns its failure into `skipped`, keeps the error on the step,
 clears its outputs and records `failure_tolerated`. Its failures include an
 unreachable gateway after its two attempts and the summary window closing
 (`llm_deadline`). The issue still goes out on time, with that section's
-results and the line "Summary unavailable." Search, email and library
-failures are not tolerated: they fail the run.
+results and the line "Summary unavailable." Search and library failures
+are not tolerated: they fail the run. The `email` step also has
+`on_error: "skip"`, but only so `push_gate` can tell a passed window from
+a real failure. A failed email inside the window still fails the run there.
 
 **Waiting for the pool.** The summaries share the `qwen-spark2` pool with
 the PR fixer, so each summary waits behind a running fix, but only until
@@ -118,6 +125,14 @@ email is preferred to a duplicate:
   Resend's log) for that date.
 - The attempt is recorded before the send. An `email` step that failed
   before it reached Resend also ends uncertain once 23 hours have passed.
+- The 23 hours bound every send, not just the fence. A run whose `email`
+  step was waiting to retry when the node went down, and resumes a day
+  later, retries with `not_after` already past. The step fails
+  `email_window_passed` without a request, `push_gate` records the email
+  uncertain, and the run succeeds with `email_uncertain: true`.
+- Any other email failure (`recipient_not_allowed`, an `http_4xx`, the
+  retries used up) is not passed as delivered. `push_gate` sees no message
+  id inside the window and fails the run. The `email` step keeps its error.
 - A frozen recipient that was since removed from the allowlist is refused
   with `recipient_not_allowed` (not retried). It is never swapped for the
   new `newspaper_to`.

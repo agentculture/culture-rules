@@ -164,6 +164,12 @@
       "target_port": "send"
     },
     {
+      "source": "email_gate",
+      "source_port": "send_until",
+      "target": "email",
+      "target_port": "not_after"
+    },
+    {
       "source": "inputs",
       "source_port": "slot",
       "target": "push_gate",
@@ -801,7 +807,7 @@
         },
         "email_actor": "newspaper-email"
       },
-      "description": "newspaper.issue (before_email): the email's fence. Renews this run's lease (claim_lost fails the run if another run took the date), freezes the date's first full request (recipients, the email actor's sender, subject, html) and answers it with the durable key newspaper:<date>:email. send is false when the date's email is already recorded sent (a takeover after a failed push), or when its first attempt is 23 hours old and unacknowledged: Resend's 24-hour key window may have closed, so the email is never resent and email_uncertain is reported.",
+      "description": "newspaper.issue (before_email): the email's fence. Renews this run's lease (claim_lost fails the run if another run took the date), freezes the date's first full request (recipients, the email actor's sender, subject, html) and answers it with the durable key newspaper:<date>:email. send is false when the date's email is already recorded sent (a takeover after a failed push), or when its first attempt is 23 hours old and unacknowledged: Resend's 24-hour key window may have closed, so the email is never resent and email_uncertain is reported. send_until (the first attempt plus 23 hours) bounds every send of the email step, a resumed retry included.",
       "enabled": true,
       "id": "email_gate",
       "inputs": [
@@ -889,6 +895,12 @@
           "type": "string"
         },
         {
+          "description": "the date's first email attempt plus 23 hours: no email request goes out at or after it",
+          "name": "send_until",
+          "required": false,
+          "type": "string"
+        },
+        {
           "description": "",
           "name": "message_id",
           "required": false,
@@ -916,7 +928,8 @@
             "idempotency_key": "inputs.idempotency_key",
             "subject": "inputs.subject",
             "to": "inputs.to",
-            "sender": "inputs.sender"
+            "sender": "inputs.sender",
+            "not_after": "inputs.not_after"
           }
         },
         "builtin": "action",
@@ -929,9 +942,10 @@
           "right": {
             "literal": true
           }
-        }
+        },
+        "on_error": "skip"
       },
-      "description": "email.send through newspaper-email (Resend, the newsletter-no-reply sender on culture.dev); only to recipients on the actor's current allowlist. Sends the fence's frozen request (recipients, sender, subject, html) under the durable per-date idempotency key, so a resend is the identical request and Resend answers the first message id.",
+      "description": "email.send through newspaper-email (Resend, the newsletter-no-reply sender on culture.dev); only to recipients on the actor's current allowlist. Sends the fence's frozen request (recipients, sender, subject, html) under the durable per-date idempotency key, so a resend is the identical request and Resend answers the first message id. not_after is the fence's send_until, checked before every attempt (a retry resumed after an outage included): past it the step fails email_window_passed and sends nothing. on_error skip lets the push fence judge any failure: it records the email uncertain only when the first attempt is past its 23-hour window, and otherwise fails the run, so no other email failure passes as delivered.",
       "enabled": true,
       "id": "email",
       "inputs": [
@@ -970,6 +984,12 @@
           "name": "send",
           "required": true,
           "type": "boolean"
+        },
+        {
+          "description": "the fence's send_until: at or past it the send fails email_window_passed with no request",
+          "name": "not_after",
+          "required": false,
+          "type": "string"
         }
       ],
       "kind": "code",
@@ -1007,7 +1027,7 @@
           }
         }
       },
-      "description": "newspaper.issue (before_push): records the sent email's message id for the date (so a takeover never emails again), then renews this run's lease before the push (claim_lost fails the run if another run took the date).",
+      "description": "newspaper.issue (before_push): records the sent email's message id for the date (so a takeover never emails again), then renews this run's lease before the push (claim_lost fails the run if another run took the date). With no message id and the first attempt past its 23-hour window (the email step refused email_window_passed), it records the email uncertain and the push goes ahead; with no message id inside the window it fails the run.",
       "enabled": true,
       "id": "push_gate",
       "inputs": [
@@ -1024,7 +1044,7 @@
           "type": "string"
         },
         {
-          "description": "the email step's; absent when the email was already sent",
+          "description": "the email step's; absent when the email was already sent, or the step failed (skipped)",
           "name": "message_id",
           "required": false,
           "type": "string"

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from culture_rules.apps.resend import RESEND_EMAILS_URL
 from culture_rules.engine.actorport import InvocationContext
@@ -48,7 +48,7 @@ def actor_doc(surface="email", enabled=True, **conn):
     }
 
 
-def setup(fake, doc=None, fail=False):
+def setup(fake, doc=None, fail=False, clock=None):
     store = MemoryStore()
     store.put("actors", doc or actor_doc())
     resolved = []
@@ -59,7 +59,7 @@ def setup(fake, doc=None, fail=False):
             raise RuntimeError("grant exploded " + FAKE_KEY)
         return FAKE_KEY
 
-    return EmailSendPort(store, transport=fake, secrets=secrets), resolved
+    return EmailSendPort(store, transport=fake, secrets=secrets, clock=clock), resolved
 
 
 def ctx(actor=ACTOR):
@@ -298,3 +298,78 @@ def test_a_null_sender_falls_back_to_the_actor_sender():
     port, _ = setup(fake)
     invoke(port, params(sender=None))
     assert sent_body(fake)["from"] == email_sender(actor_doc()["params"]["connection"])
+
+
+# --------------------------------------------------------------------------- not_after (Codex r3)
+
+NOW = datetime(2026, 10, 12, 2, 0, tzinfo=UTC)
+WINDOW_PASSED = "email_window_passed"
+
+
+class Ticking:
+    """A clock the test can move, as the node's does between a step's attempts."""
+
+    def __init__(self, now=NOW):
+        self.now = now
+
+    def __call__(self):
+        return self.now
+
+
+def at(when):
+    return when.isoformat()
+
+
+def test_a_send_before_not_after_goes_out():
+    fake = Fake()
+    port, _ = setup(fake, clock=Ticking())
+    res = invoke(port, params(not_after=at(NOW + timedelta(minutes=1))))
+    assert (res.outcome, len(fake.calls)) == (COMPLETED, 1)
+
+
+def test_a_send_at_not_after_makes_no_request():
+    fake = Fake()
+    port, _ = setup(fake, clock=Ticking())
+    invoke(port, params(not_after=at(NOW)))
+    assert fake.calls == []
+
+
+def test_a_send_past_not_after_fails_non_retryably():
+    port, _ = setup(Fake(), clock=Ticking())
+    res = invoke(port, params(not_after=at(NOW - timedelta(hours=2))))
+    assert (res.error, res.retryable) == (WINDOW_PASSED, False)
+
+
+def test_not_after_is_checked_after_the_secret_is_resolved():
+    """The window may close while the key is being resolved: the check is the last thing
+    before the request."""
+    fake, clock = Fake(), Ticking()
+    store = MemoryStore()
+    store.put("actors", actor_doc())
+
+    def slow_secret(_ref):
+        clock.now = NOW + timedelta(minutes=5)
+        return FAKE_KEY
+
+    port = EmailSendPort(store, transport=fake, secrets=slow_secret, clock=clock)
+    res = invoke(port, params(not_after=at(NOW + timedelta(minutes=1))))
+    assert (res.error, fake.calls) == (WINDOW_PASSED, [])
+
+
+def test_a_malformed_not_after_is_bad_input_without_reading_the_secret():
+    fake = Fake()
+    port, resolved = setup(fake, clock=Ticking())
+    res = invoke(port, params(not_after="tomorrow"))
+    assert (res.error, resolved, fake.calls) == (BAD_INPUT, [], [])
+
+
+def test_a_not_after_without_an_offset_is_bad_input():
+    port, _ = setup(Fake(), clock=Ticking())
+    assert invoke(port, params(not_after="2026-10-12T02:00:00")).error == BAD_INPUT
+
+
+def test_a_null_not_after_sends():
+    fake = Fake()
+    port, _ = setup(fake, clock=Ticking())
+    invoke(port, params(not_after=None))
+    assert len(fake.calls) == 1
