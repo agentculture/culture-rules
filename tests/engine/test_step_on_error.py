@@ -113,6 +113,45 @@ def test_a_tolerated_failure_in_a_loop_body_ends_only_that_iteration(store, cloc
     assert step_state(doc, "each")["outputs"]["text"] == [None, "about b"]
 
 
+INVALID = ("complete", {SUMMARY: 123})  # a declared string output holding an integer
+
+
+def test_a_tolerated_invalid_output_does_not_reach_downstream(store, clock):
+    """Codex r1 #2: the rejected outputs are cleared when the failure is tolerated."""
+    a = FakeActor().on(SUMMARISE, INVALID)
+    run(store, clock, a, _flat(SKIP))
+    assert SUMMARY not in a.calls_for(RENDER)[0][1]
+
+
+def test_a_tolerated_invalid_output_is_cleared_but_the_error_kept(store, clock):
+    a = FakeActor().on(SUMMARISE, INVALID)
+    state = step_state(run(store, clock, a, _flat(SKIP)), SUMMARISE)
+    assert not state.get("outputs")
+    assert state["error"]["message"]
+
+
+def test_a_tolerated_invalid_output_in_a_loop_aggregates_as_none(store, clock):
+    a = FakeActor(default=lambda inp, ctx: {"text": f"about {inp.get('item')}"})
+    a.on(step_key("each", 0, SUMMARISE), ("complete", {"text": 123}))
+    loop = step(
+        "each",
+        "for_each",
+        inputs=(port(ITEMS, ARRAY),),
+        outputs=(port("text", ARRAY),),
+        max_iterations=3,
+        body=(
+            step(SUMMARISE, inputs=(port("item"),), outputs=(port("text", "string"),), config=SKIP),
+        ),
+    )
+    wf = workflow(
+        (step("list", outputs=(port(ITEMS, ARRAY),)), loop),
+        (edge("list", ITEMS, "each", ITEMS),),
+    )
+    a.on("list", ("complete", {ITEMS: ["a", "b"]}))
+    doc = run(store, clock, a, wf)
+    assert step_state(doc, "each")["outputs"]["text"] == [None, "about b"]
+
+
 # --------------------------------------------------------------------------- save-time checks
 
 
