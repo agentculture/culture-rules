@@ -71,8 +71,10 @@ its summary.
 
 ## 1. Grants (on spark)
 
-The four actors live on machine `spark`. Their actions run there and
-resolve their keys from spark's grant store at call time:
+The four actors live on machine `spark`. Their actions run in spark's
+`culture-rules-node` and resolve each `grant:` reference at call time, first
+from an injected `CULTURE_RULES_SECRET_<NAME>` variable and otherwise with
+`grant get`, which refuses a hidden secret:
 
 | grant name | Used by | Value |
 |---|---|---|
@@ -86,6 +88,23 @@ Store each one hidden, with the value read from stdin:
 ```bash
 grant set XTEINK_PUSH_API_KEY - --hidden
 ```
+
+**Inject the keys into spark's node.** `RESEND_API_KEY` and `BRAVE_API_KEY`
+are hidden, so the node must start with them injected (inject all four, for
+uniformity). Spark's node unit is hand-edited
+(`~/.config/systemd/user/culture-rules-node.service`). Add these to its
+`ExecStart`, after the existing `grant run --inject ...` options and before `--`:
+
+```text
+--inject CULTURE_RULES_SECRET_RESEND_API_KEY=RESEND_API_KEY
+--inject CULTURE_RULES_SECRET_BRAVE_API_KEY=BRAVE_API_KEY
+--inject CULTURE_RULES_SECRET_LOBES_GATEWAY_API_KEY=LOBES_GATEWAY_API_KEY
+--inject CULTURE_RULES_SECRET_XTEINK_PUSH_API_KEY=XTEINK_PUSH_API_KEY
+```
+
+Then run `systemctl --user daemon-reload` and restart `culture-rules-node`
+(pause the engine first if a run is active). Without the injection, a send
+fails `secret_unavailable`.
 
 **The `xtk_` key.** Any xteink key is a full operator key. A key used only
 for the newspaper can be revoked on its own. To use one, mint it on the
