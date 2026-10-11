@@ -233,3 +233,9 @@ def test_resolved_and_injected_values_are_known(monkeypatch):
     assert "resolved-synthetic-value-2" in known
     assert "remembered-value-3" in known
     assert "short" not in known
+
+
+def test_a_reference_with_a_trailing_newline_is_not_a_reference():
+    """``$`` also matches before a final newline: the whole value must be the reference
+    (PR #54 review, now that llm.complete and app actors share this check)."""
+    assert not is_secret_ref("grant:AWS_KEY\n")

@@ -65,7 +65,7 @@ from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlsplit
 
-from culture_rules.actors.secrets import GRANT_SCHEME, SecretError, resolve
+from culture_rules.actors.secrets import SecretError, is_secret_ref, resolve
 from culture_rules.engine.actorport import COMPLETED, InvocationContext, InvocationResult
 from culture_rules.model.actor import Actor
 from culture_rules.node.actions.machine import load_bound_actor
@@ -189,7 +189,7 @@ def check_llm_actor(actor: Actor) -> str | None:
     if not isinstance(model, str) or not model.strip():
         return "params.model must be a non-empty string"
     key = params.get("api_key")
-    if key not in (None, "") and not (isinstance(key, str) and key.startswith(GRANT_SCHEME + ":")):
+    if key not in (None, "") and not is_secret_ref(key):
         return "params.api_key must be a 'grant:<NAME>' reference"
     return None
 

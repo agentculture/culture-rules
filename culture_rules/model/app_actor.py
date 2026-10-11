@@ -38,6 +38,7 @@ import re
 from collections.abc import Mapping
 from typing import Any
 
+from culture_rules.actors.secrets import is_secret_ref
 from culture_rules.model.action_kinds import resolve_kind
 
 __all__ = [
@@ -61,7 +62,6 @@ EMAIL_DEFAULT_LOCAL_PART = "no-reply"
 _LOCAL_PART_RE = re.compile(r"^(?!\.)(?!.*\.\.)[A-Za-z0-9!#$%&'*+/=?^_`{|}~.-]{1,64}(?<!\.)$")
 _LABEL = r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
 _HOST_RE = re.compile(rf"^{_LABEL}(?:\.{_LABEL})+$")
-_GRANT_REF_RE = re.compile(r"^grant:[A-Za-z0-9][A-Za-z0-9._/-]*$")
 _INVALID = "invalid_value"
 _REQUIRED = "required"
 EVENT_TYPE_RE = re.compile(r"^[a-z][a-z0-9_-]*(\.[a-z][a-z0-9_-]*)+$")
@@ -141,7 +141,7 @@ def _check_api_key(conn: Mapping, out: list[Problem]) -> None:
     value = conn.get("api_key")
     if value is None or value == "":
         out.append(("connection.api_key", _REQUIRED, "api_key is required"))
-    elif not (isinstance(value, str) and _GRANT_REF_RE.fullmatch(value)):
+    elif not is_secret_ref(value):
         out.append(
             ("connection.api_key", "secret_literal", "api_key must be a 'grant:<NAME>' reference")
         )

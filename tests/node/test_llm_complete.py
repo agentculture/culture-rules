@@ -673,3 +673,23 @@ def test_a_new_key_after_not_after_is_still_refused():
     port = LlmCompletePort(store, transport=FakeTransport(), clock=clock)
     res = _ask(store, port, _summary(clock.now.isoformat()), key="fresh")
     assert _failed(res) == (FAILED, LLM_DEADLINE, False)
+
+
+# ---- PR #54 review: grant references and a bounded replay ledger ---------------------------
+
+
+@pytest.mark.parametrize("api_key", ["grant:", "grant:-bad", "grant:KEY\n"])
+def test_a_malformed_grant_reference_is_refused(api_key):
+    from culture_rules.model.actor import Actor
+    from culture_rules.node.actions.llm import check_llm_actor
+
+    actor = Actor.from_dict(_actor(api_key=api_key))
+    assert check_llm_actor(actor) == "params.api_key must be a 'grant:<NAME>' reference"
+
+
+def test_a_well_formed_grant_reference_is_accepted():
+    from culture_rules.model.actor import Actor
+    from culture_rules.node.actions.llm import check_llm_actor
+
+    assert check_llm_actor(Actor.from_dict(_actor(api_key=LLM_GRANT))) is None
+

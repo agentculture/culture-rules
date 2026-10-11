@@ -46,6 +46,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - `docs/rules/pr-fixer/release.json` (0.19.0) again names 0.18.13's new rules (`pr-fixer-retry-capacity`, `pr-fixer-queue-progress-capacity`) and variables (`fixer_levels`, `fixer_unavailable`, `fixer_capacity_cooldown_s`). 0.18.13 was never rolled out live, so a rollout to 0.19.0 must still enable and seed them. `release.json` names everything new since the last release rolled out live (`docs/operations/rollout.md`)
 - `library.push` recomputes its timeout from the attempt deadline right before the queue call, so a slow upload no longer carries the queue call past the deadline; with no time left it fails `deadline_passed`, retryable (the retried upload is deduplicated by sha256)
+- One grant-reference check: `llm.complete`'s actor check and the app actors' `api_key` check both use `culture_rules.actors.secrets.is_secret_ref`, so `grant:` and `grant:-bad` are refused as an LLM actor's `api_key` (it used to accept any `grant:` prefix). `is_secret_ref` and `parse_ref` now match the whole value, so a reference with a trailing newline is refused
 
 ### Known limits
 
