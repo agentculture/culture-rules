@@ -425,6 +425,9 @@ def test_the_brief_steers_a_reviewer_to_read_and_search_rather_than_run_commands
     brief = _brief().lower()
     assert "rather than running shell commands" in brief
     assert "always finish with the verdict line" in brief
+    # conditional, so codex-reviewer (whose only way to read is its read-only shell)
+    # still reads: the steer applies only to a reviewer that has reading tools
+    assert "if your tools include file reading and search" in brief
 
 
 # --------------------------------------------------------------------------- the port
