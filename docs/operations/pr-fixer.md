@@ -10,11 +10,22 @@ independent agent, `codex-reviewer`, before anything is pushed (d20, section
 8).
 
 Since #39 (0.18.13) the fixer has **levels**: a try that does not pass can be
-retried by a second fixer, `codex-fixer` (Codex on spark, under its own
-account `culture-codex-fixer`), whose commits are carried to spark2's gate
-through the store and reviewed by `qwen-reviewer` (Qwen Code on spark2, plan
-mode). Level 2 ships disabled. See [Fixer levels](#fixer-levels-and-the-codex-hand-off-39)
-and the operator recipe in section 9.
+retried by the next fixer on a ladder. Since #56 (0.20.0) the seeded ladder
+has three levels:
+
+1. `claude-fixer` (Claude Code on spark, under its own account
+   `culture-claude-fixer`), reviewed by `qwen-reviewer`. **It ships
+   disabled** (`enabled=false`) until the Claude bridge is live; see
+   [Operator setup for the Claude level](#10-operator-setup-for-the-claude-level-spark-56).
+2. `qwen-fixer` (Qwen Code on spark2, this account), reviewed by
+   `codex-reviewer`.
+3. `codex-fixer` (Codex on spark, under its own account
+   `culture-codex-fixer`), reviewed by `qwen-reviewer` (Qwen Code on spark2,
+   plan mode); the operator recipe is section 9.
+
+The two spark fixers' commits are carried to spark2's gate through the store
+(the hand-off). Claude never reviews. See
+[Fixer levels](#fixer-levels-and-the-hand-off-39-56).
 
 **Steps marked *operator* are hand-turns.** They need root on spark2 or a
 GitHub or SonarCloud login in a browser. Everything else runs as
@@ -456,7 +467,9 @@ records that `base_sha`, but the try is given the live one:
   building a repo without a gate section is a `guard` verdict with the
   refusal as its finding, as the diff guard already gives it when it runs. An
   agent that runs out of time (the bridge's `timeout`, or the agent step's
-  deadline) ends its try failed, and `pr-fixer-retry-failed` puts it back in
+  deadline; the step `agent_qwen`, `agent_claude` or `agent_codex`, or
+  `agent` in a run pinned to the d30 `pr-fix`) ends its try failed, and
+  `pr-fixer-retry-failed` puts it back in
   the queue with the try's own instruction and a note: a failed run now
   records the workflow outputs sourced from its inputs or variables (never a
   step's value, which may be what failed), so its `rules.run.failed` event
@@ -719,16 +732,22 @@ It builds and gates one commit. It never reviews or pushes it.
    the PR back in the queue with that text as the next try's instruction
    (the requests already waiting go first). Runs pinned to the d21 3-try
    definition still retry inside the run.
-   - `agent_qwen` (level 1) or `agent_codex` (level 2, #39): the try's fixer
-     (the `fixer` input from the dispatch; none given: `qwen-fixer`) picks
-     the one agent step that runs; the others are skipped by their `when`.
-     `agent_qwen` is `qwen-fixer` in mode `yolo` on spark2; `agent_codex` is
-     `codex-fixer` (sandbox `workspace-write`) on spark, followed by
-     `handoff_export` (spark) and `handoff_import` (spark2), which carry its
-     commits to a fixer-owned worktree beside the gate (see
-     [the Codex hand-off](#the-codex-hand-off)). `select` then hands the gate
-     the worktree, start and commit of the path that ran (none or both fails
-     closed). Both agent steps get the trusted
+   - `agent_claude` (#56), `agent_qwen` or `agent_codex` (#39): the try's
+     fixer (the `fixer` input from the dispatch; none given: `qwen-fixer`)
+     picks the one agent step that runs; the others are skipped by their
+     `when`. `agent_qwen` is `qwen-fixer` in mode `yolo` on spark2.
+     `agent_claude` is `claude-fixer` (sandbox `workspace-write`) on spark,
+     followed by its own `handoff_export_claude` (spark, `run_as`
+     `culture-claude-fixer`) and `handoff_import_claude` (spark2).
+     `agent_codex` is `codex-fixer` (sandbox `workspace-write`) on spark,
+     followed by `handoff_export` (spark, `run_as` `culture-codex-fixer`) and
+     `handoff_import` (spark2). Each hand-off carries its fixer's commits to
+     a fixer-owned worktree beside the gate (see
+     [the hand-off](#the-hand-off)). `select` then hands the gate the
+     worktree, start and commit of the path that ran, from one of its three
+     sources (`claude`, `qwen`, `codex`, labelled `claude-fixer`,
+     `qwen-fixer`, `codex-fixer`, so the try's implementer is exact); none or
+     more than one fails closed. Every agent step gets the trusted
      `threads`, `sonar_issues` and `sonar_note` as bound inputs. The rule's instruction says
      to follow `sonar_note`: on a failing gate fix exactly the listed issues, on
      a passing gate a listed new-code issue only when the trusted request names
@@ -784,9 +803,10 @@ workflows own it; no agent is involved.
 - **The cap** is that of the actor concurrency pool `qwen-spark2`
   (`config.pool`): the smallest `max_concurrency` among the enabled actors
   naming it, else `config.cap` (1). With `vars.fixer_levels` (#39) each
-  level's queue is capped by its own level's pool (`codex-spark` for
-  `queues/pr-fixer-codex`); see
-  [Fixer levels](#fixer-levels-and-the-codex-hand-off-39).
+  level's queue is capped by its own level's pool (`claude-spark` for
+  `queues/pr-fixer-claude`, `qwen-spark2` for `queues/pr-fixer`,
+  `codex-spark` for `queues/pr-fixer-codex`); see
+  [Fixer levels](#fixer-levels-and-the-hand-off-39-56).
 - **A dispatch is claimed or expires, never both.** `pr-fixer-dispatch`'s
   firing claims the request's slot (a compare-and-set on the queue document,
   in the transaction that records the firing); a claimed slot is held until
@@ -827,26 +847,44 @@ workflows own it; no agent is involved.
 - **Not backed up.** `queues` is not in the backup set; after a restore the
   waiting PRs need a new request (`/fix`).
 
-### Fixer levels and the Codex hand-off (#39)
+### Fixer levels and the hand-off (#39, #56)
 
 A story (one request and its retries and re-fixes, up to 3 tries) can move
-up a ladder of fixers. Try 1 is fixed by `qwen-fixer` and reviewed by
-`codex-reviewer`; try 2 by `codex-fixer` (Codex on spark) and reviewed by
-`qwen-reviewer`; try 3 by the next enabled level, and past the ladder's end
-the last level repeats. A new `/fix` or a human push starts a new story at
-level 1 with a fresh budget. The status comment names each try's fixer and
-level ("try 2 (codex-fixer, level 2): ...").
+up a ladder of fixers. Since #56 (0.20.0) the seeded ladder has three
+levels, one try each (`MAX_TRIES` is 3):
+
+| Level | Fixer | Where | Reviewed by | Pool | Queue | Seeded |
+|---|---|---|---|---|---|---|
+| 1 | `claude-fixer` (Claude Code) | spark, as `culture-claude-fixer` | `qwen-reviewer` | `claude-spark` | `queues/pr-fixer-claude` | **disabled** |
+| 2 | `qwen-fixer` (Qwen Code) | spark2, as `culture-fixer` | `codex-reviewer` | `qwen-spark2` | `queues/pr-fixer` | enabled |
+| 3 | `codex-fixer` (Codex) | spark, as `culture-codex-fixer` | `qwen-reviewer` | `codex-spark` | `queues/pr-fixer-codex` | enabled |
+
+Try *n* goes to the *n*-th **enabled** level, and past the ladder's end the
+last enabled level repeats. With level 1 enabled, try 1 is Claude's, try 2
+Qwen's and try 3 Codex's. While level 1 is disabled (as seeded), try 1 is
+Qwen's, try 2 Codex's and try 3 Codex's again. A new `/fix` or a human push
+starts a new story at the first enabled level with a fresh budget. The
+status comment names each try's fixer and its level's own number, so with
+Claude enabled it reads "try 2 (qwen-fixer, level 2): ..." and with Claude
+disabled "try 2 (codex-fixer, level 3): ...".
+
+Claude never reviews: `REVIEWER_BACKENDS` stays `codex` and `qwen`, and no
+reviewer step names a Claude actor. A Claude try is reviewed by
+`qwen-reviewer` on the shared `qwen-spark2` pool, so its review waits behind
+any Qwen fix running on spark2's cortex server (one Qwen job at a time).
 
 #### The levels: `fixer_levels`, `fixer_unavailable`
 
 `vars.fixer_levels` lists the levels in order. A shared variable holds only
 scalars or a list of them, so each level is one string of six `key=value`
 fields (d1), parsed strictly: a missing, repeated or unknown field fails the
-queue step `bad_levels` and nothing is dispatched. The seed value:
+queue step `bad_levels` and nothing is dispatched. The seed value
+(`docs/rules/pr-fixer/variables.json`):
 
 ```text
-level=1 actor=qwen-fixer reviewer=codex-reviewer pool=qwen-spark2 queue=pr-fixer enabled=true
-level=2 actor=codex-fixer reviewer=qwen-reviewer pool=codex-spark queue=pr-fixer-codex enabled=false
+level=1 actor=claude-fixer reviewer=qwen-reviewer pool=claude-spark queue=pr-fixer-claude enabled=false
+level=2 actor=qwen-fixer reviewer=codex-reviewer pool=qwen-spark2 queue=pr-fixer enabled=true
+level=3 actor=codex-fixer reviewer=qwen-reviewer pool=codex-spark queue=pr-fixer-codex enabled=true
 ```
 
 - `actor` is the try's fixer and `reviewer` the actor that reviews its
@@ -854,13 +892,18 @@ level=2 actor=codex-fixer reviewer=qwen-reviewer pool=codex-spark queue=pr-fixer
   `review-commit` are digest-pinned (`TRUSTED_WORKFLOWS`) and have one step
   per known actor; a level naming an actor without a step runs no agent and
   fails closed.
-- `queue` is the level's own queue document (`queues/pr-fixer` is level
-  1's, as before; `queues/pr-fixer-codex` is level 2's) and `pool` the actor
-  `concurrency_pool` whose cap is that queue's cap. Each level's queue moves
-  on its own pool, so a Codex try never waits for the Qwen server.
-- `enabled` takes a level on or off the ladder. Enable level 2 by editing
-  that field in place (`culture-rules variables set fixer_levels ...`, or the
-  Variables tab).
+- `queue` is the level's own queue document (`queues/pr-fixer-claude` is
+  Claude's, `queues/pr-fixer` Qwen's, as before #56, and
+  `queues/pr-fixer-codex` Codex's) and `pool` the actor `concurrency_pool`
+  whose cap is that queue's cap. Each level's queue moves on its own pool,
+  so a Claude or Codex try never waits for the Qwen server. With
+  `fixer_levels` undefined the queue workflows still fall back to
+  `queues/pr-fixer`.
+- `enabled` takes a level on or off the ladder. Change it by setting the
+  whole variable with that one field edited and the other fields unchanged
+  (`culture-rules variables set fixer_levels --value '[...]' --apply`, or
+  the Variables tab); the Claude level's flip is step 8 of
+  [section 10](#10-operator-setup-for-the-claude-level-spark-56).
 
 `queue.add` puts a request in the queue of the level its try is due at (try
 *n*: the *n*-th enabled level, counted from the PR key's attempts), so a
@@ -885,15 +928,25 @@ waits its turn (d2). `vars.fixer_unavailable` says what an unavailable due
 level does: `next` (the default) takes the first available level after it;
 `hand_back` ends the story. With no level left the request leaves the queue
 `no_fixer_available` and the story is handed back once, with a final status
-text. Skipping a level never adds a try.
+text. Skipping a level never adds a try. A disabled level is not
+"unavailable": it is simply not on the ladder.
 
 **Live behaviour change when `fixer_levels` is seeded (d3).** With the
 variable undefined the queue works exactly as before #39 (one queue, no
-level). Once it is seeded the queue runs in levels mode even with only
-level 1 enabled: an unavailable `qwen-fixer` (disabled, out of budget) now
-hands the story back once (`no_fixer_available`) at dispatch, instead of
-the run failing at the agent step. A closed PR or a moved head is still
-dropped silently.
+level). Once it is seeded the queue runs in levels mode even with one
+level enabled: an unavailable fixer (disabled, out of budget) now hands the
+story back once (`no_fixer_available`) at dispatch, instead of the run
+failing at the agent step. A closed PR or a moved head is still dropped
+silently.
+
+**A rollout never changes the live `fixer_levels`.** `rollout seed` and
+`docs/rules/pr-fixer/seed-variables.sh` set only the seed variables that do
+not exist yet and skip the rest (unless `--force`, which re-sets **every**
+seed variable: do not use it on a live system). The seeded three-level
+value above therefore reaches only a fresh store. On a store seeded by
+0.18.13 the live ladder stays whatever the operator last set (0.18.13
+seeded the two-level Qwen-then-Codex value) until the operator sets it with
+`culture-rules variables set fixer_levels --value '[...]' --apply`.
 
 #### The capacity cooldown
 
@@ -916,21 +969,38 @@ still counts toward the 3; a PR that spent them is refused and the rule
 hands back once. A cooldown document whose `until` is past, missing or
 malformed is no cooldown.
 
-#### The Codex hand-off
+#### The hand-off
 
-The gate runs on spark2 and reads a worktree on its own machine; the Codex
-fixer works on spark. Its commits travel through the store (no ssh, no
-network share, no cultureagent change):
+The gate runs on spark2 and reads a worktree on its own machine; the Claude
+and Codex fixers work on spark. Their commits travel through the store (no
+ssh, no network share, no cultureagent change). Each spark fixer has its own
+pair of hand-off steps, so `select` labels the commit with the fixer that
+made it: `handoff_export_claude` / `handoff_import_claude` for Claude, and
+`handoff_export` / `handoff_import` for Codex. The steps are the same
+built-ins; only the account differs.
 
-1. `agent_codex` (spark): the second Codex bridge checks out `head_sha` in a
-   fresh worktree as `culture-codex-fixer` and runs Codex
-   (`workspace-write`). It commits locally and never pushes.
-   `require_commit` as for Qwen.
-2. `handoff_export` (spark, the built-in `handoff.export`): as the fixer
-   account, through `CULTURE_RULES_HANDOFF_RUN_AS` (unset, the step fails
-   `handoff_runner_unconfigured`), it checks the worktree's `HEAD` is the
-   agent's commit and descends from the start, packs `start..head` and
-   stores it, base64, in the `handoffs` collection. A pack over the cap
+1. `agent_claude` or `agent_codex` (spark): the fixer's bridge checks out
+   `head_sha` in a fresh worktree as its own account (`culture-claude-fixer`
+   or `culture-codex-fixer`) and runs the agent (`workspace-write`). It
+   commits locally and never pushes. `require_commit` as for Qwen.
+2. `handoff_export_claude` or `handoff_export` (spark, the built-in
+   `handoff.export`): as the fixer's account, it checks the worktree's
+   `HEAD` is the agent's commit and descends from the start, packs
+   `start..head` and stores it, base64, in the `handoffs` collection.
+   **Which account** (#56): the node's `CULTURE_RULES_HANDOFF_RUN_AS` is the
+   sudo prefix (unset, the step fails `handoff_runner_unconfigured` and
+   never runs git as the node user), and the step's `config.run_as` names
+   the account: `culture-claude-fixer` on the Claude export,
+   `culture-codex-fixer` on the Codex export. The step's account replaces
+   the prefix's one account and keeps its shape. For that the prefix must
+   be `sudo` (any path ending in `sudo`) whose options, before a `--`, are
+   only `-n`/`--non-interactive`, `-H`/`--set-home` and exactly one account
+   (`-u NAME`, `--user NAME` or `--user=NAME`, an account name itself);
+   anything else (another option, two accounts, no `--`, not sudo) is
+   refused `bad_config` before anything runs, as is a `run_as` that is not
+   an account name (lowercase letters, digits, `-` and `_`, 1-32
+   characters, not starting with `-`). A step with no `run_as` runs as the
+   prefix's own account, as before #56. A pack over the cap
    (default 8 MiB, at most 10 MiB) fails `handoff_too_large` and is never
    stored. Each document carries `expires_at`, a date a day after its last
    renewal (the export, an import's claim, its receipt). An export never
@@ -938,7 +1008,8 @@ network share, no cultureagent change):
    only renews `expires_at`; for other commits it replaces a hand-off no
    import has claimed and otherwise fails `handoff_conflict` (not
    retryable).
-3. `handoff_import` (spark2, `handoff.import`): as the gate's fixer user
+3. `handoff_import_claude` or `handoff_import` (spark2, `handoff.import`),
+   unchanged by #56: as the gate's fixer user
    (`CULTURE_RULES_GATE_RUN_AS`), in a fresh `mktemp -d` workspace, it
    fetches the start (and base) by SHA from the trusted clone URL, verifies
    the pack's size and sha256 and indexes it with `index-pack --strict`,
@@ -958,11 +1029,11 @@ network share, no cultureagent change):
    rebuilt from the pack. Two such replays racing settle on one worktree
    that is intact; neither reports one that was removed.
 4. `select` hands the gate that worktree; the gate is unchanged and judges
-   exactly the commit Codex made (git object ids are content hashes).
+   exactly the commit the fixer made (git object ids are content hashes).
 
 Known limits:
 
-- **A Codex try that rewrites history fails at the export**
+- **A Claude or Codex try that rewrites history fails at the export**
   (`handoff_not_descendant`): the step fails, the try ends failed and the
   story hands back once; no retry rule covers it.
 - **The size cap is checked after the pack is written** (in the node's
@@ -992,7 +1063,8 @@ for a passing gate (or no gate) whose diff is the whole change:
    brief) reviews a **Qwen** try (reviewer `codex-reviewer`, or none given).
 2. `review_qwen`: `qwen-reviewer` (spark2, the qwen bridge in mode `plan`,
    `sandbox: read-only`, the same locked brief and bound inputs) reviews a
-   **Codex** try (reviewer `qwen-reviewer`).
+   **Codex** or (#56) **Claude** try (reviewer `qwen-reviewer`). There is no
+   Claude review step: Claude never reviews.
 3. `verdict`: the built-in `review`. It **walks back to the `pr-fix` run**
    whose success started this run (`culture_rules/actors/lineage.py`), never
    through wired inputs:
@@ -1649,12 +1721,12 @@ To change a workflow on purpose:
 3. Ship the wheel and upgrade every node.
 4. Import the workflow (`culture-rules workflows import ... --apply`).
 
-The shipped digests (0.18.13):
+The shipped digests (0.20.0):
 
 | Role | Digest |
 |---|---|
 | `pr-fixer` | `sha256:01ece1cd…f4fc5d6` (kept for the transition) |
-| `pr-fix` | `sha256:04570dee…43b6a8` (d21, the d25 GitGuardian hold), `sha256:307e82fc…e032` (#35, one try), `sha256:721e25be…136005` (#39, one agent step per level and the hand-off) |
+| `pr-fix` | `sha256:04570dee…43b6a8` (d21, the d25 GitGuardian hold), `sha256:307e82fc…e032` (#35, one try), `sha256:721e25be…136005` (#39, one agent step per level and the hand-off), `sha256:2255b082…a708c` (#56, `agent_claude` and its own hand-off) |
 | `review-commit` | `sha256:79064f76…b158e6` (d21, one review step), `sha256:0653ba8c…2b2bbd` (#39, the reviewer follows the fixer) |
 | `publish-fix` | `sha256:0fa92074…c23680` |
 
@@ -1770,7 +1842,10 @@ after the upgrade if no rule heard it, such as katvan#57's at 14:49Z on
 
 ### Rolling out the escalation (#39, 0.18.13)
 
-The operator does this. 0.18.13 adds:
+The operator does this. Level 2 below is Codex's number in 0.18.13; since
+0.20.0 Codex is level 3 (see
+[Rolling out the Claude level](#rolling-out-the-claude-level-0200)). 0.18.13
+adds:
 
 | Kind | What | Note |
 |---|---|---|
@@ -1788,7 +1863,7 @@ The operator does this. 0.18.13 adds:
 | `ROLE_FIX`: `pr-fix` (#39) | `sha256:721e25bea3163437e4d6808eb2e817057e4f9900d2f7123ee0a00f1880136005` |
 | `ROLE_REVIEW`: `review-commit` (#39) | `sha256:0653ba8c61a2eb0368819ac07b2a9b08ad3a8e6b023c6bfcf8ff4b93682b2bbd` |
 | `qwen-reviewer`, the committed document | `sha256:5b0e1aa73c6222a757b8357fec19b2c86d937848353bfe443c4e268fffda8b1a` |
-| `codex-fixer`, the committed document (not pinned; recorded on each invocation) | `sha256:183cd42529d4cf2044268462ec67cf4e7c3fe9e24211c9fbfdd2f5833bcdaa50` |
+| `codex-fixer`, the committed document (not pinned; recorded on each invocation) | `sha256:183cd42529d4cf2044268462ec67cf4e7c3fe9e24211c9fbfdd2f5833bcdaa50` (0.18.13, bridge on 8095; since 0.20.0 see [Rolling out the Claude level](#rolling-out-the-claude-level-0200)) |
 
 The earlier `pr-fix` and `review-commit` digests stay trusted while runs
 pinned to them may still push or record a review.
@@ -1834,6 +1909,63 @@ The order: **setup, then the rollout, then level 2.**
    unchanged). To turn the Codex level off again, set it back to
    `enabled=false`; requests already in `queues/pr-fixer-codex` are then
    resolved again at dispatch.
+
+### Rolling out the Claude level (0.20.0)
+
+The operator does this. 0.20.0 (#56) adds:
+
+| Kind | What | Note |
+|---|---|---|
+| Rules | none new; `pr-fixer-retry-failed` changed (its pattern also names `agent_claude`) | `release.json`'s `new_rules` is empty |
+| Workflows | `pr-fix` (changed: `agent_claude`, `handoff_export_claude`, `handoff_import_claude`, select's `claude` source, the Codex export's `run_as`) | a new `ROLE_FIX` digest |
+| Variables | none new; the seeded `fixer_levels` value has three levels | `new_variables` is empty; the seed skips the live `fixer_levels` |
+| Actors | `claude-fixer` (new, level 1); `codex-fixer`'s `bridge_url` 8095 -> 8097 | registered or updated by hand, not by `rollout import` |
+| Collections | `queues/pr-fixer-claude` | not in the backup set |
+
+**Digests** (the workflow's in `culture_rules/actors/trusted.py`; the
+fixers are not pinned):
+
+| What | Digest |
+|---|---|
+| `ROLE_FIX`: `pr-fix` (#56) | `sha256:2255b0820f32a355eff9b20e4ab9dea506660d12b54e29130a248b8cf58a708c` |
+| `claude-fixer`, the committed document (not pinned; recorded on each invocation) | `sha256:2d03fa3066d563411afe580572aa297bfcdc49dc375bd10e1398a72423713c1d` |
+| `codex-fixer`, the committed document, bridge on 8097 (not pinned; recorded on each invocation) | `sha256:35c050a2d423e7e2c075ae6b7bf2358dc92041af1f6e79dc1dd73a6e71f77e8e` |
+
+The three earlier `pr-fix` digests stay trusted while runs pinned to them
+may still push. `review-commit` is unchanged (a Claude try is reviewed by
+the existing `review_qwen` step), so no `ROLE_REVIEW` digest changes.
+
+The order: **the rollout, then the Claude setup, then the flip.**
+
+1. **Move the Codex fixer's bridge off 8095**, if it was set up on 8095 by
+   the 0.18.13 recipe: set `"port": 8097` in its
+   `.config/cultureagent-bridges/codex.json` (as `culture-codex-fixer`),
+   restart `cultureagent-codex-bridge`, then point the actor at it
+   (`culture-rules actors update codex-fixer --body
+   @docs/rules/pr-fixer/actors/codex-fixer.json --apply`, the committed
+   document). 8095 on spark is the climate stack's weather-web. A Codex
+   bridge not set up yet is simply set up on 8097 (section 9).
+2. **The rollout** (`culture-rules rollout plan --wheel ...`, then its steps
+   in order): pause, upgrade every node and the API, seed, import, enable,
+   resume, verify. Spark's node must run 0.20.0 before the import: an older
+   node's `handoff.export` does not know `config.run_as` and would run every
+   export as the prefix's own account. `seed` sets nothing new (it skips
+   the existing `fixer_levels`), `import` brings the new `pr-fix` and the
+   changed `pr-fixer-retry-failed`, and `enable` turns back on the rules
+   that were on. **The live fixer does not change**: the live `fixer_levels`
+   names no Claude level, so no try goes to `agent_claude`.
+3. **The Claude level's setup**: [section 10](#10-operator-setup-for-the-claude-level-spark-56),
+   steps 1-7 (account, Claude login, bridge on 8096, grants, the hand-off's
+   sudoers line, the actor). None of it changes what the live fixer does.
+4. **The flip** (section 10, step 8), after cultureagent's live check of
+   the claude bridge and once `qwen-reviewer` is registered live with
+   `qwen-fixer`'s endpoints (it reviews every Claude try; 0.20.0 trusts that
+   digest): `culture-rules variables set fixer_levels`
+   with level 1 `enabled=true`. Then the first `/fix` on a tester PR is the live check
+   (section 10, step 9).
+
+This release claims no speed-up: whether Claude-first fixes land faster is
+checked live after the flip.
 
 ### Rolling out the GitGuardian report (d25)
 
@@ -1909,8 +2041,8 @@ set of digests, in `culture_rules/actors/trusted.py`):
   pinned as `sha256:5b0e1aa7…8b1a`; a live document with other endpoints
   (the tailnet bridge URL) hashes differently and needs its own digest (see
   [Rolling out the escalation](#rolling-out-the-escalation-39-01813)).
-- `qwen-fixer` and `codex-fixer` (#39) are not pinned: everything a fixer
-  produces is gated and reviewed. The bridge adapter still records a
+- `qwen-fixer`, `codex-fixer` (#39) and `claude-fixer` (#56) are not
+  pinned: everything a fixer produces is gated and reviewed. The bridge adapter still records a
   fixer's digest on each invocation.
 
 Names, descriptions and limits such as `max_concurrency` are not part of
@@ -1954,7 +2086,7 @@ actor. Drop the first digest in a later release.
 config alone. No AI writes it, and the name and description fields are not
 used. In the editor, the (i) "About" button on each workflow (list row and
 title) and on each entry point of a workflow's Simple view shows the same
-lines. For the shipped bundle (0.18.13):
+lines. For the shipped bundle (0.20.0):
 
 ```console
 $ culture-rules rules describe pr-fixer-checks
@@ -2019,11 +2151,14 @@ $ culture-rules workflows describe pr-fix
 4 sonar — sonar.gate_issues: the issues behind the PR's failing SonarCloud gate
 5 fix — one try, until verdict exists:
   5.1 agent_qwen — qwen-fixer (agent, must commit), when fixer missing or fixer ∈ {"", qwen-fixer}
-  5.2 agent_codex — codex-fixer (agent, workspace-write, must commit), when fixer = codex-fixer
-  5.3 handoff_export — handoff.export: the fixer's commits as a size-capped pack in the store on spark, when fixer = codex-fixer
-  5.4 handoff_import — handoff.import: that pack into a fresh fixer-owned worktree on spark2, when fixer = codex-fixer
-  5.5 select — select: the outputs of the path that ran (one source for the next step) on spark2
-  5.6 gate — test gate on spark2
+  5.2 agent_claude — claude-fixer (agent, workspace-write, must commit), when fixer = claude-fixer
+  5.3 handoff_export_claude — handoff.export: the fixer's commits as a size-capped pack in the store on spark, when fixer = claude-fixer
+  5.4 handoff_import_claude — handoff.import: that pack into a fresh fixer-owned worktree on spark2, when fixer = claude-fixer
+  5.5 agent_codex — codex-fixer (agent, workspace-write, must commit), when fixer = codex-fixer
+  5.6 handoff_export — handoff.export: the fixer's commits as a size-capped pack in the store on spark, when fixer = codex-fixer
+  5.7 handoff_import — handoff.import: that pack into a fresh fixer-owned worktree on spark2, when fixer = codex-fixer
+  5.8 select — select: the outputs of the path that ran (one source for the next step) on spark2
+  5.9 gate — test gate on spark2
 $ culture-rules workflows describe report-secrets
 1 findings — gitguardian.findings as github-app: the head's GitGuardian findings, no secret values
 $ culture-rules workflows describe review-commit
@@ -2203,12 +2338,12 @@ culture-rules actors import docs/rules/pr-fixer --apply
 
 ## 9. Operator setup for the Codex level (spark, #39)
 
-Level 2 (`codex-fixer`) is Codex through a **second** cultureagent codex
-bridge on spark, under its own unprivileged account, `culture-codex-fixer`.
-It writes (sandbox `workspace-write`) and commits locally; it never pushes.
-Its commits reach spark2's gate only through the hand-off
-([The Codex hand-off](#the-codex-hand-off)), and `qwen-reviewer` reviews
-them. All of this is *operator* hand-turns; nothing here is done by an
+Level 3 (`codex-fixer`; level 2 before #56 put Claude first) is Codex
+through a **second** cultureagent codex bridge on spark, under its own
+unprivileged account, `culture-codex-fixer`. It writes (sandbox
+`workspace-write`) and commits locally; it never pushes. Its commits reach
+spark2's gate only through the hand-off ([The hand-off](#the-hand-off)),
+and `qwen-reviewer` reviews them. All of this is *operator* hand-turns; nothing here is done by an
 agent. No secret value appears below: grant **names** only.
 
 ### Account and Codex login (operator, root)
@@ -2260,7 +2395,7 @@ directory, as for the reviewer. The bridge config,
 ```json
 {
   "host": "127.0.0.1",
-  "port": 8095,
+  "port": 8097,
   "repo_allowlist_prefixes": ["https://github.com/agentculture/"],
   "default_sandbox": "workspace-write",
   "max_concurrent": 1,
@@ -2270,8 +2405,11 @@ directory, as for the reviewer. The bridge config,
 ```
 
 Set `codex_bin` too if the Codex CLI is not on the unit's `PATH`. It binds
-loopback on its own port (8095; the reviewer's bridge is 8094): its only
-caller is spark's own engine node. `commit_author` is the App bot, the
+loopback on its own port, **8097** (#56; the reviewer's bridge is 8094 and
+the Claude fixer's 8096): its only caller is spark's own engine node. It was
+8095 before 0.20.0, but 8095 on spark is the climate stack's weather-web, so
+a bridge set up on 8095 must move (see
+[Rolling out the Claude level](#rolling-out-the-claude-level-0200)). `commit_author` is the App bot, the
 identity `github.push` requires (`foreign_author` otherwise).
 
 The user unit, `.config/systemd/user/cultureagent-codex-bridge.service` in
@@ -2279,7 +2417,7 @@ that home, is the reviewer's unit with this account's token name:
 
 ```ini
 [Unit]
-Description=cultureagent codex bridge (PR fixer level 2, workspace-write)
+Description=cultureagent codex bridge (PR fixer level 3, workspace-write)
 After=network-online.target
 Wants=network-online.target
 
@@ -2306,9 +2444,13 @@ systemctl --user daemon-reload && systemctl --user enable --now cultureagent-cod
 `handoff_export` runs on spark's engine node and reads the fixer's worktree
 **as `culture-codex-fixer`**, through the prefix in
 `CULTURE_RULES_HANDOFF_RUN_AS`; while it is unset the step fails
-`handoff_runner_unconfigured` and never runs git as the node user. The node
-appends `env -C <dir> -- git ...` to the prefix, so give the node's user
-exactly one sudo grant, to run `env` as that account without a password:
+`handoff_runner_unconfigured` and never runs git as the node user. Since #56
+the step names its account itself (`config.run_as: culture-codex-fixer`), and
+that account replaces the one in the prefix, so the prefix must have the
+strict form `sudo -n -u <account> --` (only `-n` and `-H` besides the one
+account; see [The hand-off](#the-hand-off)). The node appends
+`env -C <dir> -- git ...` to it, so give the node's user one sudo grant per
+fixer account, to run `env` as that account without a password. For Codex:
 
 ```bash
 echo '<node-user> ALL=(culture-codex-fixer) NOPASSWD: /usr/bin/env' \
@@ -2332,6 +2474,10 @@ CONF
 systemctl --user daemon-reload && systemctl --user restart culture-rules-node
 ```
 
+One drop-in serves both spark fixers: the Claude export's `run_as`
+(`culture-claude-fixer`) replaces the account in this prefix, so the Claude
+level needs only its own sudoers line (section 10), not a second prefix.
+
 As with the gate's grant, the node user can run anything as
 `culture-codex-fixer` (the less privileged account; the reverse does not
 exist), and the fixer's git config, templates, hooks and fsmonitor are
@@ -2342,10 +2488,10 @@ fixer user through the `CULTURE_RULES_GATE_RUN_AS` set up in section 5.
 
 `codex-fixer` ships as `docs/rules/pr-fixer/actors/codex-fixer.json`:
 machine `spark`, harness `codex`, and `params` `bridge_url`
-`http://127.0.0.1:8095`, `callback_url` `http://127.0.0.1:18765` (the API's
+`http://127.0.0.1:8097`, `callback_url` `http://127.0.0.1:18765` (the API's
 loopback listener on spark; change it if yours differs), `bridge_token`
 `grant:RULES_CODEX_FIXER_TOKEN`, `sandbox: workspace-write`,
-`concurrency_pool: codex-spark` (level 2's queue cap) and
+`concurrency_pool: codex-spark` (level 3's queue cap) and
 `max_concurrency: 1`. It has no `reviewer` flag and no locked brief: it
 takes the try's instruction like `qwen-fixer`.
 
@@ -2373,12 +2519,257 @@ the tailnet address, not on loopback.
 | Check | Expected |
 |---|---|
 | as `culture-codex-fixer`: `git push`, `ls ~spark/.codex`, `grant list` | no push credential; permission denied; only the `CODEX_FIXER_*` names |
-| `curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8095/v1/capabilities` | `401` |
+| `curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8097/v1/capabilities` | `401` |
 | the same with the bearer token | `200`; `"pushes": false`; read the `confinement` sentence |
 | as the node user: `sudo -n -u culture-codex-fixer -- /usr/bin/env true` | exit 0, no password prompt |
 | `systemctl --user show culture-rules-node -p NoNewPrivileges` | `NoNewPrivileges=no` |
 | `culture-rules actors list` | `codex-fixer` (spark), `qwen-reviewer` (spark2) |
-| level 2 enabled, a story on the scratch repository whose Qwen try does not pass | try 2 on spark (`agent_codex`, `handoff_export`), `handoff_import` and the gate on spark2, `review_qwen`, then the push or one hand-back; the status comment names both levels |
+| level 3 enabled, a story on the scratch repository whose Qwen try does not pass | the Codex try on spark (`agent_codex`, `handoff_export` as `culture-codex-fixer`), `handoff_import` and the gate on spark2, `review_qwen`, then the push or one hand-back; the status comment names each try's level |
+
+## 10. Operator setup for the Claude level (spark, #56)
+
+Level 1 (`claude-fixer`) is Claude Code through the cultureagent claude
+bridge (`cultureagent-claude-bridge`, cultureagent 0.15.0) on spark, under
+its own unprivileged account, `culture-claude-fixer`, with its own Claude
+login. It writes (the bridge's fixer role, sandbox `workspace-write`) and
+commits locally; it never pushes. Its commits reach spark2's gate only
+through its own hand-off steps ([The hand-off](#the-hand-off)), and
+`qwen-reviewer` reviews them. Claude never reviews.
+
+**0.20.0 ships this level disabled.** The seeded level-1 string says
+`enabled=false`, and a rollout never changes the live `fixer_levels`
+anyway. Everything below is *operator* hand-turns, in this order; none of
+it is done live yet, and nothing here is done by an agent. Steps 1-7 change
+nothing the live fixer does; step 8 turns the level on. No secret value
+appears below: grant **names** only.
+
+### 1. The account (operator, root)
+
+Create the account the way section 1 creates `culture-fixer`: own group and
+home (mode 750), no sudo, no operator groups, lingering on.
+
+```bash
+sudo bash deploy/pr-fixer/create-user.sh --user culture-claude-fixer            # plan only
+sudo bash deploy/pr-fixer/create-user.sh --user culture-claude-fixer --apply
+```
+
+### 2. Claude Code, its login and the tools (as `culture-claude-fixer`)
+
+Open a login shell as the account (`sudo -iu culture-claude-fixer`) and
+install everything into its own home:
+
+```bash
+curl -fsSL https://claude.ai/install.sh | bash             # Claude Code, into the account's .local/bin
+claude                                                     # then /login: a browser or device-code hand-turn
+claude -p 'Reply with the single word: ok'                 # headless check: prints ok, no prompt
+curl -LsSf https://astral.sh/uv/install.sh | sh            # uv, into the account's .local/bin
+"$HOME/.local/bin/uv" tool install grant
+"$HOME/.local/bin/uv" tool install 'cultureagent>=0.15.0' # puts cultureagent-claude-bridge on PATH
+```
+
+The Claude session lives in this account's home, never the operator's, so
+the fixer has its own Claude quota and the operator's own `claude` login is
+never used. When the quota runs out the bridge reports
+`capacity_exhausted`, the try fails and the level rests
+([The capacity cooldown](#the-capacity-cooldown)). Run the headless check
+before the bridge: the bridge refuses to work while the account is not
+logged in.
+
+### 3. The bridge config (as `culture-claude-fixer`)
+
+`.config/cultureagent-bridges/claude.json` in the account's home (mode
+600):
+
+```json
+{
+  "host": "127.0.0.1",
+  "port": 8096,
+  "repo_allowlist_prefixes": ["https://github.com/agentculture/"],
+  "max_concurrent": 1,
+  "always_async": true,
+  "commit_author": "rules-culture-dev[bot] <337624453+rules-culture-dev[bot]@users.noreply.github.com>"
+}
+```
+
+It binds loopback on **8096** (the reviewer's codex bridge is 8094, the
+Codex fixer's 8097; 8095 is the climate stack's weather-web): its only
+caller is spark's own engine node. `commit_author` is the App bot, the
+identity `github.push` requires (`foreign_author` otherwise). There is no
+role key: the bridge reads the request's `input.sandbox` as the role, and
+`claude-fixer` sends `workspace-write`, the fixer. Set `claude_bin` if
+Claude Code is not on the unit's `PATH`.
+
+### 4. The bridge unit (as `culture-claude-fixer`)
+
+`.config/systemd/user/cultureagent-claude-bridge.service` in that home:
+
+```ini
+[Unit]
+Description=cultureagent claude bridge (PR fixer level 1, workspace-write)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+# The bridge token reaches the bridge only as environment at exec time.
+ExecStart=%h/.local/bin/grant run --inject CLAUDE_BRIDGE_AUTH_TOKEN=CLAUDE_FIXER_BRIDGE_TOKEN -- %h/.local/bin/cultureagent-claude-bridge --config %h/.config/cultureagent-bridges/claude.json
+Restart=always
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target
+```
+
+Enable it only after step 5 has put `CLAUDE_FIXER_BRIDGE_TOKEN` in the
+account's store:
+
+```bash
+systemctl --user daemon-reload && systemctl --user enable --now cultureagent-claude-bridge
+```
+
+### 5. The grant secrets (operator)
+
+| grant name | Store | Injected as | Used by |
+|---|---|---|---|
+| `CLAUDE_FIXER_BRIDGE_TOKEN` | `culture-claude-fixer`'s | `CLAUDE_BRIDGE_AUTH_TOKEN` | the bridge: the bearer token it requires |
+| `RULES_CLAUDE_FIXER_TOKEN` | spark's node (operator account) | `CULTURE_RULES_SECRET_RULES_CLAUDE_FIXER_TOKEN`, read through `grant:` | the engine, calling the bridge (`claude-fixer`'s `bridge_token`) |
+
+Generate the bridge token once in the node's store and copy it, so the two
+match:
+
+```bash
+G="$(command -v grant)"   # sudo needs the absolute path
+$G generate RULES_CLAUDE_FIXER_TOKEN --hidden --bytes 32 --encoding hex
+$G run --inject T=RULES_CLAUDE_FIXER_TOKEN -- sh -c 'printf %s "$T"' \
+  | sudo $G set CLAUDE_FIXER_BRIDGE_TOKEN - --hidden --user culture-claude-fixer
+```
+
+Add `--secret RULES_CLAUDE_FIXER_TOKEN` to spark's node install
+(`deploy/node/install.sh`, with the flags it was installed with, next to
+`--secret RULES_CODEX_REVIEWER_TOKEN` and `--secret
+RULES_CODEX_FIXER_TOKEN`).
+
+### 6. The hand-off export's run-as (operator, root)
+
+`handoff_export_claude` runs on spark's engine node and reads the Claude
+worktree **as `culture-claude-fixer`**: its `config.run_as` names that
+account, which replaces the one account in the node's
+`CULTURE_RULES_HANDOFF_RUN_AS` prefix. The prefix must be the strict form
+`sudo -n -u <account> --` (sudo, only `-n`/`-H` besides exactly one
+`-u`/`--user`/`--user=` account, then `--`); anything else is refused
+`bad_config` before git runs, and with no prefix the step fails
+`handoff_runner_unconfigured`.
+
+1. **The node unit must not set `NoNewPrivileges=yes`**, or sudo refuses and
+   the export fails `run_as_blocked`. If section 9's drop-in is in place,
+   keep it: its prefix serves both accounts. Otherwise create it with this
+   account (the step's `run_as` still picks the account per fixer):
+
+   ```bash
+   mkdir -p "$HOME/.config/systemd/user/culture-rules-node.service.d"
+   cat > "$HOME/.config/systemd/user/culture-rules-node.service.d/handoff-sudo.conf" <<'CONF'
+   [Service]
+   Environment="CULTURE_RULES_HANDOFF_RUN_AS=sudo -n -u culture-claude-fixer --"
+   NoNewPrivileges=false
+   CONF
+   systemctl --user daemon-reload && systemctl --user restart culture-rules-node
+   ```
+
+2. **One sudoers line per fixer account.** The node appends
+   `env -C <dir> -- git ...` to the prefix, so the node's user needs to run
+   `env` as `culture-claude-fixer` without a password (and as
+   `culture-codex-fixer`, section 9, when the Codex level is live):
+
+   ```bash
+   echo '<node-user> ALL=(culture-claude-fixer) NOPASSWD: /usr/bin/env' \
+     | sudo tee /etc/sudoers.d/culture-rules-handoff-claude && sudo visudo -cf /etc/sudoers.d/culture-rules-handoff-claude
+   ```
+
+   `<node-user>` is the account spark's `culture-rules-node` user unit runs
+   as. The import on spark2 needs nothing new: `handoff_import_claude` runs
+   as the gate's fixer user through `CULTURE_RULES_GATE_RUN_AS` (section 5),
+   exactly as the Codex import does.
+
+### 7. The actor (operator)
+
+`claude-fixer` ships as `docs/rules/pr-fixer/actors/claude-fixer.json`:
+machine `spark`, harness `claude` (the backend the bridge reports), and
+`params` `bridge_url` `http://127.0.0.1:8096`, `callback_url`
+`http://127.0.0.1:18765` (the API's loopback listener on spark; change it if
+yours differs), `bridge_token` `grant:RULES_CLAUDE_FIXER_TOKEN`,
+`sandbox: workspace-write`, `concurrency_pool: claude-spark` (level 1's
+queue cap) and `max_concurrency: 1`. It has no `reviewer` flag and no locked
+brief: it takes the try's instruction like the other fixers. It is not
+digest-pinned (committed digest
+`sha256:2d03fa3066d563411afe580572aa297bfcdc49dc375bd10e1398a72423713c1d`,
+recorded on each invocation).
+
+Register it by hand, as the other fixer actors are (an `actors import`
+would also put `qwen-reviewer` back on its loopback URL):
+
+```bash
+culture-rules actors create --body @docs/rules/pr-fixer/actors/claude-fixer.json          # dry run
+culture-rules actors create --body @docs/rules/pr-fixer/actors/claude-fixer.json --apply
+```
+
+With level 1 still `enabled=false` in the live `fixer_levels`, a
+registered `claude-fixer` is never dispatched.
+
+### 8. The live check, then the flip (operator)
+
+Two prerequisites:
+
+- **cultureagent's own live check of the claude bridge** (its
+  `claude-bridge` plan, t6): an invocation for a scratch repository with a
+  failing test comes back completed with an App-bot commit.
+- **`qwen-reviewer` is registered live.** It reviews every Claude try.
+  spark2's Qwen bridge listens only on spark2's tailnet address, so register
+  `docs/rules/pr-fixer/actors/qwen-reviewer.json` with `bridge_url` and
+  `callback_url` set to the values the live `qwen-fixer` uses (its
+  `culture-rules actors show qwen-fixer`). 0.20.0 trusts that document's
+  digest (`sha256:94ea1151…6618`) next to the committed loopback one; any
+  other endpoints hash differently and the verdict step refuses them
+  (`actor_not_trusted`).
+
+Only then set
+`fixer_levels` live with level 1 enabled and the other two strings
+unchanged. Read the live value first (`culture-rules variables get
+fixer_levels`); with the 0.20.0 seed it becomes:
+
+```bash
+LEVELS='[
+  "level=1 actor=claude-fixer reviewer=qwen-reviewer pool=claude-spark queue=pr-fixer-claude enabled=true",
+  "level=2 actor=qwen-fixer reviewer=codex-reviewer pool=qwen-spark2 queue=pr-fixer enabled=true",
+  "level=3 actor=codex-fixer reviewer=qwen-reviewer pool=codex-spark queue=pr-fixer-codex enabled=true"
+]'
+culture-rules variables set fixer_levels --value "$LEVELS"           # dry run: shows the current version
+culture-rules variables set fixer_levels --value "$LEVELS" --apply
+```
+
+If the live value is still 0.18.13's two-level ladder (Qwen level 1, Codex
+level 2), this one write replaces it with the three levels: Qwen's queue
+stays `queues/pr-fixer` and Codex's `queues/pr-fixer-codex`, so no waiting
+request is lost; each is resolved again at dispatch. Keep level 3's
+`enabled` as it is live if the Codex level is not set up. To turn the Claude
+level off again, set its string back to `enabled=false`; requests already in
+`queues/pr-fixer-claude` are resolved again at dispatch and move to the
+next enabled level.
+
+### 9. Verify
+
+| Check | Expected |
+|---|---|
+| as `culture-claude-fixer`: `git push`, `grant list` | no push credential; only `CLAUDE_FIXER_BRIDGE_TOKEN` |
+| `curl -s http://127.0.0.1:8096/healthz` | an answer with no token (the only open route) |
+| `curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8096/v1/capabilities` | `401` |
+| the same with the bearer token | `200`; `"pushes": false`; the backend is `claude` |
+| as the node user: `sudo -n -u culture-claude-fixer -- /usr/bin/env true` | exit 0, no password prompt |
+| `systemctl --user show culture-rules-node -p NoNewPrivileges` | `NoNewPrivileges=no` |
+| `culture-rules actors list` | `claude-fixer` (spark) |
+| after the flip, a `/fix` on a tester PR (`agentculture/culture-rules-tester`) | try 1 on spark: `agent_claude`, `handoff_export_claude` (as `culture-claude-fixer`), then `handoff_import_claude` and the gate on spark2, `review_qwen`, then the App's push or one hand-back; the status comment reads "try 1 (claude-fixer, level 1)" |
 
 ## On spark2
 
@@ -2397,8 +2788,11 @@ the tailnet address, not on loopback.
 | Bridge | codex on 8094, loopback only, sandbox `read-only` (deployed) |
 | Actor | `codex-reviewer` (imported, trusted digest `sha256:dc26a418…`) |
 | Account (#39) | `culture-codex-fixer` (planned; created by the operator) |
-| Bridge (#39) | a second codex bridge on 8095, loopback only, sandbox `workspace-write` (planned) |
-| Actor (#39) | `codex-fixer` (level 2, not pinned; committed digest `sha256:183cd425…aa50`) |
+| Bridge (#39) | a second codex bridge on 8097 (8095 is the climate stack's weather-web), loopback only, sandbox `workspace-write` (planned) |
+| Actor (#39) | `codex-fixer` (level 3, not pinned; committed digest `sha256:35c050a2…7e8e`) |
+| Account (#56) | `culture-claude-fixer` (planned; created by the operator) |
+| Bridge (#56) | the cultureagent claude bridge on 8096, loopback only, fixer role (`workspace-write`) (planned) |
+| Actor (#56) | `claude-fixer` (level 1, seeded disabled, not pinned; committed digest `sha256:2d03fa30…3c1d`) |
 
 ## Disabling the fixer mid-run (d17)
 

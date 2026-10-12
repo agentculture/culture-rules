@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.0] - 2026-10-12
+
+**The Claude level ships disabled, Claude never reviews, and this release claims no speed-up.** The seeded level 1 is `enabled=false`; whether Claude-first fixes land faster is checked live only after the operator's setup and the flip (#56). A rollout does not change the live `fixer_levels`: `rollout seed` and `seed-variables.sh` skip a variable that already exists, so the live ladder changes only by `culture-rules variables set fixer_levels ... --apply`.
+
+### Added
+
+- The Claude fixer level (#56): `pr-fix` gains the path `agent_claude` (actor `claude-fixer`, sandbox `workspace-write`, `require_commit`, when `fixer == claude-fixer`) with its own hand-off steps, `handoff_export_claude` (spark, `run_as` `culture-claude-fixer`) and `handoff_import_claude` (spark2, as the gate's fixer user), feeding `select`'s new `claude` source, so a Claude commit is labelled `claude-fixer` and never `codex-fixer`. The Codex path is unchanged but for its export's `run_as` (`culture-codex-fixer`)
+- Actor `claude-fixer` (`docs/rules/pr-fixer/actors/claude-fixer.json`): Claude Code through the cultureagent claude bridge (0.15.0) on spark as `culture-claude-fixer`, harness `claude`, `bridge_url` `http://127.0.0.1:8096`, `callback_url` `http://127.0.0.1:18765`, `bridge_token` `grant:RULES_CLAUDE_FIXER_TOKEN`, pool `claude-spark`, `max_concurrency` 1. Not digest-pinned, like the other fixers: everything it produces is gated and reviewed. Committed digest `sha256:2d03fa3066d563411afe580572aa297bfcdc49dc375bd10e1398a72423713c1d`
+- The seeded `fixer_levels` has three levels: level 1 `claude-fixer` reviewed by `qwen-reviewer` (pool `claude-spark`, queue `pr-fixer-claude`, **`enabled=false`**), level 2 `qwen-fixer` reviewed by `codex-reviewer` (`qwen-spark2`, `pr-fixer`), level 3 `codex-fixer` reviewed by `qwen-reviewer` (`codex-spark`, `pr-fixer-codex`). With level 1 disabled try 1 goes to `qwen-fixer`. A chain test runs one story through all three levels on fakes (`tests/rules/test_claude_ladder_chain.py`)
+- `handoff.export` takes the account from the step's `config.run_as` (#56 t1): it replaces the one account in `CULTURE_RULES_HANDOFF_RUN_AS`, which stays the default for a step that names none. A `run_as` that is not an account name (lowercase letters, digits, `-`, `_`, 1-32 characters, not starting with `-`) is refused `bad_config`; with a `run_as`, the prefix must be `sudo` with only `-n`/`--non-interactive` and `-H`/`--set-home` and exactly one account (`-u NAME`, `--user NAME` or `--user=NAME`, itself an account name) before `--`, and anything else (another option, two accounts or none, no `--`, not sudo) is refused before anything runs (Codex reviews of #56, rounds 1 and 2); unset, the step still fails `handoff_runner_unconfigured`
+- `docs/operations/pr-fixer.md`: section 10, the operator's ordered setup for the Claude level on spark (the account, Claude Code and its login, the bridge config and unit on 8096, the grants `CLAUDE_FIXER_BRIDGE_TOKEN` and `RULES_CLAUDE_FIXER_TOKEN`, the hand-off's sudoers line, the actor, the live check and the `fixer_levels` flip, verify); "Rolling out the Claude level (0.20.0)"; the three-level ladder, the hand-off per account, and the current `pr-fix` describe output
+
+### Changed
+
+- `codex-fixer`'s bridge moves from port 8095 to **8097** (the actor's `bridge_url` and section 9): 8095 on spark is the climate stack's weather-web. Committed digest `sha256:35c050a2d423e7e2c075ae6b7bf2358dc92041af1f6e79dc1dd73a6e71f77e8e` (not pinned)
+- Codex is level 3 of the seeded ladder (it was level 2); Qwen is level 2
+- `pr-fixer-retry-failed` retries a Claude agent timeout too: its pattern is `agent(_qwen|_codex|_claude)?`
+- New trusted digest needing the operator's approval: `ROLE_FIX` `sha256:2255b0820f32a355eff9b20e4ab9dea506660d12b54e29130a248b8cf58a708c` (`pr-fix` with the Claude path). The three earlier `pr-fix` digests stay trusted while runs pinned to them may still push. `review-commit` is unchanged: `qwen-reviewer` reviews a Claude try through the existing `review_qwen` step, and `REVIEWER_BACKENDS` stays `codex`, `qwen`
+- The `select` built-in's docstring names the three paths (no code change)
+- `docs/rules/pr-fixer/release.json` is 0.20.0, with no new rules or variables
+- Records: devague spec and plan `claude-fixer-level` (`docs/specs/2026-10-11-claude-fixer-level.md`, `docs/plans/2026-10-11-claude-fixer-level.md`); the `rollout-cli` deviation d9 (the state-based resume check shipped in 0.19.3) approved by the operator on 2026-10-11
+
+### Known limits
+
+- Live, the Claude level needs the operator's hand-turns first (section 10): the `culture-claude-fixer` account and its Claude login, the claude bridge on 8096 (cultureagent 0.15.0) and its live check, the grants, the sudoers line, the registered actor, and `qwen-reviewer` registered live with `qwen-fixer`'s endpoints (spark2's Qwen bridge listens only on the tailnet); 0.20.0 pins that document's digest (`sha256:94ea1151…6618`) next to the committed loopback one
+
 ## [0.19.3] - 2026-10-11
 
 ### Fixed

@@ -1,5 +1,5 @@
 {
-  "description": "#35 d29/d30, #39: puts a PR fix request in the fixer queue with the built-in queue.add and answers its place in line. With vars.fixer_levels the request goes to the queue of the level its try is due at (try n: the n-th enabled level; queues/pr-fixer is level 1's), so a retry goes to its next level's queue. A PR already waiting keeps its place: the newer request replaces its head and instruction (across the level queues: one waiting request per PR). A retry (a try that did not pass) joins at the back; one whose PR spent its 3 attempts fails, so the rule hands back. Non-agentic: no actor, no GitHub call.",
+  "description": "#35 d29/d30, #39: puts a PR fix request in the fixer queue with the built-in queue.add and answers its place in line. With vars.fixer_levels the request goes to the queue of the level its try is due at (try n: the n-th enabled level; queues/pr-fixer is the Qwen level's and the fallback), so a retry goes to its next level's queue. A PR already waiting keeps its place: the newer request replaces its head and instruction (across the level queues: one waiting request per PR). A retry (a try that did not pass) joins at the back; one whose PR spent its 3 attempts fails, so the rule hands back. Non-agentic: no actor, no GitHub call.",
   "edges": [
     {
       "source": "inputs",

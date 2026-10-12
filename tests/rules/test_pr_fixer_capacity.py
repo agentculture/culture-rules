@@ -18,14 +18,17 @@ import pytest
 from culture_rules.model.condition import evaluate
 from culture_rules.node.actions.fixer_levels import FIXER_COOLDOWNS
 from culture_rules.node.actions.queue import DISPATCH_TYPE
-from tests.rules.chain_world import CHAIN_VARIABLES, CODEX_FIXER, ChainWorld, rule_docs
+from tests.rules.chain_world import (
+    CODEX_FIXER,
+    CODEX_LEVEL,
+    QWEN_LEVEL,
+    ChainWorld,
+    rule_docs,
+)
 from tests.rules.test_pr_fixer_queue import budget, fixes, handed_back, settle
 
 RULE = "pr-fixer-retry-capacity"
-CODEX_ON = [
-    CHAIN_VARIABLES["fixer_levels"][0],
-    CHAIN_VARIABLES["fixer_levels"][1].replace("enabled=false", "enabled=true"),
-]
+CODEX_ON = [QWEN_LEVEL, CODEX_LEVEL.replace("enabled=false", "enabled=true")]
 
 
 def codex_world(tmp_path, turns) -> ChainWorld:

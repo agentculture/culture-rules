@@ -34,6 +34,10 @@ def level(number, fixer, reviewer, pool, queue, enabled=True):
 QWEN = level(1, "qwen-fixer", "codex-reviewer", "qwen-spark2", "pr-fixer")
 CODEX = level(2, "codex-fixer", "qwen-reviewer", "codex-spark", "pr-fixer-codex")
 CLAUDE = level(3, "claude-fixer", "codex-reviewer", "claude-spark", "pr-fixer-claude")
+SEED_CLAUDE = level(1, "claude-fixer", "qwen-reviewer", "claude-spark", "pr-fixer-claude", False)
+SEED_QWEN = level(2, "qwen-fixer", "codex-reviewer", "qwen-spark2", "pr-fixer")
+SEED_CODEX = level(3, "codex-fixer", "qwen-reviewer", "codex-spark", "pr-fixer-codex")
+"""#56: the three levels as the bundle seeds them (Claude disabled until its bridge is live)."""
 ACTORS = (
     ("qwen-fixer", "qwen-spark2"),
     ("codex-fixer", "codex-spark"),
@@ -510,3 +514,86 @@ def test_a_try_that_ended_on_another_level_does_not_hold_the_pr():
     add(w, **request("o/a", 1, head="d" * 40, instruction="/fix"))
     assert progress(w).output["dispatched"] == ["o/a#1"]  # pr-fixer's pass runs first
     assert [e["data"]["fixer"] for e in on(w, "pr-fixer")] == ["qwen-fixer"]
+
+
+# ---- the seeded three-level ladder (#56) ---------------------------------------------------
+
+
+def seeded(claude_on=False):
+    claude = SEED_CLAUDE.replace("enabled=false", "enabled=true") if claude_on else SEED_CLAUDE
+    return world(levels=(claude, SEED_QWEN, SEED_CODEX))
+
+
+def test_with_level_1_enabled_a_request_lands_in_the_claude_queue():
+    w = seeded(claude_on=True)
+    assert add(w, **request("o/a", 1)).output["queue"] == "pr-fixer-claude"
+    assert waiting(w, "pr-fixer-claude") == ["o/a#1"]
+
+
+def test_with_level_1_enabled_the_claude_queue_holds_nothing_in_the_default_queue():
+    w = seeded(claude_on=True)
+    add(w, **request("o/a", 1))
+    assert waiting(w, "pr-fixer") == []
+
+
+def test_with_level_1_enabled_try_1_is_dispatched_to_claude_fixer_on_its_pool():
+    w = seeded(claude_on=True)
+    add(w, **request("o/a", 1))
+    progress(w)
+    (event,) = on(w, "pr-fixer-claude")
+    assert level_of(event) == {
+        "queue": "pr-fixer-claude",
+        "level": 1,
+        "fixer": "claude-fixer",
+        "reviewer": "qwen-reviewer",
+        "attempt": 1,
+    }
+
+
+def test_the_claude_level_runs_one_at_a_time_on_its_pool():
+    w = seeded(claude_on=True)
+    add(w, **request("o/a", 1))
+    add(w, **request("o/b", 2))
+    out = progress(w).output
+    assert out["dispatched"] == ["o/a#1"]
+
+
+def test_with_level_1_disabled_try_1_goes_to_qwen_fixer_in_the_default_queue():
+    w = seeded()
+    assert add(w, **request("o/a", 1)).output["queue"] == "pr-fixer"
+    progress(w)
+    (event,) = w.dispatches()
+    assert (event["data"]["fixer"], event["data"]["level"]) == ("qwen-fixer", 2)
+
+
+def test_with_level_1_disabled_nothing_is_ever_queued_for_claude():
+    w = seeded()
+    add(w, **request("o/a", 1))
+    progress(w)
+    assert on(w, "pr-fixer-claude") == []
+
+
+def test_with_level_1_disabled_try_2_takes_codex_in_its_queue():
+    w = seeded()
+    budget(w, 1)
+    assert add(w, **request("o/a", 1, retry=True)).output["queue"] == "pr-fixer-codex"
+    progress(w)
+    (event,) = w.dispatches()
+    assert (event["data"]["fixer"], event["data"]["attempt"]) == ("codex-fixer", 2)
+
+
+def test_with_level_1_enabled_the_tries_climb_claude_qwen_codex():
+    queues = []
+    for tries in range(3):
+        w = seeded(claude_on=True)
+        budget(w, tries)
+        queues.append(add(w, **request("o/a", 1, retry=tries > 0)).output["queue"])
+    assert queues == ["pr-fixer-claude", "pr-fixer", "pr-fixer-codex"]
+
+
+def test_without_fixer_levels_a_request_falls_back_to_the_default_queue():
+    w = World()  # none of the level variables is defined
+    add(w, **request("o/a", 1))
+    progress(w)
+    (event,) = w.dispatches()
+    assert event["data"]["queue"] == "pr-fixer"

@@ -301,13 +301,14 @@ def test_d37_the_timeout_retry_matches_both_kinds_of_agent_timeout_and_nothing_e
         }
         return evaluate(cond, {"trigger": {"data": data}, "variables": variables})
 
-    # #39: the agent step of either level (agent_qwen, agent_codex), or of a try pinned to
-    # the d30 pr-fix (agent) during the rollout; never the hand-off's
-    for agent in ("agent_qwen", "agent_codex", "agent"):
+    # #39, #56: the agent step of any level (agent_qwen, agent_codex, agent_claude), or of a
+    # try pinned to the d30 pr-fix (agent) during the rollout; never the hand-off's
+    for agent in ("agent_qwen", "agent_codex", "agent_claude", "agent"):
         assert fires(f"fix[0]/{agent}: timeout: qwen did not finish within 3600s")
         assert fires(f"fix[0]/{agent}: the step's deadline passed")
         assert not fires(f"fix[0]/{agent}: no_changes: the agent made no commit")
-    assert not fires("fix[0]/agent_claude: timeout: no such level")
+    assert not fires("fix[0]/agent_claude: capacity_exhausted: usage limit reached")
+    assert not fires("fix[0]/agent_other: timeout: no such level")
     assert not fires("fix[0]/handoff_export: timeout: the export ran out of time")
     assert not fires("fix[0]/gate: merge_commit: the merge's second parent is not on base")
 

@@ -14,7 +14,11 @@ through a run-as seam configured by ``CULTURE_RULES_HANDOFF_RUN_AS`` (for exampl
 ``sudo -n -u culture-codex-fixer --``; validated like the gate's
 ``CULTURE_RULES_GATE_RUN_AS``: an argv prefix, never ssh, su or a shell; **unset, it
 refuses** ``handoff_runner_unconfigured``), with the fixer's own git config, templates,
-hooks and fsmonitor ignored. It checks that the worktree's ``HEAD`` is ``head_after``
+hooks and fsmonitor ignored. A step's ``config.run_as`` (an account name: lowercase letters,
+digits, ``-`` and ``_``, 1-32 characters, not starting with ``-``) replaces the account after
+``-u``/``--user`` in that prefix, keeping its shape; a malformed one is refused ``bad_config``
+before anything runs, and with no prefix configured the step is refused
+``handoff_runner_unconfigured``. It checks that the worktree's ``HEAD`` is ``head_after``
 (``handoff_head_mismatch``) and that ``head_after`` descends from ``start_sha``
 (``handoff_not_descendant``), then packs ``start_sha..head_after`` (``git pack-objects
 --revs --thin``: objects ``start_sha`` already has may be left out as delta bases). A pack
@@ -204,6 +208,81 @@ def handoff_run_as_from_env(
         return RunAs(shlex.split(value)), ""
     except ValueError as exc:
         return None, f"{HANDOFF_RUN_AS_ENV}: {exc}"
+
+
+_ACCOUNT_RE = re.compile(r"[a-z0-9_][a-z0-9_-]{0,31}")
+
+
+def _step_account(config: Mapping[str, Any]) -> str | None:
+    """The step's ``config.run_as`` (an account name), else ``None``; a bad one is refused."""
+    if "run_as" not in config:
+        return None
+    value = config["run_as"]
+    if not isinstance(value, str) or not _ACCOUNT_RE.fullmatch(value):
+        raise _Refusal(
+            "bad_config",
+            "run_as must be an account name: lowercase letters, digits, '-' and '_', "
+            "1-32 characters, not starting with '-'",
+        )
+    return value
+
+
+#: sudo options a run_as prefix may carry before ``--``: anything else could change
+#: whose account the command runs as, so it is refused (Codex review of #56).
+_SUDO_FLAGS = frozenset({"-n", "--non-interactive", "-H", "--set-home"})
+_SUDO_SELECTORS = frozenset({"-u", "--user"})
+_USER_EQ = "--user="
+
+
+def _no_slot(reason: str) -> _Refusal:
+    return _Refusal(
+        "bad_config",
+        f"config.run_as needs {HANDOFF_RUN_AS_ENV} to be sudo with exactly one account "
+        f"(-u NAME, --user NAME or --user=NAME) before '--': {reason}",
+    )
+
+
+def _check_account(value: str) -> None:
+    """The prefix's own account must be an account name, never empty or an option."""
+    if not _ACCOUNT_RE.fullmatch(value):
+        raise _no_slot(f"the account {value!r} is not an account name")
+
+
+def _account_slot(words: list[str]) -> int:
+    """The index of the account word in a sudo prefix's option section (before
+    ``--``), or a refusal: the prefix must be sudo, end its options with ``--``, carry
+    only allowlisted options and exactly one account selector."""
+    if not words or os.path.basename(words[0]) != "sudo":
+        raise _no_slot("the prefix does not start with sudo")
+    if "--" not in words:
+        raise _no_slot("the prefix has no '--' before the command")
+    options = words[1 : words.index("--")]
+    slots: list[int] = []
+    i = 0
+    while i < len(options):
+        word = options[i]
+        if word in _SUDO_SELECTORS and i + 1 < len(options):
+            _check_account(options[i + 1])
+            slots.append(i + 2)  # +1 for sudo, +1 for the value after the selector
+            i += 2
+            continue
+        if word.startswith(_USER_EQ):
+            _check_account(word.removeprefix(_USER_EQ))
+            slots.append(i + 1)
+        elif word not in _SUDO_FLAGS:
+            raise _no_slot(f"option {word!r} is not allowed")
+        i += 1
+    if len(slots) != 1:
+        raise _no_slot(f"{len(slots)} account selectors")
+    return slots[0]
+
+
+def _swap_account(base: CommandRunner, account: str) -> RunAs:
+    """``base``'s prefix with its one sudo account replaced by ``account``."""
+    words = list(getattr(base, "prefix", ()))
+    slot = _account_slot(words)
+    words[slot] = f"{_USER_EQ}{account}" if words[slot].startswith(_USER_EQ) else account
+    return RunAs(words, run=base._run)  # type: ignore[attr-defined]
 
 
 def _blocked(run_as: RunAs | None, env_name: str, check: Callable[[], bool | None]) -> str:
@@ -471,8 +550,12 @@ class HandoffExportPort(_Port):
         del ik  # a re-run writes its own document (the id is derived from the step)
         worktree = _abs_path(input, _WORKTREE)
         start, head = _sha_input(input, _START_SHA), _sha_input(input, _HEAD_AFTER)
-        cap = _max_bytes(context.config or {})
+        config = context.config or {}
+        cap = _max_bytes(config)
+        account = _step_account(config)
         runner = self._runner()
+        if account is not None:
+            runner = _swap_account(runner, account)
         tmp = tempfile.mkdtemp(prefix="culture-rules-handoff-")
         try:
             call = _Call(runner, tmp, deadline, self._clock)

@@ -35,15 +35,21 @@ PR_FIX_WORKFLOW = [
     "5 fix — one try, until verdict exists:",
     "  5.1 agent_qwen — qwen-fixer (agent, must commit),"
     ' when fixer missing or fixer ∈ {"", qwen-fixer}',
-    "  5.2 agent_codex — codex-fixer (agent, workspace-write, must commit),"
+    "  5.2 agent_claude — claude-fixer (agent, workspace-write, must commit),"
+    " when fixer = claude-fixer",
+    "  5.3 handoff_export_claude — handoff.export: the fixer's commits as a size-capped pack in"
+    " the store on spark, when fixer = claude-fixer",
+    "  5.4 handoff_import_claude — handoff.import: that pack into a fresh fixer-owned worktree"
+    " on spark2, when fixer = claude-fixer",
+    "  5.5 agent_codex — codex-fixer (agent, workspace-write, must commit),"
     " when fixer = codex-fixer",
-    "  5.3 handoff_export — handoff.export: the fixer's commits as a size-capped pack in the"
+    "  5.6 handoff_export — handoff.export: the fixer's commits as a size-capped pack in the"
     " store on spark, when fixer = codex-fixer",
-    "  5.4 handoff_import — handoff.import: that pack into a fresh fixer-owned worktree on"
+    "  5.7 handoff_import — handoff.import: that pack into a fresh fixer-owned worktree on"
     " spark2, when fixer = codex-fixer",
-    "  5.5 select — select: the outputs of the path that ran (one source for the next step)"
+    "  5.8 select — select: the outputs of the path that ran (one source for the next step)"
     " on spark2",
-    "  5.6 gate — test gate on spark2",
+    "  5.9 gate — test gate on spark2",
 ]
 
 REPORT_SECRETS_WORKFLOW = [

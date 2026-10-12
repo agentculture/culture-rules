@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from culture_rules.actors.agent import BridgeAgentActor, record_bridge_event
-from culture_rules.actors.gate import GatePort
+from culture_rules.actors.gate import GatePort, RunAs, run_process
 from culture_rules.actors.handoff import HandoffExportPort, HandoffImportPort
 from culture_rules.actors.review import ReviewVerdictPort
 from culture_rules.apps.github import GitHubError
@@ -99,20 +99,46 @@ CHAIN_VARIABLES = {
     **VARIABLES,
     "fixer_comment_triggers": ["/fix", "@rules-culture-dev"],
     "fixer_stop_triggers": ["/stop", "@rules-culture-dev stop"],  # d34
-    # #39: the escalation levels as shipped (level 2, Codex, seeded disabled)
+    # #39, #56: the three levels as shipped (level 1, Claude, seeded disabled)
     "fixer_levels": [
-        "level=1 actor=qwen-fixer reviewer=codex-reviewer pool=qwen-spark2 queue=pr-fixer"
+        "level=1 actor=claude-fixer reviewer=qwen-reviewer pool=claude-spark"
+        " queue=pr-fixer-claude enabled=false",
+        "level=2 actor=qwen-fixer reviewer=codex-reviewer pool=qwen-spark2 queue=pr-fixer"
         " enabled=true",
-        "level=2 actor=codex-fixer reviewer=qwen-reviewer pool=codex-spark queue=pr-fixer-codex"
-        " enabled=false",
+        "level=3 actor=codex-fixer reviewer=qwen-reviewer pool=codex-spark"
+        " queue=pr-fixer-codex enabled=true",
     ],
     "fixer_unavailable": "next",
     "fixer_capacity_cooldown_s": 3600,  # #39 t2: a level's cooldown after capacity_exhausted
 }
+QWEN_LEVEL = (
+    "level=1 actor=qwen-fixer reviewer=codex-reviewer pool=qwen-spark2 queue=pr-fixer enabled=true"
+)
+CODEX_LEVEL = (
+    "level=2 actor=codex-fixer reviewer=qwen-reviewer pool=codex-spark"
+    " queue=pr-fixer-codex enabled=false"
+)
+CLAUDE_LEVEL = (
+    "level=1 actor=claude-fixer reviewer=qwen-reviewer pool=claude-spark"
+    " queue=pr-fixer-claude enabled=true"
+)
+QWEN_LEVEL_2 = QWEN_LEVEL.replace("level=1", "level=2")
+CODEX_LEVEL_3 = CODEX_LEVEL.replace("level=2", "level=3").replace("enabled=false", "enabled=true")
+DEFAULT_LEVELS = [QWEN_LEVEL, CODEX_LEVEL]
+"""The chain world's default ladder: the two-level one the chain tests were written against
+(Qwen live, Codex off); the three-level seed is CHAIN_VARIABLES and ``three_levels``."""
+THREE_LEVELS_LIVE = [CLAUDE_LEVEL, QWEN_LEVEL_2, CODEX_LEVEL_3]
+"""#56: all three seeded levels enabled (the live flip of level 1): Claude, Qwen, Codex."""
 KEY = f"pr-fixer:{REPO}#7"
 CODEX_FIXER = json.loads((BUNDLE / "actors" / "codex-fixer.json").read_text(encoding="utf-8"))
 """#39: the level-2 fixer actor as the bundle ships it (t6): Codex through a second
 cultureagent bridge on spark, workspace-write, on the codex-spark pool."""
+CLAUDE_FIXER = json.loads((BUNDLE / "actors" / "claude-fixer.json").read_text(encoding="utf-8"))
+"""#56: the level-1 fixer actor as the bundle ships it: Claude Code through the cultureagent
+claude bridge on spark, its commits carried to spark2 by its own hand-off."""
+EXPORT_PREFIX = ("sudo", "-n", "-u", "culture-codex-fixer", "--")
+"""The node's ``CULTURE_RULES_HANDOFF_RUN_AS`` as deployed on spark; a step's ``run_as``
+replaces the account."""
 
 
 def bundle():
@@ -262,6 +288,22 @@ class CodexClone(Repo):
         self.base, self.start = origin.base, origin.start
 
 
+class AccountRunner:
+    """#56: the hand-off export's run-as process runner. :class:`RunAs` hands it
+    ``sudo -n -u <account> -- env -C <cwd> -- <argv>``; it records the account and runs the
+    rest (``env -C <cwd> -- <argv>``) as the current user with the world's git env."""
+
+    def __init__(self, env: dict[str, str]) -> None:
+        self.env = env
+        self.accounts: list[str] = []
+
+    def __call__(self, argv, **kwargs) -> int:
+        assert tuple(argv[:3]) == EXPORT_PREFIX[:3], argv  # sudo -n -u
+        assert argv[4] == "--", argv
+        self.accounts.append(argv[3])
+        return run_process(argv[5:], env=self.env, **kwargs)
+
+
 class SonarAPI:
     """SonarCloud's Web API as a transport double: a passing gate unless told otherwise."""
 
@@ -393,6 +435,7 @@ class ChainWorld:
         disabled: tuple[str, ...] = (),
         verdict_port: Any = None,
         comment_port: Any = None,
+        levels: list[str] | None = None,
     ) -> None:
         self.tmp = tmp_path
         self.repo = Repo(tmp_path, gate_yaml([PASSING]))
@@ -409,12 +452,16 @@ class ChainWorld:
         for doc in workflow_docs().values():
             base.put("workflows", doc)
         seed(base, CHAIN_VARIABLES)
+        if "fixer_levels" in CHAIN_VARIABLES:  # a test may drop the ladder altogether
+            seed(base, {"fixer_levels": DEFAULT_LEVELS if levels is None else levels})
         self.qwen = QwenBridge(base, self.repo, turns)
         self.codex = QwenBridge(base, CodexClone(self.repo, tmp_path / "codex"), backend="codex")
+        self.claude = QwenBridge(base, CodexClone(self.repo, tmp_path / "claude"), backend="claude")
+        """#56: the claude bridge on spark behind claude-fixer, in its own clone."""
         (tmp_path / "fixer-tmp").mkdir()
-        self.handoff_runner = LocalRunner(
-            env={**GIT_ENV, "HOME": str(tmp_path), "TMPDIR": str(tmp_path / "fixer-tmp")}
-        )
+        handoff_env = {**GIT_ENV, "HOME": str(tmp_path), "TMPDIR": str(tmp_path / "fixer-tmp")}
+        self.handoff_runner = LocalRunner(env=handoff_env)
+        self.export_runner = AccountRunner(handoff_env)
         self.reviewer = ReviewerBridge(base, reviews)
         self.qwen_reviewer = ReviewerBridge(base, qwen_reviews, backend="qwen")
         """#39: the qwen bridge on spark2 behind qwen-reviewer (it reviews a Codex try)."""
@@ -513,7 +560,9 @@ class ChainWorld:
                     "fixer.cooldown": FixerCooldownPort(base, clock=self.c.clock),  # #39 t2
                     # #39: the Codex hand-off (a file:// clone URL here) and the gate's source
                     "handoff.export": HandoffExportPort(
-                        base, run_as=self.handoff_runner, clock=self.c.clock
+                        base,
+                        run_as=RunAs(EXPORT_PREFIX, run=self.export_runner),
+                        clock=self.c.clock,
                     ),
                     "handoff.import": LocalRemote(
                         HandoffImportPort(
@@ -536,11 +585,18 @@ class ChainWorld:
                 return reviewer_adapter(base, actor, self.qwen_reviewer, self.c.clock)
             if actor.id == "codex-fixer":
                 return qwen_adapter(base, self.codex, self.c.clock, CODEX_FIXER)
+            if actor.id == "claude-fixer":
+                return qwen_adapter(base, self.claude, self.c.clock, CLAUDE_FIXER)
             return qwen_adapter(base, self.qwen, self.c.clock)
 
         for host in ("spark", "spark2"):
             self.c.nodes[host] = self.c.node(host, actors=ports, adapters={"agent": agent_for})
         self.c.start()
+
+    @property
+    def export_accounts(self) -> set[str]:
+        """#56: the accounts the hand-off exports ran their git commands as."""
+        return set(self.export_runner.accounts)
 
     def _comment_port(self, base) -> GitHubCommentPort:
         """The real github.comment port (status comments included, d26) on a fake App."""

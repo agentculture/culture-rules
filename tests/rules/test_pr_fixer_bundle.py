@@ -194,6 +194,26 @@ def test_each_shipped_workflow_is_trusted_in_its_role_only():
         assert all(digest not in TRUSTED_WORKFLOWS[r] for r in others)
 
 
+QWEN_WHEN = {
+    "args": [
+        {"arg": {"arg": {"field": "fixer"}, "op": "exists"}, "op": "not"},
+        {"items": {"literal": ["", "qwen-fixer"]}, "op": "in", "value": {"field": "fixer"}},
+    ],
+    "op": "or",
+}
+FIXER_PATHS = {
+    "claude-fixer": ("agent_claude", "handoff_export_claude", "handoff_import_claude"),
+    "codex-fixer": ("agent_codex", "handoff_export", "handoff_import"),
+}
+"""#56: the fixers on spark - agent step, hand-off export, hand-off import into spark2."""
+EXPORT_ACCOUNTS = {"claude-fixer": "culture-claude-fixer", "codex-fixer": "culture-codex-fixer"}
+"""#56: the account each fixer's export runs as (its step's run_as)."""
+
+
+def _fixer_is(fixer: str) -> dict:
+    return {"cmp": "==", "left": {"field": "fixer"}, "op": "compare", "right": {"literal": fixer}}
+
+
 def test_pr_fix_builds_and_gates_and_never_reviews_or_pushes():
     wf = workflow_docs()["pr-fix"]
     top = {s["id"]: s for s in wf["steps"]}
@@ -202,34 +222,46 @@ def test_pr_fix_builds_and_gates_and_never_reviews_or_pushes():
     assert top["sonar"]["config"] == {"builtin": "sonar.gate_issues"}
     fix = top["fix"]
     body = {b["id"]: b for b in fix["body"]}
-    assert list(body) == [  # #39: one agent step per level, the hand-off, select, one gate
+    assert list(body) == [  # #39, #56: one agent step per level, its hand-off, select, one gate
         "agent_qwen",
+        "agent_claude",
+        "handoff_export_claude",
+        "handoff_import_claude",
         "agent_codex",
         "handoff_export",
         "handoff_import",
         "select",
         "gate",
     ]
-    qwen, codex = body["agent_qwen"], body["agent_codex"]
+    qwen = body["agent_qwen"]
     assert {k: v for k, v in qwen["config"].items() if k != "when"} == {
         "mode": "yolo",
         "require_commit": True,
     }
     assert qwen["placement"]["actor"] == "qwen-fixer"
-    assert {k: v for k, v in codex["config"].items() if k != "when"} == {
-        "require_commit": True,
-        "sandbox": "workspace-write",
-    }
-    assert codex["placement"]["actor"] == "codex-fixer"
-    for sid in ("agent_codex", "handoff_export", "handoff_import"):
-        assert body[sid]["config"]["when"] == {
-            "cmp": "==",
-            "left": {"field": "fixer"},
-            "op": "compare",
-            "right": {"literal": "codex-fixer"},
+    assert qwen["config"]["when"] == QWEN_WHEN  # no fixer given: the qwen path still runs
+    for fixer, (agent, export, imp) in FIXER_PATHS.items():
+        when = _fixer_is(fixer)
+        assert body[agent]["config"] == {
+            "require_commit": True,
+            "sandbox": "workspace-write",
+            "when": when,
         }
-    assert body["handoff_export"]["placement"]["machine"] == "spark"
-    assert body["handoff_import"]["placement"]["machine"] == "spark2"
+        assert body[agent]["placement"]["actor"] == fixer
+        assert body[export]["config"] == {
+            "builtin": "handoff.export",
+            "run_as": EXPORT_ACCOUNTS[fixer],
+            "when": when,
+        }
+        assert body[export]["placement"]["machine"] == "spark"
+        # the import runs as the gate account (CULTURE_RULES_GATE_RUN_AS): no run_as
+        assert body[imp]["config"] == {"builtin": "handoff.import", "when": when}
+        assert body[imp]["placement"]["machine"] == "spark2"
+    assert body["select"]["config"]["sources"] == {
+        "claude": "claude-fixer",
+        "codex": "codex-fixer",
+        "qwen": "qwen-fixer",
+    }
     assert body["select"]["config"]["builtin"] == "select"
     gate = body["gate"]
     assert gate["config"] == {"builtin": "gate"}
@@ -351,7 +383,7 @@ def test_the_review_commit_rule_maps_the_tries_reviewer():
         assert into[(sid, "reviewer")] == "inputs"
 
 
-CODEX_FIXER_DIGEST = "sha256:183cd42529d4cf2044268462ec67cf4e7c3fe9e24211c9fbfdd2f5833bcdaa50"
+CODEX_FIXER_DIGEST = "sha256:35c050a2d423e7e2c075ae6b7bf2358dc92041af1f6e79dc1dd73a6e71f77e8e"
 """#39 t6: the committed codex-fixer's digest, as docs/operations/pr-fixer.md lists it (not
 pinned: like qwen-fixer, everything it produces is reviewed; the digest is recorded on each
 bridge invocation)."""
@@ -362,7 +394,7 @@ def _actor(actor_id: str) -> dict:
     return actor.to_dict()
 
 
-FIXER_ACTORS = ("codex-fixer",)
+FIXER_ACTORS = ("claude-fixer", "codex-fixer")
 """#39 t6: the fixer actors the bundle ships (qwen-fixer is registered by hand on spark2)."""
 
 
@@ -400,8 +432,8 @@ def test_codex_fixer_is_level_twos_workspace_write_codex_agent_on_spark():
     assert params["concurrency_pool"] == "codex-spark"  # the level-2 queue's cap
     assert params["max_concurrency"] == 1
     assert params["bridge_token"] == "grant:RULES_CODEX_FIXER_TOKEN"  # a grant name only
-    assert params["bridge_url"].startswith("http://127.0.0.1:")  # loopback: scan-secrets
-    assert params["callback_url"].startswith("http://127.0.0.1:")
+    assert params["bridge_url"] == "http://127.0.0.1:8097"  # 8095 is weather-web on spark
+    assert params["callback_url"] == "http://127.0.0.1:18765"
 
 
 def test_codex_fixer_is_never_a_reviewer_and_takes_the_tries_instruction():
@@ -424,6 +456,41 @@ def test_codex_fixer_like_qwen_fixer_is_not_pinned_its_output_is_reviewed():
         "docs/rules/pr-fixer/actors/codex-fixer.json changed its digest: update "
         "CODEX_FIXER_DIGEST here and the digest in docs/operations/pr-fixer.md"
     )
+
+
+CLAUDE_FIXER_DIGEST = "sha256:2d03fa3066d563411afe580572aa297bfcdc49dc375bd10e1398a72423713c1d"
+"""#56 t2: the committed claude-fixer's digest (not pinned: its output is reviewed)."""
+
+
+def test_claude_fixer_is_level_ones_workspace_write_claude_agent_on_spark():
+    doc = _actor("claude-fixer")
+    assert doc["kind"] == "agent"
+    assert doc["harness"] == "claude"
+    assert doc["machine"] == "spark"
+    assert doc["enabled"] is True
+    params = doc["params"]
+    assert params["sandbox"] == "workspace-write"
+    assert params["concurrency_pool"] == "claude-spark"
+    assert params["max_concurrency"] == 1
+    assert params["bridge_token"] == "grant:RULES_CLAUDE_FIXER_TOKEN"  # a grant name only
+    assert params["bridge_url"] == "http://127.0.0.1:8096"
+    assert params["callback_url"] == "http://127.0.0.1:18765"
+
+
+def test_claude_fixer_is_never_a_reviewer_and_takes_the_tries_instruction():
+    params = _actor("claude-fixer")["params"]
+    assert "reviewer" not in params
+    assert "locked_instruction" not in params
+
+
+def test_claude_fixer_is_not_pinned_its_output_is_reviewed():
+    assert "claude-fixer" not in TRUSTED_ACTOR_DIGESTS
+    assert actor_digest(_actor("claude-fixer")) == CLAUDE_FIXER_DIGEST
+
+
+def test_the_two_fixers_use_distinct_bridge_ports():
+    urls = {_actor(a)["params"]["bridge_url"] for a in FIXER_ACTORS}
+    assert len(urls) == len(FIXER_ACTORS)
 
 
 def test_conditions_reference_the_variables_never_a_copied_list():
@@ -829,17 +896,40 @@ def test_a_comment_asking_to_stop_never_starts_a_fix(rule_id):
 REPO_UNDER_TEST = "agentculture/culture-rules-tester"
 
 
-def test_fixer_levels_are_seeded_with_level_1_live_and_level_2_disabled():
+def seeded_ladder():
     seeded = {i["name"]: i["value"] for i in manifest()}
     assert seeded["fixer_unavailable"] == "next"
     mem = MemoryStore()
     seed(mem, {k: seeded[k] for k in ("fixer_levels", "fixer_unavailable")})
-    ladder = load_ladder(mem, {"levels": "fixer_levels", "unavailable": "fixer_unavailable"})
-    one, two = ladder.levels
-    assert (one.number, one.actor, one.reviewer) == (1, "qwen-fixer", "codex-reviewer")
-    assert (one.pool, one.queue, one.enabled) == ("qwen-spark2", "pr-fixer", True)
-    assert (two.number, two.actor, two.reviewer) == (2, "codex-fixer", "qwen-reviewer")
-    assert (two.pool, two.queue, two.enabled) == ("codex-spark", "pr-fixer-codex", False)
+    return seeded, load_ladder(mem, {"levels": "fixer_levels", "unavailable": "fixer_unavailable"})
+
+
+def test_fixer_levels_are_seeded_as_three_levels_claude_off_qwen_and_codex_on():
+    _, ladder = seeded_ladder()
+    assert [(lv.number, lv.actor, lv.enabled) for lv in ladder.levels] == [
+        (1, "claude-fixer", False),
+        (2, "qwen-fixer", True),
+        (3, "codex-fixer", True),
+    ]
+
+
+def test_each_seeded_level_names_its_reviewer_pool_and_queue():
+    _, ladder = seeded_ladder()
+    assert [(lv.reviewer, lv.pool, lv.queue) for lv in ladder.levels] == [
+        ("qwen-reviewer", "claude-spark", "pr-fixer-claude"),
+        ("codex-reviewer", "qwen-spark2", "pr-fixer"),
+        ("qwen-reviewer", "codex-spark", "pr-fixer-codex"),
+    ]
+
+
+def test_no_seeded_level_is_reviewed_by_its_own_backend():
+    _, ladder = seeded_ladder()
+    backends = {"claude-fixer": "claude", "qwen-fixer": "qwen", "codex-fixer": "codex"}
+    assert [backends[lv.actor] == lv.reviewer.split("-")[0] for lv in ladder.levels] == [False] * 3
+
+
+def test_the_chain_world_seed_equals_the_shipped_seed():
+    seeded, _ = seeded_ladder()
     assert seeded["fixer_levels"] == CHAIN_VARIABLES["fixer_levels"]
 
 
@@ -873,3 +963,15 @@ def test_the_dispatch_rule_covers_every_level_queue(data, fires):
     trigger = {"data": {**data, "repository": REPO_UNDER_TEST}}
     variables = {"fixer_repos": [REPO_UNDER_TEST], "fixer_excluded_repos": []}
     assert evaluate(dispatch.condition, {"trigger": trigger, "variables": variables}) is fires
+
+
+def test_the_live_qwen_reviewer_on_spark2s_tailnet_is_trusted():
+    """#56: qwen-reviewer reviews every Claude try, and spark2's Qwen bridge listens only on
+    its tailnet address, so the live actor's digest (tailnet bridge_url, the API's
+    callback_url) is pinned next to the committed loopback one. The address itself is
+    never committed: only its digest."""
+    from culture_rules.actors.trusted import TRUSTED_ACTOR_DIGESTS
+
+    pinned = TRUSTED_ACTOR_DIGESTS["qwen-reviewer"]
+    assert "sha256:94ea1151c1ff1f1f6b47fcd6b331ca86c3f3ccedc6e15e6fb7b6d25ad07d6618" in pinned
+    assert len(pinned) == 2
