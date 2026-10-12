@@ -2720,7 +2720,7 @@ registered `claude-fixer` is never dispatched.
 
 ### 8. The live check, then the flip (operator)
 
-Two prerequisites:
+Three prerequisites:
 
 - **cultureagent's own live check of the claude bridge** (its
   `claude-bridge` plan, t6): an invocation for a scratch repository with a
@@ -2733,6 +2733,16 @@ Two prerequisites:
   digest (`sha256:94ea1151…6618`) next to the committed loopback one; any
   other endpoints hash differently and the verdict step refuses them
   (`actor_not_trusted`).
+- **spark2's Qwen bridge removes the shell from a plan-mode session**
+  (*planned*: cultureagent's qwen bridge starts a plan-mode `qwen --acp`
+  with `--exclude-tools run_shell_command`). Without it the first live try
+  on 2026-10-12 failed: Qwen asked to run a shell command while reviewing,
+  the bridge answers every permission request `cancelled`, and the review
+  ended `permission_blocked` with no verdict (`review_invalid`). Qwen Code
+  0.25.0 treats its only reject option exactly like `cancelled`, so a
+  different answer does not help. 0.20.1's reviewer brief also steers a
+  reviewer to its read and search tools (plan `claude-fixer-level` d1).
+  Until both are live, level 1 stays `enabled=false`.
 
 Only then set
 `fixer_levels` live with level 1 enabled and the other two strings
