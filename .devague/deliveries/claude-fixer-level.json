@@ -1,0 +1,22 @@
+{
+  "plan_slug": "claude-fixer-level",
+  "schema_version": 2,
+  "created": "2026-10-12T20:25:38Z",
+  "updated": "2026-10-12T20:25:38Z",
+  "deviations": [
+    {
+      "id": "d1",
+      "what": "t7's live check on tester#5 (dispatch run-30ab94e4, review run-f3776c74): agent_claude, handoff_export_claude (as culture-claude-fixer), handoff_import_claude and the gate passed, but review_qwen ended permission_blocked (Qwen asked to run a shell command in plan mode; the bridge answers permission requests 'cancelled'), so the verdict was review_invalid and nothing was pushed. Level 1 is set back to enabled=false (fixer_levels v3). Fix: the reviewer brief tells the reviewer to read and search rather than run commands, and the qwen bridge removes the shell tool from plan-mode (reviewer) sessions; then t7 is re-run.",
+      "task_ref": "t7",
+      "reason": "Operator, 2026-10-12: 'Turn level 1 off (Recommended)' after the first live try. Qwen Code 0.25.0 maps an ACP 'cancelled' answer and its only reject option ('cancel', kind reject_once) to the same outcome, so a different answer cannot help. Operator then confirmed both guards: a line in the review brief, and the cultureagent qwen bridge starting a plan-mode session with --exclude-tools run_shell_command.",
+      "affects": [],
+      "origin": "user",
+      "status": "approved",
+      "classification": "needs-follow-up",
+      "seq": 1
+    }
+  ],
+  "evidence": [],
+  "deltas": [],
+  "supersessions": []
+}

@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.1] - 2026-10-12
+
+**The Claude level stays off after this release.** Its first live try (plan `claude-fixer-level` t7, tester#5) passed the agent, the hand-off and the gate, but `review_qwen` ended `permission_blocked` and nothing was pushed, so the operator set level 1 back to `enabled=false` (`fixer_levels` v3, deviation d1). It is turned on again only after this release and the cultureagent qwen bridge's plan-mode shell exclusion are live and t7 passes on a re-run.
+
+### Changed
+
+- The reviewer brief (`pr-fixer-review`, shared by `codex-reviewer` and `qwen-reviewer`) tells a reviewer whose tools include file reading and search to use them rather than shell commands, and to always finish with the verdict line. Qwen in plan mode asked to run a shell command to find the tests, the bridge refused it (it answers every permission request `cancelled`), and the review ended with no verdict (`review_invalid`). Codex, whose only way to read is its read-only shell, is unaffected. A run records the new brief's `instruction_sha256`
+- `docs/rules/pr-fixer/release.json` is 0.20.1, with no new rules or variables
+- Records: the `claude-fixer-level` deviation d1 (the live t7 result, level 1 off, and the two guards), recorded from the operator's decisions on 2026-10-12
+
 ## [0.20.0] - 2026-10-12
 
 **The Claude level ships disabled, Claude never reviews, and this release claims no speed-up.** The seeded level 1 is `enabled=false`; whether Claude-first fixes land faster is checked live only after the operator's setup and the flip (#56). A rollout does not change the live `fixer_levels`: `rollout seed` and `seed-variables.sh` skip a variable that already exists, so the live ladder changes only by `culture-rules variables set fixer_levels ... --apply`.
